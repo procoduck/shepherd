@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { orgApi } from '@/api/client';
+import { clients } from '@/api/transport';
 import { useOrgId } from '@/hooks/useOrg';
+import { formatTimestampRelative } from '@/lib/utils';
 
 const STATUS_COLORS: Record<string, string> = {
   APPLIED: 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20',
@@ -9,22 +10,11 @@ const STATUS_COLORS: Record<string, string> = {
   FAILED: 'text-red-400 bg-red-400/10 border-red-400/20',
 };
 
-function relativeTime(ts: string | undefined): string {
-  if (!ts) return 'unknown';
-  const diff = Date.now() - new Date(ts).getTime();
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
-
 export function CollectorsPage() {
   const orgId = useOrgId();
   const { data, isLoading } = useQuery({
     queryKey: ['collectors', orgId],
-    queryFn: () => orgApi.listCollectors(orgId),
+    queryFn: () => clients.fleet.listCollectors({ orgId }),
     enabled: !!orgId,
   });
 
@@ -49,7 +39,7 @@ export function CollectorsPage() {
             </thead>
             <tbody>
               {(data?.items ?? []).map((c) => {
-                const status = c.remote_config_status?.toUpperCase() ?? '';
+                const status = c.remoteConfigStatus?.toUpperCase() ?? '';
                 const statusColor =
                   STATUS_COLORS[status] ?? 'text-zinc-400 bg-zinc-800 border-zinc-700';
                 return (
@@ -70,8 +60,10 @@ export function CollectorsPage() {
                         {status || 'UNKNOWN'}
                       </span>
                     </td>
-                    <td className='px-4 py-2.5 text-zinc-400'>{relativeTime(c.last_seen)}</td>
-                    <td className='px-4 py-2.5 text-zinc-400'>{c.alloy_version ?? '—'}</td>
+                    <td className='px-4 py-2.5 text-zinc-400'>
+                      {formatTimestampRelative(c.lastSeen)}
+                    </td>
+                    <td className='px-4 py-2.5 text-zinc-400'>{c.alloyVersion || '—'}</td>
                   </tr>
                 );
               })}

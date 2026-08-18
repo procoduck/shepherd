@@ -22,19 +22,24 @@ export const test = base.extend<{ api: ApiFixture }>({
 
     const recorded: Array<{ method: string; path: string; body: unknown }> = [];
 
-    // Install interception
-    await page.route('**/{api,auth}/**', async (route) => {
-      const req = route.request();
-      const url = new URL(req.url());
-      let body: unknown = null;
-      try {
-        body = req.postDataJSON();
-      } catch {
-        /* not JSON */
-      }
-      recorded.push({ method: req.method(), path: url.pathname, body });
-      await router.handle(route);
-    });
+    // Install interception. Matches the surviving REST surface (/api/*,
+    // /auth/*) plus every shepherd.mgmt.v1 Connect procedure POST
+    // (/shepherd.mgmt.v1.<Service>/<Method>).
+    await page.route(
+      (url) => /^\/(api|auth)\//.test(url.pathname) || /^\/shepherd\.mgmt\.v1\./.test(url.pathname),
+      async (route) => {
+        const req = route.request();
+        const url = new URL(req.url());
+        let body: unknown = null;
+        try {
+          body = req.postDataJSON();
+        } catch {
+          /* not JSON */
+        }
+        recorded.push({ method: req.method(), path: url.pathname, body });
+        await router.handle(route);
+      },
+    );
 
     // Catch console errors
     const consoleErrors: string[] = [];
@@ -81,13 +86,22 @@ export const test = base.extend<{ api: ApiFixture }>({
 
       failNext(method, path, status = 500, error = 'internal_error') {
         let remaining = 2; // fail initial request + one retry so isError stays true
+        // shepherd.mgmt.v1.* paths are Connect RPCs: the client parses a
+        // non-200 body as {code, message} (see @connectrpc/connect's
+        // protocol-connect/error-json.ts) rather than the legacy REST
+        // {error:{code,message}} envelope.
+        const isRpc = path.startsWith('/shepherd.mgmt.v1.');
         router.register(method, path, (route) => {
           if (remaining > 0) {
             remaining--;
             return route.fulfill({
               status,
               contentType: 'application/json',
-              body: JSON.stringify({ error: { code: error, message: `Simulated ${status}` } }),
+              body: JSON.stringify(
+                isRpc
+                  ? { code: error, message: `Simulated ${status}` }
+                  : { error: { code: error, message: `Simulated ${status}` } },
+              ),
             });
           }
           return route.continue();

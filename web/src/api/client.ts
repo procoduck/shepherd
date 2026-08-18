@@ -1,9 +1,16 @@
-// Typed API client for the Shepherd management REST API.
+// Thin bridge between the visual builder's internal (snake_case) domain
+// model — web/src/visual/types.ts, shared with the untouched /api/schema/*
+// payload — and the generated shepherd.mgmt.v1 Connect clients (camelCase,
+// web/src/gen/**). Per docs/api-contract-design.md, CRUD resources migrated
+// fully onto generated types (pages import them directly from '@/gen/...');
+// what remains here is the conversion boundary for the visual/simulate
+// surface, whose consumers (web/src/visual/**) speak the wire-shaped
+// snake_case model throughout and are out of scope for this migration.
 
-export interface ListResponse<T> {
-  items: T[];
-  total: number;
-}
+import type { JsonObject } from '@bufbuild/protobuf';
+import type { GraphDocument as WireGraphDocument } from '@/gen/shepherd/mgmt/v1/visual_pb';
+import type { GraphDocument as LocalGraphDocument } from '@/visual/types';
+import { clients } from './transport';
 
 export interface ApiError {
   code: string;
@@ -14,8 +21,78 @@ export interface ApiError {
 export async function getSchema(
   version = 'current',
 ): Promise<import('@/visual/types').SchemaPayload> {
-  return request<import('@/visual/types').SchemaPayload>(`/api/schema/${version}`);
+  const res = await fetch(`/api/schema/${version}`, {
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+  });
+  if (!res.ok) throw new Error(`Failed to load schema: ${res.status}`);
+  return res.json() as Promise<import('@/visual/types').SchemaPayload>;
 }
+
+// ---- Graph document conversion (local snake_case <-> wire camelCase) ----
+
+function toWireGraph(doc: LocalGraphDocument) {
+  return {
+    kind: doc.kind,
+    schemaVersion: doc.schema_version,
+    nodes: doc.nodes.map((n) => ({
+      id: n.id,
+      component: n.component,
+      label: n.label,
+      position: n.position,
+      props: n.props as unknown as JsonObject,
+      disabled: n.disabled,
+      notes: n.notes,
+    })),
+    edges: doc.edges.map((e) => ({
+      id: e.id,
+      from: e.from,
+      to: e.to,
+      order: e.order,
+    })),
+    bindings: doc.bindings.map((b) => ({
+      node: b.node,
+      prop: b.prop,
+      ref: b.ref,
+    })),
+    viewport: doc.viewport,
+    meta: doc.meta ? { createdWith: doc.meta.created_with } : undefined,
+  };
+}
+
+function fromWireGraph(g: WireGraphDocument | undefined): LocalGraphDocument {
+  return {
+    kind: (g?.kind ?? 'alloy-graph/v1') as LocalGraphDocument['kind'],
+    schema_version: g?.schemaVersion ?? '',
+    nodes: (g?.nodes ?? []).map((n) => ({
+      id: n.id,
+      component: n.component,
+      label: n.label,
+      position: n.position ? { x: n.position.x, y: n.position.y } : { x: 0, y: 0 },
+      props: (n.props ?? {}) as Record<string, unknown>,
+      disabled: n.disabled,
+      notes: n.notes,
+    })),
+    edges: (g?.edges ?? []).map((e) => ({
+      id: e.id,
+      from: e.from ? { node: e.from.node, port: e.from.port } : { node: '', port: '' },
+      to: e.to ? { node: e.to.node, port: e.to.port } : { node: '', port: '' },
+      order: e.order,
+    })),
+    bindings: (g?.bindings ?? []).map((b) => ({
+      node: b.node,
+      prop: b.prop,
+      ref: b.ref
+        ? { node: b.ref.node, export: b.ref.export, expr: b.ref.expr }
+        : { node: '', export: '', expr: '' },
+    })),
+    viewport: g?.viewport
+      ? { x: g.viewport.x, y: g.viewport.y, zoom: g.viewport.zoom }
+      : { x: 0, y: 0, zoom: 1 },
+    meta: { created_with: g?.meta?.createdWith ?? '' },
+  };
+}
+
+// ---- VisualService ----
 
 export interface VisualRenderResult {
   content: string;
@@ -25,12 +102,22 @@ export interface VisualRenderResult {
 
 export async function renderVisual(
   orgId: string,
-  graph: import('@/visual/types').GraphDocument,
+  graph: LocalGraphDocument,
 ): Promise<VisualRenderResult> {
-  return request<VisualRenderResult>(`/api/orgs/${orgId}/visual/render`, {
-    method: 'POST',
-    body: JSON.stringify({ graph }),
-  });
+  const res = await clients.visual.render({ orgId, graph: toWireGraph(graph) });
+  const nodeMap: Record<string, { start_line: number; end_line: number }> = {};
+  for (const [key, value] of Object.entries(res.nodeMap)) {
+    nodeMap[key] = { start_line: value.startLine, end_line: value.endLine };
+  }
+  return { content: res.content, node_map: nodeMap, diagnostics: res.diagnostics };
+}
+
+export async function validateVisual(
+  orgId: string,
+  graph: LocalGraphDocument,
+): Promise<{ diagnostics: unknown[] }> {
+  const res = await clients.visual.validate({ orgId, graph: toWireGraph(graph) });
+  return { diagnostics: res.diagnostics };
 }
 
 export type DiffClass =
@@ -59,30 +146,39 @@ export interface UpgradeCheckResult {
 
 export async function upgradeCheck(
   orgId: string,
-  graph: import('@/visual/types').GraphDocument,
+  graph: LocalGraphDocument,
 ): Promise<UpgradeCheckResult> {
-  return request<UpgradeCheckResult>(`/api/orgs/${orgId}/visual/upgrade-check`, {
-    method: 'POST',
-    body: JSON.stringify({ graph }),
-  });
+  const res = await clients.visual.upgradeCheck({ orgId, graph: toWireGraph(graph) });
+  return {
+    old_version: res.oldVersion,
+    new_version: res.newVersion,
+    needs_upgrade: res.needsUpgrade,
+    items: res.items.map((i) => ({
+      node_id: i.nodeId,
+      node_label: i.nodeLabel,
+      component: i.component,
+      class: i.class as DiffClass,
+      detail: i.detail,
+    })),
+  };
 }
 
-export function stampSchemaVersion(
-  graph: import('@/visual/types').GraphDocument,
-  version: string,
-): import('@/visual/types').GraphDocument {
+export function stampSchemaVersion(graph: LocalGraphDocument, version: string): LocalGraphDocument {
   return { ...graph, schema_version: version };
 }
 
-export async function validateVisual(
-  orgId: string,
-  graph: import('@/visual/types').GraphDocument,
-): Promise<{ diagnostics: unknown[] }> {
-  return request<{ diagnostics: unknown[] }>(`/api/orgs/${orgId}/visual/validate`, {
-    method: 'POST',
-    body: JSON.stringify({ graph }),
-  });
+export interface GraphViewResult {
+  graph: LocalGraphDocument;
+  opaque: boolean;
+  warning: string;
 }
+
+export async function graphView(orgId: string, id: string): Promise<GraphViewResult> {
+  const res = await clients.visual.graphView({ orgId, id });
+  return { graph: fromWireGraph(res.graph), opaque: res.opaque, warning: res.warning };
+}
+
+// ---- SimulateService ----
 
 export interface RelabelStep {
   rule_index: number;
@@ -121,258 +217,83 @@ export interface SimulateLogsResult {
   traces: LineTrace[];
 }
 
+function toWireRelabelRule(rule: Record<string, unknown>) {
+  return {
+    sourceLabels: (rule.source_labels as string[] | undefined) ?? [],
+    separator: (rule.separator as string | undefined) ?? '',
+    regex: (rule.regex as string | undefined) ?? '',
+    targetLabel: (rule.target_label as string | undefined) ?? '',
+    replacement: (rule.replacement as string | undefined) ?? '',
+    action: (rule.action as string | undefined) ?? '',
+    modulus: BigInt((rule.modulus as number | string | bigint | undefined) ?? 0),
+  };
+}
+
 export async function simulateRelabel(
   orgId: string,
   body: { rules: unknown[]; sample_targets: unknown[] },
 ): Promise<SimulateRelabelResult> {
-  return request(`/api/orgs/${orgId}/simulate/relabel`, {
-    method: 'POST',
-    body: JSON.stringify(body),
+  const res = await clients.simulate.simulateRelabel({
+    orgId,
+    rules: body.rules.map((r) => toWireRelabelRule(r as Record<string, unknown>)),
+    sampleTargets: body.sample_targets as JsonObject[],
   });
+  return {
+    traces: res.traces.map((t) => ({
+      input: t.input,
+      output: t.output,
+      kept: t.kept,
+      steps: t.steps.map((step) => ({
+        rule_index: step.ruleIndex,
+        action: step.action,
+        before: step.before,
+        after: step.after,
+        kept: step.kept,
+      })),
+    })),
+  };
 }
+
+function toWireStageSpec(stage: Record<string, unknown>) {
+  return {
+    type: (stage.type as string | undefined) ?? '',
+    expressions: (stage.expressions as Record<string, string> | undefined) ?? {},
+    source: (stage.source as string | undefined) ?? '',
+    separator: (stage.separator as string | undefined) ?? '',
+    expression: (stage.expression as string | undefined) ?? '',
+    labels: (stage.labels as Record<string, string> | undefined) ?? {},
+    dropLabels: (stage.drop_labels as string[] | undefined) ?? [],
+    dropValue: (stage.drop_value as string | undefined) ?? '',
+    template: (stage.template as string | undefined) ?? '',
+    firstline: (stage.firstline as string | undefined) ?? '',
+  };
+}
+
 export async function simulateLogs(
   orgId: string,
   body: { stages: unknown[]; sample_lines: string[] },
 ): Promise<SimulateLogsResult> {
-  return request(`/api/orgs/${orgId}/simulate/logs`, {
-    method: 'POST',
-    body: JSON.stringify(body),
+  const res = await clients.simulate.simulateLogs({
+    orgId,
+    stages: body.stages.map((s) => toWireStageSpec(s as Record<string, unknown>)),
+    sampleLines: body.sample_lines,
   });
+  return {
+    traces: res.traces.map((t) => ({
+      input: t.input,
+      output: t.output,
+      dropped: t.dropped,
+      steps: t.steps.map((step) => ({
+        stage_index: step.stageIndex,
+        stage_type: step.stageType,
+        simulated: step.simulated,
+        line_before: step.lineBefore,
+        line_after: step.lineAfter,
+        labels_before: step.labelsBefore,
+        labels_after: step.labelsAfter,
+        dropped: step.dropped,
+        note: step.note,
+      })),
+    })),
+  };
 }
-
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Requested-With': 'XMLHttpRequest',
-      ...init?.headers,
-    },
-    ...init,
-  });
-  if (!res.ok) {
-    let err: ApiError = { code: 'unknown', message: res.statusText };
-    try {
-      const body = await res.json();
-      err = body.error ?? err;
-    } catch (_) {
-      /* ignore */
-    }
-    throw err;
-  }
-  if (res.status === 204) return undefined as T;
-  return res.json() as Promise<T>;
-}
-
-// ---- Types ----
-
-export interface Org {
-  id: string;
-  name: string;
-  display_name: string;
-  admin_group_id: string;
-  reader_group_id?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface Cluster {
-  id: string;
-  name: string;
-  org_id?: string;
-  created_at: string;
-}
-
-export interface Collector {
-  id: string;
-  cluster_id: string;
-  cluster: string;
-  role: string;
-  org_id?: string;
-  // Rolled up from the collector's most recently reporting instance.
-  remote_config_status?: string;
-  remote_config_error?: string;
-  last_seen?: string;
-  alloy_version?: string;
-  local_attributes?: Record<string, string>;
-  // Present on GET /collectors/{id}, omitted from the list endpoint.
-  instances?: CollectorInstance[];
-}
-
-export interface CollectorInstance {
-  name: string;
-  alloy_version?: string;
-  os?: string;
-  remote_config_status?: string;
-  remote_config_error?: string;
-  last_seen?: string;
-  local_attributes?: Record<string, string>;
-}
-
-export interface Pipeline {
-  id: string;
-  org_id: string;
-  name: string;
-  contents: string;
-  matchers: string[];
-  enabled: boolean;
-  source: string;
-  created_by: string;
-  updated_by: string;
-  created_at: string;
-  updated_at: string;
-  revisions?: PipelineRevision[];
-}
-
-export interface PipelineRevision {
-  id: string;
-  pipeline_id: string;
-  revision: number;
-  contents: string;
-  matchers: string[];
-  enabled: boolean;
-  changed_by: string;
-  changed_at: string;
-  change_note: string;
-}
-
-export interface Destination {
-  id: string;
-  org_id: string;
-  name: string;
-  type: string;
-  url: string;
-  tenant_id: string;
-  secret_name: string;
-  secret_namespace: string;
-  auth_mode: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface AgentToken {
-  id: string;
-  name: string;
-  created_by: string;
-  status: string;
-  created_at: string;
-}
-
-export interface ValidationResult {
-  valid: boolean;
-  diagnostics: Diagnostic[];
-}
-
-export interface Diagnostic {
-  line: number;
-  col: number;
-  message: string;
-  stage: number;
-}
-
-// ---- Admin API ----
-
-export const adminApi = {
-  listOrgs: () => request<ListResponse<Org>>('/api/admin/orgs'),
-  createOrg: (body: Partial<Org>) =>
-    request<Org>('/api/admin/orgs', { method: 'POST', body: JSON.stringify(body) }),
-  updateOrg: (id: string, body: Partial<Org>) =>
-    request<Org>(`/api/admin/orgs/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
-  deleteOrg: (id: string) => request<void>(`/api/admin/orgs/${id}`, { method: 'DELETE' }),
-
-  listClusters: (unclaimed = false) =>
-    request<ListResponse<Cluster>>(`/api/admin/clusters${unclaimed ? '?unclaimed=true' : ''}`),
-  claimCluster: (cluster: string, orgId: string) =>
-    request<void>(`/api/admin/clusters/${cluster}/claim`, {
-      method: 'POST',
-      body: JSON.stringify({ org_id: orgId }),
-    }),
-  unclaimCluster: (cluster: string) =>
-    request<void>(`/api/admin/clusters/${cluster}/unclaim`, { method: 'POST' }),
-
-  listTokens: () => request<ListResponse<AgentToken>>('/api/admin/agent-tokens'),
-  createToken: (name: string) =>
-    request<{ id: string; name: string; secret: string }>('/api/admin/agent-tokens', {
-      method: 'POST',
-      body: JSON.stringify({ name }),
-    }),
-  revokeToken: (id: string) => request<void>(`/api/admin/agent-tokens/${id}`, { method: 'DELETE' }),
-
-  searchGroups: (q: string) =>
-    request<ListResponse<{ id: string; displayName: string }>>(
-      `/api/admin/groups/search?q=${encodeURIComponent(q)}`,
-    ),
-};
-
-// ---- Org-scoped API ----
-
-export const orgApi = {
-  listCollectors: (orgId: string) =>
-    request<ListResponse<Collector>>(`/api/orgs/${orgId}/collectors`),
-  getCollector: (orgId: string, id: string) =>
-    request<Collector>(`/api/orgs/${orgId}/collectors/${id}`),
-  getServedConfig: (orgId: string, id: string) =>
-    request<{ content: string; hash: string; computed_at: string }>(
-      `/api/orgs/${orgId}/collectors/${id}/served-config`,
-    ),
-
-  listPipelines: (orgId: string) => request<ListResponse<Pipeline>>(`/api/orgs/${orgId}/pipelines`),
-  getPipeline: (orgId: string, id: string) =>
-    request<Pipeline>(`/api/orgs/${orgId}/pipelines/${id}`),
-  createPipeline: (orgId: string, body: Partial<Pipeline>) =>
-    request<Pipeline>(`/api/orgs/${orgId}/pipelines`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-  updatePipeline: (orgId: string, id: string, body: Partial<Pipeline>) =>
-    request<Pipeline>(`/api/orgs/${orgId}/pipelines/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(body),
-    }),
-  listRevisions: (orgId: string, pipelineId: string) =>
-    request<ListResponse<PipelineRevision>>(`/api/orgs/${orgId}/pipelines/${pipelineId}/revisions`),
-  listRepoLinks: (orgId: string) =>
-    request<
-      ListResponse<{
-        id: string;
-        repository: string;
-        branch: string;
-        project: string;
-        sync_status?: string;
-        last_synced_at?: string;
-        sync_error?: string;
-      }>
-    >(`/api/orgs/${orgId}/repo-links`),
-  deletePipeline: (orgId: string, id: string) =>
-    request<void>(`/api/orgs/${orgId}/pipelines/${id}`, { method: 'DELETE' }),
-  enablePipeline: (orgId: string, id: string) =>
-    request<Pipeline>(`/api/orgs/${orgId}/pipelines/${id}/enable`, { method: 'POST' }),
-  disablePipeline: (orgId: string, id: string) =>
-    request<Pipeline>(`/api/orgs/${orgId}/pipelines/${id}/disable`, { method: 'POST' }),
-  validatePipeline: (orgId: string, body: { name?: string; contents: string }) =>
-    request<ValidationResult>(`/api/orgs/${orgId}/pipelines/validate`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-  previewMatches: (orgId: string, id: string) =>
-    request<{ collectors: Array<{ cluster: string; role: string; id: string }> }>(
-      `/api/orgs/${orgId}/pipelines/${id}/preview-matches`,
-    ),
-
-  listDestinations: (orgId: string) =>
-    request<ListResponse<Destination>>(`/api/orgs/${orgId}/destinations`),
-  createDestination: (orgId: string, body: Partial<Destination>) =>
-    request<Destination>(`/api/orgs/${orgId}/destinations`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-  updateDestination: (orgId: string, id: string, body: Partial<Destination>) =>
-    request<Destination>(`/api/orgs/${orgId}/destinations/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(body),
-    }),
-  deleteDestination: (orgId: string, id: string) =>
-    request<void>(`/api/orgs/${orgId}/destinations/${id}`, { method: 'DELETE' }),
-
-  getAttributes: (orgId: string) =>
-    request<Record<string, string[]>>(`/api/orgs/${orgId}/attributes`),
-};

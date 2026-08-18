@@ -1,3 +1,5 @@
+import type { Timestamp } from '@bufbuild/protobuf/wkt';
+import { timestampDate } from '@bufbuild/protobuf/wkt';
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -18,4 +20,21 @@ export function formatRelative(iso: string): string {
 
 export function shortHash(hash: string): string {
   return hash.slice(0, 10);
+}
+
+/**
+ * Relative-time label for a proto Timestamp field (last_seen, computed_at,
+ * etc.) — "unknown" when unset, "just now" under a minute, otherwise
+ * minutes/hours/days ago. Mirrors the pre-migration REST-string formatters
+ * that lived inline in CollectorsPage/CollectorDetailPage.
+ */
+export function formatTimestampRelative(ts: Timestamp | undefined): string {
+  if (!ts) return 'unknown';
+  const diff = Date.now() - timestampDate(ts).getTime();
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
 }

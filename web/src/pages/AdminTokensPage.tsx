@@ -1,8 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
-import { adminApi } from '@/api/client';
+import { clients } from '@/api/transport';
 
 export function AdminTokensPage() {
-  const { data } = useQuery({ queryKey: ['tokens'], queryFn: adminApi.listTokens });
+  const { data } = useQuery({
+    queryKey: ['tokens'],
+    queryFn: () => clients.admin.listAgentTokens({}),
+  });
   return (
     <div className='space-y-4'>
       <h1 className='text-xl font-semibold'>Agent Tokens</h1>
@@ -26,7 +29,7 @@ export function AdminTokensPage() {
                     {t.status}
                   </span>
                 </td>
-                <td className='px-4 py-2.5 text-zinc-400'>{t.created_by}</td>
+                <td className='px-4 py-2.5 text-zinc-400'>{t.createdBy}</td>
               </tr>
             ))}
           </tbody>

@@ -50,7 +50,9 @@ test.describe('visual canvas', () => {
     await paste(page);
     const nodes = page.locator('[data-testid="pipeline-node"]');
     await expect(nodes).toHaveCount(2, { timeout: 5_000 });
-    const ids = await nodes.evaluateAll((els: Element[]) => els.map((el) => el.getAttribute('data-node-id')));
+    const ids = await nodes.evaluateAll((els: Element[]) =>
+      els.map((el) => el.getAttribute('data-node-id')),
+    );
     expect(new Set(ids).size).toBe(2);
   });
 

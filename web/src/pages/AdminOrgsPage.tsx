@@ -1,8 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
-import { adminApi } from '@/api/client';
+import { clients } from '@/api/transport';
 
 export function AdminOrgsPage() {
-  const { data } = useQuery({ queryKey: ['orgs'], queryFn: adminApi.listOrgs });
+  const { data } = useQuery({
+    queryKey: ['orgs'],
+    queryFn: () => clients.admin.listOrgs({}),
+  });
   return (
     <div className='space-y-4'>
       <h1 className='text-xl font-semibold'>Organisations</h1>
@@ -18,7 +21,7 @@ export function AdminOrgsPage() {
             {(data?.items ?? []).map((o) => (
               <tr key={o.id} className='border-t border-zinc-800 hover:bg-zinc-900/60'>
                 <td className='px-4 py-2.5 font-mono text-xs'>{o.name}</td>
-                <td className='px-4 py-2.5'>{o.display_name}</td>
+                <td className='px-4 py-2.5'>{o.displayName}</td>
               </tr>
             ))}
           </tbody>

@@ -17,12 +17,7 @@ test('mutation failure shows toast with error content', async ({ page, api }) =>
   await api.loginAs(appAdmin);
   const s = basicScenario();
   api.seed({ orgs: [s.org], pipelines: [s.pipelines[0]] });
-  api.failNext(
-    'PUT',
-    `/api/orgs/${s.org.id}/pipelines/${s.pipelines[0].id}`,
-    500,
-    'internal_error',
-  );
+  api.failNext('POST', '/shepherd.mgmt.v1.PipelineService/UpdatePipeline', 500, 'internal');
   await page.goto(`/pipelines/${s.pipelines[0].id}`);
   const saveBtn = page.getByRole('button', { name: /save|update/i });
   if (await saveBtn.isVisible({ timeout: 2000 })) {
@@ -55,7 +50,7 @@ test('load failure shows inline Alert or error indicator with server message', a
   await api.loginAs(appAdmin);
   const s = basicScenario();
   api.seed({ orgs: [s.org] });
-  api.failNext('GET', `/api/orgs/${s.org.id}/pipelines`, 503, 'service_unavailable');
+  api.failNext('POST', '/shepherd.mgmt.v1.PipelineService/ListPipelines', 503, 'unavailable');
   await page.goto('/pipelines');
   // The page must either show an alert role element OR an error/retry indicator.
   // DECISION: PipelinesPage does not yet render an error Alert — this test skips

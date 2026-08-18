@@ -1,19 +1,18 @@
 import { useQuery } from '@tanstack/react-query';
+import { clients } from '@/api/transport';
+import type { GetMeResponse } from '@/gen/shepherd/mgmt/v1/me_pb';
 
-export interface MeData {
-  user_oid: string;
-  email: string;
-  display_name: string;
-  is_app_admin: boolean;
-  auth_method: string;
-  orgs: Array<{ id: string; name: string; display_name: string; role: string }>;
-}
+export type MeData = GetMeResponse;
 
 async function fetchMe(): Promise<MeData | null> {
-  const resp = await fetch('/api/me');
-  if (resp.status === 401 || resp.status === 403) return null;
-  if (!resp.ok) return null;
-  return resp.json() as Promise<MeData>;
+  // Mirrors the legacy fetcher: any failure (401/403 unauthenticated, or any
+  // other transport error) resolves to "not signed in" rather than an error
+  // state, matching the app's login-redirect behaviour.
+  try {
+    return await clients.me.getMe({});
+  } catch {
+    return null;
+  }
 }
 
 export function useMe() {

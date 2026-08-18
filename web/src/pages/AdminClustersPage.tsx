@@ -1,8 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
-import { adminApi } from '@/api/client';
+import { clients } from '@/api/transport';
 
 export function AdminClustersPage() {
-  const { data } = useQuery({ queryKey: ['clusters'], queryFn: () => adminApi.listClusters(true) });
+  const { data } = useQuery({
+    queryKey: ['clusters'],
+    queryFn: () => clients.admin.listClusters({ unclaimed: true }),
+  });
   return (
     <div className='space-y-4'>
       <h1 className='text-xl font-semibold'>Clusters</h1>
@@ -18,7 +21,7 @@ export function AdminClustersPage() {
             {(data?.items ?? []).map((c) => (
               <tr key={c.id} className='border-t border-zinc-800 hover:bg-zinc-900/60'>
                 <td className='px-4 py-2.5 font-mono text-xs'>{c.name}</td>
-                <td className='px-4 py-2.5 text-zinc-400'>{c.org_id ?? '—'}</td>
+                <td className='px-4 py-2.5 text-zinc-400'>{c.orgId || '—'}</td>
               </tr>
             ))}
           </tbody>

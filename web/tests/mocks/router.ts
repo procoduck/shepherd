@@ -100,6 +100,20 @@ export function json(route: Route, status: number, body: unknown) {
   });
 }
 
+// Helper to fulfill a Connect RPC error. `code` is a Connect error code
+// string (e.g. "not_found", "failed_precondition", "unavailable") — see
+// @connectrpc/connect's Code enum / protocol-connect/code-string.ts. Any
+// non-200 status is treated by the client as a Connect error response and
+// its body parsed as {code, message}; the status itself only needs to be
+// non-200 (it does not have to match the code's canonical HTTP mapping).
+export function connectError(route: Route, status: number, code: string, message: string) {
+  return route.fulfill({
+    status,
+    contentType: 'application/json',
+    body: JSON.stringify({ code, message }),
+  });
+}
+
 export function list<T>(items: T[], limit = 25, offset = 0) {
   const page = items.slice(offset, offset + limit);
   return { items: page, total: items.length };

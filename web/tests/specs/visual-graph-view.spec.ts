@@ -1,10 +1,10 @@
 // visual-graph-view.spec.ts — §7.7.3 equivalent (mocked suite)
 // Read-only graph view for text pipelines: no palette, no save, recreate button.
 import { expect } from '@playwright/test';
-import { test } from '../fixtures/test';
-import { appAdmin } from '../fixtures/personas';
 import { basicScenario } from '../fixtures/factories';
+import { appAdmin } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
+import { test } from '../fixtures/test';
 
 const mockGraph = {
   kind: 'alloy-graph/v1',
@@ -78,7 +78,9 @@ test.describe('visual graph view', () => {
   test('Recreate button shows a confirm dialog with lossy warning', async ({ page }) => {
     await page.click('[data-testid="recreate-as-visual-btn"]');
     // Confirm dialog is visible — check the confirm button specifically
-    await expect(page.locator('[data-testid="recreate-confirm-btn"]')).toBeVisible({ timeout: 3_000 });
+    await expect(page.locator('[data-testid="recreate-confirm-btn"]')).toBeVisible({
+      timeout: 3_000,
+    });
     // The dialog mentions the lossy nature of the conversion
     await expect(page.getByText('This creates a')).toBeVisible({ timeout: 3_000 });
   });

@@ -43,6 +43,29 @@ remotecfg {
 
 ---
 
+## Management API for integrators
+
+The `/api/*` REST surface (`/api/orgs/{org}/pipelines`, `/api/admin/orgs`, `/api/orgs/{org}/destinations`,
+etc.) is unchanged for existing integrations — same paths, same JSON shapes, same session-cookie +
+CSRF auth. Under the hood those routes are now thin shims over a typed Connect RPC contract
+(`shepherd.mgmt.v1`; see `docs/api-contract-design.md`). The Connect endpoints are plain HTTP
+POST + JSON themselves, so integrators may call them directly instead of the REST shim — the
+tradeoff is camelCase field names (`orgId`, not `org_id`) and the `shepherd.mgmt.v1.<Service>/<Method>`
+path shape rather than REST resource paths. Both surfaces share the same session-cookie authorization
+(org membership + role) — there is no separate API-token auth for this endpoint family; agent
+tokens remain scoped to the `collector.v1` fleet protocol only. Example — listing pipelines for an
+org via the Connect endpoint directly, with an authenticated session cookie already in `cookies.txt`:
+
+```bash
+curl -s -X POST http://localhost:8080/shepherd.mgmt.v1.PipelineService/ListPipelines \
+  -H 'Content-Type: application/json' \
+  -H 'X-Requested-With: XMLHttpRequest' \
+  -b cookies.txt \
+  -d '{"orgId":"<org-uuid>"}'
+```
+
+---
+
 ## Development
 
 | Command | Description |

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Plus } from 'lucide-react';
-import { orgApi } from '@/api/client';
+import { clients } from '@/api/transport';
 import { useOrgId } from '@/hooks/useOrg';
 
 export function PipelinesPage() {
@@ -9,13 +9,15 @@ export function PipelinesPage() {
   const qc = useQueryClient();
   const { data, isLoading, isError } = useQuery({
     queryKey: ['pipelines', orgId],
-    queryFn: () => orgApi.listPipelines(orgId),
+    queryFn: () => clients.pipeline.listPipelines({ orgId }),
     enabled: !!orgId,
   });
 
   const toggle = useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
-      enabled ? orgApi.disablePipeline(orgId, id) : orgApi.enablePipeline(orgId, id),
+      enabled
+        ? clients.pipeline.disablePipeline({ orgId, id })
+        : clients.pipeline.enablePipeline({ orgId, id }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pipelines', orgId] }),
   });
 

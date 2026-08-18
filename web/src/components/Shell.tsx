@@ -117,7 +117,7 @@ export function Shell() {
         {/* Nav */}
         <nav className='flex-1 overflow-y-auto py-3 px-2 space-y-4'>
           {navGroups.map((group, gi) => {
-            const visibleItems = group.items.filter((item) => !item.adminOnly || me.is_app_admin);
+            const visibleItems = group.items.filter((item) => !item.adminOnly || me.isAppAdmin);
             if (visibleItems.length === 0) return null;
             return (
               <div key={gi}>
@@ -195,7 +195,7 @@ export function Shell() {
 
         {/* Content */}
         <main className='flex flex-1 flex-col min-h-0'>
-          {me.auth_method === 'local' && (
+          {me.authMethod === 'local' && (
             <div
               data-testid='local-admin-banner'
               role='alert'

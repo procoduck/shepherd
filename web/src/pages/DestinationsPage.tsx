@@ -2,54 +2,56 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ExternalLink, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { type Destination, orgApi } from '@/api/client';
+import { clients, toApiError } from '@/api/transport';
+import type { Destination } from '@/gen/shepherd/mgmt/v1/destination_pb';
 import { useOrgId } from '@/hooks/useOrg';
 
 export function DestinationsPage() {
   const orgId = useOrgId();
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState({ name: '', type: 'prometheus', url: '', auth_mode: 'none' });
+  const [form, setForm] = useState({ name: '', type: 'prometheus', url: '', authMode: 'none' });
   const [urlError, setUrlError] = useState('');
 
   const { data, isLoading } = useQuery({
     queryKey: ['destinations', orgId],
-    queryFn: () => orgApi.listDestinations(orgId),
+    queryFn: () => clients.destination.listDestinations({ orgId }),
     enabled: !!orgId,
   });
 
   const createMut = useMutation({
     mutationFn: () =>
-      orgApi.createDestination(orgId, {
+      clients.destination.createDestination({
+        orgId,
         ...form,
-        tenant_id: '',
-        secret_name: '',
-        secret_namespace: '',
+        tenantId: '',
+        secretName: '',
+        secretNamespace: '',
       }),
     onSuccess: () => {
       toast.success('Destination created');
       qc.invalidateQueries({ queryKey: ['destinations', orgId] });
       setShowCreate(false);
-      setForm({ name: '', type: 'prometheus', url: '', auth_mode: 'none' });
+      setForm({ name: '', type: 'prometheus', url: '', authMode: 'none' });
     },
     onError: (e) => {
-      const err = e as { message?: string };
-      toast.error(err.message ?? 'Failed to create destination');
+      const err = toApiError(e);
+      toast.error(err.message || 'Failed to create destination');
     },
   });
 
   const deleteMut = useMutation({
-    mutationFn: (id: string) => orgApi.deleteDestination(orgId, id),
+    mutationFn: (id: string) => clients.destination.deleteDestination({ orgId, id }),
     onSuccess: () => {
       toast.success('Destination deleted');
       qc.invalidateQueries({ queryKey: ['destinations', orgId] });
     },
     onError: (e) => {
-      const err = e as { code?: string; message?: string };
+      const err = toApiError(e);
       toast.error(
-        err.code === 'in_use'
-          ? `Cannot delete: ${err.message ?? 'referenced by a pipeline'}`
-          : (err.message ?? 'Failed to delete destination'),
+        err.code === 'already_exists'
+          ? `Cannot delete: ${err.message || 'referenced by a pipeline'}`
+          : err.message || 'Failed to delete destination',
       );
     },
   });
@@ -126,7 +128,7 @@ export function DestinationsPage() {
                       <ExternalLink size={10} />
                     </a>
                   </td>
-                  <td className='px-4 py-2.5 text-xs text-zinc-400'>{d.auth_mode}</td>
+                  <td className='px-4 py-2.5 text-xs text-zinc-400'>{d.authMode}</td>
                   <td className='px-4 py-2.5 text-right'>
                     <button
                       onClick={() => deleteMut.mutate(d.id)}
@@ -188,8 +190,8 @@ export function DestinationsPage() {
               <label className='block text-xs font-medium text-zinc-400'>
                 Auth mode
                 <select
-                  value={form.auth_mode}
-                  onChange={(e) => setForm((f) => ({ ...f, auth_mode: e.target.value }))}
+                  value={form.authMode}
+                  onChange={(e) => setForm((f) => ({ ...f, authMode: e.target.value }))}
                   className='mt-1 w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm'
                 >
                   <option value='none'>None</option>

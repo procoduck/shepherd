@@ -1,54 +1,58 @@
-// Personas — exact /api/me payloads per spec §7.2
+// Personas — exact shepherd.mgmt.v1.MeService/GetMe response payloads
+// (see web/src/gen/shepherd/mgmt/v1/me_pb.ts: GetMeResponse). Field casing
+// matches the wire (Connect JSON is camelCase) since these objects are used
+// verbatim both as the mocked GetMe response body (tests/mocks/handlers.ts)
+// and as window.__initialMe, which useMe() reads without any conversion.
 export interface MeResponse {
-  user_oid: string;
+  userOid: string;
   email: string;
-  display_name: string;
-  is_app_admin: boolean;
-  auth_method: string;
-  orgs: Array<{ id: string; name: string; display_name: string; role: string }>;
+  displayName: string;
+  isAppAdmin: boolean;
+  authMethod: string;
+  orgs: Array<{ id: string; name: string; displayName: string; role: string }>;
 }
 
 export const appAdmin: MeResponse = {
-  user_oid: 'u-appadmin',
+  userOid: 'u-appadmin',
   email: 'appadmin@example.com',
-  display_name: 'App Admin',
-  is_app_admin: true,
-  auth_method: 'oidc',
-  orgs: [{ id: 'org-0001', name: 'prod-org', display_name: 'Production Org', role: 'admin' }],
+  displayName: 'App Admin',
+  isAppAdmin: true,
+  authMethod: 'oidc',
+  orgs: [{ id: 'org-0001', name: 'prod-org', displayName: 'Production Org', role: 'admin' }],
 };
 
 export const orgAdmin: MeResponse = {
-  user_oid: 'u-orgadmin',
+  userOid: 'u-orgadmin',
   email: 'orgadmin@example.com',
-  display_name: 'Org Admin',
-  is_app_admin: false,
-  auth_method: 'oidc',
-  orgs: [{ id: 'org-0001', name: 'prod-org', display_name: 'Production Org', role: 'admin' }],
+  displayName: 'Org Admin',
+  isAppAdmin: false,
+  authMethod: 'oidc',
+  orgs: [{ id: 'org-0001', name: 'prod-org', displayName: 'Production Org', role: 'admin' }],
 };
 
 export const reader: MeResponse = {
-  user_oid: 'u-reader',
+  userOid: 'u-reader',
   email: 'reader@example.com',
-  display_name: 'Reader',
-  is_app_admin: false,
-  auth_method: 'oidc',
-  orgs: [{ id: 'org-0001', name: 'prod-org', display_name: 'Production Org', role: 'reader' }],
+  displayName: 'Reader',
+  isAppAdmin: false,
+  authMethod: 'oidc',
+  orgs: [{ id: 'org-0001', name: 'prod-org', displayName: 'Production Org', role: 'reader' }],
 };
 
 export const nobody: MeResponse = {
-  user_oid: 'u-nobody',
+  userOid: 'u-nobody',
   email: 'nobody@example.com',
-  display_name: 'Nobody',
-  is_app_admin: false,
-  auth_method: 'oidc',
+  displayName: 'Nobody',
+  isAppAdmin: false,
+  authMethod: 'oidc',
   orgs: [],
 };
 
 export const localAdmin: MeResponse = {
-  user_oid: 'local:admin',
+  userOid: 'local:admin',
   email: '',
-  display_name: 'admin',
-  is_app_admin: true,
+  displayName: 'admin',
+  isAppAdmin: true,
   orgs: [],
-  auth_method: 'local',
+  authMethod: 'local',
 };

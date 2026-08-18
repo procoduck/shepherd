@@ -10,18 +10,13 @@ import {
 } from '@xyflow/react';
 import { useEffect, useState } from 'react';
 import '@xyflow/react/dist/base.css';
+import { type GraphViewResult, graphView } from '../../api/client';
+import { clients } from '../../api/transport';
 import { useVisualStore } from '../store';
-import type { GraphDocument } from '../types';
 import type { PipelineNodeData } from './PipelineNode';
 import { PipelineNode } from './PipelineNode';
 
 const nodeTypes: NodeTypes = { pipeline: PipelineNode as NodeTypes[string] };
-
-interface GraphViewResponse {
-  graph: GraphDocument;
-  opaque: boolean;
-  warning: string;
-}
 
 export function GraphViewPage() {
   const { id } = useParams({ strict: false }) as { id: string };
@@ -29,7 +24,7 @@ export function GraphViewPage() {
   const schema = useVisualStore((s) => s.schema);
   const setSchema = useVisualStore((s) => s.setSchema);
 
-  const [graphData, setGraphData] = useState<GraphViewResponse | null>(null);
+  const [graphData, setGraphData] = useState<GraphViewResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showRecreateConfirm, setShowRecreateConfirm] = useState(false);
@@ -48,19 +43,13 @@ export function GraphViewPage() {
   // Load graph view
   useEffect(() => {
     if (!id) return;
-    // Infer org from first org in /api/me
-    fetch('/api/me', { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-      .then((r) => r.json())
-      .then((me: { orgs?: Array<{ id: string }> }) => {
+    // Infer org from the first org the actor belongs to.
+    clients.me
+      .getMe({})
+      .then((me) => {
         const orgId = me.orgs?.[0]?.id;
         if (!orgId) throw new Error('no org');
-        return fetch(`/api/orgs/${orgId}/pipelines/${id}/graph`, {
-          headers: { 'X-Requested-With': 'XMLHttpRequest' },
-        });
-      })
-      .then((r) => {
-        if (!r.ok) throw new Error(`${r.status}`);
-        return r.json() as Promise<GraphViewResponse>;
+        return graphView(orgId, id);
       })
       .then((data) => {
         setGraphData(data);

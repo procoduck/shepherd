@@ -1,12 +1,13 @@
+import { timestampDate } from '@bufbuild/protobuf/wkt';
 import { useQuery } from '@tanstack/react-query';
-import { orgApi } from '@/api/client';
+import { clients } from '@/api/transport';
 import { useOrgId } from '@/hooks/useOrg';
 
 export function GitPage() {
   const orgId = useOrgId();
   const { data, isLoading } = useQuery({
     queryKey: ['repo-links', orgId],
-    queryFn: () => orgApi.listRepoLinks(orgId),
+    queryFn: () => clients.gitOps.listRepoLinks({ orgId }),
     enabled: !!orgId,
   });
 
@@ -42,18 +43,18 @@ export function GitPage() {
                   <td className='px-4 py-2.5 text-zinc-400'>{rl.branch}</td>
                   <td className='px-4 py-2.5'>
                     <span
-                      data-testid={rl.sync_status === 'error' ? 'sync-status-error' : undefined}
+                      data-testid={rl.syncStatus === 'error' ? 'sync-status-error' : undefined}
                       className={`text-xs px-1.5 py-0.5 rounded ${
-                        rl.sync_status === 'error'
+                        rl.syncStatus === 'error'
                           ? 'text-red-400 bg-red-400/10'
                           : 'text-emerald-400 bg-emerald-400/10'
                       }`}
                     >
-                      {rl.sync_status ?? 'ok'}
+                      {rl.syncStatus || 'ok'}
                     </span>
                   </td>
                   <td className='px-4 py-2.5 text-zinc-400 text-xs'>
-                    {rl.last_synced_at ? new Date(rl.last_synced_at).toLocaleString() : '—'}
+                    {rl.lastSyncedAt ? timestampDate(rl.lastSyncedAt).toLocaleString() : '—'}
                   </td>
                 </tr>
               ))}

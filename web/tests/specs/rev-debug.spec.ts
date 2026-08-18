@@ -6,7 +6,7 @@ test('debug load failure', async ({ page, api }) => {
   await api.loginAs(appAdmin);
   const s = basicScenario();
   api.seed({ orgs: [s.org] });
-  api.failNext('GET', `/api/orgs/${s.org.id}/pipelines`, 503, 'service_unavailable');
+  api.failNext('POST', '/shepherd.mgmt.v1.PipelineService/ListPipelines', 503, 'unavailable');
 
   const reqs: string[] = [];
   const t0 = Date.now();

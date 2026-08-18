@@ -37,9 +37,7 @@ export function BottomDrawer() {
     if (!me?.orgs[0]?.id) return;
     const rules =
       selectedNode && Array.isArray(selectedNode.props.rules) ? selectedNode.props.rules : [];
-    setRelabelResult(
-      await simulateRelabel(me.orgs[0].id, { rules, sample_targets: [] }),
-    );
+    setRelabelResult(await simulateRelabel(me.orgs[0].id, { rules, sample_targets: [] }));
   };
   const runLogs = async () => {
     if (!me?.orgs[0]?.id) return;
@@ -62,7 +60,9 @@ export function BottomDrawer() {
         >
           Run
         </button>
-        <span className='ml-3 text-xs text-muted-foreground'>Uses built-in k8s fixture targets</span>
+        <span className='ml-3 text-xs text-muted-foreground'>
+          Uses built-in k8s fixture targets
+        </span>
         {!selectedNode && (
           <p className='text-xs text-muted-foreground'>Select a relabel node to trace</p>
         )}

@@ -3,19 +3,9 @@ import { useParams } from '@tanstack/react-router';
 import { CheckCircle, Copy } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { orgApi } from '@/api/client';
+import { clients } from '@/api/transport';
 import { useOrgId } from '@/hooks/useOrg';
-
-function relativeTime(ts: string | undefined): string {
-  if (!ts) return 'unknown';
-  const diff = Date.now() - new Date(ts).getTime();
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
+import { formatTimestampRelative } from '@/lib/utils';
 
 const STATUS_COLORS: Record<string, string> = {
   APPLIED: 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20',
@@ -31,14 +21,14 @@ export function CollectorDetailPage() {
 
   const { data: collector, isLoading: collectorLoading } = useQuery({
     queryKey: ['collector', orgId, id],
-    queryFn: () => orgApi.getCollector(orgId, id),
+    queryFn: () => clients.fleet.getCollector({ orgId, id }),
     enabled: !!orgId,
     refetchInterval: 15000,
   });
 
   const { data: servedConfig, isLoading: configLoading } = useQuery({
     queryKey: ['served-config', orgId, id],
-    queryFn: () => orgApi.getServedConfig(orgId, id),
+    queryFn: () => clients.fleet.getServedConfig({ orgId, id }),
     enabled: !!orgId && tab === 'config',
     refetchInterval: 30000,
   });
@@ -62,7 +52,7 @@ export function CollectorDetailPage() {
   }
 
   const detail = collector;
-  const status = detail?.remote_config_status?.toUpperCase() ?? '';
+  const status = detail?.remoteConfigStatus?.toUpperCase() ?? '';
   const statusColor = STATUS_COLORS[status] ?? 'text-zinc-400 bg-zinc-800 border-zinc-700';
   const instances = detail?.instances ?? [];
   const latestOs = instances[0]?.os;
@@ -75,9 +65,9 @@ export function CollectorDetailPage() {
             {detail?.cluster ?? id} / {detail?.role ?? '—'}
           </h1>
           <div className='flex items-center gap-3 text-xs text-zinc-500'>
-            {detail?.alloy_version && <span>Alloy {detail.alloy_version}</span>}
+            {detail?.alloyVersion && <span>Alloy {detail.alloyVersion}</span>}
             {latestOs && <span>{latestOs}</span>}
-            <span>Last seen {relativeTime(detail?.last_seen)}</span>
+            <span>Last seen {formatTimestampRelative(detail?.lastSeen)}</span>
           </div>
         </div>
         <span className={`text-xs font-medium px-2 py-0.5 rounded border ${statusColor}`}>
@@ -85,10 +75,10 @@ export function CollectorDetailPage() {
         </span>
       </div>
 
-      {detail?.remote_config_error && (
+      {detail?.remoteConfigError && (
         <div className='rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400'>
           <span className='font-medium'>Config error: </span>
-          {detail.remote_config_error}
+          {detail.remoteConfigError}
         </div>
       )}
 
@@ -128,9 +118,9 @@ export function CollectorDetailPage() {
                   <Copy size={14} />
                 )}
               </button>
-              {servedConfig.computed_at && (
+              {servedConfig.computedAt && (
                 <span className='text-xs text-zinc-600'>
-                  computed {relativeTime(servedConfig.computed_at)}
+                  computed {formatTimestampRelative(servedConfig.computedAt)}
                 </span>
               )}
             </div>
@@ -160,8 +150,8 @@ export function CollectorDetailPage() {
               ['Collector ID', id],
               ['Cluster', detail?.cluster],
               ['Role', detail?.role],
-              ['Alloy version', detail?.alloy_version ?? '—'],
-              ['Last seen', relativeTime(detail?.last_seen)],
+              ['Alloy version', detail?.alloyVersion || '—'],
+              ['Last seen', formatTimestampRelative(detail?.lastSeen)],
               ['Status', status || '—'],
             ].map(([label, value]) => (
               <div key={label} className='flex gap-4'>
@@ -190,16 +180,16 @@ export function CollectorDetailPage() {
                   </thead>
                   <tbody>
                     {instances.map((inst) => {
-                      const instStatus = inst.remote_config_status?.toUpperCase() ?? '';
+                      const instStatus = inst.remoteConfigStatus?.toUpperCase() ?? '';
                       const instColor =
                         STATUS_COLORS[instStatus] ?? 'text-zinc-400 bg-zinc-800 border-zinc-700';
                       return (
                         <tr key={inst.name} className='border-t border-zinc-800'>
                           <td className='px-4 py-2.5 font-mono text-xs'>{inst.name}</td>
-                          <td className='px-4 py-2.5 text-zinc-400'>{inst.alloy_version ?? '—'}</td>
-                          <td className='px-4 py-2.5 text-zinc-400'>{inst.os ?? '—'}</td>
+                          <td className='px-4 py-2.5 text-zinc-400'>{inst.alloyVersion || '—'}</td>
+                          <td className='px-4 py-2.5 text-zinc-400'>{inst.os || '—'}</td>
                           <td className='px-4 py-2.5 text-zinc-400'>
-                            {relativeTime(inst.last_seen)}
+                            {formatTimestampRelative(inst.lastSeen)}
                           </td>
                           <td className='px-4 py-2.5'>
                             <span
@@ -209,7 +199,7 @@ export function CollectorDetailPage() {
                             </span>
                           </td>
                           <td className='px-4 py-2.5 text-red-400 text-xs'>
-                            {inst.remote_config_error ?? '—'}
+                            {inst.remoteConfigError || '—'}
                           </td>
                         </tr>
                       );

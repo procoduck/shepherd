@@ -19,10 +19,7 @@ export function Toolbar({ pipelineId }: { pipelineId: string }) {
     }
   };
   return (
-    <div
-      className='h-11 border-b flex items-center px-4 gap-4 shrink-0'
-      data-testid='toolbar'
-    >
+    <div className='h-11 border-b flex items-center px-4 gap-4 shrink-0' data-testid='toolbar'>
       {flowCheckActive && <span data-testid='flow-check-active' className='sr-only' />}
       <input
         data-testid='toolbar-name'

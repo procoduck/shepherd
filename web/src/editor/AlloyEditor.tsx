@@ -6,7 +6,7 @@ import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
 import { EditorState } from '@codemirror/state';
 import { EditorView, highlightActiveLine, keymap, lineNumbers, ViewUpdate } from '@codemirror/view';
 import { useEffect, useRef } from 'react';
-import type { Diagnostic } from '@/api/client';
+import type { Diagnostic } from '@/gen/shepherd/mgmt/v1/common_pb';
 import { alloyCompletionSource } from './alloyCompletion';
 import { alloyLanguage } from './alloyLanguage';
 

@@ -28,8 +28,11 @@ test('save button triggers save mutation', async ({ page, api }) => {
   await page.goto('/pipelines/pip-save');
   await expect(page.getByRole('button', { name: /Save/i })).toBeVisible();
   await page.getByRole('button', { name: /Save/i }).click();
-  // Assert the PUT call was recorded
-  const calls = api.calls('/pipelines/pip-save');
+  // Assert the UpdatePipeline RPC call for this pipeline was recorded — the
+  // pipeline id now rides in the request body, not the URL path.
+  const calls = api
+    .calls('/shepherd.mgmt.v1.PipelineService/UpdatePipeline')
+    .filter((c) => (c.body as { id?: string } | null)?.id === 'pip-save');
   expect(calls.length).toBeGreaterThan(0);
 });
 

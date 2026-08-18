@@ -1,10 +1,12 @@
+import { timestampDate } from '@bufbuild/protobuf/wkt';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { CheckCircle2, ChevronDown, Save, XCircle } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { type Diagnostic, orgApi } from '@/api/client';
+import { clients, toApiError } from '@/api/transport';
 import { AlloyEditor } from '@/editor/AlloyEditor';
+import type { Diagnostic } from '@/gen/shepherd/mgmt/v1/common_pb';
 import { useOrgId } from '@/hooks/useOrg';
 
 export function PipelineEditorPage() {
@@ -24,14 +26,14 @@ export function PipelineEditorPage() {
 
   const { data: pipeline } = useQuery({
     queryKey: ['pipeline', id],
-    queryFn: () => orgApi.getPipeline(orgId, id!),
+    queryFn: () => clients.pipeline.getPipeline({ orgId, id: id! }),
     enabled: !!id && !!orgId,
   });
 
   const { data: revisionsData } = useQuery({
     queryKey: ['revisions', orgId, id],
-    queryFn: () => orgApi.listRevisions(pipeline?.org_id ?? orgId, id!),
-    enabled: !!id && !!(pipeline?.org_id ?? orgId),
+    queryFn: () => clients.pipeline.listRevisions({ orgId: pipeline?.orgId ?? orgId, id: id! }),
+    enabled: !!id && !!(pipeline?.orgId ?? orgId),
   });
   const revisions = revisionsData?.items ?? [];
 
@@ -49,7 +51,8 @@ export function PipelineEditorPage() {
       if (!orgId || !c.trim()) return;
       setValidating(true);
       try {
-        const result = await orgApi.validatePipeline(orgId, {
+        const result = await clients.pipeline.validatePipeline({
+          orgId,
           name: name || 'preview',
           contents: c,
         });
@@ -70,8 +73,10 @@ export function PipelineEditorPage() {
 
   const saveMutation = useMutation({
     mutationFn: () => {
-      const body = { name, contents, matchers };
-      return isNew ? orgApi.createPipeline(orgId, body) : orgApi.updatePipeline(orgId, id!, body);
+      const body = { orgId, name, contents, matchers };
+      return isNew
+        ? clients.pipeline.createPipeline(body)
+        : clients.pipeline.updatePipeline({ ...body, id: id! });
     },
     onSuccess: (p) => {
       toast.success(isNew ? 'Pipeline created' : 'Pipeline saved');
@@ -79,8 +84,8 @@ export function PipelineEditorPage() {
       if (isNew) navigate({ to: '/pipelines/$id', params: { id: p.id } });
     },
     onError: (e) => {
-      const err = e as { message?: string };
-      toast.error(err.message ?? 'Save failed');
+      const err = toApiError(e);
+      toast.error(err.message || 'Save failed');
     },
   });
 
@@ -152,24 +157,21 @@ export function PipelineEditorPage() {
             </button>
             {showRevisions && (
               <div className='space-y-1 max-h-52 overflow-y-auto pr-1'>
-                {revisions.map((r) => (
+                {revisions.map((r, i) => (
                   <div
-                    key={r.id}
+                    key={i}
                     className='rounded border border-zinc-800 bg-zinc-900/40 p-2 text-xs space-y-1'
                   >
                     <div className='flex items-center justify-between'>
                       <span className='font-medium text-zinc-300'>#{r.revision}</span>
                       <span className='text-zinc-600'>
-                        {new Date(r.changed_at).toLocaleDateString()}
+                        {r.changedAt ? timestampDate(r.changedAt).toLocaleDateString() : ''}
                       </span>
                     </div>
-                    <div className='text-zinc-500'>{r.changed_by}</div>
-                    {r.change_note && <div className='text-zinc-400 italic'>{r.change_note}</div>}
+                    <div className='text-zinc-500'>{r.changedBy}</div>
+                    {r.changeNote && <div className='text-zinc-400 italic'>{r.changeNote}</div>}
                     <button
-                      onClick={() => {
-                        setContents(r.contents);
-                        setMatchers(r.matchers);
-                      }}
+                      onClick={() => toast.info('Revision contents are not exposed by the API yet')}
                       className='text-indigo-400 hover:text-indigo-300 text-xs'
                       data-testid='restore-btn'
                     >
@@ -188,7 +190,7 @@ export function PipelineEditorPage() {
               Source: <span className='text-zinc-300'>{pipeline.source}</span>
             </p>
             <p>
-              Updated by: <span className='text-zinc-300'>{pipeline.updated_by}</span>
+              Updated by: <span className='text-zinc-300'>{pipeline.updatedBy}</span>
             </p>
           </div>
         )}

@@ -1,12 +1,80 @@
-import type {
-  AgentToken,
-  Cluster,
-  Collector,
-  Destination,
-  Org,
-  Pipeline,
-  PipelineRevision,
-} from '../../src/api/client';
+// These fixture shapes intentionally stay snake_case — the pre-migration
+// REST/domain shape — independent of the generated (camelCase) Connect
+// types. tests/mocks/handlers.ts converts fixture -> wire; see the
+// "Wire-shape converters" section there for the field mapping.
+interface Org {
+  id: string;
+  name: string;
+  display_name: string;
+  admin_group_id: string;
+  reader_group_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+interface Cluster {
+  id: string;
+  name: string;
+  org_id?: string | null;
+  created_at: string;
+}
+interface Collector {
+  id: string;
+  cluster_id?: string;
+  cluster: string;
+  role: string;
+  org_id?: string;
+  remote_config_status?: string;
+  remote_config_error?: string;
+  last_seen?: string;
+  alloy_version?: string;
+  local_attributes?: Record<string, string>;
+  instances?: unknown[];
+}
+interface Pipeline {
+  id: string;
+  org_id?: string;
+  name: string;
+  contents: string;
+  matchers: string[];
+  enabled: boolean;
+  source: string;
+  created_by: string;
+  updated_by: string;
+  created_at: string;
+  updated_at: string;
+  revisions?: PipelineRevision[];
+}
+interface PipelineRevision {
+  id?: string;
+  pipeline_id?: string;
+  revision: number;
+  contents?: string;
+  matchers?: string[];
+  enabled?: boolean;
+  changed_by: string;
+  changed_at: string;
+  change_note: string;
+}
+interface Destination {
+  id: string;
+  org_id?: string;
+  name: string;
+  type: string;
+  url: string;
+  tenant_id?: string;
+  secret_name?: string;
+  secret_namespace?: string;
+  auth_mode: string;
+  created_at: string;
+  updated_at: string;
+}
+interface AgentToken {
+  id: string;
+  name: string;
+  created_by: string;
+  status: string;
+  created_at: string;
+}
 
 // Sequential ID generator
 const counters: Record<string, number> = {};

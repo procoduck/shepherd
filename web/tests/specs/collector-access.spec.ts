@@ -18,9 +18,9 @@ test('group search debounce suppresses calls within window', async ({ page, api 
   }
   // Type rapidly — debounce should suppress rapid calls
   await input.pressSequentially('test', { delay: 50 });
-  expect(api.calls('/api/admin/groups/search').length).toBeLessThanOrEqual(1);
+  expect(api.calls('/shepherd.mgmt.v1.AdminService/SearchGroups').length).toBeLessThanOrEqual(1);
   await page.waitForTimeout(400);
-  expect(api.calls('/api/admin/groups/search').length).toBeGreaterThanOrEqual(1);
+  expect(api.calls('/shepherd.mgmt.v1.AdminService/SearchGroups').length).toBeGreaterThanOrEqual(1);
 });
 
 test('collector access page renders assignment controls', async ({ page, api }) => {
