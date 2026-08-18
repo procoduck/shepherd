@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -30,11 +31,40 @@ const (
 	seedAgentTokenSecret      = "dev-only-agent-secret-32byteslong"    //nolint:gosec // deterministic development fixture
 	seedClusterPlatformName   = "prod-eu-1"
 	seedClusterStagingName    = "staging-eu-1"
+	seedClusterDataEngName    = "data-eng-eu-1"
+	seedDestProdPromURL       = "https://prometheus.example.com/api/v1/write"
+	seedDestProdLokiURL       = "https://loki.example.com/loki/api/v1/push"
 )
 
-var devCmd = &cobra.Command{Use: "dev", Short: "Developer tooling (direct DB access — never use in production)"}
-var devSeedCmd = &cobra.Command{Use: "seed", Short: "Seed development fixture data (idempotent)", RunE: runDevSeed}
-var devCreateSessionCmd = &cobra.Command{Use: "create-session", Short: "Mint a dev session for persona testing (direct DB — never production)", RunE: runDevCreateSession}
+// baseMetricsTemplate is a complete, self-contained scrape->remote_write chain:
+// it scrapes Shepherd's own /metrics via prometheus.exporter.self and forwards
+// to the seeded "prom-prod" destination. It is stage-1 (and, given a real
+// alloy binary, stage-2) valid on its own so the dev stack serves a working
+// config instead of an empty one. %q verbs are filled with the cluster name
+// and destination URL so the two stay in sync with the rest of the seed.
+const baseMetricsTemplate = `prometheus.exporter.self "seed" { }
+
+prometheus.scrape "seed" {
+  targets    = prometheus.exporter.self.seed.targets
+  forward_to = [prometheus.remote_write.seed.receiver]
+}
+
+prometheus.remote_write "seed" {
+  external_labels = {
+    cluster = %q,
+  }
+
+  endpoint {
+    url = %q
+  }
+}
+`
+
+var (
+	devCmd              = &cobra.Command{Use: "dev", Short: "Developer tooling (direct DB access — never use in production)"}
+	devSeedCmd          = &cobra.Command{Use: "seed", Short: "Seed development fixture data (idempotent)", RunE: runDevSeed}
+	devCreateSessionCmd = &cobra.Command{Use: "create-session", Short: "Mint a dev session for persona testing (direct DB — never production)", RunE: runDevCreateSession}
+)
 
 func init() {
 	devCreateSessionCmd.Flags().String("persona", "appadmin", "persona: appadmin|orgadmin-platform|reader-platform|nobody")
@@ -82,37 +112,50 @@ func runDevSeed(cmd *cobra.Command, _ []string) error {
 			return fmt.Errorf("claiming staging cluster: %w", err)
 		}
 	}
-	fmt.Printf("clusters: %s (claimed), %s (unclaimed)\n", prod.Name, staging.Name)
 
-	roles := []struct{ role, id, name, status, failure string }{
-		{"metrics", "dev-instance-metrics", "metrics-agent", "RemoteConfigStatuses_APPLIED", ""},
-		{"logs", "dev-instance-logs", "logs-agent", "RemoteConfigStatuses_UNSET", ""},
-		{"singleton", "dev-instance-singleton", "singleton-agent", "RemoteConfigStatuses_FAILED", "config parse error at line 3"},
+	// data-eng starts with its own claimed cluster + collector so the org
+	// (which sorts first alphabetically in the UI) is never blank on first
+	// login — see R3-H1. No collector_instances are seeded here (see below);
+	// nothing in the compose stack registers against it, so it legitimately
+	// shows zero live instances until someone points an agent at it.
+	dataEngCluster, err := st.Queries.UpsertCluster(ctx, seedClusterDataEngName)
+	if err != nil {
+		return fmt.Errorf("upserting data-eng cluster: %w", err)
 	}
-	for _, item := range roles {
-		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: prod.ID, Role: item.role})
-		if err != nil {
-			return fmt.Errorf("upserting %s collector: %w", item.role, err)
-		}
-		attrs := fmt.Sprintf(`{"cluster":"prod-eu-1","role":%q}`, item.role)
-		if item.role == "logs" {
-			_, err = st.Pool().Exec(ctx, `INSERT INTO collector_instances (id, collector_id, name, local_attributes, last_seen, remote_config_status) VALUES ($1, $2, $3, $4::jsonb, now() - interval '2 hours', $5) ON CONFLICT (id) DO NOTHING`, item.id, collector.ID, item.name, attrs, item.status)
-		} else {
-			_, err = st.Queries.UpsertCollectorInstance(ctx, sqlc.UpsertCollectorInstanceParams{ID: item.id, CollectorID: collector.ID, Name: item.name, LocalAttributes: []byte(attrs)})
-			if err == nil {
-				err = st.Queries.UpdateInstanceStatus(ctx, sqlc.UpdateInstanceStatusParams{ID: item.id, RemoteConfigStatus: pgtype.Text{String: item.status, Valid: true}, RemoteConfigError: pgtype.Text{String: item.failure, Valid: item.failure != ""}})
-			}
-		}
-		if err != nil {
-			return fmt.Errorf("seeding %s instance: %w", item.role, err)
+	if !dataEngCluster.OrgID.Valid {
+		if err := st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: dataEngCluster.ID, OrgID: dataEng.ID}); err != nil {
+			return fmt.Errorf("claiming data-eng cluster: %w", err)
 		}
 	}
-	fmt.Println("collectors: metrics(healthy), logs(stale), singleton(failed)")
-	if err := seedPipelines(ctx, st, platform.ID); err != nil {
-		return fmt.Errorf("seeding pipelines: %w", err)
+	if _, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: dataEngCluster.ID, Role: "metrics"}); err != nil {
+		return fmt.Errorf("upserting data-eng collector: %w", err)
 	}
+	// Both prod-eu-1 and staging-eu-1 are claimed by platform-org above, so
+	// say so — a prior version of this message printed a hardcoded
+	// "(unclaimed)" for staging even though it was claimed (R3-M1).
+	fmt.Printf("clusters: %s (claimed by platform-org), %s (claimed by platform-org), %s (claimed by data-eng)\n", prod.Name, staging.Name, dataEngCluster.Name)
+
+	// Collector rows only — no stub collector_instances. Real Alloy
+	// registrations come from the compose stack's alloy-metrics/alloy-logs/
+	// alloy-staging containers; seeding fake instances here used to sit
+	// alongside them and confuse status (R3-H2). The "singleton" collector
+	// has no compose container backing it, so it will show zero instances
+	// until something registers against it — that's expected, not stale.
+	for _, role := range []string{"metrics", "logs", "singleton"} {
+		if _, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: prod.ID, Role: role}); err != nil {
+			return fmt.Errorf("upserting %s collector: %w", role, err)
+		}
+	}
+	fmt.Println("collectors: metrics, logs, singleton (prod-eu-1); metrics (data-eng-eu-1) — instances register themselves")
+
 	if err := seedDestinations(ctx, st, platform.ID); err != nil {
 		return fmt.Errorf("seeding destinations: %w", err)
+	}
+	if err := seedPipelines(ctx, st, platform.ID, platformPipelineItems()); err != nil {
+		return fmt.Errorf("seeding platform pipelines: %w", err)
+	}
+	if err := seedPipelines(ctx, st, dataEng.ID, dataEngPipelineItems()); err != nil {
+		return fmt.Errorf("seeding data-eng pipelines: %w", err)
 	}
 	if err := seedAgentToken(ctx, st); err != nil {
 		return fmt.Errorf("seeding agent token: %w", err)
@@ -131,30 +174,119 @@ func upsertSeedOrg(ctx context.Context, st *store.Store, id, name, displayName, 
 	return org, err
 }
 
-func seedPipelines(ctx context.Context, st *store.Store, orgID pgtype.UUID) error {
-	matchers := json.RawMessage(`[]`)
-	items := []struct {
-		name, contents, source string
-		enabled                bool
-	}{
-		{"base-metrics", `prometheus.exporter.self "seed" {}`, "ui", true},
-		{"loki-logs", `loki.source.file "seed" { targets = [] forward_to = [] }`, "ui", false},
-		{"app-obs-wizard", `// wizard-generated`, "wizard", false},
+// seedPipelineItem describes one pipeline to seed.
+type seedPipelineItem struct {
+	name, contents, source string
+	matchers               []string
+	enabled                bool
+}
+
+// platformPipelineItems returns the pipelines seeded for platform-org.
+//
+// base-metrics carries a complete, self-contained scrape->remote_write chain
+// and real matchers (cluster="prod-eu-1", role="metrics") so it actually
+// matches the alloy-metrics collector from the compose stack and the dev
+// stack serves a working config instead of an empty one (R3-C1/R3-H3).
+func platformPipelineItems() []seedPipelineItem {
+	return []seedPipelineItem{
+		{
+			name:     "base-metrics",
+			contents: fmt.Sprintf(baseMetricsTemplate, seedClusterPlatformName, seedDestProdPromURL),
+			source:   "ui",
+			matchers: []string{fmt.Sprintf("cluster=%q", seedClusterPlatformName), `role="metrics"`},
+			enabled:  true,
+		},
+		{
+			name:     "loki-logs",
+			contents: "loki.source.file \"seed\" {\n  targets    = []\n  forward_to = []\n}\n",
+			source:   "ui",
+			// Matches the alloy-logs collector, but left disabled since the
+			// contents are a placeholder stub (no real forward_to target).
+			matchers: []string{fmt.Sprintf("cluster=%q", seedClusterPlatformName), `role="logs"`},
+			enabled:  false,
+		},
+		{
+			name:     "app-obs-wizard",
+			contents: `// wizard-generated`,
+			source:   "wizard",
+			// No matchers: this is a stub demonstrating a wizard-sourced
+			// pipeline in the UI, not something meant to actually match a
+			// collector. Left disabled; producing real contents requires
+			// walking the wizard.
+			matchers: nil,
+			enabled:  false,
+		},
 	}
+}
+
+// dataEngPipelineItems returns the pipelines seeded for the data-eng org, so
+// it is not empty on first login (R3-H1).
+func dataEngPipelineItems() []seedPipelineItem {
+	return []seedPipelineItem{
+		{
+			name:     "example-metrics",
+			contents: `prometheus.exporter.self "seed" { }`,
+			source:   "ui",
+			matchers: []string{fmt.Sprintf("cluster=%q", seedClusterDataEngName), `role="metrics"`},
+			enabled:  false,
+		},
+	}
+}
+
+// seedPipelines creates the given pipelines under orgID, idempotently. For
+// each pipeline actually created (not already present), it also writes
+// pipeline_revisions revision 1 and an audit_log row, mirroring what
+// PipelinesHandler.Create does in internal/mgmtapi/pipelines.go (R3-H4).
+func seedPipelines(ctx context.Context, st *store.Store, orgID pgtype.UUID, items []seedPipelineItem) error {
+	summary := make([]string, 0, len(items))
 	for _, item := range items {
 		if _, err := st.Queries.GetPipelineByOrgAndName(ctx, sqlc.GetPipelineByOrgAndNameParams{OrgID: orgID, Name: item.name}); err == nil {
+			summary = append(summary, item.name+"(exists)")
 			continue
 		}
-		if _, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{OrgID: orgID, Name: item.name, Contents: item.contents, Matchers: matchers, Enabled: item.enabled, Source: item.source, CreatedBy: "seed", UpdatedBy: "seed"}); err != nil && !isUnique(err) {
-			return err
+		matchers := item.matchers
+		if matchers == nil {
+			matchers = []string{}
 		}
+		matchersJSON, err := json.Marshal(matchers)
+		if err != nil {
+			return fmt.Errorf("marshaling matchers for %s: %w", item.name, err)
+		}
+		p, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: orgID, Name: item.name, Contents: item.contents, Matchers: matchersJSON,
+			Enabled: item.enabled, Source: item.source, CreatedBy: "seed", UpdatedBy: "seed",
+		})
+		if err != nil {
+			if isUnique(err) {
+				summary = append(summary, item.name+"(exists)")
+				continue
+			}
+			return fmt.Errorf("creating pipeline %s: %w", item.name, err)
+		}
+		if _, err := st.Queries.CreatePipelineRevision(ctx, sqlc.CreatePipelineRevisionParams{
+			PipelineID: p.ID, Revision: 1, Contents: p.Contents, Matchers: p.Matchers,
+			Enabled: p.Enabled, ChangedBy: "seed", ChangeNote: "seed",
+		}); err != nil {
+			return fmt.Errorf("creating revision 1 for %s: %w", item.name, err)
+		}
+		if err := st.Queries.InsertAuditLog(ctx, sqlc.InsertAuditLogParams{
+			Actor: "seed", ActorType: "user", OrgID: orgID, Action: "pipeline.create",
+			ResourceType: "pipeline", ResourceID: p.ID.String(), Detail: json.RawMessage(`{}`),
+		}); err != nil {
+			return fmt.Errorf("writing audit log for %s: %w", item.name, err)
+		}
+		state := "disabled"
+		if item.enabled {
+			state = "enabled"
+		}
+		summary = append(summary, fmt.Sprintf("%s(%s)", item.name, state))
 	}
-	fmt.Println("pipelines: base-metrics(enabled), loki-logs(disabled), app-obs-wizard(wizard)")
+	fmt.Printf("pipelines: %s\n", strings.Join(summary, ", "))
 	return nil
 }
 
 func seedDestinations(ctx context.Context, st *store.Store, orgID pgtype.UUID) error {
-	for _, item := range []struct{ name, typ, url string }{{"prom-prod", "prometheus", "https://prometheus.example.com/api/v1/write"}, {"loki-prod", "loki", "https://loki.example.com/loki/api/v1/push"}} {
+	for _, item := range []struct{ name, typ, url string }{{"prom-prod", "prometheus", seedDestProdPromURL}, {"loki-prod", "loki", seedDestProdLokiURL}} {
 		dests, err := st.Queries.ListDestinationsByOrg(ctx, orgID)
 		if err != nil {
 			return err
