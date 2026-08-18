@@ -1,6 +1,6 @@
 # Shepherd — Project Status & Progress Checks
 
-> Last audited: **2026-08-18** · progress updated 2026-08-18 after lint/releaser restoration and the fix-audit-findings workflow (full codebase audit against `docs/spec.md` and
+> Last audited: **2026-08-18** · updated 2026-08-19 after the mgmt-api-contract migration (see docs/api-contract-design.md) (full codebase audit against `docs/spec.md` and
 > `docs/visual-builder-design-VB1.md`). Update the checkboxes and the date as work lands.
 > Companion ledger for the visual builder: `docs/vb1-progress.md`.
 
@@ -110,6 +110,20 @@ From the 2026-08-18 adversarial reviews (20 findings: 5C/10H/5M — full text in
 3. Fix the gitsync update path (silent data loss)
 4. HIGH findings, then VB-1 M7 (S3 sandbox) and M8 hardening
 5. Wizard UI stepper, Audit UI, Overview stats, missing REST endpoints
+
+## API contract migration (2026-08-19) — done
+
+- [x] shepherd.mgmt.v1 protobuf contract (10 services, 47 procedures) generated for Go
+      and TypeScript; frontend consumes generated Connect clients (drift class eliminated)
+- [x] Legacy REST endpoints preserved as thin shims over the same service
+      implementations (protojson UseProtoNames) — external integrations unaffected
+- [x] Fail-closed per-procedure authz interceptor; REST shims wrapped with equivalent
+      middleware — fixed pre-existing hole: /api/admin/* had NO enforcement
+- [x] e2e suite repaired and green (14/14): compose duplicate-key, anonymous-admin
+      BeforeSuite, stale status-prefix asserts, metrics listener port
+- [x] docker-build-local fixed (corporate CA reference removed, .dockerignore added)
+- [ ] Follow-ups: buf lint naming findings documented as repo convention;
+      SearchGroups org_id authz check unused until group search is implemented
 
 ## Test infrastructure reference
 
