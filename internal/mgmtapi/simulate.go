@@ -1,55 +1,92 @@
 package mgmtapi
 
 import (
+	"io"
 	"log/slog"
 	"net/http"
 
-	"shepherd/internal/simulate"
+	"connectrpc.com/connect"
+	"github.com/go-chi/chi/v5"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
+
+	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 )
 
 // simulateMaxBodyBytes caps simulate request bodies at 256 KiB.
 const simulateMaxBodyBytes = 256 * 1024
 
-// SimulateHandler handles S2 simulation REST endpoints.
-type SimulateHandler struct{ logger *slog.Logger }
+// SimulateHandler handles S2 simulation REST endpoints — a thin shim over
+// SimulateService (rpc_simulate.go). It parses URL params/body into the
+// proto request, calls the service directly in-process, and renders the
+// response as legacy-compatible JSON. No business logic lives here.
+type SimulateHandler struct {
+	service *SimulateService
+	logger  *slog.Logger
+}
 
 // NewSimulateHandler creates a new SimulateHandler.
 func NewSimulateHandler(logger *slog.Logger) *SimulateHandler {
-	return &SimulateHandler{logger: logger}
+	return &SimulateHandler{service: NewSimulateService(logger), logger: logger}
 }
 
 // SimulateRelabel handles POST /api/orgs/{org}/simulate/relabel.
 func (h *SimulateHandler) SimulateRelabel(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, simulateMaxBodyBytes)
-	var req simulate.RelabelRequest
-	if !decodeJSON(w, r, &req) {
+	req := &mgmtv1.SimulateRelabelRequest{OrgId: chi.URLParam(r, "org")}
+	if !simulateDecodeBody(w, r, req) {
 		return
 	}
-	if len(req.SampleTargets) == 0 {
-		req.SampleTargets = simulate.BuiltinRelabelTargets()
-	}
-	response, err := simulate.RelabelTrace(req)
+	resp, err := h.service.SimulateRelabel(r.Context(), connect.NewRequest(req))
 	if err != nil {
-		respondError(w, http.StatusBadRequest, "bad_request", err.Error())
+		WriteConnectError(w, err)
 		return
 	}
-	respondJSON(w, http.StatusOK, response)
+	simulateWriteJSON(w, http.StatusOK, resp.Msg)
 }
 
 // SimulateLogs handles POST /api/orgs/{org}/simulate/logs.
 func (h *SimulateHandler) SimulateLogs(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, simulateMaxBodyBytes)
-	var req simulate.LogsRequest
-	if !decodeJSON(w, r, &req) {
+	req := &mgmtv1.SimulateLogsRequest{OrgId: chi.URLParam(r, "org")}
+	if !simulateDecodeBody(w, r, req) {
 		return
 	}
-	if len(req.SampleLines) == 0 {
-		req.SampleLines = simulate.BuiltinLogLines()
+	resp, err := h.service.SimulateLogs(r.Context(), connect.NewRequest(req))
+	if err != nil {
+		WriteConnectError(w, err)
+		return
 	}
-	response, err := simulate.LogTrace(req)
+	simulateWriteJSON(w, http.StatusOK, resp.Msg)
+}
+
+// simulateDecodeBody reads r.Body (capped at simulateMaxBodyBytes) and, if
+// non-empty, protojson-decodes it into msg. Returns false (having already
+// written a 400 response) on any read/decode error.
+func simulateDecodeBody(w http.ResponseWriter, r *http.Request, msg proto.Message) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, simulateMaxBodyBytes)
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return false
+	}
+	// No empty-body shortcut: legacy decoded these bodies with json.Decode,
+	// which errors (EOF) on a zero-length body — protojson.Unmarshal does the
+	// same, so an empty POST body still 400s here as it did before.
+	if err := protojson.Unmarshal(body, msg); err != nil {
+		respondError(w, http.StatusBadRequest, "bad_request", "invalid JSON: "+err.Error())
+		return false
+	}
+	return true
+}
+
+// simulateWriteJSON renders msg as legacy-compatible JSON (shim.go's
+// MarshalOpts) with the given HTTP status.
+func simulateWriteJSON(w http.ResponseWriter, status int, msg proto.Message) {
+	b, err := MarshalOpts.Marshal(msg)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	respondJSON(w, http.StatusOK, response)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write(b) //nolint:errcheck // response headers already sent
 }

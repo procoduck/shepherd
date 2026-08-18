@@ -157,14 +157,21 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 			}
 		}
 		r.Mount("/api", mgmtapi.Router(st, cfg, enc, logger))
+
+		// shepherd.mgmt.v1 Connect RPC handlers — the typed contract behind the
+		// /api shims above (docs/api-contract-design.md). Mounted in the same
+		// group so they get session population + CSRF enforcement; each
+		// handler additionally requires its own authz interceptor role.
+		mgmtapi.MountRPC(r, st, cfg, enc, logger)
 	})
 
 	// Guard: reserved prefixes that didn't match any real route return 404 JSON, never the SPA.
-	// Guard: unmatched /auth/*, /collector.v1.*, and /metrics paths return 404 JSON.
+	// Guard: unmatched /auth/*, /collector.v1.*, /shepherd.mgmt.v1.*, and /metrics paths return 404 JSON.
 	// /api/* is handled by the mgmtapi sub-router's NotFound handler instead
 	// (a root-level wildcard would compete with the r.Mount above).
 	r.Handle("/auth/*", apiGuard)
 	r.Handle("/collector.v1.*", apiGuard)
+	r.Handle("/shepherd.mgmt.v1.*", apiGuard)
 	r.Handle("/metrics", apiGuard) // metrics moved to separate listener (V4-4)
 
 	// TODO milestone 6: serve embedded SPA

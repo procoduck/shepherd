@@ -1,122 +1,84 @@
 package mgmtapi
 
 import (
-	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 
+	"connectrpc.com/connect"
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgtype"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 
+	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/internal/store"
-	"shepherd/internal/store/sqlc"
-	"shepherd/internal/wizard"
-	_ "shepherd/internal/wizard/appobservability" // register wizard
 )
 
-// WizardHandler handles /api/orgs/{org}/wizards routes.
+// WizardHandler handles /api/orgs/{org}/wizards routes — a thin shim over
+// WizardService (rpc_wizard.go). It parses URL params/body into the proto
+// request, calls the service directly in-process, and renders the response
+// as legacy-compatible JSON. No business logic lives here.
 type WizardHandler struct {
-	store    *store.Store
-	registry *wizard.Registry
-	logger   *slog.Logger
+	service *WizardService
+	logger  *slog.Logger
 }
 
 // NewWizardHandler creates a wizard handler.
 func NewWizardHandler(st *store.Store, logger *slog.Logger) *WizardHandler {
-	return &WizardHandler{store: st, registry: wizard.Default(), logger: logger}
+	return &WizardHandler{service: NewWizardService(st, logger), logger: logger}
 }
 
 // ListWizards returns all registered wizard kinds.
 func (h *WizardHandler) ListWizards(w http.ResponseWriter, r *http.Request) {
-	kinds := h.registry.ListKinds() // ListKinds never fails
-	type item struct {
-		Kind  string        `json:"kind"`
-		Title string        `json:"title"`
-		Steps []wizard.Step `json:"steps"`
+	req := &mgmtv1.ListWizardsRequest{OrgId: chi.URLParam(r, "org")}
+	resp, err := h.service.ListWizards(r.Context(), connect.NewRequest(req))
+	if err != nil {
+		WriteConnectError(w, err)
+		return
 	}
-	items := make([]item, 0, len(kinds))
-	for _, k := range kinds {
-		wiz, err := h.registry.Get(k)
-		if err != nil {
-			continue
-		}
-		s := wiz.Schema()
-		items = append(items, item{Kind: s.Kind, Title: s.Title, Steps: s.Steps})
-	}
-	respondJSON(w, http.StatusOK, listResponse[item]{Items: items, Total: len(items)})
+	wizardWriteJSON(w, http.StatusOK, resp.Msg)
 }
 
 // GetWizardSchema returns the schema for a specific wizard kind.
 func (h *WizardHandler) GetWizardSchema(w http.ResponseWriter, r *http.Request) {
-	kind := chi.URLParam(r, "kind")
-	wiz, err := h.registry.Get(kind)
+	req := &mgmtv1.GetWizardSchemaRequest{OrgId: chi.URLParam(r, "org"), Kind: chi.URLParam(r, "kind")}
+	resp, err := h.service.GetWizardSchema(r.Context(), connect.NewRequest(req))
 	if err != nil {
-		respondError(w, http.StatusNotFound, "not_found", err.Error())
+		WriteConnectError(w, err)
 		return
 	}
-	respondJSON(w, http.StatusOK, wiz.Schema())
-}
-
-type commitRequest struct {
-	Kind  string         `json:"kind"`
-	Name  string         `json:"name"`
-	State map[string]any `json:"state"`
+	wizardWriteJSON(w, http.StatusOK, resp.Msg)
 }
 
 // CommitWizard generates a pipeline from wizard state and creates it.
 func (h *WizardHandler) CommitWizard(w http.ResponseWriter, r *http.Request) {
-	orgID := orgIDFromParam(r)
-
-	var req commitRequest
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-
-	wiz, err := h.registry.Get(req.Kind)
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
-
-	result, err := wiz.Commit(req.State)
-	if err != nil {
-		respondError(w, http.StatusUnprocessableEntity, "wizard_error", err.Error())
+	req := &mgmtv1.CommitWizardRequest{OrgId: chi.URLParam(r, "org")}
+	if err := protojson.Unmarshal(body, req); err != nil {
+		respondError(w, http.StatusBadRequest, "bad_request", "invalid JSON: "+err.Error())
 		return
 	}
+	resp, err := h.service.CommitWizard(r.Context(), connect.NewRequest(req))
+	if err != nil {
+		WriteConnectError(w, err)
+		return
+	}
+	wizardWriteJSON(w, http.StatusCreated, resp.Msg)
+}
 
-	stateJSON, err := wizard.MarshalState(req.State)
+// wizardWriteJSON renders msg as legacy-compatible JSON (shim.go's
+// MarshalOpts) with the given HTTP status.
+func wizardWriteJSON(w http.ResponseWriter, status int, msg proto.Message) {
+	b, err := MarshalOpts.Marshal(msg)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-
-	matchersJSON, err := json.Marshal(result.Matchers)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "internal", "marshal error")
-		return
-	}
-
-	actor := actorFromCtx(r.Context())
-	p, err := h.store.Queries.CreatePipeline(r.Context(), sqlc.CreatePipelineParams{
-		OrgID:       orgID,
-		Name:        req.Name,
-		Contents:    result.Contents,
-		Matchers:    matchersJSON,
-		Enabled:     false,
-		Source:      "wizard",
-		WizardKind:  pgtype.Text{String: req.Kind, Valid: true},
-		WizardState: stateJSON,
-		CreatedBy:   actor,
-		UpdatedBy:   actor,
-	})
-	if err != nil {
-		if isUniqueViolation(err) {
-			respondError(w, http.StatusConflict, "conflict", "pipeline name already exists")
-			return
-		}
-		respondError(w, http.StatusInternalServerError, "internal", "failed to create pipeline")
-		return
-	}
-
-	respondJSON(w, http.StatusCreated, pipelineToResponse(p))
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write(b) //nolint:errcheck // response headers already sent
 }

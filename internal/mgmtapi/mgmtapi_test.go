@@ -6,15 +6,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"shepherd/internal/auth"
 	"shepherd/internal/config"
+	"shepherd/internal/crypto"
 	"shepherd/internal/mgmtapi"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
@@ -45,11 +50,12 @@ var _ = SynchronizedAfterSuite(func() {}, func() {
 
 var _ = Describe("Pipelines API", Label("integration"), func() {
 	var (
-		ctx    context.Context
-		cancel context.CancelFunc
-		st     *store.Store
-		server *httptest.Server
-		orgID  string
+		ctx         context.Context
+		cancel      context.CancelFunc
+		st          *store.Store
+		server      *httptest.Server
+		orgID       string
+		adminCookie *http.Cookie
 	)
 
 	BeforeEach(func() {
@@ -71,12 +77,16 @@ var _ = Describe("Pipelines API", Label("integration"), func() {
 		Expect(err).NotTo(HaveOccurred())
 		orgID = o.ID.String()
 
-		cfg := &config.Config{Validate: config.ValidateConfig{
-			AlloyBinary: "", StabilityLevel: "experimental", Timeout: 10e9,
-		}}
+		cfg := &config.Config{
+			Auth: config.AuthConfig{InsecureCookies: true},
+			Validate: config.ValidateConfig{
+				AlloyBinary: "", StabilityLevel: "experimental", Timeout: 10e9,
+			},
+		}
 		v := validate.New(&cfg.Validate)
-		handler := mgmtapi.Router(st, cfg, nil, nil)
-		server = httptest.NewServer(handler)
+		authHandler := auth.NewLocalAdmin(cfg, st, slog.Default())
+		server = httptest.NewServer(newRESTRouter(st, authHandler, cfg, nil))
+		adminCookie = newAppAdminSession(ctx, st)
 		_ = v
 	})
 
@@ -93,7 +103,7 @@ var _ = Describe("Pipelines API", Label("integration"), func() {
 				"contents": `// valid alloy comment`,
 				"matchers": []string{`cluster="prod"`},
 			}
-			resp := postJSON(server, fmt.Sprintf("/orgs/%s/pipelines", orgID), body)
+			resp := postJSON(server, fmt.Sprintf("/orgs/%s/pipelines", orgID), body, adminCookie)
 			Expect(resp.StatusCode).To(Equal(http.StatusCreated))
 
 			var result map[string]any
@@ -105,9 +115,9 @@ var _ = Describe("Pipelines API", Label("integration"), func() {
 
 		It("rejects duplicate names", func() {
 			body := map[string]any{"name": "dup-pipe", "contents": "// ok", "matchers": []string{}}
-			resp := postJSON(server, fmt.Sprintf("/orgs/%s/pipelines", orgID), body)
+			resp := postJSON(server, fmt.Sprintf("/orgs/%s/pipelines", orgID), body, adminCookie)
 			Expect(resp.StatusCode).To(Equal(http.StatusCreated))
-			resp2 := postJSON(server, fmt.Sprintf("/orgs/%s/pipelines", orgID), body)
+			resp2 := postJSON(server, fmt.Sprintf("/orgs/%s/pipelines", orgID), body, adminCookie)
 			Expect(resp2.StatusCode).To(Equal(http.StatusConflict))
 		})
 	})
@@ -116,9 +126,8 @@ var _ = Describe("Pipelines API", Label("integration"), func() {
 		It("lists pipelines", func() {
 			postJSON(server, fmt.Sprintf("/orgs/%s/pipelines", orgID), map[string]any{
 				"name": "list-pipe", "contents": "// ok", "matchers": []string{},
-			})
-			resp, err := http.Get(server.URL + fmt.Sprintf("/orgs/%s/pipelines", orgID))
-			Expect(err).NotTo(HaveOccurred())
+			}, adminCookie)
+			resp := getRequest(server, fmt.Sprintf("/orgs/%s/pipelines", orgID), adminCookie)
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 			var result map[string]any
 			Expect(json.NewDecoder(resp.Body).Decode(&result)).To(Succeed())
@@ -129,13 +138,13 @@ var _ = Describe("Pipelines API", Label("integration"), func() {
 	Describe("POST /orgs/{org}/pipelines/validate", func() {
 		It("returns valid for correct syntax", func() {
 			body := map[string]any{"contents": `// valid alloy content`}
-			resp := postJSON(server, fmt.Sprintf("/orgs/%s/pipelines/validate", orgID), body)
+			resp := postJSON(server, fmt.Sprintf("/orgs/%s/pipelines/validate", orgID), body, adminCookie)
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 		})
 
 		It("returns 422 for syntax errors", func() {
 			body := map[string]any{"contents": "prometheus.scrape { missing closing brace"}
-			resp := postJSON(server, fmt.Sprintf("/orgs/%s/pipelines/validate", orgID), body)
+			resp := postJSON(server, fmt.Sprintf("/orgs/%s/pipelines/validate", orgID), body, adminCookie)
 			Expect(resp.StatusCode).To(Equal(http.StatusUnprocessableEntity))
 		})
 	})
@@ -145,7 +154,7 @@ var _ = Describe("Pipelines API", Label("integration"), func() {
 
 		BeforeEach(func() {
 			body := map[string]any{"name": "enable-me", "contents": "// ok", "matchers": []string{}}
-			resp := postJSON(server, fmt.Sprintf("/orgs/%s/pipelines", orgID), body)
+			resp := postJSON(server, fmt.Sprintf("/orgs/%s/pipelines", orgID), body, adminCookie)
 			Expect(resp.StatusCode).To(Equal(http.StatusCreated), "create pipeline for enable/disable")
 			var result map[string]any
 			Expect(json.NewDecoder(resp.Body).Decode(&result)).To(Succeed())
@@ -154,10 +163,10 @@ var _ = Describe("Pipelines API", Label("integration"), func() {
 		})
 
 		It("enables and disables a pipeline", func() {
-			resp := postJSON(server, fmt.Sprintf("/orgs/%s/pipelines/%s/enable", orgID, pipelineID), nil)
+			resp := postJSON(server, fmt.Sprintf("/orgs/%s/pipelines/%s/enable", orgID, pipelineID), nil, adminCookie)
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
-			resp = postJSON(server, fmt.Sprintf("/orgs/%s/pipelines/%s/disable", orgID, pipelineID), nil)
+			resp = postJSON(server, fmt.Sprintf("/orgs/%s/pipelines/%s/disable", orgID, pipelineID), nil, adminCookie)
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 		})
 	})
@@ -166,16 +175,13 @@ var _ = Describe("Pipelines API", Label("integration"), func() {
 		It("deletes a pipeline", func() {
 			resp := postJSON(server, fmt.Sprintf("/orgs/%s/pipelines", orgID), map[string]any{
 				"name": "del-me", "contents": "// ok", "matchers": []string{},
-			})
+			}, adminCookie)
 			var result map[string]any
 			Expect(json.NewDecoder(resp.Body).Decode(&result)).To(Succeed())
 			idVal, _ := result["id"].(string) //nolint:errcheck // map value may be absent in test; empty string is safe
 			id := idVal
 
-			req, err := http.NewRequest(http.MethodDelete, server.URL+fmt.Sprintf("/orgs/%s/pipelines/%s", orgID, id), nil)
-			Expect(err).NotTo(HaveOccurred())
-			resp2, err := http.DefaultClient.Do(req)
-			Expect(err).NotTo(HaveOccurred())
+			resp2 := deleteRequest(server, fmt.Sprintf("/orgs/%s/pipelines/%s", orgID, id), adminCookie)
 			Expect(resp2.StatusCode).To(Equal(http.StatusNoContent))
 		})
 	})
@@ -190,8 +196,7 @@ var _ = Describe("Pipelines API", Label("integration"), func() {
 			_, err = st.Pool().Exec(ctx, `INSERT INTO serve_cache (collector_id, dirty) VALUES ($1, false)`, collector.ID)
 			Expect(err).NotTo(HaveOccurred())
 
-			resp, err := http.Post(server.URL+"/admin/clusters/unclaim-cluster/unclaim", "", nil)
-			Expect(err).NotTo(HaveOccurred())
+			resp := postJSON(server, "/admin/clusters/unclaim-cluster/unclaim", nil, adminCookie)
 			defer resp.Body.Close() //nolint:errcheck // test cleanup
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
@@ -212,7 +217,7 @@ var _ = Describe("Pipelines API", Label("integration"), func() {
 				orgUUID(orgID), "destination-pipeline", json.RawMessage(fmt.Sprintf(`{"destination_id":%q}`, destination.ID.String())))
 			Expect(err).NotTo(HaveOccurred())
 
-			resp := deleteRequest(server, fmt.Sprintf("/orgs/%s/destinations/%s", orgID, destination.ID.String()))
+			resp := deleteRequest(server, fmt.Sprintf("/orgs/%s/destinations/%s", orgID, destination.ID.String()), adminCookie)
 			defer resp.Body.Close() //nolint:errcheck // test cleanup
 			Expect(resp.StatusCode).To(Equal(http.StatusConflict))
 			body, err := io.ReadAll(resp.Body)
@@ -232,10 +237,10 @@ var _ = Describe("Pipelines API", Label("integration"), func() {
 				orgUUID(orgID), "deletable-destination-pipeline", json.RawMessage(fmt.Sprintf(`{"destination_id":%q}`, destination.ID.String()))).Scan(&pipelineID)
 			Expect(err).NotTo(HaveOccurred())
 
-			pipelineResp := deleteRequest(server, fmt.Sprintf("/orgs/%s/pipelines/%s", orgID, pipelineID.String()))
+			pipelineResp := deleteRequest(server, fmt.Sprintf("/orgs/%s/pipelines/%s", orgID, pipelineID.String()), adminCookie)
 			pipelineResp.Body.Close() //nolint:errcheck // test cleanup
 			Expect(pipelineResp.StatusCode).To(Equal(http.StatusNoContent))
-			resp := deleteRequest(server, fmt.Sprintf("/orgs/%s/destinations/%s", orgID, destination.ID.String()))
+			resp := deleteRequest(server, fmt.Sprintf("/orgs/%s/destinations/%s", orgID, destination.ID.String()), adminCookie)
 			defer resp.Body.Close() //nolint:errcheck // test cleanup
 			Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
 		})
@@ -247,7 +252,7 @@ var _ = Describe("Pipelines API", Label("integration"), func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgUUID(orgID)})).To(Succeed())
 
-			resp := deleteRequest(server, "/admin/orgs/"+orgID)
+			resp := deleteRequest(server, "/admin/orgs/"+orgID, adminCookie)
 			defer resp.Body.Close() //nolint:errcheck // test cleanup
 			Expect(resp.StatusCode).To(Equal(http.StatusConflict))
 			body, err := io.ReadAll(resp.Body)
@@ -256,31 +261,101 @@ var _ = Describe("Pipelines API", Label("integration"), func() {
 		})
 
 		It("deletes an empty org successfully", func() {
-			resp := deleteRequest(server, "/admin/orgs/"+orgID)
+			resp := deleteRequest(server, "/admin/orgs/"+orgID, adminCookie)
 			defer resp.Body.Close() //nolint:errcheck // test cleanup
 			Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
 		})
 	})
 })
 
-func postJSON(server *httptest.Server, path string, body any) *http.Response {
+// newRESTRouter wires mgmtapi.Router (the legacy REST shim surface) behind
+// session + CSRF middleware, matching production wiring
+// (internal/server/server.go's `r.Mount("/api", mgmtapi.Router(...))` group)
+// closely enough for the router's RequireAuth/RequireAppAdmin/
+// RequireOrgAccess guards to resolve a real session from the request
+// cookie. See also newVisualRESTRouter (visual_rest_test.go), which does the
+// same thing for its own Describe block.
+func newRESTRouter(st *store.Store, authHandler *auth.Handler, cfg *config.Config, enc *crypto.Encryptor) http.Handler {
+	r := chi.NewRouter()
+	r.Group(func(r chi.Router) {
+		r.Use(authHandler.SessionMiddleware)
+		r.Use(auth.CSRFMiddleware)
+		r.Mount("/", mgmtapi.Router(st, cfg, enc, nil))
+	})
+	return r
+}
+
+// newAppAdminSession creates an app-admin session and returns its cookie.
+// An app admin is authorized for every route the REST shim exposes (see
+// auth.authorizeOrgAccess's IsAppAdmin bypass), so the REST-shim
+// compatibility-oracle tests in this package use one session for every
+// request rather than juggling per-route reader/org-admin identities.
+func newAppAdminSession(ctx context.Context, st *store.Store) *http.Cookie {
+	id := fmt.Sprintf("app-admin-sess-%d", time.Now().UnixNano())
+	groupsJSON, err := json.Marshal([]string{})
+	Expect(err).NotTo(HaveOccurred())
+	_, err = st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
+		ID: id, UserOid: "user-" + id, Email: id + "@example.com", DisplayName: "Test App Admin",
+		GroupIds:   groupsJSON,
+		IsAppAdmin: true,
+		ExpiresAt:  pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
+		Source:     "test",
+	})
+	Expect(err).NotTo(HaveOccurred())
+	return &http.Cookie{Name: "shepherd_session", Value: id}
+}
+
+// postJSON issues a POST with a JSON body, cookie, and the CSRF header the
+// production web transport always sends on mutating requests.
+func postJSON(server *httptest.Server, path string, body any, cookie *http.Cookie) *http.Response {
 	var buf bytes.Buffer
 	if body != nil {
 		if encErr := json.NewEncoder(&buf).Encode(body); encErr != nil {
 			panic(encErr)
 		}
 	}
-	resp, err := http.Post(server.URL+path, "application/json", &buf)
+	req, err := http.NewRequest(http.MethodPost, server.URL+path, &buf)
+	if err != nil {
+		panic(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	if cookie != nil {
+		req.AddCookie(cookie)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		panic(err)
 	}
 	return resp
 }
 
-func deleteRequest(server *httptest.Server, path string) *http.Response {
+// getRequest issues a GET with a session cookie.
+func getRequest(server *httptest.Server, path string, cookie *http.Cookie) *http.Response {
+	req, err := http.NewRequest(http.MethodGet, server.URL+path, nil)
+	if err != nil {
+		panic(err)
+	}
+	if cookie != nil {
+		req.AddCookie(cookie)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		panic(err)
+	}
+	return resp
+}
+
+// deleteRequest issues a DELETE with a session cookie and the CSRF header
+// the production web transport always sends on mutating requests.
+func deleteRequest(server *httptest.Server, path string, cookie *http.Cookie) *http.Response {
 	req, err := http.NewRequest(http.MethodDelete, server.URL+path, nil)
 	if err != nil {
 		panic(err)
+	}
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	if cookie != nil {
+		req.AddCookie(cookie)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

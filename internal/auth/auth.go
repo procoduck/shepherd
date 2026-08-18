@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -331,34 +332,32 @@ func RequireAuth(next http.Handler) http.Handler {
 	})
 }
 
-// RequireAppAdmin returns 403 if the session user is not an app admin.
+// RequireAppAdmin returns 401 if there is no session, or 403 if the session
+// user is not an app admin. The role decision itself lives in Authorize
+// (authz.go) so it can be reused by the Connect authz interceptor.
 func RequireAppAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sess := SessionFromCtx(r.Context())
-		if sess == nil || !sess.IsAppAdmin {
+		switch err := Authorize(r.Context(), nil, sess, "", RoleAppAdmin); {
+		case err == nil:
+			next.ServeHTTP(w, r)
+		case errors.Is(err, ErrUnauthenticated):
+			writeAuthError(w, http.StatusUnauthorized, "unauthenticated", "not authenticated")
+		default:
 			writeAuthError(w, http.StatusForbidden, "forbidden", "requires app admin role")
-			return
 		}
-		next.ServeHTTP(w, r)
 	})
 }
 
 // RequireOrgAccess verifies the user is an org admin or reader for the org.
 // The org is looked up by the {org} URL param. The caller passes minRole: "reader" or "orgadmin".
-// RBAC logic: App Admin can access any org; Org Admin is a member of the org's admin_group_id;
-// Reader is a member of reader_group_id or any assigned group on any collector in the org.
+// The role decision itself lives in Authorize (authz.go) so it can be reused
+// by the Connect authz interceptor; this middleware only translates the
+// decision into the exact HTTP responses this endpoint has always returned.
 func RequireOrgAccess(st *store.Store, orgIDParam, minRole string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			sess := SessionFromCtx(r.Context())
-			if sess == nil {
-				w.WriteHeader(http.StatusUnauthorized)
-				return
-			}
-			if sess.IsAppAdmin {
-				next.ServeHTTP(w, r)
-				return
-			}
 
 			// Parse org ID from URL param.
 			orgIDStr := r.PathValue(orgIDParam)
@@ -369,36 +368,25 @@ func RequireOrgAccess(st *store.Store, orgIDParam, minRole string) func(http.Han
 				orgIDStr = r.URL.Query().Get("org")
 			}
 
-			var orgID pgtype.UUID
-			if err := orgID.Scan(orgIDStr); err != nil {
+			role := RoleOrgReader
+			if minRole == "orgadmin" {
+				role = RoleOrgAdmin
+			}
+
+			switch err := Authorize(r.Context(), st, sess, orgIDStr, role); {
+			case err == nil:
+				next.ServeHTTP(w, r)
+			case errors.Is(err, ErrUnauthenticated):
+				w.WriteHeader(http.StatusUnauthorized)
+			case errors.Is(err, ErrInvalidOrgID):
 				w.WriteHeader(http.StatusForbidden)
-				return
-			}
-
-			org, err := st.Queries.GetOrgByID(r.Context(), orgID)
-			if err != nil {
+			case errors.Is(err, ErrOrgNotFound):
 				w.WriteHeader(http.StatusNotFound)
-				return
-			}
-
-			isOrgAdmin := slices.Contains(sess.GroupIDs, org.AdminGroupID)
-			isOrgReader := org.ReaderGroupID.Valid && slices.Contains(sess.GroupIDs, org.ReaderGroupID.String)
-
-			if minRole == "orgadmin" && !isOrgAdmin {
+			case minRole == "orgadmin":
 				writeAuthError(w, http.StatusForbidden, "forbidden", "requires org admin role")
-				return
+			default:
+				writeAuthError(w, http.StatusForbidden, "forbidden", "no access to this org")
 			}
-
-			if minRole == "reader" && !isOrgAdmin && !isOrgReader {
-				// Check group_assignments.
-				collectorIDs, err := st.Queries.ListCollectorIDsByGroupMembership(r.Context(), sess.GroupIDs)
-				if err != nil || len(collectorIDs) == 0 {
-					writeAuthError(w, http.StatusForbidden, "forbidden", "no access to this org")
-					return
-				}
-			}
-
-			next.ServeHTTP(w, r)
 		})
 	}
 }

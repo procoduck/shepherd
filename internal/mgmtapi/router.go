@@ -1,11 +1,14 @@
 package mgmtapi
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 
+	"connectrpc.com/connect"
 	"github.com/go-chi/chi/v5"
 
+	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
 	"shepherd/internal/auth"
 	"shepherd/internal/config"
 	"shepherd/internal/crypto"
@@ -14,6 +17,33 @@ import (
 	"shepherd/internal/validate"
 	"shepherd/internal/version"
 )
+
+// requireAppOrOrgAdmin allows an app admin, or an org admin of the org named
+// by the org_id query parameter, to proceed. This is the REST-shim
+// equivalent of the Connect authz interceptor's reqAppOrOrgAdmin handling
+// for AdminService.SearchGroups (see rpc_interceptor.go's
+// authorizeProcedure) — kept in sync with it by construction since both
+// call auth.Authorize with the same role constants.
+func requireAppOrOrgAdmin(st *store.Store) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			sess := auth.SessionFromCtx(r.Context())
+			if err := auth.Authorize(r.Context(), st, sess, "", auth.RoleAppAdmin); err == nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+			orgID := r.URL.Query().Get("org_id")
+			switch err := auth.Authorize(r.Context(), st, sess, orgID, auth.RoleOrgAdmin); {
+			case err == nil:
+				next.ServeHTTP(w, r)
+			case errors.Is(err, auth.ErrUnauthenticated):
+				respondError(w, http.StatusUnauthorized, "unauthenticated", "not authenticated")
+			default:
+				respondError(w, http.StatusForbidden, "forbidden", "requires app admin or org admin role")
+			}
+		})
+	}
+}
 
 // Router builds the /api chi sub-router.
 func Router(st *store.Store, cfg *config.Config, enc *crypto.Encryptor, logger *slog.Logger) http.Handler {
@@ -33,17 +63,20 @@ func Router(st *store.Store, cfg *config.Config, enc *crypto.Encryptor, logger *
 	_ = schemaErr // handled per-request below
 
 	logger = logger.With("component", "mgmtapi")
-	pipelines := NewPipelinesHandler(st, v, schemaReg, logger)
+	// pipelines is a thin REST shim over PipelineService (rpc_pipeline.go),
+	// which owns all pipeline business logic; see pipelines.go.
+	pipelines := NewPipelinesHandler(NewPipelineService(st, v, schemaReg, logger))
 	admin := NewAdminHandler(st, logger)
 	orgs := NewOrgsHandler(st, logger)
 	audit := NewAuditHandler(st, logger)
 	wizards := NewWizardHandler(st, logger)
 	visualHandler := NewVisualHandler(st, v, schemaReg, logger)
 	simulateHandler := NewSimulateHandler(logger)
-	var repoLinks *RepoLinksHandler
-	if enc != nil {
-		repoLinks = NewRepoLinksHandler(st, enc, logger)
-	}
+	// repoLinks is always constructed; GitOpsService itself degrades to
+	// empty lists / connect.CodeUnavailable when enc is nil (see
+	// rpc_gitops.go), replicating the nil-encryptor guard this router used
+	// to apply inline.
+	repoLinks := NewRepoLinksHandler(NewGitOpsService(st, enc, logger))
 
 	r := chi.NewRouter()
 
@@ -68,34 +101,88 @@ func Router(st *store.Store, cfg *config.Config, enc *crypto.Encryptor, logger *
 		r.Get("/schema/{version}", schemaHandler.Get)
 	})
 
-	// Admin endpoints (App Admin only — RBAC enforced inside handlers for now; full middleware in M5)
+	// Admin endpoints — app admin only, except SearchGroups (app admin or
+	// org admin of the org named in ?org_id=), mirroring
+	// procedureRequirements in rpc_interceptor.go exactly.
 	r.Route("/admin", func(r chi.Router) {
-		r.Get("/orgs", admin.ListOrgs)
-		r.Post("/orgs", admin.CreateOrg)
-		r.Patch("/orgs/{org}", admin.UpdateOrg)
-		r.Delete("/orgs/{org}", admin.DeleteOrg)
+		r.Group(func(r chi.Router) {
+			r.Use(auth.RequireAppAdmin)
+			r.Get("/orgs", admin.ListOrgs)
+			r.Post("/orgs", admin.CreateOrg)
+			r.Patch("/orgs/{org}", admin.UpdateOrg)
+			r.Delete("/orgs/{org}", admin.DeleteOrg)
 
-		r.Get("/clusters", admin.ListClusters)
-		r.Post("/clusters/{cluster}/claim", admin.ClaimCluster)
-		r.Post("/clusters/{cluster}/unclaim", admin.UnclaimCluster)
+			r.Get("/clusters", admin.ListClusters)
+			r.Post("/clusters/{cluster}/claim", admin.ClaimCluster)
+			r.Post("/clusters/{cluster}/unclaim", admin.UnclaimCluster)
 
-		r.Get("/agent-tokens", admin.ListTokens)
-		r.Post("/agent-tokens", admin.CreateToken)
-		r.Delete("/agent-tokens/{id}", admin.RevokeToken)
+			r.Get("/agent-tokens", admin.ListTokens)
+			r.Post("/agent-tokens", admin.CreateToken)
+			r.Delete("/agent-tokens/{id}", admin.RevokeToken)
+		})
 
-		r.Get("/groups/search", admin.SearchGroups)
+		r.Group(func(r chi.Router) {
+			r.Use(requireAppOrOrgAdmin(st))
+			r.Get("/groups/search", admin.SearchGroups)
+		})
 	})
 
-	// Org-scoped endpoints
+	// Org-scoped endpoints. Each group's role requirement mirrors the
+	// corresponding procedure's entry in procedureRequirements
+	// (rpc_interceptor.go) / the Services table in
+	// docs/api-contract-design.md.
 	r.Route("/orgs/{org}", func(r chi.Router) {
-		r.Get("/collectors", orgs.ListCollectors)
-		r.Get("/collectors/{id}", orgs.GetCollector)
-		r.Get("/collectors/{id}/served-config", orgs.ServedConfig)
-		r.Post("/collectors/{id}/assignments", orgs.CreateAssignment)
-		r.Delete("/collectors/{id}/assignments/{group_id}", orgs.DeleteAssignment)
+		// org-reader: read-only routes.
+		r.Group(func(r chi.Router) {
+			r.Use(auth.RequireOrgAccess(st, "org", "reader"))
+			r.Get("/collectors", orgs.ListCollectors)
+			r.Get("/collectors/{id}", orgs.GetCollector)
+			r.Get("/collectors/{id}/served-config", orgs.ServedConfig)
+			r.Get("/attributes", orgs.ListAttributes)
 
-		r.Get("/pipelines", pipelines.List)
-		r.Post("/pipelines", pipelines.Create)
+			r.Get("/pipelines", pipelines.List)
+			r.Get("/pipelines/{id}", pipelines.Get)
+			r.Get("/pipelines/{id}/preview-matches", pipelines.PreviewMatches)
+			r.Get("/pipelines/{id}/revisions", pipelines.ListRevisions)
+
+			r.Get("/destinations", orgs.ListDestinations)
+			r.Get("/destinations/{id}", orgs.GetDestination)
+		})
+
+		// org-admin: writes, plus the org-admin-only services
+		// (WizardService, GitOpsService, AuditService).
+		r.Group(func(r chi.Router) {
+			r.Use(auth.RequireOrgAccess(st, "org", "orgadmin"))
+			r.Post("/collectors/{id}/assignments", orgs.CreateAssignment)
+			r.Delete("/collectors/{id}/assignments/{group_id}", orgs.DeleteAssignment)
+
+			r.Post("/pipelines", pipelines.Create)
+			r.Post("/pipelines/validate", pipelines.Validate)
+			r.Put("/pipelines/{id}", pipelines.Update)
+			r.Delete("/pipelines/{id}", pipelines.Delete)
+			r.Post("/pipelines/{id}/enable", pipelines.Enable)
+			r.Post("/pipelines/{id}/disable", pipelines.Disable)
+
+			r.Get("/wizards", wizards.ListWizards)
+			r.Get("/wizards/{kind}", wizards.GetWizardSchema)
+			r.Post("/wizards/commit", wizards.CommitWizard)
+
+			r.Post("/destinations", orgs.CreateDestination)
+			r.Put("/destinations/{id}", orgs.UpdateDestination)
+			r.Delete("/destinations/{id}", orgs.DeleteDestination)
+
+			r.Get("/audit", audit.List)
+
+			r.Get("/ado-credentials", repoLinks.ListCredentials)
+			r.Post("/ado-credentials", repoLinks.CreateCredential)
+			r.Delete("/ado-credentials/{id}", repoLinks.DeleteCredential)
+
+			r.Get("/repo-links", repoLinks.ListRepoLinks)
+			r.Post("/repo-links", repoLinks.CreateRepoLink)
+			r.Delete("/repo-links/{id}", repoLinks.DeleteRepoLink)
+		})
+
+		// org-admin: VisualService (except GraphView) and SimulateService.
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireOrgAccess(st, "org", "orgadmin"))
 			r.Post("/visual/render", visualHandler.Render)
@@ -104,73 +191,70 @@ func Router(st *store.Store, cfg *config.Config, enc *crypto.Encryptor, logger *
 			r.Post("/simulate/relabel", simulateHandler.SimulateRelabel)
 			r.Post("/simulate/logs", simulateHandler.SimulateLogs)
 		})
-		r.Post("/pipelines/validate", pipelines.Validate)
-		r.Get("/pipelines/{id}", pipelines.Get)
-		r.Put("/pipelines/{id}", pipelines.Update)
-		r.Delete("/pipelines/{id}", pipelines.Delete)
-		r.Post("/pipelines/{id}/enable", pipelines.Enable)
-		r.Post("/pipelines/{id}/disable", pipelines.Disable)
-		r.Get("/pipelines/{id}/preview-matches", pipelines.PreviewMatches)
-		r.Get("/pipelines/{id}/revisions", pipelines.ListRevisions)
+
+		// org-reader: VisualService.GraphView.
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireOrgAccess(st, "org", "reader"))
 			r.Get("/pipelines/{id}/graph", visualHandler.GraphView)
 		})
-
-		r.Get("/attributes", orgs.ListAttributes)
-
-		r.Get("/wizards", wizards.ListWizards)
-		r.Get("/wizards/{kind}", wizards.GetWizardSchema)
-		r.Post("/wizards/commit", wizards.CommitWizard)
-
-		r.Get("/destinations", orgs.ListDestinations)
-		r.Post("/destinations", orgs.CreateDestination)
-		r.Get("/destinations/{id}", orgs.GetDestination)
-		r.Put("/destinations/{id}", orgs.UpdateDestination)
-		r.Delete("/destinations/{id}", orgs.DeleteDestination)
-
-		r.Get("/audit", audit.List)
-
-		r.Get("/ado-credentials", func(w http.ResponseWriter, r *http.Request) {
-			if repoLinks == nil {
-				respondJSON(w, http.StatusOK, listResponse[any]{Items: []any{}, Total: 0})
-				return
-			}
-			repoLinks.ListCredentials(w, r)
-		})
-		r.Post("/ado-credentials", func(w http.ResponseWriter, r *http.Request) {
-			if repoLinks == nil {
-				respondError(w, http.StatusServiceUnavailable, "unavailable", "encryption not configured")
-				return
-			}
-			repoLinks.CreateCredential(w, r)
-		})
-		r.Delete("/ado-credentials/{id}", func(w http.ResponseWriter, r *http.Request) {
-			if repoLinks != nil {
-				repoLinks.DeleteCredential(w, r)
-			}
-		})
-
-		r.Get("/repo-links", func(w http.ResponseWriter, r *http.Request) {
-			if repoLinks == nil {
-				respondJSON(w, http.StatusOK, listResponse[any]{Items: []any{}, Total: 0})
-				return
-			}
-			repoLinks.ListRepoLinks(w, r)
-		})
-		r.Post("/repo-links", func(w http.ResponseWriter, r *http.Request) {
-			if repoLinks == nil {
-				respondError(w, http.StatusServiceUnavailable, "unavailable", "encryption not configured")
-				return
-			}
-			repoLinks.CreateRepoLink(w, r)
-		})
-		r.Delete("/repo-links/{id}", func(w http.ResponseWriter, r *http.Request) {
-			if repoLinks != nil {
-				repoLinks.DeleteRepoLink(w, r)
-			}
-		})
 	})
 
 	return r
+}
+
+// MountRPC mounts every shepherd.mgmt.v1 Connect service handler onto r,
+// each wrapped with the shared authz interceptor (rpc_interceptor.go). Call
+// this inside the same chi router group that already applies session +
+// CSRF middleware — see internal/server/server.go, where it is called
+// alongside r.Mount("/api", Router(...)).
+//
+// Service implementations are still stubs (connect.CodeUnimplemented for
+// every method); this only wires the transport, mounting, and authz layers.
+func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Encryptor, logger *slog.Logger) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	logger = logger.With("component", "mgmtapi.rpc")
+	v := validate.New(&cfg.Validate)
+	schemaReg, schemaErr := schema.New(schema.Embedded, version.AlloySchemaVersion)
+	_ = schemaErr // nil-safe: stub Pipeline/Visual services don't dereference the registry yet; REST schema handler already surfaces registry errors
+
+	authz := connect.WithInterceptors(newAuthzInterceptor(st))
+
+	mounts := []func() (string, http.Handler){
+		func() (string, http.Handler) {
+			return mgmtv1connect.NewMeServiceHandler(NewMeService(st, logger), authz)
+		},
+		func() (string, http.Handler) {
+			return mgmtv1connect.NewAdminServiceHandler(NewAdminService(st, logger), authz)
+		},
+		func() (string, http.Handler) {
+			return mgmtv1connect.NewFleetServiceHandler(NewFleetService(st, logger), authz)
+		},
+		func() (string, http.Handler) {
+			return mgmtv1connect.NewPipelineServiceHandler(NewPipelineService(st, v, schemaReg, logger), authz)
+		},
+		func() (string, http.Handler) {
+			return mgmtv1connect.NewDestinationServiceHandler(NewDestinationService(st, logger), authz)
+		},
+		func() (string, http.Handler) {
+			return mgmtv1connect.NewGitOpsServiceHandler(NewGitOpsService(st, enc, logger), authz)
+		},
+		func() (string, http.Handler) {
+			return mgmtv1connect.NewWizardServiceHandler(NewWizardService(st, logger), authz)
+		},
+		func() (string, http.Handler) {
+			return mgmtv1connect.NewVisualServiceHandler(NewVisualService(st, v, schemaReg, logger), authz)
+		},
+		func() (string, http.Handler) {
+			return mgmtv1connect.NewSimulateServiceHandler(NewSimulateService(logger), authz)
+		},
+		func() (string, http.Handler) {
+			return mgmtv1connect.NewAuditServiceHandler(NewAuditService(st, logger), authz)
+		},
+	}
+	for _, mount := range mounts {
+		path, handler := mount()
+		r.Mount(path, handler)
+	}
 }

@@ -1,32 +1,33 @@
 package mgmtapi
 
 import (
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/json"
-	"fmt"
+	"errors"
 	"log/slog"
 	"net/http"
 
+	"connectrpc.com/connect"
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
+	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/internal/store"
-	"shepherd/internal/store/sqlc"
 )
 
-// AdminHandler handles /api/admin routes.
+// AdminHandler is a thin REST shim over AdminService for /api/admin routes:
+// it parses URL params/query/body into the shepherd.mgmt.v1 proto request,
+// calls the service method directly (in-process, not over HTTP), and
+// renders the response with the shim helpers in shim.go so the legacy JSON
+// stays byte-compatible. No business logic lives here — see rpc_admin.go.
 type AdminHandler struct {
-	store  *store.Store
-	logger *slog.Logger
+	svc *AdminService
 }
 
-// NewAdminHandler creates an admin route handler.
+// NewAdminHandler creates an admin route handler backed by an AdminService
+// constructed from the same deps the legacy handler used.
 func NewAdminHandler(st *store.Store, logger *slog.Logger) *AdminHandler {
-	return &AdminHandler{store: st, logger: logger}
+	return &AdminHandler{svc: NewAdminService(st, logger)}
 }
 
+// orgRequest is the legacy wire shape for POST/PATCH .../admin/orgs.
 type orgRequest struct {
 	Name          string `json:"name"`
 	DisplayName   string `json:"display_name"`
@@ -34,293 +35,169 @@ type orgRequest struct {
 	ReaderGroupID string `json:"reader_group_id"`
 }
 
-type orgResponse struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	DisplayName   string `json:"display_name"`
-	AdminGroupID  string `json:"admin_group_id"`
-	ReaderGroupID string `json:"reader_group_id,omitempty"`
-	CreatedAt     string `json:"created_at"`
-	UpdatedAt     string `json:"updated_at"`
-}
-
-func orgToResponse(o sqlc.Org) orgResponse {
-	id := o.ID.String()
-	return orgResponse{
-		ID:            id,
-		Name:          o.Name,
-		DisplayName:   o.DisplayName,
-		AdminGroupID:  o.AdminGroupID,
-		ReaderGroupID: o.ReaderGroupID.String,
-		CreatedAt:     o.CreatedAt.Time.UTC().Format("2006-01-02T15:04:05Z"),
-		UpdatedAt:     o.UpdatedAt.Time.UTC().Format("2006-01-02T15:04:05Z"),
-	}
-}
+// orgOmitFields names the Org field(s) the legacy orgResponse struct marked
+// `,omitempty` — every other Org field is always emitted, even when empty.
+var orgOmitFields = []string{"reader_group_id"} //nolint:gochecknoglobals // shared, read-only field list
 
 // ListOrgs lists organizations.
 func (h *AdminHandler) ListOrgs(w http.ResponseWriter, r *http.Request) {
-	orgs, err := h.store.Queries.ListOrgs(r.Context())
+	resp, err := h.svc.ListOrgs(r.Context(), connect.NewRequest(&mgmtv1.ListOrgsRequest{}))
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "internal", "failed to list orgs")
+		WriteConnectError(w, err)
 		return
 	}
-	items := make([]orgResponse, len(orgs))
-	for i := range orgs {
-		items[i] = orgToResponse(orgs[i])
-	}
-	respondJSON(w, http.StatusOK, listResponse[orgResponse]{Items: items, Total: len(items)})
+	writeProtoJSONOmit(w, http.StatusOK, resp.Msg, orgOmitFields...)
 }
 
 // CreateOrg creates an organization.
 func (h *AdminHandler) CreateOrg(w http.ResponseWriter, r *http.Request) {
-	var req orgRequest
-	if !decodeJSON(w, r, &req) {
+	var body orgRequest
+	if !decodeJSON(w, r, &body) {
 		return
 	}
-	if req.Name == "" || req.DisplayName == "" || req.AdminGroupID == "" {
-		respondError(w, http.StatusBadRequest, "validation_error", "name, display_name, admin_group_id required")
-		return
+	req := &mgmtv1.CreateOrgRequest{
+		Name: body.Name, DisplayName: body.DisplayName,
+		AdminGroupId: body.AdminGroupID, ReaderGroupId: body.ReaderGroupID,
 	}
-	o, err := h.store.Queries.CreateOrg(r.Context(), sqlc.CreateOrgParams{
-		Name:          req.Name,
-		DisplayName:   req.DisplayName,
-		AdminGroupID:  req.AdminGroupID,
-		ReaderGroupID: pgtype.Text{String: req.ReaderGroupID, Valid: req.ReaderGroupID != ""},
-	})
+	resp, err := h.svc.CreateOrg(r.Context(), connect.NewRequest(req))
 	if err != nil {
-		if isUniqueViolation(err) {
-			respondError(w, http.StatusConflict, "conflict", "org name already exists")
-			return
-		}
-		respondError(w, http.StatusInternalServerError, "internal", "failed to create org")
+		WriteConnectError(w, err)
 		return
 	}
-	auditLog(r.Context(), h.store, actorFromCtx(r.Context()), o.ID, "org.create", "org", o.ID.String())
-	respondJSON(w, http.StatusCreated, orgToResponse(o))
+	writeProtoJSONOmit(w, http.StatusCreated, resp.Msg, orgOmitFields...)
 }
 
 // UpdateOrg updates an organization.
 func (h *AdminHandler) UpdateOrg(w http.ResponseWriter, r *http.Request) {
-	var id pgtype.UUID
-	if err := id.Scan(chi.URLParam(r, "org")); err != nil {
-		respondError(w, http.StatusBadRequest, "bad_request", "invalid org id")
+	var body orgRequest
+	if !decodeJSON(w, r, &body) {
 		return
 	}
-	var req orgRequest
-	if !decodeJSON(w, r, &req) {
-		return
+	req := &mgmtv1.UpdateOrgRequest{
+		OrgId: chi.URLParam(r, "org"), DisplayName: body.DisplayName,
+		AdminGroupId: body.AdminGroupID, ReaderGroupId: body.ReaderGroupID,
 	}
-	o, err := h.store.Queries.UpdateOrg(r.Context(), sqlc.UpdateOrgParams{
-		ID:            id,
-		DisplayName:   req.DisplayName,
-		AdminGroupID:  req.AdminGroupID,
-		ReaderGroupID: pgtype.Text{String: req.ReaderGroupID, Valid: req.ReaderGroupID != ""},
-	})
+	resp, err := h.svc.UpdateOrg(r.Context(), connect.NewRequest(req))
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "internal", "failed to update org")
+		WriteConnectError(w, err)
 		return
 	}
-	respondJSON(w, http.StatusOK, orgToResponse(o))
+	writeProtoJSONOmit(w, http.StatusOK, resp.Msg, orgOmitFields...)
 }
 
-// DeleteOrg deletes an organization.
+// DeleteOrg deletes an organization. A non-empty org (orgNotEmptyError from
+// rpc_admin.go) renders the legacy {"error":{"code":"not_empty",...}}
+// envelope exactly (see rpc_admin.go's orgNotEmptyError doc comment); every
+// other error uses the generic connect error shim.
 func (h *AdminHandler) DeleteOrg(w http.ResponseWriter, r *http.Request) {
-	var id pgtype.UUID
-	if err := id.Scan(chi.URLParam(r, "org")); err != nil {
-		respondError(w, http.StatusBadRequest, "bad_request", "invalid org id")
-		return
-	}
-	var clusterCount, pipelineCount int
-	// RAW-SQL-OK: cross-table count with two columns — no sqlc equivalent
-	err := h.store.Pool().QueryRow(r.Context(),
-		`SELECT
-			(SELECT count(*) FROM clusters WHERE org_id = $1)::int,
-			(SELECT count(*) FROM pipelines WHERE org_id = $1)::int`,
-		id).Scan(&clusterCount, &pipelineCount)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "internal", "failed to check org content")
-		return
-	}
-	if clusterCount > 0 || pipelineCount > 0 {
-		msg := fmt.Sprintf("org has %d clusters, %d pipelines", clusterCount, pipelineCount)
-		respondError(w, http.StatusConflict, "not_empty", msg)
-		return
-	}
-
-	if err := h.store.Queries.DeleteOrg(r.Context(), id); err != nil {
-		if isFKViolation(err) {
-			respondError(w, http.StatusConflict, "not_empty", "org still has references")
+	req := &mgmtv1.DeleteOrgRequest{OrgId: chi.URLParam(r, "org")}
+	if _, err := h.svc.DeleteOrg(r.Context(), connect.NewRequest(req)); err != nil {
+		var notEmpty *orgNotEmptyError
+		if errors.As(err, &notEmpty) {
+			respondError(w, http.StatusConflict, "not_empty", notEmpty.Error())
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "internal", "failed to delete org")
+		WriteConnectError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-type clusterResponse struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	OrgID     string `json:"org_id,omitempty"`
-	CreatedAt string `json:"created_at"`
-}
-
-func clusterToResponse(c sqlc.Cluster) clusterResponse {
-	var id, orgID string
-	id = c.ID.String()
-	orgID = c.OrgID.String()
-	return clusterResponse{ID: id, Name: c.Name, OrgID: orgID, CreatedAt: c.CreatedAt.Time.UTC().Format("2006-01-02T15:04:05Z")}
-}
-
-// ListClusters lists clusters.
+// ListClusters lists clusters, optionally filtered to unclaimed ones via
+// ?unclaimed=true.
 func (h *AdminHandler) ListClusters(w http.ResponseWriter, r *http.Request) {
-	unclaimed := r.URL.Query().Get("unclaimed") == "true"
-	if unclaimed {
-		clusters, _ := h.store.Queries.ListUnclaimedClusters(r.Context()) //nolint:errcheck // empty list is safe fallback
-		items := make([]clusterResponse, len(clusters))
-		for i := range clusters {
-			items[i] = clusterToResponse(clusters[i])
-		}
-		respondJSON(w, http.StatusOK, listResponse[clusterResponse]{Items: items, Total: len(items)})
-		return
-	}
-	clusters, err := h.store.Queries.ListAllClusters(r.Context())
+	req := &mgmtv1.ListClustersRequest{Unclaimed: r.URL.Query().Get("unclaimed") == "true"}
+	resp, err := h.svc.ListClusters(r.Context(), connect.NewRequest(req))
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "internal", "failed to list clusters")
+		WriteConnectError(w, err)
 		return
 	}
-	items := make([]clusterResponse, len(clusters))
-	for i := range clusters {
-		items[i] = clusterToResponse(clusters[i])
-	}
-	respondJSON(w, http.StatusOK, listResponse[clusterResponse]{Items: items, Total: len(items)})
+	// org_id is the legacy clusterResponse struct's one omitempty field —
+	// omitted for every unclaimed cluster.
+	writeProtoJSONOmit(w, http.StatusOK, resp.Msg, "org_id")
+}
+
+// claimClusterRequest is the legacy wire shape for POST .../clusters/{cluster}/claim.
+type claimClusterRequest struct {
+	OrgID string `json:"org_id"`
 }
 
 // ClaimCluster assigns a cluster to an organization.
 func (h *AdminHandler) ClaimCluster(w http.ResponseWriter, r *http.Request) {
-	cluster, err := h.store.Queries.GetClusterByName(r.Context(), chi.URLParam(r, "cluster"))
-	if err != nil {
-		respondError(w, http.StatusNotFound, "not_found", "cluster not found")
-		return
-	}
-	var body struct {
-		OrgID string `json:"org_id"`
-	}
+	var body claimClusterRequest
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	var orgID pgtype.UUID
-	if err := orgID.Scan(body.OrgID); err != nil {
-		respondError(w, http.StatusBadRequest, "bad_request", "invalid org_id")
+	req := &mgmtv1.ClaimClusterRequest{Cluster: chi.URLParam(r, "cluster"), OrgId: body.OrgID}
+	resp, err := h.svc.ClaimCluster(r.Context(), connect.NewRequest(req))
+	if err != nil {
+		WriteConnectError(w, err)
 		return
 	}
-	if err := h.store.Queries.ClaimCluster(r.Context(), sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgID}); err != nil {
-		respondError(w, http.StatusInternalServerError, "internal", "failed to claim cluster")
-		return
-	}
-	h.logger.Info("cluster claimed", "cluster_id", cluster.ID, "org_id", orgID)
-	respondJSON(w, http.StatusOK, map[string]string{"status": "claimed"})
+	writeProtoJSON(w, http.StatusOK, resp.Msg)
 }
 
 // UnclaimCluster removes a cluster's organization assignment.
 func (h *AdminHandler) UnclaimCluster(w http.ResponseWriter, r *http.Request) {
-	cluster, err := h.store.Queries.GetClusterByName(r.Context(), chi.URLParam(r, "cluster"))
+	req := &mgmtv1.UnclaimClusterRequest{Cluster: chi.URLParam(r, "cluster")}
+	resp, err := h.svc.UnclaimCluster(r.Context(), connect.NewRequest(req))
 	if err != nil {
-		respondError(w, http.StatusNotFound, "not_found", "cluster not found")
+		WriteConnectError(w, err)
 		return
 	}
-	if err := h.store.Queries.UnclaimCluster(r.Context(), cluster.ID); err != nil {
-		respondError(w, http.StatusInternalServerError, "internal", "failed to unclaim cluster")
-		return
-	}
-	// RAW-SQL-OK: cluster-scoped dirty marking — no sqlc query covers this join shape
-	if _, err := h.store.Pool().Exec(r.Context(),
-		`UPDATE serve_cache sc SET dirty = true
-		 FROM collectors c WHERE sc.collector_id = c.id AND c.cluster_id = $1`,
-		cluster.ID); err != nil {
-		h.logger.Warn("unclaim: failed to mark serve_cache dirty", "cluster_id", cluster.ID, "err", err)
-	}
-	respondJSON(w, http.StatusOK, map[string]string{"status": "unclaimed"})
-}
-
-type tokenResponse struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	CreatedBy string `json:"created_by"`
-	Status    string `json:"status"`
-	CreatedAt string `json:"created_at"`
+	writeProtoJSON(w, http.StatusOK, resp.Msg)
 }
 
 // ListTokens lists agent tokens.
 func (h *AdminHandler) ListTokens(w http.ResponseWriter, r *http.Request) {
-	tokens, _ := h.store.Queries.ListAgentTokens(r.Context()) //nolint:errcheck // empty list is safe fallback
-	items := make([]tokenResponse, len(tokens))
-	for i := range tokens {
-		t := tokens[i]
-		status := "active"
-		if t.RevokedAt.Valid {
-			status = "revoked"
-		}
-		id := t.ID.String()
-		items[i] = tokenResponse{ID: id, Name: t.Name, CreatedBy: t.CreatedBy, Status: status, CreatedAt: t.CreatedAt.Time.UTC().Format("2006-01-02T15:04:05Z")}
+	resp, err := h.svc.ListAgentTokens(r.Context(), connect.NewRequest(&mgmtv1.ListAgentTokensRequest{}))
+	if err != nil {
+		WriteConnectError(w, err)
+		return
 	}
-	respondJSON(w, http.StatusOK, listResponse[tokenResponse]{Items: items, Total: len(items)})
+	writeProtoJSON(w, http.StatusOK, resp.Msg)
 }
 
-// CreateToken creates an agent token.
+// createTokenRequest is the legacy wire shape for POST .../admin/agent-tokens.
+type createTokenRequest struct {
+	Name string `json:"name"`
+}
+
+// CreateToken creates an agent token. The response includes the plaintext
+// secret exactly once — it is never logged.
 func (h *AdminHandler) CreateToken(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Name string `json:"name"`
-	}
+	var body createTokenRequest
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	if body.Name == "" {
-		respondError(w, http.StatusBadRequest, "validation_error", "name required")
-		return
-	}
-	actor := actorFromCtx(r.Context())
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
-		respondError(w, http.StatusInternalServerError, "internal", "failed to generate secret")
-		return
-	}
-	secret := base64.URLEncoding.EncodeToString(raw)
-	hash := sha256.Sum256([]byte(secret))
-	tok, err := h.store.Queries.CreateAgentToken(r.Context(), sqlc.CreateAgentTokenParams{
-		Name: body.Name, TokenHash: hash[:], CreatedBy: actor,
-	})
+	req := &mgmtv1.CreateAgentTokenRequest{Name: body.Name}
+	resp, err := h.svc.CreateAgentToken(r.Context(), connect.NewRequest(req))
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "internal", "failed to create token")
+		WriteConnectError(w, err)
 		return
 	}
-	id := tok.ID.String()
-	respondJSON(w, http.StatusCreated, map[string]string{
-		"id":     id,
-		"name":   tok.Name,
-		"secret": secret,
-	})
+	writeProtoJSON(w, http.StatusCreated, resp.Msg)
 }
 
 // RevokeToken revokes an agent token.
 func (h *AdminHandler) RevokeToken(w http.ResponseWriter, r *http.Request) {
-	var id pgtype.UUID
-	if err := id.Scan(chi.URLParam(r, "id")); err != nil {
-		respondError(w, http.StatusBadRequest, "bad_request", "invalid token id")
-		return
-	}
-	if err := h.store.Queries.RevokeAgentToken(r.Context(), id); err != nil {
-		respondError(w, http.StatusInternalServerError, "internal", "failed to revoke token")
+	req := &mgmtv1.RevokeAgentTokenRequest{Id: chi.URLParam(r, "id")}
+	if _, err := h.svc.RevokeAgentToken(r.Context(), connect.NewRequest(req)); err != nil {
+		WriteConnectError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// SearchGroups searches groups.
+// SearchGroups searches groups. org_id is optional — it scopes the search
+// (and, per requireAppOrOrgAdmin in router.go, the authorization check) to
+// one org for an org-admin caller; an app admin may omit it.
 func (h *AdminHandler) SearchGroups(w http.ResponseWriter, r *http.Request) {
-	// Graph-backed group search — implemented in M5 when Graph client is wired.
-	respondJSON(w, http.StatusOK, map[string]any{"items": []any{}, "total": 0})
+	req := &mgmtv1.SearchGroupsRequest{OrgId: r.URL.Query().Get("org_id"), Q: r.URL.Query().Get("q")}
+	resp, err := h.svc.SearchGroups(r.Context(), connect.NewRequest(req))
+	if err != nil {
+		WriteConnectError(w, err)
+		return
+	}
+	writeProtoJSON(w, http.StatusOK, resp.Msg)
 }
-
-// Ensure json is used.
-var _ = json.Marshal

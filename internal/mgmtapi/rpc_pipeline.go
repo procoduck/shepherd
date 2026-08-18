@@ -1,0 +1,805 @@
+package mgmtapi
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"strings"
+
+	"connectrpc.com/connect"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
+	"google.golang.org/protobuf/encoding/protojson"
+
+	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
+	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
+	"shepherd/internal/merge"
+	"shepherd/internal/schema"
+	"shepherd/internal/store"
+	"shepherd/internal/store/sqlc"
+	"shepherd/internal/validate"
+	"shepherd/internal/visual"
+)
+
+// PipelineService implements mgmtv1connect.PipelineServiceHandler. Business
+// logic moved here from PipelinesHandler (pipelines.go), which is now a
+// thin REST shim delegating to these methods in-process.
+type PipelineService struct {
+	store     *store.Store
+	validator *validate.Validator
+	schema    *schema.Registry
+	logger    *slog.Logger
+}
+
+// NewPipelineService constructs a PipelineService with the deps PipelinesHandler uses today.
+func NewPipelineService(st *store.Store, v *validate.Validator, reg *schema.Registry, logger *slog.Logger) *PipelineService {
+	return &PipelineService{store: st, validator: v, schema: reg, logger: logger}
+}
+
+var _ mgmtv1connect.PipelineServiceHandler = (*PipelineService)(nil)
+
+// Sentinel errors for PipelineService. Message text mirrors the legacy
+// pipelines.go handler strings exactly so the REST shim's rendered
+// {"error":{"message":...}} stays byte-compatible even though the "code"
+// value now reflects the connect.Code rather than the old ad-hoc string
+// (see shim.go's WriteConnectError / docs/api-contract-design.md's Errors
+// mapping table).
+var (
+	errOrgIDInvalid         = errors.New("invalid org id")
+	errPipelineIDInvalid    = errors.New("invalid pipeline id")
+	errPipelineNotFound     = errors.New("pipeline not found")
+	errPipelineNameRequired = errors.New("name is required")
+	errMatchersInvalid      = errors.New("invalid matchers")
+	errRenderMismatch       = errors.New("submitted content does not match server render of the graph; use POST /visual/render to get the canonical content")
+	errGitSourceReadOnly    = errors.New("git-sourced pipelines are read-only")
+	errNameExists           = errors.New("pipeline name already exists in this org")
+	errNameCollision        = errors.New("pipeline sanitized name collides with an existing pipeline")
+	errCreatePipelineFailed = errors.New("failed to create pipeline")
+	errUpdatePipelineFailed = errors.New("failed to update pipeline")
+	errDeletePipelineFailed = errors.New("failed to delete pipeline")
+	errListPipelinesFailed  = errors.New("failed to list pipelines")
+	errListRevisionsFailed  = errors.New("failed to load revisions")
+	errWizardStateInvalid   = errors.New("invalid wizard_state")
+)
+
+// pipelineValidationError carries Stage1/2 diagnostics for a CreatePipeline
+// or UpdatePipeline call that failed the validation gate. The REST shim
+// (pipelines.go's writePipelineSaveError) type-asserts on this via errors.As
+// to reproduce the legacy {"error":...,"diagnostics":[...]} envelope;
+// ValidatePipeline (which never fails — see its doc comment) carries the
+// same diagnostics directly on its response instead.
+type pipelineValidationError struct {
+	Diagnostics []validate.Diagnostic
+}
+
+func (e *pipelineValidationError) Error() string { return "pipeline failed validation" }
+
+// diagnosticsToProto converts internal/validate diagnostics to their
+// shepherd.mgmt.v1 proto representation (field-for-field identical shape).
+func diagnosticsToProto(diags []validate.Diagnostic) []*mgmtv1.Diagnostic {
+	out := make([]*mgmtv1.Diagnostic, len(diags))
+	for i, d := range diags {
+		out[i] = &mgmtv1.Diagnostic{
+			Line:    int32(d.Line), //nolint:gosec // validate diagnostics are bounded by file size, not attacker-controlled
+			Col:     int32(d.Col),  //nolint:gosec // same
+			Message: d.Message,
+			Stage:   int32(d.Stage), //nolint:gosec // stage is 1..3
+		}
+	}
+	return out
+}
+
+// pipelineToProto mirrors pipelineToResponse: it never populates Revision
+// (always 0) and only populates Revisions when the caller (GetPipeline)
+// explicitly attaches them.
+func pipelineToProto(p sqlc.Pipeline) *mgmtv1.Pipeline {
+	var matchers []string
+	if err := json.Unmarshal(p.Matchers, &matchers); err != nil {
+		matchers = []string{}
+	}
+	if matchers == nil {
+		matchers = []string{}
+	}
+	return &mgmtv1.Pipeline{
+		Id:        p.ID.String(),
+		OrgId:     p.OrgID.String(),
+		Name:      p.Name,
+		Contents:  p.Contents,
+		Matchers:  matchers,
+		Enabled:   p.Enabled,
+		Source:    p.Source,
+		CreatedBy: p.CreatedBy,
+		UpdatedBy: p.UpdatedBy,
+		CreatedAt: protoTimestamp(p.CreatedAt),
+		UpdatedAt: protoTimestamp(p.UpdatedAt),
+	}
+}
+
+func revisionToProto(rv sqlc.PipelineRevision) *mgmtv1.PipelineRevision {
+	return &mgmtv1.PipelineRevision{
+		Revision:   rv.Revision,
+		ChangedBy:  rv.ChangedBy,
+		ChangedAt:  protoTimestamp(rv.ChangedAt),
+		ChangeNote: rv.ChangeNote,
+	}
+}
+
+// visualNeedsUpgrade reports whether the wizard_state JSON contains a schema_version
+// that differs from currentVersion.
+func visualNeedsUpgrade(wizardState []byte, currentVersion string) bool {
+	if len(wizardState) == 0 {
+		return false
+	}
+	var doc struct {
+		SchemaVersion string `json:"schema_version"`
+	}
+	if err := json.Unmarshal(wizardState, &doc); err != nil {
+		return false
+	}
+	return doc.SchemaVersion != "" && doc.SchemaVersion != currentVersion
+}
+
+// checkVisualRenderMatch re-renders wizard_state and compares it with clientContent.
+func (s *PipelineService) checkVisualRenderMatch(_ context.Context, clientContent string, wizardState json.RawMessage) (bool, error) {
+	if s.schema == nil {
+		return false, nil
+	}
+	var doc visual.GraphDocument
+	if err := json.Unmarshal(wizardState, &doc); err != nil {
+		return false, fmt.Errorf("unmarshal wizard_state: %w", err)
+	}
+	version := doc.SchemaVersion
+	if version == "" {
+		version = s.schema.CurrentVersion()
+	}
+	payload, _, err := s.schema.Get(version)
+	if err != nil {
+		return false, fmt.Errorf("load schema %q: %w", version, err)
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return false, fmt.Errorf("marshal schema: %w", err)
+	}
+	var schemaPayload visual.SchemaPayload
+	if err := json.Unmarshal(b, &schemaPayload); err != nil {
+		return false, fmt.Errorf("unmarshal schema payload: %w", err)
+	}
+	result := visual.Render(doc, schemaPayload)
+	if len(result.Diagnostics) > 0 {
+		return false, nil
+	}
+	return result.Content != clientContent, nil
+}
+
+// loadPipeline fetches a pipeline by id, mapping an unparsable id to
+// InvalidArgument (400) and a missing row to NotFound (404) — the same two
+// distinct statuses PipelinesHandler.loadPipeline produced.
+func (s *PipelineService) loadPipeline(ctx context.Context, idStr string) (sqlc.Pipeline, error) {
+	id, err := scanUUID(idStr)
+	if err != nil {
+		return sqlc.Pipeline{}, connect.NewError(connect.CodeInvalidArgument, errPipelineIDInvalid)
+	}
+	p, err := s.store.Queries.GetPipelineByID(ctx, id)
+	if err != nil {
+		return sqlc.Pipeline{}, connect.NewError(connect.CodeNotFound, errPipelineNotFound)
+	}
+	return p, nil
+}
+
+// looseUUID parses s into a pgtype.UUID, leaving it as the invalid zero
+// value on parse failure instead of returning an error — mirrors
+// orgIDFromParam's "id.Valid = false on error" behavior for the endpoints
+// (Update/Delete/Enable/Disable) that never validated the org id and simply
+// passed the zero-value UUID through to cache-dirtying/audit calls.
+func looseUUID(s string) pgtype.UUID {
+	var id pgtype.UUID
+	if err := id.Scan(s); err != nil {
+		id.Valid = false
+	}
+	return id
+}
+
+// ListPipelines lists pipelines in an org.
+func (s *PipelineService) ListPipelines(ctx context.Context, req *connect.Request[mgmtv1.ListPipelinesRequest]) (*connect.Response[mgmtv1.ListPipelinesResponse], error) {
+	orgID, err := scanUUID(req.Msg.GetOrgId())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errOrgIDInvalid)
+	}
+	pipelines, err := s.store.Queries.ListPipelinesByOrg(ctx, orgID)
+	if err != nil {
+		s.logger.Error("list pipelines", "err", err)
+		return nil, connect.NewError(connect.CodeInternal, errListPipelinesFailed)
+	}
+
+	// ?needs_upgrade=true — filter to visual pipelines whose schema_version < current.
+	if req.Msg.GetNeedsUpgrade() && s.schema != nil {
+		current := s.schema.CurrentVersion()
+		filtered := pipelines[:0]
+		for i := range pipelines {
+			if pipelines[i].Source == "visual" && visualNeedsUpgrade(pipelines[i].WizardState, current) {
+				filtered = append(filtered, pipelines[i])
+			}
+		}
+		pipelines = filtered
+	}
+
+	items := make([]*mgmtv1.Pipeline, len(pipelines))
+	for i := range pipelines {
+		items[i] = pipelineToProto(pipelines[i])
+	}
+	return connect.NewResponse(&mgmtv1.ListPipelinesResponse{
+		Items: items,
+		Total: int32(len(items)), //nolint:gosec // len(items) bounded by DB rows for one org
+	}), nil
+}
+
+// GetPipeline returns one pipeline, including its revision history.
+func (s *PipelineService) GetPipeline(ctx context.Context, req *connect.Request[mgmtv1.GetPipelineRequest]) (*connect.Response[mgmtv1.Pipeline], error) {
+	p, err := s.loadPipeline(ctx, req.Msg.GetId())
+	if err != nil {
+		return nil, err
+	}
+	pp := pipelineToProto(p)
+
+	revs, revErr := s.store.Queries.ListPipelineRevisions(ctx, p.ID)
+	if revErr != nil {
+		s.logger.Warn("failed to load pipeline revisions", "err", revErr)
+	}
+	for i := range revs {
+		pp.Revisions = append(pp.Revisions, revisionToProto(revs[i]))
+	}
+	return connect.NewResponse(pp), nil
+}
+
+// pipelineSaveInput holds the fields shared by CreatePipeline and
+// UpdatePipeline's validation/persistence pipeline.
+type pipelineSaveInput struct {
+	Name        string
+	Contents    string
+	Matchers    []string
+	Source      string
+	WizardState []byte
+}
+
+// validateSaveInput runs the shared create/update validation sequence: name
+// required, visual render-match check, matchers marshal, then the Stage1+2
+// validation gate. It returns the marshaled matchers JSON on success.
+func (s *PipelineService) validateSaveInput(ctx context.Context, in pipelineSaveInput) (json.RawMessage, error) {
+	if in.Name == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errPipelineNameRequired)
+	}
+	if in.Source == "visual" && len(in.WizardState) > 0 {
+		mismatch, checkErr := s.checkVisualRenderMatch(ctx, in.Contents, in.WizardState)
+		if checkErr != nil {
+			s.logger.Warn("visual render-equality check failed", "err", checkErr)
+		} else if mismatch {
+			return nil, connect.NewError(connect.CodeAlreadyExists, errRenderMismatch)
+		}
+	}
+
+	matchersJSON, err := json.Marshal(in.Matchers)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errMatchersInvalid)
+	}
+
+	wrapped := validate.WrapForValidation(in.Name, in.Contents)
+	if result := s.validator.Stages12(ctx, wrapped); !result.Valid {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, &pipelineValidationError{Diagnostics: result.Diagnostics})
+	}
+	return matchersJSON, nil
+}
+
+// CreatePipeline creates a pipeline.
+func (s *PipelineService) CreatePipeline(ctx context.Context, req *connect.Request[mgmtv1.CreatePipelineRequest]) (*connect.Response[mgmtv1.Pipeline], error) {
+	msg := req.Msg
+	orgID, err := scanUUID(msg.GetOrgId())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errOrgIDInvalid)
+	}
+
+	var wsJSON []byte
+	if ws := msg.GetWizardState(); ws != nil {
+		if wsJSON, err = protojson.Marshal(ws); err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errWizardStateInvalid)
+		}
+	}
+
+	matchersJSON, err := s.validateSaveInput(ctx, pipelineSaveInput{
+		Name: msg.GetName(), Contents: msg.GetContents(), Matchers: msg.GetMatchers(),
+		Source: msg.GetSource(), WizardState: wsJSON,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	actor := actorFromCtx(ctx)
+	source := msg.GetSource()
+	if source == "" {
+		source = "ui"
+	}
+	p, err := s.store.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+		OrgID:       orgID,
+		Name:        msg.GetName(),
+		Contents:    msg.GetContents(),
+		Matchers:    matchersJSON,
+		Enabled:     false,
+		Source:      source,
+		WizardState: wsJSON,
+		CreatedBy:   actor,
+		UpdatedBy:   actor,
+	})
+	if err != nil {
+		if isUniqueViolation(err) {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && strings.Contains(pgErr.ConstraintName, "sanitized_name") {
+				return nil, connect.NewError(connect.CodeFailedPrecondition, errNameCollision)
+			}
+			return nil, connect.NewError(connect.CodeAlreadyExists, errNameExists)
+		}
+		s.logger.Error("create pipeline", "err", err)
+		return nil, connect.NewError(connect.CodeInternal, errCreatePipelineFailed)
+	}
+
+	if revErr := s.createRevision(ctx, p, "created", actor); revErr != nil {
+		s.logger.Error("create pipeline: create revision", "err", revErr, "pipeline_id", p.ID.String())
+	}
+	auditLog(ctx, s.store, actor, orgID, "pipeline.create", "pipeline", p.ID.String())
+	s.logger.Info("pipeline created", "pipeline_id", p.ID.String(), "org_id", orgID.String(), "name", p.Name, "actor", actor)
+
+	return connect.NewResponse(pipelineToProto(p)), nil
+}
+
+// UpdatePipeline updates a pipeline.
+func (s *PipelineService) UpdatePipeline(ctx context.Context, req *connect.Request[mgmtv1.UpdatePipelineRequest]) (*connect.Response[mgmtv1.Pipeline], error) {
+	msg := req.Msg
+	p, err := s.loadPipeline(ctx, msg.GetId())
+	if err != nil {
+		return nil, err
+	}
+	if p.Source == "git" {
+		return nil, connect.NewError(connect.CodePermissionDenied, errGitSourceReadOnly)
+	}
+
+	var wsJSON []byte
+	if ws := msg.GetWizardState(); ws != nil {
+		if wsJSON, err = protojson.Marshal(ws); err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errWizardStateInvalid)
+		}
+	}
+
+	matchersJSON, err := s.validateSaveInput(ctx, pipelineSaveInput{
+		Name: msg.GetName(), Contents: msg.GetContents(), Matchers: msg.GetMatchers(),
+		Source: msg.GetSource(), WizardState: wsJSON,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	actor := actorFromCtx(ctx)
+	updated, err := s.store.Queries.UpdatePipeline(ctx, sqlc.UpdatePipelineParams{
+		ID:        p.ID,
+		Name:      msg.GetName(),
+		Contents:  msg.GetContents(),
+		Matchers:  matchersJSON,
+		UpdatedBy: actor,
+	})
+	if err != nil {
+		s.logger.Error("update pipeline", "err", err)
+		return nil, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
+	}
+
+	if revErr := s.createRevision(ctx, updated, "updated", actor); revErr != nil {
+		s.logger.Error("update pipeline: create revision", "err", revErr, "pipeline_id", updated.ID.String())
+	}
+
+	orgID := looseUUID(msg.GetOrgId())
+	// If enabled, dirty the serve cache for affected collectors.
+	if updated.Enabled {
+		if dirtyErr := s.store.Queries.MarkServeCacheDirtyByOrg(ctx, orgID); dirtyErr != nil {
+			s.logger.Error("update pipeline: mark serve cache dirty", "err", dirtyErr, "org_id", orgID.String())
+		}
+		go s.recomputeOrgCaches(context.Background(), orgID) //nolint:contextcheck,gosec // G118+contextcheck: intentional detached context
+	}
+
+	auditLog(ctx, s.store, actor, orgID, "pipeline.update", "pipeline", p.ID.String())
+	return connect.NewResponse(pipelineToProto(updated)), nil
+}
+
+// DeletePipeline deletes a pipeline.
+func (s *PipelineService) DeletePipeline(ctx context.Context, req *connect.Request[mgmtv1.DeletePipelineRequest]) (*connect.Response[mgmtv1.DeletePipelineResponse], error) {
+	p, err := s.loadPipeline(ctx, req.Msg.GetId())
+	if err != nil {
+		return nil, err
+	}
+	if p.Source == "git" {
+		return nil, connect.NewError(connect.CodePermissionDenied, errGitSourceReadOnly)
+	}
+	actor := actorFromCtx(ctx)
+	orgID := looseUUID(req.Msg.GetOrgId())
+	if err := s.store.Queries.DeletePipeline(ctx, p.ID); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errDeletePipelineFailed)
+	}
+	if dirtyErr := s.store.Queries.MarkServeCacheDirtyByOrg(ctx, orgID); dirtyErr != nil {
+		s.logger.Error("delete pipeline: mark serve cache dirty", "err", dirtyErr, "org_id", orgID.String())
+	}
+	go s.recomputeOrgCaches(context.Background(), orgID) //nolint:contextcheck,gosec // G118+contextcheck: intentional detached context
+	auditLog(ctx, s.store, actor, orgID, "pipeline.delete", "pipeline", p.ID.String())
+	s.logger.Info("pipeline deleted", "pipeline_id", p.ID.String(), "org_id", orgID.String(), "actor", actor)
+	return connect.NewResponse(&mgmtv1.DeletePipelineResponse{}), nil
+}
+
+// setEnabled implements both EnablePipeline and DisablePipeline: it runs a
+// Stage3 dry-run merge validation (with or without the candidate pipeline
+// included), then persists the new enabled state and dirties/recomputes the
+// serve cache for the org.
+func (s *PipelineService) setEnabled(ctx context.Context, orgIDStr, idStr string, enable bool) (*connect.Response[mgmtv1.Pipeline], error) {
+	p, err := s.loadPipeline(ctx, idStr)
+	if err != nil {
+		return nil, err
+	}
+	orgID := looseUUID(orgIDStr)
+	actor := actorFromCtx(ctx)
+
+	// includeCandidate=true on enable (dry-run merge with the candidate
+	// added); false on disable (validates the remaining pipelines, covering
+	// the OLD matcher set per spec §P1.2).
+	if mergeErr := s.stage3Check(ctx, p, orgID, enable); mergeErr != nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, mergeErr)
+	}
+
+	updated, err := s.store.Queries.SetPipelineEnabled(ctx, sqlc.SetPipelineEnabledParams{
+		ID: p.ID, Enabled: enable, UpdatedBy: actor,
+	})
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
+	}
+
+	if dirtyErr := s.store.Queries.MarkServeCacheDirtyByOrg(ctx, orgID); dirtyErr != nil {
+		s.logger.Error("set pipeline enabled: mark serve cache dirty", "err", dirtyErr, "org_id", orgID.String())
+	}
+	// Recompute serve-cache eagerly for all collectors in this org so the
+	// next GetConfig poll (and the REST served-config endpoint) reflects the
+	// updated pipeline state immediately.
+	go s.recomputeOrgCaches(context.Background(), orgID) //nolint:contextcheck,gosec // G118+contextcheck: intentional detached context — recompute runs after request completes
+
+	action := "pipeline.disable"
+	if enable {
+		action = "pipeline.enable"
+	}
+	auditLog(ctx, s.store, actor, orgID, action, "pipeline", p.ID.String())
+	s.logger.Info("pipeline enabled/disabled", "pipeline_id", p.ID.String(), "org_id", orgID.String(), "enabled", enable, "actor", actor)
+	return connect.NewResponse(pipelineToProto(updated)), nil
+}
+
+// EnablePipeline enables a pipeline.
+func (s *PipelineService) EnablePipeline(ctx context.Context, req *connect.Request[mgmtv1.EnablePipelineRequest]) (*connect.Response[mgmtv1.Pipeline], error) {
+	return s.setEnabled(ctx, req.Msg.GetOrgId(), req.Msg.GetId(), true)
+}
+
+// DisablePipeline disables a pipeline.
+func (s *PipelineService) DisablePipeline(ctx context.Context, req *connect.Request[mgmtv1.DisablePipelineRequest]) (*connect.Response[mgmtv1.Pipeline], error) {
+	return s.setEnabled(ctx, req.Msg.GetOrgId(), req.Msg.GetId(), false)
+}
+
+// ValidatePipeline validates pipeline contents against the schema registry.
+// It never returns a connect error for invalid content: valid=false and its
+// diagnostics ride on a normal (connect-success) response, matching
+// docs/api-contract-design.md's "validate endpoints return 200 + diagnostics
+// today — keep that shape". The REST shim (pipelines.go) maps valid=false to
+// HTTP 422 to preserve the legacy status code.
+func (s *PipelineService) ValidatePipeline(ctx context.Context, req *connect.Request[mgmtv1.ValidatePipelineRequest]) (*connect.Response[mgmtv1.ValidatePipelineResponse], error) {
+	name := req.Msg.GetName()
+	if name == "" {
+		name = "preview"
+	}
+	wrapped := validate.WrapForValidation(name, req.Msg.GetContents())
+	result := s.validator.Stages12(ctx, wrapped)
+	return connect.NewResponse(&mgmtv1.ValidatePipelineResponse{
+		Valid:       result.Valid,
+		Diagnostics: diagnosticsToProto(result.Diagnostics),
+	}), nil
+}
+
+// PreviewMatches previews which collectors a pipeline's matchers would select.
+func (s *PipelineService) PreviewMatches(ctx context.Context, req *connect.Request[mgmtv1.PreviewMatchesRequest]) (*connect.Response[mgmtv1.PreviewMatchesResponse], error) {
+	p, err := s.loadPipeline(ctx, req.Msg.GetId())
+	if err != nil {
+		return nil, err
+	}
+	orgID, err := scanUUID(req.Msg.GetOrgId())
+	if err != nil {
+		orgID = pgtype.UUID{}
+	}
+
+	var matchers []string
+	if err := json.Unmarshal(p.Matchers, &matchers); err != nil {
+		s.logger.Debug("unmarshal matchers", "err", err)
+	}
+
+	mp := merge.Pipeline{
+		ID:       p.ID.String(),
+		Name:     p.Name,
+		Matchers: matchers,
+		Source:   p.Source,
+	}
+
+	matched, matchErr := s.previewMatchedCollectors(ctx, mp, orgID)
+	if matchErr != nil {
+		return nil, connect.NewError(connect.CodeInternal, matchErr)
+	}
+	items := make([]*mgmtv1.MatchedCollector, len(matched))
+	for i, m := range matched {
+		items[i] = &mgmtv1.MatchedCollector{Cluster: m["cluster"], Role: m["role"], Id: m["id"]}
+	}
+	return connect.NewResponse(&mgmtv1.PreviewMatchesResponse{Collectors: items}), nil
+}
+
+// ListRevisions lists a pipeline's revision history.
+func (s *PipelineService) ListRevisions(ctx context.Context, req *connect.Request[mgmtv1.ListRevisionsRequest]) (*connect.Response[mgmtv1.ListRevisionsResponse], error) {
+	p, err := s.loadPipeline(ctx, req.Msg.GetId())
+	if err != nil {
+		return nil, err
+	}
+	revs, err := s.store.Queries.ListPipelineRevisions(ctx, p.ID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errListRevisionsFailed)
+	}
+	items := make([]*mgmtv1.PipelineRevision, len(revs))
+	for i := range revs {
+		items[i] = revisionToProto(revs[i])
+	}
+	return connect.NewResponse(&mgmtv1.ListRevisionsResponse{
+		Items: items,
+		Total: int32(len(items)), //nolint:gosec // len(items) bounded by DB rows for one pipeline
+	}), nil
+}
+
+// --- helpers moved verbatim from PipelinesHandler (pipelines.go) ---
+
+func (s *PipelineService) createRevision(ctx context.Context, p sqlc.Pipeline, note, actor string) error {
+	maxRev, _ := s.store.Queries.GetMaxPipelineRevision(ctx, p.ID) //nolint:errcheck // returns 0 on err, which is the safe default
+	_, err := s.store.Queries.CreatePipelineRevision(ctx, sqlc.CreatePipelineRevisionParams{
+		PipelineID: p.ID,
+		Revision:   maxRev + 1,
+		Contents:   p.Contents,
+		Matchers:   p.Matchers,
+		Enabled:    p.Enabled,
+		ChangedBy:  actor,
+		ChangeNote: note,
+	})
+	return err
+}
+
+// stage3Check runs Stage 3 validation: assembles merged configs for all affected collectors,
+// deduplicates by content hash, then runs Stages 1 and 2 on each unique content
+// with concurrency=4 and a configurable timeout (validate.stage3_timeout).
+func (s *PipelineService) stage3Check(ctx context.Context, p sqlc.Pipeline, orgID pgtype.UUID, includeCandidate bool) error {
+	var matchers []string
+	if err := json.Unmarshal(p.Matchers, &matchers); err != nil {
+		s.logger.Debug("stage3: unmarshal matchers", "err", err)
+	}
+
+	timeout := s.validator.Stage3Timeout()
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	enabledPipelines, err := s.store.Queries.ListEnabledPipelinesByOrg(ctx, orgID)
+	if err != nil {
+		return fmt.Errorf("loading pipelines: %w", err)
+	}
+
+	var mergePipelines []merge.Pipeline
+	for i := range enabledPipelines {
+		ep := enabledPipelines[i]
+		var m []string
+		if jsonErr := json.Unmarshal(ep.Matchers, &m); jsonErr != nil {
+			continue
+		}
+		mergePipelines = append(mergePipelines, merge.Pipeline{
+			ID:       ep.ID.String(),
+			Name:     ep.Name,
+			Contents: ep.Contents,
+			Matchers: m,
+			Source:   ep.Source,
+		})
+	}
+	pID := p.ID.String()
+	if includeCandidate {
+		// On enable: add/replace candidate in the merge set.
+		found := false
+		for i, mp := range mergePipelines {
+			if mp.ID == pID {
+				mergePipelines[i] = merge.Pipeline{ID: pID, Name: p.Name, Contents: p.Contents, Matchers: matchers, Source: p.Source}
+				found = true
+				break
+			}
+		}
+		if !found {
+			mergePipelines = append(mergePipelines, merge.Pipeline{
+				ID: pID, Name: p.Name, Contents: p.Contents, Matchers: matchers, Source: p.Source,
+			})
+		}
+	} else {
+		// On disable: remove candidate from merge set (validate remaining pipelines).
+		filtered := mergePipelines[:0]
+		for _, mp := range mergePipelines {
+			if mp.ID != pID {
+				filtered = append(filtered, mp)
+			}
+		}
+		mergePipelines = filtered
+	}
+
+	collectors, err := s.store.Queries.ListCollectorsByOrg(ctx, orgID)
+	if err != nil {
+		return fmt.Errorf("loading collectors: %w", err)
+	}
+
+	// Assemble merged content for every collector; deduplicate by sha256 hash.
+	type mergedEntry struct {
+		content      string
+		collectorKey string // "cluster/role" for error messages
+	}
+	seen := make(map[string]bool) // hash → already validated
+	var toValidate []mergedEntry
+	var failures []string
+
+	for i := range collectors {
+		c := collectors[i]
+		cl := merge.CollectorLabels{
+			CollectorID: c.ID.String(),
+			Labels:      map[string]string{"role": c.Role},
+		}
+		cluster, _ := s.store.Queries.GetClusterByID(ctx, c.ClusterID) //nolint:errcheck // empty cluster name is safe in merge
+		cl.Labels["cluster"] = cluster.Name
+		key := cluster.Name + "/" + c.Role
+
+		result, assembleErr := merge.Assemble(c.ID.String(), key, cl, mergePipelines, "dev", "")
+		if assembleErr != nil {
+			failures = append(failures, fmt.Sprintf("%s: merge error: %v", key, assembleErr))
+			continue
+		}
+		if !seen[result.Hash] {
+			seen[result.Hash] = true
+			toValidate = append(toValidate, mergedEntry{content: result.Content, collectorKey: key})
+		}
+	}
+
+	if len(failures) > 0 {
+		return fmt.Errorf("merge validation failed on collectors: %s", strings.Join(failures, " | "))
+	}
+
+	// Validate unique merged contents concurrently (max 4 workers).
+	type result struct {
+		key  string
+		msgs []string
+	}
+	sem := make(chan struct{}, 4)
+	resultCh := make(chan result, len(toValidate))
+
+	for _, entry := range toValidate {
+		sem <- struct{}{}
+		go func() {
+			defer func() { <-sem }()
+			var msgs []string
+
+			r1 := validate.Stage1(entry.content)
+			if !r1.Valid {
+				for _, d := range r1.Diagnostics {
+					msgs = append(msgs, fmt.Sprintf("%d:%d %s", d.Line, d.Col, d.Message))
+				}
+				resultCh <- result{key: entry.collectorKey, msgs: msgs}
+				return
+			}
+
+			r2 := s.validator.Stage2(ctx, entry.content)
+			if !r2.Valid {
+				for _, d := range r2.Diagnostics {
+					msgs = append(msgs, fmt.Sprintf("stage2:%d:%d %s", d.Line, d.Col, d.Message))
+				}
+			}
+			resultCh <- result{key: entry.collectorKey, msgs: msgs}
+		}()
+	}
+
+	// Collect results.
+	for range toValidate {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("stage-3 validation budget exceeded: %w", ctx.Err())
+		case r := <-resultCh:
+			if len(r.msgs) > 0 {
+				failures = append(failures, fmt.Sprintf("%s: %s", r.key, strings.Join(r.msgs, "; ")))
+			}
+		}
+	}
+
+	if len(failures) > 0 {
+		return fmt.Errorf("merge validation failed on collectors: %s", strings.Join(failures, " | "))
+	}
+	return nil
+}
+
+func (s *PipelineService) previewMatchedCollectors(ctx context.Context, p merge.Pipeline, orgID pgtype.UUID) ([]map[string]string, error) {
+	collectors, err := s.store.Queries.ListCollectorsByOrg(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	var matched []map[string]string
+	for i := range collectors {
+		c := collectors[i]
+		cl := merge.CollectorLabels{
+			CollectorID: c.ID.String(),
+			Labels:      map[string]string{"role": c.Role},
+		}
+		cluster, _ := s.store.Queries.GetClusterByID(ctx, c.ClusterID) //nolint:errcheck // empty cluster name is safe in merge
+		cl.Labels["cluster"] = cluster.Name
+
+		ok, matchErr := merge.MatchesPipeline(p, cl)
+		if matchErr != nil || !ok {
+			continue
+		}
+		matched = append(matched, map[string]string{"cluster": cluster.Name, "role": c.Role, "id": c.ID.String()})
+	}
+	return matched, nil
+}
+
+// recomputeOrgCaches assembles and writes the serve cache for all collectors in an org.
+// Called as a background goroutine after pipeline enable/disable/update/delete.
+func (s *PipelineService) recomputeOrgCaches(ctx context.Context, orgID pgtype.UUID) {
+	// Optional prewarm: use the same conditional cache path as lazy GetConfig.
+	// It is panic-safe and caller-invisible; failures are logged and never affect HTTP responses.
+	defer func() {
+		if r := recover(); r != nil {
+			s.logger.Error("recomputeOrgCaches panicked", "org_id", orgID.String(), "panic", r)
+		}
+	}()
+	collectors, err := s.store.Queries.ListCollectorsWithClusterByOrg(ctx, orgID)
+	if err != nil {
+		s.logger.Warn("recomputeOrgCaches: listing collectors failed", "err", err)
+		return
+	}
+	enabledPipelines, err := s.store.Queries.ListEnabledPipelinesByOrg(ctx, orgID)
+	if err != nil {
+		s.logger.Warn("recomputeOrgCaches: listing pipelines failed", "err", err)
+		return
+	}
+	var mergePipelines []merge.Pipeline
+	for i := range enabledPipelines {
+		ep := enabledPipelines[i]
+		var m []string
+		if jsonErr := json.Unmarshal(ep.Matchers, &m); jsonErr != nil {
+			continue
+		}
+		mergePipelines = append(mergePipelines, merge.Pipeline{
+			ID: ep.ID.String(), Name: ep.Name, Contents: ep.Contents,
+			Matchers: m, Source: ep.Source,
+		})
+	}
+	for i := range collectors {
+		c := collectors[i]
+		cl := merge.CollectorLabels{
+			CollectorID: c.ID.String(),
+			Labels:      map[string]string{"role": c.Role, "cluster": c.ClusterName},
+		}
+		result, assembleErr := merge.Assemble(c.ID.String(), c.ClusterName+"/"+c.Role, cl, mergePipelines, "prod", "")
+		if assembleErr != nil {
+			s.logger.Warn("recomputeOrgCaches: merge failed", "collector_id", c.ID.String(), "err", assembleErr)
+			continue
+		}
+		r1 := validate.Stage1(result.Content)
+		if !r1.Valid {
+			s.logger.Warn("recomputeOrgCaches: stage-1 invalid on merged output", "collector_id", c.ID.String())
+			continue
+		}
+		if _, upsertErr := s.store.Queries.UpsertServeCacheConditional(ctx, sqlc.UpsertServeCacheConditionalParams{
+			CollectorID: c.ID,
+			Content:     result.Content,
+			Hash:        result.Hash,
+		}); upsertErr != nil {
+			s.logger.Warn("recomputeOrgCaches: upsert failed", "collector_id", c.ID.String(), "err", upsertErr)
+		}
+	}
+}

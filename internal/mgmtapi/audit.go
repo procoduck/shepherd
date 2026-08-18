@@ -2,82 +2,65 @@ package mgmtapi
 
 import (
 	"log/slog"
-	"math"
 	"net/http"
+	"strconv"
 
+	"connectrpc.com/connect"
+	"github.com/go-chi/chi/v5"
+
+	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/internal/store"
-	"shepherd/internal/store/sqlc"
 )
 
-// AuditHandler handles /api/orgs/{org}/audit.
+// AuditHandler is a thin REST shim over AuditService for
+// /api/orgs/{org}/audit: it parses URL params/query into the
+// shepherd.mgmt.v1 proto request, calls the service method directly
+// (in-process, not over HTTP), and renders the response with the shim
+// helpers so the legacy JSON stays byte-compatible. No business logic lives
+// here — see rpc_audit.go.
 type AuditHandler struct {
-	store  *store.Store
-	logger *slog.Logger
+	svc *AuditService
 }
 
-// NewAuditHandler creates an audit handler.
+// NewAuditHandler creates an audit REST shim backed by a fresh AuditService.
 func NewAuditHandler(st *store.Store, logger *slog.Logger) *AuditHandler {
-	return &AuditHandler{store: st, logger: logger}
+	return &AuditHandler{svc: NewAuditService(st, logger)}
 }
 
-type auditResponse struct {
-	ID           int64  `json:"id"`
-	At           string `json:"at"`
-	Actor        string `json:"actor"`
-	ActorType    string `json:"actor_type"`
-	OrgID        string `json:"org_id,omitempty"`
-	Action       string `json:"action"`
-	ResourceType string `json:"resource_type"`
-	ResourceID   string `json:"resource_id"`
-}
-
-// List returns audit log entries.
-func (h *AuditHandler) List(w http.ResponseWriter, r *http.Request) {
-	orgID := orgIDFromParam(r)
-	limit, offset := paginationParams(r)
-	if limit > math.MaxInt32 {
-		limit = math.MaxInt32
+// auditQueryInt32 parses a query param as int32, returning 0 (which
+// AuditService.ListAudit treats as "unset", applying its own default) for
+// an absent or non-numeric value — mirroring the parse-failure branch of the
+// legacy paginationParams helper this shim replaces.
+func auditQueryInt32(r *http.Request, name string) int32 {
+	v := r.URL.Query().Get(name)
+	if v == "" {
+		return 0
 	}
-	if offset > math.MaxInt32 {
-		offset = math.MaxInt32
-	}
-
-	actor := r.URL.Query().Get("actor")
-	action := r.URL.Query().Get("action")
-
-	rows, err := h.store.Queries.ListAuditLog(r.Context(), sqlc.ListAuditLogParams{
-		Column1: orgID,
-		Column2: actor,
-		Column3: action,
-		Limit:   int32(limit),
-		Offset:  int32(offset),
-	})
+	n, err := strconv.ParseInt(v, 10, 32)
 	if err != nil {
-		h.logger.Error("list audit log", "err", err)
-		respondError(w, http.StatusInternalServerError, "internal", "failed to list audit log")
+		return 0
+	}
+	return int32(n)
+}
+
+// List returns audit log entries (thin REST shim over
+// AuditService.ListAudit).
+func (h *AuditHandler) List(w http.ResponseWriter, r *http.Request) {
+	req := connect.NewRequest(&mgmtv1.ListAuditRequest{
+		OrgId:  chi.URLParam(r, "org"),
+		Limit:  auditQueryInt32(r, "limit"),
+		Offset: auditQueryInt32(r, "offset"),
+		Actor:  r.URL.Query().Get("actor"),
+		Action: r.URL.Query().Get("action"),
+	})
+	resp, err := h.svc.ListAudit(r.Context(), req)
+	if err != nil {
+		WriteConnectError(w, err)
 		return
 	}
-
-	total, _ := h.store.Queries.CountAuditLog(r.Context(), sqlc.CountAuditLogParams{ //nolint:errcheck // informational; 0 is safe fallback
-		Column1: orgID,
-		Column2: actor,
-		Column3: action,
-	})
-
-	items := make([]auditResponse, len(rows))
-	for i := range rows {
-		row := rows[i]
-		orgIDStr := row.OrgID.String()
-		items[i] = auditResponse{
-			ID:           row.ID,
-			At:           row.At.Time.UTC().Format("2006-01-02T15:04:05Z"),
-			Actor:        row.Actor,
-			ActorType:    row.ActorType,
-			OrgID:        orgIDStr,
-			Action:       row.Action,
-			ResourceType: row.ResourceType,
-			ResourceID:   row.ResourceID,
-		}
-	}
-	respondJSON(w, http.StatusOK, listResponse[auditResponse]{Items: items, Total: int(total)})
+	// legacy auditResponse always emits every field except org_id (its one
+	// omitempty field) — writeProtoJSONOmit drops it when empty while still
+	// keeping "items"/"total" present when the list itself is empty,
+	// matching the legacy listResponse envelope exactly.
+	writeProtoJSONOmit(w, http.StatusOK, resp.Msg, "org_id")
 }

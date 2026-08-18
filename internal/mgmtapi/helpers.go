@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strconv"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -36,12 +35,6 @@ func respondError(w http.ResponseWriter, status int, code, message string) {
 	})
 }
 
-// listResponse wraps a list result in the standard envelope.
-type listResponse[T any] struct {
-	Items []T `json:"items"`
-	Total int `json:"total"`
-}
-
 // decodeJSON decodes the request body into v, responding with 400 on error.
 // Returns false if the decode failed (handler should return immediately).
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
@@ -50,23 +43,6 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 		return false
 	}
 	return true
-}
-
-// paginationParams extracts limit/offset from query params with defaults.
-func paginationParams(r *http.Request) (limit, offset int) {
-	limit = 25
-	offset = 0
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
-			limit = n
-		}
-	}
-	if v := r.URL.Query().Get("offset"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
-			offset = n
-		}
-	}
-	return limit, offset
 }
 
 // isUniqueViolation returns true for PostgreSQL unique-constraint violations (SQLSTATE 23505).
