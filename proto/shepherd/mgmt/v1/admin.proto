@@ -1,0 +1,159 @@
+syntax = "proto3";
+
+package shepherd.mgmt.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
+
+// AdminService covers /api/admin/*: org, cluster, and agent-token
+// administration plus group search. All methods require app-admin, except
+// SearchGroups (app admin or org admin).
+service AdminService {
+  rpc ListOrgs(ListOrgsRequest) returns (ListOrgsResponse) {}
+  rpc CreateOrg(CreateOrgRequest) returns (Org) {}
+  rpc UpdateOrg(UpdateOrgRequest) returns (Org) {}
+  rpc DeleteOrg(DeleteOrgRequest) returns (DeleteOrgResponse) {}
+
+  rpc ListClusters(ListClustersRequest) returns (ListClustersResponse) {}
+  rpc ClaimCluster(ClaimClusterRequest) returns (ClaimClusterResponse) {}
+  rpc UnclaimCluster(UnclaimClusterRequest) returns (UnclaimClusterResponse) {}
+
+  rpc ListAgentTokens(ListAgentTokensRequest) returns (ListAgentTokensResponse) {}
+  rpc CreateAgentToken(CreateAgentTokenRequest) returns (CreateAgentTokenResponse) {}
+  rpc RevokeAgentToken(RevokeAgentTokenRequest) returns (RevokeAgentTokenResponse) {}
+
+  rpc SearchGroups(SearchGroupsRequest) returns (SearchGroupsResponse) {}
+}
+
+// Org mirrors internal/mgmtapi/admin.go: orgResponse.
+message Org {
+  string id = 1;
+  string name = 2;
+  string display_name = 3;
+  string admin_group_id = 4;
+  string reader_group_id = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+message ListOrgsRequest {}
+
+message ListOrgsResponse {
+  repeated Org items = 1;
+  int32 total = 2;
+}
+
+// CreateOrgRequest mirrors orgRequest in admin.go.
+message CreateOrgRequest {
+  string name = 1;
+  string display_name = 2;
+  string admin_group_id = 3;
+  string reader_group_id = 4;
+}
+
+message UpdateOrgRequest {
+  // org_id is the {org} path param — the org being updated.
+  string org_id = 1;
+  string display_name = 2;
+  string admin_group_id = 3;
+  string reader_group_id = 4;
+}
+
+message DeleteOrgRequest {
+  string org_id = 1;
+}
+
+message DeleteOrgResponse {}
+
+// Cluster mirrors internal/mgmtapi/admin.go: clusterResponse.
+message Cluster {
+  string id = 1;
+  string name = 2;
+  string org_id = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message ListClustersRequest {
+  // unclaimed, when true, restricts the result to clusters with no org claim
+  // (?unclaimed=true today).
+  bool unclaimed = 1;
+}
+
+message ListClustersResponse {
+  repeated Cluster items = 1;
+  int32 total = 2;
+}
+
+message ClaimClusterRequest {
+  // cluster is the cluster's name (the {cluster} path param today).
+  string cluster = 1;
+  string org_id = 2;
+}
+
+message ClaimClusterResponse {
+  string status = 1;
+}
+
+message UnclaimClusterRequest {
+  string cluster = 1;
+}
+
+message UnclaimClusterResponse {
+  string status = 1;
+}
+
+// AgentToken mirrors internal/mgmtapi/admin.go: tokenResponse.
+message AgentToken {
+  string id = 1;
+  string name = 2;
+  string created_by = 3;
+  // Status is "active" or "revoked".
+  string status = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message ListAgentTokensRequest {}
+
+message ListAgentTokensResponse {
+  repeated AgentToken items = 1;
+  int32 total = 2;
+}
+
+message CreateAgentTokenRequest {
+  string name = 1;
+}
+
+// CreateAgentTokenResponse carries the one-time plaintext secret alongside
+// the token's identity (admin.go CreateToken: {"id","name","secret"}).
+message CreateAgentTokenResponse {
+  string id = 1;
+  string name = 2;
+  string secret = 3;
+}
+
+message RevokeAgentTokenRequest {
+  string id = 1;
+}
+
+message RevokeAgentTokenResponse {}
+
+// GroupSearchResult is a Graph-backed group search hit. Not yet populated by
+// the server (SearchGroups is a stub returning an empty list) — field shape
+// anticipates the eventual Entra Graph search response.
+message GroupSearchResult {
+  string id = 1;
+  string display_name = 2;
+}
+
+// SearchGroupsRequest carries org_id so the authz interceptor can allow org
+// admins of that org (in addition to app admins) to search groups.
+message SearchGroupsRequest {
+  string org_id = 1;
+  string q = 2;
+}
+
+message SearchGroupsResponse {
+  repeated GroupSearchResult items = 1;
+  int32 total = 2;
+}

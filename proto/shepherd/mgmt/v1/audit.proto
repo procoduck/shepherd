@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package shepherd.mgmt.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
+
+// AuditService covers /api/orgs/{org}/audit. Requires org-admin.
+service AuditService {
+  rpc ListAudit(ListAuditRequest) returns (ListAuditResponse) {}
+}
+
+// AuditEntry mirrors internal/mgmtapi/audit.go: auditResponse.
+message AuditEntry {
+  int64 id = 1;
+  google.protobuf.Timestamp at = 2;
+  string actor = 3;
+  string actor_type = 4;
+  string org_id = 5;
+  string action = 6;
+  string resource_type = 7;
+  string resource_id = 8;
+}
+
+// ListAuditRequest mirrors the query params read by AuditHandler.List.
+// limit defaults to 25 (max 200), offset defaults to 0 when unset/invalid.
+message ListAuditRequest {
+  string org_id = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+  string actor = 4;
+  string action = 5;
+}
+
+message ListAuditResponse {
+  repeated AuditEntry items = 1;
+  int32 total = 2;
+}

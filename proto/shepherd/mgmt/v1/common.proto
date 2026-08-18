@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package shepherd.mgmt.v1;
+
+option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
+
+// Diagnostic is a structured error/warning from the Alloy validation gate
+// (internal/validate.Diagnostic). Used by PipelineService.ValidatePipeline.
+message Diagnostic {
+  // Line is the 1-based line number (0 if unknown).
+  int32 line = 1;
+  // Col is the 1-based column number (0 if unknown).
+  int32 col = 2;
+  // Message is the human-readable error text.
+  string message = 3;
+  // Stage identifies which validation stage produced this diagnostic (1, 2, or 3).
+  int32 stage = 4;
+}

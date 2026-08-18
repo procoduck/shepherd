@@ -1,0 +1,84 @@
+syntax = "proto3";
+
+package shepherd.mgmt.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
+
+// DestinationService covers /api/orgs/{org}/destinations/*. Reads require
+// org-reader; writes require org-admin.
+service DestinationService {
+  rpc ListDestinations(ListDestinationsRequest) returns (ListDestinationsResponse) {}
+  rpc GetDestination(GetDestinationRequest) returns (Destination) {}
+  rpc CreateDestination(CreateDestinationRequest) returns (Destination) {}
+  rpc UpdateDestination(UpdateDestinationRequest) returns (Destination) {}
+  rpc DeleteDestination(DeleteDestinationRequest) returns (DeleteDestinationResponse) {}
+}
+
+// Destination mirrors internal/mgmtapi/orgs.go: destinationResponse.
+message Destination {
+  string id = 1;
+  string org_id = 2;
+  string name = 3;
+  // Type is "prometheus" or "loki".
+  string type = 4;
+  string url = 5;
+  string tenant_id = 6;
+  string secret_name = 7;
+  string secret_namespace = 8;
+  // AuthMode is e.g. "none", "basic", "oauth2".
+  string auth_mode = 9;
+  // extra is a caller-supplied JSON object of arbitrary shape.
+  google.protobuf.Struct extra = 10;
+  google.protobuf.Timestamp created_at = 11;
+  google.protobuf.Timestamp updated_at = 12;
+}
+
+message ListDestinationsRequest {
+  string org_id = 1;
+}
+
+message ListDestinationsResponse {
+  repeated Destination items = 1;
+  int32 total = 2;
+}
+
+message GetDestinationRequest {
+  string org_id = 1;
+  string id = 2;
+}
+
+// CreateDestinationRequest mirrors destinationRequest in orgs.go.
+message CreateDestinationRequest {
+  string org_id = 1;
+  string name = 2;
+  string type = 3;
+  string url = 4;
+  string tenant_id = 5;
+  string secret_name = 6;
+  string secret_namespace = 7;
+  string auth_mode = 8;
+  google.protobuf.Struct extra = 9;
+}
+
+message UpdateDestinationRequest {
+  string org_id = 1;
+  string id = 2;
+  string name = 3;
+  string type = 4;
+  string url = 5;
+  string tenant_id = 6;
+  string secret_name = 7;
+  string secret_namespace = 8;
+  string auth_mode = 9;
+  google.protobuf.Struct extra = 10;
+}
+
+message DeleteDestinationRequest {
+  string org_id = 1;
+  string id = 2;
+}
+
+message DeleteDestinationResponse {}

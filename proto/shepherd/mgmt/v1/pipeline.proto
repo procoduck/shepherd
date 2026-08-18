@@ -1,0 +1,152 @@
+syntax = "proto3";
+
+package shepherd.mgmt.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "shepherd/mgmt/v1/common.proto";
+
+option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
+
+// PipelineService covers /api/orgs/{org}/pipelines/*. Reads require
+// org-reader; writes (create/update/delete/enable/disable) require org-admin.
+service PipelineService {
+  rpc ListPipelines(ListPipelinesRequest) returns (ListPipelinesResponse) {}
+  rpc GetPipeline(GetPipelineRequest) returns (Pipeline) {}
+  rpc CreatePipeline(CreatePipelineRequest) returns (Pipeline) {}
+  rpc UpdatePipeline(UpdatePipelineRequest) returns (Pipeline) {}
+  rpc DeletePipeline(DeletePipelineRequest) returns (DeletePipelineResponse) {}
+  rpc EnablePipeline(EnablePipelineRequest) returns (Pipeline) {}
+  rpc DisablePipeline(DisablePipelineRequest) returns (Pipeline) {}
+  rpc ValidatePipeline(ValidatePipelineRequest) returns (ValidatePipelineResponse) {}
+  rpc PreviewMatches(PreviewMatchesRequest) returns (PreviewMatchesResponse) {}
+  rpc ListRevisions(ListRevisionsRequest) returns (ListRevisionsResponse) {}
+}
+
+// PipelineRevision mirrors internal/mgmtapi/pipelines.go: revisionResponse.
+message PipelineRevision {
+  int32 revision = 1;
+  string changed_by = 2;
+  google.protobuf.Timestamp changed_at = 3;
+  string change_note = 4;
+}
+
+// Pipeline mirrors internal/mgmtapi/pipelines.go: pipelineResponse. revision
+// is carried for shape-fidelity but is never populated by pipelineToResponse
+// today (always 0/omitted); revisions is populated only on GetPipeline.
+message Pipeline {
+  string id = 1;
+  string org_id = 2;
+  string name = 3;
+  string contents = 4;
+  repeated string matchers = 5;
+  bool enabled = 6;
+  // Source is "ui", "wizard", "visual", or "git".
+  string source = 7;
+  int32 revision = 8;
+  string created_by = 9;
+  string updated_by = 10;
+  google.protobuf.Timestamp created_at = 11;
+  google.protobuf.Timestamp updated_at = 12;
+  repeated PipelineRevision revisions = 13;
+}
+
+message ListPipelinesRequest {
+  string org_id = 1;
+  // needs_upgrade, when true, restricts to visual pipelines whose embedded
+  // schema_version is behind the server's current schema version
+  // (?needs_upgrade=true today).
+  bool needs_upgrade = 2;
+}
+
+message ListPipelinesResponse {
+  repeated Pipeline items = 1;
+  int32 total = 2;
+}
+
+message GetPipelineRequest {
+  string org_id = 1;
+  string id = 2;
+}
+
+// CreatePipelineRequest mirrors pipelineRequest in pipelines.go. wizard_state
+// is the visual-builder graph document (source="visual") or wizard form
+// state (source="wizard") — dynamic, hence Struct.
+message CreatePipelineRequest {
+  string org_id = 1;
+  string name = 2;
+  string contents = 3;
+  repeated string matchers = 4;
+  string source = 5;
+  google.protobuf.Struct wizard_state = 6;
+}
+
+message UpdatePipelineRequest {
+  string org_id = 1;
+  string id = 2;
+  string name = 3;
+  string contents = 4;
+  repeated string matchers = 5;
+  string source = 6;
+  google.protobuf.Struct wizard_state = 7;
+}
+
+message DeletePipelineRequest {
+  string org_id = 1;
+  string id = 2;
+}
+
+message DeletePipelineResponse {}
+
+message EnablePipelineRequest {
+  string org_id = 1;
+  string id = 2;
+}
+
+message DisablePipelineRequest {
+  string org_id = 1;
+  string id = 2;
+}
+
+// ValidatePipelineRequest mirrors pipelineRequest as used by the standalone
+// Validate endpoint (only name/contents are read).
+message ValidatePipelineRequest {
+  string org_id = 1;
+  string name = 2;
+  string contents = 3;
+}
+
+// ValidatePipelineResponse mirrors internal/validate.Result. The endpoint
+// returns 200 with valid=false + diagnostics on validation failure (not an
+// error code) — "validate endpoints return 200 + diagnostics today".
+message ValidatePipelineResponse {
+  bool valid = 1;
+  repeated Diagnostic diagnostics = 2;
+}
+
+message PreviewMatchesRequest {
+  string org_id = 1;
+  string id = 2;
+}
+
+// MatchedCollector mirrors the per-item shape returned by previewMatchedCollectors.
+message MatchedCollector {
+  string cluster = 1;
+  string role = 2;
+  string id = 3;
+}
+
+// PreviewMatchesResponse mirrors pipelines.go PreviewMatches: {"collectors": [...]}.
+message PreviewMatchesResponse {
+  repeated MatchedCollector collectors = 1;
+}
+
+message ListRevisionsRequest {
+  string org_id = 1;
+  string id = 2;
+}
+
+message ListRevisionsResponse {
+  repeated PipelineRevision items = 1;
+  int32 total = 2;
+}

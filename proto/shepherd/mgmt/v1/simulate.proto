@@ -1,0 +1,111 @@
+syntax = "proto3";
+
+package shepherd.mgmt.v1;
+
+import "google/protobuf/struct.proto";
+
+option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
+
+// SimulateService covers /api/orgs/{org}/simulate/*, deterministic S2
+// stage-trace evaluation for the visual builder. All methods require org-admin.
+service SimulateService {
+  rpc SimulateRelabel(SimulateRelabelRequest) returns (SimulateRelabelResponse) {}
+  rpc SimulateLogs(SimulateLogsRequest) returns (SimulateLogsResponse) {}
+}
+
+// -- Relabel --
+
+// RelabelRule mirrors internal/simulate.RelabelRule.
+message RelabelRule {
+  repeated string source_labels = 1;
+  string separator = 2;
+  string regex = 3;
+  string target_label = 4;
+  string replacement = 5;
+  // Action is a Prometheus relabel action (replace, keep, drop, labelmap,
+  // labeldrop, labelkeep, lowercase, uppercase, keepequal, dropequal, hashmod).
+  string action = 6;
+  uint64 modulus = 7;
+}
+
+// SimulateRelabelRequest mirrors internal/simulate.RelabelRequest.
+// sample_targets is a list of label sets (map<string,string> each) — modeled
+// as Struct per element since proto has no repeated-map type; each element's
+// keys are themselves fully dynamic label names.
+message SimulateRelabelRequest {
+  string org_id = 1;
+  repeated RelabelRule rules = 2;
+  repeated google.protobuf.Struct sample_targets = 3;
+}
+
+// RelabelStep mirrors internal/simulate.RelabelStep.
+message RelabelStep {
+  int32 rule_index = 1;
+  string action = 2;
+  map<string, string> before = 3;
+  map<string, string> after = 4;
+  bool kept = 5;
+}
+
+// TargetTrace mirrors internal/simulate.TargetTrace.
+message TargetTrace {
+  map<string, string> input = 1;
+  repeated RelabelStep steps = 2;
+  map<string, string> output = 3;
+  bool kept = 4;
+}
+
+// SimulateRelabelResponse mirrors internal/simulate.RelabelResponse.
+message SimulateRelabelResponse {
+  repeated TargetTrace traces = 1;
+}
+
+// -- Logs --
+
+// StageSpec mirrors internal/simulate.StageSpec — a single loki.process
+// stage for simulation. Type selects which of the other fields apply (json,
+// logfmt, regex, labels, label_drop, drop, multiline, template).
+message StageSpec {
+  string type = 1;
+  map<string, string> expressions = 2;
+  string source = 3;
+  string separator = 4;
+  string expression = 5;
+  map<string, string> labels = 6;
+  repeated string drop_labels = 7;
+  string drop_value = 8;
+  string template = 9;
+  string firstline = 10;
+}
+
+message SimulateLogsRequest {
+  string org_id = 1;
+  repeated StageSpec stages = 2;
+  repeated string sample_lines = 3;
+}
+
+// StageEffect mirrors internal/simulate.StageEffect.
+message StageEffect {
+  int32 stage_index = 1;
+  string stage_type = 2;
+  bool simulated = 3;
+  string line_before = 4;
+  string line_after = 5;
+  map<string, string> labels_before = 6;
+  map<string, string> labels_after = 7;
+  bool dropped = 8;
+  string note = 9;
+}
+
+// LineTrace mirrors internal/simulate.LineTrace.
+message LineTrace {
+  string input = 1;
+  repeated StageEffect steps = 2;
+  string output = 3;
+  bool dropped = 4;
+}
+
+// SimulateLogsResponse mirrors internal/simulate.LogsResponse.
+message SimulateLogsResponse {
+  repeated LineTrace traces = 1;
+}

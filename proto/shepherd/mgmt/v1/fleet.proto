@@ -1,0 +1,113 @@
+syntax = "proto3";
+
+package shepherd.mgmt.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
+
+// FleetService covers /api/orgs/{org}/collectors/* and /attributes.
+// Reads require org-reader; writes (assignments) require org-admin.
+service FleetService {
+  rpc ListCollectors(ListCollectorsRequest) returns (ListCollectorsResponse) {}
+  rpc GetCollector(GetCollectorRequest) returns (Collector) {}
+  rpc GetServedConfig(GetServedConfigRequest) returns (GetServedConfigResponse) {}
+  rpc CreateAssignment(CreateAssignmentRequest) returns (CreateAssignmentResponse) {}
+  rpc DeleteAssignment(DeleteAssignmentRequest) returns (DeleteAssignmentResponse) {}
+  rpc ListAttributes(ListAttributesRequest) returns (ListAttributesResponse) {}
+}
+
+// CollectorInstance mirrors internal/mgmtapi/orgs.go: collectorInstanceResponse.
+message CollectorInstance {
+  string name = 1;
+  string alloy_version = 2;
+  string os = 3;
+  google.protobuf.Timestamp last_seen = 4;
+  string remote_config_status = 5;
+  string remote_config_error = 6;
+  // local_attributes is a caller-supplied JSON object of arbitrary shape.
+  google.protobuf.Struct local_attributes = 7;
+}
+
+// Collector mirrors internal/mgmtapi/orgs.go: collectorResponse. The scalar
+// remote_config_status/remote_config_error/last_seen/alloy_version/
+// local_attributes fields are rolled up from the collector's most recently
+// reporting instance; instances is populated only on GetCollector.
+message Collector {
+  string id = 1;
+  string cluster_id = 2;
+  string cluster = 3;
+  string role = 4;
+  // org_id is only populated when an app admin lists across all orgs.
+  string org_id = 5;
+  string remote_config_status = 6;
+  string remote_config_error = 7;
+  google.protobuf.Timestamp last_seen = 8;
+  string alloy_version = 9;
+  google.protobuf.Struct local_attributes = 10;
+  repeated CollectorInstance instances = 11;
+}
+
+message ListCollectorsRequest {
+  string org_id = 1;
+}
+
+message ListCollectorsResponse {
+  repeated Collector items = 1;
+  int32 total = 2;
+}
+
+message GetCollectorRequest {
+  string org_id = 1;
+  string id = 2;
+}
+
+message GetServedConfigRequest {
+  string org_id = 1;
+  string id = 2;
+}
+
+// GetServedConfigResponse mirrors orgs.go ServedConfig: {"content","hash","computed_at"}.
+// content and hash are "" when no serve-cache entry exists yet.
+message GetServedConfigResponse {
+  string content = 1;
+  string hash = 2;
+  google.protobuf.Timestamp computed_at = 3;
+}
+
+message CreateAssignmentRequest {
+  string org_id = 1;
+  string collector_id = 2;
+  string group_id = 3;
+  string group_display_name = 4;
+}
+
+message CreateAssignmentResponse {
+  string id = 1;
+  string group_id = 2;
+}
+
+message DeleteAssignmentRequest {
+  string org_id = 1;
+  string collector_id = 2;
+  string group_id = 3;
+}
+
+message DeleteAssignmentResponse {}
+
+message ListAttributesRequest {
+  string org_id = 1;
+}
+
+// ListAttributesResponse mirrors orgs.go ListAttributes, which returns a bare
+// JSON object keyed by attribute name (today always includes "cluster" and
+// "role", plus any other distinct attribute keys) mapping to their distinct
+// values: {"cluster": [...], "role": [...], ...}. The key set is
+// data-dependent, so it is modeled as a Struct rather than fixed fields; the
+// REST shim marshals `attributes` directly rather than the wrapping message
+// to stay byte-compatible with the legacy bare-object shape (see notes to
+// the wiring agent).
+message ListAttributesResponse {
+  google.protobuf.Struct attributes = 1;
+}

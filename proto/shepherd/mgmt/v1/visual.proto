@@ -1,0 +1,200 @@
+syntax = "proto3";
+
+package shepherd.mgmt.v1;
+
+import "google/protobuf/struct.proto";
+
+option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
+
+// VisualService covers /api/orgs/{org}/visual/* and the pipeline graph view.
+// Render/Validate/UpgradeCheck require org-admin; GraphView requires org-reader.
+service VisualService {
+  rpc Render(RenderRequest) returns (RenderResponse) {}
+  rpc Validate(ValidateVisualRequest) returns (ValidateVisualResponse) {}
+  rpc UpgradeCheck(UpgradeCheckRequest) returns (UpgradeCheckResponse) {}
+  rpc GraphView(GraphViewRequest) returns (GraphViewResponse) {}
+}
+
+// -- Graph document (internal/visual.GraphDocument and friends) --
+
+message Position {
+  double x = 1;
+  double y = 2;
+}
+
+message Viewport {
+  double x = 1;
+  double y = 2;
+  double zoom = 3;
+}
+
+message GraphMeta {
+  string created_with = 1;
+}
+
+message PortRef {
+  string node = 1;
+  string port = 2;
+}
+
+message BindingRef {
+  string node = 1;
+  string export = 2;
+  string expr = 3;
+}
+
+// GraphNode mirrors internal/visual.GraphNode. props is the component's
+// attribute values, keyed by attribute name — genuinely dynamic (its shape
+// depends on the node's component type and the Alloy schema), hence Struct.
+message GraphNode {
+  string id = 1;
+  string component = 2;
+  string label = 3;
+  Position position = 4;
+  google.protobuf.Struct props = 5;
+  bool disabled = 6;
+  string notes = 7;
+}
+
+// GraphEdge mirrors internal/visual.GraphEdge. order is a pointer in Go
+// (nil = unset, omitted from JSON) — modeled as proto3 optional to preserve
+// that presence distinction.
+message GraphEdge {
+  string id = 1;
+  PortRef from = 2;
+  PortRef to = 3;
+  optional int32 order = 4;
+}
+
+message GraphBinding {
+  string node = 1;
+  string prop = 2;
+  BindingRef ref = 3;
+}
+
+// GraphDocument mirrors internal/visual.GraphDocument — the visual builder's
+// canvas document, submitted to Render/Validate/UpgradeCheck and returned by
+// GraphView.
+message GraphDocument {
+  string kind = 1;
+  string schema_version = 2;
+  repeated GraphNode nodes = 3;
+  repeated GraphEdge edges = 4;
+  repeated GraphBinding bindings = 5;
+  Viewport viewport = 6;
+  GraphMeta meta = 7;
+}
+
+// -- Render --
+
+// NodeRange mirrors internal/visual.NodeRange: the line span a node rendered
+// to, used to map validation diagnostics back onto canvas nodes.
+message NodeRange {
+  int32 start_line = 1;
+  int32 end_line = 2;
+}
+
+// VisualDiagnostic mirrors internal/visual.RenderDiagnostic, returned when a
+// render fails (layer "L1"/"L2", node_id/node_id2 identify the offending
+// node(s)).
+message VisualDiagnostic {
+  string layer = 1;
+  string code = 2;
+  string node_id = 3;
+  string node_id2 = 4;
+  string message = 5;
+}
+
+message RenderRequest {
+  string org_id = 1;
+  GraphDocument graph = 2;
+}
+
+// RenderResponse mirrors internal/mgmtapi/visual.go: visualResponse.
+message RenderResponse {
+  string content = 1;
+  map<string, NodeRange> node_map = 2;
+  repeated VisualDiagnostic diagnostics = 3;
+}
+
+// -- Validate --
+
+message ValidateVisualRequest {
+  string org_id = 1;
+  GraphDocument graph = 2;
+}
+
+// VisualNodeDiagnostic mirrors the per-diagnostic object built by
+// VisualHandler.Validate: an Alloy Stage-1/2 diagnostic re-mapped onto the
+// canvas node whose rendered line range contains it.
+message VisualNodeDiagnostic {
+  string layer = 1;
+  string node_id = 2;
+  int32 line = 3;
+  int32 col = 4;
+  string message = 5;
+}
+
+// ValidateVisualResponse mirrors visual.go Validate: {"diagnostics": [...]}.
+// Returns 200 with an empty list on success — "validate endpoints return 200
+// + diagnostics today".
+message ValidateVisualResponse {
+  // diagnostics carries L2 (Stage1/2 Alloy validation) diagnostics, remapped
+  // onto canvas nodes — always a 200 response, even when diagnostics is
+  // non-empty. Populated exactly when render_diagnostics is empty.
+  repeated VisualNodeDiagnostic diagnostics = 1;
+  // render_diagnostics carries L1 (render-failure) diagnostics when the
+  // graph itself failed to render (e.g. a label collision or an unknown
+  // component) — the same VisualDiagnostic shape (layer/code/node_id/
+  // node_id2/message) Render's legacy 422 body uses, which is a different
+  // shape from diagnostics' (layer/node_id/line/col/message): line/col
+  // never existed for this diagnostic kind, and code/node_id2 have no slot
+  // in VisualNodeDiagnostic. A non-empty render_diagnostics always means a
+  // 422 (see visual.go's Validate REST shim). Populated exactly when
+  // diagnostics is empty.
+  repeated VisualDiagnostic render_diagnostics = 2;
+}
+
+// -- UpgradeCheck --
+
+message UpgradeCheckRequest {
+  string org_id = 1;
+  GraphDocument graph = 2;
+}
+
+// UpgradeItem mirrors internal/visual.UpgradeItem. class is one of the
+// DiffClass string constants (component_removed, attr_removed,
+// attr_added_required, enum_value_removed, port_type_changed,
+// stability_changed, migration_available) — kept as a string, not an enum,
+// per the contract's enum-like-field rule.
+message UpgradeItem {
+  string node_id = 1;
+  string node_label = 2;
+  string component = 3;
+  string class = 4;
+  string detail = 5;
+}
+
+// UpgradeCheckResponse mirrors internal/visual.UpgradeCheckResponse.
+message UpgradeCheckResponse {
+  string old_version = 1;
+  string new_version = 2;
+  repeated UpgradeItem items = 3;
+  bool needs_upgrade = 4;
+}
+
+// -- GraphView --
+
+message GraphViewRequest {
+  string org_id = 1;
+  // id is the pipeline id (the {id} path param on GET
+  // /orgs/{org}/pipelines/{id}/graph).
+  string id = 2;
+}
+
+// GraphViewResponse mirrors visual.go GraphView: {"graph","opaque","warning"}.
+message GraphViewResponse {
+  GraphDocument graph = 1;
+  bool opaque = 2;
+  string warning = 3;
+}

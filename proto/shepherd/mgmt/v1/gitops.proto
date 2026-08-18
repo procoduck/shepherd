@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+package shepherd.mgmt.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
+
+// GitOpsService covers /api/orgs/{org}/ado-credentials/* and
+// /api/orgs/{org}/repo-links/*. All methods require org-admin.
+service GitOpsService {
+  rpc ListCredentials(ListCredentialsRequest) returns (ListCredentialsResponse) {}
+  rpc CreateCredential(CreateCredentialRequest) returns (AdoCredential) {}
+  rpc DeleteCredential(DeleteCredentialRequest) returns (DeleteCredentialResponse) {}
+
+  rpc ListRepoLinks(ListRepoLinksRequest) returns (ListRepoLinksResponse) {}
+  rpc CreateRepoLink(CreateRepoLinkRequest) returns (RepoLink) {}
+  rpc DeleteRepoLink(DeleteRepoLinkRequest) returns (DeleteRepoLinkResponse) {}
+}
+
+// AdoCredential mirrors internal/mgmtapi/repolinks.go: adoCredResponse.
+// client_secret is write-only (never returned).
+message AdoCredential {
+  string id = 1;
+  string name = 2;
+  string ado_org_url = 3;
+  string entra_tenant_id = 4;
+  string client_id = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message ListCredentialsRequest {
+  string org_id = 1;
+}
+
+message ListCredentialsResponse {
+  repeated AdoCredential items = 1;
+  int32 total = 2;
+}
+
+// CreateCredentialRequest mirrors adoCredRequest in repolinks.go.
+message CreateCredentialRequest {
+  string org_id = 1;
+  string name = 2;
+  string ado_org_url = 3;
+  string entra_tenant_id = 4;
+  string client_id = 5;
+  string client_secret = 6;
+}
+
+message DeleteCredentialRequest {
+  string org_id = 1;
+  string id = 2;
+}
+
+message DeleteCredentialResponse {}
+
+// RepoLink mirrors internal/mgmtapi/repolinks.go: repoLinkResponse.
+message RepoLink {
+  string id = 1;
+  string project = 2;
+  string repository = 3;
+  string branch = 4;
+  string path = 5;
+  string sync_status = 6;
+  google.protobuf.Timestamp last_synced_at = 7;
+}
+
+message ListRepoLinksRequest {
+  string org_id = 1;
+}
+
+message ListRepoLinksResponse {
+  repeated RepoLink items = 1;
+  int32 total = 2;
+}
+
+// CreateRepoLinkRequest mirrors repoLinkRequest in repolinks.go. Server
+// defaults branch="main", path="/", poll_interval_seconds=180 when unset.
+message CreateRepoLinkRequest {
+  string org_id = 1;
+  string collector_id = 2;
+  string credential_id = 3;
+  string project = 4;
+  string repository = 5;
+  string branch = 6;
+  string path = 7;
+  int32 poll_interval_seconds = 8;
+}
+
+message DeleteRepoLinkRequest {
+  string org_id = 1;
+  string id = 2;
+}
+
+message DeleteRepoLinkResponse {}

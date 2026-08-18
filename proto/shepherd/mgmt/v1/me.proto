@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package shepherd.mgmt.v1;
+
+option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
+
+// MeService reports the authenticated actor's identity and org memberships.
+// Mirrors GET /api/me (internal/mgmtapi/orgs.go: OrgsHandler.Me).
+service MeService {
+  rpc GetMe(GetMeRequest) returns (GetMeResponse) {}
+}
+
+message GetMeRequest {}
+
+// OrgMembership is one org the actor can see, with their effective role in it
+// (internal/mgmtapi/orgs.go: meOrgEntry).
+message OrgMembership {
+  string id = 1;
+  string name = 2;
+  string display_name = 3;
+  // Role is "admin" or "reader" — kept as a string (not an enum) so the
+  // legacy JSON value is unchanged. Validated server-side.
+  string role = 4;
+}
+
+// GetMeResponse mirrors internal/mgmtapi/orgs.go: meResponse.
+message GetMeResponse {
+  string user_oid = 1;
+  string email = 2;
+  string display_name = 3;
+  bool is_app_admin = 4;
+  // AuthMethod is "oidc", "local", or "dev".
+  string auth_method = 5;
+  repeated OrgMembership orgs = 6;
+}

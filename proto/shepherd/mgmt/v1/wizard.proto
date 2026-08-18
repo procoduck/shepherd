@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+package shepherd.mgmt.v1;
+
+import "google/protobuf/struct.proto";
+import "shepherd/mgmt/v1/pipeline.proto";
+
+option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
+
+// WizardService covers /api/orgs/{org}/wizards/*. All methods require org-admin.
+service WizardService {
+  rpc ListWizards(ListWizardsRequest) returns (ListWizardsResponse) {}
+  rpc GetWizardSchema(GetWizardSchemaRequest) returns (WizardSchema) {}
+  rpc CommitWizard(CommitWizardRequest) returns (Pipeline) {}
+}
+
+// StepField mirrors internal/wizard.StepField. Type is "text", "select",
+// "toggle", or "number"; default is whatever JSON scalar the wizard declares.
+message StepField {
+  string name = 1;
+  string label = 2;
+  string type = 3;
+  bool required = 4;
+  repeated string options = 5;
+  google.protobuf.Value default = 6;
+  string placeholder = 7;
+  string description = 8;
+}
+
+// Step mirrors internal/wizard.Step.
+message Step {
+  string id = 1;
+  string title = 2;
+  repeated StepField fields = 3;
+}
+
+// WizardSchema mirrors internal/wizard.Schema, returned by GetWizardSchema
+// and (as list items) by ListWizards.
+message WizardSchema {
+  string kind = 1;
+  string title = 2;
+  repeated Step steps = 3;
+}
+
+message ListWizardsRequest {
+  string org_id = 1;
+}
+
+message ListWizardsResponse {
+  repeated WizardSchema items = 1;
+  int32 total = 2;
+}
+
+message GetWizardSchemaRequest {
+  string org_id = 1;
+  string kind = 2;
+}
+
+// CommitWizardRequest mirrors commitRequest in wizards.go. state is the
+// user-provided wizard form state, a dynamic JSON object.
+message CommitWizardRequest {
+  string org_id = 1;
+  string kind = 2;
+  string name = 3;
+  google.protobuf.Struct state = 4;
+}
