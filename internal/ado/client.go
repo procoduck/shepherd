@@ -101,7 +101,7 @@ func (c *Client) DownloadFile(ctx context.Context, project, repo, branch, filePa
 	if err != nil {
 		return "", fmt.Errorf("ado download file: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // close error on a body we already fully read/discarded is not actionable
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("ado download file: status %d", resp.StatusCode)
@@ -146,7 +146,7 @@ func (c *Client) get(ctx context.Context, endpoint string, out any) error {
 	if err != nil {
 		return fmt.Errorf("ado GET: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // close error on a body we already fully read/discarded is not actionable
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512)) //nolint:errcheck // error details are best-effort

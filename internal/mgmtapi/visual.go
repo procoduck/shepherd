@@ -71,6 +71,7 @@ func (h *VisualHandler) Render(w http.ResponseWriter, r *http.Request) { //nolin
 	}
 	respondJSON(w, http.StatusOK, visualResponse{Content: result.Content, NodeMap: result.NodeMap, Diagnostics: []any{}})
 }
+
 func (h *VisualHandler) Validate(w http.ResponseWriter, r *http.Request) { //nolint:revive
 	result, err := h.render(r)
 	if err != nil {

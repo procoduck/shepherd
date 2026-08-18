@@ -25,7 +25,7 @@ func init() {
 			if err != nil {
 				return fmt.Errorf("healthcheck failed: %w", err)
 			}
-			defer resp.Body.Close()
+			defer resp.Body.Close() //nolint:errcheck // process exits immediately after; close error not actionable
 			if resp.StatusCode != http.StatusOK {
 				return fmt.Errorf("healthcheck: status %d", resp.StatusCode)
 			}

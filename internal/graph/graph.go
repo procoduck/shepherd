@@ -78,16 +78,16 @@ func TransitiveMemberOf(ctx context.Context, baseURL, accessToken string) ([]str
 			return nil, fmt.Errorf("graph transitiveMemberOf: %w", err)
 		}
 		if resp.StatusCode != http.StatusOK {
-			_ = resp.Body.Close()
+			resp.Body.Close() //nolint:errcheck // close error on a body we're discarding due to a non-OK status is not actionable
 			return nil, fmt.Errorf("graph transitiveMemberOf: status %d", resp.StatusCode)
 		}
 
 		var gr graphResponse
 		if err := json.NewDecoder(resp.Body).Decode(&gr); err != nil {
-			_ = resp.Body.Close()
+			resp.Body.Close() //nolint:errcheck // close error on a body we're discarding after a decode failure is not actionable
 			return nil, fmt.Errorf("graph transitiveMemberOf: decoding: %w", err)
 		}
-		_ = resp.Body.Close()
+		resp.Body.Close() //nolint:errcheck // body already fully read via json.Decode
 		for _, g := range gr.Value {
 			ids = append(ids, g.ID)
 		}
@@ -118,7 +118,7 @@ func (c *Client) SearchGroups(ctx context.Context, q string) ([]Group, error) {
 	if err != nil {
 		return nil, fmt.Errorf("graph search groups: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // close error on a read-only response body is not actionable
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("graph search groups: status %d", resp.StatusCode)

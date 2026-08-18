@@ -95,6 +95,8 @@ formatters:
     - gofumpt
     - gci
   settings:
+    gofumpt:
+      module-path: shepherd
     gci:
       sections:
         - standard

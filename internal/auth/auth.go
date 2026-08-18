@@ -279,7 +279,9 @@ func (h *Handler) LocalLoginHandler(w http.ResponseWriter, r *http.Request) {
 // LogoutHandler deletes the session and clears the cookie.
 func (h *Handler) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie("shepherd_session"); err == nil {
-		_ = h.store.Queries.DeleteSession(r.Context(), c.Value)
+		if delErr := h.store.Queries.DeleteSession(r.Context(), c.Value); delErr != nil {
+			h.logger.Warn("logout: delete session", "err", delErr)
+		}
 	}
 	http.SetCookie(w, sessionCookie("", -1, h.cfg.Auth.InsecureCookies))
 	http.Redirect(w, r, "/login", http.StatusFound)

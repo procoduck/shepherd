@@ -192,7 +192,7 @@ var _ = Describe("Pipelines API", Label("integration"), func() {
 
 			resp, err := http.Post(server.URL+"/admin/clusters/unclaim-cluster/unclaim", "", nil)
 			Expect(err).NotTo(HaveOccurred())
-			defer resp.Body.Close()
+			defer resp.Body.Close() //nolint:errcheck // test cleanup
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
 			var dirty bool
@@ -213,7 +213,7 @@ var _ = Describe("Pipelines API", Label("integration"), func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			resp := deleteRequest(server, fmt.Sprintf("/orgs/%s/destinations/%s", orgID, destination.ID.String()))
-			defer resp.Body.Close()
+			defer resp.Body.Close() //nolint:errcheck // test cleanup
 			Expect(resp.StatusCode).To(Equal(http.StatusConflict))
 			body, err := io.ReadAll(resp.Body)
 			Expect(err).NotTo(HaveOccurred())
@@ -233,10 +233,10 @@ var _ = Describe("Pipelines API", Label("integration"), func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			pipelineResp := deleteRequest(server, fmt.Sprintf("/orgs/%s/pipelines/%s", orgID, pipelineID.String()))
-			pipelineResp.Body.Close()
+			pipelineResp.Body.Close() //nolint:errcheck // test cleanup
 			Expect(pipelineResp.StatusCode).To(Equal(http.StatusNoContent))
 			resp := deleteRequest(server, fmt.Sprintf("/orgs/%s/destinations/%s", orgID, destination.ID.String()))
-			defer resp.Body.Close()
+			defer resp.Body.Close() //nolint:errcheck // test cleanup
 			Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
 		})
 	})
@@ -248,7 +248,7 @@ var _ = Describe("Pipelines API", Label("integration"), func() {
 			Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgUUID(orgID)})).To(Succeed())
 
 			resp := deleteRequest(server, "/admin/orgs/"+orgID)
-			defer resp.Body.Close()
+			defer resp.Body.Close() //nolint:errcheck // test cleanup
 			Expect(resp.StatusCode).To(Equal(http.StatusConflict))
 			body, err := io.ReadAll(resp.Body)
 			Expect(err).NotTo(HaveOccurred())
@@ -257,7 +257,7 @@ var _ = Describe("Pipelines API", Label("integration"), func() {
 
 		It("deletes an empty org successfully", func() {
 			resp := deleteRequest(server, "/admin/orgs/"+orgID)
-			defer resp.Body.Close()
+			defer resp.Body.Close() //nolint:errcheck // test cleanup
 			Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
 		})
 	})

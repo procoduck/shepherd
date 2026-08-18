@@ -39,7 +39,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		_ = resp.Body.Close()
+		resp.Body.Close() //nolint:errcheck // health-check probe exits immediately after
 		if resp.StatusCode != http.StatusOK {
 			log.Fatalf("unhealthy: %d", resp.StatusCode)
 		}

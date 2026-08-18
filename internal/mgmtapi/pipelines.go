@@ -251,8 +251,12 @@ func (h *PipelinesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create revision 1.
-	_ = h.createRevision(r.Context(), p, "created", actor)
-	_ = h.writeAudit(r.Context(), actor, orgID, "pipeline.create", uuidStr(p.ID))
+	if revErr := h.createRevision(r.Context(), p, "created", actor); revErr != nil {
+		h.logger.Error("create pipeline: create revision", "err", revErr, "pipeline_id", uuidStr(p.ID))
+	}
+	if auditErr := h.writeAudit(r.Context(), actor, orgID, "pipeline.create", uuidStr(p.ID)); auditErr != nil {
+		h.logger.Error("create pipeline: write audit", "err", auditErr, "pipeline_id", uuidStr(p.ID))
+	}
 	h.logger.Info("pipeline created", "pipeline_id", uuidStr(p.ID), "org_id", uuidStr(orgID), "name", p.Name, "actor", actor)
 
 	respondJSON(w, http.StatusCreated, pipelineToResponse(p))
@@ -341,16 +345,22 @@ func (h *PipelinesHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = h.createRevision(r.Context(), updated, "updated", actor)
+	if revErr := h.createRevision(r.Context(), updated, "updated", actor); revErr != nil {
+		h.logger.Error("update pipeline: create revision", "err", revErr, "pipeline_id", uuidStr(updated.ID))
+	}
 
 	// If enabled, dirty the serve cache for affected collectors.
 	if updated.Enabled {
 		orgID := orgIDFromParam(r)
-		_ = h.store.Queries.MarkServeCacheDirtyByOrg(r.Context(), orgID)
+		if dirtyErr := h.store.Queries.MarkServeCacheDirtyByOrg(r.Context(), orgID); dirtyErr != nil {
+			h.logger.Error("update pipeline: mark serve cache dirty", "err", dirtyErr, "org_id", uuidStr(orgID))
+		}
 		go h.recomputeOrgCaches(context.Background(), orgID) //nolint:contextcheck,gosec // G118+contextcheck: intentional detached context
 	}
 
-	_ = h.writeAudit(r.Context(), actor, orgIDFromParam(r), "pipeline.update", uuidStr(p.ID))
+	if auditErr := h.writeAudit(r.Context(), actor, orgIDFromParam(r), "pipeline.update", uuidStr(p.ID)); auditErr != nil {
+		h.logger.Error("update pipeline: write audit", "err", auditErr, "pipeline_id", uuidStr(p.ID))
+	}
 	respondJSON(w, http.StatusOK, pipelineToResponse(updated))
 }
 
@@ -401,7 +411,9 @@ func (h *PipelinesHandler) setEnabled(w http.ResponseWriter, r *http.Request, en
 		return
 	}
 
-	_ = h.store.Queries.MarkServeCacheDirtyByOrg(r.Context(), orgID)
+	if dirtyErr := h.store.Queries.MarkServeCacheDirtyByOrg(r.Context(), orgID); dirtyErr != nil {
+		h.logger.Error("set pipeline enabled: mark serve cache dirty", "err", dirtyErr, "org_id", uuidStr(orgID))
+	}
 	// Recompute serve-cache eagerly for all collectors in this org so the
 	// next GetConfig poll (and the REST served-config endpoint) reflects the
 	// updated pipeline state immediately.
@@ -410,7 +422,9 @@ func (h *PipelinesHandler) setEnabled(w http.ResponseWriter, r *http.Request, en
 	if enable {
 		action = "pipeline.enable"
 	}
-	_ = h.writeAudit(r.Context(), actor, orgID, action, uuidStr(p.ID))
+	if auditErr := h.writeAudit(r.Context(), actor, orgID, action, uuidStr(p.ID)); auditErr != nil {
+		h.logger.Error("set pipeline enabled: write audit", "err", auditErr, "pipeline_id", uuidStr(p.ID))
+	}
 	h.logger.Info("pipeline enabled/disabled", "pipeline_id", uuidStr(p.ID), "org_id", uuidStr(orgID), "enabled", enable, "actor", actor)
 	respondJSON(w, http.StatusOK, pipelineToResponse(updated))
 }
@@ -431,9 +445,13 @@ func (h *PipelinesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "internal", "failed to delete pipeline")
 		return
 	}
-	_ = h.store.Queries.MarkServeCacheDirtyByOrg(r.Context(), orgID)
+	if dirtyErr := h.store.Queries.MarkServeCacheDirtyByOrg(r.Context(), orgID); dirtyErr != nil {
+		h.logger.Error("delete pipeline: mark serve cache dirty", "err", dirtyErr, "org_id", uuidStr(orgID))
+	}
 	go h.recomputeOrgCaches(context.Background(), orgID) //nolint:contextcheck,gosec // G118+contextcheck: intentional detached context
-	_ = h.writeAudit(r.Context(), actor, orgID, "pipeline.delete", uuidStr(p.ID))
+	if auditErr := h.writeAudit(r.Context(), actor, orgID, "pipeline.delete", uuidStr(p.ID)); auditErr != nil {
+		h.logger.Error("delete pipeline: write audit", "err", auditErr, "pipeline_id", uuidStr(p.ID))
+	}
 	h.logger.Info("pipeline deleted", "pipeline_id", uuidStr(p.ID), "org_id", uuidStr(orgID), "actor", actor)
 	w.WriteHeader(http.StatusNoContent)
 }

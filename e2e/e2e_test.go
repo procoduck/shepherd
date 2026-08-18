@@ -71,14 +71,14 @@ func (c *apiClient) getJSON(path string, out any) {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusOK))
 	Expect(json.NewDecoder(resp.Body).Decode(out)).To(Succeed())
-	_ = resp.Body.Close()
+	resp.Body.Close() //nolint:errcheck // test cleanup
 }
 
 func (c *apiClient) postJSON(path string, body, out any) int {
 	GinkgoHelper()
 	resp, err := c.do("POST", path, body)
 	Expect(err).NotTo(HaveOccurred())
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // test cleanup
 	if out != nil {
 		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 			return resp.StatusCode
@@ -93,7 +93,7 @@ func fixture(kind string, data map[string]any) {
 	resp, err := http.Post(mockmsftURL+"/__fixture", "application/json", bytes.NewReader(body))
 	Expect(err).NotTo(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
-	_ = resp.Body.Close()
+	resp.Body.Close() //nolint:errcheck // test cleanup
 }
 
 // waitHTTP polls url until it returns 200 or timeout using Eventually (no raw sleep).
@@ -104,7 +104,7 @@ func waitHTTP(url string, timeout time.Duration) {
 		if err != nil {
 			return false
 		}
-		_ = resp.Body.Close()
+		resp.Body.Close() //nolint:errcheck // test cleanup
 		return resp.StatusCode == http.StatusOK
 	}).WithTimeout(timeout).WithPolling(500*time.Millisecond).Should(BeTrue(), "timed out waiting for %s", url)
 }
@@ -274,7 +274,7 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 				if err != nil {
 					return 0
 				}
-				defer resp.Body.Close()
+				defer resp.Body.Close()          //nolint:errcheck // test cleanup
 				body, _ := io.ReadAll(resp.Body) //nolint:errcheck // test helper
 				for _, line := range bytes.Split(body, []byte("\n")) {
 					if bytes.HasPrefix(line, []byte(`shepherd_getconfig_total{result="not_modified"}`)) {
@@ -324,7 +324,7 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 			resp, err := http.Get(mockmsftURL + "/health")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
-			_ = resp.Body.Close()
+			resp.Body.Close() //nolint:errcheck // test cleanup
 		})
 	})
 
@@ -337,7 +337,7 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 			Expect(err).NotTo(HaveOccurred())
 			// OIDC issuer is configured in the e2e stack — unauthenticated MUST be 401.
 			Expect(resp.StatusCode).To(Equal(http.StatusUnauthorized), "unauthenticated mgmt request must return 401; got %d — RBAC is not enforced", resp.StatusCode)
-			_ = resp.Body.Close()
+			resp.Body.Close() //nolint:errcheck // test cleanup
 		})
 
 		It("agent endpoint with wrong secret returns unauthenticated", func() {
@@ -351,7 +351,7 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 			resp, err := http.DefaultClient.Do(req)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.StatusCode).To(Equal(http.StatusUnauthorized))
-			_ = resp.Body.Close()
+			resp.Body.Close() //nolint:errcheck // test cleanup
 		})
 
 		// Revoked-token flow: create a token, use it once successfully, revoke via API, assert next call rejects.
@@ -382,13 +382,13 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 			req.Header.Set("Authorization", basicAuth(created.ID, created.Secret))
 			resp, err := http.DefaultClient.Do(req)
 			Expect(err).NotTo(HaveOccurred())
-			_ = resp.Body.Close()
+			resp.Body.Close() //nolint:errcheck // test cleanup
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
 			// Revoke the token.
 			revokeResp, err := adminClient.do("DELETE", "/api/admin/agent-tokens/"+created.ID, nil)
 			Expect(err).NotTo(HaveOccurred())
-			_ = revokeResp.Body.Close()
+			revokeResp.Body.Close() //nolint:errcheck // test cleanup
 			Expect(revokeResp.StatusCode).To(Equal(http.StatusNoContent))
 
 			// Next call with the revoked token must be rejected.
@@ -400,7 +400,7 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 			req2.Header.Set("Authorization", basicAuth(created.ID, created.Secret))
 			resp2, err := http.DefaultClient.Do(req2)
 			Expect(err).NotTo(HaveOccurred())
-			_ = resp2.Body.Close()
+			resp2.Body.Close() //nolint:errcheck // test cleanup
 			Expect(resp2.StatusCode).To(Equal(http.StatusUnauthorized), "revoked token must be rejected")
 		})
 	})
@@ -454,7 +454,7 @@ var _ = Describe("8. Local admin login + audit actor (LA-1)", func() {
 		resp, err := hc.Do(req)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(resp.StatusCode).To(Equal(http.StatusOK), "local admin login must return 200")
-		_ = resp.Body.Close()
+		resp.Body.Close() //nolint:errcheck // test cleanup
 
 		// GET /api/me with the session cookie — must return auth_method:"local".
 		meReq, err := http.NewRequest("GET", shepherdURL+"/api/me", nil)
@@ -462,7 +462,7 @@ var _ = Describe("8. Local admin login + audit actor (LA-1)", func() {
 		meReq.Header.Set("X-Requested-With", "XMLHttpRequest")
 		meResp, err := hc.Do(meReq)
 		Expect(err).NotTo(HaveOccurred())
-		defer meResp.Body.Close()
+		defer meResp.Body.Close() //nolint:errcheck // test cleanup
 		Expect(meResp.StatusCode).To(Equal(http.StatusOK))
 
 		var me map[string]any

@@ -108,6 +108,7 @@ func cloneStrings(in map[string]string) map[string]string {
 	}
 	return out
 }
+
 func jsonValues(line string) (map[string]string, error) {
 	var raw map[string]any
 	if err := json.Unmarshal([]byte(line), &raw); err != nil {

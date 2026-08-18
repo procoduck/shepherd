@@ -13,6 +13,7 @@ var (
 
 // Execute runs the root cobra command.
 func Execute() error { return rootCmd.Execute() }
+
 func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file path")
 	rootCmd.PersistentFlags().String("log-level", "", "log level (debug|info|warn|error)")

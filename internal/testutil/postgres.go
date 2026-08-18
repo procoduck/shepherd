@@ -76,7 +76,7 @@ func StartSharedPostgres(ctx context.Context) (*SharedPostgres, error) {
 
 	url, err := ctr.ConnectionString(ctx, "sslmode=disable")
 	if err != nil {
-		_ = ctr.Terminate(ctx)
+		_ = ctr.Terminate(ctx) //nolint:errcheck // best-effort cleanup on an already-erroring path; original err is returned
 		return nil, fmt.Errorf("getting connection string: %w", err)
 	}
 

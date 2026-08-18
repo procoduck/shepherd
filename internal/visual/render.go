@@ -121,6 +121,7 @@ func sanitizeLabel(s string) string {
 	}
 	return out
 }
+
 func categoryOrder(s string) int {
 	switch s {
 	case "config":
@@ -320,9 +321,11 @@ func Render(doc GraphDocument, schema SchemaPayload) RenderResult { //nolint:rev
 	r.Content = lw.b.String()
 	return r
 }
+
 func reference(id, port string, nodes map[string]GraphNode, labels map[string]string) string {
 	return nodes[id].Component + "." + labels[id] + "." + port
 }
+
 func serialize(v interface{}, typ string) string {
 	if typ == "duration" {
 		return fmt.Sprintf("%q", fmt.Sprint(v))
