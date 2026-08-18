@@ -99,10 +99,12 @@ func (r *Reconciler) reconcileLink(ctx context.Context, link sqlc.RepoLink) erro
 		return r.markError(ctx, link.ID, fmt.Errorf("getting latest commit: %w", err))
 	}
 	if link.LastCommit.Valid && link.LastCommit.String == latestCommit {
-		_ = r.store.Queries.UpdateRepoLinkSync(ctx, sqlc.UpdateRepoLinkSyncParams{
+		if syncErr := r.store.Queries.UpdateRepoLinkSync(ctx, sqlc.UpdateRepoLinkSyncParams{
 			ID: link.ID, LastCommit: pgtype.Text{String: latestCommit, Valid: true},
 			SyncStatus: pgtype.Text{String: "ok", Valid: true}, SyncError: pgtype.Text{},
-		})
+		}); syncErr != nil {
+			r.logger.Error("gitsync: recording sync status", "link_id", link.ID, "err", syncErr)
+		}
 		return nil
 	}
 
@@ -113,23 +115,25 @@ func (r *Reconciler) reconcileLink(ctx context.Context, link sqlc.RepoLink) erro
 	}
 
 	for _, item := range items {
-		if err := r.syncFile(ctx, client, link, item.Path); err != nil {
+		if err := r.syncFile(ctx, client, link, item.Path, latestCommit); err != nil {
 			r.logger.Warn("gitsync: syncing file", "path", item.Path, "err", err)
 			// Continue other files; mark link error at the end.
 		}
 	}
 
 	// Mark sync success.
-	_ = r.store.Queries.UpdateRepoLinkSync(ctx, sqlc.UpdateRepoLinkSyncParams{
+	if syncErr := r.store.Queries.UpdateRepoLinkSync(ctx, sqlc.UpdateRepoLinkSyncParams{
 		ID:         link.ID,
 		LastCommit: pgtype.Text{String: latestCommit, Valid: true},
 		SyncStatus: pgtype.Text{String: "ok", Valid: true},
 		SyncError:  pgtype.Text{},
-	})
+	}); syncErr != nil {
+		r.logger.Error("gitsync: recording sync status", "link_id", link.ID, "err", syncErr)
+	}
 	return nil
 }
 
-func (r *Reconciler) syncFile(ctx context.Context, client *ado.Client, link sqlc.RepoLink, filePath string) error {
+func (r *Reconciler) syncFile(ctx context.Context, client *ado.Client, link sqlc.RepoLink, filePath, commit string) error {
 	contents, err := client.DownloadFile(ctx, link.Project, link.Repository, link.Branch, filePath)
 	if err != nil {
 		return err
@@ -155,13 +159,11 @@ func (r *Reconciler) syncFile(ctx context.Context, client *ado.Client, link sqlc
 		matchersJSON = []byte("[]")
 	}
 
-	var orgID pgtype.UUID
-	if err := orgID.Scan(link.OrgID); err != nil {
-		return r.markError(ctx, link.ID, fmt.Errorf("invalid org id: %w", err))
-	}
+	// link.OrgID is already a pgtype.UUID; no conversion needed.
+	orgID := link.OrgID
 
 	// Check if pipeline exists for this file+collector.
-	_, err = r.store.Queries.GetPipelineByOrgAndName(ctx, sqlc.GetPipelineByOrgAndNameParams{
+	existing, err := r.store.Queries.GetPipelineByOrgAndName(ctx, sqlc.GetPipelineByOrgAndNameParams{
 		OrgID: orgID,
 		Name:  name,
 	})
@@ -179,16 +181,71 @@ func (r *Reconciler) syncFile(ctx context.Context, client *ado.Client, link sqlc
 		})
 		return err
 	}
-	// Update existing (TODO: get pipeline by name and update).
+
+	// Update existing pipeline, but only when the fetched content actually changed —
+	// avoids churning revisions/audit log/cache on every poll.
+	if existing.Contents == contents {
+		return nil
+	}
+
+	updated, err := r.store.Queries.UpdatePipeline(ctx, sqlc.UpdatePipelineParams{
+		ID:        existing.ID,
+		Name:      existing.Name,
+		Contents:  contents,
+		Matchers:  existing.Matchers,
+		UpdatedBy: "gitsync",
+	})
+	if err != nil {
+		return fmt.Errorf("updating pipeline %s: %w", name, err)
+	}
+
+	maxRev, err := r.store.Queries.GetMaxPipelineRevision(ctx, updated.ID)
+	if err != nil {
+		r.logger.Warn("gitsync: getting max pipeline revision", "pipeline_id", updated.ID, "err", err)
+	}
+	changeNote := "git sync"
+	if commit != "" {
+		changeNote = "git sync " + commit
+	}
+	if _, revErr := r.store.Queries.CreatePipelineRevision(ctx, sqlc.CreatePipelineRevisionParams{
+		PipelineID: updated.ID,
+		Revision:   maxRev + 1,
+		Contents:   updated.Contents,
+		Matchers:   updated.Matchers,
+		Enabled:    updated.Enabled,
+		ChangedBy:  "gitsync",
+		ChangeNote: changeNote,
+	}); revErr != nil {
+		r.logger.Error("gitsync: creating pipeline revision", "pipeline_id", updated.ID, "err", revErr)
+	}
+
+	if auditErr := r.store.Queries.InsertAuditLog(ctx, sqlc.InsertAuditLogParams{
+		Actor:        "gitsync",
+		ActorType:    "system",
+		OrgID:        orgID,
+		Action:       "pipeline.update",
+		ResourceType: "pipeline",
+		ResourceID:   updated.ID.String(),
+		Detail:       json.RawMessage("{}"),
+	}); auditErr != nil {
+		r.logger.Error("gitsync: writing audit log", "pipeline_id", updated.ID, "err", auditErr)
+	}
+
+	if cacheErr := r.store.Queries.MarkServeCacheDirty(ctx, link.CollectorID); cacheErr != nil {
+		r.logger.Error("gitsync: marking serve cache dirty", "collector_id", link.CollectorID, "err", cacheErr)
+	}
+
 	return nil
 }
 
 func (r *Reconciler) markError(ctx context.Context, linkID pgtype.UUID, err error) error {
-	_ = r.store.Queries.UpdateRepoLinkSync(ctx, sqlc.UpdateRepoLinkSyncParams{
+	if syncErr := r.store.Queries.UpdateRepoLinkSync(ctx, sqlc.UpdateRepoLinkSyncParams{
 		ID:         linkID,
 		LastCommit: pgtype.Text{},
 		SyncStatus: pgtype.Text{String: "error", Valid: true},
 		SyncError:  pgtype.Text{String: err.Error(), Valid: true},
-	})
+	}); syncErr != nil {
+		r.logger.Error("gitsync: recording sync error", "link_id", linkID, "err", syncErr)
+	}
 	return err
 }
