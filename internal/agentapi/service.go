@@ -91,14 +91,22 @@ func (s *Service) GetConfig(
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	// Upsert instance (self-register on GetConfig too — §4.1).
-	if err := s.upsertCollectorInstance(ctx, req.Msg.Id, req.Msg.Id, cluster, role, attrs); err != nil {
+	// Upsert instance (self-register on GetConfig too — §4.1). GetConfigRequest
+	// carries no dedicated name field, so prefer a name reported via attributes;
+	// otherwise fall back to the wire id, matching first-registration behavior.
+	// Either way, the SQL upsert preserves any existing non-wire-id display
+	// name rather than clobbering it with the wire id on every subsequent poll.
+	name := attrs["collector.name"]
+	if name == "" {
+		name = req.Msg.Id
+	}
+	if err := s.upsertCollectorInstance(ctx, req.Msg.Id, name, cluster, role, attrs); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
 	// Persist remote_config_status if provided.
 	if req.Msg.RemoteConfigStatus != nil {
-		statusStr := req.Msg.RemoteConfigStatus.Status.String()
+		statusStr := strings.TrimPrefix(req.Msg.RemoteConfigStatus.Status.String(), "RemoteConfigStatuses_")
 		errMsg := req.Msg.RemoteConfigStatus.ErrorMessage
 		if err := s.store.Queries.UpdateInstanceStatus(ctx, sqlc.UpdateInstanceStatusParams{
 			ID:                 req.Msg.Id,

@@ -187,18 +187,25 @@ export interface Collector {
   cluster_id: string;
   cluster: string;
   role: string;
+  org_id?: string;
+  // Rolled up from the collector's most recently reporting instance.
+  remote_config_status?: string;
+  remote_config_error?: string;
+  last_seen?: string;
+  alloy_version?: string;
+  local_attributes?: Record<string, string>;
+  // Present on GET /collectors/{id}, omitted from the list endpoint.
+  instances?: CollectorInstance[];
 }
 
 export interface CollectorInstance {
-  id: string;
-  collector_id: string;
   name: string;
   alloy_version?: string;
   os?: string;
   remote_config_status?: string;
   remote_config_error?: string;
   last_seen?: string;
-  unregistered_at?: string;
+  local_attributes?: Record<string, string>;
 }
 
 export interface Pipeline {

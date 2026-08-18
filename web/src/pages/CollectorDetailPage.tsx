@@ -3,7 +3,6 @@ import { useParams } from '@tanstack/react-router';
 import { CheckCircle, Copy } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import type { Collector, CollectorInstance } from '@/api/client';
 import { orgApi } from '@/api/client';
 import { useOrgId } from '@/hooks/useOrg';
 
@@ -24,16 +23,8 @@ const STATUS_COLORS: Record<string, string> = {
   FAILED: 'text-red-400 bg-red-400/10 border-red-400/20',
 };
 
-type CollectorDetail = Collector &
-  Partial<
-    Pick<
-      CollectorInstance,
-      'alloy_version' | 'os' | 'remote_config_status' | 'remote_config_error' | 'last_seen'
-    >
-  >;
-
 export function CollectorDetailPage() {
-  const { id } = useParams({ from: '/shell/collectors/$id' });
+  const { id } = useParams({ from: '/shell/content/collectors/$id' });
   const orgId = useOrgId();
   const [tab, setTab] = useState<'config' | 'info'>('config');
   const [copied, setCopied] = useState(false);
@@ -70,9 +61,11 @@ export function CollectorDetailPage() {
     return <div className='text-sm text-zinc-400 p-6'>Loading…</div>;
   }
 
-  const detail = collector as CollectorDetail | undefined;
+  const detail = collector;
   const status = detail?.remote_config_status?.toUpperCase() ?? '';
   const statusColor = STATUS_COLORS[status] ?? 'text-zinc-400 bg-zinc-800 border-zinc-700';
+  const instances = detail?.instances ?? [];
+  const latestOs = instances[0]?.os;
 
   return (
     <div className='space-y-4'>
@@ -83,7 +76,7 @@ export function CollectorDetailPage() {
           </h1>
           <div className='flex items-center gap-3 text-xs text-zinc-500'>
             {detail?.alloy_version && <span>Alloy {detail.alloy_version}</span>}
-            {detail?.os && <span>{detail.os}</span>}
+            {latestOs && <span>{latestOs}</span>}
             <span>Last seen {relativeTime(detail?.last_seen)}</span>
           </div>
         </div>
@@ -161,22 +154,72 @@ export function CollectorDetailPage() {
       )}
 
       {tab === 'info' && (
-        <dl className='space-y-3 text-sm'>
-          {[
-            ['Collector ID', id],
-            ['Cluster', detail?.cluster],
-            ['Role', detail?.role],
-            ['Alloy version', detail?.alloy_version ?? '—'],
-            ['OS', detail?.os ?? '—'],
-            ['Last seen', relativeTime(detail?.last_seen)],
-            ['Status', status || '—'],
-          ].map(([label, value]) => (
-            <div key={label} className='flex gap-4'>
-              <dt className='w-32 text-zinc-500 shrink-0'>{label}</dt>
-              <dd className='text-zinc-200 font-mono text-xs'>{value}</dd>
-            </div>
-          ))}
-        </dl>
+        <div className='space-y-6'>
+          <dl className='space-y-3 text-sm'>
+            {[
+              ['Collector ID', id],
+              ['Cluster', detail?.cluster],
+              ['Role', detail?.role],
+              ['Alloy version', detail?.alloy_version ?? '—'],
+              ['Last seen', relativeTime(detail?.last_seen)],
+              ['Status', status || '—'],
+            ].map(([label, value]) => (
+              <div key={label} className='flex gap-4'>
+                <dt className='w-32 text-zinc-500 shrink-0'>{label}</dt>
+                <dd className='text-zinc-200 font-mono text-xs'>{value}</dd>
+              </div>
+            ))}
+          </dl>
+
+          <div className='space-y-2'>
+            <h2 className='text-sm font-medium text-zinc-300'>Instances</h2>
+            {instances.length === 0 ? (
+              <p className='text-sm text-zinc-500'>No instances have reported in yet.</p>
+            ) : (
+              <div className='rounded-lg border border-zinc-800 overflow-hidden overflow-x-auto'>
+                <table className='w-full text-sm'>
+                  <thead className='bg-zinc-900 text-zinc-400'>
+                    <tr>
+                      <th className='px-4 py-2 text-left font-medium'>Name</th>
+                      <th className='px-4 py-2 text-left font-medium'>Version</th>
+                      <th className='px-4 py-2 text-left font-medium'>OS</th>
+                      <th className='px-4 py-2 text-left font-medium'>Last seen</th>
+                      <th className='px-4 py-2 text-left font-medium'>Status</th>
+                      <th className='px-4 py-2 text-left font-medium'>Error</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {instances.map((inst) => {
+                      const instStatus = inst.remote_config_status?.toUpperCase() ?? '';
+                      const instColor =
+                        STATUS_COLORS[instStatus] ?? 'text-zinc-400 bg-zinc-800 border-zinc-700';
+                      return (
+                        <tr key={inst.name} className='border-t border-zinc-800'>
+                          <td className='px-4 py-2.5 font-mono text-xs'>{inst.name}</td>
+                          <td className='px-4 py-2.5 text-zinc-400'>{inst.alloy_version ?? '—'}</td>
+                          <td className='px-4 py-2.5 text-zinc-400'>{inst.os ?? '—'}</td>
+                          <td className='px-4 py-2.5 text-zinc-400'>
+                            {relativeTime(inst.last_seen)}
+                          </td>
+                          <td className='px-4 py-2.5'>
+                            <span
+                              className={`text-xs font-medium px-2 py-0.5 rounded border ${instColor}`}
+                            >
+                              {instStatus || 'UNKNOWN'}
+                            </span>
+                          </td>
+                          <td className='px-4 py-2.5 text-red-400 text-xs'>
+                            {inst.remote_config_error ?? '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

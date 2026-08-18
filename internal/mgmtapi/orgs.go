@@ -86,12 +86,35 @@ func (h *OrgsHandler) Me(w http.ResponseWriter, r *http.Request) {
 }
 
 type collectorResponse struct {
-	ID                 string `json:"id"`
-	ClusterID          string `json:"cluster_id"`
-	Cluster            string `json:"cluster"`
-	Role               string `json:"role"`
-	OrgID              string `json:"org_id"`
-	RemoteConfigStatus string `json:"remote_config_status,omitempty"`
+	ID                 string                      `json:"id"`
+	ClusterID          string                      `json:"cluster_id"`
+	Cluster            string                      `json:"cluster"`
+	Role               string                      `json:"role"`
+	OrgID              string                      `json:"org_id"`
+	RemoteConfigStatus string                      `json:"remote_config_status,omitempty"`
+	RemoteConfigError  string                      `json:"remote_config_error,omitempty"`
+	LastSeen           string                      `json:"last_seen,omitempty"`
+	AlloyVersion       string                      `json:"alloy_version,omitempty"`
+	LocalAttributes    json.RawMessage             `json:"local_attributes,omitempty"`
+	Instances          []collectorInstanceResponse `json:"instances,omitempty"`
+}
+
+type collectorInstanceResponse struct {
+	Name               string          `json:"name"`
+	AlloyVersion       string          `json:"alloy_version,omitempty"`
+	OS                 string          `json:"os,omitempty"`
+	LastSeen           string          `json:"last_seen,omitempty"`
+	RemoteConfigStatus string          `json:"remote_config_status,omitempty"`
+	RemoteConfigError  string          `json:"remote_config_error,omitempty"`
+	LocalAttributes    json.RawMessage `json:"local_attributes,omitempty"`
+}
+
+// timestampOrEmpty formats a nullable timestamptz as RFC3339, or "" when unset.
+func timestampOrEmpty(ts pgtype.Timestamptz) string {
+	if !ts.Valid {
+		return ""
+	}
+	return ts.Time.UTC().Format("2006-01-02T15:04:05Z")
 }
 
 // ListCollectors returns collectors for the organization.
@@ -113,14 +136,16 @@ func (h *OrgsHandler) ListCollectors(w http.ResponseWriter, r *http.Request) {
 		items := make([]collectorResponse, len(all))
 		for i := range all {
 			c := &all[i]
-			status, _ := h.store.Queries.GetLatestCollectorInstanceStatus(r.Context(), c.ID) //nolint:errcheck
+			summary, _ := h.store.Queries.GetLatestCollectorInstanceSummary(r.Context(), c.ID) //nolint:errcheck // zero value is safe default
 			items[i] = collectorResponse{
 				ID:                 c.ID.String(),
 				ClusterID:          c.ClusterID.String(),
 				Cluster:            c.ClusterName,
 				Role:               c.Role,
 				OrgID:              c.OrgID.String(),
-				RemoteConfigStatus: status.String,
+				RemoteConfigStatus: summary.RemoteConfigStatus.String,
+				LastSeen:           timestampOrEmpty(summary.LastSeen),
+				AlloyVersion:       summary.AlloyVersion.String,
 			}
 		}
 		respondJSON(w, http.StatusOK, listResponse[collectorResponse]{Items: items, Total: len(items)})
@@ -137,14 +162,22 @@ func (h *OrgsHandler) ListCollectors(w http.ResponseWriter, r *http.Request) {
 		var id, clusterID string
 		id = c.ID.String()
 		clusterID = c.ClusterID.String()
-		cluster, _ := h.store.Queries.GetClusterByID(r.Context(), c.ClusterID)           //nolint:errcheck // empty name is safe
-		status, _ := h.store.Queries.GetLatestCollectorInstanceStatus(r.Context(), c.ID) //nolint:errcheck // empty string is safe default
-		items[i] = collectorResponse{ID: id, ClusterID: clusterID, Cluster: cluster.Name, Role: c.Role, RemoteConfigStatus: status.String}
+		cluster, _ := h.store.Queries.GetClusterByID(r.Context(), c.ClusterID)             //nolint:errcheck // empty name is safe
+		summary, _ := h.store.Queries.GetLatestCollectorInstanceSummary(r.Context(), c.ID) //nolint:errcheck // zero value is safe default
+		items[i] = collectorResponse{
+			ID:                 id,
+			ClusterID:          clusterID,
+			Cluster:            cluster.Name,
+			Role:               c.Role,
+			RemoteConfigStatus: summary.RemoteConfigStatus.String,
+			LastSeen:           timestampOrEmpty(summary.LastSeen),
+			AlloyVersion:       summary.AlloyVersion.String,
+		}
 	}
 	respondJSON(w, http.StatusOK, listResponse[collectorResponse]{Items: items, Total: len(items)})
 }
 
-// GetCollector returns a collector.
+// GetCollector returns a collector, including its live instances.
 func (h *OrgsHandler) GetCollector(w http.ResponseWriter, r *http.Request) {
 	var id pgtype.UUID
 	if err := id.Scan(chi.URLParam(r, "id")); err != nil {
@@ -160,7 +193,35 @@ func (h *OrgsHandler) GetCollector(w http.ResponseWriter, r *http.Request) {
 	cid = c.ID.String()
 	clusterID = c.ClusterID.String()
 	cluster, _ := h.store.Queries.GetClusterByID(r.Context(), c.ClusterID) //nolint:errcheck // empty name is safe
-	respondJSON(w, http.StatusOK, collectorResponse{ID: cid, ClusterID: clusterID, Cluster: cluster.Name, Role: c.Role})
+
+	rows, err := h.store.Queries.ListCollectorInstancesByCollector(r.Context(), id)
+	if err != nil {
+		h.logger.Warn("get collector: listing instances", "err", err)
+		rows = nil
+	}
+	instances := make([]collectorInstanceResponse, len(rows))
+	for i := range rows {
+		row := &rows[i]
+		instances[i] = collectorInstanceResponse{
+			Name:               row.Name,
+			AlloyVersion:       row.AlloyVersion.String,
+			OS:                 row.Os.String,
+			LastSeen:           timestampOrEmpty(row.LastSeen),
+			RemoteConfigStatus: row.RemoteConfigStatus.String,
+			RemoteConfigError:  row.RemoteConfigError.String,
+			LocalAttributes:    row.LocalAttributes,
+		}
+	}
+	resp := collectorResponse{ID: cid, ClusterID: clusterID, Cluster: cluster.Name, Role: c.Role, Instances: instances}
+	if len(instances) > 0 {
+		latest := instances[0]
+		resp.RemoteConfigStatus = latest.RemoteConfigStatus
+		resp.RemoteConfigError = latest.RemoteConfigError
+		resp.LastSeen = latest.LastSeen
+		resp.AlloyVersion = latest.AlloyVersion
+		resp.LocalAttributes = latest.LocalAttributes
+	}
+	respondJSON(w, http.StatusOK, resp)
 }
 
 // ServedConfig returns the served configuration for a collector.

@@ -10,8 +10,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
+	"github.com/jackc/pgx/v5/pgtype"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	dto "github.com/prometheus/client_model/go"
@@ -285,6 +287,72 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 			instance, err := st.Queries.GetCollectorInstanceByID(ctx, "self-reg-instance")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(instance).NotTo(BeNil())
+		})
+
+		It("stores remote_config_status without the proto enum prefix", func() {
+			_, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+				Id:              "status-instance",
+				LocalAttributes: map[string]string{"cluster": "status-cluster", "role": "metrics"},
+				RemoteConfigStatus: &collectorv1.RemoteConfigStatus{
+					Status: collectorv1.RemoteConfigStatuses_RemoteConfigStatuses_APPLIED,
+				},
+			}))
+			Expect(err).NotTo(HaveOccurred())
+
+			instance, err := st.Queries.GetCollectorInstanceByID(ctx, "status-instance")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(instance.RemoteConfigStatus.Valid).To(BeTrue())
+			Expect(instance.RemoteConfigStatus.String).To(Equal("APPLIED"))
+			Expect(instance.RemoteConfigStatus.String).NotTo(ContainSubstring("RemoteConfigStatuses"))
+		})
+
+		It("keeps the registered display name across subsequent GetConfig polls", func() {
+			_, err := client.RegisterCollector(ctx, connect.NewRequest(&collectorv1.RegisterCollectorRequest{
+				Id:              "named-instance",
+				Name:            "my-hostname",
+				LocalAttributes: map[string]string{"cluster": "named-cluster", "role": "metrics"},
+			}))
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+				Id:              "named-instance",
+				LocalAttributes: map[string]string{"cluster": "named-cluster", "role": "metrics"},
+			}))
+			Expect(err).NotTo(HaveOccurred())
+
+			instance, err := st.Queries.GetCollectorInstanceByID(ctx, "named-instance")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(instance.Name).To(Equal("my-hostname"), "GetConfig must not overwrite the display name with the wire id")
+		})
+
+		It("clears an 'inactive' remote_config_status on reconnect", func() {
+			_, err := client.RegisterCollector(ctx, connect.NewRequest(&collectorv1.RegisterCollectorRequest{
+				Id:              "reconnect-instance",
+				Name:            "reconnect-instance",
+				LocalAttributes: map[string]string{"cluster": "reconnect-cluster", "role": "metrics"},
+			}))
+			Expect(err).NotTo(HaveOccurred())
+
+			// Simulate the lifecycle sweeper marking the instance inactive.
+			Expect(st.Queries.MarkStaleInstancesInactive(ctx, pgtype.Timestamptz{
+				Time:  time.Now().Add(time.Hour),
+				Valid: true,
+			})).To(Succeed())
+
+			instance, err := st.Queries.GetCollectorInstanceByID(ctx, "reconnect-instance")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(instance.RemoteConfigStatus.String).To(Equal("inactive"))
+
+			// Reconnect via a plain poll carrying no RemoteConfigStatus payload.
+			_, err = client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+				Id:              "reconnect-instance",
+				LocalAttributes: map[string]string{"cluster": "reconnect-cluster", "role": "metrics"},
+			}))
+			Expect(err).NotTo(HaveOccurred())
+
+			instance, err = st.Queries.GetCollectorInstanceByID(ctx, "reconnect-instance")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(instance.RemoteConfigStatus.Valid).To(BeFalse(), "reconnect should clear the stale inactive marker")
 		})
 	})
 

@@ -1,13 +1,26 @@
 -- name: UpsertCollectorInstance :one
+-- On conflict, an incoming name that is empty or equal to the wire id (both
+-- signal "caller has no real display name to report, e.g. a bare poll with
+-- no collector.name attribute") never clobbers a previously-known display
+-- name. A successful upsert also counts as liveness recovery: it clears a
+-- stale 'inactive' status marker left by the lifecycle sweeper so a
+-- reconnecting instance shows live again.
 INSERT INTO collector_instances (id, collector_id, name, local_attributes, alloy_version, os, last_seen)
 VALUES ($1, $2, $3, $4, $5, $6, now())
 ON CONFLICT (id) DO UPDATE SET
     collector_id = EXCLUDED.collector_id,
-    name         = EXCLUDED.name,
+    name         = CASE
+                        WHEN EXCLUDED.name = '' OR EXCLUDED.name = collector_instances.id THEN collector_instances.name
+                        ELSE EXCLUDED.name
+                    END,
     local_attributes = EXCLUDED.local_attributes,
     alloy_version = EXCLUDED.alloy_version,
     os           = EXCLUDED.os,
     last_seen    = now(),
+    remote_config_status = CASE
+                                WHEN collector_instances.remote_config_status = 'inactive' THEN NULL
+                                ELSE collector_instances.remote_config_status
+                            END,
     updated_at   = now()
 RETURNING *;
 
@@ -41,8 +54,19 @@ DELETE FROM collector_instances WHERE last_seen < $1;
 -- name: GetCollectorInstanceByID :one
 SELECT * FROM collector_instances WHERE id = $1;
 
--- name: GetLatestCollectorInstanceStatus :one
-SELECT remote_config_status FROM collector_instances
+-- name: GetLatestCollectorInstanceSummary :one
+-- Status, last-seen, and version of the most recently reporting live
+-- instance for a collector, in a single round trip (used by the collector
+-- list endpoint instead of N per-row status-only lookups).
+SELECT remote_config_status, last_seen, alloy_version FROM collector_instances
 WHERE collector_id = $1 AND unregistered_at IS NULL
 ORDER BY last_seen DESC
 LIMIT 1;
+
+-- name: ListCollectorInstancesByCollector :many
+-- All live (still-registered) instances reporting under a collector,
+-- newest last_seen first, for the collector detail view.
+SELECT name, alloy_version, os, last_seen, remote_config_status, remote_config_error, local_attributes
+FROM collector_instances
+WHERE collector_id = $1 AND unregistered_at IS NULL
+ORDER BY last_seen DESC NULLS LAST;

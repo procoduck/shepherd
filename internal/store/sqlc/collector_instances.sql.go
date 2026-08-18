@@ -45,18 +45,74 @@ func (q *Queries) GetCollectorInstanceByID(ctx context.Context, id string) (Coll
 	return i, err
 }
 
-const getLatestCollectorInstanceStatus = `-- name: GetLatestCollectorInstanceStatus :one
-SELECT remote_config_status FROM collector_instances
+const getLatestCollectorInstanceSummary = `-- name: GetLatestCollectorInstanceSummary :one
+SELECT remote_config_status, last_seen, alloy_version FROM collector_instances
 WHERE collector_id = $1 AND unregistered_at IS NULL
 ORDER BY last_seen DESC
 LIMIT 1
 `
 
-func (q *Queries) GetLatestCollectorInstanceStatus(ctx context.Context, collectorID pgtype.UUID) (pgtype.Text, error) {
-	row := q.db.QueryRow(ctx, getLatestCollectorInstanceStatus, collectorID)
-	var remote_config_status pgtype.Text
-	err := row.Scan(&remote_config_status)
-	return remote_config_status, err
+type GetLatestCollectorInstanceSummaryRow struct {
+	RemoteConfigStatus pgtype.Text        `json:"remote_config_status"`
+	LastSeen           pgtype.Timestamptz `json:"last_seen"`
+	AlloyVersion       pgtype.Text        `json:"alloy_version"`
+}
+
+// Status, last-seen, and version of the most recently reporting live
+// instance for a collector, in a single round trip (used by the collector
+// list endpoint instead of N per-row status-only lookups).
+func (q *Queries) GetLatestCollectorInstanceSummary(ctx context.Context, collectorID pgtype.UUID) (GetLatestCollectorInstanceSummaryRow, error) {
+	row := q.db.QueryRow(ctx, getLatestCollectorInstanceSummary, collectorID)
+	var i GetLatestCollectorInstanceSummaryRow
+	err := row.Scan(&i.RemoteConfigStatus, &i.LastSeen, &i.AlloyVersion)
+	return i, err
+}
+
+const listCollectorInstancesByCollector = `-- name: ListCollectorInstancesByCollector :many
+SELECT name, alloy_version, os, last_seen, remote_config_status, remote_config_error, local_attributes
+FROM collector_instances
+WHERE collector_id = $1 AND unregistered_at IS NULL
+ORDER BY last_seen DESC NULLS LAST
+`
+
+type ListCollectorInstancesByCollectorRow struct {
+	Name               string             `json:"name"`
+	AlloyVersion       pgtype.Text        `json:"alloy_version"`
+	Os                 pgtype.Text        `json:"os"`
+	LastSeen           pgtype.Timestamptz `json:"last_seen"`
+	RemoteConfigStatus pgtype.Text        `json:"remote_config_status"`
+	RemoteConfigError  pgtype.Text        `json:"remote_config_error"`
+	LocalAttributes    json.RawMessage    `json:"local_attributes"`
+}
+
+// All live (still-registered) instances reporting under a collector,
+// newest last_seen first, for the collector detail view.
+func (q *Queries) ListCollectorInstancesByCollector(ctx context.Context, collectorID pgtype.UUID) ([]ListCollectorInstancesByCollectorRow, error) {
+	rows, err := q.db.Query(ctx, listCollectorInstancesByCollector, collectorID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCollectorInstancesByCollectorRow
+	for rows.Next() {
+		var i ListCollectorInstancesByCollectorRow
+		if err := rows.Scan(
+			&i.Name,
+			&i.AlloyVersion,
+			&i.Os,
+			&i.LastSeen,
+			&i.RemoteConfigStatus,
+			&i.RemoteConfigError,
+			&i.LocalAttributes,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const markStaleInstancesInactive = `-- name: MarkStaleInstancesInactive :exec
@@ -118,11 +174,18 @@ INSERT INTO collector_instances (id, collector_id, name, local_attributes, alloy
 VALUES ($1, $2, $3, $4, $5, $6, now())
 ON CONFLICT (id) DO UPDATE SET
     collector_id = EXCLUDED.collector_id,
-    name         = EXCLUDED.name,
+    name         = CASE
+                        WHEN EXCLUDED.name = '' OR EXCLUDED.name = collector_instances.id THEN collector_instances.name
+                        ELSE EXCLUDED.name
+                    END,
     local_attributes = EXCLUDED.local_attributes,
     alloy_version = EXCLUDED.alloy_version,
     os           = EXCLUDED.os,
     last_seen    = now(),
+    remote_config_status = CASE
+                                WHEN collector_instances.remote_config_status = 'inactive' THEN NULL
+                                ELSE collector_instances.remote_config_status
+                            END,
     updated_at   = now()
 RETURNING id, collector_id, name, local_attributes, alloy_version, os, last_seen, unregistered_at, remote_config_status, remote_config_error, created_at, updated_at
 `
@@ -136,6 +199,12 @@ type UpsertCollectorInstanceParams struct {
 	Os              pgtype.Text     `json:"os"`
 }
 
+// On conflict, an incoming name that is empty or equal to the wire id (both
+// signal "caller has no real display name to report, e.g. a bare poll with
+// no collector.name attribute") never clobbers a previously-known display
+// name. A successful upsert also counts as liveness recovery: it clears a
+// stale 'inactive' status marker left by the lifecycle sweeper so a
+// reconnecting instance shows live again.
 func (q *Queries) UpsertCollectorInstance(ctx context.Context, arg UpsertCollectorInstanceParams) (CollectorInstance, error) {
 	row := q.db.QueryRow(ctx, upsertCollectorInstance,
 		arg.ID,
