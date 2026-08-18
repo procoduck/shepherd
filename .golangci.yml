@@ -1,0 +1,102 @@
+version: "2"
+
+run:
+  timeout: 5m
+  build-tags:
+    - e2e
+
+linters:
+  default: none
+  enable:
+    # correctness
+    - errcheck
+    - govet
+    - staticcheck        # v2: includes the old gosimple + stylecheck
+    - unused
+    - ineffassign
+    - errorlint          # %w wrapping, errors.Is/As misuse
+    - copyloopvar
+    - unconvert
+    - unparam
+    - exhaustive         # enum switches: role, RemoteConfigStatuses, source, auth_mode
+    - nilerr
+    - durationcheck
+    - makezero
+    # resource safety (critical for this codebase)
+    - bodyclose          # every ADO/Graph http response body
+    - noctx              # all outbound HTTP must take a context
+    - rowserrcheck       # pgx rows.Err()
+    - sqlclosecheck
+    - contextcheck
+    # security
+    - gosec
+    # style/consistency
+    - revive
+    - gocritic
+    - misspell
+    - nolintlint
+    - depguard
+    - importas
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    exhaustive:
+      default-signifies-exhaustive: true
+    gosec:
+      excludes:
+        - G104            # duplicate of errcheck
+    gocritic:
+      enabled-tags: [diagnostic, performance]
+      disabled-checks:
+        - hugeParam       # noisy with config structs
+    revive:
+      rules:
+        - name: exported            # all exported identifiers documented
+        - name: context-as-argument
+        - name: error-return
+        - name: error-strings
+        - name: early-return
+        - name: unexported-return
+        - name: var-naming
+    depguard:
+      rules:
+        main:
+          deny:
+            - pkg: github.com/pkg/errors
+              desc: use stdlib errors + fmt.Errorf %w
+            - pkg: io/ioutil
+              desc: deprecated; use io / os
+            - pkg: database/sql
+              desc: use pgx via internal/store only
+            - pkg: gorm.io
+              desc: sqlc only (rule 4 in §0)
+    importas:
+      alias:
+        - pkg: github.com/grafana/alloy-remote-config/api/gen/proto/go/collector/v1
+          alias: collectorv1
+
+  exclusions:
+    generated: lax                  # skip generated files (sqlc, buf output)
+    paths:
+      - gen
+      - internal/store/sqlc
+    rules:
+      - path: _test\.go
+        linters: [gosec, unparam, noctx, contextcheck]
+      - path: internal/testutil/
+        linters: [gosec]
+      - path: e2e/
+        linters: [gosec, noctx]
+
+formatters:
+  enable:
+    - gofumpt
+    - gci
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(shepherd)          # module path — matches go.mod

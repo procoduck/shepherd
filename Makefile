@@ -228,8 +228,11 @@ helm-lint:
 	helm template shepherd deploy/helm/shepherd -f deploy/helm/shepherd/ci/full-values.yaml > /dev/null
 
 # GoReleaser dry run
+# Local defaults for the docker image templates; CI overrides both.
+IMAGE_REGISTRY ?= ghcr.io/procoduck
+SOURCE_URL ?= https://github.com/procoduck/sheperd
 release-snapshot:
-	goreleaser release --snapshot --clean
+	IMAGE_REGISTRY=$(IMAGE_REGISTRY) SOURCE_URL=$(SOURCE_URL) goreleaser release --snapshot --clean --skip=publish
 
 # Build Docker image locally (for e2e and dev; use docker-build-init for the init/CLI image).
 docker-build: build-web

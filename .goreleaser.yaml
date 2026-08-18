@@ -1,0 +1,93 @@
+version: 2
+
+project_name: shepherd
+
+before:
+  hooks:
+    - go mod tidy
+    - buf generate
+    - sqlc generate
+    - ./scripts/build-web.sh   # SPA must exist before go build (go:embed); canonical build script per check-build-script guard
+
+builds:
+  - id: shepherd
+    main: ./cmd/shepherd
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X shepherd/internal/version.Version={{ .Version }}
+      - -X shepherd/internal/version.Commit={{ .ShortCommit }}
+      - -X shepherd/internal/version.Date={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"        # reproducible builds
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+sboms:
+  - artifacts: archive        # syft-generated SBOM per archive
+
+dockers:
+  - id: amd64
+    use: buildx
+    goarch: amd64
+    dockerfile: deploy/Dockerfile.goreleaser
+    image_templates:
+      - "{{ .Env.IMAGE_REGISTRY }}/shepherd:{{ .Version }}-amd64"
+    build_flag_templates:
+      - --platform=linux/amd64
+      - --label=org.opencontainers.image.version={{ .Version }}
+      - --label=org.opencontainers.image.revision={{ .FullCommit }}
+      - --label=org.opencontainers.image.source={{ .Env.SOURCE_URL }}
+  - id: arm64
+    use: buildx
+    goarch: arm64
+    dockerfile: deploy/Dockerfile.goreleaser
+    image_templates:
+      - "{{ .Env.IMAGE_REGISTRY }}/shepherd:{{ .Version }}-arm64"
+    build_flag_templates:
+      - --platform=linux/arm64
+      - --label=org.opencontainers.image.version={{ .Version }}
+      - --label=org.opencontainers.image.revision={{ .FullCommit }}
+      - --label=org.opencontainers.image.source={{ .Env.SOURCE_URL }}
+
+docker_manifests:
+  - name_template: "{{ .Env.IMAGE_REGISTRY }}/shepherd:{{ .Version }}"
+    image_templates:
+      - "{{ .Env.IMAGE_REGISTRY }}/shepherd:{{ .Version }}-amd64"
+      - "{{ .Env.IMAGE_REGISTRY }}/shepherd:{{ .Version }}-arm64"
+  - name_template: "{{ .Env.IMAGE_REGISTRY }}/shepherd:latest"
+    image_templates:
+      - "{{ .Env.IMAGE_REGISTRY }}/shepherd:{{ .Version }}-amd64"
+      - "{{ .Env.IMAGE_REGISTRY }}/shepherd:{{ .Version }}-arm64"
+    skip_push: "{{ if .Prerelease }}true{{ end }}"
+
+changelog:
+  use: git
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^feat(\(.+\))?:'
+      order: 0
+    - title: Fixes
+      regexp: '^fix(\(.+\))?:'
+      order: 1
+    - title: Other
+      order: 999
+  filters:
+    exclude: ['^docs:', '^chore:', '^test:', '^ci:']
+
+release:
+  disable: "{{ if index .Env \"SKIP_SCM_RELEASE\" }}true{{ end }}"
+  # GitHub releases when the mirror is GitHub; on Azure DevOps set SKIP_SCM_RELEASE=1 —
+  # the images + manifests are the release artifacts there.
+
+snapshot:
+  # DECISION: spec section 21 uses -dev+ShortCommit (semver build metadata), but "+" is
+  # invalid in a Docker tag and breaks the snapshot docker builds; "-" keeps the intent.
+  version_template: "{{ incpatch .Version }}-dev-{{ .ShortCommit }}"

@@ -24,3 +24,6 @@ web/.playwright/
 
 # Local code-intelligence index
 .codegraph/
+
+# GoReleaser output
+/dist/
