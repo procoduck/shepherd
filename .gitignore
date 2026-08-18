@@ -21,3 +21,6 @@ web/.playwright/
 .idea/
 .vscode/
 *.swp
+
+# Local code-intelligence index
+.codegraph/
