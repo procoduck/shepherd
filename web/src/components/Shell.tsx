@@ -194,12 +194,12 @@ export function Shell() {
         </header>
 
         {/* Content */}
-        <main className='flex-1 overflow-y-auto'>
+        <main className='flex flex-1 flex-col min-h-0'>
           {me.auth_method === 'local' && (
             <div
               data-testid='local-admin-banner'
               role='alert'
-              className='flex items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-6 py-3 text-sm text-amber-300'
+              className='flex shrink-0 items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-6 py-3 text-sm text-amber-300'
             >
               <TriangleAlert size={16} />
               <span>
@@ -208,7 +208,7 @@ export function Shell() {
               </span>
             </div>
           )}
-          <div className='max-w-[1400px] mx-auto px-6 py-6'>
+          <div className='flex-1 min-h-0'>
             <Outlet />
           </div>
         </main>

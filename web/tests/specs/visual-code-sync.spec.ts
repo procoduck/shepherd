@@ -24,6 +24,8 @@ test.describe('visual code sync', () => {
     await page.goto('/pipelines/visual/new');
     await page.waitForSelector('[data-testid="visual-builder"]', { timeout: 10_000 });
     await page.waitForSelector('[data-testid="palette-search"]', { timeout: 8_000 });
+    // Bottom drawer defaults to collapsed; open it before selecting a tab.
+    await page.click('[data-testid="drawer-toggle"]');
   });
 
   test('Code tab shows header comment after placing a node', async ({ page }) => {

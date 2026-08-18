@@ -11,7 +11,7 @@ import { useMe } from '../../hooks/useMe';
 import { renderTS } from '../renderTS';
 import { useVisualStore } from '../store';
 export function BottomDrawer() {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<'problems' | 'code' | 'simulate'>('problems');
   const diagnostics = useVisualStore((s) => s.diagnostics);
   const doc = useVisualStore((s) => s.doc);
@@ -163,6 +163,7 @@ export function BottomDrawer() {
         </button>
         <button
           className='ml-auto'
+          data-testid='drawer-toggle'
           aria-label={open ? 'Collapse drawer' : 'Expand drawer'}
           onClick={() => setOpen((x) => !x)}
         >

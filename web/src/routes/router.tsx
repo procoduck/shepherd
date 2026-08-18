@@ -36,38 +36,54 @@ const shellRoute = createRoute({
   component: Shell,
 });
 
-const overviewRoute = createRoute({
+// Pathless layout applied to ordinary (non-canvas) routes: the padded,
+// max-width, page-scrolling content wrapper. The visual pipeline builder and
+// graph view routes intentionally bypass this layout — they render directly
+// under the shell so they can fill the viewport without page scroll (R1-C1).
+const contentRoute = createRoute({
   getParentRoute: () => shellRoute,
+  id: 'content',
+  component: () => (
+    <div className='h-full overflow-y-auto'>
+      <div className='max-w-[1400px] mx-auto px-6 py-6'>
+        <Outlet />
+      </div>
+    </div>
+  ),
+});
+
+const overviewRoute = createRoute({
+  getParentRoute: () => contentRoute,
   path: '/',
   component: OverviewPage,
 });
 
 const collectorsRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => contentRoute,
   path: '/collectors',
   component: CollectorsPage,
 });
 
 const collectorDetailRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => contentRoute,
   path: '/collectors/$id',
   component: CollectorDetailPage,
 });
 
 const pipelinesRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => contentRoute,
   path: '/pipelines',
   component: PipelinesPage,
 });
 
 const pipelineNewRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => contentRoute,
   path: '/pipelines/new',
   component: PipelineEditorPage,
 });
 
 const pipelineEditRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => contentRoute,
   path: '/pipelines/$id',
   component: PipelineEditorPage,
 });
@@ -82,7 +98,7 @@ const visualNewRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/pipelines/visual/new',
   component: () => (
-    <Suspense fallback={<div className='p-4 text-sm'>Loading visual builder…</div>}>
+    <Suspense fallback={<div className='h-full p-4 text-sm'>Loading visual builder…</div>}>
       <VisualBuilderPageLazy />
     </Suspense>
   ),
@@ -91,7 +107,7 @@ const visualEditRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/pipelines/$id/visual',
   component: () => (
-    <Suspense fallback={<div className='p-4 text-sm'>Loading visual builder…</div>}>
+    <Suspense fallback={<div className='h-full p-4 text-sm'>Loading visual builder…</div>}>
       <VisualBuilderPageLazy />
     </Suspense>
   ),
@@ -100,50 +116,50 @@ const graphViewRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/pipelines/$id/graph',
   component: () => (
-    <Suspense fallback={<div className='p-4 text-sm'>Loading graph view…</div>}>
+    <Suspense fallback={<div className='h-full p-4 text-sm'>Loading graph view…</div>}>
       <GraphViewPageLazy />
     </Suspense>
   ),
 });
 
 const destinationsRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => contentRoute,
   path: '/destinations',
   component: DestinationsPage,
 });
 
 const gitRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => contentRoute,
   path: '/git',
   component: GitPage,
 });
 
 const wizardsRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => contentRoute,
   path: '/wizards',
   component: WizardsPage,
 });
 
 const adminOrgsRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => contentRoute,
   path: '/admin/orgs',
   component: AdminOrgsPage,
 });
 
 const adminClustersRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => contentRoute,
   path: '/admin/clusters',
   component: AdminClustersPage,
 });
 
 const adminTokensRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => contentRoute,
   path: '/admin/tokens',
   component: AdminTokensPage,
 });
 
 const auditRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => contentRoute,
   path: '/audit',
   component: AuditPage,
 });
@@ -151,22 +167,25 @@ const auditRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   loginRoute,
   shellRoute.addChildren([
-    overviewRoute,
-    collectorsRoute,
-    collectorDetailRoute,
-    pipelinesRoute,
-    pipelineNewRoute,
-    pipelineEditRoute,
+    contentRoute.addChildren([
+      overviewRoute,
+      collectorsRoute,
+      collectorDetailRoute,
+      pipelinesRoute,
+      pipelineNewRoute,
+      pipelineEditRoute,
+      destinationsRoute,
+      gitRoute,
+      wizardsRoute,
+      adminOrgsRoute,
+      adminClustersRoute,
+      adminTokensRoute,
+      auditRoute,
+    ]),
+    // Full-bleed canvas routes bypass contentRoute (see contentRoute comment).
     visualNewRoute,
     visualEditRoute,
     graphViewRoute,
-    destinationsRoute,
-    gitRoute,
-    wizardsRoute,
-    adminOrgsRoute,
-    adminClustersRoute,
-    adminTokensRoute,
-    auditRoute,
   ]),
 ]);
 

@@ -11,6 +11,8 @@ test.describe('visual simulate S2', () => {
     api.seed({ orgs: [s.org], schema: schemaFixture });
     await page.goto('/pipelines/visual/new');
     await page.waitForSelector('[data-testid="visual-builder"]', { timeout: 10_000 });
+    // Bottom drawer defaults to collapsed; open it before selecting a tab.
+    await page.getByTestId('drawer-toggle').click();
     await page.getByTestId('drawer-tab-simulate').click();
   });
 
