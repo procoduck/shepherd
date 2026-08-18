@@ -17,8 +17,8 @@ RUN chmod +x scripts/build-web.sh && ./scripts/build-web.sh
 
 # Stage 2: Build the Go binary
 FROM ${GO_IMAGE} AS builder
-COPY your-root-ca.crt /usr/local/share/ca-certificates/cert.crt
-RUN update-ca-certificates
+# If your organisation requires a private root CA for outbound TLS, copy it here:
+# COPY your-root-ca.crt /usr/local/share/ca-certificates/cert.crt && RUN update-ca-certificates
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
