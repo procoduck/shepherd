@@ -1,0 +1,42 @@
+{{- if .Values.migrations.job.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "shepherd.fullname" . }}-migrate
+  labels:
+    {{- include "shepherd.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    "helm.sh/hook-weight": "-5"
+spec:
+  template:
+    spec:
+      serviceAccountName: {{ include "shepherd.fullname" . }}
+      restartPolicy: Never
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "shepherd.fullname" . }}
+        - name: tmp
+          emptyDir: {}
+      containers:
+        - name: migrate
+          image: {{ include "shepherd.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["migrate", "up", "--config", "/etc/shepherd/shepherd.yaml"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/shepherd
+            - name: tmp
+              mountPath: /tmp
+          envFrom:
+            - secretRef:
+                name: {{ if .Values.existingSecret }}{{ .Values.existingSecret }}{{ else }}{{ include "shepherd.fullname" . }}-secrets{{ end }}
+                optional: true
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+{{- end }}

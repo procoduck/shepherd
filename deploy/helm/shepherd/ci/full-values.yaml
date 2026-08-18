@@ -1,0 +1,49 @@
+image:
+  tag: "0.1.0"
+replicas: 2
+config:
+  server:
+    listen: ":8080"
+    base_url: "https://shepherd.internal"
+  database:
+    max_conns: 20
+  oidc:
+    issuer: "https://login.microsoftonline.com/TENANT_ID/v2.0"
+    client_id: "CLIENT_ID"
+    redirect_url: "https://shepherd.internal/auth/callback"
+    scopes: ["openid", "profile", "email"]
+  auth:
+    session_ttl: "8h"
+    app_admin_group_ids: ["00000000-0000-0000-0000-000000000001"]
+  graph:
+    tenant_id: "TENANT_ID"
+    client_id: "GRAPH_CLIENT_ID"
+  validate:
+    alloy_binary: "/usr/local/bin/alloy"
+    stability_level: "experimental"
+    timeout: "10s"
+  log:
+    level: "info"
+    format: "json"
+existingSecret: "shepherd-secrets"
+migrations:
+  job:
+    enabled: true
+route:
+  enabled: true
+  hostnames:
+    - shepherd.internal
+  parentRefs:
+    - name: prod-gateway
+      namespace: gateway
+metrics:
+  serviceMonitor:
+    enabled: true
+    labels:
+      prometheus: kube-prometheus
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 512Mi

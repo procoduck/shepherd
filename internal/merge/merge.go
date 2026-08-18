@@ -1,0 +1,192 @@
+// Package merge implements the pipeline matching and declare-wrap merge engine.
+//
+// Each enabled pipeline's contents are wrapped in a declare block and instantiated,
+// namespacing its components to prevent collisions across pipelines.
+package merge
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"regexp"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/prometheus/alertmanager/pkg/labels"
+)
+
+// Pipeline is the minimal representation of a pipeline needed by the merge engine.
+type Pipeline struct {
+	// ID is the pipeline UUID string.
+	ID string
+	// Name is the human-readable name used for block naming.
+	Name string
+	// Contents is the raw Alloy syntax content.
+	Contents string
+	// Matchers is the list of Alertmanager matcher strings (all must match — AND).
+	// Empty means match nothing (safety default).
+	Matchers []string
+	// Source is "ui", "wizard", or "git".
+	Source string
+	// Revision is the current revision number.
+	Revision int
+	// RepoLinkCollectorID is set (non-empty) when Source == "git".
+	// Git pipelines match only their target collector, not via matchers.
+	RepoLinkCollectorID string
+}
+
+// CollectorLabels represents the label set used to match pipelines to a collector.
+// It includes built-in labels (cluster, role) plus all key/value pairs from the
+// union of live instance local_attributes (last-seen instance wins per key).
+type CollectorLabels struct {
+	CollectorID string
+	Labels      map[string]string
+}
+
+// sanitizeRe matches characters outside [a-z0-9_].
+var sanitizeRe = regexp.MustCompile(`[^a-z0-9_]`)
+
+// SanitizeName converts a pipeline name to a valid Alloy identifier.
+// Result is lowercase, replaces non-[a-z0-9_] with underscores, and
+// prepends "p" if the first character would be a digit.
+func SanitizeName(name string) string {
+	r := sanitizeRe.ReplaceAllString(strings.ToLower(name), "_")
+	if len(r) == 0 || (r[0] >= '0' && r[0] <= '9') {
+		r = "p" + r
+	}
+	return r
+}
+
+// MatchesPipeline reports whether the pipeline matches the collector label set.
+// Git pipelines are matched by collector ID, not by label matchers.
+// UI/wizard pipelines with zero matchers match nothing.
+func MatchesPipeline(p Pipeline, cl CollectorLabels) (bool, error) {
+	if p.Source == "git" {
+		return p.RepoLinkCollectorID == cl.CollectorID, nil
+	}
+	if len(p.Matchers) == 0 {
+		return false, nil
+	}
+	for _, ms := range p.Matchers {
+		m, err := labels.ParseMatcher(ms)
+		if err != nil {
+			return false, fmt.Errorf("parsing matcher %q: %w", ms, err)
+		}
+		v := cl.Labels[m.Name]
+		if !m.Matches(v) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// AssembleResult is the output of the merge engine for a single collector.
+type AssembleResult struct {
+	Content string
+	Hash    string
+}
+
+// Assemble builds the merged Alloy configuration for a collector.
+//
+// It selects matching pipelines (git first, then ui/wizard sorted by name),
+// wraps each in a declare block, and prepends a header comment.
+// Returns (content, hash) ready to be stored in serve_cache.
+func Assemble(collectorID, collectorDisplayName string, cl CollectorLabels, pipelines []Pipeline, version, generatedAt string) (AssembleResult, error) {
+	// Select pipelines.
+	var selected []Pipeline
+	for _, p := range pipelines {
+		if p.Source == "git" {
+			if p.RepoLinkCollectorID == cl.CollectorID {
+				selected = append(selected, p)
+			}
+			continue
+		}
+		matched, err := MatchesPipeline(p, cl)
+		if err != nil {
+			return AssembleResult{}, fmt.Errorf("matching pipeline %q: %w", p.Name, err)
+		}
+		if matched {
+			selected = append(selected, p)
+		}
+	}
+
+	// Stable sort: git pipelines first (already filtered above into selected in
+	// pipeline order), then ui/wizard pipelines by name.
+	// Re-sort all by name for full determinism.
+	slices.SortStableFunc(selected, func(a, b Pipeline) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+
+	if len(selected) == 0 {
+		// Empty config.
+		content := buildHeader(collectorID, collectorDisplayName, version, generatedAt, nil)
+		return AssembleResult{Content: content, Hash: HashContent(content)}, nil
+	}
+
+	var sb strings.Builder
+
+	// Header comment.
+	sb.WriteString(buildHeader(collectorID, collectorDisplayName, version, generatedAt, selected))
+
+	// Check for sanitized-name collisions before assembling.
+	seen := make(map[string]string, len(selected)) // blockName → pipeline name
+	for _, p := range selected {
+		blockName := "pipe_" + SanitizeName(p.Name)
+		if existing, ok := seen[blockName]; ok {
+			return AssembleResult{}, fmt.Errorf(
+				"declare-name collision: pipelines %q and %q both sanitize to block name %q",
+				existing, p.Name, blockName,
+			)
+		}
+		seen[blockName] = p.Name
+	}
+
+	// Declare-wrapped blocks.
+	for i, p := range selected {
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+		blockName := "pipe_" + SanitizeName(p.Name)
+		fmt.Fprintf(&sb, "declare %q {\n", blockName)
+		// Indent pipeline contents by one level.
+		for _, line := range strings.Split(p.Contents, "\n") {
+			if line == "" {
+				sb.WriteString("\n")
+			} else {
+				sb.WriteString("  " + line + "\n")
+			}
+		}
+		sb.WriteString("}\n")
+		fmt.Fprintf(&sb, "%s \"default\" { }\n", blockName)
+	}
+
+	content := sb.String()
+	return AssembleResult{Content: content, Hash: HashContent(content)}, nil
+}
+
+// HashContent computes hex(sha256(content)).
+func HashContent(content string) string {
+	h := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(h[:])
+}
+
+// buildHeader returns the header comment for a merged config.
+func buildHeader(collectorID, displayName, version, generatedAt string, pipelines []Pipeline) string {
+	if generatedAt == "" {
+		generatedAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "// Generated by Shepherd %s at %s\n", version, generatedAt)
+	fmt.Fprintf(&sb, "// Collector: %s (%s)\n", displayName, collectorID)
+	if len(pipelines) == 0 {
+		sb.WriteString("// No pipelines matched\n")
+	} else {
+		fmt.Fprintf(&sb, "// Pipelines (%d):\n", len(pipelines))
+		for _, p := range pipelines {
+			fmt.Fprintf(&sb, "//   - %s (rev %d)\n", p.Name, p.Revision)
+		}
+	}
+	sb.WriteString("\n")
+	return sb.String()
+}

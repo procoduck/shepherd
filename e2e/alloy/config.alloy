@@ -1,0 +1,12 @@
+remotecfg {
+  url = "http://shepherd:8080"
+  basic_auth {
+    username = "00000000-e2e0-4000-a000-000000000001"
+    password = "e2e-static-secret-32byteslong1234"
+  }
+  attributes = {
+    cluster = "e2e-cluster",
+    role    = "metrics",
+  }
+  poll_frequency = "10s"
+}

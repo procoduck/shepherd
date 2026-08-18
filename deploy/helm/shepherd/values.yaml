@@ -1,0 +1,93 @@
+image:
+  registry: ""
+  repository: shepherd
+  tag: ""
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+replicas: 2
+
+config:
+  server:
+    listen: ":8080"
+    base_url: "https://shepherd.example.internal"
+  database:
+    max_conns: 20
+  oidc:
+    scopes: ["openid", "profile", "email"]
+  auth:
+    session_ttl: "8h"
+    # -----------------------------------------------------------------------
+    # Local Admin / Break-Glass Account (OPTIONAL — disabled by default)
+    # WARNING: This is a break-glass account for emergency access and local
+    # development. Enable deliberately. The password hash MUST come from a
+    # Kubernetes Secret (via existingSecret or secrets), never a ConfigMap.
+    #
+    # local_admin:
+    #   enabled: true
+    #   allow_with_oidc: false       # set true to allow alongside OIDC
+    #   username: "admin"
+    #   # password_hash: ""          # argon2id string — use SHEPHERD_AUTH_LOCAL_ADMIN_PASSWORD_HASH env
+    #   session_ttl: "1h"
+    # -----------------------------------------------------------------------
+  graph:
+    base_url: "https://graph.microsoft.com"
+  agent:
+    inactive_after: "5m"
+    delete_after: "24h"
+  validate:
+    alloy_binary: "/usr/local/bin/alloy"
+    stability_level: "experimental"
+    timeout: "10s"
+  gitsync:
+    tick: "3m"
+  log:
+    level: "info"
+    format: "json"
+
+existingSecret: ""
+# secrets: key-value pairs rendered into a Kubernetes Secret and injected as environment variables.
+# Keys must match the SHEPHERD_* env var names. Example for local admin password hash:
+#   secrets:
+#     SHEPHERD_DATABASE_URL: "postgres://..."
+#     SHEPHERD_SECURITY_ENCRYPTION_KEY: "base64-32-bytes"
+#     SHEPHERD_AUTH_LOCAL_ADMIN_PASSWORD_HASH: "$argon2id$..."
+# NEVER put SHEPHERD_AUTH_LOCAL_ADMIN_PASSWORD_HASH in config.local_admin.password_hash above.
+secrets: {}
+
+migrations:
+  job:
+    enabled: true
+
+route:
+  enabled: true
+  hostnames: []
+  parentRefs: []
+
+ingress:
+  enabled: false
+  className: ""
+  hosts: []
+  tls: []
+
+metrics:
+  serviceMonitor:
+    enabled: false
+    labels: {}
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+priorityClassName: ""
+podAnnotations: {}
+extraEnv: []
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+
+networkPolicy:
+  enabled: false

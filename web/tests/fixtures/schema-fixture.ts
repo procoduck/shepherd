@@ -1,0 +1,98 @@
+import type { ComponentDef, SchemaPayload } from '@/visual/types';
+
+const source: ComponentDef = {
+  stability: 'ga',
+  doc: 'source',
+  category: 'sources',
+  attributes: [],
+  blocks: [],
+  inputs: [],
+  outputs: [{ export: 'targets', type: 'targets' }],
+  default_snippet: '',
+};
+const destination: ComponentDef = {
+  stability: 'ga',
+  doc: 'destination',
+  category: 'destinations',
+  terminal_ok: true,
+  attributes: [],
+  blocks: [],
+  inputs: [{ prop: 'receiver', type: 'prom.metrics' }],
+  outputs: [],
+  default_snippet: '',
+};
+export const schemaFixture: SchemaPayload = {
+  _meta: { alloy_version: 'alloy-v1.18.1', components_total: 8 },
+  components: {
+    'discovery.kubernetes': {
+      ...source,
+      attributes: [{ name: 'role', type: 'string', required: true, values: ['pod'] }],
+    },
+    'discovery.relabel': {
+      stability: 'ga',
+      doc: 'Relabels targets',
+      category: 'transform',
+      attributes: [],
+      blocks: [],
+      inputs: [{ prop: 'targets', type: 'targets', cardinality: 'list' }],
+      outputs: [{ export: 'output', type: 'targets' }],
+      default_snippet: '',
+    },
+    'prometheus.scrape': {
+      stability: 'ga',
+      doc: 'Scrapes Prometheus metrics',
+      category: 'transform',
+      attributes: [
+        { name: 'targets', type: 'list', required: true },
+        { name: 'password', type: 'secret', required: false },
+        { name: 'action', type: 'string', required: false, values: ['keep', 'drop'] },
+      ],
+      blocks: [],
+      inputs: [{ prop: 'targets', type: 'targets', cardinality: 'list' }],
+      outputs: [{ export: 'metrics', type: 'prom.metrics' }],
+      default_snippet: '',
+    },
+    'prometheus.remote_write': {
+      ...destination,
+      attributes: [{ name: 'password', type: 'secret', required: false }],
+    },
+    'prometheus.relabel': {
+      stability: 'ga',
+      doc: 'Relabels metrics',
+      category: 'transform',
+      attributes: [],
+      blocks: [],
+      inputs: [{ prop: 'forward_to', type: 'prom.metrics', cardinality: 'list' }],
+      outputs: [{ export: 'receiver', type: 'prom.metrics' }],
+      default_snippet: '',
+    },
+    'loki.source.file': {
+      stability: 'ga',
+      doc: 'Tails logs',
+      category: 'sources',
+      attributes: [],
+      blocks: [],
+      inputs: [],
+      outputs: [{ export: 'logs', type: 'loki.logs' }],
+      default_snippet: '',
+    },
+    'loki.process': {
+      stability: 'ga',
+      doc: 'Processes logs',
+      category: 'transform',
+      attributes: [],
+      blocks: [],
+      inputs: [{ prop: 'forward_to', type: 'loki.logs', cardinality: 'list' }],
+      outputs: [{ export: 'receiver', type: 'loki.logs' }],
+      default_snippet: '',
+    },
+    'loki.write': { ...destination, inputs: [{ prop: 'receiver', type: 'loki.logs' }] },
+    'experimental.component': { ...source, stability: 'experimental' },
+  },
+  wire_types: {
+    targets: { color: 'violet', label: 'targets' },
+    'prom.metrics': { color: 'orange', label: 'prom.metrics' },
+    'loki.logs': { color: 'green', label: 'loki.logs' },
+    'otel.any': { color: 'sky', label: 'otel' },
+  },
+};

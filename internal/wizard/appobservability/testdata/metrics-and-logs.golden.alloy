@@ -1,0 +1,32 @@
+prometheus.scrape "app" {
+  targets = [{"__address__" = "http://app:9090/metrics"}]
+  forward_to = [prometheus.remote_write.metrics.receiver]
+  scrape_interval = "30s"
+  job_name = "app"
+}
+	prometheus.remote_write "metrics" {
+  endpoint {
+    name = "prom-prod"
+    url  = env("SHEPHERD_DEST_PROM_PROD_URL")
+    // auth injected by Shepherd at serve time
+  }
+}
+	loki.source.file "app_logs" {
+  targets = [
+    {__path__ = "/var/log/app/*.log", job = "app"},
+  ]
+  forward_to = [loki.write.logs.receiver]
+}
+
+loki.process "app_process" {
+  forward_to = [loki.write.logs.receiver]
+  stage.json {}
+}
+
+loki.write "logs" {
+  endpoint {
+    name = "loki-prod"
+    url  = env("SHEPHERD_DEST_LOKI_PROD_URL")
+  }
+}
+	

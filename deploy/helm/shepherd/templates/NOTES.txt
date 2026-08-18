@@ -1,0 +1,20 @@
+Shepherd has been deployed!
+
+Access URL: {{ if .Values.route.enabled }}{{ range .Values.route.hostnames }}https://{{ . }}{{ end }}{{ else if .Values.ingress.enabled }}{{ range .Values.ingress.hosts }}https://{{ .host }}{{ end }}{{ else }}Use kubectl port-forward svc/{{ include "shepherd.fullname" . }} 8080:8080{{ end }}
+
+Add a collector spoke (Alloy remotecfg block):
+  remotecfg {
+    url = "{{ if .Values.route.enabled }}{{ range .Values.route.hostnames }}https://{{ . }}{{ end }}{{ else }}http://shepherd:8080{{ end }}"
+    basic_auth {
+      username = "<token-uuid>"
+      password = "<token-secret>"
+    }
+    attributes = {
+      cluster = "<cluster-name>",
+      role    = "metrics",
+    }
+    poll_frequency = "60s"
+  }
+
+Create a token:
+  kubectl exec -it deploy/{{ include "shepherd.fullname" . }} -- shepherd token create --name my-cluster

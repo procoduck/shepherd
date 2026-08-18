@@ -1,0 +1,41 @@
+{
+  "_meta": { "alloy_version": "test-v1.0.0" },
+  "components": {
+    "test.keep_component": {
+      "stability": "ga",
+      "attributes": [
+        { "name": "url",      "type": "string",   "required": true  },
+        { "name": "old_attr", "type": "string",   "required": false },
+        { "name": "interval", "type": "duration", "required": false },
+        { "name": "mode",     "type": "string",   "required": false, "values": ["push", "pull"] }
+      ],
+      "inputs":  [{ "type": "targets",     "cardinality": "list" }],
+      "outputs": [{ "type": "prom.metrics","cardinality": "list" }]
+    },
+    "test.removed_component": {
+      "stability": "experimental",
+      "attributes": [],
+      "inputs":  [],
+      "outputs": []
+    },
+    "test.stable_component": {
+      "stability": "public-preview",
+      "attributes": [],
+      "inputs":  [],
+      "outputs": []
+    },
+    "test.port_component": {
+      "stability": "ga",
+      "attributes": [],
+      "inputs":  [{ "type": "targets", "cardinality": "list" }],
+      "outputs": []
+    },
+    "test.migrate_component": {
+      "stability": "ga",
+      "attributes": [{ "name": "old_url", "type": "string", "required": false }],
+      "inputs":  [],
+      "outputs": []
+    }
+  },
+  "migrations": {}
+}

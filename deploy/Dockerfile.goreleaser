@@ -1,0 +1,12 @@
+ARG ALLOY_IMAGE=grafana/alloy:v1.12.2
+ARG DISTROLESS_IMAGE=gcr.io/distroless/static-debian12:nonroot
+
+# Stage 1: Get alloy binary from the pinned fleet version
+FROM ${ALLOY_IMAGE} AS alloy
+
+# Stage 2: Final distroless image (GoReleaser copies the pre-built binary)
+FROM ${DISTROLESS_IMAGE}
+COPY --from=alloy /bin/alloy /usr/local/bin/alloy
+COPY shepherd /usr/local/bin/shepherd
+USER nonroot
+ENTRYPOINT ["/usr/local/bin/shepherd"]

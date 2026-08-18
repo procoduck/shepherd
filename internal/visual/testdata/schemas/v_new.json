@@ -1,0 +1,40 @@
+{
+  "_meta": { "alloy_version": "test-v2.0.0" },
+  "components": {
+    "test.keep_component": {
+      "stability": "ga",
+      "attributes": [
+        { "name": "url",               "type": "string",   "required": true  },
+        { "name": "new_required_attr", "type": "string",   "required": true  },
+        { "name": "interval",          "type": "duration", "required": false },
+        { "name": "mode",              "type": "string",   "required": false, "values": ["push"] }
+      ],
+      "inputs":  [{ "type": "targets",     "cardinality": "list" }],
+      "outputs": [{ "type": "prom.metrics","cardinality": "list" }]
+    },
+    "test.stable_component": {
+      "stability": "ga",
+      "attributes": [],
+      "inputs":  [],
+      "outputs": []
+    },
+    "test.port_component": {
+      "stability": "ga",
+      "attributes": [],
+      "inputs":  [{ "type": "loki.logs", "cardinality": "list" }],
+      "outputs": []
+    },
+    "test.migrate_component": {
+      "stability": "ga",
+      "attributes": [{ "name": "new_url", "type": "string", "required": false }],
+      "inputs":  [],
+      "outputs": []
+    }
+  },
+  "migrations": {
+    "test.migrate_component": {
+      "to": "test.migrate_component",
+      "prop_renames": { "old_url": "new_url" }
+    }
+  }
+}

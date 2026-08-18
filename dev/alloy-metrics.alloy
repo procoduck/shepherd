@@ -1,0 +1,13 @@
+// Alloy instance: cluster=prod-eu-1, role=metrics
+remotecfg {
+  url = "http://shepherd:8080"
+  basic_auth {
+    username = "00000000-de00-4000-a000-000000000001"
+    password = "dev-only-agent-secret-32byteslong"
+  }
+  attributes = {
+    cluster = "prod-eu-1",
+    role    = "metrics",
+  }
+  poll_frequency = "10s"
+}

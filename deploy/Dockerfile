@@ -1,0 +1,35 @@
+ARG GO_IMAGE=golang:1.26-alpine
+ARG NODE_IMAGE=node:24-slim
+ARG ALLOY_IMAGE=grafana/alloy:v1.12.2
+ARG DISTROLESS_IMAGE=gcr.io/distroless/static-debian12:nonroot
+ARG PNPM_VERSION=11.22.0
+
+# Stage 1: Build the web SPA via the canonical build script
+FROM ${NODE_IMAGE} AS web
+ARG PNPM_VERSION
+ENV COREPACK_NPM_REGISTRY=https://registry.npmjs.org
+WORKDIR /app
+COPY web/package.json web/pnpm-lock.yaml web/.npmrc web/pnpm-workspace.yaml web/
+RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
+COPY web/ web/
+COPY scripts/ scripts/
+RUN chmod +x scripts/build-web.sh && ./scripts/build-web.sh
+
+# Stage 2: Build the Go binary
+FROM ${GO_IMAGE} AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+COPY --from=web /app/internal/spa/dist internal/spa/dist
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /shepherd ./cmd/shepherd
+
+# Stage 3: Get alloy binary
+FROM ${ALLOY_IMAGE} AS alloy
+
+# Stage 4: Final image
+FROM ${DISTROLESS_IMAGE}
+COPY --from=alloy /bin/alloy /usr/local/bin/alloy
+COPY --from=builder /shepherd /usr/local/bin/shepherd
+USER nonroot
+ENTRYPOINT ["/usr/local/bin/shepherd"]

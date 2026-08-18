@@ -1,0 +1,130 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: shepherd_e2e
+      POSTGRES_USER: shepherd
+      POSTGRES_PASSWORD: shepherd
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shepherd -d shepherd_e2e"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
+  oidc:
+    image: ghcr.io/navikt/mock-oauth2-server:6.0.1
+    environment:
+      SERVER_PORT: "8090"
+      JSON_CONFIG: |
+        {
+          "interactiveLogin": true,
+          "httpServer": "NettyWrapper",
+          "tokenCallbacks": []
+        }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8090/.well-known/openid-configuration || exit 1"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
+  mockmsft:
+    build:
+      context: ./mockmsft
+      dockerfile: Dockerfile
+    image: shepherd-mockmsft:e2e
+    environment:
+      LISTEN: ":9090"
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD", "/mockmsft", "-health-check"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  shepherd-init:
+    image: shepherd:local-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SHEPHERD_DATABASE_URL: postgres://shepherd:shepherd@postgres:5432/shepherd_e2e?sslmode=disable
+      SHEPHERD_SECURITY_ENCRYPTION_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      SHEPHERD_DEV_ALLOW_STATIC_TOKEN: "true"
+    command:
+      - migrate
+      - up
+    restart: "no"
+
+  shepherd-token:
+    image: shepherd:local-init
+    depends_on:
+      shepherd-init:
+        condition: service_completed_successfully
+    environment:
+      SHEPHERD_DATABASE_URL: postgres://shepherd:shepherd@postgres:5432/shepherd_e2e?sslmode=disable
+      SHEPHERD_SECURITY_ENCRYPTION_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      SHEPHERD_DEV_ALLOW_STATIC_TOKEN: "true"
+    command:
+      - token
+      - create
+      - --name
+      - e2e
+      - --id
+      - "00000000-e2e0-4000-a000-000000000001"
+      - --secret
+      - e2e-static-secret-32byteslong1234
+    restart: "no"
+
+  shepherd:
+    image: shepherd:local
+    depends_on:
+      shepherd-token:
+        condition: service_completed_successfully
+    command: ["serve"]
+    ports:
+      - "8080:8080"
+    environment:
+      SHEPHERD_DATABASE_URL: postgres://shepherd:shepherd@postgres:5432/shepherd_e2e?sslmode=disable
+      SHEPHERD_SECURITY_ENCRYPTION_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      SHEPHERD_OIDC_ISSUER: http://oidc:8090/default
+      SHEPHERD_OIDC_CLIENT_ID: shepherd-e2e
+      SHEPHERD_OIDC_CLIENT_SECRET: e2e-secret
+      SHEPHERD_OIDC_REDIRECT_URL: http://localhost:8080/auth/callback
+      SHEPHERD_GRAPH_BASE_URL: http://mockmsft:9090
+      SHEPHERD_ADO_BASE_URL: http://mockmsft:9090
+      SHEPHERD_AUTH_APP_ADMIN_GROUP_IDS: "11111111-1111-1111-1111-111111111111"
+      SHEPHERD_GITSYNC_TICK: 2s
+      SHEPHERD_LOG_LEVEL: debug
+      # Local admin enabled alongside OIDC for e2e scenario 8 (LA-1).
+      # allow_with_oidc=true required when OIDC is also configured.
+      SHEPHERD_AUTH_LOCAL_ADMIN_ENABLED: "true"
+      SHEPHERD_AUTH_LOCAL_ADMIN_ALLOW_WITH_OIDC: "true"
+      SHEPHERD_AUTH_LOCAL_ADMIN_PASSWORD_HASH: "$$argon2id$$v=19$$m=65536,t=1,p=4$$AQIDBAUGBwgJCgsMDQ4PEA$$zFDjjWPd0Ds8NRPzb2AUxQXWmQErkPhDnx9HC2RBPW8"
+      SHEPHERD_LOG_LEVEL: debug
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/shepherd", "healthcheck", "--addr", "localhost:8080"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  alloy:
+    # version must be >= v1.12 for remote_config_status reporting; bump deliberately
+    image: grafana/alloy:v1.12.2
+    depends_on:
+      shepherd:
+        condition: service_healthy
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/tmp/alloy
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --disable-reporting
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+    ports:
+      - "12345:12345"
+
+networks:
+  default:
+    name: shepherd-e2e

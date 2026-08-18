@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "object",
+      "properties": {
+        "registry": { "type": "string" },
+        "repository": { "type": "string" },
+        "tag": { "type": "string" },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "replicas": { "type": "integer", "minimum": 1 },
+    "route": {
+      "type": "object",
+      "properties": { "enabled": { "type": "boolean" } }
+    },
+    "ingress": {
+      "type": "object",
+      "properties": { "enabled": { "type": "boolean" } }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "properties": { "enabled": { "type": "boolean" } }
+    }
+  },
+  "if": {
+    "properties": {
+      "route": { "properties": { "enabled": { "const": true } } },
+      "ingress": { "properties": { "enabled": { "const": true } } }
+    },
+    "required": ["route", "ingress"]
+  },
+  "then": {
+    "oneOf": [
+      {
+        "properties": {
+          "route": { "properties": { "enabled": { "const": true } } },
+          "ingress": { "properties": { "enabled": { "const": false } } }
+        }
+      },
+      {
+        "properties": {
+          "route": { "properties": { "enabled": { "const": false } } },
+          "ingress": { "properties": { "enabled": { "const": true } } }
+        }
+      },
+      {
+        "properties": {
+          "route": { "properties": { "enabled": { "const": false } } },
+          "ingress": { "properties": { "enabled": { "const": false } } }
+        }
+      }
+    ]
+  }
+}

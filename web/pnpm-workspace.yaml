@@ -1,0 +1,7 @@
+allowBuilds:
+  esbuild: true
+  "@biomejs/biome": true
+
+saveExact: true          # deterministic specs; upgrades are explicit diffs
+engineStrict: true       # refuse installs on wrong Node major
+# keep the v11 default 1-day release quarantine — do NOT set minimumReleaseAge: 0

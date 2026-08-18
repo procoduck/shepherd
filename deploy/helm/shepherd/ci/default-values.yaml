@@ -1,0 +1,17 @@
+image:
+  tag: "0.1.0"
+replicas: 1
+config:
+  server:
+    listen: ":8080"
+    base_url: "https://shepherd.example.internal"
+  database:
+    max_conns: 5
+  log:
+    level: "info"
+    format: "json"
+existingSecret: ""
+route:
+  enabled: false
+ingress:
+  enabled: false

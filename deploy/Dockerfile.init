@@ -1,0 +1,29 @@
+ARG GO_IMAGE=golang:1.26-alpine
+ARG NODE_IMAGE=node:24-slim
+ARG PNPM_VERSION=11.22.0
+
+# Stage 1: Build the web SPA (required for go:embed to compile)
+FROM ${NODE_IMAGE} AS web
+ARG PNPM_VERSION
+ENV COREPACK_NPM_REGISTRY=https://registry.npmjs.org
+WORKDIR /app
+COPY web/package.json web/pnpm-lock.yaml web/.npmrc web/pnpm-workspace.yaml web/
+RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
+COPY web/ web/
+COPY scripts/ scripts/
+RUN chmod +x scripts/build-web.sh && ./scripts/build-web.sh
+
+# Stage 2: Build the Go binary
+FROM ${GO_IMAGE} AS builder
+COPY your-root-ca.crt /usr/local/share/ca-certificates/cert.crt
+RUN update-ca-certificates
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+COPY --from=web /app/internal/spa/dist internal/spa/dist
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /shepherd ./cmd/shepherd
+
+FROM ${GO_IMAGE}
+COPY --from=builder /shepherd /usr/local/bin/shepherd
+ENTRYPOINT ["/usr/local/bin/shepherd"]

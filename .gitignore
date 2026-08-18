@@ -1,0 +1,23 @@
+# Go build output
+/bin/
+*.test
+*.out
+coverage.txt
+
+# Node / frontend (see also web/.gitignore)
+node_modules/
+web/test-results/
+web/playwright-report/
+web/blob-report/
+web/.playwright/
+
+# Local environment overrides — never commit real credentials
+.env
+.env.*
+!deploy/versions.env
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

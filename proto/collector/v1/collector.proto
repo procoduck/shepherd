@@ -1,0 +1,73 @@
+// Copyright 2024 Grafana Labs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package collector.v1;
+
+option go_package = "shepherd/gen/collector/v1;collectorv1";
+
+service CollectorService {
+  rpc GetConfig(GetConfigRequest) returns (GetConfigResponse) {}
+  rpc RegisterCollector(RegisterCollectorRequest) returns (RegisterCollectorResponse) {}
+  rpc UnregisterCollector(UnregisterCollectorRequest) returns (UnregisterCollectorResponse) {}
+}
+
+message GetConfigRequest {
+  string id = 1;
+  map<string, string> attributes = 2 [deprecated = true];
+  string hash = 3;
+  map<string, string> local_attributes = 4;
+  RemoteConfigStatus remote_config_status = 5;
+  EffectiveConfig effective_config = 6;
+}
+
+message GetConfigResponse {
+  string content = 1;
+  string hash = 2;
+  bool not_modified = 3;
+}
+
+message RegisterCollectorRequest {
+  string id = 1;
+  map<string, string> attributes = 2 [deprecated = true];
+  string name = 3;
+  map<string, string> local_attributes = 4;
+}
+message RegisterCollectorResponse {}
+
+message UnregisterCollectorRequest { string id = 1; }
+message UnregisterCollectorResponse {}
+
+message RemoteConfigStatus {
+  RemoteConfigStatuses status = 1;
+  string error_message = 2;
+}
+enum RemoteConfigStatuses {
+  RemoteConfigStatuses_UNSET = 0;
+  RemoteConfigStatuses_APPLIED = 1;
+  RemoteConfigStatuses_APPLYING = 2;
+  RemoteConfigStatuses_FAILED = 3;
+}
+
+message EffectiveConfig {
+  AgentConfigMap config_map = 1;
+}
+message AgentConfigMap {
+  map<string, AgentConfigFile> config_map = 1;
+}
+message AgentConfigFile {
+  bytes body = 1;
+  string content_type = 2;
+}

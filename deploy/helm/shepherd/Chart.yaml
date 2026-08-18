@@ -1,0 +1,12 @@
+apiVersion: v2
+name: shepherd
+description: Self-hosted Grafana Alloy fleet manager
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - alloy
+  - grafana
+  - observability
+  - fleet
+home: https://github.com/yourorg/shepherd

@@ -1,0 +1,14 @@
+prometheus.scrape "app" {
+  targets = [{"__address__" = "http://myapp:9090/metrics"}]
+  forward_to = [prometheus.remote_write.metrics.receiver]
+  scrape_interval = "60s"
+  job_name = "myapp"
+}
+	prometheus.remote_write "metrics" {
+  endpoint {
+    name = "prom-prod"
+    url  = env("SHEPHERD_DEST_PROM_PROD_URL")
+    // auth injected by Shepherd at serve time
+  }
+}
+	

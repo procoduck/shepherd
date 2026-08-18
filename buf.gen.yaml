@@ -1,0 +1,12 @@
+version: v2
+inputs:
+  - directory: proto
+plugins:
+  - protoc_builtin: go
+    out: gen
+    opt:
+      - paths=source_relative
+  - protoc_builtin: connect-go
+    out: gen
+    opt:
+      - paths=source_relative

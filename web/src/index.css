@@ -1,0 +1,13 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter/index.css";
+@import "@fontsource-variable/jetbrains-mono/index.css";
+
+:root {
+  font-family: "Inter Variable", system-ui, sans-serif;
+}
+
+code,
+pre,
+.mono {
+  font-family: "JetBrains Mono Variable", monospace;
+}

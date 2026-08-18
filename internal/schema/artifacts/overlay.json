@@ -1,0 +1,1385 @@
+{
+  "_meta": {
+    "alloy_version": "v1.18.1",
+    "description": "Overlay for alloy-v1.18.1. Deep-merged server-side over the artifact before serving via GET /api/schema/{version}. Keys must exist in the artifact (CI-enforced). Components absent from this overlay land in the 'advanced' category.",
+    "version": "2"
+  },
+  "components": {
+    "beyla.ebpf": {
+      "category": "sources",
+      "doc": "Auto-instruments HTTP/gRPC services via eBPF \u2014 no code changes required.",
+      "icon": "beyla",
+      "port_display_order": [
+        "targets",
+        "output.traces"
+      ],
+      "terminal_ok": false
+    },
+    "database_observability.mysql": {
+      "category": "sources",
+      "doc": "Collects observability data from MySQL databases.",
+      "icon": "database",
+      "terminal_ok": false
+    },
+    "database_observability.postgres": {
+      "category": "sources",
+      "doc": "Collects observability data from PostgreSQL databases.",
+      "icon": "database",
+      "terminal_ok": false
+    },
+    "database_observability.sql_server": {
+      "category": "sources",
+      "doc": "Collects observability data from Microsoft SQL Server databases (experimental).",
+      "icon": "database",
+      "terminal_ok": false
+    },
+    "discovery.aws": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "aws-targets",
+        "type": "static"
+      },
+      "doc": "Discovers AWS targets (ECS, etc.).",
+      "icon": "cloud",
+      "terminal_ok": false
+    },
+    "discovery.azure": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "azure-targets",
+        "type": "static"
+      },
+      "doc": "Discovers Azure virtual machines.",
+      "icon": "cloud",
+      "terminal_ok": false
+    },
+    "discovery.consul": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "consul-targets",
+        "type": "static"
+      },
+      "doc": "Discovers services registered in Consul.",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "discovery.consulagent": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "consul-targets",
+        "type": "static"
+      },
+      "doc": "Discovers services from the local Consul agent.",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "discovery.digitalocean": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "digitalocean-targets",
+        "type": "static"
+      },
+      "doc": "Discovers DigitalOcean Droplets.",
+      "icon": "cloud",
+      "terminal_ok": false
+    },
+    "discovery.dns": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "dns-targets",
+        "type": "static"
+      },
+      "doc": "Discovers targets via DNS SRV/A/AAAA records.",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "discovery.docker": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "docker-targets",
+        "type": "static"
+      },
+      "doc": "Discovers Docker containers as scrape targets.",
+      "icon": "docker",
+      "port_display_order": [
+        "targets"
+      ],
+      "terminal_ok": false
+    },
+    "discovery.dockerswarm": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "docker-targets",
+        "type": "static"
+      },
+      "doc": "Discovers Docker Swarm services and tasks.",
+      "icon": "docker",
+      "terminal_ok": false
+    },
+    "discovery.ec2": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "ec2-targets",
+        "type": "static"
+      },
+      "doc": "Discovers AWS EC2 instances.",
+      "icon": "cloud",
+      "port_display_order": [
+        "targets"
+      ],
+      "terminal_ok": false
+    },
+    "discovery.eureka": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "eureka-targets",
+        "type": "static"
+      },
+      "doc": "Discovers services registered in Eureka.",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "discovery.file": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "file-targets",
+        "type": "static"
+      },
+      "doc": "Reads scrape targets from a file (JSON or YAML).",
+      "icon": "file",
+      "terminal_ok": false
+    },
+    "discovery.gce": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "gce-targets",
+        "type": "static"
+      },
+      "doc": "Discovers Google Cloud Engine instances.",
+      "icon": "cloud",
+      "terminal_ok": false
+    },
+    "discovery.hetzner": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "hetzner-targets",
+        "type": "static"
+      },
+      "doc": "Discovers Hetzner Cloud and Robot servers.",
+      "icon": "cloud",
+      "terminal_ok": false
+    },
+    "discovery.http": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "http-targets",
+        "type": "static"
+      },
+      "doc": "Discovers targets from an HTTP endpoint returning JSON.",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "discovery.ionos": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "ionos-targets",
+        "type": "static"
+      },
+      "doc": "Discovers IONOS Cloud virtual machines.",
+      "icon": "cloud",
+      "terminal_ok": false
+    },
+    "discovery.kubelet": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "k8s-pod-targets",
+        "type": "static"
+      },
+      "doc": "Discovers pods running on the local kubelet.",
+      "icon": "k8s",
+      "terminal_ok": false
+    },
+    "discovery.kubernetes": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "k8s-pod-targets",
+        "type": "static"
+      },
+      "doc": "Discovers Kubernetes pods, services, nodes, endpoints, and more.",
+      "icon": "k8s",
+      "port_display_order": [
+        "targets"
+      ],
+      "terminal_ok": false
+    },
+    "discovery.kuma": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "kuma-targets",
+        "type": "static"
+      },
+      "doc": "Discovers services in a Kuma service mesh.",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "discovery.lightsail": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "lightsail-targets",
+        "type": "static"
+      },
+      "doc": "Discovers Amazon Lightsail instances.",
+      "icon": "cloud",
+      "terminal_ok": false
+    },
+    "discovery.linode": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "linode-targets",
+        "type": "static"
+      },
+      "doc": "Discovers Linode instances.",
+      "icon": "cloud",
+      "terminal_ok": false
+    },
+    "discovery.marathon": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "marathon-targets",
+        "type": "static"
+      },
+      "doc": "Discovers Marathon tasks.",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "discovery.nerve": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "nerve-targets",
+        "type": "static"
+      },
+      "doc": "Discovers Nerve services via Zookeeper.",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "discovery.nomad": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "nomad-targets",
+        "type": "static"
+      },
+      "doc": "Discovers Nomad services.",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "discovery.openstack": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "openstack-targets",
+        "type": "static"
+      },
+      "doc": "Discovers OpenStack instances.",
+      "icon": "cloud",
+      "terminal_ok": false
+    },
+    "discovery.ovhcloud": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "ovhcloud-targets",
+        "type": "static"
+      },
+      "doc": "Discovers OVHcloud VPS and dedicated servers.",
+      "icon": "cloud",
+      "terminal_ok": false
+    },
+    "discovery.process": {
+      "category": "sources",
+      "doc": "Discovers local OS processes as profiling targets.",
+      "icon": "server",
+      "port_display_order": [
+        "targets"
+      ],
+      "terminal_ok": false
+    },
+    "discovery.puppetdb": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "puppet-targets",
+        "type": "static"
+      },
+      "doc": "Discovers targets from PuppetDB.",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "discovery.relabel": {
+      "category": "transform",
+      "doc": "Rewrites target labels using relabeling rules.",
+      "icon": "transform",
+      "key_props": [],
+      "port_display_order": [
+        "targets",
+        "output"
+      ],
+      "terminal_ok": false
+    },
+    "discovery.scaleway": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "scaleway-targets",
+        "type": "static"
+      },
+      "doc": "Discovers Scaleway instances and Baremetal servers.",
+      "icon": "cloud",
+      "terminal_ok": false
+    },
+    "discovery.serverset": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "serverset-targets",
+        "type": "static"
+      },
+      "doc": "Discovers Finagle Serversets via Zookeeper.",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "discovery.triton": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "triton-targets",
+        "type": "static"
+      },
+      "doc": "Discovers Triton container targets.",
+      "icon": "cloud",
+      "terminal_ok": false
+    },
+    "discovery.uyuni": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "uyuni-targets",
+        "type": "static"
+      },
+      "doc": "Discovers targets from Uyuni/SUSE Manager.",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "faro.receiver": {
+      "category": "sources",
+      "doc": "Receives Grafana Faro frontend observability data.",
+      "icon": "faro",
+      "terminal_ok": false
+    },
+    "local.file": {
+      "category": "config",
+      "doc": "Reads a local file, exposing its contents to other components.",
+      "icon": "file"
+    },
+    "local.file_match": {
+      "category": "sources",
+      "doc": "Finds files matching glob patterns and exposes them as targets.",
+      "icon": "file",
+      "terminal_ok": false
+    },
+    "loki.echo": {
+      "category": "destinations",
+      "doc": "Prints log entries to stdout (for debugging).",
+      "icon": "logs",
+      "terminal_ok": true
+    },
+    "loki.enrich": {
+      "category": "transform",
+      "doc": "Enriches log entries with additional labels (experimental).",
+      "icon": "transform",
+      "terminal_ok": false
+    },
+    "loki.process": {
+      "category": "transform",
+      "doc": "Processes log entries with pipeline stages.",
+      "icon": "transform",
+      "port_display_order": [
+        "forward_to",
+        "receiver"
+      ],
+      "terminal_ok": false
+    },
+    "loki.relabel": {
+      "category": "transform",
+      "doc": "Relabels log stream labels.",
+      "icon": "transform",
+      "port_display_order": [
+        "forward_to",
+        "receiver"
+      ],
+      "terminal_ok": false
+    },
+    "loki.rules.kubernetes": {
+      "category": "advanced",
+      "doc": "Manages Loki alerting and recording rules in Kubernetes.",
+      "icon": "k8s",
+      "terminal_ok": true
+    },
+    "loki.secretfilter": {
+      "category": "transform",
+      "doc": "Redacts secrets from log lines (experimental).",
+      "icon": "lock",
+      "terminal_ok": false
+    },
+    "loki.source.api": {
+      "category": "sources",
+      "doc": "Receives log entries via HTTP push API.",
+      "icon": "logs",
+      "terminal_ok": false
+    },
+    "loki.source.awsfirehose": {
+      "category": "sources",
+      "doc": "Receives logs from Amazon Kinesis Data Firehose.",
+      "icon": "cloud",
+      "terminal_ok": false
+    },
+    "loki.source.azure_event_hubs": {
+      "category": "sources",
+      "doc": "Receives logs from Azure Event Hubs.",
+      "icon": "cloud",
+      "terminal_ok": false
+    },
+    "loki.source.cloudflare": {
+      "category": "sources",
+      "doc": "Collects logs from the Cloudflare Logpull API.",
+      "icon": "cloud",
+      "terminal_ok": false
+    },
+    "loki.source.docker": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "docker-logs",
+        "type": "loki_file"
+      },
+      "doc": "Collects logs from Docker containers.",
+      "icon": "docker",
+      "terminal_ok": false
+    },
+    "loki.source.file": {
+      "category": "sources",
+      "doc": "Tails and forwards local log files.",
+      "icon": "file",
+      "port_display_order": [
+        "targets",
+        "forward_to"
+      ],
+      "terminal_ok": false
+    },
+    "loki.source.gcplog": {
+      "category": "sources",
+      "doc": "Collects logs from Google Cloud Logging.",
+      "icon": "cloud",
+      "terminal_ok": false
+    },
+    "loki.source.gelf": {
+      "category": "sources",
+      "doc": "Receives GELF (Graylog Extended Log Format) log messages.",
+      "icon": "logs",
+      "terminal_ok": false
+    },
+    "loki.source.heroku": {
+      "category": "sources",
+      "doc": "Receives logs from Heroku log drains.",
+      "icon": "cloud",
+      "terminal_ok": false
+    },
+    "loki.source.journal": {
+      "category": "sources",
+      "doc": "Reads logs from the systemd journal.",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "loki.source.kafka": {
+      "category": "sources",
+      "doc": "Reads log messages from Kafka topics.",
+      "icon": "kafka",
+      "terminal_ok": false
+    },
+    "loki.source.kubernetes": {
+      "category": "sources",
+      "discovery_stub": {
+        "fixture": "k8s-pod-logs",
+        "type": "loki_file"
+      },
+      "doc": "Collects logs from Kubernetes pod stdout/stderr.",
+      "icon": "k8s",
+      "port_display_order": [
+        "targets",
+        "forward_to"
+      ],
+      "terminal_ok": false
+    },
+    "loki.source.kubernetes_events": {
+      "category": "sources",
+      "doc": "Collects Kubernetes Events as log entries.",
+      "icon": "k8s",
+      "terminal_ok": false
+    },
+    "loki.source.podlogs": {
+      "category": "sources",
+      "doc": "Collects pod logs via PodLogs CRD.",
+      "icon": "k8s",
+      "terminal_ok": false
+    },
+    "loki.source.syslog": {
+      "category": "sources",
+      "doc": "Receives syslog messages over TCP or UDP.",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "loki.source.windowsevent": {
+      "category": "sources",
+      "doc": "Reads logs from the Windows Event Log.",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "loki.write": {
+      "category": "destinations",
+      "doc": "Sends logs to a Loki push endpoint.",
+      "icon": "upload",
+      "port_display_order": [
+        "receiver"
+      ],
+      "terminal_ok": true
+    },
+    "mimir.alerts.kubernetes": {
+      "category": "advanced",
+      "doc": "Manages Mimir alerting rules from Kubernetes resources (experimental).",
+      "icon": "metrics",
+      "terminal_ok": true
+    },
+    "mimir.rules.kubernetes": {
+      "category": "advanced",
+      "doc": "Manages Mimir recording and alerting rules from Kubernetes resources.",
+      "icon": "metrics",
+      "terminal_ok": true
+    },
+    "otelcol.auth.basic": {
+      "category": "config",
+      "doc": "Provides HTTP basic authentication for OTel exporters.",
+      "icon": "lock"
+    },
+    "otelcol.auth.bearer": {
+      "category": "config",
+      "doc": "Provides bearer token authentication for OTel exporters.",
+      "icon": "lock"
+    },
+    "otelcol.auth.google": {
+      "category": "config",
+      "doc": "Provides Google OAuth2 authentication for OTel exporters (public-preview).",
+      "icon": "cloud"
+    },
+    "otelcol.auth.headers": {
+      "category": "config",
+      "doc": "Provides static HTTP header authentication for OTel exporters.",
+      "icon": "lock"
+    },
+    "otelcol.auth.oauth2": {
+      "category": "config",
+      "doc": "Provides OAuth2 client credentials authentication for OTel exporters.",
+      "icon": "lock"
+    },
+    "otelcol.auth.sigv4": {
+      "category": "config",
+      "doc": "Provides AWS SigV4 request signing for OTel exporters.",
+      "icon": "cloud"
+    },
+    "otelcol.connector.count": {
+      "category": "transform",
+      "doc": "Counts spans, logs, or metric data points and emits metrics (experimental).",
+      "icon": "transform",
+      "terminal_ok": false
+    },
+    "otelcol.connector.host_info": {
+      "category": "transform",
+      "doc": "Enriches spans with host information from metrics.",
+      "icon": "transform",
+      "terminal_ok": false
+    },
+    "otelcol.connector.servicegraph": {
+      "category": "transform",
+      "doc": "Generates service graph metrics from spans.",
+      "icon": "transform",
+      "terminal_ok": false
+    },
+    "otelcol.connector.signaltometrics": {
+      "category": "transform",
+      "doc": "Converts spans/logs/metrics to metrics using expressions (experimental).",
+      "icon": "transform",
+      "terminal_ok": false
+    },
+    "otelcol.connector.spanlogs": {
+      "category": "advanced",
+      "doc": "Converts spans into Loki log entries (experimental).",
+      "icon": "transform",
+      "terminal_ok": false
+    },
+    "otelcol.connector.spanmetrics": {
+      "category": "transform",
+      "doc": "Generates RED metrics (rate, error, duration) from trace spans.",
+      "icon": "transform",
+      "terminal_ok": false
+    },
+    "otelcol.exporter.awss3": {
+      "category": "destinations",
+      "doc": "Exports telemetry data to AWS S3 (experimental).",
+      "icon": "cloud",
+      "terminal_ok": true
+    },
+    "otelcol.exporter.datadog": {
+      "category": "destinations",
+      "doc": "Exports metrics and traces to Datadog (experimental).",
+      "icon": "datadog",
+      "terminal_ok": true
+    },
+    "otelcol.exporter.debug": {
+      "category": "destinations",
+      "doc": "Prints OTel telemetry to the console for debugging (experimental).",
+      "icon": "logs",
+      "terminal_ok": true
+    },
+    "otelcol.exporter.faro": {
+      "category": "destinations",
+      "doc": "Exports traces to the Grafana Faro backend (experimental).",
+      "icon": "faro",
+      "terminal_ok": true
+    },
+    "otelcol.exporter.file": {
+      "category": "destinations",
+      "doc": "Writes telemetry to disk with optional rotation and compression (public-preview).",
+      "icon": "file",
+      "terminal_ok": true
+    },
+    "otelcol.exporter.googlecloud": {
+      "category": "destinations",
+      "doc": "Exports metrics and traces to Google Cloud (experimental).",
+      "icon": "cloud",
+      "terminal_ok": true
+    },
+    "otelcol.exporter.googlecloudpubsub": {
+      "category": "destinations",
+      "doc": "Exports telemetry to Google Cloud Pub/Sub (experimental).",
+      "icon": "cloud",
+      "terminal_ok": true
+    },
+    "otelcol.exporter.kafka": {
+      "category": "destinations",
+      "doc": "Exports telemetry data to a Kafka topic.",
+      "icon": "kafka",
+      "terminal_ok": true
+    },
+    "otelcol.exporter.loadbalancing": {
+      "category": "destinations",
+      "doc": "Routes spans to backend exporters based on trace ID for consistent tail sampling.",
+      "icon": "upload",
+      "terminal_ok": true
+    },
+    "otelcol.exporter.loki": {
+      "category": "destinations",
+      "doc": "Forwards OTLP logs to a Loki receiver.",
+      "icon": "logs",
+      "port_display_order": [
+        "input.logs"
+      ],
+      "terminal_ok": false
+    },
+    "otelcol.exporter.otlp": {
+      "category": "destinations",
+      "doc": "Exports OpenTelemetry data to an OTLP gRPC endpoint.",
+      "icon": "upload",
+      "port_display_order": [
+        "input.metrics",
+        "input.logs",
+        "input.traces"
+      ],
+      "terminal_ok": true
+    },
+    "otelcol.exporter.otlphttp": {
+      "category": "destinations",
+      "doc": "Exports OpenTelemetry data to an OTLP HTTP endpoint.",
+      "icon": "upload",
+      "port_display_order": [
+        "input.metrics",
+        "input.logs",
+        "input.traces"
+      ],
+      "terminal_ok": true
+    },
+    "otelcol.exporter.prometheus": {
+      "category": "destinations",
+      "doc": "Exposes OTLP metrics for Prometheus scraping.",
+      "icon": "metrics",
+      "port_display_order": [
+        "input.metrics"
+      ],
+      "terminal_ok": true
+    },
+    "otelcol.exporter.splunkhec": {
+      "category": "destinations",
+      "doc": "Exports telemetry to Splunk HEC (experimental).",
+      "icon": "upload",
+      "terminal_ok": true
+    },
+    "otelcol.exporter.syslog": {
+      "category": "destinations",
+      "doc": "Exports log entries as syslog messages (public-preview).",
+      "icon": "logs",
+      "terminal_ok": true
+    },
+    "otelcol.extension.jaeger_remote_sampling": {
+      "category": "config",
+      "doc": "Provides Jaeger remote sampling configuration for tail sampling.",
+      "icon": "traces"
+    },
+    "otelcol.processor.attributes": {
+      "category": "transform",
+      "doc": "Modifies, adds, deletes, or hashes span/metric/log attributes.",
+      "icon": "transform",
+      "terminal_ok": false
+    },
+    "otelcol.processor.batch": {
+      "category": "transform",
+      "doc": "Batches spans, metrics, and logs to reduce export calls.",
+      "icon": "transform",
+      "port_display_order": [
+        "output.metrics",
+        "output.logs",
+        "output.traces",
+        "input.metrics",
+        "input.logs",
+        "input.traces"
+      ],
+      "terminal_ok": false
+    },
+    "otelcol.processor.cumulativetodelta": {
+      "category": "transform",
+      "doc": "Converts cumulative sum metrics to delta temporality (public-preview).",
+      "icon": "transform",
+      "terminal_ok": false
+    },
+    "otelcol.processor.deltatocumulative": {
+      "category": "transform",
+      "doc": "Converts delta metrics to cumulative temporality (experimental).",
+      "icon": "transform",
+      "terminal_ok": false
+    },
+    "otelcol.processor.discovery": {
+      "category": "transform",
+      "doc": "Enriches spans with labels from Prometheus service discovery.",
+      "icon": "k8s",
+      "terminal_ok": false
+    },
+    "otelcol.processor.filter": {
+      "category": "transform",
+      "doc": "Filters OpenTelemetry data by configurable conditions.",
+      "icon": "filter",
+      "port_display_order": [
+        "output.metrics",
+        "output.logs",
+        "output.traces",
+        "input.metrics",
+        "input.logs",
+        "input.traces"
+      ],
+      "terminal_ok": false
+    },
+    "otelcol.processor.groupbyattrs": {
+      "category": "transform",
+      "doc": "Groups spans, logs, and metrics by a set of resource attributes.",
+      "icon": "transform",
+      "terminal_ok": false
+    },
+    "otelcol.processor.interval": {
+      "category": "transform",
+      "doc": "Aggregates metrics over a configurable interval (experimental).",
+      "icon": "transform",
+      "terminal_ok": false
+    },
+    "otelcol.processor.k8sattributes": {
+      "category": "transform",
+      "doc": "Enriches telemetry with Kubernetes pod/namespace/node metadata.",
+      "icon": "k8s",
+      "terminal_ok": false
+    },
+    "otelcol.processor.memory_limiter": {
+      "category": "transform",
+      "doc": "Limits memory consumption by dropping data when threshold is exceeded.",
+      "icon": "transform",
+      "terminal_ok": false
+    },
+    "otelcol.processor.metric_start_time": {
+      "category": "transform",
+      "doc": "Sets the start timestamp for cumulative metrics.",
+      "icon": "transform",
+      "terminal_ok": false
+    },
+    "otelcol.processor.probabilistic_sampler": {
+      "category": "transform",
+      "doc": "Samples spans at a configured probability.",
+      "icon": "transform",
+      "terminal_ok": false
+    },
+    "otelcol.processor.resourcedetection": {
+      "category": "transform",
+      "doc": "Auto-detects and attaches resource attributes (cloud, k8s, host, etc.).",
+      "icon": "transform",
+      "terminal_ok": false
+    },
+    "otelcol.processor.span": {
+      "category": "transform",
+      "doc": "Modifies span names and attributes based on rules.",
+      "icon": "transform",
+      "terminal_ok": false
+    },
+    "otelcol.processor.tail_sampling": {
+      "category": "transform",
+      "doc": "Samples traces after all spans have arrived using policy-based rules.",
+      "icon": "transform",
+      "terminal_ok": false
+    },
+    "otelcol.processor.transform": {
+      "category": "transform",
+      "doc": "Transforms OpenTelemetry data using OTTL expressions.",
+      "icon": "transform",
+      "port_display_order": [
+        "output.metrics",
+        "output.logs",
+        "output.traces",
+        "input.metrics",
+        "input.logs",
+        "input.traces"
+      ],
+      "terminal_ok": false
+    },
+    "otelcol.receiver.awscloudwatch": {
+      "category": "sources",
+      "doc": "Receives metrics from AWS CloudWatch (experimental).",
+      "icon": "cloud",
+      "terminal_ok": false
+    },
+    "otelcol.receiver.awsecscontainermetrics": {
+      "category": "sources",
+      "doc": "Receives metrics from AWS ECS container metadata (experimental).",
+      "icon": "cloud",
+      "terminal_ok": false
+    },
+    "otelcol.receiver.awss3": {
+      "category": "sources",
+      "doc": "Receives telemetry from AWS S3 (experimental).",
+      "icon": "cloud",
+      "terminal_ok": false
+    },
+    "otelcol.receiver.cloudflare": {
+      "category": "sources",
+      "doc": "Receives logs from Cloudflare Logpush (experimental).",
+      "icon": "cloud",
+      "terminal_ok": false
+    },
+    "otelcol.receiver.datadog": {
+      "category": "sources",
+      "doc": "Receives Datadog traces and metrics (experimental).",
+      "icon": "datadog",
+      "terminal_ok": false
+    },
+    "otelcol.receiver.faro": {
+      "category": "sources",
+      "doc": "Receives Grafana Faro frontend telemetry (experimental).",
+      "icon": "faro",
+      "terminal_ok": false
+    },
+    "otelcol.receiver.file_stats": {
+      "category": "sources",
+      "doc": "Emits metrics about files (size, modification time).",
+      "icon": "file",
+      "terminal_ok": false
+    },
+    "otelcol.receiver.filelog": {
+      "category": "sources",
+      "doc": "Reads logs from files using stanza operators (public-preview).",
+      "icon": "file",
+      "terminal_ok": false
+    },
+    "otelcol.receiver.fluentforward": {
+      "category": "sources",
+      "doc": "Receives logs from Fluentd and Fluent Bit (experimental).",
+      "icon": "logs",
+      "terminal_ok": false
+    },
+    "otelcol.receiver.googlecloudpubsub": {
+      "category": "sources",
+      "doc": "Receives telemetry from Google Cloud Pub/Sub (experimental).",
+      "icon": "cloud",
+      "terminal_ok": false
+    },
+    "otelcol.receiver.influxdb": {
+      "category": "sources",
+      "doc": "Receives InfluxDB line protocol metrics.",
+      "icon": "metrics",
+      "terminal_ok": false
+    },
+    "otelcol.receiver.jaeger": {
+      "category": "sources",
+      "doc": "Receives traces in Jaeger format over gRPC, Thrift, or HTTP.",
+      "icon": "traces",
+      "terminal_ok": false
+    },
+    "otelcol.receiver.kafka": {
+      "category": "sources",
+      "doc": "Reads telemetry data from a Kafka topic.",
+      "icon": "kafka",
+      "terminal_ok": false
+    },
+    "otelcol.receiver.loki": {
+      "category": "sources",
+      "doc": "Receives logs in Loki push format and converts to OTLP.",
+      "icon": "logs",
+      "terminal_ok": false
+    },
+    "otelcol.receiver.nginx": {
+      "category": "sources",
+      "doc": "Collects metrics from NGINX (public-preview).",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "otelcol.receiver.otlp": {
+      "category": "sources",
+      "doc": "Receives OpenTelemetry data over gRPC or HTTP/protobuf.",
+      "icon": "otel",
+      "port_display_order": [
+        "output.metrics",
+        "output.logs",
+        "output.traces"
+      ],
+      "terminal_ok": false
+    },
+    "otelcol.receiver.prometheus": {
+      "category": "sources",
+      "doc": "Scrapes Prometheus metrics and converts them to OTLP.",
+      "icon": "metrics",
+      "terminal_ok": false
+    },
+    "otelcol.receiver.solace": {
+      "category": "sources",
+      "doc": "Receives trace data from Solace messaging.",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "otelcol.receiver.splunkhec": {
+      "category": "sources",
+      "doc": "Receives events in Splunk HEC format (public-preview).",
+      "icon": "upload",
+      "terminal_ok": false
+    },
+    "otelcol.receiver.syslog": {
+      "category": "sources",
+      "doc": "Receives syslog messages over TCP or UDP (public-preview).",
+      "icon": "logs",
+      "terminal_ok": false
+    },
+    "otelcol.receiver.tcplog": {
+      "category": "sources",
+      "doc": "Receives log entries over TCP (experimental).",
+      "icon": "logs",
+      "terminal_ok": false
+    },
+    "otelcol.receiver.vcenter": {
+      "category": "sources",
+      "doc": "Collects metrics from VMware vCenter (experimental).",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "otelcol.receiver.zipkin": {
+      "category": "sources",
+      "doc": "Receives traces in Zipkin format.",
+      "icon": "traces",
+      "terminal_ok": false
+    },
+    "otelcol.storage.file": {
+      "category": "config",
+      "doc": "Provides file-backed persistent queue storage for OTel exporters (public-preview).",
+      "icon": "file"
+    },
+    "prometheus.echo": {
+      "category": "destinations",
+      "doc": "Drops all received metrics (for testing/debugging).",
+      "icon": "metrics",
+      "terminal_ok": true
+    },
+    "prometheus.enrich": {
+      "category": "transform",
+      "doc": "Enriches metrics with labels from a target (experimental).",
+      "icon": "transform",
+      "terminal_ok": false
+    },
+    "prometheus.exporter.apache": {
+      "category": "sources",
+      "doc": "Exposes Apache web server metrics.",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "prometheus.exporter.azure": {
+      "category": "sources",
+      "doc": "Exposes Azure Monitor metrics.",
+      "icon": "cloud",
+      "terminal_ok": false
+    },
+    "prometheus.exporter.blackbox": {
+      "category": "sources",
+      "doc": "Probes endpoints over HTTP, DNS, TCP, or ICMP.",
+      "icon": "probe",
+      "port_display_order": [
+        "targets"
+      ],
+      "terminal_ok": false
+    },
+    "prometheus.exporter.cadvisor": {
+      "category": "sources",
+      "doc": "Exposes container resource usage metrics via cAdvisor.",
+      "icon": "docker",
+      "terminal_ok": false
+    },
+    "prometheus.exporter.catchpoint": {
+      "category": "sources",
+      "doc": "Exposes Catchpoint synthetic monitoring metrics (experimental).",
+      "icon": "probe",
+      "terminal_ok": false
+    },
+    "prometheus.exporter.cloudwatch": {
+      "category": "sources",
+      "doc": "Exposes AWS CloudWatch metrics.",
+      "icon": "cloud",
+      "terminal_ok": false
+    },
+    "prometheus.exporter.consul": {
+      "category": "sources",
+      "doc": "Exposes Consul cluster metrics.",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "prometheus.exporter.databricks": {
+      "category": "sources",
+      "doc": "Exposes Databricks cluster metrics.",
+      "icon": "database",
+      "terminal_ok": false
+    },
+    "prometheus.exporter.dnsmasq": {
+      "category": "sources",
+      "doc": "Exposes Dnsmasq DNS server metrics.",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "prometheus.exporter.elasticsearch": {
+      "category": "sources",
+      "doc": "Exposes Elasticsearch cluster metrics.",
+      "icon": "database",
+      "terminal_ok": false
+    },
+    "prometheus.exporter.gcp": {
+      "category": "sources",
+      "doc": "Exposes Google Cloud Platform metrics.",
+      "icon": "cloud",
+      "terminal_ok": false
+    },
+    "prometheus.exporter.github": {
+      "category": "sources",
+      "doc": "Exposes GitHub repository metrics.",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "prometheus.exporter.kafka": {
+      "category": "sources",
+      "doc": "Exposes Kafka broker metrics.",
+      "icon": "kafka",
+      "terminal_ok": false
+    },
+    "prometheus.exporter.memcached": {
+      "category": "sources",
+      "doc": "Exposes Memcached metrics.",
+      "icon": "database",
+      "terminal_ok": false
+    },
+    "prometheus.exporter.mongodb": {
+      "category": "sources",
+      "doc": "Exposes MongoDB metrics.",
+      "icon": "database",
+      "terminal_ok": false
+    },
+    "prometheus.exporter.mssql": {
+      "category": "sources",
+      "doc": "Exposes Microsoft SQL Server metrics.",
+      "icon": "database",
+      "terminal_ok": false
+    },
+    "prometheus.exporter.mysql": {
+      "category": "sources",
+      "doc": "Exposes MySQL database metrics.",
+      "icon": "database",
+      "terminal_ok": false
+    },
+    "prometheus.exporter.oracledb": {
+      "category": "sources",
+      "doc": "Exposes Oracle Database metrics.",
+      "icon": "database",
+      "terminal_ok": false
+    },
+    "prometheus.exporter.postgres": {
+      "category": "sources",
+      "doc": "Exposes PostgreSQL database metrics.",
+      "icon": "database",
+      "terminal_ok": false
+    },
+    "prometheus.exporter.process": {
+      "category": "sources",
+      "doc": "Exposes per-process resource metrics.",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "prometheus.exporter.redis": {
+      "category": "sources",
+      "doc": "Exposes Redis metrics.",
+      "icon": "database",
+      "terminal_ok": false
+    },
+    "prometheus.exporter.self": {
+      "category": "sources",
+      "doc": "Exposes Alloy's own internal metrics.",
+      "icon": "alloy",
+      "port_display_order": [
+        "targets"
+      ],
+      "terminal_ok": true
+    },
+    "prometheus.exporter.snmp": {
+      "category": "sources",
+      "doc": "Exposes SNMP metrics.",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "prometheus.exporter.snowflake": {
+      "category": "sources",
+      "doc": "Exposes Snowflake data warehouse metrics.",
+      "icon": "database",
+      "terminal_ok": false
+    },
+    "prometheus.exporter.squid": {
+      "category": "sources",
+      "doc": "Exposes Squid proxy cache metrics.",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "prometheus.exporter.static": {
+      "category": "sources",
+      "doc": "Emits a static set of metrics (experimental).",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "prometheus.exporter.statsd": {
+      "category": "sources",
+      "doc": "Receives StatsD metrics and exposes them as Prometheus metrics.",
+      "icon": "metrics",
+      "terminal_ok": false
+    },
+    "prometheus.exporter.unix": {
+      "category": "sources",
+      "doc": "Exposes host-level metrics (node_exporter).",
+      "icon": "server",
+      "port_display_order": [
+        "targets"
+      ],
+      "terminal_ok": false
+    },
+    "prometheus.exporter.windows": {
+      "category": "sources",
+      "doc": "Exposes Windows host metrics.",
+      "icon": "server",
+      "terminal_ok": false
+    },
+    "prometheus.operator.podmonitors": {
+      "category": "sources",
+      "doc": "Scrapes targets defined by Prometheus Operator PodMonitor CRDs.",
+      "icon": "k8s",
+      "terminal_ok": false
+    },
+    "prometheus.operator.probes": {
+      "category": "sources",
+      "doc": "Scrapes targets defined by Prometheus Operator Probe CRDs.",
+      "icon": "probe",
+      "terminal_ok": false
+    },
+    "prometheus.operator.scrapeconfigs": {
+      "category": "sources",
+      "doc": "Scrapes targets defined by Prometheus Operator ScrapeConfig CRDs (experimental).",
+      "icon": "k8s",
+      "terminal_ok": false
+    },
+    "prometheus.operator.servicemonitors": {
+      "category": "sources",
+      "doc": "Scrapes targets defined by Prometheus Operator ServiceMonitor CRDs.",
+      "icon": "k8s",
+      "terminal_ok": false
+    },
+    "prometheus.receive_http": {
+      "category": "sources",
+      "doc": "Receives Prometheus metrics via HTTP remote_write.",
+      "icon": "metrics",
+      "terminal_ok": false
+    },
+    "prometheus.relabel": {
+      "category": "transform",
+      "doc": "Relabels and filters Prometheus metrics.",
+      "icon": "transform",
+      "port_display_order": [
+        "forward_to",
+        "receiver"
+      ],
+      "terminal_ok": false
+    },
+    "prometheus.remote_write": {
+      "category": "destinations",
+      "doc": "Sends metrics to a Prometheus remote_write endpoint.",
+      "icon": "upload",
+      "port_display_order": [
+        "receiver"
+      ],
+      "terminal_ok": true
+    },
+    "prometheus.scrape": {
+      "category": "transform",
+      "doc": "Scrapes Prometheus metrics from targets.",
+      "icon": "metrics",
+      "key_props": [
+        "job_name",
+        "scrape_interval"
+      ],
+      "port_display_order": [
+        "targets",
+        "forward_to"
+      ],
+      "terminal_ok": false
+    },
+    "prometheus.write.queue": {
+      "category": "destinations",
+      "doc": "Sends metrics to a remote_write endpoint with a persistent queue (experimental).",
+      "icon": "upload",
+      "terminal_ok": true
+    },
+    "pyroscope.ebpf": {
+      "category": "sources",
+      "doc": "Profiles processes using eBPF without code changes.",
+      "icon": "flame",
+      "terminal_ok": false
+    },
+    "pyroscope.enrich": {
+      "category": "transform",
+      "doc": "Enriches profiles with additional labels (experimental).",
+      "icon": "transform",
+      "terminal_ok": false
+    },
+    "pyroscope.java": {
+      "category": "sources",
+      "doc": "Profiles Java processes using async-profiler.",
+      "icon": "flame",
+      "terminal_ok": false
+    },
+    "pyroscope.receive_http": {
+      "category": "sources",
+      "doc": "Receives profiling data via HTTP push.",
+      "icon": "flame",
+      "terminal_ok": false
+    },
+    "pyroscope.relabel": {
+      "category": "transform",
+      "doc": "Relabels profiling targets.",
+      "icon": "transform",
+      "terminal_ok": false
+    },
+    "pyroscope.scrape": {
+      "category": "sources",
+      "doc": "Scrapes profiling data from pprof endpoints.",
+      "icon": "flame",
+      "port_display_order": [
+        "targets",
+        "forward_to"
+      ],
+      "terminal_ok": false
+    },
+    "pyroscope.write": {
+      "category": "destinations",
+      "doc": "Sends profiling data to a Pyroscope endpoint.",
+      "icon": "upload",
+      "port_display_order": [
+        "receiver"
+      ],
+      "terminal_ok": true
+    },
+    "remote.http": {
+      "category": "config",
+      "doc": "Fetches a remote HTTP resource and exposes its contents.",
+      "icon": "server"
+    },
+    "remote.kubernetes.configmap": {
+      "category": "config",
+      "doc": "Reads a Kubernetes ConfigMap and exposes its data.",
+      "icon": "k8s"
+    },
+    "remote.kubernetes.secret": {
+      "category": "config",
+      "doc": "Reads a Kubernetes secret for use in component properties.",
+      "icon": "lock"
+    },
+    "remote.s3": {
+      "category": "config",
+      "doc": "Reads a file from Amazon S3 and exposes its contents.",
+      "icon": "cloud"
+    },
+    "remote.vault": {
+      "category": "config",
+      "doc": "Reads secrets from HashiCorp Vault.",
+      "icon": "lock"
+    }
+  },
+  "wire_types": {
+    "loki.logs": {
+      "color": "green",
+      "go_type": "loki.LogsReceiver",
+      "label": "loki.logs"
+    },
+    "otel.any": {
+      "color": "sky",
+      "go_type": "otelcol.Consumer",
+      "label": "otel"
+    },
+    "otel.logs": {
+      "color": "sky",
+      "go_type": "otelcol.Consumer[logs]",
+      "label": "otel.logs"
+    },
+    "otel.metrics": {
+      "color": "sky",
+      "go_type": "otelcol.Consumer[metrics]",
+      "label": "otel.metrics"
+    },
+    "otel.traces": {
+      "color": "sky",
+      "go_type": "otelcol.Consumer[traces]",
+      "label": "otel.traces"
+    },
+    "prom.metrics": {
+      "color": "orange",
+      "go_type": "prometheus.Appendable",
+      "label": "prom.metrics"
+    },
+    "pyroscope.profiles": {
+      "color": "rose",
+      "go_type": "pyroscope.Appendable",
+      "label": "pyroscope.profiles"
+    },
+    "targets": {
+      "color": "violet",
+      "go_type": "[]discovery.Target",
+      "label": "targets"
+    }
+  }
+}
