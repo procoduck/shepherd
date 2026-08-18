@@ -1,6 +1,6 @@
 # Shepherd — Project Status & Progress Checks
 
-> Last audited: **2026-08-18** (full codebase audit against `docs/spec.md` and
+> Last audited: **2026-08-18** · progress updated 2026-08-18 after lint/releaser restoration and the fix-audit-findings workflow (full codebase audit against `docs/spec.md` and
 > `docs/visual-builder-design-VB1.md`). Update the checkboxes and the date as work lands.
 > Companion ledger for the visual builder: `docs/vb1-progress.md`.
 
@@ -12,10 +12,10 @@
       integration suites (agentapi, auth, mgmtapi, store) against real Postgres in Docker
 - [ ] Web tests runnable — `web/node_modules` not installed on this machine (`pnpm install`)
       · last recorded state: Vitest 34/34, Playwright 87/87
-- [ ] `make lint` faithful to spec — `.golangci.yml` missing (see Tooling gaps)
-- [ ] `make release-snapshot` — `.goreleaser.yaml` missing (see Tooling gaps)
+- [x] `make lint` faithful to spec — `.golangci.yml` restored from spec section 20; 0 issues
+- [x] `make release-snapshot` — `.goreleaser.yaml` restored from spec section 21; snapshot green end-to-end
 
-## Spec milestones (docs/spec.md §16)
+## Spec milestones (docs/spec.md section 16)
 
 - [x] M1 Skeleton — layout, cobra+viper, migrations (0001–0005), sqlc, Makefile, health endpoint
       *(caveat: root lint/release configs missing — see Tooling gaps)*
@@ -56,35 +56,35 @@
 From the 2026-08-18 adversarial reviews (20 findings: 5C/10H/5M — full text in
 `docs/vb1-progress.md`). The five criticals, re-verified against source at audit time:
 
-- [ ] **R2-C1** Status stored as raw proto enum string (`RemoteConfigStatuses_APPLIED`) at
+- [x] **R2-C1** Status stored as raw proto enum string (`RemoteConfigStatuses_APPLIED`) at
       `internal/agentapi/service.go:101`; UI color map keys on `APPLIED` → badges never light up
-- [ ] **R2-C2** `GetConfig` passes the wire UUID as instance *name*
+- [x] **R2-C2** `GetConfig` passes the wire UUID as instance *name*
       (`internal/agentapi/service.go:95`) → hostname overwritten on first poll
-- [ ] **R2-C3** `collectorResponse` (`internal/mgmtapi/orgs.go:88`) has no
+- [x] **R2-C3** `collectorResponse` (`internal/mgmtapi/orgs.go:88`) has no
       `alloy_version`/`os`/`last_seen`/instances; `GetCollector` omits even status →
       detail page metadata structurally blank
-- [ ] **R1-C1** Visual builder renders inside the padded shell instead of fullscreen
-- [ ] **R3-C1** Dev seed creates all pipelines with `matchers: []`
+- [x] **R1-C1** Visual builder renders inside the padded shell instead of fullscreen
+- [x] **R3-C1** Dev seed creates all pipelines with `matchers: []`
       (`internal/cli/dev.go:135`) → merge engine matches nothing; dev stack serves empty
       configs while looking healthy
-- [ ] HIGH findings R1-H1…R3-H5 (10) — see `docs/vb1-progress.md`
+- [ ] HIGH findings — R2-H1, R2-H2, R1-H3, R3-H1..H4 fixed by the 2026-08-18 workflow; **R1-H1, R1-H2, R3-H5 remain** — see `docs/vb1-progress.md`
 - [ ] MEDIUM findings (5) — see `docs/vb1-progress.md`
 
 ## Functional gaps in "done" features
 
-- [ ] **GitOps update path**: `internal/gitsync/reconciler.go:182` — updating an existing
+- [x] **GitOps update path**: `internal/gitsync/reconciler.go:182` — updating an existing
       git-sourced pipeline is a bare `return nil` TODO. After first sync, changes to a
       repo's `.alloy` files are **silently dropped**. E2E only covers initial sync, so CI
       stays green. *Highest-priority silent-data-loss bug.*
-- [ ] `POST /api/orgs/{org}/ado-credentials/{id}/test` (spec §12) — not implemented
-- [ ] `POST /api/orgs/{org}/repo-links/{id}/sync` (force sync, spec §12) — not implemented
+- [ ] `POST /api/orgs/{org}/ado-credentials/{id}/test` (spec section 12) — not implemented
+- [ ] `POST /api/orgs/{org}/repo-links/{id}/sync` (force sync, spec section 12) — not implemented
 - [ ] `PUT`/`PATCH` on ado-credentials — not implemented
-- [ ] Wizard `render` preview endpoint (spec §12) — only `commit` exists
+- [ ] Wizard `render` preview endpoint (spec section 12) — only `commit` exists
 - [ ] Wizard UI stepper + `/wizards/app-observability` route (`web/src/pages/WizardsPage.tsx`
       is an 8-line stub; `web/tests/specs/wizard.spec.ts` self-skips when absent)
 - [ ] Audit page UI (`web/src/pages/AuditPage.tsx` is a stub; backend `GET /audit` works)
 - [ ] Overview dashboard real stats (collectors/pipelines/clusters counts are `—`)
-- [ ] Collectors list columns: status (colored), last-seen, version (R2-H2)
+- [x] Collectors list columns: status (colored), last-seen, version (R2-H2)
 - [ ] Health endpoint DB-connectivity + pending-migration check
       (`internal/server/server.go:243` TODO)
 - [ ] Stale comment cleanup: `internal/server/server.go:170` "TODO milestone 6: serve
@@ -92,9 +92,9 @@ From the 2026-08-18 adversarial reviews (20 findings: 5C/10H/5M — full text in
 
 ## Tooling / repo gaps (likely lost in the machine-to-machine copy — root dotfiles dropped)
 
-- [ ] Restore `.golangci.yml` — exact config is printed verbatim in spec §20; without it
+- [x] Restore `.golangci.yml` — exact config is printed verbatim in spec section 20; without it
       `make lint` runs golangci-lint defaults
-- [ ] Restore `.goreleaser.yaml` — exact config in spec §21; `make release-snapshot` broken
+- [x] Restore `.goreleaser.yaml` — exact config in spec section 21; `make release-snapshot` broken
 - [ ] CI workflows (`.github/`) — none exist
 - [ ] Dependency: `github.com/lib/pq` v1.12.3 (indirect via golang-migrate's
       `database/postgres` driver ← `internal/store`) carries 7 govulncheck findings
@@ -105,7 +105,7 @@ From the 2026-08-18 adversarial reviews (20 findings: 5C/10H/5M — full text in
 
 ## Suggested order of attack
 
-1. Restore `.golangci.yml` / `.goreleaser.yaml` from spec §20–21 (mechanical)
+1. Restore `.golangci.yml` / `.goreleaser.yaml` from spec section 20–21 (mechanical)
 2. Fix the five verified CRITICALs (R2-C1 → R2-C2 → R2-C3 → R1-C1 → R3-C1)
 3. Fix the gitsync update path (silent data loss)
 4. HIGH findings, then VB-1 M7 (S3 sandbox) and M8 hardening
