@@ -27,6 +27,7 @@ const (
 	shepherdURL = "http://localhost:8080"
 	alloyURL    = "http://localhost:12345"
 	mockmsftURL = "http://localhost:9090"
+	metricsURL  = "http://localhost:18090"
 
 	appAdminGroupID = "11111111-1111-1111-1111-111111111111"
 )
@@ -43,6 +44,29 @@ func newAnonymousClient() *apiClient {
 		hc:      &http.Client{Timeout: 10 * time.Second},
 		baseURL: shepherdURL,
 	}
+}
+
+// newAdminClient logs in as the e2e local admin and returns a session-cookie client.
+func newAdminClient() *apiClient {
+	GinkgoHelper()
+	c := newAnonymousClient()
+	body, err := json.Marshal(map[string]string{"username": "admin", "password": "e2e-local-admin-pass"})
+	Expect(err).NotTo(HaveOccurred())
+	req, err := http.NewRequest("POST", shepherdURL+"/api/auth/local/login", bytes.NewReader(body))
+	Expect(err).NotTo(HaveOccurred())
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	resp, err := c.hc.Do(req)
+	Expect(err).NotTo(HaveOccurred())
+	defer resp.Body.Close() //nolint:errcheck // test cleanup
+	Expect(resp.StatusCode).To(Equal(http.StatusOK), "local admin login must succeed")
+	for _, ck := range resp.Cookies() {
+		if ck.Name == "shepherd_session" {
+			c.authCookie = ck.Name + "=" + ck.Value
+		}
+	}
+	Expect(c.authCookie).NotTo(BeEmpty(), "login response must set shepherd_session cookie")
+	return c
 }
 
 func (c *apiClient) do(method, path string, body any) (*http.Response, error) {
@@ -120,19 +144,19 @@ var _ = SynchronizedBeforeSuite(func() []byte {
 	waitHTTP(alloyURL+"/-/ready", 60*time.Second)
 	return nil
 }, func(_ []byte) {
-	// Resolve the admin token ID from the tokens list.
-	// (shepherd-init creates it with a known secret)
-	anon := newAnonymousClient()
+	// Resolve the admin token ID from the tokens list as a logged-in app admin.
+	// (shepherd-init creates it with a known secret; RBAC is enforced on /api/admin/*)
+	admin := newAdminClient()
 	var tokens struct {
 		Items []struct {
 			ID   string `json:"id"`
 			Name string `json:"name"`
 		} `json:"items"`
 	}
-	anon.getJSON("/api/admin/agent-tokens", &tokens)
+	admin.getJSON("/api/admin/agent-tokens", &tokens)
 	Expect(tokens.Items).NotTo(BeEmpty())
 
-	adminClient = anon // In M5 this would be a logged-in admin; for now use anon (RBAC not enforced)
+	adminClient = admin
 })
 
 var _ = SynchronizedAfterSuite(func() {}, func() {
@@ -234,7 +258,7 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 			Eventually(func() bool {
 				adminClient.getJSON(fmt.Sprintf("/api/orgs/%s/collectors", orgID), &collectors)
 				for _, c := range collectors.Items {
-					if c.RemoteConfigStatus == "RemoteConfigStatuses_APPLIED" {
+					if c.RemoteConfigStatus == "APPLIED" {
 						return true
 					}
 				}
@@ -270,7 +294,7 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 	_ = Describe("3. not_modified efficiency", func() {
 		It("shepherd_getconfig_total{result=not_modified} increases over time", func() {
 			getCounter := func() float64 {
-				resp, err := http.Get(shepherdURL + "/metrics")
+				resp, err := http.Get(metricsURL + "/metrics")
 				if err != nil {
 					return 0
 				}
@@ -423,10 +447,10 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 			for _, c := range collectors.Items {
 				Expect(c.RemoteConfigStatus).To(SatisfyAny(
 					BeEmpty(),
-					Equal("RemoteConfigStatuses_UNSET"),
-					Equal("RemoteConfigStatuses_APPLYING"),
-					Equal("RemoteConfigStatuses_APPLIED"),
-					Equal("RemoteConfigStatuses_FAILED"),
+					Equal("UNSET"),
+					Equal("APPLYING"),
+					Equal("APPLIED"),
+					Equal("FAILED"),
 				))
 			}
 		})

@@ -34,7 +34,7 @@ test-integration:
 
 # E2E suite (requires Docker Compose; ~10 min)
 # Set E2E_KEEP=1 to leave the stack running after the suite (for debugging).
-e2e:
+e2e: docker-build-local docker-build-init
 	docker compose -f e2e/docker-compose.e2e.yaml up -d --build --wait
 	ginkgo --tags=e2e --randomize-all=false ./e2e/...
 	@if [ "$(E2E_KEEP)" != "1" ]; then \

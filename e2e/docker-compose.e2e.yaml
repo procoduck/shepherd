@@ -84,6 +84,7 @@ services:
     command: ["serve"]
     ports:
       - "8080:8080"
+      - "18090:9090" # shepherd metrics listener (V4-4)
     environment:
       SHEPHERD_DATABASE_URL: postgres://shepherd:shepherd@postgres:5432/shepherd_e2e?sslmode=disable
       SHEPHERD_SECURITY_ENCRYPTION_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
@@ -101,7 +102,6 @@ services:
       SHEPHERD_AUTH_LOCAL_ADMIN_ENABLED: "true"
       SHEPHERD_AUTH_LOCAL_ADMIN_ALLOW_WITH_OIDC: "true"
       SHEPHERD_AUTH_LOCAL_ADMIN_PASSWORD_HASH: "$$argon2id$$v=19$$m=65536,t=1,p=4$$AQIDBAUGBwgJCgsMDQ4PEA$$zFDjjWPd0Ds8NRPzb2AUxQXWmQErkPhDnx9HC2RBPW8"
-      SHEPHERD_LOG_LEVEL: debug
     healthcheck:
       test: ["CMD", "/usr/local/bin/shepherd", "healthcheck", "--addr", "localhost:8080"]
       interval: 2s
