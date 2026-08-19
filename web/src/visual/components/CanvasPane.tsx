@@ -478,9 +478,20 @@ export function CanvasPane() {
         <FlowApiBridge screenToFlowRef={screenToFlowRef} />
         <FitOnFirstNodes />
         <Background />
-        <Controls />
+        {/* top-left: the minimap owns bottom-left, and stacking both hid the zoom buttons. */}
+        <Controls position='top-left' className='[&>button]:bg-card [&>button]:border-border [&>button]:fill-zinc-300 [&>button:hover]:bg-accent/20' />
         {/* bottom-left avoids overlap with default node placement area (center/right) */}
-        <MiniMap position='bottom-left' />
+        {/* React Flow's minimap defaults to a light palette; pin it to the dark token layer. */}
+        <MiniMap
+          position='bottom-left'
+          pannable
+          zoomable
+          bgColor='#0e0e11'
+          maskColor='rgba(9,9,11,0.75)'
+          nodeColor='#3f3f46'
+          nodeStrokeColor='#6366f1'
+          className='!border !border-border !rounded-md'
+        />
       </ReactFlow>
     </div>
   );
