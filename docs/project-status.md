@@ -262,7 +262,7 @@ and the username is correct. The e2e case is `Skip`ped with that reason — it i
 place, and host-key verification must NOT be relaxed to make it pass. Every other auth kind
 (`pat`, `github_app`) passes end to end.
 
-### F9-b — visual builder port identity is synthetic · **high**
+### F9-b — visual builder port identity is synthetic · [FIXED 2026-08-19]
 
 Found in the browser walkthrough: opening the seeded `demo-visual` pipeline shows 3 nodes
 but **draws none of its 2 edges**, and L1 reports the nodes as unwired
@@ -284,16 +284,26 @@ names by identity.
 Fix spans: extractor must emit port names → regenerate the artifact (needs the network
 clone) → overlay refresh → correct the corpus fixtures and the `demo-visual` seed.
 
+### F9-c — one edge direction still not drawn · **medium**
+
+After F9-b, handles carry real names (`targets`, `forward_to`, `receiver`, verified in the
+DOM with no synthetic `p0`/`p1` left) and the forward edge renders. The reverse-direction
+edge — `prometheus.remote_write.receiver` (an export, right side) into
+`prometheus.scrape.forward_to` (an argument, left side) — is still not drawn even though
+both handles exist with the correct types and positions. The store reports 2 edges and
+React Flow renders 1. Needs DOM-level debugging of React Flow's edge resolution for a
+right-to-left connection. The walkthrough spec asserts port naming and a non-zero edge
+count rather than the exact count, so the guard holds without overclaiming.
+
 ### Smaller follow-ups
 
-- [ ] `make e2e` does not reset volumes before starting, so a re-run after a failed run dies
-      on a duplicate agent-token primary key. Either `down -v` first or make token creation
-      idempotent.
-- [ ] The dev and e2e stacks bind the same host ports (9090 among others), so `make e2e`
-      fails with "port is already allocated" whenever the dev stack is up. Give one of them
-      a distinct port range.
-- [ ] The visual builder does not fit the graph into view on load — nodes render clipped
-      under the toolbar until the fit control is pressed.
+- [x] `make e2e` resets volumes before starting (2026-08-19)
+- [x] e2e moved to a dedicated 18xxx/19xxx host port range; it now runs alongside a live
+      dev stack (2026-08-19)
+- [x] Canvas re-fits on graph load; pipeline deep links resolve across orgs (2026-08-19)
+- [ ] 47 ports (otelcol, faro, beyla) still have no names — their inputs arrive through a
+      nested `output` block rather than an attribute, so the struct-tag walk misses them.
+      The corpus fixtures address these as `output.metrics` / `input.metrics`.
 - [ ] CI wires lint/build/guards/test/web; the spec's fuller ordering (smoke,
       test-integration, test-ui, test-fullstack) is not yet wired — noted in `ci.yml`.
 - [ ] `go.mod` still carries a vestigial `github.com/lib/pq` line via testcontainers' own
