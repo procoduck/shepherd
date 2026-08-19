@@ -43,6 +43,20 @@ test.describe('visual builder layout', () => {
     expect(after).toBeGreaterThan(800);
   });
 
+  test('entering the builder collapses the app nav, and leaving restores it', async ({ page }) => {
+    // draw.io gives the canvas the whole window; the nav rail is worth 184px of
+    // canvas here. Leaving must put the nav back exactly as the user had it.
+    await page.goto('/pipelines');
+    await expect(page.getByTestId('app-sidebar')).toHaveAttribute('data-collapsed', 'false');
+
+    await page.goto('/pipelines/visual/new');
+    await page.waitForSelector('[data-testid="palette-search"]', { timeout: 10_000 });
+    await expect(page.getByTestId('app-sidebar')).toHaveAttribute('data-collapsed', 'true');
+
+    await page.goto('/pipelines');
+    await expect(page.getByTestId('app-sidebar')).toHaveAttribute('data-collapsed', 'false');
+  });
+
   test('a collapsed panel keeps a visible way back', async ({ page }) => {
     await page.getByTestId('palette-toggle').click();
     await expect(page.getByTestId('palette')).toHaveAttribute('data-collapsed', 'true');

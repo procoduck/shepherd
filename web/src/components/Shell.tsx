@@ -68,7 +68,9 @@ export function Shell() {
   const queryClient = useQueryClient();
   const { data: me, isLoading } = useMe();
   const { orgId, orgs, setOrgId } = useOrg();
-  const [collapsed, setCollapsed] = useState(
+  // The user's own preference, persisted. The builder's override below is layered
+  // on top of it and deliberately never written here.
+  const [userCollapsed, setUserCollapsed] = useState(
     () => localStorage.getItem('sidebar-collapsed') === '1',
   );
   const [dark, setDark] = useState(() => localStorage.getItem('theme') !== 'light');
@@ -86,8 +88,31 @@ export function Shell() {
   }, [dark]);
 
   useEffect(() => {
-    localStorage.setItem('sidebar-collapsed', collapsed ? '1' : '0');
-  }, [collapsed]);
+    localStorage.setItem('sidebar-collapsed', userCollapsed ? '1' : '0');
+  }, [userCollapsed]);
+
+  // The visual builder is a working surface, so the app chrome gets out of its way —
+  // draw.io gives the canvas the whole window. On a builder route the nav renders as
+  // its rail, recovering 184px of canvas on top of what the builder's own collapsible
+  // panels free.
+  //
+  // This is an OVERRIDE, not a preference change: it is never written to
+  // localStorage, so a user who likes an expanded nav still gets one everywhere else,
+  // even if they close the tab while inside the builder. Expanding it inside the
+  // builder is respected for as long as they stay there.
+  const isBuilderRoute = /^\/pipelines\/(visual\/new|[^/]+\/(visual|graph))$/.test(
+    location.pathname,
+  );
+  const [builderOverride, setBuilderOverride] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!isBuilderRoute) setBuilderOverride(null);
+  }, [isBuilderRoute]);
+
+  const collapsed = isBuilderRoute ? (builderOverride ?? true) : userCollapsed;
+  const setCollapsed = (next: boolean) => {
+    if (isBuilderRoute) setBuilderOverride(next);
+    else setUserCollapsed(next);
+  };
 
   async function handleLogout() {
     await fetch('/auth/logout', { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
@@ -105,6 +130,8 @@ export function Shell() {
     <div className='flex h-screen overflow-hidden bg-background text-zinc-100'>
       {/* Sidebar */}
       <aside
+        data-testid='app-sidebar'
+        data-collapsed={collapsed ? 'true' : 'false'}
         className={cn(
           'flex flex-col border-r border-border transition-all duration-200',
           collapsed ? 'w-14' : 'w-60',
@@ -159,7 +186,7 @@ export function Shell() {
 
         {/* Collapse toggle */}
         <button
-          onClick={() => setCollapsed((c) => !c)}
+          onClick={() => setCollapsed(!collapsed)}
           className='flex h-10 items-center justify-center border-t border-border text-muted-2 hover:text-zinc-100'
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
