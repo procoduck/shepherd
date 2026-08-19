@@ -137,9 +137,13 @@ questions below were answered as recorded in each commit. Still outstanding:
   and every handle fell back to a synthetic `p0` index; the seeded `demo-visual` graph showed
   three nodes and no wires. Now `no-cache` with the ETag retained (B-SCHEMACACHE in the ledger).
   Verified in Chrome: `targets → targets`, `forward_to → receiver`, both edges drawn, Problems 0.
-- Still open: **B-MINIMAP** (the minimap draws no nodes — the direct fix breaks connection
-  dragging; it needs the controlled-mode node-identity work, same root as `selected`),
-  **F9-a** (the `ssh` auth kind fails in the compose stack), **F5** (VB-1 M7 sandbox
+- ~~Controlled-mode contract~~ — done. The canvas hand-handled 2 of the 6 node change types React
+  Flow emits and rebuilt every node object on every render, which is the single root cause behind
+  items 3 and 4, the `selected` gap and the empty minimap. It now routes the whole change stream
+  through `applyNodeChanges`/`applyEdgeChanges` and reconciles the arrays, preserving object
+  identity so cached handle bounds survive. `GraphViewPage` got the same treatment. Full analysis
+  and the alternatives assessment: [`canvas-framework-evaluation.md`](canvas-framework-evaluation.md).
+- Still open: **F9-a** (the `ssh` auth kind fails in the compose stack), **F5** (VB-1 M7 sandbox
   simulation, not started), five self-skipping mocked specs that mask gaps
   (`editor-autocomplete`, `git`, `revisions`, `states` ×2), and the overlay's `needs_review`
   entries pending an editorial pass.

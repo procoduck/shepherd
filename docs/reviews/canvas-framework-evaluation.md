@@ -164,6 +164,37 @@ the anti-pattern to a smaller ecosystem and lose the four things React Flow alre
 
 ---
 
+## Implemented (2026-08-19)
+
+All four recommendations below landed together, as the review said they had to. `CanvasPane`
+now carries a `controlled-mode contract` comment stating the ownership split; the same contract
+was applied to `GraphViewPage`, which had no change handler at all and whose minimap was empty
+for the same reason.
+
+| Was | Now |
+|---|---|
+| 2 of 6 node change types handled | all 6, via `applyNodeChanges`/`applyEdgeChanges` |
+| every node object rebuilt every render | reconciled; unchanged nodes returned by the same reference |
+| position committed on every pointer move | committed once per drag, at `dragging: false` |
+| `selected` set from the store only | React Flow's change stream owns it; store mirrors |
+| `measured` never set | set by the `dimensions` change |
+| `isSelected` passed in `data` | removed — it was never read |
+
+Verified: connection dragging, delete with cascaded edges, undo/redo, flow-check animation and
+the minimap all work against the real stack; 146 Playwright specs and 271 unit tests pass. Three
+new specs guard the contract itself — the minimap draws N nodes, a clicked node carries React
+Flow's own `.selected` class, and one drag is one undo step.
+
+### Consequences for the features this was done for
+
+- **Animated dataflow arrows.** Edges now carry `data: { wireType, fromLabel }`, so a custom edge
+  component can render animation from the wire's semantics without re-deriving them from the
+  schema. The existing flow-check animation already rides this path.
+- **Live graph from Alloy.** Live per-node and per-edge state becomes another document-side input
+  to the reconciler. Because unchanged elements keep their identity, a high-frequency live feed
+  will re-render only the nodes whose state actually moved — which the old rebuild-everything
+  projection could not have done at any refresh rate.
+
 ## Recommendation
 
 Keep React Flow. Fix the integration, in this order:

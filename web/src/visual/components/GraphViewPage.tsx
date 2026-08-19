@@ -1,14 +1,18 @@
 import { useNavigate, useParams } from '@tanstack/react-router';
 import {
+  applyEdgeChanges,
+  applyNodeChanges,
   Background,
   Controls,
   type Edge,
+  type EdgeChange,
   MiniMap,
   type Node,
+  type NodeChange,
   type NodeTypes,
   ReactFlow,
 } from '@xyflow/react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import '@xyflow/react/dist/base.css';
 import { type GraphViewResult, graphView } from '../../api/client';
 import { clients } from '../../api/transport';
@@ -72,26 +76,51 @@ export function GraphViewPage() {
     navigate({ to: '/pipelines/visual/new' });
   };
 
-  // Convert graph doc to React Flow nodes/edges for display
-  const rfNodes: Node<PipelineNodeData>[] = (graphData?.graph.nodes ?? []).map((n) => ({
-    id: n.id,
-    type: 'pipeline',
-    position: n.position,
-    data: {
-      ...n,
-      schema: schema?.components[n.component],
-      diagnostics: [],
-      readOnly: true,
-    } as PipelineNodeData,
-  }));
+  // This view is read-only, but it is still React Flow in CONTROLLED mode, so it
+  // owes the same contract as the editable canvas (see CanvasPane's
+  // "controlled-mode contract"): React Flow's own fields — `measured` above all
+  // — reach it only through the change stream that applyNodeChanges applies.
+  // Without a change handler nothing here was ever measured, so this view's
+  // minimap drew an empty rectangle exactly as the editor's did. The graph
+  // itself never changes after it loads, so seeding on load is enough; React
+  // Flow owns the arrays from then on.
+  const [rfNodes, setRfNodes] = useState<Node<PipelineNodeData>[]>([]);
+  const [rfEdges, setRfEdges] = useState<Edge[]>([]);
 
-  const rfEdges: Edge[] = (graphData?.graph.edges ?? []).map((e) => ({
-    id: e.id,
-    source: e.from.node,
-    sourceHandle: e.from.port,
-    target: e.to.node,
-    targetHandle: e.to.port,
-  }));
+  useEffect(() => {
+    setRfNodes(
+      (graphData?.graph.nodes ?? []).map((n) => ({
+        id: n.id,
+        type: 'pipeline',
+        position: n.position,
+        data: {
+          ...n,
+          schema: schema?.components[n.component],
+          diagnostics: [],
+          readOnly: true,
+        } as PipelineNodeData,
+      })),
+    );
+    setRfEdges(
+      (graphData?.graph.edges ?? []).map((e) => ({
+        id: e.id,
+        source: e.from.node,
+        sourceHandle: e.from.port,
+        target: e.to.node,
+        targetHandle: e.to.port,
+      })),
+    );
+  }, [graphData, schema]);
+
+  const onNodesChange = useCallback(
+    (changes: NodeChange<Node<PipelineNodeData>>[]) =>
+      setRfNodes((cur) => applyNodeChanges<Node<PipelineNodeData>>(changes, cur)),
+    [],
+  );
+  const onEdgesChange = useCallback(
+    (changes: EdgeChange[]) => setRfEdges((cur) => applyEdgeChanges<Edge>(changes, cur)),
+    [],
+  );
 
   if (loading) {
     return (
@@ -139,6 +168,8 @@ export function GraphViewPage() {
           nodes={rfNodes}
           edges={rfEdges}
           nodeTypes={nodeTypes}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
           nodesDraggable={false}
           nodesConnectable={false}
           elementsSelectable

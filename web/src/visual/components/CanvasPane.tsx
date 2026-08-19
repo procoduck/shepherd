@@ -1,4 +1,6 @@
 import {
+  applyEdgeChanges,
+  applyNodeChanges,
   Background,
   type Connection,
   Controls,
@@ -15,7 +17,7 @@ import {
   useReactFlow,
   type XYPosition,
 } from '@xyflow/react';
-import { type CSSProperties, useCallback, useEffect, useMemo, useRef } from 'react';
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import '@xyflow/react/dist/base.css';
 import deepEqual from 'fast-deep-equal';
 import { nanoid } from 'nanoid';
@@ -23,12 +25,16 @@ import { toast } from 'sonner';
 import { resolvePorts } from '../l1';
 import { getWireColor, portHandleId } from '../schemaAdapter';
 import { type ConnectingFrom, useVisualStore } from '../store';
-import type { GraphEdge, GraphNode, SchemaPayload } from '../types';
+import type { ComponentDef, GraphEdge, GraphNode, L1Diagnostic, SchemaPayload } from '../types';
 import { orientConnection, rfEndpointsForEdge } from '../wireOrient';
 import type { PipelineNodeData } from './PipelineNode';
 import { PipelineNode } from './PipelineNode';
 
 const nodeTypes: NodeTypes = { pipeline: PipelineNode as NodeTypes[string] };
+
+/** The concrete node type this canvas renders — pins React Flow's generics so
+ * applyNodeChanges returns our node shape rather than the bare NodeBase. */
+type PipelineFlowNode = Node<PipelineNodeData, 'pipeline'>;
 
 // Clipboard data is scoped to this canvas instance, preventing cross-pipeline pastes.
 type Clipboard = { nodes: GraphNode[]; edges: GraphEdge[] };
@@ -148,6 +154,188 @@ function getSourceReachableEdges(
   return reachable;
 }
 
+/*
+ * --- The controlled-mode contract -------------------------------------------
+ *
+ * React Flow runs CONTROLLED here: we own the arrays it renders. That makes the
+ * ownership split something we have to honour explicitly, because every way of
+ * getting it wrong is silent — no error, no warning, just a feature that does
+ * nothing (see docs/reviews/canvas-framework-evaluation.md).
+ *
+ *   React Flow owns  `selected`, `measured`, `dragging`, and the handle bounds
+ *                    it derives from them. These are written ONLY by
+ *                    applyNodeChanges/applyEdgeChanges, from its change stream.
+ *   The document owns node and edge existence, component, props, label,
+ *                    position, disabled, notes. These are written ONLY by the
+ *                    store.
+ *
+ * The arrays below are the projection of the two, and they are RECONCILED,
+ * never rebuilt. A node whose inputs are unchanged is returned by the SAME
+ * REFERENCE. That is load-bearing rather than an optimisation: `adoptUserNodes`
+ * runs with `checkEquality: true` and its fast path is strict identity
+ * (`userNode === internals.userNode`), so handing it a fresh object makes it
+ * re-adopt the node and throw away its cached handle bounds. The previous code
+ * rebuilt every node object on every render, so that path never hit — which is
+ * why handles had to be re-measured by hand, and why simply supplying `measured`
+ * broke connection dragging.
+ */
+const EMPTY_DIAGNOSTICS: L1Diagnostic[] = [];
+
+/** The values a projected node is derived from, kept so the reconciler can tell
+ * "nothing changed" from "rebuild me" without deep-comparing. `src` is compared
+ * by reference, which is exact: the store replaces a node object only when that
+ * node actually changes, so this stays correct as `GraphNode` grows fields. */
+type NodeInputs = {
+  src: GraphNode;
+  def: ComponentDef | undefined;
+  diags: L1Diagnostic[];
+};
+
+function reconcileNodes(
+  current: PipelineFlowNode[],
+  docNodes: GraphNode[],
+  schema: SchemaPayload | null,
+  diagnosticsByNode: Map<string, L1Diagnostic[]>,
+  selectedIds: Set<string>,
+  inputs: Map<string, NodeInputs>,
+): PipelineFlowNode[] {
+  const byId = new Map(current.map((n) => [n.id, n]));
+  const nextInputs = new Map<string, NodeInputs>();
+  let changed = current.length !== docNodes.length;
+
+  const next = docNodes.map((src, i) => {
+    const def = schema?.components[src.component];
+    const diags = diagnosticsByNode.get(src.id) ?? EMPTY_DIAGNOSTICS;
+    const selected = selectedIds.has(src.id);
+    nextInputs.set(src.id, { src, def, diags });
+
+    const prev = byId.get(src.id);
+    const prevIn = inputs.get(src.id);
+    // `selected` is compared against the node React Flow is holding, not against
+    // the last reconcile's input. When RF drives the selection its change stream
+    // has already written the field, so this sees them agree and reuses the node
+    // instead of re-adopting it; a selection set programmatically (paste,
+    // select-all) still differs here and correctly rebuilds.
+    if (
+      prev &&
+      prevIn &&
+      prevIn.src === src &&
+      prevIn.def === def &&
+      prevIn.diags === diags &&
+      prev.selected === selected
+    ) {
+      // Reused verbatim — including React Flow's own fields, and including the
+      // position it is maintaining mid-drag (the document is only written at
+      // drag end, so `src` is unchanged for the whole gesture).
+      if (current[i] !== prev) changed = true; // same nodes, new order
+      return prev;
+    }
+
+    changed = true;
+    return {
+      // `prev` first so React Flow's fields survive a document-driven rebuild.
+      // Spreading `undefined` for a brand-new node is a no-op.
+      ...prev,
+      id: src.id,
+      type: 'pipeline' as const,
+      position: src.position,
+      selected,
+      data: { ...src, schema: def, diagnostics: diags } as PipelineNodeData,
+    };
+  });
+
+  inputs.clear();
+  for (const [id, v] of nextInputs) inputs.set(id, v);
+  // Returning `current` unchanged lets React bail out of the state update.
+  return changed ? next : current;
+}
+
+type EdgeInputs = {
+  src: GraphEdge;
+  wireType: string | undefined;
+  animated: boolean;
+  fromLabel: string;
+  rf: ReturnType<typeof rfEndpointsForEdge>;
+};
+
+function reconcileEdges(
+  current: Edge[],
+  docEdges: GraphEdge[],
+  docNodes: GraphNode[],
+  schema: SchemaPayload | null,
+  flowCheckActive: boolean,
+  selectedIds: Set<string>,
+  inputs: Map<string, EdgeInputs>,
+): Edge[] {
+  const reachable =
+    flowCheckActive && schema
+      ? getSourceReachableEdges(docNodes, docEdges, schema)
+      : new Set<string>();
+  const byId = new Map(current.map((e) => [e.id, e]));
+  const nextInputs = new Map<string, EdgeInputs>();
+  let changed = current.length !== docEdges.length;
+
+  const next = docEdges.map((src, i) => {
+    const fromNode = docNodes.find((n) => n.id === src.from.node);
+    // The wire's type lives on whichever port `from` resolves to — for a
+    // receiver-kind wire (D1) that is an ARGUMENT (`forward_to`), not an
+    // export, so searching only `.outputs` silently found nothing and rendered
+    // an uncolored, unlabeled edge for every such wire. resolvePorts covers both.
+    const wireType = resolvePorts(fromNode && schema?.components[fromNode.component]).find(
+      (p) => p.id === src.from.port,
+    )?.type;
+    const animated = flowCheckActive && reachable.has(src.id);
+    const fromLabel = fromNode?.label ?? src.from.node;
+    const selected = selectedIds.has(src.id);
+    // React Flow's source/target are fixed by schema kind (export/argument),
+    // independent of the stored edge's produces/accepts orientation — see
+    // wireOrient.ts's rfEndpointsForEdge for why handing it `from`/`to`
+    // verbatim silently fails to render a receiver-kind wire.
+    const rf = rfEndpointsForEdge(schema, { nodes: docNodes }, src);
+    nextInputs.set(src.id, { src, wireType, animated, fromLabel, rf });
+
+    const prev = byId.get(src.id);
+    const prevIn = inputs.get(src.id);
+    if (
+      prev &&
+      prevIn &&
+      prevIn.src === src &&
+      prevIn.wireType === wireType &&
+      prevIn.animated === animated &&
+      prevIn.fromLabel === fromLabel &&
+      prev.selected === selected &&
+      deepEqual(prevIn.rf, rf)
+    ) {
+      if (current[i] !== prev) changed = true;
+      return prev;
+    }
+
+    changed = true;
+    return {
+      ...prev,
+      id: src.id,
+      ...rf,
+      selected,
+      animated,
+      style: wireType ? { stroke: getWireColor(schema, wireType) } : undefined,
+      // `data` carries the wire's semantics rather than just its looks, so a
+      // custom edge component (animated dataflow, live throughput from Alloy)
+      // can read them without re-deriving anything from the schema.
+      data: { wireType, fromLabel },
+      label: animated ? (
+        <div data-testid='edge-tooltip'>
+          {wireType ?? 'unknown'} · from {fromLabel}
+        </div>
+      ) : undefined,
+      labelShowBg: animated,
+    };
+  });
+
+  inputs.clear();
+  for (const [id, v] of nextInputs) inputs.set(id, v);
+  return changed ? next : current;
+}
+
 export function CanvasPane() {
   const doc = useVisualStore((s) => s.doc);
   const schema = useVisualStore((s) => s.schema);
@@ -197,81 +385,66 @@ export function CanvasPane() {
     [setSelected],
   );
 
-  // --- Node array for React Flow ---
-  // Pass only the per-node subset of diagnostics so memo only invalidates
-  // the affected node rows rather than the entire list.
-  const rfNodes = useMemo<Node<PipelineNodeData>[]>(() => {
-    const byNode = new Map<string, typeof diagnostics>();
+  // --- View projection (see "The controlled-mode contract" above) ---
+  // Only the per-node subset of diagnostics reaches a node, so a diagnostic on
+  // one node doesn't invalidate the rest. Memoised on `diagnostics` so the
+  // per-node arrays are reference-stable between validation runs.
+  const diagnosticsByNode = useMemo(() => {
+    const byNode = new Map<string, L1Diagnostic[]>();
     for (const d of diagnostics) {
       if (d.node_id) {
-        const arr = byNode.get(d.node_id) ?? [];
-        arr.push(d);
-        byNode.set(d.node_id, arr);
+        const arr = byNode.get(d.node_id);
+        if (arr) arr.push(d);
+        else byNode.set(d.node_id, [d]);
       }
     }
-    return doc.nodes.map((n) => ({
-      id: n.id,
-      type: 'pipeline',
-      position: n.position,
-      // Round-trip selection onto the actual node RF renders: RF is controlled
-      // (we own `nodes`), so its internal selection — hit-testing, the
-      // `.react-flow__node.selected` class, and what Backspace/Delete act on —
-      // is driven entirely by this field, not by data.isSelected below. Omitting
-      // it (as this used to) leaves RF's internal selection permanently empty.
-      selected: selected.includes(n.id),
-      data: {
-        ...n,
-        // Pass isSelected separately so PipelineNode can style it without RF's controlled prop.
-        isSelected: selected.includes(n.id),
-        schema: schema?.components[n.component],
-        diagnostics: byNode.get(n.id) ?? [],
-        // connectingFrom deliberately NOT passed here (A3) — it would force this
-        // memo (and every node's data, hence every PipelineNode) to recompute on
-        // every drag start/end. PipelineNode reads it straight from the store
-        // via a narrow per-node selector instead.
-      } as PipelineNodeData,
-    }));
-  }, [doc.nodes, selected, schema, diagnostics]);
+    return byNode;
+  }, [diagnostics]);
 
-  const rfEdges = useMemo<Edge[]>(() => {
-    const reachable =
-      flowCheckActive && schema
-        ? getSourceReachableEdges(doc.nodes, doc.edges, schema)
-        : new Set<string>();
-    return doc.edges.map((e) => {
-      const fromNode = doc.nodes.find((n) => n.id === e.from.node);
-      // The wire's type lives on whichever port `from` resolves to — for a
-      // receiver-kind wire (D1) that's an ARGUMENT (`forward_to`), not an
-      // export, so searching only `.outputs` (the old code) silently found
-      // nothing and rendered an uncolored, unlabeled edge for every such
-      // wire. resolvePorts covers both.
-      const wireType = resolvePorts(fromNode && schema?.components[fromNode.component]).find(
-        (p) => p.id === e.from.port,
-      )?.type;
-      const animated = flowCheckActive && reachable.has(e.id);
-      // React Flow's source/target are fixed by schema kind (export/
-      // argument), independent of the stored edge's produces/accepts
-      // orientation — see wireOrient.ts's rfEndpointsForEdge for why handing
-      // it `from`/`to` verbatim silently fails to render a receiver-kind wire.
-      const rf = rfEndpointsForEdge(schema, { nodes: doc.nodes }, e);
-      return {
-        id: e.id,
-        ...rf,
-        // Same round-trip as rfNodes' `selected` above — otherwise a selected
-        // wire never gets the `.react-flow__edge.selected` class RF needs to
-        // hit-test it, and Delete/Backspace can't see it as selected either.
-        selected: selected.includes(e.id),
-        animated,
-        style: wireType ? { stroke: getWireColor(schema, wireType) } : undefined,
-        label: animated ? (
-          <div data-testid='edge-tooltip'>
-            {wireType ?? 'unknown'} · from {fromNode?.label ?? e.from.node}
-          </div>
-        ) : undefined,
-        labelShowBg: animated,
-      };
-    });
-  }, [doc.edges, doc.nodes, flowCheckActive, schema, selected]);
+  const selectedIds = useMemo(() => new Set(selected), [selected]);
+
+  // Derivation inputs from the last reconcile, so the next one can tell an
+  // unchanged node from one that needs rebuilding. Refs, not state: they are
+  // bookkeeping for the projection and must never trigger a render themselves.
+  const nodeInputsRef = useRef(new Map<string, NodeInputs>());
+  const edgeInputsRef = useRef(new Map<string, EdgeInputs>());
+
+  const [rfNodes, setRfNodes] = useState<PipelineFlowNode[]>(() =>
+    reconcileNodes([], doc.nodes, schema, diagnosticsByNode, selectedIds, nodeInputsRef.current),
+  );
+  const [rfEdges, setRfEdges] = useState<Edge[]>(() =>
+    reconcileEdges(
+      [],
+      doc.edges,
+      doc.nodes,
+      schema,
+      flowCheckActive,
+      selectedIds,
+      edgeInputsRef.current,
+    ),
+  );
+
+  // Document -> view. React Flow's own fields are carried across by the
+  // reconciler, so this never clobbers a measurement or an in-flight drag.
+  useEffect(() => {
+    setRfNodes((cur) =>
+      reconcileNodes(cur, doc.nodes, schema, diagnosticsByNode, selectedIds, nodeInputsRef.current),
+    );
+  }, [doc.nodes, schema, diagnosticsByNode, selectedIds]);
+
+  useEffect(() => {
+    setRfEdges((cur) =>
+      reconcileEdges(
+        cur,
+        doc.edges,
+        doc.nodes,
+        schema,
+        flowCheckActive,
+        selectedIds,
+        edgeInputsRef.current,
+      ),
+    );
+  }, [doc.edges, doc.nodes, schema, flowCheckActive, selectedIds]);
 
   // A2: the in-flight connection line takes the source port's wire color
   // instead of React Flow's default gray bezier.
@@ -283,17 +456,34 @@ export function CanvasPane() {
     [connectingFrom, schema],
   );
 
-  // --- Controlled mode: handle React Flow's internally-generated changes ---
+  // --- Controlled mode: React Flow's change stream ---
+  //
+  // applyNodeChanges is the ONLY writer of React Flow's own fields. It handles
+  // all six change types it can emit — `select`, `dimensions` (-> `measured`),
+  // `position` (-> `dragging`), `remove`, `add`, `replace` — and it preserves
+  // object identity for every node a change did not touch. Hand-rolling this
+  // (the old code covered `position` and `remove` and dropped the other four)
+  // is what left selection permanently empty and `measured` never set.
+  //
+  // After applying, we mirror the subset that is DOCUMENT state back into the
+  // store. Anything not mirrored here is view state and stays view state.
   const onNodesChange = useCallback(
-    (changes: NodeChange[]) => {
+    (changes: NodeChange<PipelineFlowNode>[]) => {
+      setRfNodes((cur) => applyNodeChanges<PipelineFlowNode>(changes, cur));
       for (const c of changes) {
-        if (c.type === 'position' && c.position) {
+        // Position is committed once per gesture, at drag end. React Flow emits
+        // a change per pointer move with `dragging: true` and a final one with
+        // `dragging: false`; writing every one of them put hundreds of entries
+        // in the undo history for a single drag, and churned the document — and
+        // hence this projection — on every frame of it.
+        if (c.type === 'position' && c.position && c.dragging !== true) {
           updateNode(c.id, { position: c.position });
         }
         if (c.type === 'remove') {
           removeNode(c.id);
         }
-        // 'select' changes are handled exclusively by onSelectionChange.
+        // 'select' is mirrored to the store by onSelectionChange; 'dimensions'
+        // is React Flow's alone and deliberately does not reach the document.
       }
     },
     [updateNode, removeNode],
@@ -301,6 +491,7 @@ export function CanvasPane() {
 
   const onEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
+      setRfEdges((cur) => applyEdgeChanges<Edge>(changes, cur));
       for (const c of changes) {
         if (c.type === 'remove') {
           removeEdge(c.id);

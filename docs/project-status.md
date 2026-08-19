@@ -243,7 +243,7 @@ assumes CI enforces the milestone gates.
 
 ## 3a. STILL OPEN
 
-### B-MINIMAP — the canvas minimap draws no nodes · **low**
+### B-MINIMAP — the canvas minimap draws no nodes · [FIXED 2026-08-19]
 
 Found in the 2026-08-19 browser sanity pass: the minimap renders as an empty grey rectangle
 however many nodes are on the canvas. React Flow gates `MiniMapNodes` on
@@ -251,19 +251,14 @@ however many nodes are on the canvas. React Flow gates `MiniMapNodes` on
 `CanvasPane`'s `rfNodes` memo builds are all React Flow sees — they carry no
 `measured`/`width`/`initialWidth`, so every node is filtered out.
 
-Not fixed, deliberately. Round-tripping React Flow's measured dimensions back onto the nodes
-**breaks connection dragging**: `parseHandles` returns `undefined` for a node with no
-`measured`, which discards its cached handle bounds and forces a fresh DOM measurement on
-every rebuild of the array — and the wire gestures currently depend on that accidental
-re-measure. Supplying `measured` preserves stale bounds instead and drops land nowhere
-(3 `visual-linking` specs fail). `initialWidth`/`initialHeight` sidestep that path but are
-applied as inline width/height, pinning the rendered node size — wrong here, since node
-height varies with port count.
+Fixed as part of the controlled-mode contract work, not on its own — a spot fix was tried
+first and broke connection dragging, because the wire gestures had come to depend on the
+re-measure that a missing `measured` forced. The canvas now routes React Flow's whole change
+stream through `applyNodeChanges`/`applyEdgeChanges` and reconciles its node array instead of
+rebuilding it, so handle bounds are cached and `measured` is set the way the library intends.
+`GraphViewPage` had the same defect and got the same treatment.
 
-The real fix is to give `rfNodes` stable object identity so React Flow stops re-measuring
-every node on every rebuild, then feed measured sizes back. That is the same controlled-mode
-round-tripping gap already recorded for `selected`, and belongs with that work. Recorded as a
-`test.fixme` in `web/tests/specs/visual-layout.spec.ts` so it is not silently lost.
+Full analysis: **`docs/reviews/canvas-framework-evaluation.md`**.
 
 ### B-SCHEMACACHE — `/api/schema/current` cached for a day · [FIXED 2026-08-19]
 
