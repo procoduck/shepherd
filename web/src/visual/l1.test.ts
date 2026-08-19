@@ -179,4 +179,45 @@ describe('L1 rule table', () => {
     expect(portsCompatible('otel.any', 'otel.logs')).toBe(true);
     expect(portsCompatible('otel.any', 'targets')).toBe(false);
   });
+  it('A1 regression — an unnamed port resolves to its positional handle id, not "undefined"', () => {
+    // Neither port below has a `prop`/`export` name, so PipelineNode renders the
+    // handle as `p0` (portHandleId's fallback) — validateGraph must resolve the
+    // same wire by the same rule, or a type-compatible edge to it is silently
+    // treated as a dangling input / type mismatch (R1-H1).
+    const schemaWithUnnamedPorts = {
+      ...schemaFixture,
+      components: {
+        ...schemaFixture.components,
+        'test.unnamed_source': {
+          stability: 'ga' as const,
+          doc: '',
+          attributes: [],
+          blocks: [],
+          inputs: [],
+          outputs: [{ type: 'targets' as const }],
+          default_snippet: '',
+        },
+        'test.unnamed_sink': {
+          stability: 'ga' as const,
+          doc: '',
+          terminal_ok: true,
+          attributes: [],
+          blocks: [],
+          inputs: [{ type: 'targets' as const }],
+          outputs: [],
+          default_snippet: '',
+        },
+      },
+    };
+    const diags = validateGraph(
+      doc(
+        [node('a', 'test.unnamed_source'), node('b', 'test.unnamed_sink')],
+        [{ id: 'e', from: { node: 'a', port: 'p0' }, to: { node: 'b', port: 'p0' } }],
+      ),
+      schemaWithUnnamedPorts,
+    );
+    expect(diags.some((d) => d.code === 'type_mismatch')).toBe(false);
+    expect(diags.some((d) => d.code === 'dangling_input')).toBe(false);
+    expect(diags.some((d) => d.code === 'output_nowhere')).toBe(false);
+  });
 });

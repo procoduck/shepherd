@@ -1,3 +1,4 @@
+import { portHandleId } from './schemaAdapter';
 import type { GraphDocument, GraphEdge, L1Diagnostic, SchemaPayload } from './types';
 
 export function sanitizeLabel(label: string): string {
@@ -79,8 +80,8 @@ export function validateGraph(
     const fromDef = fromNode && compDef(fromNode.component);
     const toDef = toNode && compDef(toNode.component);
     if (fromNode && toNode) {
-      const fromOutput = fromDef?.outputs?.find((o) => o.export === e.from.port);
-      const toInput = toDef?.inputs?.find((i) => i.prop === e.to.port);
+      const fromOutput = fromDef?.outputs?.find((o, i) => portHandleId(o, i) === e.from.port);
+      const toInput = toDef?.inputs?.find((inp, i) => portHandleId(inp, i) === e.to.port);
       if (fromOutput && toInput && !portsCompatible(fromOutput.type, toInput.type)) {
         diags.push({
           layer: 'L1',
@@ -116,13 +117,16 @@ export function validateGraph(
     if (n.disabled) continue;
     const def = compDef(n.component);
     if (!def) continue;
-    for (const inp of def.inputs ?? []) {
-      const prop = inp.prop ?? '';
+    for (const [idx, inp] of (def.inputs ?? []).entries()) {
+      const prop = portHandleId(inp, idx);
       const wired = (incoming.get(n.id) ?? []).filter((e) => {
         if (e.to.port !== prop) return false;
         const source = nodeById.get(e.from.node);
         const sourceDef = source && compDef(source.component);
-        return !sourceDef || (sourceDef.outputs?.some((o) => o.export === e.from.port) ?? true);
+        return (
+          !sourceDef ||
+          (sourceDef.outputs?.some((o, i) => portHandleId(o, i) === e.from.port) ?? true)
+        );
       });
       if (wired.length === 0 && inp.cardinality !== undefined) {
         diags.push({
@@ -130,7 +134,7 @@ export function validateGraph(
           severity: 'error',
           code: 'dangling_input',
           node_id: n.id,
-          message: `${n.component} "${n.label}" has no wires on input "${inp.prop ?? ''}"`,
+          message: `${n.component} "${n.label}" has no wires on input "${prop}"`,
         });
       }
       if (inp.cardinality !== 'list' && wired.length > 1) {
@@ -144,16 +148,18 @@ export function validateGraph(
       }
     }
     if (!(def.terminal_ok ?? false))
-      for (const out of def.outputs ?? [])
-        if (!(outgoing.get(n.id) ?? []).some((e) => e.from.port === (out.export ?? ''))) {
+      for (const [idx, out] of (def.outputs ?? []).entries()) {
+        const exportId = portHandleId(out, idx);
+        if (!(outgoing.get(n.id) ?? []).some((e) => e.from.port === exportId)) {
           diags.push({
             layer: 'L1',
             severity: 'warning',
             code: 'output_nowhere',
             node_id: n.id,
-            message: `${n.component} "${n.label}" output "${out.export ?? ''}" goes nowhere`,
+            message: `${n.component} "${n.label}" output "${exportId}" goes nowhere`,
           });
         }
+      }
   }
   if (
     doc.nodes.length > 0 &&

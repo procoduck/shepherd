@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { useVisualStore } from './store';
+import { shallow } from 'zustand/shallow';
+import { type ConnectingFrom, selectConnectionState, useVisualStore } from './store';
+import type { ComponentDef } from './types';
 
 describe('visual store', () => {
   beforeEach(() => {
@@ -17,6 +19,7 @@ describe('visual store', () => {
       diagnostics: [],
       schema: null,
       allowExperimental: false,
+      connectingFrom: null,
     });
     useVisualStore.temporal.getState().clear();
   });
@@ -67,5 +70,79 @@ describe('visual store', () => {
     expect(useVisualStore.getState().doc.nodes[0].id).toBe(id);
     useVisualStore.temporal.getState().redo();
     expect(useVisualStore.getState().doc.nodes[0].label).toBe('renamed');
+  });
+  it('setConnectingFrom does not add undo history (mirrors updateViewport)', () => {
+    const n = useVisualStore.temporal.getState().pastStates.length;
+    useVisualStore
+      .getState()
+      .setConnectingFrom({ nodeId: 'a', handleId: 'x', handleType: 'source', wireType: 'targets' });
+    expect(useVisualStore.temporal.getState().pastStates.length).toBe(n);
+  });
+});
+
+describe('selectConnectionState (A3 narrow selector)', () => {
+  // Only accepts prom.metrics on its one input — used below as a node that's
+  // "unaffected" by drags of an incompatible wire type.
+  const scalarSink: ComponentDef = {
+    stability: 'ga',
+    doc: '',
+    attributes: [],
+    blocks: [],
+    inputs: [{ prop: 'receiver', type: 'prom.metrics' }],
+    outputs: [],
+    default_snippet: '',
+  };
+
+  it('is idle (dragActive: false) when no drag is in progress', () => {
+    expect(selectConnectionState(null, 'n1', scalarSink).dragActive).toBe(false);
+  });
+
+  it('is idle for the node the drag started from', () => {
+    const cf: ConnectingFrom = {
+      nodeId: 'n1',
+      handleId: 'receiver',
+      handleType: 'target',
+      wireType: 'prom.metrics',
+    };
+    expect(selectConnectionState(cf, 'n1', scalarSink).dragActive).toBe(false);
+  });
+
+  it('marks a compatible node as a valid target with its port id listed', () => {
+    const cf: ConnectingFrom = {
+      nodeId: 'other',
+      handleId: 'metrics',
+      handleType: 'source',
+      wireType: 'prom.metrics',
+    };
+    const state = selectConnectionState(cf, 'n1', scalarSink);
+    expect(state.dragActive).toBe(true);
+    expect(state.isValidTarget).toBe(true);
+    expect(state.isDimmed).toBe(false);
+    expect(state.validPortIds).toEqual(['receiver']);
+  });
+
+  it('yields a shallow-stable result for an unaffected node across two different connectingFrom values', () => {
+    // scalarSink only accepts prom.metrics — neither drag below is compatible,
+    // so its computed connection state should come back identical (shallow-equal,
+    // in fact reference-equal — see below) both times, regardless of which other
+    // node's drag is in progress.
+    const cfA: ConnectingFrom = {
+      nodeId: 'other-1',
+      handleId: 'logs',
+      handleType: 'source',
+      wireType: 'loki.logs',
+    };
+    const cfB: ConnectingFrom = {
+      nodeId: 'other-2',
+      handleId: 'traces',
+      handleType: 'source',
+      wireType: 'otel.traces',
+    };
+    const a = selectConnectionState(cfA, 'n1', scalarSink);
+    const b = selectConnectionState(cfB, 'n1', scalarSink);
+    expect(shallow(a, b)).toBe(true);
+    expect(a).toBe(b); // same shared reference, not just shallow-equal — the strongest form of stable
+    expect(a.validPortIds).toEqual([]);
+    expect(a.isDimmed).toBe(true);
   });
 });

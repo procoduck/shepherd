@@ -14,13 +14,14 @@ import {
   useReactFlow,
   type XYPosition,
 } from '@xyflow/react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import '@xyflow/react/dist/base.css';
 import deepEqual from 'fast-deep-equal';
 import { nanoid } from 'nanoid';
 import { toast } from 'sonner';
 import { portsCompatible } from '../l1';
-import { useVisualStore } from '../store';
+import { getWireColor, portHandleId } from '../schemaAdapter';
+import { type ConnectingFrom, useVisualStore } from '../store';
 import type { GraphEdge, GraphNode, SchemaPayload } from '../types';
 import type { PipelineNodeData } from './PipelineNode';
 import { PipelineNode } from './PipelineNode';
@@ -29,17 +30,6 @@ const nodeTypes: NodeTypes = { pipeline: PipelineNode as NodeTypes[string] };
 
 // Clipboard data is scoped to this canvas instance, preventing cross-pipeline pastes.
 type Clipboard = { nodes: GraphNode[]; edges: GraphEdge[] };
-
-const FLOW_COLORS: Record<string, string> = {
-  targets: '#8b5cf6',
-  'prom.metrics': '#f97316',
-  'loki.logs': '#22c55e',
-  'otel.traces': '#0ea5e9',
-  'otel.metrics': '#0ea5e9',
-  'otel.logs': '#0ea5e9',
-  'otel.any': '#0ea5e9',
-  'pyroscope.profiles': '#f43f5e',
-};
 
 function FitOnFirstNodes() {
   const { fitView } = useReactFlow();
@@ -115,12 +105,12 @@ export function CanvasPane() {
   const addNode = useVisualStore((s) => s.addNode);
   const updateNode = useVisualStore((s) => s.updateNode);
   const pasteNodesAndEdges = useVisualStore((s) => s.pasteNodesAndEdges);
-  const [connectingFrom, setConnectingFrom] = useState<{
-    nodeId: string;
-    handleId: string;
-    handleType: 'source' | 'target';
-    wireType: string | null;
-  } | null>(null);
+  // A3: connectingFrom lives in the store (not local state feeding node data) so
+  // starting/ending a drag doesn't force `rfNodes` below to recompute — see
+  // PipelineNode's narrow `selectConnectionState` selector for how nodes read
+  // it back out without all re-rendering together.
+  const connectingFrom = useVisualStore((s) => s.connectingFrom);
+  const setConnectingFrom = useVisualStore((s) => s.setConnectingFrom);
   const clipboardRef = useRef<Clipboard | null>(null);
   const pasteOffsetRef = useRef(0);
   const screenToFlowRef = useRef<((position: XYPosition) => XYPosition) | null>(null);
@@ -174,10 +164,13 @@ export function CanvasPane() {
         isSelected: selected.includes(n.id),
         schema: schema?.components[n.component],
         diagnostics: byNode.get(n.id) ?? [],
-        connectingFrom,
+        // connectingFrom deliberately NOT passed here (A3) — it would force this
+        // memo (and every node's data, hence every PipelineNode) to recompute on
+        // every drag start/end. PipelineNode reads it straight from the store
+        // via a narrow per-node selector instead.
       } as PipelineNodeData,
     }));
-  }, [doc.nodes, selected, schema, diagnostics, connectingFrom]);
+  }, [doc.nodes, selected, schema, diagnostics]);
 
   const rfEdges = useMemo<Edge[]>(() => {
     const reachable =
@@ -189,7 +182,7 @@ export function CanvasPane() {
       const wireType =
         fromNode &&
         schema?.components[fromNode.component]?.outputs.find(
-          (o) => o.prop === e.from.port || o.export === e.from.port,
+          (o, i) => portHandleId(o, i) === e.from.port,
         )?.type;
       const animated = flowCheckActive && reachable.has(e.id);
       return {
@@ -199,7 +192,7 @@ export function CanvasPane() {
         target: e.to.node,
         targetHandle: e.to.port,
         animated,
-        style: wireType && FLOW_COLORS[wireType] ? { stroke: FLOW_COLORS[wireType] } : undefined,
+        style: wireType ? { stroke: getWireColor(schema, wireType) } : undefined,
         label: animated ? (
           <div data-testid='edge-tooltip'>
             {wireType ?? 'unknown'} · from {fromNode?.label ?? e.from.node}
@@ -209,6 +202,16 @@ export function CanvasPane() {
       };
     });
   }, [doc.edges, doc.nodes, flowCheckActive, schema]);
+
+  // A2: the in-flight connection line takes the source port's wire color
+  // instead of React Flow's default gray bezier.
+  const connectionLineStyle = useMemo<CSSProperties>(
+    () => ({
+      strokeWidth: 2,
+      stroke: connectingFrom?.wireType ? getWireColor(schema, connectingFrom.wireType) : undefined,
+    }),
+    [connectingFrom, schema],
+  );
 
   // --- Controlled mode: handle React Flow's internally-generated changes ---
   const onNodesChange = useCallback(
@@ -258,8 +261,8 @@ export function CanvasPane() {
       const b = d.nodes.find((n) => n.id === c.target);
       const ad = a && sc.components[a.component];
       const bd = b && sc.components[b.component];
-      const out = ad?.outputs.find((p) => p.export === (c.sourceHandle ?? ''));
-      const inp = bd?.inputs.find((p) => p.prop === (c.targetHandle ?? ''));
+      const out = ad?.outputs.find((p, i) => portHandleId(p, i) === (c.sourceHandle ?? ''));
+      const inp = bd?.inputs.find((p, i) => portHandleId(p, i) === (c.targetHandle ?? ''));
       return !!out && !!inp && portsCompatible(out.type, inp.type);
     },
     [], // reads only stable refs
@@ -340,23 +343,24 @@ export function CanvasPane() {
       const def = node && sc?.components[node.component];
       let wireType: string | null = null;
       if (params.handleType === 'source') {
-        wireType = def?.outputs.find((p) => p.export === params.handleId)?.type ?? null;
+        wireType =
+          def?.outputs.find((p, i) => portHandleId(p, i) === params.handleId)?.type ?? null;
       } else {
-        wireType = def?.inputs.find((p) => p.prop === params.handleId)?.type ?? null;
+        wireType = def?.inputs.find((p, i) => portHandleId(p, i) === params.handleId)?.type ?? null;
       }
       setConnectingFrom({
         nodeId: params.nodeId,
         handleId: params.handleId,
         handleType: params.handleType,
         wireType,
-      });
+      } satisfies ConnectingFrom);
     },
-    [],
+    [setConnectingFrom],
   );
 
   const onConnectEnd = useCallback(() => {
     setConnectingFrom(null);
-  }, []);
+  }, [setConnectingFrom]);
 
   // --- Drag-drop from palette ---
   const onDrop = useCallback(
@@ -463,6 +467,9 @@ export function CanvasPane() {
         onEdgesChange={onEdgesChange}
         onSelectionChange={onSelectionChange}
         onMoveEnd={(_, vp) => updateViewport(vp)}
+        // A2: snap the wire to a compatible handle within 30px, not just on exact hover.
+        connectionRadius={30}
+        connectionLineStyle={connectionLineStyle}
         snapToGrid
         snapGrid={[8, 8]}
         minZoom={0.25}

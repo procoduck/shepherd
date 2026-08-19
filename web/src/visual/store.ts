@@ -2,8 +2,89 @@ import deepEqual from 'fast-deep-equal';
 import { nanoid } from 'nanoid';
 import { temporal } from 'zundo';
 import { create } from 'zustand';
-import { validateGraph } from './l1';
-import type { GraphDocument, GraphEdge, GraphNode, L1Diagnostic, SchemaPayload } from './types';
+import { portsCompatible, validateGraph } from './l1';
+import { portHandleId } from './schemaAdapter';
+import type {
+  ComponentDef,
+  GraphDocument,
+  GraphEdge,
+  GraphNode,
+  L1Diagnostic,
+  SchemaPayload,
+} from './types';
+
+/** Info about the in-flight connection drag (A3). Lives in the store — not in
+ * PipelineNodeData / rfNodes — so starting/ending a drag doesn't force the
+ * `rfNodes` useMemo (CanvasPane) to recompute and hand every node a new data
+ * object; see `selectConnectionState` for how PipelineNode reads it back out
+ * via a narrow, per-node selector instead. */
+export interface ConnectingFrom {
+  nodeId: string;
+  handleId: string;
+  handleType: 'source' | 'target';
+  wireType: string | null;
+}
+
+/** A node's projection of `connectingFrom` onto its own ports (A2/A3). */
+export interface ConnectionDragState {
+  /** A connection drag is active and this node isn't the node the drag started from. */
+  dragActive: boolean;
+  /** This node has >=1 port compatible with the in-flight wire's type. */
+  isValidTarget: boolean;
+  /** dragActive && !isValidTarget — node has no compatible port, dim it. */
+  isDimmed: boolean;
+  /** Handle ids (per portHandleId) of this node's ports compatible with the in-flight wire. */
+  validPortIds: string[];
+}
+
+// Reused whenever a node is unaffected by the current drag (or there is no
+// drag at all), so two different drags that both leave a node with zero
+// compatible ports resolve to this SAME object rather than two separately
+// -allocated `{ validPortIds: [] }`s — the strongest form of "stable
+// reference" a shallow/reference-equality check (or a `useMemo` depending on
+// this value) can detect.
+const IDLE_CONNECTION_STATE: ConnectionDragState = {
+  dragActive: false,
+  isValidTarget: false,
+  isDimmed: false,
+  validPortIds: [],
+};
+const DIMMED_CONNECTION_STATE: ConnectionDragState = {
+  dragActive: true,
+  isValidTarget: false,
+  isDimmed: true,
+  validPortIds: [],
+};
+
+/**
+ * Pure, node-scoped projection of `connectingFrom` onto one node's schema def
+ * (A3). PipelineNode subscribes to the raw `connectingFrom` value (stable
+ * except at drag start/end) and wraps this in a `useMemo`, so the actual
+ * per-node computation only reruns on those two transitions rather than on
+ * every store tick. Exported as a standalone pure function so it's directly
+ * unit-testable without rendering React (see store.test.ts).
+ */
+export function selectConnectionState(
+  connectingFrom: ConnectingFrom | null,
+  nodeId: string,
+  def: ComponentDef | undefined,
+): ConnectionDragState {
+  if (!connectingFrom || connectingFrom.nodeId === nodeId || connectingFrom.wireType == null) {
+    return IDLE_CONNECTION_STATE;
+  }
+  const wireType = connectingFrom.wireType;
+  const ports = connectingFrom.handleType === 'source' ? (def?.inputs ?? []) : (def?.outputs ?? []);
+  const validPortIds = ports
+    .map((p, i) => ({ p, id: portHandleId(p, i) }))
+    .filter(({ p }) =>
+      connectingFrom.handleType === 'source'
+        ? portsCompatible(wireType, p.type)
+        : portsCompatible(p.type, wireType),
+    )
+    .map(({ id }) => id);
+  if (validPortIds.length === 0) return DIMMED_CONNECTION_STATE;
+  return { dragActive: true, isValidTarget: true, isDimmed: false, validPortIds };
+}
 
 interface VisualStore {
   doc: GraphDocument;
@@ -12,6 +93,14 @@ interface VisualStore {
   schema: SchemaPayload | null;
   allowExperimental: boolean;
   flowCheckActive: boolean;
+  /** Set while a connection is being dragged from a handle; null otherwise. See ConnectingFrom. */
+  connectingFrom: ConnectingFrom | null;
+  /** Toolbar name field (B4) — used as the pipeline's name on save, seeded
+   * from the loaded pipeline when editing an existing one. */
+  pipelineName: string;
+  /** Toolbar matcher chips (B4) — `key="value"` / `key=~"regex"` strings,
+   * seeded from the loaded pipeline; required (non-empty) to save. */
+  matchers: string[];
 
   setSchema: (s: SchemaPayload) => void;
   addNode: (component: string, position: { x: number; y: number }) => void;
@@ -35,6 +124,13 @@ interface VisualStore {
   setLabel: (id: string, label: string) => void;
   setDisabled: (id: string, disabled: boolean) => void;
   toggleFlowCheck: () => void;
+  setConnectingFrom: (cf: ConnectingFrom | null) => void;
+  setPipelineName: (name: string) => void;
+  /** No-op if `matcher` is already present. */
+  addMatcher: (matcher: string) => void;
+  removeMatcher: (index: number) => void;
+  /** Seeds name+matchers together, e.g. after loading an existing pipeline. */
+  setPipelineMeta: (name: string, matchers: string[]) => void;
 }
 
 function makeDefaultDoc(schemaVersion = 'alloy-v1.18.1'): GraphDocument {
@@ -66,6 +162,9 @@ export const useVisualStore = create<VisualStore>()(
       schema: null,
       allowExperimental: false,
       flowCheckActive: false,
+      connectingFrom: null,
+      pipelineName: '',
+      matchers: [],
 
       setSchema: (schema) => set({ schema, diagnostics: revalidate({ ...get(), schema }) }),
 
@@ -164,7 +263,14 @@ export const useVisualStore = create<VisualStore>()(
 
       importGraph: (doc) => set((state) => ({ doc, diagnostics: revalidate({ ...state, doc }) })),
 
-      resetDoc: () => set({ doc: makeDefaultDoc(), selected: [], diagnostics: [] }),
+      resetDoc: () =>
+        set({
+          doc: makeDefaultDoc(),
+          selected: [],
+          diagnostics: [],
+          pipelineName: '',
+          matchers: [],
+        }),
 
       removeEdge: (id) =>
         set((state) => {
@@ -189,6 +295,11 @@ export const useVisualStore = create<VisualStore>()(
 
       toggleFlowCheck: () => set((state) => ({ flowCheckActive: !state.flowCheckActive })),
 
+      // Not part of `doc` — mirrors updateViewport's pattern of a `set` that the
+      // temporal `equality` fn (below, compares only doc/nodes/edges/bindings)
+      // treats as unchanged, so drag start/end never pushes undo history.
+      setConnectingFrom: (connectingFrom) => set({ connectingFrom }),
+
       setDisabled: (id, disabled) =>
         set((state) => {
           const doc = {
@@ -197,6 +308,18 @@ export const useVisualStore = create<VisualStore>()(
           };
           return { doc, diagnostics: revalidate({ ...state, doc }) };
         }),
+
+      setPipelineName: (pipelineName) => set({ pipelineName }),
+
+      addMatcher: (matcher) =>
+        set((state) =>
+          state.matchers.includes(matcher) ? state : { matchers: [...state.matchers, matcher] },
+        ),
+
+      removeMatcher: (index) =>
+        set((state) => ({ matchers: state.matchers.filter((_, i) => i !== index) })),
+
+      setPipelineMeta: (pipelineName, matchers) => set({ pipelineName, matchers }),
     }),
     {
       partialize: (state) => ({ doc: state.doc }),
