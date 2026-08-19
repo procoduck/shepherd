@@ -6,7 +6,7 @@
 git clone <repo>
 make build-web && make docker-build && make docker-build-init
 make dev
-# → Open http://localhost:8080 and log in as admin / e2e-local-admin-pass
+# → Open http://localhost:8080 and log in as admin / admin
 ```
 
 The dev stack starts in ~10s (images cached). It includes:
@@ -79,14 +79,19 @@ To reseed without resetting data: `make dev-seed` (idempotent — all inserts us
 
 | Service | Credentials |
 |---|---|
-| Local admin login | `admin` / `e2e-local-admin-pass` |
+| Local admin login | `admin` / `admin` |
 | Database (direct) | `postgres://shepherd:shepherd@localhost:15432/shepherd_dev` |
 | Agent token | See seed contents above |
+
+`dev/shepherd.dev.env` is committed and holds only dev-only fixtures. OIDC is deliberately
+left unset there: the `oidc` service sits behind the `oidc` compose profile, so the default
+stack is local-admin only (`docker compose --profile oidc up -d` to exercise the OIDC flow).
 
 **Change the password:** Generate a new hash and update `dev/shepherd.dev.env`:
 ```bash
 ./bin/shepherd hash-password --password-stdin <<< "my-new-password"
-# Paste the output as SHEPHERD_AUTH_LOCAL_ADMIN_PASSWORD_HASH in dev/shepherd.dev.env
+# Paste the output as SHEPHERD_AUTH_LOCAL_ADMIN_PASSWORD_HASH in dev/shepherd.dev.env.
+# Every `$` must be doubled to `$$` — docker compose interpolates the env file.
 ```
 
 ---
