@@ -12,6 +12,26 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const clearStaleFailedStatus = `-- name: ClearStaleFailedStatus :exec
+UPDATE collector_instances
+SET remote_config_status = 'APPLIED',
+    remote_config_error  = NULL,
+    updated_at           = now()
+WHERE id = $1
+  AND remote_config_status = 'FAILED'
+`
+
+// A poll that carries no RemoteConfigStatus payload but whose reported hash
+// matches what GetConfig actually served means the agent is healthy on its
+// current config (see B1) — clear a stale FAILED marker back to APPLIED.
+// Scoped to rows currently FAILED: a genuine FAILED the agent keeps
+// re-reporting is persisted by UpdateInstanceStatus earlier in the same
+// request and must win, so this call is a no-op whenever that happened.
+func (q *Queries) ClearStaleFailedStatus(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, clearStaleFailedStatus, id)
+	return err
+}
+
 const deleteOldInstances = `-- name: DeleteOldInstances :exec
 DELETE FROM collector_instances WHERE last_seen < $1
 `

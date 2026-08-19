@@ -197,6 +197,56 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 			return collector, pipeline
 		}
 
+		It("serves a git-sourced pipeline linked to the collector by its repo link", func() {
+			// Regression: git pipelines are matched by the collector their repo link
+			// targets, never by matchers (they are created with an empty matcher set).
+			// GetConfig previously built merge.Pipeline without RepoLinkCollectorID, and
+			// gitsync created the pipeline without repo_link_id, so every git-sourced
+			// pipeline compared "" against the collector id and was silently never served.
+			org, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "git-org", DisplayName: "Git org", AdminGroupID: "admins"})
+			Expect(err).NotTo(HaveOccurred())
+			_, err = client.RegisterCollector(ctx, connect.NewRequest(&collectorv1.RegisterCollectorRequest{
+				Id: "git-instance", Name: "git-instance",
+				LocalAttributes: map[string]string{"cluster": "git-cluster", "role": "metrics"},
+			}))
+			Expect(err).NotTo(HaveOccurred())
+			cluster, err := st.Queries.GetClusterByName(ctx, "git-cluster")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: org.ID})).To(Succeed())
+			collector, err := st.Queries.GetCollectorByClusterAndRole(ctx, sqlc.GetCollectorByClusterAndRoleParams{Name: "git-cluster", Role: "metrics"})
+			Expect(err).NotTo(HaveOccurred())
+
+			cred, err := st.Queries.CreateGitCredential(ctx, sqlc.CreateGitCredentialParams{
+				OrgID: org.ID, Name: "git-cred", Kind: "pat",
+				Username: pgtype.Text{String: "git", Valid: true},
+				ClientSecretEnc: []byte("enc"),
+				ProviderConfig:  json.RawMessage(`{}`),
+			})
+			Expect(err).NotTo(HaveOccurred())
+			link, err := st.Queries.CreateRepoLink(ctx, sqlc.CreateRepoLinkParams{
+				OrgID: org.ID, CollectorID: collector.ID, CredentialID: cred.ID,
+				RepoUrl: "https://example.invalid/team/configs.git", Branch: "main", Path: "/",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+				OrgID: org.ID, Name: "git-pipeline", Contents: `// git-pipeline`,
+				Matchers: json.RawMessage(`[]`), // git pipelines carry no matchers by design
+				Enabled:  true, Source: "git",
+				WizardState: json.RawMessage(`{}`), CreatedBy: "gitsync", UpdatedBy: "gitsync",
+				RepoLinkID: link.ID,
+				GitPath:    pgtype.Text{String: "/git-pipeline.alloy", Valid: true},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			resp, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+				Id: "git-instance", LocalAttributes: map[string]string{"cluster": "git-cluster", "role": "metrics"},
+			}))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Msg.GetContent()).To(ContainSubstring("git-pipeline"),
+				"a git-sourced pipeline whose repo link targets this collector must be served")
+		})
+
 		It("GetConfig recomputes after enable", func() {
 			collector, _ := setupClaimedPipeline()
 			resp, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{Id: "recompute-instance", LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"}}))
@@ -353,6 +403,89 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 			instance, err = st.Queries.GetCollectorInstanceByID(ctx, "reconnect-instance")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(instance.RemoteConfigStatus.Valid).To(BeFalse(), "reconnect should clear the stale inactive marker")
+		})
+
+		Describe("B1: stale FAILED status clearing", func() {
+			// failClaimed sets up a claimed cluster/pipeline, then drives the
+			// instance into FAILED with a stale error message, returning the
+			// hash actually served (what a healthy agent would report back as
+			// its applied hash on the next poll).
+			failClaimed := func() string {
+				setupClaimedPipeline()
+				served, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+					Id:              "recompute-instance",
+					LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"},
+				}))
+				Expect(err).NotTo(HaveOccurred())
+
+				_, err = client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+					Id:              "recompute-instance",
+					Hash:            served.Msg.Hash,
+					LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"},
+					RemoteConfigStatus: &collectorv1.RemoteConfigStatus{
+						Status:       collectorv1.RemoteConfigStatuses_RemoteConfigStatuses_FAILED,
+						ErrorMessage: "dial tcp: lookup shepherd: no such host",
+					},
+				}))
+				Expect(err).NotTo(HaveOccurred())
+
+				instance, err := st.Queries.GetCollectorInstanceByID(ctx, "recompute-instance")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(instance.RemoteConfigStatus.String).To(Equal("FAILED"))
+
+				return served.Msg.Hash
+			}
+
+			It("clears FAILED to APPLIED when a later poll reports the served hash with no status", func() {
+				servedHash := failClaimed()
+
+				_, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+					Id:              "recompute-instance",
+					Hash:            servedHash,
+					LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"},
+				}))
+				Expect(err).NotTo(HaveOccurred())
+
+				instance, err := st.Queries.GetCollectorInstanceByID(ctx, "recompute-instance")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(instance.RemoteConfigStatus.String).To(Equal("APPLIED"), "matching hash with no fresh status means the agent recovered")
+				Expect(instance.RemoteConfigError.Valid).To(BeFalse(), "stale error message must be cleared alongside the status")
+			})
+
+			It("stays FAILED when the agent keeps re-reporting FAILED", func() {
+				servedHash := failClaimed()
+
+				_, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+					Id:              "recompute-instance",
+					Hash:            servedHash,
+					LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"},
+					RemoteConfigStatus: &collectorv1.RemoteConfigStatus{
+						Status:       collectorv1.RemoteConfigStatuses_RemoteConfigStatuses_FAILED,
+						ErrorMessage: "still failing: permission denied",
+					},
+				}))
+				Expect(err).NotTo(HaveOccurred())
+
+				instance, err := st.Queries.GetCollectorInstanceByID(ctx, "recompute-instance")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(instance.RemoteConfigStatus.String).To(Equal("FAILED"), "a repeated FAILED report must win over the hash-match inference")
+				Expect(instance.RemoteConfigError.String).To(Equal("still failing: permission denied"))
+			})
+
+			It("stays FAILED when the reported hash does not match what was served", func() {
+				failClaimed()
+
+				_, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+					Id:              "recompute-instance",
+					Hash:            "not-the-served-hash",
+					LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"},
+				}))
+				Expect(err).NotTo(HaveOccurred())
+
+				instance, err := st.Queries.GetCollectorInstanceByID(ctx, "recompute-instance")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(instance.RemoteConfigStatus.String).To(Equal("FAILED"), "agent has not applied the newly served config yet")
+			})
 		})
 	})
 

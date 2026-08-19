@@ -133,6 +133,7 @@ func (s *Service) GetConfig(
 
 	// Unclaimed cluster: serve empty config.
 	if !orgID.Valid {
+		s.maybeClearFailedStatus(ctx, req.Msg.Id, req.Msg.RemoteConfigStatus, req.Msg.Hash, emptyHash)
 		if req.Msg.Hash == emptyHash {
 			metrics.GetConfigTotal.WithLabelValues("not_modified").Inc()
 			return connect.NewResponse(&collectorv1.GetConfigResponse{
@@ -176,6 +177,12 @@ func (s *Service) GetConfig(
 		}
 	}
 
+	// A poll reporting no fresh status but a hash matching what we actually
+	// served means the agent is healthy on the current config (B1): clear a
+	// stale FAILED marker. A RemoteConfigStatus persisted just above always
+	// wins, including a repeated FAILED — see maybeClearFailedStatus.
+	s.maybeClearFailedStatus(ctx, req.Msg.Id, req.Msg.RemoteConfigStatus, req.Msg.Hash, cache.Hash)
+
 	if req.Msg.Hash == cache.Hash {
 		metrics.GetConfigTotal.WithLabelValues("not_modified").Inc()
 		return connect.NewResponse(&collectorv1.GetConfigResponse{
@@ -190,6 +197,27 @@ func (s *Service) GetConfig(
 		Hash:        cache.Hash,
 		NotModified: false,
 	}), nil
+}
+
+// maybeClearFailedStatus implements the B1 clearing rule: when a poll
+// carries no RemoteConfigStatus payload and the agent's reported hash
+// equals what GetConfig actually served, the agent is healthy on its
+// current config, so a stale FAILED marker is cleared back to APPLIED.
+// If the request DOES carry a RemoteConfigStatus — including a repeated
+// FAILED — GetConfig has already persisted it via UpdateInstanceStatus
+// above, and that write wins: status is non-nil here, so this is a no-op.
+func (s *Service) maybeClearFailedStatus(
+	ctx context.Context,
+	instanceID string,
+	status *collectorv1.RemoteConfigStatus,
+	agentHash, servedHash string,
+) {
+	if status != nil || agentHash != servedHash {
+		return
+	}
+	if err := s.store.Queries.ClearStaleFailedStatus(ctx, instanceID); err != nil {
+		s.logger.Warn("failed to clear stale FAILED status", "instance_id", instanceID, "err", err)
+	}
 }
 
 // UnregisterCollector marks an instance as unregistered.
@@ -286,7 +314,7 @@ func hashContent(content string) string {
 // recomputeServeCache assembles and validates the merged config for a single collector.
 // It returns (content, hash, error). On error the caller should serve the previous cached value.
 func (s *Service) recomputeServeCache(ctx context.Context, coll sqlc.Collector, orgID pgtype.UUID) (string, string, error) {
-	enabledPipelines, err := s.store.Queries.ListEnabledPipelinesByOrg(ctx, orgID)
+	enabledPipelines, err := s.store.Queries.ListEnabledPipelinesForMerge(ctx, orgID)
 	if err != nil {
 		return "", "", fmt.Errorf("listing pipelines: %w", err)
 	}
@@ -298,12 +326,19 @@ func (s *Service) recomputeServeCache(ctx context.Context, coll sqlc.Collector, 
 		if jsonErr := json.Unmarshal(ep.Matchers, &m); jsonErr != nil {
 			continue
 		}
+		// Git-sourced pipelines are matched by the collector their repo link targets,
+		// not by matchers; leaving this empty makes them match nothing.
+		repoLinkCollectorID := ""
+		if ep.RepoLinkCollectorID.Valid {
+			repoLinkCollectorID = ep.RepoLinkCollectorID.String()
+		}
 		mergePipelines = append(mergePipelines, merge.Pipeline{
-			ID:       ep.ID.String(),
-			Name:     ep.Name,
-			Contents: ep.Contents,
-			Matchers: m,
-			Source:   ep.Source,
+			ID:                  ep.ID.String(),
+			Name:                ep.Name,
+			Contents:            ep.Contents,
+			Matchers:            m,
+			Source:              ep.Source,
+			RepoLinkCollectorID: repoLinkCollectorID,
 		})
 	}
 

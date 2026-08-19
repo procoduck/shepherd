@@ -36,6 +36,20 @@ SET remote_config_status = $2,
     updated_at           = now()
 WHERE id = $1;
 
+-- name: ClearStaleFailedStatus :exec
+-- A poll that carries no RemoteConfigStatus payload but whose reported hash
+-- matches what GetConfig actually served means the agent is healthy on its
+-- current config (see B1) — clear a stale FAILED marker back to APPLIED.
+-- Scoped to rows currently FAILED: a genuine FAILED the agent keeps
+-- re-reporting is persisted by UpdateInstanceStatus earlier in the same
+-- request and must win, so this call is a no-op whenever that happened.
+UPDATE collector_instances
+SET remote_config_status = 'APPLIED',
+    remote_config_error  = NULL,
+    updated_at           = now()
+WHERE id = $1
+  AND remote_config_status = 'FAILED';
+
 -- name: UnregisterInstance :exec
 UPDATE collector_instances
 SET unregistered_at = now(), updated_at = now()
