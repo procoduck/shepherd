@@ -1,6 +1,8 @@
+import { Boxes } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { canConnectPorts, resolvePorts } from '../l1';
 import { useVisualStore } from '../store';
+import { CollapsiblePanel } from './CollapsiblePanel';
 
 const CATEGORIES = ['sources', 'transform', 'destinations', 'config', 'advanced'] as const;
 const LABELS: Record<string, string> = {
@@ -98,77 +100,85 @@ export function Palette() {
   };
 
   return (
-    <div
-      className='w-64 bg-panel border-r border-border flex flex-col overflow-hidden shrink-0'
-      data-testid='palette'
-      onWheel={(e) => e.stopPropagation()}
+    <CollapsiblePanel
+      side='left'
+      storageKey='vb.palette.collapsed'
+      title='Components'
+      width='w-56'
+      testId='palette'
+      collapsedIcon={<Boxes size={16} />}
     >
-      <div className='p-2 border-b border-border'>
-        <input
-          type='text'
-          placeholder='Search components...'
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className='w-full px-2 py-1.5 text-sm rounded-md border border-border-strong bg-panel placeholder:text-muted-2 outline-none focus:border-accent'
-          aria-label='Search palette'
-          data-testid='palette-search'
-        />
-      </div>
-      {filterBySelected && selectedNode && (
-        <div className='px-3 py-1.5 bg-indigo-950/50 border-b border-border flex items-center justify-between gap-2 text-xs'>
-          <span className='text-indigo-300 truncate'>
-            Compatible with <span className='font-mono'>{selectedNode.component}</span>
-          </span>
-          <button
-            onClick={() => setShowAllOverride(true)}
-            className='text-indigo-400 hover:text-white shrink-0'
-            aria-label='Show all components'
-          >
-            ✕
-          </button>
+      <div
+        className='flex flex-col min-h-0 flex-1 overflow-hidden'
+        onWheel={(e) => e.stopPropagation()}
+      >
+        <div className='p-2 border-b border-border'>
+          <input
+            type='text'
+            placeholder='Search components...'
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className='w-full px-2 py-1.5 text-sm rounded-md border border-border-strong bg-panel placeholder:text-muted-2 outline-none focus:border-accent'
+            aria-label='Search palette'
+            data-testid='palette-search'
+          />
         </div>
-      )}
-      <div className='flex-1 overflow-y-auto'>
-        {CATEGORIES.map((cat) => {
-          const catItems = filtered.filter((c) => c.category === cat);
-          if (catItems.length === 0) return null;
-          return (
-            <details key={cat} open className='border-b border-border'>
-              <summary className='px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-2 cursor-pointer select-none'>
-                {LABELS[cat]}
-              </summary>
-              {catItems.map(({ name, def }) => (
-                <div
-                  key={name}
-                  draggable
-                  data-component={name}
-                  data-testid={`palette-item-${name}`}
-                  onDragStart={(e) => e.dataTransfer.setData('application/vb-component', name)}
-                  onClick={() => handleClick(name)}
-                  className='px-3 py-1.5 text-sm cursor-pointer hover:bg-accent/10 flex items-center gap-2'
-                >
-                  <span
-                    className={`h-1.5 w-1.5 rounded-full shrink-0 ${CATEGORY_DOT[cat]}`}
-                    aria-hidden='true'
-                  />
-                  <span className='font-mono truncate flex-1'>{name}</span>
-                  {def.stability !== 'ga' && (
+        {filterBySelected && selectedNode && (
+          <div className='px-3 py-1.5 bg-indigo-950/50 border-b border-border flex items-center justify-between gap-2 text-xs'>
+            <span className='text-indigo-300 truncate'>
+              Compatible with <span className='font-mono'>{selectedNode.component}</span>
+            </span>
+            <button
+              onClick={() => setShowAllOverride(true)}
+              className='text-indigo-400 hover:text-white shrink-0'
+              aria-label='Show all components'
+            >
+              ✕
+            </button>
+          </div>
+        )}
+        <div className='flex-1 overflow-y-auto'>
+          {CATEGORIES.map((cat) => {
+            const catItems = filtered.filter((c) => c.category === cat);
+            if (catItems.length === 0) return null;
+            return (
+              <details key={cat} open className='border-b border-border'>
+                <summary className='px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-2 cursor-pointer select-none'>
+                  {LABELS[cat]}
+                </summary>
+                {catItems.map(({ name, def }) => (
+                  <div
+                    key={name}
+                    draggable
+                    data-component={name}
+                    data-testid={`palette-item-${name}`}
+                    onDragStart={(e) => e.dataTransfer.setData('application/vb-component', name)}
+                    onClick={() => handleClick(name)}
+                    className='px-3 py-1.5 text-sm cursor-pointer hover:bg-accent/10 flex items-center gap-2'
+                  >
                     <span
-                      className={`text-xs px-1 rounded shrink-0 ${
-                        def.stability === 'experimental'
-                          ? 'bg-amber-200 text-amber-800'
-                          : 'bg-sky-200 text-sky-800'
-                      }`}
-                    >
-                      {def.stability === 'experimental' ? 'exp' : 'preview'}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </details>
-          );
-        })}
+                      className={`h-1.5 w-1.5 rounded-full shrink-0 ${CATEGORY_DOT[cat]}`}
+                      aria-hidden='true'
+                    />
+                    <span className='font-mono truncate flex-1'>{name}</span>
+                    {def.stability !== 'ga' && (
+                      <span
+                        className={`text-xs px-1 rounded shrink-0 ${
+                          def.stability === 'experimental'
+                            ? 'bg-amber-200 text-amber-800'
+                            : 'bg-sky-200 text-sky-800'
+                        }`}
+                      >
+                        {def.stability === 'experimental' ? 'exp' : 'preview'}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </details>
+            );
+          })}
+        </div>
       </div>
-    </div>
+    </CollapsiblePanel>
   );
 }

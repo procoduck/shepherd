@@ -1,7 +1,9 @@
+import { SlidersHorizontal } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { L1DiagnosticEx } from '../l1';
 import { useVisualStore } from '../store';
 import type { ComponentDef } from '../types';
+import { CollapsiblePanel } from './CollapsiblePanel';
 import { AttributeField } from './inspector/AttributeField';
 import { BlockGroup } from './inspector/BlockGroup';
 import { withAttr } from './inspector/blockOps';
@@ -23,6 +25,23 @@ const diagAt = (diags: L1DiagnosticEx[], path: string[]): string | undefined =>
  * schema generation, and a schema payload is versioned data the inspector
  * does not control (D4 — degrade gracefully, never crash the canvas).
  */
+/** The inspector's collapsible frame (draw.io's Format panel). Split out so both
+ *  the empty and node-selected states share one panel chrome and one testid. */
+function InspectorShell({ children }: { children: React.ReactNode }) {
+  return (
+    <CollapsiblePanel
+      side='right'
+      storageKey='vb.inspector.collapsed'
+      title='Properties'
+      width='w-[300px]'
+      testId='inspector'
+      collapsedIcon={<SlidersHorizontal size={16} />}
+    >
+      {children}
+    </CollapsiblePanel>
+  );
+}
+
 export function InspectorPanel() {
   const selected = useVisualStore((s) => s.selected);
   const doc = useVisualStore((s) => s.doc);
@@ -56,41 +75,43 @@ export function InspectorPanel() {
 
   if (!node || !def)
     return (
-      <div className='w-[360px] border-l p-4 text-sm text-muted' data-testid='inspector'>
-        <p>Select a node to inspect.</p>
-        <div className='mt-4 text-xs'>
-          Nodes: {doc.nodes.length}
-          <br />
-          Edges: {doc.edges.length}
-        </div>
-        {upgradeNeeded && (
-          <div
-            data-testid='upgrade-banner'
-            className='mt-3 p-2 bg-yellow-50 border border-yellow-300 rounded text-xs'
-          >
-            <span>
-              Authored against {doc.schema_version}; current is {currentVersion} —{' '}
-            </span>
-            <button
-              data-testid='upgrade-review-open'
-              className='underline font-medium'
-              onClick={() => setReviewOpen(true)}
-            >
-              Review upgrade
-            </button>
+      <InspectorShell>
+        <div className='p-4 text-sm text-muted'>
+          <p>Select a node to inspect.</p>
+          <div className='mt-4 text-xs'>
+            Nodes: {doc.nodes.length}
+            <br />
+            Edges: {doc.edges.length}
           </div>
-        )}
-        {reviewOpen && (
-          <UpgradeReview
-            open={reviewOpen}
-            onClose={() => setReviewOpen(false)}
-            onAccept={(newVersion) => {
-              importGraph({ ...doc, schema_version: newVersion });
-              setReviewOpen(false);
-            }}
-          />
-        )}
-      </div>
+          {upgradeNeeded && (
+            <div
+              data-testid='upgrade-banner'
+              className='mt-3 p-2 bg-yellow-50 border border-yellow-300 rounded text-xs'
+            >
+              <span>
+                Authored against {doc.schema_version}; current is {currentVersion} —{' '}
+              </span>
+              <button
+                data-testid='upgrade-review-open'
+                className='underline font-medium'
+                onClick={() => setReviewOpen(true)}
+              >
+                Review upgrade
+              </button>
+            </div>
+          )}
+          {reviewOpen && (
+            <UpgradeReview
+              open={reviewOpen}
+              onClose={() => setReviewOpen(false)}
+              onAccept={(newVersion) => {
+                importGraph({ ...doc, schema_version: newVersion });
+                setReviewOpen(false);
+              }}
+            />
+          )}
+        </div>
+      </InspectorShell>
     );
 
   const attrs: AttrLike[] = def.attributes ?? [];
@@ -119,94 +140,96 @@ export function InspectorPanel() {
   };
 
   return (
-    <div className='w-[360px] border-l overflow-y-auto text-sm' data-testid='inspector'>
-      <div className='sticky top-0 bg-background border-b px-4 py-3 z-10'>
-        <h3 className='font-semibold font-mono text-xs' data-testid='inspector-component'>
-          {node.component}
-        </h3>
-        {def.doc && <p className='mt-1 text-xs text-muted'>{def.doc}</p>}
-        {nodeDiagnostics.length > 0 && (
-          <p className='mt-1 text-xs text-red-500' data-testid='inspector-diagnostic-count'>
-            {nodeDiagnostics.length} problem{nodeDiagnostics.length === 1 ? '' : 's'} on this node
-          </p>
-        )}
-      </div>
+    <InspectorShell>
+      <div className='overflow-y-auto text-sm flex-1 min-h-0'>
+        <div className='sticky top-0 bg-background border-b px-4 py-3 z-10'>
+          <h3 className='font-semibold font-mono text-xs' data-testid='inspector-component'>
+            {node.component}
+          </h3>
+          {def.doc && <p className='mt-1 text-xs text-muted'>{def.doc}</p>}
+          {nodeDiagnostics.length > 0 && (
+            <p className='mt-1 text-xs text-red-500' data-testid='inspector-diagnostic-count'>
+              {nodeDiagnostics.length} problem{nodeDiagnostics.length === 1 ? '' : 's'} on this node
+            </p>
+          )}
+        </div>
 
-      <div className='p-4 space-y-3'>
-        {required.length > 0 && (
-          <div className='space-y-3'>
-            <h4 className='text-[11px] uppercase tracking-wide text-muted-2'>Required</h4>
-            {required.map(renderAttr)}
-          </div>
-        )}
-
-        {optional.length > 0 &&
-          (showOptional ? (
+        <div className='p-4 space-y-3'>
+          {required.length > 0 && (
             <div className='space-y-3'>
-              <div className='flex items-center justify-between'>
-                <h4 className='text-[11px] uppercase tracking-wide text-muted-2'>
-                  Optional ({optional.length})
-                </h4>
-                <button
-                  type='button'
-                  className='text-[11px] underline text-muted'
-                  onClick={() => setShowOptional(false)}
-                >
-                  hide
-                </button>
-              </div>
-              {optional.map(renderAttr)}
+              <h4 className='text-[11px] uppercase tracking-wide text-muted-2'>Required</h4>
+              {required.map(renderAttr)}
             </div>
-          ) : (
-            <button
-              type='button'
-              data-testid='inspector-show-optional'
-              className='text-xs underline text-muted'
-              onClick={() => setShowOptional(true)}
-            >
-              Show {optional.length} optional attribute{optional.length === 1 ? '' : 's'}
-            </button>
-          ))}
+          )}
 
-        {blocks.length > 0 && (
-          <div className='space-y-3 pt-1'>
-            <h4 className='text-[11px] uppercase tracking-wide text-muted-2'>Blocks</h4>
-            {blocks.map((block) => (
-              <BlockGroup
-                key={block.name}
-                block={block}
-                value={node.props?.[block.name]}
-                onChange={(v) => setProp(block.name, v)}
-                schemaPath={[block.name]}
-                instancePath={[block.name]}
-                nodeId={node.id}
-                diagnostics={nodeDiagnostics}
-                bindings={doc.bindings}
-                portByPath={portIndex.byPath}
-                wireCounts={wireCounts}
-                depth={0}
-              />
+          {optional.length > 0 &&
+            (showOptional ? (
+              <div className='space-y-3'>
+                <div className='flex items-center justify-between'>
+                  <h4 className='text-[11px] uppercase tracking-wide text-muted-2'>
+                    Optional ({optional.length})
+                  </h4>
+                  <button
+                    type='button'
+                    className='text-[11px] underline text-muted'
+                    onClick={() => setShowOptional(false)}
+                  >
+                    hide
+                  </button>
+                </div>
+                {optional.map(renderAttr)}
+              </div>
+            ) : (
+              <button
+                type='button'
+                data-testid='inspector-show-optional'
+                className='text-xs underline text-muted'
+                onClick={() => setShowOptional(true)}
+              >
+                Show {optional.length} optional attribute{optional.length === 1 ? '' : 's'}
+              </button>
             ))}
-          </div>
-        )}
 
-        {attrs.length === 0 && blocks.length === 0 && (
-          <p className='text-xs text-muted-2'>This component has no configurable fields.</p>
-        )}
-      </div>
+          {blocks.length > 0 && (
+            <div className='space-y-3 pt-1'>
+              <h4 className='text-[11px] uppercase tracking-wide text-muted-2'>Blocks</h4>
+              {blocks.map((block) => (
+                <BlockGroup
+                  key={block.name}
+                  block={block}
+                  value={node.props?.[block.name]}
+                  onChange={(v) => setProp(block.name, v)}
+                  schemaPath={[block.name]}
+                  instancePath={[block.name]}
+                  nodeId={node.id}
+                  diagnostics={nodeDiagnostics}
+                  bindings={doc.bindings}
+                  portByPath={portIndex.byPath}
+                  wireCounts={wireCounts}
+                  depth={0}
+                />
+              ))}
+            </div>
+          )}
 
-      <div className='px-4 pb-4 pt-2 border-t'>
-        <h4 className='text-xs font-semibold mb-2'>Danger</h4>
-        <label className='flex items-center gap-2 text-xs'>
-          <input
-            data-testid='node-disable-toggle'
-            type='checkbox'
-            checked={node.disabled}
-            onChange={(e) => setDisabled(node.id, e.target.checked)}
-          />
-          Disable this node
-        </label>
+          {attrs.length === 0 && blocks.length === 0 && (
+            <p className='text-xs text-muted-2'>This component has no configurable fields.</p>
+          )}
+        </div>
+
+        <div className='px-4 pb-4 pt-2 border-t'>
+          <h4 className='text-xs font-semibold mb-2'>Danger</h4>
+          <label className='flex items-center gap-2 text-xs'>
+            <input
+              data-testid='node-disable-toggle'
+              type='checkbox'
+              checked={node.disabled}
+              onChange={(e) => setDisabled(node.id, e.target.checked)}
+            />
+            Disable this node
+          </label>
+        </div>
       </div>
-    </div>
+    </InspectorShell>
   );
 }
