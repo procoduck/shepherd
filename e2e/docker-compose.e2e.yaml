@@ -109,8 +109,10 @@ services:
       retries: 30
 
   alloy:
-    # version must be >= v1.12 for remote_config_status reporting; bump deliberately
-    image: grafana/alloy:v1.12.2
+    # version must be >= v1.12 for remote_config_status reporting; bump deliberately.
+    # Default tracks ALLOY_IMAGE in deploy/versions.env — override via env var to
+    # test a different Alloy build without editing this file.
+    image: ${ALLOY_IMAGE:-grafana/alloy:v1.18.1}
     depends_on:
       shepherd:
         condition: service_healthy

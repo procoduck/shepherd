@@ -219,6 +219,55 @@ var _ = Describe("Overlay guards", func() {
 		Expect(violations).To(BeEmpty())
 	})
 
+	It("every wire type carries a hex color", func() {
+		merged, _, err := reg.Get("alloy-v1.18.1")
+		Expect(err).NotTo(HaveOccurred())
+
+		wireTypes, ok := merged["wire_types"].(map[string]any)
+		Expect(ok).To(BeTrue(), "merged schema must contain wire_types")
+		Expect(wireTypes).NotTo(BeEmpty())
+
+		for id, wtRaw := range wireTypes {
+			wt, ok := wtRaw.(map[string]any)
+			Expect(ok).To(BeTrue(), "wire_type %q must be a map", id)
+			color, ok := wt["color"].(string)
+			Expect(ok).To(BeTrue(), "wire_type %q must have a string color", id)
+			Expect(color).To(MatchRegexp(`^#[0-9a-fA-F]{6}$`),
+				"wire_type %q color %q must be a hex color", id, color)
+		}
+	})
+
+	It("merged payload exposes a categories section, every category carrying a hex color", func() {
+		merged, _, err := reg.Get("alloy-v1.18.1")
+		Expect(err).NotTo(HaveOccurred())
+
+		categories, ok := merged["categories"].(map[string]any)
+		Expect(ok).To(BeTrue(), "merged schema must contain categories")
+
+		// The palette categories the frontend renders (VB refinement §C4).
+		wantCategories := map[string]bool{
+			"sources": true, "transform": true, "destinations": true,
+			"config": true, "advanced": true,
+		}
+		for id := range wantCategories {
+			Expect(categories).To(HaveKey(id), "categories must include %q", id)
+		}
+
+		for id, catRaw := range categories {
+			cat, ok := catRaw.(map[string]any)
+			Expect(ok).To(BeTrue(), "category %q must be a map", id)
+
+			color, ok := cat["color"].(string)
+			Expect(ok).To(BeTrue(), "category %q must have a string color", id)
+			Expect(color).To(MatchRegexp(`^#[0-9a-fA-F]{6}$`),
+				"category %q color %q must be a hex color", id, color)
+
+			label, ok := cat["label"].(string)
+			Expect(ok).To(BeTrue(), "category %q must have a string label", id)
+			Expect(label).NotTo(BeEmpty())
+		}
+	})
+
 	It("merged result contains both artifact and overlay fields", func() {
 		merged, _, err := reg.Get("alloy-v1.18.1")
 		Expect(err).NotTo(HaveOccurred())

@@ -1,6 +1,6 @@
 ARG GO_IMAGE=golang:1.26-alpine
 ARG NODE_IMAGE=node:24-slim
-ARG ALLOY_IMAGE=grafana/alloy:v1.12.2
+ARG ALLOY_IMAGE=grafana/alloy:v1.18.1
 ARG DISTROLESS_IMAGE=gcr.io/distroless/static-debian12:nonroot
 ARG PNPM_VERSION=11.22.0
 

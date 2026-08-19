@@ -51,7 +51,7 @@ Replace the examples below with your internal registry prefix if needed.
 | Upstream image | Reference used in this repo |
 |---|---|
 | `gcr.io/distroless/static-debian12:nonroot` | `gcr.io/distroless/static-debian12:nonroot` |
-| `grafana/alloy:v1.12.2` | `grafana/alloy:v1.12.2` |
+| `grafana/alloy:v1.18.1` | `grafana/alloy:v1.18.1` |
 | `golang:1.26-alpine` | `golang:1.26-alpine` |
 | `node:24-slim` | `node:24-slim` |
 | `postgres:16-alpine` | `postgres:16-alpine` |
@@ -60,7 +60,7 @@ Replace the examples below with your internal registry prefix if needed.
 | Upstream image | Internal reference |
 |---|---|
 | `gcr.io/distroless/static-debian12:nonroot` | `gcr.io/distroless/static-debian12:nonroot` |
-| `grafana/alloy:v1.12.2` | `grafana/alloy:v1.12.2` |
+| `grafana/alloy:v1.18.1` | `grafana/alloy:v1.18.1` |
 | `grafana/alloy:latest` | `grafana/alloy:latest` |
 | `golang:1.24-alpine` | `golang:1.24-alpine` |
 | `node:22-alpine` | `node:22-alpine` |

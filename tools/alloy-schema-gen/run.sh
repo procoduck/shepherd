@@ -39,3 +39,8 @@ mkdir -p "${REPO_ROOT}/internal/schema/artifacts"
 
 echo "==> Done: ${OUTPUT}"
 echo "    components_total: $(jq '._meta.components_total' "${OUTPUT}")"
+
+OVERLAY="${REPO_ROOT}/internal/schema/artifacts/overlay.json"
+echo "==> Reconciling overlay.json against the freshly generated artifact..."
+go run "${SCRIPT_DIR}/reconcile.go" "${OUTPUT}" "${OVERLAY}"
+echo "==> Review any entries above marked needs_review, then commit."

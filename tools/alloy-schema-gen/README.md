@@ -33,6 +33,59 @@ An Alloy version bump PR must include: `versions.env` change + regenerated artif
 - New artifact components with no overlay `category` land in the Advanced palette category with a CI **warning** (not failure — a new experimental component must never block a version bump).
 - The discovery-stub map keys in the overlay must be `discovery.*` components present in the artifact.
 
+## Bumping the Alloy version
+
+`deploy/versions.env` is the single source of truth for the Alloy version —
+`ALLOY_VERSION` (the git tag `run.sh` clones) and `ALLOY_IMAGE` (the Docker
+image tag used by the app images and the e2e Alloy container) must agree.
+Nothing else needs editing by hand: `internal/version/alloy_gen.go` is
+generated from `ALLOY_VERSION` (`make gen-alloy-version`, wired into both
+`make generate` and `make schema`), and `make check-docker` fails the build
+if a Dockerfile's `ARG ALLOY_IMAGE` default ever drifts from `versions.env`.
+
+The bump procedure is: edit `ALLOY_VERSION` in `deploy/versions.env` →
+`make schema` → review `needs_review` entries → commit.
+
+`make schema` does three things in order:
+
+1. Clones `grafana/alloy` at the pinned tag and runs `extract.go` inside the
+   checkout to regenerate `internal/schema/artifacts/alloy-v<X>.json`
+   (see "extract.go" below).
+2. Reconciles `internal/schema/artifacts/overlay.json` against the freshly
+   generated artifact (`reconcile.go`, see "Overlay reconciliation" below).
+3. Prints a summary of what the reconciliation added and removed.
+
+An Alloy version bump PR must include: the `versions.env` change, the
+regenerated artifact, overlay entries for new components, and a fleet
+stage-3 revalidation sweep.
+
+## Overlay reconciliation
+
+`reconcile.go` (`go run reconcile.go <artifact.json> <overlay.json>`,
+invoked by `run.sh` after generation) keeps `overlay.json`'s `components`
+map in sync with whatever the artifact says exists, without a human having
+to notice the diff by hand:
+
+- A component that's new in the artifact gets a skeleton overlay entry —
+  `{"category": <heuristic>, "doc": "", "needs_review": true}` — so it's
+  never silently invisible in the palette. The category is a best-effort
+  guess from the component's dotted path (`discovery.*` → sources,
+  `*.relabel`/`*.process*` → transform, `*.remote_write`/`*.write`/
+  `otelcol.exporter.*` → destinations, `remote.*`/`local.*` → config, else
+  advanced) — always confirm or correct it, then drop `needs_review`.
+- A component that's gone from the artifact has its overlay entry deleted
+  (an orphaned overlay key fails the `ValidateOverlay` CI guard).
+- Entries for components present in both are left completely untouched —
+  editorial fields (`doc`, `icon`, `port_display_order`, `discovery_stub`,
+  ...) are never overwritten by a bump.
+- `wire_types` and `categories` are untouched; only `components` is
+  reconciled.
+
+It exits nonzero only on I/O errors (the overlay file can't be read, parsed,
+or written back) — additions and removals are expected, routine output, not
+a failure. Its heuristic and merge behavior are unit-tested in
+`reconcile_test.go` against in-memory fixtures (no network, no real clone).
+
 ## extract.go
 
 ~300 lines. Injected as `cmd/shepherd-schema-dump/main.go` inside the alloy checkout. Performs:
