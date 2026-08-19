@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -105,5 +106,33 @@ var _ = Describe("seed pipeline contents", func() {
 
 		stage1 := validate.Stage1(result.Content)
 		Expect(stage1.Valid).To(BeTrue(), "assembled config failed stage 1: %+v", stage1.Diagnostics)
+	})
+
+	It("seeds a visual-source demo pipeline with a valid alloy-graph/v1 wizard_state (D1/R3-H5)", func() {
+		demo := findSeedPipelineItem("demo-visual")
+		Expect(demo.source).To(Equal("visual"))
+		Expect(demo.matchers).NotTo(BeEmpty())
+		Expect(demo.wizardState).NotTo(BeEmpty())
+
+		// Mirrors the stage-1 check above: the demo graph is valid JSON,
+		// its "kind" is alloy-graph/v1, and its rendered contents (already
+		// covered by the raw/declare-wrapped loop above) pass stage 1.
+		var doc struct {
+			Kind  string `json:"kind"`
+			Nodes []struct {
+				ID        string `json:"id"`
+				Component string `json:"component"`
+			} `json:"nodes"`
+			Edges []struct {
+				ID string `json:"id"`
+			} `json:"edges"`
+		}
+		Expect(json.Unmarshal([]byte(demo.wizardState), &doc)).To(Succeed(), "demo-visual wizard_state must be valid JSON")
+		Expect(doc.Kind).To(Equal("alloy-graph/v1"))
+		Expect(doc.Nodes).NotTo(BeEmpty())
+		Expect(doc.Edges).NotTo(BeEmpty())
+
+		stage1 := validate.Stage1(demo.contents)
+		Expect(stage1.Valid).To(BeTrue(), "demo-visual contents failed stage 1: %+v", stage1.Diagnostics)
 	})
 })
