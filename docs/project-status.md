@@ -262,11 +262,38 @@ and the username is correct. The e2e case is `Skip`ped with that reason — it i
 place, and host-key verification must NOT be relaxed to make it pass. Every other auth kind
 (`pat`, `github_app`) passes end to end.
 
+### F9-b — visual builder port identity is synthetic · **high**
+
+Found in the browser walkthrough: opening the seeded `demo-visual` pipeline shows 3 nodes
+but **draws none of its 2 edges**, and L1 reports the nodes as unwired
+(`dangling_input ... input "p0"`, `output_nowhere ... output "p0"`).
+
+Root cause is upstream of the UI: **the schema artifact carries no port names at all** —
+0 of 225 ports across all 184 components have `prop`/`export`, because
+`tools/alloy-schema-gen/extract.go` declares those fields but never populates them (it
+builds ports from `metadata.AllTypesExported()`, which yields only types). Every handle
+therefore falls back to the synthetic `p0`/`p1` ids from `portHandleId`, while any stored
+graph references real Alloy names (`targets`, `forward_to`, `receiver`), so edges match
+nothing and are silently dropped.
+
+Note this is what R1-H1's fix actually did: it made rendering and validation agree, but on
+synthetic ids — which hid the fact that the underlying data was missing. Consequences: no
+saved graph round-trips faithfully, and codegen cannot map ports to real Alloy attribute
+names by identity.
+
+Fix spans: extractor must emit port names → regenerate the artifact (needs the network
+clone) → overlay refresh → correct the corpus fixtures and the `demo-visual` seed.
+
 ### Smaller follow-ups
 
 - [ ] `make e2e` does not reset volumes before starting, so a re-run after a failed run dies
       on a duplicate agent-token primary key. Either `down -v` first or make token creation
       idempotent.
+- [ ] The dev and e2e stacks bind the same host ports (9090 among others), so `make e2e`
+      fails with "port is already allocated" whenever the dev stack is up. Give one of them
+      a distinct port range.
+- [ ] The visual builder does not fit the graph into view on load — nodes render clipped
+      under the toolbar until the fit control is pressed.
 - [ ] CI wires lint/build/guards/test/web; the spec's fuller ordering (smoke,
       test-integration, test-ui, test-fullstack) is not yet wired — noted in `ci.yml`.
 - [ ] `go.mod` still carries a vestigial `github.com/lib/pq` line via testcontainers' own
