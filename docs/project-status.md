@@ -67,7 +67,7 @@ From the 2026-08-18 adversarial reviews (20 findings: 5C/10H/5M — full text in
 - [x] **R3-C1** Dev seed creates all pipelines with `matchers: []`
       (`internal/cli/dev.go:135`) → merge engine matches nothing; dev stack serves empty
       configs while looking healthy
-- [ ] HIGH findings — R2-H1, R2-H2, R1-H3, R3-H1..H4 fixed by the 2026-08-18 workflow; **R1-H1, R1-H2, R3-H5 remain** — see `docs/vb1-progress.md`
+- [x] HIGH findings — all fixed: R2-H1/R2-H2/R1-H3/R3-H1..H4 (2026-08-18 workflow); R1-H1/R1-H2/R3-H5 (2026-08-19 vb-refinement workflow)
 - [ ] MEDIUM findings (5) — see `docs/vb1-progress.md`
 
 ## Functional gaps in "done" features
@@ -124,6 +124,23 @@ From the 2026-08-18 adversarial reviews (20 findings: 5C/10H/5M — full text in
 - [x] docker-build-local fixed (corporate CA reference removed, .dockerignore added)
 - [ ] Follow-ups: buf lint naming findings documented as repo convention;
       SearchGroups org_id authz check unused until group search is implemented
+
+## Visual builder refinement (2026-08-19) — done
+
+- [x] Real design-token layer (@theme) — phantom classes (bg-card etc.) previously emitted
+      zero CSS; nodes/palette/drawer restyled per the mockup artifact; vitest token guard
+- [x] draw.io-style connection dragging: node-level green outlines, enlarged ports, 30px
+      snap, wire-colored drag line, data-drop-state test hooks (spec A2)
+- [x] R1-H1 (portHandleId resolver) and R1-H2 (store-based drag state) fixed
+- [x] Toolbar saves/loads for real: matcher chip editor, Connect-client save with
+      wizard_state + source=visual, graph load on /pipelines/$id/visual (spec B4)
+- [x] Schema pipeline: `make schema` target, version single-sourced from versions.env
+      (generated alloy_gen.go, check-docker drift guard, e2e compose follows ALLOY_IMAGE),
+      overlay reconciliation with needs_review scaffolding, colors served from overlay
+- [x] Demo visual pipeline seeded (R3-H5)
+- [ ] Follow-ups: review overlay needs_review entries on next bump; VB-1 M7 (S3 sandbox)
+      still open. Spec: docs/visual-builder-refinement.md · mockups: artifact
+      "Visual Builder Refinement"
 
 ## Test infrastructure reference
 
