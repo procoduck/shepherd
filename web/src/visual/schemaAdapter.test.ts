@@ -17,12 +17,17 @@ describe('portHandleId (A1)', () => {
 
 describe('getWireColor / getCategoryColor (A4)', () => {
   it('reads the wire color from the schema payload when present', () => {
-    expect(getWireColor(schemaFixture, 'loki.logs')).toBe('green');
+    // schemaFixture is now sliced from the shipped artifact + overlay, so the
+    // expected value is the overlay's own loki.logs color rather than a colour
+    // the fixture invented.
+    expect(getWireColor(schemaFixture, 'loki.logs')).toBe('#22c55e');
   });
   it('falls back to the built-in hex table for a wire type missing from the schema payload', () => {
-    // schemaFixture's wire_types omits prom.metrics' sibling colors we don't exercise elsewhere —
-    // pyroscope.profiles is never in schemaFixture.wire_types, so this always exercises the fallback.
-    expect(getWireColor(schemaFixture, 'pyroscope.profiles')).toBe('#f43f5e');
+    // The served overlay defines every wire type, so the fallback is only
+    // reachable through a payload that is missing one — e.g. an older schema
+    // version whose overlay predates pyroscope support.
+    const withoutPyroscope = { ...schemaFixture, wire_types: {} };
+    expect(getWireColor(withoutPyroscope, 'pyroscope.profiles')).toBe('#f43f5e');
   });
   it('falls back to a default hex for a wire type in neither the schema nor the fallback table', () => {
     expect(getWireColor(schemaFixture, 'totally.unknown')).toBe('#94a3b8');
@@ -30,9 +35,10 @@ describe('getWireColor / getCategoryColor (A4)', () => {
   it('falls back to the built-in hex table entirely when schema is null', () => {
     expect(getWireColor(null, 'targets')).toBe('#8b5cf6');
   });
-  it('falls back to the built-in category table — schemaFixture carries no categories section', () => {
-    expect(getCategoryColor(schemaFixture, 'sources')).toBe('#3b82f6');
-    expect(getCategoryColor(schemaFixture, 'destinations')).toBe('#10b981');
+  it('falls back to the built-in category table when the payload carries no categories', () => {
+    const withoutCategories = { ...schemaFixture, categories: undefined };
+    expect(getCategoryColor(withoutCategories, 'sources')).toBe('#3b82f6');
+    expect(getCategoryColor(withoutCategories, 'destinations')).toBe('#10b981');
   });
   it('reads the category color from the schema payload when the overlay serves one (backend half of A4)', () => {
     const withCategories = {

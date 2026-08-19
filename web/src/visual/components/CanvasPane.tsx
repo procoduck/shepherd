@@ -4,6 +4,7 @@ import {
   Controls,
   type Edge,
   type EdgeChange,
+  type FinalConnectionState,
   MiniMap,
   type Node,
   type NodeChange,
@@ -19,10 +20,11 @@ import '@xyflow/react/dist/base.css';
 import deepEqual from 'fast-deep-equal';
 import { nanoid } from 'nanoid';
 import { toast } from 'sonner';
-import { portsCompatible } from '../l1';
+import { resolvePorts } from '../l1';
 import { getWireColor, portHandleId } from '../schemaAdapter';
 import { type ConnectingFrom, useVisualStore } from '../store';
 import type { GraphEdge, GraphNode, SchemaPayload } from '../types';
+import { orientConnection, rfEndpointsForEdge } from '../wireOrient';
 import type { PipelineNodeData } from './PipelineNode';
 import { PipelineNode } from './PipelineNode';
 
@@ -35,6 +37,17 @@ type Clipboard = { nodes: GraphNode[]; edges: GraphEdge[] };
 // importSeq changes, because a pipeline's graph arrives asynchronously after mount:
 // without that the stored viewport wins and the nodes render clipped under the
 // toolbar until the user presses the fit control.
+//
+// `maxZoom: 1` (here and on `<ReactFlow>`'s own `fitViewOptions` below) is
+// task item 7's fix for the OTHER half of what the review measured: fitting
+// around a single small node with no cap snaps to `maxZoom={2}` (the
+// canvas's own zoom ceiling), so the very next node placed at a spacing sized
+// for 1:1 viewing (Palette's stagger, also fixed in this task) still looks
+// overlapped on screen at 2x. Capping the zoom this fit can reach removes
+// that amplification; recovering visibility of everything placed after is
+// what the canvas's own "fit view" control (`.react-flow__controls-fitview`,
+// part of the `<Controls>` below) is for — one click, not the three the
+// review had to resort to with the old, uncapped zoom.
 function FitOnFirstNodes() {
   const { fitView } = useReactFlow();
   const initialized = useNodesInitialized();
@@ -48,12 +61,17 @@ function FitOnFirstNodes() {
       return;
     }
     if (initialized && fittedForRef.current !== importSeq) {
-      fittedForRef.current = importSeq;
       // Defer a frame: on a freshly imported document React Flow reports the nodes
       // as initialized before their measured sizes land, and fitting against
       // unmeasured nodes leaves the stored viewport in place.
+      const seq = importSeq;
       const raf = requestAnimationFrame(() => {
-        fitView({ padding: 0.15, duration: 200 });
+        fitView({ padding: 0.15, duration: 200, maxZoom: 1 });
+        // Marked done only once the fit has actually run. Marking it before the
+        // frame meant a re-render (nodes finishing measurement, say) cancelled the
+        // pending rAF via this effect's cleanup while the guard already read as
+        // "fitted" — so the view silently never fitted at all.
+        fittedForRef.current = seq;
       });
       return () => cancelAnimationFrame(raf);
     }
@@ -70,6 +88,30 @@ function FlowApiBridge({
 }) {
   const { screenToFlowPosition } = useReactFlow();
   screenToFlowRef.current = screenToFlowPosition;
+
+  // Publish a placement provider so click-placed nodes land inside the visible
+  // canvas. The canvas is frequently narrower than the old fixed grid (measured
+  // at 424px with both side panels open), which put the second node off-screen —
+  // and a port that is off-screen cannot be dragged to, so no wire could be made.
+  const setPlacementProvider = useVisualStore((s) => s.setPlacementProvider);
+  useEffect(() => {
+    setPlacementProvider((index: number) => {
+      const pane = document.querySelector('.react-flow__pane');
+      const r = pane?.getBoundingClientRect();
+      if (!r || r.width === 0) return { x: 80 + index * 320, y: 80 };
+      // Stagger down-right from just inside the top-left of the visible area, so
+      // successive nodes stay reachable without overlapping.
+      const step = 48;
+      const inset = 32;
+      const p = screenToFlowPosition({
+        x: r.x + inset + (index % 3) * step,
+        y: r.y + inset + (index % 5) * step,
+      });
+      return { x: Math.round(p.x), y: Math.round(p.y) };
+    });
+    return () => setPlacementProvider(null);
+  }, [screenToFlowPosition, setPlacementProvider]);
+
   return null;
 }
 
@@ -115,6 +157,7 @@ export function CanvasPane() {
   const addEdge = useVisualStore((s) => s.addEdge);
   const removeEdge = useVisualStore((s) => s.removeEdge);
   const removeNode = useVisualStore((s) => s.removeNode);
+  const removeSelected = useVisualStore((s) => s.removeSelected);
   const setSelected = useVisualStore((s) => s.setSelected);
   const updateViewport = useVisualStore((s) => s.updateViewport);
   const addNode = useVisualStore((s) => s.addNode);
@@ -170,9 +213,12 @@ export function CanvasPane() {
       id: n.id,
       type: 'pipeline',
       position: n.position,
-      // Do NOT pass `selected` here — let React Flow own its selection state.
-      // We read the selection back via onSelectionChange to sync our store.
-      // Passing controlled `selected` fights RF's internal state and breaks click-selection.
+      // Round-trip selection onto the actual node RF renders: RF is controlled
+      // (we own `nodes`), so its internal selection — hit-testing, the
+      // `.react-flow__node.selected` class, and what Backspace/Delete act on —
+      // is driven entirely by this field, not by data.isSelected below. Omitting
+      // it (as this used to) leaves RF's internal selection permanently empty.
+      selected: selected.includes(n.id),
       data: {
         ...n,
         // Pass isSelected separately so PipelineNode can style it without RF's controlled prop.
@@ -194,18 +240,27 @@ export function CanvasPane() {
         : new Set<string>();
     return doc.edges.map((e) => {
       const fromNode = doc.nodes.find((n) => n.id === e.from.node);
-      const wireType =
-        fromNode &&
-        schema?.components[fromNode.component]?.outputs.find(
-          (o, i) => portHandleId(o, i) === e.from.port,
-        )?.type;
+      // The wire's type lives on whichever port `from` resolves to — for a
+      // receiver-kind wire (D1) that's an ARGUMENT (`forward_to`), not an
+      // export, so searching only `.outputs` (the old code) silently found
+      // nothing and rendered an uncolored, unlabeled edge for every such
+      // wire. resolvePorts covers both.
+      const wireType = resolvePorts(fromNode && schema?.components[fromNode.component]).find(
+        (p) => p.id === e.from.port,
+      )?.type;
       const animated = flowCheckActive && reachable.has(e.id);
+      // React Flow's source/target are fixed by schema kind (export/
+      // argument), independent of the stored edge's produces/accepts
+      // orientation — see wireOrient.ts's rfEndpointsForEdge for why handing
+      // it `from`/`to` verbatim silently fails to render a receiver-kind wire.
+      const rf = rfEndpointsForEdge(schema, { nodes: doc.nodes }, e);
       return {
         id: e.id,
-        source: e.from.node,
-        sourceHandle: e.from.port,
-        target: e.to.node,
-        targetHandle: e.to.port,
+        ...rf,
+        // Same round-trip as rfNodes' `selected` above — otherwise a selected
+        // wire never gets the `.react-flow__edge.selected` class RF needs to
+        // hit-test it, and Delete/Backspace can't see it as selected either.
+        selected: selected.includes(e.id),
         animated,
         style: wireType ? { stroke: getWireColor(schema, wireType) } : undefined,
         label: animated ? (
@@ -216,7 +271,7 @@ export function CanvasPane() {
         labelShowBg: animated,
       };
     });
-  }, [doc.edges, doc.nodes, flowCheckActive, schema]);
+  }, [doc.edges, doc.nodes, flowCheckActive, schema, selected]);
 
   // A2: the in-flight connection line takes the source port's wire color
   // instead of React Flow's default gray bezier.
@@ -256,44 +311,67 @@ export function CanvasPane() {
   );
 
   // --- Single selection handler (gated, no onNodeClick dual-write) ---
+  // Selection is one flat id list spanning both nodes and edges — RF reports
+  // them separately, we merge them so Delete/Backspace (removeSelected) and
+  // multi-select (drag-box, shift-click) work identically for either kind.
   const onSelectionChange = useCallback(
-    ({ nodes: ns }: OnSelectionChangeParams) => {
-      const next = ns.map((n) => n.id);
+    ({ nodes: ns, edges: es }: OnSelectionChangeParams) => {
+      const next = [...ns.map((n) => n.id), ...es.map((e) => e.id)];
       if (deepEqual(lastSelRef.current, next)) return;
       lastSelRef.current = next;
       syncSetSelected(next);
     },
-    [setSelected],
+    [syncSetSelected],
   );
 
   // --- Type-check wires ---
+  // D1: a connection is valid exactly when wireOrient can find a role-valid
+  // produces/accepts orientation for it — see wireOrient.ts for why RF's own
+  // fixed source/target handle typing doesn't already guarantee that.
   const isValidConnection = useCallback(
     (c: Connection | Edge) => {
-      const sc = schemaRef.current;
-      const d = docRef.current;
-      if (!sc || !c.source || !c.target || c.source === c.target) return false;
-      const a = d.nodes.find((n) => n.id === c.source);
-      const b = d.nodes.find((n) => n.id === c.target);
-      const ad = a && sc.components[a.component];
-      const bd = b && sc.components[b.component];
-      const out = ad?.outputs.find((p, i) => portHandleId(p, i) === (c.sourceHandle ?? ''));
-      const inp = bd?.inputs.find((p, i) => portHandleId(p, i) === (c.targetHandle ?? ''));
-      return !!out && !!inp && portsCompatible(out.type, inp.type);
+      if (!c.source || !c.target) return false;
+      return (
+        orientConnection(schemaRef.current, docRef.current, {
+          source: c.source,
+          sourceHandle: c.sourceHandle ?? '',
+          target: c.target,
+          targetHandle: c.targetHandle ?? '',
+        }) !== null
+      );
     },
     [], // reads only stable refs
   );
 
   // --- Direct click-to-select fallback ---
   // React Flow's onSelectionChange is reliable for multi-select via drag-box and
-  // keyboard, but Playwright `click({ force: true })` on a node's inner div doesn't
-  // always trigger RF's internal selection handler. We add a click handler on the
-  // canvas wrapper that walks up to the nearest .react-flow__node and syncs selection.
+  // shift-click, but Playwright `click({ force: true })` on a node's inner div
+  // doesn't always trigger RF's internal selection handler. We add a click handler
+  // on the canvas wrapper that walks up to the nearest .react-flow__node or
+  // .react-flow__edge and syncs selection directly.
   const onCanvasClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       // Skip double-clicks — let PipelineNode's onDoubleClick handle inline editing.
       if (e.detail >= 2) return;
+      // A modified click (shift for multi-select, meta/ctrl for RF's native
+      // additive select) is owned entirely by React Flow's own handling — this
+      // fallback only replaces the plain-click case below it, so it must not
+      // collapse a just-computed multi-selection back down to one id.
+      if (e.shiftKey || e.metaKey || e.ctrlKey) return;
 
       const target = e.target as HTMLElement;
+      const edgeWrapper = target.closest<HTMLElement>('.react-flow__edge');
+      if (edgeWrapper) {
+        const edgeId = edgeWrapper.dataset.id;
+        if (!edgeId) return;
+        const next = [edgeId];
+        if (deepEqual(lastSelRef.current, next)) return;
+        lastSelRef.current = next;
+        syncSetSelected(next);
+        canvasWrapperRef.current?.focus({ preventScroll: true });
+        return;
+      }
+
       const nodeWrapper = target.closest<HTMLElement>('.react-flow__node');
       if (!nodeWrapper) {
         // Clicked the canvas background — deselect
@@ -316,28 +394,43 @@ export function CanvasPane() {
     },
     [syncSetSelected],
   );
+  // B1 (docs/reviews, D1): the stored edge is oriented by wireOrient
+  // (produces->accepts), not by RF's source/target verbatim — see
+  // wireOrient.ts. Every downstream consumer (store, validator, renderer) can
+  // then assume `from`=produces/`to`=accepts always.
   const onConnect = useCallback(
     (c: Connection) => {
       if (!c.source || !c.target) return;
       const d = docRef.current;
+      const oriented = orientConnection(schemaRef.current, d, {
+        source: c.source,
+        sourceHandle: c.sourceHandle ?? '',
+        target: c.target,
+        targetHandle: c.targetHandle ?? '',
+      });
+      if (!oriented) {
+        // isValidConnection already screens this out before RF fires onConnect;
+        // this is defense in depth, not a reachable path in normal use.
+        toast.error('These ports cannot be connected — incompatible types or roles');
+        return;
+      }
+      const { from, to } = oriented;
+
       const adj = new Map(d.nodes.map((n) => [n.id, [] as string[]]));
       for (const e of d.edges) adj.get(e.from.node)?.push(e.to.node);
-      adj.get(c.source)?.push(c.target);
+      adj.get(from.node)?.push(to.node);
       const seen = new Set<string>();
       const reachesSource = (u: string): boolean => {
-        if (u === c.source) return true;
+        if (u === from.node) return true;
         if (seen.has(u)) return false;
         seen.add(u);
         return (adj.get(u) ?? []).some(reachesSource);
       };
-      if (reachesSource(c.target)) {
+      if (reachesSource(to.node)) {
         toast.error('Alloy graphs are acyclic — this connection would create a cycle');
         return;
       }
-      addEdge(
-        { node: c.source, port: c.sourceHandle ?? '' },
-        { node: c.target, port: c.targetHandle ?? '' },
-      );
+      addEdge(from, to);
     },
     [addEdge],
   );
@@ -373,9 +466,21 @@ export function CanvasPane() {
     [setConnectingFrom],
   );
 
-  const onConnectEnd = useCallback(() => {
-    setConnectingFrom(null);
-  }, [setConnectingFrom]);
+  // A dropped connection that resolved onto an incompatible or
+  // self-referencing handle previously ended silently — no edge, no toast, no
+  // explanation (task item 6). `isValid === false` means the drop landed on a
+  // handle React Flow's isValidConnection rejected; `isValid === null` means
+  // it did not land on a handle at all (a plain cancelled drag), which is not
+  // a rejection and must stay silent.
+  const onConnectEnd = useCallback(
+    (_event: MouseEvent | TouchEvent, state: FinalConnectionState) => {
+      setConnectingFrom(null);
+      if (state.isValid === false) {
+        toast.error('That connection is not allowed — incompatible ports or a self-connection');
+      }
+    },
+    [setConnectingFrom],
+  );
 
   // --- Drag-drop from palette ---
   const onDrop = useCallback(
@@ -389,9 +494,27 @@ export function CanvasPane() {
     [addNode],
   );
 
-  // --- Keyboard shortcuts (copy/paste/undo/redo/select-all) ---
+  // --- Keyboard shortcuts (delete/copy/paste/undo/redo/select-all) ---
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
+      // The inline node-label rename input (PipelineNode) lives inside this
+      // canvas subtree, so its keydowns bubble here too — Backspace erasing a
+      // character while renaming must not also delete the selected node.
+      const targetEl = e.target as HTMLElement;
+      if (
+        targetEl.tagName === 'INPUT' ||
+        targetEl.tagName === 'TEXTAREA' ||
+        targetEl.isContentEditable
+      ) {
+        return;
+      }
+
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        e.preventDefault();
+        removeSelected();
+        return;
+      }
+
       const isMeta = e.metaKey || e.ctrlKey;
       if (!isMeta) return;
       const key = e.key.toLowerCase();
@@ -455,12 +578,18 @@ export function CanvasPane() {
         syncSetSelected(docRef.current.nodes.map((n) => n.id));
       }
     },
-    [pasteNodesAndEdges, syncSetSelected],
+    [pasteNodesAndEdges, syncSetSelected, removeSelected],
   );
 
   return (
     <div
-      className='flex-1 relative outline-none'
+      // overflow-hidden: React Flow's own base.css never clips `.react-flow`
+      // (only its edge/handle layers get `overflow: visible`), so without
+      // this a node dragged to a negative flow-x renders outside this pane's
+      // box and bleeds into the Palette/app sidebar to its left — task item
+      // 7 measured such a node unclickable there, with drags aimed at it
+      // instead landing on whatever palette item painted on top.
+      className='flex-1 relative outline-none overflow-hidden'
       data-testid='canvas'
       ref={canvasWrapperRef}
       tabIndex={0}
@@ -475,6 +604,10 @@ export function CanvasPane() {
         nodeTypes={nodeTypes}
         defaultViewport={doc.viewport}
         fitView
+        // task item 7: cap how far in either fit (this declarative one at
+        // mount, or FitOnFirstNodes' imperative one on import) is allowed to
+        // zoom — see FitOnFirstNodes' comment above for why.
+        fitViewOptions={{ padding: 0.15, maxZoom: 1 }}
         isValidConnection={isValidConnection}
         onConnect={onConnect}
         onConnectStart={onConnectStart}
@@ -490,6 +623,16 @@ export function CanvasPane() {
         snapGrid={[8, 8]}
         minZoom={0.25}
         maxZoom={2}
+        // We delete via our own onKeyDown (removeSelected) so a node's cascaded
+        // edges are removed in the same atomic, undoable step — RF's own
+        // deleteKeyCode path would fire onNodesChange/onEdgesChange as two
+        // separate history entries. Selection stays native (see `selected`
+        // round-tripped onto rfNodes/rfEdges above); only the delete key is opted out.
+        deleteKeyCode={null}
+        // Shift drives both box-select-by-drag (RF's default) and click-to-add,
+        // so the same modifier does both halves of "multi-select via drag-box
+        // and shift-click".
+        multiSelectionKeyCode='Shift'
       >
         <FlowApiBridge screenToFlowRef={screenToFlowRef} />
         <FitOnFirstNodes />

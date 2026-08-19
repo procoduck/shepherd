@@ -1,1 +1,117 @@
-{"kind":"alloy-graph/v1","schema_version":"alloy-v1.18.1","nodes":[{"id":"n1","component":"discovery.kubernetes","label":"k8s","position":{"x":0,"y":0},"props":{"role":"pod"},"disabled":false,"notes":"k8s discovery"},{"id":"n2","component":"discovery.relabel","label":"filter","position":{"x":1,"y":0},"props":{},"disabled":false,"notes":""},{"id":"n3","component":"prometheus.scrape","label":"app","position":{"x":2,"y":0},"props":{"job_name":"myapp","scrape_interval":"60s"},"disabled":false,"notes":""},{"id":"n4","component":"prometheus.scrape","label":"infra","position":{"x":2,"y":1},"props":{"job_name":"infra"},"disabled":true,"notes":""},{"id":"n5","component":"prometheus.remote_write","label":"primary","position":{"x":3,"y":0},"props":{},"disabled":false,"notes":""},{"id":"n6","component":"prometheus.relabel","label":"drop-internal","position":{"x":3,"y":1},"props":{},"disabled":false,"notes":""},{"id":"n7","component":"loki.source.file","label":"pods","position":{"x":0,"y":2},"props":{},"disabled":false,"notes":""},{"id":"n8","component":"loki.write","label":"loki-cloud","position":{"x":1,"y":2},"props":{},"disabled":false,"notes":""}],"edges":[{"id":"e1","from":{"node":"n1","port":"targets"},"to":{"node":"n2","port":"targets"}},{"id":"e2","from":{"node":"n2","port":"output"},"to":{"node":"n3","port":"targets"}},{"id":"e3","from":{"node":"n3","port":"metrics"},"to":{"node":"n5","port":"receiver"}},{"id":"e4","from":{"node":"n3","port":"metrics"},"to":{"node":"n6","port":"forward_to"}},{"id":"e5","from":{"node":"n7","port":"logs"},"to":{"node":"n8","port":"receiver"}}],"bindings":[],"viewport":{"x":10,"y":20,"zoom":0.8},"meta":{"created_with":"test"}}
+{
+  "kind": "alloy-graph/v1",
+  "schema_version": "alloy-v1.18.1",
+  "nodes": [
+    {
+      "id": "n1",
+      "component": "discovery.kubernetes",
+      "label": "k8s",
+      "position": { "x": 40, "y": 80 },
+      "props": { "role": "pod" },
+      "disabled": false,
+      "notes": "cluster-wide pod discovery"
+    },
+    {
+      "id": "n2",
+      "component": "discovery.relabel",
+      "label": "filter",
+      "position": { "x": 420, "y": 80 },
+      "props": {
+        "rule": [
+          {
+            "source_labels": ["__meta_kubernetes_namespace"],
+            "regex": "kube-system",
+            "action": "drop"
+          }
+        ]
+      },
+      "disabled": false,
+      "notes": ""
+    },
+    {
+      "id": "n3",
+      "component": "prometheus.scrape",
+      "label": "app",
+      "position": { "x": 800, "y": 80 },
+      "props": { "job_name": "myapp", "scrape_interval": "60s", "honor_labels": true },
+      "disabled": false,
+      "notes": ""
+    },
+    {
+      "id": "n4",
+      "component": "prometheus.scrape",
+      "label": "infra",
+      "position": { "x": 800, "y": 300 },
+      "props": { "job_name": "infra" },
+      "disabled": true,
+      "notes": "re-enable once the infra namespace is ready"
+    },
+    {
+      "id": "n5",
+      "component": "prometheus.relabel",
+      "label": "drop-internal",
+      "position": { "x": 1180, "y": 80 },
+      "props": {
+        "rule": [{ "source_labels": ["__name__"], "regex": "go_.*", "action": "drop" }]
+      },
+      "disabled": false,
+      "notes": ""
+    },
+    {
+      "id": "n6",
+      "component": "prometheus.remote_write",
+      "label": "primary",
+      "position": { "x": 1560, "y": 80 },
+      "props": {
+        "external_labels": { "cluster": "eu-1" },
+        "endpoint": [
+          { "url": "https://prometheus.example.com/api/v1/write", "remote_timeout": "30s" }
+        ]
+      },
+      "disabled": false,
+      "notes": ""
+    },
+    {
+      "id": "n7",
+      "component": "local.file_match",
+      "label": "logfiles",
+      "position": { "x": 40, "y": 520 },
+      "props": { "path_targets": [{ "__path__": "/var/log/app/*.log", "job": "app" }] },
+      "disabled": false,
+      "notes": ""
+    },
+    {
+      "id": "n8",
+      "component": "loki.source.file",
+      "label": "applogs",
+      "position": { "x": 420, "y": 520 },
+      "props": {},
+      "disabled": false,
+      "notes": ""
+    },
+    {
+      "id": "n9",
+      "component": "loki.write",
+      "label": "loki-cloud",
+      "position": { "x": 800, "y": 520 },
+      "props": {
+        "endpoint": [{ "url": "https://loki.example.com/loki/api/v1/push" }]
+      },
+      "disabled": false,
+      "notes": ""
+    }
+  ],
+  "edges": [
+    { "id": "e1", "from": { "node": "n1", "port": "targets" }, "to": { "node": "n2", "port": "targets" } },
+    { "id": "e2", "from": { "node": "n2", "port": "output" }, "to": { "node": "n3", "port": "targets" } },
+    { "id": "e3", "from": { "node": "n2", "port": "output" }, "to": { "node": "n4", "port": "targets" } },
+    { "id": "e4", "from": { "node": "n3", "port": "forward_to" }, "to": { "node": "n5", "port": "receiver" } },
+    { "id": "e5", "from": { "node": "n4", "port": "forward_to" }, "to": { "node": "n6", "port": "receiver" } },
+    { "id": "e6", "from": { "node": "n5", "port": "forward_to" }, "to": { "node": "n6", "port": "receiver" } },
+    { "id": "e7", "from": { "node": "n7", "port": "targets" }, "to": { "node": "n8", "port": "targets" } },
+    { "id": "e8", "from": { "node": "n8", "port": "forward_to" }, "to": { "node": "n9", "port": "receiver" } }
+  ],
+  "bindings": [],
+  "viewport": { "x": 10, "y": 20, "zoom": 0.8 },
+  "meta": { "created_with": "test" }
+}

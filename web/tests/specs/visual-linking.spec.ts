@@ -65,8 +65,15 @@ test.describe('visual linking', () => {
   });
 
   test('invalid wire type — edge count unchanged after type-mismatched drag', async ({ page }) => {
+    // discovery.kubernetes produces `targets`. prometheus.relabel's only port is
+    // an `forward_to` argument of type `prom.metrics` (role "produces" under D1,
+    // but a genuine schema `input`, so it renders a real RF target handle) —
+    // incompatible with `targets`. loki.write won't do here: under the real,
+    // merged schema it (like discovery.kubernetes) has no `inputs` at all, only
+    // a receiver export, so it renders no `.react-flow__handle.target` for this
+    // locator to ever find.
     await page.click('[data-component="discovery.kubernetes"]');
-    await page.click('[data-component="loki.write"]');
+    await page.click('[data-component="prometheus.relabel"]');
     await expect(page.locator('[data-testid="pipeline-node"]')).toHaveCount(2);
 
     const sourceHandle = page

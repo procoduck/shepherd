@@ -92,7 +92,17 @@ export function Toolbar({ pipelineId }: { pipelineId: string }) {
   });
 
   const matchersRequired = matchers.length === 0;
-  const canSave = !matchersRequired && !saveMutation.isPending;
+  // L1 diagnostics of severity 'error' are blocking (see l1.ts) — a
+  // 'warning' diagnostic must not prevent save. Matchers are checked first
+  // so the existing "add a matcher" tooltip still wins when both are true;
+  // an unwired/misconfigured graph is reported separately once that's fixed.
+  const hasBlockingErrors = errors > 0;
+  const canSave = !matchersRequired && !hasBlockingErrors && !saveMutation.isPending;
+  const saveDisabledReason = matchersRequired
+    ? 'Add at least one matcher before saving — format: key="value" or key=~"regex" (quotes required)'
+    : hasBlockingErrors
+      ? `Fix ${errors} blocking problem${errors !== 1 ? 's' : ''} before saving`
+      : undefined;
 
   // Clicking the validity chip reuses the bottom drawer's own Problems-tab
   // button rather than duplicating its open/tab state — that state is
@@ -173,7 +183,12 @@ export function Toolbar({ pipelineId }: { pipelineId: string }) {
         {errors > 0 ? (
           <>
             <XCircle size={13} />
-            {diagnostics.length} problem{diagnostics.length !== 1 ? 's' : ''}
+            {/* Task item 10: this chip and the Save button's blocking-count
+                tooltip must agree — both count only blocking `error`
+                diagnostics, never `warning`s (F16, still unfixed before this
+                change: the chip showed diagnostics.length, e.g. "3 problems"
+                against a tooltip reading "Fix 2 blocking problems"). */}
+            {errors} problem{errors !== 1 ? 's' : ''}
           </>
         ) : (
           <>
@@ -195,7 +210,7 @@ export function Toolbar({ pipelineId }: { pipelineId: string }) {
         data-testid='toolbar-save'
         onClick={() => saveMutation.mutate()}
         disabled={!canSave}
-        title={matchersRequired ? 'Add at least one matcher before saving' : undefined}
+        title={saveDisabledReason}
         className='text-sm px-3 py-1 rounded border shrink-0 disabled:opacity-50 disabled:cursor-not-allowed'
       >
         {saveMutation.isPending ? 'Saving…' : 'Save'}

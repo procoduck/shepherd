@@ -78,6 +78,78 @@ describe('visual store', () => {
       .setConnectingFrom({ nodeId: 'a', handleId: 'x', handleType: 'source', wireType: 'targets' });
     expect(useVisualStore.temporal.getState().pastStates.length).toBe(n);
   });
+
+  describe('removeSelected', () => {
+    it('is a no-op (no history entry) when nothing is selected', () => {
+      useVisualStore.getState().addNode('prometheus.scrape', { x: 0, y: 0 });
+      const n = useVisualStore.temporal.getState().pastStates.length;
+      useVisualStore.getState().removeSelected();
+      expect(useVisualStore.getState().doc.nodes).toHaveLength(1);
+      expect(useVisualStore.temporal.getState().pastStates.length).toBe(n);
+    });
+
+    it('deletes a selected node and cascades its edges in one undoable step', () => {
+      const store = useVisualStore;
+      store.getState().addNode('prometheus.scrape', { x: 0, y: 0 });
+      store.getState().addNode('prometheus.remote_write', { x: 200, y: 0 });
+      const [a, b] = store.getState().doc.nodes.map((n) => n.id);
+      store.getState().addEdge({ node: a, port: 'out' }, { node: b, port: 'in' });
+      expect(store.getState().doc.edges).toHaveLength(1);
+
+      store.getState().setSelected([a]);
+      store.getState().removeSelected();
+
+      expect(store.getState().doc.nodes.map((n) => n.id)).toEqual([b]);
+      expect(store.getState().doc.edges).toHaveLength(0);
+      expect(store.getState().selected).toEqual([]);
+
+      store.temporal.getState().undo();
+      expect(store.getState().doc.nodes.map((n) => n.id)).toEqual([a, b]);
+      expect(store.getState().doc.edges).toHaveLength(1);
+    });
+
+    it('deletes a selected edge and leaves both endpoint nodes intact', () => {
+      const store = useVisualStore;
+      store.getState().addNode('prometheus.scrape', { x: 0, y: 0 });
+      store.getState().addNode('prometheus.remote_write', { x: 200, y: 0 });
+      const [a, b] = store.getState().doc.nodes.map((n) => n.id);
+      store.getState().addEdge({ node: a, port: 'out' }, { node: b, port: 'in' });
+      const edgeId = store.getState().doc.edges[0].id;
+
+      store.getState().setSelected([edgeId]);
+      store.getState().removeSelected();
+
+      expect(store.getState().doc.edges).toHaveLength(0);
+      expect(store.getState().doc.nodes).toHaveLength(2);
+
+      store.temporal.getState().undo();
+      expect(store.getState().doc.edges).toHaveLength(1);
+      expect(store.getState().doc.edges[0].id).toBe(edgeId);
+    });
+
+    it('deletes a multi-node selection in one undoable step', () => {
+      const store = useVisualStore;
+      store.getState().addNode('prometheus.scrape', { x: 0, y: 0 });
+      store.getState().addNode('prometheus.remote_write', { x: 200, y: 0 });
+      const [a, b] = store.getState().doc.nodes.map((n) => n.id);
+
+      store.getState().setSelected([a, b]);
+      const before = store.temporal.getState().pastStates.length;
+      store.getState().removeSelected();
+
+      expect(store.getState().doc.nodes).toHaveLength(0);
+      // One history entry for the whole batch, not one per node.
+      expect(store.temporal.getState().pastStates.length).toBe(before + 1);
+
+      store.temporal.getState().undo();
+      expect(
+        store
+          .getState()
+          .doc.nodes.map((n) => n.id)
+          .sort(),
+      ).toEqual([a, b].sort());
+    });
+  });
 });
 
 describe('selectConnectionState (A3 narrow selector)', () => {

@@ -1,1 +1,59 @@
-{"kind":"alloy-graph/v1","schema_version":"alloy-v1.18.1","nodes":[{"id":"n1","component":"loki.source.file","label":"pods","position":{"x":0,"y":0},"props":{},"disabled":false,"notes":""},{"id":"n2","component":"loki.process","label":"parse","position":{"x":1,"y":0},"props":{"stage_type":"json"},"disabled":false,"notes":""},{"id":"n3","component":"loki.write","label":"cloud","position":{"x":2,"y":0},"props":{},"disabled":false,"notes":""}],"edges":[{"id":"e1","from":{"node":"n1","port":"logs"},"to":{"node":"n2","port":"forward_to"}},{"id":"e2","from":{"node":"n2","port":"receiver"},"to":{"node":"n3","port":"receiver"}}],"bindings":[],"viewport":{"x":0,"y":0,"zoom":1},"meta":{"created_with":"test"}}
+{
+  "kind": "alloy-graph/v1",
+  "schema_version": "alloy-v1.18.1",
+  "nodes": [
+    {
+      "id": "n1",
+      "component": "local.file_match",
+      "label": "logfiles",
+      "position": { "x": 40, "y": 80 },
+      "props": {
+        "path_targets": [{ "__path__": "/var/log/pods/*/*.log", "job": "pods" }],
+        "sync_period": "10s"
+      },
+      "disabled": false,
+      "notes": ""
+    },
+    {
+      "id": "n2",
+      "component": "loki.source.file",
+      "label": "pods",
+      "position": { "x": 420, "y": 80 },
+      "props": { "tail_from_end": true },
+      "disabled": false,
+      "notes": ""
+    },
+    {
+      "id": "n3",
+      "component": "loki.process",
+      "label": "parse",
+      "position": { "x": 800, "y": 80 },
+      "props": {
+        "stage.json": [{ "expressions": { "level": "level", "msg": "message" } }],
+        "stage.labels": [{ "values": { "level": "" } }]
+      },
+      "disabled": false,
+      "notes": ""
+    },
+    {
+      "id": "n4",
+      "component": "loki.write",
+      "label": "cloud",
+      "position": { "x": 1180, "y": 80 },
+      "props": {
+        "external_labels": { "cluster": "eu-1" },
+        "endpoint": [{ "url": "https://loki.example.com/loki/api/v1/push", "tenant_id": "team-a" }]
+      },
+      "disabled": false,
+      "notes": ""
+    }
+  ],
+  "edges": [
+    { "id": "e1", "from": { "node": "n1", "port": "targets" }, "to": { "node": "n2", "port": "targets" } },
+    { "id": "e2", "from": { "node": "n2", "port": "forward_to" }, "to": { "node": "n3", "port": "receiver" } },
+    { "id": "e3", "from": { "node": "n3", "port": "forward_to" }, "to": { "node": "n4", "port": "receiver" } }
+  ],
+  "bindings": [],
+  "viewport": { "x": 0, "y": 0, "zoom": 1 },
+  "meta": { "created_with": "test" }
+}

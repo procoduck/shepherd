@@ -55,6 +55,16 @@ test.describe('visual inspector', () => {
     await page.click('[data-component="prometheus.scrape"]');
     await page.click('[data-component="prometheus.remote_write"]');
     await expect(page.locator('[data-testid="pipeline-node"]')).toHaveCount(2);
+    // Two nodes placed this far apart (task item 7's fix: staggered spacing
+    // wide enough that PipelineNode boxes never overlap) can land the second
+    // one outside the pane's default 1:1 viewport — the same "zoom out
+    // before you can reach it" gap the review measured operators hitting.
+    // The canvas's own fit-view control (`.react-flow__controls-fitview`) is
+    // the one-click recovery for exactly that; use it before targeting the
+    // second node so `force: true` below clicks its real, visible position
+    // rather than an off-pane one `overflow-hidden` would clip anyway.
+    await page.locator('.react-flow__controls-fitview').click();
+    await page.waitForTimeout(300);
     // Get the second node's id and click it directly for reliable targeting
     const secondNodeId = await page
       .locator('[data-testid="pipeline-node"]')

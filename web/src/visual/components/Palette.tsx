@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { portsCompatible } from '../l1';
+import { canConnectPorts, resolvePorts } from '../l1';
 import { useVisualStore } from '../store';
 
 const CATEGORIES = ['sources', 'transform', 'destinations', 'config', 'advanced'] as const;
@@ -55,27 +55,45 @@ export function Palette() {
         (c) => c.name.toLowerCase().includes(q) || c.def.doc?.toLowerCase().includes(q),
       );
     } else if (filterBySelected && selectedDef) {
-      const selectedOutputTypes = selectedDef.outputs.map((o) => o.type);
-      const selectedInputTypes = selectedDef.inputs.map((i) => i.type);
+      // D1: compatibility is a ROLE match (one port produces, the other
+      // accepts), not a raw input/output match — a receiver-kind export
+      // (e.g. prometheus.remote_write.receiver) accepts, and the argument
+      // that references it (forward_to) produces, so the old "selected's
+      // outputs vs candidate's inputs" check missed exactly the wires this
+      // canvas exists to draw (every destination). Reuses l1.ts's role
+      // resolution so the palette can't drift from what the canvas will
+      // actually let the user connect.
+      const selectedPorts = resolvePorts(selectedDef);
       base = base.filter((c) => {
-        const canReceive = c.def.inputs.some((inp) =>
-          selectedOutputTypes.some((ot) => portsCompatible(ot, inp.type)),
+        const candidatePorts = resolvePorts(c.def);
+        return selectedPorts.some((sp) =>
+          candidatePorts.some((cp) => canConnectPorts(sp, cp) || canConnectPorts(cp, sp)),
         );
-        const canFeed = c.def.outputs.some((out) =>
-          selectedInputTypes.some((it) => portsCompatible(out.type, it)),
-        );
-        return canReceive || canFeed;
       });
     }
     return base;
   }, [items, search, filterBySelected, selectedDef]);
 
+  // Grid the stagger so successive click-placed nodes never overlap (task
+  // item 7): a PipelineNode is 240 flow-px wide (`w-60`), and since zoom
+  // scales flow-space uniformly, an offset smaller than that overlaps at
+  // EVERY zoom level, not just the maxZoom=2 the initial fitView clamps to
+  // (the review measured the old 60px x-offset doing exactly that: 480px-wide
+  // rendered boxes 60*2=120px apart). 320/200 clear the widest node plus a
+  // margin, and multi-tall nodes (several ports) plus margin respectively.
+  const PALETTE_GRID_COLS = 4;
+  const PALETTE_COL_SPACING = 320;
+  const PALETTE_ROW_SPACING = 200;
   const handleClick = (name: string) => {
-    // Stagger each successive click-placed node so they don't overlap.
     const count = clickCountRef.current;
     clickCountRef.current += 1;
-    const offset = count * 60;
-    addNode(name, { x: 80 + offset, y: 80 + (count % 3) * 80 });
+    const col = count % PALETTE_GRID_COLS;
+    const row = Math.floor(count / PALETTE_GRID_COLS);
+    const placement = useVisualStore.getState().getPlacement;
+    const position = placement
+      ? placement(count)
+      : { x: 80 + col * PALETTE_COL_SPACING, y: 80 + row * PALETTE_ROW_SPACING };
+    addNode(name, position, { refitView: true });
     setSearch('');
   };
 

@@ -103,7 +103,13 @@ interface VisualStore {
   matchers: string[];
 
   setSchema: (s: SchemaPayload) => void;
-  addNode: (component: string, position: { x: number; y: number }) => void;
+  /** `refitView` asks the canvas to re-fit after placing, so a click-placed node is
+   * always visible. Drag-drop placement passes nothing: the user chose that spot. */
+  addNode: (
+    component: string,
+    position: { x: number; y: number },
+    opts?: { refitView?: boolean },
+  ) => void;
   /** Paste-specific variant: caller supplies the id and label. */
   addNodeWithId: (
     id: string,
@@ -114,11 +120,21 @@ interface VisualStore {
   updateNode: (id: string, patch: Partial<GraphNode>) => void;
   removeNode: (id: string) => void;
   addEdge: (from: { node: string; port: string }, to: { node: string; port: string }) => void;
+  /** Deletes every currently-selected node and edge (selected ids may name either)
+   * plus every edge attached to a deleted node, as ONE atomic history entry — so a
+   * single undo restores the whole selection, node(s), cascaded wires and all. */
+  removeSelected: () => void;
   pasteNodesAndEdges: (nodes: GraphNode[], edges: GraphEdge[]) => void;
   /** Bumped whenever a whole document is swapped in, so the canvas can re-fit the
    * view. Without it a graph loaded after mount keeps the stored viewport and the
    * nodes render clipped under the toolbar until the fit control is pressed. */
   importSeq: number;
+  /** Registered by the canvas: returns a free flow-position inside the CURRENTLY
+   * VISIBLE viewport. Palette click-placement uses it because fixed grid
+   * coordinates put nodes outside a narrow canvas, and an off-screen port cannot
+   * be wired. Null before the canvas mounts (tests, graph-view). */
+  getPlacement: ((index: number) => { x: number; y: number }) | null;
+  setPlacementProvider: (fn: ((index: number) => { x: number; y: number }) | null) => void;
   importGraph: (doc: GraphDocument) => void;
   resetDoc: () => void;
   removeEdge: (id: string) => void;
@@ -162,6 +178,8 @@ export const useVisualStore = create<VisualStore>()(
     (set, get) => ({
       doc: makeDefaultDoc(),
       importSeq: 0,
+      getPlacement: null,
+      setPlacementProvider: (fn) => set({ getPlacement: fn }),
       selected: [],
       diagnostics: [],
       schema: null,
@@ -173,7 +191,7 @@ export const useVisualStore = create<VisualStore>()(
 
       setSchema: (schema) => set({ schema, diagnostics: revalidate({ ...get(), schema }) }),
 
-      addNode: (component, position) =>
+      addNode: (component, position, opts) =>
         set((state) => {
           const node: GraphNode = {
             id: `n_${nanoid(8)}`,
@@ -185,7 +203,14 @@ export const useVisualStore = create<VisualStore>()(
             notes: '',
           };
           const doc = { ...state.doc, nodes: [...state.doc.nodes, node] };
-          return { doc, diagnostics: revalidate({ ...state, doc }) };
+          return {
+            doc,
+            // The canvas is often narrower than the placement grid, so a click-placed
+            // node can land outside the viewport — and an off-screen port cannot be
+            // wired. Re-fitting keeps every placed node reachable.
+            importSeq: opts?.refitView ? state.importSeq + 1 : state.importSeq,
+            diagnostics: revalidate({ ...state, doc }),
+          };
         }),
 
       addNodeWithId: (id, component, position, label) =>
@@ -285,7 +310,27 @@ export const useVisualStore = create<VisualStore>()(
       removeEdge: (id) =>
         set((state) => {
           const doc = { ...state.doc, edges: state.doc.edges.filter((e) => e.id !== id) };
-          return { doc, diagnostics: revalidate({ ...state, doc }) };
+          return {
+            doc,
+            diagnostics: revalidate({ ...state, doc }),
+            selected: state.selected.filter((x) => x !== id),
+          };
+        }),
+
+      removeSelected: () =>
+        set((state) => {
+          if (state.selected.length === 0) return state;
+          const selIds = new Set(state.selected);
+          const doc = {
+            ...state.doc,
+            nodes: state.doc.nodes.filter((n) => !selIds.has(n.id)),
+            // Cascade: an edge is removed either because it was itself selected,
+            // or because one of its endpoint nodes was.
+            edges: state.doc.edges.filter(
+              (e) => !selIds.has(e.id) && !selIds.has(e.from.node) && !selIds.has(e.to.node),
+            ),
+          };
+          return { doc, diagnostics: revalidate({ ...state, doc }), selected: [] };
         }),
 
       updateViewport: (viewport) => set((state) => ({ doc: { ...state.doc, viewport } })),
