@@ -2,48 +2,50 @@ import { basicScenario } from '../fixtures/factories';
 import { appAdmin } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
 
-// DECISION: CollectorDetailPage is a stub ("Detail view coming soon.").
-// These tests assert against existing heading/content and skip when specific
-// features are not yet rendered. They will automatically gain assertion depth
-// as the UI is implemented.
+/*
+ * 'contributing pipeline links are visible' was removed rather than fixed: the
+ * collector detail page has no contributing-pipelines UI, and the test asserted
+ * only that some heading existed, so it passed without touching the feature it
+ * was named for. Recorded as F-CONTRIB in docs/project-status.md.
+ */
 
-test('served config content renders read-only', async ({ page, api }) => {
+test('served config renders as read-only text, not an editor', async ({ page, api }) => {
   await api.loginAs(appAdmin);
   const s = basicScenario();
-  api.seed({ orgs: [s.org], collectors: [s.collectors[0]] });
-  // Navigate to the served-config view; route may be /collectors/:id or /collectors/:id/served-config
+  api.seed({
+    orgs: [s.org],
+    collectors: [s.collectors[0]],
+    servedConfig: {
+      content: 'prometheus.scrape "demo" {\n  targets = []\n}',
+      hash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+    },
+  });
   await page.goto(`/collectors/${s.collectors[0].id}`);
-  const editor = page.locator('.cm-editor');
-  if (await editor.isVisible({ timeout: 2000 })) {
-    // Editor present: verify read-only (contenteditable=false or absent)
-    const isEditable = await page.locator('.cm-content').getAttribute('contenteditable');
-    expect(isEditable).not.toBe('true');
-  } else {
-    // Stub or not-yet-implemented — assert page rendered without error
-    await expect(page.getByRole('heading')).toBeVisible();
-  }
+
+  // Served config is what the agent is being handed; it must never look editable.
+  // It renders as a <pre>, so read-only is structural — the earlier version of
+  // this test looked for a CodeMirror instance that was never there and fell
+  // through to asserting a heading.
+  const pre = page.locator('pre').filter({ hasText: 'prometheus.scrape' });
+  await expect(pre).toBeVisible();
+  await expect(page.locator('.cm-editor')).toHaveCount(0);
+  await expect(page.locator('[contenteditable="true"]')).toHaveCount(0);
 });
 
-test('hash copy shows toast', async ({ page, api }) => {
+test('copying the served-config hash confirms with a toast', async ({ page, api, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await api.loginAs(appAdmin);
   const s = basicScenario();
-  api.seed({ orgs: [s.org], collectors: [s.collectors[0]] });
+  api.seed({
+    orgs: [s.org],
+    collectors: [s.collectors[0]],
+    servedConfig: {
+      content: '// served',
+      hash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+    },
+  });
   await page.goto(`/collectors/${s.collectors[0].id}`);
-  const copy = page.getByRole('button', { name: /copy hash|copy/i });
-  if (!(await copy.isVisible({ timeout: 2000 }))) {
-    // Copy button not yet implemented — skip gracefully
-    test.skip();
-    return;
-  }
-  await copy.click();
-  await expect(page.locator('[data-sonner-toast]').first()).toBeVisible({ timeout: 3000 });
-});
 
-test('contributing pipeline links are visible', async ({ page, api }) => {
-  await api.loginAs(appAdmin);
-  const s = basicScenario();
-  api.seed({ orgs: [s.org], collectors: [s.collectors[0]], pipelines: [s.pipelines[0]] });
-  await page.goto(`/collectors/${s.collectors[0].id}`);
-  // Page must render — assert heading exists
-  await expect(page.getByRole('heading')).toBeVisible();
+  await page.getByTestId('copy-hash-btn').click();
+  await expect(page.locator('[data-sonner-toast]').first()).toContainText(/copied/i);
 });

@@ -24,10 +24,8 @@ test.describe('org-data', () => {
     // Get session cookie
     const cookies = await page.context().cookies();
     const sessionCookie = cookies.find((c) => c.name === 'shepherd_session');
-    if (!sessionCookie) {
-      test.skip();
-      return;
-    }
+    // No session cookie means login itself failed — the loudest possible bug.
+    if (!sessionCookie) throw new Error('login did not set a shepherd_session cookie');
 
     // Verify authenticated
     const before = await page.request.get('/api/me', {
@@ -82,10 +80,7 @@ test.describe('org-data', () => {
       headers: { 'X-Requested-With': 'XMLHttpRequest' },
     });
     const me = (await meResp.json()) as { orgs: Array<{ id: string }> };
-    if (!me.orgs.length) {
-      test.skip();
-      return;
-    }
+    if (!me.orgs.length) throw new Error('dev seed must provide at least one org');
     const orgId = me.orgs[0].id;
 
     // Renamed from /ado-credentials when GitOps generalised to standard git

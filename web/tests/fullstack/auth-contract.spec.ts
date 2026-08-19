@@ -88,10 +88,7 @@ test.describe('auth-contract', () => {
       headers: { 'X-Requested-With': 'XMLHttpRequest' },
     });
     const me = (await meResp.json()) as { orgs: Array<{ id: string }> };
-    if (!me.orgs || me.orgs.length === 0) {
-      test.skip();
-      return;
-    }
+    if (!me.orgs?.length) throw new Error('dev seed must provide at least one org');
     const orgId = me.orgs[0].id;
     const attrResp = await page.request.get(`/api/orgs/${orgId}/attributes`, {
       headers: { 'X-Requested-With': 'XMLHttpRequest' },

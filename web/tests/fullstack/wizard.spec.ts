@@ -15,10 +15,7 @@ test.describe('wizard', () => {
     });
     const me = (await meResp.json()) as { orgs: Array<{ id: string; name: string }> };
     const org = me.orgs.find((o) => o.name === 'platform-org') ?? me.orgs[0];
-    if (!org) {
-      test.skip();
-      return;
-    }
+    if (!org) throw new Error('dev seed must provide at least one org');
     const orgId = org.id;
 
     const destName = `fs-dest-${Date.now()}`;
@@ -57,10 +54,7 @@ test.describe('wizard', () => {
       headers: { 'X-Requested-With': 'XMLHttpRequest' },
     });
     const me = (await meResp.json()) as { orgs: Array<{ id: string }> };
-    if (!me.orgs.length) {
-      test.skip();
-      return;
-    }
+    if (!me.orgs.length) throw new Error('dev seed must provide at least one org');
     const orgId = me.orgs[0].id;
 
     const wizardsResp = await page.request.get(`/api/orgs/${orgId}/wizards`, {

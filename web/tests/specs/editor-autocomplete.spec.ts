@@ -3,6 +3,11 @@ import { basicScenario } from '../fixtures/factories';
 import { appAdmin } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
 
+// CodeMirror's completionKeymap binds Ctrl-Space on every platform — it does NOT
+// bind Cmd-Space, which on macOS is Spotlight. Playwright's `ControlOrMeta`
+// resolves to Meta there, so the previous `ControlOrMeta+Space` opened nothing
+// locally while passing on CI's Linux runner; the in-block test then skipped
+// itself and reported green on both. Always `Control+Space` here.
 async function openEditor(page: Page) {
   await page.goto('/pipelines/new');
   // Wait for the CodeMirror editor to be available
@@ -22,14 +27,9 @@ test('top-level completion shows component options', async ({ page, api }) => {
   // Small wait for activateOnTyping debounce
   await page.waitForTimeout(300);
   // Also try explicit trigger
-  await page.keyboard.press('ControlOrMeta+Space');
+  await page.keyboard.press('Control+Space');
   const tooltip = page.locator('.cm-tooltip-autocomplete');
-  if (!(await tooltip.isVisible({ timeout: 3000 }))) {
-    // Autocomplete tooltip not appearing — may be a browser/CM interaction issue in test env
-    // DECISION: skip until autocomplete is verified working in headed mode
-    test.skip();
-    return;
-  }
+  await expect(tooltip).toBeVisible({ timeout: 5000 });
   await expect(tooltip).toContainText('prometheus');
 });
 
@@ -41,12 +41,9 @@ test('in-block attribute completion appears after entering block', async ({ page
   await ed.pressSequentially('prometheus.scrape "test" {');
   await ed.press('Enter');
   await page.waitForTimeout(300);
-  await page.keyboard.press('ControlOrMeta+Space');
+  await page.keyboard.press('Control+Space');
   const tooltip = page.locator('.cm-tooltip-autocomplete');
-  if (!(await tooltip.isVisible({ timeout: 3000 }))) {
-    test.skip();
-    return;
-  }
+  await expect(tooltip).toBeVisible({ timeout: 5000 });
   await expect(tooltip).toContainText(/targets|forward_to/);
 });
 
@@ -59,12 +56,9 @@ test('enum completion appears after = for attribute with values', async ({ page,
   await ed.press('Enter');
   await ed.pressSequentially('  scheme = ');
   await page.waitForTimeout(300);
-  await page.keyboard.press('ControlOrMeta+Space');
+  await page.keyboard.press('Control+Space');
   const tooltip = page.locator('.cm-tooltip-autocomplete');
-  if (!(await tooltip.isVisible({ timeout: 3000 }))) {
-    test.skip();
-    return;
-  }
+  await expect(tooltip).toBeVisible({ timeout: 5000 });
   await expect(tooltip).toContainText(/http|https/);
 });
 
@@ -76,7 +70,7 @@ test('no completion inside string literal', async ({ page, api }) => {
   // Type a complete line comment with no word at cursor — Ctrl+Space should not produce completions
   await ed.pressSequentially('// this is a comment');
   await page.waitForTimeout(300);
-  await page.keyboard.press('ControlOrMeta+Space');
+  await page.keyboard.press('Control+Space');
   // Wait briefly — if tooltip appears it will be visible within 500ms
   await page.waitForTimeout(500);
   // The completion source returns null inside comments; if a tooltip is visible

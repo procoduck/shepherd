@@ -143,9 +143,13 @@ questions below were answered as recorded in each commit. Still outstanding:
   through `applyNodeChanges`/`applyEdgeChanges` and reconciles the arrays, preserving object
   identity so cached handle bounds survive. `GraphViewPage` got the same treatment. Full analysis
   and the alternatives assessment: [`canvas-framework-evaluation.md`](canvas-framework-evaluation.md).
+- ~~Self-skipping specs~~ — done. Every `test.skip()` in `web/tests` is gone: the suite ran
+  `if (!visible) test.skip()`, so a test went green exactly when the thing it checked was
+  missing. Most were masking **working** features behind wrong selectors, wrong pages or stale
+  seeds, not unbuilt ones. Five tests that could never fail were deleted, the rest now assert
+  for real, and the two genuine gaps they were hiding are recorded as F-REVISIONS and F-CONTRIB.
 - Still open: **F9-a** (the `ssh` auth kind fails in the compose stack), **F5** (VB-1 M7 sandbox
-  simulation, not started), five self-skipping mocked specs that mask gaps
-  (`editor-autocomplete`, `git`, `revisions`, `states` ×2), and the overlay's `needs_review`
+  simulation, not started), **F-REVISIONS**, **F-CONTRIB**, and the overlay's `needs_review`
   entries pending an editorial pass.
 - Item 9 (extraction gaps) is done; item 10's `make schema-verify` now exists.
 

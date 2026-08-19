@@ -177,11 +177,14 @@ test('the seeded visual pipeline renders its edges on the canvas', async ({ page
   const me = await (await page.request.get('/api/me')).json();
   const org =
     (me.orgs ?? []).find((o: { name: string }) => o.name === 'platform-org') ?? me.orgs?.[0];
-  test.skip(!org, 'dev seed not present');
+  if (!org) throw new Error('dev seed must provide platform-org (or any org)');
 
   const list = await (await page.request.get(`/api/orgs/${org.id}/pipelines`)).json();
   const demo = (list.items ?? []).find((p: { name: string }) => p.name === 'demo-visual');
-  test.skip(!demo, 'demo-visual pipeline not seeded');
+  // This spec exists to catch the schema/port regression that made the seeded
+  // graph render edgeless; skipping when the pipeline is absent would retire the
+  // guard exactly when the seed broke.
+  if (!demo) throw new Error('dev seed must contain the demo-visual pipeline');
 
   await page.goto(`/pipelines/${demo.id}/visual`);
   await expect(page.getByTestId('pipeline-node').first()).toBeVisible({ timeout: 20000 });

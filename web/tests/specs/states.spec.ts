@@ -19,28 +19,10 @@ test('mutation failure shows toast with error content', async ({ page, api }) =>
   api.seed({ orgs: [s.org], pipelines: [s.pipelines[0]] });
   api.failNext('POST', '/shepherd.mgmt.v1.PipelineService/UpdatePipeline', 500, 'internal');
   await page.goto(`/pipelines/${s.pipelines[0].id}`);
-  const saveBtn = page.getByRole('button', { name: /save|update/i });
-  if (await saveBtn.isVisible({ timeout: 2000 })) {
-    await saveBtn.click();
-    // Check for toast — if mutation isn't wired to show toast yet, skip gracefully
-    const toastOrAlert = page
-      .locator('[data-sonner-toast]')
-      .or(page.getByRole('alert'))
-      .or(page.locator('[data-testid="toast"]'));
-    const appeared = await toastOrAlert
-      .first()
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
-    if (!appeared) {
-      // Mutation error toast not yet implemented
-      test.skip();
-    } else {
-      await expect(toastOrAlert.first()).toBeVisible();
-    }
-  } else {
-    // Pipeline editor save button not yet wired — skip
-    test.skip();
-  }
+  // A save that fails must say so: silently keeping the editor's content while
+  // the server rejected it is how a user loses work believing it was stored.
+  await page.getByRole('button', { name: /save|update/i }).click();
+  await expect(page.locator('[data-sonner-toast]').first()).toBeVisible({ timeout: 5000 });
 });
 
 test('load failure shows inline Alert or error indicator with server message', async ({
@@ -52,19 +34,11 @@ test('load failure shows inline Alert or error indicator with server message', a
   api.seed({ orgs: [s.org] });
   api.failNext('POST', '/shepherd.mgmt.v1.PipelineService/ListPipelines', 503, 'unavailable');
   await page.goto('/pipelines');
-  // The page must either show an alert role element OR an error/retry indicator.
-  // DECISION: PipelinesPage does not yet render an error Alert — this test skips
-  // until error-state UI is implemented (the test structure is in place for when it is).
+  // A failed list must not render as an empty list — "you have no pipelines" and
+  // "we could not load your pipelines" are different facts and must look different.
   const alert = page.getByRole('alert');
-  const errorText = page.getByText(/error|failed|retry|unavailable/i);
-  const hasError =
-    (await alert.isVisible({ timeout: 3000 })) || (await errorText.isVisible({ timeout: 500 }));
-  if (!hasError) {
-    // Error state not yet implemented in PipelinesPage
-    test.skip();
-  } else {
-    await expect(alert.or(errorText)).toBeVisible();
-  }
+  await expect(alert).toBeVisible({ timeout: 5000 });
+  await expect(alert).toContainText(/failed|error|retry/i);
 });
 
 test('theme toggle persists class on html element after reload', async ({ page, api }) => {

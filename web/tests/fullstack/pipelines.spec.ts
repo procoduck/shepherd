@@ -21,10 +21,9 @@ test.describe('pipelines', () => {
     });
     const me = (await meResp.json()) as { orgs: Array<{ id: string; name: string }> };
     const platformOrg = me.orgs.find((o) => o.name === 'platform-org');
-    if (!platformOrg) {
-      test.skip();
-      return;
-    }
+    // A missing seed is the bug, not a reason to stand down: skipping here
+    // reported green while verifying nothing.
+    if (!platformOrg) throw new Error('dev seed must provide platform-org');
     const orgId = platformOrg.id;
 
     // Create a fresh pipeline for this test
@@ -56,9 +55,7 @@ test.describe('pipelines', () => {
     };
     const metricsCollector = collectors.items.find((c) => c.role === 'metrics');
     if (!metricsCollector) {
-      // Skip if no metrics collector seeded
-      test.skip();
-      return;
+      throw new Error('dev seed must provide a collector with role=metrics');
     }
 
     // Trigger recompute via Connect-JSON GetConfig (ruling 3)
@@ -92,10 +89,7 @@ test.describe('pipelines', () => {
       headers: { 'X-Requested-With': 'XMLHttpRequest' },
     });
     const me = (await meResp.json()) as { orgs: Array<{ id: string }> };
-    if (!me.orgs.length) {
-      test.skip();
-      return;
-    }
+    if (!me.orgs.length) throw new Error('dev seed must provide at least one org');
     const orgId = me.orgs[0].id;
 
     // Valid pipeline — must return valid=true
@@ -136,10 +130,7 @@ test.describe('pipelines', () => {
     });
     const me = (await meResp.json()) as { orgs: Array<{ id: string; name: string }> };
     const org = me.orgs.find((o) => o.name === 'platform-org') ?? me.orgs[0];
-    if (!org) {
-      test.skip();
-      return;
-    }
+    if (!org) throw new Error('dev seed must provide at least one org');
     const orgId = org.id;
 
     // Create pipeline

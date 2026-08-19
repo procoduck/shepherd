@@ -39,6 +39,12 @@ type PipelineFlowNode = Node<PipelineNodeData, 'pipeline'>;
 // Clipboard data is scoped to this canvas instance, preventing cross-pipeline pastes.
 type Clipboard = { nodes: GraphNode[]; edges: GraphEdge[] };
 
+// Placement grid, in flow units. PipelineNode's box is `w-60` (240px) wide; its
+// height varies with port count, so the row pitch allows for a tall one. These
+// are pitches, not sizes — the slack between them is the visible gap.
+const PLACE_COL_W = 300;
+const PLACE_ROW_H = 150;
+
 // FitOnFirstNodes fits the graph once per loaded document. It re-fits when
 // importSeq changes, because a pipeline's graph arrives asynchronously after mount:
 // without that the stored viewport wins and the nodes render clipped under the
@@ -99,21 +105,39 @@ function FlowApiBridge({
   // canvas. The canvas is frequently narrower than the old fixed grid (measured
   // at 424px with both side panels open), which put the second node off-screen —
   // and a port that is off-screen cannot be dragged to, so no wire could be made.
+  //
+  // Laid out on a grid sized by the real node box, in FLOW space. The previous
+  // version cascaded each node 48px down-right of the last, which overlaps a
+  // 240px-wide node by about 80%: a selected node is elevated to z-index 1000
+  // and then covers its neighbour, so the neighbour cannot be clicked at all.
+  // Screen-space offsets were also unstable — they are read through the live
+  // viewport, so a fit landing between two placements moved where the next node
+  // went.
   const setPlacementProvider = useVisualStore((s) => s.setPlacementProvider);
   useEffect(() => {
     setPlacementProvider((index: number) => {
       const pane = document.querySelector('.react-flow__pane');
       const r = pane?.getBoundingClientRect();
-      if (!r || r.width === 0) return { x: 80 + index * 320, y: 80 };
-      // Stagger down-right from just inside the top-left of the visible area, so
-      // successive nodes stay reachable without overlapping.
-      const step = 48;
+      if (!r || r.width === 0) return { x: 80 + index * PLACE_COL_W, y: 80 };
       const inset = 32;
-      const p = screenToFlowPosition({
-        x: r.x + inset + (index % 3) * step,
-        y: r.y + inset + (index % 5) * step,
+      // Both corners through the same transform, so the available area is in
+      // flow units and the grid stays correct at any zoom.
+      const topLeft = screenToFlowPosition({ x: r.x + inset, y: r.y + inset });
+      const bottomRight = screenToFlowPosition({
+        x: r.x + r.width - inset,
+        y: r.y + r.height - inset,
       });
-      return { x: Math.round(p.x), y: Math.round(p.y) };
+      const columns = Math.max(1, Math.floor((bottomRight.x - topLeft.x) / PLACE_COL_W));
+      const rows = Math.max(1, Math.floor((bottomRight.y - topLeft.y) / PLACE_ROW_H));
+      // Wrap within the visible area rather than marching off the bottom; past
+      // capacity, nudge each cycle so nodes stay distinguishable instead of
+      // landing exactly on top of an earlier one.
+      const cell = index % (columns * rows);
+      const cycle = Math.floor(index / (columns * rows));
+      return {
+        x: Math.round(topLeft.x + (cell % columns) * PLACE_COL_W + cycle * 24),
+        y: Math.round(topLeft.y + Math.floor(cell / columns) * PLACE_ROW_H + cycle * 24),
+      };
     });
     return () => setPlacementProvider(null);
   }, [screenToFlowPosition, setPlacementProvider]);

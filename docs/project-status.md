@@ -243,6 +243,26 @@ assumes CI enforces the milestone gates.
 
 ## 3a. STILL OPEN
 
+### F-REVISIONS — revision diff and restore are not buildable yet · **medium**
+
+`shepherd.mgmt.v1.PipelineRevision` carries only `revision`/`changed_by`/`changed_at`/
+`change_note`. It does **not** carry the revision's contents, so a diff between two
+revisions is impossible and restore cannot repopulate the editor — the Restore button
+raises "Revision contents are not exposed by the API yet" and there is no
+`RestoreRevision` RPC. The revision *list* works and is covered.
+
+Needs `contents` on the proto message plus a `RestoreRevision` procedure before any UI
+work. Two specs that pretended to cover this were removed (see `web/tests/specs/revisions.spec.ts`)
+— they asserted the same locator as the list test and could never have failed.
+
+### F-CONTRIB — collector detail does not show contributing pipelines · **low**
+
+The served config is shown, but nothing links back to the pipelines that produced it, so
+there is no way to get from "this collector is running X" to "because pipeline Y matched".
+The merge engine already knows the contributing set. A spec named for this existed but
+asserted only that a heading was visible; it was removed rather than left as false cover.
+
+
 ### B-MINIMAP — the canvas minimap draws no nodes · [FIXED 2026-08-19]
 
 Found in the 2026-08-19 browser sanity pass: the minimap renders as an empty grey rectangle
