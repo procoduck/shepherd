@@ -41,7 +41,7 @@ export function LoginPage() {
 
   if (methodsLoading) {
     return (
-      <div className='min-h-screen bg-zinc-950 flex items-center justify-center text-sm text-zinc-400'>
+      <div className='min-h-screen bg-background flex items-center justify-center text-sm text-muted'>
         Loading sign-in options...
       </div>
     );
@@ -50,8 +50,8 @@ export function LoginPage() {
   const oidc = methods?.oidc === true;
   const localAdmin = methods?.local_admin === true;
   return (
-    <div className='min-h-screen bg-zinc-950 flex items-center justify-center'>
-      <div className='w-full max-w-sm rounded-lg border border-zinc-800 bg-zinc-900 p-6 space-y-6'>
+    <div className='min-h-screen bg-background flex items-center justify-center'>
+      <div className='w-full max-w-sm rounded-lg border border-border bg-card p-6 space-y-6'>
         <div className='flex flex-col items-center gap-3'>
           <Shield size={32} className='text-indigo-500' />
           <h1 className='text-lg font-semibold text-zinc-100'>Sign in to Shepherd</h1>
@@ -72,13 +72,13 @@ export function LoginPage() {
             >
               Continue with Microsoft
             </a>
-            <p className='text-center text-xs text-zinc-500'>
+            <p className='text-center text-xs text-muted-2'>
               Access is managed through your Entra ID groups.
             </p>
           </>
         )}
 
-        {oidc && localAdmin && <div className='text-center text-xs text-zinc-500'>or</div>}
+        {oidc && localAdmin && <div className='text-center text-xs text-muted-2'>or</div>}
 
         {localAdmin && (
           <form onSubmit={handleLocalLogin} className='space-y-3'>
@@ -88,7 +88,7 @@ export function LoginPage() {
               onChange={(event) => setUsername(event.target.value)}
               placeholder='Username'
               autoComplete='username'
-              className='w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100'
+              className='w-full rounded-md border border-border-strong bg-border px-3 py-2 text-sm text-zinc-100'
             />
             <input
               data-testid='local-password'
@@ -97,7 +97,7 @@ export function LoginPage() {
               onChange={(event) => setPassword(event.target.value)}
               placeholder='Password'
               autoComplete='current-password'
-              className='w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100'
+              className='w-full rounded-md border border-border-strong bg-border px-3 py-2 text-sm text-zinc-100'
             />
             <button
               data-testid='local-login-submit'

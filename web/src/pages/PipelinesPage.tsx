@@ -49,11 +49,11 @@ export function PipelinesPage() {
           Failed to load pipelines. Please retry.
         </div>
       ) : isLoading ? (
-        <p className='text-sm text-zinc-400'>Loading…</p>
+        <p className='text-sm text-muted'>Loading…</p>
       ) : (
-        <div className='rounded-lg border border-zinc-800 overflow-hidden'>
+        <div className='rounded-lg border border-border overflow-hidden'>
           <table className='w-full text-sm'>
-            <thead className='bg-zinc-900 text-zinc-400'>
+            <thead className='bg-card text-muted'>
               <tr>
                 <th className='px-4 py-3 text-left font-medium'>Name</th>
                 <th className='px-4 py-3 text-left font-medium'>Source</th>
@@ -63,10 +63,7 @@ export function PipelinesPage() {
             </thead>
             <tbody>
               {(data?.items ?? []).map((p) => (
-                <tr
-                  key={p.id}
-                  className='border-t border-zinc-800 hover:bg-zinc-900/60 cursor-pointer'
-                >
+                <tr key={p.id} className='border-t border-border hover:bg-card/60 cursor-pointer'>
                   <td className='px-4 py-2.5'>
                     <Link
                       to='/pipelines/$id'
@@ -76,7 +73,7 @@ export function PipelinesPage() {
                       {p.name}
                     </Link>
                   </td>
-                  <td className='px-4 py-2.5 text-zinc-400'>
+                  <td className='px-4 py-2.5 text-muted'>
                     {p.source === 'visual' ? (
                       <Link
                         to='/pipelines/$id/visual'
@@ -92,10 +89,7 @@ export function PipelinesPage() {
                   <td className='px-4 py-2.5'>
                     <div className='flex flex-wrap gap-1'>
                       {p.matchers.slice(0, 3).map((m) => (
-                        <span
-                          key={m}
-                          className='font-mono text-xs bg-zinc-800 px-1.5 py-0.5 rounded'
-                        >
+                        <span key={m} className='font-mono text-xs bg-border px-1.5 py-0.5 rounded'>
                           {m}
                         </span>
                       ))}
@@ -104,7 +98,7 @@ export function PipelinesPage() {
                   <td className='px-4 py-2.5'>
                     <button
                       onClick={() => toggle.mutate({ id: p.id, enabled: p.enabled })}
-                      className={`w-9 h-5 rounded-full relative transition-colors ${p.enabled ? 'bg-emerald-600' : 'bg-zinc-700'}`}
+                      className={`w-9 h-5 rounded-full relative transition-colors ${p.enabled ? 'bg-emerald-600' : 'bg-border-strong'}`}
                       aria-label={p.enabled ? 'Disable' : 'Enable'}
                     >
                       <span

@@ -479,7 +479,10 @@ export function CanvasPane() {
         <FitOnFirstNodes />
         <Background />
         {/* top-left: the minimap owns bottom-left, and stacking both hid the zoom buttons. */}
-        <Controls position='top-left' className='[&>button]:bg-card [&>button]:border-border [&>button]:fill-zinc-300 [&>button:hover]:bg-accent/20' />
+        <Controls
+          position='top-left'
+          className='[&>button]:bg-card [&>button]:border-border [&>button]:fill-zinc-300 [&>button:hover]:bg-accent/20'
+        />
         {/* bottom-left avoids overlap with default node placement area (center/right) */}
         {/* React Flow's minimap defaults to a light palette; pin it to the dark token layer. */}
         <MiniMap

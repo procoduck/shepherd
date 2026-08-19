@@ -25,7 +25,7 @@ export function PipelineEditorPage() {
   const [showRevisions, setShowRevisions] = useState(false);
 
   const { data: pipeline } = useQuery({
-    queryKey: ['pipeline', id],
+    queryKey: ['pipeline', orgId, id],
     queryFn: () => clients.pipeline.getPipeline({ orgId, id: id! }),
     enabled: !!id && !!orgId,
   });
@@ -94,27 +94,27 @@ export function PipelineEditorPage() {
   return (
     <div className='flex h-[calc(100vh-7rem)] gap-0'>
       {/* Left pane */}
-      <div className='w-[380px] shrink-0 border-r border-zinc-800 overflow-y-auto p-6 space-y-5'>
+      <div className='w-[380px] shrink-0 border-r border-border overflow-y-auto p-6 space-y-5'>
         <div className='space-y-1'>
-          <label className='text-xs font-medium text-zinc-400'>Name</label>
+          <label className='text-xs font-medium text-muted'>Name</label>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             disabled={pipeline?.source === 'git'}
-            className='w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500'
+            className='w-full rounded-md border border-border-strong bg-card px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500'
             placeholder='my-pipeline'
           />
         </div>
 
         <div className='space-y-2'>
-          <label className='text-xs font-medium text-zinc-400'>Matchers</label>
+          <label className='text-xs font-medium text-muted'>Matchers</label>
           {matchers.map((m, i) => (
             <div key={i} className='flex items-center gap-2'>
-              <span className='flex-1 font-mono text-xs bg-zinc-800 px-2 py-1 rounded'>{m}</span>
+              <span className='flex-1 font-mono text-xs bg-border px-2 py-1 rounded'>{m}</span>
               <button
                 onClick={() => setMatchers((ms) => ms.filter((_, j) => j !== i))}
                 disabled={pipeline?.source === 'git'}
-                className='text-zinc-500 hover:text-red-400 text-xs'
+                className='text-muted-2 hover:text-red-400 text-xs'
               >
                 ×
               </button>
@@ -130,7 +130,7 @@ export function PipelineEditorPage() {
                   setNewMatcher('');
                 }
               }}
-              className='flex-1 font-mono text-xs rounded border border-zinc-700 bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500'
+              className='flex-1 font-mono text-xs rounded border border-border-strong bg-card px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500'
               placeholder='cluster="prod"  (Enter to add)'
               disabled={pipeline?.source === 'git'}
             />
@@ -147,7 +147,7 @@ export function PipelineEditorPage() {
           <div className='space-y-2'>
             <button
               onClick={() => setShowRevisions((r) => !r)}
-              className='flex items-center gap-1 text-xs font-medium text-zinc-400 hover:text-zinc-200'
+              className='flex items-center gap-1 text-xs font-medium text-muted hover:text-zinc-200'
             >
               <ChevronDown
                 size={12}
@@ -160,16 +160,16 @@ export function PipelineEditorPage() {
                 {revisions.map((r, i) => (
                   <div
                     key={i}
-                    className='rounded border border-zinc-800 bg-zinc-900/40 p-2 text-xs space-y-1'
+                    className='rounded border border-border bg-card/40 p-2 text-xs space-y-1'
                   >
                     <div className='flex items-center justify-between'>
                       <span className='font-medium text-zinc-300'>#{r.revision}</span>
-                      <span className='text-zinc-600'>
+                      <span className='text-muted-3'>
                         {r.changedAt ? timestampDate(r.changedAt).toLocaleDateString() : ''}
                       </span>
                     </div>
-                    <div className='text-zinc-500'>{r.changedBy}</div>
-                    {r.changeNote && <div className='text-zinc-400 italic'>{r.changeNote}</div>}
+                    <div className='text-muted-2'>{r.changedBy}</div>
+                    {r.changeNote && <div className='text-muted italic'>{r.changeNote}</div>}
                     <button
                       onClick={() => toast.info('Revision contents are not exposed by the API yet')}
                       className='text-indigo-400 hover:text-indigo-300 text-xs'
@@ -185,7 +185,7 @@ export function PipelineEditorPage() {
         )}
 
         {pipeline && (
-          <div className='text-xs text-zinc-500 space-y-1'>
+          <div className='text-xs text-muted-2 space-y-1'>
             <p>
               Source: <span className='text-zinc-300'>{pipeline.source}</span>
             </p>
@@ -199,10 +199,10 @@ export function PipelineEditorPage() {
       {/* Right pane */}
       <div className='flex flex-1 flex-col overflow-hidden'>
         {/* Toolbar */}
-        <div className='h-11 border-b border-zinc-800 px-3 flex items-center justify-between shrink-0'>
+        <div className='h-11 border-b border-border px-3 flex items-center justify-between shrink-0'>
           <div className='flex items-center gap-2 text-xs' aria-live='polite'>
             {validating ? (
-              <span className='text-zinc-400'>Validating…</span>
+              <span className='text-muted'>Validating…</span>
             ) : hasErrors ? (
               <span className='flex items-center gap-1 text-red-400'>
                 <XCircle size={14} /> {diagnostics.length} problem
@@ -238,7 +238,7 @@ export function PipelineEditorPage() {
 
         {/* Problems panel */}
         {hasErrors && (
-          <div className='max-h-40 overflow-y-auto border-t border-zinc-800 bg-zinc-950 p-2 space-y-1'>
+          <div className='max-h-40 overflow-y-auto border-t border-border bg-background p-2 space-y-1'>
             {diagnostics.map((d, i) => (
               <p key={i} className='font-mono text-xs text-red-400'>
                 {d.line}:{d.col} &nbsp; {d.message}

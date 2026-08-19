@@ -88,14 +88,17 @@ test.describe('org-data', () => {
     }
     const orgId = me.orgs[0].id;
 
-    const resp = await page.request.post(`/api/orgs/${orgId}/ado-credentials`, {
+    // Renamed from /ado-credentials when GitOps generalised to standard git
+    // (docs/git-provider-design.md); ADO is now the ado_sp credential kind.
+    const resp = await page.request.post(`/api/orgs/${orgId}/git-credentials`, {
       headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
       data: {
-        name: `fs-ado-cred-${Date.now()}`,
-        tenant_id: 'test-tenant',
+        name: `fs-git-cred-${Date.now()}`,
+        kind: 'ado_sp',
+        entra_tenant_id: 'test-tenant',
         client_id: 'test-client',
         client_secret: 'test-secret',
-        org_url: 'https://dev.azure.com/testorg',
+        ado_org_url: 'https://dev.azure.com/testorg',
       },
     });
 
@@ -108,7 +111,7 @@ test.describe('org-data', () => {
       expect(resp.status()).toBe(201);
       const body = (await resp.json()) as { id: string };
       // Clean up
-      await page.request.delete(`/api/orgs/${orgId}/ado-credentials/${body.id}`, {
+      await page.request.delete(`/api/orgs/${orgId}/git-credentials/${body.id}`, {
         headers: { 'X-Requested-With': 'XMLHttpRequest' },
       });
     }

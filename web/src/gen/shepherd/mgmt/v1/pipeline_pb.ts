@@ -284,6 +284,14 @@ export type UpdatePipelineRequest = Message<"shepherd.mgmt.v1.UpdatePipelineRequ
   source: string;
 
   /**
+   * wizard_state is nullable by virtue of being a message-typed field: when
+   * absent from the request (protojson round-trips this as a nil Struct,
+   * same as an explicit JSON null), the server preserves whatever
+   * wizard_state/graph is already stored for the pipeline instead of
+   * clearing it — so a text-only edit of a visual pipeline's `contents`
+   * does not lose its graph. Send an explicit (even empty {}) Struct to
+   * replace the stored value.
+   *
    * @generated from field: google.protobuf.Struct wizard_state = 7;
    */
   wizardState?: JsonObject | undefined;

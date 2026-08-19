@@ -6,7 +6,9 @@ import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegen
 import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Value } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_struct } from "@bufbuild/protobuf/wkt";
-import type { PipelineSchema } from "./pipeline_pb";
+import type { Diagnostic } from "./common_pb";
+import { file_shepherd_mgmt_v1_common } from "./common_pb";
+import type { MatchedCollector, PipelineSchema } from "./pipeline_pb";
 import { file_shepherd_mgmt_v1_pipeline } from "./pipeline_pb";
 import type { JsonObject, Message } from "@bufbuild/protobuf";
 
@@ -14,7 +16,7 @@ import type { JsonObject, Message } from "@bufbuild/protobuf";
  * Describes the file shepherd/mgmt/v1/wizard.proto.
  */
 export const file_shepherd_mgmt_v1_wizard: GenFile = /*@__PURE__*/
-  fileDesc("Ch1zaGVwaGVyZC9tZ210L3YxL3dpemFyZC5wcm90bxIQc2hlcGhlcmQubWdtdC52MSKsAQoJU3RlcEZpZWxkEgwKBG5hbWUYASABKAkSDQoFbGFiZWwYAiABKAkSDAoEdHlwZRgDIAEoCRIQCghyZXF1aXJlZBgEIAEoCBIPCgdvcHRpb25zGAUgAygJEicKB2RlZmF1bHQYBiABKAsyFi5nb29nbGUucHJvdG9idWYuVmFsdWUSEwoLcGxhY2Vob2xkZXIYByABKAkSEwoLZGVzY3JpcHRpb24YCCABKAkiTgoEU3RlcBIKCgJpZBgBIAEoCRINCgV0aXRsZRgCIAEoCRIrCgZmaWVsZHMYAyADKAsyGy5zaGVwaGVyZC5tZ210LnYxLlN0ZXBGaWVsZCJSCgxXaXphcmRTY2hlbWESDAoEa2luZBgBIAEoCRINCgV0aXRsZRgCIAEoCRIlCgVzdGVwcxgDIAMoCzIWLnNoZXBoZXJkLm1nbXQudjEuU3RlcCIkChJMaXN0V2l6YXJkc1JlcXVlc3QSDgoGb3JnX2lkGAEgASgJIlMKE0xpc3RXaXphcmRzUmVzcG9uc2USLQoFaXRlbXMYASADKAsyHi5zaGVwaGVyZC5tZ210LnYxLldpemFyZFNjaGVtYRINCgV0b3RhbBgCIAEoBSI2ChZHZXRXaXphcmRTY2hlbWFSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIMCgRraW5kGAIgASgJImkKE0NvbW1pdFdpemFyZFJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgwKBGtpbmQYAiABKAkSDAoEbmFtZRgDIAEoCRImCgVzdGF0ZRgEIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QyoQIKDVdpemFyZFNlcnZpY2USXAoLTGlzdFdpemFyZHMSJC5zaGVwaGVyZC5tZ210LnYxLkxpc3RXaXphcmRzUmVxdWVzdBolLnNoZXBoZXJkLm1nbXQudjEuTGlzdFdpemFyZHNSZXNwb25zZSIAEl0KD0dldFdpemFyZFNjaGVtYRIoLnNoZXBoZXJkLm1nbXQudjEuR2V0V2l6YXJkU2NoZW1hUmVxdWVzdBoeLnNoZXBoZXJkLm1nbXQudjEuV2l6YXJkU2NoZW1hIgASUwoMQ29tbWl0V2l6YXJkEiUuc2hlcGhlcmQubWdtdC52MS5Db21taXRXaXphcmRSZXF1ZXN0Ghouc2hlcGhlcmQubWdtdC52MS5QaXBlbGluZSIAQiZaJHNoZXBoZXJkL2dlbi9zaGVwaGVyZC9tZ210L3YxO21nbXR2MWIGcHJvdG8z", [file_google_protobuf_struct, file_shepherd_mgmt_v1_pipeline]);
+  fileDesc("Ch1zaGVwaGVyZC9tZ210L3YxL3dpemFyZC5wcm90bxIQc2hlcGhlcmQubWdtdC52MSKsAQoJU3RlcEZpZWxkEgwKBG5hbWUYASABKAkSDQoFbGFiZWwYAiABKAkSDAoEdHlwZRgDIAEoCRIQCghyZXF1aXJlZBgEIAEoCBIPCgdvcHRpb25zGAUgAygJEicKB2RlZmF1bHQYBiABKAsyFi5nb29nbGUucHJvdG9idWYuVmFsdWUSEwoLcGxhY2Vob2xkZXIYByABKAkSEwoLZGVzY3JpcHRpb24YCCABKAkiTgoEU3RlcBIKCgJpZBgBIAEoCRINCgV0aXRsZRgCIAEoCRIrCgZmaWVsZHMYAyADKAsyGy5zaGVwaGVyZC5tZ210LnYxLlN0ZXBGaWVsZCJSCgxXaXphcmRTY2hlbWESDAoEa2luZBgBIAEoCRINCgV0aXRsZRgCIAEoCRIlCgVzdGVwcxgDIAMoCzIWLnNoZXBoZXJkLm1nbXQudjEuU3RlcCIkChJMaXN0V2l6YXJkc1JlcXVlc3QSDgoGb3JnX2lkGAEgASgJIlMKE0xpc3RXaXphcmRzUmVzcG9uc2USLQoFaXRlbXMYASADKAsyHi5zaGVwaGVyZC5tZ210LnYxLldpemFyZFNjaGVtYRINCgV0b3RhbBgCIAEoBSI2ChZHZXRXaXphcmRTY2hlbWFSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIMCgRraW5kGAIgASgJImkKE0NvbW1pdFdpemFyZFJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgwKBGtpbmQYAiABKAkSDAoEbmFtZRgDIAEoCRImCgVzdGF0ZRgEIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QiaQoTUmVuZGVyV2l6YXJkUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSDAoEa2luZBgCIAEoCRIMCgRuYW1lGAMgASgJEiYKBXN0YXRlGAQgASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdCK8AQoUUmVuZGVyV2l6YXJkUmVzcG9uc2USEAoIY29udGVudHMYASABKAkSEAoIbWF0Y2hlcnMYAiADKAkSDQoFdmFsaWQYAyABKAgSMQoLZGlhZ25vc3RpY3MYBCADKAsyHC5zaGVwaGVyZC5tZ210LnYxLkRpYWdub3N0aWMSPgoSbWF0Y2hlZF9jb2xsZWN0b3JzGAUgAygLMiIuc2hlcGhlcmQubWdtdC52MS5NYXRjaGVkQ29sbGVjdG9yMoIDCg1XaXphcmRTZXJ2aWNlElwKC0xpc3RXaXphcmRzEiQuc2hlcGhlcmQubWdtdC52MS5MaXN0V2l6YXJkc1JlcXVlc3QaJS5zaGVwaGVyZC5tZ210LnYxLkxpc3RXaXphcmRzUmVzcG9uc2UiABJdCg9HZXRXaXphcmRTY2hlbWESKC5zaGVwaGVyZC5tZ210LnYxLkdldFdpemFyZFNjaGVtYVJlcXVlc3QaHi5zaGVwaGVyZC5tZ210LnYxLldpemFyZFNjaGVtYSIAEl8KDFJlbmRlcldpemFyZBIlLnNoZXBoZXJkLm1nbXQudjEuUmVuZGVyV2l6YXJkUmVxdWVzdBomLnNoZXBoZXJkLm1nbXQudjEuUmVuZGVyV2l6YXJkUmVzcG9uc2UiABJTCgxDb21taXRXaXphcmQSJS5zaGVwaGVyZC5tZ210LnYxLkNvbW1pdFdpemFyZFJlcXVlc3QaGi5zaGVwaGVyZC5tZ210LnYxLlBpcGVsaW5lIgBCJlokc2hlcGhlcmQvZ2VuL3NoZXBoZXJkL21nbXQvdjE7bWdtdHYxYgZwcm90bzM", [file_google_protobuf_struct, file_shepherd_mgmt_v1_common, file_shepherd_mgmt_v1_pipeline]);
 
 /**
  * StepField mirrors internal/wizard.StepField. Type is "text", "select",
@@ -227,6 +229,84 @@ export const CommitWizardRequestSchema: GenMessage<CommitWizardRequest> = /*@__P
   messageDesc(file_shepherd_mgmt_v1_wizard, 6);
 
 /**
+ * RenderWizardRequest carries the same shape as CommitWizardRequest — name is
+ * optional here (used only to label validation diagnostics and, once a
+ * pipeline of that name exists, is irrelevant to the match preview).
+ *
+ * @generated from message shepherd.mgmt.v1.RenderWizardRequest
+ */
+export type RenderWizardRequest = Message<"shepherd.mgmt.v1.RenderWizardRequest"> & {
+  /**
+   * @generated from field: string org_id = 1;
+   */
+  orgId: string;
+
+  /**
+   * @generated from field: string kind = 2;
+   */
+  kind: string;
+
+  /**
+   * @generated from field: string name = 3;
+   */
+  name: string;
+
+  /**
+   * @generated from field: google.protobuf.Struct state = 4;
+   */
+  state?: JsonObject | undefined;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.RenderWizardRequest.
+ * Use `create(RenderWizardRequestSchema)` to create a new message.
+ */
+export const RenderWizardRequestSchema: GenMessage<RenderWizardRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_wizard, 7);
+
+/**
+ * RenderWizardResponse is the preview counterpart to Pipeline: generated
+ * contents + suggested matchers, plus stage 1/2 validation diagnostics and
+ * which of the org's collectors the suggested matchers would currently hit.
+ * Nothing is persisted.
+ *
+ * @generated from message shepherd.mgmt.v1.RenderWizardResponse
+ */
+export type RenderWizardResponse = Message<"shepherd.mgmt.v1.RenderWizardResponse"> & {
+  /**
+   * @generated from field: string contents = 1;
+   */
+  contents: string;
+
+  /**
+   * @generated from field: repeated string matchers = 2;
+   */
+  matchers: string[];
+
+  /**
+   * @generated from field: bool valid = 3;
+   */
+  valid: boolean;
+
+  /**
+   * @generated from field: repeated shepherd.mgmt.v1.Diagnostic diagnostics = 4;
+   */
+  diagnostics: Diagnostic[];
+
+  /**
+   * @generated from field: repeated shepherd.mgmt.v1.MatchedCollector matched_collectors = 5;
+   */
+  matchedCollectors: MatchedCollector[];
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.RenderWizardResponse.
+ * Use `create(RenderWizardResponseSchema)` to create a new message.
+ */
+export const RenderWizardResponseSchema: GenMessage<RenderWizardResponse> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_wizard, 8);
+
+/**
  * WizardService covers /api/orgs/{org}/wizards/*. All methods require org-admin.
  *
  * @generated from service shepherd.mgmt.v1.WizardService
@@ -247,6 +327,18 @@ export const WizardService: GenService<{
     methodKind: "unary";
     input: typeof GetWizardSchemaRequestSchema;
     output: typeof WizardSchemaSchema;
+  },
+  /**
+   * RenderWizard renders the wizard state into pipeline contents +
+   * validation diagnostics + a match preview, WITHOUT persisting anything.
+   * Mirrors CommitWizard's content generation (spec §12).
+   *
+   * @generated from rpc shepherd.mgmt.v1.WizardService.RenderWizard
+   */
+  renderWizard: {
+    methodKind: "unary";
+    input: typeof RenderWizardRequestSchema;
+    output: typeof RenderWizardResponseSchema;
   },
   /**
    * @generated from rpc shepherd.mgmt.v1.WizardService.CommitWizard

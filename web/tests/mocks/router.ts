@@ -14,9 +14,11 @@ export interface MockState {
   pipelines: unknown[];
   revisions: Map<string, unknown[]>;
   destinations: unknown[];
-  adoCredentials: unknown[];
+  gitCredentials: unknown[];
   repoLinks: unknown[];
   agentTokens: unknown[];
+  assignments: unknown[];
+  groupSearchResults: unknown[];
   auditRows: unknown[];
   attributes: Record<string, string[]>;
   previewResult: { count: number; collector_ids: string[] };

@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useMe } from '@/hooks/useMe';
+import { useOrg } from '@/hooks/useOrg';
 import { cn } from '@/lib/utils';
 
 interface NavItem {
@@ -66,6 +67,7 @@ export function Shell() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: me, isLoading } = useMe();
+  const { orgId, orgs, setOrgId } = useOrg();
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem('sidebar-collapsed') === '1',
   );
@@ -100,16 +102,16 @@ export function Shell() {
   if (isLoading) return null;
   if (!me) return null;
   return (
-    <div className='flex h-screen overflow-hidden bg-zinc-950 text-zinc-100'>
+    <div className='flex h-screen overflow-hidden bg-background text-zinc-100'>
       {/* Sidebar */}
       <aside
         className={cn(
-          'flex flex-col border-r border-zinc-800 transition-all duration-200',
+          'flex flex-col border-r border-border transition-all duration-200',
           collapsed ? 'w-14' : 'w-60',
         )}
       >
         {/* Logo */}
-        <div className='flex h-14 items-center gap-2 border-b border-zinc-800 px-3'>
+        <div className='flex h-14 items-center gap-2 border-b border-border px-3'>
           <Shield size={18} className='shrink-0 text-indigo-500' />
           {!collapsed && <span className='text-sm font-semibold tracking-tight'>Shepherd</span>}
         </div>
@@ -122,7 +124,7 @@ export function Shell() {
             return (
               <div key={gi}>
                 {group.label && !collapsed && (
-                  <p className='mb-1 px-2 text-xs uppercase text-zinc-500 font-medium'>
+                  <p className='mb-1 px-2 text-xs uppercase text-muted-2 font-medium'>
                     {group.label}
                   </p>
                 )}
@@ -137,8 +139,8 @@ export function Shell() {
                       className={cn(
                         'flex h-9 items-center gap-2 rounded-md px-2 text-sm transition-colors relative',
                         active
-                          ? 'bg-zinc-800/60 text-zinc-100'
-                          : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/40',
+                          ? 'bg-border/60 text-zinc-100'
+                          : 'text-muted hover:text-zinc-100 hover:bg-border/40',
                       )}
                       title={collapsed ? item.label : undefined}
                     >
@@ -158,7 +160,7 @@ export function Shell() {
         {/* Collapse toggle */}
         <button
           onClick={() => setCollapsed((c) => !c)}
-          className='flex h-10 items-center justify-center border-t border-zinc-800 text-zinc-500 hover:text-zinc-100'
+          className='flex h-10 items-center justify-center border-t border-border text-muted-2 hover:text-zinc-100'
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
           {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
@@ -168,25 +170,40 @@ export function Shell() {
       {/* Main */}
       <div className='flex flex-1 flex-col overflow-hidden'>
         {/* Topbar */}
-        <header className='flex h-14 shrink-0 items-center justify-between border-b border-zinc-800 px-6'>
+        <header className='flex h-14 shrink-0 items-center justify-between border-b border-border px-6'>
           <nav aria-label='breadcrumb'>
-            <span className='text-sm text-zinc-400'>
+            <span className='text-sm text-muted'>
               {location.pathname === '/'
                 ? 'Overview'
                 : location.pathname.replace(/^\//, '').replace(/\//g, ' / ')}
             </span>
           </nav>
           <div className='flex items-center gap-2'>
+            {orgs.length > 1 && (
+              <select
+                data-testid='org-switcher'
+                aria-label='Switch organization'
+                value={orgId}
+                onChange={(e) => setOrgId(e.target.value)}
+                className='rounded-md border border-border-strong bg-card px-2 py-1 text-xs text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500'
+              >
+                {orgs.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.displayName || o.name}
+                  </option>
+                ))}
+              </select>
+            )}
             <button
               onClick={() => setDark((d) => !d)}
-              className='p-1.5 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/40'
+              className='p-1.5 rounded-md text-muted hover:text-zinc-100 hover:bg-border/40'
               aria-label='Toggle theme'
             >
               {dark ? <Sun size={16} /> : <Moon size={16} />}
             </button>
             <button
               onClick={handleLogout}
-              className='text-xs text-zinc-400 hover:text-zinc-100 px-2 py-1 rounded hover:bg-zinc-800/40'
+              className='text-xs text-muted hover:text-zinc-100 px-2 py-1 rounded hover:bg-border/40'
             >
               Sign out
             </button>

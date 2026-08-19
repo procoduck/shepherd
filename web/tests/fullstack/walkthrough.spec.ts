@@ -48,8 +48,6 @@ const ROUTES = [
   { path: '/pipelines/visual/new', name: 'Visual builder (new)' },
 ];
 
-
-
 test('every route renders without errors', async ({ page }) => {
   await loginAsAdmin(page);
   for (const r of ROUTES) {
@@ -68,15 +66,27 @@ test('every route renders without errors', async ({ page }) => {
     console.log('\n=== WALKTHROUGH ISSUES ===');
     for (const i of issues) console.log(`[${i.kind}] ${i.route} :: ${i.detail}`);
   }
-  expect(issues, `issues:\n${issues.map((i) => `[${i.kind}] ${i.route} :: ${i.detail}`).join('\n')}`).toEqual([]);
+  expect(
+    issues,
+    `issues:\n${issues.map((i) => `[${i.kind}] ${i.route} :: ${i.detail}`).join('\n')}`,
+  ).toEqual([]);
 });
 
 test('collectors list shows seeded fleet with status metadata', async ({ page }) => {
   await loginAsAdmin(page);
   await page.goto('/collectors');
   await page.waitForLoadState('networkidle');
-  const text = await page.locator('body').innerText();
-  expect(text).toContain('prod-eu-1');
+  // Collectors are org-scoped (F3): ListOrgs sorts by name, so the default
+  // org selection (no persisted choice yet) is data-eng, not the
+  // platform-org that owns prod-eu-1's live-agent-backed fleet. Select it
+  // explicitly rather than asserting on whatever org happens to load first.
+  await page.getByTestId('org-switcher').selectOption({ label: 'Platform Engineering' });
+  await page.waitForLoadState('networkidle');
+  let text = '';
+  await expect(async () => {
+    text = await page.locator('body').innerText();
+    expect(text).toContain('prod-eu-1');
+  }).toPass();
   // The refinement added Status / Last Seen / Version columns.
   expect(text.toLowerCase()).toMatch(/status/);
   await page.screenshot({ path: 'walkthrough/feature-collectors-list.png', fullPage: true });
@@ -85,6 +95,10 @@ test('collectors list shows seeded fleet with status metadata', async ({ page })
 test('collector detail shows instances', async ({ page }) => {
   await loginAsAdmin(page);
   await page.goto('/collectors');
+  await page.waitForLoadState('networkidle');
+  // Same org-scoping note as above: select platform-org so a "metrics" row
+  // backed by a real live agent (with instances to show) is present.
+  await page.getByTestId('org-switcher').selectOption({ label: 'Platform Engineering' });
   await page.waitForLoadState('networkidle');
   const row = page.locator('a[href^="/collectors/"], tr').filter({ hasText: 'metrics' }).first();
   await row.click();
@@ -99,7 +113,7 @@ test('pipelines list and editor load a seeded pipeline', async ({ page }) => {
   await page.goto('/pipelines');
   await page.waitForLoadState('networkidle');
   const text = await page.locator('body').innerText();
-  // The UI pins the org to me.orgs[0] (no switcher), so only that org's pipelines show.
+  // The default org selection (first org, no persisted choice yet) shows that org's pipelines.
   expect(text).toMatch(/example-metrics|base-metrics/);
   const name = text.includes('base-metrics') ? 'base-metrics' : 'example-metrics';
   await page.getByText(name).first().click();
@@ -110,11 +124,7 @@ test('pipelines list and editor load a seeded pipeline', async ({ page }) => {
   expect(editor.length).toBeGreaterThan(100);
 });
 
-// KNOWN GAP: useOrgId() returns me.orgs[0] and the shell has no org switcher, so every
-// org-scoped page is permanently pinned to the alphabetically-first org. Marked test.fail
-// so it flags the day a switcher lands (then remove the marker).
 test('the app exposes a way to reach every org the admin owns', async ({ page }) => {
-  test.fail();
   await loginAsAdmin(page);
   const me = await (await page.request.get('/api/me')).json();
   const orgCount = (me.orgs ?? []).length;
@@ -126,7 +136,10 @@ test('the app exposes a way to reach every org the admin owns', async ({ page })
   const switcher = page.locator(
     '[data-testid*="org"], [aria-label*="rganization" i], [aria-label*="rganisation" i], select',
   );
-  await expect(switcher.first(), `no org switcher found though the admin has ${orgCount} orgs`).toBeVisible();
+  await expect(
+    switcher.first(),
+    `no org switcher found though the admin has ${orgCount} orgs`,
+  ).toBeVisible();
 });
 
 test('visual builder canvas loads schema and places a node', async ({ page }) => {

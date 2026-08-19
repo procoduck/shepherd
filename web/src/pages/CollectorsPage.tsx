@@ -24,11 +24,11 @@ export function CollectorsPage() {
         <h1 className='text-xl font-semibold'>Collectors</h1>
       </div>
       {isLoading ? (
-        <p className='text-sm text-zinc-400'>Loading…</p>
+        <p className='text-sm text-muted'>Loading…</p>
       ) : (
-        <div className='rounded-lg border border-zinc-800 overflow-hidden'>
+        <div className='rounded-lg border border-border overflow-hidden'>
           <table className='w-full text-sm'>
-            <thead className='bg-zinc-900 text-zinc-400'>
+            <thead className='bg-card text-muted'>
               <tr>
                 <th className='px-4 py-3 text-left font-medium'>Cluster</th>
                 <th className='px-4 py-3 text-left font-medium'>Role</th>
@@ -41,18 +41,15 @@ export function CollectorsPage() {
               {(data?.items ?? []).map((c) => {
                 const status = c.remoteConfigStatus?.toUpperCase() ?? '';
                 const statusColor =
-                  STATUS_COLORS[status] ?? 'text-zinc-400 bg-zinc-800 border-zinc-700';
+                  STATUS_COLORS[status] ?? 'text-muted bg-border border-border-strong';
                 return (
-                  <tr
-                    key={c.id}
-                    className='border-t border-zinc-800 hover:bg-zinc-900/60 cursor-pointer'
-                  >
+                  <tr key={c.id} className='border-t border-border hover:bg-card/60 cursor-pointer'>
                     <td className='px-4 py-2.5'>
                       <Link to='/collectors/$id' params={{ id: c.id }}>
                         {c.cluster}
                       </Link>
                     </td>
-                    <td className='px-4 py-2.5 text-zinc-400'>{c.role}</td>
+                    <td className='px-4 py-2.5 text-muted'>{c.role}</td>
                     <td className='px-4 py-2.5'>
                       <span
                         className={`text-xs font-medium px-2 py-0.5 rounded border ${statusColor}`}
@@ -60,10 +57,10 @@ export function CollectorsPage() {
                         {status || 'UNKNOWN'}
                       </span>
                     </td>
-                    <td className='px-4 py-2.5 text-zinc-400'>
+                    <td className='px-4 py-2.5 text-muted'>
                       {formatTimestampRelative(c.lastSeen)}
                     </td>
-                    <td className='px-4 py-2.5 text-zinc-400'>{c.alloyVersion || '—'}</td>
+                    <td className='px-4 py-2.5 text-muted'>{c.alloyVersion || '—'}</td>
                   </tr>
                 );
               })}

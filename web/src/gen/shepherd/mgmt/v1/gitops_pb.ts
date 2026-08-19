@@ -5,22 +5,25 @@
 import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
-import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
-import type { Message } from "@bufbuild/protobuf";
+import { file_google_protobuf_struct, file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
+import type { JsonObject, Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file shepherd/mgmt/v1/gitops.proto.
  */
 export const file_shepherd_mgmt_v1_gitops: GenFile = /*@__PURE__*/
-  fileDesc("Ch1zaGVwaGVyZC9tZ210L3YxL2dpdG9wcy5wcm90bxIQc2hlcGhlcmQubWdtdC52MSKaAQoNQWRvQ3JlZGVudGlhbBIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEhMKC2Fkb19vcmdfdXJsGAMgASgJEhcKD2VudHJhX3RlbmFudF9pZBgEIAEoCRIRCgljbGllbnRfaWQYBSABKAkSLgoKY3JlYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiKAoWTGlzdENyZWRlbnRpYWxzUmVxdWVzdBIOCgZvcmdfaWQYASABKAkiWAoXTGlzdENyZWRlbnRpYWxzUmVzcG9uc2USLgoFaXRlbXMYASADKAsyHy5zaGVwaGVyZC5tZ210LnYxLkFkb0NyZWRlbnRpYWwSDQoFdG90YWwYAiABKAUijwEKF0NyZWF0ZUNyZWRlbnRpYWxSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIMCgRuYW1lGAIgASgJEhMKC2Fkb19vcmdfdXJsGAMgASgJEhcKD2VudHJhX3RlbmFudF9pZBgEIAEoCRIRCgljbGllbnRfaWQYBSABKAkSFQoNY2xpZW50X3NlY3JldBgGIAEoCSI1ChdEZWxldGVDcmVkZW50aWFsUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkiGgoYRGVsZXRlQ3JlZGVudGlhbFJlc3BvbnNlIqIBCghSZXBvTGluaxIKCgJpZBgBIAEoCRIPCgdwcm9qZWN0GAIgASgJEhIKCnJlcG9zaXRvcnkYAyABKAkSDgoGYnJhbmNoGAQgASgJEgwKBHBhdGgYBSABKAkSEwoLc3luY19zdGF0dXMYBiABKAkSMgoObGFzdF9zeW5jZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIiYKFExpc3RSZXBvTGlua3NSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCSJRChVMaXN0UmVwb0xpbmtzUmVzcG9uc2USKQoFaXRlbXMYASADKAsyGi5zaGVwaGVyZC5tZ210LnYxLlJlcG9MaW5rEg0KBXRvdGFsGAIgASgFIrYBChVDcmVhdGVSZXBvTGlua1JlcXVlc3QSDgoGb3JnX2lkGAEgASgJEhQKDGNvbGxlY3Rvcl9pZBgCIAEoCRIVCg1jcmVkZW50aWFsX2lkGAMgASgJEg8KB3Byb2plY3QYBCABKAkSEgoKcmVwb3NpdG9yeRgFIAEoCRIOCgZicmFuY2gYBiABKAkSDAoEcGF0aBgHIAEoCRIdChVwb2xsX2ludGVydmFsX3NlY29uZHMYCCABKAUiMwoVRGVsZXRlUmVwb0xpbmtSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIKCgJpZBgCIAEoCSIYChZEZWxldGVSZXBvTGlua1Jlc3BvbnNlMuwECg1HaXRPcHNTZXJ2aWNlEmgKD0xpc3RDcmVkZW50aWFscxIoLnNoZXBoZXJkLm1nbXQudjEuTGlzdENyZWRlbnRpYWxzUmVxdWVzdBopLnNoZXBoZXJkLm1nbXQudjEuTGlzdENyZWRlbnRpYWxzUmVzcG9uc2UiABJgChBDcmVhdGVDcmVkZW50aWFsEikuc2hlcGhlcmQubWdtdC52MS5DcmVhdGVDcmVkZW50aWFsUmVxdWVzdBofLnNoZXBoZXJkLm1nbXQudjEuQWRvQ3JlZGVudGlhbCIAEmsKEERlbGV0ZUNyZWRlbnRpYWwSKS5zaGVwaGVyZC5tZ210LnYxLkRlbGV0ZUNyZWRlbnRpYWxSZXF1ZXN0Giouc2hlcGhlcmQubWdtdC52MS5EZWxldGVDcmVkZW50aWFsUmVzcG9uc2UiABJiCg1MaXN0UmVwb0xpbmtzEiYuc2hlcGhlcmQubWdtdC52MS5MaXN0UmVwb0xpbmtzUmVxdWVzdBonLnNoZXBoZXJkLm1nbXQudjEuTGlzdFJlcG9MaW5rc1Jlc3BvbnNlIgASVwoOQ3JlYXRlUmVwb0xpbmsSJy5zaGVwaGVyZC5tZ210LnYxLkNyZWF0ZVJlcG9MaW5rUmVxdWVzdBoaLnNoZXBoZXJkLm1nbXQudjEuUmVwb0xpbmsiABJlCg5EZWxldGVSZXBvTGluaxInLnNoZXBoZXJkLm1nbXQudjEuRGVsZXRlUmVwb0xpbmtSZXF1ZXN0Giguc2hlcGhlcmQubWdtdC52MS5EZWxldGVSZXBvTGlua1Jlc3BvbnNlIgBCJlokc2hlcGhlcmQvZ2VuL3NoZXBoZXJkL21nbXQvdjE7bWdtdHYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
+  fileDesc("Ch1zaGVwaGVyZC9tZ210L3YxL2dpdG9wcy5wcm90bxIQc2hlcGhlcmQubWdtdC52MSLsAQoNR2l0Q3JlZGVudGlhbBIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEgwKBGtpbmQYAyABKAkSEAoIdXNlcm5hbWUYBCABKAkSEwoLYWRvX29yZ191cmwYBSABKAkSFwoPZW50cmFfdGVuYW50X2lkGAYgASgJEhEKCWNsaWVudF9pZBgHIAEoCRIwCg9wcm92aWRlcl9jb25maWcYCCABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0Ei4KCmNyZWF0ZWRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIigKFkxpc3RDcmVkZW50aWFsc1JlcXVlc3QSDgoGb3JnX2lkGAEgASgJIlgKF0xpc3RDcmVkZW50aWFsc1Jlc3BvbnNlEi4KBWl0ZW1zGAEgAygLMh8uc2hlcGhlcmQubWdtdC52MS5HaXRDcmVkZW50aWFsEg0KBXRvdGFsGAIgASgFIr4CChdDcmVhdGVDcmVkZW50aWFsUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSDAoEbmFtZRgCIAEoCRIMCgRraW5kGAMgASgJEhAKCHVzZXJuYW1lGAQgASgJEhMKC2Fkb19vcmdfdXJsGAUgASgJEhcKD2VudHJhX3RlbmFudF9pZBgGIAEoCRIRCgljbGllbnRfaWQYByABKAkSMAoPcHJvdmlkZXJfY29uZmlnGAggASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdBIVCg1jbGllbnRfc2VjcmV0GAkgASgJEg8KB3NlY3JldDIYCiABKAkSFwoPc3NoX2tub3duX2hvc3RzGAsgASgJEg8KB2NhX2NlcnQYDCABKAkSIAoYdGxzX2luc2VjdXJlX3NraXBfdmVyaWZ5GA0gASgIIjUKF0RlbGV0ZUNyZWRlbnRpYWxSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIKCgJpZBgCIAEoCSIaChhEZWxldGVDcmVkZW50aWFsUmVzcG9uc2UiVQoVVGVzdENyZWRlbnRpYWxSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIKCgJpZBgCIAEoCRIQCghyZXBvX3VybBgDIAEoCRIOCgZicmFuY2gYBCABKAkidgoWVGVzdENyZWRlbnRpYWxSZXNwb25zZRIRCglyZWFjaGFibGUYASABKAgSDQoFZXJyb3IYAiABKAkSHwoXdG9rZW5fZXhjaGFuZ2VfcmVxdWlyZWQYAyABKAgSGQoRdG9rZW5fZXhjaGFuZ2Vfb2sYBCABKAgivAEKCFJlcG9MaW5rEgoKAmlkGAEgASgJEhAKCHJlcG9fdXJsGAIgASgJEg4KBmJyYW5jaBgDIAEoCRIMCgRwYXRoGAQgASgJEhMKC3N5bmNfc3RhdHVzGAUgASgJEjIKDmxhc3Rfc3luY2VkX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIUCgxjb2xsZWN0b3JfaWQYByABKAkSFQoNY3JlZGVudGlhbF9pZBgIIAEoCSImChRMaXN0UmVwb0xpbmtzUmVxdWVzdBIOCgZvcmdfaWQYASABKAkiUQoVTGlzdFJlcG9MaW5rc1Jlc3BvbnNlEikKBWl0ZW1zGAEgAygLMhouc2hlcGhlcmQubWdtdC52MS5SZXBvTGluaxINCgV0b3RhbBgCIAEoBSKjAQoVQ3JlYXRlUmVwb0xpbmtSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIUCgxjb2xsZWN0b3JfaWQYAiABKAkSFQoNY3JlZGVudGlhbF9pZBgDIAEoCRIQCghyZXBvX3VybBgEIAEoCRIOCgZicmFuY2gYBSABKAkSDAoEcGF0aBgGIAEoCRIdChVwb2xsX2ludGVydmFsX3NlY29uZHMYByABKAUiMwoVRGVsZXRlUmVwb0xpbmtSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIKCgJpZBgCIAEoCSIYChZEZWxldGVSZXBvTGlua1Jlc3BvbnNlMtMFCg1HaXRPcHNTZXJ2aWNlEmgKD0xpc3RDcmVkZW50aWFscxIoLnNoZXBoZXJkLm1nbXQudjEuTGlzdENyZWRlbnRpYWxzUmVxdWVzdBopLnNoZXBoZXJkLm1nbXQudjEuTGlzdENyZWRlbnRpYWxzUmVzcG9uc2UiABJgChBDcmVhdGVDcmVkZW50aWFsEikuc2hlcGhlcmQubWdtdC52MS5DcmVhdGVDcmVkZW50aWFsUmVxdWVzdBofLnNoZXBoZXJkLm1nbXQudjEuR2l0Q3JlZGVudGlhbCIAEmsKEERlbGV0ZUNyZWRlbnRpYWwSKS5zaGVwaGVyZC5tZ210LnYxLkRlbGV0ZUNyZWRlbnRpYWxSZXF1ZXN0Giouc2hlcGhlcmQubWdtdC52MS5EZWxldGVDcmVkZW50aWFsUmVzcG9uc2UiABJlCg5UZXN0Q3JlZGVudGlhbBInLnNoZXBoZXJkLm1nbXQudjEuVGVzdENyZWRlbnRpYWxSZXF1ZXN0Giguc2hlcGhlcmQubWdtdC52MS5UZXN0Q3JlZGVudGlhbFJlc3BvbnNlIgASYgoNTGlzdFJlcG9MaW5rcxImLnNoZXBoZXJkLm1nbXQudjEuTGlzdFJlcG9MaW5rc1JlcXVlc3QaJy5zaGVwaGVyZC5tZ210LnYxLkxpc3RSZXBvTGlua3NSZXNwb25zZSIAElcKDkNyZWF0ZVJlcG9MaW5rEicuc2hlcGhlcmQubWdtdC52MS5DcmVhdGVSZXBvTGlua1JlcXVlc3QaGi5zaGVwaGVyZC5tZ210LnYxLlJlcG9MaW5rIgASZQoORGVsZXRlUmVwb0xpbmsSJy5zaGVwaGVyZC5tZ210LnYxLkRlbGV0ZVJlcG9MaW5rUmVxdWVzdBooLnNoZXBoZXJkLm1nbXQudjEuRGVsZXRlUmVwb0xpbmtSZXNwb25zZSIAQiZaJHNoZXBoZXJkL2dlbi9zaGVwaGVyZC9tZ210L3YxO21nbXR2MWIGcHJvdG8z", [file_google_protobuf_struct, file_google_protobuf_timestamp]);
 
 /**
- * AdoCredential mirrors internal/mgmtapi/repolinks.go: adoCredResponse.
- * client_secret is write-only (never returned).
+ * GitCredential holds the auth for one git remote. kind selects the
+ * strategy (docs/git-provider-design.md §3.2): "none", "basic", "pat",
+ * "ssh", "ado_sp", or "github_app". Every secret (client_secret, secret2,
+ * private keys) is write-only: CreateCredentialRequest accepts them, this
+ * message never returns them.
  *
- * @generated from message shepherd.mgmt.v1.AdoCredential
+ * @generated from message shepherd.mgmt.v1.GitCredential
  */
-export type AdoCredential = Message<"shepherd.mgmt.v1.AdoCredential"> & {
+export type GitCredential = Message<"shepherd.mgmt.v1.GitCredential"> & {
   /**
    * @generated from field: string id = 1;
    */
@@ -32,31 +35,57 @@ export type AdoCredential = Message<"shepherd.mgmt.v1.AdoCredential"> & {
   name: string;
 
   /**
-   * @generated from field: string ado_org_url = 3;
+   * @generated from field: string kind = 3;
+   */
+  kind: string;
+
+  /**
+   * username is meaningful for "basic", "pat" (often a literal such as
+   * "oauth2" or "x-token-auth"), and "ssh" (default "git").
+   *
+   * @generated from field: string username = 4;
+   */
+  username: string;
+
+  /**
+   * ADO fields, populated when kind == "ado_sp". Kept as explicit fields
+   * (rather than folded into provider_config) because they predate it and
+   * migration 0006 backfills them as real columns.
+   *
+   * @generated from field: string ado_org_url = 5;
    */
   adoOrgUrl: string;
 
   /**
-   * @generated from field: string entra_tenant_id = 4;
+   * @generated from field: string entra_tenant_id = 6;
    */
   entraTenantId: string;
 
   /**
-   * @generated from field: string client_id = 5;
+   * @generated from field: string client_id = 7;
    */
   clientId: string;
 
   /**
-   * @generated from field: google.protobuf.Timestamp created_at = 6;
+   * provider_config carries kind-specific non-secret fields with no
+   * dedicated column — today, github_app's app_id / installation_id /
+   * api_base_url.
+   *
+   * @generated from field: google.protobuf.Struct provider_config = 8;
+   */
+  providerConfig?: JsonObject | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp created_at = 9;
    */
   createdAt?: Timestamp | undefined;
 };
 
 /**
- * Describes the message shepherd.mgmt.v1.AdoCredential.
- * Use `create(AdoCredentialSchema)` to create a new message.
+ * Describes the message shepherd.mgmt.v1.GitCredential.
+ * Use `create(GitCredentialSchema)` to create a new message.
  */
-export const AdoCredentialSchema: GenMessage<AdoCredential> = /*@__PURE__*/
+export const GitCredentialSchema: GenMessage<GitCredential> = /*@__PURE__*/
   messageDesc(file_shepherd_mgmt_v1_gitops, 0);
 
 /**
@@ -81,9 +110,9 @@ export const ListCredentialsRequestSchema: GenMessage<ListCredentialsRequest> = 
  */
 export type ListCredentialsResponse = Message<"shepherd.mgmt.v1.ListCredentialsResponse"> & {
   /**
-   * @generated from field: repeated shepherd.mgmt.v1.AdoCredential items = 1;
+   * @generated from field: repeated shepherd.mgmt.v1.GitCredential items = 1;
    */
-  items: AdoCredential[];
+  items: GitCredential[];
 
   /**
    * @generated from field: int32 total = 2;
@@ -99,7 +128,8 @@ export const ListCredentialsResponseSchema: GenMessage<ListCredentialsResponse> 
   messageDesc(file_shepherd_mgmt_v1_gitops, 2);
 
 /**
- * CreateCredentialRequest mirrors adoCredRequest in repolinks.go.
+ * CreateCredentialRequest mirrors adoCredRequest in repolinks.go, extended
+ * for every credential kind (docs/git-provider-design.md §3.2/§3.3).
  *
  * @generated from message shepherd.mgmt.v1.CreateCredentialRequest
  */
@@ -115,24 +145,78 @@ export type CreateCredentialRequest = Message<"shepherd.mgmt.v1.CreateCredential
   name: string;
 
   /**
-   * @generated from field: string ado_org_url = 3;
+   * @generated from field: string kind = 3;
+   */
+  kind: string;
+
+  /**
+   * @generated from field: string username = 4;
+   */
+  username: string;
+
+  /**
+   * ado_sp fields.
+   *
+   * @generated from field: string ado_org_url = 5;
    */
   adoOrgUrl: string;
 
   /**
-   * @generated from field: string entra_tenant_id = 4;
+   * @generated from field: string entra_tenant_id = 6;
    */
   entraTenantId: string;
 
   /**
-   * @generated from field: string client_id = 5;
+   * @generated from field: string client_id = 7;
    */
   clientId: string;
 
   /**
-   * @generated from field: string client_secret = 6;
+   * provider_config: see GitCredential.provider_config.
+   *
+   * @generated from field: google.protobuf.Struct provider_config = 8;
+   */
+  providerConfig?: JsonObject | undefined;
+
+  /**
+   * client_secret is the one required secret for every kind except
+   * "none": the basic password, the PAT, the ado_sp client secret, the
+   * github_app RSA private key PEM, or the ssh private key PEM.
+   *
+   * @generated from field: string client_secret = 9;
    */
   clientSecret: string;
+
+  /**
+   * secret2 is optional and, today, only the ssh private key passphrase.
+   *
+   * @generated from field: string secret2 = 10;
+   */
+  secret2: string;
+
+  /**
+   * ssh_known_hosts is required for kind == "ssh" (no accept-any-host-key
+   * mode — docs/git-provider-design.md §7).
+   *
+   * @generated from field: string ssh_known_hosts = 11;
+   */
+  sshKnownHosts: string;
+
+  /**
+   * ca_cert is an optional per-credential PEM CA bundle trusted for this
+   * credential's HTTPS transport only.
+   *
+   * @generated from field: string ca_cert = 12;
+   */
+  caCert: string;
+
+  /**
+   * tls_insecure_skip_verify is a default-off, explicit escape hatch;
+   * enabling it should be treated as an audited change by the UI.
+   *
+   * @generated from field: bool tls_insecure_skip_verify = 13;
+   */
+  tlsInsecureSkipVerify: boolean;
 };
 
 /**
@@ -178,6 +262,90 @@ export const DeleteCredentialResponseSchema: GenMessage<DeleteCredentialResponse
   messageDesc(file_shepherd_mgmt_v1_gitops, 5);
 
 /**
+ * @generated from message shepherd.mgmt.v1.TestCredentialRequest
+ */
+export type TestCredentialRequest = Message<"shepherd.mgmt.v1.TestCredentialRequest"> & {
+  /**
+   * @generated from field: string org_id = 1;
+   */
+  orgId: string;
+
+  /**
+   * @generated from field: string id = 2;
+   */
+  id: string;
+
+  /**
+   * repo_url and branch describe the remote to test against. A credential
+   * has no repo of its own — the caller supplies one, typically the repo
+   * link form's current values. branch defaults to "main" when empty.
+   *
+   * @generated from field: string repo_url = 3;
+   */
+  repoUrl: string;
+
+  /**
+   * @generated from field: string branch = 4;
+   */
+  branch: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.TestCredentialRequest.
+ * Use `create(TestCredentialRequestSchema)` to create a new message.
+ */
+export const TestCredentialRequestSchema: GenMessage<TestCredentialRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_gitops, 6);
+
+/**
+ * @generated from message shepherd.mgmt.v1.TestCredentialResponse
+ */
+export type TestCredentialResponse = Message<"shepherd.mgmt.v1.TestCredentialResponse"> & {
+  /**
+   * reachable is true once ls-remote against repo_url succeeded — even if
+   * branch wasn't found there, which is a configuration mismatch, not a
+   * reachability problem.
+   *
+   * @generated from field: bool reachable = 1;
+   */
+  reachable: boolean;
+
+  /**
+   * error is the underlying error message; set whenever reachable is
+   * false, or when the branch was not found on an otherwise-reachable
+   * remote.
+   *
+   * @generated from field: string error = 2;
+   */
+  error: string;
+
+  /**
+   * token_exchange_required is true for kind == "ado_sp" or "github_app",
+   * whose auth resolves through a token-exchange step before git is ever
+   * contacted.
+   *
+   * @generated from field: bool token_exchange_required = 3;
+   */
+  tokenExchangeRequired: boolean;
+
+  /**
+   * token_exchange_ok is meaningful only when token_exchange_required:
+   * false means the failure happened minting the token, never reaching
+   * git at all.
+   *
+   * @generated from field: bool token_exchange_ok = 4;
+   */
+  tokenExchangeOk: boolean;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.TestCredentialResponse.
+ * Use `create(TestCredentialResponseSchema)` to create a new message.
+ */
+export const TestCredentialResponseSchema: GenMessage<TestCredentialResponse> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_gitops, 7);
+
+/**
  * RepoLink mirrors internal/mgmtapi/repolinks.go: repoLinkResponse.
  *
  * @generated from message shepherd.mgmt.v1.RepoLink
@@ -189,34 +357,39 @@ export type RepoLink = Message<"shepherd.mgmt.v1.RepoLink"> & {
   id: string;
 
   /**
-   * @generated from field: string project = 2;
+   * @generated from field: string repo_url = 2;
    */
-  project: string;
+  repoUrl: string;
 
   /**
-   * @generated from field: string repository = 3;
-   */
-  repository: string;
-
-  /**
-   * @generated from field: string branch = 4;
+   * @generated from field: string branch = 3;
    */
   branch: string;
 
   /**
-   * @generated from field: string path = 5;
+   * @generated from field: string path = 4;
    */
   path: string;
 
   /**
-   * @generated from field: string sync_status = 6;
+   * @generated from field: string sync_status = 5;
    */
   syncStatus: string;
 
   /**
-   * @generated from field: google.protobuf.Timestamp last_synced_at = 7;
+   * @generated from field: google.protobuf.Timestamp last_synced_at = 6;
    */
   lastSyncedAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: string collector_id = 7;
+   */
+  collectorId: string;
+
+  /**
+   * @generated from field: string credential_id = 8;
+   */
+  credentialId: string;
 };
 
 /**
@@ -224,7 +397,7 @@ export type RepoLink = Message<"shepherd.mgmt.v1.RepoLink"> & {
  * Use `create(RepoLinkSchema)` to create a new message.
  */
 export const RepoLinkSchema: GenMessage<RepoLink> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_gitops, 6);
+  messageDesc(file_shepherd_mgmt_v1_gitops, 8);
 
 /**
  * @generated from message shepherd.mgmt.v1.ListRepoLinksRequest
@@ -241,7 +414,7 @@ export type ListRepoLinksRequest = Message<"shepherd.mgmt.v1.ListRepoLinksReques
  * Use `create(ListRepoLinksRequestSchema)` to create a new message.
  */
 export const ListRepoLinksRequestSchema: GenMessage<ListRepoLinksRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_gitops, 7);
+  messageDesc(file_shepherd_mgmt_v1_gitops, 9);
 
 /**
  * @generated from message shepherd.mgmt.v1.ListRepoLinksResponse
@@ -263,7 +436,7 @@ export type ListRepoLinksResponse = Message<"shepherd.mgmt.v1.ListRepoLinksRespo
  * Use `create(ListRepoLinksResponseSchema)` to create a new message.
  */
 export const ListRepoLinksResponseSchema: GenMessage<ListRepoLinksResponse> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_gitops, 8);
+  messageDesc(file_shepherd_mgmt_v1_gitops, 10);
 
 /**
  * CreateRepoLinkRequest mirrors repoLinkRequest in repolinks.go. Server
@@ -288,27 +461,22 @@ export type CreateRepoLinkRequest = Message<"shepherd.mgmt.v1.CreateRepoLinkRequ
   credentialId: string;
 
   /**
-   * @generated from field: string project = 4;
+   * @generated from field: string repo_url = 4;
    */
-  project: string;
+  repoUrl: string;
 
   /**
-   * @generated from field: string repository = 5;
-   */
-  repository: string;
-
-  /**
-   * @generated from field: string branch = 6;
+   * @generated from field: string branch = 5;
    */
   branch: string;
 
   /**
-   * @generated from field: string path = 7;
+   * @generated from field: string path = 6;
    */
   path: string;
 
   /**
-   * @generated from field: int32 poll_interval_seconds = 8;
+   * @generated from field: int32 poll_interval_seconds = 7;
    */
   pollIntervalSeconds: number;
 };
@@ -318,7 +486,7 @@ export type CreateRepoLinkRequest = Message<"shepherd.mgmt.v1.CreateRepoLinkRequ
  * Use `create(CreateRepoLinkRequestSchema)` to create a new message.
  */
 export const CreateRepoLinkRequestSchema: GenMessage<CreateRepoLinkRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_gitops, 9);
+  messageDesc(file_shepherd_mgmt_v1_gitops, 11);
 
 /**
  * @generated from message shepherd.mgmt.v1.DeleteRepoLinkRequest
@@ -340,7 +508,7 @@ export type DeleteRepoLinkRequest = Message<"shepherd.mgmt.v1.DeleteRepoLinkRequ
  * Use `create(DeleteRepoLinkRequestSchema)` to create a new message.
  */
 export const DeleteRepoLinkRequestSchema: GenMessage<DeleteRepoLinkRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_gitops, 10);
+  messageDesc(file_shepherd_mgmt_v1_gitops, 12);
 
 /**
  * @generated from message shepherd.mgmt.v1.DeleteRepoLinkResponse
@@ -353,11 +521,18 @@ export type DeleteRepoLinkResponse = Message<"shepherd.mgmt.v1.DeleteRepoLinkRes
  * Use `create(DeleteRepoLinkResponseSchema)` to create a new message.
  */
 export const DeleteRepoLinkResponseSchema: GenMessage<DeleteRepoLinkResponse> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_gitops, 11);
+  messageDesc(file_shepherd_mgmt_v1_gitops, 13);
 
 /**
- * GitOpsService covers /api/orgs/{org}/ado-credentials/* and
+ * GitOpsService covers /api/orgs/{org}/ado-credentials/* (legacy path,
+ * kept for wire compatibility — see internal/mgmtapi/repolinks.go) and
  * /api/orgs/{org}/repo-links/*. All methods require org-admin.
+ *
+ * docs/git-provider-design.md §3.4: this is a BREAKING rename of
+ * AdoCredential -> GitCredential, acceptable only because nothing consumes
+ * the shepherd.mgmt.v1 contract in production yet (the platform fleet has
+ * no remotecfg blocks at all). If that assumption no longer holds, add
+ * GitCredential alongside AdoCredential and deprecate instead of renaming.
  *
  * @generated from service shepherd.mgmt.v1.GitOpsService
  */
@@ -376,7 +551,7 @@ export const GitOpsService: GenService<{
   createCredential: {
     methodKind: "unary";
     input: typeof CreateCredentialRequestSchema;
-    output: typeof AdoCredentialSchema;
+    output: typeof GitCredentialSchema;
   },
   /**
    * @generated from rpc shepherd.mgmt.v1.GitOpsService.DeleteCredential
@@ -385,6 +560,20 @@ export const GitOpsService: GenService<{
     methodKind: "unary";
     input: typeof DeleteCredentialRequestSchema;
     output: typeof DeleteCredentialResponseSchema;
+  },
+  /**
+   * TestCredential resolves the stored credential's auth strategy and runs
+   * a git ls-remote against repo_url, distinguishing a token-exchange
+   * failure (ado_sp/github_app minting a token) from a git reachability
+   * failure (network, TLS, or the git server itself rejecting the
+   * resolved credentials) — see docs/git-provider-design.md §3.4.
+   *
+   * @generated from rpc shepherd.mgmt.v1.GitOpsService.TestCredential
+   */
+  testCredential: {
+    methodKind: "unary";
+    input: typeof TestCredentialRequestSchema;
+    output: typeof TestCredentialResponseSchema;
   },
   /**
    * @generated from rpc shepherd.mgmt.v1.GitOpsService.ListRepoLinks

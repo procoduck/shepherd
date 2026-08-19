@@ -18,6 +18,13 @@
   --color-border-strong: #3f3f46;
   --color-muted: #a1a1aa;
   --color-muted-2: #71717a;
+  /*
+   * Added during B4 (design-token adoption in web/src/pages + components):
+   * a third, quieter de-emphasis tier for tertiary captions/meta text
+   * (timestamps, revision numbers, idle icon color) that were previously
+   * raw `text-zinc-600` — same hex, now named consistently with muted/muted-2.
+   */
+  --color-muted-3: #52525b;
   --color-accent: #6366f1;
 }
 

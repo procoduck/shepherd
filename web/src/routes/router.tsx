@@ -14,6 +14,7 @@ import { OverviewPage } from '@/pages/OverviewPage';
 import { PipelineEditorPage } from '@/pages/PipelineEditorPage';
 import { PipelinesPage } from '@/pages/PipelinesPage';
 import { WizardsPage } from '@/pages/WizardsPage';
+import { AppObservabilityWizardPage } from '@/wizard/AppObservabilityWizardPage';
 
 const rootRoute = createRootRoute({
   component: Outlet,
@@ -140,6 +141,12 @@ const wizardsRoute = createRoute({
   component: WizardsPage,
 });
 
+const appObservabilityWizardRoute = createRoute({
+  getParentRoute: () => contentRoute,
+  path: '/wizards/app-observability',
+  component: AppObservabilityWizardPage,
+});
+
 const adminOrgsRoute = createRoute({
   getParentRoute: () => contentRoute,
   path: '/admin/orgs',
@@ -177,6 +184,7 @@ const routeTree = rootRoute.addChildren([
       destinationsRoute,
       gitRoute,
       wizardsRoute,
+      appObservabilityWizardRoute,
       adminOrgsRoute,
       adminClustersRoute,
       adminTokensRoute,

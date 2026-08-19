@@ -16,8 +16,16 @@ test.describe('auth-journey', () => {
     await expect(page).toHaveURL(/\/login/);
     await expect(page.getByTestId('local-login-submit')).toBeVisible();
 
-    const meResponses = responses.filter((response) => response.url.endsWith('/api/me'));
-    expect(meResponses.length).toBeGreaterThan(0);
+    // The SPA probes identity through the generated Connect client
+    // (MeService/GetMe), not the legacy /api/me REST shim which only external
+    // integrations use — match either so this asserts the app's real behavior.
+    const isMeProbe = (url: string) => url.endsWith('/api/me') || url.includes('MeService/GetMe');
+    await expect
+      .poll(() => responses.filter((response) => isMeProbe(response.url)).length, {
+        message: 'the SPA must probe its identity endpoint while unauthenticated',
+      })
+      .toBeGreaterThan(0);
+    const meResponses = responses.filter((response) => isMeProbe(response.url));
     expect(meResponses.every((response) => response.status === 401)).toBe(true);
 
     await page.getByTestId('local-username').fill('admin');
