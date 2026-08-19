@@ -115,7 +115,7 @@ services:
 
   # cluster=prod-eu-1 / role=metrics
   alloy-metrics:
-    image: grafana/alloy:v1.12.2
+    image: ${ALLOY_IMAGE:-grafana/alloy:v1.18.1}
     depends_on:
       shepherd:
         condition: service_healthy
@@ -132,7 +132,7 @@ services:
 
   # cluster=prod-eu-1 / role=logs
   alloy-logs:
-    image: grafana/alloy:v1.12.2
+    image: ${ALLOY_IMAGE:-grafana/alloy:v1.18.1}
     depends_on:
       shepherd:
         condition: service_healthy
@@ -149,7 +149,7 @@ services:
 
   # cluster=staging-eu-1 / role=metrics
   alloy-staging:
-    image: grafana/alloy:v1.12.2
+    image: ${ALLOY_IMAGE:-grafana/alloy:v1.18.1}
     depends_on:
       shepherd:
         condition: service_healthy

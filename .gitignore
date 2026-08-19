@@ -27,3 +27,6 @@ web/.playwright/
 
 # GoReleaser output
 /dist/
+
+# Playwright walkthrough screenshots
+web/walkthrough/
