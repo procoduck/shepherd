@@ -76,6 +76,38 @@ test.describe('visual builder layout', () => {
     await expect(page.getByTestId('inspector')).toHaveAttribute('data-collapsed', 'true');
   });
 
+  // KNOWN ISSUE — the minimap renders as an empty rectangle, never showing the
+  // nodes. Kept as `fixme` rather than deleted because the cause is understood
+  // and the fix is entangled with something load-bearing:
+  //
+  // React Flow runs controlled here, so anything it derives from the node
+  // objects we hand it (rather than from the DOM) sees only the fields we set.
+  // `nodeHasDimensions` gates MiniMapNodes and rejects a node carrying no
+  // measured/width/initialWidth, and `rfNodes` sets none — hence nothing drawn.
+  //
+  // The obvious fix, round-tripping React Flow's measured dimensions back onto
+  // the nodes, breaks connection dragging. `parseHandles` returns `undefined`
+  // for a node with no `measured`, which resets its cached handle bounds and
+  // forces a fresh DOM measurement on every rebuild of the array — and the wire
+  // gestures currently depend on that accidental re-measure. Supplying
+  // `measured` preserves stale bounds instead, and drops land nowhere: three
+  // visual-linking specs fail. `initialWidth`/`initialHeight` avoid that path
+  // but get applied as inline width/height, which would pin the node's rendered
+  // size — wrong here, since node height varies with port count.
+  //
+  // Doing this properly means giving `rfNodes` stable object identity so React
+  // Flow stops re-measuring every node on every rebuild, then feeding measured
+  // sizes back. That is the same controlled-mode round-tripping gap the review
+  // recorded for `selected`, and it belongs in that work, not a spot fix.
+  test.fixme('the minimap shows the nodes that are on the canvas', async ({ page }) => {
+    await page.click('[data-component="discovery.kubernetes"]');
+    await page.click('[data-component="discovery.relabel"]');
+    await expect(page.getByTestId('pipeline-node')).toHaveCount(2);
+
+    await expect(page.locator('.react-flow__minimap')).toBeVisible();
+    await expect(page.locator('.react-flow__minimap-node')).toHaveCount(2);
+  });
+
   test('a component can still be placed and wired with the palette collapsed', async ({ page }) => {
     // Collapsing must not strand the user: reopening to place, then collapsing to
     // wire, is the normal draw.io rhythm.

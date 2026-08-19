@@ -91,7 +91,14 @@ func (h *SchemaHandler) GetCurrent(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("ETag", etag)
-	w.Header().Set("Cache-Control", "public, max-age=86400, immutable")
+	// NOT immutable: unlike /api/schema/{version}, which is content-addressed by a
+	// version that never changes meaning, "current" is a MOVING POINTER. Marking it
+	// immutable told browsers not to revalidate for a day, so after a schema
+	// regeneration or a server upgrade an open tab kept serving the old component
+	// model — ports lose their names, every stored edge stops resolving, and the
+	// canvas silently drops all its wires. Revalidate every time; the ETag above
+	// still makes the common case a cheap 304.
+	w.Header().Set("Cache-Control", "no-cache")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(merged); err != nil {
 		return // headers already sent; nothing more to do

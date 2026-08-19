@@ -16,7 +16,9 @@ import (
 	"shepherd/internal/auth"
 	"shepherd/internal/config"
 	"shepherd/internal/mgmtapi"
+	"shepherd/internal/schema"
 	"shepherd/internal/store"
+	"shepherd/internal/version"
 )
 
 // newRPCWiringRouter builds a router shaped like internal/server/server.go's
@@ -134,5 +136,24 @@ var _ = Describe("shepherd.mgmt.v1 RPC wiring", Label("integration"), func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(string(body)).To(ContainSubstring(`"not_found"`))
 		Expect(string(body)).NotTo(ContainSubstring("spa fallback"))
+	})
+})
+
+var _ = Describe("Schema endpoint caching", func() {
+	// A version-pinned schema is content-addressed and may be cached hard. "current"
+	// is a moving pointer: caching it immutably meant a browser kept the previous
+	// component model for a day after a schema change, so every port lost its name,
+	// stored edges stopped resolving and the canvas silently dropped all its wires.
+	// Found by opening the running app after regenerating the artifact.
+	It("lets /api/schema/current revalidate while /api/schema/{version} stays immutable", func() {
+		cur := httptest.NewRecorder()
+		reg, regErr := schema.New(schema.Embedded, version.AlloySchemaVersion)
+		Expect(regErr).NotTo(HaveOccurred())
+		handler := mgmtapi.NewSchemaHandler(reg)
+		handler.GetCurrent(cur, httptest.NewRequest(http.MethodGet, "/api/schema/current", nil))
+		Expect(cur.Code).To(Equal(http.StatusOK))
+		Expect(cur.Header().Get("Cache-Control")).NotTo(ContainSubstring("immutable"),
+			"current is a moving pointer and must not be cached immutably")
+		Expect(cur.Header().Get("ETag")).NotTo(BeEmpty(), "revalidation needs an ETag to be cheap")
 	})
 })
