@@ -172,37 +172,54 @@ Includes the deferred item: `wizard_state` is not persisted on pipeline `PUT`
 (`UpdatePipelineParams` has no such field), so a visual pipeline edited through the text API
 loses its graph.
 
-### F9 — Standard-git GitOps, ADO reduced to one auth mode · **high**
+### F9 — Standard-git GitOps with pluggable provider auth · **high**
 
-**New requirement (2026-08-19).** GitOps must work against any standard git server; Azure
-DevOps' only special requirement is Entra service-principal authentication. Testing moves to
-a real **Gitea** instance instead of the hand-written ADO REST mock.
+**New requirement (2026-08-19).** GitOps must work against any standard git server, as broadly
+as possible. Provider-specific work is confined to **authentication**: Azure DevOps needs Entra
+service principals, GitHub needs GitHub Apps; everything else is ordinary git credentials.
+Testing moves to a real **Gitea** instance instead of the hand-written ADO REST mock.
 
 Today Shepherd never speaks git at all: `internal/ado/client.go` calls the Azure DevOps REST
-API (`GetLatestCommit`/`ListFiles`/`DownloadFile`), there is no git library in `go.mod`, and
-provider concepts reach the schema (`ado_credentials`, `repo_links.project`) and the wire
-contract (`shepherd.mgmt.v1.AdoCredential`). So no other host works, and the tests prove only
-that Shepherd talks to its own mock.
+API, there is no git library in `go.mod`, and provider concepts reach the schema
+(`ado_credentials`, `repo_links.project`) and the wire contract
+(`shepherd.mgmt.v1.AdoCredential`). So no other host works, and the e2e GitOps scenario proves
+only that Shepherd talks to its own mock.
 
 Design: `docs/git-provider-design.md`. Shape of the work:
 
-- [ ] `internal/gitrepo` speaking real git over HTTPS via `go-git` (pure Go — no `git` binary
-      needed in the distroless image); `ls-remote` for change detection, shallow in-memory
-      clone for fetch
-- [ ] Pluggable auth: `pat` · `basic` · `ado_sp` · `none`. `internal/ado` shrinks to the
-      Entra client-credentials token provider — the only provider-specific code left
-- [ ] Migration `0006`: `ado_credentials` → `git_credentials` with `kind`; `repo_links`
-      gains `repo_url` (backfilled from the ADO org/project/repo) and drops `project`/`repository`
+- [ ] `internal/gitrepo` speaking real git over HTTPS/SSH via **go-git v6** (pure Go — no `git`
+      binary needed in the distroless image); `ls-remote` for change detection, shallow
+      in-memory clone for fetch
+- [ ] Six auth strategies behind one interface: `none` · `basic` · `pat` · `ssh` · `ado_sp` ·
+      `github_app`. `pat` alone covers Gitea/GitHub/GitLab/Bitbucket; `ado_sp` and
+      `github_app` share a short-lived-token cache. `internal/ado` shrinks to just the Entra
+      token provider
+- [ ] **GitHub Apps**: RS256 JWT → installation access token, GitHub Enterprise Server via
+      `api_base_url`
+- [ ] **SSH deploy keys** with mandatory `known_hosts` verification (no accept-any mode)
+- [ ] **Private CA trust** per credential (`ca_cert`), plus an explicit default-off
+      `tls_insecure_skip_verify`; standard proxy env honoured
+- [ ] **Resource limits**: max repo bytes (50 MiB default), max file bytes, max files, fetch
+      timeout — enforced by a counting reader, not a post-hoc check
+- [ ] Migration `0006`: `ado_credentials` → `git_credentials` with `kind` + `provider_config`
+      JSONB; `repo_links` gains `repo_url` (backfilled) and drops `project`/`repository`
 - [ ] Proto/service/UI rename `AdoCredential` → `GitCredential`; **breaking wire change**,
-      justified only because nothing consumes the contract in production yet — re-check
+      justified only because nothing consumes the contract in production yet — re-verify
       before implementing
-- [ ] Gitea in dev + e2e compose; e2e scenario 5 rewritten to push real commits (this finally
-      makes the update path from `0194541` testable end to end); `mockmsft` keeps only its
-      Entra/Graph role
-- [ ] Implements the credential `test` endpoint from F4 as a real `ls-remote` reachability check
+- [ ] Gitea in dev + e2e compose; scenario 5 rewritten to push real commits (finally making
+      the update path from `0194541` testable end to end) and table-driven across auth kinds;
+      `mockmsft` keeps only its Entra/Graph + token-endpoint role
+- [ ] Implements the credential `test` endpoint from F4 as a real `ls-remote` reachability
+      check, and the `GitPage` CRUD that B2 records as entirely missing
 
-Open decisions recorded in the design doc: SSH deploy keys, private-CA trust, and a
-repo-size ceiling for the in-memory clone.
+**Known implementation constraint** (verified against go-git v6 docs): the documented custom-TLS
+mechanism is a *global* `transport.Register`, which cannot express per-credential CAs — the
+package must build a transport per credential via the plumbing API. Do not paper over this with
+a global registration; one repo's skip-verify would apply to every other repo.
+
+Still open in the design: additional providers (AWS CodeCommit SigV4, GCP Source Repos — both
+reachable today via `basic`), and pre-expiry warning for rotating GitHub App keys / ADO client
+secrets.
 
 ### F7 — CI · **high (process)**
 

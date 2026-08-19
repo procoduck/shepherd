@@ -1241,17 +1241,23 @@ The fullstack suite (`web/tests/fullstack/`) must NEVER use `page.route()`. CI g
 Supersedes §10 and the ADO-specific parts of §5 (`ado_credentials`, `repo_links.project`),
 §12 (`/ado-credentials/*`), and §18.4 scenario 5.
 
-**Requirement.** GitOps targets **any standard git server** over HTTPS. Azure DevOps'
-*only* special requirement is authentication with an Entra **service principal**; every
-other host is served by ordinary git credentials (PAT / basic / anonymous).
+**Requirement.** GitOps targets **any standard git server**, over HTTPS or SSH, as broadly
+as possible. Provider-specific work is confined to **authentication**: Azure DevOps needs an
+Entra **service principal**, GitHub needs a **GitHub App**; every other host is served by
+ordinary git credentials (PAT / basic / SSH deploy key / anonymous).
 
 **Consequences.**
 - Transport is the git wire protocol (`go-git`), not a provider REST API. Change detection
   is `ls-remote`; fetch is a shallow single-branch clone.
 - `ado_credentials` becomes `git_credentials` with a `kind` discriminator
-  (`pat` | `basic` | `ado_sp` | `none`); `repo_links` carries a `repo_url` clone URL in place
-  of `project` + `repository`.
-- `internal/ado` is reduced to the Entra client-credentials token provider.
+  (`none` | `basic` | `pat` | `ssh` | `ado_sp` | `github_app`) plus a `provider_config` JSONB
+  for kind-specific non-secret fields; `repo_links` carries a `repo_url` clone URL in place of
+  `project` + `repository`.
+- `internal/ado` is reduced to the Entra client-credentials token provider; `github_app`
+  mints installation tokens from an RS256 JWT and supports GitHub Enterprise Server.
+- Per-credential private-CA trust and a default-off insecure-skip-verify escape hatch; SSH
+  host keys verified against a per-credential `known_hosts` with no accept-any mode;
+  configurable clone size/file/timeout limits.
 - Tests run against a real **Gitea** container; `e2e/mockmsft` keeps only its Entra/Graph
   role. E2E scenario 5 pushes real commits, including the change-an-existing-file case.
 
