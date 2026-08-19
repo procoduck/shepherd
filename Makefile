@@ -381,9 +381,18 @@ dev-alloy3:
 
 # Run the fullstack Playwright suite against the dev stack.
 # Boots the dev stack, runs tests, captures logs on failure, tears down.
-test-fullstack:
+test-fullstack: docker-build-local docker-build-init
+	cd web && $(PNPM) exec playwright install --with-deps chromium
+	@# Reset first: leftover volumes from a previous run re-seed onto existing rows
+	@# and the stack dies before any spec runs (same trap as make e2e).
+	docker compose -f dev/docker-compose.dev.yaml down -v
+	@# `--build` only builds services that declare a build: section; shepherd:local
+	@# and shepherd:local-init come from the docker-build-* prerequisites above.
 	docker compose -f dev/docker-compose.dev.yaml up -d --build --wait
-	cd web && $(PNPM) exec playwright test --config playwright.fullstack.config.ts; \
+	@# The cd runs in a SUBSHELL: without it the directory change leaks into the
+	@# teardown below, which then looks for web/dev/docker-compose.dev.yaml, fails,
+	@# and leaves the whole stack running.
+	( cd web && $(PNPM) exec playwright test --config playwright.fullstack.config.ts ); \
 		STATUS=$$?; \
 		if [ $$STATUS -ne 0 ]; then \
 			docker compose -f dev/docker-compose.dev.yaml logs --no-color > /tmp/fullstack-stack.log 2>&1; \

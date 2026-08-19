@@ -216,3 +216,74 @@ jobs:
           name: playwright-report
           path: web/playwright-report/
           retention-days: 14
+
+  # The fullstack suite is the only CI coverage that drives the UI against the REAL
+  # server and the REAL embedded schema. The mocked suite (test-ui) proves component
+  # behaviour against a fixture sliced from the artifact; this one proves the whole
+  # contract — save/reload round-trips, org scoping, and that the schema the server
+  # serves is the one the canvas can actually build with. docs/reviews/README.md's
+  # root cause was precisely the absence of a layer that touched the shipped schema.
+  test-fullstack:
+    name: test-fullstack
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Read pnpm version from package.json
+        id: pnpm-version
+        working-directory: web
+        run: |
+          version="$(jq -r '.packageManager' package.json | sed -E 's/^pnpm@//')"
+          if [ -z "$version" ] || [ "$version" = "null" ]; then
+            echo "::error::could not read packageManager from web/package.json" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ steps.pnpm-version.outputs.version }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install web dependencies
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+
+      # Brings up the dev compose stack (postgres, gitea, mockmsft, shepherd, alloy),
+      # runs the fullstack specs against it, and tears it down. The target builds the
+      # shepherd:local images first — compose's --build does not, since those services
+      # reference an image rather than declaring a build context.
+      - name: make test-fullstack
+        run: make test-fullstack
+
+      - name: Upload stack logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fullstack-stack-log
+          path: /tmp/fullstack-stack.log
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-fullstack
+          path: web/playwright-report/
+          retention-days: 14
