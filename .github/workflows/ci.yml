@@ -4,12 +4,17 @@ name: CI
 #
 # Job graph (roughly follows docs/spec.md "CI ordering":
 # smoke -> test -> test-integration -> [test-ui, test-fullstack] -> e2e):
-#   lint, build, test, web, guards all run in parallel — each is fast and
-#   independent, so there is no value in chaining them serially here.
+#   lint, build, test, web, guards, test-ui all run in parallel — each is
+#   fast and independent, so there is no value in chaining them serially
+#   here.
+# test-ui runs the mocked Playwright visual-builder suite (web/tests/specs)
+# against a local `vite preview` server — no backend, no Docker required.
+# It is the only coverage for the canvas's delete and port-drag
+# interactions, so it must run on every PR, not just on manual dispatch.
 # The remaining stages from the spec's ordering (smoke, test-integration,
-# test-ui, test-fullstack, e2e) are not wired into this workflow; e2e lives
-# in e2e.yml (manual dispatch + merge_group) per F7's scope. Adding the
-# others is tracked as follow-up, not done here.
+# test-fullstack, e2e) are not wired into this workflow; e2e lives in
+# e2e.yml (manual dispatch + merge_group) per F7's scope. Adding the others
+# is tracked as follow-up, not done here.
 
 on:
   pull_request:
@@ -76,7 +81,7 @@ jobs:
 
       # Pure shell/grep/find guards — no Go or Node toolchain required.
       - name: Repo guard checks
-        run: make check-single-dist check-build-script check-raw-sql check-docker
+        run: make check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker
 
   test:
     name: test
@@ -91,11 +96,26 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # internal/visual's stage-2 corpus spec shells the pinned Alloy binary
+      # via a Docker fallback and now fails (rather than silently skipping)
+      # when no binary or image is available — see internal/visual/render_test.go.
+      # Pulling here surfaces a registry/network problem as its own CI step
+      # instead of inside the 20-minute test run, and keeps the image pinned
+      # to the same source of truth (deploy/versions.env) everything else uses.
+      - name: Pull pinned Alloy image
+        run: |
+          source deploy/versions.env
+          docker pull --quiet "$ALLOY_IMAGE"
+
       # internal/testutil spins up real Postgres via testcontainers-go;
       # ubuntu-latest runners ship Docker out of the box so this needs no
       # extra setup.
-      - name: go test ./internal/...
-        run: go test ./internal/...
+      # ./... rather than ./internal/... — the latter silently excluded
+      # ./tools/..., so the schema generator's own unit tests (reconcile.go's
+      # categorisation and merge behaviour, and the port/wire model in
+      # portmodel.go) had never run in CI.
+      - name: go test ./...
+        run: go test ./...
 
   web:
     name: web
@@ -149,3 +169,50 @@ jobs:
 
       - name: Build
         run: CI=true pnpm run build
+
+  test-ui:
+    name: test-ui
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read pnpm version from package.json
+        id: pnpm-version
+        working-directory: web
+        run: |
+          version="$(jq -r '.packageManager' package.json | sed -E 's/^pnpm@//')"
+          if [ -z "$version" ] || [ "$version" = "null" ]; then
+            echo "::error::could not read packageManager from web/package.json" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ steps.pnpm-version.outputs.version }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      # make test-ui installs Playwright's browser + OS deps, builds the SPA
+      # via scripts/build-web.sh, and runs the mocked Playwright visual suite
+      # (web/tests/specs) against a local `vite preview` server. This is the
+      # only coverage for "nothing can be deleted" and "the core wire cannot
+      # be drawn on the port" (both CRITICAL in docs/reviews) — without this
+      # job neither fix has any automated enforcement.
+      - name: make test-ui
+        run: make test-ui
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: web/playwright-report/
+          retention-days: 14

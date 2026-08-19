@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -146,7 +147,90 @@ func (r *Registry) ValidateOverlay() ([]string, error) {
 		}
 	}
 
+	violations = append(violations, validatePortDisplayOrder(artifactComponents, overlayComponents)...)
+
 	return violations, nil
+}
+
+// validatePortDisplayOrder checks that a component's overlay port_display_order
+// names exactly the ports the artifact declares for it — every port once, and no
+// name that does not exist. Without this the overlay rots silently within a
+// single Alloy version: a renamed or newly split port leaves the canvas ordering
+// pointing at nothing, and no test notices.
+func validatePortDisplayOrder(artifactComponents, overlayComponents map[string]any) []string {
+	var violations []string
+	keys := make([]string, 0, len(overlayComponents))
+	for key := range overlayComponents {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		comp, ok := overlayComponents[key].(map[string]any)
+		if !ok {
+			continue
+		}
+		rawOrder, ok := comp["port_display_order"].([]any)
+		if !ok {
+			continue
+		}
+		artComp, ok := artifactComponents[key].(map[string]any)
+		if !ok {
+			continue // already reported as an orphaned overlay key
+		}
+
+		declared := declaredPortNames(artComp)
+		seen := make(map[string]bool, len(rawOrder))
+		for _, entry := range rawOrder {
+			name, ok := entry.(string)
+			if !ok {
+				violations = append(violations, fmt.Sprintf("port_display_order on %q contains a non-string entry", key))
+				continue
+			}
+			switch {
+			case !declared[name]:
+				violations = append(violations, fmt.Sprintf("port_display_order on %q names port %q which the artifact does not declare", key, name))
+			case seen[name]:
+				violations = append(violations, fmt.Sprintf("port_display_order on %q lists port %q twice", key, name))
+			}
+			seen[name] = true
+		}
+		missing := make([]string, 0, len(declared))
+		for name := range declared {
+			if !seen[name] {
+				missing = append(missing, name)
+			}
+		}
+		sort.Strings(missing)
+		for _, name := range missing {
+			violations = append(violations, fmt.Sprintf("port_display_order on %q omits declared port %q", key, name))
+		}
+	}
+	return violations
+}
+
+// declaredPortNames returns the set of port ids an artifact component declares:
+// "prop" for inputs (Arguments fields) and "export" for outputs (Exports fields).
+func declaredPortNames(artComp map[string]any) map[string]bool {
+	names := map[string]bool{}
+	collect := func(listKey, nameKey string) {
+		list, ok := artComp[listKey].([]any)
+		if !ok {
+			return
+		}
+		for _, raw := range list {
+			port, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			if name, ok := port[nameKey].(string); ok && name != "" {
+				names[name] = true
+			}
+		}
+	}
+	collect("inputs", "prop")
+	collect("outputs", "export")
+	return names
 }
 
 // Migrations returns the raw migrations map from the overlay (component → entry).

@@ -1,4 +1,4 @@
-.PHONY: build build-web build-all test test-integration e2e smoke test-ui check-single-dist check-build-script check-raw-sql check-docker lint fmt generate gen-alloy-version generate-corpus schema helm-lint release-snapshot docker-build docker-build-local docker-build-init migrate dev dev-frontend dev-restart dev-seed dev-reset test-fullstack
+.PHONY: build build-web build-all test test-integration e2e smoke test-ui check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker lint fmt generate gen-alloy-version generate-corpus schema schema-verify helm-lint release-snapshot docker-build docker-build-local docker-build-init migrate dev dev-frontend dev-restart dev-seed dev-reset test-fullstack
 
 PNPM ?= pnpm
 
@@ -160,6 +160,30 @@ check-single-dist:
 	fi
 	@echo "check-single-dist: OK (1 dist directory)"
 
+# Guard: internal/spa/dist/index.html must not reference an asset that is
+# missing or untracked. check-single-dist only counts dist *directories* — it
+# never noticed that index.html's script/link tags named assets/index-*.js|css
+# hashes with no matching tracked file, while the previous build's hashes sat
+# around as untracked/deleted noise. `git add -u && git commit` only stages
+# changes to already-tracked files, so an untracked asset index.html
+# references would ship a dist whose entrypoint 404s on checkout.
+check-dist-consistency:
+	@INDEX=internal/spa/dist/index.html; \
+	if [ ! -f "$$INDEX" ]; then echo "ERROR: $$INDEX missing"; exit 1; fi; \
+	REFS=$$(grep -oE 'assets/[A-Za-z0-9_.-]+' "$$INDEX" | sort -u); \
+	if [ -z "$$REFS" ]; then echo "ERROR: $$INDEX references no assets/* files"; exit 1; fi; \
+	FAIL=0; \
+	for f in $$REFS; do \
+		path="internal/spa/dist/$$f"; \
+		if [ ! -f "$$path" ]; then \
+			echo "ERROR: $$INDEX references $$f, which does not exist on disk"; FAIL=1; \
+		elif ! git ls-files --error-unmatch "$$path" >/dev/null 2>&1; then \
+			echo "ERROR: $$INDEX references $$f, which is not tracked by git (git add -u would not include it)"; FAIL=1; \
+		fi; \
+	done; \
+	if [ "$$FAIL" != "0" ]; then exit 1; fi; \
+	echo "check-dist-consistency: OK (index.html's referenced assets exist and are tracked)"
+
 # Guard: no pnpm build commands outside scripts/build-web.sh.
 check-build-script:
 	@if grep -rn "pnpm.*build\|pnpm install" Makefile deploy/ .goreleaser.yaml 2>/dev/null | \
@@ -222,7 +246,7 @@ check-docker:
 	if [ "$$FAIL" != "0" ]; then exit 1; fi
 	@echo "check-docker: OK"
 
-lint: check-single-dist check-build-script check-raw-sql check-docker
+lint: check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker
 	golangci-lint run ./...
 
 # Format Go code (gci via golangci-lint fmt + standalone gofumpt to avoid gci/gofumpt cycle)
@@ -252,9 +276,42 @@ gen-alloy-version:
 schema: gen-alloy-version
 	./tools/alloy-schema-gen/run.sh
 
-# Sync visual-builder corpus from Go testdata → web fixtures.
-# Run after adding or changing corpus entries.
+# Verify the committed artifact still matches what the pinned Alloy produces.
+# Regenerates into a temp dir (overlay.json is NOT touched) and diffs against the
+# committed artifact with _meta.generated_at deleted from both sides — that
+# timestamp is the only non-deterministic field, so a naive diff would fail 100%
+# of the time. Everything else is byte-reproducible.
+# Prerequisites: network access, git, go, jq. Run on Alloy-bump PRs + weekly cron.
+schema-verify: gen-alloy-version
+	@set -eu; \
+	tmp=$$(mktemp -d); \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	SCHEMA_OUT_DIR="$$tmp" SKIP_RECONCILE=1 ./tools/alloy-schema-gen/run.sh >/dev/null; \
+	committed=internal/schema/artifacts/alloy-$(ALLOY_VERSION).json; \
+	if [ ! -f "$$committed" ]; then \
+	  echo "schema-verify: FAIL — no committed artifact for the pin ($$committed)"; exit 1; \
+	fi; \
+	jq -S 'del(._meta.generated_at)' "$$committed" > "$$tmp/committed.norm.json"; \
+	jq -S 'del(._meta.generated_at)' "$$tmp/alloy-$(ALLOY_VERSION).json" > "$$tmp/fresh.norm.json"; \
+	if diff -u "$$tmp/committed.norm.json" "$$tmp/fresh.norm.json"; then \
+	  echo "schema-verify: OK ($$committed matches grafana/alloy@$(ALLOY_VERSION))"; \
+	else \
+	  echo "schema-verify: FAIL — the committed artifact does not match grafana/alloy@$(ALLOY_VERSION); run 'make schema' and commit the result."; \
+	  exit 1; \
+	fi
+
+# Regenerate the visual-builder goldens from the shipped schema artifact, then
+# sync the whole corpus from Go testdata → web fixtures. Run after adding or
+# changing a corpus graph, or after a deliberate renderer change.
+#
+# The goldens are rendered against internal/schema's embedded artifact merged
+# with overlay.json — the same payload the server serves — never against a test
+# fixture. Review the diff: a golden that changes without a corresponding
+# renderer or graph change is a regression, not a refresh. Both suites verify
+# the copies are byte-identical to the Go originals, so a partial run is caught.
 generate-corpus:
+	@echo "==> Regenerating goldens from the shipped schema artifact..."
+	GEN_GOLDENS=1 go test ./internal/visual/ -run TestGenGoldens
 	@echo "==> Syncing visual builder corpus..."
 	@mkdir -p web/src/visual/__fixtures__/corpus
 	@cp internal/visual/testdata/corpus/*.graph.json web/src/visual/__fixtures__/corpus/

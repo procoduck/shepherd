@@ -33,6 +33,8 @@
       "icon": "beyla",
       "port_display_order": [
         "targets",
+        "output.metrics",
+        "output.logs",
         "output.traces"
       ],
       "terminal_ok": false
@@ -222,6 +224,71 @@
       "terminal_ok": false
     },
     "discovery.kubernetes": {
+      "attributes": [
+        {
+          "name": "api_server",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "role",
+          "required": true,
+          "type": "string",
+          "values": ["pod", "service", "endpoints", "endpointslice", "ingress", "node"]
+        },
+        {
+          "name": "kubeconfig_file",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "bearer_token",
+          "required": false,
+          "type": "secret"
+        },
+        {
+          "name": "bearer_token_file",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "proxy_url",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "no_proxy",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "proxy_from_environment",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "name": "proxy_connect_header",
+          "required": false,
+          "type": "map"
+        },
+        {
+          "default": true,
+          "name": "follow_redirects",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": true,
+          "name": "enable_http2",
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "name": "http_headers",
+          "required": false,
+          "type": "map"
+        }
+      ],
       "category": "sources",
       "discovery_stub": {
         "fixture": "k8s-pod-targets",
@@ -319,6 +386,7 @@
       "doc": "Discovers local OS processes as profiling targets.",
       "icon": "server",
       "port_display_order": [
+        "join",
         "targets"
       ],
       "terminal_ok": false
@@ -703,7 +771,8 @@
       "doc": "Forwards OTLP logs to a Loki receiver.",
       "icon": "logs",
       "port_display_order": [
-        "input.logs"
+        "input",
+        "forward_to"
       ],
       "terminal_ok": false
     },
@@ -712,9 +781,7 @@
       "doc": "Exports OpenTelemetry data to an OTLP gRPC endpoint.",
       "icon": "upload",
       "port_display_order": [
-        "input.metrics",
-        "input.logs",
-        "input.traces"
+        "input"
       ],
       "terminal_ok": true
     },
@@ -723,9 +790,7 @@
       "doc": "Exports OpenTelemetry data to an OTLP HTTP endpoint.",
       "icon": "upload",
       "port_display_order": [
-        "input.metrics",
-        "input.logs",
-        "input.traces"
+        "input"
       ],
       "terminal_ok": true
     },
@@ -734,7 +799,8 @@
       "doc": "Exposes OTLP metrics for Prometheus scraping.",
       "icon": "metrics",
       "port_display_order": [
-        "input.metrics"
+        "input",
+        "forward_to"
       ],
       "terminal_ok": true
     },
@@ -766,12 +832,10 @@
       "doc": "Batches spans, metrics, and logs to reduce export calls.",
       "icon": "transform",
       "port_display_order": [
+        "input",
         "output.metrics",
         "output.logs",
-        "output.traces",
-        "input.metrics",
-        "input.logs",
-        "input.traces"
+        "output.traces"
       ],
       "terminal_ok": false
     },
@@ -798,12 +862,10 @@
       "doc": "Filters OpenTelemetry data by configurable conditions.",
       "icon": "filter",
       "port_display_order": [
+        "input",
         "output.metrics",
         "output.logs",
-        "output.traces",
-        "input.metrics",
-        "input.logs",
-        "input.traces"
+        "output.traces"
       ],
       "terminal_ok": false
     },
@@ -866,12 +928,10 @@
       "doc": "Transforms OpenTelemetry data using OTTL expressions.",
       "icon": "transform",
       "port_display_order": [
+        "input",
         "output.metrics",
         "output.logs",
-        "output.traces",
-        "input.metrics",
-        "input.logs",
-        "input.traces"
+        "output.traces"
       ],
       "terminal_ok": false
     },
