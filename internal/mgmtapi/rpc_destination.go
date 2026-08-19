@@ -109,18 +109,38 @@ func (s *DestinationService) ListDestinations(ctx context.Context, req *connect.
 	return connect.NewResponse(&mgmtv1.ListDestinationsResponse{Items: items, Total: int32(len(items))}), nil //nolint:gosec // org destination counts never approach int32 overflow
 }
 
-// GetDestination returns a destination by id. Matches
-// OrgsHandler.GetDestination's existing behavior of looking the destination
-// up purely by id, without checking it belongs to the org named in the
-// request.
-func (s *DestinationService) GetDestination(ctx context.Context, req *connect.Request[mgmtv1.GetDestinationRequest]) (*connect.Response[mgmtv1.Destination], error) {
-	id, err := scanUUID(req.Msg.GetId())
+// loadOwnedDestination fetches a destination by id and enforces that it belongs to
+// orgIDStr. The authz interceptor only proves the caller may act on the org NAMED IN
+// THE REQUEST, so without this an org admin could read, modify or delete another
+// org's destination by pairing their own org id with its destination id. A mismatch
+// is NotFound rather than PermissionDenied so the response does not confirm the
+// destination exists.
+func (s *DestinationService) loadOwnedDestination(ctx context.Context, orgIDStr, idStr string) (sqlc.Destination, error) {
+	id, err := scanUUID(idStr)
 	if err != nil {
-		return nil, err
+		return sqlc.Destination{}, err
+	}
+	orgID, err := scanUUID(orgIDStr)
+	if err != nil {
+		return sqlc.Destination{}, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid org id"))
 	}
 	d, err := s.store.Queries.GetDestinationByID(ctx, id)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeNotFound, errors.New("destination not found"))
+		return sqlc.Destination{}, connect.NewError(connect.CodeNotFound, errDestinationNotFound)
+	}
+	if d.OrgID != orgID {
+		return sqlc.Destination{}, connect.NewError(connect.CodeNotFound, errDestinationNotFound)
+	}
+	return d, nil
+}
+
+var errDestinationNotFound = errors.New("destination not found")
+
+// GetDestination returns a destination by id, scoped to the requested org.
+func (s *DestinationService) GetDestination(ctx context.Context, req *connect.Request[mgmtv1.GetDestinationRequest]) (*connect.Response[mgmtv1.Destination], error) {
+	d, err := s.loadOwnedDestination(ctx, req.Msg.GetOrgId(), req.Msg.GetId())
+	if err != nil {
+		return nil, err
 	}
 	item, err := toDestinationProto(d)
 	if err != nil {
@@ -168,10 +188,11 @@ func (s *DestinationService) CreateDestination(ctx context.Context, req *connect
 // (including a unique-name violation) maps to a generic internal error — the
 // legacy handler never special-cased conflicts here the way Create does.
 func (s *DestinationService) UpdateDestination(ctx context.Context, req *connect.Request[mgmtv1.UpdateDestinationRequest]) (*connect.Response[mgmtv1.Destination], error) {
-	id, err := scanUUID(req.Msg.GetId())
+	owned, err := s.loadOwnedDestination(ctx, req.Msg.GetOrgId(), req.Msg.GetId())
 	if err != nil {
 		return nil, err
 	}
+	id := owned.ID
 	extraJSON, err := destinationExtraJSON(req.Msg.GetExtra())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid extra"))
@@ -202,10 +223,11 @@ func (s *DestinationService) UpdateDestination(ctx context.Context, req *connect
 // pipeline's wizard_state. Mirrors OrgsHandler.DeleteDestination's raw JSONB
 // containment query exactly — sqlc has no equivalent.
 func (s *DestinationService) DeleteDestination(ctx context.Context, req *connect.Request[mgmtv1.DeleteDestinationRequest]) (*connect.Response[mgmtv1.DeleteDestinationResponse], error) {
-	id, err := scanUUID(req.Msg.GetId())
+	owned, err := s.loadOwnedDestination(ctx, req.Msg.GetOrgId(), req.Msg.GetId())
 	if err != nil {
 		return nil, err
 	}
+	id := owned.ID
 
 	// RAW-SQL-OK: JSONB containment check on wizard_state — no sqlc equivalent
 	rows, err := s.store.Pool().Query(ctx,

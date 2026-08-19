@@ -176,13 +176,26 @@ func (s *PipelineService) checkVisualRenderMatch(_ context.Context, clientConten
 // loadPipeline fetches a pipeline by id, mapping an unparsable id to
 // InvalidArgument (400) and a missing row to NotFound (404) — the same two
 // distinct statuses PipelinesHandler.loadPipeline produced.
-func (s *PipelineService) loadPipeline(ctx context.Context, idStr string) (sqlc.Pipeline, error) {
+//
+// It also enforces that the pipeline belongs to orgIDStr. The authz interceptor
+// only proves the caller may act on the org NAMED IN THE REQUEST; without this
+// check an org admin could read or mutate another org's pipeline by pairing their
+// own org id with its pipeline id. A mismatch is reported as NotFound rather than
+// PermissionDenied so the response does not confirm the pipeline exists.
+func (s *PipelineService) loadPipeline(ctx context.Context, orgIDStr, idStr string) (sqlc.Pipeline, error) {
 	id, err := scanUUID(idStr)
 	if err != nil {
 		return sqlc.Pipeline{}, connect.NewError(connect.CodeInvalidArgument, errPipelineIDInvalid)
 	}
+	orgID, err := scanUUID(orgIDStr)
+	if err != nil {
+		return sqlc.Pipeline{}, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid org id"))
+	}
 	p, err := s.store.Queries.GetPipelineByID(ctx, id)
 	if err != nil {
+		return sqlc.Pipeline{}, connect.NewError(connect.CodeNotFound, errPipelineNotFound)
+	}
+	if p.OrgID != orgID {
 		return sqlc.Pipeline{}, connect.NewError(connect.CodeNotFound, errPipelineNotFound)
 	}
 	return p, nil
@@ -237,7 +250,7 @@ func (s *PipelineService) ListPipelines(ctx context.Context, req *connect.Reques
 
 // GetPipeline returns one pipeline, including its revision history.
 func (s *PipelineService) GetPipeline(ctx context.Context, req *connect.Request[mgmtv1.GetPipelineRequest]) (*connect.Response[mgmtv1.Pipeline], error) {
-	p, err := s.loadPipeline(ctx, req.Msg.GetId())
+	p, err := s.loadPipeline(ctx, req.Msg.GetOrgId(), req.Msg.GetId())
 	if err != nil {
 		return nil, err
 	}
@@ -354,7 +367,7 @@ func (s *PipelineService) CreatePipeline(ctx context.Context, req *connect.Reque
 // UpdatePipeline updates a pipeline.
 func (s *PipelineService) UpdatePipeline(ctx context.Context, req *connect.Request[mgmtv1.UpdatePipelineRequest]) (*connect.Response[mgmtv1.Pipeline], error) {
 	msg := req.Msg
-	p, err := s.loadPipeline(ctx, msg.GetId())
+	p, err := s.loadPipeline(ctx, msg.GetOrgId(), msg.GetId())
 	if err != nil {
 		return nil, err
 	}
@@ -413,7 +426,7 @@ func (s *PipelineService) UpdatePipeline(ctx context.Context, req *connect.Reque
 
 // DeletePipeline deletes a pipeline.
 func (s *PipelineService) DeletePipeline(ctx context.Context, req *connect.Request[mgmtv1.DeletePipelineRequest]) (*connect.Response[mgmtv1.DeletePipelineResponse], error) {
-	p, err := s.loadPipeline(ctx, req.Msg.GetId())
+	p, err := s.loadPipeline(ctx, req.Msg.GetOrgId(), req.Msg.GetId())
 	if err != nil {
 		return nil, err
 	}
@@ -439,7 +452,7 @@ func (s *PipelineService) DeletePipeline(ctx context.Context, req *connect.Reque
 // included), then persists the new enabled state and dirties/recomputes the
 // serve cache for the org.
 func (s *PipelineService) setEnabled(ctx context.Context, orgIDStr, idStr string, enable bool) (*connect.Response[mgmtv1.Pipeline], error) {
-	p, err := s.loadPipeline(ctx, idStr)
+	p, err := s.loadPipeline(ctx, orgIDStr, idStr)
 	if err != nil {
 		return nil, err
 	}
@@ -508,7 +521,7 @@ func (s *PipelineService) ValidatePipeline(ctx context.Context, req *connect.Req
 
 // PreviewMatches previews which collectors a pipeline's matchers would select.
 func (s *PipelineService) PreviewMatches(ctx context.Context, req *connect.Request[mgmtv1.PreviewMatchesRequest]) (*connect.Response[mgmtv1.PreviewMatchesResponse], error) {
-	p, err := s.loadPipeline(ctx, req.Msg.GetId())
+	p, err := s.loadPipeline(ctx, req.Msg.GetOrgId(), req.Msg.GetId())
 	if err != nil {
 		return nil, err
 	}
@@ -542,7 +555,7 @@ func (s *PipelineService) PreviewMatches(ctx context.Context, req *connect.Reque
 
 // ListRevisions lists a pipeline's revision history.
 func (s *PipelineService) ListRevisions(ctx context.Context, req *connect.Request[mgmtv1.ListRevisionsRequest]) (*connect.Response[mgmtv1.ListRevisionsResponse], error) {
-	p, err := s.loadPipeline(ctx, req.Msg.GetId())
+	p, err := s.loadPipeline(ctx, req.Msg.GetOrgId(), req.Msg.GetId())
 	if err != nil {
 		return nil, err
 	}

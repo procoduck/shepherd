@@ -3,6 +3,7 @@ package mgmtapi_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -227,6 +228,44 @@ var _ = Describe("PipelineService Connect RPC", Label("integration"), func() {
 		newGraphJSON, err := json.Marshal(newGraph)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(string(stored.WizardState)).To(MatchJSON(newGraphJSON))
+	})
+
+	It("refuses to read another org's pipeline through a caller-supplied org id", func() {
+		// Tenant isolation: the authz interceptor only proves the caller may act on
+		// the org NAMED IN THE REQUEST. Without an ownership check the caller could
+		// pair their own org id with any pipeline id and read it. NotFound rather
+		// than PermissionDenied so the response does not confirm it exists.
+		other, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
+			Name:          fmt.Sprintf("rpc-pipeline-other-%d", time.Now().UnixNano()),
+			DisplayName:   "Other Org",
+			AdminGroupID:  "admin-group",
+			ReaderGroupID: pgtype.Text{},
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		foreign, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: other.ID, Name: "foreign-pipeline", Contents: "// foreign",
+			Matchers: json.RawMessage(`[]`), Enabled: false, Source: "ui",
+			WizardState: json.RawMessage(`{}`), CreatedBy: "test", UpdatedBy: "test",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		cookie := sessionCookie(true)
+		for _, procedure := range []string{
+			"/shepherd.mgmt.v1.PipelineService/GetPipeline",
+			"/shepherd.mgmt.v1.PipelineService/DeletePipeline",
+		} {
+			resp := postConnect(procedure, map[string]any{
+				"org_id": orgID, // the caller's own org, NOT the pipeline's
+				"id":     foreign.ID.String(),
+			}, cookie)
+			Expect(resp.StatusCode).To(Equal(http.StatusNotFound), "%s must not reach another org's pipeline", procedure)
+		}
+
+		// And it must still be there.
+		stored, err := st.Queries.GetPipelineByID(ctx, foreign.ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(stored.Name).To(Equal("foreign-pipeline"))
 	})
 
 	It("maps a missing pipeline to the Connect not_found code (404)", func() {
