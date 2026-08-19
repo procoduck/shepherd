@@ -84,7 +84,7 @@ export function UpgradeReview({ open, onClose, onAccept }: UpgradeReviewProps) {
               <p data-testid='upgrade-no-items'>No structural changes detected.</p>
             )}
             <div className='flex gap-2 mt-4 flex-col'>
-              <p className='text-xs text-muted-foreground'>
+              <p className='text-xs text-muted'>
                 Accept stamps the new schema version in your local draft. Save the pipeline to
                 persist the upgrade.
               </p>

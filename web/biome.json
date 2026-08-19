@@ -1,9 +1,20 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.8/schema.json",
-  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["**", "!node_modules/**", "!dist/**", "!coverage/**"]
+    "includes": [
+      "**",
+      "!node_modules/**",
+      "!dist/**",
+      "!coverage/**",
+      "!src/gen/**",
+      "!src/visual/__fixtures__/corpus/**"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -14,8 +25,24 @@
   },
   "linter": {
     "enabled": true,
-    "rules": { "preset": "none" },
-    "includes": ["**", "!**/*.js", "!**/*.d.ts", "!node_modules/**", "!dist/**", "!coverage/**"]
+    "rules": {
+      "preset": "none"
+    },
+    "includes": [
+      "**",
+      "!**/*.js",
+      "!**/*.d.ts",
+      "!node_modules/**",
+      "!dist/**",
+      "!coverage/**",
+      "!src/gen/**",
+      "!src/visual/__fixtures__/corpus/**"
+    ]
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
   },
   "javascript": {
     "formatter": {
@@ -31,7 +58,12 @@
   },
   "overrides": [
     {
-      "includes": ["**/*.ts", "**/*.tsx", "!**/*.test.ts", "!**/*.test.tsx"],
+      "includes": [
+        "**/*.ts",
+        "**/*.tsx",
+        "!**/*.test.ts",
+        "!**/*.test.tsx"
+      ],
       "javascript": {
         "globals": [
           "console",
@@ -138,7 +170,10 @@
       }
     },
     {
-      "includes": ["**/*.test.ts", "**/*.test.tsx"],
+      "includes": [
+        "**/*.test.ts",
+        "**/*.test.tsx"
+      ],
       "javascript": {
         "globals": [
           "console",
@@ -225,6 +260,10 @@
   ],
   "assist": {
     "enabled": true,
-    "actions": { "source": { "organizeImports": "on" } }
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
   }
 }

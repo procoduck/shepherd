@@ -10,6 +10,16 @@ const LABELS: Record<string, string> = {
   config: 'Config',
   advanced: 'Advanced',
 };
+// Mirrors the border color families PipelineNode/CATEGORY_BORDER use, as a plain
+// bg-* dot instead of a border-l-* class. Kept local (not schemaAdapter.ts) since
+// A4 replaces CATEGORY_BORDER's source with schema-driven colors separately.
+const CATEGORY_DOT: Record<string, string> = {
+  sources: 'bg-blue-500',
+  transform: 'bg-purple-500',
+  destinations: 'bg-emerald-500',
+  config: 'bg-slate-400',
+  advanced: 'bg-slate-300',
+};
 
 export function Palette() {
   const schema = useVisualStore((s) => s.schema);
@@ -71,23 +81,23 @@ export function Palette() {
 
   return (
     <div
-      className='w-64 border-r flex flex-col overflow-hidden shrink-0'
+      className='w-64 bg-panel border-r border-border flex flex-col overflow-hidden shrink-0'
       data-testid='palette'
       onWheel={(e) => e.stopPropagation()}
     >
-      <div className='p-2 border-b'>
+      <div className='p-2 border-b border-border'>
         <input
           type='text'
           placeholder='Search components...'
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className='w-full px-2 py-1 text-sm border rounded bg-background'
+          className='w-full px-2 py-1.5 text-sm rounded-md border border-border-strong bg-panel placeholder:text-muted-2 outline-none focus:border-accent'
           aria-label='Search palette'
           data-testid='palette-search'
         />
       </div>
       {filterBySelected && selectedNode && (
-        <div className='px-3 py-1.5 bg-indigo-950/50 border-b flex items-center justify-between gap-2 text-xs'>
+        <div className='px-3 py-1.5 bg-indigo-950/50 border-b border-border flex items-center justify-between gap-2 text-xs'>
           <span className='text-indigo-300 truncate'>
             Compatible with <span className='font-mono'>{selectedNode.component}</span>
           </span>
@@ -105,8 +115,8 @@ export function Palette() {
           const catItems = filtered.filter((c) => c.category === cat);
           if (catItems.length === 0) return null;
           return (
-            <details key={cat} open className='border-b'>
-              <summary className='px-3 py-1.5 text-xs font-semibold uppercase tracking-wide cursor-pointer select-none'>
+            <details key={cat} open className='border-b border-border'>
+              <summary className='px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-2 cursor-pointer select-none'>
                 {LABELS[cat]}
               </summary>
               {catItems.map(({ name, def }) => (
@@ -117,9 +127,13 @@ export function Palette() {
                   data-testid={`palette-item-${name}`}
                   onDragStart={(e) => e.dataTransfer.setData('application/vb-component', name)}
                   onClick={() => handleClick(name)}
-                  className='px-3 py-1.5 text-sm cursor-pointer hover:bg-accent flex items-center justify-between gap-1'
+                  className='px-3 py-1.5 text-sm cursor-pointer hover:bg-accent/10 flex items-center gap-2'
                 >
-                  <span className='font-mono truncate'>{name}</span>
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full shrink-0 ${CATEGORY_DOT[cat]}`}
+                    aria-hidden='true'
+                  />
+                  <span className='font-mono truncate flex-1'>{name}</span>
                   {def.stability !== 'ga' && (
                     <span
                       className={`text-xs px-1 rounded shrink-0 ${

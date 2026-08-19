@@ -20,7 +20,7 @@ export function InspectorPanel() {
   const upgradeNeeded = currentVersion != null && doc.schema_version !== currentVersion;
   if (!node || !def)
     return (
-      <div className='w-[360px] border-l p-4 text-sm text-muted-foreground' data-testid='inspector'>
+      <div className='w-[360px] border-l p-4 text-sm text-muted' data-testid='inspector'>
         <p>Select a node to inspect.</p>
         <div className='mt-4 text-xs'>
           Nodes: {doc.nodes.length}
@@ -62,7 +62,7 @@ export function InspectorPanel() {
       <div className='space-y-3'>
         {def.attributes.map((attr) => (
           <div key={attr.name}>
-            <label className='block text-xs text-muted-foreground mb-0.5'>{attr.name}</label>
+            <label className='block text-xs text-muted mb-0.5'>{attr.name}</label>
             {attr.type === 'secret' ? (
               <div
                 data-testid={`attr-secret-${attr.name}`}

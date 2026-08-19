@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   type LineTrace,
   renderVisual,
@@ -24,6 +24,24 @@ export function BottomDrawer() {
   const [logsResult, setLogsResult] = useState<{ traces: LineTrace[] }>();
   const [serverMismatch, setServerMismatch] = useState(false);
   const rendered = schema ? renderTS(doc, schema) : null;
+  // The collapsed bar's three labels double as tab affordances: clicking one
+  // both selects that tab and expands the drawer to show it.
+  const selectTab = (t: 'problems' | 'code' | 'simulate') => {
+    setTab(t);
+    setOpen(true);
+  };
+  // ⌃` toggles the drawer from anywhere in the builder, matching the hint shown
+  // on the status bar.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === '`') {
+        e.preventDefault();
+        setOpen((x) => !x);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
   const verify = async () => {
     const org = (window as unknown as { __initialMe?: { orgs?: Array<{ id: string }> } })
       .__initialMe?.orgs?.[0]?.id;
@@ -60,12 +78,8 @@ export function BottomDrawer() {
         >
           Run
         </button>
-        <span className='ml-3 text-xs text-muted-foreground'>
-          Uses built-in k8s fixture targets
-        </span>
-        {!selectedNode && (
-          <p className='text-xs text-muted-foreground'>Select a relabel node to trace</p>
-        )}
+        <span className='ml-3 text-xs text-muted'>Uses built-in k8s fixture targets</span>
+        {!selectedNode && <p className='text-xs text-muted'>Select a relabel node to trace</p>}
         <div className='mt-2 space-y-2'>
           {relabelResult?.traces.map((trace, ti) => (
             <div key={ti} className='flex gap-2 items-start flex-wrap'>
@@ -94,7 +108,7 @@ export function BottomDrawer() {
         </div>
       </>
     ) : (
-      <p className='text-xs text-muted-foreground'>Select a relabel node to trace</p>
+      <p className='text-xs text-muted'>Select a relabel node to trace</p>
     );
   const logsPanel =
     selectedNode?.component === 'loki.process' || !selectedNode ? (
@@ -106,10 +120,8 @@ export function BottomDrawer() {
         >
           Run
         </button>
-        <span className='ml-3 text-xs text-muted-foreground'>Uses built-in log fixtures</span>
-        {!selectedNode && (
-          <p className='text-xs text-muted-foreground'>Select a loki.process node to trace</p>
-        )}
+        <span className='ml-3 text-xs text-muted'>Uses built-in log fixtures</span>
+        {!selectedNode && <p className='text-xs text-muted'>Select a loki.process node to trace</p>}
         <div className='mt-2 space-y-2'>
           {logsResult?.traces.map((trace, ti) => (
             <div key={ti} className='flex gap-2 items-start flex-wrap'>
@@ -144,28 +156,46 @@ export function BottomDrawer() {
         </div>
       </>
     ) : (
-      <p className='text-xs text-muted-foreground'>Select a loki.process node to trace</p>
+      <p className='text-xs text-muted'>Select a loki.process node to trace</p>
     );
   return (
     <div
-      className={`border-t flex flex-col shrink-0 ${open ? 'h-64' : 'h-9'}`}
+      className={`bg-panel border-t border-border flex flex-col shrink-0 ${open ? 'h-64' : 'h-8'}`}
       data-testid='bottom-drawer'
     >
-      <div className='flex items-center border-b h-9 px-2 gap-1'>
-        <button data-testid='drawer-tab-problems' onClick={() => setTab('problems')}>
-          Problems{diagnostics.length ? ` (${diagnostics.length})` : ''}
-        </button>
-        <button data-testid='drawer-tab-code' onClick={() => setTab('code')}>
-          Code
-        </button>
-        <button data-testid='drawer-tab-simulate' onClick={() => setTab('simulate')}>
-          Simulate
+      <div className='flex items-center border-b border-border h-8 px-2 gap-3 text-xs shrink-0'>
+        <button
+          data-testid='drawer-tab-problems'
+          onClick={() => selectTab('problems')}
+          className={`font-medium ${diagnostics.length ? 'text-red-400' : 'text-emerald-400'}`}
+        >
+          Problems {diagnostics.length}
         </button>
         <button
-          className='ml-auto'
+          data-testid='drawer-tab-code'
+          onClick={() => selectTab('code')}
+          className='text-muted hover:text-muted-2'
+        >
+          Generated config
+        </button>
+        <button
+          data-testid='drawer-tab-simulate'
+          onClick={() => selectTab('simulate')}
+          className='text-muted hover:text-muted-2'
+        >
+          Simulation
+        </button>
+        <kbd
+          className='ml-auto text-[10px] font-mono text-muted-2 border border-border-strong rounded px-1 py-0.5'
+          title='Toggle drawer'
+        >
+          ⌃`
+        </kbd>
+        <button
           data-testid='drawer-toggle'
           aria-label={open ? 'Collapse drawer' : 'Expand drawer'}
           onClick={() => setOpen((x) => !x)}
+          className='text-muted-2 hover:text-muted'
         >
           {open ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
         </button>
@@ -180,7 +210,7 @@ export function BottomDrawer() {
                 </div>
               ))
             ) : (
-              <p className='text-xs text-muted-foreground'>No problems.</p>
+              <p className='text-xs text-muted'>No problems.</p>
             )
           ) : tab === 'code' ? (
             <div data-testid='code-tab-content'>

@@ -95,7 +95,7 @@ export function GraphViewPage() {
 
   if (loading) {
     return (
-      <div className='flex items-center justify-center h-full p-8 text-sm text-muted-foreground'>
+      <div className='flex items-center justify-center h-full p-8 text-sm text-muted'>
         Loading graph…
       </div>
     );
@@ -116,7 +116,7 @@ export function GraphViewPage() {
         className='h-11 border-b flex items-center px-4 gap-4 shrink-0'
         data-testid='graph-view-toolbar'
       >
-        <span className='text-sm font-medium text-muted-foreground'>Graph view — read only</span>
+        <span className='text-sm font-medium text-muted'>Graph view — read only</span>
         {graphData?.opaque && (
           <span className='text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200'>
             Partial — some expressions could not be mapped
@@ -155,12 +155,12 @@ export function GraphViewPage() {
             return node ? (
               <div className='absolute right-0 top-0 w-72 m-2 bg-card border rounded p-3 text-xs shadow-lg z-10'>
                 <div className='font-mono font-semibold mb-1'>{node.component}</div>
-                <div className='text-muted-foreground mb-2'>"{node.label}"</div>
+                <div className='text-muted mb-2'>"{node.label}"</div>
                 {Object.entries(node.props).length > 0 && (
                   <div className='space-y-1'>
                     {Object.entries(node.props).map(([key, value]) => (
                       <div key={key} className='flex gap-2'>
-                        <span className='text-muted-foreground'>{key}:</span>
+                        <span className='text-muted'>{key}:</span>
                         <span className='font-mono truncate'>{String(value)}</span>
                       </div>
                     ))}
@@ -176,7 +176,7 @@ export function GraphViewPage() {
         <div className='fixed inset-0 bg-black/40 flex items-center justify-center z-50'>
           <div className='bg-card border rounded-lg p-6 max-w-md w-full shadow-lg'>
             <h2 className='font-semibold mb-3'>Recreate as visual pipeline?</h2>
-            <p className='text-sm text-muted-foreground mb-4'>
+            <p className='text-sm text-muted mb-4'>
               This creates a <strong>new, separate draft</strong> from this pipeline&apos;s current
               content. The conversion is lossy — complex expressions and unsupported constructs may
               not transfer correctly. The original pipeline is not changed.
