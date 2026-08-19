@@ -125,10 +125,16 @@ Recorded because they show where previous review passes were wrong, not to reope
 Items 1–8 of the priority list are implemented (commits `2f99b21`…`436bfc2`); the four open
 questions below were answered as recorded in each commit. Still outstanding:
 
-- **Canvas width** — fixed for the builder panels (both now collapse; 424px → 968px at
-  1280 wide), but the app's own nav sidebar is still fixed at 240px on this route.
-- **CI runs no Playwright**, so none of the UI fixes have automated enforcement.
-- A couple of renderer-rule specs still use a small hand-written stand-in schema.
+- ~~Canvas width~~ — done. Both builder panels collapse and the app nav renders as a rail on
+  builder routes: **424px → 700px by default, 1152px fully collapsed** at 1280 wide.
+- ~~CI runs no Playwright~~ — done. The mocked suite (`test-ui`) and the fullstack suite
+  (`test-fullstack`, the only layer touching the real server and real schema) both run on PRs.
+- ~~Hand-written stand-in schema in renderer specs~~ — done; every spec now loads the embedded
+  artifact through the registry.
+- Still open: **F9-a** (the `ssh` auth kind fails in the compose stack), **F5** (VB-1 M7 sandbox
+  simulation, not started), five self-skipping mocked specs that mask gaps
+  (`editor-autocomplete`, `git`, `revisions`, `states` ×2), and the overlay's `needs_review`
+  entries pending an editorial pass.
 - Item 9 (extraction gaps) is done; item 10's `make schema-verify` now exists.
 
 ## Open questions for the maintainers
