@@ -331,25 +331,15 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 		})
 	})
 
-	_ = Describe("5. GitOps sync", func() {
-		It("syncs an alloy file from mockmsft ADO", func() {
-			Expect(orgID).NotTo(BeEmpty())
-
-			// Seed a .alloy file in the mock ADO.
-			fixture("ado_file", map[string]any{
-				"path":    "/pipelines/gitpipe.alloy",
-				"content": `// git-sourced pipeline\nprometheus.exporter.self "git" {}`,
-			})
-
-			// TODO: create ADO credential + repo link via API and wait for sync.
-			// Full wiring requires the gitsync reconciler to run with the mock ADO base URL,
-			// which is configured via SHEPHERD_ADO_BASE_URL in the compose stack.
-			// This scenario verifies the fixture endpoint is reachable.
-			resp, err := http.Get(mockmsftURL + "/health")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resp.StatusCode).To(Equal(http.StatusOK))
-			resp.Body.Close() //nolint:errcheck // test cleanup
-		})
+	// Scenario 5 (GitOps sync against a real git provider) is built in
+	// gitops_test.go: it needs its own collector lookup, Gitea fixture
+	// helpers (gitea_helpers_test.go), and a table-driven structure across
+	// auth kinds that doesn't fit this file's flat Describe/It list.
+	// Ordered so a failed earlier step (e.g. the initial sync) skips the
+	// steps built on top of it instead of cascading into confusing
+	// unrelated failures.
+	_ = Describe("5. GitOps sync", Ordered, func() {
+		gitOpsScenario5()
 	})
 
 	_ = Describe("6. RBAC", Ordered, func() {

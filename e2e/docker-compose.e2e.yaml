@@ -42,6 +42,67 @@ services:
       timeout: 5s
       retries: 10
 
+  # Real git server backing scenario 5 (F9, docs/git-provider-design.md §4) — replaces the
+  # hand-written ADO REST mock that used to live entirely in mockmsft. The suite talks to it
+  # directly over the host-published ports to seed repos and push real commits; shepherd talks
+  # to it over the compose network as http://gitea:3000 / ssh://git@gitea:2222.
+  gitea:
+    image: gitea/gitea:1-rootless
+    environment:
+      INSTALL_LOCK: "true"
+      HTTP_PORT: "3000"
+      # Rootless image can't bind privileged port 22; matches internal/gitrepo's own Gitea
+      # testcontainer setup (internal/gitrepo/gitrepo_suite_test.go) so the ssh auth-kind
+      # behavior tested there and here stays consistent.
+      DISABLE_SSH: "false"
+      SSH_LISTEN_PORT: "2222"
+      SSH_PORT: "2222"
+      GITEA__service__REQUIRE_SIGNIN_VIEW: "false"
+    ports:
+      - "3080:3000"
+      - "2222:2222"
+    volumes:
+      - gitea_e2e_data:/var/lib/gitea
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/healthz"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  # One-shot admin bootstrap, sharing gitea's data volume so it operates on the same sqlite
+  # DB the running gitea service just initialized. The e2e stack is always started fresh
+  # (make e2e tears the volume down at the end), so — unlike the dev compose's gitea-init —
+  # no idempotency guard is needed here; a non-zero exit on a genuine failure should fail
+  # the run.
+  gitea-init:
+    image: gitea/gitea:1-rootless
+    depends_on:
+      gitea:
+        condition: service_healthy
+    environment:
+      INSTALL_LOCK: "true"
+      HTTP_PORT: "3000"
+      DISABLE_SSH: "false"
+      SSH_LISTEN_PORT: "2222"
+      SSH_PORT: "2222"
+      GITEA__service__REQUIRE_SIGNIN_VIEW: "false"
+    volumes:
+      - gitea_e2e_data:/var/lib/gitea
+    command:
+      - gitea
+      - admin
+      - user
+      - create
+      - --username
+      - shepherd-admin
+      - --password
+      - Sh3pherd-Admin-Pass-1
+      - --email
+      - admin@shepherd.test
+      - --admin
+      - --must-change-password=false
+    restart: "no"
+
   shepherd-init:
     image: shepherd:local-init
     depends_on:
@@ -80,6 +141,14 @@ services:
     image: shepherd:local
     depends_on:
       shepherd-token:
+        condition: service_completed_successfully
+      # Not because shepherd itself needs Gitea up (gitsync only matters once
+      # a test creates a repo link) — `docker compose up --wait` only treats
+      # a one-shot container's exit as a legitimate terminal state when some
+      # other service names it via service_completed_successfully; without
+      # that, gitea-init's normal `Exited (0)` fails the wait, per the
+      # documented behavior of --wait for run-to-completion containers.
+      gitea-init:
         condition: service_completed_successfully
     command: ["serve"]
     ports:
@@ -126,6 +195,9 @@ services:
       - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
     ports:
       - "12345:12345"
+
+volumes:
+  gitea_e2e_data:
 
 networks:
   default:

@@ -1,5 +1,5 @@
 # DEV ONLY — Local development stack. Do not use in production.
-# Ports: postgres=15432, shepherd=8080, mockmsft=9090, oidc=8090
+# Ports: postgres=15432, shepherd=8080, mockmsft=9090, oidc=8090, gitea=3080(http)/2222(ssh)
 # Profiles:
 #   (default): postgres, shepherd-init, shepherd, mockmsft
 #   --profile oidc: adds mock-oauth2-server (for OIDC login testing)
@@ -43,6 +43,60 @@ services:
       timeout: 5s
       retries: 10
 
+  # Real git server backing GitOps (F9, docs/git-provider-design.md §4) — replaces the old
+  # hand-written ADO REST mock. shepherd-gitea-seed pushes .alloy fixtures to it via real git
+  # and wires up a git credential + repo link so GitPage has something real to show.
+  gitea:
+    image: gitea/gitea:1-rootless
+    environment:
+      INSTALL_LOCK: "true"
+      HTTP_PORT: "3000"
+      # The rootless image can't bind the privileged port 22, so its built-in SSH server
+      # listens on 2222 instead — set explicitly so a change to the image default doesn't
+      # silently break the `ssh` auth kind.
+      DISABLE_SSH: "false"
+      SSH_LISTEN_PORT: "2222"
+      SSH_PORT: "2222"
+      # Anonymous read of public repos — Gitea's default, set explicitly.
+      GITEA__service__REQUIRE_SIGNIN_VIEW: "false"
+    ports:
+      - "3080:3000"
+      - "2222:2222"
+    volumes:
+      - shepherd_dev_gitea:/var/lib/gitea
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/healthz"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  # One-shot admin bootstrap, sharing gitea's data volume. Idempotent: `make dev` is re-run
+  # without a reset routinely, and `gitea admin user create` fails loudly (exit != 0) once the
+  # user already exists — swallow exactly that so `docker compose up --wait` doesn't fail on a
+  # second run, matching shepherd-seed's own idempotency.
+  gitea-init:
+    image: gitea/gitea:1-rootless
+    depends_on:
+      gitea:
+        condition: service_healthy
+    environment:
+      INSTALL_LOCK: "true"
+      HTTP_PORT: "3000"
+      DISABLE_SSH: "false"
+      SSH_LISTEN_PORT: "2222"
+      SSH_PORT: "2222"
+      GITEA__service__REQUIRE_SIGNIN_VIEW: "false"
+    volumes:
+      - shepherd_dev_gitea:/var/lib/gitea
+    command:
+      - sh
+      - -c
+      - >
+        gitea admin user create --username shepherd-admin --password 'Sh3pherd-Admin-Pass-1'
+        --email admin@shepherd.test --admin --must-change-password=false
+        || echo 'gitea admin user already exists, skipping'
+    restart: "no"
+
   oidc:
     image: ghcr.io/navikt/mock-oauth2-server:6.0.1
     profiles: ["oidc"]
@@ -79,6 +133,8 @@ services:
     image: shepherd:local-init
     depends_on:
       shepherd-init:
+        condition: service_completed_successfully
+      gitea-init:
         condition: service_completed_successfully
     env_file: shepherd.dev.env
     environment:
@@ -167,6 +223,8 @@ services:
 volumes:
   shepherd_dev_postgres:
     name: shepherd_dev_postgres
+  shepherd_dev_gitea:
+    name: shepherd_dev_gitea
 
 networks:
   default:
