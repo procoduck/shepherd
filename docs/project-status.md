@@ -243,6 +243,43 @@ assumes CI enforces the milestone gates.
 
 ## 3a. STILL OPEN
 
+### B-MINIMAP — the canvas minimap draws no nodes · **low**
+
+Found in the 2026-08-19 browser sanity pass: the minimap renders as an empty grey rectangle
+however many nodes are on the canvas. React Flow gates `MiniMapNodes` on
+`nodeHasDimensions(userNode)`, and because the canvas runs controlled, the node objects
+`CanvasPane`'s `rfNodes` memo builds are all React Flow sees — they carry no
+`measured`/`width`/`initialWidth`, so every node is filtered out.
+
+Not fixed, deliberately. Round-tripping React Flow's measured dimensions back onto the nodes
+**breaks connection dragging**: `parseHandles` returns `undefined` for a node with no
+`measured`, which discards its cached handle bounds and forces a fresh DOM measurement on
+every rebuild of the array — and the wire gestures currently depend on that accidental
+re-measure. Supplying `measured` preserves stale bounds instead and drops land nowhere
+(3 `visual-linking` specs fail). `initialWidth`/`initialHeight` sidestep that path but are
+applied as inline width/height, pinning the rendered node size — wrong here, since node
+height varies with port count.
+
+The real fix is to give `rfNodes` stable object identity so React Flow stops re-measuring
+every node on every rebuild, then feed measured sizes back. That is the same controlled-mode
+round-tripping gap already recorded for `selected`, and belongs with that work. Recorded as a
+`test.fixme` in `web/tests/specs/visual-layout.spec.ts` so it is not silently lost.
+
+### B-SCHEMACACHE — `/api/schema/current` cached for a day · [FIXED 2026-08-19]
+
+`GetCurrent` and the version-pinned `Get` shared `public, max-age=86400, immutable`. Only the
+pinned endpoint earns that — it is content-addressed. `current` moves whenever the schema is
+regenerated, so browsers kept serving a stale artifact from disk for 24h with no revalidation.
+
+Symptom: the builder showed "Edges: 2" and drew none. The served schema had gained per-port
+`prop`/`role` fields, but the page still read a cached copy without them, so every handle fell
+back to a synthetic `p0`/`p1` index and no stored edge could resolve. `curl` saw the new shape
+while the page saw the old one — which is what made this look like a renderer bug for a while.
+`GetCurrent` now sends `no-cache`, keeping the ETag so unchanged schemas still 304.
+
+This also accounted for two oddities noted earlier in the walkthrough: port labels appearing to
+have vanished, and the toolbar/drawer problem counts disagreeing. Both were the stale schema.
+
 ### VB-REVIEW — visual builder is not usable end to end · **critical**
 
 Three independent fresh-context reviews (2026-08-19) found the builder cannot currently produce

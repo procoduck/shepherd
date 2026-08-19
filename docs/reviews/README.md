@@ -131,7 +131,14 @@ questions below were answered as recorded in each commit. Still outstanding:
   (`test-fullstack`, the only layer touching the real server and real schema) both run on PRs.
 - ~~Hand-written stand-in schema in renderer specs~~ — done; every spec now loads the embedded
   artifact through the registry.
-- Still open: **F9-a** (the `ssh` auth kind fails in the compose stack), **F5** (VB-1 M7 sandbox
+- ~~Stale schema served to the browser~~ — done. `/api/schema/current` was sent as
+  `immutable, max-age=86400`, so the page kept reading a pre-`prop`/`role` copy from disk cache
+  and every handle fell back to a synthetic `p0` index; the seeded `demo-visual` graph showed
+  three nodes and no wires. Now `no-cache` with the ETag retained (B-SCHEMACACHE in the ledger).
+  Verified in Chrome: `targets → targets`, `forward_to → receiver`, both edges drawn, Problems 0.
+- Still open: **B-MINIMAP** (the minimap draws no nodes — the direct fix breaks connection
+  dragging; it needs the controlled-mode node-identity work, same root as `selected`),
+  **F9-a** (the `ssh` auth kind fails in the compose stack), **F5** (VB-1 M7 sandbox
   simulation, not started), five self-skipping mocked specs that mask gaps
   (`editor-autocomplete`, `git`, `revisions`, `states` ×2), and the overlay's `needs_review`
   entries pending an editorial pass.
