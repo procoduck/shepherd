@@ -10,6 +10,7 @@ execution rather than inspection. No source was changed; these are assessments o
 | [`schema-generation.md`](schema-generation.md) | Extractor → artifact → overlay → serving → consumption; the `make schema` bump story |
 | [`graph-model-and-validation.md`](graph-model-and-validation.md) | Port identity, connectivity rules, pipeline construction, all validation layers, both code generators, text→graph parsing |
 | [`canvas-ux-and-forms.md`](canvas-ux-and-forms.md) | Canvas layout and interaction, palette/search, inspector forms, defaults and prefill, diagnostics feedback |
+| [`canvas-framework-evaluation.md`](canvas-framework-evaluation.md) | **Is React Flow the right library?** Defect census by true root cause, the single integration anti-pattern behind every canvas bug, alternatives assessed |
 
 ---
 
