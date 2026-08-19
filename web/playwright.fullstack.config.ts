@@ -24,6 +24,11 @@ export default defineConfig({
     colorScheme: 'dark',
     viewport: { width: 1440, height: 900 },
   },
-  // No webServer block — the stack is managed by make test-fullstack
+  // No webServer block — the stack is managed by make test-fullstack.
+  //
+  // NOTE the same staleness trap as playwright.config.ts, one level further out: this
+  // suite hits the Go server, which serves the SPA embedded at image-build time. A web
+  // source change only reaches it after `make docker-build-local` and a container
+  // recreate — `pnpm build` alone is not enough.
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 });

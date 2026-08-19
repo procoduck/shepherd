@@ -15,10 +15,14 @@ export default defineConfig({
     viewport: { width: 1440, height: 900 },
   },
   webServer: {
-    command: 'pnpm exec vite preview --port 4173 --strictPort',
+    // `vite preview` serves whatever is already in dist/ — it does NOT build. Running
+    // it alone means the suite silently tests a STALE bundle, so a source fix appears
+    // not to work and a regression can pass. Always build first; the extra few seconds
+    // buy the guarantee that what is tested is what the source says.
+    command: 'pnpm run build && pnpm exec vite preview --port 4173 --strictPort',
     url: 'http://localhost:4173',
     reuseExistingServer: false,
-    timeout: 30_000,
+    timeout: 120_000,
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 });
