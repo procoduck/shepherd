@@ -8,7 +8,9 @@ import (
 	. "github.com/onsi/gomega"
 
 	"shepherd/internal/merge"
+	"shepherd/internal/schema"
 	"shepherd/internal/validate"
+	"shepherd/internal/version"
 )
 
 func TestDevSeed(t *testing.T) {
@@ -134,5 +136,85 @@ var _ = Describe("seed pipeline contents", func() {
 
 		stage1 := validate.Stage1(demo.contents)
 		Expect(stage1.Valid).To(BeTrue(), "demo-visual contents failed stage 1: %+v", stage1.Diagnostics)
+	})
+})
+
+var _ = Describe("demoVisualGraph", func() {
+	// Regression: the visual canvas resolves an edge by matching its port name
+	// against a handle built from the schema's prop/export. A port name that does
+	// not exist on the component is not an error anywhere — React Flow simply drops
+	// the edge and L1 reports the node as unwired — so a graph can look saved and
+	// valid while rendering with no connections at all. This asserts every seeded
+	// edge references a port the served schema actually declares.
+	It("references only ports that exist in the schema artifact", func() {
+		reg, err := schema.New(schema.Embedded, version.AlloySchemaVersion)
+		Expect(err).NotTo(HaveOccurred())
+		merged, _, err := reg.Get(reg.CurrentVersion())
+		Expect(err).NotTo(HaveOccurred())
+
+		components, ok := merged["components"].(map[string]any)
+		Expect(ok).To(BeTrue(), "schema payload must carry components")
+
+		var graph struct {
+			Nodes []struct {
+				ID        string `json:"id"`
+				Component string `json:"component"`
+			} `json:"nodes"`
+			Edges []struct {
+				From struct {
+					Node string `json:"node"`
+					Port string `json:"port"`
+				} `json:"from"`
+				To struct {
+					Node string `json:"node"`
+					Port string `json:"port"`
+				} `json:"to"`
+			} `json:"edges"`
+		}
+		Expect(json.Unmarshal([]byte(demoVisualGraph), &graph)).To(Succeed())
+		Expect(graph.Edges).NotTo(BeEmpty())
+
+		componentOf := map[string]string{}
+		for _, n := range graph.Nodes {
+			componentOf[n.ID] = n.Component
+		}
+
+		// portNames returns the declared prop names (inputs) or export names
+		// (outputs) for a component.
+		portNames := func(componentName, side string) []string {
+			def, found := components[componentName].(map[string]any)
+			Expect(found).To(BeTrue(), "component %q must exist in the schema", componentName)
+			raw, ok := def[side].([]any)
+			if !ok {
+				return nil
+			}
+			var names []string
+			for _, p := range raw {
+				port, isMap := p.(map[string]any)
+				if !isMap {
+					continue
+				}
+				key := "prop"
+				if side == "outputs" {
+					key = "export"
+				}
+				if name, isStr := port[key].(string); isStr && name != "" {
+					names = append(names, name)
+				}
+			}
+			return names
+		}
+
+		for _, e := range graph.Edges {
+			fromComp := componentOf[e.From.Node]
+			toComp := componentOf[e.To.Node]
+			Expect(fromComp).NotTo(BeEmpty())
+			Expect(toComp).NotTo(BeEmpty())
+
+			Expect(portNames(fromComp, "outputs")).To(ContainElement(e.From.Port),
+				"edge source %s.%s: %q exports no such port", e.From.Node, e.From.Port, fromComp)
+			Expect(portNames(toComp, "inputs")).To(ContainElement(e.To.Port),
+				"edge target %s.%s: %q has no such input", e.To.Node, e.To.Port, toComp)
+		}
 	})
 })

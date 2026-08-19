@@ -71,14 +71,18 @@ prometheus.remote_write "seed" {
 }
 `
 
-// demoVisualGraph is a valid alloy-graph/v1 document — discovery.kubernetes ->
+// demoVisualGraph is a valid alloy-graph/v1 document. Port names must match the schema
+// artifact exactly or the canvas silently drops the edge: prometheus.scrape exports
+// nothing, so the metrics hop is modelled the way Alloy actually expresses it —
+// prometheus.remote_write EXPORTS "receiver", which scrape consumes via its
+// "forward_to" argument. Graph: discovery.kubernetes ->
 // prometheus.scrape -> prometheus.remote_write — adapted from the smallest
 // suitable corpus fixture (internal/visual/testdata/corpus/minimal-scrape.graph.json)
 // with node labels changed ("k8s"/"app"/"sink" -> "pods"/"demo"/"demo") so it
 // reads as its own example rather than a copy of that fixture. It seeds the
 // demo-visual pipeline's wizard_state so opening the visual builder shows a
 // real, editable graph instead of an empty canvas (D1/R3-H5).
-const demoVisualGraph = `{"kind":"alloy-graph/v1","schema_version":"alloy-v1.18.1","nodes":[{"id":"n1","component":"discovery.kubernetes","label":"pods","position":{"x":0,"y":0},"props":{"role":"pod"},"disabled":false,"notes":""},{"id":"n2","component":"prometheus.scrape","label":"demo","position":{"x":1,"y":0},"props":{},"disabled":false,"notes":""},{"id":"n3","component":"prometheus.remote_write","label":"demo","position":{"x":2,"y":0},"props":{},"disabled":false,"notes":""}],"edges":[{"id":"e1","from":{"node":"n1","port":"targets"},"to":{"node":"n2","port":"targets"}},{"id":"e2","from":{"node":"n2","port":"metrics"},"to":{"node":"n3","port":"receiver"}}],"bindings":[],"viewport":{"x":0,"y":0,"zoom":1},"meta":{"created_with":"shepherd-dev-seed"}}`
+const demoVisualGraph = `{"kind":"alloy-graph/v1","schema_version":"alloy-v1.18.1","nodes":[{"id":"n1","component":"discovery.kubernetes","label":"pods","position":{"x":40,"y":80},"props":{"role":"pod"},"disabled":false,"notes":""},{"id":"n2","component":"prometheus.scrape","label":"demo","position":{"x":420,"y":80},"props":{},"disabled":false,"notes":""},{"id":"n3","component":"prometheus.remote_write","label":"demo","position":{"x":800,"y":80},"props":{},"disabled":false,"notes":""}],"edges":[{"id":"e1","from":{"node":"n1","port":"targets"},"to":{"node":"n2","port":"targets"}},{"id":"e2","from":{"node":"n3","port":"receiver"},"to":{"node":"n2","port":"forward_to"}}],"bindings":[],"viewport":{"x":0,"y":0,"zoom":1},"meta":{"created_with":"shepherd-dev-seed"}}`
 
 // demoVisualContents is the exact render of demoVisualGraph — verified via
 // visual.Render against the corpus test schema — so contents and wizard_state

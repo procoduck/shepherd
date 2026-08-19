@@ -2,7 +2,7 @@
   "_meta": {
     "alloy_version": "v1.18.1",
     "components_total": 184,
-    "generated_at": "2026-08-18T09:39:15Z",
+    "generated_at": "2026-08-19T12:49:21Z",
     "generated_by": "shepherd-schema-gen/extract.go"
   },
   "components": {
@@ -2168,6 +2168,7 @@
       ],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -2565,15 +2566,18 @@
       "inputs": [
         {
           "cardinality": "list",
-          "type": "targets"
+          "prop": "forward_to",
+          "type": "loki.logs"
         },
         {
           "cardinality": "list",
-          "type": "loki.logs"
+          "prop": "targets",
+          "type": "targets"
         }
       ],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -2856,18 +2860,22 @@
       "inputs": [
         {
           "cardinality": "list",
-          "type": "targets"
+          "prop": "forward_to",
+          "type": "loki.logs"
         },
         {
           "cardinality": "list",
-          "type": "loki.logs"
+          "prop": "targets",
+          "type": "targets"
         }
       ],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         },
         {
+          "export": "logs_receiver",
           "type": "loki.logs"
         }
       ],
@@ -2928,15 +2936,18 @@
       "inputs": [
         {
           "cardinality": "list",
-          "type": "targets"
+          "prop": "forward_to",
+          "type": "loki.logs"
         },
         {
           "cardinality": "list",
-          "type": "loki.logs"
+          "prop": "targets",
+          "type": "targets"
         }
       ],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -3028,6 +3039,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -3158,6 +3170,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -3242,6 +3255,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -3357,6 +3371,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -3401,6 +3416,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -3435,6 +3451,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -3491,6 +3508,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -3542,6 +3560,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -3613,6 +3632,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -3637,6 +3657,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -3661,6 +3682,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -3705,6 +3727,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -3734,6 +3757,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -3758,6 +3782,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -3787,6 +3812,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -3816,6 +3842,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -3897,6 +3924,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -3926,6 +3954,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -3980,6 +4009,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -4014,6 +4044,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -4048,6 +4079,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -4077,6 +4109,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -4121,6 +4154,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -4271,6 +4305,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -4315,6 +4350,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -4380,11 +4416,13 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "join",
           "type": "targets"
         }
       ],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -4424,6 +4462,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -4485,11 +4524,13 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "targets",
           "type": "targets"
         }
       ],
       "outputs": [
         {
+          "export": "output",
           "type": "targets"
         }
       ],
@@ -4620,6 +4661,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -4649,6 +4691,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -4754,6 +4797,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -4859,6 +4903,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -5083,11 +5128,13 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "path_targets",
           "type": "targets"
         }
       ],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -5101,6 +5148,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "receiver",
           "type": "loki.logs"
         }
       ],
@@ -5140,15 +5188,18 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "targets",
           "type": "targets"
         },
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "loki.logs"
         }
       ],
       "outputs": [
         {
+          "export": "receiver",
           "type": "loki.logs"
         }
       ],
@@ -5168,11 +5219,13 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "loki.logs"
         }
       ],
       "outputs": [
         {
+          "export": "receiver",
           "type": "loki.logs"
         }
       ],
@@ -5239,11 +5292,13 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "loki.logs"
         }
       ],
       "outputs": [
         {
+          "export": "receiver",
           "type": "loki.logs"
         }
       ],
@@ -5441,11 +5496,13 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "loki.logs"
         }
       ],
       "outputs": [
         {
+          "export": "receiver",
           "type": "loki.logs"
         }
       ],
@@ -5485,6 +5542,7 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "loki.logs"
         }
       ],
@@ -5520,6 +5578,7 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "loki.logs"
         }
       ],
@@ -5601,6 +5660,7 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "loki.logs"
         }
       ],
@@ -5656,6 +5716,7 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "loki.logs"
         }
       ],
@@ -5906,10 +5967,12 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "targets",
           "type": "targets"
         },
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "loki.logs"
         }
       ],
@@ -6011,10 +6074,12 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "targets",
           "type": "targets"
         },
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "loki.logs"
         }
       ],
@@ -6113,6 +6178,7 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "loki.logs"
         }
       ],
@@ -6148,6 +6214,7 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "loki.logs"
         }
       ],
@@ -6183,6 +6250,7 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "loki.logs"
         }
       ],
@@ -6249,6 +6317,7 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "loki.logs"
         }
       ],
@@ -6464,6 +6533,7 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "loki.logs"
         }
       ],
@@ -6515,10 +6585,12 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "targets",
           "type": "targets"
         },
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "loki.logs"
         }
       ],
@@ -6580,6 +6652,7 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "loki.logs"
         }
       ],
@@ -6717,6 +6790,7 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "loki.logs"
         }
       ],
@@ -6906,6 +6980,7 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "loki.logs"
         }
       ],
@@ -6981,6 +7056,7 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "loki.logs"
         }
       ],
@@ -7125,6 +7201,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "receiver",
           "type": "loki.logs"
         }
       ],
@@ -8045,6 +8122,7 @@
       ],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -8110,6 +8188,7 @@
       ],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -8225,6 +8304,7 @@
       ],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -8675,6 +8755,7 @@
       ],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -8790,6 +8871,7 @@
       ],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -9038,6 +9120,7 @@
       ],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -9260,6 +9343,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -9644,6 +9728,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -9699,6 +9784,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -9957,6 +10043,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -10062,6 +10149,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -10356,6 +10444,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -10558,6 +10647,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -11078,6 +11168,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -11531,6 +11622,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -11550,11 +11642,13 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "loki.logs"
         }
       ],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -11784,6 +11878,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -12063,6 +12158,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -12127,11 +12223,13 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "prom.metrics"
         }
       ],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -12490,6 +12588,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -12672,6 +12771,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -13100,6 +13200,7 @@
       ],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -13180,6 +13281,7 @@
       ],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -13285,6 +13387,7 @@
       ],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -13350,6 +13453,7 @@
       ],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -13400,15 +13504,13 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "targets",
           "type": "targets"
-        },
-        {
-          "cardinality": "list",
-          "type": "otel.any"
         }
       ],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -13557,6 +13659,7 @@
       ],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -13617,6 +13720,7 @@
       ],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -13692,6 +13796,7 @@
       ],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -13943,6 +14048,7 @@
       ],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -14023,6 +14129,7 @@
       ],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -14093,6 +14200,7 @@
       ],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -14188,6 +14296,7 @@
       ],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -14258,6 +14367,7 @@
       ],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -14364,6 +14474,7 @@
       ],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -14544,6 +14655,7 @@
       ],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -14702,6 +14814,7 @@
       ],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -15692,6 +15805,7 @@
       ],
       "outputs": [
         {
+          "export": "input",
           "type": "otel.any"
         }
       ],
@@ -16318,6 +16432,7 @@
       ],
       "outputs": [
         {
+          "export": "receiver",
           "type": "loki.logs"
         }
       ],
@@ -16615,6 +16730,7 @@
       ],
       "outputs": [
         {
+          "export": "receiver",
           "type": "prom.metrics"
         }
       ],
@@ -17478,6 +17594,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "receiver",
           "type": "prom.metrics"
         }
       ],
@@ -17522,15 +17639,18 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "targets",
           "type": "targets"
         },
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "prom.metrics"
         }
       ],
       "outputs": [
         {
+          "export": "receiver",
           "type": "prom.metrics"
         }
       ],
@@ -17560,6 +17680,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -17649,6 +17770,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -17710,6 +17832,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -17814,6 +17937,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -17843,6 +17967,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -18165,6 +18290,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -18244,6 +18370,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -18313,6 +18440,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -18342,6 +18470,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -18462,6 +18591,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -18516,6 +18646,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -18580,6 +18711,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -18764,6 +18896,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -18839,6 +18972,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -18948,6 +19082,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -18992,6 +19127,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -19152,6 +19288,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -19238,6 +19375,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -19328,6 +19466,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -19399,6 +19538,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -19573,6 +19713,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -19586,6 +19727,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -19688,6 +19830,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -19747,6 +19890,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -19776,6 +19920,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -19795,6 +19940,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -19894,6 +20040,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -20314,6 +20461,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -20764,6 +20912,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "targets",
           "type": "targets"
         }
       ],
@@ -20933,6 +21082,7 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "prom.metrics"
         }
       ],
@@ -21103,6 +21253,7 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "prom.metrics"
         }
       ],
@@ -21273,6 +21424,7 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "prom.metrics"
         }
       ],
@@ -21443,6 +21595,7 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "prom.metrics"
         }
       ],
@@ -21478,6 +21631,7 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "prom.metrics"
         }
       ],
@@ -21550,11 +21704,13 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "prom.metrics"
         }
       ],
       "outputs": [
         {
+          "export": "receiver",
           "type": "prom.metrics"
         }
       ],
@@ -21886,6 +22042,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "receiver",
           "type": "prom.metrics"
         }
       ],
@@ -22071,10 +22228,12 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "targets",
           "type": "targets"
         },
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "prom.metrics"
         }
       ],
@@ -22284,6 +22443,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "receiver",
           "type": "prom.metrics"
         }
       ],
@@ -22464,11 +22624,13 @@
       "inputs": [
         {
           "cardinality": "list",
-          "type": "targets"
+          "prop": "forward_to",
+          "type": "pyroscope.profiles"
         },
         {
           "cardinality": "list",
-          "type": "pyroscope.profiles"
+          "prop": "targets",
+          "type": "targets"
         }
       ],
       "outputs": [],
@@ -22508,15 +22670,18 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "targets",
           "type": "targets"
         },
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "pyroscope.profiles"
         }
       ],
       "outputs": [
         {
+          "export": "receiver",
           "type": "pyroscope.profiles"
         }
       ],
@@ -22607,10 +22772,12 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "targets",
           "type": "targets"
         },
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "pyroscope.profiles"
         }
       ],
@@ -22636,6 +22803,7 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "pyroscope.profiles"
         }
       ],
@@ -22703,11 +22871,13 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "pyroscope.profiles"
         }
       ],
       "outputs": [
         {
+          "export": "receiver",
           "type": "pyroscope.profiles"
         }
       ],
@@ -22986,10 +23156,12 @@
       "inputs": [
         {
           "cardinality": "list",
+          "prop": "targets",
           "type": "targets"
         },
         {
           "cardinality": "list",
+          "prop": "forward_to",
           "type": "pyroscope.profiles"
         }
       ],
@@ -23072,6 +23244,7 @@
       "inputs": [],
       "outputs": [
         {
+          "export": "receiver",
           "type": "pyroscope.profiles"
         }
       ],

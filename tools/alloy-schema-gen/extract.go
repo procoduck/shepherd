@@ -26,11 +26,91 @@ import (
 
 // wireTypeMap maps metadata Type.Name → our canonical wire-type id (§3.1).
 var wireTypeMap = map[string]string{
-	"Targets":                         "targets",
+	"Targets":                          "targets",
 	"Prometheus `MetricsReceiver`":     "prom.metrics",
 	"Loki `LogsReceiver`":              "loki.logs",
 	"OpenTelemetry `otelcol.Consumer`": "otel.any", // refined per-signal below when possible
 	"Pyroscope `ProfilesReceiver`":     "pyroscope.profiles",
+}
+
+// goTypeWireMap maps the Go type of an Arguments/Exports field to our canonical
+// wire-type id (§3.1). Port NAMES cannot come from the metadata package — it reports
+// only the types a component accepts/exports — so the names are read from the alloy
+// struct tags on those fields, and this map decides which fields are ports at all.
+// Keys are matched against reflect.Type.String() with any slice/pointer stripped.
+var goTypeWireMap = map[string]string{
+	"discovery.Target":     "targets",
+	"storage.Appendable":   "prom.metrics",
+	"loki.LogsReceiver":    "loki.logs",
+	"otelcol.Consumer":     "otel.any",
+	"pyroscope.Appendable": "pyroscope.profiles",
+	"vcs.GitRepo":          "",
+}
+
+// wireTypeForGoType resolves a struct field's Go type to a wire-type id, reporting
+// whether the field is a list-cardinality port.
+func wireTypeForGoType(t reflect.Type) (wire string, isList bool, ok bool) {
+	for t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	if t.Kind() == reflect.Slice || t.Kind() == reflect.Array {
+		isList = true
+		t = t.Elem()
+		for t.Kind() == reflect.Ptr {
+			t = t.Elem()
+		}
+	}
+	wire, found := goTypeWireMap[t.String()]
+	if !found || wire == "" {
+		return "", false, false
+	}
+	return wire, isList, true
+}
+
+// portsFromStruct walks an Arguments or Exports struct and returns one PortDef per
+// field whose Go type is a wire type, carrying the field's alloy tag name. Named
+// ports are what let a stored graph reference a port stably; without them every
+// handle falls back to a synthetic index and saved graphs cannot round-trip.
+func portsFromStruct(t reflect.Type, export bool, depth int) []PortDef {
+	if t == nil || depth > maxDepth {
+		return nil
+	}
+	for t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct {
+		return nil
+	}
+	var ports []PortDef
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		tag := f.Tag.Get("alloy")
+		if tag == "" || tag == "-" {
+			if f.Anonymous {
+				ports = append(ports, portsFromStruct(f.Type, export, depth+1)...)
+			}
+			continue
+		}
+		name := strings.Split(tag, ",")[0]
+		if name == "" {
+			continue
+		}
+		wire, isList, ok := wireTypeForGoType(f.Type)
+		if !ok {
+			continue
+		}
+		p := PortDef{Type: wire}
+		if export {
+			p.Export = name
+		} else {
+			p.Prop = name
+			if isList {
+				p.Cardinality = "list"
+			}
+		}
+		ports = append(ports, p)
+	}
+	return ports
 }
 
 // ---- schema types ----
@@ -109,24 +189,40 @@ func main() {
 			cs.Opaque = true
 		}
 
-		// Port types from metadata.
+		// Ports. Preferred source is the Arguments/Exports struct tags, because only
+		// those carry the port NAME (targets, forward_to, receiver, ...) that a stored
+		// graph references. The metadata package knows the types but not the names, so
+		// it is used only as a fallback for components whose ports cannot be resolved
+		// from the structs (opaque args, or a wire type absent from goTypeWireMap).
+		if reg.Args != nil {
+			cs.Inputs = portsFromStruct(reflect.TypeOf(reg.Args), false, 0)
+		}
+		if reg.Exports != nil {
+			cs.Outputs = portsFromStruct(reflect.TypeOf(reg.Exports), true, 0)
+		}
+
 		meta, err := metadata.ForComponent(name)
 		if err == nil {
-			for _, t := range meta.AllTypesAccepted() {
-				if wt, ok := wireTypeMap[t.Name]; ok {
-					cs.Inputs = append(cs.Inputs, PortDef{
-						Type:        wt,
-						Cardinality: "list",
-					})
+			if len(cs.Inputs) == 0 {
+				for _, t := range meta.AllTypesAccepted() {
+					if wt, ok := wireTypeMap[t.Name]; ok {
+						cs.Inputs = append(cs.Inputs, PortDef{Type: wt, Cardinality: "list"})
+					}
 				}
 			}
-			for _, t := range meta.AllTypesExported() {
-				if wt, ok := wireTypeMap[t.Name]; ok {
-					cs.Outputs = append(cs.Outputs, PortDef{
-						Type: wt,
-					})
+			if len(cs.Outputs) == 0 {
+				for _, t := range meta.AllTypesExported() {
+					if wt, ok := wireTypeMap[t.Name]; ok {
+						cs.Outputs = append(cs.Outputs, PortDef{Type: wt})
+					}
 				}
 			}
+		}
+		if cs.Inputs == nil {
+			cs.Inputs = []PortDef{}
+		}
+		if cs.Outputs == nil {
+			cs.Outputs = []PortDef{}
 		}
 
 		cs.DefaultSnippet = fmt.Sprintf("%s \"example\" {}\n", name)

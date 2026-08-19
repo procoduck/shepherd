@@ -31,7 +31,10 @@ git clone --depth 1 --branch "${ALLOY_VERSION}" "${ALLOY_REPO}" "${SRC}"
 
 echo "==> Injecting extractor..."
 mkdir -p "${SRC}/cmd/shepherd-schema-dump"
-cp "${SCRIPT_DIR}/extract.go" "${SRC}/cmd/shepherd-schema-dump/main.go"
+# extract.go carries "//go:build ignore" so this repo's own `go build ./...` skips it.
+# That constraint must be stripped on the way in, or the injected package has no
+# buildable files and `go run` fails with "build constraints exclude all Go files".
+sed '/^\/\/go:build ignore$/d' "${SCRIPT_DIR}/extract.go" > "${SRC}/cmd/shepherd-schema-dump/main.go"
 
 echo "==> Running extractor..."
 mkdir -p "${REPO_ROOT}/internal/schema/artifacts"
