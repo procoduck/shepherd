@@ -1,7 +1,7 @@
 # Shepherd — project ledger
 
-> **This is the single live status document.** Baseline established 2026-08-19 by a full
-> code audit plus a real-browser walkthrough of the running dev stack. Completed design and
+> **This is the single live status document.** Baseline established 2026-08-19; the ledger
+> was then implemented (commits 381d876..2d9e8fa). Remaining open items are listed below. Completed design and
 > progress documents have moved to `docs/archive/` (see `docs/archive/README.md`).
 >
 > Update the checkboxes here as work lands. Do not start a second ledger.
@@ -56,11 +56,11 @@ Everything in this section was confirmed by running it, not by reading a summary
 
 ---
 
-## 2. Open bugs
+## 2. Bugs — all fixed 2026-08-19 (kept for context)
 
 Ordered by impact. Each was reproduced on the running stack unless noted.
 
-### B1 — Stale `FAILED` collector status never clears · **high**
+### B1 — [FIXED 2026-08-19] Stale `FAILED` collector status never clears · **high**
 
 A transient agent-side error (a DNS blip at startup is enough) sets
 `collector_instances.remote_config_status = 'FAILED'` and it stays there permanently. The
@@ -77,7 +77,7 @@ Alloy logged zero errors and `last_seen` advanced every 10s.
 decision on the clearing rule: treat a successful `GetConfig` whose served hash matches the
 agent's applied hash as recovery, or expire a `FAILED` older than N successful polls.
 
-### B2 — Admin UI is read-only: core onboarding is impossible in the browser · **high**
+### B2 — [FIXED 2026-08-19] Admin UI is read-only: core onboarding is impossible in the browser · **high**
 
 The backend implements the whole admin surface, but the pages render tables and nothing else:
 
@@ -91,7 +91,7 @@ The backend implements the whole admin surface, but the pages render tables and 
 Consequence: the documented onboarding flow (create org → claim cluster → assign groups)
 cannot be completed through the UI at all. Spec §12 and §13.5 define all of it.
 
-### B3 — No organisation switcher · **high**
+### B3 — [FIXED 2026-08-19] No organisation switcher · **high**
 
 `web/src/hooks/useOrg.ts` is `me?.orgs?.[0]?.id ?? ''`. Every org-scoped page — pipelines,
 destinations, git, audit, collectors — is permanently pinned to the alphabetically-first org.
@@ -101,27 +101,27 @@ An app admin who owns two orgs cannot reach the second one's data through the UI
 the day a switcher lands. Needs: a switcher in the shell, the selection persisted
 (localStorage or route param), and `useOrgId` reading from it.
 
-### B4 — Design tokens adopted only in the visual builder · **medium**
+### B4 — [FIXED 2026-08-19] Design tokens adopted only in the visual builder · **medium**
 
 `web/src/pages/*.tsx` uses **162 raw `zinc-*` classes and 0 token classes**. The `@theme`
 layer added during the visual-builder refinement (`--color-card`, `--color-panel`,
 `--color-border`, `--color-accent`, …) is only used under `web/src/visual/`. The two halves
 of the app will drift visually the first time a token value changes.
 
-### B5 — Group-assignment ("Access") management not wired · **medium**
+### B5 — [FIXED 2026-08-19] Group-assignment ("Access") management not wired · **medium**
 
 `POST/DELETE /collectors/{id}/assignments` exist and are RBAC-gated; the collector detail
 page has tab scaffolding but no working assignment editor, so readers cannot be granted
 access to a collector from the UI.
 
-### B6 — `github.com/lib/pq` carries 7 known vulnerabilities · **low (reachable)**
+### B6 — [FIXED 2026-08-19] `github.com/lib/pq` carries 7 known vulnerabilities · **low (reachable)**
 
 Pulled in indirectly by `golang-migrate`'s `database/postgres` driver via `internal/store`.
 `govulncheck` reports malicious-server panics and memory exhaustion, plus deprecated
 `x/crypto/openpgp`. Low practical risk (the DB endpoint is ours). Fix: switch migrate to its
 pgx driver, which removes the dependency entirely.
 
-### B7 — Documented spec-drift test does not exist · **low**
+### B7 — [FIXED 2026-08-19] Documented spec-drift test does not exist · **low**
 
 `docs/frontend-testing.md` describes a Vitest test that snapshots the mock route table
 against the endpoint list in spec §12 and fails when an endpoint has no handler. No such
@@ -129,9 +129,9 @@ test is present, so mock/API drift is currently unguarded.
 
 ---
 
-## 3. Features not yet implemented
+## 3. Features — implemented 2026-08-19 except F5 (kept for context)
 
-### F1 — Wizard UI (spec §13.5, milestone 7) · **high**
+### F1 — [DONE 2026-08-19] Wizard UI (spec §13.5, milestone 7) · **high**
 
 Backend is complete: registry, `app-observability` schema, commit endpoint, Connect service.
 `web/src/pages/WizardsPage.tsx` is an 8-line stub — no gallery, no stepper, no
@@ -140,16 +140,16 @@ absent, so CI stays green over the gap.
 
 Also missing server-side: the wizard **render/preview** endpoint (spec §12) — only `commit` exists.
 
-### F2 — Audit UI (spec §13.4) · **medium**
+### F2 — [DONE 2026-08-19] Audit UI (spec §13.4) · **medium**
 
 `web/src/pages/AuditPage.tsx` is an 8-line stub. The API works (verified: 4 rows for
 `platform-org`) and returns actor/action/resource/timestamp; nothing renders them.
 
-### F3 — Overview dashboard (spec §13.5) · **medium**
+### F3 — [DONE 2026-08-19] Overview dashboard (spec §13.5) · **medium**
 
 Collectors, active pipelines and clusters tiles are hardcoded `—`. Only the org count is real.
 
-### F4 — Missing REST/RPC endpoints from spec §12 · **medium**
+### F4 — [DONE 2026-08-19] Missing REST/RPC endpoints from spec §12 · **medium**
 
 - `POST /api/orgs/{org}/ado-credentials/{id}/test` — verify credentials reach the repo
   (absorbed by **F9**, which redefines it as a git `ls-remote` reachability check)
@@ -166,13 +166,13 @@ graph rewrite (destinations → capture receivers, discovery → stubs, secrets 
 `/simulate/runs` endpoints, run UI, containment, and the `sandbox-sim` e2e profile.
 Nothing is built. S1 (flow check) and S2 (relabel/log trace) are done and shipping.
 
-### F6 — VB-1 M8: hardening · **low**
+### F6 — [DONE 2026-08-19] VB-1 M8: hardening · **low**
 
 Includes the deferred item: `wizard_state` is not persisted on pipeline `PUT`
 (`UpdatePipelineParams` has no such field), so a visual pipeline edited through the text API
 loses its graph.
 
-### F9 — Standard-git GitOps with pluggable provider auth · **high**
+### F9 — [DONE 2026-08-19] Standard-git GitOps with pluggable provider auth · **high**
 
 **New requirement (2026-08-19).** GitOps must work against any standard git server, as broadly
 as possible. Provider-specific work is confined to **authentication**: Azure DevOps needs Entra
@@ -221,13 +221,13 @@ Still open in the design: additional providers (AWS CodeCommit SigV4, GCP Source
 reachable today via `basic`), and pre-expiry warning for rotating GitHub App keys / ADO client
 secrets.
 
-### F7 — CI · **high (process)**
+### F7 — [DONE 2026-08-19] CI · **high (process)**
 
 There is no `.github/` (or any pipeline definition). Everything — lint, tests, e2e,
 `release-snapshot`, the `check-*` guards — runs only when someone runs it locally. The spec
 assumes CI enforces the milestone gates.
 
-### F8 — Remaining smaller gaps
+### F8 — [DONE 2026-08-19] Remaining smaller gaps
 
 - [ ] Health endpoint does not check DB connectivity or pending migrations
       (`internal/server/server.go:250`)
@@ -239,6 +239,40 @@ assumes CI enforces the milestone gates.
       SPA" directly above the line that serves it
 
 ---
+
+## 3a. STILL OPEN
+
+### F5 — VB-1 M7: S3 sandbox simulation · **medium** (not started)
+
+`docs/visual-builder-design-VB1.md` §6.4. Ephemeral Alloy runner with a capture harness,
+graph rewrite (destinations → capture receivers, discovery → stubs, secrets dropped),
+`/simulate/runs` endpoints, run UI, containment, and the `sandbox-sim` e2e profile.
+Deliberately excluded from the 2026-08-19 implementation run: it executes user-authored
+config and needs real security containment, so a rushed version is worse than none.
+S1 (flow check) and S2 (relabel/log trace) are done and shipping.
+
+### F9-a — ssh auth kind fails in the compose stack · **medium**
+
+The `ssh` credential kind works in `internal/gitrepo`'s own suite, which performs real ssh
+handshakes against a Gitea container and covers the positive case plus wrong-host-key and
+wrong-passphrase negatives. In the e2e compose stack the same path fails with go-git's
+"unable to find any valid known_hosts file", i.e. the per-credential `HostKeyCallback` is
+not reaching the transport there even though `git_credentials.ssh_known_hosts` is populated
+and the username is correct. The e2e case is `Skip`ped with that reason — it is left in
+place, and host-key verification must NOT be relaxed to make it pass. Every other auth kind
+(`pat`, `github_app`) passes end to end.
+
+### Smaller follow-ups
+
+- [ ] `make e2e` does not reset volumes before starting, so a re-run after a failed run dies
+      on a duplicate agent-token primary key. Either `down -v` first or make token creation
+      idempotent.
+- [ ] CI wires lint/build/guards/test/web; the spec's fuller ordering (smoke,
+      test-integration, test-ui, test-fullstack) is not yet wired — noted in `ci.yml`.
+- [ ] `go.mod` still carries a vestigial `github.com/lib/pq` line via testcontainers' own
+      test dependency. No package we build or test imports it (govulncheck is clean).
+- [ ] Overlay entries scaffolded by `make schema` carry `needs_review: true` and need an
+      editorial pass on the next Alloy bump.
 
 ## 4. Explicitly out of scope (spec §19)
 
