@@ -166,3 +166,42 @@ test('demo visual pipeline opens on the canvas', async ({ page }) => {
   const body = await page.locator('body').innerText();
   expect(body, 'dev seed should contain a visual demo pipeline').toMatch(/demo-visual|visual/i);
 });
+
+test('the seeded visual pipeline renders its edges on the canvas', async ({ page }) => {
+  // Regression: React Flow resolves an edge by matching its port name against a
+  // handle id built from the schema's prop/export. When the schema carried no port
+  // names at all, every handle fell back to a synthetic index, so a stored graph's
+  // edges matched nothing and were silently dropped — the canvas showed nodes with
+  // no connections and L1 called them unwired.
+  await loginAsAdmin(page);
+  const me = await (await page.request.get('/api/me')).json();
+  const org =
+    (me.orgs ?? []).find((o: { name: string }) => o.name === 'platform-org') ?? me.orgs?.[0];
+  test.skip(!org, 'dev seed not present');
+
+  const list = await (await page.request.get(`/api/orgs/${org.id}/pipelines`)).json();
+  const demo = (list.items ?? []).find((p: { name: string }) => p.name === 'demo-visual');
+  test.skip(!demo, 'demo-visual pipeline not seeded');
+
+  await page.goto(`/pipelines/${demo.id}/visual`);
+  await expect(page.getByTestId('pipeline-node').first()).toBeVisible({ timeout: 20000 });
+  await expect(page.getByTestId('pipeline-node')).toHaveCount(3);
+
+  // Handles must carry the component's REAL Alloy port names. This is the assertion
+  // that fails if the schema ever regresses to unnamed ports: every handle id would
+  // become a synthetic index and no stored graph could resolve.
+  const handleIds = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('.react-flow__handle')).map(
+      (h) => (h as HTMLElement).dataset.handleid ?? '',
+    ),
+  );
+  expect(handleIds).toContain('targets');
+  expect(handleIds).toContain('forward_to');
+  expect(handleIds).toContain('receiver');
+  expect(handleIds.filter((id) => /^p\d+$/.test(id))).toEqual([]);
+
+  // ...and an edge referencing those names must actually be drawn.
+  await expect(page.locator('.react-flow__edge')).not.toHaveCount(0);
+
+  await page.screenshot({ path: 'walkthrough/feature-visual-edges.png', fullPage: true });
+});

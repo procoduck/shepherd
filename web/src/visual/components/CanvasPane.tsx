@@ -14,7 +14,7 @@ import {
   useReactFlow,
   type XYPosition,
 } from '@xyflow/react';
-import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef } from 'react';
 import '@xyflow/react/dist/base.css';
 import deepEqual from 'fast-deep-equal';
 import { nanoid } from 'nanoid';
@@ -31,19 +31,34 @@ const nodeTypes: NodeTypes = { pipeline: PipelineNode as NodeTypes[string] };
 // Clipboard data is scoped to this canvas instance, preventing cross-pipeline pastes.
 type Clipboard = { nodes: GraphNode[]; edges: GraphEdge[] };
 
+// FitOnFirstNodes fits the graph once per loaded document. It re-fits when
+// importSeq changes, because a pipeline's graph arrives asynchronously after mount:
+// without that the stored viewport wins and the nodes render clipped under the
+// toolbar until the user presses the fit control.
 function FitOnFirstNodes() {
   const { fitView } = useReactFlow();
   const initialized = useNodesInitialized();
   const nodeCount = useVisualStore((s) => s.doc.nodes.length);
-  const [hasFit, setHasFit] = useState(false);
+  const importSeq = useVisualStore((s) => s.importSeq);
+  const fittedForRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (initialized && nodeCount > 0 && !hasFit) {
-      fitView({ padding: 0.15, duration: 200 });
-      setHasFit(true);
+    if (nodeCount === 0) {
+      fittedForRef.current = null;
+      return;
     }
-    if (nodeCount === 0) setHasFit(false);
-  }, [initialized, nodeCount, hasFit, fitView]);
+    if (initialized && fittedForRef.current !== importSeq) {
+      fittedForRef.current = importSeq;
+      // Defer a frame: on a freshly imported document React Flow reports the nodes
+      // as initialized before their measured sizes land, and fitting against
+      // unmeasured nodes leaves the stored viewport in place.
+      const raf = requestAnimationFrame(() => {
+        fitView({ padding: 0.15, duration: 200 });
+      });
+      return () => cancelAnimationFrame(raf);
+    }
+    return undefined;
+  }, [initialized, nodeCount, importSeq, fitView]);
 
   return null;
 }
@@ -459,6 +474,7 @@ export function CanvasPane() {
         edges={rfEdges}
         nodeTypes={nodeTypes}
         defaultViewport={doc.viewport}
+        fitView
         isValidConnection={isValidConnection}
         onConnect={onConnect}
         onConnectStart={onConnectStart}

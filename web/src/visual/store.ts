@@ -115,6 +115,10 @@ interface VisualStore {
   removeNode: (id: string) => void;
   addEdge: (from: { node: string; port: string }, to: { node: string; port: string }) => void;
   pasteNodesAndEdges: (nodes: GraphNode[], edges: GraphEdge[]) => void;
+  /** Bumped whenever a whole document is swapped in, so the canvas can re-fit the
+   * view. Without it a graph loaded after mount keeps the stored viewport and the
+   * nodes render clipped under the toolbar until the fit control is pressed. */
+  importSeq: number;
   importGraph: (doc: GraphDocument) => void;
   resetDoc: () => void;
   removeEdge: (id: string) => void;
@@ -157,6 +161,7 @@ export const useVisualStore = create<VisualStore>()(
   temporal(
     (set, get) => ({
       doc: makeDefaultDoc(),
+      importSeq: 0,
       selected: [],
       diagnostics: [],
       schema: null,
@@ -261,7 +266,12 @@ export const useVisualStore = create<VisualStore>()(
           return { doc, diagnostics: revalidate({ ...state, doc }) };
         }),
 
-      importGraph: (doc) => set((state) => ({ doc, diagnostics: revalidate({ ...state, doc }) })),
+      importGraph: (doc) =>
+        set((state) => ({
+          doc,
+          importSeq: state.importSeq + 1,
+          diagnostics: revalidate({ ...state, doc }),
+        })),
 
       resetDoc: () =>
         set({

@@ -35,7 +35,7 @@ services:
     environment:
       LISTEN: ":9090"
     ports:
-      - "9090:9090"
+      - "19090:9090"
     healthcheck:
       test: ["CMD", "/mockmsft", "-health-check"]
       interval: 2s
@@ -59,8 +59,8 @@ services:
       SSH_PORT: "2222"
       GITEA__service__REQUIRE_SIGNIN_VIEW: "false"
     ports:
-      - "3080:3000"
-      - "2222:2222"
+      - "13080:3000"
+      - "12222:2222"
     volumes:
       - gitea_e2e_data:/var/lib/gitea
     healthcheck:
@@ -152,7 +152,9 @@ services:
         condition: service_completed_successfully
     command: ["serve"]
     ports:
-      - "8080:8080"
+      # Host ports live in a dedicated range so this stack can run alongside the
+      # dev stack (dev/docker-compose.dev.yaml), which owns the low-numbered ones.
+      - "18080:8080"
       - "18090:9090" # shepherd metrics listener (V4-4)
     environment:
       SHEPHERD_DATABASE_URL: postgres://shepherd:shepherd@postgres:5432/shepherd_e2e?sslmode=disable
@@ -194,7 +196,7 @@ services:
     volumes:
       - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
     ports:
-      - "12345:12345"
+      - "22345:12345"
 
 volumes:
   gitea_e2e_data:

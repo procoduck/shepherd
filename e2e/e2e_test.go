@@ -24,9 +24,9 @@ func TestE2E(t *testing.T) {
 }
 
 const (
-	shepherdURL = "http://localhost:8080"
-	alloyURL    = "http://localhost:12345"
-	mockmsftURL = "http://localhost:9090"
+	shepherdURL = "http://localhost:18080"
+	alloyURL    = "http://localhost:22345"
+	mockmsftURL = "http://localhost:19090"
 	metricsURL  = "http://localhost:18090"
 
 	appAdminGroupID = "11111111-1111-1111-1111-111111111111"

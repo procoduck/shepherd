@@ -2,7 +2,7 @@ import { useParams } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
 import { graphView } from '../../api/client';
 import { clients, toApiError } from '../../api/transport';
-import { useOrgId } from '../../hooks/useOrg';
+import { useOrg } from '../../hooks/useOrg';
 import { fetchSchema } from '../schemaAdapter';
 import { useVisualStore } from '../store';
 import { BottomDrawer } from './BottomDrawer';
@@ -19,7 +19,7 @@ if ((import.meta as ImportMeta & { env: { MODE: string } }).env.MODE !== 'produc
 export function VisualBuilderPage() {
   const { id } = useParams({ strict: false }) as { id?: string };
   const pipelineId = id ?? 'new';
-  const orgId = useOrgId();
+  const { orgId, orgs, setOrgId } = useOrg();
   const prevPipelineIdRef = useRef<string | null>(null);
 
   // Use a ref to the store action to avoid including it in the effect deps
@@ -76,8 +76,36 @@ export function VisualBuilderPage() {
     setLoadError(null);
     (async () => {
       try {
-        const pipeline = await clients.pipeline.getPipeline({ orgId, id: pipelineId });
+        // A pipeline URL is shareable, so it may name a pipeline that lives in an org
+        // other than the one currently selected. Try the active org first, then the
+        // user's other orgs, and move the selection to whichever owns it — otherwise
+        // the fetch 404s and the canvas just sits empty with no explanation.
+        let effectiveOrgId = orgId;
+        let pipeline = await clients.pipeline
+          .getPipeline({ orgId, id: pipelineId })
+          .catch(() => null);
+        if (!pipeline) {
+          for (const candidate of orgs) {
+            if (candidate.id === orgId) continue;
+            const found = await clients.pipeline
+              .getPipeline({ orgId: candidate.id, id: pipelineId })
+              .catch(() => null);
+            if (found) {
+              pipeline = found;
+              effectiveOrgId = candidate.id;
+              break;
+            }
+          }
+        }
         if (cancelled) return;
+        if (!pipeline) {
+          setLoadError('Pipeline not found in any organisation you can access.');
+          setLoadState('error');
+          return;
+        }
+        if (effectiveOrgId !== orgId) {
+          setOrgId(effectiveOrgId);
+        }
         if (pipeline.source !== 'visual') {
           setLoadError(
             `"${pipeline.name}" wasn't created with the visual builder and can't be edited here. Open its graph view and use "Recreate as visual pipeline" instead.`,
@@ -85,7 +113,7 @@ export function VisualBuilderPage() {
           setLoadState('error');
           return;
         }
-        const gv = await graphView(orgId, pipelineId);
+        const gv = await graphView(effectiveOrgId, pipelineId);
         if (cancelled) return;
         if (gv.opaque) {
           setLoadError(
@@ -106,7 +134,7 @@ export function VisualBuilderPage() {
     return () => {
       cancelled = true;
     };
-  }, [pipelineId, orgId]);
+  }, [pipelineId, orgId, orgs, setOrgId]);
 
   if (pipelineId !== 'new' && loadState === 'loading') {
     return (

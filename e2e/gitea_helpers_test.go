@@ -42,12 +42,12 @@ const (
 	// common local collision with other dev tooling that also defaults to
 	// 3000 — the container's internal port (what shepherd itself talks to
 	// over the compose network as gitea:3000) is unaffected.
-	giteaHostBaseURL = "http://localhost:3080"
+	giteaHostBaseURL = "http://localhost:13080"
 	// giteaHostSSHAddr is the host-published address of Gitea's SSH
 	// listener, used only to observe its real host key (see
 	// fetchSSHHostKey) — the key itself is identical regardless of
 	// whether it's reached via the published port or the compose network.
-	giteaHostSSHAddr = "localhost:2222"
+	giteaHostSSHAddr = "localhost:12222"
 	// giteaInternalBaseURL / giteaInternalSSHAddr are how shepherd (running
 	// inside the compose network) reaches the same Gitea instance — these
 	// are what repo_url values must use.
