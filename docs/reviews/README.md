@@ -120,6 +120,17 @@ Recorded because they show where previous review passes were wrong, not to reope
 
 ---
 
+## Status (updated 2026-08-19)
+
+Items 1–8 of the priority list are implemented (commits `2f99b21`…`436bfc2`); the four open
+questions below were answered as recorded in each commit. Still outstanding:
+
+- **Canvas width** — fixed for the builder panels (both now collapse; 424px → 968px at
+  1280 wide), but the app's own nav sidebar is still fixed at 240px on this route.
+- **CI runs no Playwright**, so none of the UI fixes have automated enforcement.
+- A couple of renderer-rule specs still use a small hand-written stand-in schema.
+- Item 9 (extraction gaps) is done; item 10's `make schema-verify` now exists.
+
 ## Open questions for the maintainers
 
 1. Should the canvas keep Alloy's export→argument direction (destinations as graph roots, wires
