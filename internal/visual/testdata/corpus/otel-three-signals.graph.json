@@ -1,1 +1,44 @@
-{"kind":"alloy-graph/v1","schema_version":"alloy-v1.18.1","nodes":[{"id":"n1","component":"otelcol.receiver.otlp","label":"ingest","position":{"x":0,"y":0},"props":{},"disabled":false,"notes":""},{"id":"n2","component":"otelcol.processor.batch","label":"batcher","position":{"x":1,"y":0},"props":{},"disabled":false,"notes":""},{"id":"n3","component":"otelcol.exporter.otlp","label":"remote","position":{"x":2,"y":0},"props":{},"disabled":false,"notes":""}],"edges":[{"id":"e1","from":{"node":"n1","port":"output.metrics"},"to":{"node":"n2","port":"input.metrics"}},{"id":"e2","from":{"node":"n1","port":"output.logs"},"to":{"node":"n2","port":"input.logs"}},{"id":"e3","from":{"node":"n1","port":"output.traces"},"to":{"node":"n2","port":"input.traces"}},{"id":"e4","from":{"node":"n2","port":"input.metrics"},"to":{"node":"n3","port":"input.metrics"}},{"id":"e5","from":{"node":"n2","port":"input.logs"},"to":{"node":"n3","port":"input.logs"}},{"id":"e6","from":{"node":"n2","port":"input.traces"},"to":{"node":"n3","port":"input.traces"}}],"bindings":[],"viewport":{"x":0,"y":0,"zoom":1},"meta":{"created_with":"test"}}
+{
+  "kind": "alloy-graph/v1",
+  "schema_version": "alloy-v1.18.1",
+  "nodes": [
+    {
+      "id": "n1",
+      "component": "otelcol.receiver.otlp",
+      "label": "ingest",
+      "position": { "x": 40, "y": 80 },
+      "props": { "grpc": { "endpoint": "0.0.0.0:4317" } },
+      "disabled": false,
+      "notes": ""
+    },
+    {
+      "id": "n2",
+      "component": "otelcol.processor.batch",
+      "label": "batcher",
+      "position": { "x": 420, "y": 80 },
+      "props": { "timeout": "5s", "send_batch_size": 8192 },
+      "disabled": false,
+      "notes": ""
+    },
+    {
+      "id": "n3",
+      "component": "otelcol.exporter.otlp",
+      "label": "remote",
+      "position": { "x": 800, "y": 80 },
+      "props": { "client": { "endpoint": "otel-gateway.example.com:4317" } },
+      "disabled": false,
+      "notes": ""
+    }
+  ],
+  "edges": [
+    { "id": "e1", "from": { "node": "n1", "port": "output.metrics" }, "to": { "node": "n2", "port": "input" } },
+    { "id": "e2", "from": { "node": "n1", "port": "output.logs" }, "to": { "node": "n2", "port": "input" } },
+    { "id": "e3", "from": { "node": "n1", "port": "output.traces" }, "to": { "node": "n2", "port": "input" } },
+    { "id": "e4", "from": { "node": "n2", "port": "output.metrics" }, "to": { "node": "n3", "port": "input" } },
+    { "id": "e5", "from": { "node": "n2", "port": "output.logs" }, "to": { "node": "n3", "port": "input" } },
+    { "id": "e6", "from": { "node": "n2", "port": "output.traces" }, "to": { "node": "n3", "port": "input" } }
+  ],
+  "bindings": [],
+  "viewport": { "x": 0, "y": 0, "zoom": 1 },
+  "meta": { "created_with": "test" }
+}
