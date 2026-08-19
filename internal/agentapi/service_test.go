@@ -197,6 +197,29 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 			return collector, pipeline
 		}
 
+		It("marks a never-reported instance APPLIED once it polls with the served hash", func() {
+			// Agents report a RemoteConfigStatus only when they apply a CHANGE, so a
+			// collector that is healthy and polling steadily would otherwise render as
+			// UNKNOWN in the UI indefinitely.
+			collector, _ := setupClaimedPipeline()
+			first, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+				Id: "recompute-instance", LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"},
+			}))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(collector.ID.Valid).To(BeTrue())
+
+			// Second poll echoes the served hash and carries no status payload.
+			_, err = client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+				Id: "recompute-instance", Hash: first.Msg.GetHash(),
+				LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"},
+			}))
+			Expect(err).NotTo(HaveOccurred())
+
+			inst, err := st.Queries.GetCollectorInstanceByID(ctx, "recompute-instance")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(inst.RemoteConfigStatus.String).To(Equal("APPLIED"))
+		})
+
 		It("serves a git-sourced pipeline linked to the collector by its repo link", func() {
 			// Regression: git pipelines are matched by the collector their repo link
 			// targets, never by matchers (they are created with an empty matcher set).

@@ -48,7 +48,15 @@ SET remote_config_status = 'APPLIED',
     remote_config_error  = NULL,
     updated_at           = now()
 WHERE id = $1
-  AND remote_config_status = 'FAILED';
+  -- Also covers a status that was never reported (NULL) or was cleared by the
+  -- sweeper's inactive marker: agents report a status only when they apply a
+  -- CHANGE, so a healthy collector that applied once and then polled steadily
+  -- would otherwise sit at UNKNOWN in the UI forever. A status the agent is
+  -- actively re-reporting is written by UpdateInstanceStatus earlier in the
+  -- same request and still wins, because this runs only when the poll carried
+  -- no status payload at all.
+  AND (remote_config_status IS NULL
+       OR remote_config_status IN ('FAILED', 'inactive', ''));
 
 -- name: UnregisterInstance :exec
 UPDATE collector_instances
