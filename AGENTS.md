@@ -57,15 +57,7 @@ Replace the examples below with your internal registry prefix if needed.
 | `postgres:16-alpine` | `postgres:16-alpine` |
 | `ghcr.io/navikt/mock-oauth2-server:6.0.1` | `ghcr.io/navikt/mock-oauth2-server:6.0.1` |
 
-| Upstream image | Internal reference |
-|---|---|
-| `gcr.io/distroless/static-debian12:nonroot` | `gcr.io/distroless/static-debian12:nonroot` |
-| `grafana/alloy:v1.18.1` | `grafana/alloy:v1.18.1` |
-| `grafana/alloy:latest` | `grafana/alloy:latest` |
-| `golang:1.24-alpine` | `golang:1.24-alpine` |
-| `node:22-alpine` | `node:22-alpine` |
-| `postgres:16-alpine` | `postgres:16-alpine` |
-| `ghcr.io/navikt/mock-oauth2-server:2.1.x` | `ghcr.io/navikt/mock-oauth2-server:2.1.x` |
+Pins live in `deploy/versions.env`; update there first, this table is kept in sync with it.
 
 This applies to: `deploy/Dockerfile`, `deploy/Dockerfile.goreleaser`, `e2e/docker-compose.e2e.yaml`,
 and any `testcontainers-go` image string (e.g. in `internal/testutil/postgres.go`).

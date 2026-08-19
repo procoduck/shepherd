@@ -1,0 +1,151 @@
+name: CI
+
+# Runs on every PR and on pushes to main.
+#
+# Job graph (roughly follows docs/spec.md "CI ordering":
+# smoke -> test -> test-integration -> [test-ui, test-fullstack] -> e2e):
+#   lint, build, test, web, guards all run in parallel — each is fast and
+#   independent, so there is no value in chaining them serially here.
+# The remaining stages from the spec's ordering (smoke, test-integration,
+# test-ui, test-fullstack, e2e) are not wired into this workflow; e2e lives
+# in e2e.yml (manual dispatch + merge_group) per F7's scope. Adding the
+# others is tracked as follow-up, not done here.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # .golangci.yml is v2-schema (see docs/spec.md §20) and must be kept
+      # verbatim; this action just runs `golangci-lint run` against it.
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # go build alone won't compile files that only participate via `go vet`
+      # (e.g. build-tag-gated files); run both. Neither needs the embedded
+      # SPA dist, so we don't build the web app here (that's the `web` job).
+      - name: go build
+        run: go build ./...
+
+      - name: go vet
+        run: go vet ./...
+
+  guards:
+    name: guards
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Pure shell/grep/find guards — no Go or Node toolchain required.
+      - name: Repo guard checks
+        run: make check-single-dist check-build-script check-raw-sql check-docker
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # internal/testutil spins up real Postgres via testcontainers-go;
+      # ubuntu-latest runners ship Docker out of the box so this needs no
+      # extra setup.
+      - name: go test ./internal/...
+        run: go test ./internal/...
+
+  web:
+    name: web
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Resolve the pnpm version from web/package.json's "packageManager"
+      # field so CI never drifts from what's pinned in the repo.
+      - name: Read pnpm version from package.json
+        id: pnpm-version
+        run: |
+          version="$(jq -r '.packageManager' package.json | sed -E 's/^pnpm@//')"
+          if [ -z "$version" ] || [ "$version" = "null" ]; then
+            echo "::error::could not read packageManager from web/package.json" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ steps.pnpm-version.outputs.version }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      # Canonical install path per check-build-script guard: only
+      # scripts/build-web.sh may run `pnpm install`/`pnpm build` outside CI.
+      # `pnpm install --frozen-lockfile` here is CI-local tooling setup, not
+      # a build step, so it doesn't trip that guard.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Lint (biome)
+        run: pnpm exec biome check .
+
+      - name: Build
+        run: CI=true pnpm run build
