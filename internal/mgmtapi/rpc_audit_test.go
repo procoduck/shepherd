@@ -110,13 +110,6 @@ var _ = Describe("shepherd.mgmt.v1.AuditService RPC", Label("integration"), func
 		Expect(err).NotTo(HaveOccurred())
 
 		admin := createSession(false, []string{"audit-admin-group"})
-		// action is passed explicitly (matching the inserted entry) because
-		// ListAuditLog's generated SQL filters on `action = $3` whenever $3
-		// is a non-NULL string — an empty Go string (the zero value for an
-		// omitted request field, both here and in the legacy REST query
-		// param) binds as SQL '' rather than NULL, which would otherwise
-		// exclude every row. This is pre-existing AuditHandler.List/
-		// ListAuditLog behavior, unchanged by this migration.
 		resp := postConnect("/shepherd.mgmt.v1.AuditService/ListAudit", map[string]any{
 			"orgId": orgID.String(), "action": "org.create",
 		}, admin)
@@ -131,6 +124,30 @@ var _ = Describe("shepherd.mgmt.v1.AuditService RPC", Label("integration"), func
 		Expect(item["action"]).To(Equal("org.create"))
 		Expect(item["actor"]).To(Equal("tester"))
 		Expect(payload["total"]).To(Equal(1.0))
+	})
+
+	It("returns an org's entries when no actor/action filter is supplied", func() {
+		// Regression: the generated SQL bound an omitted filter as SQL '' rather
+		// than NULL, so `action = ''` matched nothing and an unfiltered list came
+		// back empty — the audit API returned zero rows for every caller that did
+		// not already know an exact action string. NULLIF in the query fixes it.
+		err := st.Queries.InsertAuditLog(ctx, sqlc.InsertAuditLogParams{
+			Actor: "unfiltered-tester", ActorType: "user", OrgID: orgID, Action: "pipeline.create",
+			ResourceType: "pipeline", ResourceID: orgID.String(), Detail: json.RawMessage("{}"),
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		admin := createSession(false, []string{"audit-admin-group"})
+		resp := postConnect("/shepherd.mgmt.v1.AuditService/ListAudit", map[string]any{
+			"orgId": orgID.String(),
+		}, admin)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		payload := decodeBody(resp)
+		items, ok := payload["items"].([]any)
+		Expect(ok).To(BeTrue(), "expected an items array")
+		Expect(len(items)).To(BeNumerically(">=", 1), "unfiltered list must return the org's entries")
+		Expect(payload["total"]).To(BeNumerically(">=", 1.0))
 	})
 
 	It("denies ListAudit for an org reader (AuditService requires org-admin)", func() {
