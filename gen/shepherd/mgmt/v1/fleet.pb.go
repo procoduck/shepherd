@@ -508,6 +508,179 @@ func (x *GetServedConfigResponse) GetComputedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+type ListAssignmentsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OrgId         string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	CollectorId   string                 `protobuf:"bytes,2,opt,name=collector_id,json=collectorId,proto3" json:"collector_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListAssignmentsRequest) Reset() {
+	*x = ListAssignmentsRequest{}
+	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListAssignmentsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListAssignmentsRequest) ProtoMessage() {}
+
+func (x *ListAssignmentsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListAssignmentsRequest.ProtoReflect.Descriptor instead.
+func (*ListAssignmentsRequest) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_fleet_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ListAssignmentsRequest) GetOrgId() string {
+	if x != nil {
+		return x.OrgId
+	}
+	return ""
+}
+
+func (x *ListAssignmentsRequest) GetCollectorId() string {
+	if x != nil {
+		return x.CollectorId
+	}
+	return ""
+}
+
+// Assignment mirrors internal/store/sqlc: GroupAssignment.
+type Assignment struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	GroupId          string                 `protobuf:"bytes,2,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
+	GroupDisplayName string                 `protobuf:"bytes,3,opt,name=group_display_name,json=groupDisplayName,proto3" json:"group_display_name,omitempty"`
+	CreatedAt        *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *Assignment) Reset() {
+	*x = Assignment{}
+	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Assignment) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Assignment) ProtoMessage() {}
+
+func (x *Assignment) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Assignment.ProtoReflect.Descriptor instead.
+func (*Assignment) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_fleet_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *Assignment) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *Assignment) GetGroupId() string {
+	if x != nil {
+		return x.GroupId
+	}
+	return ""
+}
+
+func (x *Assignment) GetGroupDisplayName() string {
+	if x != nil {
+		return x.GroupDisplayName
+	}
+	return ""
+}
+
+func (x *Assignment) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+type ListAssignmentsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Items         []*Assignment          `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	Total         int32                  `protobuf:"varint,2,opt,name=total,proto3" json:"total,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListAssignmentsResponse) Reset() {
+	*x = ListAssignmentsResponse{}
+	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListAssignmentsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListAssignmentsResponse) ProtoMessage() {}
+
+func (x *ListAssignmentsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListAssignmentsResponse.ProtoReflect.Descriptor instead.
+func (*ListAssignmentsResponse) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_fleet_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ListAssignmentsResponse) GetItems() []*Assignment {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+func (x *ListAssignmentsResponse) GetTotal() int32 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
 type CreateAssignmentRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	OrgId            string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
@@ -520,7 +693,7 @@ type CreateAssignmentRequest struct {
 
 func (x *CreateAssignmentRequest) Reset() {
 	*x = CreateAssignmentRequest{}
-	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[7]
+	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -532,7 +705,7 @@ func (x *CreateAssignmentRequest) String() string {
 func (*CreateAssignmentRequest) ProtoMessage() {}
 
 func (x *CreateAssignmentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[7]
+	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -545,7 +718,7 @@ func (x *CreateAssignmentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateAssignmentRequest.ProtoReflect.Descriptor instead.
 func (*CreateAssignmentRequest) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_fleet_proto_rawDescGZIP(), []int{7}
+	return file_shepherd_mgmt_v1_fleet_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *CreateAssignmentRequest) GetOrgId() string {
@@ -586,7 +759,7 @@ type CreateAssignmentResponse struct {
 
 func (x *CreateAssignmentResponse) Reset() {
 	*x = CreateAssignmentResponse{}
-	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[8]
+	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -598,7 +771,7 @@ func (x *CreateAssignmentResponse) String() string {
 func (*CreateAssignmentResponse) ProtoMessage() {}
 
 func (x *CreateAssignmentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[8]
+	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -611,7 +784,7 @@ func (x *CreateAssignmentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateAssignmentResponse.ProtoReflect.Descriptor instead.
 func (*CreateAssignmentResponse) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_fleet_proto_rawDescGZIP(), []int{8}
+	return file_shepherd_mgmt_v1_fleet_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *CreateAssignmentResponse) GetId() string {
@@ -639,7 +812,7 @@ type DeleteAssignmentRequest struct {
 
 func (x *DeleteAssignmentRequest) Reset() {
 	*x = DeleteAssignmentRequest{}
-	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[9]
+	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -651,7 +824,7 @@ func (x *DeleteAssignmentRequest) String() string {
 func (*DeleteAssignmentRequest) ProtoMessage() {}
 
 func (x *DeleteAssignmentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[9]
+	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -664,7 +837,7 @@ func (x *DeleteAssignmentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteAssignmentRequest.ProtoReflect.Descriptor instead.
 func (*DeleteAssignmentRequest) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_fleet_proto_rawDescGZIP(), []int{9}
+	return file_shepherd_mgmt_v1_fleet_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *DeleteAssignmentRequest) GetOrgId() string {
@@ -696,7 +869,7 @@ type DeleteAssignmentResponse struct {
 
 func (x *DeleteAssignmentResponse) Reset() {
 	*x = DeleteAssignmentResponse{}
-	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[10]
+	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -708,7 +881,7 @@ func (x *DeleteAssignmentResponse) String() string {
 func (*DeleteAssignmentResponse) ProtoMessage() {}
 
 func (x *DeleteAssignmentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[10]
+	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -721,7 +894,7 @@ func (x *DeleteAssignmentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteAssignmentResponse.ProtoReflect.Descriptor instead.
 func (*DeleteAssignmentResponse) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_fleet_proto_rawDescGZIP(), []int{10}
+	return file_shepherd_mgmt_v1_fleet_proto_rawDescGZIP(), []int{13}
 }
 
 type ListAttributesRequest struct {
@@ -733,7 +906,7 @@ type ListAttributesRequest struct {
 
 func (x *ListAttributesRequest) Reset() {
 	*x = ListAttributesRequest{}
-	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[11]
+	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -745,7 +918,7 @@ func (x *ListAttributesRequest) String() string {
 func (*ListAttributesRequest) ProtoMessage() {}
 
 func (x *ListAttributesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[11]
+	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -758,7 +931,7 @@ func (x *ListAttributesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAttributesRequest.ProtoReflect.Descriptor instead.
 func (*ListAttributesRequest) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_fleet_proto_rawDescGZIP(), []int{11}
+	return file_shepherd_mgmt_v1_fleet_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ListAttributesRequest) GetOrgId() string {
@@ -785,7 +958,7 @@ type ListAttributesResponse struct {
 
 func (x *ListAttributesResponse) Reset() {
 	*x = ListAttributesResponse{}
-	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[12]
+	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -797,7 +970,7 @@ func (x *ListAttributesResponse) String() string {
 func (*ListAttributesResponse) ProtoMessage() {}
 
 func (x *ListAttributesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[12]
+	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -810,7 +983,7 @@ func (x *ListAttributesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAttributesResponse.ProtoReflect.Descriptor instead.
 func (*ListAttributesResponse) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_fleet_proto_rawDescGZIP(), []int{12}
+	return file_shepherd_mgmt_v1_fleet_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ListAttributesResponse) GetAttributes() *structpb.Struct {
@@ -862,7 +1035,20 @@ const file_shepherd_mgmt_v1_fleet_proto_rawDesc = "" +
 	"\acontent\x18\x01 \x01(\tR\acontent\x12\x12\n" +
 	"\x04hash\x18\x02 \x01(\tR\x04hash\x12;\n" +
 	"\vcomputed_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"computedAt\"\x9c\x01\n" +
+	"computedAt\"R\n" +
+	"\x16ListAssignmentsRequest\x12\x15\n" +
+	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12!\n" +
+	"\fcollector_id\x18\x02 \x01(\tR\vcollectorId\"\xa0\x01\n" +
+	"\n" +
+	"Assignment\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
+	"\bgroup_id\x18\x02 \x01(\tR\agroupId\x12,\n" +
+	"\x12group_display_name\x18\x03 \x01(\tR\x10groupDisplayName\x129\n" +
+	"\n" +
+	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"c\n" +
+	"\x17ListAssignmentsResponse\x122\n" +
+	"\x05items\x18\x01 \x03(\v2\x1c.shepherd.mgmt.v1.AssignmentR\x05items\x12\x14\n" +
+	"\x05total\x18\x02 \x01(\x05R\x05total\"\x9c\x01\n" +
 	"\x17CreateAssignmentRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12!\n" +
 	"\fcollector_id\x18\x02 \x01(\tR\vcollectorId\x12\x19\n" +
@@ -881,11 +1067,12 @@ const file_shepherd_mgmt_v1_fleet_proto_rawDesc = "" +
 	"\x16ListAttributesResponse\x127\n" +
 	"\n" +
 	"attributes\x18\x01 \x01(\v2\x17.google.protobuf.StructR\n" +
-	"attributes2\xf6\x04\n" +
+	"attributes2\xe0\x05\n" +
 	"\fFleetService\x12e\n" +
 	"\x0eListCollectors\x12'.shepherd.mgmt.v1.ListCollectorsRequest\x1a(.shepherd.mgmt.v1.ListCollectorsResponse\"\x00\x12T\n" +
 	"\fGetCollector\x12%.shepherd.mgmt.v1.GetCollectorRequest\x1a\x1b.shepherd.mgmt.v1.Collector\"\x00\x12h\n" +
-	"\x0fGetServedConfig\x12(.shepherd.mgmt.v1.GetServedConfigRequest\x1a).shepherd.mgmt.v1.GetServedConfigResponse\"\x00\x12k\n" +
+	"\x0fGetServedConfig\x12(.shepherd.mgmt.v1.GetServedConfigRequest\x1a).shepherd.mgmt.v1.GetServedConfigResponse\"\x00\x12h\n" +
+	"\x0fListAssignments\x12(.shepherd.mgmt.v1.ListAssignmentsRequest\x1a).shepherd.mgmt.v1.ListAssignmentsResponse\"\x00\x12k\n" +
 	"\x10CreateAssignment\x12).shepherd.mgmt.v1.CreateAssignmentRequest\x1a*.shepherd.mgmt.v1.CreateAssignmentResponse\"\x00\x12k\n" +
 	"\x10DeleteAssignment\x12).shepherd.mgmt.v1.DeleteAssignmentRequest\x1a*.shepherd.mgmt.v1.DeleteAssignmentResponse\"\x00\x12e\n" +
 	"\x0eListAttributes\x12'.shepherd.mgmt.v1.ListAttributesRequest\x1a(.shepherd.mgmt.v1.ListAttributesResponse\"\x00B&Z$shepherd/gen/shepherd/mgmt/v1;mgmtv1b\x06proto3"
@@ -902,7 +1089,7 @@ func file_shepherd_mgmt_v1_fleet_proto_rawDescGZIP() []byte {
 	return file_shepherd_mgmt_v1_fleet_proto_rawDescData
 }
 
-var file_shepherd_mgmt_v1_fleet_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_shepherd_mgmt_v1_fleet_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_shepherd_mgmt_v1_fleet_proto_goTypes = []any{
 	(*CollectorInstance)(nil),        // 0: shepherd.mgmt.v1.CollectorInstance
 	(*Collector)(nil),                // 1: shepherd.mgmt.v1.Collector
@@ -911,41 +1098,48 @@ var file_shepherd_mgmt_v1_fleet_proto_goTypes = []any{
 	(*GetCollectorRequest)(nil),      // 4: shepherd.mgmt.v1.GetCollectorRequest
 	(*GetServedConfigRequest)(nil),   // 5: shepherd.mgmt.v1.GetServedConfigRequest
 	(*GetServedConfigResponse)(nil),  // 6: shepherd.mgmt.v1.GetServedConfigResponse
-	(*CreateAssignmentRequest)(nil),  // 7: shepherd.mgmt.v1.CreateAssignmentRequest
-	(*CreateAssignmentResponse)(nil), // 8: shepherd.mgmt.v1.CreateAssignmentResponse
-	(*DeleteAssignmentRequest)(nil),  // 9: shepherd.mgmt.v1.DeleteAssignmentRequest
-	(*DeleteAssignmentResponse)(nil), // 10: shepherd.mgmt.v1.DeleteAssignmentResponse
-	(*ListAttributesRequest)(nil),    // 11: shepherd.mgmt.v1.ListAttributesRequest
-	(*ListAttributesResponse)(nil),   // 12: shepherd.mgmt.v1.ListAttributesResponse
-	(*timestamppb.Timestamp)(nil),    // 13: google.protobuf.Timestamp
-	(*structpb.Struct)(nil),          // 14: google.protobuf.Struct
+	(*ListAssignmentsRequest)(nil),   // 7: shepherd.mgmt.v1.ListAssignmentsRequest
+	(*Assignment)(nil),               // 8: shepherd.mgmt.v1.Assignment
+	(*ListAssignmentsResponse)(nil),  // 9: shepherd.mgmt.v1.ListAssignmentsResponse
+	(*CreateAssignmentRequest)(nil),  // 10: shepherd.mgmt.v1.CreateAssignmentRequest
+	(*CreateAssignmentResponse)(nil), // 11: shepherd.mgmt.v1.CreateAssignmentResponse
+	(*DeleteAssignmentRequest)(nil),  // 12: shepherd.mgmt.v1.DeleteAssignmentRequest
+	(*DeleteAssignmentResponse)(nil), // 13: shepherd.mgmt.v1.DeleteAssignmentResponse
+	(*ListAttributesRequest)(nil),    // 14: shepherd.mgmt.v1.ListAttributesRequest
+	(*ListAttributesResponse)(nil),   // 15: shepherd.mgmt.v1.ListAttributesResponse
+	(*timestamppb.Timestamp)(nil),    // 16: google.protobuf.Timestamp
+	(*structpb.Struct)(nil),          // 17: google.protobuf.Struct
 }
 var file_shepherd_mgmt_v1_fleet_proto_depIdxs = []int32{
-	13, // 0: shepherd.mgmt.v1.CollectorInstance.last_seen:type_name -> google.protobuf.Timestamp
-	14, // 1: shepherd.mgmt.v1.CollectorInstance.local_attributes:type_name -> google.protobuf.Struct
-	13, // 2: shepherd.mgmt.v1.Collector.last_seen:type_name -> google.protobuf.Timestamp
-	14, // 3: shepherd.mgmt.v1.Collector.local_attributes:type_name -> google.protobuf.Struct
+	16, // 0: shepherd.mgmt.v1.CollectorInstance.last_seen:type_name -> google.protobuf.Timestamp
+	17, // 1: shepherd.mgmt.v1.CollectorInstance.local_attributes:type_name -> google.protobuf.Struct
+	16, // 2: shepherd.mgmt.v1.Collector.last_seen:type_name -> google.protobuf.Timestamp
+	17, // 3: shepherd.mgmt.v1.Collector.local_attributes:type_name -> google.protobuf.Struct
 	0,  // 4: shepherd.mgmt.v1.Collector.instances:type_name -> shepherd.mgmt.v1.CollectorInstance
 	1,  // 5: shepherd.mgmt.v1.ListCollectorsResponse.items:type_name -> shepherd.mgmt.v1.Collector
-	13, // 6: shepherd.mgmt.v1.GetServedConfigResponse.computed_at:type_name -> google.protobuf.Timestamp
-	14, // 7: shepherd.mgmt.v1.ListAttributesResponse.attributes:type_name -> google.protobuf.Struct
-	2,  // 8: shepherd.mgmt.v1.FleetService.ListCollectors:input_type -> shepherd.mgmt.v1.ListCollectorsRequest
-	4,  // 9: shepherd.mgmt.v1.FleetService.GetCollector:input_type -> shepherd.mgmt.v1.GetCollectorRequest
-	5,  // 10: shepherd.mgmt.v1.FleetService.GetServedConfig:input_type -> shepherd.mgmt.v1.GetServedConfigRequest
-	7,  // 11: shepherd.mgmt.v1.FleetService.CreateAssignment:input_type -> shepherd.mgmt.v1.CreateAssignmentRequest
-	9,  // 12: shepherd.mgmt.v1.FleetService.DeleteAssignment:input_type -> shepherd.mgmt.v1.DeleteAssignmentRequest
-	11, // 13: shepherd.mgmt.v1.FleetService.ListAttributes:input_type -> shepherd.mgmt.v1.ListAttributesRequest
-	3,  // 14: shepherd.mgmt.v1.FleetService.ListCollectors:output_type -> shepherd.mgmt.v1.ListCollectorsResponse
-	1,  // 15: shepherd.mgmt.v1.FleetService.GetCollector:output_type -> shepherd.mgmt.v1.Collector
-	6,  // 16: shepherd.mgmt.v1.FleetService.GetServedConfig:output_type -> shepherd.mgmt.v1.GetServedConfigResponse
-	8,  // 17: shepherd.mgmt.v1.FleetService.CreateAssignment:output_type -> shepherd.mgmt.v1.CreateAssignmentResponse
-	10, // 18: shepherd.mgmt.v1.FleetService.DeleteAssignment:output_type -> shepherd.mgmt.v1.DeleteAssignmentResponse
-	12, // 19: shepherd.mgmt.v1.FleetService.ListAttributes:output_type -> shepherd.mgmt.v1.ListAttributesResponse
-	14, // [14:20] is the sub-list for method output_type
-	8,  // [8:14] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	16, // 6: shepherd.mgmt.v1.GetServedConfigResponse.computed_at:type_name -> google.protobuf.Timestamp
+	16, // 7: shepherd.mgmt.v1.Assignment.created_at:type_name -> google.protobuf.Timestamp
+	8,  // 8: shepherd.mgmt.v1.ListAssignmentsResponse.items:type_name -> shepherd.mgmt.v1.Assignment
+	17, // 9: shepherd.mgmt.v1.ListAttributesResponse.attributes:type_name -> google.protobuf.Struct
+	2,  // 10: shepherd.mgmt.v1.FleetService.ListCollectors:input_type -> shepherd.mgmt.v1.ListCollectorsRequest
+	4,  // 11: shepherd.mgmt.v1.FleetService.GetCollector:input_type -> shepherd.mgmt.v1.GetCollectorRequest
+	5,  // 12: shepherd.mgmt.v1.FleetService.GetServedConfig:input_type -> shepherd.mgmt.v1.GetServedConfigRequest
+	7,  // 13: shepherd.mgmt.v1.FleetService.ListAssignments:input_type -> shepherd.mgmt.v1.ListAssignmentsRequest
+	10, // 14: shepherd.mgmt.v1.FleetService.CreateAssignment:input_type -> shepherd.mgmt.v1.CreateAssignmentRequest
+	12, // 15: shepherd.mgmt.v1.FleetService.DeleteAssignment:input_type -> shepherd.mgmt.v1.DeleteAssignmentRequest
+	14, // 16: shepherd.mgmt.v1.FleetService.ListAttributes:input_type -> shepherd.mgmt.v1.ListAttributesRequest
+	3,  // 17: shepherd.mgmt.v1.FleetService.ListCollectors:output_type -> shepherd.mgmt.v1.ListCollectorsResponse
+	1,  // 18: shepherd.mgmt.v1.FleetService.GetCollector:output_type -> shepherd.mgmt.v1.Collector
+	6,  // 19: shepherd.mgmt.v1.FleetService.GetServedConfig:output_type -> shepherd.mgmt.v1.GetServedConfigResponse
+	9,  // 20: shepherd.mgmt.v1.FleetService.ListAssignments:output_type -> shepherd.mgmt.v1.ListAssignmentsResponse
+	11, // 21: shepherd.mgmt.v1.FleetService.CreateAssignment:output_type -> shepherd.mgmt.v1.CreateAssignmentResponse
+	13, // 22: shepherd.mgmt.v1.FleetService.DeleteAssignment:output_type -> shepherd.mgmt.v1.DeleteAssignmentResponse
+	15, // 23: shepherd.mgmt.v1.FleetService.ListAttributes:output_type -> shepherd.mgmt.v1.ListAttributesResponse
+	17, // [17:24] is the sub-list for method output_type
+	10, // [10:17] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_shepherd_mgmt_v1_fleet_proto_init() }
@@ -959,7 +1153,7 @@ func file_shepherd_mgmt_v1_fleet_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_shepherd_mgmt_v1_fleet_proto_rawDesc), len(file_shepherd_mgmt_v1_fleet_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

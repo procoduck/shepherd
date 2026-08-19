@@ -12,17 +12,16 @@ import (
 )
 
 const createRepoLink = `-- name: CreateRepoLink :one
-INSERT INTO repo_links (org_id, collector_id, credential_id, project, repository, branch, path, poll_interval_seconds)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, org_id, collector_id, credential_id, project, repository, branch, path, poll_interval_seconds, last_synced_at, last_commit, sync_status, sync_error, created_at, updated_at
+INSERT INTO repo_links (org_id, collector_id, credential_id, repo_url, branch, path, poll_interval_seconds)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, org_id, collector_id, credential_id, branch, path, poll_interval_seconds, last_synced_at, last_commit, sync_status, sync_error, created_at, updated_at, repo_url
 `
 
 type CreateRepoLinkParams struct {
 	OrgID               pgtype.UUID `json:"org_id"`
 	CollectorID         pgtype.UUID `json:"collector_id"`
 	CredentialID        pgtype.UUID `json:"credential_id"`
-	Project             string      `json:"project"`
-	Repository          string      `json:"repository"`
+	RepoUrl             string      `json:"repo_url"`
 	Branch              string      `json:"branch"`
 	Path                string      `json:"path"`
 	PollIntervalSeconds int32       `json:"poll_interval_seconds"`
@@ -33,8 +32,7 @@ func (q *Queries) CreateRepoLink(ctx context.Context, arg CreateRepoLinkParams) 
 		arg.OrgID,
 		arg.CollectorID,
 		arg.CredentialID,
-		arg.Project,
-		arg.Repository,
+		arg.RepoUrl,
 		arg.Branch,
 		arg.Path,
 		arg.PollIntervalSeconds,
@@ -45,8 +43,6 @@ func (q *Queries) CreateRepoLink(ctx context.Context, arg CreateRepoLinkParams) 
 		&i.OrgID,
 		&i.CollectorID,
 		&i.CredentialID,
-		&i.Project,
-		&i.Repository,
 		&i.Branch,
 		&i.Path,
 		&i.PollIntervalSeconds,
@@ -56,6 +52,7 @@ func (q *Queries) CreateRepoLink(ctx context.Context, arg CreateRepoLinkParams) 
 		&i.SyncError,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RepoUrl,
 	)
 	return i, err
 }
@@ -70,7 +67,7 @@ func (q *Queries) DeleteRepoLink(ctx context.Context, id pgtype.UUID) error {
 }
 
 const getRepoLinkByID = `-- name: GetRepoLinkByID :one
-SELECT id, org_id, collector_id, credential_id, project, repository, branch, path, poll_interval_seconds, last_synced_at, last_commit, sync_status, sync_error, created_at, updated_at FROM repo_links WHERE id = $1
+SELECT id, org_id, collector_id, credential_id, branch, path, poll_interval_seconds, last_synced_at, last_commit, sync_status, sync_error, created_at, updated_at, repo_url FROM repo_links WHERE id = $1
 `
 
 func (q *Queries) GetRepoLinkByID(ctx context.Context, id pgtype.UUID) (RepoLink, error) {
@@ -81,8 +78,6 @@ func (q *Queries) GetRepoLinkByID(ctx context.Context, id pgtype.UUID) (RepoLink
 		&i.OrgID,
 		&i.CollectorID,
 		&i.CredentialID,
-		&i.Project,
-		&i.Repository,
 		&i.Branch,
 		&i.Path,
 		&i.PollIntervalSeconds,
@@ -92,12 +87,13 @@ func (q *Queries) GetRepoLinkByID(ctx context.Context, id pgtype.UUID) (RepoLink
 		&i.SyncError,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RepoUrl,
 	)
 	return i, err
 }
 
 const listDueRepoLinks = `-- name: ListDueRepoLinks :many
-SELECT id, org_id, collector_id, credential_id, project, repository, branch, path, poll_interval_seconds, last_synced_at, last_commit, sync_status, sync_error, created_at, updated_at FROM repo_links
+SELECT id, org_id, collector_id, credential_id, branch, path, poll_interval_seconds, last_synced_at, last_commit, sync_status, sync_error, created_at, updated_at, repo_url FROM repo_links
 WHERE last_synced_at IS NULL
    OR last_synced_at + (poll_interval_seconds * interval '1 second') < now()
 ORDER BY last_synced_at ASC NULLS FIRST
@@ -117,8 +113,6 @@ func (q *Queries) ListDueRepoLinks(ctx context.Context) ([]RepoLink, error) {
 			&i.OrgID,
 			&i.CollectorID,
 			&i.CredentialID,
-			&i.Project,
-			&i.Repository,
 			&i.Branch,
 			&i.Path,
 			&i.PollIntervalSeconds,
@@ -128,6 +122,7 @@ func (q *Queries) ListDueRepoLinks(ctx context.Context) ([]RepoLink, error) {
 			&i.SyncError,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.RepoUrl,
 		); err != nil {
 			return nil, err
 		}
@@ -140,7 +135,7 @@ func (q *Queries) ListDueRepoLinks(ctx context.Context) ([]RepoLink, error) {
 }
 
 const listRepoLinksByOrg = `-- name: ListRepoLinksByOrg :many
-SELECT id, org_id, collector_id, credential_id, project, repository, branch, path, poll_interval_seconds, last_synced_at, last_commit, sync_status, sync_error, created_at, updated_at FROM repo_links WHERE org_id = $1 ORDER BY created_at
+SELECT id, org_id, collector_id, credential_id, branch, path, poll_interval_seconds, last_synced_at, last_commit, sync_status, sync_error, created_at, updated_at, repo_url FROM repo_links WHERE org_id = $1 ORDER BY created_at
 `
 
 func (q *Queries) ListRepoLinksByOrg(ctx context.Context, orgID pgtype.UUID) ([]RepoLink, error) {
@@ -157,8 +152,6 @@ func (q *Queries) ListRepoLinksByOrg(ctx context.Context, orgID pgtype.UUID) ([]
 			&i.OrgID,
 			&i.CollectorID,
 			&i.CredentialID,
-			&i.Project,
-			&i.Repository,
 			&i.Branch,
 			&i.Path,
 			&i.PollIntervalSeconds,
@@ -168,6 +161,7 @@ func (q *Queries) ListRepoLinksByOrg(ctx context.Context, orgID pgtype.UUID) ([]
 			&i.SyncError,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.RepoUrl,
 		); err != nil {
 			return nil, err
 		}
@@ -182,21 +176,19 @@ func (q *Queries) ListRepoLinksByOrg(ctx context.Context, orgID pgtype.UUID) ([]
 const updateRepoLink = `-- name: UpdateRepoLink :one
 UPDATE repo_links
 SET credential_id         = $2,
-    project               = $3,
-    repository            = $4,
-    branch                = $5,
-    path                  = $6,
-    poll_interval_seconds = $7,
+    repo_url              = $3,
+    branch                = $4,
+    path                  = $5,
+    poll_interval_seconds = $6,
     updated_at            = now()
 WHERE id = $1
-RETURNING id, org_id, collector_id, credential_id, project, repository, branch, path, poll_interval_seconds, last_synced_at, last_commit, sync_status, sync_error, created_at, updated_at
+RETURNING id, org_id, collector_id, credential_id, branch, path, poll_interval_seconds, last_synced_at, last_commit, sync_status, sync_error, created_at, updated_at, repo_url
 `
 
 type UpdateRepoLinkParams struct {
 	ID                  pgtype.UUID `json:"id"`
 	CredentialID        pgtype.UUID `json:"credential_id"`
-	Project             string      `json:"project"`
-	Repository          string      `json:"repository"`
+	RepoUrl             string      `json:"repo_url"`
 	Branch              string      `json:"branch"`
 	Path                string      `json:"path"`
 	PollIntervalSeconds int32       `json:"poll_interval_seconds"`
@@ -206,8 +198,7 @@ func (q *Queries) UpdateRepoLink(ctx context.Context, arg UpdateRepoLinkParams) 
 	row := q.db.QueryRow(ctx, updateRepoLink,
 		arg.ID,
 		arg.CredentialID,
-		arg.Project,
-		arg.Repository,
+		arg.RepoUrl,
 		arg.Branch,
 		arg.Path,
 		arg.PollIntervalSeconds,
@@ -218,8 +209,6 @@ func (q *Queries) UpdateRepoLink(ctx context.Context, arg UpdateRepoLinkParams) 
 		&i.OrgID,
 		&i.CollectorID,
 		&i.CredentialID,
-		&i.Project,
-		&i.Repository,
 		&i.Branch,
 		&i.Path,
 		&i.PollIntervalSeconds,
@@ -229,6 +218,7 @@ func (q *Queries) UpdateRepoLink(ctx context.Context, arg UpdateRepoLinkParams) 
 		&i.SyncError,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RepoUrl,
 	)
 	return i, err
 }

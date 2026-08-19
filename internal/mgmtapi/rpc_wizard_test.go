@@ -112,6 +112,67 @@ var _ = Describe("shepherd.mgmt.v1.WizardService", Label("integration"), func() 
 		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
 		Expect(connectErrorCode(resp)).To(Equal("invalid_argument"))
 	})
+
+	It("renders a wizard preview without creating a pipeline", func() {
+		body := map[string]any{
+			"org_id": orgID,
+			"kind":   "app-observability",
+			"name":   "wizard-render-rpc",
+			"state": map[string]any{
+				"scrape_url":        "http://myapp:9090/metrics",
+				"metrics_dest_name": "mimir",
+				"cluster_pattern":   "prod-.*",
+				"role":              "metrics",
+			},
+		}
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.WizardService/RenderWizard", adminCookie, body)
+		defer resp.Body.Close() //nolint:errcheck // test cleanup
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		var render map[string]any
+		Expect(json.NewDecoder(resp.Body).Decode(&render)).To(Succeed())
+		Expect(render["contents"]).To(ContainSubstring("prometheus.scrape"))
+		// The default protojson codec omits zero-value/empty fields (no
+		// EmitUnpopulated) -- a passing render may simply lack the "valid"
+		// and "diagnostics" keys rather than carrying true/[].
+		Expect(render["valid"]).To(Or(BeNil(), BeTrue()))
+		Expect(render["diagnostics"]).To(BeNil())
+		Expect(render["matchers"]).To(ConsistOf(`cluster=~"prod-.*"`, `role="metrics"`))
+
+		// Nothing was persisted: the pipeline list for this org stays empty.
+		listResp := postConnectJSON(server, "/shepherd.mgmt.v1.PipelineService/ListPipelines", adminCookie,
+			map[string]any{"org_id": orgID})
+		defer listResp.Body.Close() //nolint:errcheck // test cleanup
+		var list map[string]any
+		Expect(json.NewDecoder(listResp.Body).Decode(&list)).To(Succeed())
+		Expect(list["items"]).To(Or(BeNil(), BeEmpty()))
+	})
+
+	It("surfaces stage-1 syntax diagnostics from RenderWizard without failing the RPC", func() {
+		body := map[string]any{
+			"org_id": orgID,
+			"kind":   "app-observability",
+			"name":   "wizard-render-invalid",
+			"state": map[string]any{
+				// job_name containing a quote breaks the generated Alloy syntax,
+				// giving Stage 1 something concrete to reject.
+				"scrape_url":        `http://myapp:9090/metrics" broken = "x`,
+				"metrics_dest_name": "mimir",
+			},
+		}
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.WizardService/RenderWizard", adminCookie, body)
+		defer resp.Body.Close() //nolint:errcheck // test cleanup
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		var render map[string]any
+		Expect(json.NewDecoder(resp.Body).Decode(&render)).To(Succeed())
+		// invalid Alloy syntax means "valid" is false -- the default
+		// protojson codec omits false zero-values entirely (see the
+		// happy-path test's comment), so its absence here is exactly what a
+		// failing render looks like; the diagnostics list is the real signal.
+		Expect(render["valid"]).To(Or(BeNil(), BeFalse()))
+		Expect(render["diagnostics"]).NotTo(BeEmpty())
+	})
 })
 
 // -- shared Connect-path test helpers (used by rpc_wizard_test.go,

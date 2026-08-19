@@ -13,6 +13,7 @@ service FleetService {
   rpc ListCollectors(ListCollectorsRequest) returns (ListCollectorsResponse) {}
   rpc GetCollector(GetCollectorRequest) returns (Collector) {}
   rpc GetServedConfig(GetServedConfigRequest) returns (GetServedConfigResponse) {}
+  rpc ListAssignments(ListAssignmentsRequest) returns (ListAssignmentsResponse) {}
   rpc CreateAssignment(CreateAssignmentRequest) returns (CreateAssignmentResponse) {}
   rpc DeleteAssignment(DeleteAssignmentRequest) returns (DeleteAssignmentResponse) {}
   rpc ListAttributes(ListAttributesRequest) returns (ListAttributesResponse) {}
@@ -74,6 +75,24 @@ message GetServedConfigResponse {
   string content = 1;
   string hash = 2;
   google.protobuf.Timestamp computed_at = 3;
+}
+
+message ListAssignmentsRequest {
+  string org_id = 1;
+  string collector_id = 2;
+}
+
+// Assignment mirrors internal/store/sqlc: GroupAssignment.
+message Assignment {
+  string id = 1;
+  string group_id = 2;
+  string group_display_name = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message ListAssignmentsResponse {
+  repeated Assignment items = 1;
+  int32 total = 2;
 }
 
 message CreateAssignmentRequest {

@@ -378,12 +378,16 @@ func (s *PipelineService) UpdatePipeline(ctx context.Context, req *connect.Reque
 	}
 
 	actor := actorFromCtx(ctx)
+	// WizardState is nil when the request omits the field (proto3 message
+	// fields are nullable), which the query's COALESCE treats as "preserve
+	// the stored graph" rather than clearing it — see pipelines.sql.
 	updated, err := s.store.Queries.UpdatePipeline(ctx, sqlc.UpdatePipelineParams{
-		ID:        p.ID,
-		Name:      msg.GetName(),
-		Contents:  msg.GetContents(),
-		Matchers:  matchersJSON,
-		UpdatedBy: actor,
+		ID:          p.ID,
+		Name:        msg.GetName(),
+		Contents:    msg.GetContents(),
+		Matchers:    matchersJSON,
+		WizardState: wsJSON,
+		UpdatedBy:   actor,
 	})
 	if err != nil {
 		s.logger.Error("update pipeline", "err", err)

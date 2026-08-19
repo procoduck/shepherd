@@ -4,13 +4,30 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/golang-migrate/migrate/v4"
-	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 
 	"shepherd/internal/migrations"
 )
+
+// pgx5DSN rewrites a standard postgres://... or postgresql://... DSN to use
+// the "pgx5" URL scheme, which is how golang-migrate's pgx-based database
+// driver (database/pgx/v5) is registered. Callers of this package pass
+// ordinary postgres DSNs; this keeps that contract while selecting the pgx
+// driver instead of the lib/pq-based one.
+func pgx5DSN(databaseURL string) string {
+	switch {
+	case strings.HasPrefix(databaseURL, "postgres://"):
+		return "pgx5://" + strings.TrimPrefix(databaseURL, "postgres://")
+	case strings.HasPrefix(databaseURL, "postgresql://"):
+		return "pgx5://" + strings.TrimPrefix(databaseURL, "postgresql://")
+	default:
+		return databaseURL
+	}
+}
 
 // newMigrate creates a migrate.Migrate instance backed by embedded SQL files.
 func newMigrate(databaseURL string) (*migrate.Migrate, error) {
@@ -18,7 +35,7 @@ func newMigrate(databaseURL string) (*migrate.Migrate, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating migration source: %w", err)
 	}
-	m, err := migrate.NewWithSourceInstance("iofs", src, databaseURL)
+	m, err := migrate.NewWithSourceInstance("iofs", src, pgx5DSN(databaseURL))
 	if err != nil {
 		return nil, fmt.Errorf("creating migrator: %w", err)
 	}

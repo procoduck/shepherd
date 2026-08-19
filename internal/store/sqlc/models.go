@@ -10,18 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type AdoCredential struct {
-	ID              pgtype.UUID        `json:"id"`
-	OrgID           pgtype.UUID        `json:"org_id"`
-	Name            string             `json:"name"`
-	AdoOrgUrl       string             `json:"ado_org_url"`
-	EntraTenantID   string             `json:"entra_tenant_id"`
-	ClientID        string             `json:"client_id"`
-	ClientSecretEnc []byte             `json:"client_secret_enc"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
-}
-
 type AgentToken struct {
 	ID        pgtype.UUID        `json:"id"`
 	Name      string             `json:"name"`
@@ -90,6 +78,25 @@ type Destination struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 }
 
+type GitCredential struct {
+	ID                    pgtype.UUID        `json:"id"`
+	OrgID                 pgtype.UUID        `json:"org_id"`
+	Name                  string             `json:"name"`
+	AdoOrgUrl             pgtype.Text        `json:"ado_org_url"`
+	EntraTenantID         pgtype.Text        `json:"entra_tenant_id"`
+	ClientID              pgtype.Text        `json:"client_id"`
+	ClientSecretEnc       []byte             `json:"client_secret_enc"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
+	Kind                  string             `json:"kind"`
+	Username              pgtype.Text        `json:"username"`
+	Secret2Enc            []byte             `json:"secret2_enc"`
+	ProviderConfig        json.RawMessage    `json:"provider_config"`
+	SshKnownHosts         pgtype.Text        `json:"ssh_known_hosts"`
+	CaCert                pgtype.Text        `json:"ca_cert"`
+	TlsInsecureSkipVerify bool               `json:"tls_insecure_skip_verify"`
+}
+
 type GroupAssignment struct {
 	ID               pgtype.UUID        `json:"id"`
 	CollectorID      pgtype.UUID        `json:"collector_id"`
@@ -145,8 +152,6 @@ type RepoLink struct {
 	OrgID               pgtype.UUID        `json:"org_id"`
 	CollectorID         pgtype.UUID        `json:"collector_id"`
 	CredentialID        pgtype.UUID        `json:"credential_id"`
-	Project             string             `json:"project"`
-	Repository          string             `json:"repository"`
 	Branch              string             `json:"branch"`
 	Path                string             `json:"path"`
 	PollIntervalSeconds int32              `json:"poll_interval_seconds"`
@@ -156,6 +161,7 @@ type RepoLink struct {
 	SyncError           pgtype.Text        `json:"sync_error"`
 	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+	RepoUrl             string             `json:"repo_url"`
 }
 
 type ServeCache struct {

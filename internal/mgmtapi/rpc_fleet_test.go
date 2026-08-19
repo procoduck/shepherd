@@ -126,6 +126,39 @@ var _ = Describe("shepherd.mgmt.v1.FleetService RPC", Label("integration"), func
 		Expect(item["cluster"]).To(Equal("fleet-rpc-cluster"))
 	})
 
+	It("scopes ListCollectors to the requested org for an app-admin session, not every org", func() {
+		cluster, err := st.Queries.UpsertCluster(ctx, "fleet-rpc-cluster")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgID})).To(Succeed())
+		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+		Expect(err).NotTo(HaveOccurred())
+
+		otherOrg, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
+			Name:          "fleet-rpc-other-org",
+			DisplayName:   "Fleet RPC Other Org",
+			AdminGroupID:  "fleet-other-admin-group",
+			ReaderGroupID: pgtype.Text{String: "fleet-other-reader-group", Valid: true},
+		})
+		Expect(err).NotTo(HaveOccurred())
+		otherCluster, err := st.Queries.UpsertCluster(ctx, "fleet-rpc-other-cluster")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: otherCluster.ID, OrgID: otherOrg.ID})).To(Succeed())
+		_, err = st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: otherCluster.ID, Role: "logs"})
+		Expect(err).NotTo(HaveOccurred())
+
+		cookie := createSession(true, nil)
+		resp := postConnect("/shepherd.mgmt.v1.FleetService/ListCollectors", map[string]any{"orgId": orgID.String()}, cookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		payload := decodeBody(resp)
+		items, ok := payload["items"].([]any)
+		Expect(ok).To(BeTrue(), "expected an items array")
+		Expect(items).To(HaveLen(1), "app-admin ListCollectors must return only the requested org's collectors")
+		item, ok := items[0].(map[string]any)
+		Expect(ok).To(BeTrue())
+		Expect(item["id"]).To(Equal(collector.ID.String()))
+	})
+
 	It("denies ListCollectors for an authenticated session with no access to the org", func() {
 		cookie := createSession(false, []string{"some-other-group"})
 		resp := postConnect("/shepherd.mgmt.v1.FleetService/ListCollectors", map[string]any{"orgId": orgID.String()}, cookie)
@@ -146,5 +179,81 @@ var _ = Describe("shepherd.mgmt.v1.FleetService RPC", Label("integration"), func
 
 		payload := decodeBody(resp)
 		Expect(payload["code"]).To(Equal("not_found"))
+	})
+
+	It("creates, lists, and deletes a collector's group assignments (org-admin)", func() {
+		cluster, err := st.Queries.UpsertCluster(ctx, "fleet-rpc-assign-cluster")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgID})).To(Succeed())
+		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+		Expect(err).NotTo(HaveOccurred())
+
+		cookie := createSession(false, []string{"fleet-admin-group"})
+
+		// No assignments yet.
+		resp := postConnect("/shepherd.mgmt.v1.FleetService/ListAssignments", map[string]any{
+			"orgId":       orgID.String(),
+			"collectorId": collector.ID.String(),
+		}, cookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		payload := decodeBody(resp)
+		Expect(payload["items"]).To(BeNil())
+		Expect(payload["total"]).To(BeNil()) // omitempty: zero total is omitted, not rendered as 0
+
+		// Create one.
+		resp = postConnect("/shepherd.mgmt.v1.FleetService/CreateAssignment", map[string]any{
+			"orgId":            orgID.String(),
+			"collectorId":      collector.ID.String(),
+			"groupId":          "readers-group",
+			"groupDisplayName": "Readers",
+		}, cookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		// It shows up in the list.
+		resp = postConnect("/shepherd.mgmt.v1.FleetService/ListAssignments", map[string]any{
+			"orgId":       orgID.String(),
+			"collectorId": collector.ID.String(),
+		}, cookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		payload = decodeBody(resp)
+		items, ok := payload["items"].([]any)
+		Expect(ok).To(BeTrue(), "expected an items array")
+		Expect(items).To(HaveLen(1))
+		item, ok := items[0].(map[string]any)
+		Expect(ok).To(BeTrue())
+		Expect(item["groupId"]).To(Equal("readers-group"))
+		Expect(item["groupDisplayName"]).To(Equal("Readers"))
+
+		// Delete it.
+		resp = postConnect("/shepherd.mgmt.v1.FleetService/DeleteAssignment", map[string]any{
+			"orgId":       orgID.String(),
+			"collectorId": collector.ID.String(),
+			"groupId":     "readers-group",
+		}, cookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		// Gone from the list.
+		resp = postConnect("/shepherd.mgmt.v1.FleetService/ListAssignments", map[string]any{
+			"orgId":       orgID.String(),
+			"collectorId": collector.ID.String(),
+		}, cookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		payload = decodeBody(resp)
+		Expect(payload["items"]).To(BeNil())
+	})
+
+	It("denies ListAssignments for an org reader (org-admin only)", func() {
+		cluster, err := st.Queries.UpsertCluster(ctx, "fleet-rpc-assign-deny-cluster")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgID})).To(Succeed())
+		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+		Expect(err).NotTo(HaveOccurred())
+
+		cookie := createSession(false, []string{"fleet-reader-group"})
+		resp := postConnect("/shepherd.mgmt.v1.FleetService/ListAssignments", map[string]any{
+			"orgId":       orgID.String(),
+			"collectorId": collector.ID.String(),
+		}, cookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusForbidden))
 	})
 })

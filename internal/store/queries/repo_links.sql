@@ -1,6 +1,6 @@
 -- name: CreateRepoLink :one
-INSERT INTO repo_links (org_id, collector_id, credential_id, project, repository, branch, path, poll_interval_seconds)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO repo_links (org_id, collector_id, credential_id, repo_url, branch, path, poll_interval_seconds)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING *;
 
 -- name: GetRepoLinkByID :one
@@ -12,11 +12,10 @@ SELECT * FROM repo_links WHERE org_id = $1 ORDER BY created_at;
 -- name: UpdateRepoLink :one
 UPDATE repo_links
 SET credential_id         = $2,
-    project               = $3,
-    repository            = $4,
-    branch                = $5,
-    path                  = $6,
-    poll_interval_seconds = $7,
+    repo_url              = $3,
+    branch                = $4,
+    path                  = $5,
+    poll_interval_seconds = $6,
     updated_at            = now()
 WHERE id = $1
 RETURNING *;

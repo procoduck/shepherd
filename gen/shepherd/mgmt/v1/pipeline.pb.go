@@ -483,14 +483,21 @@ func (x *CreatePipelineRequest) GetWizardState() *structpb.Struct {
 }
 
 type UpdatePipelineRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	OrgId         string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
-	Id            string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
-	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	Contents      string                 `protobuf:"bytes,4,opt,name=contents,proto3" json:"contents,omitempty"`
-	Matchers      []string               `protobuf:"bytes,5,rep,name=matchers,proto3" json:"matchers,omitempty"`
-	Source        string                 `protobuf:"bytes,6,opt,name=source,proto3" json:"source,omitempty"`
-	WizardState   *structpb.Struct       `protobuf:"bytes,7,opt,name=wizard_state,json=wizardState,proto3" json:"wizard_state,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	OrgId    string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	Id       string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Name     string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	Contents string                 `protobuf:"bytes,4,opt,name=contents,proto3" json:"contents,omitempty"`
+	Matchers []string               `protobuf:"bytes,5,rep,name=matchers,proto3" json:"matchers,omitempty"`
+	Source   string                 `protobuf:"bytes,6,opt,name=source,proto3" json:"source,omitempty"`
+	// wizard_state is nullable by virtue of being a message-typed field: when
+	// absent from the request (protojson round-trips this as a nil Struct,
+	// same as an explicit JSON null), the server preserves whatever
+	// wizard_state/graph is already stored for the pipeline instead of
+	// clearing it — so a text-only edit of a visual pipeline's `contents`
+	// does not lose its graph. Send an explicit (even empty {}) Struct to
+	// replace the stored value.
+	WizardState   *structpb.Struct `protobuf:"bytes,7,opt,name=wizard_state,json=wizardState,proto3" json:"wizard_state,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

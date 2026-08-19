@@ -88,6 +88,13 @@ message UpdatePipelineRequest {
   string contents = 4;
   repeated string matchers = 5;
   string source = 6;
+  // wizard_state is nullable by virtue of being a message-typed field: when
+  // absent from the request (protojson round-trips this as a nil Struct,
+  // same as an explicit JSON null), the server preserves whatever
+  // wizard_state/graph is already stored for the pipeline instead of
+  // clearing it — so a text-only edit of a visual pipeline's `contents`
+  // does not lose its graph. Send an explicit (even empty {}) Struct to
+  // replace the stored value.
   google.protobuf.Struct wizard_state = 7;
 }
 

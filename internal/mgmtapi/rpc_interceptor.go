@@ -49,6 +49,7 @@ var procedureRequirements = map[string]string{ //nolint:gochecknoglobals // stat
 	mgmtv1connect.FleetServiceGetCollectorProcedure:     auth.RoleOrgReader,
 	mgmtv1connect.FleetServiceGetServedConfigProcedure:  auth.RoleOrgReader,
 	mgmtv1connect.FleetServiceListAttributesProcedure:   auth.RoleOrgReader,
+	mgmtv1connect.FleetServiceListAssignmentsProcedure:  auth.RoleOrgAdmin,
 	mgmtv1connect.FleetServiceCreateAssignmentProcedure: auth.RoleOrgAdmin,
 	mgmtv1connect.FleetServiceDeleteAssignmentProcedure: auth.RoleOrgAdmin,
 
@@ -77,6 +78,7 @@ var procedureRequirements = map[string]string{ //nolint:gochecknoglobals // stat
 	mgmtv1connect.GitOpsServiceListCredentialsProcedure:  auth.RoleOrgAdmin,
 	mgmtv1connect.GitOpsServiceCreateCredentialProcedure: auth.RoleOrgAdmin,
 	mgmtv1connect.GitOpsServiceDeleteCredentialProcedure: auth.RoleOrgAdmin,
+	mgmtv1connect.GitOpsServiceTestCredentialProcedure:   auth.RoleOrgAdmin,
 	mgmtv1connect.GitOpsServiceListRepoLinksProcedure:    auth.RoleOrgAdmin,
 	mgmtv1connect.GitOpsServiceCreateRepoLinkProcedure:   auth.RoleOrgAdmin,
 	mgmtv1connect.GitOpsServiceDeleteRepoLinkProcedure:   auth.RoleOrgAdmin,
@@ -84,6 +86,7 @@ var procedureRequirements = map[string]string{ //nolint:gochecknoglobals // stat
 	// WizardService — org admin.
 	mgmtv1connect.WizardServiceListWizardsProcedure:     auth.RoleOrgAdmin,
 	mgmtv1connect.WizardServiceGetWizardSchemaProcedure: auth.RoleOrgAdmin,
+	mgmtv1connect.WizardServiceRenderWizardProcedure:    auth.RoleOrgAdmin,
 	mgmtv1connect.WizardServiceCommitWizardProcedure:    auth.RoleOrgAdmin,
 
 	// VisualService — org admin, except GraphView (org reader).

@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"connectrpc.com/connect"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c" //nolint:staticcheck // h2c is still required for Connect/gRPC cleartext
@@ -22,7 +25,9 @@ import (
 	"shepherd/internal/auth"
 	"shepherd/internal/config"
 	"shepherd/internal/crypto"
+	"shepherd/internal/gitsync"
 	"shepherd/internal/mgmtapi"
+	"shepherd/internal/migrations"
 	"shepherd/internal/spa"
 	"shepherd/internal/store"
 	"shepherd/internal/validate"
@@ -36,6 +41,8 @@ type Server struct {
 	http        *http.Server
 	metricsHTTP *http.Server
 	store       *store.Store
+	enc         *crypto.Encryptor
+	validator   *validate.Validator
 }
 
 type ctxKeyLogger struct{}
@@ -86,8 +93,12 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	r.Use(middleware.Recoverer)
 
 	// Health endpoints — no auth, no h2c wrapping required.
+	latestMigration, err := latestMigrationVersion()
+	if err != nil {
+		logger.Warn("failed to determine latest embedded migration version; readiness will not detect pending migrations", "err", err)
+	}
 	r.Get("/healthz", handleHealthz)
-	r.Get("/readyz", handleReadyz)
+	r.Get("/readyz", handleReadyz(st.Pool(), latestMigration))
 	apiGuard := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
@@ -174,7 +185,6 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	r.Handle("/shepherd.mgmt.v1.*", apiGuard)
 	r.Handle("/metrics", apiGuard) // metrics moved to separate listener (V4-4)
 
-	// TODO milestone 6: serve embedded SPA
 	r.Mount("/", spa.Handler())
 
 	// Wrap the entire mux with h2c so agents using HTTP/2 connect without TLS.
@@ -202,6 +212,8 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		http:        httpSrv,
 		metricsHTTP: metricsSrv,
 		store:       st,
+		enc:         enc,
+		validator:   v,
 	}, nil
 }
 
@@ -212,6 +224,16 @@ func (s *Server) Run(ctx context.Context) error {
 	// Start the lifecycle sweeper.
 	sweeper := agentapi.NewSweeper(s.store, &s.cfg.Agent, s.logger)
 	sweeper.Start(ctx)
+
+	// Start the GitOps reconciliation loop. Requires the secret-at-rest
+	// encryptor to be configured, since repo_link credentials are stored
+	// encrypted; without it there is no key to decrypt them with.
+	if s.enc != nil {
+		reconciler := gitsync.New(s.store, s.enc, s.validator, s.cfg, s.logger)
+		reconciler.Start(ctx)
+	} else {
+		s.logger.Warn("gitops reconciler not started: encryption key not configured")
+	}
 
 	errCh := make(chan error, 2)
 	go func() {
@@ -242,12 +264,102 @@ func (s *Server) Run(ctx context.Context) error {
 }
 
 func handleHealthz(w http.ResponseWriter, _ *http.Request) {
+	// Cheap liveness check only — no I/O. `shepherd healthcheck` (internal/cli/healthcheck.go)
+	// and the Kubernetes liveness probe (docs/spec.md §deployment) both poll this path
+	// and expect it to answer without touching the database.
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok")) //nolint:errcheck // health endpoint write
 }
 
-func handleReadyz(w http.ResponseWriter, _ *http.Request) {
-	// TODO milestone 2+: check DB connectivity + pending-migration state.
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("ok")) //nolint:errcheck // health endpoint write
+// dbPinger is the subset of *pgxpool.Pool the readiness check needs, kept as
+// an interface so tests can substitute a fake instead of a live database.
+type dbPinger interface {
+	Ping(ctx context.Context) error
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// readyzResult is the JSON body served by /readyz.
+type readyzResult struct {
+	Status string            `json:"status"`
+	Checks map[string]string `json:"checks"`
+}
+
+// migrationFilePattern matches embedded up-migration filenames like "0005_visual_source.up.sql".
+var migrationFilePattern = regexp.MustCompile(`^(\d+)_.*\.up\.sql$`)
+
+// latestMigrationVersion returns the highest migration version embedded in the
+// binary, derived from the migration filenames themselves so it needs no
+// database round trip.
+func latestMigrationVersion() (uint64, error) {
+	entries, err := migrations.FS.ReadDir("sql")
+	if err != nil {
+		return 0, fmt.Errorf("reading embedded migrations: %w", err)
+	}
+	var latest uint64
+	for _, entry := range entries {
+		m := migrationFilePattern.FindStringSubmatch(entry.Name())
+		if m == nil {
+			continue
+		}
+		v, err := strconv.ParseUint(m[1], 10, 64)
+		if err != nil {
+			continue
+		}
+		if v > latest {
+			latest = v
+		}
+	}
+	return latest, nil
+}
+
+// handleReadyz builds the /readyz handler. Unlike /healthz, readiness pings
+// the database and, best-effort, reports whether the schema is behind the
+// migrations embedded in this binary — a pod should not receive traffic
+// against a database it can't reach or a schema it doesn't match yet
+// (docs/spec.md §deployment). latestMigration is 0 when it could not be
+// determined, which disables the pending-migration check without failing
+// the handler.
+func handleReadyz(db dbPinger, latestMigration uint64) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+
+		ready := true
+		checks := map[string]string{}
+
+		if err := db.Ping(ctx); err != nil {
+			ready = false
+			checks["database"] = "error: " + err.Error()
+		} else {
+			checks["database"] = "ok"
+
+			var current uint64
+			var dirty bool
+			switch scanErr := db.QueryRow(ctx, "SELECT version, dirty FROM schema_migrations LIMIT 1").Scan(&current, &dirty); {
+			case scanErr != nil:
+				// schema_migrations may not exist yet, or the query may fail
+				// transiently — migration state is a best-effort extra and must
+				// never flip readiness on its own.
+				checks["migrations"] = "unknown"
+			case dirty:
+				checks["migrations"] = "dirty"
+				ready = false
+			case latestMigration > 0 && current < latestMigration:
+				checks["migrations"] = fmt.Sprintf("pending (at %d, latest %d)", current, latestMigration)
+				ready = false
+			default:
+				checks["migrations"] = "ok"
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		status := http.StatusOK
+		result := readyzResult{Status: "ok", Checks: checks}
+		if !ready {
+			status = http.StatusServiceUnavailable
+			result.Status = "error"
+		}
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(result) //nolint:errcheck // health endpoint write
+	}
 }

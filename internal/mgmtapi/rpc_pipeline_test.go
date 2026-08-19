@@ -157,6 +157,78 @@ var _ = Describe("PipelineService Connect RPC", Label("integration"), func() {
 		Expect(payload.Code).To(Equal("permission_denied"))
 	})
 
+	// F6: wizard_state must survive a text-only PUT and be replaceable by an
+	// explicit one. Both cases seed source="visual" directly via
+	// st.Queries.CreatePipeline (bypassing the HTTP save path's visual
+	// render-equality gate) so the persisted `source` column, and the
+	// scenario these tests describe, is exactly the one in
+	// docs/project-status.md's F6: "a visual pipeline edited through the
+	// text API".
+	It("preserves a visual pipeline's stored wizard_state when an update omits the field", func() {
+		cookie := sessionCookie(true)
+
+		initialGraph := json.RawMessage(`{"kind":"alloy-graph/v1","schema_version":"v1","nodes":[{"id":"n1"}]}`)
+		p, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: orgUUID(orgID), Name: "visual-preserve-pipe", Contents: "// v1\n",
+			Matchers: json.RawMessage(`[]`), Enabled: false, Source: "visual",
+			WizardState: initialGraph, CreatedBy: "test", UpdatedBy: "test",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		// Text-only edit: the request carries no "wizard_state" key at all,
+		// exactly what the visual pipeline editor's raw-Alloy tab would send.
+		resp := postConnect("/shepherd.mgmt.v1.PipelineService/UpdatePipeline", map[string]any{
+			"org_id": orgID, "id": p.ID.String(), "name": "visual-preserve-pipe",
+			"contents": "// v2 text-only edit\n", "matchers": []string{}, "source": "visual",
+		}, cookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		Expect(resp.Body.Close()).To(Succeed())
+
+		stored, err := st.Queries.GetPipelineByID(ctx, p.ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(stored.Contents).To(Equal("// v2 text-only edit\n"))
+		Expect(string(stored.WizardState)).To(MatchJSON(initialGraph))
+	})
+
+	It("replaces a visual pipeline's stored wizard_state when the update sends a new graph", func() {
+		cookie := sessionCookie(true)
+
+		initialGraph := json.RawMessage(`{"kind":"alloy-graph/v1","schema_version":"v1","nodes":[{"id":"n1"}]}`)
+		p, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: orgUUID(orgID), Name: "visual-replace-pipe", Contents: "// v1\n",
+			Matchers: json.RawMessage(`[]`), Enabled: false, Source: "visual",
+			WizardState: initialGraph, CreatedBy: "test", UpdatedBy: "test",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		newGraph := map[string]any{
+			"kind": "alloy-graph/v1", "schema_version": "v2",
+			"nodes": []map[string]any{{"id": "n2"}},
+		}
+		// The request's "source" is deliberately "wizard", not "visual",
+		// purely to route around PipelineService's visual render-equality
+		// gate (checkVisualRenderMatch in rpc_pipeline.go), which engages
+		// only when source=="visual" and would otherwise require `contents`
+		// to be the exact canonical render of newGraph — orthogonal to what
+		// this test proves. UpdatePipeline's SQL never has a `source`
+		// column in its SET list (pipelines.sql), so the row's persisted
+		// source stays "visual" regardless, asserted below.
+		resp := postConnect("/shepherd.mgmt.v1.PipelineService/UpdatePipeline", map[string]any{
+			"org_id": orgID, "id": p.ID.String(), "name": "visual-replace-pipe",
+			"contents": "// v2\n", "matchers": []string{}, "source": "wizard",
+			"wizard_state": newGraph,
+		}, cookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		Expect(resp.Body.Close()).To(Succeed())
+
+		stored, err := st.Queries.GetPipelineByID(ctx, p.ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(stored.Source).To(Equal("visual")) // UpdatePipeline never mutates source
+		newGraphJSON, err := json.Marshal(newGraph)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(stored.WizardState)).To(MatchJSON(newGraphJSON))
+	})
+
 	It("maps a missing pipeline to the Connect not_found code (404)", func() {
 		cookie := sessionCookie(true)
 		resp := postConnect("/shepherd.mgmt.v1.PipelineService/GetPipeline", map[string]any{

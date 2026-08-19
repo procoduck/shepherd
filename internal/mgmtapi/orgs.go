@@ -201,6 +201,21 @@ func (h *OrgsHandler) ServedConfig(w http.ResponseWriter, r *http.Request) {
 	writeProtoJSONOmit(w, http.StatusOK, resp.Msg, "computed_at")
 }
 
+// ListAssignments returns the group assignments granting access to a
+// collector (thin REST shim over FleetService.ListAssignments).
+func (h *OrgsHandler) ListAssignments(w http.ResponseWriter, r *http.Request) {
+	req := connect.NewRequest(&mgmtv1.ListAssignmentsRequest{
+		OrgId:       chi.URLParam(r, "org"),
+		CollectorId: chi.URLParam(r, "id"),
+	})
+	resp, err := h.fleet.ListAssignments(r.Context(), req)
+	if err != nil {
+		WriteConnectError(w, err)
+		return
+	}
+	writeFleetJSON(w, http.StatusOK, resp.Msg, fleetListMarshalOpts)
+}
+
 // CreateAssignment creates a group assignment (thin REST shim over
 // FleetService.CreateAssignment).
 func (h *OrgsHandler) CreateAssignment(w http.ResponseWriter, r *http.Request) {

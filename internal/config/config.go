@@ -113,10 +113,21 @@ type ValidateConfig struct {
 	Stage3Timeout time.Duration `mapstructure:"stage3_timeout"`
 }
 
-// GitSyncConfig holds ADO git-sync reconciler settings.
+// GitSyncConfig holds git-sync reconciler settings, including the fetch
+// resource limits from docs/git-provider-design.md §3.6 that bound one
+// internal/gitrepo fetch (LatestCommit or Files).
 type GitSyncConfig struct {
 	Tick                time.Duration `mapstructure:"tick"`
 	DefaultPollInterval time.Duration `mapstructure:"default_poll_interval"`
+	// MaxRepoBytes caps the total bytes transferred from one repo per fetch.
+	MaxRepoBytes int64 `mapstructure:"max_repo_bytes"`
+	// MaxFileBytes caps the size of any single *.alloy file; an oversized
+	// file is skipped rather than failing the whole fetch.
+	MaxFileBytes int64 `mapstructure:"max_file_bytes"`
+	// MaxFiles caps the number of *.alloy files one fetch may return.
+	MaxFiles int `mapstructure:"max_files"`
+	// FetchTimeout bounds the wall-clock time of one LatestCommit or Files call.
+	FetchTimeout time.Duration `mapstructure:"fetch_timeout"`
 }
 
 // ADOConfig holds Azure DevOps base URL override (for testing).
@@ -150,6 +161,11 @@ func Load(file string) (*Config, error) {
 	v.SetDefault("graph.base_url", "https://graph.microsoft.com")
 	v.SetDefault("agent.sweep_interval", "5m")
 	v.SetDefault("validate.stage3_timeout", "30s")
+	// gitsync fetch limits, per docs/git-provider-design.md §3.6.
+	v.SetDefault("gitsync.max_repo_bytes", 50*1024*1024)
+	v.SetDefault("gitsync.max_file_bytes", 1*1024*1024)
+	v.SetDefault("gitsync.max_files", 500)
+	v.SetDefault("gitsync.fetch_timeout", "60s")
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "json")
 	v.SetDefault("auth.local_admin.username", "admin")
@@ -191,6 +207,10 @@ func Load(file string) (*Config, error) {
 		{"validate.stage3_timeout", "SHEPHERD_VALIDATE_STAGE3_TIMEOUT"},
 		{"gitsync.tick", "SHEPHERD_GITSYNC_TICK"},
 		{"gitsync.default_poll_interval", "SHEPHERD_GITSYNC_DEFAULT_POLL_INTERVAL"},
+		{"gitsync.max_repo_bytes", "SHEPHERD_GITSYNC_MAX_REPO_BYTES"},
+		{"gitsync.max_file_bytes", "SHEPHERD_GITSYNC_MAX_FILE_BYTES"},
+		{"gitsync.max_files", "SHEPHERD_GITSYNC_MAX_FILES"},
+		{"gitsync.fetch_timeout", "SHEPHERD_GITSYNC_FETCH_TIMEOUT"},
 		{"ado.base_url", "SHEPHERD_ADO_BASE_URL"},
 		{"security.encryption_key", "SHEPHERD_SECURITY_ENCRYPTION_KEY"},
 		{"log.level", "SHEPHERD_LOG_LEVEL"},

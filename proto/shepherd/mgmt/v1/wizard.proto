@@ -3,6 +3,7 @@ syntax = "proto3";
 package shepherd.mgmt.v1;
 
 import "google/protobuf/struct.proto";
+import "shepherd/mgmt/v1/common.proto";
 import "shepherd/mgmt/v1/pipeline.proto";
 
 option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
@@ -11,6 +12,10 @@ option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 service WizardService {
   rpc ListWizards(ListWizardsRequest) returns (ListWizardsResponse) {}
   rpc GetWizardSchema(GetWizardSchemaRequest) returns (WizardSchema) {}
+  // RenderWizard renders the wizard state into pipeline contents +
+  // validation diagnostics + a match preview, WITHOUT persisting anything.
+  // Mirrors CommitWizard's content generation (spec §12).
+  rpc RenderWizard(RenderWizardRequest) returns (RenderWizardResponse) {}
   rpc CommitWizard(CommitWizardRequest) returns (Pipeline) {}
 }
 
@@ -63,4 +68,26 @@ message CommitWizardRequest {
   string kind = 2;
   string name = 3;
   google.protobuf.Struct state = 4;
+}
+
+// RenderWizardRequest carries the same shape as CommitWizardRequest — name is
+// optional here (used only to label validation diagnostics and, once a
+// pipeline of that name exists, is irrelevant to the match preview).
+message RenderWizardRequest {
+  string org_id = 1;
+  string kind = 2;
+  string name = 3;
+  google.protobuf.Struct state = 4;
+}
+
+// RenderWizardResponse is the preview counterpart to Pipeline: generated
+// contents + suggested matchers, plus stage 1/2 validation diagnostics and
+// which of the org's collectors the suggested matchers would currently hit.
+// Nothing is persisted.
+message RenderWizardResponse {
+  string contents = 1;
+  repeated string matchers = 2;
+  bool valid = 3;
+  repeated Diagnostic diagnostics = 4;
+  repeated MatchedCollector matched_collectors = 5;
 }

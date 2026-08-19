@@ -69,7 +69,7 @@ func Router(st *store.Store, cfg *config.Config, enc *crypto.Encryptor, logger *
 	admin := NewAdminHandler(st, logger)
 	orgs := NewOrgsHandler(st, logger)
 	audit := NewAuditHandler(st, logger)
-	wizards := NewWizardHandler(st, logger)
+	wizards := NewWizardHandler(st, v, logger)
 	visualHandler := NewVisualHandler(st, v, schemaReg, logger)
 	simulateHandler := NewSimulateHandler(logger)
 	// repoLinks is always constructed; GitOpsService itself degrades to
@@ -153,6 +153,7 @@ func Router(st *store.Store, cfg *config.Config, enc *crypto.Encryptor, logger *
 		// (WizardService, GitOpsService, AuditService).
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireOrgAccess(st, "org", "orgadmin"))
+			r.Get("/collectors/{id}/assignments", orgs.ListAssignments)
 			r.Post("/collectors/{id}/assignments", orgs.CreateAssignment)
 			r.Delete("/collectors/{id}/assignments/{group_id}", orgs.DeleteAssignment)
 
@@ -165,6 +166,7 @@ func Router(st *store.Store, cfg *config.Config, enc *crypto.Encryptor, logger *
 
 			r.Get("/wizards", wizards.ListWizards)
 			r.Get("/wizards/{kind}", wizards.GetWizardSchema)
+			r.Post("/wizards/render", wizards.RenderWizard)
 			r.Post("/wizards/commit", wizards.CommitWizard)
 
 			r.Post("/destinations", orgs.CreateDestination)
@@ -173,9 +175,15 @@ func Router(st *store.Store, cfg *config.Config, enc *crypto.Encryptor, logger *
 
 			r.Get("/audit", audit.List)
 
-			r.Get("/ado-credentials", repoLinks.ListCredentials)
-			r.Post("/ado-credentials", repoLinks.CreateCredential)
-			r.Delete("/ado-credentials/{id}", repoLinks.DeleteCredential)
+			// Renamed from /ado-credentials alongside the AdoCredential ->
+			// GitCredential proto rename (docs/git-provider-design.md
+			// §3.4): a deliberate breaking REST change, justified the same
+			// way as the Connect rename — nothing in production consumes
+			// the old path.
+			r.Get("/git-credentials", repoLinks.ListCredentials)
+			r.Post("/git-credentials", repoLinks.CreateCredential)
+			r.Delete("/git-credentials/{id}", repoLinks.DeleteCredential)
+			r.Post("/git-credentials/{id}/test", repoLinks.TestCredential)
 
 			r.Get("/repo-links", repoLinks.ListRepoLinks)
 			r.Post("/repo-links", repoLinks.CreateRepoLink)
@@ -241,7 +249,7 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 			return mgmtv1connect.NewGitOpsServiceHandler(NewGitOpsService(st, enc, logger), authz)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewWizardServiceHandler(NewWizardService(st, logger), authz)
+			return mgmtv1connect.NewWizardServiceHandler(NewWizardService(st, v, logger), authz)
 		},
 		func() (string, http.Handler) {
 			return mgmtv1connect.NewVisualServiceHandler(NewVisualService(st, v, schemaReg, logger), authz)

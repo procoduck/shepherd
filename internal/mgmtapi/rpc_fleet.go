@@ -14,7 +14,6 @@ import (
 
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
-	"shepherd/internal/auth"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 )
@@ -74,38 +73,17 @@ func structFromJSON(raw []byte) (*structpb.Struct, error) {
 	return st, nil
 }
 
-// ListCollectors lists collectors in an org. App admins receive all
-// collectors across all orgs (with org_id populated on each item),
-// regardless of the org_id named in the request — matching
-// OrgsHandler.ListCollectors's existing (pre-migration) behavior exactly.
+// ListCollectors lists collectors in the org named by the request. This is
+// always scoped to that org, including for app admins: an app admin may
+// access any org (see auth.authorizeOrgAccess), but which org's collectors
+// come back is still governed by req.Msg.GetOrgId(), never "every org
+// regardless of what was asked for" — every caller (OverviewPage,
+// CollectorsPage, GitPage) passes the org the viewer currently has
+// selected and relies on the response matching it.
 func (s *FleetService) ListCollectors(ctx context.Context, req *connect.Request[mgmtv1.ListCollectorsRequest]) (*connect.Response[mgmtv1.ListCollectorsResponse], error) {
 	orgID, ok := parseUUID(req.Msg.GetOrgId())
 	if !ok {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid org id"))
-	}
-
-	sess := auth.SessionFromCtx(ctx)
-	if sess != nil && sess.IsAppAdmin {
-		all, err := s.store.Queries.ListAllCollectors(ctx)
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, errors.New("failed to list collectors"))
-		}
-		items := make([]*mgmtv1.Collector, len(all))
-		for i := range all {
-			c := &all[i]
-			summary, _ := s.store.Queries.GetLatestCollectorInstanceSummary(ctx, c.ID) //nolint:errcheck // zero value is safe default
-			items[i] = &mgmtv1.Collector{
-				Id:                 c.ID.String(),
-				ClusterId:          c.ClusterID.String(),
-				Cluster:            c.ClusterName,
-				Role:               c.Role,
-				OrgId:              c.OrgID.String(),
-				RemoteConfigStatus: summary.RemoteConfigStatus.String,
-				LastSeen:           timestampFromPg(summary.LastSeen),
-				AlloyVersion:       summary.AlloyVersion.String,
-			}
-		}
-		return connect.NewResponse(&mgmtv1.ListCollectorsResponse{Items: items, Total: int32(len(items))}), nil //nolint:gosec // org collector counts never approach int32 overflow
 	}
 
 	collectors, err := s.store.Queries.ListCollectorsByOrg(ctx, orgID)
@@ -232,6 +210,31 @@ func (s *FleetService) GetServedConfig(ctx context.Context, req *connect.Request
 		Hash:       cache.Hash,
 		ComputedAt: timestampFromPg(cache.ComputedAt),
 	}), nil
+}
+
+// ListAssignments lists the group assignments granting access to a
+// collector, newest-display-name first (mirrors
+// ListGroupAssignmentsByCollector's ORDER BY group_display_name).
+func (s *FleetService) ListAssignments(ctx context.Context, req *connect.Request[mgmtv1.ListAssignmentsRequest]) (*connect.Response[mgmtv1.ListAssignmentsResponse], error) {
+	id, ok := parseUUID(req.Msg.GetCollectorId())
+	if !ok {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid collector id"))
+	}
+	rows, err := s.store.Queries.ListGroupAssignmentsByCollector(ctx, id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to list assignments"))
+	}
+	items := make([]*mgmtv1.Assignment, len(rows))
+	for i := range rows {
+		a := &rows[i]
+		items[i] = &mgmtv1.Assignment{
+			Id:               a.ID.String(),
+			GroupId:          a.GroupID,
+			GroupDisplayName: a.GroupDisplayName,
+			CreatedAt:        timestampFromPg(a.CreatedAt),
+		}
+	}
+	return connect.NewResponse(&mgmtv1.ListAssignmentsResponse{Items: items, Total: int32(len(items))}), nil //nolint:gosec // assignment counts per collector never approach int32 overflow
 }
 
 // CreateAssignment assigns a group to a collector.

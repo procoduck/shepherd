@@ -4,19 +4,30 @@ package cli
 // under "dev" and must not be used against a production database.
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"time"
 
+	"github.com/go-git/go-billy/v6/memfs"
+	billyutil "github.com/go-git/go-billy/v6/util"
+	git "github.com/go-git/go-git/v6"
+	"github.com/go-git/go-git/v6/plumbing/client"
+	"github.com/go-git/go-git/v6/plumbing/object"
+	xhttp "github.com/go-git/go-git/v6/plumbing/transport/http"
+	"github.com/go-git/go-git/v6/storage/memory"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/spf13/cobra"
 
 	"shepherd/internal/config"
+	"shepherd/internal/crypto"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 )
@@ -169,9 +180,14 @@ func runDevSeed(cmd *cobra.Command, _ []string) error {
 	// alongside them and confuse status (R3-H2). The "singleton" collector
 	// has no compose container backing it, so it will show zero instances
 	// until something registers against it — that's expected, not stale.
+	var prodMetricsCollector sqlc.Collector
 	for _, role := range []string{"metrics", "logs", "singleton"} {
-		if _, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: prod.ID, Role: role}); err != nil {
+		c, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: prod.ID, Role: role})
+		if err != nil {
 			return fmt.Errorf("upserting %s collector: %w", role, err)
+		}
+		if role == "metrics" {
+			prodMetricsCollector = c
 		}
 	}
 	fmt.Println("collectors: metrics, logs, singleton (prod-eu-1); metrics (data-eng-eu-1) — instances register themselves")
@@ -184,6 +200,14 @@ func runDevSeed(cmd *cobra.Command, _ []string) error {
 	}
 	if err := seedPipelines(ctx, st, dataEng.ID, dataEngPipelineItems()); err != nil {
 		return fmt.Errorf("seeding data-eng pipelines: %w", err)
+	}
+	if err := seedGitOps(ctx, st, cfg, platform.ID, prodMetricsCollector.ID); err != nil {
+		// Best-effort: Gitea living in the same compose stack (F9,
+		// docs/git-provider-design.md §4) is a nice-to-have for GitPage to
+		// have something real to show, not something the rest of dev
+		// seeding should die over — a Gitea hiccup here must not stop
+		// shepherd itself from starting.
+		fmt.Printf("gitops seed: skipped (%v)\n", err)
 	}
 	if err := seedAgentToken(ctx, st); err != nil {
 		return fmt.Errorf("seeding agent token: %w", err)
@@ -358,6 +382,201 @@ func seedDestinations(ctx context.Context, st *store.Store, orgID pgtype.UUID) e
 		}
 	}
 	fmt.Println("destinations: prom-prod, loki-prod")
+	return nil
+}
+
+// Gitea connection details for the dev compose stack
+// (dev/docker-compose.dev.yaml). seedGitOps runs inside the shepherd-seed
+// container, which is on the compose network — unlike a human at a
+// browser, or the e2e suite's test process, it reaches Gitea at its
+// internal DNS name, not the host-published port. The admin user/password
+// must match gitea-init's `gitea admin user create` command exactly.
+const (
+	seedGiteaBaseURL   = "http://gitea:3000"
+	seedGiteaAdminUser = "shepherd-admin"
+	seedGiteaAdminPass = "Sh3pherd-Admin-Pass-1" // fixed dev-only Gitea fixture credential, matches dev/docker-compose.dev.yaml's gitea-init
+	seedGitRepoName    = "shepherd-demo-config"
+	seedGitCredName    = "gitea-demo"
+	seedGitFileName    = "demo-git.alloy"
+	seedGitFileContent = `// pushed to Gitea by 'shepherd dev seed' — edit it there and Shepherd will
+// pick up the change on its next gitsync poll (docs/git-provider-design.md §4).
+prometheus.exporter.self "demo_git" { }
+`
+)
+
+// seedGitOps wires up a real, working git-sourced pipeline against the dev
+// stack's Gitea instance: create a repo, push a fixture .alloy file over
+// real git, create a `pat` git credential, and link it to
+// prodMetricsCollectorID — so GitPage has something real to show instead
+// of an empty state (ledger B2), and the pipeline actually shows up in the
+// served config for the same collector base-metrics targets. Idempotent:
+// if a credential named seedGitCredName already exists for orgID, this is
+// a no-op (matching the check-then-skip style the rest of this file uses)
+// rather than re-creating the Gitea repo and re-pushing every restart.
+func seedGitOps(ctx context.Context, st *store.Store, cfg *config.Config, orgID, prodMetricsCollectorID pgtype.UUID) error {
+	if cfg.Security.EncryptionKey == "" {
+		return errors.New("SHEPHERD_SECURITY_ENCRYPTION_KEY not set")
+	}
+	existing, err := st.Queries.ListGitCredentialsByOrg(ctx, orgID)
+	if err != nil {
+		return fmt.Errorf("listing existing git credentials: %w", err)
+	}
+	for i := range existing {
+		if existing[i].Name == seedGitCredName {
+			fmt.Printf("gitops: %s(exists)\n", seedGitCredName)
+			return nil
+		}
+	}
+
+	branch, repoURL, err := seedGiteaCreateRepo(ctx, seedGitRepoName)
+	if err != nil {
+		return fmt.Errorf("creating gitea repo: %w", err)
+	}
+	if err := seedGiteaPushFixture(ctx, repoURL); err != nil {
+		return fmt.Errorf("pushing fixture to gitea repo: %w", err)
+	}
+	token, err := seedGiteaCreateToken(ctx, seedGitRepoName+"-token")
+	if err != nil {
+		return fmt.Errorf("creating gitea token: %w", err)
+	}
+
+	enc, err := crypto.NewEncryptor(cfg.Security.EncryptionKey)
+	if err != nil {
+		return fmt.Errorf("building encryptor: %w", err)
+	}
+	tokenEnc, err := enc.Encrypt([]byte(token))
+	if err != nil {
+		return fmt.Errorf("encrypting token: %w", err)
+	}
+
+	cred, err := st.Queries.CreateGitCredential(ctx, sqlc.CreateGitCredentialParams{
+		OrgID: orgID, Name: seedGitCredName, Kind: "pat",
+		Username:        pgtype.Text{String: seedGiteaAdminUser, Valid: true},
+		ClientSecretEnc: tokenEnc,
+		ProviderConfig:  []byte("{}"),
+	})
+	if err != nil {
+		return fmt.Errorf("creating git credential: %w", err)
+	}
+
+	if _, err := st.Queries.CreateRepoLink(ctx, sqlc.CreateRepoLinkParams{
+		OrgID: orgID, CollectorID: prodMetricsCollectorID, CredentialID: cred.ID,
+		RepoUrl: repoURL, Branch: branch, Path: "/", PollIntervalSeconds: 60,
+	}); err != nil {
+		return fmt.Errorf("creating repo link: %w", err)
+	}
+
+	fmt.Printf("gitops: pushed %s to %s, linked to prod-eu-1/metrics via credential %q\n", seedGitFileName, repoURL, seedGitCredName)
+	return nil
+}
+
+// seedGiteaAPI makes one authenticated (admin basic auth) JSON request
+// against Gitea's REST API and decodes a 2xx JSON response into out (which
+// may be nil).
+func seedGiteaAPI(ctx context.Context, method, path string, body []byte, out any) error {
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, seedGiteaBaseURL+path, reader)
+	if err != nil {
+		return err
+	}
+	req.SetBasicAuth(seedGiteaAdminUser, seedGiteaAdminPass)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("%s %s: %w", method, path, err)
+	}
+	defer resp.Body.Close() //nolint:errcheck // response fully read or discarded below
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2048)) //nolint:errcheck // best-effort diagnostic
+		return fmt.Errorf("%s %s: status %d: %s", method, path, resp.StatusCode, string(respBody))
+	}
+	if out == nil {
+		return nil
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+// seedGiteaCreateRepo creates repoName (owned by the admin user) with an
+// initial commit (auto_init), returning its default branch and clone URL.
+func seedGiteaCreateRepo(ctx context.Context, repoName string) (branch, cloneURL string, err error) {
+	body, err := json.Marshal(map[string]any{
+		"name": repoName, "private": false, "auto_init": true,
+		"default_branch": "main", "description": "shepherd dev seed fixture",
+	})
+	if err != nil {
+		return "", "", fmt.Errorf("marshal create-repo body: %w", err)
+	}
+	var result struct {
+		DefaultBranch string `json:"default_branch"`
+	}
+	if err := seedGiteaAPI(ctx, http.MethodPost, "/api/v1/user/repos", body, &result); err != nil {
+		return "", "", err
+	}
+	branch = result.DefaultBranch
+	if branch == "" {
+		branch = "main"
+	}
+	return branch, fmt.Sprintf("%s/%s/%s.git", seedGiteaBaseURL, seedGiteaAdminUser, repoName), nil
+}
+
+// seedGiteaCreateToken mints a personal access token for the admin user.
+func seedGiteaCreateToken(ctx context.Context, name string) (string, error) {
+	body, err := json.Marshal(map[string]any{"name": name, "scopes": []string{"all"}})
+	if err != nil {
+		return "", fmt.Errorf("marshal create-token body: %w", err)
+	}
+	var result struct {
+		Sha1 string `json:"sha1"`
+	}
+	if err := seedGiteaAPI(ctx, http.MethodPost, "/api/v1/users/"+seedGiteaAdminUser+"/tokens", body, &result); err != nil {
+		return "", err
+	}
+	if result.Sha1 == "" {
+		return "", errors.New("create token: response had no sha1")
+	}
+	return result.Sha1, nil
+}
+
+// seedGiteaPushFixture clones repoURL (which must already have at least
+// one commit, e.g. via auto_init) and pushes seedGitFileName as a new
+// commit — a real git push, matching what production does
+// (docs/git-provider-design.md §4), not a database row written directly.
+func seedGiteaPushFixture(ctx context.Context, repoURL string) error {
+	auth := &xhttp.BasicAuth{Username: seedGiteaAdminUser, Password: seedGiteaAdminPass}
+	wtfs := memfs.New()
+	repo, err := git.CloneContext(ctx, memory.NewStorage(), wtfs, &git.CloneOptions{
+		URL:           repoURL,
+		ClientOptions: []client.Option{client.WithHTTPAuth(auth)},
+	})
+	if err != nil {
+		return fmt.Errorf("clone %s: %w", repoURL, err)
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		return fmt.Errorf("worktree: %w", err)
+	}
+	if err := billyutil.WriteFile(wtfs, seedGitFileName, []byte(seedGitFileContent), 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", seedGitFileName, err)
+	}
+	if _, err := wt.Add(seedGitFileName); err != nil {
+		return fmt.Errorf("staging %s: %w", seedGitFileName, err)
+	}
+	if _, err := wt.Commit("seed: add "+seedGitFileName, &git.CommitOptions{
+		Author: &object.Signature{Name: "shepherd dev seed", Email: "dev-seed@shepherd.local", When: time.Now()},
+	}); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	if err := repo.PushContext(ctx, &git.PushOptions{
+		ClientOptions: []client.Option{client.WithHTTPAuth(auth)},
+	}); err != nil {
+		return fmt.Errorf("push: %w", err)
+	}
 	return nil
 }
 

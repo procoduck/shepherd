@@ -9,6 +9,7 @@ package mgmtv1
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	structpb "google.golang.org/protobuf/types/known/structpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
@@ -22,34 +23,48 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// AdoCredential mirrors internal/mgmtapi/repolinks.go: adoCredResponse.
-// client_secret is write-only (never returned).
-type AdoCredential struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	AdoOrgUrl     string                 `protobuf:"bytes,3,opt,name=ado_org_url,json=adoOrgUrl,proto3" json:"ado_org_url,omitempty"`
-	EntraTenantId string                 `protobuf:"bytes,4,opt,name=entra_tenant_id,json=entraTenantId,proto3" json:"entra_tenant_id,omitempty"`
-	ClientId      string                 `protobuf:"bytes,5,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+// GitCredential holds the auth for one git remote. kind selects the
+// strategy (docs/git-provider-design.md §3.2): "none", "basic", "pat",
+// "ssh", "ado_sp", or "github_app". Every secret (client_secret, secret2,
+// private keys) is write-only: CreateCredentialRequest accepts them, this
+// message never returns them.
+type GitCredential struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name  string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Kind  string                 `protobuf:"bytes,3,opt,name=kind,proto3" json:"kind,omitempty"`
+	// username is meaningful for "basic", "pat" (often a literal such as
+	// "oauth2" or "x-token-auth"), and "ssh" (default "git").
+	Username string `protobuf:"bytes,4,opt,name=username,proto3" json:"username,omitempty"`
+	// ADO fields, populated when kind == "ado_sp". Kept as explicit fields
+	// (rather than folded into provider_config) because they predate it and
+	// migration 0006 backfills them as real columns.
+	AdoOrgUrl     string `protobuf:"bytes,5,opt,name=ado_org_url,json=adoOrgUrl,proto3" json:"ado_org_url,omitempty"`
+	EntraTenantId string `protobuf:"bytes,6,opt,name=entra_tenant_id,json=entraTenantId,proto3" json:"entra_tenant_id,omitempty"`
+	ClientId      string `protobuf:"bytes,7,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	// provider_config carries kind-specific non-secret fields with no
+	// dedicated column — today, github_app's app_id / installation_id /
+	// api_base_url.
+	ProviderConfig *structpb.Struct       `protobuf:"bytes,8,opt,name=provider_config,json=providerConfig,proto3" json:"provider_config,omitempty"`
+	CreatedAt      *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
-func (x *AdoCredential) Reset() {
-	*x = AdoCredential{}
+func (x *GitCredential) Reset() {
+	*x = GitCredential{}
 	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *AdoCredential) String() string {
+func (x *GitCredential) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AdoCredential) ProtoMessage() {}
+func (*GitCredential) ProtoMessage() {}
 
-func (x *AdoCredential) ProtoReflect() protoreflect.Message {
+func (x *GitCredential) ProtoReflect() protoreflect.Message {
 	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -61,47 +76,68 @@ func (x *AdoCredential) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AdoCredential.ProtoReflect.Descriptor instead.
-func (*AdoCredential) Descriptor() ([]byte, []int) {
+// Deprecated: Use GitCredential.ProtoReflect.Descriptor instead.
+func (*GitCredential) Descriptor() ([]byte, []int) {
 	return file_shepherd_mgmt_v1_gitops_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *AdoCredential) GetId() string {
+func (x *GitCredential) GetId() string {
 	if x != nil {
 		return x.Id
 	}
 	return ""
 }
 
-func (x *AdoCredential) GetName() string {
+func (x *GitCredential) GetName() string {
 	if x != nil {
 		return x.Name
 	}
 	return ""
 }
 
-func (x *AdoCredential) GetAdoOrgUrl() string {
+func (x *GitCredential) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *GitCredential) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *GitCredential) GetAdoOrgUrl() string {
 	if x != nil {
 		return x.AdoOrgUrl
 	}
 	return ""
 }
 
-func (x *AdoCredential) GetEntraTenantId() string {
+func (x *GitCredential) GetEntraTenantId() string {
 	if x != nil {
 		return x.EntraTenantId
 	}
 	return ""
 }
 
-func (x *AdoCredential) GetClientId() string {
+func (x *GitCredential) GetClientId() string {
 	if x != nil {
 		return x.ClientId
 	}
 	return ""
 }
 
-func (x *AdoCredential) GetCreatedAt() *timestamppb.Timestamp {
+func (x *GitCredential) GetProviderConfig() *structpb.Struct {
+	if x != nil {
+		return x.ProviderConfig
+	}
+	return nil
+}
+
+func (x *GitCredential) GetCreatedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.CreatedAt
 	}
@@ -154,7 +190,7 @@ func (x *ListCredentialsRequest) GetOrgId() string {
 
 type ListCredentialsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Items         []*AdoCredential       `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	Items         []*GitCredential       `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
 	Total         int32                  `protobuf:"varint,2,opt,name=total,proto3" json:"total,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -190,7 +226,7 @@ func (*ListCredentialsResponse) Descriptor() ([]byte, []int) {
 	return file_shepherd_mgmt_v1_gitops_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *ListCredentialsResponse) GetItems() []*AdoCredential {
+func (x *ListCredentialsResponse) GetItems() []*GitCredential {
 	if x != nil {
 		return x.Items
 	}
@@ -204,17 +240,37 @@ func (x *ListCredentialsResponse) GetTotal() int32 {
 	return 0
 }
 
-// CreateCredentialRequest mirrors adoCredRequest in repolinks.go.
+// CreateCredentialRequest mirrors adoCredRequest in repolinks.go, extended
+// for every credential kind (docs/git-provider-design.md §3.2/§3.3).
 type CreateCredentialRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	OrgId         string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	AdoOrgUrl     string                 `protobuf:"bytes,3,opt,name=ado_org_url,json=adoOrgUrl,proto3" json:"ado_org_url,omitempty"`
-	EntraTenantId string                 `protobuf:"bytes,4,opt,name=entra_tenant_id,json=entraTenantId,proto3" json:"entra_tenant_id,omitempty"`
-	ClientId      string                 `protobuf:"bytes,5,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
-	ClientSecret  string                 `protobuf:"bytes,6,opt,name=client_secret,json=clientSecret,proto3" json:"client_secret,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	OrgId    string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	Name     string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Kind     string                 `protobuf:"bytes,3,opt,name=kind,proto3" json:"kind,omitempty"`
+	Username string                 `protobuf:"bytes,4,opt,name=username,proto3" json:"username,omitempty"`
+	// ado_sp fields.
+	AdoOrgUrl     string `protobuf:"bytes,5,opt,name=ado_org_url,json=adoOrgUrl,proto3" json:"ado_org_url,omitempty"`
+	EntraTenantId string `protobuf:"bytes,6,opt,name=entra_tenant_id,json=entraTenantId,proto3" json:"entra_tenant_id,omitempty"`
+	ClientId      string `protobuf:"bytes,7,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	// provider_config: see GitCredential.provider_config.
+	ProviderConfig *structpb.Struct `protobuf:"bytes,8,opt,name=provider_config,json=providerConfig,proto3" json:"provider_config,omitempty"`
+	// client_secret is the one required secret for every kind except
+	// "none": the basic password, the PAT, the ado_sp client secret, the
+	// github_app RSA private key PEM, or the ssh private key PEM.
+	ClientSecret string `protobuf:"bytes,9,opt,name=client_secret,json=clientSecret,proto3" json:"client_secret,omitempty"`
+	// secret2 is optional and, today, only the ssh private key passphrase.
+	Secret2 string `protobuf:"bytes,10,opt,name=secret2,proto3" json:"secret2,omitempty"`
+	// ssh_known_hosts is required for kind == "ssh" (no accept-any-host-key
+	// mode — docs/git-provider-design.md §7).
+	SshKnownHosts string `protobuf:"bytes,11,opt,name=ssh_known_hosts,json=sshKnownHosts,proto3" json:"ssh_known_hosts,omitempty"`
+	// ca_cert is an optional per-credential PEM CA bundle trusted for this
+	// credential's HTTPS transport only.
+	CaCert string `protobuf:"bytes,12,opt,name=ca_cert,json=caCert,proto3" json:"ca_cert,omitempty"`
+	// tls_insecure_skip_verify is a default-off, explicit escape hatch;
+	// enabling it should be treated as an audited change by the UI.
+	TlsInsecureSkipVerify bool `protobuf:"varint,13,opt,name=tls_insecure_skip_verify,json=tlsInsecureSkipVerify,proto3" json:"tls_insecure_skip_verify,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *CreateCredentialRequest) Reset() {
@@ -261,6 +317,20 @@ func (x *CreateCredentialRequest) GetName() string {
 	return ""
 }
 
+func (x *CreateCredentialRequest) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *CreateCredentialRequest) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
 func (x *CreateCredentialRequest) GetAdoOrgUrl() string {
 	if x != nil {
 		return x.AdoOrgUrl
@@ -282,11 +352,46 @@ func (x *CreateCredentialRequest) GetClientId() string {
 	return ""
 }
 
+func (x *CreateCredentialRequest) GetProviderConfig() *structpb.Struct {
+	if x != nil {
+		return x.ProviderConfig
+	}
+	return nil
+}
+
 func (x *CreateCredentialRequest) GetClientSecret() string {
 	if x != nil {
 		return x.ClientSecret
 	}
 	return ""
+}
+
+func (x *CreateCredentialRequest) GetSecret2() string {
+	if x != nil {
+		return x.Secret2
+	}
+	return ""
+}
+
+func (x *CreateCredentialRequest) GetSshKnownHosts() string {
+	if x != nil {
+		return x.SshKnownHosts
+	}
+	return ""
+}
+
+func (x *CreateCredentialRequest) GetCaCert() string {
+	if x != nil {
+		return x.CaCert
+	}
+	return ""
+}
+
+func (x *CreateCredentialRequest) GetTlsInsecureSkipVerify() bool {
+	if x != nil {
+		return x.TlsInsecureSkipVerify
+	}
+	return false
 }
 
 type DeleteCredentialRequest struct {
@@ -377,23 +482,175 @@ func (*DeleteCredentialResponse) Descriptor() ([]byte, []int) {
 	return file_shepherd_mgmt_v1_gitops_proto_rawDescGZIP(), []int{5}
 }
 
+type TestCredentialRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	OrgId string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	Id    string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	// repo_url and branch describe the remote to test against. A credential
+	// has no repo of its own — the caller supplies one, typically the repo
+	// link form's current values. branch defaults to "main" when empty.
+	RepoUrl       string `protobuf:"bytes,3,opt,name=repo_url,json=repoUrl,proto3" json:"repo_url,omitempty"`
+	Branch        string `protobuf:"bytes,4,opt,name=branch,proto3" json:"branch,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TestCredentialRequest) Reset() {
+	*x = TestCredentialRequest{}
+	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TestCredentialRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TestCredentialRequest) ProtoMessage() {}
+
+func (x *TestCredentialRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TestCredentialRequest.ProtoReflect.Descriptor instead.
+func (*TestCredentialRequest) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_gitops_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *TestCredentialRequest) GetOrgId() string {
+	if x != nil {
+		return x.OrgId
+	}
+	return ""
+}
+
+func (x *TestCredentialRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *TestCredentialRequest) GetRepoUrl() string {
+	if x != nil {
+		return x.RepoUrl
+	}
+	return ""
+}
+
+func (x *TestCredentialRequest) GetBranch() string {
+	if x != nil {
+		return x.Branch
+	}
+	return ""
+}
+
+type TestCredentialResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// reachable is true once ls-remote against repo_url succeeded — even if
+	// branch wasn't found there, which is a configuration mismatch, not a
+	// reachability problem.
+	Reachable bool `protobuf:"varint,1,opt,name=reachable,proto3" json:"reachable,omitempty"`
+	// error is the underlying error message; set whenever reachable is
+	// false, or when the branch was not found on an otherwise-reachable
+	// remote.
+	Error string `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	// token_exchange_required is true for kind == "ado_sp" or "github_app",
+	// whose auth resolves through a token-exchange step before git is ever
+	// contacted.
+	TokenExchangeRequired bool `protobuf:"varint,3,opt,name=token_exchange_required,json=tokenExchangeRequired,proto3" json:"token_exchange_required,omitempty"`
+	// token_exchange_ok is meaningful only when token_exchange_required:
+	// false means the failure happened minting the token, never reaching
+	// git at all.
+	TokenExchangeOk bool `protobuf:"varint,4,opt,name=token_exchange_ok,json=tokenExchangeOk,proto3" json:"token_exchange_ok,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *TestCredentialResponse) Reset() {
+	*x = TestCredentialResponse{}
+	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TestCredentialResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TestCredentialResponse) ProtoMessage() {}
+
+func (x *TestCredentialResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TestCredentialResponse.ProtoReflect.Descriptor instead.
+func (*TestCredentialResponse) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_gitops_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *TestCredentialResponse) GetReachable() bool {
+	if x != nil {
+		return x.Reachable
+	}
+	return false
+}
+
+func (x *TestCredentialResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *TestCredentialResponse) GetTokenExchangeRequired() bool {
+	if x != nil {
+		return x.TokenExchangeRequired
+	}
+	return false
+}
+
+func (x *TestCredentialResponse) GetTokenExchangeOk() bool {
+	if x != nil {
+		return x.TokenExchangeOk
+	}
+	return false
+}
+
 // RepoLink mirrors internal/mgmtapi/repolinks.go: repoLinkResponse.
 type RepoLink struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Project       string                 `protobuf:"bytes,2,opt,name=project,proto3" json:"project,omitempty"`
-	Repository    string                 `protobuf:"bytes,3,opt,name=repository,proto3" json:"repository,omitempty"`
-	Branch        string                 `protobuf:"bytes,4,opt,name=branch,proto3" json:"branch,omitempty"`
-	Path          string                 `protobuf:"bytes,5,opt,name=path,proto3" json:"path,omitempty"`
-	SyncStatus    string                 `protobuf:"bytes,6,opt,name=sync_status,json=syncStatus,proto3" json:"sync_status,omitempty"`
-	LastSyncedAt  *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=last_synced_at,json=lastSyncedAt,proto3" json:"last_synced_at,omitempty"`
+	RepoUrl       string                 `protobuf:"bytes,2,opt,name=repo_url,json=repoUrl,proto3" json:"repo_url,omitempty"`
+	Branch        string                 `protobuf:"bytes,3,opt,name=branch,proto3" json:"branch,omitempty"`
+	Path          string                 `protobuf:"bytes,4,opt,name=path,proto3" json:"path,omitempty"`
+	SyncStatus    string                 `protobuf:"bytes,5,opt,name=sync_status,json=syncStatus,proto3" json:"sync_status,omitempty"`
+	LastSyncedAt  *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=last_synced_at,json=lastSyncedAt,proto3" json:"last_synced_at,omitempty"`
+	CollectorId   string                 `protobuf:"bytes,7,opt,name=collector_id,json=collectorId,proto3" json:"collector_id,omitempty"`
+	CredentialId  string                 `protobuf:"bytes,8,opt,name=credential_id,json=credentialId,proto3" json:"credential_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RepoLink) Reset() {
 	*x = RepoLink{}
-	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[6]
+	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -405,7 +662,7 @@ func (x *RepoLink) String() string {
 func (*RepoLink) ProtoMessage() {}
 
 func (x *RepoLink) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[6]
+	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -418,7 +675,7 @@ func (x *RepoLink) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RepoLink.ProtoReflect.Descriptor instead.
 func (*RepoLink) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_gitops_proto_rawDescGZIP(), []int{6}
+	return file_shepherd_mgmt_v1_gitops_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *RepoLink) GetId() string {
@@ -428,16 +685,9 @@ func (x *RepoLink) GetId() string {
 	return ""
 }
 
-func (x *RepoLink) GetProject() string {
+func (x *RepoLink) GetRepoUrl() string {
 	if x != nil {
-		return x.Project
-	}
-	return ""
-}
-
-func (x *RepoLink) GetRepository() string {
-	if x != nil {
-		return x.Repository
+		return x.RepoUrl
 	}
 	return ""
 }
@@ -470,6 +720,20 @@ func (x *RepoLink) GetLastSyncedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *RepoLink) GetCollectorId() string {
+	if x != nil {
+		return x.CollectorId
+	}
+	return ""
+}
+
+func (x *RepoLink) GetCredentialId() string {
+	if x != nil {
+		return x.CredentialId
+	}
+	return ""
+}
+
 type ListRepoLinksRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	OrgId         string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
@@ -479,7 +743,7 @@ type ListRepoLinksRequest struct {
 
 func (x *ListRepoLinksRequest) Reset() {
 	*x = ListRepoLinksRequest{}
-	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[7]
+	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -491,7 +755,7 @@ func (x *ListRepoLinksRequest) String() string {
 func (*ListRepoLinksRequest) ProtoMessage() {}
 
 func (x *ListRepoLinksRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[7]
+	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -504,7 +768,7 @@ func (x *ListRepoLinksRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRepoLinksRequest.ProtoReflect.Descriptor instead.
 func (*ListRepoLinksRequest) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_gitops_proto_rawDescGZIP(), []int{7}
+	return file_shepherd_mgmt_v1_gitops_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ListRepoLinksRequest) GetOrgId() string {
@@ -524,7 +788,7 @@ type ListRepoLinksResponse struct {
 
 func (x *ListRepoLinksResponse) Reset() {
 	*x = ListRepoLinksResponse{}
-	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[8]
+	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -536,7 +800,7 @@ func (x *ListRepoLinksResponse) String() string {
 func (*ListRepoLinksResponse) ProtoMessage() {}
 
 func (x *ListRepoLinksResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[8]
+	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -549,7 +813,7 @@ func (x *ListRepoLinksResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRepoLinksResponse.ProtoReflect.Descriptor instead.
 func (*ListRepoLinksResponse) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_gitops_proto_rawDescGZIP(), []int{8}
+	return file_shepherd_mgmt_v1_gitops_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ListRepoLinksResponse) GetItems() []*RepoLink {
@@ -573,18 +837,17 @@ type CreateRepoLinkRequest struct {
 	OrgId               string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
 	CollectorId         string                 `protobuf:"bytes,2,opt,name=collector_id,json=collectorId,proto3" json:"collector_id,omitempty"`
 	CredentialId        string                 `protobuf:"bytes,3,opt,name=credential_id,json=credentialId,proto3" json:"credential_id,omitempty"`
-	Project             string                 `protobuf:"bytes,4,opt,name=project,proto3" json:"project,omitempty"`
-	Repository          string                 `protobuf:"bytes,5,opt,name=repository,proto3" json:"repository,omitempty"`
-	Branch              string                 `protobuf:"bytes,6,opt,name=branch,proto3" json:"branch,omitempty"`
-	Path                string                 `protobuf:"bytes,7,opt,name=path,proto3" json:"path,omitempty"`
-	PollIntervalSeconds int32                  `protobuf:"varint,8,opt,name=poll_interval_seconds,json=pollIntervalSeconds,proto3" json:"poll_interval_seconds,omitempty"`
+	RepoUrl             string                 `protobuf:"bytes,4,opt,name=repo_url,json=repoUrl,proto3" json:"repo_url,omitempty"`
+	Branch              string                 `protobuf:"bytes,5,opt,name=branch,proto3" json:"branch,omitempty"`
+	Path                string                 `protobuf:"bytes,6,opt,name=path,proto3" json:"path,omitempty"`
+	PollIntervalSeconds int32                  `protobuf:"varint,7,opt,name=poll_interval_seconds,json=pollIntervalSeconds,proto3" json:"poll_interval_seconds,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
 
 func (x *CreateRepoLinkRequest) Reset() {
 	*x = CreateRepoLinkRequest{}
-	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[9]
+	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -596,7 +859,7 @@ func (x *CreateRepoLinkRequest) String() string {
 func (*CreateRepoLinkRequest) ProtoMessage() {}
 
 func (x *CreateRepoLinkRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[9]
+	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -609,7 +872,7 @@ func (x *CreateRepoLinkRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateRepoLinkRequest.ProtoReflect.Descriptor instead.
 func (*CreateRepoLinkRequest) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_gitops_proto_rawDescGZIP(), []int{9}
+	return file_shepherd_mgmt_v1_gitops_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *CreateRepoLinkRequest) GetOrgId() string {
@@ -633,16 +896,9 @@ func (x *CreateRepoLinkRequest) GetCredentialId() string {
 	return ""
 }
 
-func (x *CreateRepoLinkRequest) GetProject() string {
+func (x *CreateRepoLinkRequest) GetRepoUrl() string {
 	if x != nil {
-		return x.Project
-	}
-	return ""
-}
-
-func (x *CreateRepoLinkRequest) GetRepository() string {
-	if x != nil {
-		return x.Repository
+		return x.RepoUrl
 	}
 	return ""
 }
@@ -678,7 +934,7 @@ type DeleteRepoLinkRequest struct {
 
 func (x *DeleteRepoLinkRequest) Reset() {
 	*x = DeleteRepoLinkRequest{}
-	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[10]
+	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -690,7 +946,7 @@ func (x *DeleteRepoLinkRequest) String() string {
 func (*DeleteRepoLinkRequest) ProtoMessage() {}
 
 func (x *DeleteRepoLinkRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[10]
+	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -703,7 +959,7 @@ func (x *DeleteRepoLinkRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteRepoLinkRequest.ProtoReflect.Descriptor instead.
 func (*DeleteRepoLinkRequest) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_gitops_proto_rawDescGZIP(), []int{10}
+	return file_shepherd_mgmt_v1_gitops_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *DeleteRepoLinkRequest) GetOrgId() string {
@@ -728,7 +984,7 @@ type DeleteRepoLinkResponse struct {
 
 func (x *DeleteRepoLinkResponse) Reset() {
 	*x = DeleteRepoLinkResponse{}
-	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[11]
+	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -740,7 +996,7 @@ func (x *DeleteRepoLinkResponse) String() string {
 func (*DeleteRepoLinkResponse) ProtoMessage() {}
 
 func (x *DeleteRepoLinkResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[11]
+	mi := &file_shepherd_mgmt_v1_gitops_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -753,73 +1009,91 @@ func (x *DeleteRepoLinkResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteRepoLinkResponse.ProtoReflect.Descriptor instead.
 func (*DeleteRepoLinkResponse) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_gitops_proto_rawDescGZIP(), []int{11}
+	return file_shepherd_mgmt_v1_gitops_proto_rawDescGZIP(), []int{13}
 }
 
 var File_shepherd_mgmt_v1_gitops_proto protoreflect.FileDescriptor
 
 const file_shepherd_mgmt_v1_gitops_proto_rawDesc = "" +
 	"\n" +
-	"\x1dshepherd/mgmt/v1/gitops.proto\x12\x10shepherd.mgmt.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd3\x01\n" +
-	"\rAdoCredential\x12\x0e\n" +
+	"\x1dshepherd/mgmt/v1/gitops.proto\x12\x10shepherd.mgmt.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc5\x02\n" +
+	"\rGitCredential\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1e\n" +
-	"\vado_org_url\x18\x03 \x01(\tR\tadoOrgUrl\x12&\n" +
-	"\x0fentra_tenant_id\x18\x04 \x01(\tR\rentraTenantId\x12\x1b\n" +
-	"\tclient_id\x18\x05 \x01(\tR\bclientId\x129\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
+	"\x04kind\x18\x03 \x01(\tR\x04kind\x12\x1a\n" +
+	"\busername\x18\x04 \x01(\tR\busername\x12\x1e\n" +
+	"\vado_org_url\x18\x05 \x01(\tR\tadoOrgUrl\x12&\n" +
+	"\x0fentra_tenant_id\x18\x06 \x01(\tR\rentraTenantId\x12\x1b\n" +
+	"\tclient_id\x18\a \x01(\tR\bclientId\x12@\n" +
+	"\x0fprovider_config\x18\b \x01(\v2\x17.google.protobuf.StructR\x0eproviderConfig\x129\n" +
 	"\n" +
-	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"/\n" +
+	"created_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"/\n" +
 	"\x16ListCredentialsRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\"f\n" +
 	"\x17ListCredentialsResponse\x125\n" +
-	"\x05items\x18\x01 \x03(\v2\x1f.shepherd.mgmt.v1.AdoCredentialR\x05items\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x05R\x05total\"\xce\x01\n" +
+	"\x05items\x18\x01 \x03(\v2\x1f.shepherd.mgmt.v1.GitCredentialR\x05items\x12\x14\n" +
+	"\x05total\x18\x02 \x01(\x05R\x05total\"\xd4\x03\n" +
 	"\x17CreateCredentialRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1e\n" +
-	"\vado_org_url\x18\x03 \x01(\tR\tadoOrgUrl\x12&\n" +
-	"\x0fentra_tenant_id\x18\x04 \x01(\tR\rentraTenantId\x12\x1b\n" +
-	"\tclient_id\x18\x05 \x01(\tR\bclientId\x12#\n" +
-	"\rclient_secret\x18\x06 \x01(\tR\fclientSecret\"@\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
+	"\x04kind\x18\x03 \x01(\tR\x04kind\x12\x1a\n" +
+	"\busername\x18\x04 \x01(\tR\busername\x12\x1e\n" +
+	"\vado_org_url\x18\x05 \x01(\tR\tadoOrgUrl\x12&\n" +
+	"\x0fentra_tenant_id\x18\x06 \x01(\tR\rentraTenantId\x12\x1b\n" +
+	"\tclient_id\x18\a \x01(\tR\bclientId\x12@\n" +
+	"\x0fprovider_config\x18\b \x01(\v2\x17.google.protobuf.StructR\x0eproviderConfig\x12#\n" +
+	"\rclient_secret\x18\t \x01(\tR\fclientSecret\x12\x18\n" +
+	"\asecret2\x18\n" +
+	" \x01(\tR\asecret2\x12&\n" +
+	"\x0fssh_known_hosts\x18\v \x01(\tR\rsshKnownHosts\x12\x17\n" +
+	"\aca_cert\x18\f \x01(\tR\x06caCert\x127\n" +
+	"\x18tls_insecure_skip_verify\x18\r \x01(\bR\x15tlsInsecureSkipVerify\"@\n" +
 	"\x17DeleteCredentialRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\"\x1a\n" +
-	"\x18DeleteCredentialResponse\"\xe3\x01\n" +
+	"\x18DeleteCredentialResponse\"q\n" +
+	"\x15TestCredentialRequest\x12\x15\n" +
+	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12\x19\n" +
+	"\brepo_url\x18\x03 \x01(\tR\arepoUrl\x12\x16\n" +
+	"\x06branch\x18\x04 \x01(\tR\x06branch\"\xb0\x01\n" +
+	"\x16TestCredentialResponse\x12\x1c\n" +
+	"\treachable\x18\x01 \x01(\bR\treachable\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\x126\n" +
+	"\x17token_exchange_required\x18\x03 \x01(\bR\x15tokenExchangeRequired\x12*\n" +
+	"\x11token_exchange_ok\x18\x04 \x01(\bR\x0ftokenExchangeOk\"\x8c\x02\n" +
 	"\bRepoLink\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
-	"\aproject\x18\x02 \x01(\tR\aproject\x12\x1e\n" +
-	"\n" +
-	"repository\x18\x03 \x01(\tR\n" +
-	"repository\x12\x16\n" +
-	"\x06branch\x18\x04 \x01(\tR\x06branch\x12\x12\n" +
-	"\x04path\x18\x05 \x01(\tR\x04path\x12\x1f\n" +
-	"\vsync_status\x18\x06 \x01(\tR\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
+	"\brepo_url\x18\x02 \x01(\tR\arepoUrl\x12\x16\n" +
+	"\x06branch\x18\x03 \x01(\tR\x06branch\x12\x12\n" +
+	"\x04path\x18\x04 \x01(\tR\x04path\x12\x1f\n" +
+	"\vsync_status\x18\x05 \x01(\tR\n" +
 	"syncStatus\x12@\n" +
-	"\x0elast_synced_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\flastSyncedAt\"-\n" +
+	"\x0elast_synced_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\flastSyncedAt\x12!\n" +
+	"\fcollector_id\x18\a \x01(\tR\vcollectorId\x12#\n" +
+	"\rcredential_id\x18\b \x01(\tR\fcredentialId\"-\n" +
 	"\x14ListRepoLinksRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\"_\n" +
 	"\x15ListRepoLinksResponse\x120\n" +
 	"\x05items\x18\x01 \x03(\v2\x1a.shepherd.mgmt.v1.RepoLinkR\x05items\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x05R\x05total\"\x90\x02\n" +
+	"\x05total\x18\x02 \x01(\x05R\x05total\"\xf1\x01\n" +
 	"\x15CreateRepoLinkRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12!\n" +
 	"\fcollector_id\x18\x02 \x01(\tR\vcollectorId\x12#\n" +
-	"\rcredential_id\x18\x03 \x01(\tR\fcredentialId\x12\x18\n" +
-	"\aproject\x18\x04 \x01(\tR\aproject\x12\x1e\n" +
-	"\n" +
-	"repository\x18\x05 \x01(\tR\n" +
-	"repository\x12\x16\n" +
-	"\x06branch\x18\x06 \x01(\tR\x06branch\x12\x12\n" +
-	"\x04path\x18\a \x01(\tR\x04path\x122\n" +
-	"\x15poll_interval_seconds\x18\b \x01(\x05R\x13pollIntervalSeconds\">\n" +
+	"\rcredential_id\x18\x03 \x01(\tR\fcredentialId\x12\x19\n" +
+	"\brepo_url\x18\x04 \x01(\tR\arepoUrl\x12\x16\n" +
+	"\x06branch\x18\x05 \x01(\tR\x06branch\x12\x12\n" +
+	"\x04path\x18\x06 \x01(\tR\x04path\x122\n" +
+	"\x15poll_interval_seconds\x18\a \x01(\x05R\x13pollIntervalSeconds\">\n" +
 	"\x15DeleteRepoLinkRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\"\x18\n" +
-	"\x16DeleteRepoLinkResponse2\xec\x04\n" +
+	"\x16DeleteRepoLinkResponse2\xd3\x05\n" +
 	"\rGitOpsService\x12h\n" +
 	"\x0fListCredentials\x12(.shepherd.mgmt.v1.ListCredentialsRequest\x1a).shepherd.mgmt.v1.ListCredentialsResponse\"\x00\x12`\n" +
-	"\x10CreateCredential\x12).shepherd.mgmt.v1.CreateCredentialRequest\x1a\x1f.shepherd.mgmt.v1.AdoCredential\"\x00\x12k\n" +
-	"\x10DeleteCredential\x12).shepherd.mgmt.v1.DeleteCredentialRequest\x1a*.shepherd.mgmt.v1.DeleteCredentialResponse\"\x00\x12b\n" +
+	"\x10CreateCredential\x12).shepherd.mgmt.v1.CreateCredentialRequest\x1a\x1f.shepherd.mgmt.v1.GitCredential\"\x00\x12k\n" +
+	"\x10DeleteCredential\x12).shepherd.mgmt.v1.DeleteCredentialRequest\x1a*.shepherd.mgmt.v1.DeleteCredentialResponse\"\x00\x12e\n" +
+	"\x0eTestCredential\x12'.shepherd.mgmt.v1.TestCredentialRequest\x1a(.shepherd.mgmt.v1.TestCredentialResponse\"\x00\x12b\n" +
 	"\rListRepoLinks\x12&.shepherd.mgmt.v1.ListRepoLinksRequest\x1a'.shepherd.mgmt.v1.ListRepoLinksResponse\"\x00\x12W\n" +
 	"\x0eCreateRepoLink\x12'.shepherd.mgmt.v1.CreateRepoLinkRequest\x1a\x1a.shepherd.mgmt.v1.RepoLink\"\x00\x12e\n" +
 	"\x0eDeleteRepoLink\x12'.shepherd.mgmt.v1.DeleteRepoLinkRequest\x1a(.shepherd.mgmt.v1.DeleteRepoLinkResponse\"\x00B&Z$shepherd/gen/shepherd/mgmt/v1;mgmtv1b\x06proto3"
@@ -836,44 +1110,51 @@ func file_shepherd_mgmt_v1_gitops_proto_rawDescGZIP() []byte {
 	return file_shepherd_mgmt_v1_gitops_proto_rawDescData
 }
 
-var file_shepherd_mgmt_v1_gitops_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_shepherd_mgmt_v1_gitops_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_shepherd_mgmt_v1_gitops_proto_goTypes = []any{
-	(*AdoCredential)(nil),            // 0: shepherd.mgmt.v1.AdoCredential
+	(*GitCredential)(nil),            // 0: shepherd.mgmt.v1.GitCredential
 	(*ListCredentialsRequest)(nil),   // 1: shepherd.mgmt.v1.ListCredentialsRequest
 	(*ListCredentialsResponse)(nil),  // 2: shepherd.mgmt.v1.ListCredentialsResponse
 	(*CreateCredentialRequest)(nil),  // 3: shepherd.mgmt.v1.CreateCredentialRequest
 	(*DeleteCredentialRequest)(nil),  // 4: shepherd.mgmt.v1.DeleteCredentialRequest
 	(*DeleteCredentialResponse)(nil), // 5: shepherd.mgmt.v1.DeleteCredentialResponse
-	(*RepoLink)(nil),                 // 6: shepherd.mgmt.v1.RepoLink
-	(*ListRepoLinksRequest)(nil),     // 7: shepherd.mgmt.v1.ListRepoLinksRequest
-	(*ListRepoLinksResponse)(nil),    // 8: shepherd.mgmt.v1.ListRepoLinksResponse
-	(*CreateRepoLinkRequest)(nil),    // 9: shepherd.mgmt.v1.CreateRepoLinkRequest
-	(*DeleteRepoLinkRequest)(nil),    // 10: shepherd.mgmt.v1.DeleteRepoLinkRequest
-	(*DeleteRepoLinkResponse)(nil),   // 11: shepherd.mgmt.v1.DeleteRepoLinkResponse
-	(*timestamppb.Timestamp)(nil),    // 12: google.protobuf.Timestamp
+	(*TestCredentialRequest)(nil),    // 6: shepherd.mgmt.v1.TestCredentialRequest
+	(*TestCredentialResponse)(nil),   // 7: shepherd.mgmt.v1.TestCredentialResponse
+	(*RepoLink)(nil),                 // 8: shepherd.mgmt.v1.RepoLink
+	(*ListRepoLinksRequest)(nil),     // 9: shepherd.mgmt.v1.ListRepoLinksRequest
+	(*ListRepoLinksResponse)(nil),    // 10: shepherd.mgmt.v1.ListRepoLinksResponse
+	(*CreateRepoLinkRequest)(nil),    // 11: shepherd.mgmt.v1.CreateRepoLinkRequest
+	(*DeleteRepoLinkRequest)(nil),    // 12: shepherd.mgmt.v1.DeleteRepoLinkRequest
+	(*DeleteRepoLinkResponse)(nil),   // 13: shepherd.mgmt.v1.DeleteRepoLinkResponse
+	(*structpb.Struct)(nil),          // 14: google.protobuf.Struct
+	(*timestamppb.Timestamp)(nil),    // 15: google.protobuf.Timestamp
 }
 var file_shepherd_mgmt_v1_gitops_proto_depIdxs = []int32{
-	12, // 0: shepherd.mgmt.v1.AdoCredential.created_at:type_name -> google.protobuf.Timestamp
-	0,  // 1: shepherd.mgmt.v1.ListCredentialsResponse.items:type_name -> shepherd.mgmt.v1.AdoCredential
-	12, // 2: shepherd.mgmt.v1.RepoLink.last_synced_at:type_name -> google.protobuf.Timestamp
-	6,  // 3: shepherd.mgmt.v1.ListRepoLinksResponse.items:type_name -> shepherd.mgmt.v1.RepoLink
-	1,  // 4: shepherd.mgmt.v1.GitOpsService.ListCredentials:input_type -> shepherd.mgmt.v1.ListCredentialsRequest
-	3,  // 5: shepherd.mgmt.v1.GitOpsService.CreateCredential:input_type -> shepherd.mgmt.v1.CreateCredentialRequest
-	4,  // 6: shepherd.mgmt.v1.GitOpsService.DeleteCredential:input_type -> shepherd.mgmt.v1.DeleteCredentialRequest
-	7,  // 7: shepherd.mgmt.v1.GitOpsService.ListRepoLinks:input_type -> shepherd.mgmt.v1.ListRepoLinksRequest
-	9,  // 8: shepherd.mgmt.v1.GitOpsService.CreateRepoLink:input_type -> shepherd.mgmt.v1.CreateRepoLinkRequest
-	10, // 9: shepherd.mgmt.v1.GitOpsService.DeleteRepoLink:input_type -> shepherd.mgmt.v1.DeleteRepoLinkRequest
-	2,  // 10: shepherd.mgmt.v1.GitOpsService.ListCredentials:output_type -> shepherd.mgmt.v1.ListCredentialsResponse
-	0,  // 11: shepherd.mgmt.v1.GitOpsService.CreateCredential:output_type -> shepherd.mgmt.v1.AdoCredential
-	5,  // 12: shepherd.mgmt.v1.GitOpsService.DeleteCredential:output_type -> shepherd.mgmt.v1.DeleteCredentialResponse
-	8,  // 13: shepherd.mgmt.v1.GitOpsService.ListRepoLinks:output_type -> shepherd.mgmt.v1.ListRepoLinksResponse
-	6,  // 14: shepherd.mgmt.v1.GitOpsService.CreateRepoLink:output_type -> shepherd.mgmt.v1.RepoLink
-	11, // 15: shepherd.mgmt.v1.GitOpsService.DeleteRepoLink:output_type -> shepherd.mgmt.v1.DeleteRepoLinkResponse
-	10, // [10:16] is the sub-list for method output_type
-	4,  // [4:10] is the sub-list for method input_type
-	4,  // [4:4] is the sub-list for extension type_name
-	4,  // [4:4] is the sub-list for extension extendee
-	0,  // [0:4] is the sub-list for field type_name
+	14, // 0: shepherd.mgmt.v1.GitCredential.provider_config:type_name -> google.protobuf.Struct
+	15, // 1: shepherd.mgmt.v1.GitCredential.created_at:type_name -> google.protobuf.Timestamp
+	0,  // 2: shepherd.mgmt.v1.ListCredentialsResponse.items:type_name -> shepherd.mgmt.v1.GitCredential
+	14, // 3: shepherd.mgmt.v1.CreateCredentialRequest.provider_config:type_name -> google.protobuf.Struct
+	15, // 4: shepherd.mgmt.v1.RepoLink.last_synced_at:type_name -> google.protobuf.Timestamp
+	8,  // 5: shepherd.mgmt.v1.ListRepoLinksResponse.items:type_name -> shepherd.mgmt.v1.RepoLink
+	1,  // 6: shepherd.mgmt.v1.GitOpsService.ListCredentials:input_type -> shepherd.mgmt.v1.ListCredentialsRequest
+	3,  // 7: shepherd.mgmt.v1.GitOpsService.CreateCredential:input_type -> shepherd.mgmt.v1.CreateCredentialRequest
+	4,  // 8: shepherd.mgmt.v1.GitOpsService.DeleteCredential:input_type -> shepherd.mgmt.v1.DeleteCredentialRequest
+	6,  // 9: shepherd.mgmt.v1.GitOpsService.TestCredential:input_type -> shepherd.mgmt.v1.TestCredentialRequest
+	9,  // 10: shepherd.mgmt.v1.GitOpsService.ListRepoLinks:input_type -> shepherd.mgmt.v1.ListRepoLinksRequest
+	11, // 11: shepherd.mgmt.v1.GitOpsService.CreateRepoLink:input_type -> shepherd.mgmt.v1.CreateRepoLinkRequest
+	12, // 12: shepherd.mgmt.v1.GitOpsService.DeleteRepoLink:input_type -> shepherd.mgmt.v1.DeleteRepoLinkRequest
+	2,  // 13: shepherd.mgmt.v1.GitOpsService.ListCredentials:output_type -> shepherd.mgmt.v1.ListCredentialsResponse
+	0,  // 14: shepherd.mgmt.v1.GitOpsService.CreateCredential:output_type -> shepherd.mgmt.v1.GitCredential
+	5,  // 15: shepherd.mgmt.v1.GitOpsService.DeleteCredential:output_type -> shepherd.mgmt.v1.DeleteCredentialResponse
+	7,  // 16: shepherd.mgmt.v1.GitOpsService.TestCredential:output_type -> shepherd.mgmt.v1.TestCredentialResponse
+	10, // 17: shepherd.mgmt.v1.GitOpsService.ListRepoLinks:output_type -> shepherd.mgmt.v1.ListRepoLinksResponse
+	8,  // 18: shepherd.mgmt.v1.GitOpsService.CreateRepoLink:output_type -> shepherd.mgmt.v1.RepoLink
+	13, // 19: shepherd.mgmt.v1.GitOpsService.DeleteRepoLink:output_type -> shepherd.mgmt.v1.DeleteRepoLinkResponse
+	13, // [13:20] is the sub-list for method output_type
+	6,  // [6:13] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_shepherd_mgmt_v1_gitops_proto_init() }
@@ -887,7 +1168,7 @@ func file_shepherd_mgmt_v1_gitops_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_shepherd_mgmt_v1_gitops_proto_rawDesc), len(file_shepherd_mgmt_v1_gitops_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   12,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

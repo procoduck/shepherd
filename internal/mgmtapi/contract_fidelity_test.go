@@ -176,21 +176,25 @@ var _ = Describe("REST shim field-presence fidelity", Label("integration"), func
 			Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgUUID(orgID)})).To(Succeed())
 			collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
 			Expect(err).NotTo(HaveOccurred())
-			cred, err := st.Queries.CreateADOCredential(ctx, sqlc.CreateADOCredentialParams{
-				OrgID: orgUUID(orgID), Name: "fidelity-cred", AdoOrgUrl: "https://dev.azure.com/x",
-				EntraTenantID: "tenant", ClientID: "client", ClientSecretEnc: []byte("not-really-encrypted"),
+			cred, err := st.Queries.CreateGitCredential(ctx, sqlc.CreateGitCredentialParams{
+				OrgID: orgUUID(orgID), Name: "fidelity-cred", Kind: "ado_sp",
+				AdoOrgUrl:       pgtype.Text{String: "https://dev.azure.com/x", Valid: true},
+				EntraTenantID:   pgtype.Text{String: "tenant", Valid: true},
+				ClientID:        pgtype.Text{String: "client", Valid: true},
+				ClientSecretEnc: []byte("not-really-encrypted"),
+				ProviderConfig:  json.RawMessage("{}"),
 			})
 			Expect(err).NotTo(HaveOccurred())
 
 			resp := postJSON(server, fmt.Sprintf("/orgs/%s/repo-links", orgID), map[string]any{
 				"collector_id": collector.ID.String(), "credential_id": cred.ID.String(),
-				"project": "proj", "repository": "repo",
+				"repo_url": "https://dev.azure.com/x/proj/_git/repo",
 			}, adminCookie)
 			Expect(resp.StatusCode).To(Equal(http.StatusCreated))
 			created := decode(resp)
 			Expect(created).NotTo(HaveKey("sync_status"))
 			Expect(created).NotTo(HaveKey("last_synced_at"))
-			Expect(created["project"]).To(Equal("proj"), "always-present fields must still be emitted")
+			Expect(created["repo_url"]).To(Equal("https://dev.azure.com/x/proj/_git/repo"), "always-present fields must still be emitted")
 		})
 	})
 })

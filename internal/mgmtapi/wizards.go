@@ -12,6 +12,7 @@ import (
 
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/internal/store"
+	"shepherd/internal/validate"
 )
 
 // WizardHandler handles /api/orgs/{org}/wizards routes — a thin shim over
@@ -24,8 +25,8 @@ type WizardHandler struct {
 }
 
 // NewWizardHandler creates a wizard handler.
-func NewWizardHandler(st *store.Store, logger *slog.Logger) *WizardHandler {
-	return &WizardHandler{service: NewWizardService(st, logger), logger: logger}
+func NewWizardHandler(st *store.Store, v *validate.Validator, logger *slog.Logger) *WizardHandler {
+	return &WizardHandler{service: NewWizardService(st, v, logger), logger: logger}
 }
 
 // ListWizards returns all registered wizard kinds.
@@ -43,6 +44,27 @@ func (h *WizardHandler) ListWizards(w http.ResponseWriter, r *http.Request) {
 func (h *WizardHandler) GetWizardSchema(w http.ResponseWriter, r *http.Request) {
 	req := &mgmtv1.GetWizardSchemaRequest{OrgId: chi.URLParam(r, "org"), Kind: chi.URLParam(r, "kind")}
 	resp, err := h.service.GetWizardSchema(r.Context(), connect.NewRequest(req))
+	if err != nil {
+		WriteConnectError(w, err)
+		return
+	}
+	wizardWriteJSON(w, http.StatusOK, resp.Msg)
+}
+
+// RenderWizard renders wizard state into contents + diagnostics + match
+// preview without persisting anything (spec §12).
+func (h *WizardHandler) RenderWizard(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	req := &mgmtv1.RenderWizardRequest{OrgId: chi.URLParam(r, "org")}
+	if err := protojson.Unmarshal(body, req); err != nil {
+		respondError(w, http.StatusBadRequest, "bad_request", "invalid JSON: "+err.Error())
+		return
+	}
+	resp, err := h.service.RenderWizard(r.Context(), connect.NewRequest(req))
 	if err != nil {
 		WriteConnectError(w, err)
 		return

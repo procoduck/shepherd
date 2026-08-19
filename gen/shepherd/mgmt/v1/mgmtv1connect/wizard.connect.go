@@ -39,6 +39,9 @@ const (
 	// WizardServiceGetWizardSchemaProcedure is the fully-qualified name of the WizardService's
 	// GetWizardSchema RPC.
 	WizardServiceGetWizardSchemaProcedure = "/shepherd.mgmt.v1.WizardService/GetWizardSchema"
+	// WizardServiceRenderWizardProcedure is the fully-qualified name of the WizardService's
+	// RenderWizard RPC.
+	WizardServiceRenderWizardProcedure = "/shepherd.mgmt.v1.WizardService/RenderWizard"
 	// WizardServiceCommitWizardProcedure is the fully-qualified name of the WizardService's
 	// CommitWizard RPC.
 	WizardServiceCommitWizardProcedure = "/shepherd.mgmt.v1.WizardService/CommitWizard"
@@ -48,6 +51,10 @@ const (
 type WizardServiceClient interface {
 	ListWizards(context.Context, *connect.Request[v1.ListWizardsRequest]) (*connect.Response[v1.ListWizardsResponse], error)
 	GetWizardSchema(context.Context, *connect.Request[v1.GetWizardSchemaRequest]) (*connect.Response[v1.WizardSchema], error)
+	// RenderWizard renders the wizard state into pipeline contents +
+	// validation diagnostics + a match preview, WITHOUT persisting anything.
+	// Mirrors CommitWizard's content generation (spec §12).
+	RenderWizard(context.Context, *connect.Request[v1.RenderWizardRequest]) (*connect.Response[v1.RenderWizardResponse], error)
 	CommitWizard(context.Context, *connect.Request[v1.CommitWizardRequest]) (*connect.Response[v1.Pipeline], error)
 }
 
@@ -74,6 +81,12 @@ func NewWizardServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(wizardServiceMethods.ByName("GetWizardSchema")),
 			connect.WithClientOptions(opts...),
 		),
+		renderWizard: connect.NewClient[v1.RenderWizardRequest, v1.RenderWizardResponse](
+			httpClient,
+			baseURL+WizardServiceRenderWizardProcedure,
+			connect.WithSchema(wizardServiceMethods.ByName("RenderWizard")),
+			connect.WithClientOptions(opts...),
+		),
 		commitWizard: connect.NewClient[v1.CommitWizardRequest, v1.Pipeline](
 			httpClient,
 			baseURL+WizardServiceCommitWizardProcedure,
@@ -87,6 +100,7 @@ func NewWizardServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 type wizardServiceClient struct {
 	listWizards     *connect.Client[v1.ListWizardsRequest, v1.ListWizardsResponse]
 	getWizardSchema *connect.Client[v1.GetWizardSchemaRequest, v1.WizardSchema]
+	renderWizard    *connect.Client[v1.RenderWizardRequest, v1.RenderWizardResponse]
 	commitWizard    *connect.Client[v1.CommitWizardRequest, v1.Pipeline]
 }
 
@@ -100,6 +114,11 @@ func (c *wizardServiceClient) GetWizardSchema(ctx context.Context, req *connect.
 	return c.getWizardSchema.CallUnary(ctx, req)
 }
 
+// RenderWizard calls shepherd.mgmt.v1.WizardService.RenderWizard.
+func (c *wizardServiceClient) RenderWizard(ctx context.Context, req *connect.Request[v1.RenderWizardRequest]) (*connect.Response[v1.RenderWizardResponse], error) {
+	return c.renderWizard.CallUnary(ctx, req)
+}
+
 // CommitWizard calls shepherd.mgmt.v1.WizardService.CommitWizard.
 func (c *wizardServiceClient) CommitWizard(ctx context.Context, req *connect.Request[v1.CommitWizardRequest]) (*connect.Response[v1.Pipeline], error) {
 	return c.commitWizard.CallUnary(ctx, req)
@@ -109,6 +128,10 @@ func (c *wizardServiceClient) CommitWizard(ctx context.Context, req *connect.Req
 type WizardServiceHandler interface {
 	ListWizards(context.Context, *connect.Request[v1.ListWizardsRequest]) (*connect.Response[v1.ListWizardsResponse], error)
 	GetWizardSchema(context.Context, *connect.Request[v1.GetWizardSchemaRequest]) (*connect.Response[v1.WizardSchema], error)
+	// RenderWizard renders the wizard state into pipeline contents +
+	// validation diagnostics + a match preview, WITHOUT persisting anything.
+	// Mirrors CommitWizard's content generation (spec §12).
+	RenderWizard(context.Context, *connect.Request[v1.RenderWizardRequest]) (*connect.Response[v1.RenderWizardResponse], error)
 	CommitWizard(context.Context, *connect.Request[v1.CommitWizardRequest]) (*connect.Response[v1.Pipeline], error)
 }
 
@@ -131,6 +154,12 @@ func NewWizardServiceHandler(svc WizardServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(wizardServiceMethods.ByName("GetWizardSchema")),
 		connect.WithHandlerOptions(opts...),
 	)
+	wizardServiceRenderWizardHandler := connect.NewUnaryHandler(
+		WizardServiceRenderWizardProcedure,
+		svc.RenderWizard,
+		connect.WithSchema(wizardServiceMethods.ByName("RenderWizard")),
+		connect.WithHandlerOptions(opts...),
+	)
 	wizardServiceCommitWizardHandler := connect.NewUnaryHandler(
 		WizardServiceCommitWizardProcedure,
 		svc.CommitWizard,
@@ -143,6 +172,8 @@ func NewWizardServiceHandler(svc WizardServiceHandler, opts ...connect.HandlerOp
 			wizardServiceListWizardsHandler.ServeHTTP(w, r)
 		case WizardServiceGetWizardSchemaProcedure:
 			wizardServiceGetWizardSchemaHandler.ServeHTTP(w, r)
+		case WizardServiceRenderWizardProcedure:
+			wizardServiceRenderWizardHandler.ServeHTTP(w, r)
 		case WizardServiceCommitWizardProcedure:
 			wizardServiceCommitWizardHandler.ServeHTTP(w, r)
 		default:
@@ -160,6 +191,10 @@ func (UnimplementedWizardServiceHandler) ListWizards(context.Context, *connect.R
 
 func (UnimplementedWizardServiceHandler) GetWizardSchema(context.Context, *connect.Request[v1.GetWizardSchemaRequest]) (*connect.Response[v1.WizardSchema], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.WizardService.GetWizardSchema is not implemented"))
+}
+
+func (UnimplementedWizardServiceHandler) RenderWizard(context.Context, *connect.Request[v1.RenderWizardRequest]) (*connect.Response[v1.RenderWizardResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.WizardService.RenderWizard is not implemented"))
 }
 
 func (UnimplementedWizardServiceHandler) CommitWizard(context.Context, *connect.Request[v1.CommitWizardRequest]) (*connect.Response[v1.Pipeline], error) {

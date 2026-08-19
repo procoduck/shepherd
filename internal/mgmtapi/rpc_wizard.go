@@ -15,8 +15,10 @@ import (
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
 	"shepherd/internal/auth"
+	"shepherd/internal/merge"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
+	"shepherd/internal/validate"
 	"shepherd/internal/wizard"
 	_ "shepherd/internal/wizard/appobservability" // register wizard
 )
@@ -25,14 +27,15 @@ import (
 // logic for /api/orgs/{org}/wizards/*, moved here from WizardHandler
 // (wizards.go, now a thin REST shim over this service).
 type WizardService struct {
-	store    *store.Store
-	registry *wizard.Registry
-	logger   *slog.Logger
+	store     *store.Store
+	registry  *wizard.Registry
+	validator *validate.Validator
+	logger    *slog.Logger
 }
 
 // NewWizardService constructs a WizardService with the deps WizardHandler uses today.
-func NewWizardService(st *store.Store, logger *slog.Logger) *WizardService {
-	return &WizardService{store: st, registry: wizard.Default(), logger: logger}
+func NewWizardService(st *store.Store, v *validate.Validator, logger *slog.Logger) *WizardService {
+	return &WizardService{store: st, registry: wizard.Default(), validator: v, logger: logger}
 }
 
 var _ mgmtv1connect.WizardServiceHandler = (*WizardService)(nil)
@@ -58,6 +61,89 @@ func (s *WizardService) GetWizardSchema(_ context.Context, req *connect.Request[
 		return nil, connect.NewError(connect.CodeNotFound, err)
 	}
 	return connect.NewResponse(wizardSchemaToProto(wiz.Schema())), nil
+}
+
+// RenderWizard generates pipeline contents + matchers from wizard state,
+// exactly as CommitWizard does, then runs the same stage 1/2 validation gate
+// and a match preview against the org's collectors — WITHOUT persisting
+// anything (spec §12: "input -> rendered configs + diagnostics + match
+// preview").
+func (s *WizardService) RenderWizard(ctx context.Context, req *connect.Request[mgmtv1.RenderWizardRequest]) (*connect.Response[mgmtv1.RenderWizardResponse], error) {
+	wiz, err := s.registry.Get(req.Msg.GetKind())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	state := map[string]any{}
+	if req.Msg.GetState() != nil {
+		state = req.Msg.GetState().AsMap()
+	}
+
+	result, err := wiz.Commit(state)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+	}
+
+	name := req.Msg.GetName()
+	if name == "" {
+		name = "preview"
+	}
+	wrapped := validate.WrapForValidation(name, result.Contents)
+	valResult := s.validator.Stages12(ctx, wrapped)
+
+	orgID, err := scanUUID(req.Msg.GetOrgId())
+	if err != nil {
+		orgID = pgtype.UUID{}
+	}
+	matched, matchErr := s.previewMatchedCollectors(ctx, merge.Pipeline{
+		ID:       name,
+		Name:     name,
+		Matchers: result.Matchers,
+		Source:   "wizard",
+	}, orgID)
+	if matchErr != nil {
+		s.logger.Debug("wizard render: match preview failed", "err", matchErr)
+		matched = nil
+	}
+	items := make([]*mgmtv1.MatchedCollector, len(matched))
+	for i, m := range matched {
+		items[i] = &mgmtv1.MatchedCollector{Cluster: m["cluster"], Role: m["role"], Id: m["id"]}
+	}
+
+	return connect.NewResponse(&mgmtv1.RenderWizardResponse{
+		Contents:          result.Contents,
+		Matchers:          result.Matchers,
+		Valid:             valResult.Valid,
+		Diagnostics:       diagnosticsToProto(valResult.Diagnostics),
+		MatchedCollectors: items,
+	}), nil
+}
+
+// previewMatchedCollectors mirrors PipelineService.previewMatchedCollectors
+// (rpc_pipeline.go) — kept as its own copy here since WizardService renders
+// a candidate pipeline that has no row in the pipelines table to load.
+func (s *WizardService) previewMatchedCollectors(ctx context.Context, p merge.Pipeline, orgID pgtype.UUID) ([]map[string]string, error) {
+	collectors, err := s.store.Queries.ListCollectorsByOrg(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	var matched []map[string]string
+	for i := range collectors {
+		c := collectors[i]
+		cl := merge.CollectorLabels{
+			CollectorID: c.ID.String(),
+			Labels:      map[string]string{"role": c.Role},
+		}
+		cluster, _ := s.store.Queries.GetClusterByID(ctx, c.ClusterID) //nolint:errcheck // empty cluster name is safe in merge
+		cl.Labels["cluster"] = cluster.Name
+
+		ok, matchErr := merge.MatchesPipeline(p, cl)
+		if matchErr != nil || !ok {
+			continue
+		}
+		matched = append(matched, map[string]string{"cluster": cluster.Name, "role": c.Role, "id": c.ID.String()})
+	}
+	return matched, nil
 }
 
 // CommitWizard generates a pipeline from wizard state and creates it.

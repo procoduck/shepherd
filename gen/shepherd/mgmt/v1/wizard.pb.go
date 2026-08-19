@@ -465,11 +465,162 @@ func (x *CommitWizardRequest) GetState() *structpb.Struct {
 	return nil
 }
 
+// RenderWizardRequest carries the same shape as CommitWizardRequest — name is
+// optional here (used only to label validation diagnostics and, once a
+// pipeline of that name exists, is irrelevant to the match preview).
+type RenderWizardRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OrgId         string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	Kind          string                 `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
+	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	State         *structpb.Struct       `protobuf:"bytes,4,opt,name=state,proto3" json:"state,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RenderWizardRequest) Reset() {
+	*x = RenderWizardRequest{}
+	mi := &file_shepherd_mgmt_v1_wizard_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RenderWizardRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RenderWizardRequest) ProtoMessage() {}
+
+func (x *RenderWizardRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_wizard_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RenderWizardRequest.ProtoReflect.Descriptor instead.
+func (*RenderWizardRequest) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_wizard_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *RenderWizardRequest) GetOrgId() string {
+	if x != nil {
+		return x.OrgId
+	}
+	return ""
+}
+
+func (x *RenderWizardRequest) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *RenderWizardRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *RenderWizardRequest) GetState() *structpb.Struct {
+	if x != nil {
+		return x.State
+	}
+	return nil
+}
+
+// RenderWizardResponse is the preview counterpart to Pipeline: generated
+// contents + suggested matchers, plus stage 1/2 validation diagnostics and
+// which of the org's collectors the suggested matchers would currently hit.
+// Nothing is persisted.
+type RenderWizardResponse struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Contents          string                 `protobuf:"bytes,1,opt,name=contents,proto3" json:"contents,omitempty"`
+	Matchers          []string               `protobuf:"bytes,2,rep,name=matchers,proto3" json:"matchers,omitempty"`
+	Valid             bool                   `protobuf:"varint,3,opt,name=valid,proto3" json:"valid,omitempty"`
+	Diagnostics       []*Diagnostic          `protobuf:"bytes,4,rep,name=diagnostics,proto3" json:"diagnostics,omitempty"`
+	MatchedCollectors []*MatchedCollector    `protobuf:"bytes,5,rep,name=matched_collectors,json=matchedCollectors,proto3" json:"matched_collectors,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *RenderWizardResponse) Reset() {
+	*x = RenderWizardResponse{}
+	mi := &file_shepherd_mgmt_v1_wizard_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RenderWizardResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RenderWizardResponse) ProtoMessage() {}
+
+func (x *RenderWizardResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_wizard_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RenderWizardResponse.ProtoReflect.Descriptor instead.
+func (*RenderWizardResponse) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_wizard_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *RenderWizardResponse) GetContents() string {
+	if x != nil {
+		return x.Contents
+	}
+	return ""
+}
+
+func (x *RenderWizardResponse) GetMatchers() []string {
+	if x != nil {
+		return x.Matchers
+	}
+	return nil
+}
+
+func (x *RenderWizardResponse) GetValid() bool {
+	if x != nil {
+		return x.Valid
+	}
+	return false
+}
+
+func (x *RenderWizardResponse) GetDiagnostics() []*Diagnostic {
+	if x != nil {
+		return x.Diagnostics
+	}
+	return nil
+}
+
+func (x *RenderWizardResponse) GetMatchedCollectors() []*MatchedCollector {
+	if x != nil {
+		return x.MatchedCollectors
+	}
+	return nil
+}
+
 var File_shepherd_mgmt_v1_wizard_proto protoreflect.FileDescriptor
 
 const file_shepherd_mgmt_v1_wizard_proto_rawDesc = "" +
 	"\n" +
-	"\x1dshepherd/mgmt/v1/wizard.proto\x12\x10shepherd.mgmt.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fshepherd/mgmt/v1/pipeline.proto\"\xf5\x01\n" +
+	"\x1dshepherd/mgmt/v1/wizard.proto\x12\x10shepherd.mgmt.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1dshepherd/mgmt/v1/common.proto\x1a\x1fshepherd/mgmt/v1/pipeline.proto\"\xf5\x01\n" +
 	"\tStepField\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05label\x18\x02 \x01(\tR\x05label\x12\x12\n" +
@@ -499,10 +650,22 @@ const file_shepherd_mgmt_v1_wizard_proto_rawDesc = "" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12-\n" +
-	"\x05state\x18\x04 \x01(\v2\x17.google.protobuf.StructR\x05state2\xa1\x02\n" +
+	"\x05state\x18\x04 \x01(\v2\x17.google.protobuf.StructR\x05state\"\x83\x01\n" +
+	"\x13RenderWizardRequest\x12\x15\n" +
+	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x12\n" +
+	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\x12-\n" +
+	"\x05state\x18\x04 \x01(\v2\x17.google.protobuf.StructR\x05state\"\xf7\x01\n" +
+	"\x14RenderWizardResponse\x12\x1a\n" +
+	"\bcontents\x18\x01 \x01(\tR\bcontents\x12\x1a\n" +
+	"\bmatchers\x18\x02 \x03(\tR\bmatchers\x12\x14\n" +
+	"\x05valid\x18\x03 \x01(\bR\x05valid\x12>\n" +
+	"\vdiagnostics\x18\x04 \x03(\v2\x1c.shepherd.mgmt.v1.DiagnosticR\vdiagnostics\x12Q\n" +
+	"\x12matched_collectors\x18\x05 \x03(\v2\".shepherd.mgmt.v1.MatchedCollectorR\x11matchedCollectors2\x82\x03\n" +
 	"\rWizardService\x12\\\n" +
 	"\vListWizards\x12$.shepherd.mgmt.v1.ListWizardsRequest\x1a%.shepherd.mgmt.v1.ListWizardsResponse\"\x00\x12]\n" +
-	"\x0fGetWizardSchema\x12(.shepherd.mgmt.v1.GetWizardSchemaRequest\x1a\x1e.shepherd.mgmt.v1.WizardSchema\"\x00\x12S\n" +
+	"\x0fGetWizardSchema\x12(.shepherd.mgmt.v1.GetWizardSchemaRequest\x1a\x1e.shepherd.mgmt.v1.WizardSchema\"\x00\x12_\n" +
+	"\fRenderWizard\x12%.shepherd.mgmt.v1.RenderWizardRequest\x1a&.shepherd.mgmt.v1.RenderWizardResponse\"\x00\x12S\n" +
 	"\fCommitWizard\x12%.shepherd.mgmt.v1.CommitWizardRequest\x1a\x1a.shepherd.mgmt.v1.Pipeline\"\x00B&Z$shepherd/gen/shepherd/mgmt/v1;mgmtv1b\x06proto3"
 
 var (
@@ -517,7 +680,7 @@ func file_shepherd_mgmt_v1_wizard_proto_rawDescGZIP() []byte {
 	return file_shepherd_mgmt_v1_wizard_proto_rawDescData
 }
 
-var file_shepherd_mgmt_v1_wizard_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_shepherd_mgmt_v1_wizard_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_shepherd_mgmt_v1_wizard_proto_goTypes = []any{
 	(*StepField)(nil),              // 0: shepherd.mgmt.v1.StepField
 	(*Step)(nil),                   // 1: shepherd.mgmt.v1.Step
@@ -526,27 +689,36 @@ var file_shepherd_mgmt_v1_wizard_proto_goTypes = []any{
 	(*ListWizardsResponse)(nil),    // 4: shepherd.mgmt.v1.ListWizardsResponse
 	(*GetWizardSchemaRequest)(nil), // 5: shepherd.mgmt.v1.GetWizardSchemaRequest
 	(*CommitWizardRequest)(nil),    // 6: shepherd.mgmt.v1.CommitWizardRequest
-	(*structpb.Value)(nil),         // 7: google.protobuf.Value
-	(*structpb.Struct)(nil),        // 8: google.protobuf.Struct
-	(*Pipeline)(nil),               // 9: shepherd.mgmt.v1.Pipeline
+	(*RenderWizardRequest)(nil),    // 7: shepherd.mgmt.v1.RenderWizardRequest
+	(*RenderWizardResponse)(nil),   // 8: shepherd.mgmt.v1.RenderWizardResponse
+	(*structpb.Value)(nil),         // 9: google.protobuf.Value
+	(*structpb.Struct)(nil),        // 10: google.protobuf.Struct
+	(*Diagnostic)(nil),             // 11: shepherd.mgmt.v1.Diagnostic
+	(*MatchedCollector)(nil),       // 12: shepherd.mgmt.v1.MatchedCollector
+	(*Pipeline)(nil),               // 13: shepherd.mgmt.v1.Pipeline
 }
 var file_shepherd_mgmt_v1_wizard_proto_depIdxs = []int32{
-	7, // 0: shepherd.mgmt.v1.StepField.default:type_name -> google.protobuf.Value
-	0, // 1: shepherd.mgmt.v1.Step.fields:type_name -> shepherd.mgmt.v1.StepField
-	1, // 2: shepherd.mgmt.v1.WizardSchema.steps:type_name -> shepherd.mgmt.v1.Step
-	2, // 3: shepherd.mgmt.v1.ListWizardsResponse.items:type_name -> shepherd.mgmt.v1.WizardSchema
-	8, // 4: shepherd.mgmt.v1.CommitWizardRequest.state:type_name -> google.protobuf.Struct
-	3, // 5: shepherd.mgmt.v1.WizardService.ListWizards:input_type -> shepherd.mgmt.v1.ListWizardsRequest
-	5, // 6: shepherd.mgmt.v1.WizardService.GetWizardSchema:input_type -> shepherd.mgmt.v1.GetWizardSchemaRequest
-	6, // 7: shepherd.mgmt.v1.WizardService.CommitWizard:input_type -> shepherd.mgmt.v1.CommitWizardRequest
-	4, // 8: shepherd.mgmt.v1.WizardService.ListWizards:output_type -> shepherd.mgmt.v1.ListWizardsResponse
-	2, // 9: shepherd.mgmt.v1.WizardService.GetWizardSchema:output_type -> shepherd.mgmt.v1.WizardSchema
-	9, // 10: shepherd.mgmt.v1.WizardService.CommitWizard:output_type -> shepherd.mgmt.v1.Pipeline
-	8, // [8:11] is the sub-list for method output_type
-	5, // [5:8] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	9,  // 0: shepherd.mgmt.v1.StepField.default:type_name -> google.protobuf.Value
+	0,  // 1: shepherd.mgmt.v1.Step.fields:type_name -> shepherd.mgmt.v1.StepField
+	1,  // 2: shepherd.mgmt.v1.WizardSchema.steps:type_name -> shepherd.mgmt.v1.Step
+	2,  // 3: shepherd.mgmt.v1.ListWizardsResponse.items:type_name -> shepherd.mgmt.v1.WizardSchema
+	10, // 4: shepherd.mgmt.v1.CommitWizardRequest.state:type_name -> google.protobuf.Struct
+	10, // 5: shepherd.mgmt.v1.RenderWizardRequest.state:type_name -> google.protobuf.Struct
+	11, // 6: shepherd.mgmt.v1.RenderWizardResponse.diagnostics:type_name -> shepherd.mgmt.v1.Diagnostic
+	12, // 7: shepherd.mgmt.v1.RenderWizardResponse.matched_collectors:type_name -> shepherd.mgmt.v1.MatchedCollector
+	3,  // 8: shepherd.mgmt.v1.WizardService.ListWizards:input_type -> shepherd.mgmt.v1.ListWizardsRequest
+	5,  // 9: shepherd.mgmt.v1.WizardService.GetWizardSchema:input_type -> shepherd.mgmt.v1.GetWizardSchemaRequest
+	7,  // 10: shepherd.mgmt.v1.WizardService.RenderWizard:input_type -> shepherd.mgmt.v1.RenderWizardRequest
+	6,  // 11: shepherd.mgmt.v1.WizardService.CommitWizard:input_type -> shepherd.mgmt.v1.CommitWizardRequest
+	4,  // 12: shepherd.mgmt.v1.WizardService.ListWizards:output_type -> shepherd.mgmt.v1.ListWizardsResponse
+	2,  // 13: shepherd.mgmt.v1.WizardService.GetWizardSchema:output_type -> shepherd.mgmt.v1.WizardSchema
+	8,  // 14: shepherd.mgmt.v1.WizardService.RenderWizard:output_type -> shepherd.mgmt.v1.RenderWizardResponse
+	13, // 15: shepherd.mgmt.v1.WizardService.CommitWizard:output_type -> shepherd.mgmt.v1.Pipeline
+	12, // [12:16] is the sub-list for method output_type
+	8,  // [8:12] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_shepherd_mgmt_v1_wizard_proto_init() }
@@ -554,6 +726,7 @@ func file_shepherd_mgmt_v1_wizard_proto_init() {
 	if File_shepherd_mgmt_v1_wizard_proto != nil {
 		return
 	}
+	file_shepherd_mgmt_v1_common_proto_init()
 	file_shepherd_mgmt_v1_pipeline_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -561,7 +734,7 @@ func file_shepherd_mgmt_v1_wizard_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_shepherd_mgmt_v1_wizard_proto_rawDesc), len(file_shepherd_mgmt_v1_wizard_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -2,31 +2,59 @@ syntax = "proto3";
 
 package shepherd.mgmt.v1;
 
+import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 
-// GitOpsService covers /api/orgs/{org}/ado-credentials/* and
+// GitOpsService covers /api/orgs/{org}/ado-credentials/* (legacy path,
+// kept for wire compatibility — see internal/mgmtapi/repolinks.go) and
 // /api/orgs/{org}/repo-links/*. All methods require org-admin.
+//
+// docs/git-provider-design.md §3.4: this is a BREAKING rename of
+// AdoCredential -> GitCredential, acceptable only because nothing consumes
+// the shepherd.mgmt.v1 contract in production yet (the platform fleet has
+// no remotecfg blocks at all). If that assumption no longer holds, add
+// GitCredential alongside AdoCredential and deprecate instead of renaming.
 service GitOpsService {
   rpc ListCredentials(ListCredentialsRequest) returns (ListCredentialsResponse) {}
-  rpc CreateCredential(CreateCredentialRequest) returns (AdoCredential) {}
+  rpc CreateCredential(CreateCredentialRequest) returns (GitCredential) {}
   rpc DeleteCredential(DeleteCredentialRequest) returns (DeleteCredentialResponse) {}
+  // TestCredential resolves the stored credential's auth strategy and runs
+  // a git ls-remote against repo_url, distinguishing a token-exchange
+  // failure (ado_sp/github_app minting a token) from a git reachability
+  // failure (network, TLS, or the git server itself rejecting the
+  // resolved credentials) — see docs/git-provider-design.md §3.4.
+  rpc TestCredential(TestCredentialRequest) returns (TestCredentialResponse) {}
 
   rpc ListRepoLinks(ListRepoLinksRequest) returns (ListRepoLinksResponse) {}
   rpc CreateRepoLink(CreateRepoLinkRequest) returns (RepoLink) {}
   rpc DeleteRepoLink(DeleteRepoLinkRequest) returns (DeleteRepoLinkResponse) {}
 }
 
-// AdoCredential mirrors internal/mgmtapi/repolinks.go: adoCredResponse.
-// client_secret is write-only (never returned).
-message AdoCredential {
+// GitCredential holds the auth for one git remote. kind selects the
+// strategy (docs/git-provider-design.md §3.2): "none", "basic", "pat",
+// "ssh", "ado_sp", or "github_app". Every secret (client_secret, secret2,
+// private keys) is write-only: CreateCredentialRequest accepts them, this
+// message never returns them.
+message GitCredential {
   string id = 1;
   string name = 2;
-  string ado_org_url = 3;
-  string entra_tenant_id = 4;
-  string client_id = 5;
-  google.protobuf.Timestamp created_at = 6;
+  string kind = 3;
+  // username is meaningful for "basic", "pat" (often a literal such as
+  // "oauth2" or "x-token-auth"), and "ssh" (default "git").
+  string username = 4;
+  // ADO fields, populated when kind == "ado_sp". Kept as explicit fields
+  // (rather than folded into provider_config) because they predate it and
+  // migration 0006 backfills them as real columns.
+  string ado_org_url = 5;
+  string entra_tenant_id = 6;
+  string client_id = 7;
+  // provider_config carries kind-specific non-secret fields with no
+  // dedicated column — today, github_app's app_id / installation_id /
+  // api_base_url.
+  google.protobuf.Struct provider_config = 8;
+  google.protobuf.Timestamp created_at = 9;
 }
 
 message ListCredentialsRequest {
@@ -34,18 +62,38 @@ message ListCredentialsRequest {
 }
 
 message ListCredentialsResponse {
-  repeated AdoCredential items = 1;
+  repeated GitCredential items = 1;
   int32 total = 2;
 }
 
-// CreateCredentialRequest mirrors adoCredRequest in repolinks.go.
+// CreateCredentialRequest mirrors adoCredRequest in repolinks.go, extended
+// for every credential kind (docs/git-provider-design.md §3.2/§3.3).
 message CreateCredentialRequest {
   string org_id = 1;
   string name = 2;
-  string ado_org_url = 3;
-  string entra_tenant_id = 4;
-  string client_id = 5;
-  string client_secret = 6;
+  string kind = 3;
+  string username = 4;
+  // ado_sp fields.
+  string ado_org_url = 5;
+  string entra_tenant_id = 6;
+  string client_id = 7;
+  // provider_config: see GitCredential.provider_config.
+  google.protobuf.Struct provider_config = 8;
+  // client_secret is the one required secret for every kind except
+  // "none": the basic password, the PAT, the ado_sp client secret, the
+  // github_app RSA private key PEM, or the ssh private key PEM.
+  string client_secret = 9;
+  // secret2 is optional and, today, only the ssh private key passphrase.
+  string secret2 = 10;
+  // ssh_known_hosts is required for kind == "ssh" (no accept-any-host-key
+  // mode — docs/git-provider-design.md §7).
+  string ssh_known_hosts = 11;
+  // ca_cert is an optional per-credential PEM CA bundle trusted for this
+  // credential's HTTPS transport only.
+  string ca_cert = 12;
+  // tls_insecure_skip_verify is a default-off, explicit escape hatch;
+  // enabling it should be treated as an audited change by the UI.
+  bool tls_insecure_skip_verify = 13;
 }
 
 message DeleteCredentialRequest {
@@ -55,15 +103,45 @@ message DeleteCredentialRequest {
 
 message DeleteCredentialResponse {}
 
+message TestCredentialRequest {
+  string org_id = 1;
+  string id = 2;
+  // repo_url and branch describe the remote to test against. A credential
+  // has no repo of its own — the caller supplies one, typically the repo
+  // link form's current values. branch defaults to "main" when empty.
+  string repo_url = 3;
+  string branch = 4;
+}
+
+message TestCredentialResponse {
+  // reachable is true once ls-remote against repo_url succeeded — even if
+  // branch wasn't found there, which is a configuration mismatch, not a
+  // reachability problem.
+  bool reachable = 1;
+  // error is the underlying error message; set whenever reachable is
+  // false, or when the branch was not found on an otherwise-reachable
+  // remote.
+  string error = 2;
+  // token_exchange_required is true for kind == "ado_sp" or "github_app",
+  // whose auth resolves through a token-exchange step before git is ever
+  // contacted.
+  bool token_exchange_required = 3;
+  // token_exchange_ok is meaningful only when token_exchange_required:
+  // false means the failure happened minting the token, never reaching
+  // git at all.
+  bool token_exchange_ok = 4;
+}
+
 // RepoLink mirrors internal/mgmtapi/repolinks.go: repoLinkResponse.
 message RepoLink {
   string id = 1;
-  string project = 2;
-  string repository = 3;
-  string branch = 4;
-  string path = 5;
-  string sync_status = 6;
-  google.protobuf.Timestamp last_synced_at = 7;
+  string repo_url = 2;
+  string branch = 3;
+  string path = 4;
+  string sync_status = 5;
+  google.protobuf.Timestamp last_synced_at = 6;
+  string collector_id = 7;
+  string credential_id = 8;
 }
 
 message ListRepoLinksRequest {
@@ -81,11 +159,10 @@ message CreateRepoLinkRequest {
   string org_id = 1;
   string collector_id = 2;
   string credential_id = 3;
-  string project = 4;
-  string repository = 5;
-  string branch = 6;
-  string path = 7;
-  int32 poll_interval_seconds = 8;
+  string repo_url = 4;
+  string branch = 5;
+  string path = 6;
+  int32 poll_interval_seconds = 7;
 }
 
 message DeleteRepoLinkRequest {

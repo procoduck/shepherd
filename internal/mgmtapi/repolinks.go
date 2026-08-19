@@ -1,6 +1,7 @@
 package mgmtapi
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"connectrpc.com/connect"
@@ -11,11 +12,15 @@ import (
 )
 
 // RepoLinksHandler is a thin REST shim over GitOpsService for
-// /api/orgs/{org}/ado-credentials and /api/orgs/{org}/repo-links: it parses
-// URL params/query/body into the shepherd.mgmt.v1 proto request, calls the
-// service method directly (in-process, not over HTTP), and renders the
-// response with the shim helpers in shim.go so the legacy JSON stays
-// byte-compatible. No business logic lives here — see rpc_gitops.go.
+// /api/orgs/{org}/git-credentials (formerly /ado-credentials — renamed
+// alongside the AdoCredential -> GitCredential proto rename, since
+// docs/git-provider-design.md §3.4 already treats this as a conscious
+// breaking wire change with nothing depending on the old contract in
+// production) and /api/orgs/{org}/repo-links: it parses URL params/query/
+// body into the shepherd.mgmt.v1 proto request, calls the service method
+// directly (in-process, not over HTTP), and renders the response with the
+// shim helpers in shim.go. No business logic lives here — see
+// rpc_gitops.go.
 type RepoLinksHandler struct {
 	svc *GitOpsService
 }
@@ -38,18 +43,28 @@ func writeProtoJSON(w http.ResponseWriter, status int, msg proto.Message) {
 	_, _ = w.Write(b) //nolint:errcheck // response status/headers already committed
 }
 
-// -- ADO Credentials --
+// -- Git Credentials --
 
-// adoCredRequest is the legacy wire shape for POST .../ado-credentials.
-type adoCredRequest struct {
-	Name          string `json:"name"`
-	ADOOrgURL     string `json:"ado_org_url"`
-	EntraTenantID string `json:"entra_tenant_id"`
-	ClientID      string `json:"client_id"`
-	ClientSecret  string `json:"client_secret"`
+// gitCredRequest is the wire shape for POST .../git-credentials. Field
+// names follow the renamed GitCredential proto (gitops.proto), not the
+// pre-rename adoCredRequest shape — this is the one deliberately breaking
+// REST shim, mirroring the breaking Connect rename it sits in front of.
+type gitCredRequest struct {
+	Name                  string          `json:"name"`
+	Kind                  string          `json:"kind"`
+	Username              string          `json:"username"`
+	ADOOrgURL             string          `json:"ado_org_url"`
+	EntraTenantID         string          `json:"entra_tenant_id"`
+	ClientID              string          `json:"client_id"`
+	ProviderConfig        json.RawMessage `json:"provider_config"`
+	ClientSecret          string          `json:"client_secret"`
+	Secret2               string          `json:"secret2"`
+	SSHKnownHosts         string          `json:"ssh_known_hosts"`
+	CACert                string          `json:"ca_cert"`
+	TLSInsecureSkipVerify bool            `json:"tls_insecure_skip_verify"`
 }
 
-// ListCredentials returns ADO credentials for the organization.
+// ListCredentials returns git credentials for the organization.
 func (h *RepoLinksHandler) ListCredentials(w http.ResponseWriter, r *http.Request) {
 	req := &mgmtv1.ListCredentialsRequest{OrgId: chi.URLParam(r, "org")}
 	resp, err := h.svc.ListCredentials(r.Context(), connect.NewRequest(req))
@@ -60,19 +75,31 @@ func (h *RepoLinksHandler) ListCredentials(w http.ResponseWriter, r *http.Reques
 	writeProtoJSON(w, http.StatusOK, resp.Msg)
 }
 
-// CreateCredential creates an ADO credential.
+// CreateCredential creates a git credential.
 func (h *RepoLinksHandler) CreateCredential(w http.ResponseWriter, r *http.Request) {
-	var body adoCredRequest
+	var body gitCredRequest
 	if !decodeJSON(w, r, &body) {
 		return
 	}
+	pc, err := structFromJSON(body.ProviderConfig)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "bad_request", "invalid provider_config: "+err.Error())
+		return
+	}
 	req := &mgmtv1.CreateCredentialRequest{
-		OrgId:         chi.URLParam(r, "org"),
-		Name:          body.Name,
-		AdoOrgUrl:     body.ADOOrgURL,
-		EntraTenantId: body.EntraTenantID,
-		ClientId:      body.ClientID,
-		ClientSecret:  body.ClientSecret,
+		OrgId:                 chi.URLParam(r, "org"),
+		Name:                  body.Name,
+		Kind:                  body.Kind,
+		Username:              body.Username,
+		AdoOrgUrl:             body.ADOOrgURL,
+		EntraTenantId:         body.EntraTenantID,
+		ClientId:              body.ClientID,
+		ProviderConfig:        pc,
+		ClientSecret:          body.ClientSecret,
+		Secret2:               body.Secret2,
+		SshKnownHosts:         body.SSHKnownHosts,
+		CaCert:                body.CACert,
+		TlsInsecureSkipVerify: body.TLSInsecureSkipVerify,
 	}
 	resp, err := h.svc.CreateCredential(r.Context(), connect.NewRequest(req))
 	if err != nil {
@@ -82,7 +109,7 @@ func (h *RepoLinksHandler) CreateCredential(w http.ResponseWriter, r *http.Reque
 	writeProtoJSON(w, http.StatusCreated, resp.Msg)
 }
 
-// DeleteCredential deletes an ADO credential.
+// DeleteCredential deletes a git credential.
 func (h *RepoLinksHandler) DeleteCredential(w http.ResponseWriter, r *http.Request) {
 	req := &mgmtv1.DeleteCredentialRequest{OrgId: chi.URLParam(r, "org"), Id: chi.URLParam(r, "id")}
 	if _, err := h.svc.DeleteCredential(r.Context(), connect.NewRequest(req)); err != nil {
@@ -92,19 +119,46 @@ func (h *RepoLinksHandler) DeleteCredential(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// testCredRequest is the wire shape for POST .../git-credentials/{id}/test.
+type testCredRequest struct {
+	RepoURL string `json:"repo_url"`
+	Branch  string `json:"branch"`
+}
+
+// TestCredential resolves the credential and runs a git ls-remote against
+// the supplied repo_url (ledger F4, docs/git-provider-design.md §3.4).
+func (h *RepoLinksHandler) TestCredential(w http.ResponseWriter, r *http.Request) {
+	var body testCredRequest
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	req := &mgmtv1.TestCredentialRequest{
+		OrgId:   chi.URLParam(r, "org"),
+		Id:      chi.URLParam(r, "id"),
+		RepoUrl: body.RepoURL,
+		Branch:  body.Branch,
+	}
+	resp, err := h.svc.TestCredential(r.Context(), connect.NewRequest(req))
+	if err != nil {
+		WriteConnectError(w, err)
+		return
+	}
+	writeProtoJSON(w, http.StatusOK, resp.Msg)
+}
+
+// -- Repo Links --
+
 // repoLinkOmitFields names the RepoLink fields the legacy repoLinkResponse
 // struct marked `,omitempty`: both are unset on a just-created repo link
 // (its poller hasn't run yet).
 var repoLinkOmitFields = []string{"sync_status", "last_synced_at"} //nolint:gochecknoglobals // shared, read-only field list
 
-// -- Repo Links --
-
-// repoLinkRequest is the legacy wire shape for POST .../repo-links.
+// repoLinkRequest is the wire shape for POST .../repo-links. repo_url
+// replaces the pre-rename project+repository pair.
 type repoLinkRequest struct {
 	CollectorID         string `json:"collector_id"`
 	CredentialID        string `json:"credential_id"`
-	Project             string `json:"project"`
-	Repository          string `json:"repository"`
+	RepoURL             string `json:"repo_url"`
 	Branch              string `json:"branch"`
 	Path                string `json:"path"`
 	PollIntervalSeconds int32  `json:"poll_interval_seconds"`
@@ -131,8 +185,7 @@ func (h *RepoLinksHandler) CreateRepoLink(w http.ResponseWriter, r *http.Request
 		OrgId:               chi.URLParam(r, "org"),
 		CollectorId:         body.CollectorID,
 		CredentialId:        body.CredentialID,
-		Project:             body.Project,
-		Repository:          body.Repository,
+		RepoUrl:             body.RepoURL,
 		Branch:              body.Branch,
 		Path:                body.Path,
 		PollIntervalSeconds: body.PollIntervalSeconds,

@@ -42,6 +42,9 @@ const (
 	// FleetServiceGetServedConfigProcedure is the fully-qualified name of the FleetService's
 	// GetServedConfig RPC.
 	FleetServiceGetServedConfigProcedure = "/shepherd.mgmt.v1.FleetService/GetServedConfig"
+	// FleetServiceListAssignmentsProcedure is the fully-qualified name of the FleetService's
+	// ListAssignments RPC.
+	FleetServiceListAssignmentsProcedure = "/shepherd.mgmt.v1.FleetService/ListAssignments"
 	// FleetServiceCreateAssignmentProcedure is the fully-qualified name of the FleetService's
 	// CreateAssignment RPC.
 	FleetServiceCreateAssignmentProcedure = "/shepherd.mgmt.v1.FleetService/CreateAssignment"
@@ -58,6 +61,7 @@ type FleetServiceClient interface {
 	ListCollectors(context.Context, *connect.Request[v1.ListCollectorsRequest]) (*connect.Response[v1.ListCollectorsResponse], error)
 	GetCollector(context.Context, *connect.Request[v1.GetCollectorRequest]) (*connect.Response[v1.Collector], error)
 	GetServedConfig(context.Context, *connect.Request[v1.GetServedConfigRequest]) (*connect.Response[v1.GetServedConfigResponse], error)
+	ListAssignments(context.Context, *connect.Request[v1.ListAssignmentsRequest]) (*connect.Response[v1.ListAssignmentsResponse], error)
 	CreateAssignment(context.Context, *connect.Request[v1.CreateAssignmentRequest]) (*connect.Response[v1.CreateAssignmentResponse], error)
 	DeleteAssignment(context.Context, *connect.Request[v1.DeleteAssignmentRequest]) (*connect.Response[v1.DeleteAssignmentResponse], error)
 	ListAttributes(context.Context, *connect.Request[v1.ListAttributesRequest]) (*connect.Response[v1.ListAttributesResponse], error)
@@ -92,6 +96,12 @@ func NewFleetServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(fleetServiceMethods.ByName("GetServedConfig")),
 			connect.WithClientOptions(opts...),
 		),
+		listAssignments: connect.NewClient[v1.ListAssignmentsRequest, v1.ListAssignmentsResponse](
+			httpClient,
+			baseURL+FleetServiceListAssignmentsProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("ListAssignments")),
+			connect.WithClientOptions(opts...),
+		),
 		createAssignment: connect.NewClient[v1.CreateAssignmentRequest, v1.CreateAssignmentResponse](
 			httpClient,
 			baseURL+FleetServiceCreateAssignmentProcedure,
@@ -118,6 +128,7 @@ type fleetServiceClient struct {
 	listCollectors   *connect.Client[v1.ListCollectorsRequest, v1.ListCollectorsResponse]
 	getCollector     *connect.Client[v1.GetCollectorRequest, v1.Collector]
 	getServedConfig  *connect.Client[v1.GetServedConfigRequest, v1.GetServedConfigResponse]
+	listAssignments  *connect.Client[v1.ListAssignmentsRequest, v1.ListAssignmentsResponse]
 	createAssignment *connect.Client[v1.CreateAssignmentRequest, v1.CreateAssignmentResponse]
 	deleteAssignment *connect.Client[v1.DeleteAssignmentRequest, v1.DeleteAssignmentResponse]
 	listAttributes   *connect.Client[v1.ListAttributesRequest, v1.ListAttributesResponse]
@@ -136,6 +147,11 @@ func (c *fleetServiceClient) GetCollector(ctx context.Context, req *connect.Requ
 // GetServedConfig calls shepherd.mgmt.v1.FleetService.GetServedConfig.
 func (c *fleetServiceClient) GetServedConfig(ctx context.Context, req *connect.Request[v1.GetServedConfigRequest]) (*connect.Response[v1.GetServedConfigResponse], error) {
 	return c.getServedConfig.CallUnary(ctx, req)
+}
+
+// ListAssignments calls shepherd.mgmt.v1.FleetService.ListAssignments.
+func (c *fleetServiceClient) ListAssignments(ctx context.Context, req *connect.Request[v1.ListAssignmentsRequest]) (*connect.Response[v1.ListAssignmentsResponse], error) {
+	return c.listAssignments.CallUnary(ctx, req)
 }
 
 // CreateAssignment calls shepherd.mgmt.v1.FleetService.CreateAssignment.
@@ -158,6 +174,7 @@ type FleetServiceHandler interface {
 	ListCollectors(context.Context, *connect.Request[v1.ListCollectorsRequest]) (*connect.Response[v1.ListCollectorsResponse], error)
 	GetCollector(context.Context, *connect.Request[v1.GetCollectorRequest]) (*connect.Response[v1.Collector], error)
 	GetServedConfig(context.Context, *connect.Request[v1.GetServedConfigRequest]) (*connect.Response[v1.GetServedConfigResponse], error)
+	ListAssignments(context.Context, *connect.Request[v1.ListAssignmentsRequest]) (*connect.Response[v1.ListAssignmentsResponse], error)
 	CreateAssignment(context.Context, *connect.Request[v1.CreateAssignmentRequest]) (*connect.Response[v1.CreateAssignmentResponse], error)
 	DeleteAssignment(context.Context, *connect.Request[v1.DeleteAssignmentRequest]) (*connect.Response[v1.DeleteAssignmentResponse], error)
 	ListAttributes(context.Context, *connect.Request[v1.ListAttributesRequest]) (*connect.Response[v1.ListAttributesResponse], error)
@@ -188,6 +205,12 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(fleetServiceMethods.ByName("GetServedConfig")),
 		connect.WithHandlerOptions(opts...),
 	)
+	fleetServiceListAssignmentsHandler := connect.NewUnaryHandler(
+		FleetServiceListAssignmentsProcedure,
+		svc.ListAssignments,
+		connect.WithSchema(fleetServiceMethods.ByName("ListAssignments")),
+		connect.WithHandlerOptions(opts...),
+	)
 	fleetServiceCreateAssignmentHandler := connect.NewUnaryHandler(
 		FleetServiceCreateAssignmentProcedure,
 		svc.CreateAssignment,
@@ -214,6 +237,8 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 			fleetServiceGetCollectorHandler.ServeHTTP(w, r)
 		case FleetServiceGetServedConfigProcedure:
 			fleetServiceGetServedConfigHandler.ServeHTTP(w, r)
+		case FleetServiceListAssignmentsProcedure:
+			fleetServiceListAssignmentsHandler.ServeHTTP(w, r)
 		case FleetServiceCreateAssignmentProcedure:
 			fleetServiceCreateAssignmentHandler.ServeHTTP(w, r)
 		case FleetServiceDeleteAssignmentProcedure:
@@ -239,6 +264,10 @@ func (UnimplementedFleetServiceHandler) GetCollector(context.Context, *connect.R
 
 func (UnimplementedFleetServiceHandler) GetServedConfig(context.Context, *connect.Request[v1.GetServedConfigRequest]) (*connect.Response[v1.GetServedConfigResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.FleetService.GetServedConfig is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) ListAssignments(context.Context, *connect.Request[v1.ListAssignmentsRequest]) (*connect.Response[v1.ListAssignmentsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.FleetService.ListAssignments is not implemented"))
 }
 
 func (UnimplementedFleetServiceHandler) CreateAssignment(context.Context, *connect.Request[v1.CreateAssignmentRequest]) (*connect.Response[v1.CreateAssignmentResponse], error) {

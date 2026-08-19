@@ -42,6 +42,9 @@ const (
 	// GitOpsServiceDeleteCredentialProcedure is the fully-qualified name of the GitOpsService's
 	// DeleteCredential RPC.
 	GitOpsServiceDeleteCredentialProcedure = "/shepherd.mgmt.v1.GitOpsService/DeleteCredential"
+	// GitOpsServiceTestCredentialProcedure is the fully-qualified name of the GitOpsService's
+	// TestCredential RPC.
+	GitOpsServiceTestCredentialProcedure = "/shepherd.mgmt.v1.GitOpsService/TestCredential"
 	// GitOpsServiceListRepoLinksProcedure is the fully-qualified name of the GitOpsService's
 	// ListRepoLinks RPC.
 	GitOpsServiceListRepoLinksProcedure = "/shepherd.mgmt.v1.GitOpsService/ListRepoLinks"
@@ -56,8 +59,14 @@ const (
 // GitOpsServiceClient is a client for the shepherd.mgmt.v1.GitOpsService service.
 type GitOpsServiceClient interface {
 	ListCredentials(context.Context, *connect.Request[v1.ListCredentialsRequest]) (*connect.Response[v1.ListCredentialsResponse], error)
-	CreateCredential(context.Context, *connect.Request[v1.CreateCredentialRequest]) (*connect.Response[v1.AdoCredential], error)
+	CreateCredential(context.Context, *connect.Request[v1.CreateCredentialRequest]) (*connect.Response[v1.GitCredential], error)
 	DeleteCredential(context.Context, *connect.Request[v1.DeleteCredentialRequest]) (*connect.Response[v1.DeleteCredentialResponse], error)
+	// TestCredential resolves the stored credential's auth strategy and runs
+	// a git ls-remote against repo_url, distinguishing a token-exchange
+	// failure (ado_sp/github_app minting a token) from a git reachability
+	// failure (network, TLS, or the git server itself rejecting the
+	// resolved credentials) — see docs/git-provider-design.md §3.4.
+	TestCredential(context.Context, *connect.Request[v1.TestCredentialRequest]) (*connect.Response[v1.TestCredentialResponse], error)
 	ListRepoLinks(context.Context, *connect.Request[v1.ListRepoLinksRequest]) (*connect.Response[v1.ListRepoLinksResponse], error)
 	CreateRepoLink(context.Context, *connect.Request[v1.CreateRepoLinkRequest]) (*connect.Response[v1.RepoLink], error)
 	DeleteRepoLink(context.Context, *connect.Request[v1.DeleteRepoLinkRequest]) (*connect.Response[v1.DeleteRepoLinkResponse], error)
@@ -80,7 +89,7 @@ func NewGitOpsServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(gitOpsServiceMethods.ByName("ListCredentials")),
 			connect.WithClientOptions(opts...),
 		),
-		createCredential: connect.NewClient[v1.CreateCredentialRequest, v1.AdoCredential](
+		createCredential: connect.NewClient[v1.CreateCredentialRequest, v1.GitCredential](
 			httpClient,
 			baseURL+GitOpsServiceCreateCredentialProcedure,
 			connect.WithSchema(gitOpsServiceMethods.ByName("CreateCredential")),
@@ -90,6 +99,12 @@ func NewGitOpsServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			httpClient,
 			baseURL+GitOpsServiceDeleteCredentialProcedure,
 			connect.WithSchema(gitOpsServiceMethods.ByName("DeleteCredential")),
+			connect.WithClientOptions(opts...),
+		),
+		testCredential: connect.NewClient[v1.TestCredentialRequest, v1.TestCredentialResponse](
+			httpClient,
+			baseURL+GitOpsServiceTestCredentialProcedure,
+			connect.WithSchema(gitOpsServiceMethods.ByName("TestCredential")),
 			connect.WithClientOptions(opts...),
 		),
 		listRepoLinks: connect.NewClient[v1.ListRepoLinksRequest, v1.ListRepoLinksResponse](
@@ -116,8 +131,9 @@ func NewGitOpsServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 // gitOpsServiceClient implements GitOpsServiceClient.
 type gitOpsServiceClient struct {
 	listCredentials  *connect.Client[v1.ListCredentialsRequest, v1.ListCredentialsResponse]
-	createCredential *connect.Client[v1.CreateCredentialRequest, v1.AdoCredential]
+	createCredential *connect.Client[v1.CreateCredentialRequest, v1.GitCredential]
 	deleteCredential *connect.Client[v1.DeleteCredentialRequest, v1.DeleteCredentialResponse]
+	testCredential   *connect.Client[v1.TestCredentialRequest, v1.TestCredentialResponse]
 	listRepoLinks    *connect.Client[v1.ListRepoLinksRequest, v1.ListRepoLinksResponse]
 	createRepoLink   *connect.Client[v1.CreateRepoLinkRequest, v1.RepoLink]
 	deleteRepoLink   *connect.Client[v1.DeleteRepoLinkRequest, v1.DeleteRepoLinkResponse]
@@ -129,13 +145,18 @@ func (c *gitOpsServiceClient) ListCredentials(ctx context.Context, req *connect.
 }
 
 // CreateCredential calls shepherd.mgmt.v1.GitOpsService.CreateCredential.
-func (c *gitOpsServiceClient) CreateCredential(ctx context.Context, req *connect.Request[v1.CreateCredentialRequest]) (*connect.Response[v1.AdoCredential], error) {
+func (c *gitOpsServiceClient) CreateCredential(ctx context.Context, req *connect.Request[v1.CreateCredentialRequest]) (*connect.Response[v1.GitCredential], error) {
 	return c.createCredential.CallUnary(ctx, req)
 }
 
 // DeleteCredential calls shepherd.mgmt.v1.GitOpsService.DeleteCredential.
 func (c *gitOpsServiceClient) DeleteCredential(ctx context.Context, req *connect.Request[v1.DeleteCredentialRequest]) (*connect.Response[v1.DeleteCredentialResponse], error) {
 	return c.deleteCredential.CallUnary(ctx, req)
+}
+
+// TestCredential calls shepherd.mgmt.v1.GitOpsService.TestCredential.
+func (c *gitOpsServiceClient) TestCredential(ctx context.Context, req *connect.Request[v1.TestCredentialRequest]) (*connect.Response[v1.TestCredentialResponse], error) {
+	return c.testCredential.CallUnary(ctx, req)
 }
 
 // ListRepoLinks calls shepherd.mgmt.v1.GitOpsService.ListRepoLinks.
@@ -156,8 +177,14 @@ func (c *gitOpsServiceClient) DeleteRepoLink(ctx context.Context, req *connect.R
 // GitOpsServiceHandler is an implementation of the shepherd.mgmt.v1.GitOpsService service.
 type GitOpsServiceHandler interface {
 	ListCredentials(context.Context, *connect.Request[v1.ListCredentialsRequest]) (*connect.Response[v1.ListCredentialsResponse], error)
-	CreateCredential(context.Context, *connect.Request[v1.CreateCredentialRequest]) (*connect.Response[v1.AdoCredential], error)
+	CreateCredential(context.Context, *connect.Request[v1.CreateCredentialRequest]) (*connect.Response[v1.GitCredential], error)
 	DeleteCredential(context.Context, *connect.Request[v1.DeleteCredentialRequest]) (*connect.Response[v1.DeleteCredentialResponse], error)
+	// TestCredential resolves the stored credential's auth strategy and runs
+	// a git ls-remote against repo_url, distinguishing a token-exchange
+	// failure (ado_sp/github_app minting a token) from a git reachability
+	// failure (network, TLS, or the git server itself rejecting the
+	// resolved credentials) — see docs/git-provider-design.md §3.4.
+	TestCredential(context.Context, *connect.Request[v1.TestCredentialRequest]) (*connect.Response[v1.TestCredentialResponse], error)
 	ListRepoLinks(context.Context, *connect.Request[v1.ListRepoLinksRequest]) (*connect.Response[v1.ListRepoLinksResponse], error)
 	CreateRepoLink(context.Context, *connect.Request[v1.CreateRepoLinkRequest]) (*connect.Response[v1.RepoLink], error)
 	DeleteRepoLink(context.Context, *connect.Request[v1.DeleteRepoLinkRequest]) (*connect.Response[v1.DeleteRepoLinkResponse], error)
@@ -188,6 +215,12 @@ func NewGitOpsServiceHandler(svc GitOpsServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(gitOpsServiceMethods.ByName("DeleteCredential")),
 		connect.WithHandlerOptions(opts...),
 	)
+	gitOpsServiceTestCredentialHandler := connect.NewUnaryHandler(
+		GitOpsServiceTestCredentialProcedure,
+		svc.TestCredential,
+		connect.WithSchema(gitOpsServiceMethods.ByName("TestCredential")),
+		connect.WithHandlerOptions(opts...),
+	)
 	gitOpsServiceListRepoLinksHandler := connect.NewUnaryHandler(
 		GitOpsServiceListRepoLinksProcedure,
 		svc.ListRepoLinks,
@@ -214,6 +247,8 @@ func NewGitOpsServiceHandler(svc GitOpsServiceHandler, opts ...connect.HandlerOp
 			gitOpsServiceCreateCredentialHandler.ServeHTTP(w, r)
 		case GitOpsServiceDeleteCredentialProcedure:
 			gitOpsServiceDeleteCredentialHandler.ServeHTTP(w, r)
+		case GitOpsServiceTestCredentialProcedure:
+			gitOpsServiceTestCredentialHandler.ServeHTTP(w, r)
 		case GitOpsServiceListRepoLinksProcedure:
 			gitOpsServiceListRepoLinksHandler.ServeHTTP(w, r)
 		case GitOpsServiceCreateRepoLinkProcedure:
@@ -233,12 +268,16 @@ func (UnimplementedGitOpsServiceHandler) ListCredentials(context.Context, *conne
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.GitOpsService.ListCredentials is not implemented"))
 }
 
-func (UnimplementedGitOpsServiceHandler) CreateCredential(context.Context, *connect.Request[v1.CreateCredentialRequest]) (*connect.Response[v1.AdoCredential], error) {
+func (UnimplementedGitOpsServiceHandler) CreateCredential(context.Context, *connect.Request[v1.CreateCredentialRequest]) (*connect.Response[v1.GitCredential], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.GitOpsService.CreateCredential is not implemented"))
 }
 
 func (UnimplementedGitOpsServiceHandler) DeleteCredential(context.Context, *connect.Request[v1.DeleteCredentialRequest]) (*connect.Response[v1.DeleteCredentialResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.GitOpsService.DeleteCredential is not implemented"))
+}
+
+func (UnimplementedGitOpsServiceHandler) TestCredential(context.Context, *connect.Request[v1.TestCredentialRequest]) (*connect.Response[v1.TestCredentialResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.GitOpsService.TestCredential is not implemented"))
 }
 
 func (UnimplementedGitOpsServiceHandler) ListRepoLinks(context.Context, *connect.Request[v1.ListRepoLinksRequest]) (*connect.Response[v1.ListRepoLinksResponse], error) {
