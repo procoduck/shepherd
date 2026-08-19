@@ -13,6 +13,7 @@
 | `docs/project-status.md` | this ledger — baseline, open bugs, unbuilt features |
 | `docs/spec.md` | authoritative product/build specification (§ numbers referenced below) |
 | `docs/visual-builder-design-VB1.md` | visual builder design; M7 (S3 sandbox) and M8 unbuilt |
+| `docs/reviews/` | **deep review of the visual builder + schema pipeline (2026-08-19)** — start at `docs/reviews/README.md`; supersedes ad-hoc notes about codegen and canvas quality |
 | `docs/git-provider-design.md` | **proposed**: standard-git GitOps with ADO service principals as one auth mode, tested against Gitea (F9) |
 | `docs/dev-guide.md` | running the dev stack |
 | `docs/frontend-testing.md` | three-layer frontend test strategy |
@@ -241,6 +242,19 @@ assumes CI enforces the milestone gates.
 ---
 
 ## 3a. STILL OPEN
+
+### VB-REVIEW — visual builder is not usable end to end · **critical**
+
+Three independent fresh-context reviews (2026-08-19) found the builder cannot currently produce
+a working pipeline, and that the test suite cannot detect this because every layer validates
+against hand-written fixture schemas whose port model is the inverse of the shipped artifact.
+Measured: 0/9 corpus graphs match their goldens against the real schema, 8/9 goldens are
+rejected by real `alloy validate`, 69.6% of the configuration surface is unreachable in the
+inspector, nothing can be deleted on the canvas, and saved graphs do not round-trip.
+
+Full detail and prioritised ordering: **`docs/reviews/README.md`**. Treat that as the work plan
+for the visual builder; the F9-c and unnamed-port items below are subsumed by it.
+
 
 ### F5 — VB-1 M7: S3 sandbox simulation · **medium** (not started)
 
