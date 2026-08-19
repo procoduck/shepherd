@@ -142,6 +142,31 @@ From the 2026-08-18 adversarial reviews (20 findings: 5C/10H/5M — full text in
       still open. Spec: docs/visual-builder-refinement.md · mockups: artifact
       "Visual Builder Refinement"
 
+## Browser walkthrough findings (2026-08-19)
+
+Real-Chromium pass over every route against the running dev stack
+(`web/tests/fullstack/walkthrough.spec.ts`). All 12 routes render with no console
+errors, no failed requests, and no blank pages.
+
+Fixed during the pass:
+- [x] `dev/shepherd.dev.env` was missing entirely — `make dev` could not start
+- [x] Audit API returned 0 rows unfiltered (SQL `action = ''` instead of NULL)
+- [x] Canvas minimap rendered as a white block; zoom controls hidden beneath it
+- [x] Dev Alloy agents pinned to v1.12.2 while the schema targets v1.18.1
+
+Open findings (not yet fixed):
+- [ ] **No org switcher.** `useOrgId()` returns `me.orgs[0]`, so every org-scoped page
+      (pipelines, destinations, git, audit) is permanently pinned to the alphabetically
+      first org. An app admin cannot reach a second org's data at all. Recorded as a
+      `test.fail` marker in the walkthrough spec.
+- [ ] **Stale FAILED status never clears.** A transient agent-side error (e.g. a DNS blip
+      at startup) leaves `remote_config_status=FAILED` forever: the agent keeps polling
+      successfully and `last_seen` advances, but status only updates when the agent sends
+      a new `RemoteConfigStatus`. Same class as R2-H1, which fixed only the sweeper's
+      `inactive` marker. A collector shows red in the UI while healthy.
+- [ ] Git page has no create affordance (spec calls for Repo links | Credentials tabs
+      with CRUD); Wizards and Audit pages remain stubs; Overview stats still `—`.
+
 ## Test infrastructure reference
 
 - **Backend**: Ginkgo v2 + Gomega (15/24 packages have suites); testcontainers Postgres for
