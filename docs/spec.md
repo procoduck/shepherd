@@ -388,6 +388,14 @@ Token acquisition: plain `golang.org/x/oauth2/clientcredentials` against `https:
 
 ## 10. Azure DevOps integration (`internal/ado`, `internal/gitsync`)
 
+> **SUPERSEDED (2026-08-19) by `docs/git-provider-design.md`.** This section is ADO-only:
+> it specifies the Azure DevOps REST API as the transport. The requirement has changed to
+> **standard git against any host**, with Entra service principals as one authentication
+> mode among several, and Gitea as the test server. The credential model, polling cadence,
+> validation, and pipeline/revision/audit semantics below still hold; the transport,
+> `ado_credentials`/`repo_links` shape, and the ADO-specific REST calls do not.
+> Tracked as F9 in `docs/project-status.md`.
+
 **Credential model (ArgoCD-style):** Org Admins register named credentials (`ado_credentials`) — an Entra **service principal** (tenant ID, client ID, client secret) plus the ADO org URL. Multiple credentials per org. The SP must be added as a user in the ADO org with repo Read access.
 
 **Token:** client-credentials grant, scope `499b84ac-1321-427f-aa17-267ca6975798/.default` (the Azure DevOps resource ID — this exact GUID). Cache tokens until 5 min before expiry.
@@ -1225,3 +1233,26 @@ The fullstack suite (`web/tests/fullstack/`) must NEVER use `page.route()`. CI g
 ### §7 (amended) — Dev stack
 
 `make dev` boots the local development stack at `:8080` with seeded data and local-admin login (`admin` / `e2e-local-admin-pass`). The dev stack is defined in `dev/docker-compose.dev.yaml` and `dev/shepherd.dev.env`. All dev secrets are prefixed `dev-only-`. The dev compose is also the fullstack test stack — it cannot drift silently because `test-fullstack` in CI boots it on every PR.
+
+---
+
+## Amendment — git provider generalisation (2026-08-19)
+
+Supersedes §10 and the ADO-specific parts of §5 (`ado_credentials`, `repo_links.project`),
+§12 (`/ado-credentials/*`), and §18.4 scenario 5.
+
+**Requirement.** GitOps targets **any standard git server** over HTTPS. Azure DevOps'
+*only* special requirement is authentication with an Entra **service principal**; every
+other host is served by ordinary git credentials (PAT / basic / anonymous).
+
+**Consequences.**
+- Transport is the git wire protocol (`go-git`), not a provider REST API. Change detection
+  is `ls-remote`; fetch is a shallow single-branch clone.
+- `ado_credentials` becomes `git_credentials` with a `kind` discriminator
+  (`pat` | `basic` | `ado_sp` | `none`); `repo_links` carries a `repo_url` clone URL in place
+  of `project` + `repository`.
+- `internal/ado` is reduced to the Entra client-credentials token provider.
+- Tests run against a real **Gitea** container; `e2e/mockmsft` keeps only its Entra/Graph
+  role. E2E scenario 5 pushes real commits, including the change-an-existing-file case.
+
+Full design, migration plan, and open decisions: `docs/git-provider-design.md`.

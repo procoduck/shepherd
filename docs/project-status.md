@@ -13,6 +13,7 @@
 | `docs/project-status.md` | this ledger — baseline, open bugs, unbuilt features |
 | `docs/spec.md` | authoritative product/build specification (§ numbers referenced below) |
 | `docs/visual-builder-design-VB1.md` | visual builder design; M7 (S3 sandbox) and M8 unbuilt |
+| `docs/git-provider-design.md` | **proposed**: standard-git GitOps with ADO service principals as one auth mode, tested against Gitea (F9) |
 | `docs/dev-guide.md` | running the dev stack |
 | `docs/frontend-testing.md` | three-layer frontend test strategy |
 | `docs/platform-monitoring-architecture.md` | target-fleet reference notes |
@@ -150,7 +151,8 @@ Collectors, active pipelines and clusters tiles are hardcoded `—`. Only the or
 
 ### F4 — Missing REST/RPC endpoints from spec §12 · **medium**
 
-- `POST /api/orgs/{org}/ado-credentials/{id}/test` — verify SP token + org access
+- `POST /api/orgs/{org}/ado-credentials/{id}/test` — verify credentials reach the repo
+  (absorbed by **F9**, which redefines it as a git `ls-remote` reachability check)
 - `POST /api/orgs/{org}/repo-links/{id}/sync` — force immediate sync
 - `PUT/PATCH /api/orgs/{org}/ado-credentials/{id}` — update a credential
 - wizard render/preview (see F1)
@@ -169,6 +171,38 @@ Nothing is built. S1 (flow check) and S2 (relabel/log trace) are done and shippi
 Includes the deferred item: `wizard_state` is not persisted on pipeline `PUT`
 (`UpdatePipelineParams` has no such field), so a visual pipeline edited through the text API
 loses its graph.
+
+### F9 — Standard-git GitOps, ADO reduced to one auth mode · **high**
+
+**New requirement (2026-08-19).** GitOps must work against any standard git server; Azure
+DevOps' only special requirement is Entra service-principal authentication. Testing moves to
+a real **Gitea** instance instead of the hand-written ADO REST mock.
+
+Today Shepherd never speaks git at all: `internal/ado/client.go` calls the Azure DevOps REST
+API (`GetLatestCommit`/`ListFiles`/`DownloadFile`), there is no git library in `go.mod`, and
+provider concepts reach the schema (`ado_credentials`, `repo_links.project`) and the wire
+contract (`shepherd.mgmt.v1.AdoCredential`). So no other host works, and the tests prove only
+that Shepherd talks to its own mock.
+
+Design: `docs/git-provider-design.md`. Shape of the work:
+
+- [ ] `internal/gitrepo` speaking real git over HTTPS via `go-git` (pure Go — no `git` binary
+      needed in the distroless image); `ls-remote` for change detection, shallow in-memory
+      clone for fetch
+- [ ] Pluggable auth: `pat` · `basic` · `ado_sp` · `none`. `internal/ado` shrinks to the
+      Entra client-credentials token provider — the only provider-specific code left
+- [ ] Migration `0006`: `ado_credentials` → `git_credentials` with `kind`; `repo_links`
+      gains `repo_url` (backfilled from the ADO org/project/repo) and drops `project`/`repository`
+- [ ] Proto/service/UI rename `AdoCredential` → `GitCredential`; **breaking wire change**,
+      justified only because nothing consumes the contract in production yet — re-check
+      before implementing
+- [ ] Gitea in dev + e2e compose; e2e scenario 5 rewritten to push real commits (this finally
+      makes the update path from `0194541` testable end to end); `mockmsft` keeps only its
+      Entra/Graph role
+- [ ] Implements the credential `test` endpoint from F4 as a real `ls-remote` reachability check
+
+Open decisions recorded in the design doc: SSH deploy keys, private-CA trust, and a
+repo-size ceiling for the in-memory clone.
 
 ### F7 — CI · **high (process)**
 
