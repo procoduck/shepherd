@@ -13,8 +13,8 @@ import (
 )
 
 const createPipeline = `-- name: CreatePipeline :one
-INSERT INTO pipelines (org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, created_by, updated_by)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+INSERT INTO pipelines (org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, created_by, updated_by, repo_link_id, git_path)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 RETURNING id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name
 `
 
@@ -29,6 +29,8 @@ type CreatePipelineParams struct {
 	WizardState json.RawMessage `json:"wizard_state"`
 	CreatedBy   string          `json:"created_by"`
 	UpdatedBy   string          `json:"updated_by"`
+	RepoLinkID  pgtype.UUID     `json:"repo_link_id"`
+	GitPath     pgtype.Text     `json:"git_path"`
 }
 
 func (q *Queries) CreatePipeline(ctx context.Context, arg CreatePipelineParams) (Pipeline, error) {
@@ -43,6 +45,8 @@ func (q *Queries) CreatePipeline(ctx context.Context, arg CreatePipelineParams) 
 		arg.WizardState,
 		arg.CreatedBy,
 		arg.UpdatedBy,
+		arg.RepoLinkID,
+		arg.GitPath,
 	)
 	var i Pipeline
 	err := row.Scan(
@@ -177,6 +181,76 @@ func (q *Queries) ListEnabledPipelinesByOrg(ctx context.Context, orgID pgtype.UU
 	return items, nil
 }
 
+const listEnabledPipelinesForMerge = `-- name: ListEnabledPipelinesForMerge :many
+SELECT p.id, p.org_id, p.name, p.contents, p.matchers, p.enabled, p.source, p.wizard_kind, p.wizard_state, p.repo_link_id, p.git_path, p.created_by, p.updated_by, p.created_at, p.updated_at, p.sanitized_name, rl.collector_id AS repo_link_collector_id
+FROM pipelines p
+LEFT JOIN repo_links rl ON rl.id = p.repo_link_id
+WHERE p.org_id = $1 AND p.enabled = true
+ORDER BY p.name
+`
+
+type ListEnabledPipelinesForMergeRow struct {
+	ID                  pgtype.UUID        `json:"id"`
+	OrgID               pgtype.UUID        `json:"org_id"`
+	Name                string             `json:"name"`
+	Contents            string             `json:"contents"`
+	Matchers            json.RawMessage    `json:"matchers"`
+	Enabled             bool               `json:"enabled"`
+	Source              string             `json:"source"`
+	WizardKind          pgtype.Text        `json:"wizard_kind"`
+	WizardState         json.RawMessage    `json:"wizard_state"`
+	RepoLinkID          pgtype.UUID        `json:"repo_link_id"`
+	GitPath             pgtype.Text        `json:"git_path"`
+	CreatedBy           string             `json:"created_by"`
+	UpdatedBy           string             `json:"updated_by"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+	SanitizedName       pgtype.Text        `json:"sanitized_name"`
+	RepoLinkCollectorID pgtype.UUID        `json:"repo_link_collector_id"`
+}
+
+// ListEnabledPipelinesForMerge returns the org's enabled pipelines together with the
+// collector each git-sourced pipeline targets. The merge engine matches source='git'
+// pipelines by that collector id rather than by matchers, so it must be selected here;
+// without it every git pipeline compares against an empty id and is silently never served.
+func (q *Queries) ListEnabledPipelinesForMerge(ctx context.Context, orgID pgtype.UUID) ([]ListEnabledPipelinesForMergeRow, error) {
+	rows, err := q.db.Query(ctx, listEnabledPipelinesForMerge, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEnabledPipelinesForMergeRow
+	for rows.Next() {
+		var i ListEnabledPipelinesForMergeRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.Name,
+			&i.Contents,
+			&i.Matchers,
+			&i.Enabled,
+			&i.Source,
+			&i.WizardKind,
+			&i.WizardState,
+			&i.RepoLinkID,
+			&i.GitPath,
+			&i.CreatedBy,
+			&i.UpdatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.SanitizedName,
+			&i.RepoLinkCollectorID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPipelinesByOrg = `-- name: ListPipelinesByOrg :many
 SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name FROM pipelines WHERE org_id = $1 ORDER BY name
 `
@@ -259,29 +333,40 @@ func (q *Queries) SetPipelineEnabled(ctx context.Context, arg SetPipelineEnabled
 
 const updatePipeline = `-- name: UpdatePipeline :one
 UPDATE pipelines
-SET name       = $2,
-    contents   = $3,
-    matchers   = $4,
-    updated_by = $5,
-    updated_at = now()
+SET name         = $2,
+    contents     = $3,
+    matchers     = $4,
+    wizard_state = COALESCE($5, wizard_state),
+    updated_by   = $6,
+    updated_at   = now()
 WHERE id = $1
 RETURNING id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name
 `
 
 type UpdatePipelineParams struct {
-	ID        pgtype.UUID     `json:"id"`
-	Name      string          `json:"name"`
-	Contents  string          `json:"contents"`
-	Matchers  json.RawMessage `json:"matchers"`
-	UpdatedBy string          `json:"updated_by"`
+	ID          pgtype.UUID     `json:"id"`
+	Name        string          `json:"name"`
+	Contents    string          `json:"contents"`
+	Matchers    json.RawMessage `json:"matchers"`
+	WizardState json.RawMessage `json:"wizard_state"`
+	UpdatedBy   string          `json:"updated_by"`
 }
 
+// wizard_state is COALESCE'd against the existing column value: the caller
+// passes NULL (an absent/unset field in the request) to preserve whatever
+// graph/wizard-state is already stored, or a non-NULL JSON payload (even
+// "{}") to replace it. This lets a text-only edit of a visual pipeline's
+// contents leave its wizard_state graph intact instead of silently
+// discarding it. wizard_kind is intentionally left out of the SET list: it
+// is fixed at creation by the wizard registry (CommitWizard) and there is no
+// request field that legitimately changes it on update.
 func (q *Queries) UpdatePipeline(ctx context.Context, arg UpdatePipelineParams) (Pipeline, error) {
 	row := q.db.QueryRow(ctx, updatePipeline,
 		arg.ID,
 		arg.Name,
 		arg.Contents,
 		arg.Matchers,
+		arg.WizardState,
 		arg.UpdatedBy,
 	)
 	var i Pipeline
