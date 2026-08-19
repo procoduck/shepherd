@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
@@ -102,7 +103,7 @@ func pipelineToProto(p sqlc.Pipeline) *mgmtv1.Pipeline {
 	if matchers == nil {
 		matchers = []string{}
 	}
-	return &mgmtv1.Pipeline{
+	pb := &mgmtv1.Pipeline{
 		Id:        p.ID.String(),
 		OrgId:     p.OrgID.String(),
 		Name:      p.Name,
@@ -115,6 +116,18 @@ func pipelineToProto(p sqlc.Pipeline) *mgmtv1.Pipeline {
 		CreatedAt: protoTimestamp(p.CreatedAt),
 		UpdatedAt: protoTimestamp(p.UpdatedAt),
 	}
+	// B3(a): GetPipeline previously had no way to return the stored graph, so
+	// the visual builder could never load wizard_state (D3) — it always fell
+	// back to the lossy text re-parse. Best-effort: a malformed stored blob
+	// (should not happen — it's only ever written by this same server) is
+	// dropped rather than failing the whole response.
+	if len(p.WizardState) > 0 {
+		ws := &structpb.Struct{}
+		if err := protojson.Unmarshal(p.WizardState, ws); err == nil {
+			pb.WizardState = ws
+		}
+	}
+	return pb
 }
 
 func revisionToProto(rv sqlc.PipelineRevision) *mgmtv1.PipelineRevision {

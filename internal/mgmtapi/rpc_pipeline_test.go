@@ -230,6 +230,48 @@ var _ = Describe("PipelineService Connect RPC", Label("integration"), func() {
 		Expect(string(stored.WizardState)).To(MatchJSON(newGraphJSON))
 	})
 
+	// B3(a) (docs/reviews/README.md): `Pipeline` (pipeline.proto) previously
+	// had no wizard_state field at all — only Create/UpdatePipelineRequest
+	// carried it — so GetPipeline could never return the stored graph and
+	// the visual builder (D3: wizard_state is the source of truth on load)
+	// always fell back to the lossy text re-parse, losing node ids,
+	// positions, labels, notes, disabled flags, bindings and non-scalar props.
+	It("returns a visual pipeline's stored wizard_state on GetPipeline", func() {
+		cookie := sessionCookie(true)
+
+		graph := json.RawMessage(`{"kind":"alloy-graph/v1","schema_version":"v1","nodes":[{"id":"n1","component":"prometheus.remote_write","label":"sink","position":{"x":-256,"y":-304}}],"edges":[],"bindings":[]}`)
+		p, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: orgUUID(orgID), Name: "visual-getpipeline-pipe", Contents: "// v1\n",
+			Matchers: json.RawMessage(`[]`), Enabled: false, Source: "visual",
+			WizardState: graph, CreatedBy: "test", UpdatedBy: "test",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		resp := postConnect("/shepherd.mgmt.v1.PipelineService/GetPipeline", map[string]any{
+			"org_id": orgID, "id": p.ID.String(),
+		}, cookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		var result map[string]any
+		decodeBody(resp, &result)
+		ws, ok := result["wizardState"].(map[string]any)
+		Expect(ok).To(BeTrue(), "expected wizardState in GetPipeline response, got %#v", result["wizardState"])
+		Expect(ws["kind"]).To(Equal("alloy-graph/v1"))
+		nodes, ok := ws["nodes"].([]any)
+		Expect(ok).To(BeTrue())
+		Expect(nodes).To(HaveLen(1))
+		node, ok := nodes[0].(map[string]any)
+		Expect(ok).To(BeTrue())
+		Expect(node["id"]).To(Equal("n1"))
+		// Positions must round-trip exactly — this is also the regression
+		// covered by "positions do not round-trip" (task item 4), same root
+		// cause as B3(a).
+		pos, ok := node["position"].(map[string]any)
+		Expect(ok).To(BeTrue())
+		Expect(pos["x"]).To(Equal(-256.0))
+		Expect(pos["y"]).To(Equal(-304.0))
+	})
+
 	It("refuses to read another org's pipeline through a caller-supplied org id", func() {
 		// Tenant isolation: the authz interceptor only proves the caller may act on
 		// the org NAMED IN THE REQUEST. Without an ownership check the caller could

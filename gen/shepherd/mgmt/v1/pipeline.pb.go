@@ -104,13 +104,19 @@ type Pipeline struct {
 	Matchers []string               `protobuf:"bytes,5,rep,name=matchers,proto3" json:"matchers,omitempty"`
 	Enabled  bool                   `protobuf:"varint,6,opt,name=enabled,proto3" json:"enabled,omitempty"`
 	// Source is "ui", "wizard", "visual", or "git".
-	Source        string                 `protobuf:"bytes,7,opt,name=source,proto3" json:"source,omitempty"`
-	Revision      int32                  `protobuf:"varint,8,opt,name=revision,proto3" json:"revision,omitempty"`
-	CreatedBy     string                 `protobuf:"bytes,9,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
-	UpdatedBy     string                 `protobuf:"bytes,10,opt,name=updated_by,json=updatedBy,proto3" json:"updated_by,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	Revisions     []*PipelineRevision    `protobuf:"bytes,13,rep,name=revisions,proto3" json:"revisions,omitempty"`
+	Source    string                 `protobuf:"bytes,7,opt,name=source,proto3" json:"source,omitempty"`
+	Revision  int32                  `protobuf:"varint,8,opt,name=revision,proto3" json:"revision,omitempty"`
+	CreatedBy string                 `protobuf:"bytes,9,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
+	UpdatedBy string                 `protobuf:"bytes,10,opt,name=updated_by,json=updatedBy,proto3" json:"updated_by,omitempty"`
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	Revisions []*PipelineRevision    `protobuf:"bytes,13,rep,name=revisions,proto3" json:"revisions,omitempty"`
+	// wizard_state is the stored graph document for a source="visual" pipeline
+	// (or wizard form state for source="wizard"); absent for other sources.
+	// D3 (docs/reviews): this is the source of truth the visual builder loads
+	// from — re-parsing `contents` is a lossy fallback used only when this is
+	// missing/invalid, or for the read-only graph view of a non-visual pipeline.
+	WizardState   *structpb.Struct `protobuf:"bytes,14,opt,name=wizard_state,json=wizardState,proto3" json:"wizard_state,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -232,6 +238,13 @@ func (x *Pipeline) GetUpdatedAt() *timestamppb.Timestamp {
 func (x *Pipeline) GetRevisions() []*PipelineRevision {
 	if x != nil {
 		return x.Revisions
+	}
+	return nil
+}
+
+func (x *Pipeline) GetWizardState() *structpb.Struct {
+	if x != nil {
+		return x.WizardState
 	}
 	return nil
 }
@@ -1164,7 +1177,7 @@ const file_shepherd_mgmt_v1_pipeline_proto_rawDesc = "" +
 	"\n" +
 	"changed_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tchangedAt\x12\x1f\n" +
 	"\vchange_note\x18\x04 \x01(\tR\n" +
-	"changeNote\"\xc1\x03\n" +
+	"changeNote\"\xfd\x03\n" +
 	"\bPipeline\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06org_id\x18\x02 \x01(\tR\x05orgId\x12\x12\n" +
@@ -1183,7 +1196,8 @@ const file_shepherd_mgmt_v1_pipeline_proto_rawDesc = "" +
 	"created_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
 	"updated_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12@\n" +
-	"\trevisions\x18\r \x03(\v2\".shepherd.mgmt.v1.PipelineRevisionR\trevisions\"R\n" +
+	"\trevisions\x18\r \x03(\v2\".shepherd.mgmt.v1.PipelineRevisionR\trevisions\x12:\n" +
+	"\fwizard_state\x18\x0e \x01(\v2\x17.google.protobuf.StructR\vwizardState\"R\n" +
 	"\x14ListPipelinesRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12#\n" +
 	"\rneeds_upgrade\x18\x02 \x01(\bR\fneedsUpgrade\"_\n" +
@@ -1295,37 +1309,38 @@ var file_shepherd_mgmt_v1_pipeline_proto_depIdxs = []int32{
 	18, // 1: shepherd.mgmt.v1.Pipeline.created_at:type_name -> google.protobuf.Timestamp
 	18, // 2: shepherd.mgmt.v1.Pipeline.updated_at:type_name -> google.protobuf.Timestamp
 	0,  // 3: shepherd.mgmt.v1.Pipeline.revisions:type_name -> shepherd.mgmt.v1.PipelineRevision
-	1,  // 4: shepherd.mgmt.v1.ListPipelinesResponse.items:type_name -> shepherd.mgmt.v1.Pipeline
-	19, // 5: shepherd.mgmt.v1.CreatePipelineRequest.wizard_state:type_name -> google.protobuf.Struct
-	19, // 6: shepherd.mgmt.v1.UpdatePipelineRequest.wizard_state:type_name -> google.protobuf.Struct
-	20, // 7: shepherd.mgmt.v1.ValidatePipelineResponse.diagnostics:type_name -> shepherd.mgmt.v1.Diagnostic
-	14, // 8: shepherd.mgmt.v1.PreviewMatchesResponse.collectors:type_name -> shepherd.mgmt.v1.MatchedCollector
-	0,  // 9: shepherd.mgmt.v1.ListRevisionsResponse.items:type_name -> shepherd.mgmt.v1.PipelineRevision
-	2,  // 10: shepherd.mgmt.v1.PipelineService.ListPipelines:input_type -> shepherd.mgmt.v1.ListPipelinesRequest
-	4,  // 11: shepherd.mgmt.v1.PipelineService.GetPipeline:input_type -> shepherd.mgmt.v1.GetPipelineRequest
-	5,  // 12: shepherd.mgmt.v1.PipelineService.CreatePipeline:input_type -> shepherd.mgmt.v1.CreatePipelineRequest
-	6,  // 13: shepherd.mgmt.v1.PipelineService.UpdatePipeline:input_type -> shepherd.mgmt.v1.UpdatePipelineRequest
-	7,  // 14: shepherd.mgmt.v1.PipelineService.DeletePipeline:input_type -> shepherd.mgmt.v1.DeletePipelineRequest
-	9,  // 15: shepherd.mgmt.v1.PipelineService.EnablePipeline:input_type -> shepherd.mgmt.v1.EnablePipelineRequest
-	10, // 16: shepherd.mgmt.v1.PipelineService.DisablePipeline:input_type -> shepherd.mgmt.v1.DisablePipelineRequest
-	11, // 17: shepherd.mgmt.v1.PipelineService.ValidatePipeline:input_type -> shepherd.mgmt.v1.ValidatePipelineRequest
-	13, // 18: shepherd.mgmt.v1.PipelineService.PreviewMatches:input_type -> shepherd.mgmt.v1.PreviewMatchesRequest
-	16, // 19: shepherd.mgmt.v1.PipelineService.ListRevisions:input_type -> shepherd.mgmt.v1.ListRevisionsRequest
-	3,  // 20: shepherd.mgmt.v1.PipelineService.ListPipelines:output_type -> shepherd.mgmt.v1.ListPipelinesResponse
-	1,  // 21: shepherd.mgmt.v1.PipelineService.GetPipeline:output_type -> shepherd.mgmt.v1.Pipeline
-	1,  // 22: shepherd.mgmt.v1.PipelineService.CreatePipeline:output_type -> shepherd.mgmt.v1.Pipeline
-	1,  // 23: shepherd.mgmt.v1.PipelineService.UpdatePipeline:output_type -> shepherd.mgmt.v1.Pipeline
-	8,  // 24: shepherd.mgmt.v1.PipelineService.DeletePipeline:output_type -> shepherd.mgmt.v1.DeletePipelineResponse
-	1,  // 25: shepherd.mgmt.v1.PipelineService.EnablePipeline:output_type -> shepherd.mgmt.v1.Pipeline
-	1,  // 26: shepherd.mgmt.v1.PipelineService.DisablePipeline:output_type -> shepherd.mgmt.v1.Pipeline
-	12, // 27: shepherd.mgmt.v1.PipelineService.ValidatePipeline:output_type -> shepherd.mgmt.v1.ValidatePipelineResponse
-	15, // 28: shepherd.mgmt.v1.PipelineService.PreviewMatches:output_type -> shepherd.mgmt.v1.PreviewMatchesResponse
-	17, // 29: shepherd.mgmt.v1.PipelineService.ListRevisions:output_type -> shepherd.mgmt.v1.ListRevisionsResponse
-	20, // [20:30] is the sub-list for method output_type
-	10, // [10:20] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	19, // 4: shepherd.mgmt.v1.Pipeline.wizard_state:type_name -> google.protobuf.Struct
+	1,  // 5: shepherd.mgmt.v1.ListPipelinesResponse.items:type_name -> shepherd.mgmt.v1.Pipeline
+	19, // 6: shepherd.mgmt.v1.CreatePipelineRequest.wizard_state:type_name -> google.protobuf.Struct
+	19, // 7: shepherd.mgmt.v1.UpdatePipelineRequest.wizard_state:type_name -> google.protobuf.Struct
+	20, // 8: shepherd.mgmt.v1.ValidatePipelineResponse.diagnostics:type_name -> shepherd.mgmt.v1.Diagnostic
+	14, // 9: shepherd.mgmt.v1.PreviewMatchesResponse.collectors:type_name -> shepherd.mgmt.v1.MatchedCollector
+	0,  // 10: shepherd.mgmt.v1.ListRevisionsResponse.items:type_name -> shepherd.mgmt.v1.PipelineRevision
+	2,  // 11: shepherd.mgmt.v1.PipelineService.ListPipelines:input_type -> shepherd.mgmt.v1.ListPipelinesRequest
+	4,  // 12: shepherd.mgmt.v1.PipelineService.GetPipeline:input_type -> shepherd.mgmt.v1.GetPipelineRequest
+	5,  // 13: shepherd.mgmt.v1.PipelineService.CreatePipeline:input_type -> shepherd.mgmt.v1.CreatePipelineRequest
+	6,  // 14: shepherd.mgmt.v1.PipelineService.UpdatePipeline:input_type -> shepherd.mgmt.v1.UpdatePipelineRequest
+	7,  // 15: shepherd.mgmt.v1.PipelineService.DeletePipeline:input_type -> shepherd.mgmt.v1.DeletePipelineRequest
+	9,  // 16: shepherd.mgmt.v1.PipelineService.EnablePipeline:input_type -> shepherd.mgmt.v1.EnablePipelineRequest
+	10, // 17: shepherd.mgmt.v1.PipelineService.DisablePipeline:input_type -> shepherd.mgmt.v1.DisablePipelineRequest
+	11, // 18: shepherd.mgmt.v1.PipelineService.ValidatePipeline:input_type -> shepherd.mgmt.v1.ValidatePipelineRequest
+	13, // 19: shepherd.mgmt.v1.PipelineService.PreviewMatches:input_type -> shepherd.mgmt.v1.PreviewMatchesRequest
+	16, // 20: shepherd.mgmt.v1.PipelineService.ListRevisions:input_type -> shepherd.mgmt.v1.ListRevisionsRequest
+	3,  // 21: shepherd.mgmt.v1.PipelineService.ListPipelines:output_type -> shepherd.mgmt.v1.ListPipelinesResponse
+	1,  // 22: shepherd.mgmt.v1.PipelineService.GetPipeline:output_type -> shepherd.mgmt.v1.Pipeline
+	1,  // 23: shepherd.mgmt.v1.PipelineService.CreatePipeline:output_type -> shepherd.mgmt.v1.Pipeline
+	1,  // 24: shepherd.mgmt.v1.PipelineService.UpdatePipeline:output_type -> shepherd.mgmt.v1.Pipeline
+	8,  // 25: shepherd.mgmt.v1.PipelineService.DeletePipeline:output_type -> shepherd.mgmt.v1.DeletePipelineResponse
+	1,  // 26: shepherd.mgmt.v1.PipelineService.EnablePipeline:output_type -> shepherd.mgmt.v1.Pipeline
+	1,  // 27: shepherd.mgmt.v1.PipelineService.DisablePipeline:output_type -> shepherd.mgmt.v1.Pipeline
+	12, // 28: shepherd.mgmt.v1.PipelineService.ValidatePipeline:output_type -> shepherd.mgmt.v1.ValidatePipelineResponse
+	15, // 29: shepherd.mgmt.v1.PipelineService.PreviewMatches:output_type -> shepherd.mgmt.v1.PreviewMatchesResponse
+	17, // 30: shepherd.mgmt.v1.PipelineService.ListRevisions:output_type -> shepherd.mgmt.v1.ListRevisionsResponse
+	21, // [21:31] is the sub-list for method output_type
+	11, // [11:21] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_shepherd_mgmt_v1_pipeline_proto_init() }

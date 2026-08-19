@@ -179,30 +179,35 @@ var _ = Describe("demoVisualGraph", func() {
 			componentOf[n.ID] = n.Component
 		}
 
-		// portNames returns the declared prop names (inputs) or export names
-		// (outputs) for a component.
-		portNames := func(componentName, side string) []string {
+		// portRole returns the D1 role the artifact declares for a port, looked up
+		// across both lists. Which list a port lives in is an Alloy implementation
+		// detail (Arguments vs Exports struct) and NOT the dataflow direction:
+		// prometheus.remote_write's "receiver" is an export that data flows INTO
+		// (role "accepts"), and prometheus.scrape's "forward_to" is an argument
+		// that data flows OUT of (role "produces"). The canvas always draws
+		// source -> destination, so the check is on the role, not on the list.
+		portRole := func(componentName, port string) (string, bool) {
 			def, found := components[componentName].(map[string]any)
 			Expect(found).To(BeTrue(), "component %q must exist in the schema", componentName)
-			raw, ok := def[side].([]any)
-			if !ok {
-				return nil
-			}
-			var names []string
-			for _, p := range raw {
-				port, isMap := p.(map[string]any)
-				if !isMap {
+			for _, side := range []struct{ list, key string }{{"inputs", "prop"}, {"outputs", "export"}} {
+				raw, ok := def[side.list].([]any)
+				if !ok {
 					continue
 				}
-				key := "prop"
-				if side == "outputs" {
-					key = "export"
-				}
-				if name, isStr := port[key].(string); isStr && name != "" {
-					names = append(names, name)
+				for _, p := range raw {
+					decl, isMap := p.(map[string]any)
+					if !isMap {
+						continue
+					}
+					name, isStr := decl[side.key].(string)
+					if !isStr || name != port {
+						continue
+					}
+					role, _ := decl["role"].(string) //nolint:errcheck // an absent role fails the assertion below, which is the point
+					return role, true
 				}
 			}
-			return names
+			return "", false
 		}
 
 		for _, e := range graph.Edges {
@@ -211,10 +216,17 @@ var _ = Describe("demoVisualGraph", func() {
 			Expect(fromComp).NotTo(BeEmpty())
 			Expect(toComp).NotTo(BeEmpty())
 
-			Expect(portNames(fromComp, "outputs")).To(ContainElement(e.From.Port),
-				"edge source %s.%s: %q exports no such port", e.From.Node, e.From.Port, fromComp)
-			Expect(portNames(toComp, "inputs")).To(ContainElement(e.To.Port),
-				"edge target %s.%s: %q has no such input", e.To.Node, e.To.Port, toComp)
+			fromRole, fromFound := portRole(fromComp, e.From.Port)
+			Expect(fromFound).To(BeTrue(),
+				"edge source %s.%s: %q declares no such port", e.From.Node, e.From.Port, fromComp)
+			Expect(fromRole).To(Equal("produces"),
+				"edge source %s.%s: %q has role %q; data must leave the source", e.From.Node, e.From.Port, fromComp, fromRole)
+
+			toRole, toFound := portRole(toComp, e.To.Port)
+			Expect(toFound).To(BeTrue(),
+				"edge target %s.%s: %q declares no such port", e.To.Node, e.To.Port, toComp)
+			Expect(toRole).To(Equal("accepts"),
+				"edge target %s.%s: %q has role %q; data must enter the destination", e.To.Node, e.To.Port, toComp, toRole)
 		}
 	})
 })

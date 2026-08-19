@@ -49,6 +49,12 @@ message Pipeline {
   google.protobuf.Timestamp created_at = 11;
   google.protobuf.Timestamp updated_at = 12;
   repeated PipelineRevision revisions = 13;
+  // wizard_state is the stored graph document for a source="visual" pipeline
+  // (or wizard form state for source="wizard"); absent for other sources.
+  // D3 (docs/reviews): this is the source of truth the visual builder loads
+  // from — re-parsing `contents` is a lossy fallback used only when this is
+  // missing/invalid, or for the read-only graph view of a non-visual pipeline.
+  google.protobuf.Struct wizard_state = 14;
 }
 
 message ListPipelinesRequest {

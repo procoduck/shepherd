@@ -107,6 +107,76 @@ var _ = Describe("shepherd.mgmt.v1.VisualService", Label("integration"), func() 
 		Expect(connectErrorCode(resp)).To(Equal("invalid_argument"))
 	})
 
+	// B3(b) (docs/reviews/README.md): GraphView called visual.ParseAlloy
+	// without the schema argument, so its fallback text re-parse used the
+	// legacy referenced->referencing edge orientation — backwards for a
+	// receiver export (D1) like prometheus.remote_write's `receiver`, which
+	// prometheus.scrape's `forward_to` argument references. The edge the
+	// graph view returns must run produces->accepts: scrape.forward_to (an
+	// argument, role "produces" under D1) -> remote_write.receiver (an
+	// export, role "accepts").
+	It("orients a receiver-kind reference produces->accepts when re-parsing text (D1)", func() {
+		contents := `prometheus.scrape "scrape" {
+  targets    = []
+  forward_to = [prometheus.remote_write.sink.receiver]
+}
+
+prometheus.remote_write "sink" {
+  endpoint {
+    url = "http://example.com/api/v1/push"
+  }
+}
+`
+		p, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: orgUUID(orgID), Name: "graph-view-direction-pipe", Contents: contents,
+			Matchers: json.RawMessage(`[]`), Enabled: false, Source: "ui", CreatedBy: "test", UpdatedBy: "test",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		body := map[string]any{"org_id": orgID, "id": p.ID.String()}
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/GraphView", readerCookie, body)
+		defer resp.Body.Close() //nolint:errcheck // test cleanup
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		var result map[string]any
+		Expect(json.NewDecoder(resp.Body).Decode(&result)).To(Succeed())
+		graph, ok := result["graph"].(map[string]any)
+		Expect(ok).To(BeTrue(), "expected a graph in the GraphView response, got %#v", result)
+		nodes, ok := graph["nodes"].([]any)
+		Expect(ok).To(BeTrue())
+		Expect(nodes).To(HaveLen(2))
+
+		var scrapeID, remoteWriteID string
+		for _, raw := range nodes {
+			n, ok := raw.(map[string]any)
+			Expect(ok).To(BeTrue())
+			id, idOK := n["id"].(string)
+			Expect(idOK).To(BeTrue())
+			switch n["component"] {
+			case "prometheus.scrape":
+				scrapeID = id
+			case "prometheus.remote_write":
+				remoteWriteID = id
+			}
+		}
+		Expect(scrapeID).NotTo(BeEmpty())
+		Expect(remoteWriteID).NotTo(BeEmpty())
+
+		edges, ok := graph["edges"].([]any)
+		Expect(ok).To(BeTrue())
+		Expect(edges).To(HaveLen(1))
+		edge, ok := edges[0].(map[string]any)
+		Expect(ok).To(BeTrue())
+		from, ok := edge["from"].(map[string]any)
+		Expect(ok).To(BeTrue())
+		to, ok := edge["to"].(map[string]any)
+		Expect(ok).To(BeTrue())
+		Expect(from["node"]).To(Equal(scrapeID))
+		Expect(from["port"]).To(Equal("forward_to"))
+		Expect(to["node"]).To(Equal(remoteWriteID))
+		Expect(to["port"]).To(Equal("receiver"))
+	})
+
 	It("allows GraphView for an org-reader session", func() {
 		p, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
 			OrgID: orgUUID(orgID), Name: "graph-view-pipe", Contents: "// empty pipeline\n",

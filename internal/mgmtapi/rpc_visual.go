@@ -45,6 +45,27 @@ type schemaError struct{}
 
 func (*schemaError) Error() string { return "schema registry not initialized" }
 
+// loadSchemaPayload loads the schema artifact for `version` and re-marshals
+// it into visual.SchemaPayload — the shape both the renderer and the text
+// re-parse (B3(b): a schema-aware ParseAlloy call is required for correct D1
+// edge orientation) need. Shared so the two call sites (renderGraph, GraphView)
+// can't drift on how the payload is decoded.
+func (s *VisualService) loadSchemaPayload(version string) (visual.SchemaPayload, error) {
+	payload, _, err := s.schema.Get(version)
+	if err != nil {
+		return visual.SchemaPayload{}, err
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return visual.SchemaPayload{}, err
+	}
+	var schemaPayload visual.SchemaPayload
+	if err := json.Unmarshal(b, &schemaPayload); err != nil {
+		return visual.SchemaPayload{}, err
+	}
+	return schemaPayload, nil
+}
+
 // renderGraph mirrors VisualHandler.render: decodes the graph's schema
 // version, loads and re-marshals the schema payload into visual.SchemaPayload,
 // and renders. Every error here mapped to CodeInvalidArgument by callers
@@ -55,16 +76,8 @@ func (s *VisualService) renderGraph(g *mgmtv1.GraphDocument) (visual.RenderResul
 		return visual.RenderResult{}, errSchemaUnavailable
 	}
 	doc := graphDocFromProto(g)
-	payload, _, err := s.schema.Get(doc.SchemaVersion)
+	schemaPayload, err := s.loadSchemaPayload(doc.SchemaVersion)
 	if err != nil {
-		return visual.RenderResult{}, err
-	}
-	b, err := json.Marshal(payload)
-	if err != nil {
-		return visual.RenderResult{}, err
-	}
-	var schemaPayload visual.SchemaPayload
-	if err := json.Unmarshal(b, &schemaPayload); err != nil {
 		return visual.RenderResult{}, err
 	}
 	return visual.Render(doc, schemaPayload), nil
@@ -217,7 +230,23 @@ func (s *VisualService) GraphView(ctx context.Context, req *connect.Request[mgmt
 		schemaVersion = "alloy-v1.18.1"
 	}
 
-	result := visual.ParseAlloy(p.Contents, schemaVersion)
+	// B3(b): ParseAlloy needs the schema to know which exports are
+	// receiver-kind (D1) — without it, edges fall back to the legacy
+	// referenced->referencing orientation, which is backwards for every
+	// receiver export (prometheus.remote_write.receiver, loki.write.receiver,
+	// otelcol.*.input, pyroscope.*.receiver). Best-effort: if the schema
+	// can't be loaded, still parse without it rather than fail GraphView.
+	schemaPayload, schemaErr := s.loadSchemaPayload(schemaVersion)
+	if schemaErr != nil {
+		s.logger.Warn("graph view: schema unavailable for text re-parse, edges may be misoriented", "err", schemaErr, "schema_version", schemaVersion)
+	}
+
+	var result visual.ParseResult
+	if schemaErr == nil {
+		result = visual.ParseAlloy(p.Contents, schemaVersion, schemaPayload)
+	} else {
+		result = visual.ParseAlloy(p.Contents, schemaVersion)
+	}
 	return connect.NewResponse(&mgmtv1.GraphViewResponse{
 		Graph:   graphDocToProto(result.Doc),
 		Opaque:  result.Opaque,
