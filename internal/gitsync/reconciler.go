@@ -295,7 +295,7 @@ func (r *Reconciler) syncFile(ctx context.Context, link sqlc.RepoLink, file gitr
 		// serve cache has to be invalidated — otherwise the collector keeps receiving
 		// the previously cached config indefinitely. Revision 1 and the audit row
 		// mirror the update path and the API's create path.
-		r.recordPipelineChange(ctx, created, orgID, link.CollectorID, commit, "created")
+		r.recordPipelineChange(ctx, created, orgID, link.CollectorID, commit, "create")
 		return nil
 	}
 
@@ -316,7 +316,7 @@ func (r *Reconciler) syncFile(ctx context.Context, link sqlc.RepoLink, file gitr
 		return fmt.Errorf("updating pipeline %s: %w", name, err)
 	}
 
-	r.recordPipelineChange(ctx, updated, orgID, link.CollectorID, commit, "updated")
+	r.recordPipelineChange(ctx, updated, orgID, link.CollectorID, commit, "update")
 	return nil
 }
 
@@ -329,7 +329,8 @@ func (r *Reconciler) recordPipelineChange(
 	ctx context.Context,
 	p sqlc.Pipeline,
 	orgID, collectorID pgtype.UUID,
-	commit, action string,
+	commit, action string, // action is the audit verb: "create" or "update", matching
+	// the imperative names the management API writes (pipeline.create/pipeline.update).
 ) {
 	maxRev, err := r.store.Queries.GetMaxPipelineRevision(ctx, p.ID)
 	if err != nil {

@@ -152,15 +152,8 @@ var _ = Describe("Reconciler.reconcileLink", Label("integration"), func() {
 
 		pipeline, err := st.Queries.GetPipelineByOrgAndName(ctx, sqlc.GetPipelineByOrgAndNameParams{OrgID: link.OrgID, Name: pipelineName})
 		Expect(err).NotTo(HaveOccurred())
-		// Seed revision 1, standing in for the outcome of a prior "create"
-		// sync (mgmtapi's create path records revision 1 the same way; the
-		// reconciler's create branch mirrors CreatePipeline only, so it is
-		// seeded directly here).
-		_, err = st.Queries.CreatePipelineRevision(ctx, sqlc.CreatePipelineRevisionParams{
-			PipelineID: pipeline.ID, Revision: 1, Contents: pipeline.Contents, Matchers: pipeline.Matchers,
-			Enabled: true, ChangedBy: "gitsync", ChangeNote: "git sync initial",
-		})
-		Expect(err).NotTo(HaveOccurred())
+		// The reconciler's create branch records revision 1 itself, so nothing is
+		// seeded here — revision 2 below must come from the update path.
 
 		// Re-fetch the link: reconcileLink above already recorded last_commit.
 		link, err = st.Queries.GetRepoLinkByID(ctx, link.ID)
@@ -211,9 +204,10 @@ var _ = Describe("Reconciler.reconcileLink", Label("integration"), func() {
 
 		revs, err := st.Queries.ListPipelineRevisions(ctx, pipeline.ID)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(revs).To(BeEmpty(), "no revision should be created when the commit tip hasn't changed")
-
-		Expect(dirtyFlag()).To(BeFalse())
+		// The first sync creates the pipeline and its revision 1 (mirroring the API's
+		// create path); the point of this spec is that an unchanged tip adds NOTHING on
+		// top of that, so the count must still be exactly 1.
+		Expect(revs).To(HaveLen(1), "an unchanged commit tip must not create another revision")
 	})
 
 	It("is a no-op when the fetched content is unchanged despite a new commit", func() {
@@ -222,10 +216,10 @@ var _ = Describe("Reconciler.reconcileLink", Label("integration"), func() {
 
 		pipeline, err := st.Queries.GetPipelineByOrgAndName(ctx, sqlc.GetPipelineByOrgAndNameParams{OrgID: link.OrgID, Name: pipelineName})
 		Expect(err).NotTo(HaveOccurred())
-		_, err = st.Queries.CreatePipelineRevision(ctx, sqlc.CreatePipelineRevisionParams{
-			PipelineID: pipeline.ID, Revision: 1, Contents: pipeline.Contents, Matchers: pipeline.Matchers,
-			Enabled: true, ChangedBy: "gitsync", ChangeNote: "git sync initial",
-		})
+		// The create branch already recorded revision 1; nothing is seeded here.
+		// Re-baseline the serve cache too: creating the pipeline legitimately dirtied
+		// it, and this spec is about the unchanged-content sync adding nothing.
+		_, err = st.Pool().Exec(ctx, `UPDATE serve_cache SET dirty = false WHERE collector_id = $1`, link.CollectorID)
 		Expect(err).NotTo(HaveOccurred())
 
 		link, err = st.Queries.GetRepoLinkByID(ctx, link.ID)
@@ -263,6 +257,13 @@ var _ = Describe("Reconciler.reconcileLink", Label("integration"), func() {
 
 		link, err = st.Queries.GetRepoLinkByID(ctx, link.ID)
 		Expect(err).NotTo(HaveOccurred())
+
+		// Re-baseline the serve cache: the initial successful sync legitimately dirties
+		// it (a new pipeline changes what the collector must be served). This spec is
+		// about the FAILED sync not dirtying it, so start from a clean flag.
+		_, err = st.Pool().Exec(ctx, `UPDATE serve_cache SET dirty = false WHERE collector_id = $1`, link.CollectorID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(dirtyFlag()).To(BeFalse(), "precondition: cache starts clean")
 
 		push("this is not valid alloy syntax {{{")
 		err = r.reconcileLink(ctx, link)
