@@ -405,7 +405,11 @@ generate-corpus:
 #
 # -count=1 defeats the test cache: a cached PASS from a previous cluster would
 # be worthless here, since the whole point is what a live cluster does.
-e2e-k8s:
+# Prerequisites match every other e2e target (e2e, e2e-sim, e2e-egress,
+# test-fullstack): the images the cluster loads must be built from THIS working
+# tree, not whatever the daemon happens to be holding. The suite also checks
+# this itself, for anyone running `go test -tags e2ek8s` directly.
+e2e-k8s: docker-build-local docker-build-simulator
 	go test -tags e2ek8s -count=1 -timeout 45m -v ./e2e/k8s/...
 
 # Removes clusters a killed run (SIGKILL) left behind — the one case the

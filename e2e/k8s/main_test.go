@@ -48,10 +48,6 @@ var (
 	// second concurrent run, can never collide with this one. `make
 	// e2e-k8s-clean` removes any shepherd-e2e-* cluster.
 	clusterName string
-
-	// namespace is randomised for the same reason as the cluster: two runs, or
-	// a run against a kept cluster, must not share state.
-	namespace string
 )
 
 const (
@@ -69,7 +65,6 @@ const (
 func TestMain(m *testing.M) {
 	testenv = env.New()
 	clusterName = envconf.RandomName("shepherd-e2e", 20)
-	namespace = envconf.RandomName("shepherd", 16)
 
 	cfgPath, err := filepath.Abs(filepath.Join("testdata", "kind-cluster.yaml"))
 	if err != nil {
@@ -83,14 +78,17 @@ func TestMain(m *testing.M) {
 		installCNI,
 		waitForNodesReady,
 		waitForClusterDNS,
-		envfuncs.CreateNamespace(namespace),
+		// Cluster-wide and created once: `kind load` is a node-level operation,
+		// and one Postgres serves every feature (each gets its own DATABASE
+		// inside it — see fixtures_test.go for the isolation rules).
+		loadImages,
+		deploySharedPostgres,
 	)
 
 	// Finish runs on success, on failure and on panic. The one case it cannot
 	// cover is SIGKILL, which is what `make e2e-k8s-clean` is for.
 	testenv.Finish(
 		exportDiagnosticsOnFailure,
-		deleteNamespaceUnlessKept(namespace),
 		destroyUnlessKept(clusterName),
 	)
 
@@ -102,19 +100,6 @@ func TestMain(m *testing.M) {
 	code := testenv.Run(m)
 	sweepCluster(clusterName)
 	os.Exit(code)
-}
-
-// deleteNamespaceUnlessKept keeps the namespace when the cluster is kept.
-// Deleting it anyway takes the evidence with it — which happened once, leaving
-// a kept cluster with nothing in it to inspect.
-func deleteNamespaceUnlessKept(ns string) env.Func {
-	return func(ctx context.Context, cfg *envconf.Config) (context.Context, error) {
-		if keepCluster() {
-			log.Printf("E2E_K8S_KEEP=1 — leaving namespace %q for inspection", ns)
-			return ctx, nil
-		}
-		return envfuncs.DeleteNamespace(ns)(ctx, cfg)
-	}
 }
 
 // keepCluster reports whether the caller asked to leave the cluster running.

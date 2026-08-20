@@ -54,7 +54,11 @@ func TestCNIEnforcesNetworkPolicy(t *testing.T) {
 	feat := features.New("CNI enforces NetworkPolicy").
 		WithLabel("suite", "containment").
 		Setup(func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-			ns := cfg.Namespace()
+			// Its own namespace, like every other feature: the default-deny
+			// policy below is namespace-scoped, and applying it to a shared
+			// namespace would cut off whatever else happened to be running.
+			cniFixture = newFixture(ctx, t, cfg, "cni")
+			ns := cniFixture.ns
 			client := cfg.Client()
 
 			target := servePod(targetName, ns)
@@ -84,7 +88,7 @@ func TestCNIEnforcesNetworkPolicy(t *testing.T) {
 				// its Service endpoints are programmed yet, and a single early dial
 				// fails for a reason that has nothing to do with policy. Observed
 				// exactly that flake while building this.
-				ok, out := dialUntil(ctx, cfg, proberName+"-open", targetName, targetPort, true, connectDeadline)
+				ok, out := dialUntilIn(ctx, cfg, cniFixture.ns, proberName+"-open", targetName, targetPort, true, connectDeadline)
 				if !ok {
 					t.Fatalf("the probe never reached the target in %s, BEFORE any policy was applied — "+
 						"the harness itself is broken, so no denial in this suite would mean anything.\n"+
@@ -94,14 +98,13 @@ func TestCNIEnforcesNetworkPolicy(t *testing.T) {
 			}).
 		Assess("phase 2: a default-deny policy makes it unreachable",
 			func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-				ns := cfg.Namespace()
-				if err := cfg.Client().Resources().Create(ctx, denyAllIngress(ns)); err != nil {
+				if err := cfg.Client().Resources().Create(ctx, denyAllIngress(cniFixture.ns)); err != nil {
 					t.Fatalf("creating default-deny policy: %v", err)
 				}
 				// Polled rather than slept: policy programming is not instantaneous,
 				// and a fixed sleep either wastes time or races the CNI into a false
 				// "not enforcing" verdict.
-				denied, out := dialUntil(ctx, cfg, proberName+"-denied", targetName, targetPort, false, denyDeadline)
+				denied, out := dialUntilIn(ctx, cfg, cniFixture.ns, proberName+"-denied", targetName, targetPort, false, denyDeadline)
 				if !denied {
 					t.Fatalf("THE CNI DOES NOT ENFORCE NETWORKPOLICY.\n\n"+
 						"A default-deny NetworkPolicy is in place and the target is still reachable, so "+
@@ -114,10 +117,18 @@ func TestCNIEnforcesNetworkPolicy(t *testing.T) {
 				}
 				return ctx
 			}).
+		Teardown(func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
+			cniFixture.cleanup(cfg)
+			return ctx
+		}).
 		Feature()
 
 	testenv.Test(t, feat)
 }
+
+// cniFixture is this feature's namespace, shared between its Setup and Assess
+// closures.
+var cniFixture *fixture
 
 const (
 	// connectDeadline bounds how long the positive control waits for Service
@@ -135,11 +146,23 @@ const (
 // Each attempt uses a fresh pod name: `kubectl run --rm` leaves nothing behind
 // on success, but a failed attach can, and a name collision would then be
 // reported as the probe result rather than as the collision it is.
-func dialUntil(ctx context.Context, cfg *envconf.Config, base, host string, port int, want bool, deadline time.Duration) (bool, string) {
+// dialUntilIn retries dialIn until it reaches `want` (true = must connect,
+// false = must be refused) or the deadline expires. Returns whether it got
+// there, plus the last probe output for the failure message.
+//
+// The namespace is an explicit parameter, never cfg.Namespace(): features own
+// their own namespaces (fixtures_test.go), and there is no environment-level
+// namespace to fall back to.
+//
+// Polled rather than dialled once: a Pod being Ready does not mean its Service
+// endpoints are programmed, and policy programming is not instantaneous. A
+// single dial fails — or passes — for reasons that have nothing to do with what
+// is being tested.
+func dialUntilIn(ctx context.Context, cfg *envconf.Config, ns, base, host string, port int, want bool, deadline time.Duration) (bool, string) {
 	end := time.Now().Add(deadline)
 	var last string
 	for i := 0; time.Now().Before(end); i++ {
-		out, err := dial(ctx, cfg, fmt.Sprintf("%s-%d", base, i), host, port)
+		out, err := dialIn(ctx, cfg, ns, fmt.Sprintf("%s-%d", base, i), host, port)
 		last = out
 		if (err == nil) == want {
 			return true, last
@@ -156,12 +179,12 @@ func dialUntil(ctx context.Context, cfg *envconf.Config, base, host string, port
 // A TCP connect, not an HTTP request: NetworkPolicy operates at L3/L4, and an
 // HTTP-level failure could mean an application error rather than a blocked
 // connection. `nc -z` with a timeout distinguishes them.
-func dial(ctx context.Context, cfg *envconf.Config, podName, host string, port int) (string, error) {
+func dialIn(ctx context.Context, cfg *envconf.Config, ns, podName, host string, port int) (string, error) {
 	cmd := fmt.Sprintf(
 		"kubectl --kubeconfig %s -n %s run %s "+
 			"--image=busybox:1.36 --restart=Never --rm --attach --quiet --pod-running-timeout=2m "+
 			"--command -- timeout 8 nc -z -w 5 %s %d",
-		cfg.KubeconfigFile(), cfg.Namespace(), podName, host, port,
+		cfg.KubeconfigFile(), ns, podName, host, port,
 	)
 	p := utils.RunCommand(cmd)
 	return strings.TrimSpace(p.Result()), p.Err()
