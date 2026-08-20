@@ -39,7 +39,11 @@ var _ mgmtv1connect.SimulateServiceHandler = (*SimulateService)(nil)
 
 // Run API errors (S3 sandbox runs, VB-1 §6.4/§13 M7).
 var (
-	errSimulatorNotConfigured = errors.New("simulator_not_configured")
+	// Reaches the user verbatim: the builder renders a failed CreateRun's message
+	// straight into the Sandbox run panel, where the machine token this used to
+	// carry ("simulator_not_configured") read as a leaked internal code rather
+	// than an explanation. Human sentence, matching errRunNotFound below.
+	errSimulatorNotConfigured = errors.New("sandbox simulation is not enabled on this server")
 	errRunGraphInvalid        = errors.New("graph.kind must be \"alloy-graph/v1\"")
 	errRunGraphEmpty          = errors.New("graph must have at least one node")
 	errRunIDInvalid           = errors.New("invalid run id")

@@ -29,8 +29,17 @@ test('destination create dialog reports invalid URL', async ({ page, api }) => {
   await page.goto('/destinations');
 
   await page.getByRole('button', { name: /new|create|add destination/i }).click();
+  // A malformed URL, not an empty one: empty fields are caught by the inputs'
+  // own `required` before submit ever runs, so they exercise the browser rather
+  // than this dialog's validation.
+  await page.getByLabel(/name/i).fill('bad-dest');
+  await page.getByLabel(/url/i).fill('not-a-url');
   await page.getByRole('button', { name: /save|create/i }).click();
-  await expect(page.getByText(/valid URL|URL/i).first()).toBeVisible();
+
+  // Assert the message itself. This used to match /valid URL|URL/i, whose second
+  // branch matches the dialog's own "URL" field LABEL — so it passed whether or
+  // not any validation rendered, and would not have caught the message going away.
+  await expect(page.getByText(/Enter a valid URL/i)).toBeVisible();
 });
 
 test('created destination appears in the list', async ({ page, api }) => {
