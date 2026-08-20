@@ -78,12 +78,17 @@ scrape. `simsvc.CheckEndpoints` refuses expressions outright, so any such graph 
 sandbox. The guard's premise ("a transformed config contains no calls") became false when M13 was
 fixed, and nothing tests the two against each other.
 
-### B-STAGEORDER — `loki.process` stage order is not preserved · **high** (production)
+### B-STAGEORDER — `loki.process` stage order is not preserved · [FIXED 2026-08-20]
 
-`writeBody` emits blocks in schema-declaration order, and the graph document keys props by block
-name, so the order of two differently-named `stage.*` blocks is unrepresentable. The rendered text
-reorders the user's pipeline silently, with no disclosure — **and the same text reaches real fleet
-agents**, not just the sandbox. VB-1 §D2 explicitly requires order preservation.
+The order was not merely lost at render time, it was never stored: `Props` is a map keyed by block
+name. `GraphNode.block_order` (proto field 8) now records the authored sequence, and both renderers
+re-sequence the component's blocks before writing the body. The parser records the order it reads,
+so a round trip no longer re-sequences an existing config, and the inspector maintains it as blocks
+are added and removed.
+
+Empty means "no recorded order" and falls back to schema order, so graphs saved before the field
+render byte-identically. Red-proved in both languages, confirmed to load in a real `alloy run`, and
+checked through the live API in all three cases (both authored orders and the fallback).
 
 ### F9-a — `ssh` auth kind fails in the compose stack · **medium**
 
