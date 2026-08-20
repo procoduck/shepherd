@@ -10,6 +10,7 @@ import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	structpb "google.golang.org/protobuf/types/known/structpb"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -774,11 +775,632 @@ func (x *SimulateLogsResponse) GetTraces() []*LineTrace {
 	return nil
 }
 
+// CreateRunRequest submits a graph for a sandboxed run. GraphDocument and
+// VisualNodeDiagnostic are reused from visual.proto rather than redefined,
+// per the single-schema-of-truth principle (VB-1 design doc §5.2).
+type CreateRunRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	OrgId string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	Graph *GraphDocument         `protobuf:"bytes,2,opt,name=graph,proto3" json:"graph,omitempty"`
+	// duration_seconds: 0 selects the server default (30s), clamped to [1,120].
+	DurationSeconds int32 `protobuf:"varint,3,opt,name=duration_seconds,json=durationSeconds,proto3" json:"duration_seconds,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *CreateRunRequest) Reset() {
+	*x = CreateRunRequest{}
+	mi := &file_shepherd_mgmt_v1_simulate_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateRunRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateRunRequest) ProtoMessage() {}
+
+func (x *CreateRunRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_simulate_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateRunRequest.ProtoReflect.Descriptor instead.
+func (*CreateRunRequest) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_simulate_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *CreateRunRequest) GetOrgId() string {
+	if x != nil {
+		return x.OrgId
+	}
+	return ""
+}
+
+func (x *CreateRunRequest) GetGraph() *GraphDocument {
+	if x != nil {
+		return x.Graph
+	}
+	return nil
+}
+
+func (x *CreateRunRequest) GetDurationSeconds() int32 {
+	if x != nil {
+		return x.DurationSeconds
+	}
+	return 0
+}
+
+type CreateRunResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateRunResponse) Reset() {
+	*x = CreateRunResponse{}
+	mi := &file_shepherd_mgmt_v1_simulate_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateRunResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateRunResponse) ProtoMessage() {}
+
+func (x *CreateRunResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_simulate_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateRunResponse.ProtoReflect.Descriptor instead.
+func (*CreateRunResponse) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_simulate_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *CreateRunResponse) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+type GetRunRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OrgId         string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	Id            string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetRunRequest) Reset() {
+	*x = GetRunRequest{}
+	mi := &file_shepherd_mgmt_v1_simulate_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetRunRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetRunRequest) ProtoMessage() {}
+
+func (x *GetRunRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_simulate_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetRunRequest.ProtoReflect.Descriptor instead.
+func (*GetRunRequest) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_simulate_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *GetRunRequest) GetOrgId() string {
+	if x != nil {
+		return x.OrgId
+	}
+	return ""
+}
+
+func (x *GetRunRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+// SimulateRewrite mirrors internal/simulate.Rewrite — one entry in the "what
+// was rewritten" disclosure (VB-1 §6.4 step 4).
+//
+// kind is one of: destination_endpoint | discovery_stubbed |
+// log_source_stubbed | secret_node_removed | secret_dropped |
+// secret_ref_substituted | edge_dropped. Kept a plain string per the
+// repo's documented contract rule (docs/archive/api-contract-design.md;
+// see visual.proto's UpgradeItem.class for the same precedent) rather than
+// a proto enum.
+type SimulateRewrite struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	NodeLabel     string                 `protobuf:"bytes,2,opt,name=node_label,json=nodeLabel,proto3" json:"node_label,omitempty"`
+	Component     string                 `protobuf:"bytes,3,opt,name=component,proto3" json:"component,omitempty"`
+	Kind          string                 `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`
+	Detail        string                 `protobuf:"bytes,5,opt,name=detail,proto3" json:"detail,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SimulateRewrite) Reset() {
+	*x = SimulateRewrite{}
+	mi := &file_shepherd_mgmt_v1_simulate_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SimulateRewrite) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SimulateRewrite) ProtoMessage() {}
+
+func (x *SimulateRewrite) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_simulate_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SimulateRewrite.ProtoReflect.Descriptor instead.
+func (*SimulateRewrite) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_simulate_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *SimulateRewrite) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *SimulateRewrite) GetNodeLabel() string {
+	if x != nil {
+		return x.NodeLabel
+	}
+	return ""
+}
+
+func (x *SimulateRewrite) GetComponent() string {
+	if x != nil {
+		return x.Component
+	}
+	return ""
+}
+
+func (x *SimulateRewrite) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *SimulateRewrite) GetDetail() string {
+	if x != nil {
+		return x.Detail
+	}
+	return ""
+}
+
+// CapturedSeries mirrors one entry of the simulator's Results.Series.
+type CapturedSeries struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Labels        map[string]string      `protobuf:"bytes,2,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	SampleCount   int32                  `protobuf:"varint,3,opt,name=sample_count,json=sampleCount,proto3" json:"sample_count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CapturedSeries) Reset() {
+	*x = CapturedSeries{}
+	mi := &file_shepherd_mgmt_v1_simulate_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CapturedSeries) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CapturedSeries) ProtoMessage() {}
+
+func (x *CapturedSeries) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_simulate_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CapturedSeries.ProtoReflect.Descriptor instead.
+func (*CapturedSeries) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_simulate_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *CapturedSeries) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CapturedSeries) GetLabels() map[string]string {
+	if x != nil {
+		return x.Labels
+	}
+	return nil
+}
+
+func (x *CapturedSeries) GetSampleCount() int32 {
+	if x != nil {
+		return x.SampleCount
+	}
+	return 0
+}
+
+// CapturedLogLine mirrors one entry of the simulator's Results.LogLines.
+type CapturedLogLine struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Labels        map[string]string      `protobuf:"bytes,1,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Line          string                 `protobuf:"bytes,2,opt,name=line,proto3" json:"line,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CapturedLogLine) Reset() {
+	*x = CapturedLogLine{}
+	mi := &file_shepherd_mgmt_v1_simulate_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CapturedLogLine) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CapturedLogLine) ProtoMessage() {}
+
+func (x *CapturedLogLine) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_simulate_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CapturedLogLine.ProtoReflect.Descriptor instead.
+func (*CapturedLogLine) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_simulate_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *CapturedLogLine) GetLabels() map[string]string {
+	if x != nil {
+		return x.Labels
+	}
+	return nil
+}
+
+func (x *CapturedLogLine) GetLine() string {
+	if x != nil {
+		return x.Line
+	}
+	return ""
+}
+
+// ComponentHealth mirrors one entry of the simulator's Results.Components.
+// health_state mirrors Alloy's own /api/v0/web/components values verbatim
+// (healthy, unhealthy, unknown, exited) and is NOT evidence of delivery —
+// see VB-1 §6.4's "nothing captured" containment note.
+type ComponentHealth struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	NodeLabel     string                 `protobuf:"bytes,2,opt,name=node_label,json=nodeLabel,proto3" json:"node_label,omitempty"`
+	Component     string                 `protobuf:"bytes,3,opt,name=component,proto3" json:"component,omitempty"`
+	HealthState   string                 `protobuf:"bytes,4,opt,name=health_state,json=healthState,proto3" json:"health_state,omitempty"`
+	Message       string                 `protobuf:"bytes,5,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ComponentHealth) Reset() {
+	*x = ComponentHealth{}
+	mi := &file_shepherd_mgmt_v1_simulate_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ComponentHealth) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ComponentHealth) ProtoMessage() {}
+
+func (x *ComponentHealth) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_simulate_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ComponentHealth.ProtoReflect.Descriptor instead.
+func (*ComponentHealth) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_simulate_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ComponentHealth) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *ComponentHealth) GetNodeLabel() string {
+	if x != nil {
+		return x.NodeLabel
+	}
+	return ""
+}
+
+func (x *ComponentHealth) GetComponent() string {
+	if x != nil {
+		return x.Component
+	}
+	return ""
+}
+
+func (x *ComponentHealth) GetHealthState() string {
+	if x != nil {
+		return x.HealthState
+	}
+	return ""
+}
+
+func (x *ComponentHealth) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+// SimulateRun is the full run document GetRun returns.
+//
+// status is one of: queued | running | completed | failed | expired — a
+// plain string, not a proto enum, per the same contract rule as
+// SimulateRewrite.kind above.
+// error_code (set iff status == "failed") is one of: cannot_stub |
+// gate_failed | simulator_unavailable | timeout | internal.
+type SimulateRun struct {
+	state                    protoimpl.MessageState `protogen:"open.v1"`
+	Id                       string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	OrgId                    string                 `protobuf:"bytes,2,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	Status                   string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	CreatedAt                *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	StartedAt                *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	FinishedAt               *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=finished_at,json=finishedAt,proto3" json:"finished_at,omitempty"`
+	RequestedDurationSeconds int32                  `protobuf:"varint,7,opt,name=requested_duration_seconds,json=requestedDurationSeconds,proto3" json:"requested_duration_seconds,omitempty"`
+	// queue_position is 0 once status leaves "queued"; computed at read time,
+	// never stored (best-effort — see VB-1 run-API spec Risks).
+	QueuePosition    int32                   `protobuf:"varint,8,opt,name=queue_position,json=queuePosition,proto3" json:"queue_position,omitempty"`
+	Rewrites         []*SimulateRewrite      `protobuf:"bytes,9,rep,name=rewrites,proto3" json:"rewrites,omitempty"`
+	CapturedSeries   []*CapturedSeries       `protobuf:"bytes,10,rep,name=captured_series,json=capturedSeries,proto3" json:"captured_series,omitempty"`
+	CapturedLogLines []*CapturedLogLine      `protobuf:"bytes,11,rep,name=captured_log_lines,json=capturedLogLines,proto3" json:"captured_log_lines,omitempty"`
+	ComponentHealth  []*ComponentHealth      `protobuf:"bytes,12,rep,name=component_health,json=componentHealth,proto3" json:"component_health,omitempty"`
+	GateDiagnostics  []*VisualNodeDiagnostic `protobuf:"bytes,13,rep,name=gate_diagnostics,json=gateDiagnostics,proto3" json:"gate_diagnostics,omitempty"`
+	StderrTail       string                  `protobuf:"bytes,14,opt,name=stderr_tail,json=stderrTail,proto3" json:"stderr_tail,omitempty"`
+	ErrorCode        string                  `protobuf:"bytes,15,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
+	ErrorMessage     string                  `protobuf:"bytes,16,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	// fidelity_note is the fixed §6.5 tier-S3 one-liner; always populated.
+	FidelityNote  string `protobuf:"bytes,17,opt,name=fidelity_note,json=fidelityNote,proto3" json:"fidelity_note,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SimulateRun) Reset() {
+	*x = SimulateRun{}
+	mi := &file_shepherd_mgmt_v1_simulate_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SimulateRun) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SimulateRun) ProtoMessage() {}
+
+func (x *SimulateRun) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_simulate_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SimulateRun.ProtoReflect.Descriptor instead.
+func (*SimulateRun) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_simulate_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *SimulateRun) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *SimulateRun) GetOrgId() string {
+	if x != nil {
+		return x.OrgId
+	}
+	return ""
+}
+
+func (x *SimulateRun) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *SimulateRun) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *SimulateRun) GetStartedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.StartedAt
+	}
+	return nil
+}
+
+func (x *SimulateRun) GetFinishedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.FinishedAt
+	}
+	return nil
+}
+
+func (x *SimulateRun) GetRequestedDurationSeconds() int32 {
+	if x != nil {
+		return x.RequestedDurationSeconds
+	}
+	return 0
+}
+
+func (x *SimulateRun) GetQueuePosition() int32 {
+	if x != nil {
+		return x.QueuePosition
+	}
+	return 0
+}
+
+func (x *SimulateRun) GetRewrites() []*SimulateRewrite {
+	if x != nil {
+		return x.Rewrites
+	}
+	return nil
+}
+
+func (x *SimulateRun) GetCapturedSeries() []*CapturedSeries {
+	if x != nil {
+		return x.CapturedSeries
+	}
+	return nil
+}
+
+func (x *SimulateRun) GetCapturedLogLines() []*CapturedLogLine {
+	if x != nil {
+		return x.CapturedLogLines
+	}
+	return nil
+}
+
+func (x *SimulateRun) GetComponentHealth() []*ComponentHealth {
+	if x != nil {
+		return x.ComponentHealth
+	}
+	return nil
+}
+
+func (x *SimulateRun) GetGateDiagnostics() []*VisualNodeDiagnostic {
+	if x != nil {
+		return x.GateDiagnostics
+	}
+	return nil
+}
+
+func (x *SimulateRun) GetStderrTail() string {
+	if x != nil {
+		return x.StderrTail
+	}
+	return ""
+}
+
+func (x *SimulateRun) GetErrorCode() string {
+	if x != nil {
+		return x.ErrorCode
+	}
+	return ""
+}
+
+func (x *SimulateRun) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *SimulateRun) GetFidelityNote() string {
+	if x != nil {
+		return x.FidelityNote
+	}
+	return ""
+}
+
 var File_shepherd_mgmt_v1_simulate_proto protoreflect.FileDescriptor
 
 const file_shepherd_mgmt_v1_simulate_proto_rawDesc = "" +
 	"\n" +
-	"\x1fshepherd/mgmt/v1/simulate.proto\x12\x10shepherd.mgmt.v1\x1a\x1cgoogle/protobuf/struct.proto\"\xdd\x01\n" +
+	"\x1fshepherd/mgmt/v1/simulate.proto\x12\x10shepherd.mgmt.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1dshepherd/mgmt/v1/visual.proto\"\xdd\x01\n" +
 	"\vRelabelRule\x12#\n" +
 	"\rsource_labels\x18\x01 \x03(\tR\fsourceLabels\x12\x1c\n" +
 	"\tseparator\x18\x02 \x01(\tR\tseparator\x12\x14\n" +
@@ -871,10 +1493,72 @@ const file_shepherd_mgmt_v1_simulate_proto_rawDesc = "" +
 	"\x06output\x18\x03 \x01(\tR\x06output\x12\x18\n" +
 	"\adropped\x18\x04 \x01(\bR\adropped\"K\n" +
 	"\x14SimulateLogsResponse\x123\n" +
-	"\x06traces\x18\x01 \x03(\v2\x1b.shepherd.mgmt.v1.LineTraceR\x06traces2\xdc\x01\n" +
+	"\x06traces\x18\x01 \x03(\v2\x1b.shepherd.mgmt.v1.LineTraceR\x06traces\"\x8b\x01\n" +
+	"\x10CreateRunRequest\x12\x15\n" +
+	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x125\n" +
+	"\x05graph\x18\x02 \x01(\v2\x1f.shepherd.mgmt.v1.GraphDocumentR\x05graph\x12)\n" +
+	"\x10duration_seconds\x18\x03 \x01(\x05R\x0fdurationSeconds\"*\n" +
+	"\x11CreateRunResponse\x12\x15\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x05runId\"6\n" +
+	"\rGetRunRequest\x12\x15\n" +
+	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\"\x93\x01\n" +
+	"\x0fSimulateRewrite\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1d\n" +
+	"\n" +
+	"node_label\x18\x02 \x01(\tR\tnodeLabel\x12\x1c\n" +
+	"\tcomponent\x18\x03 \x01(\tR\tcomponent\x12\x12\n" +
+	"\x04kind\x18\x04 \x01(\tR\x04kind\x12\x16\n" +
+	"\x06detail\x18\x05 \x01(\tR\x06detail\"\xc8\x01\n" +
+	"\x0eCapturedSeries\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12D\n" +
+	"\x06labels\x18\x02 \x03(\v2,.shepherd.mgmt.v1.CapturedSeries.LabelsEntryR\x06labels\x12!\n" +
+	"\fsample_count\x18\x03 \x01(\x05R\vsampleCount\x1a9\n" +
+	"\vLabelsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa7\x01\n" +
+	"\x0fCapturedLogLine\x12E\n" +
+	"\x06labels\x18\x01 \x03(\v2-.shepherd.mgmt.v1.CapturedLogLine.LabelsEntryR\x06labels\x12\x12\n" +
+	"\x04line\x18\x02 \x01(\tR\x04line\x1a9\n" +
+	"\vLabelsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa4\x01\n" +
+	"\x0fComponentHealth\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1d\n" +
+	"\n" +
+	"node_label\x18\x02 \x01(\tR\tnodeLabel\x12\x1c\n" +
+	"\tcomponent\x18\x03 \x01(\tR\tcomponent\x12!\n" +
+	"\fhealth_state\x18\x04 \x01(\tR\vhealthState\x12\x18\n" +
+	"\amessage\x18\x05 \x01(\tR\amessage\"\xea\x06\n" +
+	"\vSimulateRun\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
+	"\x06org_id\x18\x02 \x01(\tR\x05orgId\x12\x16\n" +
+	"\x06status\x18\x03 \x01(\tR\x06status\x129\n" +
+	"\n" +
+	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
+	"\n" +
+	"started_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x12;\n" +
+	"\vfinished_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"finishedAt\x12<\n" +
+	"\x1arequested_duration_seconds\x18\a \x01(\x05R\x18requestedDurationSeconds\x12%\n" +
+	"\x0equeue_position\x18\b \x01(\x05R\rqueuePosition\x12=\n" +
+	"\brewrites\x18\t \x03(\v2!.shepherd.mgmt.v1.SimulateRewriteR\brewrites\x12I\n" +
+	"\x0fcaptured_series\x18\n" +
+	" \x03(\v2 .shepherd.mgmt.v1.CapturedSeriesR\x0ecapturedSeries\x12O\n" +
+	"\x12captured_log_lines\x18\v \x03(\v2!.shepherd.mgmt.v1.CapturedLogLineR\x10capturedLogLines\x12L\n" +
+	"\x10component_health\x18\f \x03(\v2!.shepherd.mgmt.v1.ComponentHealthR\x0fcomponentHealth\x12Q\n" +
+	"\x10gate_diagnostics\x18\r \x03(\v2&.shepherd.mgmt.v1.VisualNodeDiagnosticR\x0fgateDiagnostics\x12\x1f\n" +
+	"\vstderr_tail\x18\x0e \x01(\tR\n" +
+	"stderrTail\x12\x1d\n" +
+	"\n" +
+	"error_code\x18\x0f \x01(\tR\terrorCode\x12#\n" +
+	"\rerror_message\x18\x10 \x01(\tR\ferrorMessage\x12#\n" +
+	"\rfidelity_note\x18\x11 \x01(\tR\ffidelityNote2\x80\x03\n" +
 	"\x0fSimulateService\x12h\n" +
 	"\x0fSimulateRelabel\x12(.shepherd.mgmt.v1.SimulateRelabelRequest\x1a).shepherd.mgmt.v1.SimulateRelabelResponse\"\x00\x12_\n" +
-	"\fSimulateLogs\x12%.shepherd.mgmt.v1.SimulateLogsRequest\x1a&.shepherd.mgmt.v1.SimulateLogsResponse\"\x00B&Z$shepherd/gen/shepherd/mgmt/v1;mgmtv1b\x06proto3"
+	"\fSimulateLogs\x12%.shepherd.mgmt.v1.SimulateLogsRequest\x1a&.shepherd.mgmt.v1.SimulateLogsResponse\"\x00\x12V\n" +
+	"\tCreateRun\x12\".shepherd.mgmt.v1.CreateRunRequest\x1a#.shepherd.mgmt.v1.CreateRunResponse\"\x00\x12J\n" +
+	"\x06GetRun\x12\x1f.shepherd.mgmt.v1.GetRunRequest\x1a\x1d.shepherd.mgmt.v1.SimulateRun\"\x00B&Z$shepherd/gen/shepherd/mgmt/v1;mgmtv1b\x06proto3"
 
 var (
 	file_shepherd_mgmt_v1_simulate_proto_rawDescOnce sync.Once
@@ -888,7 +1572,7 @@ func file_shepherd_mgmt_v1_simulate_proto_rawDescGZIP() []byte {
 	return file_shepherd_mgmt_v1_simulate_proto_rawDescData
 }
 
-var file_shepherd_mgmt_v1_simulate_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_shepherd_mgmt_v1_simulate_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_shepherd_mgmt_v1_simulate_proto_goTypes = []any{
 	(*RelabelRule)(nil),             // 0: shepherd.mgmt.v1.RelabelRule
 	(*SimulateRelabelRequest)(nil),  // 1: shepherd.mgmt.v1.SimulateRelabelRequest
@@ -900,41 +1584,69 @@ var file_shepherd_mgmt_v1_simulate_proto_goTypes = []any{
 	(*StageEffect)(nil),             // 7: shepherd.mgmt.v1.StageEffect
 	(*LineTrace)(nil),               // 8: shepherd.mgmt.v1.LineTrace
 	(*SimulateLogsResponse)(nil),    // 9: shepherd.mgmt.v1.SimulateLogsResponse
-	nil,                             // 10: shepherd.mgmt.v1.RelabelStep.BeforeEntry
-	nil,                             // 11: shepherd.mgmt.v1.RelabelStep.AfterEntry
-	nil,                             // 12: shepherd.mgmt.v1.TargetTrace.InputEntry
-	nil,                             // 13: shepherd.mgmt.v1.TargetTrace.OutputEntry
-	nil,                             // 14: shepherd.mgmt.v1.StageSpec.ExpressionsEntry
-	nil,                             // 15: shepherd.mgmt.v1.StageSpec.LabelsEntry
-	nil,                             // 16: shepherd.mgmt.v1.StageEffect.LabelsBeforeEntry
-	nil,                             // 17: shepherd.mgmt.v1.StageEffect.LabelsAfterEntry
-	(*structpb.Struct)(nil),         // 18: google.protobuf.Struct
+	(*CreateRunRequest)(nil),        // 10: shepherd.mgmt.v1.CreateRunRequest
+	(*CreateRunResponse)(nil),       // 11: shepherd.mgmt.v1.CreateRunResponse
+	(*GetRunRequest)(nil),           // 12: shepherd.mgmt.v1.GetRunRequest
+	(*SimulateRewrite)(nil),         // 13: shepherd.mgmt.v1.SimulateRewrite
+	(*CapturedSeries)(nil),          // 14: shepherd.mgmt.v1.CapturedSeries
+	(*CapturedLogLine)(nil),         // 15: shepherd.mgmt.v1.CapturedLogLine
+	(*ComponentHealth)(nil),         // 16: shepherd.mgmt.v1.ComponentHealth
+	(*SimulateRun)(nil),             // 17: shepherd.mgmt.v1.SimulateRun
+	nil,                             // 18: shepherd.mgmt.v1.RelabelStep.BeforeEntry
+	nil,                             // 19: shepherd.mgmt.v1.RelabelStep.AfterEntry
+	nil,                             // 20: shepherd.mgmt.v1.TargetTrace.InputEntry
+	nil,                             // 21: shepherd.mgmt.v1.TargetTrace.OutputEntry
+	nil,                             // 22: shepherd.mgmt.v1.StageSpec.ExpressionsEntry
+	nil,                             // 23: shepherd.mgmt.v1.StageSpec.LabelsEntry
+	nil,                             // 24: shepherd.mgmt.v1.StageEffect.LabelsBeforeEntry
+	nil,                             // 25: shepherd.mgmt.v1.StageEffect.LabelsAfterEntry
+	nil,                             // 26: shepherd.mgmt.v1.CapturedSeries.LabelsEntry
+	nil,                             // 27: shepherd.mgmt.v1.CapturedLogLine.LabelsEntry
+	(*structpb.Struct)(nil),         // 28: google.protobuf.Struct
+	(*GraphDocument)(nil),           // 29: shepherd.mgmt.v1.GraphDocument
+	(*timestamppb.Timestamp)(nil),   // 30: google.protobuf.Timestamp
+	(*VisualNodeDiagnostic)(nil),    // 31: shepherd.mgmt.v1.VisualNodeDiagnostic
 }
 var file_shepherd_mgmt_v1_simulate_proto_depIdxs = []int32{
 	0,  // 0: shepherd.mgmt.v1.SimulateRelabelRequest.rules:type_name -> shepherd.mgmt.v1.RelabelRule
-	18, // 1: shepherd.mgmt.v1.SimulateRelabelRequest.sample_targets:type_name -> google.protobuf.Struct
-	10, // 2: shepherd.mgmt.v1.RelabelStep.before:type_name -> shepherd.mgmt.v1.RelabelStep.BeforeEntry
-	11, // 3: shepherd.mgmt.v1.RelabelStep.after:type_name -> shepherd.mgmt.v1.RelabelStep.AfterEntry
-	12, // 4: shepherd.mgmt.v1.TargetTrace.input:type_name -> shepherd.mgmt.v1.TargetTrace.InputEntry
+	28, // 1: shepherd.mgmt.v1.SimulateRelabelRequest.sample_targets:type_name -> google.protobuf.Struct
+	18, // 2: shepherd.mgmt.v1.RelabelStep.before:type_name -> shepherd.mgmt.v1.RelabelStep.BeforeEntry
+	19, // 3: shepherd.mgmt.v1.RelabelStep.after:type_name -> shepherd.mgmt.v1.RelabelStep.AfterEntry
+	20, // 4: shepherd.mgmt.v1.TargetTrace.input:type_name -> shepherd.mgmt.v1.TargetTrace.InputEntry
 	2,  // 5: shepherd.mgmt.v1.TargetTrace.steps:type_name -> shepherd.mgmt.v1.RelabelStep
-	13, // 6: shepherd.mgmt.v1.TargetTrace.output:type_name -> shepherd.mgmt.v1.TargetTrace.OutputEntry
+	21, // 6: shepherd.mgmt.v1.TargetTrace.output:type_name -> shepherd.mgmt.v1.TargetTrace.OutputEntry
 	3,  // 7: shepherd.mgmt.v1.SimulateRelabelResponse.traces:type_name -> shepherd.mgmt.v1.TargetTrace
-	14, // 8: shepherd.mgmt.v1.StageSpec.expressions:type_name -> shepherd.mgmt.v1.StageSpec.ExpressionsEntry
-	15, // 9: shepherd.mgmt.v1.StageSpec.labels:type_name -> shepherd.mgmt.v1.StageSpec.LabelsEntry
+	22, // 8: shepherd.mgmt.v1.StageSpec.expressions:type_name -> shepherd.mgmt.v1.StageSpec.ExpressionsEntry
+	23, // 9: shepherd.mgmt.v1.StageSpec.labels:type_name -> shepherd.mgmt.v1.StageSpec.LabelsEntry
 	5,  // 10: shepherd.mgmt.v1.SimulateLogsRequest.stages:type_name -> shepherd.mgmt.v1.StageSpec
-	16, // 11: shepherd.mgmt.v1.StageEffect.labels_before:type_name -> shepherd.mgmt.v1.StageEffect.LabelsBeforeEntry
-	17, // 12: shepherd.mgmt.v1.StageEffect.labels_after:type_name -> shepherd.mgmt.v1.StageEffect.LabelsAfterEntry
+	24, // 11: shepherd.mgmt.v1.StageEffect.labels_before:type_name -> shepherd.mgmt.v1.StageEffect.LabelsBeforeEntry
+	25, // 12: shepherd.mgmt.v1.StageEffect.labels_after:type_name -> shepherd.mgmt.v1.StageEffect.LabelsAfterEntry
 	7,  // 13: shepherd.mgmt.v1.LineTrace.steps:type_name -> shepherd.mgmt.v1.StageEffect
 	8,  // 14: shepherd.mgmt.v1.SimulateLogsResponse.traces:type_name -> shepherd.mgmt.v1.LineTrace
-	1,  // 15: shepherd.mgmt.v1.SimulateService.SimulateRelabel:input_type -> shepherd.mgmt.v1.SimulateRelabelRequest
-	6,  // 16: shepherd.mgmt.v1.SimulateService.SimulateLogs:input_type -> shepherd.mgmt.v1.SimulateLogsRequest
-	4,  // 17: shepherd.mgmt.v1.SimulateService.SimulateRelabel:output_type -> shepherd.mgmt.v1.SimulateRelabelResponse
-	9,  // 18: shepherd.mgmt.v1.SimulateService.SimulateLogs:output_type -> shepherd.mgmt.v1.SimulateLogsResponse
-	17, // [17:19] is the sub-list for method output_type
-	15, // [15:17] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	29, // 15: shepherd.mgmt.v1.CreateRunRequest.graph:type_name -> shepherd.mgmt.v1.GraphDocument
+	26, // 16: shepherd.mgmt.v1.CapturedSeries.labels:type_name -> shepherd.mgmt.v1.CapturedSeries.LabelsEntry
+	27, // 17: shepherd.mgmt.v1.CapturedLogLine.labels:type_name -> shepherd.mgmt.v1.CapturedLogLine.LabelsEntry
+	30, // 18: shepherd.mgmt.v1.SimulateRun.created_at:type_name -> google.protobuf.Timestamp
+	30, // 19: shepherd.mgmt.v1.SimulateRun.started_at:type_name -> google.protobuf.Timestamp
+	30, // 20: shepherd.mgmt.v1.SimulateRun.finished_at:type_name -> google.protobuf.Timestamp
+	13, // 21: shepherd.mgmt.v1.SimulateRun.rewrites:type_name -> shepherd.mgmt.v1.SimulateRewrite
+	14, // 22: shepherd.mgmt.v1.SimulateRun.captured_series:type_name -> shepherd.mgmt.v1.CapturedSeries
+	15, // 23: shepherd.mgmt.v1.SimulateRun.captured_log_lines:type_name -> shepherd.mgmt.v1.CapturedLogLine
+	16, // 24: shepherd.mgmt.v1.SimulateRun.component_health:type_name -> shepherd.mgmt.v1.ComponentHealth
+	31, // 25: shepherd.mgmt.v1.SimulateRun.gate_diagnostics:type_name -> shepherd.mgmt.v1.VisualNodeDiagnostic
+	1,  // 26: shepherd.mgmt.v1.SimulateService.SimulateRelabel:input_type -> shepherd.mgmt.v1.SimulateRelabelRequest
+	6,  // 27: shepherd.mgmt.v1.SimulateService.SimulateLogs:input_type -> shepherd.mgmt.v1.SimulateLogsRequest
+	10, // 28: shepherd.mgmt.v1.SimulateService.CreateRun:input_type -> shepherd.mgmt.v1.CreateRunRequest
+	12, // 29: shepherd.mgmt.v1.SimulateService.GetRun:input_type -> shepherd.mgmt.v1.GetRunRequest
+	4,  // 30: shepherd.mgmt.v1.SimulateService.SimulateRelabel:output_type -> shepherd.mgmt.v1.SimulateRelabelResponse
+	9,  // 31: shepherd.mgmt.v1.SimulateService.SimulateLogs:output_type -> shepherd.mgmt.v1.SimulateLogsResponse
+	11, // 32: shepherd.mgmt.v1.SimulateService.CreateRun:output_type -> shepherd.mgmt.v1.CreateRunResponse
+	17, // 33: shepherd.mgmt.v1.SimulateService.GetRun:output_type -> shepherd.mgmt.v1.SimulateRun
+	30, // [30:34] is the sub-list for method output_type
+	26, // [26:30] is the sub-list for method input_type
+	26, // [26:26] is the sub-list for extension type_name
+	26, // [26:26] is the sub-list for extension extendee
+	0,  // [0:26] is the sub-list for field type_name
 }
 
 func init() { file_shepherd_mgmt_v1_simulate_proto_init() }
@@ -942,13 +1654,14 @@ func file_shepherd_mgmt_v1_simulate_proto_init() {
 	if File_shepherd_mgmt_v1_simulate_proto != nil {
 		return
 	}
+	file_shepherd_mgmt_v1_visual_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_shepherd_mgmt_v1_simulate_proto_rawDesc), len(file_shepherd_mgmt_v1_simulate_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   18,
+			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

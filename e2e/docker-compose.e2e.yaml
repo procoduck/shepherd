@@ -173,6 +173,23 @@ services:
       SHEPHERD_AUTH_LOCAL_ADMIN_ENABLED: "true"
       SHEPHERD_AUTH_LOCAL_ADMIN_ALLOW_WITH_OIDC: "true"
       SHEPHERD_AUTH_LOCAL_ADMIN_PASSWORD_HASH: "$$argon2id$$v=19$$m=65536,t=1,p=4$$AQIDBAUGBwgJCgsMDQ4PEA$$zFDjjWPd0Ds8NRPzb2AUxQXWmQErkPhDnx9HC2RBPW8"
+      # Empty by default so the default stack exercises the "simulator not
+      # configured" path; `make dev-sim` / `make e2e-sim` set it to true.
+      SHEPHERD_SIMULATOR_ENABLED: ${SHEPHERD_SIM_ENABLED:-false}
+      # config.go's SimulatorConfig defaults all assume a compose service
+      # named "shepherd-simulator"; internal/simsvc's compose containment
+      # spec (internal/simsvc/compose_containment_test.go) pins this
+      # service's key to "simulator" instead, so every one of those defaults
+      # is overridden here to the real DNS name. Harmless when the `sim`
+      # profile is not up: these only matter once Simulator.Enabled is true.
+      SHEPHERD_SIMULATOR_CONTROL_URL: http://simulator:8099
+      SHEPHERD_SIMULATOR_CAPTURE_BASE_URL: http://simulator:9110
+      SHEPHERD_SIMULATOR_OTLP_GRPC_ADDRESS: simulator:4317
+      SHEPHERD_SIMULATOR_SYSLOG_HOST: simulator
+      SHEPHERD_SIMULATOR_TARGET_ADDRESS: simulator:9111
+    networks:
+      - default
+      - sim-internal
     healthcheck:
       test: ["CMD", "/usr/local/bin/shepherd", "healthcheck", "--addr", "localhost:8080"]
       interval: 2s
@@ -198,9 +215,77 @@ services:
     ports:
       - "22345:12345"
 
+  # S3 sandbox simulator (VB-1 §6.4). Gated behind the `sim` profile: it runs
+  # user-authored Alloy configuration, so it is opt-in even in dev.
+  #
+  # CONTAINMENT — every key below is load-bearing and asserted by
+  # TestSimsvc's compose containment spec in internal/simsvc:
+  #   sim-internal has `internal: true`, so this container has NO route off it
+  #     and no DNS to the outside world. That is the primary control; the
+  #     simulator's own endpoint allowlist is only a second gate.
+  #   no `ports:` — nothing is published to the host.
+  #   read_only + tmpfs /tmp — the only writable path is the run scratch space,
+  #     mounted noexec/nosuid/nodev and size-capped.
+  #   user/cap_drop/no-new-privileges — non-root with no capabilities and no
+  #     way to acquire any.
+  #   mem_limit + memswap_limit — the pair matters: mem_limit alone lets a run
+  #     swap past its cap.
+  #
+  # RESIDUAL RISK, stated plainly: compose cannot express one-way egress.
+  # Putting shepherd on sim-internal so it can call the simulator also lets the
+  # sandbox reach shepherd's API on that network. Shepherd requires auth and the
+  # simulator's allowlist blocks the endpoint, but the Kubernetes posture
+  # (deploy/helm, NetworkPolicy egress: []) is strictly stricter than this one.
+  simulator:
+    profiles: ["sim"]
+    image: shepherd-simulator:local
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.simulator
+    environment:
+      SIM_LISTEN: ":8099"
+      SIM_LOG_LEVEL: info
+      # allowedHosts (internal/simsvc/config.go) defaults to the literal
+      # "shepherd-simulator" plus os.Hostname() — which inside a container is
+      # the container ID, not the compose service name, so neither half of
+      # that default matches this service's real DNS name. Set explicitly to
+      # what the transform actually renders (see the SHEPHERD_SIMULATOR_*
+      # overrides on the shepherd service, same file) so CheckEndpoints'
+      # allowlist (VB-1 §6.4 defense in depth) agrees with the harness
+      # addresses Shepherd hands the transform, instead of rejecting every
+      # run with endpoint_not_allowed.
+      SIM_ALLOWED_HOSTS: "simulator,localhost,127.0.0.1,::1"
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 1.0
+    pids_limit: 256
+    tmpfs:
+      # /tmp/shepherd-sim/{storage,run,capture,logs} are the simulator's
+      # defaults; Alloy's WAL lives under the same tmpfs.
+      - /tmp:rw,noexec,nosuid,nodev,size=128m
+    networks:
+      - sim-internal
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/shepherd-simulator", "healthcheck", "--addr", "127.0.0.1:8099"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
 volumes:
   gitea_e2e_data:
 
 networks:
   default:
     name: shepherd-e2e
+  # internal: true is what denies the sandbox egress — no gateway, no DNS to
+  # anything outside this network. Removing it silently restores full outbound
+  # access for every config a user runs.
+  sim-internal:
+    name: shepherd-e2e-sim
+    internal: true

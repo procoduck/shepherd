@@ -8,6 +8,8 @@
 // snake_case model throughout and are out of scope for this migration.
 
 import type { JsonObject } from '@bufbuild/protobuf';
+import type { Timestamp } from '@bufbuild/protobuf/wkt';
+import { timestampDate } from '@bufbuild/protobuf/wkt';
 import type { GraphDocument as WireGraphDocument } from '@/gen/shepherd/mgmt/v1/visual_pb';
 import type { GraphDocument as LocalGraphDocument } from '@/visual/types';
 import { clients } from './transport';
@@ -295,5 +297,113 @@ export async function simulateLogs(
         note: step.note,
       })),
     })),
+  };
+}
+
+// ---- SimulateService: S3 sandbox run (VB-1 design doc §6.4) ----
+
+export interface SimRewrite {
+  node_id: string;
+  node_label: string;
+  component: string;
+  kind: string;
+  detail: string;
+}
+export interface CapturedSeriesItem {
+  name: string;
+  labels: Record<string, string>;
+  sample_count: number;
+}
+export interface CapturedLogLineItem {
+  labels: Record<string, string>;
+  line: string;
+}
+export interface ComponentHealthItem {
+  node_id: string;
+  node_label: string;
+  component: string;
+  health_state: string;
+  message: string;
+}
+
+/** Mirrors shepherd.mgmt.v1.SimulateRun. `status` is one of queued | running |
+ * completed | failed | expired; `error_code` (set iff status === 'failed')
+ * mirrors internal/simulate.RunError. */
+export interface SimulateRunResult {
+  id: string;
+  org_id: string;
+  status: string;
+  created_at?: string;
+  started_at?: string;
+  finished_at?: string;
+  requested_duration_seconds: number;
+  queue_position: number;
+  rewrites: SimRewrite[];
+  captured_series: CapturedSeriesItem[];
+  captured_log_lines: CapturedLogLineItem[];
+  component_health: ComponentHealthItem[];
+  gate_diagnostics: unknown[];
+  stderr_tail: string;
+  error_code: string;
+  error_message: string;
+  fidelity_note: string;
+}
+
+/** CreateRun only ever returns the run id (design doc §2: "graph -> {
+ * run_id }") — callers must poll getSandboxRun for state, never trust
+ * anything else off this response. */
+export async function createSandboxRun(
+  orgId: string,
+  graph: LocalGraphDocument,
+  durationSeconds = 30,
+): Promise<{ run_id: string }> {
+  const res = await clients.simulate.createRun({
+    orgId,
+    graph: toWireGraph(graph),
+    durationSeconds,
+  });
+  return { run_id: res.runId };
+}
+
+function tsToIso(ts: Timestamp | undefined): string | undefined {
+  return ts ? timestampDate(ts).toISOString() : undefined;
+}
+
+export async function getSandboxRun(orgId: string, id: string): Promise<SimulateRunResult> {
+  const res = await clients.simulate.getRun({ orgId, id });
+  return {
+    id: res.id,
+    org_id: res.orgId,
+    status: res.status,
+    created_at: tsToIso(res.createdAt),
+    started_at: tsToIso(res.startedAt),
+    finished_at: tsToIso(res.finishedAt),
+    requested_duration_seconds: res.requestedDurationSeconds,
+    queue_position: res.queuePosition,
+    rewrites: res.rewrites.map((r) => ({
+      node_id: r.nodeId,
+      node_label: r.nodeLabel,
+      component: r.component,
+      kind: r.kind,
+      detail: r.detail,
+    })),
+    captured_series: res.capturedSeries.map((cs) => ({
+      name: cs.name,
+      labels: cs.labels,
+      sample_count: cs.sampleCount,
+    })),
+    captured_log_lines: res.capturedLogLines.map((l) => ({ labels: l.labels, line: l.line })),
+    component_health: res.componentHealth.map((h) => ({
+      node_id: h.nodeId,
+      node_label: h.nodeLabel,
+      component: h.component,
+      health_state: h.healthState,
+      message: h.message,
+    })),
+    gate_diagnostics: res.gateDiagnostics,
+    stderr_tail: res.stderrTail,
+    error_code: res.errorCode,
+    error_message: res.errorMessage,
+    fidelity_note: res.fidelityNote,
   };
 }

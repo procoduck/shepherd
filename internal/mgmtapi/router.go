@@ -71,7 +71,7 @@ func Router(st *store.Store, cfg *config.Config, enc *crypto.Encryptor, logger *
 	audit := NewAuditHandler(st, logger)
 	wizards := NewWizardHandler(st, v, logger)
 	visualHandler := NewVisualHandler(st, v, schemaReg, logger)
-	simulateHandler := NewSimulateHandler(logger)
+	simulateHandler := NewSimulateHandler(st, cfg.Simulator, logger)
 	// repoLinks is always constructed; GitOpsService itself degrades to
 	// empty lists / connect.CodeUnavailable when enc is nil (see
 	// rpc_gitops.go), replicating the nil-encryptor guard this router used
@@ -198,6 +198,8 @@ func Router(st *store.Store, cfg *config.Config, enc *crypto.Encryptor, logger *
 			r.Post("/visual/upgrade-check", visualHandler.UpgradeCheck)
 			r.Post("/simulate/relabel", simulateHandler.SimulateRelabel)
 			r.Post("/simulate/logs", simulateHandler.SimulateLogs)
+			r.Post("/simulate/runs", simulateHandler.CreateRun)
+			r.Get("/simulate/runs/{id}", simulateHandler.GetRun)
 		})
 
 		// org-reader: VisualService.GraphView.
@@ -255,7 +257,7 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 			return mgmtv1connect.NewVisualServiceHandler(NewVisualService(st, v, schemaReg, logger), authz)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewSimulateServiceHandler(NewSimulateService(logger), authz)
+			return mgmtv1connect.NewSimulateServiceHandler(NewSimulateService(st, cfg.Simulator, logger), authz)
 		},
 		func() (string, http.Handler) {
 			return mgmtv1connect.NewAuditServiceHandler(NewAuditService(st, logger), authz)

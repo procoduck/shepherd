@@ -4,14 +4,17 @@
 
 import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
-import { file_google_protobuf_struct } from "@bufbuild/protobuf/wkt";
+import type { Timestamp } from "@bufbuild/protobuf/wkt";
+import { file_google_protobuf_struct, file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
+import type { GraphDocument, VisualNodeDiagnostic } from "./visual_pb";
+import { file_shepherd_mgmt_v1_visual } from "./visual_pb";
 import type { JsonObject, Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file shepherd/mgmt/v1/simulate.proto.
  */
 export const file_shepherd_mgmt_v1_simulate: GenFile = /*@__PURE__*/
-  fileDesc("Ch9zaGVwaGVyZC9tZ210L3YxL3NpbXVsYXRlLnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIpIBCgtSZWxhYmVsUnVsZRIVCg1zb3VyY2VfbGFiZWxzGAEgAygJEhEKCXNlcGFyYXRvchgCIAEoCRINCgVyZWdleBgDIAEoCRIUCgx0YXJnZXRfbGFiZWwYBCABKAkSEwoLcmVwbGFjZW1lbnQYBSABKAkSDgoGYWN0aW9uGAYgASgJEg8KB21vZHVsdXMYByABKAQihwEKFlNpbXVsYXRlUmVsYWJlbFJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEiwKBXJ1bGVzGAIgAygLMh0uc2hlcGhlcmQubWdtdC52MS5SZWxhYmVsUnVsZRIvCg5zYW1wbGVfdGFyZ2V0cxgDIAMoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QikAIKC1JlbGFiZWxTdGVwEhIKCnJ1bGVfaW5kZXgYASABKAUSDgoGYWN0aW9uGAIgASgJEjkKBmJlZm9yZRgDIAMoCzIpLnNoZXBoZXJkLm1nbXQudjEuUmVsYWJlbFN0ZXAuQmVmb3JlRW50cnkSNwoFYWZ0ZXIYBCADKAsyKC5zaGVwaGVyZC5tZ210LnYxLlJlbGFiZWxTdGVwLkFmdGVyRW50cnkSDAoEa2VwdBgFIAEoCBotCgtCZWZvcmVFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBGiwKCkFmdGVyRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASKaAgoLVGFyZ2V0VHJhY2USNwoFaW5wdXQYASADKAsyKC5zaGVwaGVyZC5tZ210LnYxLlRhcmdldFRyYWNlLklucHV0RW50cnkSLAoFc3RlcHMYAiADKAsyHS5zaGVwaGVyZC5tZ210LnYxLlJlbGFiZWxTdGVwEjkKBm91dHB1dBgDIAMoCzIpLnNoZXBoZXJkLm1nbXQudjEuVGFyZ2V0VHJhY2UuT3V0cHV0RW50cnkSDAoEa2VwdBgEIAEoCBosCgpJbnB1dEVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEaLQoLT3V0cHV0RW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASJIChdTaW11bGF0ZVJlbGFiZWxSZXNwb25zZRItCgZ0cmFjZXMYASADKAsyHS5zaGVwaGVyZC5tZ210LnYxLlRhcmdldFRyYWNlIv0CCglTdGFnZVNwZWMSDAoEdHlwZRgBIAEoCRJBCgtleHByZXNzaW9ucxgCIAMoCzIsLnNoZXBoZXJkLm1nbXQudjEuU3RhZ2VTcGVjLkV4cHJlc3Npb25zRW50cnkSDgoGc291cmNlGAMgASgJEhEKCXNlcGFyYXRvchgEIAEoCRISCgpleHByZXNzaW9uGAUgASgJEjcKBmxhYmVscxgGIAMoCzInLnNoZXBoZXJkLm1nbXQudjEuU3RhZ2VTcGVjLkxhYmVsc0VudHJ5EhMKC2Ryb3BfbGFiZWxzGAcgAygJEhIKCmRyb3BfdmFsdWUYCCABKAkSEAoIdGVtcGxhdGUYCSABKAkSEQoJZmlyc3RsaW5lGAogASgJGjIKEEV4cHJlc3Npb25zRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ARotCgtMYWJlbHNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBImgKE1NpbXVsYXRlTG9nc1JlcXVlc3QSDgoGb3JnX2lkGAEgASgJEisKBnN0YWdlcxgCIAMoCzIbLnNoZXBoZXJkLm1nbXQudjEuU3RhZ2VTcGVjEhQKDHNhbXBsZV9saW5lcxgDIAMoCSKIAwoLU3RhZ2VFZmZlY3QSEwoLc3RhZ2VfaW5kZXgYASABKAUSEgoKc3RhZ2VfdHlwZRgCIAEoCRIRCglzaW11bGF0ZWQYAyABKAgSEwoLbGluZV9iZWZvcmUYBCABKAkSEgoKbGluZV9hZnRlchgFIAEoCRJGCg1sYWJlbHNfYmVmb3JlGAYgAygLMi8uc2hlcGhlcmQubWdtdC52MS5TdGFnZUVmZmVjdC5MYWJlbHNCZWZvcmVFbnRyeRJECgxsYWJlbHNfYWZ0ZXIYByADKAsyLi5zaGVwaGVyZC5tZ210LnYxLlN0YWdlRWZmZWN0LkxhYmVsc0FmdGVyRW50cnkSDwoHZHJvcHBlZBgIIAEoCBIMCgRub3RlGAkgASgJGjMKEUxhYmVsc0JlZm9yZUVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEaMgoQTGFiZWxzQWZ0ZXJFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBImkKCUxpbmVUcmFjZRINCgVpbnB1dBgBIAEoCRIsCgVzdGVwcxgCIAMoCzIdLnNoZXBoZXJkLm1nbXQudjEuU3RhZ2VFZmZlY3QSDgoGb3V0cHV0GAMgASgJEg8KB2Ryb3BwZWQYBCABKAgiQwoUU2ltdWxhdGVMb2dzUmVzcG9uc2USKwoGdHJhY2VzGAEgAygLMhsuc2hlcGhlcmQubWdtdC52MS5MaW5lVHJhY2Uy3AEKD1NpbXVsYXRlU2VydmljZRJoCg9TaW11bGF0ZVJlbGFiZWwSKC5zaGVwaGVyZC5tZ210LnYxLlNpbXVsYXRlUmVsYWJlbFJlcXVlc3QaKS5zaGVwaGVyZC5tZ210LnYxLlNpbXVsYXRlUmVsYWJlbFJlc3BvbnNlIgASXwoMU2ltdWxhdGVMb2dzEiUuc2hlcGhlcmQubWdtdC52MS5TaW11bGF0ZUxvZ3NSZXF1ZXN0GiYuc2hlcGhlcmQubWdtdC52MS5TaW11bGF0ZUxvZ3NSZXNwb25zZSIAQiZaJHNoZXBoZXJkL2dlbi9zaGVwaGVyZC9tZ210L3YxO21nbXR2MWIGcHJvdG8z", [file_google_protobuf_struct]);
+  fileDesc("Ch9zaGVwaGVyZC9tZ210L3YxL3NpbXVsYXRlLnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIpIBCgtSZWxhYmVsUnVsZRIVCg1zb3VyY2VfbGFiZWxzGAEgAygJEhEKCXNlcGFyYXRvchgCIAEoCRINCgVyZWdleBgDIAEoCRIUCgx0YXJnZXRfbGFiZWwYBCABKAkSEwoLcmVwbGFjZW1lbnQYBSABKAkSDgoGYWN0aW9uGAYgASgJEg8KB21vZHVsdXMYByABKAQihwEKFlNpbXVsYXRlUmVsYWJlbFJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEiwKBXJ1bGVzGAIgAygLMh0uc2hlcGhlcmQubWdtdC52MS5SZWxhYmVsUnVsZRIvCg5zYW1wbGVfdGFyZ2V0cxgDIAMoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QikAIKC1JlbGFiZWxTdGVwEhIKCnJ1bGVfaW5kZXgYASABKAUSDgoGYWN0aW9uGAIgASgJEjkKBmJlZm9yZRgDIAMoCzIpLnNoZXBoZXJkLm1nbXQudjEuUmVsYWJlbFN0ZXAuQmVmb3JlRW50cnkSNwoFYWZ0ZXIYBCADKAsyKC5zaGVwaGVyZC5tZ210LnYxLlJlbGFiZWxTdGVwLkFmdGVyRW50cnkSDAoEa2VwdBgFIAEoCBotCgtCZWZvcmVFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBGiwKCkFmdGVyRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASKaAgoLVGFyZ2V0VHJhY2USNwoFaW5wdXQYASADKAsyKC5zaGVwaGVyZC5tZ210LnYxLlRhcmdldFRyYWNlLklucHV0RW50cnkSLAoFc3RlcHMYAiADKAsyHS5zaGVwaGVyZC5tZ210LnYxLlJlbGFiZWxTdGVwEjkKBm91dHB1dBgDIAMoCzIpLnNoZXBoZXJkLm1nbXQudjEuVGFyZ2V0VHJhY2UuT3V0cHV0RW50cnkSDAoEa2VwdBgEIAEoCBosCgpJbnB1dEVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEaLQoLT3V0cHV0RW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASJIChdTaW11bGF0ZVJlbGFiZWxSZXNwb25zZRItCgZ0cmFjZXMYASADKAsyHS5zaGVwaGVyZC5tZ210LnYxLlRhcmdldFRyYWNlIv0CCglTdGFnZVNwZWMSDAoEdHlwZRgBIAEoCRJBCgtleHByZXNzaW9ucxgCIAMoCzIsLnNoZXBoZXJkLm1nbXQudjEuU3RhZ2VTcGVjLkV4cHJlc3Npb25zRW50cnkSDgoGc291cmNlGAMgASgJEhEKCXNlcGFyYXRvchgEIAEoCRISCgpleHByZXNzaW9uGAUgASgJEjcKBmxhYmVscxgGIAMoCzInLnNoZXBoZXJkLm1nbXQudjEuU3RhZ2VTcGVjLkxhYmVsc0VudHJ5EhMKC2Ryb3BfbGFiZWxzGAcgAygJEhIKCmRyb3BfdmFsdWUYCCABKAkSEAoIdGVtcGxhdGUYCSABKAkSEQoJZmlyc3RsaW5lGAogASgJGjIKEEV4cHJlc3Npb25zRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ARotCgtMYWJlbHNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBImgKE1NpbXVsYXRlTG9nc1JlcXVlc3QSDgoGb3JnX2lkGAEgASgJEisKBnN0YWdlcxgCIAMoCzIbLnNoZXBoZXJkLm1nbXQudjEuU3RhZ2VTcGVjEhQKDHNhbXBsZV9saW5lcxgDIAMoCSKIAwoLU3RhZ2VFZmZlY3QSEwoLc3RhZ2VfaW5kZXgYASABKAUSEgoKc3RhZ2VfdHlwZRgCIAEoCRIRCglzaW11bGF0ZWQYAyABKAgSEwoLbGluZV9iZWZvcmUYBCABKAkSEgoKbGluZV9hZnRlchgFIAEoCRJGCg1sYWJlbHNfYmVmb3JlGAYgAygLMi8uc2hlcGhlcmQubWdtdC52MS5TdGFnZUVmZmVjdC5MYWJlbHNCZWZvcmVFbnRyeRJECgxsYWJlbHNfYWZ0ZXIYByADKAsyLi5zaGVwaGVyZC5tZ210LnYxLlN0YWdlRWZmZWN0LkxhYmVsc0FmdGVyRW50cnkSDwoHZHJvcHBlZBgIIAEoCBIMCgRub3RlGAkgASgJGjMKEUxhYmVsc0JlZm9yZUVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEaMgoQTGFiZWxzQWZ0ZXJFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBImkKCUxpbmVUcmFjZRINCgVpbnB1dBgBIAEoCRIsCgVzdGVwcxgCIAMoCzIdLnNoZXBoZXJkLm1nbXQudjEuU3RhZ2VFZmZlY3QSDgoGb3V0cHV0GAMgASgJEg8KB2Ryb3BwZWQYBCABKAgiQwoUU2ltdWxhdGVMb2dzUmVzcG9uc2USKwoGdHJhY2VzGAEgAygLMhsuc2hlcGhlcmQubWdtdC52MS5MaW5lVHJhY2UibAoQQ3JlYXRlUnVuUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSLgoFZ3JhcGgYAiABKAsyHy5zaGVwaGVyZC5tZ210LnYxLkdyYXBoRG9jdW1lbnQSGAoQZHVyYXRpb25fc2Vjb25kcxgDIAEoBSIjChFDcmVhdGVSdW5SZXNwb25zZRIOCgZydW5faWQYASABKAkiKwoNR2V0UnVuUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkiZwoPU2ltdWxhdGVSZXdyaXRlEg8KB25vZGVfaWQYASABKAkSEgoKbm9kZV9sYWJlbBgCIAEoCRIRCgljb21wb25lbnQYAyABKAkSDAoEa2luZBgEIAEoCRIOCgZkZXRhaWwYBSABKAkioQEKDkNhcHR1cmVkU2VyaWVzEgwKBG5hbWUYASABKAkSPAoGbGFiZWxzGAIgAygLMiwuc2hlcGhlcmQubWdtdC52MS5DYXB0dXJlZFNlcmllcy5MYWJlbHNFbnRyeRIUCgxzYW1wbGVfY291bnQYAyABKAUaLQoLTGFiZWxzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASKNAQoPQ2FwdHVyZWRMb2dMaW5lEj0KBmxhYmVscxgBIAMoCzItLnNoZXBoZXJkLm1nbXQudjEuQ2FwdHVyZWRMb2dMaW5lLkxhYmVsc0VudHJ5EgwKBGxpbmUYAiABKAkaLQoLTGFiZWxzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASJwCg9Db21wb25lbnRIZWFsdGgSDwoHbm9kZV9pZBgBIAEoCRISCgpub2RlX2xhYmVsGAIgASgJEhEKCWNvbXBvbmVudBgDIAEoCRIUCgxoZWFsdGhfc3RhdGUYBCABKAkSDwoHbWVzc2FnZRgFIAEoCSKLBQoLU2ltdWxhdGVSdW4SCgoCaWQYASABKAkSDgoGb3JnX2lkGAIgASgJEg4KBnN0YXR1cxgDIAEoCRIuCgpjcmVhdGVkX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgpzdGFydGVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgtmaW5pc2hlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASIgoacmVxdWVzdGVkX2R1cmF0aW9uX3NlY29uZHMYByABKAUSFgoOcXVldWVfcG9zaXRpb24YCCABKAUSMwoIcmV3cml0ZXMYCSADKAsyIS5zaGVwaGVyZC5tZ210LnYxLlNpbXVsYXRlUmV3cml0ZRI5Cg9jYXB0dXJlZF9zZXJpZXMYCiADKAsyIC5zaGVwaGVyZC5tZ210LnYxLkNhcHR1cmVkU2VyaWVzEj0KEmNhcHR1cmVkX2xvZ19saW5lcxgLIAMoCzIhLnNoZXBoZXJkLm1nbXQudjEuQ2FwdHVyZWRMb2dMaW5lEjsKEGNvbXBvbmVudF9oZWFsdGgYDCADKAsyIS5zaGVwaGVyZC5tZ210LnYxLkNvbXBvbmVudEhlYWx0aBJAChBnYXRlX2RpYWdub3N0aWNzGA0gAygLMiYuc2hlcGhlcmQubWdtdC52MS5WaXN1YWxOb2RlRGlhZ25vc3RpYxITCgtzdGRlcnJfdGFpbBgOIAEoCRISCgplcnJvcl9jb2RlGA8gASgJEhUKDWVycm9yX21lc3NhZ2UYECABKAkSFQoNZmlkZWxpdHlfbm90ZRgRIAEoCTKAAwoPU2ltdWxhdGVTZXJ2aWNlEmgKD1NpbXVsYXRlUmVsYWJlbBIoLnNoZXBoZXJkLm1nbXQudjEuU2ltdWxhdGVSZWxhYmVsUmVxdWVzdBopLnNoZXBoZXJkLm1nbXQudjEuU2ltdWxhdGVSZWxhYmVsUmVzcG9uc2UiABJfCgxTaW11bGF0ZUxvZ3MSJS5zaGVwaGVyZC5tZ210LnYxLlNpbXVsYXRlTG9nc1JlcXVlc3QaJi5zaGVwaGVyZC5tZ210LnYxLlNpbXVsYXRlTG9nc1Jlc3BvbnNlIgASVgoJQ3JlYXRlUnVuEiIuc2hlcGhlcmQubWdtdC52MS5DcmVhdGVSdW5SZXF1ZXN0GiMuc2hlcGhlcmQubWdtdC52MS5DcmVhdGVSdW5SZXNwb25zZSIAEkoKBkdldFJ1bhIfLnNoZXBoZXJkLm1nbXQudjEuR2V0UnVuUmVxdWVzdBodLnNoZXBoZXJkLm1nbXQudjEuU2ltdWxhdGVSdW4iAEImWiRzaGVwaGVyZC9nZW4vc2hlcGhlcmQvbWdtdC92MTttZ210djFiBnByb3RvMw", [file_google_protobuf_struct, file_google_protobuf_timestamp, file_shepherd_mgmt_v1_visual]);
 
 /**
  * RelabelRule mirrors internal/simulate.RelabelRule.
@@ -395,8 +398,333 @@ export const SimulateLogsResponseSchema: GenMessage<SimulateLogsResponse> = /*@_
   messageDesc(file_shepherd_mgmt_v1_simulate, 9);
 
 /**
- * SimulateService covers /api/orgs/{org}/simulate/*, deterministic S2
- * stage-trace evaluation for the visual builder. All methods require org-admin.
+ * CreateRunRequest submits a graph for a sandboxed run. GraphDocument and
+ * VisualNodeDiagnostic are reused from visual.proto rather than redefined,
+ * per the single-schema-of-truth principle (VB-1 design doc §5.2).
+ *
+ * @generated from message shepherd.mgmt.v1.CreateRunRequest
+ */
+export type CreateRunRequest = Message<"shepherd.mgmt.v1.CreateRunRequest"> & {
+  /**
+   * @generated from field: string org_id = 1;
+   */
+  orgId: string;
+
+  /**
+   * @generated from field: shepherd.mgmt.v1.GraphDocument graph = 2;
+   */
+  graph?: GraphDocument | undefined;
+
+  /**
+   * duration_seconds: 0 selects the server default (30s), clamped to [1,120].
+   *
+   * @generated from field: int32 duration_seconds = 3;
+   */
+  durationSeconds: number;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.CreateRunRequest.
+ * Use `create(CreateRunRequestSchema)` to create a new message.
+ */
+export const CreateRunRequestSchema: GenMessage<CreateRunRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_simulate, 10);
+
+/**
+ * @generated from message shepherd.mgmt.v1.CreateRunResponse
+ */
+export type CreateRunResponse = Message<"shepherd.mgmt.v1.CreateRunResponse"> & {
+  /**
+   * @generated from field: string run_id = 1;
+   */
+  runId: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.CreateRunResponse.
+ * Use `create(CreateRunResponseSchema)` to create a new message.
+ */
+export const CreateRunResponseSchema: GenMessage<CreateRunResponse> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_simulate, 11);
+
+/**
+ * @generated from message shepherd.mgmt.v1.GetRunRequest
+ */
+export type GetRunRequest = Message<"shepherd.mgmt.v1.GetRunRequest"> & {
+  /**
+   * @generated from field: string org_id = 1;
+   */
+  orgId: string;
+
+  /**
+   * @generated from field: string id = 2;
+   */
+  id: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.GetRunRequest.
+ * Use `create(GetRunRequestSchema)` to create a new message.
+ */
+export const GetRunRequestSchema: GenMessage<GetRunRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_simulate, 12);
+
+/**
+ * SimulateRewrite mirrors internal/simulate.Rewrite — one entry in the "what
+ * was rewritten" disclosure (VB-1 §6.4 step 4).
+ *
+ * kind is one of: destination_endpoint | discovery_stubbed |
+ * log_source_stubbed | secret_node_removed | secret_dropped |
+ * secret_ref_substituted | edge_dropped. Kept a plain string per the
+ * repo's documented contract rule (docs/archive/api-contract-design.md;
+ * see visual.proto's UpgradeItem.class for the same precedent) rather than
+ * a proto enum.
+ *
+ * @generated from message shepherd.mgmt.v1.SimulateRewrite
+ */
+export type SimulateRewrite = Message<"shepherd.mgmt.v1.SimulateRewrite"> & {
+  /**
+   * @generated from field: string node_id = 1;
+   */
+  nodeId: string;
+
+  /**
+   * @generated from field: string node_label = 2;
+   */
+  nodeLabel: string;
+
+  /**
+   * @generated from field: string component = 3;
+   */
+  component: string;
+
+  /**
+   * @generated from field: string kind = 4;
+   */
+  kind: string;
+
+  /**
+   * @generated from field: string detail = 5;
+   */
+  detail: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.SimulateRewrite.
+ * Use `create(SimulateRewriteSchema)` to create a new message.
+ */
+export const SimulateRewriteSchema: GenMessage<SimulateRewrite> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_simulate, 13);
+
+/**
+ * CapturedSeries mirrors one entry of the simulator's Results.Series.
+ *
+ * @generated from message shepherd.mgmt.v1.CapturedSeries
+ */
+export type CapturedSeries = Message<"shepherd.mgmt.v1.CapturedSeries"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: map<string, string> labels = 2;
+   */
+  labels: { [key: string]: string };
+
+  /**
+   * @generated from field: int32 sample_count = 3;
+   */
+  sampleCount: number;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.CapturedSeries.
+ * Use `create(CapturedSeriesSchema)` to create a new message.
+ */
+export const CapturedSeriesSchema: GenMessage<CapturedSeries> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_simulate, 14);
+
+/**
+ * CapturedLogLine mirrors one entry of the simulator's Results.LogLines.
+ *
+ * @generated from message shepherd.mgmt.v1.CapturedLogLine
+ */
+export type CapturedLogLine = Message<"shepherd.mgmt.v1.CapturedLogLine"> & {
+  /**
+   * @generated from field: map<string, string> labels = 1;
+   */
+  labels: { [key: string]: string };
+
+  /**
+   * @generated from field: string line = 2;
+   */
+  line: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.CapturedLogLine.
+ * Use `create(CapturedLogLineSchema)` to create a new message.
+ */
+export const CapturedLogLineSchema: GenMessage<CapturedLogLine> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_simulate, 15);
+
+/**
+ * ComponentHealth mirrors one entry of the simulator's Results.Components.
+ * health_state mirrors Alloy's own /api/v0/web/components values verbatim
+ * (healthy, unhealthy, unknown, exited) and is NOT evidence of delivery —
+ * see VB-1 §6.4's "nothing captured" containment note.
+ *
+ * @generated from message shepherd.mgmt.v1.ComponentHealth
+ */
+export type ComponentHealth = Message<"shepherd.mgmt.v1.ComponentHealth"> & {
+  /**
+   * @generated from field: string node_id = 1;
+   */
+  nodeId: string;
+
+  /**
+   * @generated from field: string node_label = 2;
+   */
+  nodeLabel: string;
+
+  /**
+   * @generated from field: string component = 3;
+   */
+  component: string;
+
+  /**
+   * @generated from field: string health_state = 4;
+   */
+  healthState: string;
+
+  /**
+   * @generated from field: string message = 5;
+   */
+  message: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.ComponentHealth.
+ * Use `create(ComponentHealthSchema)` to create a new message.
+ */
+export const ComponentHealthSchema: GenMessage<ComponentHealth> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_simulate, 16);
+
+/**
+ * SimulateRun is the full run document GetRun returns.
+ *
+ * status is one of: queued | running | completed | failed | expired — a
+ * plain string, not a proto enum, per the same contract rule as
+ * SimulateRewrite.kind above.
+ * error_code (set iff status == "failed") is one of: cannot_stub |
+ * gate_failed | simulator_unavailable | timeout | internal.
+ *
+ * @generated from message shepherd.mgmt.v1.SimulateRun
+ */
+export type SimulateRun = Message<"shepherd.mgmt.v1.SimulateRun"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string org_id = 2;
+   */
+  orgId: string;
+
+  /**
+   * @generated from field: string status = 3;
+   */
+  status: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp created_at = 4;
+   */
+  createdAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp started_at = 5;
+   */
+  startedAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp finished_at = 6;
+   */
+  finishedAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: int32 requested_duration_seconds = 7;
+   */
+  requestedDurationSeconds: number;
+
+  /**
+   * queue_position is 0 once status leaves "queued"; computed at read time,
+   * never stored (best-effort — see VB-1 run-API spec Risks).
+   *
+   * @generated from field: int32 queue_position = 8;
+   */
+  queuePosition: number;
+
+  /**
+   * @generated from field: repeated shepherd.mgmt.v1.SimulateRewrite rewrites = 9;
+   */
+  rewrites: SimulateRewrite[];
+
+  /**
+   * @generated from field: repeated shepherd.mgmt.v1.CapturedSeries captured_series = 10;
+   */
+  capturedSeries: CapturedSeries[];
+
+  /**
+   * @generated from field: repeated shepherd.mgmt.v1.CapturedLogLine captured_log_lines = 11;
+   */
+  capturedLogLines: CapturedLogLine[];
+
+  /**
+   * @generated from field: repeated shepherd.mgmt.v1.ComponentHealth component_health = 12;
+   */
+  componentHealth: ComponentHealth[];
+
+  /**
+   * @generated from field: repeated shepherd.mgmt.v1.VisualNodeDiagnostic gate_diagnostics = 13;
+   */
+  gateDiagnostics: VisualNodeDiagnostic[];
+
+  /**
+   * @generated from field: string stderr_tail = 14;
+   */
+  stderrTail: string;
+
+  /**
+   * @generated from field: string error_code = 15;
+   */
+  errorCode: string;
+
+  /**
+   * @generated from field: string error_message = 16;
+   */
+  errorMessage: string;
+
+  /**
+   * fidelity_note is the fixed §6.5 tier-S3 one-liner; always populated.
+   *
+   * @generated from field: string fidelity_note = 17;
+   */
+  fidelityNote: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.SimulateRun.
+ * Use `create(SimulateRunSchema)` to create a new message.
+ */
+export const SimulateRunSchema: GenMessage<SimulateRun> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_simulate, 17);
+
+/**
+ * SimulateService covers /api/orgs/{org}/simulate/*: deterministic S2
+ * stage-trace evaluation, and S3 sandboxed runs (VB-1 §6.4). All methods
+ * require org-admin.
  *
  * @generated from service shepherd.mgmt.v1.SimulateService
  */
@@ -416,6 +744,28 @@ export const SimulateService: GenService<{
     methodKind: "unary";
     input: typeof SimulateLogsRequestSchema;
     output: typeof SimulateLogsResponseSchema;
+  },
+  /**
+   * CreateRun submits a graph for an S3 sandbox run. It returns only the run
+   * id — the client always polls GetRun for state, never trusts this
+   * response for anything else (VB-1 design doc §2: "graph -> { run_id }").
+   *
+   * @generated from rpc shepherd.mgmt.v1.SimulateService.CreateRun
+   */
+  createRun: {
+    methodKind: "unary";
+    input: typeof CreateRunRequestSchema;
+    output: typeof CreateRunResponseSchema;
+  },
+  /**
+   * GetRun returns a run's current state, including results once terminal.
+   *
+   * @generated from rpc shepherd.mgmt.v1.SimulateService.GetRun
+   */
+  getRun: {
+    methodKind: "unary";
+    input: typeof GetRunRequestSchema;
+    output: typeof SimulateRunSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_shepherd_mgmt_v1_simulate, 0);

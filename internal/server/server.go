@@ -28,6 +28,8 @@ import (
 	"shepherd/internal/gitsync"
 	"shepherd/internal/mgmtapi"
 	"shepherd/internal/migrations"
+	"shepherd/internal/schema"
+	"shepherd/internal/simulate"
 	"shepherd/internal/spa"
 	"shepherd/internal/store"
 	"shepherd/internal/validate"
@@ -224,6 +226,20 @@ func (s *Server) Run(ctx context.Context) error {
 	// Start the lifecycle sweeper.
 	sweeper := agentapi.NewSweeper(s.store, &s.cfg.Agent, s.logger)
 	sweeper.Start(ctx)
+
+	// Start the S3 sandbox run worker (VB-1 §6.4/§13 M7). Not started at all
+	// when no simulator endpoint is configured, matching CreateRun's own
+	// FailedPrecondition short-circuit (rpc_simulate.go) — there is no queue
+	// to drain if nothing can ever be enqueued.
+	if s.cfg.Simulator.Enabled {
+		schemaReg, schemaErr := schema.New(schema.Embedded, version.AlloySchemaVersion)
+		if schemaErr != nil {
+			s.logger.Error("simulate run worker not started: schema registry unavailable", "err", schemaErr)
+		} else {
+			simWorker := simulate.NewRunWorker(s.store, schemaReg, s.validator, s.cfg.Simulator, s.logger)
+			simWorker.Start(ctx)
+		}
+	}
 
 	// Start the GitOps reconciliation loop. Requires the secret-at-rest
 	// encryptor to be configured, since repo_link credentials are stored

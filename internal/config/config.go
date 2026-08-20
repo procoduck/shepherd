@@ -14,17 +14,18 @@ import (
 
 // Config is the top-level Shepherd configuration.
 type Config struct {
-	Server   ServerConfig   `mapstructure:"server"`
-	Database DatabaseConfig `mapstructure:"database"`
-	OIDC     OIDCConfig     `mapstructure:"oidc"`
-	Auth     AuthConfig     `mapstructure:"auth"`
-	Graph    GraphConfig    `mapstructure:"graph"`
-	Agent    AgentConfig    `mapstructure:"agent"`
-	Validate ValidateConfig `mapstructure:"validate"`
-	GitSync  GitSyncConfig  `mapstructure:"gitsync"`
-	ADO      ADOConfig      `mapstructure:"ado"`
-	Security SecurityConfig `mapstructure:"security"`
-	Log      LogConfig      `mapstructure:"log"`
+	Server    ServerConfig    `mapstructure:"server"`
+	Database  DatabaseConfig  `mapstructure:"database"`
+	OIDC      OIDCConfig      `mapstructure:"oidc"`
+	Auth      AuthConfig      `mapstructure:"auth"`
+	Graph     GraphConfig     `mapstructure:"graph"`
+	Agent     AgentConfig     `mapstructure:"agent"`
+	Validate  ValidateConfig  `mapstructure:"validate"`
+	Simulator SimulatorConfig `mapstructure:"simulator"`
+	GitSync   GitSyncConfig   `mapstructure:"gitsync"`
+	ADO       ADOConfig       `mapstructure:"ado"`
+	Security  SecurityConfig  `mapstructure:"security"`
+	Log       LogConfig       `mapstructure:"log"`
 }
 
 // ServerConfig holds HTTP server settings.
@@ -113,6 +114,73 @@ type ValidateConfig struct {
 	Stage3Timeout time.Duration `mapstructure:"stage3_timeout"`
 }
 
+// SimulatorConfig holds the S3 sandbox-run settings (VB-1 §6.4): the addresses
+// of the shepherd-simulator capture harness and the run budget. The transform
+// takes these as an argument rather than reading a constant, so the compose
+// service name lives here and in one compose env block only — a Kubernetes
+// deployment overriding them is a config change, not a code change.
+type SimulatorConfig struct {
+	Enabled bool `mapstructure:"enabled"`
+	// CaptureBaseURL is scheme+host+port with no trailing slash; every HTTP
+	// capture receiver hangs off it.
+	CaptureBaseURL string `mapstructure:"capture_base_url"`
+	// OTLPGRPCAddress is a bare host:port. The otelcol gRPC client takes an
+	// address, not a URL, which is why one base URL cannot describe the harness.
+	OTLPGRPCAddress string `mapstructure:"otlp_grpc_address"`
+	SyslogHost      string `mapstructure:"syslog_host"`
+	SyslogPort      int    `mapstructure:"syslog_port"`
+	// CaptureDir is the tmpfs directory otelcol.exporter.file writes into.
+	CaptureDir string `mapstructure:"capture_dir"`
+	// TargetAddress is the synthetic metrics exporter every stubbed discovery
+	// target points at.
+	TargetAddress string `mapstructure:"target_address"`
+	// LogDir is the tmpfs directory the synthetic log emitter writes fixture
+	// files into, tailed by the loki.source.file stubs.
+	LogDir      string        `mapstructure:"log_dir"`
+	Duration    time.Duration `mapstructure:"duration"`
+	MaxDuration time.Duration `mapstructure:"max_duration"`
+
+	// -- Run API (VB-1 §6.4/§13 M7): internal/simulate.RunWorker settings. --
+
+	// ControlURL is scheme+host+port of the simulator's control API
+	// (POST/GET /v1/runs), no trailing slash. Distinct from CaptureBaseURL,
+	// which is the sandbox Alloy's destination, not Shepherd's.
+	ControlURL string `mapstructure:"control_url"`
+	// Token is the shared bearer token the control API expects, when the
+	// simulator has one configured (simsvc.Config.Token).
+	Token string `mapstructure:"token"`
+	// MaxConcurrentRuns bounds how many runs RunWorker claims and manages at
+	// once, cluster-wide (enforced via Postgres advisory locks, not a
+	// per-replica semaphore — see internal/simulate.RunWorker).
+	MaxConcurrentRuns int `mapstructure:"max_concurrent_runs"`
+	// MaxNonTerminalPerOrg caps how many queued/running runs one org may
+	// have outstanding at once, so a single org cannot starve every other
+	// org's queue behind MaxConcurrentRuns.
+	MaxNonTerminalPerOrg int `mapstructure:"max_non_terminal_per_org"`
+	// RunTTL: a run still queued/running this long after created_at is
+	// force-expired by the janitor tick. Also the orphan-reclaim window for
+	// a worker that crashes mid-run.
+	RunTTL time.Duration `mapstructure:"run_ttl"`
+	// RetentionTTL: a run in a terminal state is purged this long after
+	// finished_at.
+	RetentionTTL time.Duration `mapstructure:"retention_ttl"`
+	// PollInterval is how often RunWorker looks for a queued run to claim.
+	PollInterval time.Duration `mapstructure:"poll_interval"`
+	// JanitorInterval is how often RunWorker sweeps for expired/purgeable runs.
+	JanitorInterval time.Duration `mapstructure:"janitor_interval"`
+}
+
+// LogValue redacts the simulator control API bearer token in structured logs.
+func (c SimulatorConfig) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.Bool("enabled", c.Enabled),
+		slog.String("control_url", c.ControlURL),
+		slog.String("token", "***"),
+		slog.Int("max_concurrent_runs", c.MaxConcurrentRuns),
+		slog.Int("max_non_terminal_per_org", c.MaxNonTerminalPerOrg),
+	)
+}
+
 // GitSyncConfig holds git-sync reconciler settings, including the fetch
 // resource limits from docs/git-provider-design.md §3.6 that bound one
 // internal/gitrepo fetch (LatestCommit or Files).
@@ -161,6 +229,24 @@ func Load(file string) (*Config, error) {
 	v.SetDefault("graph.base_url", "https://graph.microsoft.com")
 	v.SetDefault("agent.sweep_interval", "5m")
 	v.SetDefault("validate.stage3_timeout", "30s")
+	// Simulator defaults are the dev/compose service; a Kubernetes deploy
+	// overrides them through the SHEPHERD_SIMULATOR_* bindings below.
+	v.SetDefault("simulator.capture_base_url", "http://shepherd-simulator:9110")
+	v.SetDefault("simulator.otlp_grpc_address", "shepherd-simulator:4317")
+	v.SetDefault("simulator.syslog_host", "shepherd-simulator")
+	v.SetDefault("simulator.syslog_port", 5514)
+	v.SetDefault("simulator.capture_dir", "/tmp/shepherd-sim/capture")
+	v.SetDefault("simulator.target_address", "shepherd-simulator:9111")
+	v.SetDefault("simulator.log_dir", "/tmp/shepherd-sim/logs")
+	v.SetDefault("simulator.duration", "30s")
+	v.SetDefault("simulator.max_duration", "120s")
+	v.SetDefault("simulator.control_url", "http://shepherd-simulator:8099")
+	v.SetDefault("simulator.max_concurrent_runs", 2)
+	v.SetDefault("simulator.max_non_terminal_per_org", 3)
+	v.SetDefault("simulator.run_ttl", "5m")
+	v.SetDefault("simulator.retention_ttl", "1h")
+	v.SetDefault("simulator.poll_interval", "2s")
+	v.SetDefault("simulator.janitor_interval", "30s")
 	// gitsync fetch limits, per docs/git-provider-design.md §3.6.
 	v.SetDefault("gitsync.max_repo_bytes", 50*1024*1024)
 	v.SetDefault("gitsync.max_file_bytes", 1*1024*1024)
@@ -205,6 +291,24 @@ func Load(file string) (*Config, error) {
 		{"validate.stability_level", "SHEPHERD_VALIDATE_STABILITY_LEVEL"},
 		{"validate.timeout", "SHEPHERD_VALIDATE_TIMEOUT"},
 		{"validate.stage3_timeout", "SHEPHERD_VALIDATE_STAGE3_TIMEOUT"},
+		{"simulator.enabled", "SHEPHERD_SIMULATOR_ENABLED"},
+		{"simulator.capture_base_url", "SHEPHERD_SIMULATOR_CAPTURE_BASE_URL"},
+		{"simulator.otlp_grpc_address", "SHEPHERD_SIMULATOR_OTLP_GRPC_ADDRESS"},
+		{"simulator.syslog_host", "SHEPHERD_SIMULATOR_SYSLOG_HOST"},
+		{"simulator.syslog_port", "SHEPHERD_SIMULATOR_SYSLOG_PORT"},
+		{"simulator.capture_dir", "SHEPHERD_SIMULATOR_CAPTURE_DIR"},
+		{"simulator.target_address", "SHEPHERD_SIMULATOR_TARGET_ADDRESS"},
+		{"simulator.log_dir", "SHEPHERD_SIMULATOR_LOG_DIR"},
+		{"simulator.duration", "SHEPHERD_SIMULATOR_DURATION"},
+		{"simulator.max_duration", "SHEPHERD_SIMULATOR_MAX_DURATION"},
+		{"simulator.control_url", "SHEPHERD_SIMULATOR_CONTROL_URL"},
+		{"simulator.token", "SHEPHERD_SIMULATOR_TOKEN"},
+		{"simulator.max_concurrent_runs", "SHEPHERD_SIMULATOR_MAX_CONCURRENT_RUNS"},
+		{"simulator.max_non_terminal_per_org", "SHEPHERD_SIMULATOR_MAX_NON_TERMINAL_PER_ORG"},
+		{"simulator.run_ttl", "SHEPHERD_SIMULATOR_RUN_TTL"},
+		{"simulator.retention_ttl", "SHEPHERD_SIMULATOR_RETENTION_TTL"},
+		{"simulator.poll_interval", "SHEPHERD_SIMULATOR_POLL_INTERVAL"},
+		{"simulator.janitor_interval", "SHEPHERD_SIMULATOR_JANITOR_INTERVAL"},
 		{"gitsync.tick", "SHEPHERD_GITSYNC_TICK"},
 		{"gitsync.default_poll_interval", "SHEPHERD_GITSYNC_DEFAULT_POLL_INTERVAL"},
 		{"gitsync.max_repo_bytes", "SHEPHERD_GITSYNC_MAX_REPO_BYTES"},

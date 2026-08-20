@@ -25,10 +25,30 @@ var _ = Describe("Migration: 0006_git_providers", Label("integration"), func() {
 		url := sharedPG.RootURL
 
 		// Land on the schema immediately before 0006 (i.e. 0005's shape): migrate to
-		// head, then step back exactly one version, regardless of whatever version the
-		// shared container happened to be at when this spec ran.
+		// head, then step back one version at a time until ado_credentials
+		// (dropped by 0006) exists again. A single step back is not enough once any
+		// migration lands after 0006 (0007_simulate_runs and beyond) — this loop
+		// keeps the spec correct regardless of how many migrations now sit above it,
+		// rather than hardcoding a step count that silently goes stale.
 		Expect(store.MigrateUp(ctx, url)).To(Succeed())
-		Expect(store.MigrateDown(ctx, url)).To(Succeed())
+		const maxStepsAbove0006 = 10 // generous headroom for migrations added after 0006
+		foundPre0006Shape := false
+		for i := 0; i < maxStepsAbove0006; i++ {
+			Expect(store.MigrateDown(ctx, url)).To(Succeed())
+			probe, err := pgxpool.New(ctx, url)
+			Expect(err).NotTo(HaveOccurred())
+			var exists bool
+			scanErr := probe.QueryRow(ctx,
+				`SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'ado_credentials')`,
+			).Scan(&exists)
+			probe.Close()
+			Expect(scanErr).NotTo(HaveOccurred())
+			if exists {
+				foundPre0006Shape = true
+				break
+			}
+		}
+		Expect(foundPre0006Shape).To(BeTrue(), "should step back past 0006 to a schema with ado_credentials within a bounded number of steps")
 
 		db, err := pgxpool.New(ctx, url)
 		Expect(err).NotTo(HaveOccurred())
@@ -109,8 +129,28 @@ var _ = Describe("Migration: 0006_git_providers", Label("integration"), func() {
 
 		db2.Close()
 
-		// Reverse it.
-		Expect(store.MigrateDown(ctx, url)).To(Succeed())
+		// Reverse it. store.MigrateUp above went all the way to head, which may sit
+		// above 0006 (0007_simulate_runs and beyond) — step down the same
+		// bounded, condition-checked way as the initial pre-0006 descent, since a
+		// single MigrateDown now only reverts whatever is above 0006, not 0006
+		// itself.
+		foundPre0006Shape = false
+		for i := 0; i < maxStepsAbove0006; i++ {
+			Expect(store.MigrateDown(ctx, url)).To(Succeed())
+			probe, err := pgxpool.New(ctx, url)
+			Expect(err).NotTo(HaveOccurred())
+			var exists bool
+			scanErr := probe.QueryRow(ctx,
+				`SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'ado_credentials')`,
+			).Scan(&exists)
+			probe.Close()
+			Expect(scanErr).NotTo(HaveOccurred())
+			if exists {
+				foundPre0006Shape = true
+				break
+			}
+		}
+		Expect(foundPre0006Shape).To(BeTrue(), "should step back past 0006 to a schema with ado_credentials within a bounded number of steps")
 
 		db3, err := pgxpool.New(ctx, url)
 		Expect(err).NotTo(HaveOccurred())

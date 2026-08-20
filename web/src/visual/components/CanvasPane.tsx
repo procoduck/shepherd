@@ -24,7 +24,7 @@ import { nanoid } from 'nanoid';
 import { toast } from 'sonner';
 import { resolvePorts } from '../l1';
 import { getWireColor, portHandleId } from '../schemaAdapter';
-import { type ConnectingFrom, useVisualStore } from '../store';
+import { type ConnectingFrom, type SimHealthEntry, useVisualStore } from '../store';
 import type { ComponentDef, GraphEdge, GraphNode, L1Diagnostic, SchemaPayload } from '../types';
 import { orientConnection, rfEndpointsForEdge } from '../wireOrient';
 import type { PipelineNodeData } from './PipelineNode';
@@ -213,6 +213,7 @@ type NodeInputs = {
   src: GraphNode;
   def: ComponentDef | undefined;
   diags: L1Diagnostic[];
+  health: SimHealthEntry | undefined;
 };
 
 function reconcileNodes(
@@ -222,6 +223,7 @@ function reconcileNodes(
   diagnosticsByNode: Map<string, L1Diagnostic[]>,
   selectedIds: Set<string>,
   inputs: Map<string, NodeInputs>,
+  simHealthByNode: Record<string, SimHealthEntry> | null,
 ): PipelineFlowNode[] {
   const byId = new Map(current.map((n) => [n.id, n]));
   const nextInputs = new Map<string, NodeInputs>();
@@ -230,8 +232,9 @@ function reconcileNodes(
   const next = docNodes.map((src, i) => {
     const def = schema?.components[src.component];
     const diags = diagnosticsByNode.get(src.id) ?? EMPTY_DIAGNOSTICS;
+    const health = simHealthByNode?.[src.id];
     const selected = selectedIds.has(src.id);
-    nextInputs.set(src.id, { src, def, diags });
+    nextInputs.set(src.id, { src, def, diags, health });
 
     const prev = byId.get(src.id);
     const prevIn = inputs.get(src.id);
@@ -246,6 +249,7 @@ function reconcileNodes(
       prevIn.src === src &&
       prevIn.def === def &&
       prevIn.diags === diags &&
+      prevIn.health === health &&
       prev.selected === selected
     ) {
       // Reused verbatim — including React Flow's own fields, and including the
@@ -264,7 +268,7 @@ function reconcileNodes(
       type: 'pipeline' as const,
       position: src.position,
       selected,
-      data: { ...src, schema: def, diagnostics: diags } as PipelineNodeData,
+      data: { ...src, schema: def, diagnostics: diags, health } as PipelineNodeData,
     };
   });
 
@@ -365,6 +369,7 @@ export function CanvasPane() {
   const schema = useVisualStore((s) => s.schema);
   const selected = useVisualStore((s) => s.selected);
   const diagnostics = useVisualStore((s) => s.diagnostics);
+  const simHealthByNode = useVisualStore((s) => s.simHealthByNode);
   const flowCheckActive = useVisualStore((s) => s.flowCheckActive);
   const addEdge = useVisualStore((s) => s.addEdge);
   const removeEdge = useVisualStore((s) => s.removeEdge);
@@ -434,7 +439,15 @@ export function CanvasPane() {
   const edgeInputsRef = useRef(new Map<string, EdgeInputs>());
 
   const [rfNodes, setRfNodes] = useState<PipelineFlowNode[]>(() =>
-    reconcileNodes([], doc.nodes, schema, diagnosticsByNode, selectedIds, nodeInputsRef.current),
+    reconcileNodes(
+      [],
+      doc.nodes,
+      schema,
+      diagnosticsByNode,
+      selectedIds,
+      nodeInputsRef.current,
+      simHealthByNode,
+    ),
   );
   const [rfEdges, setRfEdges] = useState<Edge[]>(() =>
     reconcileEdges(
@@ -452,9 +465,17 @@ export function CanvasPane() {
   // reconciler, so this never clobbers a measurement or an in-flight drag.
   useEffect(() => {
     setRfNodes((cur) =>
-      reconcileNodes(cur, doc.nodes, schema, diagnosticsByNode, selectedIds, nodeInputsRef.current),
+      reconcileNodes(
+        cur,
+        doc.nodes,
+        schema,
+        diagnosticsByNode,
+        selectedIds,
+        nodeInputsRef.current,
+        simHealthByNode,
+      ),
     );
-  }, [doc.nodes, schema, diagnosticsByNode, selectedIds]);
+  }, [doc.nodes, schema, diagnosticsByNode, selectedIds, simHealthByNode]);
 
   useEffect(() => {
     setRfEdges((cur) =>

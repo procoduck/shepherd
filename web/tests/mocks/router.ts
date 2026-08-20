@@ -34,6 +34,18 @@ export interface MockState {
   upgradeCheckResult?: unknown;
   simulateRelabelResult?: unknown;
   simulateLogsResult?: unknown;
+  // S3 sandbox run (VB-1 §6.4). `simulateRunResult` seeds the run's
+  // TERMINAL fields (status/rewrites/captured_*/component_health/etc, see
+  // handlers.ts's simulateRunToWire) — GetRun synthesizes queued/running
+  // snapshots on the way there itself, keyed off `simulateRunPollCount`, so
+  // a spec never has to fake wall-clock timing to observe the whole
+  // validating -> transforming -> running -> results progression.
+  simulateRunResult?: unknown;
+  simulateRunPollCount?: number;
+  simulateRunId?: string;
+  simulateRunCreatedAt?: string;
+  simulateRunStartedAt?: string;
+  simulateCreateRunError?: { status: number; code: string; message: string };
 }
 
 interface RouteEntry {

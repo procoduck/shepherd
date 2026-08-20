@@ -1,0 +1,5 @@
+τ
+
+-{filename="/sim/logs/app.log", job="simlogs"}‡
+ΚΤ’†άσw{"level":"info","ts":"2026-08-18T10:00:00Z","msg":"request completed","method":"GET","path":"/api/health","status":200}_
+ΚΤ„ιέσOlevel=info ts=2026-08-18T10:01:00Z msg="query executed" table=pipelines rows=15

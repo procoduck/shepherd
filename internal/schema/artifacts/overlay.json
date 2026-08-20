@@ -2,7 +2,7 @@
   "_meta": {
     "alloy_version": "v1.18.1",
     "description": "Overlay for alloy-v1.18.1. Deep-merged server-side over the artifact before serving via GET /api/schema/{version}. Keys must exist in the artifact (CI-enforced). Components absent from this overlay land in the 'advanced' category.",
-    "version": "3"
+    "version": "4"
   },
   "categories": {
     "advanced": {
@@ -461,7 +461,10 @@
     "local.file": {
       "category": "config",
       "doc": "Reads a local file, exposing its contents to other components.",
-      "icon": "file"
+      "icon": "file",
+      "sim_secret_source": {
+        "mode": "literal"
+      }
     },
     "local.file_match": {
       "category": "sources",
@@ -473,6 +476,11 @@
       "category": "destinations",
       "doc": "Prints log entries to stdout (for debugging).",
       "icon": "logs",
+      "sim_destination": {
+        "endpoint_paths": [],
+        "ensure": {},
+        "receiver": "none"
+      },
       "terminal_ok": true
     },
     "loki.enrich": {
@@ -549,6 +557,10 @@
     },
     "loki.source.file": {
       "category": "sources",
+      "discovery_stub": {
+        "fixture": "file-logs",
+        "type": "loki_file"
+      },
       "doc": "Tails and forwards local log files.",
       "icon": "file",
       "port_display_order": [
@@ -609,6 +621,10 @@
     },
     "loki.source.podlogs": {
       "category": "sources",
+      "discovery_stub": {
+        "fixture": "k8s-pod-logs",
+        "type": "loki_file"
+      },
       "doc": "Collects pod logs via PodLogs CRD.",
       "icon": "k8s",
       "terminal_ok": false
@@ -632,6 +648,17 @@
       "port_display_order": [
         "receiver"
       ],
+      "sim_destination": {
+        "endpoint_paths": [
+          [
+            "endpoint",
+            "*",
+            "url"
+          ]
+        ],
+        "ensure": {},
+        "receiver": "loki"
+      },
       "terminal_ok": true
     },
     "mimir.alerts.kubernetes": {
@@ -649,32 +676,50 @@
     "otelcol.auth.basic": {
       "category": "config",
       "doc": "Provides HTTP basic authentication for OTel exporters.",
-      "icon": "lock"
+      "icon": "lock",
+      "sim_secret_source": {
+        "mode": "drop_ref"
+      }
     },
     "otelcol.auth.bearer": {
       "category": "config",
       "doc": "Provides bearer token authentication for OTel exporters.",
-      "icon": "lock"
+      "icon": "lock",
+      "sim_secret_source": {
+        "mode": "drop_ref"
+      }
     },
     "otelcol.auth.google": {
       "category": "config",
       "doc": "Provides Google OAuth2 authentication for OTel exporters (public-preview).",
-      "icon": "cloud"
+      "icon": "cloud",
+      "sim_secret_source": {
+        "mode": "drop_ref"
+      }
     },
     "otelcol.auth.headers": {
       "category": "config",
       "doc": "Provides static HTTP header authentication for OTel exporters.",
-      "icon": "lock"
+      "icon": "lock",
+      "sim_secret_source": {
+        "mode": "drop_ref"
+      }
     },
     "otelcol.auth.oauth2": {
       "category": "config",
       "doc": "Provides OAuth2 client credentials authentication for OTel exporters.",
-      "icon": "lock"
+      "icon": "lock",
+      "sim_secret_source": {
+        "mode": "drop_ref"
+      }
     },
     "otelcol.auth.sigv4": {
       "category": "config",
       "doc": "Provides AWS SigV4 request signing for OTel exporters.",
-      "icon": "cloud"
+      "icon": "cloud",
+      "sim_secret_source": {
+        "mode": "drop_ref"
+      }
     },
     "otelcol.connector.count": {
       "category": "transform",
@@ -728,18 +773,42 @@
       "category": "destinations",
       "doc": "Prints OTel telemetry to the console for debugging (experimental).",
       "icon": "logs",
+      "sim_destination": {
+        "endpoint_paths": [],
+        "ensure": {},
+        "receiver": "none"
+      },
       "terminal_ok": true
     },
     "otelcol.exporter.faro": {
       "category": "destinations",
       "doc": "Exports traces to the Grafana Faro backend (experimental).",
       "icon": "faro",
+      "sim_destination": {
+        "endpoint_paths": [
+          [
+            "client",
+            "endpoint"
+          ]
+        ],
+        "ensure": {},
+        "receiver": "faro"
+      },
       "terminal_ok": true
     },
     "otelcol.exporter.file": {
       "category": "destinations",
       "doc": "Writes telemetry to disk with optional rotation and compression (public-preview).",
       "icon": "file",
+      "sim_destination": {
+        "endpoint_paths": [
+          [
+            "path"
+          ]
+        ],
+        "ensure": {},
+        "receiver": "file"
+      },
       "terminal_ok": true
     },
     "otelcol.exporter.googlecloud": {
@@ -774,6 +843,11 @@
         "input",
         "forward_to"
       ],
+      "sim_destination": {
+        "endpoint_paths": [],
+        "ensure": {},
+        "receiver": "none"
+      },
       "terminal_ok": false
     },
     "otelcol.exporter.otlp": {
@@ -783,6 +857,18 @@
       "port_display_order": [
         "input"
       ],
+      "sim_destination": {
+        "endpoint_paths": [
+          [
+            "client",
+            "endpoint"
+          ]
+        ],
+        "ensure": {
+          "client.tls.insecure": true
+        },
+        "receiver": "otlp_grpc"
+      },
       "terminal_ok": true
     },
     "otelcol.exporter.otlphttp": {
@@ -792,6 +878,16 @@
       "port_display_order": [
         "input"
       ],
+      "sim_destination": {
+        "endpoint_paths": [
+          [
+            "client",
+            "endpoint"
+          ]
+        ],
+        "ensure": {},
+        "receiver": "otlp_http"
+      },
       "terminal_ok": true
     },
     "otelcol.exporter.prometheus": {
@@ -802,24 +898,53 @@
         "input",
         "forward_to"
       ],
+      "sim_destination": {
+        "endpoint_paths": [],
+        "ensure": {},
+        "receiver": "none"
+      },
       "terminal_ok": true
     },
     "otelcol.exporter.splunkhec": {
       "category": "destinations",
       "doc": "Exports telemetry to Splunk HEC (experimental).",
       "icon": "upload",
+      "sim_destination": {
+        "endpoint_paths": [
+          [
+            "client",
+            "endpoint"
+          ]
+        ],
+        "ensure": {},
+        "receiver": "splunkhec"
+      },
       "terminal_ok": true
     },
     "otelcol.exporter.syslog": {
       "category": "destinations",
       "doc": "Exports log entries as syslog messages (public-preview).",
       "icon": "logs",
+      "sim_destination": {
+        "endpoint_paths": [
+          [
+            "endpoint"
+          ]
+        ],
+        "ensure": {
+          "tls.insecure": true
+        },
+        "receiver": "syslog"
+      },
       "terminal_ok": true
     },
     "otelcol.extension.jaeger_remote_sampling": {
       "category": "config",
       "doc": "Provides Jaeger remote sampling configuration for tail sampling.",
-      "icon": "traces"
+      "icon": "traces",
+      "sim_secret_source": {
+        "mode": "drop_ref"
+      }
     },
     "otelcol.processor.attributes": {
       "category": "transform",
@@ -1081,12 +1206,20 @@
     "otelcol.storage.file": {
       "category": "config",
       "doc": "Provides file-backed persistent queue storage for OTel exporters (public-preview).",
-      "icon": "file"
+      "icon": "file",
+      "sim_secret_source": {
+        "mode": "drop_ref"
+      }
     },
     "prometheus.echo": {
       "category": "destinations",
       "doc": "Drops all received metrics (for testing/debugging).",
       "icon": "metrics",
+      "sim_destination": {
+        "endpoint_paths": [],
+        "ensure": {},
+        "receiver": "none"
+      },
       "terminal_ok": true
     },
     "prometheus.enrich": {
@@ -1325,6 +1458,17 @@
       "port_display_order": [
         "receiver"
       ],
+      "sim_destination": {
+        "endpoint_paths": [
+          [
+            "endpoint",
+            "*",
+            "url"
+          ]
+        ],
+        "ensure": {},
+        "receiver": "prometheus"
+      },
       "terminal_ok": true
     },
     "prometheus.scrape": {
@@ -1345,6 +1489,17 @@
       "category": "destinations",
       "doc": "Sends metrics to a remote_write endpoint with a persistent queue (experimental).",
       "icon": "upload",
+      "sim_destination": {
+        "endpoint_paths": [
+          [
+            "endpoint",
+            "*",
+            "url"
+          ]
+        ],
+        "ensure": {},
+        "receiver": "prometheus"
+      },
       "terminal_ok": true
     },
     "pyroscope.ebpf": {
@@ -1394,32 +1549,58 @@
       "port_display_order": [
         "receiver"
       ],
+      "sim_destination": {
+        "endpoint_paths": [
+          [
+            "endpoint",
+            "*",
+            "url"
+          ]
+        ],
+        "ensure": {},
+        "receiver": "pyroscope"
+      },
       "terminal_ok": true
     },
     "remote.http": {
       "category": "config",
       "doc": "Fetches a remote HTTP resource and exposes its contents.",
-      "icon": "server"
+      "icon": "server",
+      "sim_secret_source": {
+        "mode": "literal"
+      }
     },
     "remote.kubernetes.configmap": {
       "category": "config",
       "doc": "Reads a Kubernetes ConfigMap and exposes its data.",
-      "icon": "k8s"
+      "icon": "k8s",
+      "sim_secret_source": {
+        "mode": "literal"
+      }
     },
     "remote.kubernetes.secret": {
       "category": "config",
       "doc": "Reads a Kubernetes secret for use in component properties.",
-      "icon": "lock"
+      "icon": "lock",
+      "sim_secret_source": {
+        "mode": "literal"
+      }
     },
     "remote.s3": {
       "category": "config",
       "doc": "Reads a file from Amazon S3 and exposes its contents.",
-      "icon": "cloud"
+      "icon": "cloud",
+      "sim_secret_source": {
+        "mode": "literal"
+      }
     },
     "remote.vault": {
       "category": "config",
       "doc": "Reads secrets from HashiCorp Vault.",
-      "icon": "lock"
+      "icon": "lock",
+      "sim_secret_source": {
+        "mode": "literal"
+      }
     }
   },
   "wire_types": {

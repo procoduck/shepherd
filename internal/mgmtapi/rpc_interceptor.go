@@ -98,6 +98,8 @@ var procedureRequirements = map[string]string{ //nolint:gochecknoglobals // stat
 	// SimulateService — org admin.
 	mgmtv1connect.SimulateServiceSimulateRelabelProcedure: auth.RoleOrgAdmin,
 	mgmtv1connect.SimulateServiceSimulateLogsProcedure:    auth.RoleOrgAdmin,
+	mgmtv1connect.SimulateServiceCreateRunProcedure:       auth.RoleOrgAdmin,
+	mgmtv1connect.SimulateServiceGetRunProcedure:          auth.RoleOrgAdmin,
 
 	// AuditService — org admin.
 	mgmtv1connect.AuditServiceListAuditProcedure: auth.RoleOrgAdmin,

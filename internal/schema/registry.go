@@ -148,6 +148,7 @@ func (r *Registry) ValidateOverlay() ([]string, error) {
 	}
 
 	violations = append(violations, validatePortDisplayOrder(artifactComponents, overlayComponents)...)
+	violations = append(violations, validateSimPolicy(artifactComponents, overlayComponents)...)
 
 	return violations, nil
 }

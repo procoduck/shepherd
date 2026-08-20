@@ -160,12 +160,11 @@ Collectors, active pipelines and clusters tiles are hardcoded `—`. Only the or
 
 None of these exist in the proto contract either, so each needs an RPC + shim + UI.
 
-### F5 — VB-1 M7: S3 sandbox simulation · **medium**
+### F5 — VB-1 M7: S3 sandbox simulation · [IMPLEMENTED 2026-08-20 — see §3a, MUST STAY DISABLED]
 
-`docs/visual-builder-design-VB1.md` §6.4. Ephemeral Alloy runner with capture harness,
-graph rewrite (destinations → capture receivers, discovery → stubs, secrets dropped),
-`/simulate/runs` endpoints, run UI, containment, and the `sandbox-sim` e2e profile.
-Nothing is built. S1 (flow check) and S2 (relabel/log trace) are done and shipping.
+`docs/visual-builder-design-VB1.md` §6.4. Built on 2026-08-20 but its containment claim does not
+hold; the feature is off by default and must stay off. See the F5 entry in §3a STILL OPEN and
+`docs/reviews/s3-sandbox-security-findings.md`.
 
 ### F6 — [DONE 2026-08-19] VB-1 M8: hardening · **low**
 
@@ -308,7 +307,25 @@ Full detail and prioritised ordering: **`docs/reviews/README.md`**. Treat that a
 for the visual builder; the F9-c and unnamed-port items below are subsumed by it.
 
 
-### F5 — VB-1 M7: S3 sandbox simulation · **medium** (not started)
+### F5 — VB-1 M7: S3 sandbox simulation · **implemented 2026-08-20, MUST STAY DISABLED**
+
+Built: the simulation transform (`internal/simulate/transform.go`), the `shepherd-simulator`
+service (`cmd/shepherd-simulator`, `internal/simsvc`) with capture harness and synthetic sources,
+the run API (`/simulate/runs`, migration 0007, `RunWorker`), the sandbox-run UI, and the `sim`
+compose profile plus the `sandbox-sim` e2e scenario.
+
+**The containment claim does not hold yet, so the feature is off by default and must stay off.**
+`simulator.enabled` has no default (false) and both compose files default `SHEPHERD_SIM_ENABLED`
+to false. Two critical holes: the secret sweep is type-driven and most credential-bearing
+attributes in the artifact are typed `string`, not `secret` (147/290 measured at two levels,
+518/718 measured deeper); and a graph naming an arbitrary host directly passes the transform,
+real `alloy validate` and the endpoint allowlist, leaving Docker's internal network as the only
+control — untested by execution.
+
+Full list, with evidence: **`docs/reviews/s3-sandbox-security-findings.md`** (2 critical, 6 high,
+5 medium, 4 low). Close the criticals and the highs before enabling this anywhere.
+
+#### Original scope note (kept for context)
 
 `docs/visual-builder-design-VB1.md` §6.4. Ephemeral Alloy runner with a capture harness,
 graph rewrite (destinations → capture receivers, discovery → stubs, secrets dropped),

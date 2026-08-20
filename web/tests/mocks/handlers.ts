@@ -281,6 +281,51 @@ function simulateLogsResultToWire(r: Obj) {
   };
 }
 
+// S3 sandbox run (VB-1 §6.4) — mirrors shepherd.mgmt.v1.SimulateRun.
+const DEFAULT_FIDELITY_NOTE =
+  'S3 stubs discovery and drops every secret before the graph ever runs — no performance, cardinality, or multi-collector fidelity is implied (VB-1 §6.5).';
+
+function simulateRunToWire(run: Obj) {
+  return {
+    id: s(run, 'id'),
+    orgId: s(run, 'org_id'),
+    status: s(run, 'status'),
+    createdAt: run['created_at'],
+    startedAt: run['started_at'],
+    finishedAt: run['finished_at'],
+    requestedDurationSeconds: n(run, 'requested_duration_seconds'),
+    queuePosition: n(run, 'queue_position'),
+    rewrites: arr<Obj>(run, 'rewrites').map((rw) => ({
+      nodeId: s(rw, 'node_id'),
+      nodeLabel: s(rw, 'node_label'),
+      component: s(rw, 'component'),
+      kind: s(rw, 'kind'),
+      detail: s(rw, 'detail'),
+    })),
+    capturedSeries: arr<Obj>(run, 'captured_series').map((cs) => ({
+      name: s(cs, 'name'),
+      labels: cs['labels'] ?? {},
+      sampleCount: n(cs, 'sample_count'),
+    })),
+    capturedLogLines: arr<Obj>(run, 'captured_log_lines').map((l) => ({
+      labels: l['labels'] ?? {},
+      line: s(l, 'line'),
+    })),
+    componentHealth: arr<Obj>(run, 'component_health').map((h) => ({
+      nodeId: s(h, 'node_id'),
+      nodeLabel: s(h, 'node_label'),
+      component: s(h, 'component'),
+      healthState: s(h, 'health_state'),
+      message: s(h, 'message'),
+    })),
+    gateDiagnostics: arr(run, 'gate_diagnostics'),
+    stderrTail: s(run, 'stderr_tail'),
+    errorCode: s(run, 'error_code'),
+    errorMessage: s(run, 'error_message'),
+    fidelityNote: s(run, 'fidelity_note') || DEFAULT_FIDELITY_NOTE,
+  };
+}
+
 // Default handlers for every shepherd.mgmt.v1 procedure, plus the surviving
 // REST surface (/auth/*, /api/schema/*).
 export function installDefaultHandlers(router: Router) {
@@ -892,6 +937,69 @@ export function installDefaultHandlers(router: Router) {
     ),
   );
 
+  // CreateRun/GetRun (VB-1 §6.4): CreateRun just mints a run id and resets
+  // the poll counter; GetRun advances a queued -> running -> running ->
+  // terminal sequence keyed off how many times IT has been called for the
+  // current run, not off real elapsed time — so a spec observes the whole
+  // progression deterministically regardless of how fast/slow the poller
+  // driving it runs. `simulateRunResult` (default: an all-green completed
+  // run with no rewrites) seeds the fields that only apply once terminal.
+  router.register('POST', '/shepherd.mgmt.v1.SimulateService/CreateRun', async (r) => {
+    if (st.simulateCreateRunError) {
+      const { status, code, message } = st.simulateCreateRunError;
+      return connectError(r, status, code, message);
+    }
+    st.simulateRunPollCount = 0;
+    st.simulateRunId = mockId('sim-run');
+    st.simulateRunCreatedAt = new Date().toISOString();
+    st.simulateRunStartedAt = undefined;
+    return json(r, 200, { runId: st.simulateRunId });
+  });
+
+  router.register('POST', '/shepherd.mgmt.v1.SimulateService/GetRun', async (r) => {
+    const req = await body(r);
+    st.simulateRunPollCount = (st.simulateRunPollCount ?? 0) + 1;
+    const count = st.simulateRunPollCount;
+    const seeded = (st.simulateRunResult as Obj) ?? { status: 'completed' };
+    const terminalStatus = s(seeded, 'status') || 'completed';
+    const durationSeconds = n(seeded, 'requested_duration_seconds') || 30;
+
+    let status: string;
+    if (count <= 1) {
+      status = 'queued';
+    } else if (count <= 3) {
+      status = 'running';
+      if (!st.simulateRunStartedAt) st.simulateRunStartedAt = new Date().toISOString();
+    } else {
+      status = terminalStatus;
+    }
+    const isTerminal = status !== 'queued' && status !== 'running';
+
+    return json(
+      r,
+      200,
+      simulateRunToWire({
+        id: (req['id'] as string) || st.simulateRunId,
+        org_id: req['orgId'],
+        status,
+        created_at: st.simulateRunCreatedAt,
+        started_at: status === 'queued' ? undefined : st.simulateRunStartedAt,
+        finished_at: isTerminal ? new Date().toISOString() : undefined,
+        requested_duration_seconds: durationSeconds,
+        queue_position: status === 'queued' ? 1 : 0,
+        rewrites: isTerminal ? arr(seeded, 'rewrites') : [],
+        captured_series: isTerminal ? arr(seeded, 'captured_series') : [],
+        captured_log_lines: isTerminal ? arr(seeded, 'captured_log_lines') : [],
+        component_health: isTerminal ? arr(seeded, 'component_health') : [],
+        gate_diagnostics: isTerminal ? arr(seeded, 'gate_diagnostics') : [],
+        stderr_tail: isTerminal ? s(seeded, 'stderr_tail') : '',
+        error_code: status === 'failed' ? s(seeded, 'error_code') : '',
+        error_message: status === 'failed' ? s(seeded, 'error_message') : '',
+        fidelity_note: s(seeded, 'fidelity_note'),
+      }),
+    );
+  });
+
   // ── AuditService ─────────────────────────────────────────────────────────
   // Mirrors internal/mgmtapi/rpc_audit.go/audit_log.sql: actor is a
   // case-insensitive substring match, action is exact, limit defaults to 25
@@ -1005,6 +1113,12 @@ export function defaultState(): MockState {
     upgradeCheckResult: undefined,
     simulateRelabelResult: undefined,
     simulateLogsResult: undefined,
+    simulateRunResult: undefined,
+    simulateRunPollCount: 0,
+    simulateRunId: undefined,
+    simulateRunCreatedAt: undefined,
+    simulateRunStartedAt: undefined,
+    simulateCreateRunError: undefined,
   };
 }
 

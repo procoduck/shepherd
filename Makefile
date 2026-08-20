@@ -1,4 +1,4 @@
-.PHONY: build build-web build-all test test-integration e2e smoke test-ui check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker lint fmt generate gen-alloy-version generate-corpus schema schema-verify helm-lint release-snapshot docker-build docker-build-local docker-build-init migrate dev dev-frontend dev-restart dev-seed dev-reset test-fullstack
+.PHONY: build build-web build-all test test-integration e2e e2e-sim smoke test-ui check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker lint fmt generate gen-alloy-version generate-corpus schema schema-verify helm-lint release-snapshot docker-build docker-build-local docker-build-init docker-build-simulator migrate dev dev-sim dev-frontend dev-restart dev-seed dev-reset test-fullstack
 
 PNPM ?= pnpm
 
@@ -11,6 +11,7 @@ DOCKER_BUILD_ARGS := \
 	--build-arg NODE_IMAGE=$(NODE_IMAGE) \
 	--build-arg ALLOY_IMAGE=$(ALLOY_IMAGE) \
 	--build-arg DISTROLESS_IMAGE=$(DISTROLESS_IMAGE) \
+	--build-arg DISTROLESS_BASE_IMAGE=$(DISTROLESS_BASE_IMAGE) \
 	--build-arg PNPM_VERSION=$(PNPM_VERSION)
 
 # Build the Go binary (requires web dist to already exist — run build-web first if needed)
@@ -39,11 +40,24 @@ e2e: docker-build-local docker-build-init
 	@# dies on the agent token's duplicate primary key before any spec runs.
 	docker compose -f e2e/docker-compose.e2e.yaml down -v
 	docker compose -f e2e/docker-compose.e2e.yaml up -d --build --wait
-	ginkgo --tags=e2e --randomize-all=false ./e2e/...
+	ginkgo --tags=e2e --randomize-all=false --label-filter='!sandbox-sim' ./e2e/...
 	@if [ "$(E2E_KEEP)" != "1" ]; then \
 		docker compose -f e2e/docker-compose.e2e.yaml down -v; \
 	else \
 		echo "E2E_KEEP=1: stack left running. Run 'docker compose -f e2e/docker-compose.e2e.yaml down -v' to clean up."; \
+	fi
+
+# S3 sandbox-run e2e (VB-1 §6.4, §7.9's separate budget). Brings up the `sim`
+# profile — which the default `make e2e` deliberately leaves down so the
+# "simulator not configured" path is what every ordinary run exercises.
+e2e-sim: docker-build-local docker-build-init docker-build-simulator
+	docker compose -f e2e/docker-compose.e2e.yaml down -v
+	SHEPHERD_SIM_ENABLED=true docker compose -f e2e/docker-compose.e2e.yaml --profile sim up -d --build --wait
+	ginkgo --tags=e2e --randomize-all=false --label-filter=sandbox-sim ./e2e/...
+	@if [ "$(E2E_KEEP)" != "1" ]; then \
+		docker compose -f e2e/docker-compose.e2e.yaml --profile sim down -v; \
+	else \
+		echo "E2E_KEEP=1: stack left running."; \
 	fi
 
 # Container smoke test — runs without the full e2e stack, < 60s.
@@ -223,7 +237,7 @@ check-raw-sql:
 # Dockerfile directly, e.g. `docker build` without our Makefile) silently
 # ships a different image.
 check-docker:
-	@HARDCODED=$$(grep -n '^FROM ' deploy/Dockerfile deploy/Dockerfile.local deploy/Dockerfile.goreleaser \
+	@HARDCODED=$$(grep -n '^FROM ' deploy/Dockerfile deploy/Dockerfile.local deploy/Dockerfile.goreleaser deploy/Dockerfile.simulator \
 	    | grep -v 'FROM \$${\|AS '); \
 	if [ -n "$$HARDCODED" ]; then \
 		echo "ERROR: hardcoded FROM found (should use ARG variables):"; \
@@ -231,8 +245,8 @@ check-docker:
 		exit 1; \
 	fi
 	@FAIL=0; \
-	for f in deploy/Dockerfile deploy/Dockerfile.local deploy/Dockerfile.goreleaser; do \
-		for var in GO_IMAGE NODE_IMAGE ALLOY_IMAGE DISTROLESS_IMAGE PNPM_VERSION; do \
+	for f in deploy/Dockerfile deploy/Dockerfile.local deploy/Dockerfile.goreleaser deploy/Dockerfile.simulator; do \
+		for var in GO_IMAGE NODE_IMAGE ALLOY_IMAGE DISTROLESS_IMAGE DISTROLESS_BASE_IMAGE PNPM_VERSION; do \
 			default=$$(sed -n "s/^ARG $$var=\(.*\)/\1/p" "$$f"); \
 			if [ -n "$$default" ]; then \
 				expected=$$(sed -n "s/^$$var=\(.*\)/\1/p" deploy/versions.env); \
@@ -342,6 +356,13 @@ docker-build-local: build-web
 docker-build-init:
 	docker build -f deploy/Dockerfile.init -t shepherd:local-init .
 
+# Build the S3 sandbox simulator image (VB-1 §6.4). Same DOCKER_BUILD_ARGS as the
+# app image so the sandbox runs the Alloy build pinned in deploy/versions.env —
+# a sandbox on a different Alloy would make S3 results lie about the fleet.
+docker-build-simulator:
+	docker build $(DOCKER_BUILD_ARGS) -f deploy/Dockerfile.simulator -t shepherd-simulator:local .
+	docker tag shepherd-simulator:local shepherd-simulator:dev
+
 # Start the local dev stack (postgres, shepherd, mockmsft).
 # Images must be pre-built: make docker-build docker-build-init
 # Use --profile alloy for Alloy agent; --profile oidc for OIDC login.
@@ -378,6 +399,12 @@ dev-reset:
 # Start the dev stack with 3 Alloy instances (prod-eu-1/metrics, prod-eu-1/logs, staging-eu-1/metrics).
 dev-alloy3:
 	docker compose -f dev/docker-compose.dev.yaml --profile alloy3 up -d alloy-metrics alloy-logs alloy-staging
+
+# Start the dev stack with the S3 sandbox simulator (VB-1 §6.4).
+# Without SHEPHERD_SIM_ENABLED the shepherd container comes up with the feature
+# off, which is what every ordinary `make dev` exercises.
+dev-sim: docker-build-simulator
+	SHEPHERD_SIM_ENABLED=true docker compose -f dev/docker-compose.dev.yaml --profile sim up -d --build --wait
 
 # Run the fullstack Playwright suite against the dev stack.
 # Boots the dev stack, runs tests, captures logs on failure, tears down.

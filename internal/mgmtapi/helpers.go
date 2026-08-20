@@ -78,3 +78,23 @@ func auditLog(ctx context.Context, st *store.Store, actor string, orgID pgtype.U
 		Detail:       json.RawMessage("{}"),
 	})
 }
+
+// auditLogDetail is auditLog's richer counterpart, for the rare row that
+// benefits from more than "{}" (e.g. simulate.run.create's node/edge
+// counts). actorType lets a background component audit as "system" — see
+// gitsync/reconciler.go's direct InsertAuditLog call for the same need.
+func auditLogDetail(ctx context.Context, st *store.Store, actor, actorType string, orgID pgtype.UUID, action, resType, resID string, detail any) {
+	detailJSON, err := json.Marshal(detail)
+	if err != nil {
+		detailJSON = json.RawMessage("{}")
+	}
+	_ = st.Queries.InsertAuditLog(ctx, sqlc.InsertAuditLogParams{ //nolint:errcheck // best-effort side effect
+		Actor:        actor,
+		ActorType:    actorType,
+		OrgID:        orgID,
+		Action:       action,
+		ResourceType: resType,
+		ResourceID:   resID,
+		Detail:       detailJSON,
+	})
+}

@@ -39,12 +39,23 @@ const (
 	// SimulateServiceSimulateLogsProcedure is the fully-qualified name of the SimulateService's
 	// SimulateLogs RPC.
 	SimulateServiceSimulateLogsProcedure = "/shepherd.mgmt.v1.SimulateService/SimulateLogs"
+	// SimulateServiceCreateRunProcedure is the fully-qualified name of the SimulateService's CreateRun
+	// RPC.
+	SimulateServiceCreateRunProcedure = "/shepherd.mgmt.v1.SimulateService/CreateRun"
+	// SimulateServiceGetRunProcedure is the fully-qualified name of the SimulateService's GetRun RPC.
+	SimulateServiceGetRunProcedure = "/shepherd.mgmt.v1.SimulateService/GetRun"
 )
 
 // SimulateServiceClient is a client for the shepherd.mgmt.v1.SimulateService service.
 type SimulateServiceClient interface {
 	SimulateRelabel(context.Context, *connect.Request[v1.SimulateRelabelRequest]) (*connect.Response[v1.SimulateRelabelResponse], error)
 	SimulateLogs(context.Context, *connect.Request[v1.SimulateLogsRequest]) (*connect.Response[v1.SimulateLogsResponse], error)
+	// CreateRun submits a graph for an S3 sandbox run. It returns only the run
+	// id — the client always polls GetRun for state, never trusts this
+	// response for anything else (VB-1 design doc §2: "graph -> { run_id }").
+	CreateRun(context.Context, *connect.Request[v1.CreateRunRequest]) (*connect.Response[v1.CreateRunResponse], error)
+	// GetRun returns a run's current state, including results once terminal.
+	GetRun(context.Context, *connect.Request[v1.GetRunRequest]) (*connect.Response[v1.SimulateRun], error)
 }
 
 // NewSimulateServiceClient constructs a client for the shepherd.mgmt.v1.SimulateService service. By
@@ -70,6 +81,18 @@ func NewSimulateServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(simulateServiceMethods.ByName("SimulateLogs")),
 			connect.WithClientOptions(opts...),
 		),
+		createRun: connect.NewClient[v1.CreateRunRequest, v1.CreateRunResponse](
+			httpClient,
+			baseURL+SimulateServiceCreateRunProcedure,
+			connect.WithSchema(simulateServiceMethods.ByName("CreateRun")),
+			connect.WithClientOptions(opts...),
+		),
+		getRun: connect.NewClient[v1.GetRunRequest, v1.SimulateRun](
+			httpClient,
+			baseURL+SimulateServiceGetRunProcedure,
+			connect.WithSchema(simulateServiceMethods.ByName("GetRun")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -77,6 +100,8 @@ func NewSimulateServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 type simulateServiceClient struct {
 	simulateRelabel *connect.Client[v1.SimulateRelabelRequest, v1.SimulateRelabelResponse]
 	simulateLogs    *connect.Client[v1.SimulateLogsRequest, v1.SimulateLogsResponse]
+	createRun       *connect.Client[v1.CreateRunRequest, v1.CreateRunResponse]
+	getRun          *connect.Client[v1.GetRunRequest, v1.SimulateRun]
 }
 
 // SimulateRelabel calls shepherd.mgmt.v1.SimulateService.SimulateRelabel.
@@ -89,10 +114,26 @@ func (c *simulateServiceClient) SimulateLogs(ctx context.Context, req *connect.R
 	return c.simulateLogs.CallUnary(ctx, req)
 }
 
+// CreateRun calls shepherd.mgmt.v1.SimulateService.CreateRun.
+func (c *simulateServiceClient) CreateRun(ctx context.Context, req *connect.Request[v1.CreateRunRequest]) (*connect.Response[v1.CreateRunResponse], error) {
+	return c.createRun.CallUnary(ctx, req)
+}
+
+// GetRun calls shepherd.mgmt.v1.SimulateService.GetRun.
+func (c *simulateServiceClient) GetRun(ctx context.Context, req *connect.Request[v1.GetRunRequest]) (*connect.Response[v1.SimulateRun], error) {
+	return c.getRun.CallUnary(ctx, req)
+}
+
 // SimulateServiceHandler is an implementation of the shepherd.mgmt.v1.SimulateService service.
 type SimulateServiceHandler interface {
 	SimulateRelabel(context.Context, *connect.Request[v1.SimulateRelabelRequest]) (*connect.Response[v1.SimulateRelabelResponse], error)
 	SimulateLogs(context.Context, *connect.Request[v1.SimulateLogsRequest]) (*connect.Response[v1.SimulateLogsResponse], error)
+	// CreateRun submits a graph for an S3 sandbox run. It returns only the run
+	// id — the client always polls GetRun for state, never trusts this
+	// response for anything else (VB-1 design doc §2: "graph -> { run_id }").
+	CreateRun(context.Context, *connect.Request[v1.CreateRunRequest]) (*connect.Response[v1.CreateRunResponse], error)
+	// GetRun returns a run's current state, including results once terminal.
+	GetRun(context.Context, *connect.Request[v1.GetRunRequest]) (*connect.Response[v1.SimulateRun], error)
 }
 
 // NewSimulateServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -114,12 +155,28 @@ func NewSimulateServiceHandler(svc SimulateServiceHandler, opts ...connect.Handl
 		connect.WithSchema(simulateServiceMethods.ByName("SimulateLogs")),
 		connect.WithHandlerOptions(opts...),
 	)
+	simulateServiceCreateRunHandler := connect.NewUnaryHandler(
+		SimulateServiceCreateRunProcedure,
+		svc.CreateRun,
+		connect.WithSchema(simulateServiceMethods.ByName("CreateRun")),
+		connect.WithHandlerOptions(opts...),
+	)
+	simulateServiceGetRunHandler := connect.NewUnaryHandler(
+		SimulateServiceGetRunProcedure,
+		svc.GetRun,
+		connect.WithSchema(simulateServiceMethods.ByName("GetRun")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/shepherd.mgmt.v1.SimulateService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SimulateServiceSimulateRelabelProcedure:
 			simulateServiceSimulateRelabelHandler.ServeHTTP(w, r)
 		case SimulateServiceSimulateLogsProcedure:
 			simulateServiceSimulateLogsHandler.ServeHTTP(w, r)
+		case SimulateServiceCreateRunProcedure:
+			simulateServiceCreateRunHandler.ServeHTTP(w, r)
+		case SimulateServiceGetRunProcedure:
+			simulateServiceGetRunHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -135,4 +192,12 @@ func (UnimplementedSimulateServiceHandler) SimulateRelabel(context.Context, *con
 
 func (UnimplementedSimulateServiceHandler) SimulateLogs(context.Context, *connect.Request[v1.SimulateLogsRequest]) (*connect.Response[v1.SimulateLogsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.SimulateService.SimulateLogs is not implemented"))
+}
+
+func (UnimplementedSimulateServiceHandler) CreateRun(context.Context, *connect.Request[v1.CreateRunRequest]) (*connect.Response[v1.CreateRunResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.SimulateService.CreateRun is not implemented"))
+}
+
+func (UnimplementedSimulateServiceHandler) GetRun(context.Context, *connect.Request[v1.GetRunRequest]) (*connect.Response[v1.SimulateRun], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.SimulateService.GetRun is not implemented"))
 }

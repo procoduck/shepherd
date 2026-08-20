@@ -1,0 +1,39 @@
+# shepherd-simulator — the S3 sandbox-run service (VB-1 §6.4).
+#
+# It ships the SAME pinned Alloy build as deploy/Dockerfile, taken from the same
+# ALLOY_IMAGE ARG, because a sandbox running a different Alloy than the
+# validation gate would make S3 results lie about what the fleet will do.
+#
+# There is no web build stage: this image serves no SPA, holds no database
+# credentials and links no Microsoft Graph client. Everything the container can
+# reach is everything a user's graph can reach.
+ARG GO_IMAGE=golang:1.26-alpine
+ARG ALLOY_IMAGE=grafana/alloy:v1.18.1
+ARG DISTROLESS_BASE_IMAGE=gcr.io/distroless/base-debian12:nonroot
+
+# Stage 1: build the simulator binary
+FROM ${GO_IMAGE} AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /shepherd-simulator ./cmd/shepherd-simulator
+
+# Stage 2: the pinned Alloy the sandbox runs as a child process
+FROM ${ALLOY_IMAGE} AS alloy
+
+# Stage 3: final image.
+#
+# distroless/BASE, not distroless/static as the app image uses: this container
+# execs the Alloy binary, and Alloy v1.18.1 is dynamically linked against glibc.
+# On static it fails with "fork/exec /usr/local/bin/alloy: no such file or
+# directory" — the missing dynamic loader, not a missing file. base adds glibc
+# and nothing else; it is still shell-less and non-root.
+FROM ${DISTROLESS_BASE_IMAGE}
+COPY --from=alloy /bin/alloy /usr/local/bin/alloy
+COPY --from=builder /shepherd-simulator /usr/local/bin/shepherd-simulator
+USER nonroot
+# `serve` is the root command's default, so no CMD is needed; the compose
+# healthcheck invokes the binary's own healthcheck subcommand because a
+# distroless image has no shell to run `wget || exit 1` in.
+ENTRYPOINT ["/usr/local/bin/shepherd-simulator"]

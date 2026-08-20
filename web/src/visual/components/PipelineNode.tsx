@@ -8,7 +8,7 @@ import {
 } from '@xyflow/react';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { getCategoryColor, getWireColor, portHandleId } from '../schemaAdapter';
-import { selectConnectionState, useVisualStore } from '../store';
+import { type SimHealthEntry, selectConnectionState, useVisualStore } from '../store';
 import type { ComponentDef, GraphNode, L1Diagnostic, PortDef } from '../types';
 
 // Small 13px stroke icons, one per component category — drawn inline rather
@@ -179,8 +179,21 @@ export interface PipelineNodeData extends GraphNode {
   schema?: ComponentDef;
   diagnostics?: L1Diagnostic[];
   readOnly?: boolean;
+  /** Design doc §6.4 step 4: per-node health from the sandbox run currently
+   * being viewed, projected onto the node the same way `diagnostics` is —
+   * see store.ts's `simHealthByNode`. */
+  health?: SimHealthEntry;
 }
 type PipelineFlowNode = Node<PipelineNodeData, 'pipeline'>;
+
+// health_state values mirror Alloy's own /api/v0/web/components verbatim
+// (VB-1 §6.4) — this is the closed set that endpoint actually emits.
+const HEALTH_BADGE_COLOR: Record<string, string> = {
+  healthy: '#22c55e',
+  unhealthy: '#ef4444',
+  exited: '#f59e0b',
+  unknown: '#71717a',
+};
 
 // The four connection-drag affordance states (A2), exposed as data-drop-state
 // on the node root for styling AND for Playwright to assert on directly
@@ -291,7 +304,7 @@ export const PipelineNode = memo(function PipelineNode({
   return (
     <div
       className={[
-        'bg-card rounded-lg w-60 text-xs select-none shadow-md',
+        'relative bg-card rounded-lg w-60 text-xs select-none shadow-md',
         'border-t border-r border-b border-l-[3px]',
         borderColorClass,
         errors ? 'border-l-red-500' : '',
@@ -305,6 +318,18 @@ export const PipelineNode = memo(function PipelineNode({
       data-testid='pipeline-node'
       data-drop-state={dropState}
     >
+      {node.health && (
+        <div
+          data-testid='node-health-badge'
+          data-health-state={node.health.health_state}
+          title={`${node.health.health_state}${node.health.message ? `: ${node.health.message}` : ''}`}
+          className='absolute -top-1.5 -right-1.5 w-3 h-3 rounded-full ring-2 ring-background z-10'
+          style={{
+            backgroundColor:
+              HEALTH_BADGE_COLOR[node.health.health_state] ?? HEALTH_BADGE_COLOR.unknown,
+          }}
+        />
+      )}
       <div className='px-2 py-1.5 border-b border-border flex items-center gap-1.5 font-mono truncate'>
         <CategoryIcon category={def?.category ?? 'advanced'} className='shrink-0 text-muted-2' />
         <span className='truncate'>{node.component}</span>

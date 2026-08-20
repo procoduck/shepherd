@@ -174,6 +174,13 @@ func sanitizeLabel(s string) string {
 	return out
 }
 
+// SanitizeLabel exposes the label mapping the renderer applies when it emits a
+// component's block header. Callers that must reconstruct the reference token a
+// node will be addressed by — the S3 simulation transform's containment
+// self-check (§6.4) and its tests — have to derive it from the same function
+// the renderer uses, or the check silently stops matching the emitted text.
+func SanitizeLabel(s string) string { return sanitizeLabel(s) }
+
 // quote renders an Alloy string literal. It is deliberately not
 // strconv.Quote: the escape set below is the one the TypeScript renderer can
 // reproduce exactly, which is what keeps the two implementations byte-equal.

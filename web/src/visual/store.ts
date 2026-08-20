@@ -86,6 +86,15 @@ export function selectConnectionState(
   return { dragActive: true, isValidTarget: true, isDimmed: false, validPortIds };
 }
 
+/** Per-node health from the most recently viewed S3 sandbox run (design doc
+ * §6.4 step 4 — "the single best debugging affordance in the whole
+ * feature"). `health_state` mirrors Alloy's own component-health values
+ * (healthy/unhealthy/unknown/exited) verbatim. */
+export interface SimHealthEntry {
+  health_state: string;
+  message: string;
+}
+
 interface VisualStore {
   doc: GraphDocument;
   selected: string[];
@@ -95,6 +104,12 @@ interface VisualStore {
   flowCheckActive: boolean;
   /** Set while a connection is being dragged from a handle; null otherwise. See ConnectingFrom. */
   connectingFrom: ConnectingFrom | null;
+  /** Keyed by node id, from the sandbox run currently being viewed; null when
+   * no run's results are on screen. Lives here — not on rfNodes/React Flow's
+   * own fields — so it reaches PipelineNode through the same document-side
+   * projection as `diagnostics` (see CanvasPane's "controlled-mode
+   * contract"), rather than by mutating React Flow's node objects directly. */
+  simHealthByNode: Record<string, SimHealthEntry> | null;
   /** Toolbar name field (B4) — used as the pipeline's name on save, seeded
    * from the loaded pipeline when editing an existing one. */
   pipelineName: string;
@@ -151,6 +166,7 @@ interface VisualStore {
   removeMatcher: (index: number) => void;
   /** Seeds name+matchers together, e.g. after loading an existing pipeline. */
   setPipelineMeta: (name: string, matchers: string[]) => void;
+  setSimHealthByNode: (health: Record<string, SimHealthEntry> | null) => void;
 }
 
 function makeDefaultDoc(schemaVersion = 'alloy-v1.18.1'): GraphDocument {
@@ -188,6 +204,7 @@ export const useVisualStore = create<VisualStore>()(
       connectingFrom: null,
       pipelineName: '',
       matchers: [],
+      simHealthByNode: null,
 
       setSchema: (schema) => set({ schema, diagnostics: revalidate({ ...get(), schema }) }),
 
@@ -305,6 +322,7 @@ export const useVisualStore = create<VisualStore>()(
           diagnostics: [],
           pipelineName: '',
           matchers: [],
+          simHealthByNode: null,
         }),
 
       removeEdge: (id) =>
@@ -375,6 +393,8 @@ export const useVisualStore = create<VisualStore>()(
         set((state) => ({ matchers: state.matchers.filter((_, i) => i !== index) })),
 
       setPipelineMeta: (pipelineName, matchers) => set({ pipelineName, matchers }),
+
+      setSimHealthByNode: (simHealthByNode) => set({ simHealthByNode }),
     }),
     {
       partialize: (state) => ({ doc: state.doc }),

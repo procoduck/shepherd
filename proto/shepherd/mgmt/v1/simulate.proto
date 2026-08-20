@@ -3,14 +3,24 @@ syntax = "proto3";
 package shepherd.mgmt.v1;
 
 import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "shepherd/mgmt/v1/visual.proto";
 
 option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 
-// SimulateService covers /api/orgs/{org}/simulate/*, deterministic S2
-// stage-trace evaluation for the visual builder. All methods require org-admin.
+// SimulateService covers /api/orgs/{org}/simulate/*: deterministic S2
+// stage-trace evaluation, and S3 sandboxed runs (VB-1 §6.4). All methods
+// require org-admin.
 service SimulateService {
   rpc SimulateRelabel(SimulateRelabelRequest) returns (SimulateRelabelResponse) {}
   rpc SimulateLogs(SimulateLogsRequest) returns (SimulateLogsResponse) {}
+
+  // CreateRun submits a graph for an S3 sandbox run. It returns only the run
+  // id — the client always polls GetRun for state, never trusts this
+  // response for anything else (VB-1 design doc §2: "graph -> { run_id }").
+  rpc CreateRun(CreateRunRequest) returns (CreateRunResponse) {}
+  // GetRun returns a run's current state, including results once terminal.
+  rpc GetRun(GetRunRequest) returns (SimulateRun) {}
 }
 
 // -- Relabel --
@@ -108,4 +118,97 @@ message LineTrace {
 // SimulateLogsResponse mirrors internal/simulate.LogsResponse.
 message SimulateLogsResponse {
   repeated LineTrace traces = 1;
+}
+
+// -- Run (S3 sandbox run, VB-1 §6.4/§13 M7) --
+
+// CreateRunRequest submits a graph for a sandboxed run. GraphDocument and
+// VisualNodeDiagnostic are reused from visual.proto rather than redefined,
+// per the single-schema-of-truth principle (VB-1 design doc §5.2).
+message CreateRunRequest {
+  string org_id = 1;
+  GraphDocument graph = 2;
+  // duration_seconds: 0 selects the server default (30s), clamped to [1,120].
+  int32 duration_seconds = 3;
+}
+
+message CreateRunResponse {
+  string run_id = 1;
+}
+
+message GetRunRequest {
+  string org_id = 1;
+  string id = 2;
+}
+
+// SimulateRewrite mirrors internal/simulate.Rewrite — one entry in the "what
+// was rewritten" disclosure (VB-1 §6.4 step 4).
+//
+// kind is one of: destination_endpoint | discovery_stubbed |
+// log_source_stubbed | secret_node_removed | secret_dropped |
+// secret_ref_substituted | edge_dropped. Kept a plain string per the
+// repo's documented contract rule (docs/archive/api-contract-design.md;
+// see visual.proto's UpgradeItem.class for the same precedent) rather than
+// a proto enum.
+message SimulateRewrite {
+  string node_id = 1;
+  string node_label = 2;
+  string component = 3;
+  string kind = 4;
+  string detail = 5;
+}
+
+// CapturedSeries mirrors one entry of the simulator's Results.Series.
+message CapturedSeries {
+  string name = 1;
+  map<string, string> labels = 2;
+  int32 sample_count = 3;
+}
+
+// CapturedLogLine mirrors one entry of the simulator's Results.LogLines.
+message CapturedLogLine {
+  map<string, string> labels = 1;
+  string line = 2;
+}
+
+// ComponentHealth mirrors one entry of the simulator's Results.Components.
+// health_state mirrors Alloy's own /api/v0/web/components values verbatim
+// (healthy, unhealthy, unknown, exited) and is NOT evidence of delivery —
+// see VB-1 §6.4's "nothing captured" containment note.
+message ComponentHealth {
+  string node_id = 1;
+  string node_label = 2;
+  string component = 3;
+  string health_state = 4;
+  string message = 5;
+}
+
+// SimulateRun is the full run document GetRun returns.
+//
+// status is one of: queued | running | completed | failed | expired — a
+// plain string, not a proto enum, per the same contract rule as
+// SimulateRewrite.kind above.
+// error_code (set iff status == "failed") is one of: cannot_stub |
+// gate_failed | simulator_unavailable | timeout | internal.
+message SimulateRun {
+  string id = 1;
+  string org_id = 2;
+  string status = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp started_at = 5;
+  google.protobuf.Timestamp finished_at = 6;
+  int32 requested_duration_seconds = 7;
+  // queue_position is 0 once status leaves "queued"; computed at read time,
+  // never stored (best-effort — see VB-1 run-API spec Risks).
+  int32 queue_position = 8;
+  repeated SimulateRewrite rewrites = 9;
+  repeated CapturedSeries captured_series = 10;
+  repeated CapturedLogLine captured_log_lines = 11;
+  repeated ComponentHealth component_health = 12;
+  repeated VisualNodeDiagnostic gate_diagnostics = 13;
+  string stderr_tail = 14;
+  string error_code = 15;
+  string error_message = 16;
+  // fidelity_note is the fixed §6.5 tier-S3 one-liner; always populated.
+  string fidelity_note = 17;
 }

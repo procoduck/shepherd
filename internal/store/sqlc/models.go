@@ -185,3 +185,23 @@ type Session struct {
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 	Source         string             `json:"source"`
 }
+
+type SimulateRun struct {
+	ID                       pgtype.UUID        `json:"id"`
+	OrgID                    pgtype.UUID        `json:"org_id"`
+	Status                   string             `json:"status"`
+	Graph                    json.RawMessage    `json:"graph"`
+	RequestedDurationSeconds int32              `json:"requested_duration_seconds"`
+	CreatedBy                string             `json:"created_by"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
+	StartedAt                pgtype.Timestamptz `json:"started_at"`
+	FinishedAt               pgtype.Timestamptz `json:"finished_at"`
+	Rewrites                 json.RawMessage    `json:"rewrites"`
+	CapturedSeries           json.RawMessage    `json:"captured_series"`
+	CapturedLogLines         json.RawMessage    `json:"captured_log_lines"`
+	ComponentHealth          json.RawMessage    `json:"component_health"`
+	GateDiagnostics          json.RawMessage    `json:"gate_diagnostics"`
+	StderrTail               string             `json:"stderr_tail"`
+	ErrorCode                string             `json:"error_code"`
+	ErrorMessage             string             `json:"error_message"`
+}

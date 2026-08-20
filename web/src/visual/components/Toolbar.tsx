@@ -9,6 +9,7 @@ import { clients, toApiError } from '../../api/transport';
 import { useOrgId } from '../../hooks/useOrg';
 import { isValidMatcher } from '../matcher';
 import { useVisualStore } from '../store';
+import { SandboxRunPanel } from './SandboxRunPanel';
 
 /** Thrown when the server-side render (VisualService.Render) reports L1
  * diagnostics — the graph itself failed to render, so there is nothing
@@ -206,6 +207,7 @@ export function Toolbar({ pipelineId }: { pipelineId: string }) {
       >
         Flow check
       </button>
+      <SandboxRunPanel orgId={orgId} />
       <button
         data-testid='toolbar-save'
         onClick={() => saveMutation.mutate()}

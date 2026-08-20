@@ -2,7 +2,9 @@ package schema_test
 
 import (
 	"encoding/json"
+	"os"
 	"testing"
+	"testing/fstest"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -905,3 +907,175 @@ var _ = Describe("Version pinning", func() {
 		Expect(merged).To(HaveKey("components"))
 	})
 })
+
+var _ = Describe("Overlay simulation policy guards", func() {
+	// VB-1 §6.4's simulation keys are hand-maintained and `make schema-verify`
+	// does not cover them: a regenerated artifact can rename an endpoint
+	// attribute out from under a sim_destination without anything noticing.
+	// Each red-run spec below rebuilds the registry over a doctored overlay so
+	// the failure path is exercised, not merely asserted to be absent.
+
+	It("the shipped overlay satisfies every simulation guard", func() {
+		reg, err := schema.New(schema.Embedded, currentVersion)
+		Expect(err).NotTo(HaveOccurred())
+		violations, err := reg.ValidateOverlay()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(violations).To(BeEmpty())
+	})
+
+	It("every discovery_stub key is a discovery.* or loki.source.* component the artifact declares", func() {
+		// §11 item 2, asserted directly rather than through the aggregate guard
+		// so a regression names the stub map instead of a violation count.
+		reg, err := schema.New(schema.Embedded, currentVersion)
+		Expect(err).NotTo(HaveOccurred())
+		merged, _, err := reg.Get(currentVersion)
+		Expect(err).NotTo(HaveOccurred())
+		components, ok := merged["components"].(map[string]any)
+		Expect(ok).To(BeTrue())
+
+		stubs := 0
+		for name, raw := range components {
+			comp, ok := raw.(map[string]any)
+			Expect(ok).To(BeTrue())
+			stub, present := comp["discovery_stub"]
+			if !present {
+				continue
+			}
+			stubs++
+			Expect(name).To(SatisfyAny(HavePrefix("discovery."), HavePrefix("loki.source.")),
+				"discovery_stub on %q", name)
+			Expect(comp["category"]).To(Equal("sources"), "discovery_stub on %q", name)
+			spec, ok := stub.(map[string]any)
+			Expect(ok).To(BeTrue())
+			Expect(schema.StubFixtureNames()).To(ContainElement(spec["fixture"]),
+				"discovery_stub on %q names an unknown fixture", name)
+		}
+		Expect(stubs).To(Equal(34), "30 discovery sources plus the 4 stubbable loki sources")
+	})
+
+	It("red run: a stub naming a fixture the library does not serve is a violation", func() {
+		reg := doctoredRegistry(func(components map[string]any) {
+			comp := components["discovery.kubernetes"].(map[string]any) //nolint:errcheck // the shipped overlay always has this component
+			comp["discovery_stub"] = map[string]any{"type": "static", "fixture": "no-such-fixture"}
+		})
+		violations, err := reg.ValidateOverlay()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(violations).To(ContainElement(ContainSubstring(`names fixture "no-such-fixture"`)))
+	})
+
+	It("red run: an endpoint path the artifact does not declare is a violation", func() {
+		reg := doctoredRegistry(func(components map[string]any) {
+			comp := components["prometheus.remote_write"].(map[string]any) //nolint:errcheck // the shipped overlay always has this component
+			dest := comp["sim_destination"].(map[string]any)               //nolint:errcheck // guarded by the spec above
+			dest["endpoint_paths"] = []any{[]any{"endpoint", "*", "uri"}}
+		})
+		violations, err := reg.ValidateOverlay()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(violations).To(ContainElement(ContainSubstring(`endpoint path "endpoint.*.uri" which the artifact does not declare`)))
+	})
+
+	It("red run: a receiver the capture harness does not serve is a violation", func() {
+		reg := doctoredRegistry(func(components map[string]any) {
+			comp := components["loki.write"].(map[string]any) //nolint:errcheck // the shipped overlay always has this component
+			dest := comp["sim_destination"].(map[string]any)  //nolint:errcheck // guarded by the spec above
+			dest["receiver"] = "carrier-pigeon"
+		})
+		violations, err := reg.ValidateOverlay()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(violations).To(ContainElement(ContainSubstring(`receiver "carrier-pigeon"`)))
+	})
+
+	It("red run: a Destinations component with no simulation policy is a violation", func() {
+		// This is the guard that makes an Alloy bump adding a destination fail
+		// here instead of silently widening the fail-closed hole.
+		reg := doctoredRegistry(func(components map[string]any) {
+			comp := components["pyroscope.write"].(map[string]any) //nolint:errcheck // the shipped overlay always has this component
+			delete(comp, "sim_destination")
+		})
+		violations, err := reg.ValidateOverlay()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(violations).To(ContainElement(ContainSubstring(`destination "pyroscope.write" has no sim_destination`)))
+	})
+
+	It("red run: an unknown secret-source mode is a violation", func() {
+		reg := doctoredRegistry(func(components map[string]any) {
+			comp := components["remote.kubernetes.secret"].(map[string]any) //nolint:errcheck // the shipped overlay always has this component
+			comp["sim_secret_source"] = map[string]any{"mode": "improvise"}
+		})
+		violations, err := reg.ValidateOverlay()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(violations).To(ContainElement(ContainSubstring(`unknown mode "improvise"`)))
+	})
+})
+
+var _ = Describe("Wire-type closure", func() {
+	// The S3 transform enumerates the four shapes a URL or credential can take
+	// inside a node, and claims there is no fifth because an EDGE cannot carry
+	// one. That claim is only sound while every port type is a wire type and no
+	// wire type is a scalar. This is the spec that makes the enumeration
+	// provably complete rather than merely diligent.
+	It("every port type is an overlay wire type, and no wire type is a scalar", func() {
+		reg, err := schema.New(schema.Embedded, currentVersion)
+		Expect(err).NotTo(HaveOccurred())
+		merged, _, err := reg.Get(currentVersion)
+		Expect(err).NotTo(HaveOccurred())
+
+		wireTypes, ok := merged["wire_types"].(map[string]any)
+		Expect(ok).To(BeTrue())
+		components, ok := merged["components"].(map[string]any)
+		Expect(ok).To(BeTrue())
+
+		scalars := []string{"string", "secret", "number", "bool", "duration", "map", "list", "capsule"}
+		for id, raw := range wireTypes {
+			Expect(scalars).NotTo(ContainElement(id), "wire type %q is a scalar; an edge could then carry a credential", id)
+			wt, ok := raw.(map[string]any)
+			Expect(ok).To(BeTrue())
+			goType, _ := wt["go_type"].(string) //nolint:errcheck // a missing go_type simply is not a scalar name
+			Expect(scalars).NotTo(ContainElement(goType), "wire type %q resolves to the scalar Go type %q", id, goType)
+		}
+
+		ports := 0
+		for name, raw := range components {
+			comp, ok := raw.(map[string]any)
+			Expect(ok).To(BeTrue())
+			for _, listKey := range []string{"inputs", "outputs"} {
+				list, _ := comp[listKey].([]any) //nolint:errcheck // a component with no ports contributes none
+				for _, portRaw := range list {
+					port, ok := portRaw.(map[string]any)
+					Expect(ok).To(BeTrue())
+					typ, ok := port["type"].(string)
+					Expect(ok).To(BeTrue(), "%s port of %q has no type", listKey, name)
+					Expect(wireTypes).To(HaveKey(typ), "%s port of %q has type %q, which the overlay does not define", listKey, name, typ)
+					ports++
+				}
+			}
+		}
+		Expect(ports).To(BeNumerically(">", 200), "the artifact must actually declare ports for this to mean anything")
+	})
+})
+
+// doctoredRegistry rebuilds a Registry over the real artifact and a mutated
+// copy of the real overlay, so a guard's failure path can be executed without
+// committing a broken overlay.
+func doctoredRegistry(mutate func(components map[string]any)) *schema.Registry {
+	artifact, err := os.ReadFile("artifacts/" + currentVersion + ".json")
+	Expect(err).NotTo(HaveOccurred())
+	overlayRaw, err := os.ReadFile("artifacts/overlay.json")
+	Expect(err).NotTo(HaveOccurred())
+
+	var overlay map[string]any
+	Expect(json.Unmarshal(overlayRaw, &overlay)).To(Succeed())
+	components, ok := overlay["components"].(map[string]any)
+	Expect(ok).To(BeTrue())
+	mutate(components)
+
+	doctored, err := json.Marshal(overlay)
+	Expect(err).NotTo(HaveOccurred())
+
+	reg, err := schema.New(fstest.MapFS{
+		"artifacts/overlay.json":                {Data: doctored},
+		"artifacts/" + currentVersion + ".json": {Data: artifact},
+	}, currentVersion)
+	Expect(err).NotTo(HaveOccurred())
+	return reg
+}
