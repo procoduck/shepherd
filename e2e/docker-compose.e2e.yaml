@@ -277,6 +277,34 @@ services:
       timeout: 5s
       retries: 30
 
+  # The hermetic stand-in for "the internet". It exists so the egress probes in
+  # e2e/sandbox_sim_test.go have something real to fail to reach, without any
+  # outbound traffic and without a public IP literal anywhere in the repo.
+  #
+  # It is on the DEFAULT network (shepherd-e2e) and MUST NEVER be on
+  # sim-internal. That is the whole design: reachable from the host and from
+  # every ordinary service, unreachable from the simulator's network namespace.
+  # The control probe dials it over shepherd-e2e and must SUCCEED; without that
+  # half, a denial probe would also pass against a canary that was simply
+  # broken.
+  egress-canary:
+    profiles: ["sim"]
+    image: alpine:3.22
+    # A one-connection-at-a-time HTTP responder built from busybox nc, restarted
+    # by the loop. Alpine's busybox has no httpd applet, and pulling a real
+    # server image for a listener whose entire job is to answer "ok" once per
+    # probe would add a dependency the proof does not need.
+    command:
+      - /bin/sh
+      - -c
+      - 'while true; do printf "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok" | nc -l -p 8080 >/dev/null 2>&1; done'
+    read_only: true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-T", "3", "-O", "-", "http://127.0.0.1:8080/"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
 volumes:
   gitea_e2e_data:
 

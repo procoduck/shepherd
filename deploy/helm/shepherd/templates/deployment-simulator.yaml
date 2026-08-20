@@ -1,0 +1,116 @@
+{{- if .Values.simulator.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "shepherd.simulatorFullname" . }}
+  labels:
+    {{- include "shepherd.simulatorLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.simulator.replicas }}
+  selector:
+    matchLabels:
+      {{- include "shepherd.simulatorSelectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.simulator.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "shepherd.simulatorSelectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.simulator.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "shepherd.simulatorFullname" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        # The sandbox Alloy runs as a CHILD PROCESS of this container
+        # (internal/simsvc/runner.go) and writes its WAL, run scratch space,
+        # capture output and log fixtures under /tmp — the same directories
+        # SIM_STORAGE_DIR/RUN_DIR/CAPTURE_DIR/LOG_DIR default to. A read-only
+        # root filesystem with only this path writable is what makes an
+        # arbitrary write from a user-authored config land nowhere durable.
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+      containers:
+        - name: shepherd-simulator
+          image: {{ include "shepherd.simulatorImage" . }}
+          imagePullPolicy: {{ .Values.simulator.image.pullPolicy }}
+          ports:
+            - name: control
+              containerPort: 8099
+              protocol: TCP
+            - name: capture
+              containerPort: 9110
+              protocol: TCP
+            - name: synthetic
+              containerPort: 9111
+              protocol: TCP
+            - name: otlp-grpc
+              containerPort: 4317
+              protocol: TCP
+            - name: syslog
+              containerPort: 5514
+              protocol: TCP
+          env:
+            - name: SIM_LISTEN
+              value: ":8099"
+            {{- if .Values.simulator.allowedHosts }}
+            - name: SIM_ALLOWED_HOSTS
+              value: {{ join "," .Values.simulator.allowedHosts | quote }}
+            {{- else }}
+            # Unset: internal/simsvc.Config defaults to this Service's own
+            # DNS name plus localhost, which is every host the harness
+            # endpoints above are ever rendered with (§6.4 defense in depth,
+            # on top of — not instead of — the NetworkPolicy below).
+            - name: SIM_ALLOWED_HOSTS
+              value: {{ printf "%s,localhost,127.0.0.1,::1" (include "shepherd.simulatorFullname" .) | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            exec:
+              command: ["/usr/local/bin/shepherd-simulator", "healthcheck", "--addr", "127.0.0.1:8099"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["/usr/local/bin/shepherd-simulator", "healthcheck", "--addr", "127.0.0.1:8099"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.simulator.resources | nindent 12 }}
+      {{- with .Values.simulator.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.simulator.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.simulator.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

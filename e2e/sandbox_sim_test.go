@@ -25,23 +25,15 @@ import (
 // always runs, but --label-filter=sandbox-sim skips every unlabeled It,
 // including the one that populates the package-level orgID.
 //
-// KNOWN BLOCKER (docs/proofs/sandbox-sim-e2e.md has the full evidence): as of
-// this writing the first It below is RED against a real simulator, not
-// because this scenario or the transform is wrong, but because
-// internal/visual/render.go always wraps a wired "targets" input in a `[...]`
-// list literal (cardinality: "list" in the shipped schema, unconditionally —
-// see docs/reviews/graph-model-and-validation.md §3.4), and Alloy v1.18.1
-// cannot convert a `[]discovery.Target`-shaped reference nested inside a list
-// literal — `alloy validate` accepts it, `alloy run` refuses it with
-// `target::ConvertFrom: conversion from '[]discovery.Target' is not
-// supported`. That is true of minimal-scrape's OWN committed golden too, and
-// of every corpus fixture wiring a discovery source into a scrape/log
-// component — a pre-existing, repo-wide defect this stage's scope
-// (internal/visual/render.go is listed EXISTING, DO NOT REBUILD) does not
-// cover fixing. The kill probe below is run against an equivalent graph that
-// avoids the same edge (literal `targets` instead of a wired discovery
-// source) to prove the destination-rewrite/containment mechanism this
-// scenario exists to test — see the proof doc for the real red/green output.
+// THIS SPEC WAS RED FOR A REAL REASON AND IS NOW GREEN — do not "simplify" the
+// graph below back to a literal target set. It submits a wired
+// discovery → scrape → remote_write pipeline precisely because that wiring was
+// what finding M13 broke: internal/visual/render.go used to wrap every wired
+// "targets" input in a `[...]` list literal, which `alloy validate` accepts and
+// `alloy run` refuses with `target::ConvertFrom: conversion from
+// '[]discovery.Target' is not supported`. Fixed in render.go's refValue;
+// docs/proofs/sandbox-sim-e2e.md §1 has the red and green transcripts against a
+// live stack. A graph that avoids the wire would pass without exercising it.
 var _ = Describe("Scenario sandbox-sim: S3 sandbox run against the real simulator", Ordered, Label("sandbox-sim"), func() {
 	var (
 		simOrgID string
@@ -71,7 +63,9 @@ var _ = Describe("Scenario sandbox-sim: S3 sandbox run against the real simulato
 	// as a literal rather than read from disk: the e2e binary's working
 	// directory is not guaranteed to be the repo root, and a graph this
 	// small is cheaper to keep in sync by inspection than to wire a file
-	// read for.
+	// read for. The scrape timing props differ from the corpus graph's for
+	// the reason stated on them below; the wiring, which is what this
+	// scenario tests, does not.
 	minimalScrapeGraph := map[string]any{
 		"kind":           "alloy-graph/v1",
 		"schema_version": "alloy-v1.18.1",
@@ -82,7 +76,25 @@ var _ = Describe("Scenario sandbox-sim: S3 sandbox run against the real simulato
 			},
 			{
 				"id": "n2", "component": "prometheus.scrape", "label": "app",
-				"props": map[string]any{"job_name": "app", "scrape_interval": "30s"},
+				// scrape_interval MUST stay well under the run's
+				// duration_seconds below, and scrape_timeout MUST stay under
+				// scrape_interval. Both are load-bearing, both were learned
+				// the hard way against the live stack:
+				//
+				//   - at the corpus graph's 30s interval, an 18s run ends
+				//     before Prometheus's jittered first scrape about half the
+				//     time — observed as this suite's "captured series include
+				//     the synthetic exporter's counter" spec passing on one
+				//     clean-stack run and failing on the next with zero series.
+				//     A capture assertion that flips on scrape jitter proves
+				//     nothing on the run where it happens to pass.
+				//   - Alloy's default scrape_timeout is 10s, and it refuses to
+				//     BUILD a scrape whose timeout exceeds its interval
+				//     ("scrape_timeout (10s) greater than scrape_interval"),
+				//     which fails the whole run at load. Lowering the interval
+				//     without also lowering the timeout trades a flake for a
+				//     hard red.
+				"props": map[string]any{"job_name": "app", "scrape_interval": "5s", "scrape_timeout": "2s"},
 			},
 			{
 				"id": "n3", "component": "prometheus.remote_write", "label": "sink",
@@ -150,6 +162,18 @@ var _ = Describe("Scenario sandbox-sim: S3 sandbox run against the real simulato
 		for _, c := range run.ComponentHealth {
 			Expect(c.HealthState).To(Equal("healthy"), "component %s (%s) reported %q: %s", c.NodeLabel, c.Component, c.HealthState, c.Message)
 		}
+	})
+
+	// The stderr tail is the only place a user can see what the sandbox Alloy
+	// itself said, and it is what makes a failed run diagnosable rather than
+	// just red (finding H8 shipped the UI for it). Asserting a line that only
+	// real Alloy emits — not merely "not empty" — is what keeps this from
+	// passing on an empty string, a copied request echo, or Shepherd's own log.
+	It("the stderr tail carries the sandbox Alloy's own output", func() {
+		run := getRun(simOrgID, runID)
+		Expect(run.StderrTail).NotTo(BeEmpty())
+		Expect(run.StderrTail).To(ContainSubstring("Alloy is running"),
+			"expected the sandbox Alloy's own startup line in the tail, got: %s", run.StderrTail)
 	})
 
 	It("the rewrite disclosure lists exactly the expected rewrites: one discovery stub, one destination rewrite", func() {
@@ -239,6 +263,9 @@ type rewrite struct {
 
 type simulateRunView struct {
 	Status          string            `json:"status"`
+	ErrorCode       string            `json:"error_code"`
+	ErrorMessage    string            `json:"error_message"`
+	StderrTail      string            `json:"stderr_tail"`
 	CapturedSeries  []capturedSeries  `json:"captured_series"`
 	ComponentHealth []componentHealth `json:"component_health"`
 	Rewrites        []rewrite         `json:"rewrites"`

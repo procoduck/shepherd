@@ -5,7 +5,7 @@ discovery.kubernetes "k8s" {
 }
 
 discovery.relabel "first" {
-  targets = [discovery.kubernetes.k8s.targets]
+  targets = discovery.kubernetes.k8s.targets
   rule {
     source_labels = ["__meta_kubernetes_pod_phase"]
     regex = "Running"
@@ -14,7 +14,7 @@ discovery.relabel "first" {
 }
 
 discovery.relabel "second" {
-  targets = [discovery.kubernetes.k8s.targets]
+  targets = discovery.kubernetes.k8s.targets
   rule {
     source_labels = ["__meta_kubernetes_pod_label_team"]
     target_label = "team"
@@ -23,7 +23,7 @@ discovery.relabel "second" {
 }
 
 prometheus.scrape "app" {
-  targets = [discovery.relabel.first.output, discovery.relabel.second.output]
+  targets = array.concat(discovery.relabel.first.output, discovery.relabel.second.output)
   forward_to = [prometheus.remote_write.sink.receiver]
   job_name = "app"
 }

@@ -41,3 +41,33 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- printf "%s:%s" $repo $tag }}
 {{- end }}
 {{- end }}
+
+{{/*
+S3 sandbox simulator (VB-1 §6.4). A distinct name, not shepherd.fullname
+suffixed ad hoc, so its Service/Deployment/NetworkPolicy/ServiceAccount names
+are stable and greppable on their own.
+*/}}
+{{- define "shepherd.simulatorFullname" -}}
+{{- printf "%s-simulator" (include "shepherd.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "shepherd.simulatorLabels" -}}
+{{ include "shepherd.labels" . }}
+app.kubernetes.io/component: simulator
+{{- end }}
+
+{{- define "shepherd.simulatorSelectorLabels" -}}
+{{ include "shepherd.selectorLabels" . }}
+app.kubernetes.io/component: simulator
+{{- end }}
+
+{{- define "shepherd.simulatorImage" -}}
+{{- $reg := .Values.simulator.image.registry }}
+{{- $repo := .Values.simulator.image.repository }}
+{{- $tag := .Values.simulator.image.tag | default .Chart.AppVersion }}
+{{- if $reg }}
+{{- printf "%s/%s:%s" $reg $repo $tag }}
+{{- else }}
+{{- printf "%s:%s" $repo $tag }}
+{{- end }}
+{{- end }}

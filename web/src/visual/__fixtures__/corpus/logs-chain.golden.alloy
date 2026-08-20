@@ -6,7 +6,7 @@ local.file_match "logfiles" {
 }
 
 loki.source.file "pods" {
-  targets = [local.file_match.logfiles.targets]
+  targets = local.file_match.logfiles.targets
   forward_to = [loki.process.parse.receiver]
   tail_from_end = true
 }

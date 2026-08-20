@@ -3,6 +3,7 @@ package schema_test
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -299,11 +300,27 @@ var _ = Describe("Overlay guards", func() {
 		}
 	})
 
-	It("discovery_stub keys are all discovery.* components in the artifact", func() {
+	It("discovery_stub keys are all Sources-category components in the artifact", func() {
 		violations, err := reg.ValidateOverlay()
 		Expect(err).NotTo(HaveOccurred())
 		// ValidateOverlay checks discovery_stub placement; zero violations = guard passes.
 		Expect(violations).To(BeEmpty())
+	})
+
+	It("red run: a discovery_stub on a non-Sources component is a violation", func() {
+		// This guard used to be a "discovery."/"loki.source." name-prefix
+		// check, which a Sources-category component with neither prefix
+		// (local.file_match) would fail even with a correct stub. Category is
+		// what it checks now — proved from the other side: it must still
+		// refuse a stub on a component that plainly is not a source at all.
+		reg := doctoredRegistry(func(components map[string]any) {
+			comp := components["prometheus.relabel"].(map[string]any) //nolint:errcheck // the shipped overlay always has this component
+			comp["discovery_stub"] = map[string]any{"type": "static", "fixture": "file-targets"}
+		})
+		violations, err := reg.ValidateOverlay()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(violations).To(ContainElement(ContainSubstring(
+			`discovery_stub on non-sources component "prometheus.relabel"`)))
 	})
 
 	It("every wire type carries a hex color", func() {
@@ -923,9 +940,15 @@ var _ = Describe("Overlay simulation policy guards", func() {
 		Expect(violations).To(BeEmpty())
 	})
 
-	It("every discovery_stub key is a discovery.* or loki.source.* component the artifact declares", func() {
+	It("every discovery_stub key is a Sources-category component the artifact declares", func() {
 		// §11 item 2, asserted directly rather than through the aggregate guard
 		// so a regression names the stub map instead of a violation count.
+		//
+		// The gate is CATEGORY, not a "discovery."/"loki.source." name prefix
+		// (finding M9): local.file_match is a Sources-category component shaped
+		// exactly like a discovery node — it exports "targets" and nothing
+		// else — but carries neither prefix, and rule G's applyStubs stubs it
+		// on that shape, not its name.
 		reg, err := schema.New(schema.Embedded, currentVersion)
 		Expect(err).NotTo(HaveOccurred())
 		merged, _, err := reg.Get(currentVersion)
@@ -942,15 +965,13 @@ var _ = Describe("Overlay simulation policy guards", func() {
 				continue
 			}
 			stubs++
-			Expect(name).To(SatisfyAny(HavePrefix("discovery."), HavePrefix("loki.source.")),
-				"discovery_stub on %q", name)
 			Expect(comp["category"]).To(Equal("sources"), "discovery_stub on %q", name)
 			spec, ok := stub.(map[string]any)
 			Expect(ok).To(BeTrue())
 			Expect(schema.StubFixtureNames()).To(ContainElement(spec["fixture"]),
 				"discovery_stub on %q names an unknown fixture", name)
 		}
-		Expect(stubs).To(Equal(34), "30 discovery sources plus the 4 stubbable loki sources")
+		Expect(stubs).To(Equal(35), "30 discovery sources plus the 4 stubbable loki sources plus local.file_match")
 	})
 
 	It("red run: a stub naming a fixture the library does not serve is a violation", func() {
@@ -1008,6 +1029,318 @@ var _ = Describe("Overlay simulation policy guards", func() {
 	})
 })
 
+var _ = Describe("Overlay S3 disposition exhaustiveness", func() {
+	// The deny-by-default model only holds if EVERY component the artifact
+	// declares is covered by a rule. An Alloy bump that adds one and leaves it
+	// uncovered has to fail here, at build time, rather than at an S3 run —
+	// which is the asymmetry finding 16 named, where destinations were checked
+	// for completeness and sources were not.
+
+	It("every artifact component resolves to exactly one S3 disposition", func() {
+		reg, err := schema.New(schema.Embedded, currentVersion)
+		Expect(err).NotTo(HaveOccurred())
+		components := artifactComponents(reg)
+
+		counts := map[string]int{}
+		for name, raw := range components {
+			comp, ok := raw.(map[string]any)
+			Expect(ok).To(BeTrue())
+			var found []string
+			for _, key := range []string{"discovery_stub", "sim_destination", "sim_keep", "sim_secret_source", "sim_unsupported"} {
+				if _, present := comp[key]; present {
+					found = append(found, key)
+				}
+			}
+			if len(found) == 0 {
+				// The six deliberately-unmappable destinations are dispositioned
+				// by the hard-coded list validateSimPolicy enforces.
+				Expect(comp["category"]).To(Equal("destinations"), "component %q has no disposition at all", name)
+				counts["unmappable_destination"]++
+				continue
+			}
+			// sim_keep on a mapped destination is the props allowlist that sits
+			// alongside rule D's endpoint policy; nothing else pairs.
+			if len(found) == 2 {
+				Expect(found).To(ConsistOf("sim_destination", "sim_keep"), "component %q", name)
+				counts["sim_destination"]++
+				continue
+			}
+			Expect(found).To(HaveLen(1), "component %q carries %v", name, found)
+			counts[found[0]]++
+		}
+		Expect(counts).To(Equal(map[string]int{
+			"discovery_stub":  35,
+			"sim_destination": 14,
+			// The availability fix moved 19 sim_keep components to
+			// sim_unsupported (108 -> 89): each had an unconditionally required
+			// attribute or block sim_keep did not cover, so rule K's own output
+			// would be missing what real Alloy requires — a config the sandbox
+			// cannot load, blamed on the user's node for a value the transform
+			// removed. otelcol.exporter.splunkhec moved from sim_destination to
+			// unmappable_destination for the same reason: its splunk.token is
+			// required AND secret, which no keep list can ever satisfy.
+			"sim_keep":          89,
+			"sim_secret_source": 14,
+			// Twenty-five, not six: the four from the round-2 address review
+			// (prometheus.exporter.blackbox/snmp, whose `targets` is not a
+			// Prometheus label set — the probe destination sits in an ordinary
+			// `address` key the target_set class never touches) plus the 19
+			// availability-fix conversions above (VB-1 §6.4).
+			"sim_unsupported":        25,
+			"unmappable_destination": 7,
+		}), "the disposition census must be stated, not counted: a change here is a change to what S3 will run")
+	})
+
+	It("red run: a Sources-category component a future Alloy release adds is a violation until it is dispositioned", func() {
+		// Finding M9's asymmetry, closed: this used to be checked only for
+		// Destinations components, which is exactly how 80 Sources-category
+		// components skipped a real disposition decision. A new
+		// prometheus.exporter.* the artifact adds with no overlay entry at all
+		// — not even an empty sim_keep — must fail here, the same as a new
+		// destination or a new transform would.
+		reg := doctoredArtifactRegistry(func(components map[string]any) {
+			components["prometheus.exporter.futurething"] = map[string]any{
+				"attributes": []any{map[string]any{"name": "target", "type": "string", "required": true}},
+				"blocks":     []any{},
+				"inputs":     []any{},
+				"outputs": []any{map[string]any{
+					"export": "targets", "path": []any{"targets"}, "role": "produces", "type": "targets",
+				}},
+			}
+		}, func(map[string]any) {})
+		violations, err := reg.ValidateOverlay()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(violations).To(ContainElement(ContainSubstring(
+			`component "prometheus.exporter.futurething" has no S3 disposition`)))
+	})
+
+	It("red run: a component a future Alloy release adds is a violation until it is dispositioned", func() {
+		reg := doctoredArtifactRegistry(func(components map[string]any) {
+			components["otelcol.processor.futurething"] = map[string]any{
+				"attributes": []any{map[string]any{"name": "endpoint", "type": "string", "required": true}},
+				"blocks":     []any{},
+				"inputs":     []any{},
+				"outputs":    []any{},
+			}
+		}, func(map[string]any) {})
+		violations, err := reg.ValidateOverlay()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(violations).To(ContainElement(ContainSubstring(
+			`component "otelcol.processor.futurething" has no S3 disposition`)))
+	})
+
+	It("red run: an attribute a future Alloy release adds inside a subtree keep is a violation", func() {
+		// keep_subtree is the one construct where a future attribute is not
+		// fail-closed. This is the guard that restores it: loki.process is
+		// measured clean today, and stops being clean the moment upstream adds
+		// a credential inside its stage tree.
+		reg := doctoredArtifactRegistry(func(components map[string]any) {
+			comp := components["loki.process"].(map[string]any)       //nolint:errcheck // the shipped artifact always has this component
+			blocks := comp["blocks"].([]any)                          //nolint:errcheck // loki.process is all blocks
+			stage := blocks[0].(map[string]any)                       //nolint:errcheck // every loki.process block is a stage
+			stage["attributes"] = append(stage["attributes"].([]any), //nolint:errcheck // the generator always emits an array
+				map[string]any{"name": "password", "type": "string", "required": false})
+		}, func(map[string]any) {})
+		violations, err := reg.ValidateOverlay()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(violations).To(ContainElement(SatisfyAll(
+			ContainSubstring(`sim_keep on "loki.process"`),
+			ContainSubstring("password"),
+			ContainSubstring("credential-shaped"),
+		)))
+	})
+
+	It("red run: keeping a credential-named path without acknowledging it is a violation", func() {
+		reg := doctoredRegistry(func(components map[string]any) {
+			comp := components["prometheus.scrape"].(map[string]any)           //nolint:errcheck // the shipped overlay always has this component
+			keep := comp["sim_keep"].(map[string]any)                          //nolint:errcheck // prometheus.scrape has an explicit keep list
+			keep["paths"] = append(keep["paths"].([]any), "bearer_token_file") //nolint:errcheck // the generator always emits an array
+		})
+		violations, err := reg.ValidateOverlay()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(violations).To(ContainElement(ContainSubstring(
+			`sim_keep on "prometheus.scrape" keeps "bearer_token_file", whose segment "bearer_token_file" is credential-shaped`)))
+	})
+
+	It("red run: a keep path the artifact does not declare, or written non-canonically, is a violation", func() {
+		reg := doctoredRegistry(func(components map[string]any) {
+			comp := components["prometheus.remote_write"].(map[string]any) //nolint:errcheck // the shipped overlay always has this component
+			comp["sim_keep"] = map[string]any{"paths": []any{
+				"endpoint.*.queue_config.no_such_attribute",
+				"endpoint.queue_config.capacity", // missing the "*" after a repeatable block
+			}}
+		})
+		violations, err := reg.ValidateOverlay()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(violations).To(ContainElements(
+			ContainSubstring(`names path "endpoint.*.queue_config.no_such_attribute" which the artifact does not declare`),
+			ContainSubstring(`canonical form is "endpoint.*.queue_config.capacity"`),
+		))
+	})
+
+	It("red run: a value class rule K does not implement is a violation", func() {
+		// A class the guard waved through would be a keep entry that passes
+		// schema-verify and then behaves as verbatim at run time — which for
+		// anything meant to neutralise an address is the leak, not a typo.
+		reg := doctoredRegistry(func(components map[string]any) {
+			comp := components["prometheus.scrape"].(map[string]any) //nolint:errcheck // the shipped overlay always has this component
+			keep := comp["sim_keep"].(map[string]any)                //nolint:errcheck // prometheus.scrape has an explicit keep list
+			keep["paths"] = append(keep["paths"].([]any),            //nolint:errcheck // the generator always emits an array
+				map[string]any{"path": "job_name", "class": "sanitised"})
+		})
+		violations, err := reg.ValidateOverlay()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(violations).To(ContainElement(ContainSubstring(
+			`sim_keep on "prometheus.scrape" names path "job_name" with unknown value class "sanitised"`)))
+	})
+
+	It("red run: the target_set class on an attribute that is not a list is a violation", func() {
+		// target_set rebuilds a list of label sets. On a string it would have
+		// nothing to rebuild and would silently keep the value as authored.
+		reg := doctoredRegistry(func(components map[string]any) {
+			comp := components["prometheus.scrape"].(map[string]any) //nolint:errcheck // the shipped overlay always has this component
+			keep := comp["sim_keep"].(map[string]any)                //nolint:errcheck // prometheus.scrape has an explicit keep list
+			keep["paths"] = append(keep["paths"].([]any),            //nolint:errcheck // the generator always emits an array
+				map[string]any{"path": "metrics_path", "class": "target_set"})
+		})
+		violations, err := reg.ValidateOverlay()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(violations).To(ContainElement(SatisfyAll(
+			ContainSubstring(`gives path "metrics_path" the "target_set" class`),
+			ContainSubstring(`declares it "string"`),
+		)))
+	})
+
+	It("keeps an address-named path only when a class overwrites the address or a human acknowledged it", func() {
+		// The address guard's two escape hatches, asserted together so neither
+		// can quietly become the default. `targets` is address-shaped and is
+		// kept on nine components with no acknowledgement anywhere in the
+		// overlay — the target_set class is what answers for it.
+		reg, err := schema.New(schema.Embedded, currentVersion)
+		Expect(err).NotTo(HaveOccurred())
+		violations, err := reg.ValidateOverlay()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(violations).To(BeEmpty())
+
+		// Red half: strip the class and the same path becomes a violation on
+		// every one of those components.
+		red := doctoredRegistry(func(components map[string]any) {
+			for _, comp := range components {
+				entry, isObj := comp.(map[string]any)
+				if !isObj {
+					continue
+				}
+				keep, hasKeep := entry["sim_keep"].(map[string]any)
+				if !hasKeep {
+					continue
+				}
+				paths, hasPaths := keep["paths"].([]any)
+				if !hasPaths {
+					continue
+				}
+				for i, raw := range paths {
+					if p, isObj := raw.(map[string]any); isObj && p["class"] == "target_set" {
+						paths[i] = p["path"]
+					}
+				}
+			}
+		})
+		redViolations, err := red.ValidateOverlay()
+		Expect(err).NotTo(HaveOccurred())
+		// Nine, not fourteen: blackbox and snmp used to carry the class and are
+		// now sim_unsupported, because their `targets` is a probe list with an
+		// ordinary `address` key rather than a Prometheus label set (round-2);
+		// database_observability.mysql/postgres/sql_server lost the class along
+		// with the rest of their disposition when the availability fix made
+		// them sim_unsupported too — their required data_source_name is a
+		// secret no keep list can ever carry (VB-1 §6.4).
+		Expect(redViolations).To(HaveLen(9), "every component that keeps a target set must depend on the class for it")
+		Expect(redViolations).To(ContainElement(ContainSubstring(
+			`sim_keep on "prometheus.scrape" keeps "targets", whose leaf is address-shaped`)))
+	})
+
+	It("red run: an acknowledgement with no reason is a violation", func() {
+		reg := doctoredRegistry(func(components map[string]any) {
+			comp := components["prometheus.relabel"].(map[string]any) //nolint:errcheck // the shipped overlay always has this component
+			comp["sim_keep_acknowledged"] = []any{map[string]any{"path": "rule.*.target_label"}}
+		})
+		violations, err := reg.ValidateOverlay()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(violations).To(ContainElement(ContainSubstring("with no reason")))
+	})
+
+	// The number that makes the previous, type-driven design indefensible. It is
+	// pinned so it cannot drift silently: if a future artifact really does type
+	// most credentials as `secret`, that is a deliberate finding, not a diff
+	// nobody read.
+	It("states the artifact's declared-type census, which is why type cannot be the allowlist", func() {
+		reg, err := schema.New(schema.Embedded, currentVersion)
+		Expect(err).NotTo(HaveOccurred())
+		components := artifactComponents(reg)
+
+		byType := map[string]int{}
+		credentialNamed, credentialNamedNotSecret := 0, 0
+		var walk func(node map[string]any)
+		walk = func(node map[string]any) {
+			attrs, _ := node["attributes"].([]any) //nolint:errcheck // absent means none at this level
+			for _, rawAttr := range attrs {
+				attr, ok := rawAttr.(map[string]any)
+				if !ok {
+					continue
+				}
+				typ, _ := attr["type"].(string)  //nolint:errcheck // an untyped attribute counts under ""
+				name, _ := attr["name"].(string) //nolint:errcheck // a nameless attribute cannot be named credential-shaped
+				byType[typ]++
+				if credentialNamedAttr(name) {
+					credentialNamed++
+					if typ != "secret" {
+						credentialNamedNotSecret++
+					}
+				}
+			}
+			blocks, _ := node["blocks"].([]any) //nolint:errcheck // absent means none at this level
+			for _, rawBlock := range blocks {
+				if block, ok := rawBlock.(map[string]any); ok {
+					walk(block)
+				}
+			}
+		}
+		for _, raw := range components {
+			if comp, ok := raw.(map[string]any); ok {
+				walk(comp)
+			}
+		}
+
+		total := 0
+		for _, n := range byType {
+			total += n
+		}
+		Expect(total).To(Equal(6482), "declared attribute paths in the shipped artifact")
+		Expect(byType).To(Equal(map[string]int{
+			"string": 2881, "bool": 1295, "list": 664, "number": 509,
+			"duration": 492, "secret": 338, "map": 242, "capsule": 61,
+		}))
+		Expect(credentialNamed).To(Equal(716))
+		Expect(credentialNamedNotSecret).To(Equal(516),
+			"516 of 716 credential-named attribute paths are NOT typed secret; a type-driven sweep misses every one")
+	})
+})
+
+// credentialNamedAttr is the census heuristic from the security review. It is
+// used here to COUNT, never to decide what reaches the sandbox.
+func credentialNamedAttr(name string) bool {
+	lower := strings.ToLower(name)
+	for _, needle := range []string{
+		"password", "passwd", "secret", "token", "credential", "api_key", "apikey",
+		"bearer", "private_key", "key_file", "keyfile", "sasl", "auth", "access_key",
+	} {
+		if strings.Contains(lower, needle) {
+			return true
+		}
+	}
+	return lower == "key" || strings.HasSuffix(lower, "_key")
+}
+
 var _ = Describe("Wire-type closure", func() {
 	// The S3 transform enumerates the four shapes a URL or credential can take
 	// inside a node, and claims there is no fifth because an EDGE cannot carry
@@ -1058,23 +1391,39 @@ var _ = Describe("Wire-type closure", func() {
 // copy of the real overlay, so a guard's failure path can be executed without
 // committing a broken overlay.
 func doctoredRegistry(mutate func(components map[string]any)) *schema.Registry {
-	artifact, err := os.ReadFile("artifacts/" + currentVersion + ".json")
+	return doctoredArtifactRegistry(func(map[string]any) {}, mutate)
+}
+
+// doctoredArtifactRegistry rebuilds the registry over a doctored ARTIFACT as
+// well as a doctored overlay. Injecting into the artifact is how the Alloy-bump
+// red runs work: a future release adding a component, or adding an attribute
+// inside a subtree keep, is exactly a change to that file and nothing else.
+func doctoredArtifactRegistry(mutateArtifact, mutateOverlay func(components map[string]any)) *schema.Registry {
+	artifactRaw, err := os.ReadFile("artifacts/" + currentVersion + ".json")
 	Expect(err).NotTo(HaveOccurred())
 	overlayRaw, err := os.ReadFile("artifacts/overlay.json")
 	Expect(err).NotTo(HaveOccurred())
+
+	var artifact map[string]any
+	Expect(json.Unmarshal(artifactRaw, &artifact)).To(Succeed())
+	artifactComps, ok := artifact["components"].(map[string]any)
+	Expect(ok).To(BeTrue())
+	mutateArtifact(artifactComps)
 
 	var overlay map[string]any
 	Expect(json.Unmarshal(overlayRaw, &overlay)).To(Succeed())
 	components, ok := overlay["components"].(map[string]any)
 	Expect(ok).To(BeTrue())
-	mutate(components)
+	mutateOverlay(components)
 
+	doctoredArtifact, err := json.Marshal(artifact)
+	Expect(err).NotTo(HaveOccurred())
 	doctored, err := json.Marshal(overlay)
 	Expect(err).NotTo(HaveOccurred())
 
 	reg, err := schema.New(fstest.MapFS{
 		"artifacts/overlay.json":                {Data: doctored},
-		"artifacts/" + currentVersion + ".json": {Data: artifact},
+		"artifacts/" + currentVersion + ".json": {Data: doctoredArtifact},
 	}, currentVersion)
 	Expect(err).NotTo(HaveOccurred())
 	return reg

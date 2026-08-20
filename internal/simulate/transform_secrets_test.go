@@ -11,13 +11,20 @@ import (
 // §11 item 6's post-condition, kept in its own file so the red proof
 // (docs/proofs/transform-secret-drop.md) names exactly one place to look.
 //
-// The credentials below are chosen so that dropSecretTypedProps is the ONLY
-// thing that can remove them: sys.env("PROM_PASSWORD") sits two blocks deep at a
-// path rule D never touches, and sys.env("TOKEN") is a binding with no
-// secret-source node behind it, so rule S1 has nothing to match. Verified
-// against the real binary: a config with a rewritten capture URL and an intact
-// sys.env password passes `alloy validate --stability.level=experimental` in
-// grafana/alloy:v1.18.1 with exit 0. Validation cannot be the safety net.
+// The credentials below are chosen so that rule K is the ONLY thing that can
+// remove them: sys.env("PROM_PASSWORD") sits two blocks deep at a path rule D
+// never touches, and sys.env("TOKEN") is a binding with no secret-source node
+// behind it, so rule S1 has nothing to match. Verified against the real binary:
+// a config with a rewritten capture URL and an intact sys.env password passes
+// `alloy validate --stability.level=experimental` in grafana/alloy:v1.18.1 with
+// exit 0. Validation cannot be the safety net.
+//
+// This file predates the deny-by-default inversion and every credential in it
+// is one the artifact declares `secret`, which is why it stayed green through
+// all three CRITICAL-1 leaks. transform_keep_test.go is the file that covers
+// the other 6144 attribute paths; this one stays because the shapes it names —
+// a $expr two blocks deep, a binding with no source behind it, a capsule handle
+// — are still the shapes rule K has to refuse, and it names them individually.
 
 // leakedTokens is the grep list. Every entry is a value or a name that must not
 // survive into the sandbox in any form.

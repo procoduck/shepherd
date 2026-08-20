@@ -940,7 +940,8 @@ func (x *GetRunRequest) GetId() string {
 //
 // kind is one of: destination_endpoint | discovery_stubbed |
 // log_source_stubbed | secret_node_removed | secret_dropped |
-// secret_ref_substituted | edge_dropped. Kept a plain string per the
+// secret_ref_substituted | edge_dropped | prop_dropped |
+// target_address_forced. Kept a plain string per the
 // repo's documented contract rule (docs/archive/api-contract-design.md;
 // see visual.proto's UpgradeItem.class for the same precedent) rather than
 // a proto enum.

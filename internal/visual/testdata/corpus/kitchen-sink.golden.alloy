@@ -10,12 +10,12 @@ local.file_match "logfiles" {
 }
 
 loki.source.file "applogs" {
-  targets = [local.file_match.logfiles.targets]
+  targets = local.file_match.logfiles.targets
   forward_to = [loki.write.loki_cloud.receiver]
 }
 
 discovery.relabel "filter" {
-  targets = [discovery.kubernetes.k8s.targets]
+  targets = discovery.kubernetes.k8s.targets
   rule {
     source_labels = ["__meta_kubernetes_namespace"]
     regex = "kube-system"
@@ -24,7 +24,7 @@ discovery.relabel "filter" {
 }
 
 prometheus.scrape "app" {
-  targets = [discovery.relabel.filter.output]
+  targets = discovery.relabel.filter.output
   forward_to = [prometheus.relabel.drop_internal.receiver]
   job_name = "myapp"
   honor_labels = true

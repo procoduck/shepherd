@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"io/fs"
 	"sort"
-	"strings"
 	"sync"
 )
 
@@ -132,17 +131,22 @@ func (r *Registry) ValidateOverlay() ([]string, error) {
 		}
 	}
 
-	// Check discovery-stub map keys are all discovery.* components in the artifact.
+	// Check discovery_stub keys are all Sources-category components. This used
+	// to be a "discovery."/"loki.source." name-prefix check, which is the exact
+	// assumption finding M9 broke: local.file_match is a Sources-category
+	// component shaped exactly like a discovery node (it exports "targets" and
+	// nothing else) but carries neither prefix, so a prefix check would refuse
+	// its stub. Category is the field rule G's applyStubs itself gates on now
+	// (internal/simulate/transform.go), so this guard checks the same thing the
+	// runtime does rather than a name convention that only usually agrees with it.
 	for key, compOverlay := range overlayComponents {
 		comp, ok := compOverlay.(map[string]any)
 		if !ok {
 			continue
 		}
 		if _, hasStub := comp["discovery_stub"]; hasStub {
-			// discovery_stub is valid on discovery.* components AND loki source components
-			// (§6.4: loki.source.kubernetes/file are also stubbed in S3 simulation).
-			if !strings.HasPrefix(key, "discovery.") && !strings.HasPrefix(key, "loki.source.") {
-				violations = append(violations, fmt.Sprintf("discovery_stub on non-discovery/loki-source component %q", key))
+			if category, _ := comp["category"].(string); category != "sources" { //nolint:errcheck // absent category simply is not "sources"
+				violations = append(violations, fmt.Sprintf("discovery_stub on non-sources component %q", key))
 			}
 		}
 	}

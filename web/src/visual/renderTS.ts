@@ -606,6 +606,31 @@ function resolveEdges(
   return out;
 }
 
+/** The schema type of every input port carrying Alloy's `[]discovery.Target` —
+ *  17 ports on 17 components in the shipped artifact. The one port type whose
+ *  Alloy-side value is ALREADY a list. */
+const TARGETS_PORT_TYPE = 'targets';
+
+/** Render the wires landing on one input port as an Alloy value.
+ *
+ *  Byte-for-byte parity with `refValue` in internal/visual/render.go — this
+ *  file's whole contract is that the browser preview matches what the server
+ *  renders, and renderTS.test.ts diffs both against the same goldens.
+ *
+ *  Every input in the shipped artifact has cardinality "list", so a `[a, b]`
+ *  literal is the obvious rendering, and for the receiver-shaped port types it
+ *  is correct. It is WRONG for "targets": a discovery export is already a
+ *  `[]discovery.Target`, and Alloy v1.18.1 refuses the nested list at
+ *  evaluation time (`target::ConvertFrom: conversion from '[]discovery.Target'
+ *  is not supported`) — which `alloy validate` accepts and only `alloy run`
+ *  catches. See docs/proofs/sandbox-sim-e2e.md §1. */
+function refValue(input: { type?: string; cardinality?: string }, texts: string[]): string {
+  if (input.type === TARGETS_PORT_TYPE) {
+    return texts.length === 1 ? texts[0] : `array.concat(${texts.join(', ')})`;
+  }
+  return input.cardinality === 'list' ? `[${texts.join(', ')}]` : texts[0];
+}
+
 /** Turn the wires landing on a node into ordered, path-addressed values,
  *  following the component's declared input order. */
 function nodeRefs(component: ComponentLike, wires: Map<string, Wire[]> | undefined): LevelRef[] {
@@ -615,10 +640,7 @@ function nodeRefs(component: ComponentLike, wires: Map<string, Wire[]> | undefin
     if (!ws || ws.length === 0) continue;
     const sorted = [...ws].sort((a, b) => a.order - b.order || a.seq - b.seq);
     const texts = sorted.map((w) => w.text);
-    refs.push({
-      path: portPath(input),
-      value: input.cardinality === 'list' ? `[${texts.join(', ')}]` : texts[0],
-    });
+    refs.push({ path: portPath(input), value: refValue(input, texts) });
   }
   return refs;
 }

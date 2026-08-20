@@ -23,6 +23,10 @@
     "networkPolicy": {
       "type": "object",
       "properties": { "enabled": { "type": "boolean" } }
+    },
+    "simulator": {
+      "type": "object",
+      "properties": { "enabled": { "type": "boolean" } }
     }
   },
   "if": {

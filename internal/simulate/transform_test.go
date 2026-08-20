@@ -64,8 +64,14 @@ var _ = Describe("Transform: rule D — destination endpoints", func() {
 			}
 			mapped++
 		}
-		Expect(mapped).To(Equal(15), "the overlay must map exactly the 15 destinations §6.4 lists")
-		Expect(failed).To(Equal(6), "the 6 deliberately-unmappable destinations must still fail closed")
+		// 14, not 15, and 7, not 6: otelcol.exporter.splunkhec moved from
+		// sim_destination to the deliberately-unmappable list (availability
+		// fix, VB-1 §6.4) — its splunk.token is required AND secret, so a
+		// mapped destination could never render it and would always be
+		// missing a required attribute, the same reason datadog was already
+		// unmappable.
+		Expect(mapped).To(Equal(14), "the overlay must map exactly the 14 destinations §6.4 lists")
+		Expect(failed).To(Equal(7), "the 7 deliberately-unmappable destinations must still fail closed")
 	})
 
 	// The renderer can emit an endpoint URL in four shapes (render.go: a typed
@@ -210,7 +216,7 @@ var _ = Describe("Transform: rule G — source stubs", func() {
 			}
 			Expect(stub.Label).To(Equal("src"), "the stub keeps the authored label so downstream references still resolve")
 		}
-		Expect(static).To(Equal(30))
+		Expect(static).To(Equal(31), "adding local.file_match's discovery_stub (part of closing M9) moves one source from sim_keep to static")
 		Expect(lokiFile).To(Equal(4), "loki.source.{kubernetes,docker,file,podlogs} are the stubbable log sources")
 	})
 
@@ -300,6 +306,14 @@ var _ = Describe("Transform: rule G — source stubs", func() {
 		// its leaf status, so it keeps its own copy of the names. This is what
 		// makes that duplication safe.
 		Expect(simulate.StubFixtureNames()).To(Equal(schema.StubFixtureNames()))
+	})
+
+	It("agrees with the value classes the schema guard accepts", func() {
+		// The same duplication, and a sharper consequence: a class the guard
+		// accepts but rule K does not switch on would be a keep entry that
+		// passes `make schema-verify` and then silently behaves as verbatim —
+		// which for target_set means the authored address survives.
+		Expect(schema.KeepClasses()).To(ConsistOf(simulate.ClassVerbatim, simulate.ClassTargetSet))
 	})
 })
 

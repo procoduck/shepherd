@@ -3,10 +3,7 @@ package simsvc
 import (
 	"errors"
 	"fmt"
-	"net"
-	"net/url"
 	"os"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,6 +11,8 @@ import (
 	"github.com/grafana/alloy/syntax/ast"
 	"github.com/grafana/alloy/syntax/parser"
 	"github.com/grafana/alloy/syntax/token"
+
+	"shepherd/internal/netshape"
 )
 
 // ErrServiceAccountToken is the refusal a mounted service account token
@@ -41,26 +40,44 @@ func CheckServiceAccountToken(path string) error {
 }
 
 // ErrEndpointNotAllowed is returned by CheckEndpoints for a config naming a
-// host outside the allowlist.
+// host outside the allowlist, or computing one instead of naming it.
 var ErrEndpointNotAllowed = errors.New("endpoint_not_allowed")
 
-// hostPortLiteral matches a bare host:port string literal, the shape
-// otelcol.exporter.otlp's client.endpoint takes. A bare hostname with no port
-// is deliberately NOT matched: it is indistinguishable from an ordinary string
-// value such as a job name, and a check that guesses would reject valid
-// configs while still not being a security boundary.
-var hostPortLiteral = regexp.MustCompile(`^[A-Za-z0-9_.\-]+:[0-9]{1,5}$`)
-
-// CheckEndpoints is the endpoint allowlist: a second, independent gate between
-// a user's graph and the network.
+// CheckEndpoints is the endpoint allowlist: declared DEFENCE IN DEPTH on the
+// config the simulator receives, deny-by-default.
 //
-// It parses the submitted config and rejects any http(s) URL or host:port
-// literal whose host is not one of the harness's own names. The PRIMARY
-// control is still network isolation — the simulator has no route off its
-// internal network at all — because a text gate must never be the only thing
-// standing between user code and a real endpoint. This exists so that a bug in
-// the transform that leaves a production endpoint in place fails loudly here
-// instead of quietly writing to it if the network posture ever slips.
+// Read the next paragraph before citing this function as containment. It is NOT
+// the control that stops the sandbox reaching a real endpoint, and no comment,
+// doc or proof may present it as one. It analyses TEXT, and a config can name
+// an address without any literal naming it: a discovery.relabel rule writing
+// `target_label = "__address__"` with a `replacement` assembled from regex
+// captures retargets the scrape at runtime, and this function sees no host at
+// all. What denies the sandbox a route is the network it runs on — the
+// simulator's `internal: true` Docker network, verified by execution in
+// e2e/sandbox_egress_test.go, whose P-deny-ip probe goes red the moment that
+// network is made reachable.
+//
+// What it does do: parse the submitted config and refuse it unless every
+// host-shaped token in every string literal is one of the harness's own names,
+// and unless every expression in it is a plain literal or a reference to
+// another component in the same config. That makes a transform bug that left a
+// NAMED production endpoint in the config fail loudly here rather than quietly
+// write to it if the network posture ever slips. It bounds the literal case; it
+// does not bound the computed one.
+//
+// The previous form allowed anything it did not recognise, and finding H6
+// measured what that cost: bracketed IPv6 host:port, bare dotted host names,
+// any scheme other than http(s), hosts buried in a DSN and endpoints computed
+// by sys.env() all passed. Those were not five bugs. They were one — an
+// allowlist that only rejected shapes it had been taught — and inverting the
+// question fixes all five at once.
+//
+// Inverting only became affordable when the S3 transform started CONSTRUCTING
+// the config from an allowlist instead of filtering it (internal/simulate rule
+// K). While 6144 authored attribute paths passed through untouched, refusing
+// every dotted name would have rejected job names, file names and relabel
+// regexes by the dozen. Now near-zero legitimate literals look host-shaped, and
+// the ones that do are the transform's own harness addresses.
 func CheckEndpoints(config string, allowedHosts []string) error {
 	file, err := parser.ParseFile("submitted.alloy", []byte(config))
 	if err != nil {
@@ -68,62 +85,105 @@ func CheckEndpoints(config string, allowedHosts []string) error {
 	}
 	allowed := map[string]struct{}{}
 	for _, h := range allowedHosts {
-		allowed[strings.ToLower(h)] = struct{}{}
+		for _, host := range hostForms(h) {
+			allowed[host] = struct{}{}
+		}
 	}
 
-	v := &endpointVisitor{allowed: allowed, bad: map[string]struct{}{}}
+	v := &endpointVisitor{allowed: allowed, bad: map[string]struct{}{}, computed: map[string]struct{}{}}
 	ast.Walk(v, file)
-	if len(v.bad) == 0 {
+	if len(v.bad) == 0 && len(v.computed) == 0 {
 		return nil
 	}
-	names := make([]string, 0, len(v.bad))
-	for n := range v.bad {
-		names = append(names, n)
+	var parts []string
+	if len(v.bad) > 0 {
+		parts = append(parts, "config names host(s) outside the sandbox harness: "+strings.Join(sortedSet(v.bad), ", "))
 	}
-	sort.Strings(names)
-	return fmt.Errorf("%w: config names host(s) outside the sandbox harness: %s", ErrEndpointNotAllowed, strings.Join(names, ", "))
+	if len(v.computed) > 0 {
+		parts = append(parts, "config computes value(s) instead of naming them, so no allowlist can cover them: "+
+			strings.Join(sortedSet(v.computed), ", "))
+	}
+	return fmt.Errorf("%w: %s", ErrEndpointNotAllowed, strings.Join(parts, "; "))
+}
+
+// hostForms expands one configured allowlist entry into the forms a literal can
+// spell it: the entry itself, and — when the entry is an address rather than a
+// bare name — the host netshape reports for it. Without this, configuring
+// "127.0.0.1:9110" would allow nothing at all.
+func hostForms(entry string) []string {
+	entry = strings.ToLower(strings.TrimSpace(entry))
+	if entry == "" {
+		return nil
+	}
+	out := []string{entry}
+	for _, host := range netshape.Hosts(entry) {
+		if host != entry {
+			out = append(out, host)
+		}
+	}
+	return out
 }
 
 type endpointVisitor struct {
-	allowed map[string]struct{}
-	bad     map[string]struct{}
+	allowed  map[string]struct{}
+	bad      map[string]struct{}
+	computed map[string]struct{}
 }
 
 func (v *endpointVisitor) Visit(node ast.Node) ast.Visitor {
-	lit, ok := node.(*ast.LiteralExpr)
-	if !ok || lit.Kind != token.STRING {
-		return v
-	}
-	value, err := strconv.Unquote(lit.Value)
-	if err != nil {
-		return v
-	}
-	if host, checked := extractHost(value); checked {
-		if _, ok := v.allowed[strings.ToLower(host)]; !ok {
-			v.bad[host] = struct{}{}
+	switch n := node.(type) {
+	case *ast.CallExpr:
+		// sys.env("EXFIL_URL") is a CallExpr, and finding H6 proved the old
+		// visitor simply ignored it: it looked only at LiteralExpr, so an
+		// endpoint the config COMPUTES was never examined at all. A transformed
+		// config contains no calls — rule K keeps literals only — so refusing
+		// them outright costs nothing and removes the whole channel rather than
+		// blocklisting sys.env by name.
+		v.computed[callName(n)] = struct{}{}
+		return nil
+	case *ast.BinaryExpr:
+		// "http://" + sys.env("H") and its cousins. Same reasoning: a
+		// constructed config never concatenates.
+		v.computed["a computed expression"] = struct{}{}
+		return nil
+	case *ast.LiteralExpr:
+		if n.Kind != token.STRING {
+			return v
+		}
+		value, err := strconv.Unquote(n.Value)
+		if err != nil {
+			// A literal that will not unquote cannot be shown to be safe.
+			v.bad[n.Value] = struct{}{}
+			return v
+		}
+		for _, host := range netshape.Hosts(value) {
+			if _, ok := v.allowed[host]; !ok {
+				v.bad[host] = struct{}{}
+			}
 		}
 	}
 	return v
 }
 
-// extractHost returns the host a literal names and whether the literal is one
-// the allowlist covers at all.
-func extractHost(value string) (string, bool) {
-	lower := strings.ToLower(value)
-	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
-		u, err := url.Parse(value)
-		if err != nil {
-			// An unparseable URL cannot be shown to be safe, so it is not.
-			return value, true
+// callName names the function a refused CallExpr invoked, for the message. It
+// is best-effort: an unrecognised callee shape still refuses the config.
+func callName(call *ast.CallExpr) string {
+	switch value := call.Value.(type) {
+	case *ast.IdentifierExpr:
+		return value.Ident.Name + "(...)"
+	case *ast.AccessExpr:
+		if inner, ok := value.Value.(*ast.IdentifierExpr); ok {
+			return inner.Ident.Name + "." + value.Name.Name + "(...)"
 		}
-		return u.Hostname(), true
 	}
-	if hostPortLiteral.MatchString(value) {
-		host, _, err := net.SplitHostPort(value)
-		if err != nil {
-			return value, true
-		}
-		return host, true
+	return "a function call"
+}
+
+func sortedSet(m map[string]struct{}) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
 	}
-	return "", false
+	sort.Strings(out)
+	return out
 }

@@ -1,4 +1,4 @@
-.PHONY: build build-web build-all test test-integration e2e e2e-sim smoke test-ui check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker lint fmt generate gen-alloy-version generate-corpus schema schema-verify helm-lint release-snapshot docker-build docker-build-local docker-build-init docker-build-simulator migrate dev dev-sim dev-frontend dev-restart dev-seed dev-reset test-fullstack
+.PHONY: build build-web build-all test test-integration e2e e2e-sim e2e-egress smoke test-ui check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker lint fmt generate gen-alloy-version generate-corpus schema schema-verify helm-lint release-snapshot docker-build docker-build-local docker-build-init docker-build-simulator migrate dev dev-sim dev-frontend dev-restart dev-seed dev-reset test-fullstack
 
 PNPM ?= pnpm
 
@@ -50,10 +50,60 @@ e2e: docker-build-local docker-build-init
 # S3 sandbox-run e2e (VB-1 §6.4, §7.9's separate budget). Brings up the `sim`
 # profile — which the default `make e2e` deliberately leaves down so the
 # "simulator not configured" path is what every ordinary run exercises.
+#
+# TWO ginkgo passes over one stack, deliberately, because the two halves are
+# guarded differently:
+#
+#   pass 1 — the containment probes, with --fail-on-empty. They are THE
+#     reachability control (see the e2e-egress comment below); a label typo
+#     that made them select nothing must fail the build, not pass it.
+#   pass 2 — everything else labelled sandbox-sim: the run-lifecycle specs
+#     that prove the sandbox DELIVERS (completed run, captured series, health,
+#     rewrite disclosure). `&& !sandbox-egress` excludes the specs pass 1
+#     already ran, whose Ordered BeforeAll creates a fixed-name org and would
+#     get HTTP 409 the second time.
+#
+# A single --fail-on-empty pass over `sandbox-sim` would NOT give pass 1's
+# guarantee: the run-lifecycle specs alone would keep the filter non-empty
+# while every egress probe had silently vanished.
 e2e-sim: docker-build-local docker-build-init docker-build-simulator
 	docker compose -f e2e/docker-compose.e2e.yaml down -v
 	SHEPHERD_SIM_ENABLED=true docker compose -f e2e/docker-compose.e2e.yaml --profile sim up -d --build --wait
-	ginkgo --tags=e2e --randomize-all=false --label-filter=sandbox-sim ./e2e/...
+	ginkgo --tags=e2e --randomize-all=false --fail-on-empty --label-filter=sandbox-egress ./e2e/...
+	ginkgo --tags=e2e --randomize-all=false --fail-on-empty --label-filter='sandbox-sim && !sandbox-egress' ./e2e/...
+	@if [ "$(E2E_KEEP)" != "1" ]; then \
+		docker compose -f e2e/docker-compose.e2e.yaml --profile sim down -v; \
+	else \
+		echo "E2E_KEEP=1: stack left running."; \
+	fi
+
+# The sandbox egress probes alone (VB-1 §6.4 "Security containment"), for a
+# fast local containment check. CI runs `make e2e-sim`, whose first pass is
+# this same filter with the same --fail-on-empty guard plus the run-lifecycle
+# specs.
+#
+# These probes are THE reachability control for the S3 sandbox, not a backstop
+# to one. The transform's keep lists and the simulator's CheckEndpoints bound
+# which authored VALUES leave a user's graph; neither can bound where a running
+# config connects, because a discovery.relabel rule computes __address__ at
+# runtime. So this target failing means the sandbox has no containment at all,
+# and it is the one e2e target that must never be allowed to quietly do nothing.
+#
+# --fail-on-empty is what enforces that: a label typo, a renamed Label() or a
+# deleted spec would otherwise leave ginkgo reporting "Ran 0 of N Specs" and
+# exiting 0 — a green CI job measuring nothing, which is finding H4's failure
+# mode wearing a different hat.
+#
+# This target used to be what CI ran INSTEAD of `make e2e-sim`, because the S3
+# run-lifecycle spec was red on finding M13 (internal/visual/render.go
+# bracket-wrapped every []discovery.Target reference, which `alloy validate`
+# accepts and `alloy run` refuses). M13 is fixed — refValue in render.go, red
+# and green transcripts in docs/proofs/sandbox-sim-e2e.md — so CI now runs the
+# whole suite and this target is the narrow local check.
+e2e-egress: docker-build-local docker-build-init docker-build-simulator
+	docker compose -f e2e/docker-compose.e2e.yaml down -v
+	SHEPHERD_SIM_ENABLED=true docker compose -f e2e/docker-compose.e2e.yaml --profile sim up -d --build --wait
+	ginkgo --tags=e2e --randomize-all=false --fail-on-empty --label-filter=sandbox-egress ./e2e/...
 	@if [ "$(E2E_KEEP)" != "1" ]; then \
 		docker compose -f e2e/docker-compose.e2e.yaml --profile sim down -v; \
 	else \
@@ -290,7 +340,12 @@ gen-alloy-version:
 schema: gen-alloy-version
 	./tools/alloy-schema-gen/run.sh
 
-# Verify the committed artifact still matches what the pinned Alloy produces.
+# Verify the committed artifact still matches what the pinned Alloy produces, AND
+# that the hand-maintained overlay still covers it. The second half is what makes
+# an Alloy bump fail here rather than at an S3 sandbox run: every component the
+# artifact declares must resolve to exactly one S3 disposition, every sim_keep
+# path must still resolve in canonical form, and no kept path may trip the
+# credential/address name guard without an acknowledged reason.
 # Regenerates into a temp dir (overlay.json is NOT touched) and diffs against the
 # committed artifact with _meta.generated_at deleted from both sides — that
 # timestamp is the only non-deterministic field, so a naive diff would fail 100%
@@ -313,6 +368,9 @@ schema-verify: gen-alloy-version
 	  echo "schema-verify: FAIL — the committed artifact does not match grafana/alloy@$(ALLOY_VERSION); run 'make schema' and commit the result."; \
 	  exit 1; \
 	fi
+	@echo "==> Overlay guards (S3 dispositions, keep lists, endpoint paths)..."
+	@go test ./internal/schema/ -count=1
+	@echo "schema-verify: OK (every artifact component resolves to exactly one S3 disposition)"
 
 # Regenerate the visual-builder goldens from the shipped schema artifact, then
 # sync the whole corpus from Go testdata → web fixtures. Run after adding or

@@ -1,0 +1,59 @@
+{{- if .Values.simulator.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "shepherd.simulatorFullname" . }}
+  labels:
+    {{- include "shepherd.simulatorLabels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "shepherd.simulatorSelectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  # Only the main shepherd Deployment submits runs (POST /v1/runs on the
+  # control port); nothing else in the cluster has a reason to reach this Pod
+  # at all.
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "shepherd.selectorLabels" . | nindent 14 }}
+      ports:
+        - port: control
+          protocol: TCP
+  # Default-deny egress, opened only to what §6.4 calls "the harness": the
+  # capture/synthetic/OTLP/syslog receivers THIS SAME POD serves for the
+  # sandboxed Alloy child process to reach (internal/simsvc/runner.go — it is
+  # a child process, not a sibling container, so this Pod's network boundary
+  # IS the sandbox's boundary), plus cluster DNS to resolve this Service's own
+  # name. No route to the rest of the cluster and no route to the internet —
+  # a user-authored config gets nothing else to talk to, whatever it names.
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "shepherd.simulatorSelectorLabels" . | nindent 14 }}
+      ports:
+        - port: capture
+          protocol: TCP
+        - port: synthetic
+          protocol: TCP
+        - port: otlp-grpc
+          protocol: TCP
+        - port: syslog
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    {{- with .Values.simulator.networkPolicy.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

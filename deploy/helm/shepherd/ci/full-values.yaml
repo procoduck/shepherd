@@ -47,3 +47,9 @@ resources:
     memory: 128Mi
   limits:
     memory: 512Mi
+
+# Exercised here so `make helm-lint`'s full-values.yaml render actually renders
+# the simulator's Deployment/Service/NetworkPolicy/ServiceAccount, not just the
+# disabled-by-default no-op path the default-values.yaml render covers.
+simulator:
+  enabled: true

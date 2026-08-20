@@ -1,0 +1,33 @@
+{{- if .Values.simulator.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "shepherd.simulatorFullname" . }}
+  labels:
+    {{- include "shepherd.simulatorLabels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: control
+      port: 8099
+      targetPort: control
+      protocol: TCP
+    - name: capture
+      port: 9110
+      targetPort: capture
+      protocol: TCP
+    - name: synthetic
+      port: 9111
+      targetPort: synthetic
+      protocol: TCP
+    - name: otlp-grpc
+      port: 4317
+      targetPort: otlp-grpc
+      protocol: TCP
+    - name: syslog
+      port: 5514
+      targetPort: syslog
+      protocol: TCP
+  selector:
+    {{- include "shepherd.simulatorSelectorLabels" . | nindent 4 }}
+{{- end }}

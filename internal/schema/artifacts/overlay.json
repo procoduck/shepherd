@@ -37,24 +37,31 @@
         "output.logs",
         "output.traces"
       ],
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "database_observability.mysql": {
       "category": "sources",
       "doc": "Collects observability data from MySQL databases.",
       "icon": "database",
+      "sim_unsupported": "connects to a real MySQL instance via data_source_name, a required secret; nothing on sim_keep can carry a secret (rule K drops every secret-typed attribute regardless of the allowlist), so a kept-but-empty data_source_name is not an option — the render would be missing a required attribute instead. Availability fix, VB-1 §6.4",
       "terminal_ok": false
     },
     "database_observability.postgres": {
       "category": "sources",
       "doc": "Collects observability data from PostgreSQL databases.",
       "icon": "database",
+      "sim_unsupported": "connects to a real PostgreSQL instance via data_source_name, a required secret; nothing on sim_keep can carry a secret (rule K drops every secret-typed attribute regardless of the allowlist), so a kept-but-empty data_source_name is not an option — the render would be missing a required attribute instead. Availability fix, VB-1 §6.4",
       "terminal_ok": false
     },
     "database_observability.sql_server": {
       "category": "sources",
       "doc": "Collects observability data from Microsoft SQL Server databases (experimental).",
       "icon": "database",
+      "sim_unsupported": "connects to a real SQL Server instance via data_source_name, a required secret; nothing on sim_keep can carry a secret (rule K drops every secret-typed attribute regardless of the allowlist), so a kept-but-empty data_source_name is not an option — the render would be missing a required attribute instead. Availability fix, VB-1 §6.4",
       "terminal_ok": false
     },
     "discovery.aws": {
@@ -234,7 +241,14 @@
           "name": "role",
           "required": true,
           "type": "string",
-          "values": ["pod", "service", "endpoints", "endpointslice", "ingress", "node"]
+          "values": [
+            "pod",
+            "service",
+            "endpoints",
+            "endpointslice",
+            "ingress",
+            "node"
+          ]
         },
         {
           "name": "kubeconfig_file",
@@ -389,6 +403,10 @@
         "join",
         "targets"
       ],
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "discovery.puppetdb": {
@@ -409,6 +427,27 @@
       "port_display_order": [
         "targets",
         "output"
+      ],
+      "sim_keep": {
+        "paths": [
+          {
+            "path": "targets",
+            "class": "target_set"
+          },
+          "rule.*.source_labels",
+          "rule.*.separator",
+          "rule.*.regex",
+          "rule.*.modulus",
+          "rule.*.target_label",
+          "rule.*.replacement",
+          "rule.*.action"
+        ]
+      },
+      "sim_keep_acknowledged": [
+        {
+          "path": "rule.*.target_label",
+          "reason": "a relabel destination LABEL name. It CAN be __address__, which retargets the scrape at runtime — the value is computed from replacement and the source labels, so no gate over the rendered config bounds it. Kept because relabel is the thing S3 exists to simulate; the sandbox network is what denies the reach (e2e/sandbox_egress_test.go)."
+        }
       ],
       "terminal_ok": false
     },
@@ -456,6 +495,10 @@
       "category": "sources",
       "doc": "Receives Grafana Faro frontend observability data.",
       "icon": "faro",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "local.file": {
@@ -468,6 +511,10 @@
     },
     "local.file_match": {
       "category": "sources",
+      "discovery_stub": {
+        "fixture": "file-targets",
+        "type": "static"
+      },
       "doc": "Finds files matching glob patterns and exposes them as targets.",
       "icon": "file",
       "terminal_ok": false
@@ -481,12 +528,34 @@
         "ensure": {},
         "receiver": "none"
       },
+      "sim_keep": {
+        "keep_subtree": true,
+        "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
       "terminal_ok": true
     },
     "loki.enrich": {
       "category": "transform",
       "doc": "Enriches log entries with additional labels (experimental).",
       "icon": "transform",
+      "sim_keep": {
+        "paths": [
+          {
+            "path": "targets",
+            "class": "target_set"
+          },
+          "target_match_label",
+          "logs_match_label",
+          "labels_to_copy",
+          "forward_to"
+        ]
+      },
+      "sim_keep_acknowledged": [
+        {
+          "path": "target_match_label",
+          "reason": "the LABEL NAME the enrichment matches log entries against, not a network target; it is required, so dropping it leaves a config the sandbox cannot load. Availability fix, VB-1 §6.4"
+        }
+      ],
       "terminal_ok": false
     },
     "loki.process": {
@@ -497,6 +566,10 @@
         "forward_to",
         "receiver"
       ],
+      "sim_keep": {
+        "keep_subtree": true,
+        "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
       "terminal_ok": false
     },
     "loki.relabel": {
@@ -507,42 +580,73 @@
         "forward_to",
         "receiver"
       ],
+      "sim_keep": {
+        "keep_subtree": true,
+        "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
+      "sim_keep_acknowledged": [
+        {
+          "path": "rule.*.target_label",
+          "reason": "a relabel destination LABEL name. It CAN be __address__, which retargets the scrape at runtime — the value is computed from replacement and the source labels, so no gate over the rendered config bounds it. Kept because relabel is the thing S3 exists to simulate; the sandbox network is what denies the reach (e2e/sandbox_egress_test.go)."
+        }
+      ],
       "terminal_ok": false
     },
     "loki.rules.kubernetes": {
       "category": "advanced",
       "doc": "Manages Loki alerting and recording rules in Kubernetes.",
       "icon": "k8s",
+      "sim_unsupported": "reconciles PrometheusRule objects from a live Kubernetes API into a real Loki ruler; the sandbox has neither, and its required address attribute names a production host",
       "terminal_ok": true
     },
     "loki.secretfilter": {
       "category": "transform",
       "doc": "Redacts secrets from log lines (experimental).",
       "icon": "lock",
+      "sim_keep": {
+        "keep_subtree": true,
+        "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
       "terminal_ok": false
     },
     "loki.source.api": {
       "category": "sources",
       "doc": "Receives log entries via HTTP push API.",
       "icon": "logs",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "loki.source.awsfirehose": {
       "category": "sources",
       "doc": "Receives logs from Amazon Kinesis Data Firehose.",
       "icon": "cloud",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "loki.source.azure_event_hubs": {
       "category": "sources",
       "doc": "Receives logs from Azure Event Hubs.",
       "icon": "cloud",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "loki.source.cloudflare": {
       "category": "sources",
       "doc": "Collects logs from the Cloudflare Logpull API.",
       "icon": "cloud",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "loki.source.docker": {
@@ -573,30 +677,50 @@
       "category": "sources",
       "doc": "Collects logs from Google Cloud Logging.",
       "icon": "cloud",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "loki.source.gelf": {
       "category": "sources",
       "doc": "Receives GELF (Graylog Extended Log Format) log messages.",
       "icon": "logs",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "loki.source.heroku": {
       "category": "sources",
       "doc": "Receives logs from Heroku log drains.",
       "icon": "cloud",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "loki.source.journal": {
       "category": "sources",
       "doc": "Reads logs from the systemd journal.",
       "icon": "server",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "loki.source.kafka": {
       "category": "sources",
       "doc": "Reads log messages from Kafka topics.",
       "icon": "kafka",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "loki.source.kubernetes": {
@@ -617,6 +741,10 @@
       "category": "sources",
       "doc": "Collects Kubernetes Events as log entries.",
       "icon": "k8s",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "loki.source.podlogs": {
@@ -633,12 +761,20 @@
       "category": "sources",
       "doc": "Receives syslog messages over TCP or UDP.",
       "icon": "server",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "loki.source.windowsevent": {
       "category": "sources",
       "doc": "Reads logs from the Windows Event Log.",
       "icon": "server",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "loki.write": {
@@ -659,18 +795,46 @@
         "ensure": {},
         "receiver": "loki"
       },
+      "sim_keep": {
+        "paths": [
+          "external_labels",
+          "max_streams",
+          "endpoint.*.name",
+          "endpoint.*.batch_wait",
+          "endpoint.*.batch_size",
+          "endpoint.*.remote_timeout",
+          "endpoint.*.min_backoff_period",
+          "endpoint.*.max_backoff_period",
+          "endpoint.*.max_backoff_retries",
+          "endpoint.*.tenant_id",
+          "endpoint.*.retry_on_http_429",
+          "endpoint.*.follow_redirects",
+          "endpoint.*.enable_http2",
+          "endpoint.*.queue_config.capacity",
+          "endpoint.*.queue_config.min_shards",
+          "endpoint.*.queue_config.drain_timeout",
+          "endpoint.*.queue_config.block_on_overflow",
+          "wal.enabled",
+          "wal.max_segment_age",
+          "wal.min_read_frequency",
+          "wal.max_read_frequency",
+          "wal.drain_timeout"
+        ]
+      },
       "terminal_ok": true
     },
     "mimir.alerts.kubernetes": {
       "category": "advanced",
       "doc": "Manages Mimir alerting rules from Kubernetes resources (experimental).",
       "icon": "metrics",
+      "sim_unsupported": "reconciles alertmanager configuration from a live Kubernetes API into a real Mimir; the sandbox has neither, and its required address attribute names a production host",
       "terminal_ok": true
     },
     "mimir.rules.kubernetes": {
       "category": "advanced",
       "doc": "Manages Mimir recording and alerting rules from Kubernetes resources.",
       "icon": "metrics",
+      "sim_unsupported": "reconciles PrometheusRule objects from a live Kubernetes API into a real Mimir ruler; the sandbox has neither, and its required address attribute names a production host",
       "terminal_ok": true
     },
     "otelcol.auth.basic": {
@@ -725,36 +889,146 @@
       "category": "transform",
       "doc": "Counts spans, logs, or metric data points and emits metrics (experimental).",
       "icon": "transform",
+      "sim_keep": {
+        "paths": [
+          "spans.*.name",
+          "spans.*.description",
+          "spans.*.conditions",
+          "spanevents.*.name",
+          "spanevents.*.description",
+          "spanevents.*.conditions",
+          "metrics.*.name",
+          "metrics.*.description",
+          "metrics.*.conditions",
+          "datapoints.*.name",
+          "datapoints.*.description",
+          "datapoints.*.conditions",
+          "logs.*.name",
+          "logs.*.description",
+          "logs.*.conditions",
+          "output.metrics",
+          "output.logs",
+          "output.traces",
+          "debug_metrics.disable_high_cardinality_metrics",
+          "debug_metrics.level"
+        ]
+      },
       "terminal_ok": false
     },
     "otelcol.connector.host_info": {
       "category": "transform",
       "doc": "Enriches spans with host information from metrics.",
       "icon": "transform",
+      "sim_keep": {
+        "paths": [
+          "metrics_flush_interval",
+          "output.metrics",
+          "output.logs",
+          "output.traces",
+          "debug_metrics.disable_high_cardinality_metrics",
+          "debug_metrics.level"
+        ]
+      },
       "terminal_ok": false
     },
     "otelcol.connector.servicegraph": {
       "category": "transform",
       "doc": "Generates service graph metrics from spans.",
       "icon": "transform",
+      "sim_keep": {
+        "keep_subtree": true,
+        "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
       "terminal_ok": false
     },
     "otelcol.connector.signaltometrics": {
       "category": "transform",
       "doc": "Converts spans/logs/metrics to metrics using expressions (experimental).",
       "icon": "transform",
+      "sim_keep": {
+        "paths": [
+          "error_mode",
+          "spans.*.name",
+          "spans.*.description",
+          "spans.*.unit",
+          "spans.*.conditions",
+          "spans.*.include_resource_attributes.*.optional",
+          "spans.*.attributes.*.optional",
+          "spans.*.histogram.buckets",
+          "spans.*.histogram.count",
+          "spans.*.histogram.value",
+          "spans.*.exponential_histogram.max_size",
+          "spans.*.exponential_histogram.count",
+          "spans.*.exponential_histogram.value",
+          "spans.*.sum.value",
+          "spans.*.gauge.value",
+          "datapoints.*.name",
+          "datapoints.*.description",
+          "datapoints.*.unit",
+          "datapoints.*.conditions",
+          "datapoints.*.include_resource_attributes.*.optional",
+          "datapoints.*.attributes.*.optional",
+          "datapoints.*.histogram.buckets",
+          "datapoints.*.histogram.count",
+          "datapoints.*.histogram.value",
+          "datapoints.*.exponential_histogram.max_size",
+          "datapoints.*.exponential_histogram.count",
+          "datapoints.*.exponential_histogram.value",
+          "datapoints.*.sum.value",
+          "datapoints.*.gauge.value",
+          "logs.*.name",
+          "logs.*.description",
+          "logs.*.unit",
+          "logs.*.conditions",
+          "logs.*.include_resource_attributes.*.optional",
+          "logs.*.attributes.*.optional",
+          "logs.*.histogram.buckets",
+          "logs.*.histogram.count",
+          "logs.*.histogram.value",
+          "logs.*.exponential_histogram.max_size",
+          "logs.*.exponential_histogram.count",
+          "logs.*.exponential_histogram.value",
+          "logs.*.sum.value",
+          "logs.*.gauge.value",
+          "output.metrics",
+          "output.logs",
+          "output.traces",
+          "debug_metrics.disable_high_cardinality_metrics",
+          "debug_metrics.level"
+        ]
+      },
       "terminal_ok": false
     },
     "otelcol.connector.spanlogs": {
       "category": "advanced",
       "doc": "Converts spans into Loki log entries (experimental).",
       "icon": "transform",
+      "sim_keep": {
+        "paths": [
+          "spans",
+          "roots",
+          "processes",
+          "events",
+          "span_attributes",
+          "process_attributes",
+          "event_attributes",
+          "labels",
+          "overrides.logs_instance_tag",
+          "output.metrics",
+          "output.logs",
+          "output.traces"
+        ]
+      },
       "terminal_ok": false
     },
     "otelcol.connector.spanmetrics": {
       "category": "transform",
       "doc": "Generates RED metrics (rate, error, duration) from trace spans.",
       "icon": "transform",
+      "sim_keep": {
+        "keep_subtree": true,
+        "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
       "terminal_ok": false
     },
     "otelcol.exporter.awss3": {
@@ -778,6 +1052,10 @@
         "ensure": {},
         "receiver": "none"
       },
+      "sim_keep": {
+        "keep_subtree": true,
+        "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
       "terminal_ok": true
     },
     "otelcol.exporter.faro": {
@@ -794,6 +1072,40 @@
         "ensure": {},
         "receiver": "faro"
       },
+      "sim_keep": {
+        "paths": [
+          "client.compression",
+          "client.read_buffer_size",
+          "client.write_buffer_size",
+          "client.timeout",
+          "client.max_idle_conns",
+          "client.idle_conn_timeout",
+          "client.disable_keep_alives",
+          "client.http2_read_idle_timeout",
+          "client.http2_ping_timeout",
+          "client.force_attempt_http2",
+          "client.compression_params.level",
+          "client.cookies.enabled",
+          "sending_queue.enabled",
+          "sending_queue.num_consumers",
+          "sending_queue.queue_size",
+          "sending_queue.block_on_overflow",
+          "sending_queue.sizer",
+          "sending_queue.wait_for_result",
+          "sending_queue.batch.flush_timeout",
+          "sending_queue.batch.min_size",
+          "sending_queue.batch.max_size",
+          "sending_queue.batch.sizer",
+          "retry_on_failure.enabled",
+          "retry_on_failure.initial_interval",
+          "retry_on_failure.randomization_factor",
+          "retry_on_failure.multiplier",
+          "retry_on_failure.max_interval",
+          "retry_on_failure.max_elapsed_time",
+          "debug_metrics.disable_high_cardinality_metrics",
+          "debug_metrics.level"
+        ]
+      },
       "terminal_ok": true
     },
     "otelcol.exporter.file": {
@@ -808,6 +1120,24 @@
         ],
         "ensure": {},
         "receiver": "file"
+      },
+      "sim_keep": {
+        "paths": [
+          "append",
+          "format",
+          "encoding",
+          "compression",
+          "flush_interval",
+          "rotation.max_megabytes",
+          "rotation.max_days",
+          "rotation.max_backups",
+          "rotation.localtime",
+          "group_by.enabled",
+          "group_by.resource_attribute",
+          "group_by.max_open_files",
+          "debug_metrics.disable_high_cardinality_metrics",
+          "debug_metrics.level"
+        ]
       },
       "terminal_ok": true
     },
@@ -848,6 +1178,10 @@
         "ensure": {},
         "receiver": "none"
       },
+      "sim_keep": {
+        "keep_subtree": true,
+        "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
       "terminal_ok": false
     },
     "otelcol.exporter.otlp": {
@@ -869,6 +1203,37 @@
         },
         "receiver": "otlp_grpc"
       },
+      "sim_keep": {
+        "paths": [
+          "timeout",
+          "sending_queue.enabled",
+          "sending_queue.num_consumers",
+          "sending_queue.queue_size",
+          "sending_queue.block_on_overflow",
+          "sending_queue.sizer",
+          "sending_queue.wait_for_result",
+          "sending_queue.batch.flush_timeout",
+          "sending_queue.batch.min_size",
+          "sending_queue.batch.max_size",
+          "sending_queue.batch.sizer",
+          "retry_on_failure.enabled",
+          "retry_on_failure.initial_interval",
+          "retry_on_failure.randomization_factor",
+          "retry_on_failure.multiplier",
+          "retry_on_failure.max_interval",
+          "retry_on_failure.max_elapsed_time",
+          "debug_metrics.disable_high_cardinality_metrics",
+          "debug_metrics.level",
+          "client.compression",
+          "client.read_buffer_size",
+          "client.write_buffer_size",
+          "client.wait_for_ready",
+          "client.balancer_name",
+          "client.keepalive.ping_wait",
+          "client.keepalive.ping_response_timeout",
+          "client.keepalive.ping_without_stream"
+        ]
+      },
       "terminal_ok": true
     },
     "otelcol.exporter.otlphttp": {
@@ -888,6 +1253,41 @@
         "ensure": {},
         "receiver": "otlp_http"
       },
+      "sim_keep": {
+        "paths": [
+          "encoding",
+          "client.compression",
+          "client.read_buffer_size",
+          "client.write_buffer_size",
+          "client.timeout",
+          "client.max_idle_conns",
+          "client.idle_conn_timeout",
+          "client.disable_keep_alives",
+          "client.http2_read_idle_timeout",
+          "client.http2_ping_timeout",
+          "client.force_attempt_http2",
+          "client.compression_params.level",
+          "client.cookies.enabled",
+          "sending_queue.enabled",
+          "sending_queue.num_consumers",
+          "sending_queue.queue_size",
+          "sending_queue.block_on_overflow",
+          "sending_queue.sizer",
+          "sending_queue.wait_for_result",
+          "sending_queue.batch.flush_timeout",
+          "sending_queue.batch.min_size",
+          "sending_queue.batch.max_size",
+          "sending_queue.batch.sizer",
+          "retry_on_failure.enabled",
+          "retry_on_failure.initial_interval",
+          "retry_on_failure.randomization_factor",
+          "retry_on_failure.multiplier",
+          "retry_on_failure.max_interval",
+          "retry_on_failure.max_elapsed_time",
+          "debug_metrics.disable_high_cardinality_metrics",
+          "debug_metrics.level"
+        ]
+      },
       "terminal_ok": true
     },
     "otelcol.exporter.prometheus": {
@@ -903,22 +1303,22 @@
         "ensure": {},
         "receiver": "none"
       },
+      "sim_keep": {
+        "keep_subtree": true,
+        "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
+      "sim_keep_acknowledged": [
+        {
+          "path": "include_target_info",
+          "reason": "declared bool: whether to emit the target_info metric, not an address"
+        }
+      ],
       "terminal_ok": true
     },
     "otelcol.exporter.splunkhec": {
       "category": "destinations",
       "doc": "Exports telemetry to Splunk HEC (experimental).",
       "icon": "upload",
-      "sim_destination": {
-        "endpoint_paths": [
-          [
-            "client",
-            "endpoint"
-          ]
-        ],
-        "ensure": {},
-        "receiver": "splunkhec"
-      },
       "terminal_ok": true
     },
     "otelcol.exporter.syslog": {
@@ -936,6 +1336,32 @@
         },
         "receiver": "syslog"
       },
+      "sim_keep": {
+        "paths": [
+          "timeout",
+          "network",
+          "protocol",
+          "enable_octet_counting",
+          "sending_queue.enabled",
+          "sending_queue.num_consumers",
+          "sending_queue.queue_size",
+          "sending_queue.block_on_overflow",
+          "sending_queue.sizer",
+          "sending_queue.wait_for_result",
+          "sending_queue.batch.flush_timeout",
+          "sending_queue.batch.min_size",
+          "sending_queue.batch.max_size",
+          "sending_queue.batch.sizer",
+          "retry_on_failure.enabled",
+          "retry_on_failure.initial_interval",
+          "retry_on_failure.randomization_factor",
+          "retry_on_failure.multiplier",
+          "retry_on_failure.max_interval",
+          "retry_on_failure.max_elapsed_time",
+          "debug_metrics.disable_high_cardinality_metrics",
+          "debug_metrics.level"
+        ]
+      },
       "terminal_ok": true
     },
     "otelcol.extension.jaeger_remote_sampling": {
@@ -950,6 +1376,46 @@
       "category": "transform",
       "doc": "Modifies, adds, deletes, or hashes span/metric/log attributes.",
       "icon": "transform",
+      "sim_keep": {
+        "paths": [
+          "include.match_type",
+          "include.services",
+          "include.span_names",
+          "include.log_bodies",
+          "include.log_severity_texts",
+          "include.metric_names",
+          "include.span_kinds",
+          "include.regexp.cache_enabled",
+          "include.regexp.cache_max_num_entries",
+          "include.log_severity.min",
+          "include.log_severity.match_undefined",
+          "include.library.*.name",
+          "include.library.*.version",
+          "exclude.match_type",
+          "exclude.services",
+          "exclude.span_names",
+          "exclude.log_bodies",
+          "exclude.log_severity_texts",
+          "exclude.metric_names",
+          "exclude.span_kinds",
+          "exclude.regexp.cache_enabled",
+          "exclude.regexp.cache_max_num_entries",
+          "exclude.log_severity.min",
+          "exclude.log_severity.match_undefined",
+          "exclude.library.*.name",
+          "exclude.library.*.version",
+          "action.*.pattern",
+          "action.*.from_attribute",
+          "action.*.from_context",
+          "action.*.converted_type",
+          "action.*.action",
+          "output.metrics",
+          "output.logs",
+          "output.traces",
+          "debug_metrics.disable_high_cardinality_metrics",
+          "debug_metrics.level"
+        ]
+      },
       "terminal_ok": false
     },
     "otelcol.processor.batch": {
@@ -962,24 +1428,49 @@
         "output.logs",
         "output.traces"
       ],
+      "sim_keep": {
+        "keep_subtree": true,
+        "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
       "terminal_ok": false
     },
     "otelcol.processor.cumulativetodelta": {
       "category": "transform",
       "doc": "Converts cumulative sum metrics to delta temporality (public-preview).",
       "icon": "transform",
+      "sim_keep": {
+        "keep_subtree": true,
+        "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
       "terminal_ok": false
     },
     "otelcol.processor.deltatocumulative": {
       "category": "transform",
       "doc": "Converts delta metrics to cumulative temporality (experimental).",
       "icon": "transform",
+      "sim_keep": {
+        "keep_subtree": true,
+        "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
       "terminal_ok": false
     },
     "otelcol.processor.discovery": {
       "category": "transform",
       "doc": "Enriches spans with labels from Prometheus service discovery.",
       "icon": "k8s",
+      "sim_keep": {
+        "paths": [
+          {
+            "path": "targets",
+            "class": "target_set"
+          },
+          "operation_type",
+          "pod_associations",
+          "output.metrics",
+          "output.logs",
+          "output.traces"
+        ]
+      },
       "terminal_ok": false
     },
     "otelcol.processor.filter": {
@@ -992,60 +1483,335 @@
         "output.logs",
         "output.traces"
       ],
+      "sim_keep": {
+        "keep_subtree": true,
+        "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
       "terminal_ok": false
     },
     "otelcol.processor.groupbyattrs": {
       "category": "transform",
       "doc": "Groups spans, logs, and metrics by a set of resource attributes.",
       "icon": "transform",
+      "sim_keep": {
+        "keep_subtree": true,
+        "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
       "terminal_ok": false
     },
     "otelcol.processor.interval": {
       "category": "transform",
       "doc": "Aggregates metrics over a configurable interval (experimental).",
       "icon": "transform",
+      "sim_keep": {
+        "keep_subtree": true,
+        "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
       "terminal_ok": false
     },
     "otelcol.processor.k8sattributes": {
       "category": "transform",
       "doc": "Enriches telemetry with Kubernetes pod/namespace/node metadata.",
       "icon": "k8s",
+      "sim_keep": {
+        "paths": [
+          "passthrough",
+          "wait_for_metadata",
+          "wait_for_metadata_timeout",
+          "watch_sync_period",
+          "extract.metadata",
+          "extract.otel_annotations",
+          "extract.deployment_name_from_replicaset",
+          "extract.annotation.*.tag_name",
+          "extract.annotation.*.key_regex",
+          "extract.annotation.*.from",
+          "extract.label.*.tag_name",
+          "extract.label.*.key_regex",
+          "extract.label.*.from",
+          "filter.node",
+          "filter.namespace",
+          "filter.field.*.value",
+          "filter.field.*.op",
+          "filter.label.*.value",
+          "filter.label.*.op",
+          "pod_association.*.source.*.from",
+          "pod_association.*.source.*.name",
+          "exclude.pod.*.name",
+          "output.metrics",
+          "output.logs",
+          "output.traces",
+          "debug_metrics.disable_high_cardinality_metrics",
+          "debug_metrics.level"
+        ]
+      },
       "terminal_ok": false
     },
     "otelcol.processor.memory_limiter": {
       "category": "transform",
       "doc": "Limits memory consumption by dropping data when threshold is exceeded.",
       "icon": "transform",
+      "sim_keep": {
+        "keep_subtree": true,
+        "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
       "terminal_ok": false
     },
     "otelcol.processor.metric_start_time": {
       "category": "transform",
       "doc": "Sets the start timestamp for cumulative metrics.",
       "icon": "transform",
+      "sim_keep": {
+        "keep_subtree": true,
+        "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
       "terminal_ok": false
     },
     "otelcol.processor.probabilistic_sampler": {
       "category": "transform",
       "doc": "Samples spans at a configured probability.",
       "icon": "transform",
+      "sim_keep": {
+        "keep_subtree": true,
+        "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
       "terminal_ok": false
     },
     "otelcol.processor.resourcedetection": {
       "category": "transform",
       "doc": "Auto-detects and attaches resource attributes (cloud, k8s, host, etc.).",
       "icon": "transform",
+      "sim_unsupported": "detects the SANDBOX host, cloud and Kubernetes environment, so every resource attribute it adds would describe the simulator instead of the user's fleet (VB-1 \u00a76.5 refuses that fidelity lie); it also reaches consul.address and openshift.address and carries an openshift.token",
       "terminal_ok": false
     },
     "otelcol.processor.span": {
       "category": "transform",
       "doc": "Modifies span names and attributes based on rules.",
       "icon": "transform",
+      "sim_keep": {
+        "paths": [
+          "include.match_type",
+          "include.services",
+          "include.span_names",
+          "include.log_bodies",
+          "include.log_severity_texts",
+          "include.metric_names",
+          "include.span_kinds",
+          "include.regexp.cache_enabled",
+          "include.regexp.cache_max_num_entries",
+          "include.log_severity.min",
+          "include.log_severity.match_undefined",
+          "include.library.*.name",
+          "include.library.*.version",
+          "exclude.match_type",
+          "exclude.services",
+          "exclude.span_names",
+          "exclude.log_bodies",
+          "exclude.log_severity_texts",
+          "exclude.metric_names",
+          "exclude.span_kinds",
+          "exclude.regexp.cache_enabled",
+          "exclude.regexp.cache_max_num_entries",
+          "exclude.log_severity.min",
+          "exclude.log_severity.match_undefined",
+          "exclude.library.*.name",
+          "exclude.library.*.version",
+          "name.from_attributes",
+          "name.separator",
+          "name.to_attributes.rules",
+          "name.to_attributes.break_after_match",
+          "name.to_attributes.keep_original_name",
+          "status.code",
+          "status.description",
+          "output.metrics",
+          "output.logs",
+          "output.traces",
+          "debug_metrics.disable_high_cardinality_metrics",
+          "debug_metrics.level"
+        ]
+      },
       "terminal_ok": false
     },
     "otelcol.processor.tail_sampling": {
       "category": "transform",
       "doc": "Samples traces after all spans have arrived using policy-based rules.",
       "icon": "transform",
+      "sim_keep": {
+        "paths": [
+          "decision_wait",
+          "decision_wait_after_root_received",
+          "num_traces",
+          "block_on_overflow",
+          "expected_new_traces_per_sec",
+          "sample_on_first_match",
+          "drop_pending_traces_on_shutdown",
+          "maximum_trace_size_bytes",
+          "policy.*.name",
+          "policy.*.type",
+          "policy.*.latency.threshold_ms",
+          "policy.*.latency.upper_threshold_ms",
+          "policy.*.numeric_attribute.min_value",
+          "policy.*.numeric_attribute.max_value",
+          "policy.*.numeric_attribute.invert_match",
+          "policy.*.probabilistic.hash_salt",
+          "policy.*.probabilistic.sampling_percentage",
+          "policy.*.status_code.status_codes",
+          "policy.*.string_attribute.values",
+          "policy.*.string_attribute.enabled_regex_matching",
+          "policy.*.string_attribute.cache_max_size",
+          "policy.*.string_attribute.invert_match",
+          "policy.*.rate_limiting.spans_per_second",
+          "policy.*.rate_limiting.burst_capacity",
+          "policy.*.bytes_limiting.bytes_per_second",
+          "policy.*.bytes_limiting.burst_capacity",
+          "policy.*.span_count.min_spans",
+          "policy.*.span_count.max_spans",
+          "policy.*.boolean_attribute.value",
+          "policy.*.boolean_attribute.invert_match",
+          "policy.*.ottl_condition.error_mode",
+          "policy.*.ottl_condition.span",
+          "policy.*.ottl_condition.spanevent",
+          "policy.*.trace_state.values",
+          "policy.*.composite.max_total_spans_per_second",
+          "policy.*.composite.policy_order",
+          "policy.*.composite.composite_sub_policy.*.name",
+          "policy.*.composite.composite_sub_policy.*.type",
+          "policy.*.composite.composite_sub_policy.*.latency.threshold_ms",
+          "policy.*.composite.composite_sub_policy.*.latency.upper_threshold_ms",
+          "policy.*.composite.composite_sub_policy.*.numeric_attribute.min_value",
+          "policy.*.composite.composite_sub_policy.*.numeric_attribute.max_value",
+          "policy.*.composite.composite_sub_policy.*.numeric_attribute.invert_match",
+          "policy.*.composite.composite_sub_policy.*.probabilistic.hash_salt",
+          "policy.*.composite.composite_sub_policy.*.probabilistic.sampling_percentage",
+          "policy.*.composite.composite_sub_policy.*.status_code.status_codes",
+          "policy.*.composite.composite_sub_policy.*.string_attribute.values",
+          "policy.*.composite.composite_sub_policy.*.string_attribute.enabled_regex_matching",
+          "policy.*.composite.composite_sub_policy.*.string_attribute.cache_max_size",
+          "policy.*.composite.composite_sub_policy.*.string_attribute.invert_match",
+          "policy.*.composite.composite_sub_policy.*.rate_limiting.spans_per_second",
+          "policy.*.composite.composite_sub_policy.*.rate_limiting.burst_capacity",
+          "policy.*.composite.composite_sub_policy.*.bytes_limiting.bytes_per_second",
+          "policy.*.composite.composite_sub_policy.*.bytes_limiting.burst_capacity",
+          "policy.*.composite.composite_sub_policy.*.span_count.min_spans",
+          "policy.*.composite.composite_sub_policy.*.span_count.max_spans",
+          "policy.*.composite.composite_sub_policy.*.boolean_attribute.value",
+          "policy.*.composite.composite_sub_policy.*.boolean_attribute.invert_match",
+          "policy.*.composite.composite_sub_policy.*.ottl_condition.error_mode",
+          "policy.*.composite.composite_sub_policy.*.ottl_condition.span",
+          "policy.*.composite.composite_sub_policy.*.ottl_condition.spanevent",
+          "policy.*.composite.composite_sub_policy.*.trace_state.values",
+          "policy.*.composite.composite_sub_policy.*.and.and_sub_policy.*.name",
+          "policy.*.composite.composite_sub_policy.*.and.and_sub_policy.*.type",
+          "policy.*.composite.composite_sub_policy.*.and.and_sub_policy.*.latency.threshold_ms",
+          "policy.*.composite.composite_sub_policy.*.and.and_sub_policy.*.latency.upper_threshold_ms",
+          "policy.*.composite.composite_sub_policy.*.and.and_sub_policy.*.numeric_attribute.min_value",
+          "policy.*.composite.composite_sub_policy.*.and.and_sub_policy.*.numeric_attribute.max_value",
+          "policy.*.composite.composite_sub_policy.*.and.and_sub_policy.*.numeric_attribute.invert_match",
+          "policy.*.composite.composite_sub_policy.*.and.and_sub_policy.*.probabilistic.hash_salt",
+          "policy.*.composite.composite_sub_policy.*.and.and_sub_policy.*.probabilistic.sampling_percentage",
+          "policy.*.composite.composite_sub_policy.*.and.and_sub_policy.*.status_code.status_codes",
+          "policy.*.composite.composite_sub_policy.*.and.and_sub_policy.*.string_attribute.values",
+          "policy.*.composite.composite_sub_policy.*.and.and_sub_policy.*.string_attribute.enabled_regex_matching",
+          "policy.*.composite.composite_sub_policy.*.and.and_sub_policy.*.string_attribute.cache_max_size",
+          "policy.*.composite.composite_sub_policy.*.and.and_sub_policy.*.string_attribute.invert_match",
+          "policy.*.composite.composite_sub_policy.*.and.and_sub_policy.*.rate_limiting.spans_per_second",
+          "policy.*.composite.composite_sub_policy.*.and.and_sub_policy.*.rate_limiting.burst_capacity",
+          "policy.*.composite.composite_sub_policy.*.and.and_sub_policy.*.bytes_limiting.bytes_per_second",
+          "policy.*.composite.composite_sub_policy.*.and.and_sub_policy.*.bytes_limiting.burst_capacity",
+          "policy.*.composite.composite_sub_policy.*.and.and_sub_policy.*.span_count.min_spans",
+          "policy.*.composite.composite_sub_policy.*.and.and_sub_policy.*.span_count.max_spans",
+          "policy.*.composite.composite_sub_policy.*.and.and_sub_policy.*.boolean_attribute.value",
+          "policy.*.composite.composite_sub_policy.*.and.and_sub_policy.*.boolean_attribute.invert_match",
+          "policy.*.composite.composite_sub_policy.*.and.and_sub_policy.*.ottl_condition.error_mode",
+          "policy.*.composite.composite_sub_policy.*.and.and_sub_policy.*.ottl_condition.span",
+          "policy.*.composite.composite_sub_policy.*.and.and_sub_policy.*.ottl_condition.spanevent",
+          "policy.*.composite.composite_sub_policy.*.and.and_sub_policy.*.trace_state.values",
+          "policy.*.composite.rate_allocation.*.policy",
+          "policy.*.composite.rate_allocation.*.percent",
+          "policy.*.and.and_sub_policy.*.name",
+          "policy.*.and.and_sub_policy.*.type",
+          "policy.*.and.and_sub_policy.*.latency.threshold_ms",
+          "policy.*.and.and_sub_policy.*.latency.upper_threshold_ms",
+          "policy.*.and.and_sub_policy.*.numeric_attribute.min_value",
+          "policy.*.and.and_sub_policy.*.numeric_attribute.max_value",
+          "policy.*.and.and_sub_policy.*.numeric_attribute.invert_match",
+          "policy.*.and.and_sub_policy.*.probabilistic.hash_salt",
+          "policy.*.and.and_sub_policy.*.probabilistic.sampling_percentage",
+          "policy.*.and.and_sub_policy.*.status_code.status_codes",
+          "policy.*.and.and_sub_policy.*.string_attribute.values",
+          "policy.*.and.and_sub_policy.*.string_attribute.enabled_regex_matching",
+          "policy.*.and.and_sub_policy.*.string_attribute.cache_max_size",
+          "policy.*.and.and_sub_policy.*.string_attribute.invert_match",
+          "policy.*.and.and_sub_policy.*.rate_limiting.spans_per_second",
+          "policy.*.and.and_sub_policy.*.rate_limiting.burst_capacity",
+          "policy.*.and.and_sub_policy.*.bytes_limiting.bytes_per_second",
+          "policy.*.and.and_sub_policy.*.bytes_limiting.burst_capacity",
+          "policy.*.and.and_sub_policy.*.span_count.min_spans",
+          "policy.*.and.and_sub_policy.*.span_count.max_spans",
+          "policy.*.and.and_sub_policy.*.boolean_attribute.value",
+          "policy.*.and.and_sub_policy.*.boolean_attribute.invert_match",
+          "policy.*.and.and_sub_policy.*.ottl_condition.error_mode",
+          "policy.*.and.and_sub_policy.*.ottl_condition.span",
+          "policy.*.and.and_sub_policy.*.ottl_condition.spanevent",
+          "policy.*.and.and_sub_policy.*.trace_state.values",
+          "policy.*.not.not_sub_policy.name",
+          "policy.*.not.not_sub_policy.type",
+          "policy.*.not.not_sub_policy.latency.threshold_ms",
+          "policy.*.not.not_sub_policy.latency.upper_threshold_ms",
+          "policy.*.not.not_sub_policy.numeric_attribute.min_value",
+          "policy.*.not.not_sub_policy.numeric_attribute.max_value",
+          "policy.*.not.not_sub_policy.numeric_attribute.invert_match",
+          "policy.*.not.not_sub_policy.probabilistic.hash_salt",
+          "policy.*.not.not_sub_policy.probabilistic.sampling_percentage",
+          "policy.*.not.not_sub_policy.status_code.status_codes",
+          "policy.*.not.not_sub_policy.string_attribute.values",
+          "policy.*.not.not_sub_policy.string_attribute.enabled_regex_matching",
+          "policy.*.not.not_sub_policy.string_attribute.cache_max_size",
+          "policy.*.not.not_sub_policy.string_attribute.invert_match",
+          "policy.*.not.not_sub_policy.rate_limiting.spans_per_second",
+          "policy.*.not.not_sub_policy.rate_limiting.burst_capacity",
+          "policy.*.not.not_sub_policy.bytes_limiting.bytes_per_second",
+          "policy.*.not.not_sub_policy.bytes_limiting.burst_capacity",
+          "policy.*.not.not_sub_policy.span_count.min_spans",
+          "policy.*.not.not_sub_policy.span_count.max_spans",
+          "policy.*.not.not_sub_policy.boolean_attribute.value",
+          "policy.*.not.not_sub_policy.boolean_attribute.invert_match",
+          "policy.*.not.not_sub_policy.ottl_condition.error_mode",
+          "policy.*.not.not_sub_policy.ottl_condition.span",
+          "policy.*.not.not_sub_policy.ottl_condition.spanevent",
+          "policy.*.not.not_sub_policy.trace_state.values",
+          "policy.*.drop.drop_sub_policy.*.name",
+          "policy.*.drop.drop_sub_policy.*.type",
+          "policy.*.drop.drop_sub_policy.*.latency.threshold_ms",
+          "policy.*.drop.drop_sub_policy.*.latency.upper_threshold_ms",
+          "policy.*.drop.drop_sub_policy.*.numeric_attribute.min_value",
+          "policy.*.drop.drop_sub_policy.*.numeric_attribute.max_value",
+          "policy.*.drop.drop_sub_policy.*.numeric_attribute.invert_match",
+          "policy.*.drop.drop_sub_policy.*.probabilistic.hash_salt",
+          "policy.*.drop.drop_sub_policy.*.probabilistic.sampling_percentage",
+          "policy.*.drop.drop_sub_policy.*.status_code.status_codes",
+          "policy.*.drop.drop_sub_policy.*.string_attribute.values",
+          "policy.*.drop.drop_sub_policy.*.string_attribute.enabled_regex_matching",
+          "policy.*.drop.drop_sub_policy.*.string_attribute.cache_max_size",
+          "policy.*.drop.drop_sub_policy.*.string_attribute.invert_match",
+          "policy.*.drop.drop_sub_policy.*.rate_limiting.spans_per_second",
+          "policy.*.drop.drop_sub_policy.*.rate_limiting.burst_capacity",
+          "policy.*.drop.drop_sub_policy.*.bytes_limiting.bytes_per_second",
+          "policy.*.drop.drop_sub_policy.*.bytes_limiting.burst_capacity",
+          "policy.*.drop.drop_sub_policy.*.span_count.min_spans",
+          "policy.*.drop.drop_sub_policy.*.span_count.max_spans",
+          "policy.*.drop.drop_sub_policy.*.boolean_attribute.value",
+          "policy.*.drop.drop_sub_policy.*.boolean_attribute.invert_match",
+          "policy.*.drop.drop_sub_policy.*.ottl_condition.error_mode",
+          "policy.*.drop.drop_sub_policy.*.ottl_condition.span",
+          "policy.*.drop.drop_sub_policy.*.ottl_condition.spanevent",
+          "policy.*.drop.drop_sub_policy.*.trace_state.values",
+          "output.metrics",
+          "output.logs",
+          "output.traces",
+          "debug_metrics.disable_high_cardinality_metrics",
+          "debug_metrics.level"
+        ]
+      },
       "terminal_ok": false
     },
     "otelcol.processor.transform": {
@@ -1058,96 +1824,161 @@
         "output.logs",
         "output.traces"
       ],
+      "sim_keep": {
+        "keep_subtree": true,
+        "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.awscloudwatch": {
       "category": "sources",
       "doc": "Receives metrics from AWS CloudWatch (experimental).",
       "icon": "cloud",
+      "sim_unsupported": "polls the real AWS CloudWatch API for a real region, a required attribute; the capture harness cannot emulate AWS. Availability fix, VB-1 §6.4",
       "terminal_ok": false
     },
     "otelcol.receiver.awsecscontainermetrics": {
       "category": "sources",
       "doc": "Receives metrics from AWS ECS container metadata (experimental).",
       "icon": "cloud",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.awss3": {
       "category": "sources",
       "doc": "Receives telemetry from AWS S3 (experimental).",
       "icon": "cloud",
+      "sim_unsupported": "reads from a real S3 bucket via s3downloader.s3_bucket/s3_prefix, both required; the capture harness cannot emulate S3 — the same reason otelcol.exporter.awss3 has no sim_destination. Availability fix, VB-1 §6.4",
       "terminal_ok": false
     },
     "otelcol.receiver.cloudflare": {
       "category": "sources",
       "doc": "Receives logs from Cloudflare Logpush (experimental).",
       "icon": "cloud",
+      "sim_keep": {
+        "paths": [
+          "endpoint"
+        ]
+      },
+      "sim_keep_acknowledged": [
+        {
+          "path": "endpoint",
+          "reason": "the local bind address this HTTP receiver listens on for Cloudflare Logpush requests, not an outbound target; it is required, so dropping it leaves a config the sandbox cannot load. Reachability is bounded by the sandbox's network, not this transform (e2e/sandbox_egress_test.go). Availability fix, VB-1 §6.4"
+        }
+      ],
       "terminal_ok": false
     },
     "otelcol.receiver.datadog": {
       "category": "sources",
       "doc": "Receives Datadog traces and metrics (experimental).",
       "icon": "datadog",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.faro": {
       "category": "sources",
       "doc": "Receives Grafana Faro frontend telemetry (experimental).",
       "icon": "faro",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.file_stats": {
       "category": "sources",
       "doc": "Emits metrics about files (size, modification time).",
       "icon": "file",
+      "sim_keep": {
+        "paths": [
+          "include"
+        ]
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.filelog": {
       "category": "sources",
       "doc": "Reads logs from files using stanza operators (public-preview).",
       "icon": "file",
+      "sim_keep": {
+        "paths": [
+          "include"
+        ]
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.fluentforward": {
       "category": "sources",
       "doc": "Receives logs from Fluentd and Fluent Bit (experimental).",
       "icon": "logs",
+      "sim_keep": {
+        "paths": [
+          "endpoint"
+        ]
+      },
+      "sim_keep_acknowledged": [
+        {
+          "path": "endpoint",
+          "reason": "the local bind address this receiver listens on for the Fluent Forward protocol, not an outbound target; it is required, so dropping it leaves a config the sandbox cannot load. Reachability is bounded by the sandbox's network, not this transform (e2e/sandbox_egress_test.go). Availability fix, VB-1 §6.4"
+        }
+      ],
       "terminal_ok": false
     },
     "otelcol.receiver.googlecloudpubsub": {
       "category": "sources",
       "doc": "Receives telemetry from Google Cloud Pub/Sub (experimental).",
       "icon": "cloud",
+      "sim_unsupported": "reads from a real Google Cloud Pub/Sub subscription, a required attribute; the capture harness cannot emulate Pub/Sub — the same reason otelcol.exporter.googlecloudpubsub has no sim_destination. Availability fix, VB-1 §6.4",
       "terminal_ok": false
     },
     "otelcol.receiver.influxdb": {
       "category": "sources",
       "doc": "Receives InfluxDB line protocol metrics.",
       "icon": "metrics",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.jaeger": {
       "category": "sources",
       "doc": "Receives traces in Jaeger format over gRPC, Thrift, or HTTP.",
       "icon": "traces",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.kafka": {
       "category": "sources",
       "doc": "Reads telemetry data from a Kafka topic.",
       "icon": "kafka",
+      "sim_unsupported": "connects to real Kafka brokers via brokers, a required attribute; the capture harness cannot emulate a Kafka cluster — the same reason otelcol.exporter.kafka has no sim_destination. Availability fix, VB-1 §6.4",
       "terminal_ok": false
     },
     "otelcol.receiver.loki": {
       "category": "sources",
       "doc": "Receives logs in Loki push format and converts to OTLP.",
       "icon": "logs",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.nginx": {
       "category": "sources",
       "doc": "Collects metrics from NGINX (public-preview).",
       "icon": "server",
+      "sim_unsupported": "scrapes a real nginx status endpoint via endpoint, a required attribute; the capture harness cannot emulate an nginx server. Availability fix, VB-1 §6.4",
       "terminal_ok": false
     },
     "otelcol.receiver.otlp": {
@@ -1159,48 +1990,81 @@
         "output.logs",
         "output.traces"
       ],
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.prometheus": {
       "category": "sources",
       "doc": "Scrapes Prometheus metrics and converts them to OTLP.",
       "icon": "metrics",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.solace": {
       "category": "sources",
       "doc": "Receives trace data from Solace messaging.",
       "icon": "server",
+      "sim_unsupported": "connects to a real Solace PubSub+ broker via queue, a required attribute; the capture harness cannot emulate a Solace broker. Availability fix, VB-1 §6.4",
       "terminal_ok": false
     },
     "otelcol.receiver.splunkhec": {
       "category": "sources",
       "doc": "Receives events in Splunk HEC format (public-preview).",
       "icon": "upload",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.syslog": {
       "category": "sources",
       "doc": "Receives syslog messages over TCP or UDP (public-preview).",
       "icon": "logs",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.tcplog": {
       "category": "sources",
       "doc": "Receives log entries over TCP (experimental).",
       "icon": "logs",
+      "sim_keep": {
+        "paths": [
+          "listen_address"
+        ]
+      },
+      "sim_keep_acknowledged": [
+        {
+          "path": "listen_address",
+          "reason": "the local bind address this receiver listens on for incoming TCP log connections, not an outbound target; it is required, so dropping it leaves a config the sandbox cannot load. Reachability is bounded by the sandbox's network, not this transform (e2e/sandbox_egress_test.go). Availability fix, VB-1 §6.4"
+        }
+      ],
       "terminal_ok": false
     },
     "otelcol.receiver.vcenter": {
       "category": "sources",
       "doc": "Collects metrics from VMware vCenter (experimental).",
       "icon": "server",
+      "sim_unsupported": "connects to a real vCenter instance and requires credentials (endpoint, username, and password, a required secret); the capture harness cannot emulate a vCenter API. Availability fix, VB-1 §6.4",
       "terminal_ok": false
     },
     "otelcol.receiver.zipkin": {
       "category": "sources",
       "doc": "Receives traces in Zipkin format.",
       "icon": "traces",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "otelcol.storage.file": {
@@ -1220,24 +2084,44 @@
         "ensure": {},
         "receiver": "none"
       },
+      "sim_keep": {
+        "keep_subtree": true,
+        "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
       "terminal_ok": true
     },
     "prometheus.enrich": {
       "category": "transform",
       "doc": "Enriches metrics with labels from a target (experimental).",
       "icon": "transform",
+      "sim_keep": {
+        "paths": [
+          {
+            "path": "targets",
+            "class": "target_set"
+          },
+          "metrics_match_label",
+          "labels_to_copy",
+          "forward_to"
+        ]
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.apache": {
       "category": "sources",
       "doc": "Exposes Apache web server metrics.",
       "icon": "server",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.azure": {
       "category": "sources",
       "doc": "Exposes Azure Monitor metrics.",
       "icon": "cloud",
+      "sim_unsupported": "polls the real Azure Monitor API for a real subscription (subscriptions, resource_type and metrics are all required); the capture harness cannot emulate Azure. Availability fix, VB-1 §6.4",
       "terminal_ok": false
     },
     "prometheus.exporter.blackbox": {
@@ -1247,114 +2131,169 @@
       "port_display_order": [
         "targets"
       ],
+      "sim_unsupported": "probes a destination the user names, and its target list is not a Prometheus label set: the probe address rides in an ordinary \"address\" key, which the target_set class does not touch (it forces __address__ and __scheme__ only). Keeping the list shipped the authored probe destination into the sandbox; dropping it leaves an exporter that probes nothing and reports every target down, which VB-1 §6.5 refuses as a fidelity lie. Round-2 HIGH",
       "terminal_ok": false
     },
     "prometheus.exporter.cadvisor": {
       "category": "sources",
       "doc": "Exposes container resource usage metrics via cAdvisor.",
       "icon": "docker",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.catchpoint": {
       "category": "sources",
       "doc": "Exposes Catchpoint synthetic monitoring metrics (experimental).",
       "icon": "probe",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.cloudwatch": {
       "category": "sources",
       "doc": "Exposes AWS CloudWatch metrics.",
       "icon": "cloud",
+      "sim_unsupported": "polls the real AWS CloudWatch API for a real region via sts_region, a required attribute; the capture harness cannot emulate AWS. Availability fix, VB-1 §6.4",
       "terminal_ok": false
     },
     "prometheus.exporter.consul": {
       "category": "sources",
       "doc": "Exposes Consul cluster metrics.",
       "icon": "server",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.databricks": {
       "category": "sources",
       "doc": "Exposes Databricks cluster metrics.",
       "icon": "database",
+      "sim_unsupported": "connects to a real Databricks workspace and requires client_secret, a required secret; nothing on sim_keep can carry a secret. Availability fix, VB-1 §6.4",
       "terminal_ok": false
     },
     "prometheus.exporter.dnsmasq": {
       "category": "sources",
       "doc": "Exposes Dnsmasq DNS server metrics.",
       "icon": "server",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.elasticsearch": {
       "category": "sources",
       "doc": "Exposes Elasticsearch cluster metrics.",
       "icon": "database",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.gcp": {
       "category": "sources",
       "doc": "Exposes Google Cloud Platform metrics.",
       "icon": "cloud",
+      "sim_unsupported": "polls the real Google Cloud Monitoring API for a real project (project_ids and metrics_prefixes are both required); the capture harness cannot emulate GCP. Availability fix, VB-1 §6.4",
       "terminal_ok": false
     },
     "prometheus.exporter.github": {
       "category": "sources",
       "doc": "Exposes GitHub repository metrics.",
       "icon": "server",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.kafka": {
       "category": "sources",
       "doc": "Exposes Kafka broker metrics.",
       "icon": "kafka",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.memcached": {
       "category": "sources",
       "doc": "Exposes Memcached metrics.",
       "icon": "database",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.mongodb": {
       "category": "sources",
       "doc": "Exposes MongoDB metrics.",
       "icon": "database",
+      "sim_unsupported": "connects to a real MongoDB instance via mongodb_uri, a required secret; nothing on sim_keep can carry a secret. Availability fix, VB-1 §6.4",
       "terminal_ok": false
     },
     "prometheus.exporter.mssql": {
       "category": "sources",
       "doc": "Exposes Microsoft SQL Server metrics.",
       "icon": "database",
+      "sim_unsupported": "connects to a real SQL Server instance via connection_string, a required secret; nothing on sim_keep can carry a secret. Availability fix, VB-1 §6.4",
       "terminal_ok": false
     },
     "prometheus.exporter.mysql": {
       "category": "sources",
       "doc": "Exposes MySQL database metrics.",
       "icon": "database",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.oracledb": {
       "category": "sources",
       "doc": "Exposes Oracle Database metrics.",
       "icon": "database",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.postgres": {
       "category": "sources",
       "doc": "Exposes PostgreSQL database metrics.",
       "icon": "database",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.process": {
       "category": "sources",
       "doc": "Exposes per-process resource metrics.",
       "icon": "server",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.redis": {
       "category": "sources",
       "doc": "Exposes Redis metrics.",
       "icon": "database",
+      "sim_unsupported": "probes a destination the user names, and its target is not a Prometheus label set: the probe address rides in redis_addr, an ordinary required \"address\"-shaped key the target_set class does not touch — the same reason prometheus.exporter.blackbox and prometheus.exporter.snmp are unsupported. Availability fix, VB-1 §6.4",
       "terminal_ok": false
     },
     "prometheus.exporter.self": {
@@ -1364,36 +2303,52 @@
       "port_display_order": [
         "targets"
       ],
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": true
     },
     "prometheus.exporter.snmp": {
       "category": "sources",
       "doc": "Exposes SNMP metrics.",
       "icon": "server",
+      "sim_unsupported": "walks a device the user names, and its target list is not a Prometheus label set: the device address rides in an ordinary \"address\" key alongside an \"auth\" name, neither of which the target_set class touches (it forces __address__ and __scheme__ only). Keeping the list shipped the authored device address into the sandbox; dropping it leaves an exporter that walks nothing, which VB-1 §6.5 refuses as a fidelity lie. Round-2 HIGH",
       "terminal_ok": false
     },
     "prometheus.exporter.snowflake": {
       "category": "sources",
       "doc": "Exposes Snowflake data warehouse metrics.",
       "icon": "database",
+      "sim_unsupported": "connects to a real Snowflake account (account_name, username and warehouse are all required); the capture harness cannot emulate Snowflake. Availability fix, VB-1 §6.4",
       "terminal_ok": false
     },
     "prometheus.exporter.squid": {
       "category": "sources",
       "doc": "Exposes Squid proxy cache metrics.",
       "icon": "server",
+      "sim_unsupported": "probes a destination the user names, and its target is not a Prometheus label set: the probe address rides in address, an ordinary required \"address\"-shaped key the target_set class does not touch — the same reason prometheus.exporter.blackbox and prometheus.exporter.snmp are unsupported. Availability fix, VB-1 §6.4",
       "terminal_ok": false
     },
     "prometheus.exporter.static": {
       "category": "sources",
       "doc": "Emits a static set of metrics (experimental).",
       "icon": "server",
+      "sim_keep": {
+        "paths": [
+          "text"
+        ]
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.statsd": {
       "category": "sources",
       "doc": "Receives StatsD metrics and exposes them as Prometheus metrics.",
       "icon": "metrics",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.unix": {
@@ -1403,42 +2358,70 @@
       "port_display_order": [
         "targets"
       ],
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.windows": {
       "category": "sources",
       "doc": "Exposes Windows host metrics.",
       "icon": "server",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "prometheus.operator.podmonitors": {
       "category": "sources",
       "doc": "Scrapes targets defined by Prometheus Operator PodMonitor CRDs.",
       "icon": "k8s",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "prometheus.operator.probes": {
       "category": "sources",
       "doc": "Scrapes targets defined by Prometheus Operator Probe CRDs.",
       "icon": "probe",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "prometheus.operator.scrapeconfigs": {
       "category": "sources",
       "doc": "Scrapes targets defined by Prometheus Operator ScrapeConfig CRDs (experimental).",
       "icon": "k8s",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "prometheus.operator.servicemonitors": {
       "category": "sources",
       "doc": "Scrapes targets defined by Prometheus Operator ServiceMonitor CRDs.",
       "icon": "k8s",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "prometheus.receive_http": {
       "category": "sources",
       "doc": "Receives Prometheus metrics via HTTP remote_write.",
       "icon": "metrics",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "prometheus.relabel": {
@@ -1448,6 +2431,16 @@
       "port_display_order": [
         "forward_to",
         "receiver"
+      ],
+      "sim_keep": {
+        "keep_subtree": true,
+        "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
+      "sim_keep_acknowledged": [
+        {
+          "path": "rule.*.target_label",
+          "reason": "a relabel destination LABEL name. It CAN be __address__, which retargets the scrape at runtime — the value is computed from replacement and the source labels, so no gate over the rendered config bounds it. Kept because relabel is the thing S3 exists to simulate; the sandbox network is what denies the reach (e2e/sandbox_egress_test.go)."
+        }
       ],
       "terminal_ok": false
     },
@@ -1469,6 +2462,47 @@
         "ensure": {},
         "receiver": "prometheus"
       },
+      "sim_keep": {
+        "paths": [
+          "external_labels",
+          "endpoint.*.name",
+          "endpoint.*.remote_timeout",
+          "endpoint.*.send_exemplars",
+          "endpoint.*.send_native_histograms",
+          "endpoint.*.protobuf_message",
+          "endpoint.*.follow_redirects",
+          "endpoint.*.enable_http2",
+          "endpoint.*.round_robin_dns",
+          "endpoint.*.queue_config.capacity",
+          "endpoint.*.queue_config.max_shards",
+          "endpoint.*.queue_config.min_shards",
+          "endpoint.*.queue_config.max_samples_per_send",
+          "endpoint.*.queue_config.batch_send_deadline",
+          "endpoint.*.queue_config.min_backoff",
+          "endpoint.*.queue_config.max_backoff",
+          "endpoint.*.queue_config.retry_on_http_429",
+          "endpoint.*.queue_config.sample_age_limit",
+          "endpoint.*.metadata_config.send",
+          "endpoint.*.metadata_config.send_interval",
+          "endpoint.*.metadata_config.max_samples_per_send",
+          "endpoint.*.write_relabel_config.*.source_labels",
+          "endpoint.*.write_relabel_config.*.separator",
+          "endpoint.*.write_relabel_config.*.regex",
+          "endpoint.*.write_relabel_config.*.modulus",
+          "endpoint.*.write_relabel_config.*.target_label",
+          "endpoint.*.write_relabel_config.*.replacement",
+          "endpoint.*.write_relabel_config.*.action",
+          "wal.truncate_frequency",
+          "wal.min_keepalive_time",
+          "wal.max_keepalive_time"
+        ]
+      },
+      "sim_keep_acknowledged": [
+        {
+          "path": "endpoint.*.write_relabel_config.*.target_label",
+          "reason": "a relabel destination LABEL name. It CAN be __address__, which retargets the scrape at runtime — the value is computed from replacement and the source labels, so no gate over the rendered config bounds it. Kept because relabel is the thing S3 exists to simulate; the sandbox network is what denies the reach (e2e/sandbox_egress_test.go)."
+        }
+      ],
       "terminal_ok": true
     },
     "prometheus.scrape": {
@@ -1482,6 +2516,51 @@
       "port_display_order": [
         "targets",
         "forward_to"
+      ],
+      "sim_keep": {
+        "paths": [
+          {
+            "path": "targets",
+            "class": "target_set"
+          },
+          "forward_to",
+          "job_name",
+          "honor_labels",
+          "honor_timestamps",
+          "track_timestamps_staleness",
+          "scrape_classic_histograms",
+          "scrape_native_histograms",
+          "scrape_interval",
+          "scrape_timeout",
+          "scrape_protocols",
+          "body_size_limit",
+          "sample_limit",
+          "target_limit",
+          "label_limit",
+          "label_name_length_limit",
+          "label_value_length_limit",
+          "follow_redirects",
+          "enable_http2",
+          "extra_metrics",
+          "enable_protobuf_negotiation",
+          "metric_name_validation_scheme",
+          "metric_name_escaping_scheme",
+          "scrape_fallback_protocol",
+          "convert_classic_histograms_to_nhcb",
+          "enable_compression",
+          "native_histogram_bucket_limit",
+          "native_histogram_min_bucket_factor",
+          "honor_metadata",
+          "enable_type_and_unit_labels",
+          "clustering.enabled"
+        ],
+        "reason": "two attributes are deliberately absent from this list. \"params\" is the canonical Prometheus query-string credential mechanism (params = {\"api_key\" = [\"...\"]}) and is excluded for exactly the reason http_headers already was; the harness's synthetic exporter ignores query parameters, so keeping it bought no fidelity either. \"metrics_path\" is the attribute form of the __metrics_path__ meta label the target_set class already removes, it takes a query string of its own, and any value but the default makes the forced scrape of the harness 404 — a simulation that silently shows nothing, which VB-1 §6.5 refuses. Round-2 HIGH"
+      },
+      "sim_keep_acknowledged": [
+        {
+          "path": "target_limit",
+          "reason": "declared number: a cap on discovered targets, not an address"
+        }
       ],
       "terminal_ok": false
     },
@@ -1500,36 +2579,111 @@
         "ensure": {},
         "receiver": "prometheus"
       },
+      "sim_keep": {
+        "paths": [
+          "ttl",
+          "persistence.max_signals_to_batch",
+          "persistence.batch_interval",
+          "endpoint.*.write_timeout",
+          "endpoint.*.retry_backoff",
+          "endpoint.*.max_retry_attempts",
+          "endpoint.*.batch_count",
+          "endpoint.*.flush_interval",
+          "endpoint.*.external_labels",
+          "endpoint.*.enable_round_robin",
+          "endpoint.*.protobuf_message",
+          "endpoint.*.metadata_cache_enabled",
+          "endpoint.*.metadata_cache_size",
+          "endpoint.*.parallelism.drift_scale_up",
+          "endpoint.*.parallelism.drift_scale_down",
+          "endpoint.*.parallelism.max_connections",
+          "endpoint.*.parallelism.min_connections",
+          "endpoint.*.parallelism.network_flush_interval",
+          "endpoint.*.parallelism.desired_connections_lookback",
+          "endpoint.*.parallelism.desired_check_interval",
+          "endpoint.*.parallelism.allowed_network_error_fraction"
+        ]
+      },
       "terminal_ok": true
     },
     "pyroscope.ebpf": {
       "category": "sources",
       "doc": "Profiles processes using eBPF without code changes.",
       "icon": "flame",
+      "sim_keep": {
+        "paths": [
+          {
+            "path": "targets",
+            "class": "target_set"
+          }
+        ],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "pyroscope.enrich": {
       "category": "transform",
       "doc": "Enriches profiles with additional labels (experimental).",
       "icon": "transform",
+      "sim_keep": {
+        "paths": [
+          {
+            "path": "targets",
+            "class": "target_set"
+          },
+          "target_match_label",
+          "profiles_match_label",
+          "labels_to_copy",
+          "forward_to"
+        ]
+      },
+      "sim_keep_acknowledged": [
+        {
+          "path": "target_match_label",
+          "reason": "the LABEL NAME the enrichment matches profiles against, not a network target; it is required, so dropping it leaves a config the sandbox cannot load. Availability fix, VB-1 §6.4"
+        }
+      ],
       "terminal_ok": false
     },
     "pyroscope.java": {
       "category": "sources",
       "doc": "Profiles Java processes using async-profiler.",
       "icon": "flame",
+      "sim_keep": {
+        "paths": [
+          {
+            "path": "targets",
+            "class": "target_set"
+          }
+        ],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "pyroscope.receive_http": {
       "category": "sources",
       "doc": "Receives profiling data via HTTP push.",
       "icon": "flame",
+      "sim_keep": {
+        "paths": [],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "pyroscope.relabel": {
       "category": "transform",
       "doc": "Relabels profiling targets.",
       "icon": "transform",
+      "sim_keep": {
+        "keep_subtree": true,
+        "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
+      "sim_keep_acknowledged": [
+        {
+          "path": "rule.*.target_label",
+          "reason": "a relabel destination LABEL name. It CAN be __address__, which retargets the scrape at runtime — the value is computed from replacement and the source labels, so no gate over the rendered config bounds it. Kept because relabel is the thing S3 exists to simulate; the sandbox network is what denies the reach (e2e/sandbox_egress_test.go)."
+        }
+      ],
       "terminal_ok": false
     },
     "pyroscope.scrape": {
@@ -1540,6 +2694,15 @@
         "targets",
         "forward_to"
       ],
+      "sim_keep": {
+        "paths": [
+          {
+            "path": "targets",
+            "class": "target_set"
+          }
+        ],
+        "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
       "terminal_ok": false
     },
     "pyroscope.write": {
@@ -1559,6 +2722,21 @@
         ],
         "ensure": {},
         "receiver": "pyroscope"
+      },
+      "sim_keep": {
+        "paths": [
+          "external_labels",
+          "endpoint.*.name",
+          "endpoint.*.remote_timeout",
+          "endpoint.*.debug_info_upload_timeout",
+          "endpoint.*.follow_redirects",
+          "endpoint.*.enable_http2",
+          "endpoint.*.min_backoff_period",
+          "endpoint.*.max_backoff_period",
+          "endpoint.*.max_backoff_retries",
+          "tracing.jaeger_propagator",
+          "tracing.trace_context_propagator"
+        ]
       },
       "terminal_ok": true
     },

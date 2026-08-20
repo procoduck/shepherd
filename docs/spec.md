@@ -1224,6 +1224,16 @@ Three Playwright layers:
 smoke (< 60s) → test → test-integration → [test-ui ∥ test-fullstack] → (merge queue) e2e
 ```
 
+One documented exception: `.github/workflows/e2e.yml`'s `e2e-egress` job (`make e2e-sim`) also
+runs on any PR touching the S3 sandbox containment surface. Its first ginkgo pass is the egress
+probes under `--fail-on-empty`: those probes are the ONLY control that bounds what a sandbox run
+can reach — the transform bounds credentials, not reachability — so reviewing a change to the sim
+network, the simulator or the transform without having exercised them is reviewing the claim
+rather than the control. Its second pass runs the S3 run-lifecycle specs, so the same job also
+proves the sandbox DELIVERS (a run reaching `completed` with captured series) and not only that it
+contains. See VB-1 §6.4, `docs/proofs/simulator-containment.md` §P0 and
+`docs/proofs/sandbox-sim-e2e.md`.
+
 `test-fullstack` runs on every PR, parallel with `test-ui`. Path-filter: skip for docs-only changes. Compose logs artifact on failure to `/tmp/fullstack-stack.log`.
 
 ### §15 (amended) — Fullstack "no mock" rule

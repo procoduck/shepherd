@@ -91,3 +91,59 @@ autoscaling:
 
 networkPolicy:
   enabled: false
+
+# -----------------------------------------------------------------------------
+# S3 sandbox simulator (VB-1 §6.4) — DISABLED BY DEFAULT, same convention as
+# every other gate in this repo (SHEPHERD_SIM_ENABLED in both compose files).
+#
+# It runs USER-AUTHORED Alloy configuration. Every control below is load-bearing,
+# not decoration, and every one is asserted by deploy/helm/chart_test.go so it
+# cannot regress silently:
+#   - automountServiceAccountToken: false on its ServiceAccount. Defense in
+#     depth, not the only gate — internal/simsvc.Config.SATokenPath makes the
+#     binary itself refuse to start if a token is mounted anyway.
+#   - a default-deny egress NetworkPolicy. The sandboxed Alloy is a CHILD
+#     PROCESS of shepherd-simulator (internal/simsvc/runner.go), not a sibling
+#     container, so this Pod's own network boundary IS the sandbox's boundary.
+#     Egress is allowed only to this Pod's own harness ports (the capture
+#     receivers shepherd-simulator itself serves) and to cluster DNS; nothing
+#     else, including the rest of the cluster and the internet.
+#   - non-root securityContext, every capability dropped, no privilege
+#     escalation, a read-only root filesystem (the run scratch directory is an
+#     emptyDir mounted over /tmp).
+#   - CPU/memory limits, so one runaway sandboxed config cannot starve the node.
+#
+# See docs/visual-builder-design-VB1.md §6.4 and docs/reviews/s3-sandbox-security-findings.md
+# (finding H5) for why each of these exists. Enabling this does NOT wire
+# shepherd's own config to reach it — set config.simulator.* (control_url,
+# capture_base_url, otlp_grpc_address, syslog_host, target_address) yourself,
+# pointed at this Service's DNS name, the same way oidc/graph are hand-set above.
+simulator:
+  enabled: false
+  image:
+    registry: ""
+    repository: shepherd-simulator
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  # allowedHosts overrides SIM_ALLOWED_HOSTS, the endpoint allowlist that is
+  # §6.4's defense-in-depth check ON TOP OF the NetworkPolicy. Empty uses the
+  # service's own built-in default (its own hostname plus localhost).
+  allowedHosts: []
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  networkPolicy:
+    # extraEgress lets an operator open one additional narrow hole (e.g. a
+    # split-horizon internal DNS server that is not kube-dns) without editing
+    # the template. Empty by default: the harness is everything the sandbox
+    # needs, by design.
+    extraEgress: []

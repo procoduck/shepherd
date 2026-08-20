@@ -11,6 +11,24 @@ name: E2E
 on:
   workflow_dispatch: {}
   merge_group: {}
+  # The egress job ALSO runs on any PR that touches the S3 sandbox containment
+  # surface. The rest of this workflow stays merge-queue-only per docs/spec.md's
+  # "CI ordering" — this is a deliberate exception for one job, because the
+  # egress probes are the ONLY control that bounds what the sandbox can reach
+  # (the transform bounds credentials, not reachability), and reviewing a change
+  # to the compose network or the runner without having exercised them is
+  # reviewing the claim rather than the control.
+  pull_request:
+    paths:
+      - "e2e/docker-compose.e2e.yaml"
+      - "e2e/sandbox_egress_test.go"
+      - "dev/docker-compose.dev.yaml"
+      - "internal/simsvc/**"
+      - "internal/simulate/**"
+      - "internal/netshape/**"
+      - "cmd/shepherd-simulator/**"
+      - "deploy/Dockerfile.simulator"
+      - ".github/workflows/e2e.yml"
 
 concurrency:
   group: e2e-${{ github.workflow }}-${{ github.ref }}
@@ -24,6 +42,10 @@ jobs:
     name: e2e
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Merge queue and manual dispatch only. The pull_request trigger above exists
+    # for the containment job below and must not drag the ~10 min agent-protocol
+    # suite onto every PR that touches internal/simulate.
+    if: github.event_name != 'pull_request'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -69,3 +91,62 @@ jobs:
       - name: Tear down stack
         if: always()
         run: docker compose -f e2e/docker-compose.e2e.yaml down -v || true
+
+  # The S3 sandbox egress probes (VB-1 §6.4 "Security containment"). It is a
+  # SEPARATE job because `make e2e` filters it out
+  # (--label-filter='!sandbox-sim') and brings the stack up without the `sim`
+  # profile, so nothing in the job above can ever execute it.
+  #
+  # This job is THE reachability control for the sandbox, not a backstop to one.
+  # The transform bounds which authored VALUES leave a user's graph; it cannot
+  # bound where a running config connects, because a discovery.relabel rule
+  # computes __address__ at runtime from label data. The static rule that used
+  # to claim otherwise was deleted. If this job is red, or silently ran zero
+  # specs, the sandbox has no containment — which is why `make e2e-egress`
+  # passes ginkgo --fail-on-empty.
+  #
+  # Until this job existed, every containment probe in the repo was decorative:
+  # `make e2e-sim` was defined in the Makefile and referenced by no workflow at
+  # all. That is finding H4 exactly — a control nothing exercises is not a
+  # control — and adding probes without wiring them into CI would have
+  # reproduced it one level up.
+  #
+  # Its own runner, not another step in the job above: the sim profile puts a
+  # second Alloy under load and needs the sim-internal network created fresh,
+  # and a shared stack would make a failure here indistinguishable from a
+  # failure there.
+  e2e-egress:
+    name: e2e-sim (sandbox egress containment)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install ginkgo CLI
+        run: go install github.com/onsi/ginkgo/v2/ginkgo@$(go list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)
+
+      # `make e2e-sim`, whose first ginkgo pass is exactly the egress-probe
+      # filter with --fail-on-empty (this job's whole reason to exist) and
+      # whose second pass runs the S3 run-lifecycle specs. Those used to be
+      # red on a renderer defect (finding M13) and this job ran the narrower
+      # `make e2e-egress` to stay green; M13 is fixed
+      # (docs/proofs/sandbox-sim-e2e.md), so the job now also proves the
+      # sandbox DELIVERS — a run that reaches completed with captured series —
+      # not only that it contains.
+      - name: make e2e-sim
+        run: make e2e-sim
+
+      - name: Compose logs on failure
+        if: failure()
+        run: docker compose -f e2e/docker-compose.e2e.yaml --profile sim logs --no-color || true
+
+      - name: Tear down stack
+        if: always()
+        run: docker compose -f e2e/docker-compose.e2e.yaml --profile sim down -v || true

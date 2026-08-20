@@ -54,10 +54,22 @@ func loadCompose(path string) composeFile {
 // asserted below is one whose removal restores a capability the sandbox is
 // supposed to have lost, and every assertion fails if the key is dropped.
 //
-// This spec pins the DECLARATION. The e2e suite's containment probes assert the
-// observable EFFECT (no route off the network, no shell in the image, no
-// published port) on a running container; the two are complementary, and this
-// one runs on every `go test` with no Docker daemon.
+// This spec pins the DECLARATION, and only the declaration. When it was
+// written, the sentence here claimed the e2e suite asserted the observable
+// EFFECT — and no such spec existed, which finding H4 caught: the only
+// evidence for egress denial was a hand-run transcript in a proof document.
+// It exists now, by name:
+//
+//	e2e/sandbox_egress_test.go, Label("sandbox-egress"), run by `make e2e-egress`
+//	from .github/workflows/e2e.yml's e2e-egress job.
+//
+// P-control dials a canary on the ordinary network and must succeed; P-deny-ip
+// dials the same canary's literal address from the simulator's own network
+// namespace and must fail; P-topology reads Internal=true back from the running
+// daemon rather than from the YAML this file parses. The two specs are
+// complementary and neither substitutes for the other — this one runs on every
+// `go test` with no Docker daemon, and it is the only one that would notice a
+// key deleted from a compose file nobody brought up.
 var _ = DescribeTable("Compose containment for the simulator service",
 	func(relPath string) {
 		root := repoRoot()

@@ -5,7 +5,7 @@ discovery.kubernetes "k8s_pods" {
 }
 
 prometheus.scrape "_2nd_app" {
-  targets = [discovery.kubernetes.k8s_pods.targets]
+  targets = discovery.kubernetes.k8s_pods.targets
   forward_to = [prometheus.remote_write.my_sink.receiver, prometheus.remote_write.backup_sink.receiver]
 }
 

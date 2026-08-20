@@ -5,7 +5,7 @@ discovery.kubernetes "k8s" {
 }
 
 prometheus.scrape "app" {
-  targets = [discovery.kubernetes.k8s.targets]
+  targets = discovery.kubernetes.k8s.targets
   forward_to = [prometheus.remote_write.sink.receiver]
   job_name = "app"
   scrape_interval = "30s"
