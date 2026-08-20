@@ -57,6 +57,26 @@ docker compose -f dev/docker-compose.dev.yaml --profile alloy up -d --build --wa
 docker compose -f dev/docker-compose.dev.yaml --profile oidc up -d --build --wait
 ```
 
+### The `sim` profile — S3 sandbox simulation
+
+`make dev-sim` builds the simulator image and brings the stack up with the sandbox tier enabled:
+
+```bash
+make dev-sim   # == SHEPHERD_SIM_ENABLED=true docker compose ... --profile sim up
+```
+
+**The feature is disabled by default and that default is deliberate.** `simulator.enabled` has no
+viper default, and both compose files default `SHEPHERD_SIM_ENABLED` to `false`. Two containment
+criticals are open (B-CONTAIN-1 and B-CONTAIN-2 in the ledger): the sandbox can reach the control
+plane over `sim-internal`, and `internal: true` does not deny the Docker host on every runtime.
+
+Turning it on locally to develop against is fine. Do not enable it on a shared or production
+deployment until those close — the sandbox executes user-authored Alloy config.
+
+Without the profile, `Simulate ▾ → Sandbox run` reports that sandbox simulation is not enabled on
+this server, which is the intended degradation. The other two tiers (S1 flow check, S2
+relabel/log trace) need no profile and work in the default stack.
+
 ---
 
 ## Seed contents

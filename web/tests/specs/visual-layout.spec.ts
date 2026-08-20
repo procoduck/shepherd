@@ -1,7 +1,7 @@
 /**
  * Canvas layout — the working surface must be able to dominate.
  *
- * docs/reviews/canvas-ux-and-forms.md measured the canvas at 424px on a 1280px
+ * docs/archive/reviews/canvas-ux-and-forms.md measured the canvas at 424px on a 1280px
  * window with the app sidebar, palette and inspector all fixed — under two
  * node-widths, narrow enough that a placed node could land outside it and its
  * ports become undraggable. Both builder panels are now collapsible (after

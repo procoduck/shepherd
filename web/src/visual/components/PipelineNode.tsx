@@ -116,7 +116,7 @@ export interface PortLayout {
    * distinct value, which is the fix for the CRITICAL defect this task
    * addresses: React Flow's default `top: 50%` put every handle on a node at
    * the identical point (measured: prometheus.scrape's `targets` and
-   * `forward_to` both at (736,512), docs/reviews/canvas-ux-and-forms.md F3). */
+   * `forward_to` both at (736,512), docs/archive/reviews/canvas-ux-and-forms.md F3). */
   top: number;
 }
 

@@ -3,7 +3,7 @@ import type { ComponentDef } from '../types';
 import { layoutPorts, portRole } from './PipelineNode';
 
 // prometheus.scrape shape, per the real schema artifact (not the fictional
-// mocked-suite fixture — see docs/reviews/canvas-ux-and-forms.md "root
+// mocked-suite fixture — see docs/archive/reviews/canvas-ux-and-forms.md "root
 // cause"): two ARGUMENTS (schema `inputs`), no exports. `targets` is a
 // DATA-kind wire; `forward_to` is a RECEIVER-kind wire (it takes a list of
 // prometheus.remote_write-style receivers).

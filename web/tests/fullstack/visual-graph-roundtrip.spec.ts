@@ -1,6 +1,6 @@
 /**
  * Fullstack: visual builder graph round-trip (F7 in
- * docs/reviews/graph-model-and-validation.md; D3 in
+ * docs/archive/reviews/graph-model-and-validation.md; D3 in
  * docs/visual-builder-design-VB1.md).
  *
  * Regression: save wrote `wizard_state`, but load ignored it and re-parsed
