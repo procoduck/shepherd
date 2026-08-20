@@ -109,7 +109,12 @@ func ParseAlloy(content, schemaVersion string, schema ...SchemaPayload) ParseRes
 			Label:     label,
 			Position:  Position{X: x, Y: y},
 			Props:     gp.props(block.Body, name),
-			Disabled:  false,
+			// Captured here or lost for good: Props is a map, so parsing an
+			// existing config into a graph and rendering it back would otherwise
+			// silently re-sequence the author's blocks into schema order. That
+			// round trip runs on every "recreate as visual pipeline".
+			BlockOrder: topLevelBlockOrder(block.Body),
+			Disabled:   false,
 		})
 		nodeByRef[name+"."+label] = id
 		blocks[id] = block
@@ -161,6 +166,28 @@ func (gp *graphParser) isComponent(name string) bool {
 		return ok
 	}
 	return !configBlocks[name]
+}
+
+// topLevelBlockOrder lists a body's block names in first-appearance order, once
+// each. Repeats of the same name keep their relative order inside the props
+// list already, so only the sequence *between* differently-named blocks needs
+// recording — that is the part a map cannot hold.
+func topLevelBlockOrder(body ast.Body) []string {
+	var order []string
+	seen := map[string]bool{}
+	for _, stmt := range body {
+		block, ok := stmt.(*ast.BlockStmt)
+		if !ok {
+			continue
+		}
+		name := strings.Join(block.Name, ".")
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		order = append(order, name)
+	}
+	return order
 }
 
 // props converts a block body into a props map: attributes by value, nested

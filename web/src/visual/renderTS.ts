@@ -1,5 +1,33 @@
 import type { GraphDocument, GraphEdge, GraphNode, SchemaPayload } from './types';
 
+/**
+ * Re-sequences a component's block schemas to the author's recorded order.
+ * Named blocks come first in that order; anything the author never arranged
+ * follows in schema-declaration order, so the result is always a permutation —
+ * never adds or drops a block.
+ *
+ * An empty order returns the schema's own sequence unchanged, which is the path
+ * every graph saved before `block_order` existed takes. Mirrors orderBlocks in
+ * internal/visual/render.go; the two renderers are drift-checked against the
+ * shared corpus and must agree.
+ */
+function orderBlocks<T extends { name: string }>(blocks: T[], order?: string[]): T[] {
+  if (!order || order.length === 0 || blocks.length === 0) return blocks;
+  const byName = new Map(blocks.map((b) => [b.name, b]));
+  const out: T[] = [];
+  const placed = new Set<string>();
+  for (const name of order) {
+    const b = byName.get(name);
+    // An undeclared name is ignored rather than diagnosed: block_order is a
+    // rendering hint, and an unknown name already surfaces as an unknown prop.
+    if (!b || placed.has(name)) continue;
+    out.push(b);
+    placed.add(name);
+  }
+  for (const b of blocks) if (!placed.has(b.name)) out.push(b);
+  return out;
+}
+
 export interface RenderDiagnostic {
   layer: 'L1';
   severity?: 'error' | 'warning';
@@ -509,7 +537,7 @@ export function renderTS(doc: GraphDocument, schema: SchemaPayload): RenderTSRes
           '  ',
           id,
           component.attributes ?? [],
-          component.blocks ?? [],
+          orderBlocks(component.blocks ?? [], node.block_order),
           props,
           nodeRefs(component, wires.get(id)),
         )

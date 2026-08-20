@@ -281,6 +281,9 @@ func graphDocFromProto(g *mgmtv1.GraphDocument) visual.GraphDocument {
 		doc.Nodes = append(doc.Nodes, visual.GraphNode{
 			ID: n.GetId(), Component: n.GetComponent(), Label: n.GetLabel(),
 			Position: pos, Props: props, Disabled: n.GetDisabled(), Notes: n.GetNotes(),
+			// Props is a Struct — an unordered map — so dropping this here would
+			// re-sequence the author's blocks into schema order on every save.
+			BlockOrder: n.GetBlockOrder(),
 		})
 	}
 	for _, e := range g.GetEdges() {
@@ -326,6 +329,7 @@ func graphDocToProto(doc visual.GraphDocument) *mgmtv1.GraphDocument {
 			Id: n.ID, Component: n.Component, Label: n.Label,
 			Position: &mgmtv1.Position{X: n.Position.X, Y: n.Position.Y},
 			Props:    props, Disabled: n.Disabled, Notes: n.Notes,
+			BlockOrder: n.BlockOrder,
 		})
 	}
 	for _, e := range doc.Edges {

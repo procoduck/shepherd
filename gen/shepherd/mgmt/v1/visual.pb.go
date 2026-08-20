@@ -294,14 +294,30 @@ func (x *BindingRef) GetExpr() string {
 // attribute values, keyed by attribute name — genuinely dynamic (its shape
 // depends on the node's component type and the Alloy schema), hence Struct.
 type GraphNode struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Component     string                 `protobuf:"bytes,2,opt,name=component,proto3" json:"component,omitempty"`
-	Label         string                 `protobuf:"bytes,3,opt,name=label,proto3" json:"label,omitempty"`
-	Position      *Position              `protobuf:"bytes,4,opt,name=position,proto3" json:"position,omitempty"`
-	Props         *structpb.Struct       `protobuf:"bytes,5,opt,name=props,proto3" json:"props,omitempty"`
-	Disabled      bool                   `protobuf:"varint,6,opt,name=disabled,proto3" json:"disabled,omitempty"`
-	Notes         string                 `protobuf:"bytes,7,opt,name=notes,proto3" json:"notes,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Id        string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Component string                 `protobuf:"bytes,2,opt,name=component,proto3" json:"component,omitempty"`
+	Label     string                 `protobuf:"bytes,3,opt,name=label,proto3" json:"label,omitempty"`
+	Position  *Position              `protobuf:"bytes,4,opt,name=position,proto3" json:"position,omitempty"`
+	Props     *structpb.Struct       `protobuf:"bytes,5,opt,name=props,proto3" json:"props,omitempty"`
+	Disabled  bool                   `protobuf:"varint,6,opt,name=disabled,proto3" json:"disabled,omitempty"`
+	Notes     string                 `protobuf:"bytes,7,opt,name=notes,proto3" json:"notes,omitempty"`
+	// block_order records the author's ordering of this node's top-level blocks,
+	// by block name. props is a Struct — an unordered map keyed by block name — so
+	// without this the order in which a user arranged differently-named blocks is
+	// not merely lost at render time, it is never stored at all.
+	//
+	// That matters because Alloy block order is semantic. loki.process runs its
+	// stages in document order: stage.json populates the extracted map and
+	// stage.labels promotes those entries to labels, so emitting them the other
+	// way round leaves stage.labels with nothing to promote. The config is still
+	// valid and still runs — it just silently drops every label.
+	//
+	// Empty means "no recorded order", and the renderer falls back to the schema's
+	// declaration order, which is exactly what every graph saved before this field
+	// existed gets. Names present here but absent from props are ignored; blocks in
+	// props but absent here render afterwards in schema order.
+	BlockOrder    []string `protobuf:"bytes,8,rep,name=block_order,json=blockOrder,proto3" json:"block_order,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -383,6 +399,13 @@ func (x *GraphNode) GetNotes() string {
 		return x.Notes
 	}
 	return ""
+}
+
+func (x *GraphNode) GetBlockOrder() []string {
+	if x != nil {
+		return x.BlockOrder
+	}
+	return nil
 }
 
 // GraphEdge mirrors internal/visual.GraphEdge. order is a pointer in Go
@@ -1393,7 +1416,7 @@ const file_shepherd_mgmt_v1_visual_proto_rawDesc = "" +
 	"BindingRef\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\tR\x04node\x12\x16\n" +
 	"\x06export\x18\x02 \x01(\tR\x06export\x12\x12\n" +
-	"\x04expr\x18\x03 \x01(\tR\x04expr\"\xe8\x01\n" +
+	"\x04expr\x18\x03 \x01(\tR\x04expr\"\x89\x02\n" +
 	"\tGraphNode\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
 	"\tcomponent\x18\x02 \x01(\tR\tcomponent\x12\x14\n" +
@@ -1401,7 +1424,9 @@ const file_shepherd_mgmt_v1_visual_proto_rawDesc = "" +
 	"\bposition\x18\x04 \x01(\v2\x1a.shepherd.mgmt.v1.PositionR\bposition\x12-\n" +
 	"\x05props\x18\x05 \x01(\v2\x17.google.protobuf.StructR\x05props\x12\x1a\n" +
 	"\bdisabled\x18\x06 \x01(\bR\bdisabled\x12\x14\n" +
-	"\x05notes\x18\a \x01(\tR\x05notes\"\x9a\x01\n" +
+	"\x05notes\x18\a \x01(\tR\x05notes\x12\x1f\n" +
+	"\vblock_order\x18\b \x03(\tR\n" +
+	"blockOrder\"\x9a\x01\n" +
 	"\tGraphEdge\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12-\n" +
 	"\x04from\x18\x02 \x01(\v2\x19.shepherd.mgmt.v1.PortRefR\x04from\x12)\n" +

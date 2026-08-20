@@ -29,6 +29,20 @@ type GraphNode struct { //nolint:revive
 	Props     map[string]interface{} `json:"props"`
 	Disabled  bool                   `json:"disabled"`
 	Notes     string                 `json:"notes"`
+	// BlockOrder records the author's ordering of this node's top-level blocks,
+	// by block name. Props is a map, so without this the order in which a user
+	// arranged differently-named blocks is never stored — not merely lost at
+	// render time.
+	//
+	// Alloy block order is semantic: loki.process runs stages in document order,
+	// so stage.json before stage.labels extracts fields and then promotes them,
+	// while the reverse leaves stage.labels nothing to promote. Both render,
+	// both validate, both run — one silently drops every label.
+	//
+	// Empty means "no recorded order" and the renderer falls back to schema
+	// declaration order, which is what every graph saved before this field
+	// existed gets, byte for byte.
+	BlockOrder []string `json:"block_order,omitempty"`
 }
 
 type GraphEdge struct { //nolint:revive
@@ -562,7 +576,8 @@ func Render(doc GraphDocument, schema SchemaPayload) RenderResult { //nolint:rev
 		start := lw.currentLine()
 		lw.writef("%s %s {\n", n.Component, quote(labels[id]))
 		if known {
-			rd.writeBody(&lw, "  ", id, c.Attributes, c.Blocks, n.Props, nodeRefs(c, wires[id]))
+			rd.writeBody(&lw, "  ", id, c.Attributes, orderBlocks(c.Blocks, n.BlockOrder), n.Props,
+				nodeRefs(c, wires[id]))
 		} else {
 			// Without a schema there is no type or block information, so props
 			// are emitted by their JSON shape rather than dropped.
@@ -596,6 +611,43 @@ func Render(doc GraphDocument, schema SchemaPayload) RenderResult { //nolint:rev
 // references taking the place of the attribute they satisfy), then any
 // remaining top-level references, then nested blocks, then a diagnostic for
 // every prop the schema does not know.
+// orderBlocks re-sequences a component's block schemas to the author's recorded
+// order. Names in `order` come first, in that order; anything the author never
+// arranged follows in schema-declaration order, so the result is a permutation
+// of `blocks` and never adds or drops one.
+//
+// An empty `order` returns the schema's own sequence unchanged — that is the
+// path every graph saved before BlockOrder existed takes, and it renders exactly
+// as it did before.
+func orderBlocks(blocks []BlockSchema, order []string) []BlockSchema {
+	if len(order) == 0 || len(blocks) == 0 {
+		return blocks
+	}
+	byName := make(map[string]BlockSchema, len(blocks))
+	for _, b := range blocks {
+		byName[b.Name] = b
+	}
+	out := make([]BlockSchema, 0, len(blocks))
+	placed := make(map[string]bool, len(blocks))
+	for _, name := range order {
+		// A name the component does not declare is ignored rather than
+		// diagnosed: BlockOrder is a rendering hint, and an unknown name is
+		// already reported as an unknown prop by the prop walk below.
+		b, ok := byName[name]
+		if !ok || placed[name] {
+			continue
+		}
+		out = append(out, b)
+		placed[name] = true
+	}
+	for _, b := range blocks {
+		if !placed[b.Name] {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
 func (rd *renderer) writeBody(lw *lineWriter, indent, nodeID string, attrs []AttributeSchema, blocks []BlockSchema, props map[string]interface{}, refs []levelRef) {
 	consumed := map[string]bool{}
 	here := map[string]string{}       // single-segment refs at this level

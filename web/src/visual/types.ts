@@ -16,6 +16,20 @@ export interface GraphNode {
   props: Record<string, unknown>;
   disabled: boolean;
   notes: string;
+  /**
+   * The author's ordering of this node's top-level blocks, by block name.
+   *
+   * `props` is a plain object keyed by block name, so without this the order a
+   * user arranged differently-named blocks in is never stored — not merely lost
+   * when rendering. Alloy block order is semantic: loki.process runs stages in
+   * document order, so `stage.json` before `stage.drop` extracts a field and
+   * then drops on it, while the reverse drops on an empty map and silently
+   * matches nothing.
+   *
+   * Absent means "no recorded order" and the renderer uses the schema's own
+   * declaration order — what every graph saved before this field existed gets.
+   */
+  block_order?: string[];
 }
 
 export interface GraphEdge {

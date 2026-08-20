@@ -6,7 +6,7 @@ import type { ComponentDef } from '../types';
 import { CollapsiblePanel } from './CollapsiblePanel';
 import { AttributeField } from './inspector/AttributeField';
 import { BlockGroup } from './inspector/BlockGroup';
-import { withAttr } from './inspector/blockOps';
+import { nextBlockOrder, withAttr } from './inspector/blockOps';
 import { buildPortWireIndex, wireCountsFor } from './inspector/portWiring';
 import type { AttrLike, BlockLike } from './inspector/schemaShapes';
 import { UpgradeReview } from './UpgradeReview';
@@ -119,8 +119,16 @@ export function InspectorPanel() {
   const required = attrs.filter((a) => a.required);
   const optional = attrs.filter((a) => !a.required);
 
+  // Blocks also carry an ORDER, which `props` (an object keyed by block name)
+  // cannot hold. Alloy runs loki.process stages in document order, so a node
+  // that gained stage.drop after stage.json has to remember that or the
+  // renderer falls back to schema order and re-sequences the user's pipeline.
+  const blockNames = new Set((def?.blocks ?? []).map((b) => b.name));
   const setProp = (name: string, value: unknown) =>
-    updateNode(node.id, { props: withAttr(node.props ?? {}, name, value) });
+    updateNode(node.id, {
+      props: withAttr(node.props ?? {}, name, value),
+      block_order: nextBlockOrder(node.block_order, name, value, blockNames.has(name)),
+    });
 
   const renderAttr = (attr: AttrLike) => {
     const port = portIndex.byPath.get(attr.name);

@@ -3,6 +3,7 @@ import {
   appendItem,
   blockInstances,
   commitInstances,
+  nextBlockOrder,
   removeAt,
   replaceAt,
   withAttr,
@@ -115,5 +116,44 @@ describe('commitInstances — round trip through add/edit/remove', () => {
     instances = removeAt(instances, 0);
     value = commitInstances(instances, false);
     expect(value).toBeUndefined();
+  });
+});
+
+describe('nextBlockOrder — the order props cannot hold', () => {
+  it('appends a newly added block where the user put it: last', () => {
+    expect(nextBlockOrder(['stage.json'], 'stage.drop', { source: 'level' }, true)).toEqual([
+      'stage.json',
+      'stage.drop',
+    ]);
+  });
+
+  it('starts an order from nothing when the first block is added', () => {
+    expect(nextBlockOrder(undefined, 'stage.json', { expressions: {} }, true)).toEqual([
+      'stage.json',
+    ]);
+  });
+
+  it('drops a removed block from the order', () => {
+    // commitInstances returns undefined when the last instance goes.
+    expect(nextBlockOrder(['stage.json', 'stage.drop'], 'stage.drop', undefined, true)).toEqual([
+      'stage.json',
+    ]);
+  });
+
+  it('leaves the order alone when an existing block is merely edited', () => {
+    // Re-appending on every keystroke would be harmless but wrong; identity
+    // here is what lets the caller skip a store write.
+    const order = ['stage.json', 'stage.drop'];
+    expect(nextBlockOrder(order, 'stage.json', { expressions: { a: 'b' } }, true)).toBe(order);
+  });
+
+  it('ignores attribute writes entirely', () => {
+    // forward_to is an attribute, not a block: it must never enter block_order.
+    const order = ['stage.json'];
+    expect(nextBlockOrder(order, 'forward_to', ['x'], false)).toBe(order);
+  });
+
+  it('treats an emptied repeatable block as removed', () => {
+    expect(nextBlockOrder(['rule', 'stage.json'], 'rule', [], true)).toEqual(['stage.json']);
   });
 });

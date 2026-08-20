@@ -54,6 +54,22 @@ message GraphNode {
   google.protobuf.Struct props = 5;
   bool disabled = 6;
   string notes = 7;
+  // block_order records the author's ordering of this node's top-level blocks,
+  // by block name. props is a Struct — an unordered map keyed by block name — so
+  // without this the order in which a user arranged differently-named blocks is
+  // not merely lost at render time, it is never stored at all.
+  //
+  // That matters because Alloy block order is semantic. loki.process runs its
+  // stages in document order: stage.json populates the extracted map and
+  // stage.labels promotes those entries to labels, so emitting them the other
+  // way round leaves stage.labels with nothing to promote. The config is still
+  // valid and still runs — it just silently drops every label.
+  //
+  // Empty means "no recorded order", and the renderer falls back to the schema's
+  // declaration order, which is exactly what every graph saved before this field
+  // existed gets. Names present here but absent from props are ignored; blocks in
+  // props but absent here render afterwards in schema order.
+  repeated string block_order = 8;
 }
 
 // GraphEdge mirrors internal/visual.GraphEdge. order is a pointer in Go
