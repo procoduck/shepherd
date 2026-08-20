@@ -1,6 +1,6 @@
 # Kubernetes test environment — plan
 
-> Status: **proposed, not implemented** (2026-08-20).
+> Status: **steps 1–2 implemented 2026-08-20** (`e2e/k8s/`, `make e2e-k8s`); steps 3–7 proposed.
 > Goal: a repeatable, self-tearing-down Kubernetes environment that verifies the things
 > `docker compose` structurally cannot — NetworkPolicy enforcement, the Helm chart as deployed,
 > and Shepherd's behaviour against a realistic LGTM stack.
@@ -183,8 +183,8 @@ that reproduces the failure instead of asking the reader to take it on faith.
 
 | Step | Deliverable | Depends on |
 |---|---|---|
-| 1 | `e2e/k8s` skeleton: TestMain, kind config, Calico, teardown, `make e2e-k8s` | — |
-| 2 | §4 negative control + the "CNI does not enforce" hard failure | 1 |
+| 1 | ~~`e2e/k8s` skeleton: TestMain, kind config, Calico, teardown, `make e2e-k8s`~~ **done** | — |
+| 2 | ~~§4 negative control + the "CNI does not enforce" hard failure~~ **done** | 1 |
 | 3 | Layer A chart-deploys specs | 1 |
 | 4 | Layer B containment probes + kill probe | 2, 3 |
 | 5 | §7 documentation and `NOTES.txt` warning | 4 |
@@ -193,6 +193,28 @@ that reproduces the failure instead of asking the reader to take it on faith.
 
 Steps 1–4 answer the S3 containment question and are the point of the exercise. Step 7 is
 independently valuable and can follow later.
+
+## 8a. What building steps 1–2 actually taught us
+
+Three things the plan did not anticipate, each now encoded in the harness:
+
+- **Calico's documented kind pod CIDR is wrong on OrbStack.** The standard guidance says
+  `192.168.0.0/16`, which assumes Docker's usual 172.17.x bridge. Here the kind network came up on
+  `192.168.117.0/24` — *inside* the pool. Nothing errored: calico-kube-controllers crash-looped and
+  CoreDNS never became Ready, surfacing five minutes later as `nc: bad address` in an unrelated
+  spec. Now `10.244.0.0/16`, with `assertPodCIDRDoesNotOverlapNodes` failing in ~40s with one clear
+  sentence if it ever recurs.
+- **Nodes Ready does not mean DNS works.** CoreDNS is an ordinary Deployment that schedules after
+  the CNI, so the first spec raced it. The first run passed only because image pulls happened to
+  give it enough time — a latent flake that would have read as a policy denial. `waitForClusterDNS`
+  now gates on it.
+- **`testenv.Finish` does not run when Setup fails** — which is exactly when a cluster is most
+  likely to leak. Two were left behind while getting the CNI right. `sweepCluster` after
+  `testenv.Run` covers every path Finish misses; verified by forcing a Setup failure and
+  confirming no cluster survived.
+
+The polling in both probe phases came from the same lesson: a single dial races infrastructure and
+fails for reasons unrelated to policy.
 
 ## 9. Open decisions
 

@@ -1,0 +1,28 @@
+# kind topology for the Shepherd Kubernetes e2e suite.
+#
+# disableDefaultCNI: kind ships kindnetd, whose NetworkPolicy support is not
+# something to rest a containment claim on. The suite installs Calico instead
+# and then PROVES it enforces policy before trusting any denial — see
+# negative_control_test.go. The CNI is part of what is under test, not scenery.
+#
+# Two workers, not one: with a single node, pod-to-pod traffic never crosses a
+# node boundary, and a CNI can appear to enforce policy while only ever
+# filtering paths that never left the host.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  disableDefaultCNI: true
+  # NOT Calico's documented 192.168.0.0/16. That guidance assumes Docker's usual
+  # 172.17.x bridge, but OrbStack (and some Docker setups) put the kind network
+  # on 192.168.x — so the pod CIDR would contain the NODE IPs. Measured here:
+  # nodes came up on 192.168.117.0/24, inside the pool, and the symptom was not
+  # an error but calico-kube-controllers in CrashLoopBackOff and CoreDNS never
+  # reaching Ready. 10.244.0.0/16 is kind's own default and does not collide
+  # with the 172.x/192.168.x ranges container runtimes use.
+  # assertPodCIDRDoesNotOverlapNodes in main_test.go fails loudly if this ever
+  # stops being true, rather than leaving a five-minute DNS timeout to diagnose.
+  podSubnet: "10.244.0.0/16"
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker

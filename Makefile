@@ -1,4 +1,4 @@
-.PHONY: build build-web build-all test test-integration e2e e2e-sim e2e-egress smoke test-ui check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker lint fmt generate gen-alloy-version generate-corpus schema schema-verify helm-lint release-snapshot docker-build docker-build-local docker-build-init docker-build-simulator migrate dev dev-sim dev-frontend dev-restart dev-seed dev-reset test-fullstack
+.PHONY: build build-web build-all test test-integration e2e e2e-k8s e2e-k8s-clean e2e-sim e2e-egress smoke test-ui check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker lint fmt generate gen-alloy-version generate-corpus schema schema-verify helm-lint release-snapshot docker-build docker-build-local docker-build-init docker-build-simulator migrate dev dev-sim dev-frontend dev-restart dev-seed dev-reset test-fullstack
 
 PNPM ?= pnpm
 
@@ -391,6 +391,30 @@ generate-corpus:
 	@echo "==> Done. $(shell ls internal/visual/testdata/corpus/*.graph.json | wc -l | tr -d ' ') corpus entries synced."
 
 # Helm lint
+# Kubernetes e2e suite (kind). Creates its own cluster, installs Calico,
+# runs the specs, and destroys the cluster — including on failure and panic.
+#
+# The suite opens with a negative control that PROVES the CNI enforces
+# NetworkPolicy before any containment assertion is trusted. If the CNI does
+# not enforce, every spec fails loudly rather than passing for the wrong
+# reason. See docs/kind-test-environment-plan.md.
+#
+#   E2E_K8S_KEEP=1        leave the cluster up for debugging
+#   E2E_K8S_NODE_IMAGE=   pin a different Kubernetes version
+#   E2E_K8S_ARTIFACTS=dir export cluster logs on failure
+#
+# -count=1 defeats the test cache: a cached PASS from a previous cluster would
+# be worthless here, since the whole point is what a live cluster does.
+e2e-k8s:
+	go test -tags e2ek8s -count=1 -timeout 45m -v ./e2e/k8s/...
+
+# Removes clusters a killed run (SIGKILL) left behind — the one case the
+# suite's own teardown cannot cover.
+e2e-k8s-clean:
+	@for c in $$(kind get clusters 2>/dev/null | grep '^shepherd-e2e-' || true); do \
+		echo "deleting leftover cluster $$c"; kind delete cluster --name "$$c"; \
+	done; echo "e2e-k8s-clean: done"
+
 helm-lint:
 	helm lint deploy/helm/shepherd
 	helm template shepherd deploy/helm/shepherd -f deploy/helm/shepherd/ci/default-values.yaml > /dev/null
