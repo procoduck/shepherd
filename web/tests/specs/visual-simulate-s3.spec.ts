@@ -76,6 +76,7 @@ test.describe('visual simulate S3 — sandbox run', () => {
           },
         ],
         fidelity_note: 'TEST FIDELITY NOTE — S3 stubs discovery and drops all secrets.',
+        stderr_tail: 'ts=... level=error msg="scrape failed" target=synthetic:9111',
       },
     });
 
@@ -115,6 +116,13 @@ test.describe('visual simulate S3 — sandbox run', () => {
     await expect(healthRow).toHaveCount(1);
     await expect(healthRow).toHaveAttribute('data-health-state', 'unhealthy');
     await expect(healthRow).toContainText('context deadline exceeded');
+
+    // The sandbox's stderr tail (§6.4 step 3). Health says a component is
+    // unhealthy; stderr is what says why, and it is the only signal at all
+    // when a run captures nothing. It was plumbed to the client and never
+    // rendered — this asserts the rendered text, not just the container.
+    await page.getByTestId('sim-health-stderr').click();
+    await expect(page.getByTestId('sim-health-stderr')).toContainText('scrape failed');
 
     // The single best debugging affordance (§6.4 step 4): the SAME health
     // state painted onto the matching canvas node, and NOT onto the other

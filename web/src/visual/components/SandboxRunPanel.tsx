@@ -223,6 +223,20 @@ function ResultsView({
               </tbody>
             </table>
           )}
+
+          {/* The sandbox Alloy's own stderr (design §6.4 step 3). Health says a
+              component is unhealthy; stderr is usually the only thing that says
+              WHY — and when a run captures nothing at all, it is the sole
+              signal the user has. It was plumbed all the way from simsvc to
+              api/client.ts and then never rendered. */}
+          {run.stderr_tail && (
+            <details className='mt-4' data-testid='sim-health-stderr'>
+              <summary className='cursor-pointer text-muted-2'>Sandbox stderr</summary>
+              <pre className='mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded border border-border bg-background p-2 font-mono text-[11px] text-muted'>
+                {run.stderr_tail}
+              </pre>
+            </details>
+          )}
         </div>
       )}
 
