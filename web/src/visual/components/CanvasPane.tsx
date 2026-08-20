@@ -802,9 +802,9 @@ export function CanvasPane() {
       if (key === 'z') {
         e.preventDefault();
         if (e.shiftKey) {
-          useVisualStore.temporal.getState().redo();
+          useVisualStore.getState().redo();
         } else {
-          useVisualStore.temporal.getState().undo();
+          useVisualStore.getState().undo();
         }
         return;
       }

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { shallow } from 'zustand/shallow';
 import { type ConnectingFrom, selectConnectionState, useVisualStore } from './store';
-import type { ComponentDef } from './types';
+import type { ComponentDef, SchemaPayload } from './types';
 
 describe('visual store', () => {
   beforeEach(() => {
@@ -216,5 +216,81 @@ describe('selectConnectionState (A3 narrow selector)', () => {
     expect(a).toBe(b); // same shared reference, not just shallow-equal — the strongest form of stable
     expect(a.validPortIds).toEqual([]);
     expect(a.isDimmed).toBe(true);
+  });
+});
+
+describe('undo/redo keep diagnostics in step with the document', () => {
+  // The mutations each end with `diagnostics: revalidate(...)`; zundo restores
+  // `doc` alone, straight into the store, bypassing all of them. Measured in the
+  // browser before this was fixed: delete a wired node (2 problems appear), undo
+  // it, and the graph is whole again while the Problems drawer still says 2 —
+  // with the toolbar, which re-renders server-side, saying "Valid" beside it.
+  const schema = {
+    _meta: { alloy_version: 'alloy-v1.18.1' },
+    components: {
+      'discovery.kubernetes': {
+        category: 'sources',
+        attributes: [],
+        blocks: [],
+        inputs: [],
+        outputs: [{ export: 'targets', path: ['targets'], type: 'targets', role: 'produces' }],
+      },
+    },
+  } as unknown as SchemaPayload;
+
+  beforeEach(() => {
+    useVisualStore.setState({
+      doc: {
+        kind: 'alloy-graph/v1',
+        schema_version: 'alloy-v1.18.1',
+        nodes: [],
+        edges: [],
+        bindings: [],
+        viewport: { x: 0, y: 0, zoom: 1 },
+        meta: { created_with: 'test' },
+      },
+      selected: [],
+      diagnostics: [],
+      schema,
+      allowExperimental: false,
+      connectingFrom: null,
+    });
+    useVisualStore.temporal.getState().clear();
+  });
+
+  it('recomputes diagnostics after undo, not just the document', () => {
+    const s = useVisualStore.getState();
+    s.addNode('discovery.kubernetes', { x: 0, y: 0 });
+    const afterAdd = useVisualStore.getState().diagnostics.length;
+
+    // Remove it: an empty graph has nothing to complain about.
+    const id = useVisualStore.getState().doc.nodes[0].id;
+    useVisualStore.getState().removeNode(id);
+    expect(useVisualStore.getState().doc.nodes).toHaveLength(0);
+    expect(useVisualStore.getState().diagnostics).toHaveLength(0);
+
+    useVisualStore.getState().undo();
+
+    expect(useVisualStore.getState().doc.nodes).toHaveLength(1);
+    expect(
+      useVisualStore.getState().diagnostics.length,
+      'diagnostics must describe the restored graph, not the one left behind',
+    ).toBe(afterAdd);
+  });
+
+  it('recomputes diagnostics after redo too', () => {
+    useVisualStore.getState().addNode('discovery.kubernetes', { x: 0, y: 0 });
+    const id = useVisualStore.getState().doc.nodes[0].id;
+    useVisualStore.getState().removeNode(id);
+    useVisualStore.getState().undo();
+    expect(useVisualStore.getState().doc.nodes).toHaveLength(1);
+
+    useVisualStore.getState().redo();
+
+    expect(useVisualStore.getState().doc.nodes).toHaveLength(0);
+    expect(
+      useVisualStore.getState().diagnostics,
+      'an emptied graph has no problems to report',
+    ).toHaveLength(0);
   });
 });

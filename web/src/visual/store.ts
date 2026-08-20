@@ -159,6 +159,13 @@ interface VisualStore {
   setLabel: (id: string, label: string) => void;
   setDisabled: (id: string, disabled: boolean) => void;
   toggleFlowCheck: () => void;
+  /** Undo/redo, with diagnostics recomputed for the restored document.
+   *
+   * Always go through these rather than `temporal.getState().undo()` directly:
+   * the temporal store partializes to `doc` alone, so a bare undo swaps the
+   * graph while leaving `diagnostics` describing the graph the user just left. */
+  undo: () => void;
+  redo: () => void;
   setConnectingFrom: (cf: ConnectingFrom | null) => void;
   setPipelineName: (name: string) => void;
   /** No-op if `matcher` is already present. */
@@ -367,6 +374,22 @@ export const useVisualStore = create<VisualStore>()(
         }),
 
       toggleFlowCheck: () => set((state) => ({ flowCheckActive: !state.flowCheckActive })),
+
+      // The 13 mutations above each end with `diagnostics: revalidate(...)`,
+      // which is what keeps the Problems drawer honest. Undo and redo bypass
+      // every one of them — zundo restores `doc` straight into the store — so
+      // without this the drawer keeps showing the problems of the graph the
+      // user just undid: delete a wired node (2 problems appear), undo it, and
+      // the graph is whole again while the drawer still says 2. The toolbar,
+      // which re-renders server-side, said Valid at the same time.
+      undo: () => {
+        useVisualStore.temporal.getState().undo();
+        set((state) => ({ diagnostics: revalidate(state) }));
+      },
+      redo: () => {
+        useVisualStore.temporal.getState().redo();
+        set((state) => ({ diagnostics: revalidate(state) }));
+      },
 
       // Not part of `doc` — mirrors updateViewport's pattern of a `set` that the
       // temporal `equality` fn (below, compares only doc/nodes/edges/bindings)
