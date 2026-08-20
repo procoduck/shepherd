@@ -14,6 +14,7 @@
 | `docs/dev-guide.md` | running the dev stack |
 | `docs/frontend-testing.md` | three-layer frontend test strategy |
 | `docs/platform-monitoring-architecture.md` | target-fleet reference notes |
+| `docs/kind-test-environment-plan.md` | **proposed**: kind-based Kubernetes test environment — NetworkPolicy enforcement, Helm deploy, LGTM delivery |
 | `docs/proofs/` | red–green proofs for current work |
 | `docs/archive/` | finished work, kept as the record of why things are the way they are |
 
@@ -64,12 +65,22 @@ scrapes Shepherd's unauthenticated metrics port and the data is returned to the 
 results. Fix: split the networks so Shepherd reaches the simulator's control API somewhere the
 sandbox is not.
 
-### B-CONTAIN-2 — `internal: true` does not deny the Docker host · **critical** (S3 only)
+### B-CONTAIN-2 — `internal: true` does not deny the Docker host · **local dev only**
 
 The bridge gateway is in-subnet, so on OrbStack every host-published port on the machine is
-reachable from the sandbox — proven end to end. Docker Engine blocks it, so CI can never catch
-this and the suite stays green either way. **Containment guarantees are not portable across
-container runtimes**; this cannot be closed in compose alone.
+reachable from the sandbox — proven end to end. Docker Engine blocks it, so CI cannot catch it
+either way.
+
+**Scope corrected 2026-08-20:** this is an artifact of Docker bridge networking and does not exist
+in Kubernetes, which is the production target. The Helm chart already ships a default-deny
+NetworkPolicy on both Ingress and Egress (plus `automountServiceAccountToken: false`, non-root,
+read-only rootfs, dropped capabilities), and the sandboxed Alloy is a child process of the
+simulator pod, so the pod's network boundary is the sandbox boundary. Compose stays a
+local-development convenience and this stays documented rather than fixed.
+
+The real residual risk is different and is now the thing to close: **a NetworkPolicy is only
+enforced if the CNI implements it** — Flannel silently ignores it — and nothing has ever verified
+the policy's effect in a real cluster. Plan: `docs/kind-test-environment-plan.md`.
 
 ### B-CONCAT — `CheckEndpoints` refuses the expression the renderer now emits · **high**
 
@@ -108,7 +119,8 @@ VB-1 M7 (§6.4). Built and working: the simulation transform, the `shepherd-simu
 capture harness and synthetic sources, the run API (migration 0007, cross-replica `RunWorker`), the
 sandbox-run UI, the `sim` compose profile and the `sandbox-sim` e2e scenario.
 
-**Disabled by default and must stay so** until B-CONTAIN-1 and B-CONTAIN-2 close. `simulator.enabled`
+**Disabled by default and must stay so** until B-CONTAIN-1 closes and NetworkPolicy enforcement is
+verified in a real cluster (B-CONTAIN-2 is local-dev-only — see above). `simulator.enabled`
 has no viper default (false); both compose files default `SHEPHERD_SIM_ENABLED` to false; Helm ships
 `simulator.enabled: false`.
 
