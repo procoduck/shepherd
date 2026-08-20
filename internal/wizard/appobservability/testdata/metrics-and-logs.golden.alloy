@@ -4,14 +4,14 @@ prometheus.scrape "app" {
   scrape_interval = "30s"
   job_name = "app"
 }
-	prometheus.remote_write "metrics" {
+prometheus.remote_write "metrics" {
   endpoint {
     name = "prom-prod"
-    url  = env("SHEPHERD_DEST_PROM_PROD_URL")
+    url  = sys.env("SHEPHERD_DEST_PROM_PROD_URL")
     // auth injected by Shepherd at serve time
   }
 }
-	loki.source.file "app_logs" {
+loki.source.file "app_logs" {
   targets = [
     {__path__ = "/var/log/app/*.log", job = "app"},
   ]
@@ -26,7 +26,6 @@ loki.process "app_process" {
 loki.write "logs" {
   endpoint {
     name = "loki-prod"
-    url  = env("SHEPHERD_DEST_LOKI_PROD_URL")
+    url  = sys.env("SHEPHERD_DEST_LOKI_PROD_URL")
   }
 }
-	

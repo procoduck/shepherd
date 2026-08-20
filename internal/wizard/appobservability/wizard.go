@@ -131,16 +131,16 @@ func (w *Wizard) Commit(state map[string]any) (wizard.CommitResult, error) {
   scrape_interval = "%s"
   job_name = "%s"
 }
-	`, scrapeURL, scrapeInterval, jobName)
+`, scrapeURL, scrapeInterval, jobName)
 
 	_, _ = fmt.Fprintf(&sb, `prometheus.remote_write "metrics" {
   endpoint {
     name = "%s"
-    url  = env("SHEPHERD_DEST_%s_URL")
+    url  = sys.env("SHEPHERD_DEST_%s_URL")
     // auth injected by Shepherd at serve time
   }
 }
-	`, metricsDest, strings.ToUpper(strings.ReplaceAll(metricsDest, "-", "_")))
+`, metricsDest, strings.ToUpper(strings.ReplaceAll(metricsDest, "-", "_")))
 
 	// Optional log collection.
 	if logsEnabled && logPath != "" {
@@ -159,10 +159,10 @@ loki.process "app_process" {
 loki.write "logs" {
   endpoint {
     name = "%s"
-    url  = env("SHEPHERD_DEST_%s_URL")
+    url  = sys.env("SHEPHERD_DEST_%s_URL")
   }
 }
-	`, logPath, jobName, logFormat, logsDest, strings.ToUpper(strings.ReplaceAll(logsDest, "-", "_")))
+`, logPath, jobName, logFormat, logsDest, strings.ToUpper(strings.ReplaceAll(logsDest, "-", "_")))
 	}
 
 	// Build matchers.

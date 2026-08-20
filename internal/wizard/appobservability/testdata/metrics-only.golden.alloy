@@ -4,11 +4,10 @@ prometheus.scrape "app" {
   scrape_interval = "60s"
   job_name = "myapp"
 }
-	prometheus.remote_write "metrics" {
+prometheus.remote_write "metrics" {
   endpoint {
     name = "prom-prod"
-    url  = env("SHEPHERD_DEST_PROM_PROD_URL")
+    url  = sys.env("SHEPHERD_DEST_PROM_PROD_URL")
     // auth injected by Shepherd at serve time
   }
 }
-	
