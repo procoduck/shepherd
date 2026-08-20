@@ -90,7 +90,7 @@ func TestMain(m *testing.M) {
 	// cover is SIGKILL, which is what `make e2e-k8s-clean` is for.
 	testenv.Finish(
 		exportDiagnosticsOnFailure,
-		envfuncs.DeleteNamespace(namespace),
+		deleteNamespaceUnlessKept(namespace),
 		destroyUnlessKept(clusterName),
 	)
 
@@ -104,9 +104,25 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// deleteNamespaceUnlessKept keeps the namespace when the cluster is kept.
+// Deleting it anyway takes the evidence with it — which happened once, leaving
+// a kept cluster with nothing in it to inspect.
+func deleteNamespaceUnlessKept(ns string) env.Func {
+	return func(ctx context.Context, cfg *envconf.Config) (context.Context, error) {
+		if keepCluster() {
+			log.Printf("E2E_K8S_KEEP=1 — leaving namespace %q for inspection", ns)
+			return ctx, nil
+		}
+		return envfuncs.DeleteNamespace(ns)(ctx, cfg)
+	}
+}
+
+// keepCluster reports whether the caller asked to leave the cluster running.
+func keepCluster() bool { return os.Getenv("E2E_K8S_KEEP") == "1" }
+
 // sweepCluster is the last-resort teardown for paths Finish never reaches.
 func sweepCluster(name string) {
-	if os.Getenv("E2E_K8S_KEEP") == "1" {
+	if keepCluster() {
 		return
 	}
 	if p := utils.RunCommand(fmt.Sprintf("kind delete cluster --name %s", name)); p.Err() != nil {
@@ -235,7 +251,7 @@ func exportDiagnosticsOnFailure(ctx context.Context, cfg *envconf.Config) (conte
 // compose suite's E2E_KEEP convention for debugging a failure in place.
 func destroyUnlessKept(name string) env.Func {
 	return func(ctx context.Context, cfg *envconf.Config) (context.Context, error) {
-		if os.Getenv("E2E_K8S_KEEP") == "1" {
+		if keepCluster() {
 			log.Printf("E2E_K8S_KEEP=1 — leaving cluster %q up; delete it with: kind delete cluster --name %s", name, name)
 			return ctx, nil
 		}

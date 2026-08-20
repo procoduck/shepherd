@@ -59,8 +59,15 @@ migrations:
   job:
     enabled: true
 
+# Gateway API HTTPRoute. OFF by default, like `ingress` below: it needs the
+# Gateway API CRDs, which are not present on a vanilla cluster, so defaulting it
+# on made a plain `helm install` fail with "no matches for kind HTTPRoute".
+# Templating could never catch that — `helm template` does not check whether a
+# Kind exists — and every values file in the repo already set it to false, which
+# is how the broken default survived. Enable it deliberately, and set
+# parentRefs/hostnames when you do: an HTTPRoute with neither routes nothing.
 route:
-  enabled: true
+  enabled: false
   hostnames: []
   parentRefs: []
 

@@ -71,3 +71,36 @@ app.kubernetes.io/component: simulator
 {{- printf "%s:%s" $repo $tag }}
 {{- end }}
 {{- end }}
+
+{{/*
+shepherd.migrateHookDeps renders the hook annotations that a resource needs when
+the migrate Job is enabled.
+
+The migrate Job is a pre-install/pre-upgrade hook at weight -5, and it depends on
+three ordinary resources: the ServiceAccount it runs as, the ConfigMap it mounts
+at /etc/shepherd, and the Secret it takes its env from. Helm applies ALL hooks
+before ANY normal resource, so without this those three do not exist yet and the
+install fails in a different way for each one:
+
+  ServiceAccount  pods "shepherd-migrate-" is forbidden: error looking up
+                  service account ...: serviceaccount "shepherd" not found
+  ConfigMap       MountVolume.SetUp failed for volume "config":
+                  configmap "shepherd" not found
+  Secret          silently absent (envFrom is optional: true), so the Job runs
+                  with no SHEPHERD_DATABASE_URL and fails to connect
+
+Each surfaces minutes later as "Job in progress" after the helm --wait timeout.
+`helm template` cannot catch any of them: hook ordering only exists at install
+time. Found by installing the chart into a real cluster (e2e/k8s).
+
+Weight -10 orders these ahead of the Job at -5. hook-delete-policy is
+deliberately NOT set: these resources must SURVIVE the hook phase, because the
+Deployment references them too — a before-hook-creation policy would delete them
+out from under a running release on upgrade.
+*/}}
+{{- define "shepherd.migrateHookDeps" -}}
+{{- if .Values.migrations.job.enabled }}
+"helm.sh/hook": pre-install,pre-upgrade
+"helm.sh/hook-weight": "-10"
+{{- end }}
+{{- end }}
