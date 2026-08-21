@@ -12,7 +12,7 @@ live ledger.
 | `visual-builder-refinement.md` | UI/UX review of the visual pipeline builder: design tokens, draw.io-style connection dragging, working save/load, one-command Alloy schema bumps | `4b88147`, `ffd5471`, `a57556d`, `d3ef41b`, `4318bc3`, `9e22d57` (2026-08-19) |
 | `vb1-progress.md` | VB-1 execution ledger for milestones M1–M6 and the three adversarial review rounds. Every CRITICAL/HIGH/MEDIUM finding it records is now fixed | closed out 2026-08-19; remaining VB-1 milestones (M7 sandbox simulation, M8 hardening) live in `docs/project-status.md` |
 | `proofs/` | 17 red–green proofs, one per fix, written while the work was done | 2026-08-17 → 2026-08-18 |
-| `git-provider-design.md` | Standard-git GitOps with pluggable provider auth (basic/pat/ssh/ado_sp/github_app), tested against a real Gitea. Shipped as F9; `ssh` in the compose stack remains open as F9-a | 2026-08-19 |
+| [`../git-provider-design.md`](../git-provider-design.md) (live, not archived — kept at top level because source files cite its § numbers) | Standard-git GitOps with pluggable provider auth (basic/pat/ssh/ado_sp/github_app), tested against a real Gitea. Shipped as F9; `ssh` in the compose stack remains open as F9-a | 2026-08-19 |
 | `completed-2026-08-19.md` | The 2026-08-19 baseline round verbatim: seven bugs (B1–B7) and the features F1–F9 that closed with it | 2026-08-19 |
 | `reviews/` | The three fresh-context deep reviews of the visual builder and schema pipeline. All ten priority items implemented; see `docs/reviews/README.md` for what closed each | 2026-08-19 → 2026-08-20 |
 

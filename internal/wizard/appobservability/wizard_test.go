@@ -28,11 +28,10 @@ var _ = Describe("AppObservabilityWizard golden files", func() {
 
 			goldenPath := "testdata/" + fixtureName + ".golden.alloy"
 			goldenBytes, readErr := os.ReadFile(goldenPath)
-			if readErr != nil {
-				// Write golden on first run.
-				Expect(os.WriteFile(goldenPath, []byte(result.Contents), 0o644)).To(Succeed())
-				Skip("golden file not found; written for next run: " + goldenPath)
-			}
+			// A missing golden must fail, never self-heal: writing current output
+			// as the baseline would make the comparison prove nothing. Regenerate
+			// deliberately by updating the committed file.
+			Expect(readErr).NotTo(HaveOccurred(), "golden file %s is missing — it must be committed", goldenPath)
 			Expect(result.Contents).To(Equal(string(goldenBytes)),
 				"output does not match golden file %s", goldenPath)
 

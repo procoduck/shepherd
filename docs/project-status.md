@@ -14,6 +14,7 @@
 | `docs/dev-guide.md` | running the dev stack |
 | `docs/frontend-testing.md` | three-layer frontend test strategy |
 | `docs/platform-monitoring-architecture.md` | target-fleet reference notes |
+| `docs/kind-test-environment-plan.md` | **steps 1–3 in progress**: kind-based Kubernetes test environment — NetworkPolicy enforcement, Helm deploy, LGTM delivery |
 | `docs/proofs/` | red–green proofs for current work |
 | `docs/archive/` | finished work, kept as the record of why things are the way they are |
 
@@ -52,6 +53,62 @@ Verified on the running stack and in the browser, not inferred:
 - **S3 sandbox run** — a live run completes in ~20s with 21 captured series and 3/3 healthy
   components. **Disabled by default** — see F5 below.
 
+### 2026-08-21 — health-remediation pass
+
+One session, four parallel workstreams, from a verified full-repo review. Summary only — the
+diff is the detail.
+
+- **CI can actually build images.** `docker-build-local` no longer hardcodes
+  `--platform linux/arm64` (which failed with `exec format error` on CI's amd64 runners, so the
+  image-building e2e targets had never run in CI); the duplicate `docker-build`/`deploy/Dockerfile`
+  pair collapsed into one native-platform `docker-build-local` + `deploy/Dockerfile.local`, with
+  `docker-build` kept as a deprecated alias.
+- **Makefile honesty + ergonomics.** `make test`'s comment now says what it does (all Go tests,
+  Docker required); the fictitious `test-integration` deleted (`-tags=integration` matched zero
+  files); phantom `migrate` dropped from `.PHONY`; new `help` (default goal), `clean`,
+  `clean-docker` and `tools` targets; the guards gained a real `page.route` grep gate over
+  `web/tests/fullstack/` (`check-no-route-mocks`).
+- **Controls that were only claimed now run.** `make helm-lint` joined CI's guards job; a
+  `generated-drift` CI job fails on stale `make generate` output; `make schema-verify` runs on a
+  weekly scheduled workflow; `make e2e-k8s` runs nightly.
+- **Cannot-fail tests removed or rewritten.** The specs that asserted on fixtures they built
+  themselves or could not fail (server-router/metrics specs, the PKCE spec that split its own
+  string literal, tautological "red run" specs, the zero-assertion debug spec, always-true
+  header/diagnostics assertions) are gone or re-pointed at production code; reader-persona RBAC
+  negatives added to the mocked suite.
+- **Dead code sweep.** Unused test helpers and dead fixtures removed.
+- **Docs truth pass.** Claimed-but-nonexistent CI gates struck or made real; the dev password is
+  documented as `admin` / `admin` everywhere; `e2e/AGENTS.md` written; the S3 security findings
+  file carries per-finding statuses (B-CONTAIN-1/2 above remain the live criticals); root
+  AGENTS.md, README, dev-guide seed table and the stale proof scopes refreshed.
+
+What the first live CI runs then caught (same day, same branch — each was invisible while the
+suites never ran):
+
+- **Visual save was broken for any attribute-edited pipeline.** InspectorPanel's `setProp` passed
+  `block_order: undefined` for plain attributes, `updateNode`'s spread planted the key, and the
+  save path's protobuf Struct conversion threw `google.protobuf.Value must have a value` before
+  any request — surfacing only as a transient toast. `updateNode` now drops explicitly-undefined
+  patch values (red-run-proven store test), the save boundary JSON-round-trips `wizard_state`,
+  and the newly reachable spec tail exposed a wrong assertion (it demanded the single-wire
+  list-of-lists `targets = [...]` form Alloy refuses — now pinned to the bare-reference contract
+  render.go documents).
+- **The schema artifact was darwin-flavored.** The extractor executes Alloy's `SetToDefault` via
+  reflection, so the artifact is GOOS-dependent; the committed one (generated on a mac) was
+  missing 28 linux platform defaults the linux fleet actually gets. schema-verify's first
+  completed CI run caught it. run.sh now always runs the extractor in a linux container
+  (GO_IMAGE pin, module cache mounted, docker preflight), the linux artifact is committed, and
+  overlay reconciliation reported zero disposition changes.
+- **Runner-resource + caching fixes.** e2e-k8s and schema-verify free unused runner toolchains
+  (first runs died on ENOSPC / an OOM-killed step); Docker layer, Playwright browser, alloy
+  checkout, and a schema-verify-scoped Go module cache added — schema-verify's cold run is
+  ~26 min (full alloy compile), warm runs restore the build cache.
+- **`make e2e` ginkgo scope.** `./e2e/...` recursed into the tag-excluded `e2e/k8s` package and
+  had broken `make e2e` for everyone since the kind suite landed; now `./e2e`.
+
+All four workflows (CI incl. test-fullstack, E2E, E2E K8s, Schema Verify) are green on this
+branch as of 2026-08-21 — each earned its first-ever green during this pass.
+
 ---
 
 ## 2. Open bugs
@@ -64,12 +121,22 @@ scrapes Shepherd's unauthenticated metrics port and the data is returned to the 
 results. Fix: split the networks so Shepherd reaches the simulator's control API somewhere the
 sandbox is not.
 
-### B-CONTAIN-2 — `internal: true` does not deny the Docker host · **critical** (S3 only)
+### B-CONTAIN-2 — `internal: true` does not deny the Docker host · **local dev only**
 
 The bridge gateway is in-subnet, so on OrbStack every host-published port on the machine is
-reachable from the sandbox — proven end to end. Docker Engine blocks it, so CI can never catch
-this and the suite stays green either way. **Containment guarantees are not portable across
-container runtimes**; this cannot be closed in compose alone.
+reachable from the sandbox — proven end to end. Docker Engine blocks it, so CI cannot catch it
+either way.
+
+**Scope corrected 2026-08-20:** this is an artifact of Docker bridge networking and does not exist
+in Kubernetes, which is the production target. The Helm chart already ships a default-deny
+NetworkPolicy on both Ingress and Egress (plus `automountServiceAccountToken: false`, non-root,
+read-only rootfs, dropped capabilities), and the sandboxed Alloy is a child process of the
+simulator pod, so the pod's network boundary is the sandbox boundary. Compose stays a
+local-development convenience and this stays documented rather than fixed.
+
+The real residual risk is different and is now the thing to close: **a NetworkPolicy is only
+enforced if the CNI implements it** — Flannel silently ignores it — and nothing has ever verified
+the policy's effect in a real cluster. Plan: `docs/kind-test-environment-plan.md`.
 
 ### B-CONCAT — `CheckEndpoints` refuses the expression the renderer now emits · **high**
 
@@ -108,7 +175,8 @@ VB-1 M7 (§6.4). Built and working: the simulation transform, the `shepherd-simu
 capture harness and synthetic sources, the run API (migration 0007, cross-replica `RunWorker`), the
 sandbox-run UI, the `sim` compose profile and the `sandbox-sim` e2e scenario.
 
-**Disabled by default and must stay so** until B-CONTAIN-1 and B-CONTAIN-2 close. `simulator.enabled`
+**Disabled by default and must stay so** until B-CONTAIN-1 closes and NetworkPolicy enforcement is
+verified in a real cluster (B-CONTAIN-2 is local-dev-only — see above). `simulator.enabled`
 has no viper default (false); both compose files default `SHEPHERD_SIM_ENABLED` to false; Helm ships
 `simulator.enabled: false`.
 
@@ -160,16 +228,17 @@ logout; horizontal-scale coordination beyond stateless replicas + Postgres.
 
 ## 6. Test infrastructure reference
 
-- **Backend**: Ginkgo v2 + Gomega; testcontainers Postgres for integration;
-  `make test` / `make test-integration` / `make e2e` (compose: postgres, mock-oauth2, mockmsft
+- **Backend**: Ginkgo v2 + Gomega; testcontainers Postgres (Docker required for `make test`);
+  `make test` / `make e2e` (compose: postgres, mock-oauth2, mockmsft
   Graph+ADO mock with `/__fixture` injection, shepherd, real Alloy)
 - **Frontend**: Vitest units; Playwright mocked suite (route interception, no MSW); Playwright
   fullstack suite against the real dev stack (`make test-fullstack`), including `walkthrough.spec.ts`
   which walks every route asserting no console errors, failed requests or blank pages
 - **Cross-cutting**: shared Go↔TS golden corpus (`internal/visual/testdata/corpus/` mirrored to
   `web/src/visual/__fixtures__/corpus/`, `make generate-corpus`); Makefile guards
-- **CI**: lint, build, guards, test, web, test-ui, test-fullstack, e2e-egress (containment probes,
-  paths-filtered on PRs)
+- **CI**: lint, build, guards (incl. helm-lint), generated-drift, test, web, test-ui,
+  test-fullstack, e2e-egress (containment probes, paths-filtered on PRs); scheduled: schema-verify
+  (weekly), e2e-k8s (nightly)
 
 ### A standard this repo now holds itself to
 

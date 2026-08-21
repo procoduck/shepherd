@@ -51,6 +51,27 @@ func artifactComponents(reg *schema.Registry) map[string]any {
 	return components
 }
 
+// componentsTotal reads _meta.components_total (declared) and the component
+// map size (actual) off an artifact payload. Shared by the green invariant
+// spec and its red run so both exercise the identical check.
+func componentsTotal(artifact map[string]any) (declared, actual int) {
+	meta, ok := artifact["_meta"].(map[string]any)
+	Expect(ok).To(BeTrue(), "_meta must be a map")
+	totalRaw := meta["components_total"]
+	Expect(totalRaw).NotTo(BeNil(), "_meta.components_total must be present")
+	switch v := totalRaw.(type) {
+	case float64:
+		declared = int(v)
+	case int:
+		declared = v
+	default:
+		Fail("components_total has unexpected type")
+	}
+	components, ok := artifact["components"].(map[string]any)
+	Expect(ok).To(BeTrue(), "components must be a map")
+	return declared, len(components)
+}
+
 // portsOf returns a component's inputs (Arguments-derived, named by "prop") or
 // outputs (Exports-derived, named by "export") as maps.
 func portsOf(comp map[string]any, listKey string) []map[string]any {
@@ -136,27 +157,10 @@ var _ = Describe("Artifact invariants", func() {
 	})
 
 	It("components_total equals map size", func() {
-		meta, ok := artifact["_meta"].(map[string]any)
-		Expect(ok).To(BeTrue(), "_meta must be a map")
-
-		totalRaw := meta["components_total"]
-		Expect(totalRaw).NotTo(BeNil(), "_meta.components_total must be present")
-
-		var total int
-		switch v := totalRaw.(type) {
-		case float64:
-			total = int(v)
-		case int:
-			total = v
-		default:
-			Fail("components_total has unexpected type")
-		}
-		Expect(total).To(BeNumerically(">", 0), "components_total must be non-zero")
-
-		components, ok := artifact["components"].(map[string]any)
-		Expect(ok).To(BeTrue(), "components must be a map")
-		Expect(total).To(Equal(len(components)),
-			"components_total (%d) must equal actual component map size (%d)", total, len(components))
+		declared, actual := componentsTotal(artifact)
+		Expect(declared).To(BeNumerically(">", 0), "components_total must be non-zero")
+		Expect(declared).To(Equal(actual),
+			"components_total (%d) must equal actual component map size (%d)", declared, actual)
 	})
 
 	It("every component has a valid stability", func() {
@@ -234,33 +238,35 @@ var _ = Describe("Artifact invariants", func() {
 	})
 
 	It("red run evidence: corrupt components_total fails", func() {
-		// Verify that the components_total check catches a real mismatch.
-		// We do this by constructing a patched artifact in memory.
-		components, ok := artifact["components"].(map[string]any)
+		// Doctor the artifact's _meta on disk-shaped input and run it through
+		// the full load/merge pipeline, then apply the SAME check the green
+		// spec above runs (componentsTotal) — proving the check detects a
+		// corrupted artifact end-to-end rather than by construction.
+		raw, err := os.ReadFile("artifacts/" + currentVersion + ".json")
+		Expect(err).NotTo(HaveOccurred())
+		var doctored map[string]any
+		Expect(json.Unmarshal(raw, &doctored)).To(Succeed())
+		meta, ok := doctored["_meta"].(map[string]any)
 		Expect(ok).To(BeTrue())
-
-		meta, ok := artifact["_meta"].(map[string]any)
+		components, ok := doctored["components"].(map[string]any)
 		Expect(ok).To(BeTrue())
+		meta["components_total"] = float64(len(components) + 1)
+		doctoredBytes, err := json.Marshal(doctored)
+		Expect(err).NotTo(HaveOccurred())
+		overlayRaw, err := os.ReadFile("artifacts/overlay.json")
+		Expect(err).NotTo(HaveOccurred())
 
-		// Patch: set components_total to actual+1 → mismatch
-		badTotal := len(components) + 1
-		Expect(badTotal).NotTo(Equal(len(components)), "bad total must differ from real total")
+		badReg, err := schema.New(fstest.MapFS{
+			"artifacts/overlay.json":                {Data: overlayRaw},
+			"artifacts/" + currentVersion + ".json": {Data: doctoredBytes},
+		}, currentVersion)
+		Expect(err).NotTo(HaveOccurred())
+		merged, _, err := badReg.Get(currentVersion)
+		Expect(err).NotTo(HaveOccurred())
 
-		// Re-check inline: this proves that the assertion above would catch the discrepancy.
-		totalRaw := meta["components_total"]
-		var total int
-		switch v := totalRaw.(type) {
-		case float64:
-			total = int(v)
-		case int:
-			total = v
-		}
-		// The real artifact must pass (total == len(components)).
-		Expect(total).To(Equal(len(components)),
-			"the committed artifact passes the components_total check")
-		// badTotal does NOT pass.
-		Expect(badTotal).NotTo(Equal(len(components)),
-			"a corrupted total is detected")
+		declared, actual := componentsTotal(merged)
+		Expect(declared).NotTo(Equal(actual),
+			"the componentsTotal check must catch a corrupted components_total after the full load/merge pipeline")
 	})
 })
 
@@ -890,22 +896,24 @@ var _ = Describe("Overlay port ordering guard", func() {
 		Expect(violations).To(BeEmpty())
 	})
 
-	It("red run evidence: a dangling port name is a violation", func() {
-		// Rebuild the guard's inputs by hand so the failure path is exercised
-		// rather than merely asserted to be absent from the shipped overlay.
-		reg, err := schema.New(schema.Embedded, currentVersion)
+	It("red run evidence: a renamed artifact port dangles the overlay ordering and is a violation", func() {
+		// Rename prometheus.scrape's "targets" input in the ARTIFACT: the
+		// shipped overlay's port_display_order still names "targets", which the
+		// doctored artifact no longer declares — exactly the silent-rot case
+		// validatePortDisplayOrder exists to catch.
+		reg := doctoredArtifactRegistry(func(components map[string]any) {
+			scrape := components["prometheus.scrape"].(map[string]any) //nolint:errcheck // the shipped artifact always has this component
+			for _, raw := range scrape["inputs"].([]any) {             //nolint:errcheck // the generator always emits an array
+				port := raw.(map[string]any) //nolint:errcheck // every input entry is a map
+				if port["prop"] == "targets" {
+					port["prop"] = "scrape_targets"
+				}
+			}
+		}, func(map[string]any) {})
+		violations, err := reg.ValidateOverlay()
 		Expect(err).NotTo(HaveOccurred())
-		components := artifactComponents(reg)
-
-		scrape, ok := components["prometheus.scrape"].(map[string]any)
-		Expect(ok).To(BeTrue())
-		declared := map[string]bool{}
-		for _, port := range portsOf(scrape, "inputs") {
-			declared[portString(port, "prop")] = true
-		}
-		Expect(declared).To(HaveKey("targets"))
-		Expect(declared).NotTo(HaveKey("metrics"),
-			"prometheus.scrape has no 'metrics' port — the fixture schemas that claim otherwise are the fiction")
+		Expect(violations).To(ContainElement(ContainSubstring(
+			`port_display_order on "prometheus.scrape" names port "targets" which the artifact does not declare`)))
 	})
 })
 

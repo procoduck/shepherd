@@ -254,9 +254,17 @@ export const useVisualStore = create<VisualStore>()(
 
       updateNode: (id, patch) =>
         set((state) => {
+          // Spreading an explicitly-undefined patch value (e.g. the
+          // block_order InspectorPanel passes through for plain attributes)
+          // would plant an own `key: undefined` on the node — which the
+          // protobuf Struct conversion in the save path rejects with
+          // "google.protobuf.Value must have a value". Absent means no change.
+          const defined = Object.fromEntries(
+            Object.entries(patch).filter(([, v]) => v !== undefined),
+          );
           const doc = {
             ...state.doc,
-            nodes: state.doc.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n)),
+            nodes: state.doc.nodes.map((n) => (n.id === id ? { ...n, ...defined } : n)),
           };
           return { doc, diagnostics: revalidate({ ...state, doc }) };
         }),

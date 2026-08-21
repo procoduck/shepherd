@@ -24,7 +24,7 @@ import (
 // Connect-path coverage for DestinationService, over the same
 // newRPCWiringRouter(...) wiring rpc_wiring_test.go and rpc_fleet_test.go
 // use — a happy path, an authz denial, and an error-code mapping case, per
-// docs/api-contract-design.md's testing rules. mgmtapi_test.go's
+// docs/archive/api-contract-design.md's testing rules. mgmtapi_test.go's
 // "DeleteDestination" Describe block covers the REST shim path (the
 // compatibility oracle, including the legacy "in_use" error code) and is
 // unchanged by this migration.

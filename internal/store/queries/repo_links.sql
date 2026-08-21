@@ -9,17 +9,6 @@ SELECT * FROM repo_links WHERE id = $1;
 -- name: ListRepoLinksByOrg :many
 SELECT * FROM repo_links WHERE org_id = $1 ORDER BY created_at;
 
--- name: UpdateRepoLink :one
-UPDATE repo_links
-SET credential_id         = $2,
-    repo_url              = $3,
-    branch                = $4,
-    path                  = $5,
-    poll_interval_seconds = $6,
-    updated_at            = now()
-WHERE id = $1
-RETURNING *;
-
 -- name: UpdateRepoLinkSync :exec
 UPDATE repo_links
 SET last_synced_at = now(),

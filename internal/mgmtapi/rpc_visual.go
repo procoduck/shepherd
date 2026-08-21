@@ -51,6 +51,9 @@ func (*schemaError) Error() string { return "schema registry not initialized" }
 // edge orientation) need. Shared so the two call sites (renderGraph, GraphView)
 // can't drift on how the payload is decoded.
 func (s *VisualService) loadSchemaPayload(version string) (visual.SchemaPayload, error) {
+	if s.schema == nil {
+		return visual.SchemaPayload{}, errSchemaUnavailable
+	}
 	payload, _, err := s.schema.Get(version)
 	if err != nil {
 		return visual.SchemaPayload{}, err
@@ -225,9 +228,14 @@ func (s *VisualService) GraphView(ctx context.Context, req *connect.Request[mgmt
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("pipeline not found"))
 	}
 
-	schemaVersion := "alloy-v" + strings.TrimPrefix(s.schema.CurrentVersion(), "alloy-v")
-	if schemaVersion == "alloy-" {
-		schemaVersion = "alloy-v1.18.1"
+	// s.schema is nil when the registry failed to initialize (see MountRPC);
+	// fall back to the pinned default version so the best-effort schema load
+	// below degrades to a schemaless parse instead of panicking. The empty
+	// CurrentVersion check keeps the same fallback for a registry built
+	// without a version — unreachable in production wiring, cheap to guard.
+	schemaVersion := "alloy-v1.18.1"
+	if s.schema != nil && s.schema.CurrentVersion() != "" {
+		schemaVersion = "alloy-v" + strings.TrimPrefix(s.schema.CurrentVersion(), "alloy-v")
 	}
 
 	// B3(b): ParseAlloy needs the schema to know which exports are

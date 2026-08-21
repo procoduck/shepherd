@@ -29,6 +29,31 @@ describe('visual store', () => {
     expect(useVisualStore.getState().doc.nodes).toHaveLength(1);
     expect(useVisualStore.temporal.getState().pastStates.length).toBeGreaterThan(before);
   });
+  it('updateNode drops explicitly-undefined patch values instead of planting them on the node', () => {
+    // Regression: InspectorPanel.setProp passes `block_order: undefined` for
+    // plain attributes; spreading that onto the node made the save path's
+    // protobuf Struct conversion throw "google.protobuf.Value must have a
+    // value", so any pipeline whose attribute was edited could never save.
+    const store = useVisualStore;
+    store.getState().addNode('discovery.kubernetes', { x: 0, y: 0 });
+    const id = store.getState().doc.nodes[0].id;
+    store.getState().updateNode(id, { props: { role: 'pod' }, block_order: undefined });
+    const node = store.getState().doc.nodes[0];
+    expect(node.props).toEqual({ role: 'pod' });
+    expect(Object.hasOwn(node, 'block_order')).toBe(false);
+    // The whole doc must survive a Struct-equivalent walk: no own key anywhere
+    // may hold undefined (JSON.stringify would silently drop it; the protobuf
+    // conversion throws on it).
+    const scan = (v: unknown): void => {
+      if (Array.isArray(v)) for (const x of v) scan(x);
+      else if (v && typeof v === 'object')
+        for (const val of Object.values(v)) {
+          expect(val).not.toBeUndefined();
+          scan(val);
+        }
+    };
+    scan(store.getState().doc);
+  });
   it('viewport changes do not add history', () => {
     const n = useVisualStore.temporal.getState().pastStates.length;
     useVisualStore.getState().updateViewport({ x: 3, y: 4, zoom: 2 });

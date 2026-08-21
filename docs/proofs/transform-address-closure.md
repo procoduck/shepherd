@@ -60,9 +60,10 @@ wrong instrument — and both halves are executed below:
 ## The mechanisms that remain, and what each is for
 
 1. **The network** (`e2e/sandbox_egress_test.go`, `make e2e-egress`, run by
-   `.github/workflows/e2e.yml`). THE reachability control. The simulator sits alone on a Docker
-   `internal: true` network; the sandbox runs in that container's namespace, so it has no route
-   off it. `P-deny-ip` dials a hermetic canary by literal IP from that namespace and goes red the
+   `.github/workflows/e2e.yml`). THE reachability control. The simulator runs on a Docker
+   `internal: true` network — not alone: `shepherd` is attached to `sim-internal` too, which is
+   exactly open critical **B-CONTAIN-1** (`docs/project-status.md`) — and the sandbox runs in the
+   simulator container's namespace, so it has no route off that network. `P-deny-ip` dials a hermetic canary by literal IP from that namespace and goes red the
    moment `internal: true` is removed.
 2. **Rule K + the `target_set` value class** (`internal/simulate/transform.go`). The CREDENTIAL
    control, which also removes the trivial literal-address case: `targets` is kept with class
@@ -242,10 +243,13 @@ That is hygiene on values the TRANSFORM invents; it is not a control on values t
 
 ## Scope: what is still open
 
-- **H5 (Helm).** `grep -rn simulator deploy/helm/` — Kubernetes has no simulator artifacts, so it
-  has no NetworkPolicy. Since the network is now the whole of the reachability story, a Kubernetes
-  deployment with the simulator enabled has **no reachability containment at all**. This is the
-  most important open item in the S3 feature.
+- **H5 (Helm).** The chart now ships the simulator artifacts —
+  `deploy/helm/shepherd/templates/{deployment,service,serviceaccount,networkpolicy}-simulator.yaml`,
+  default-deny egress plus `automountServiceAccountToken: false`, asserted by
+  `deploy/helm/chart_test.go`. What remains open is that a rendered-template assertion is not a
+  probe: nothing dials from inside a real cluster's simulator Pod the way `P-deny-ip` dials from
+  inside the compose one (see `docs/proofs/simulator-containment.md` and
+  `docs/kind-test-environment-plan.md`).
 - **M9 (unstubbed sources).** The 80 unstubbed `sources` components no longer leak credentials
   (empty keep list) but still render as empty bodies rather than failing closed.
 - **M13 (renderer list-cardinality).** **Fixed** (`refValue` in `internal/visual/render.go`;

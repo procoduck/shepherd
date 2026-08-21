@@ -18,7 +18,6 @@ import (
 	"shepherd/internal/config"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
-	"shepherd/internal/validate"
 )
 
 // Coverage for the collector detail/list instance metadata that GetCollector
@@ -60,8 +59,6 @@ var _ = Describe("Collector instance metadata", Label("integration"), func() {
 				AlloyBinary: "", StabilityLevel: "experimental", Timeout: 10e9,
 			},
 		}
-		v := validate.New(&cfg.Validate)
-		_ = v
 		authHandler := auth.NewLocalAdmin(cfg, st, slog.Default())
 		server = httptest.NewServer(newRESTRouter(st, authHandler, cfg, nil))
 		adminCookie = newAppAdminSession(ctx, st)

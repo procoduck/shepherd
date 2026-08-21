@@ -1,3 +1,6 @@
+// Package cli defines the shepherd command tree: serve, migrate, validate,
+// token and password utilities, healthcheck, version, and the dev-only
+// database fixtures.
 package cli
 
 import (

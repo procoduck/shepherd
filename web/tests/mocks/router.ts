@@ -48,7 +48,7 @@ export interface MockState {
   simulateCreateRunError?: { status: number; code: string; message: string };
 }
 
-interface RouteEntry {
+export interface RouteEntry {
   method: string;
   pattern: RegExp;
   keys: string[];
@@ -76,13 +76,23 @@ export class Router {
     this.routes.push({ method: method.toUpperCase(), pattern, keys, handler });
   }
 
-  async handle(route: Route) {
+  /**
+   * A copy of the current route table. A fixture that registers a wrapping
+   * handler (delay, failNext) takes a snapshot first and delegates back into
+   * it via handle(route, snapshot) — route.continue() would send the request
+   * to the live vite preview, which has no backend.
+   */
+  snapshot(): RouteEntry[] {
+    return [...this.routes];
+  }
+
+  async handle(route: Route, entries: RouteEntry[] = this.routes) {
     const req = route.request();
     const method = req.method().toUpperCase();
     const url = new URL(req.url());
     const path = url.pathname;
 
-    for (const entry of [...this.routes].reverse()) {
+    for (const entry of [...entries].reverse()) {
       if (entry.method !== method && entry.method !== '*') continue;
       const m = path.match(entry.pattern);
       if (!m) continue;

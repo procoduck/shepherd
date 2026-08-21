@@ -14,7 +14,7 @@ import (
 // reqAppOrOrgAdmin is the one requirement value outside auth's Role*
 // vocabulary: AdminService.SearchGroups is usable by an app admin (global
 // search) or an org admin of the org named in the request (scoped search).
-// See docs/api-contract-design.md's Services table.
+// See docs/archive/api-contract-design.md's Services table.
 const reqAppOrOrgAdmin = "app-or-org-admin"
 
 // orgScoped is implemented by every org-scoped shepherd.mgmt.v1 request
@@ -25,7 +25,7 @@ type orgScoped interface {
 
 // procedureRequirements maps every shepherd.mgmt.v1 Connect procedure to its
 // authorization requirement, mirroring the Services table in
-// docs/api-contract-design.md. A procedure absent from this map is denied —
+// docs/archive/api-contract-design.md. A procedure absent from this map is denied —
 // see newAuthzInterceptor.
 var procedureRequirements = map[string]string{ //nolint:gochecknoglobals // static authz table, read-only after init
 	// MeService — any authenticated session.
@@ -139,7 +139,7 @@ func newAuthzInterceptor(st *store.Store) connect.UnaryInterceptorFunc {
 
 // authorizeProcedure evaluates requirement against sess/orgID and maps
 // auth.Authorize's sentinel errors to connect codes per
-// docs/api-contract-design.md's error-mapping table. reqAppOrOrgAdmin tries
+// docs/archive/api-contract-design.md's error-mapping table. reqAppOrOrgAdmin tries
 // the app-admin check first and falls back to the org-admin check scoped to
 // orgID.
 func authorizeProcedure(ctx context.Context, st *store.Store, sess *auth.Session, orgID, requirement string) error {

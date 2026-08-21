@@ -24,7 +24,6 @@ import (
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/testutil"
-	"shepherd/internal/validate"
 )
 
 var sharedPG *testutil.SharedPostgres
@@ -83,11 +82,9 @@ var _ = Describe("Pipelines API", Label("integration"), func() {
 				AlloyBinary: "", StabilityLevel: "experimental", Timeout: 10e9,
 			},
 		}
-		v := validate.New(&cfg.Validate)
 		authHandler := auth.NewLocalAdmin(cfg, st, slog.Default())
 		server = httptest.NewServer(newRESTRouter(st, authHandler, cfg, nil))
 		adminCookie = newAppAdminSession(ctx, st)
-		_ = v
 	})
 
 	AfterEach(func() {

@@ -60,11 +60,6 @@ func isFKViolation(err error) bool {
 	return false
 }
 
-// orgIDFromParam extracts the {org} URL param as a pgtype.UUID.
-// Defined in pipelines.go but referenced from multiple files; declared here
-// so the compiler sees it once regardless of build order.
-// (actual definition is in pipelines.go to avoid duplicate declarations — kept here as doc.)
-
 // auditLog writes a single audit row. Errors are logged at debug level and not
 // returned to the caller — audit writes are best-effort side effects.
 func auditLog(ctx context.Context, st *store.Store, actor string, orgID pgtype.UUID, action, resType, resID string) {

@@ -1,0 +1,95 @@
+name: E2E K8s
+
+# Kubernetes e2e suite (kind): helm install coverage plus the NetworkPolicy
+# containment specs, opening with the negative control that proves the CNI
+# enforces before any denial is trusted (docs/kind-test-environment-plan.md).
+#
+# Nightly rather than per-PR: `make e2e-k8s` builds both images, creates a
+# kind cluster, and installs Calico — ~3-5 min locally, meaningfully longer on
+# CI runners, and heavier than any signal it adds for PRs that don't touch the
+# chart or the suite. PRs that DO touch them run it via the paths filter,
+# because those are the changes it exists to catch. (The 45m go-test timeout
+# is a budget for a wedged cluster, not the expected runtime.)
+
+on:
+  schedule:
+    - cron: "43 3 * * *"
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - "deploy/helm/**"
+      - "e2e/k8s/**"
+      - ".github/workflows/e2e-k8s.yml"
+
+concurrency:
+  group: e2e-k8s-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-k8s:
+    name: e2e-k8s
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      # ubuntu-latest leaves ~14GB free — not enough for two multi-stage image
+      # builds + the kind node image + loading shepherd:local into three nodes
+      # (first live run failed with ENOSPC in containerd's snapshotter).
+      # Dropping the preinstalled toolchains this job never uses frees ~25GB.
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/.ghcup
+          sudo docker image prune -af
+          df -h /
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # install_only: the suite creates (and destroys) its own cluster; we
+      # just need the kind binary. helm and kubectl ship on ubuntu-latest.
+      - name: Install kind
+        uses: helm/kind-action@v1
+        with:
+          install_only: true
+
+      - name: Set up Docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: buildx-${{ runner.os }}-${{ hashFiles('go.sum', 'web/pnpm-lock.yaml', 'deploy/versions.env', 'deploy/Dockerfile.local', 'deploy/Dockerfile.init', 'deploy/Dockerfile.simulator') }}
+          restore-keys: |
+            buildx-${{ runner.os }}-
+
+      - name: make e2e-k8s
+        env:
+          DOCKER_CACHE_FLAGS: --cache-from type=local,src=/tmp/.buildx-cache --cache-to type=local,dest=/tmp/.buildx-cache-new,mode=max
+        run: E2E_K8S_ARTIFACTS=/tmp/e2e-k8s-artifacts make e2e-k8s
+
+      - name: Rotate Docker layer cache
+        if: always()
+        run: |
+          if [ -d /tmp/.buildx-cache-new ]; then
+            rm -rf /tmp/.buildx-cache
+            mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+          fi
+
+      - name: Upload cluster logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-k8s-cluster-logs
+          path: /tmp/e2e-k8s-artifacts/
+          retention-days: 14
+          if-no-files-found: ignore

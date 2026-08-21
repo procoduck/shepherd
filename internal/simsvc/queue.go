@@ -405,7 +405,8 @@ func (q *Queue) Sweep() int {
 	return purged
 }
 
-// IDs returns every known run id, sorted. Test and /metrics support.
+// IDs returns every known run id, sorted. It exists so tests can observe
+// queue state; nothing in the serving path calls it.
 func (q *Queue) IDs() []string {
 	q.mu.Lock()
 	defer q.mu.Unlock()

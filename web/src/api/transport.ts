@@ -1,5 +1,5 @@
 // Shared Connect RPC transport for the shepherd.mgmt.v1 management API
-// (docs/api-contract-design.md). One transport instance backs every
+// (docs/archive/api-contract-design.md). One transport instance backs every
 // generated service client:
 //  - same-origin credentials, so the session cookie rides along;
 //  - an interceptor adding X-Requested-With, which the server's CSRF

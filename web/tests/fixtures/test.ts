@@ -1,4 +1,4 @@
-import { test as base, expect } from '@playwright/test';
+import { test as base, expect, type Route } from '@playwright/test';
 import { defaultState, installDefaultHandlers } from '../mocks/handlers';
 import { type Handler, type MockState, Router } from '../mocks/router';
 import type { MeResponse } from './personas';
@@ -22,6 +22,32 @@ export const test = base.extend<{ api: ApiFixture }>({
 
     const recorded: Array<{ method: string; path: string; body: unknown }> = [];
 
+    // Every (status, pathname) pair a mock handler deliberately fulfilled
+    // with an error. The browser logs "Failed to load resource" for each of
+    // these; the console-error check below allows exactly this set, so an
+    // intentional injected failure (failNext, an error-returning override,
+    // or seeded error state) passes while any other failed load — including
+    // one on a DIFFERENT endpoint that happens to share the status — still
+    // fails the test. 599 (unmatched mock) is deliberately never tracked.
+    const errorKey = (status: number, pathname: string) => `${status} ${pathname}`;
+    const injectedErrors = new Set<string>();
+    const trackErrors = (route: Route) =>
+      new Proxy(route, {
+        get(target, prop) {
+          if (prop === 'fulfill') {
+            return (opts?: Parameters<typeof target.fulfill>[0]) => {
+              const status = opts?.status ?? 200;
+              if (status >= 400 && status !== 599) {
+                injectedErrors.add(errorKey(status, new URL(target.request().url()).pathname));
+              }
+              return target.fulfill(opts);
+            };
+          }
+          const value = Reflect.get(target, prop, target);
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      });
+
     // Install interception. Matches the surviving REST surface (/api/*,
     // /auth/*) plus every shepherd.mgmt.v1 Connect procedure POST
     // (/shepherd.mgmt.v1.<Service>/<Method>).
@@ -37,7 +63,7 @@ export const test = base.extend<{ api: ApiFixture }>({
           /* not JSON */
         }
         recorded.push({ method: req.method(), path: url.pathname, body });
-        await router.handle(route);
+        await router.handle(trackErrors(route));
       },
     );
 
@@ -48,17 +74,24 @@ export const test = base.extend<{ api: ApiFixture }>({
         const text = msg.text();
         // Allowlist expected errors:
         // - 401 from /api/me is expected when testing unauthenticated state
-        // - React error #310 can fire transiently on first render during route setup
-        // - Failed resource loads from mock error-injection tests (500/503/422) — these
-        //   are browser-generated messages for intentional mock failure scenarios.
+        // - Failed resource loads whose status AND URL a mock handler
+        //   intentionally fulfilled (see injectedErrors above). The message
+        //   text carries only the status; in Chromium the failing resource's
+        //   URL rides in msg.location().url.
         if (text.includes('401') || text.includes('Unauthorized')) return;
-        if (text.includes('React error #310') || text.includes('reactjs.org/docs/error-decoder'))
-          return;
-        if (
-          text.includes('Failed to load resource') &&
-          (text.includes('500') || text.includes('503') || text.includes('422'))
-        )
-          return;
+        if (text.includes('Failed to load resource')) {
+          const status = /status of (\d{3})/.exec(text);
+          const resourceUrl = msg.location().url;
+          if (status && resourceUrl) {
+            try {
+              if (injectedErrors.has(errorKey(Number(status[1]), new URL(resourceUrl).pathname))) {
+                return;
+              }
+            } catch {
+              /* unparseable URL — fall through and record the error */
+            }
+          }
+        }
         consoleErrors.push(text);
       }
     });
@@ -91,6 +124,10 @@ export const test = base.extend<{ api: ApiFixture }>({
         // protocol-connect/error-json.ts) rather than the legacy REST
         // {error:{code,message}} envelope.
         const isRpc = path.startsWith('/shepherd.mgmt.v1.');
+        // Once exhausted, delegate to the handlers registered before this one
+        // — route.continue() would hit the live vite preview, which has no
+        // backend and 404s everything in this suite.
+        const prior = router.snapshot();
         router.register(method, path, (route) => {
           if (remaining > 0) {
             remaining--;
@@ -104,14 +141,18 @@ export const test = base.extend<{ api: ApiFixture }>({
               ),
             });
           }
-          return route.continue();
+          return router.handle(route, prior);
         });
       },
 
       delay(method, path, ms) {
+        // Delay, then serve what the previously-registered (or default)
+        // handler would have — not route.continue() into the backend-less
+        // preview server.
+        const prior = router.snapshot();
         router.register(method, path, async (route) => {
           await new Promise((r) => setTimeout(r, ms));
-          await route.continue();
+          await router.handle(route, prior);
         });
       },
 

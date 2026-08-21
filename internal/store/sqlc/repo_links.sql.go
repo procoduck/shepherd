@@ -173,56 +173,6 @@ func (q *Queries) ListRepoLinksByOrg(ctx context.Context, orgID pgtype.UUID) ([]
 	return items, nil
 }
 
-const updateRepoLink = `-- name: UpdateRepoLink :one
-UPDATE repo_links
-SET credential_id         = $2,
-    repo_url              = $3,
-    branch                = $4,
-    path                  = $5,
-    poll_interval_seconds = $6,
-    updated_at            = now()
-WHERE id = $1
-RETURNING id, org_id, collector_id, credential_id, branch, path, poll_interval_seconds, last_synced_at, last_commit, sync_status, sync_error, created_at, updated_at, repo_url
-`
-
-type UpdateRepoLinkParams struct {
-	ID                  pgtype.UUID `json:"id"`
-	CredentialID        pgtype.UUID `json:"credential_id"`
-	RepoUrl             string      `json:"repo_url"`
-	Branch              string      `json:"branch"`
-	Path                string      `json:"path"`
-	PollIntervalSeconds int32       `json:"poll_interval_seconds"`
-}
-
-func (q *Queries) UpdateRepoLink(ctx context.Context, arg UpdateRepoLinkParams) (RepoLink, error) {
-	row := q.db.QueryRow(ctx, updateRepoLink,
-		arg.ID,
-		arg.CredentialID,
-		arg.RepoUrl,
-		arg.Branch,
-		arg.Path,
-		arg.PollIntervalSeconds,
-	)
-	var i RepoLink
-	err := row.Scan(
-		&i.ID,
-		&i.OrgID,
-		&i.CollectorID,
-		&i.CredentialID,
-		&i.Branch,
-		&i.Path,
-		&i.PollIntervalSeconds,
-		&i.LastSyncedAt,
-		&i.LastCommit,
-		&i.SyncStatus,
-		&i.SyncError,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.RepoUrl,
-	)
-	return i, err
-}
-
 const updateRepoLinkSync = `-- name: UpdateRepoLinkSync :exec
 UPDATE repo_links
 SET last_synced_at = now(),

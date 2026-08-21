@@ -14,7 +14,7 @@
 | Query pair | Verdict |
 |---|---|
 | `ListAllClusters` + unclaimed handler conditional | Not duplicates — different result sets for different views |
-| `UpsertServeCache` / `UpsertServeCacheConditional` | Intentional — different dirty-flag semantics; both have callers |
+| `UpsertServeCache` / `UpsertServeCacheConditional` | Intentional — different dirty-flag semantics; both have callers *(plain `UpsertServeCache` since deleted as dead code, 2026-08-21)* |
 
 ## Raw SQL Inventory
 

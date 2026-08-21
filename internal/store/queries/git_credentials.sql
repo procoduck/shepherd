@@ -14,23 +14,5 @@ SELECT * FROM git_credentials WHERE id = $1;
 -- name: ListGitCredentialsByOrg :many
 SELECT * FROM git_credentials WHERE org_id = $1 ORDER BY name;
 
--- name: UpdateGitCredential :one
-UPDATE git_credentials
-SET name                     = $2,
-    kind                     = $3,
-    username                 = $4,
-    ado_org_url              = $5,
-    entra_tenant_id          = $6,
-    client_id                = $7,
-    client_secret_enc        = $8,
-    secret2_enc              = $9,
-    provider_config          = $10,
-    ssh_known_hosts          = $11,
-    ca_cert                  = $12,
-    tls_insecure_skip_verify = $13,
-    updated_at               = now()
-WHERE id = $1
-RETURNING *;
-
 -- name: DeleteGitCredential :exec
 DELETE FROM git_credentials WHERE id = $1;

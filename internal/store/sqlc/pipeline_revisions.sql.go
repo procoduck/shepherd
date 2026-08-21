@@ -64,32 +64,6 @@ func (q *Queries) GetMaxPipelineRevision(ctx context.Context, pipelineID pgtype.
 	return max_rev, err
 }
 
-const getPipelineRevision = `-- name: GetPipelineRevision :one
-SELECT id, pipeline_id, revision, contents, matchers, enabled, changed_by, changed_at, change_note FROM pipeline_revisions WHERE pipeline_id = $1 AND revision = $2
-`
-
-type GetPipelineRevisionParams struct {
-	PipelineID pgtype.UUID `json:"pipeline_id"`
-	Revision   int32       `json:"revision"`
-}
-
-func (q *Queries) GetPipelineRevision(ctx context.Context, arg GetPipelineRevisionParams) (PipelineRevision, error) {
-	row := q.db.QueryRow(ctx, getPipelineRevision, arg.PipelineID, arg.Revision)
-	var i PipelineRevision
-	err := row.Scan(
-		&i.ID,
-		&i.PipelineID,
-		&i.Revision,
-		&i.Contents,
-		&i.Matchers,
-		&i.Enabled,
-		&i.ChangedBy,
-		&i.ChangedAt,
-		&i.ChangeNote,
-	)
-	return i, err
-}
-
 const listPipelineRevisions = `-- name: ListPipelineRevisions :many
 SELECT id, pipeline_id, revision, contents, matchers, enabled, changed_by, changed_at, change_note FROM pipeline_revisions WHERE pipeline_id = $1 ORDER BY revision DESC
 `

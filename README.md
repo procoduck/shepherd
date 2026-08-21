@@ -1,6 +1,6 @@
 # Shepherd
 
-Self-hosted **Grafana Alloy fleet manager**. Shepherd serves centralised pipeline configurations to Alloy instances via the `remotecfg` protocol, providing a UI for managing pipelines, destinations, wizards, and ADO GitOps sync.
+Self-hosted **Grafana Alloy fleet manager**. Shepherd serves centralised pipeline configurations to Alloy instances via the `remotecfg` protocol, providing a UI for managing pipelines, destinations, wizards, and GitOps sync from any git server (ADO and GitHub-App auth supported).
 
 ---
 
@@ -13,7 +13,7 @@ docker run -d --name shepherd-pg \
   -p 5432:5432 postgres:16-alpine
 
 # 2. Build & run
-make build-all
+make build
 SHEPHERD_DATABASE_URL=postgres://shepherd:shepherd@localhost:5432/shepherd \
 SHEPHERD_SECURITY_ENCRYPTION_KEY=$(openssl rand -base64 32) \
 ./bin/shepherd migrate up && ./bin/shepherd serve
@@ -48,7 +48,7 @@ remotecfg {
 The `/api/*` REST surface (`/api/orgs/{org}/pipelines`, `/api/admin/orgs`, `/api/orgs/{org}/destinations`,
 etc.) is unchanged for existing integrations — same paths, same JSON shapes, same session-cookie +
 CSRF auth. Under the hood those routes are now thin shims over a typed Connect RPC contract
-(`shepherd.mgmt.v1`; see `docs/api-contract-design.md`). The Connect endpoints are plain HTTP
+(`shepherd.mgmt.v1`; see `docs/archive/api-contract-design.md`). The Connect endpoints are plain HTTP
 POST + JSON themselves, so integrators may call them directly instead of the REST shim — the
 tradeoff is camelCase field names (`orgId`, not `org_id`) and the `shepherd.mgmt.v1.<Service>/<Method>`
 path shape rather than REST resource paths. Both surfaces share the same session-cookie authorization
@@ -70,14 +70,16 @@ curl -s -X POST http://localhost:8080/shepherd.mgmt.v1.PipelineService/ListPipel
 
 | Command | Description |
 |---|---|
-| `make build-all` | Build web SPA + Go binary |
-| `make test` | Unit tests (no Docker) |
-| `make test-integration` | Integration tests (Docker required) |
+| `make help` | List all targets and env knobs |
+| `make build` | Build web SPA + Go binary |
+| `make test` | All Go tests (Docker required — testcontainers) |
 | `make e2e` | End-to-end suite (~10 min, Docker) |
-| `make lint` | golangci-lint v2 |
-| `make fmt` | gofmt |
-| `make generate` | buf generate + sqlc generate |
+| `make e2e-k8s` | Kubernetes suite (kind + Helm install) |
+| `make lint` | golangci-lint v2 + repo guards |
+| `make fmt` | golangci-lint fmt + gofumpt |
+| `make generate` | buf + sqlc + version codegen |
 | `make helm-lint` | Helm chart lint |
+| `make tools` | Install pinned dev tools (ginkgo, gofumpt, sqlc, buf) |
 
 See `docs/spec.md` for the full specification.
 
@@ -113,7 +115,7 @@ Alloy (spoke)  ──remotecfg──▶  Shepherd  ──serves──▶  merged
                                   │
                  ┌────────────────┼────────────────────┐
                  ▼                ▼                     ▼
-           PostgreSQL         Merge engine          ADO GitOps
+           PostgreSQL         Merge engine          Git GitOps
          (sessions, store)  (matcher + declare)    (repo_links)
 ```
 
@@ -121,4 +123,4 @@ Alloy (spoke)  ──remotecfg──▶  Shepherd  ──serves──▶  merged
 - **Auth**: OIDC BFF (Entra ID) + cookie sessions; agent token Basic auth
 - **Merge engine**: Alertmanager-syntax matchers → declare-wrapped Alloy blocks
 - **Validation gate**: 3 stages (syntax, `alloy validate`, merge dry-run)
-- **GitOps**: ADO repo polling → validated pipelines (`source = git`)
+- **GitOps**: any-git-server repo polling via go-git (`git_credentials`: PAT/basic/SSH/ADO-SP/GitHub-App) → validated pipelines (`source = git`)

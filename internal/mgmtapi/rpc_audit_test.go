@@ -24,7 +24,7 @@ import (
 // Connect-path coverage for AuditService, over the same
 // newRPCWiringRouter(...) wiring rpc_wiring_test.go and rpc_fleet_test.go
 // use — a happy path, an authz denial, and an error-code mapping case, per
-// docs/api-contract-design.md's testing rules.
+// docs/archive/api-contract-design.md's testing rules.
 var _ = Describe("shepherd.mgmt.v1.AuditService RPC", Label("integration"), func() {
 	var (
 		ctx         context.Context

@@ -1,6 +1,6 @@
 # shepherd-simulator — the S3 sandbox-run service (VB-1 §6.4).
 #
-# It ships the SAME pinned Alloy build as deploy/Dockerfile, taken from the same
+# It ships the SAME pinned Alloy build as deploy/Dockerfile.local, taken from the same
 # ALLOY_IMAGE ARG, because a sandbox running a different Alloy than the
 # validation gate would make S3 results lie about what the fleet will do.
 #

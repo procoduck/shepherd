@@ -116,8 +116,8 @@ None of these exist in the proto contract either, so each needs an RPC + shim + 
 ### F5 — VB-1 M7: S3 sandbox simulation · [IMPLEMENTED 2026-08-20 — see §3a, MUST STAY DISABLED]
 
 `docs/visual-builder-design-VB1.md` §6.4. Built on 2026-08-20 but its containment claim does not
-hold; the feature is off by default and must stay off. See the F5 entry in §3a STILL OPEN and
-`docs/reviews/s3-sandbox-security-findings.md`.
+hold; the feature is off by default and must stay off. See `docs/project-status.md` (the live ledger)
+and `docs/reviews/s3-sandbox-security-findings.md`.
 
 ### F6 — [DONE 2026-08-19] VB-1 M8: hardening · **low**
 

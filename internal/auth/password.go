@@ -66,6 +66,3 @@ func VerifyPassword(encodedHash, pw string) (bool, error) {
 	computed := argon2.IDKey([]byte(pw), salt, itime, memory, uint8(threads), uint32(len(storedHash))) //nolint:gosec // encoded hash controls a bounded output length
 	return subtle.ConstantTimeCompare(computed, storedHash) == 1, nil
 }
-
-// IsValidArgon2idHash reports whether s is a parseable argon2id encoded string.
-func IsValidArgon2idHash(s string) bool { _, err := VerifyPassword(s, "probe"); return err == nil }

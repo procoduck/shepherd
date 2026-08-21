@@ -6,9 +6,6 @@ RETURNING *;
 -- name: GetOrgByID :one
 SELECT * FROM orgs WHERE id = $1;
 
--- name: GetOrgByName :one
-SELECT * FROM orgs WHERE name = $1;
-
 -- name: ListOrgs :many
 SELECT * FROM orgs ORDER BY name;
 

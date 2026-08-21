@@ -46,8 +46,8 @@ func IsNotFound(err error) bool {
 
 // New creates a Registry backed by fsys.
 // fsys must contain:
-//   - schema/overlay.json
-//   - schema/alloy-v<X>.json (one or more)
+//   - artifacts/overlay.json
+//   - artifacts/alloy-v<X>.json (one or more)
 //
 // currentVersion is the version returned by GetCurrent, e.g. "alloy-v1.18.1".
 func New(fsys FS, currentVersion string) (*Registry, error) {

@@ -29,9 +29,3 @@ ORDER BY cl.name, c.role;
 SELECT cl.org_id FROM collectors c
 JOIN clusters cl ON c.cluster_id = cl.id
 WHERE c.id = $1;
-
--- name: ListAllCollectors :many
-SELECT c.id, c.cluster_id, c.role, c.created_at, c.updated_at, cl.name AS cluster_name, cl.org_id
-FROM collectors c
-JOIN clusters cl ON c.cluster_id = cl.id
-ORDER BY cl.name, c.role;

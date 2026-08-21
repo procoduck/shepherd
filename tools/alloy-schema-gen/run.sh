@@ -13,7 +13,9 @@
 #   SKIP_RECONCILE   when non-empty, do not touch overlay.json
 #   ALLOY_SRC        reuse an existing grafana/alloy checkout instead of cloning
 #
-# Prerequisites: git, go, jq, network access to ALLOY_REPO.
+# Prerequisites: git, go, jq, docker, network access to ALLOY_REPO. The
+# extractor always runs in a linux container (see below) so the artifact is
+# identical regardless of the host OS.
 # CI: override ALLOY_REPO with your organisation's mirror if applicable.
 # This script MUST NOT run at application build time — app builds are hermetic.
 set -euo pipefail
@@ -57,9 +59,29 @@ sed '/^\/\/go:build ignore$/d' "${SCRIPT_DIR}/extract.go" > "${SRC}/cmd/shepherd
 # reconcile.go, and is copied in verbatim here as a second package-main file.
 cp "${SCRIPT_DIR}/portmodel.go" "${SRC}/cmd/shepherd-schema-dump/portmodel.go"
 
-echo "==> Running extractor..."
+echo "==> Running extractor (linux container)..."
+# The extractor executes Alloy's SetToDefault via reflection, so the artifact
+# is GOOS-dependent: a darwin run misses the linux platform defaults
+# (prometheus.exporter.unix's /sys and mount regexes, pyroscope's symb-cache,
+# …) that the linux fleet actually gets. First completed CI schema-verify run
+# caught exactly that drift in a mac-generated artifact. Pinning generation to
+# a linux container makes local and CI output identical by construction.
+# The host module cache is mounted so nothing re-downloads; the container runs
+# as the invoking user so cached files stay owned by them (GOCACHE/HOME point
+# into /tmp because that user has no home inside the image).
+GO_CONTAINER_IMAGE="${GO_IMAGE:-golang:1.26}"
 mkdir -p "${OUT_DIR}"
-( cd "${SRC}" && go run ./cmd/shepherd-schema-dump ) | jq -S . > "${OUTPUT}"
+# Pre-create the module cache dir: if it does not exist when docker mounts it
+# (e.g. a fresh CI runner on a cache miss), docker creates the mount point as
+# root and the uid-mapped container user cannot write into it.
+GOMODCACHE_DIR="$(go env GOMODCACHE)"
+mkdir -p "${GOMODCACHE_DIR}"
+docker run --rm \
+  -u "$(id -u):$(id -g)" \
+  -e HOME=/tmp -e GOCACHE=/tmp/go-build -e GOGC -e ALLOY_VERSION \
+  -v "${SRC}":/src -v "${GOMODCACHE_DIR}":/go/pkg/mod \
+  -w /src "${GO_CONTAINER_IMAGE}" \
+  go run ./cmd/shepherd-schema-dump | jq -S . > "${OUTPUT}"
 
 echo "==> Done: ${OUTPUT}"
 echo "    components_total: $(jq '._meta.components_total' "${OUTPUT}")"

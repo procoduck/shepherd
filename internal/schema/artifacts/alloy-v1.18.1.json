@@ -2,7 +2,7 @@
   "_meta": {
     "alloy_version": "v1.18.1",
     "components_total": 184,
-    "generated_at": "2026-08-19T14:27:53Z",
+    "generated_at": "2026-08-21T10:42:47Z",
     "generated_by": "shepherd-schema-gen/extract.go"
   },
   "components": {
@@ -43207,6 +43207,7 @@
           "type": "string"
         },
         {
+          "default": "/sys",
           "name": "sysfs_path",
           "required": false,
           "type": "string"
@@ -43350,13 +43351,13 @@
         {
           "attributes": [
             {
-              "default": "^(autofs|devfs)$",
+              "default": "^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs)$",
               "name": "fs_types_exclude",
               "required": false,
               "type": "string"
             },
             {
-              "default": "^/(dev)($|/)",
+              "default": "^/(dev|proc|run/credentials/.+|sys|var/lib/docker/.+)($|/)",
               "name": "mount_points_exclude",
               "required": false,
               "type": "string"
@@ -47951,56 +47952,67 @@
           "type": "list"
         },
         {
+          "default": "15s",
           "name": "collect_interval",
           "required": false,
           "type": "duration"
         },
         {
+          "default": 19,
           "name": "sample_rate",
           "required": false,
           "type": "number"
         },
         {
+          "default": true,
           "name": "python_enabled",
           "required": false,
           "type": "bool"
         },
         {
+          "default": true,
           "name": "perl_enabled",
           "required": false,
           "type": "bool"
         },
         {
+          "default": true,
           "name": "php_enabled",
           "required": false,
           "type": "bool"
         },
         {
+          "default": true,
           "name": "hotspot_enabled",
           "required": false,
           "type": "bool"
         },
         {
+          "default": true,
           "name": "ruby_enabled",
           "required": false,
           "type": "bool"
         },
         {
+          "default": true,
           "name": "v8_enabled",
           "required": false,
           "type": "bool"
         },
         {
+          "default": true,
           "name": "dotnet_enabled",
           "required": false,
           "type": "bool"
         },
         {
+          "default": true,
           "name": "go_enabled",
           "required": false,
           "type": "bool"
         },
         {
+          "default": "none",
           "name": "demangle",
           "required": false,
           "type": "string"
@@ -48016,6 +48028,7 @@
           "type": "bool"
         },
         {
+          "default": [],
           "name": "u_probe_links",
           "required": false,
           "type": "list"
@@ -48086,16 +48099,19 @@
           "type": "number"
         },
         {
+          "default": true,
           "name": "targets_only",
           "required": false,
           "type": "bool"
         },
         {
+          "default": "/tmp/symb-cache",
           "name": "symb_cache_path",
           "required": false,
           "type": "string"
         },
         {
+          "default": 2048,
           "name": "symb_cache_size",
           "required": false,
           "type": "number"
@@ -48111,11 +48127,13 @@
           "type": "bool"
         },
         {
+          "default": "none",
           "name": "comm",
           "required": false,
           "type": "string"
         },
         {
+          "default": true,
           "name": "kernel_frames",
           "required": false,
           "type": "bool"
@@ -48125,6 +48143,7 @@
         {
           "attributes": [
             {
+              "default": true,
               "name": "on_target_symbolization",
               "required": false,
               "type": "bool"
@@ -48135,6 +48154,7 @@
               "type": "bool"
             },
             {
+              "default": 262144,
               "name": "cache_size",
               "required": false,
               "type": "number"
@@ -48145,11 +48165,13 @@
               "type": "bool"
             },
             {
+              "default": 256,
               "name": "queue_size",
               "required": false,
               "type": "number"
             },
             {
+              "default": 16,
               "name": "worker_num",
               "required": false,
               "type": "number"

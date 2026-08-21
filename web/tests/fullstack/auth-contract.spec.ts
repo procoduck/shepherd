@@ -13,7 +13,7 @@
 import { expect, loginAsAdmin, test } from './fixtures';
 
 test.describe('auth-contract', () => {
-  test('scenario 2: unauthenticated /api/me returns 401 and SPA redirects to /login', async ({
+  test('scenario 2: unauthenticated /api/me returns 401 with unauthenticated code (API contract only)', async ({
     page,
   }) => {
     // DECISION: The unauthenticated redirect is proven at two levels:

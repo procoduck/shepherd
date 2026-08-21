@@ -10,9 +10,9 @@ import (
 //
 // A strategy that only works over one transport returns ok=false for the
 // other: an HTTPS-only strategy (NoneAuth, BasicAuth, PATAuth, and the
-// token-exchange strategies that will land in a later step) returns
-// ok=false from SSH, and the ssh strategy (also a later step) returns
-// ok=false from HTTP. Token-exchange strategies are expected to cache
+// token-exchange strategies AdoSPAuth and GitHubAppAuth) returns ok=false
+// from SSH, and SSHAuth returns ok=false from HTTP.
+// Token-exchange strategies are expected to cache
 // their minted token until shortly before it expires rather than minting
 // one per call.
 type Auth interface {

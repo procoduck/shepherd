@@ -12,7 +12,7 @@ You are implementing a production-grade fleet manager for Grafana Alloy collecto
 4. **All SQL goes through sqlc.** No string-built SQL, no ORM. All schema changes go through golang-migrate migration files. Never edit an already-committed migration; add a new one.
 5. **Secrets are never logged, never returned by any API, and encrypted at rest** (§7.4).
 6. **Small commits per milestone** (§14). After each milestone, all tests must pass: `go build ./... && ginkgo -r`.
-7. Go 1.24+, formatted and lint-clean per the **exact** golangci-lint v2 config in §20 (`make lint` green at every milestone). Frontend: TypeScript strict mode, no `any`.
+7. Go 1.26+, formatted and lint-clean per the **exact** golangci-lint v2 config in §20 (`make lint` green at every milestone). Frontend: TypeScript strict mode, no `any`.
 8. Releases are built exclusively through GoReleaser per §21 — no hand-rolled build scripts, no `docker build` outside the GoReleaser flow except the local dev target.
 
 ---
@@ -57,7 +57,7 @@ Spoke clusters already run local chart-generated config (clusterMetrics, podLogs
 
 | Concern | Choice |
 |---|---|
-| Language | Go 1.24+ |
+| Language | Go 1.26+ |
 | CLI | `github.com/spf13/cobra` |
 | Config | `github.com/spf13/viper` (file + env, prefix `SHEPHERD_`) |
 | Agent API | `connectrpc.com/connect` (Connect protocol, h2c via `golang.org/x/net/http2/h2c`) |
@@ -103,13 +103,13 @@ shepherd/
 │   └── testutil/                   # testcontainers Postgres harness, fixtures
 ├── proto/collector/v1/collector.proto   # vendored (§4)
 ├── gen/                            # buf output (committed)
-├── migrations/                     # 0001_init.up.sql / .down.sql, ...
+├── internal/migrations/sql/        # 0001_init.up.sql / .down.sql, ...
 ├── sqlc.yaml
 ├── buf.yaml / buf.gen.yaml
 ├── web/                            # React app (Vite root)
 │   └── src/{routes,components,lib,api,editor}
 ├── deploy/
-│   ├── Dockerfile
+│   ├── Dockerfile.local
 │   └── helm/shepherd/              # full chart, see §17
 ├── e2e/                            # local end-to-end suite, see §18
 │   ├── docker-compose.e2e.yaml
@@ -691,7 +691,7 @@ Fail fast on boot with a clear message if any required field is missing.
 - `internal/store`: migration up/down cycle on testcontainers Postgres.
 - Frontend: Vitest for matcher-builder logic, wizard zod schemas, editor diagnostics mapping.
 - End-to-end: the full-stack suite with a real Alloy agent is specified separately in §18 (`make e2e`).
-- Make targets: `make test` (unit), `make test-integration` (adds testcontainers suites), `make e2e` (§18) — all green in CI.
+- Make targets: `make test` (full Go suite, testcontainers included — needs Docker), `make e2e` (§18). `test` runs in CI; `e2e` runs in its own workflow (merge queue / dispatch).
 
 ## 16. Milestones (implement in this order; each ends green)
 
@@ -1027,13 +1027,13 @@ Create THREE files. Root `AGENTS.md`, verbatim (substitute the real module path)
 ```markdown
 # Shepherd
 
-Self-hosted Grafana Alloy fleet manager. Go 1.24 backend (Connect RPC agent API + chi REST),
+Self-hosted Grafana Alloy fleet manager. Go 1.26 backend (Connect RPC agent API + chi REST),
 React 18/TS/Vite SPA embedded via go:embed, PostgreSQL 16. Spec: docs/spec.md (authoritative).
 
 ## Commands
 - Build: `make build` (builds web first — required for go:embed)
 - Test all: `make test` · single pkg: `ginkgo ./internal/<pkg>` · focused: `ginkgo --focus "name" ./internal/<pkg>`
-- Integration (needs Docker): `make test-integration`
+- Tests (needs Docker for testcontainers): `make test`
 - E2E (needs Docker, ~10 min): `make e2e`
 - Lint+format: `make lint` / `make fmt` (golangci-lint v2)
 - Codegen after proto/SQL changes: `buf generate` / `sqlc generate`
@@ -1121,7 +1121,7 @@ These amendments supersede conflicting text above.
 `sloglint` enabled with `no-global: "all"` and `key-naming-case: snake`. The nolint budget (≤20 total directives) is unchanged. Bare `slog.*` calls in package code (instead of injected logger) are lint errors.
 
 ### §D.4 v1.3 — §15 / frontend-testing assertion-depth rule (amended)
-No visibility-only tests: a test whose strongest assertion is `locator('body')` or heading-only visibility is not valid. `grep -rn "locator('body')" web/tests/specs/` → zero is a CI gate. Debounce tests must assert call-count suppression via `api.calls`, not only eventual firing. `time.Sleep` grep-banned in `e2e/` — use `Eventually` instead.
+No visibility-only tests: a test whose strongest assertion is `locator('body')` or heading-only visibility is not valid (convention — reviewed, not machine-enforced). Debounce tests must assert call-count suppression via `api.calls`, not only eventual firing. Avoid `time.Sleep` in `e2e/` specs — use `Eventually`; bounded backoff inside helper retry loops is the one exemption.
 
 ### §D.5 v1.3 — §18 e2e structure (amended)
 Single `Ordered` e2e flow with focus-skip guards is the blessed structure. `time.Sleep` grep-banned in `e2e/`; `E2E_KEEP=1` implemented (`make e2e E2E_KEEP=1` leaves stack running). The `/api/v0/web/components` assertion is RETIRED — APPLIED status + served-hash + Alloy log evidence is the standard proof for scenario 2.
@@ -1221,7 +1221,7 @@ Three Playwright layers:
 
 **CI ordering:**
 ```
-smoke (< 60s) → test → test-integration → [test-ui ∥ test-fullstack] → (merge queue) e2e
+[lint ∥ build ∥ guards ∥ generated-drift ∥ test ∥ web ∥ test-ui ∥ test-fullstack] → (merge queue) e2e
 ```
 
 One documented exception: `.github/workflows/e2e.yml`'s `e2e-egress` job (`make e2e-sim`) also
@@ -1242,7 +1242,7 @@ The fullstack suite (`web/tests/fullstack/`) must NEVER use `page.route()`. CI g
 
 ### §7 (amended) — Dev stack
 
-`make dev` boots the local development stack at `:8080` with seeded data and local-admin login (`admin` / `e2e-local-admin-pass`). The dev stack is defined in `dev/docker-compose.dev.yaml` and `dev/shepherd.dev.env`. All dev secrets are prefixed `dev-only-`. The dev compose is also the fullstack test stack — it cannot drift silently because `test-fullstack` in CI boots it on every PR.
+`make dev` boots the local development stack at `:8080` with seeded data and local-admin login (`admin` / `admin`; the e2e stack uses `admin` / `e2e-local-admin-pass`). The dev stack is defined in `dev/docker-compose.dev.yaml` and `dev/shepherd.dev.env`. All dev secrets are prefixed `dev-only-`. The dev compose is also the fullstack test stack — it cannot drift silently because `test-fullstack` in CI boots it on every PR.
 
 ---
 
@@ -1272,3 +1272,35 @@ ordinary git credentials (PAT / basic / SSH deploy key / anonymous).
   role. E2E scenario 5 pushes real commits, including the change-an-existing-file case.
 
 Full design, migration plan, and open decisions: `docs/git-provider-design.md`.
+
+---
+
+## Amendment — docs truth pass (2026-08-21)
+
+Corrections applied in place above, recorded here so the history is legible:
+
+- **Dev stack password** (§7 amended). The dev stack's local-admin login is `admin` / `admin`
+  (source of truth: `dev/shepherd.dev.env`, verified by `test-fullstack` in CI on every PR).
+  `e2e-local-admin-pass` is the **e2e** stack's password. The §7 amendment above previously
+  conflated the two.
+- **Migrations path** (§3). Migrations live at `internal/migrations/sql/`; there is no root
+  `migrations/` directory. The layout listing is corrected.
+- **ESLint → Biome** (supersedes §20's frontend half). The frontend uses **Biome**
+  (`web/biome.json`) for linting and formatting; ESLint 9 + Prettier were never adopted.
+  `web/AGENTS.md` is authoritative for frontend tooling.
+- **CI-gate reality** (amends §D.4 v1.3 and the §15 fullstack "no mock" rule). The
+  `page.route` ban in `web/tests/fullstack/` is now enforced for real: the Makefile's
+  `check-no-route-mocks` guard greps for it, and CI's guards job runs it on every PR. The
+  `locator('body')` and
+  `waitForTimeout` greps described above as CI gates were **never built** — those claims are
+  struck. `waitForTimeout` is a convention, not a machine-enforced ban: canvas/drag
+  interaction helpers in the visual-builder specs legitimately use real waits where
+  `page.clock` cannot drive a mouse-drag simulation. Debounce and loading-state specs still
+  must use `page.clock` and call-count assertions.
+- **`make test-integration` removed** (amends §15's CI ordering). The `-tags=integration`
+  build tag matched zero files, so the target ran the identical test set as `make test` — the
+  unit/integration split never existed. `make test` runs all Go tests and requires Docker
+  (testcontainers Postgres, docker-shimmed `alloy validate`). CI now runs
+  lint/build/guards/generated-drift/test/web/test-ui/test-fullstack in parallel on every PR;
+  e2e-egress paths-filtered and e2e on the merge queue (`e2e.yml`); e2e-k8s nightly; schema-verify
+  weekly. `make smoke` remains unwired (tracked follow-up in `ci.yml`'s header).

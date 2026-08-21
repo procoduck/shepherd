@@ -19,7 +19,7 @@ import (
 // OrgsHandler handles org-scoped routes. Every method is a thin REST shim
 // delegating to the corresponding shepherd.mgmt.v1 service in-process (see
 // rpc_fleet.go, rpc_destination.go, rpc_me.go, and
-// docs/api-contract-design.md, "Server wiring"). No business logic lives
+// docs/archive/api-contract-design.md, "Server wiring"). No business logic lives
 // here.
 type OrgsHandler struct {
 	store        *store.Store

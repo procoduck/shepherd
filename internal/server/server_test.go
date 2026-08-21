@@ -1,26 +1,33 @@
 package server_test
 
 import (
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 
-	"github.com/go-chi/chi/v5"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"shepherd/internal/config"
+	"shepherd/internal/server"
 	"shepherd/internal/spa"
+	"shepherd/internal/store"
+	"shepherd/internal/validate"
 )
 
+// productionRouter builds the real route tree via server.newRouter with the
+// non-routing collaborators zeroed out: route registration never touches the
+// database, so a zero store is enough to prove mounting and guard ordering.
+func productionRouter() http.Handler {
+	cfg := &config.Config{}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	return server.NewRouter(cfg, &store.Store{}, nil, nil, validate.New(&cfg.Validate), spa.BuildInfo{}, logger)
+}
+
 var _ = Describe("metrics listeners", func() {
-	It("metrics handler is not registered on the main chi router", func() {
-		r := chi.NewRouter()
-		apiGuard := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			_, _ = w.Write([]byte("{\"error\":{\"code\":\"not_found\"}}")) //nolint:errcheck // error response write
-		})
-		r.Handle("/metrics", apiGuard)
+	It("metrics handler is not registered on the main router", func() {
+		r := productionRouter()
 
 		req := httptest.NewRequest("GET", "/metrics", nil)
 		rec := httptest.NewRecorder()
@@ -28,15 +35,13 @@ var _ = Describe("metrics listeners", func() {
 
 		Expect(rec.Code).To(Equal(http.StatusNotFound))
 		Expect(rec.Header().Get("Content-Type")).To(Equal("application/json"))
+		Expect(rec.Body.String()).To(ContainSubstring("not_found"))
 	})
 
 	It("metrics mux serves prometheus on /metrics", func() {
-		metricsMux := http.NewServeMux()
-		metricsMux.Handle("/metrics", promhttp.Handler())
-
 		req := httptest.NewRequest("GET", "/metrics", nil)
 		rec := httptest.NewRecorder()
-		metricsMux.ServeHTTP(rec, req)
+		server.NewMetricsMux().ServeHTTP(rec, req)
 
 		Expect(rec.Code).To(Equal(http.StatusOK))
 		Expect(rec.Header().Get("Content-Type")).To(ContainSubstring("text/plain"))
@@ -44,23 +49,13 @@ var _ = Describe("metrics listeners", func() {
 })
 
 var _ = Describe("API prefix guard", func() {
-	var r *chi.Mux
+	var r http.Handler
 
 	BeforeEach(func() {
-		r = chi.NewRouter()
-		apiGuard := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			_, _ = w.Write([]byte("{\"error\":{\"code\":\"not_found\"}}")) //nolint:errcheck
-		})
-		r.Handle("/api", apiGuard)
-		r.Handle("/api/*", apiGuard)
-		r.Handle("/auth/*", apiGuard)
-		r.Handle("/collector.v1.*", apiGuard)
-		r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+		r = productionRouter()
 	})
 
-	DescribeTable("unmatched reserved paths return 404 JSON",
+	DescribeTable("unmatched reserved paths return 404 JSON, never the SPA",
 		func(path string) {
 			req := httptest.NewRequest(http.MethodGet, path, nil)
 			rec := httptest.NewRecorder()
@@ -74,6 +69,8 @@ var _ = Describe("API prefix guard", func() {
 		Entry("GET /api/", "/api/"),
 		Entry("GET /api (bare)", "/api"),
 		Entry("GET /auth/nope", "/auth/nope"),
+		Entry("GET /collector.v1.Nope/Nope", "/collector.v1.Nope/Nope"),
+		Entry("GET /shepherd.mgmt.v1.Nope/Nope", "/shepherd.mgmt.v1.Nope/Nope"),
 	)
 
 	It("real routes still respond", func() {
@@ -81,6 +78,14 @@ var _ = Describe("API prefix guard", func() {
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
 		Expect(rec.Code).To(Equal(http.StatusOK))
+	})
+
+	It("the SPA fallback still serves client-side routes after the guards", func() {
+		req := httptest.NewRequest(http.MethodGet, "/some/spa/route", nil)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		Expect(rec.Code).To(Equal(http.StatusOK))
+		Expect(rec.Header().Get("Cache-Control")).To(Equal("no-cache"))
 	})
 })
 

@@ -12,45 +12,6 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-// PostgresContainer wraps a testcontainers Postgres instance.
-type PostgresContainer struct {
-	Container *postgres.PostgresContainer
-	URL       string
-}
-
-// StartPostgres starts a Postgres 16 container and returns its connection URL.
-// The container is automatically stopped when the test ends via t.Cleanup.
-// For Ginkgo suites, prefer StartPostgresShared + IsolatedDB instead of calling
-// this in BeforeEach — one container per suite, one database per spec.
-func StartPostgres(ctx context.Context, t testing.TB) *PostgresContainer {
-	t.Helper()
-
-	ctr, err := postgres.Run(ctx, "postgres:16-alpine",
-		postgres.WithDatabase("shepherd_test"),
-		postgres.WithUsername("shepherd"),
-		postgres.WithPassword("shepherd"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").WithOccurrence(2),
-		),
-	)
-	if err != nil {
-		t.Fatalf("starting postgres container: %v", err)
-	}
-
-	t.Cleanup(func() { //nolint:contextcheck // cleanup uses fresh context intentionally
-		if termErr := ctr.Terminate(context.Background()); termErr != nil {
-			t.Logf("stopping postgres container: %v", termErr)
-		}
-	})
-
-	url, err := ctr.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		t.Fatalf("getting postgres connection string: %v", err)
-	}
-
-	return &PostgresContainer{Container: ctr, URL: url}
-}
-
 // SharedPostgres manages a single Postgres container shared across an entire
 // Ginkgo suite. Create one in SynchronizedBeforeSuite and terminate in
 // SynchronizedAfterSuite.

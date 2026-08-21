@@ -24,11 +24,6 @@ ON CONFLICT (id) DO UPDATE SET
     updated_at   = now()
 RETURNING *;
 
--- name: UpdateInstanceLastSeen :exec
-UPDATE collector_instances
-SET last_seen = now(), updated_at = now()
-WHERE id = $1;
-
 -- name: UpdateInstanceStatus :exec
 UPDATE collector_instances
 SET remote_config_status = $2,

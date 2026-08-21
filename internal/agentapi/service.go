@@ -2,12 +2,9 @@ package agentapi
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -27,19 +24,7 @@ import (
 // validRoles is the set of allowed collector roles.
 var validRoles = []string{"metrics", "logs", "singleton", "receiver"}
 
-// sanitize replaces non-[a-z0-9_] characters with underscores and ensures
-// the result starts with a letter (prepends "p" if needed).
-var sanitizeRe = regexp.MustCompile(`[^a-z0-9_]`)
-
-func sanitizeName(s string) string {
-	r := sanitizeRe.ReplaceAllString(strings.ToLower(s), "_")
-	if len(r) == 0 || (r[0] >= '0' && r[0] <= '9') {
-		r = "p" + r
-	}
-	return r
-}
-
-// emptyHash is sha256hex(""). Exported for use in tests.
+// EmptyHash is sha256hex(""). Exported for use in tests.
 const EmptyHash = "e3b0c44298fc1c149afbf4c8996fb924" +
 	"27ae41e4649b934ca495991b7852b855"
 
@@ -303,12 +288,6 @@ func requireClusterRole(attrs map[string]string) (cluster, role string, err erro
 		return "", "", fmt.Errorf("missing required attributes: %s", strings.Join(missing, ", "))
 	}
 	return cluster, role, nil
-}
-
-// hashContent computes hex(sha256(content)).
-func hashContent(content string) string {
-	h := sha256.Sum256([]byte(content))
-	return hex.EncodeToString(h[:])
 }
 
 // recomputeServeCache assembles and validates the merged config for a single collector.

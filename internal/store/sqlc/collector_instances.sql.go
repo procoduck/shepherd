@@ -167,17 +167,6 @@ func (q *Queries) UnregisterInstance(ctx context.Context, id string) error {
 	return err
 }
 
-const updateInstanceLastSeen = `-- name: UpdateInstanceLastSeen :exec
-UPDATE collector_instances
-SET last_seen = now(), updated_at = now()
-WHERE id = $1
-`
-
-func (q *Queries) UpdateInstanceLastSeen(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, updateInstanceLastSeen, id)
-	return err
-}
-
 const updateInstanceStatus = `-- name: UpdateInstanceStatus :exec
 UPDATE collector_instances
 SET remote_config_status = $2,

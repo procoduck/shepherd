@@ -105,7 +105,7 @@ func reconcileComponents(artifactComponents, overlayComponents map[string]any) (
 }
 
 // categorize applies the component-path heuristic from
-// docs/visual-builder-refinement.md §C3 to guess a starting palette category
+// docs/archive/visual-builder-refinement.md §C3 to guess a starting palette category
 // for a component new to the overlay. It is best-effort only: every entry it
 // produces is marked needs_review for a human to confirm or correct.
 //

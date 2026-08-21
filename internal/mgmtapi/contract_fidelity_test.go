@@ -24,7 +24,7 @@ import (
 // structs marked `,omitempty`, because the shared MarshalOpts sets
 // EmitUnpopulated unconditionally. writeProtoJSONOmit (shim.go) restores the
 // omitted-when-zero behavior for the specific fields the legacy structs
-// exempted. See docs/api-contract-design.md's byte-compatibility
+// exempted. See docs/archive/api-contract-design.md's byte-compatibility
 // requirement.
 var _ = Describe("REST shim field-presence fidelity", Label("integration"), func() {
 	var (

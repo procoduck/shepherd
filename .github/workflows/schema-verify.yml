@@ -1,0 +1,93 @@
+name: Schema Verify
+
+# Verifies the committed Alloy schema artifact (and the hand-maintained
+# overlay's coverage of it) still matches what the pinned grafana/alloy
+# produces — see the schema-verify target in the Makefile. Weekly cron because
+# the artifact can only drift when the pin or the generator changes, but a
+# silent generator regression would otherwise sit unnoticed until the next
+# Alloy bump; the PR paths filter catches the bump itself.
+#
+# `make schema-verify` needs go, git, and jq — all preinstalled on
+# ubuntu-latest.
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - "deploy/versions.env"
+      - "tools/alloy-schema-gen/**"
+      - ".github/workflows/schema-verify.yml"
+
+concurrency:
+  group: schema-verify-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  schema-verify:
+    name: schema-verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # The first live run died with the runner killed mid-step (no logs,
+      # null step conclusion) — the grafana/alloy clone + go/packages load is
+      # heavy for a 7GB/14GB-free standard runner. Free the unused toolchains
+      # and cap GC headroom; if the job still dies, it needs a larger runner.
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/.ghcup
+          df -h /
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # cache-dependency-path includes versions.env so this job gets its OWN
+      # cache entry (keyed differently from every other job's plain-go.sum
+      # key, which CI's test job already saved WITHOUT alloy's modules — and
+      # an existing key is never re-saved). This job's entry is saved from
+      # its first run and so includes grafana/alloy's multi-GB module graph
+      # AND the build cache of compiling it — the ~95%-of-wall-clock step.
+      # The key rotates when the alloy pin (or our go.sum) changes.
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            deploy/versions.env
+
+      - name: Read Alloy version
+        id: alloy
+        run: |
+          version="$(sed -n 's/^ALLOY_VERSION=\(.*\)/\1/p' deploy/versions.env)"
+          if [ -z "$version" ]; then
+            echo "::error::ALLOY_VERSION not found in deploy/versions.env" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # run.sh honors ALLOY_SRC to reuse an existing checkout, so cache the
+      # grafana/alloy clone keyed on the pinned version instead of cloning
+      # the (large) repo fresh on every scheduled run.
+      - name: Cache grafana/alloy checkout
+        id: alloy-src
+        uses: actions/cache@v4
+        with:
+          path: ~/alloy-src
+          key: alloy-src-${{ steps.alloy.outputs.version }}
+
+      - name: Clone grafana/alloy
+        if: steps.alloy-src.outputs.cache-hit != 'true'
+        run: git clone --depth 1 --branch "${{ steps.alloy.outputs.version }}" https://github.com/grafana/alloy.git ~/alloy-src
+
+      - name: make schema-verify
+        # GOGC=50 trades CPU for peak memory during the alloy packages load.
+        env:
+          GOGC: "50"
+        run: ALLOY_SRC="$HOME/alloy-src" make schema-verify

@@ -26,7 +26,7 @@ import (
 // unimplemented-stub behavior with — this suite exercises the now-migrated
 // AdminService/MeService methods themselves: a happy path, an authz denial,
 // and an error-code mapping case per service, per
-// docs/api-contract-design.md's testing rules. mgmtapi_test.go covers the
+// docs/archive/api-contract-design.md's testing rules. mgmtapi_test.go covers the
 // REST shim paths (the compatibility oracle) and is unchanged by this
 // migration.
 var _ = Describe("shepherd.mgmt.v1 AdminService and MeService RPC", Label("integration"), func() {

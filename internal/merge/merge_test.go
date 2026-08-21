@@ -163,22 +163,3 @@ var _ = Describe("assembly errors on duplicate sanitized names", func() {
 		Expect(err.Error()).To(ContainSubstring("collision"))
 	})
 })
-
-var _ = Describe("failed recompute keeps previous cache entry", func() {
-	// This test verifies that when Assemble returns an error (e.g. name collision),
-	// the caller should NOT update the serve cache. The merge engine itself returns
-	// an error; the serve-cache write must be guarded by the caller checking this error.
-	It("Assemble returns error on collision so cache write can be skipped", func() {
-		cl := merge.CollectorLabels{
-			CollectorID: "coll-1",
-			Labels:      map[string]string{"cluster": "test", "role": "metrics"},
-		}
-		pipelines := []merge.Pipeline{
-			{Name: "x-y", Contents: "// a", Matchers: []string{`cluster="test"`}, Source: "ui"},
-			{Name: "x_y", Contents: "// b", Matchers: []string{`cluster="test"`}, Source: "ui"},
-		}
-		_, err := merge.Assemble("coll-1", "test/metrics", cl, pipelines, "dev", "2024-01-01T00:00:00Z")
-		// Caller must NOT update cache when err != nil — this is the contract.
-		Expect(err).To(HaveOccurred(), "caller must guard cache write on error")
-	})
-})

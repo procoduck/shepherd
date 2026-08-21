@@ -206,7 +206,7 @@ func writeProtoJSONOmit(w http.ResponseWriter, status int, msg proto.Message, ke
 
 // ConnectCodeStatus maps a connect.Code to the HTTP status the legacy REST
 // API has always returned for the equivalent failure
-// (docs/api-contract-design.md, "Contract modeling rules" > Errors).
+// (docs/archive/api-contract-design.md, "Contract modeling rules" > Errors).
 func ConnectCodeStatus(code connect.Code) int {
 	switch code {
 	case connect.CodeInvalidArgument:

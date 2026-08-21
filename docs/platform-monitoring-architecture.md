@@ -1,5 +1,7 @@
 # Platform observability architecture — Grafana/Alloy discovery
 
+> Point-in-time notes from 2026-08-18; re-verify against the platform repo before relying on specifics.
+
 Sourced from: `<internal platform repository>`
 Date: 2026-08-18
 

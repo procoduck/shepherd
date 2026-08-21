@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-// Regression guard for docs/visual-builder-refinement.md B1: the visual
+// Regression guard for docs/archive/visual-builder-refinement.md B1: the visual
 // builder used Tailwind utility classes (bg-card, bg-background, bg-accent,
 // text-muted-foreground, ...) that no @theme defined, so they compiled to
 // zero CSS. This test locks in the token layer and makes sure nobody

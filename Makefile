@@ -1,4 +1,10 @@
-.PHONY: build build-web build-all test test-integration e2e e2e-sim e2e-egress smoke test-ui check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker lint fmt generate gen-alloy-version generate-corpus schema schema-verify helm-lint release-snapshot docker-build docker-build-local docker-build-init docker-build-simulator migrate dev dev-sim dev-frontend dev-restart dev-seed dev-reset test-fullstack
+.PHONY: preflight-docker help build build-web build-all test e2e e2e-k8s e2e-k8s-clean e2e-sim e2e-egress smoke test-ui check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks lint fmt generate gen-alloy-version generate-corpus schema schema-verify helm-lint release-snapshot docker-build docker-build-local docker-build-init docker-build-simulator dev dev-sim dev-frontend dev-restart dev-seed dev-reset test-fullstack clean clean-docker tools preflight-ginkgo preflight-k8s
+
+# Several recipes are bash-idiomatic (the smoke here-string, trap chains);
+# /bin/sh is dash on Debian/Ubuntu and rejects them.
+SHELL := /usr/bin/env bash
+
+.DEFAULT_GOAL := help
 
 PNPM ?= pnpm
 
@@ -14,33 +20,90 @@ DOCKER_BUILD_ARGS := \
 	--build-arg DISTROLESS_BASE_IMAGE=$(DISTROLESS_BASE_IMAGE) \
 	--build-arg PNPM_VERSION=$(PNPM_VERSION)
 
-# Build the Go binary (requires web dist to already exist — run build-web first if needed)
-build: build-web
+# Extra flags for the image builds. Empty locally (the daemon's own layer
+# cache does the job); CI sets --cache-from/--cache-to so runs don't rebuild
+# the multi-stage images cold every time (see the buildx-cache steps in
+# .github/workflows).
+DOCKER_CACHE_FLAGS ?=
+
+# Fail fast (<1s) on a missing CLI instead of discovering it after minutes of
+# docker builds or stack boots. $(1) = binary, $(2) = how to get it.
+define preflight
+@command -v $(1) >/dev/null 2>&1 || { echo "ERROR: '$(1)' not found. $(2)"; exit 1; }
+endef
+
+# The e2e compose suites shell out to the ginkgo CLI after building images and
+# booting the stack; check first so the failure costs a second, not minutes,
+# and cannot strand a running stack.
+preflight-ginkgo:
+	$(call preflight,ginkgo,Run 'make tools'.)
+
+# The kind suite shells out to kind, helm, and kubectl (see
+# e2e/k8s/fixtures_test.go); none is go-installable via 'make tools'.
+preflight-k8s:
+	$(call preflight,kind,Install kind (e.g. brew install kind).)
+	$(call preflight,helm,Install helm (e.g. brew install helm).)
+	$(call preflight,kubectl,Install kubectl (e.g. brew install kubectl).)
+
+# schema/schema-verify run the extractor in a linux container (run.sh) so the
+# artifact matches the linux fleet regardless of host OS.
+preflight-docker:
+	$(call preflight,docker,Install Docker Desktop or the docker engine.)
+
+# The '##' after a target is the one-liner `make help` surfaces; the longer
+# design-note comment blocks above targets are the full documentation.
+help: ## List targets and the env knobs the test suites honor
+	@echo "Targets:"
+	@awk 'BEGIN {FS = ":.*## "} /^[A-Za-z0-9_-]+:.*## / {printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@echo ""
+	@echo "Env knobs:"
+	@echo "  E2E_KEEP=1              leave the compose stack running after e2e / e2e-sim / e2e-egress"
+	@echo "  E2E_K8S_KEEP=1          leave the kind cluster up after e2e-k8s"
+	@echo "  E2E_K8S_NODE_IMAGE=...  pin a different Kubernetes version for e2e-k8s"
+	@echo "  E2E_K8S_ARTIFACTS=dir   write per-feature failure logs from e2e-k8s"
+	@echo "  E2E_K8S_ALLOW_STALE_IMAGES=1  skip e2e-k8s's image-freshness hint"
+
+# Versions: ginkgo and the protoc plugins track go.mod so the CLIs always match
+# the libraries; sqlc and buf match .github/workflows/ci.yml's generated-drift
+# job. protoc-gen-es comes from web/node_modules (buf.gen.yaml points there), so
+# `make generate` also needs a `pnpm install` in web/ — scripts/build-web.sh or
+# the web job's install both provide it.
+tools: ## Install the Go-installable CLIs the targets here shell out to
+	go install github.com/onsi/ginkgo/v2/ginkgo@$$(go list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)
+	go install mvdan.cc/gofumpt@v0.11.0
+	go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
+	go install github.com/bufbuild/buf/cmd/buf@v1.72.0
+	go install google.golang.org/protobuf/cmd/protoc-gen-go@$$(go list -m -f '{{.Version}}' google.golang.org/protobuf)
+	go install connectrpc.com/connect/cmd/protoc-gen-connect-go@$$(go list -m -f '{{.Version}}' connectrpc.com/connect)
+
+clean: ## Remove build outputs (bin/, goreleaser dist/)
+	rm -rf bin/ dist/
+
+clean-docker: ## Remove the local shepherd:* / shepherd-simulator:* image tags
+	@imgs=$$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^(shepherd|shepherd-simulator):' || true); \
+	if [ -n "$$imgs" ]; then docker rmi $$imgs; else echo "clean-docker: no shepherd images to remove"; fi
+
+build: build-web ## Build the shepherd binary (embeds the SPA built by build-web)
 	go build -ldflags="-s -w" -o ./bin/shepherd ./cmd/shepherd
 
-# Build the React SPA
-build-web:
+build-web: ## Build the React SPA into internal/spa/dist
 	./scripts/build-web.sh
 
-# Full build: web first, then Go
-build-all: build-web build
+# Alias kept because docs reference it; `build` already depends on build-web.
+build-all: build ## Alias of build
 
-# Run all unit tests (no Docker required)
-test:
+# Requires Docker: internal/testutil spins up real Postgres via testcontainers.
+test: ## Run all Go tests (requires Docker)
 	go test ./...
-
-# Run integration + unit tests (requires Docker for testcontainers)
-test-integration:
-	TESTCONTAINERS_HOST_OVERRIDE=127.0.0.1 go test -tags=integration ./...
 
 # E2E suite (requires Docker Compose; ~10 min)
 # Set E2E_KEEP=1 to leave the stack running after the suite (for debugging).
-e2e: docker-build-local docker-build-init
+e2e: preflight-ginkgo docker-build-local docker-build-init ## Compose e2e suite (~10 min)
 	@# Reset first: a previous failed run leaves volumes behind, and re-seeding then
 	@# dies on the agent token's duplicate primary key before any spec runs.
 	docker compose -f e2e/docker-compose.e2e.yaml down -v
 	docker compose -f e2e/docker-compose.e2e.yaml up -d --build --wait
-	ginkgo --tags=e2e --randomize-all=false --label-filter='!sandbox-sim' ./e2e/...
+	ginkgo --tags=e2e --randomize-all=false --label-filter='!sandbox-sim' ./e2e
 	@if [ "$(E2E_KEEP)" != "1" ]; then \
 		docker compose -f e2e/docker-compose.e2e.yaml down -v; \
 	else \
@@ -66,11 +129,11 @@ e2e: docker-build-local docker-build-init
 # A single --fail-on-empty pass over `sandbox-sim` would NOT give pass 1's
 # guarantee: the run-lifecycle specs alone would keep the filter non-empty
 # while every egress probe had silently vanished.
-e2e-sim: docker-build-local docker-build-init docker-build-simulator
+e2e-sim: preflight-ginkgo docker-build-local docker-build-init docker-build-simulator ## S3 sandbox e2e: containment probes + run lifecycle
 	docker compose -f e2e/docker-compose.e2e.yaml down -v
 	SHEPHERD_SIM_ENABLED=true docker compose -f e2e/docker-compose.e2e.yaml --profile sim up -d --build --wait
-	ginkgo --tags=e2e --randomize-all=false --fail-on-empty --label-filter=sandbox-egress ./e2e/...
-	ginkgo --tags=e2e --randomize-all=false --fail-on-empty --label-filter='sandbox-sim && !sandbox-egress' ./e2e/...
+	ginkgo --tags=e2e --randomize-all=false --fail-on-empty --label-filter=sandbox-egress ./e2e
+	ginkgo --tags=e2e --randomize-all=false --fail-on-empty --label-filter='sandbox-sim && !sandbox-egress' ./e2e
 	@if [ "$(E2E_KEEP)" != "1" ]; then \
 		docker compose -f e2e/docker-compose.e2e.yaml --profile sim down -v; \
 	else \
@@ -100,10 +163,10 @@ e2e-sim: docker-build-local docker-build-init docker-build-simulator
 # accepts and `alloy run` refuses). M13 is fixed — refValue in render.go, red
 # and green transcripts in docs/proofs/sandbox-sim-e2e.md — so CI now runs the
 # whole suite and this target is the narrow local check.
-e2e-egress: docker-build-local docker-build-init docker-build-simulator
+e2e-egress: preflight-ginkgo docker-build-local docker-build-init docker-build-simulator ## Sandbox egress containment probes only (fast local check)
 	docker compose -f e2e/docker-compose.e2e.yaml down -v
 	SHEPHERD_SIM_ENABLED=true docker compose -f e2e/docker-compose.e2e.yaml --profile sim up -d --build --wait
-	ginkgo --tags=e2e --randomize-all=false --fail-on-empty --label-filter=sandbox-egress ./e2e/...
+	ginkgo --tags=e2e --randomize-all=false --fail-on-empty --label-filter=sandbox-egress ./e2e
 	@if [ "$(E2E_KEEP)" != "1" ]; then \
 		docker compose -f e2e/docker-compose.e2e.yaml --profile sim down -v; \
 	else \
@@ -114,13 +177,16 @@ e2e-egress: docker-build-local docker-build-init docker-build-simulator
 # Verifies: image builds, migrate up runs, serve starts and /healthz+/readyz return 200,
 # SIGTERM triggers clean shutdown, invalid SHEPHERD_LOG_LEVEL fails fast.
 # Prerequisite: Docker daemon running (OrbStack / Docker Desktop).
-smoke:
+# Containers are named shepherd-smoke-* and removed up front, so a SIGKILLed
+# run cannot leave anonymous containers squatting on ports 18080/18081.
+smoke: ## Container smoke test (< 60s, Docker only)
+	@docker rm -f shepherd-smoke-pg shepherd-smoke-srv shepherd-smoke-la >/dev/null 2>&1 || true
 	@echo "==> Building production image for smoke test..."
-	docker build $(DOCKER_BUILD_ARGS) -f deploy/Dockerfile -t shepherd:smoke .
+	docker build $(DOCKER_BUILD_ARGS) -f deploy/Dockerfile.local -t shepherd:smoke .
 	@echo "==> Building init image for migrate..."
-	docker build -f deploy/Dockerfile.init -t shepherd:smoke-init .
+	docker build $(DOCKER_BUILD_ARGS) -f deploy/Dockerfile.init -t shepherd:smoke-init .
 	@echo "==> Starting postgres..."
-	@SMOKE_PG=$$(docker run -d \
+	@SMOKE_PG=$$(docker run -d --name shepherd-smoke-pg \
 		-e POSTGRES_DB=shepherd_smoke \
 		-e POSTGRES_USER=shepherd \
 		-e POSTGRES_PASSWORD=shepherd \
@@ -137,7 +203,7 @@ smoke:
 		-e SHEPHERD_SECURITY_ENCRYPTION_KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" \
 		shepherd:smoke-init migrate up && \
 	echo "==> Starting shepherd serve (background)..." && \
-	SMOKE_SRV=$$(docker run -d \
+	SMOKE_SRV=$$(docker run -d --name shepherd-smoke-srv \
 		-e SHEPHERD_DATABASE_URL="$$SMOKE_DB" \
 		-e SHEPHERD_SECURITY_ENCRYPTION_KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" \
 		-e SHEPHERD_LOG_LEVEL=debug \
@@ -175,7 +241,7 @@ smoke:
 		-e SHEPHERD_DATABASE_URL="$$SMOKE_DB" \
 		-e SHEPHERD_SECURITY_ENCRYPTION_KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" \
 		shepherd:smoke-init hash-password --password-stdin <<< "smoke-test-pass") && \
-	SMOKE_LA=$$(docker run -d \
+	SMOKE_LA=$$(docker run -d --name shepherd-smoke-la \
 		-e SHEPHERD_DATABASE_URL="$$SMOKE_DB" \
 		-e SHEPHERD_SECURITY_ENCRYPTION_KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" \
 		-e SHEPHERD_AUTH_LOCAL_ADMIN_ENABLED=true \
@@ -205,17 +271,17 @@ smoke:
 	docker rm -f $$SMOKE_LA >/dev/null && \
 	echo "==> Smoke test PASSED."
 
-# Playwright UI tests (no backend required)
-test-ui:
+test-ui: ## Mocked Playwright visual suite (no backend required)
 	cd web && $(PNPM) exec playwright install --with-deps chromium
 	./scripts/build-web.sh
-	@# Kill any stale vite preview before starting a fresh one (reuseExistingServer=false
-	@# in playwright.config.ts means Playwright will fail if port 4173 is already bound).
-	@pkill -f "vite preview" 2>/dev/null || true
+	@# Kill any stale preview holding the Playwright port (4173, strictPort in
+	@# web/playwright.config.ts) before starting a fresh one — scoped to the port,
+	@# not pkill-by-name, so previews from other repos on this machine survive.
+	@lsof -ti tcp:4173 2>/dev/null | xargs kill 2>/dev/null || true
 	cd web && $(PNPM) exec playwright test
 
 # Guard: exactly one dist directory (internal/spa/dist); no stray copies.
-check-single-dist:
+check-single-dist: ## Guard: exactly one dist directory
 	@count=$$(find . -path ./web/node_modules -prune -o -path ./.git -prune -o -name 'dist' -type d -print | grep -v '^\./$$' | wc -l | tr -d ' '); \
 	if [ "$$count" != "1" ]; then \
 		echo "ERROR: expected 1 dist directory, found $$count:"; \
@@ -231,7 +297,7 @@ check-single-dist:
 # around as untracked/deleted noise. `git add -u && git commit` only stages
 # changes to already-tracked files, so an untracked asset index.html
 # references would ship a dist whose entrypoint 404s on checkout.
-check-dist-consistency:
+check-dist-consistency: ## Guard: index.html's assets exist and are tracked
 	@INDEX=internal/spa/dist/index.html; \
 	if [ ! -f "$$INDEX" ]; then echo "ERROR: $$INDEX missing"; exit 1; fi; \
 	REFS=$$(grep -oE 'assets/[A-Za-z0-9_.-]+' "$$INDEX" | sort -u); \
@@ -249,7 +315,7 @@ check-dist-consistency:
 	echo "check-dist-consistency: OK (index.html's referenced assets exist and are tracked)"
 
 # Guard: no pnpm build commands outside scripts/build-web.sh.
-check-build-script:
+check-build-script: ## Guard: pnpm build/install only in scripts/build-web.sh
 	@if grep -rn "pnpm.*build\|pnpm install" Makefile deploy/ .goreleaser.yaml 2>/dev/null | \
 		grep -v "scripts/build-web.sh\|# dev-exempt\|pnpm exec playwright\|check-build-script\|Makefile:[0-9]*:.*grep -rn"; then \
 		echo "ERROR: pnpm build/install found outside scripts/build-web.sh (see above)"; \
@@ -258,7 +324,7 @@ check-build-script:
 	@echo "check-build-script: OK"
 
 # Guard: raw SQL calls in Go source outside internal/store must carry a RAW-SQL-OK comment.
-check-raw-sql:
+check-raw-sql: ## Guard: raw SQL outside internal/store carries RAW-SQL-OK
 	@UNMARKED=$$(grep -rn --include='*.go' \
 	    -E 'Pool\(\)\.(Exec|Query|QueryRow)\(' \
 	    internal/ \
@@ -279,15 +345,14 @@ check-raw-sql:
 	fi
 	@echo "check-raw-sql: OK"
 
-# Lint
 # Guard 1: no hardcoded FROM (must use ARG variables).
 # Guard 2: every ARG default in the three app Dockerfiles must agree with
 # deploy/versions.env — catches the class of drift where `make` passes the
 # right --build-arg but a stale ARG default (used by anyone building the
 # Dockerfile directly, e.g. `docker build` without our Makefile) silently
 # ships a different image.
-check-docker:
-	@HARDCODED=$$(grep -n '^FROM ' deploy/Dockerfile deploy/Dockerfile.local deploy/Dockerfile.goreleaser deploy/Dockerfile.simulator \
+check-docker: ## Guard: Dockerfile FROMs/ARG defaults agree with versions.env
+	@HARDCODED=$$(grep -n '^FROM ' deploy/Dockerfile.local deploy/Dockerfile.init deploy/Dockerfile.goreleaser deploy/Dockerfile.simulator \
 	    | grep -v 'FROM \$${\|AS '); \
 	if [ -n "$$HARDCODED" ]; then \
 		echo "ERROR: hardcoded FROM found (should use ARG variables):"; \
@@ -295,7 +360,7 @@ check-docker:
 		exit 1; \
 	fi
 	@FAIL=0; \
-	for f in deploy/Dockerfile deploy/Dockerfile.local deploy/Dockerfile.goreleaser deploy/Dockerfile.simulator; do \
+	for f in deploy/Dockerfile.local deploy/Dockerfile.init deploy/Dockerfile.goreleaser deploy/Dockerfile.simulator; do \
 		for var in GO_IMAGE NODE_IMAGE ALLOY_IMAGE DISTROLESS_IMAGE DISTROLESS_BASE_IMAGE PNPM_VERSION; do \
 			default=$$(sed -n "s/^ARG $$var=\(.*\)/\1/p" "$$f"); \
 			if [ -n "$$default" ]; then \
@@ -310,34 +375,52 @@ check-docker:
 	if [ "$$FAIL" != "0" ]; then exit 1; fi
 	@echo "check-docker: OK"
 
-lint: check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker
+# Guard: no route interception in the fullstack Playwright suite. The fullstack
+# layer exists to exercise the REAL server (docs/frontend-testing.md); a
+# page.route() mock quietly turns a fullstack spec back into a mocked one.
+# Comment lines are excluded — the suite's own "never use page.route()" notice
+# must not trip the guard that enforces it.
+check-no-route-mocks: ## Guard: no page.route() in web/tests/fullstack
+	@if grep -rn "page.route(" web/tests/fullstack/ 2>/dev/null | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|\*|/\*)'; then \
+		echo "ERROR: page.route() found in web/tests/fullstack/ — fullstack specs must hit the real server"; \
+		exit 1; \
+	fi
+	@echo "check-no-route-mocks: OK"
+
+lint: check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks ## Repo guards + golangci-lint
+	$(call preflight,golangci-lint,Install golangci-lint v2 (https://golangci-lint.run).)
 	golangci-lint run ./...
 
-# Format Go code (gci via golangci-lint fmt + standalone gofumpt to avoid gci/gofumpt cycle)
-fmt:
+# gci via golangci-lint fmt + standalone gofumpt to avoid gci/gofumpt cycle.
+fmt: ## Format Go code
+	$(call preflight,golangci-lint,Install golangci-lint v2 (https://golangci-lint.run).)
+	$(call preflight,gofumpt,Run 'make tools'.)
 	golangci-lint fmt ./...
 	gofumpt -w $$(find . -name '*.go' ! -path './gen/*' ! -path './internal/store/sqlc/*')
 
-# Codegen
-generate: gen-alloy-version
+generate: gen-alloy-version ## Regenerate buf + sqlc code (and the Alloy version constant)
+	$(call preflight,buf,Run 'make tools'.)
+	$(call preflight,sqlc,Run 'make tools'.)
 	buf generate
 	sqlc generate
 
 # Regenerate internal/version/alloy_gen.go from the single source of truth,
 # deploy/versions.env's ALLOY_VERSION. Hermetic (no network) — safe to run
 # on every `make generate` and `make schema`. Never hand-edit the output.
-gen-alloy-version:
+gen-alloy-version: ## Regenerate internal/version/alloy_gen.go from versions.env
 	@printf '// Code generated by "make gen-alloy-version" from deploy/versions.env. DO NOT EDIT.\n\n// Package version exposes build-time version constants.\npackage version\n\n// AlloySchemaVersion is the pinned Alloy schema version this build serves.\n// Source of truth: ALLOY_VERSION in deploy/versions.env.\nconst AlloySchemaVersion = "alloy-$(ALLOY_VERSION)"\n' > internal/version/alloy_gen.go
 	@echo "gen-alloy-version: wrote internal/version/alloy_gen.go (AlloySchemaVersion = alloy-$(ALLOY_VERSION))"
 
 # Regenerate the Alloy component schema artifact (internal/schema/artifacts/alloy-v<X>.json)
 # by cloning grafana/alloy at the ALLOY_VERSION pinned in deploy/versions.env and reconciling
 # internal/schema/artifacts/overlay.json against the result.
-# Prerequisites: network access (clones grafana/alloy) and git. NOT part of `make build` —
+# Prerequisites: network access (clones grafana/alloy), git, and docker — the
+# extractor runs in a linux container so the artifact matches the linux fleet
+# regardless of host OS. NOT part of `make build` —
 # app builds stay hermetic; this is a deliberate, occasional maintenance step.
 # Bump procedure: edit ALLOY_VERSION in deploy/versions.env -> make schema ->
 # review overlay entries marked "needs_review": true -> commit.
-schema: gen-alloy-version
+schema: gen-alloy-version preflight-docker ## Regenerate the Alloy schema artifact (network + docker; occasional)
 	./tools/alloy-schema-gen/run.sh
 
 # Verify the committed artifact still matches what the pinned Alloy produces, AND
@@ -350,8 +433,10 @@ schema: gen-alloy-version
 # committed artifact with _meta.generated_at deleted from both sides — that
 # timestamp is the only non-deterministic field, so a naive diff would fail 100%
 # of the time. Everything else is byte-reproducible.
-# Prerequisites: network access, git, go, jq. Run on Alloy-bump PRs + weekly cron.
-schema-verify: gen-alloy-version
+# Prerequisites: network access, git, go, jq. CI wiring:
+# .github/workflows/schema-verify.yml runs this weekly, on manual dispatch, and
+# on PRs touching deploy/versions.env.
+schema-verify: gen-alloy-version preflight-docker ## Verify the committed schema artifact matches the pinned Alloy
 	@set -eu; \
 	tmp=$$(mktemp -d); \
 	trap 'rm -rf "$$tmp"' EXIT; \
@@ -381,7 +466,7 @@ schema-verify: gen-alloy-version
 # fixture. Review the diff: a golden that changes without a corresponding
 # renderer or graph change is a regression, not a refresh. Both suites verify
 # the copies are byte-identical to the Go originals, so a partial run is caught.
-generate-corpus:
+generate-corpus: ## Regenerate visual-builder goldens and sync to web fixtures
 	@echo "==> Regenerating goldens from the shipped schema artifact..."
 	GEN_GOLDENS=1 go test ./internal/visual/ -run TestGenGoldens
 	@echo "==> Syncing visual builder corpus..."
@@ -390,41 +475,78 @@ generate-corpus:
 	@cp internal/visual/testdata/corpus/*.golden.alloy web/src/visual/__fixtures__/corpus/
 	@echo "==> Done. $(shell ls internal/visual/testdata/corpus/*.graph.json | wc -l | tr -d ' ') corpus entries synced."
 
-# Helm lint
-helm-lint:
+# Kubernetes e2e suite (kind). Creates its own cluster, installs Calico,
+# runs the specs, and destroys the cluster — including on failure and panic.
+#
+# The suite opens with a negative control that PROVES the CNI enforces
+# NetworkPolicy before any containment assertion is trusted. If the CNI does
+# not enforce, every spec fails loudly rather than passing for the wrong
+# reason. See docs/kind-test-environment-plan.md.
+#
+#   E2E_K8S_KEEP=1        leave the cluster up for debugging
+#   E2E_K8S_NODE_IMAGE=   pin a different Kubernetes version
+#   E2E_K8S_ARTIFACTS=dir export cluster logs on failure
+#
+# -count=1 defeats the test cache: a cached PASS from a previous cluster would
+# be worthless here, since the whole point is what a live cluster does.
+# Prerequisites match every other e2e target (e2e, e2e-sim, e2e-egress,
+# test-fullstack): the images the cluster loads must be built from THIS working
+# tree, not whatever the daemon happens to be holding. The suite also checks
+# this itself, for anyone running `go test -tags e2ek8s` directly.
+e2e-k8s: preflight-k8s docker-build-local docker-build-simulator ## Kubernetes e2e suite on a fresh kind cluster (~3-5 min; 45m timeout budget)
+	go test -tags e2ek8s -count=1 -timeout 45m -v ./e2e/k8s/...
+
+# Removes clusters a killed run (SIGKILL) left behind — the one case the
+# suite's own teardown cannot cover.
+e2e-k8s-clean: ## Delete kind clusters a SIGKILLed e2e-k8s run left behind
+	@for c in $$(kind get clusters 2>/dev/null | grep '^shepherd-e2e-' || true); do \
+		echo "deleting leftover cluster $$c"; kind delete cluster --name "$$c"; \
+	done; echo "e2e-k8s-clean: done"
+
+helm-lint: ## Lint + template the Helm chart against both ci value files
+	$(call preflight,helm,Install helm (e.g. brew install helm).)
 	helm lint deploy/helm/shepherd
 	helm template shepherd deploy/helm/shepherd -f deploy/helm/shepherd/ci/default-values.yaml > /dev/null
 	helm template shepherd deploy/helm/shepherd -f deploy/helm/shepherd/ci/full-values.yaml > /dev/null
 
-# GoReleaser dry run
 # Local defaults for the docker image templates; CI overrides both.
 IMAGE_REGISTRY ?= ghcr.io/procoduck
 SOURCE_URL ?= https://github.com/procoduck/sheperd
-release-snapshot:
+release-snapshot: ## GoReleaser dry run
 	IMAGE_REGISTRY=$(IMAGE_REGISTRY) SOURCE_URL=$(SOURCE_URL) goreleaser release --snapshot --clean --skip=publish
 
-# Build Docker image locally (for e2e and dev; use docker-build-init for the init/CLI image).
-docker-build: build-web
-	docker build $(DOCKER_BUILD_ARGS) -f deploy/Dockerfile -t shepherd:local .
+# Build the app image for e2e and dev stacks (use docker-build-init for the
+# init/CLI image). Native platform — CI's amd64 runners and local arm64
+# machines both build what they run. --load so the image reaches the daemon
+# even under a docker-container buildx builder; without it buildx exits 0 with
+# the image only in the build cache and compose/kind silently reuse the
+# previous shepherd:local. No build-web prerequisite: the Dockerfile rebuilds
+# the SPA in-stage and overwrites whatever the host tree holds, so a host
+# build would be discarded (and would dirty the tracked internal/spa/dist).
+docker-build-local: ## Build shepherd:local from deploy/Dockerfile.local
+	docker buildx build --load $(DOCKER_BUILD_ARGS) $(DOCKER_CACHE_FLAGS) -f deploy/Dockerfile.local -t shepherd:local .
 
-docker-build-local: build-web
-	docker buildx build --platform linux/arm64 $(DOCKER_BUILD_ARGS) -f deploy/Dockerfile.local -t shepherd:local .
+# Deprecated alias. The docker-build/docker-build-local split (two Dockerfiles,
+# same tag, conflicting platforms) is gone; deploy/Dockerfile.local is the one
+# local Dockerfile.
+docker-build: docker-build-local
 
-# Build the init/CLI image (used by dev and smoke stacks for migrate + seed).
-docker-build-init:
-	docker build -f deploy/Dockerfile.init -t shepherd:local-init .
+docker-build-init: ## Build shepherd:local-init (init/CLI image for migrate + seed)
+	docker buildx build --load $(DOCKER_BUILD_ARGS) $(DOCKER_CACHE_FLAGS) -f deploy/Dockerfile.init -t shepherd:local-init .
 
 # Build the S3 sandbox simulator image (VB-1 §6.4). Same DOCKER_BUILD_ARGS as the
 # app image so the sandbox runs the Alloy build pinned in deploy/versions.env —
 # a sandbox on a different Alloy would make S3 results lie about the fleet.
-docker-build-simulator:
-	docker build $(DOCKER_BUILD_ARGS) -f deploy/Dockerfile.simulator -t shepherd-simulator:local .
+docker-build-simulator: ## Build the S3 sandbox simulator image
+	docker buildx build --load $(DOCKER_BUILD_ARGS) $(DOCKER_CACHE_FLAGS) -f deploy/Dockerfile.simulator -t shepherd-simulator:local .
 	docker tag shepherd-simulator:local shepherd-simulator:dev
 
-# Start the local dev stack (postgres, shepherd, mockmsft).
-# Images must be pre-built: make docker-build docker-build-init
-# Use --profile alloy for Alloy agent; --profile oidc for OIDC login.
-dev:
+# Start the local dev stack (postgres, shepherd, mockmsft, gitea, and the three
+# Alloy agents — those start by default; only oidc and sim are profile-gated).
+# The image prerequisites rebuild shepherd:local and shepherd:local-init from
+# this tree; compose's --build cannot, because those services reference an
+# image with no build section.
+dev: docker-build-local docker-build-init ## Start the local dev stack (login admin/admin at :8080)
 	docker compose -f dev/docker-compose.dev.yaml up -d --build --wait
 	@echo ""
 	@echo "=========================================================="
@@ -435,38 +557,30 @@ dev:
 	@echo "  Reset:    make dev-reset && make dev"
 	@echo "=========================================================="
 
-# Start the Vite dev server (HMR) against the running dev backend.
 # Requires: make dev (backend must be healthy at localhost:8080).
-dev-frontend:
+dev-frontend: ## Start the Vite dev server (HMR) against the running dev backend
 	@curl -sf http://localhost:8080/healthz > /dev/null || (echo "ERROR: shepherd is not running. Run 'make dev' first."; exit 1)
 	cd web && $(PNPM) dev
 
-# Rebuild the shepherd image and restart the container (5-10s with layer cache).
-dev-restart: build-web
+dev-restart: build-web ## Rebuild the shepherd image and restart its container (5-10s with layer cache)
 	docker compose -f dev/docker-compose.dev.yaml build shepherd
 	docker compose -f dev/docker-compose.dev.yaml up -d shepherd
 
-# Re-run the dev seed (idempotent — safe to run on a running stack).
-dev-seed:
+dev-seed: ## Re-run the dev seed (idempotent — safe on a running stack)
 	docker compose -f dev/docker-compose.dev.yaml run --rm shepherd-seed
 
-# Stop the dev stack and wipe all data (named volumes).
-dev-reset:
+dev-reset: ## Stop the dev stack and wipe all data (named volumes)
 	docker compose -f dev/docker-compose.dev.yaml down -v
-
-# Start the dev stack with 3 Alloy instances (prod-eu-1/metrics, prod-eu-1/logs, staging-eu-1/metrics).
-dev-alloy3:
-	docker compose -f dev/docker-compose.dev.yaml --profile alloy3 up -d alloy-metrics alloy-logs alloy-staging
 
 # Start the dev stack with the S3 sandbox simulator (VB-1 §6.4).
 # Without SHEPHERD_SIM_ENABLED the shepherd container comes up with the feature
 # off, which is what every ordinary `make dev` exercises.
-dev-sim: docker-build-simulator
+dev-sim: docker-build-simulator ## Start the dev stack with the S3 sandbox simulator
 	SHEPHERD_SIM_ENABLED=true docker compose -f dev/docker-compose.dev.yaml --profile sim up -d --build --wait
 
 # Run the fullstack Playwright suite against the dev stack.
 # Boots the dev stack, runs tests, captures logs on failure, tears down.
-test-fullstack: docker-build-local docker-build-init
+test-fullstack: docker-build-local docker-build-init ## Playwright fullstack suite against the dev stack
 	cd web && $(PNPM) exec playwright install --with-deps chromium
 	@# Reset first: leftover volumes from a previous run re-seed onto existing rows
 	@# and the stack dies before any spec runs (same trap as make e2e).

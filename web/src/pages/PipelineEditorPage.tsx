@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { clients, toApiError } from '@/api/transport';
 import { AlloyEditor } from '@/editor/AlloyEditor';
 import type { Diagnostic } from '@/gen/shepherd/mgmt/v1/common_pb';
-import { useOrgId } from '@/hooks/useOrg';
+import { useCanWrite, useOrgId } from '@/hooks/useOrg';
 
 export function PipelineEditorPage() {
   const { id } = useParams({ strict: false }) as { id?: string };
@@ -15,6 +15,7 @@ export function PipelineEditorPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const orgId = useOrgId();
+  const canWrite = useCanWrite();
 
   const [name, setName] = useState('');
   const [contents, setContents] = useState('');
@@ -67,9 +68,12 @@ export function PipelineEditorPage() {
   );
 
   useEffect(() => {
+    // Readers never validate: the server gates ValidatePipeline at org admin
+    // (internal/mgmtapi/rpc_interceptor.go), so the call could only fail.
+    if (!canWrite) return;
     const t = setTimeout(() => validate(contents), 800);
     return () => clearTimeout(t);
-  }, [contents, validate]);
+  }, [contents, validate, canWrite]);
 
   const saveMutation = useMutation({
     mutationFn: () => {
@@ -90,6 +94,9 @@ export function PipelineEditorPage() {
   });
 
   const hasErrors = diagnostics.length > 0;
+  // Read-only for org readers (server rejects their writes — see useCanWrite)
+  // and for git-managed pipelines (git is the source of truth).
+  const readOnly = !canWrite || pipeline?.source === 'git';
 
   return (
     <div className='flex h-[calc(100vh-7rem)] gap-0'>
@@ -100,7 +107,7 @@ export function PipelineEditorPage() {
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            disabled={pipeline?.source === 'git'}
+            disabled={readOnly}
             className='w-full rounded-md border border-border-strong bg-card px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500'
             placeholder='my-pipeline'
           />
@@ -113,7 +120,7 @@ export function PipelineEditorPage() {
               <span className='flex-1 font-mono text-xs bg-border px-2 py-1 rounded'>{m}</span>
               <button
                 onClick={() => setMatchers((ms) => ms.filter((_, j) => j !== i))}
-                disabled={pipeline?.source === 'git'}
+                disabled={readOnly}
                 className='text-muted-2 hover:text-red-400 text-xs'
               >
                 ×
@@ -132,7 +139,7 @@ export function PipelineEditorPage() {
               }}
               className='flex-1 font-mono text-xs rounded border border-border-strong bg-card px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500'
               placeholder='cluster="prod"  (Enter to add)'
-              disabled={pipeline?.source === 'git'}
+              disabled={readOnly}
             />
           </div>
         </div>
@@ -201,20 +208,24 @@ export function PipelineEditorPage() {
         {/* Toolbar */}
         <div className='h-11 border-b border-border px-3 flex items-center justify-between shrink-0'>
           <div className='flex items-center gap-2 text-xs' aria-live='polite'>
-            {validating ? (
-              <span className='text-muted'>Validating…</span>
-            ) : hasErrors ? (
-              <span className='flex items-center gap-1 text-red-400'>
-                <XCircle size={14} /> {diagnostics.length} problem
-                {diagnostics.length > 1 ? 's' : ''}
-              </span>
-            ) : (
-              <span className='flex items-center gap-1 text-emerald-500'>
-                <CheckCircle2 size={14} /> No problems
-              </span>
-            )}
+            {/* Readers get no indicator at all: their content is never
+                validated (see the effect above), so "No problems" would be
+                a claim nothing checked. */}
+            {canWrite &&
+              (validating ? (
+                <span className='text-muted'>Validating…</span>
+              ) : hasErrors ? (
+                <span className='flex items-center gap-1 text-red-400'>
+                  <XCircle size={14} /> {diagnostics.length} problem
+                  {diagnostics.length > 1 ? 's' : ''}
+                </span>
+              ) : (
+                <span className='flex items-center gap-1 text-emerald-500'>
+                  <CheckCircle2 size={14} /> No problems
+                </span>
+              ))}
           </div>
-          {pipeline?.source !== 'git' && (
+          {!readOnly && (
             <button
               onClick={() => saveMutation.mutate()}
               disabled={saveMutation.isPending || hasErrors}
@@ -230,7 +241,7 @@ export function PipelineEditorPage() {
           <AlloyEditor
             value={contents}
             onChange={setContents}
-            readOnly={pipeline?.source === 'git'}
+            readOnly={readOnly}
             diagnostics={diagnostics}
             height='100%'
           />

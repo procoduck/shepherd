@@ -362,9 +362,9 @@ func RequireOrgAccess(st *store.Store, orgIDParam, minRole string) func(http.Han
 			// Parse org ID from URL param.
 			orgIDStr := r.PathValue(orgIDParam)
 			if orgIDStr == "" {
-				// chi router uses URLParam; try extracting directly.
-				// In practice chi is used so we use chi.URLParam in handler — here we grab from context.
-				// For now fall through; full chi integration handled in server wiring.
+				// ?org= fallback for handlers registered without an {org} path
+				// param. Every production route lives under /orgs/{org} (chi
+				// populates r.PathValue), so this is defensive, not load-bearing.
 				orgIDStr = r.URL.Query().Get("org")
 			}
 

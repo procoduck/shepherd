@@ -45,7 +45,7 @@ var _ mgmtv1connect.PipelineServiceHandler = (*PipelineService)(nil)
 // pipelines.go handler strings exactly so the REST shim's rendered
 // {"error":{"message":...}} stays byte-compatible even though the "code"
 // value now reflects the connect.Code rather than the old ad-hoc string
-// (see shim.go's WriteConnectError / docs/api-contract-design.md's Errors
+// (see shim.go's WriteConnectError / docs/archive/api-contract-design.md's Errors
 // mapping table).
 var (
 	errOrgIDInvalid         = errors.New("invalid org id")
@@ -516,7 +516,7 @@ func (s *PipelineService) DisablePipeline(ctx context.Context, req *connect.Requ
 // ValidatePipeline validates pipeline contents against the schema registry.
 // It never returns a connect error for invalid content: valid=false and its
 // diagnostics ride on a normal (connect-success) response, matching
-// docs/api-contract-design.md's "validate endpoints return 200 + diagnostics
+// docs/archive/api-contract-design.md's "validate endpoints return 200 + diagnostics
 // today — keep that shape". The REST shim (pipelines.go) maps valid=false to
 // HTTP 422 to preserve the legacy status code.
 func (s *PipelineService) ValidatePipeline(ctx context.Context, req *connect.Request[mgmtv1.ValidatePipelineRequest]) (*connect.Response[mgmtv1.ValidatePipelineResponse], error) {

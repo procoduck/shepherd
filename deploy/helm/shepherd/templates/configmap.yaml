@@ -4,6 +4,10 @@ metadata:
   name: {{ include "shepherd.fullname" . }}
   labels:
     {{- include "shepherd.labels" . | nindent 4 }}
+  {{- if .Values.migrations.job.enabled }}
+  annotations:
+    {{- include "shepherd.migrateHookDeps" . | nindent 4 }}
+  {{- end }}
 data:
   shepherd.yaml: |
     {{- toYaml .Values.config | nindent 4 }}

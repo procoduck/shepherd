@@ -56,33 +56,32 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Read pnpm version from package.json
-        id: pnpm-version
-        run: |
-          version="$(jq -r '.packageManager' web/package.json | sed -E 's/^pnpm@//')"
-          if [ -z "$version" ] || [ "$version" = "null" ]; then
-            echo "::error::could not read packageManager from web/package.json" >&2
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: ${{ steps.pnpm-version.outputs.version }}
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-
       - name: Install ginkgo CLI
-        run: go install github.com/onsi/ginkgo/v2/ginkgo@$(go list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)
+        run: go install "github.com/onsi/ginkgo/v2/ginkgo@$(go list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)"
+
+      - name: Set up Docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: buildx-${{ runner.os }}-${{ hashFiles('go.sum', 'web/pnpm-lock.yaml', 'deploy/versions.env', 'deploy/Dockerfile.local', 'deploy/Dockerfile.init', 'deploy/Dockerfile.simulator') }}
+          restore-keys: |
+            buildx-${{ runner.os }}-
 
       - name: make e2e
+        env:
+          DOCKER_CACHE_FLAGS: --cache-from type=local,src=/tmp/.buildx-cache --cache-to type=local,dest=/tmp/.buildx-cache-new,mode=max
         run: make e2e
+
+      - name: Rotate Docker layer cache
+        if: always()
+        run: |
+          if [ -d /tmp/.buildx-cache-new ]; then
+            rm -rf /tmp/.buildx-cache
+            mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+          fi
 
       - name: Compose logs on failure
         if: failure()
@@ -130,7 +129,18 @@ jobs:
           cache: true
 
       - name: Install ginkgo CLI
-        run: go install github.com/onsi/ginkgo/v2/ginkgo@$(go list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)
+        run: go install "github.com/onsi/ginkgo/v2/ginkgo@$(go list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)"
+
+      - name: Set up Docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: buildx-${{ runner.os }}-${{ hashFiles('go.sum', 'web/pnpm-lock.yaml', 'deploy/versions.env', 'deploy/Dockerfile.local', 'deploy/Dockerfile.init', 'deploy/Dockerfile.simulator') }}
+          restore-keys: |
+            buildx-${{ runner.os }}-
 
       # `make e2e-sim`, whose first ginkgo pass is exactly the egress-probe
       # filter with --fail-on-empty (this job's whole reason to exist) and
@@ -141,7 +151,17 @@ jobs:
       # sandbox DELIVERS — a run that reaches completed with captured series —
       # not only that it contains.
       - name: make e2e-sim
+        env:
+          DOCKER_CACHE_FLAGS: --cache-from type=local,src=/tmp/.buildx-cache --cache-to type=local,dest=/tmp/.buildx-cache-new,mode=max
         run: make e2e-sim
+
+      - name: Rotate Docker layer cache
+        if: always()
+        run: |
+          if [ -d /tmp/.buildx-cache-new ]; then
+            rm -rf /tmp/.buildx-cache
+            mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+          fi
 
       - name: Compose logs on failure
         if: failure()

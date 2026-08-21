@@ -6,9 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
-	"sync"
-	"time"
 
 	"golang.org/x/oauth2/clientcredentials"
 )
@@ -23,13 +20,6 @@ type Group struct {
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
-	cacheMu    sync.Mutex
-	cache      map[string]cacheEntry
-}
-
-type cacheEntry struct {
-	groups []Group
-	expiry time.Time
 }
 
 // New creates a Graph client using client credentials (app mode).
@@ -48,7 +38,6 @@ func New(ctx context.Context, tenantID, clientID, clientSecret, baseURL string) 
 	return &Client{
 		baseURL:    baseURL,
 		httpClient: cc.Client(ctx),
-		cache:      make(map[string]cacheEntry),
 	}
 }
 
@@ -94,46 +83,4 @@ func TransitiveMemberOf(ctx context.Context, baseURL, accessToken string) ([]str
 		nextURL = gr.NextLink
 	}
 	return ids, nil
-}
-
-// SearchGroups searches groups by display name prefix (app-mode, cached 5 min).
-func (c *Client) SearchGroups(ctx context.Context, q string) ([]Group, error) {
-	c.cacheMu.Lock()
-	if e, ok := c.cache[q]; ok && time.Now().Before(e.expiry) {
-		c.cacheMu.Unlock()
-		return e.groups, nil
-	}
-	c.cacheMu.Unlock()
-
-	endpoint := c.baseURL + "/v1.0/groups?$select=id,displayName&$top=20&$filter=" +
-		url.QueryEscape(fmt.Sprintf("startswith(displayName,'%s')", q))
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("graph search groups: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck // close error on a read-only response body is not actionable
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("graph search groups: status %d", resp.StatusCode)
-	}
-
-	var gr struct {
-		Value []Group `json:"value"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&gr); err != nil {
-		return nil, fmt.Errorf("graph search groups: decoding: %w", err)
-	}
-
-	c.cacheMu.Lock()
-	c.cache[q] = cacheEntry{groups: gr.Value, expiry: time.Now().Add(5 * time.Minute)}
-	c.cacheMu.Unlock()
-
-	return gr.Value, nil
 }

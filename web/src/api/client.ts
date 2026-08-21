@@ -1,7 +1,7 @@
 // Thin bridge between the visual builder's internal (snake_case) domain
 // model — web/src/visual/types.ts, shared with the untouched /api/schema/*
 // payload — and the generated shepherd.mgmt.v1 Connect clients (camelCase,
-// web/src/gen/**). Per docs/api-contract-design.md, CRUD resources migrated
+// web/src/gen/**). Per docs/archive/api-contract-design.md, CRUD resources migrated
 // fully onto generated types (pages import them directly from '@/gen/...');
 // what remains here is the conversion boundary for the visual/simulate
 // surface, whose consumers (web/src/visual/**) speak the wire-shaped
