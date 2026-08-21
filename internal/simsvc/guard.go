@@ -135,10 +135,39 @@ func (v *endpointVisitor) Visit(node ast.Node) ast.Visitor {
 	case *ast.CallExpr:
 		// sys.env("EXFIL_URL") is a CallExpr, and finding H6 proved the old
 		// visitor simply ignored it: it looked only at LiteralExpr, so an
-		// endpoint the config COMPUTES was never examined at all. A transformed
-		// config contains no calls — rule K keeps literals only — so refusing
-		// them outright costs nothing and removes the whole channel rather than
-		// blocklisting sys.env by name.
+		// endpoint the config COMPUTES was never examined at all. Refusing
+		// calls outright removes the whole channel rather than blocklisting
+		// sys.env by name.
+		//
+		// "A transformed config contains no calls" was true when that reasoning
+		// was written and is false now: B-CONCAT. render.go's refValue (the
+		// targets-port branch, render.go:412-420) emits
+		// `array.concat(ref1, ref2, ...)` whenever more than one discovery
+		// source fans into one prometheus.scrape (or other targets-typed)
+		// input, and the M13 fix made that the ONLY correct rendering — a
+		// `[a, b]` list literal there is config Alloy v1.18.1 refuses to run
+		// (list-of-lists). So a fan-in graph is exactly the shape rule K now
+		// produces, not an anomaly, and refusing every call made it
+		// unsandboxable.
+		//
+		// The carve-out stays narrow on purpose: it is transparent (recurses
+		// into nothing, flags nothing) only for the literal callee
+		// `array.concat`, and only when EVERY argument is a pure component
+		// reference — an identifier or dotted access chain with no literal,
+		// no nested call, no binary expression anywhere in it. That is
+		// exactly and only what render.go's reference() (render.go:804)
+		// writes for a wire: `component.label.port`, never anything else. A
+		// reference names no host — hosts arrive as string literals, which
+		// the LiteralExpr case below still checks against the allowlist — so
+		// letting pure-reference array.concat through adds no channel; it
+		// only stops refusing the one shape the renderer legitimately emits.
+		// Anything that does not match — a different callee, a literal or
+		// computed argument, a nested call — still falls through to the
+		// default below and is refused: when in doubt about an argument's
+		// shape, this stays fail-closed.
+		if isTransparentArrayConcat(n) {
+			return nil
+		}
 		v.computed[callName(n)] = struct{}{}
 		return nil
 	case *ast.BinaryExpr:
@@ -163,6 +192,57 @@ func (v *endpointVisitor) Visit(node ast.Node) ast.Visitor {
 		}
 	}
 	return v
+}
+
+// isTransparentArrayConcat reports whether call is exactly `array.concat(...)`
+// with one or more arguments, every one of which is a pure component
+// reference per isPureComponentRef. See the CallExpr case in Visit for why
+// this, and only this, is safe to let through. "Safe" here means RELATIVE to
+// the pre-existing bare-reference behavior, not absolute: a pure reference's
+// runtime value is exactly as unbounded by this text check as any bare
+// component reference the visitor already passes unflagged — what bounds
+// where either can steer traffic is the network, not this function (see the
+// CheckEndpoints doc's literal-vs-computed contract above).
+func isTransparentArrayConcat(call *ast.CallExpr) bool {
+	access, ok := call.Value.(*ast.AccessExpr)
+	if !ok || access.Name == nil || access.Name.Name != "concat" {
+		return false
+	}
+	ident, ok := access.Value.(*ast.IdentifierExpr)
+	if !ok || ident.Ident == nil || ident.Ident.Name != "array" {
+		return false
+	}
+	if len(call.Args) == 0 {
+		// array.concat() with no arguments names nothing, but it is also not
+		// the fan-in shape this carve-out exists for; refuse rather than
+		// special-case an empty call no renderer emits.
+		return false
+	}
+	for _, arg := range call.Args {
+		if !isPureComponentRef(arg) {
+			return false
+		}
+	}
+	return true
+}
+
+// isPureComponentRef reports whether expr is a component reference chain —
+// an identifier, or a chain of dotted accesses rooted in one — with no
+// literal, call, index, binary, unary or parenthesized expression anywhere
+// inside it. render.go's reference() (render.go:804) is the only producer of
+// these wire values and it never writes anything else:
+// `component.label.port`, dot-joined identifiers, always. Any other shape
+// falls through to false, which is what keeps isTransparentArrayConcat
+// fail-closed.
+func isPureComponentRef(expr ast.Expr) bool {
+	switch n := expr.(type) {
+	case *ast.IdentifierExpr:
+		return true
+	case *ast.AccessExpr:
+		return isPureComponentRef(n.Value)
+	default:
+		return false
+	}
 }
 
 // callName names the function a refused CallExpr invoked, for the message. It

@@ -221,4 +221,163 @@ prometheus.remote_write "cap" {
 		config := `otelcol.exporter.otlp "cap" { client { endpoint = "simulator:4317" } }`
 		Expect(CheckEndpoints(config, []string{"simulator:4317"})).To(Succeed())
 	})
+
+	// B-CONCAT: render.go's refValue (render.go:412-420) emits
+	// `array.concat(ref1, ref2, ...)` whenever more than one discovery source
+	// fans into one targets-typed input — the ONLY correct rendering since
+	// M13, because the list-literal alternative is config `alloy run` refuses
+	// (list-of-lists on a []discovery.Target port). Before this carve-out,
+	// CheckEndpoints treated every CallExpr as computed, so this exact,
+	// legitimate shape was refused outright. These pin the narrow exception:
+	// transparent only for `array.concat` whose arguments are ALL pure
+	// component references, fail-closed for everything else.
+	Describe("the array.concat fan-in carve-out (B-CONCAT)", func() {
+		It("accepts array.concat of two pure component references", func() {
+			config := `
+discovery.relabel "first" {
+  targets = [{__address__ = "simulator:9111"}]
+}
+
+discovery.relabel "second" {
+  targets = [{__address__ = "simulator:9111"}]
+}
+
+prometheus.scrape "app" {
+  targets    = array.concat(discovery.relabel.first.output, discovery.relabel.second.output)
+  forward_to = []
+  job_name   = "app"
+}
+`
+			Expect(CheckEndpoints(config, []string{allowed, "simulator"})).To(Succeed())
+		})
+
+		// The rejected-shape cases below pin isPureComponentRef's fail-closed
+		// default for AST forms the carve-out must never admit. A future edit
+		// that widens the reference definition (e.g. allowing IndexExpr to
+		// index into a discovery list) must consciously flip one of these,
+		// not slip through the default branch untested.
+		It("refuses array.concat with an indexed reference argument", func() {
+			config := `
+discovery.relabel "first" {
+  targets = [{__address__ = "simulator:9111"}]
+}
+
+prometheus.scrape "app" {
+  targets    = array.concat(discovery.relabel.first.output[0])
+  forward_to = []
+  job_name   = "app"
+}
+`
+			err := CheckEndpoints(config, []string{allowed, "simulator"})
+			Expect(err).To(MatchError(ErrEndpointNotAllowed))
+		})
+
+		It("refuses array.concat with a parenthesized reference argument", func() {
+			config := `
+discovery.relabel "first" {
+  targets = [{__address__ = "simulator:9111"}]
+}
+
+prometheus.scrape "app" {
+  targets    = array.concat((discovery.relabel.first.output))
+  forward_to = []
+  job_name   = "app"
+}
+`
+			err := CheckEndpoints(config, []string{allowed, "simulator"})
+			Expect(err).To(MatchError(ErrEndpointNotAllowed))
+		})
+
+		It("refuses an empty array.concat()", func() {
+			// Deleting the explicit zero-argument early return would make the
+			// all-arguments loop pass vacuously; this pins that branch.
+			config := `
+prometheus.scrape "app" {
+  targets    = array.concat()
+  forward_to = []
+  job_name   = "app"
+}
+`
+			err := CheckEndpoints(config, []string{allowed})
+			Expect(err).To(MatchError(ErrEndpointNotAllowed))
+		})
+
+		It("refuses array.concat carrying a literal host alongside a reference", func() {
+			config := `
+discovery.relabel "first" {
+  targets = [{__address__ = "simulator:9111"}]
+}
+
+prometheus.scrape "app" {
+  targets    = array.concat("literal-host:9090", discovery.relabel.first.output)
+  forward_to = []
+  job_name   = "app"
+}
+`
+			// A literal argument disqualifies the whole call from the
+			// carve-out, so it is refused as computed — same as any other
+			// call — rather than the literal being separately checked
+			// against the allowlist. Fail-closed: the message need only
+			// prove the call was refused, not which argument tripped it.
+			err := CheckEndpoints(config, []string{allowed, "simulator"})
+			Expect(err).To(MatchError(ErrEndpointNotAllowed))
+			Expect(err.Error()).To(ContainSubstring("computes value(s)"))
+			Expect(err.Error()).To(ContainSubstring("array.concat(...)"))
+		})
+
+		It("refuses array.concat wrapped in another call", func() {
+			config := `
+discovery.relabel "first" {
+  targets = [{__address__ = "simulator:9111"}]
+}
+
+prometheus.scrape "app" {
+  targets    = sneaky(array.concat(discovery.relabel.first.output))
+  forward_to = []
+  job_name   = "app"
+}
+`
+			err := CheckEndpoints(config, []string{allowed, "simulator"})
+			Expect(err).To(MatchError(ErrEndpointNotAllowed))
+			Expect(err.Error()).To(ContainSubstring("computes value(s)"))
+		})
+
+		It("refuses array.concat with a nested call as an argument", func() {
+			config := `
+discovery.relabel "first" {
+  targets = [{__address__ = "simulator:9111"}]
+}
+
+prometheus.scrape "app" {
+  targets    = array.concat(other_call(discovery.relabel.first.output))
+  forward_to = []
+  job_name   = "app"
+}
+`
+			err := CheckEndpoints(config, []string{allowed, "simulator"})
+			Expect(err).To(MatchError(ErrEndpointNotAllowed))
+			Expect(err.Error()).To(ContainSubstring("computes value(s)"))
+		})
+
+		It("refuses a differently-named call over pure references — only array.concat is transparent", func() {
+			config := `
+discovery.relabel "first" {
+  targets = [{__address__ = "simulator:9111"}]
+}
+
+discovery.relabel "second" {
+  targets = [{__address__ = "simulator:9111"}]
+}
+
+prometheus.scrape "app" {
+  targets    = array.merge(discovery.relabel.first.output, discovery.relabel.second.output)
+  forward_to = []
+  job_name   = "app"
+}
+`
+			err := CheckEndpoints(config, []string{allowed, "simulator"})
+			Expect(err).To(MatchError(ErrEndpointNotAllowed))
+			Expect(err.Error()).To(ContainSubstring("computes value(s)"))
+		})
+	})
 })
