@@ -115,6 +115,57 @@ not hand back datasource secrets) if asked, deep links into Explore *which need 
 should exist regardless, and **no dashboard or alert-rule management**. Minimum token scope,
 documented. Shepherd must keep working with no Grafana configured.
 
+### D8 — Both gateway ownership modes are supported; the operator chooses
+
+Shepherd can either **manage its own Gateway** (it creates and owns the `Gateway` object in the
+receiver tier's namespace) or **bind to a Gateway the operator already runs** (Shepherd only
+creates `HTTPRoute`s with a `parentRef` at it). Neither is privileged; the choice is per
+installation.
+
+The renderer needs no branch for this: it emits a `ParentReference` by name and namespace and is
+indifferent to who created the target. What actually differs:
+
+| | Shepherd-managed | Operator-owned |
+|---|---|---|
+| Who creates the `Gateway` | Shepherd | the operator, out of band |
+| Hostname / TLS | Shepherd's config | inherited from the existing Gateway's listeners |
+| RBAC Shepherd needs | create/update on `Gateway` **and** `HTTPRoute` in its namespace | create/update on `HTTPRoute` only, in the Gateway's namespace (or a namespace its `AllowedRoutes` admits) |
+| Failure mode to surface | none extra | the target Gateway may not exist, may not admit routes from this namespace, or may have no listener the route can attach to — all must be reported as clear refusals, not silent non-routing |
+
+The operator-owned mode is the one that needs care: `AllowedRoutes` on the Gateway's listeners
+governs whether our `HTTPRoute` is admitted at all, and a rejected route is exactly the
+"renders but does not route" failure D3 exists to prevent. Attachment must be verified
+(`Accepted=True` on the route's parent status), not assumed.
+
+### D9 — Two route-prefix formats, operator's choice
+
+The prefix is an **identifier, not an authorizer** (§3). Two supported formats, because the
+trade-off is a real product preference and not something to decide for everyone:
+
+| Format | Example URL | Why choose it |
+|---|---|---|
+| **Opaque** | `https://telemetry.example.com/otlp/k7f3n9qp/v1/traces` | discloses nothing — no tenant name in URLs, logs, Referer headers or browser history. For operators who treat their customer list as sensitive |
+| **Slug + suffix** | `https://telemetry.example.com/otlp/acme-a1b2c3/v1/traces` | debuggable *and* unguessable: ops reads `acme-…` in a gateway log and knows whose traffic it is, while the suffix stays unguessable |
+
+Both are rotatable (issue new, run both briefly, revoke old) and both are opaque to the
+renderer, which already takes the segment as a value — so this is a generation policy, not a
+rendering concern. Whichever is chosen, generation must enforce: a bounded charset (no path
+separators, no control characters, no percent-encoding), a length bound, and uniqueness.
+
+**Signed prefixes are explicitly rejected**: Gateway API cannot verify a signature —
+`RequestHeaderModifier` and `URLRewrite` compute nothing — so verification would need the
+receiver or the Experimental-channel `ExternalAuth` filter, which D2 forbids.
+
+**Subdomain-per-tenant** (`https://acme-a1b2c3.telemetry.example.com/v1/traces`) is a documented
+future variant, not built: it removes path rewriting entirely and allows per-tenant certificates,
+but requires wildcard DNS and a wildcard certificate, which an operator-owned gateway may not
+have. The renderer change is small (hostname match instead of path match) if demand appears.
+
+**Compatibility note that shapes W7**: OTLP SDKs append `/v1/traces`, `/v1/metrics`, `/v1/logs`
+to `OTEL_EXPORTER_OTLP_ENDPOINT`, so a client is configured with only the base
+(`https://telemetry.example.com/otlp/<segment>`) and the SDK builds the rest. That holds for both
+formats, which is what makes the onboarding artifact a single environment variable.
+
 ## 3. The model
 
 ```
@@ -177,7 +228,7 @@ gates (§6, §7).
 | **W1** | Signal derivation + role enforcement | — | Derive each pipeline's signal set from the schema's wire types (`prom.metrics`, `loki.logs`, `otel.*`, `pyroscope.profiles`); merge engine refuses a metrics pipeline aimed at a `role=logs` collector. Turns `role` from a label into a contract. |
 | **W2** | Destination templates + tenant bindings | — | One platform-owned endpoint+auth secret; N tenant bindings overriding only `tenant_id`. The `destinations` table already carries `url`/`tenant_id`/`secret_name`/`auth_mode`; this adds inheritance, so teams get a destination without seeing the credential. |
 | **W3** | Gateway API foundation | — | Version+channel pin, CRD detection (D3), `HTTPRoute` renderer, and the kind conformance harness (G3/G4). No product surface yet — this is the substrate. |
-| **W4** | Receiver tier + tenant routes | W1, W3 | Per-tenant receiver Alloy (pipelines with `role=receiver`) for OTLP and Faro, with routes rendered per tenant/app. First infrastructure Shepherd manages directly, in our own cluster. |
+| **W4** | Receiver tier + tenant routes | W1, W3 | Per-tenant receiver Alloy (pipelines with `role=receiver`) for OTLP and Faro, with routes rendered per tenant/app. Supports **both** gateway ownership modes (D8) and **both** prefix formats (D9); operator-owned mode must verify route attachment rather than assume it. First infrastructure Shepherd manages directly, in our own cluster. |
 | **W5** | Beacon + outcome verification | — (W1 makes it more useful) | Ingest endpoint in `agentapi` (D6), baseline pipeline, inventory storage + expiry, and the fleet-health surface it unlocks. **Plus the other half of the same question**: an optional Grafana service-account token so Shepherd can query the destination and confirm data actually arrived. The beacon proves the collector runs what we think; the query proves the data landed — neither is sufficient alone, and building them separately produces two partial answers. |
 | **W6** | Three-way reconciliation | W1, W5 | Reconcile **declared** (attributes) vs **served** (our pipelines' signals) vs **observed** (beacon inventory). Contradictions surface as findings — this is what catches a BYO logs collector actually running `prometheus.scrape`. |
 | **W7** | Onboarding artifacts | W4 | "Connect an app": render endpoint+headers+tenant into Lambda env, Terraform/SAM/CDK, container/k8s env, Faro web snippet, SDK inits. Golden-tested; every emitted endpoint must resolve to a really-rendered route. |
@@ -241,7 +292,7 @@ A workstream is not done when its tests pass; it is done when its gate is signed
 
 | Gate | When | What must be reviewed |
 |---|---|---|
-| **R1** | After W3, before W4 | Route/security model: URL-as-identifier caveat documented and not overstated, rate limits, origin allowlist, what a leaked prefix does and does not grant |
+| **R1** | After W3, before W4 | Route/security model: URL-as-identifier caveat documented and not overstated, rate limits, origin allowlist, what a leaked prefix does and does not grant. **Now also**: which prefix format is the default (D9), and — for operator-owned gateways (D8) — that a route which fails to attach is surfaced as a refusal rather than silent non-routing |
 | **R2** | After W5 ingest lands | Data review of the beacon: exactly what is stored, retention/expiry, proof no config text or secret is retained, ingest abuse surface |
 | **R3** | Before the receiver tier defaults on | Same bar F5 had to clear: containment, blast radius, and a documented off-switch that is itself tested |
 | **R4** | Every session, at the end | No doc claims a control that is not wired. This repo has shipped that failure once (claimed CI gates that ran nowhere); the ledger entry and the code must agree |
@@ -356,11 +407,9 @@ Status values: `proposed` → `in progress` → `gated` (built, awaiting its rev
   remains the way to opt out; passing it with nothing behind it is now an error.
 ## 11. Open decisions
 
-1. **Gateway ownership.** Does Shepherd render routes into a gateway the customer owns
-   (Shepherd needs RBAC for `HTTPRoute` in that namespace), or does it own a gateway
-   outright? Affects W3's permission model and R1.
-2. **Route prefix format.** `/{kind}/{tenant}` with an opaque per-app token, or a signed
-   prefix? Decides rotation mechanics and what a leaked URL grants.
+1. ~~Gateway ownership~~ — **resolved, see D8.**
+2. ~~Route prefix format~~ — **resolved, see D9.** One sub-choice remains: which prefix
+   format is the DEFAULT when an operator expresses no preference (see D9).
 3. **Beacon ingest placement.** Inside `agentapi` (same trust boundary, same credential,
    same interceptor — the current preference) or a separate listener for isolation.
 4. **Receiver-tier tenancy granularity.** One Alloy per tenant, or one shared receiver with
