@@ -46,11 +46,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # cache-dependency-path includes versions.env so this job gets its OWN
+      # cache entry (keyed differently from every other job's plain-go.sum
+      # key, which CI's test job already saved WITHOUT alloy's modules — and
+      # an existing key is never re-saved). This job's entry is saved from
+      # its first run and so includes grafana/alloy's multi-GB module graph
+      # AND the build cache of compiling it — the ~95%-of-wall-clock step.
+      # The key rotates when the alloy pin (or our go.sum) changes.
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: |
+            go.sum
+            deploy/versions.env
 
       - name: Read Alloy version
         id: alloy
