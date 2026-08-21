@@ -82,6 +82,33 @@ diff is the detail.
   file carries per-finding statuses (B-CONTAIN-1/2 above remain the live criticals); root
   AGENTS.md, README, dev-guide seed table and the stale proof scopes refreshed.
 
+What the first live CI runs then caught (same day, same branch — each was invisible while the
+suites never ran):
+
+- **Visual save was broken for any attribute-edited pipeline.** InspectorPanel's `setProp` passed
+  `block_order: undefined` for plain attributes, `updateNode`'s spread planted the key, and the
+  save path's protobuf Struct conversion threw `google.protobuf.Value must have a value` before
+  any request — surfacing only as a transient toast. `updateNode` now drops explicitly-undefined
+  patch values (red-run-proven store test), the save boundary JSON-round-trips `wizard_state`,
+  and the newly reachable spec tail exposed a wrong assertion (it demanded the single-wire
+  list-of-lists `targets = [...]` form Alloy refuses — now pinned to the bare-reference contract
+  render.go documents).
+- **The schema artifact was darwin-flavored.** The extractor executes Alloy's `SetToDefault` via
+  reflection, so the artifact is GOOS-dependent; the committed one (generated on a mac) was
+  missing 28 linux platform defaults the linux fleet actually gets. schema-verify's first
+  completed CI run caught it. run.sh now always runs the extractor in a linux container
+  (GO_IMAGE pin, module cache mounted, docker preflight), the linux artifact is committed, and
+  overlay reconciliation reported zero disposition changes.
+- **Runner-resource + caching fixes.** e2e-k8s and schema-verify free unused runner toolchains
+  (first runs died on ENOSPC / an OOM-killed step); Docker layer, Playwright browser, alloy
+  checkout, and a schema-verify-scoped Go module cache added — schema-verify's cold run is
+  ~26 min (full alloy compile), warm runs restore the build cache.
+- **`make e2e` ginkgo scope.** `./e2e/...` recursed into the tag-excluded `e2e/k8s` package and
+  had broken `make e2e` for everyone since the kind suite landed; now `./e2e`.
+
+All four workflows (CI incl. test-fullstack, E2E, E2E K8s, Schema Verify) are green on this
+branch as of 2026-08-21 — each earned its first-ever green during this pass.
+
 ---
 
 ## 2. Open bugs
