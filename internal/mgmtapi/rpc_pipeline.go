@@ -18,6 +18,7 @@ import (
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
 	"shepherd/internal/merge"
 	"shepherd/internal/schema"
+	"shepherd/internal/signals"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/validate"
@@ -526,10 +527,44 @@ func (s *PipelineService) ValidatePipeline(ctx context.Context, req *connect.Req
 	}
 	wrapped := validate.WrapForValidation(name, req.Msg.GetContents())
 	result := s.validator.Stages12(ctx, wrapped)
-	return connect.NewResponse(&mgmtv1.ValidatePipelineResponse{
+
+	resp := &mgmtv1.ValidatePipelineResponse{
 		Valid:       result.Valid,
 		Diagnostics: diagnosticsToProto(result.Diagnostics),
-	}), nil
+	}
+
+	// Surface derived signals at authoring time (docs/gateway-tier-plan.md
+	// W1 bullet 5): a user should learn "this carries metrics and logs"
+	// here, not discover a role mismatch only when merge assembly quietly
+	// excludes the pipeline later. This does not block the save — matchers
+	// are label-based and which collector(s) this lands on is dynamic; see
+	// PreviewMatches for that, and merge.WithRoleEnforcement for the actual
+	// enforcement point.
+	//
+	// Best-effort: contents that fails to parse as Alloy syntax already has
+	// that failure reported via valid/diagnostics above (signals.Derive
+	// would just fail the same parse), so a Derive error here is not
+	// surfaced as a second, redundant error.
+	if sig, sigErr := signals.Derive(req.Msg.GetContents(), s.schema); sigErr == nil {
+		resp.Signals = signalStrings(sig.Combined)
+		resp.SignalsProven = sig.Proven()
+		for _, u := range sig.Unknown {
+			resp.UnknownComponents = append(resp.UnknownComponents, u.Component)
+		}
+	}
+
+	return connect.NewResponse(resp), nil
+}
+
+// signalStrings renders a signals.Set as strings in signals.All's fixed
+// display order, for a proto repeated-string field.
+func signalStrings(set signals.Set) []string {
+	sorted := set.Sorted()
+	out := make([]string, len(sorted))
+	for i, sig := range sorted {
+		out[i] = string(sig)
+	}
+	return out
 }
 
 // PreviewMatches previews which collectors a pipeline's matchers would select.
@@ -686,10 +721,20 @@ func (s *PipelineService) stage3Check(ctx context.Context, p sqlc.Pipeline, orgI
 		cl.Labels["cluster"] = cluster.Name
 		key := cluster.Name + "/" + c.Role
 
-		result, assembleErr := merge.Assemble(c.ID.String(), key, cl, mergePipelines, "dev", "")
+		result, assembleErr := merge.Assemble(c.ID.String(), key, cl, mergePipelines, "dev", "", merge.WithRoleEnforcement(s.schema))
 		if assembleErr != nil {
 			failures = append(failures, fmt.Sprintf("%s: merge error: %v", key, assembleErr))
 			continue
+		}
+		// A role/signal-mismatched pipeline is excluded from this
+		// collector's dry-run content (fail-safe), not a validation
+		// failure — enforcement, unlike a syntax error, does not block
+		// enable/disable. It is still worth a debug line since stage3Check
+		// is exactly where the org first learns which collector this
+		// candidate would land on.
+		for _, ex := range result.Exclusions {
+			s.logger.Debug("stage3Check: pipeline excluded (role/signal mismatch)",
+				"collector_id", c.ID.String(), "role", c.Role, "pipeline", ex.PipelineName, "reason", ex.Reason)
 		}
 		if !seen[result.Hash] {
 			seen[result.Hash] = true
@@ -814,10 +859,19 @@ func (s *PipelineService) recomputeOrgCaches(ctx context.Context, orgID pgtype.U
 			CollectorID: c.ID.String(),
 			Labels:      map[string]string{"role": c.Role, "cluster": c.ClusterName},
 		}
-		result, assembleErr := merge.Assemble(c.ID.String(), c.ClusterName+"/"+c.Role, cl, mergePipelines, "prod", "")
+		result, assembleErr := merge.Assemble(c.ID.String(), c.ClusterName+"/"+c.Role, cl, mergePipelines, "prod", "", merge.WithRoleEnforcement(s.schema))
 		if assembleErr != nil {
 			s.logger.Warn("recomputeOrgCaches: merge failed", "collector_id", c.ID.String(), "err", assembleErr)
 			continue
+		}
+		for _, ex := range result.Exclusions {
+			// Visible per docs/gateway-tier-plan.md §8 rule 2: a pipeline
+			// excluded for a role/signal mismatch is never silent. The
+			// generated header (result.Content) already names it too; this
+			// log line is what makes it discoverable without opening the
+			// merged config.
+			s.logger.Warn("recomputeOrgCaches: pipeline excluded (role/signal mismatch)",
+				"collector_id", c.ID.String(), "role", c.Role, "pipeline", ex.PipelineName, "reason", ex.Reason)
 		}
 		r1 := validate.Stage1(result.Content)
 		if !r1.Valid {

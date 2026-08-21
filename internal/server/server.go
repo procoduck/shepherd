@@ -168,7 +168,13 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 	})
 
 	// Agent API — Connect RPC over h2c so both HTTP/1.1+JSON and HTTP/2+proto work.
-	svc := agentapi.New(st, v, logger)
+	agentReg, agentSchemaErr := schema.New(schema.Embedded, version.AlloySchemaVersion)
+	if agentSchemaErr != nil {
+		// Degrade the guard, do not take the fleet offline: without a registry
+		// the lazy recompute path serves unenforced (see agentapi.New).
+		logger.Error("schema registry unavailable; agent-path role enforcement disabled", "err", agentSchemaErr)
+	}
+	svc := agentapi.New(st, v, logger, agentReg)
 	authInterceptor := agentapi.NewAuthInterceptor(st)
 	connectPath, connectHandler := collectorv1connect.NewCollectorServiceHandler(
 		svc,

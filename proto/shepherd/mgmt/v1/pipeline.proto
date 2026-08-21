@@ -132,9 +132,27 @@ message ValidatePipelineRequest {
 // ValidatePipelineResponse mirrors internal/validate.Result. The endpoint
 // returns 200 with valid=false + diagnostics on validation failure (not an
 // error code) — "validate endpoints return 200 + diagnostics today".
+//
+// signals/signals_proven/unknown_components (docs/gateway-tier-plan.md W1)
+// surface the pipeline's derived signal set at authoring time, so a mismatch
+// with the collector role(s) this pipeline will eventually match is visible
+// before save, not only when merge assembly excludes it later. Populated on
+// a best-effort basis: absent when contents fails to parse as Alloy syntax
+// (that failure is already reported via valid/diagnostics above).
 message ValidatePipelineResponse {
   bool valid = 1;
   repeated Diagnostic diagnostics = 2;
+  // signals lists the derived signal set ("metrics", "logs", "traces",
+  // "profiles"), in that fixed display order.
+  repeated string signals = 3;
+  // signals_proven is false when signals is a floor, not a proof — contents
+  // has a top-level component the pinned schema does not recognize (see
+  // unknown_components) or an unclassified wire type.
+  bool signals_proven = 4;
+  // unknown_components lists top-level component names contents uses that
+  // the pinned schema artifact has no entry for. Never silently dropped —
+  // signals may be missing signals these could carry.
+  repeated string unknown_components = 5;
 }
 
 message PreviewMatchesRequest {

@@ -1,6 +1,7 @@
 # Gateway tier, beacon, and tenant routing — multi-session implementation plan
 
-> Status: **proposed — no steps implemented.** This document is the execution plan and
+> Status: **in progress — W1 partially landed (derivation + enforcement on both serve paths;
+> see §9 for what remains); W2–W8 proposed.** This document is the execution plan and
 > per-step ledger for the work; `docs/project-status.md` remains the single live status
 > document for the product as a whole and links here. Do not start a second product ledger:
 > step status lives in §9 of this file, product status lives there.
@@ -211,7 +212,7 @@ Status values: `proposed` → `in progress` → `gated` (built, awaiting its rev
 
 | Step | Status | Gates | Notes |
 |---|---|---|---|
-| W1 signal derivation + role enforcement | proposed | G6 | No dependencies — safe first session |
+| W1 signal derivation + role enforcement | **gated** | G6 | `internal/signals` (derivation + role policy table) and `internal/merge`'s `WithRoleEnforcement` are built, and enforcement now runs on **both** serve paths — `internal/mgmtapi`'s write-time paths and `internal/agentapi.Service.recomputeServeCache`, the lazy path `GetConfig` takes when `serve_cache` is dirty. Enforcing only the eager path would have left the dirty-window hole a polling agent could drive straight through. Two review findings fixed in the same session: `Derive` skipped `foreach`/`declare` bodies, so a pipeline whose components all nested inside one derived an empty-but-*proven* signal set and passed enforcement trivially (now recurses; red-run pinned); and `WithRoleEnforcement(nil)` silently disabled the guard it was asked to enable (now a loud `Assemble` error). **Remains for G6**: an integration-level red run that polls `GetConfig` during the dirty window, rather than unit-testing `merge.Assemble` directly — that is what promotes this row to done. |
 | W2 destination templates + tenant bindings | proposed | — | Schema change; migration required |
 | W3 Gateway API foundation | proposed | G1, G2, G3, G4 | Verify conformance table against the pinned release (D2) |
 | W4 receiver tier + tenant routes | proposed | G3, G4 · R1, R3 | |
@@ -222,10 +223,37 @@ Status values: `proposed` → `in progress` → `gated` (built, awaiting its rev
 
 ## 10. What building this taught us
 
-*(Empty by design. Append per session, in the style of
-`docs/kind-test-environment-plan.md` §8a/§8b: what surprised us, what a test could not see,
-what a control failed to control.)*
+### 2026-08-21 — what building W1 taught us
 
+- **A fail-safe classification can be checked against the artifact instead of asserted.**
+  `otel.any` (the generic OTel pipeline-data wire) is genuinely ambiguous — its runtime content
+  depends on what is wired to it, which `internal/signals.Derive` deliberately does not evaluate.
+  The naive fail-safe was "treat it as every signal, including Profiles". Instead of asserting
+  that, the session queried the pinned schema artifact directly and found `pyroscope.profiles` is
+  never produced or accepted by any component that also exposes an `otel.any` port — profiling in
+  this artifact has no OTel-model bridge at all. So `otel.any` classifies as
+  `{Metrics, Logs, Traces}`, not all four, and `TestOtelAnyNeverCarriesProfiles`
+  (`internal/signals/wiretype_test.go`) pins the assumption to the artifact rather than to a
+  model's recollection of it — exactly the discipline plan §8 rule 6 asks for, applied one level
+  down from "which conformance table" to "which wire-type table".
+- **Disjoint territory (plan §8 rule 1) cuts both ways, and W1 showed both edges.** A2's declared
+  territory was `internal/merge/**` and `internal/mgmtapi/**`, so wiring `*schema.Registry` through
+  `internal/agentapi.Service` — a third package — fell outside the session. The result was a control
+  fully built, fully unit-tested and red-run-provable at the `merge.Assemble` level, while the one
+  caller that actually serves config to real collectors (`recomputeServeCache`, reached from
+  `GetConfig`'s recompute-when-dirty path) never asked it the question. **Two paths produce the same
+  served config; enforcing one of them is not enforcement.** The territory rule did its job — nothing
+  collided — but territory boundaries do not follow the blast radius of a control, and the orchestrator
+  has to close that seam explicitly. It was closed in the same session, after review caught it.
+- **A guard that reports "proven" over a set it never looked at is worse than no guard.** `Derive`
+  skipped `foreach` and `declare` bodies, so a pipeline whose components all lived inside one
+  produced an empty signal set that still answered `Proven() == true`. `Enforce` then passed it for
+  every role. The tests were thorough about components they visited and silent about the ones they
+  never reached — a reminder that "the tests pass" says nothing about the inputs the code declines to
+  parse. Container recursion is now pinned by a red-run test.
+- **An opt-in control needs a loud failure mode for "asked for, not configured".**
+  `WithRoleEnforcement(nil)` disabled the guard it was requested to enable. Not passing the option
+  remains the way to opt out; passing it with nothing behind it is now an error.
 ## 11. Open decisions
 
 1. **Gateway ownership.** Does Shepherd render routes into a gateway the customer owns

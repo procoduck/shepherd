@@ -25,9 +25,11 @@ import (
 	"shepherd/internal/agentapi"
 	"shepherd/internal/config"
 	"shepherd/internal/metrics"
+	"shepherd/internal/schema"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/testutil"
+	"shepherd/internal/version"
 )
 
 // sharedPG is a single container shared across all specs in this suite.
@@ -92,7 +94,7 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 		authHeader = "Basic " + creds
 
 		logger := slog.Default()
-		svc := agentapi.New(st, nil, logger)
+		svc := agentapi.New(st, nil, logger, testSchemaRegistry())
 		authInterceptor := agentapi.NewAuthInterceptor(st)
 		path, handler := collectorv1connect.NewCollectorServiceHandler(
 			svc,
@@ -570,3 +572,12 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 		})
 	})
 })
+
+// testSchemaRegistry loads the shipped schema so the agent path under test
+// enforces roles exactly as production does. A nil registry here would make
+// every agentapi test silently exercise the unenforced path.
+func testSchemaRegistry() *schema.Registry {
+	reg, err := schema.New(schema.Embedded, version.AlloySchemaVersion)
+	Expect(err).NotTo(HaveOccurred())
+	return reg
+}
