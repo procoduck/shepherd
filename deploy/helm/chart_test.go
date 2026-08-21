@@ -55,12 +55,27 @@ var _ = Describe("Helm chart: S3 sandbox simulator containment (finding H5)", fu
 	// simulator block comment. A bullet with no assertion below is a claim,
 	// not a control.
 
-	It("is absent from the default render — disabled by default like every other S3 gate", func() {
+	It("is present in the default render WITH its NetworkPolicy — enabled by default since v0.0.1", func() {
+		// Both containment gates are closed (project-status.md F5); shipping
+		// the simulator by default is only acceptable as long as the render
+		// that ships it also ships the default-deny NetworkPolicy — assert
+		// them together so they cannot drift apart.
 		out, err := exec.Command("helm", "template", "shepherd", "shepherd",
 			"-f", "shepherd/ci/default-values.yaml").CombinedOutput()
 		Expect(err).NotTo(HaveOccurred(), "helm template failed:\n%s", out)
+		Expect(string(out)).To(ContainSubstring("Deployment"), "sanity")
+		Expect(string(out)).To(ContainSubstring("shepherd-simulator"),
+			"the simulator must render by default since v0.0.1")
+		Expect(string(out)).To(ContainSubstring("kind: NetworkPolicy"),
+			"a default render that deploys the simulator without its default-deny NetworkPolicy ships an unconfined sandbox")
+	})
+
+	It("renders nothing simulator-related when simulator.enabled is false — the documented off-switch", func() {
+		out, err := exec.Command("helm", "template", "shepherd", "shepherd",
+			"-f", "shepherd/ci/default-values.yaml", "--set", "simulator.enabled=false").CombinedOutput()
+		Expect(err).NotTo(HaveOccurred(), "helm template failed:\n%s", out)
 		Expect(string(out)).NotTo(ContainSubstring("shepherd-simulator"),
-			"the simulator must render nothing at all until simulator.enabled is set")
+			"simulator.enabled=false must render nothing simulator-related, including the config wiring")
 	})
 
 	Describe("with simulator.enabled: true", func() {

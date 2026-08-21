@@ -315,7 +315,13 @@ func execPSQL(t *testing.T, cfg *envconf.Config, db, sql string) {
 func helmRun(t *testing.T, cfg *envconf.Config, f *fixture, verb, release string, extra ...string) {
 	t.Helper()
 	args := []string{
-		"--set image.repository=shepherd", "--set image.tag=local", "--set image.pullPolicy=Never",
+		// registry is cleared because the chart defaults to the released
+		// ghcr.io images while this suite loads bare local tags into kind.
+		"--set image.registry=", "--set image.repository=shepherd", "--set image.tag=local", "--set image.pullPolicy=Never",
+		// The simulator deploys by default since v0.0.1, so every install —
+		// including the pure-defaults one — needs its local image wired.
+		"--set simulator.image.registry=", "--set simulator.image.repository=shepherd-simulator",
+		"--set simulator.image.tag=local", "--set simulator.image.pullPolicy=Never",
 		"--set existingSecret=" + chartSecretName,
 	}
 	args = append(args, extra...)
@@ -328,13 +334,14 @@ func helmRun(t *testing.T, cfg *envconf.Config, f *fixture, verb, release string
 	}
 }
 
-// simulatorOn is the extra flags a feature adds when it needs the sandbox.
+// simulatorOn is the extra flags a feature adds when it depends on the
+// sandbox. Since v0.0.1 the chart enables the simulator by default (its local
+// image overrides live in helmRun's base args), so this pins the flag
+// explicitly — a feature that NEEDS the sandbox must not silently lose it if
+// the default ever flips back — and drops replicas to one for speed.
 func simulatorOn() []string {
 	return []string{
 		"--set simulator.enabled=true",
-		"--set simulator.image.repository=shepherd-simulator",
-		"--set simulator.image.tag=local",
-		"--set simulator.image.pullPolicy=Never",
 		"--set replicas=1",
 	}
 }
