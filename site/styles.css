@@ -471,6 +471,15 @@ h2 {
   gap: 18px;
 }
 
+/* Grid tracks default to min-width: auto, so a wide unbreakable child (a
+   <pre> code line) can force the track — and the whole page — wider than
+   the viewport instead of scrolling inside its own overflow-x. min-width: 0
+   lets the track shrink to the viewport and hand overflow back to the
+   code block, where it belongs. */
+.qs-step > div {
+  min-width: 0;
+}
+
 .qs-num {
   width: 30px;
   height: 30px;
@@ -648,6 +657,12 @@ footer .foot-links a {
   grid-template-columns: 220px 1fr;
   gap: 48px;
   align-items: start;
+}
+
+/* See the comment on .qs-step > div — same grid-blowout fix, needed here
+   because .docs-content holds code blocks too. */
+.docs-layout > * {
+  min-width: 0;
 }
 
 .docs-toc {

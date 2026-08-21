@@ -136,11 +136,11 @@
         <h3>Sandbox simulation</h3>
         <p>
           Run a candidate pipeline against synthetic sources in a network-contained sandbox and
-          inspect the captured series before it ever reaches a collector. Opt-in
-          (<code>simulator.enabled=true</code>) — containment is enforced by NetworkPolicy and
-          proven with in-cluster probes.
+          inspect the captured series before it ever reaches a collector. Enabled by default as
+          of v0.0.1 — a default-deny NetworkPolicy contains it, proven with in-cluster probes;
+          turn it off per-deployment with <code>simulator.enabled=false</code>.
         </p>
-        <span class="tag">disabled by default · opt-in</span>
+        <span class="tag">enabled by default · v0.0.1</span>
       </article>
 
       <article class="feature-card">
@@ -246,8 +246,8 @@
         <!-- sandbox -->
         <rect x="590" y="230" width="150" height="60" rx="8" class="dg-box"/>
         <text x="665" y="256" text-anchor="middle" class="dg-text" font-size="12.5" font-weight="600">Sandbox</text>
-        <text x="665" y="273" text-anchor="middle" class="dg-text-sub" font-size="10.5">opt-in, contained</text>
-        <text x="665" y="286" text-anchor="middle" class="dg-text-sub" font-size="10.5">synthetic sources</text>
+        <text x="665" y="273" text-anchor="middle" class="dg-text-sub" font-size="10.5">on by default (v0.0.1)</text>
+        <text x="665" y="286" text-anchor="middle" class="dg-text-sub" font-size="10.5">network-contained</text>
         <path d="M550 260 H 590" class="dg-line" stroke-dasharray="3 3"/>
 
         <!-- output back to top -->
@@ -278,8 +278,9 @@
           <h3>Install the chart</h3>
           <p>
             Requires a Kubernetes secret with the database URL, encryption key, and OIDC secrets — see
-            <code>deploy/helm/shepherd/values.yaml</code> for the full option list. Sandbox simulation
-            stays off unless you set <code>simulator.enabled=true</code>.
+            <code>deploy/helm/shepherd/values.yaml</code> for the full option list. Sandbox
+            simulation ships enabled by default as of v0.0.1; add
+            <code>--set simulator.enabled=false</code> to turn it off.
           </p>
           <div class="code-block" data-lang="shell">
             <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
@@ -332,7 +333,7 @@ SHEPHERD_DATABASE_URL=postgres://shepherd:shepherd@localhost:5432/shepherd \
 SHEPHERD_SECURITY_ENCRYPTION_KEY=$(openssl rand -base64 32) \
   ./bin/shepherd migrate up && ./bin/shepherd serve</code></pre>
           </div>
-          <p class="note">See <a href="docs/getting-started.html">the full getting-started guide</a> for token creation, the dev stack, and the sandbox opt-in flag.</p>
+          <p class="note">See <a href="docs/getting-started.html">the full getting-started guide</a> for token creation, the dev stack, and the sandbox off-switch.</p>
         </div>
       </div>
     </div>
