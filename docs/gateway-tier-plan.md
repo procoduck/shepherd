@@ -43,21 +43,23 @@ releases.
 
 Shepherd depends on exactly two filter behaviours, at these conformance levels:
 
-| Need | Filter | Level | Used for |
-|---|---|---|---|
-| Tenant identity | `RequestHeaderModifier` | Core | inject `X-Scope-OrgID` downstream so clients never set it |
-| Prefix routing | `URLRewrite` (`ReplacePrefixMatch`) | Extended | `/otlp/{tenant}/v1/traces` → `/v1/traces` at the backend |
+| Need | Filter | Level (v1.4) | In Standard channel? | Used for |
+|---|---|---|---|---|
+| Tenant identity | `RequestHeaderModifier` | **Core** | yes | inject `X-Scope-OrgID` downstream so clients never set it |
+| Prefix routing | `URLRewrite` (`ReplacePrefixMatch`) | **Extended** | yes | `/otlp/{tenant}/v1/traces` → `/v1/traces` at the backend |
+| CORS | `CORS` filter | Extended | **NO at 1.4** | *not used* — see below |
 
-**CORS is handled by Alloy, not the gateway.** `faro.receiver` has `cors_allowed_origins`;
-the Gateway API CORS filter is the newest of the three needs and may be Experimental-channel
-only in the pinned release. Layering: the gateway routes and injects tenant, Alloy answers
-CORS. Promoting CORS to the gateway is a later optimization, never a day-one dependency.
+**CORS is handled by Alloy, not the gateway**, and this is now verified rather than assumed.
+Checked on 2026-08-21 against the released CRDs themselves: v1.4.0's **Standard channel contains
+no CORS filter at all** (it exists only in the Experimental channel), while `URLRewrite` and
+`ReplacePrefixMatch` are both present. CORS reaches the Standard channel in **v1.6.1**. Since the
+floor is the 1.4 line, depending on the gateway's CORS filter would have been a hard dependency on
+an Experimental-channel feature — exactly what D2 forbids. `faro.receiver`'s `cors_allowed_origins`
+answers CORS instead; the gateway routes and injects tenant. Revisit only if the supported floor
+ever rises past 1.6.
 
-> **Implementation note, deliberately unresolved here:** the exact conformance level and
-> channel of `URLRewrite` and the CORS filter **must be read from the pinned version's own
-> conformance tables** at implementation time. They move between releases. Do not take the
-> table above — or any model's recollection — as the source of truth; verify and correct it
-> in the same commit that pins the version.
+Support levels come from `apis/v1/httproute_types.go` at tag `v1.4.0`; channel membership from
+diffing the released `standard-install.yaml` against `experimental-install.yaml`.
 
 ### D3 — Detect the CRD version at runtime and refuse clearly
 
@@ -286,7 +288,7 @@ Status values: `proposed` → `in progress` → `gated` (built, awaiting its rev
 |---|---|---|---|
 | W1 signal derivation + role enforcement | **done** | G6 ✅ | `internal/signals` (derivation + role policy table) and `internal/merge`'s `WithRoleEnforcement`, wired on **both** serve paths — `internal/mgmtapi`'s write-time recompute and `internal/agentapi.Service.recomputeServeCache`, the lazy path `GetConfig` takes when `serve_cache` is dirty. **G6 closed** by an integration test that drives the real dirty-window poll rather than calling `merge.Assemble` directly (`internal/agentapi/service_test.go`), red-run proven: disabling agent-path enforcement fails it with "a metrics pipeline reached a logs-role collector". Three defects found and fixed by review along the way — `Derive` skipping `foreach`/`declare` bodies (empty-but-*proven* signal set, enforcement passing trivially), `WithRoleEnforcement(nil)` silently disabling the guard it was asked to enable, and the agent path being unenforced entirely. |
 | W2 destination templates + tenant bindings | proposed | — | Schema change; migration required |
-| W3 Gateway API foundation | proposed | G1, G2, G3, G4 | Verify conformance table against the pinned release (D2) |
+| W3 Gateway API foundation | **in progress** | G1 ✅, G2 ✅, G3, G4 | Pin + conformance facts **verified against the released CRDs, not recalled** (2026-08-21): at the v1.4 floor the Standard channel carries `URLRewrite`/`ReplacePrefixMatch` but **no CORS filter** — CORS reaches Standard only in v1.6.1, confirming D2's decision to let Alloy answer CORS. `GATEWAY_API_VERSION`/`_CHANNEL` pinned in `deploy/versions.env`; `make check-gateway-pin` (G1) keeps `internal/gateway`'s constants in lockstep, red-run proven. `internal/gateway.CheckSupport` (G2, D3) refuses an old or wrong-channel cluster with an actionable sentence rather than emitting routes a controller ignores; an unstamped CRD is refused rather than assumed modern. **Remains**: the `HTTPRoute` renderer and the kind conformance harness (G3/G4) — installing the pinned CRDs plus a controller and proving a route actually routes. |
 | W4 receiver tier + tenant routes | proposed | G3, G4 · R1, R3 | |
 | W5 beacon ingest + inventory | proposed | G5 · R2 | |
 | W6 three-way reconciliation | proposed | G6 | |

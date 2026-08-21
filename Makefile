@@ -1,4 +1,4 @@
-.PHONY: preflight-docker help build build-web build-all test e2e e2e-k8s e2e-k8s-clean e2e-sim e2e-egress smoke test-ui check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks lint fmt generate gen-alloy-version generate-corpus schema schema-verify helm-lint release-snapshot docker-build docker-build-local docker-build-init docker-build-simulator dev dev-sim dev-frontend dev-restart dev-seed dev-reset test-fullstack clean clean-docker tools preflight-ginkgo preflight-k8s
+.PHONY: check-gateway-pin preflight-docker help build build-web build-all test e2e e2e-k8s e2e-k8s-clean e2e-sim e2e-egress smoke test-ui check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks lint fmt generate gen-alloy-version generate-corpus schema schema-verify helm-lint release-snapshot docker-build docker-build-local docker-build-init docker-build-simulator dev dev-sim dev-frontend dev-restart dev-seed dev-reset test-fullstack clean clean-docker tools preflight-ginkgo preflight-k8s
 
 # Several recipes are bash-idiomatic (the smoke here-string, trap chains);
 # /bin/sh is dash on Debian/Ubuntu and rejects them.
@@ -389,7 +389,29 @@ check-no-route-mocks: ## Guard: no page.route() in web/tests/fullstack
 	fi
 	@echo "check-no-route-mocks: OK"
 
-lint: check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks ## Repo guards + golangci-lint
+# Guard: the Gateway API pin is the floor Shepherd claims to support, so every
+# place that names a version must agree with deploy/versions.env — otherwise the
+# kind suite proves conformance against one version while the code refuses
+# another, and the claim in docs/gateway-tier-plan.md D1 means nothing.
+check-gateway-pin: ## Guard: Gateway API version/channel agree with versions.env
+	@fail=0; \
+	want="$(GATEWAY_API_VERSION)"; wantch="$(GATEWAY_API_CHANNEL)"; \
+	if [ -z "$$want" ] || [ -z "$$wantch" ]; then \
+		echo "ERROR: GATEWAY_API_VERSION/GATEWAY_API_CHANNEL missing from deploy/versions.env"; exit 1; \
+	fi; \
+	minor=$$(echo "$$want" | sed -E 's/^v([0-9]+\.[0-9]+).*/\1/'); \
+	got=$$(sed -n 's/^const MinBundleVersion = "\(.*\)"/\1/p' internal/gateway/version.go); \
+	if [ "$$got" != "$$minor" ]; then \
+		echo "ERROR: internal/gateway.MinBundleVersion is '$$got' but versions.env pins $$want (minor $$minor)"; fail=1; \
+	fi; \
+	gotch=$$(sed -n 's/^const RequiredChannel = "\(.*\)"/\1/p' internal/gateway/version.go); \
+	if [ "$$gotch" != "$$wantch" ]; then \
+		echo "ERROR: internal/gateway.RequiredChannel is '$$gotch' but versions.env pins '$$wantch'"; fail=1; \
+	fi; \
+	[ "$$fail" = "0" ] || exit 1
+	@echo "check-gateway-pin: OK ($(GATEWAY_API_VERSION), $(GATEWAY_API_CHANNEL))"
+
+lint: check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks check-gateway-pin ## Repo guards + golangci-lint
 	$(call preflight,golangci-lint,Install golangci-lint v2 (https://golangci-lint.run).)
 	golangci-lint run ./...
 
