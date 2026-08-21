@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shepherd</title>
+<meta name="description" content="Self-hosted fleet manager for Grafana Alloy — visual pipeline builder, GitOps sync, and a validation gate backed by a real Alloy binary.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="#top">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 2.5 4 6v6c0 5.2 3.4 9.4 8 10.5 4.6-1.1 8-5.3 8-10.5V6l-8-3.5Z" stroke="var(--accent)" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M8.5 12.2 11 14.7l4.8-5" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Shepherd
+    </a>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#quickstart">Quick start</a>
+      <a href="docs/getting-started.html">Docs</a>
+      <a class="btn btn-outline" href="https://github.com/procoduck/sheperd">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="wrap">
+    <span class="eyebrow"><span class="dot"></span> v0.0.1 · self-hosted · single binary</span>
+    <h1>Run a fleet of Grafana Alloy collectors from one place.</h1>
+    <p class="lede">
+      Shepherd is a self-hosted fleet manager for Grafana Alloy. Build pipelines visually or in Git,
+      merge and validate them against a real Alloy binary, and serve them to every collector over
+      Alloy's native <code>remotecfg</code> protocol — before anything reaches production.
+    </p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="#quickstart">Get started</a>
+      <a class="btn btn-outline" href="https://github.com/procoduck/sheperd">View source</a>
+    </div>
+    <div class="hero-facts">
+      <div class="hero-fact">
+        <span class="num">184</span>
+        <span class="label">Alloy components in the palette</span>
+      </div>
+      <div class="hero-fact">
+        <span class="num">3</span>
+        <span class="label">validation stages before serving</span>
+      </div>
+      <div class="hero-fact">
+        <span class="num">PAT · SSH · App</span>
+        <span class="label">Git auth for GitOps sync</span>
+      </div>
+      <div class="hero-fact">
+        <span class="num">amd64/arm64</span>
+        <span class="label">container images, one binary</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section class="features" id="features">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="kicker">// what it does</p>
+      <h2>Everything a fleet manager needs, nothing it doesn't.</h2>
+      <p class="section-sub">
+        Shepherd is a Go backend and React SPA shipped as one binary. It speaks Alloy's agent
+        protocol directly, so collectors need no extra sidecar to be managed centrally.
+      </p>
+    </div>
+
+    <div class="feature-grid">
+      <article class="feature-card">
+        <div class="icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/></svg>
+        </div>
+        <h3>Fleet management over remotecfg</h3>
+        <p>
+          Alloy agents poll Shepherd with their native <code>remotecfg</code> block. Shepherd resolves
+          each collector by <code>(cluster, role)</code>, and unchanged config is skipped over
+          content-hash / not-modified responses — no polling overhead for a quiet fleet.
+        </p>
+        <span class="tag">collector.v1 · Connect RPC</span>
+      </article>
+
+      <article class="feature-card">
+        <div class="icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="7" height="6" rx="1"/><rect x="14" y="4" width="7" height="6" rx="1"/><rect x="8.5" y="14" width="7" height="6" rx="1"/><path d="M6.5 10v2a2 2 0 0 0 2 2h1M17.5 10v2a2 2 0 0 1-2 2h-1"/></svg>
+        </div>
+        <h3>Visual pipeline builder</h3>
+        <p>
+          A schema-driven canvas covering all 184 registered Alloy components. Drag components onto
+          the canvas, wire them by typed ports, and undo/redo freely — the graph compiles to
+          deterministic Alloy config through the same gate as everything else.
+        </p>
+        <span class="tag">drag-to-wire · undo/redo</span>
+      </article>
+
+      <article class="feature-card">
+        <div class="icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11"/></svg>
+        </div>
+        <h3>Merge engine &amp; validation gate</h3>
+        <p>
+          Pipelines target collectors with Alertmanager-style matchers, and every config passes a
+          three-stage gate — syntax, <code>alloy validate</code> against a pinned real Alloy binary,
+          and a full merge dry-run — before it can ever be stored as servable.
+        </p>
+        <span class="tag">never serve unvalidated config</span>
+      </article>
+
+      <article class="feature-card">
+        <div class="icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="12" r="2.2"/><path d="M6 8.2v7.6M7.8 6.9 15.9 11M7.8 17.1 15.9 13"/></svg>
+        </div>
+        <h3>GitOps from any git server</h3>
+        <p>
+          Point a repo link at a directory of <code>.alloy</code> files on any git host. Authenticate
+          with a personal access token, an SSH deploy key, or a GitHub App installation — synced
+          files pass the same validation gate before they're servable.
+        </p>
+        <span class="tag">PAT · SSH · GitHub App</span>
+      </article>
+
+      <article class="feature-card">
+        <div class="icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 8h5M8 12h8M8 16h6"/></svg>
+        </div>
+        <h3>Sandbox simulation</h3>
+        <p>
+          Run a candidate pipeline against synthetic sources in a network-contained sandbox and
+          inspect the captured series before it ever reaches a collector. Opt-in
+          (<code>simulator.enabled=true</code>) — containment is enforced by NetworkPolicy and
+          proven with in-cluster probes.
+        </p>
+        <span class="tag">disabled by default · opt-in</span>
+      </article>
+
+      <article class="feature-card">
+        <div class="icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6.5v5c0 5 3.4 8.9 8 10 4.6-1.1 8-6 8-10v-5L12 3Z"/><path d="M9.5 12.2 11.5 14l3-3.5"/></svg>
+        </div>
+        <h3>RBAC, orgs, and an audit log</h3>
+        <p>
+          Multi-tenant by design: application admins manage orgs, org admins manage their own
+          collectors and pipelines, and readers get view-only access. Every mutating action is
+          written to the audit log.
+        </p>
+        <span class="tag">org-scoped roles</span>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="diagram-section" id="architecture">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="kicker">// how it fits together</p>
+      <h2>One merge engine, three ways in.</h2>
+      <p class="section-sub">
+        Pipelines built by hand, drawn on the visual canvas, or synced from Git all become the same
+        kind of row — matched to collectors, validated, and merged into one served config per
+        collector.
+      </p>
+    </div>
+
+    <div class="diagram-frame">
+      <svg viewBox="0 0 920 400" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Diagram: Alloy collectors poll Shepherd over remotecfg; the UI, visual builder, and Git sync feed pipelines into a merge engine and validation gate, which serves merged, validated config back to collectors.">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0L10 5L0 10z" class="dg-line" style="fill:var(--text-faint);stroke:none" />
+          </marker>
+          <marker id="arrow-accent" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0L10 5L0 10z" style="fill:var(--accent);stroke:none" />
+          </marker>
+        </defs>
+
+        <!-- Alloy collectors -->
+        <rect x="16" y="40" width="150" height="46" rx="8" class="dg-box"/>
+        <text x="91" y="60" text-anchor="middle" class="dg-text" font-size="13" font-weight="600">Alloy · metrics</text>
+        <text x="91" y="76" text-anchor="middle" class="dg-text-mono" font-size="11">cluster=prod-eu-1</text>
+
+        <rect x="16" y="102" width="150" height="46" rx="8" class="dg-box"/>
+        <text x="91" y="122" text-anchor="middle" class="dg-text" font-size="13" font-weight="600">Alloy · logs</text>
+        <text x="91" y="138" text-anchor="middle" class="dg-text-mono" font-size="11">cluster=prod-eu-1</text>
+
+        <rect x="16" y="164" width="150" height="46" rx="8" class="dg-box"/>
+        <text x="91" y="184" text-anchor="middle" class="dg-text" font-size="13" font-weight="600">Alloy · singleton</text>
+        <text x="91" y="200" text-anchor="middle" class="dg-text-mono" font-size="11">cluster=staging-eu-1</text>
+
+        <!-- poll arrows -->
+        <path d="M166 63 C 210 63, 210 200, 258 200" class="dg-line" marker-end="url(#arrow)"/>
+        <path d="M166 125 C 210 125, 210 205, 258 205" class="dg-line" marker-end="url(#arrow)"/>
+        <path d="M166 187 C 200 187, 200 210, 258 210" class="dg-line" marker-end="url(#arrow)"/>
+        <text x="178" y="149" class="dg-text-mono" font-size="10">GetConfig</text>
+        <text x="178" y="162" class="dg-text-mono" font-size="10">hash/not-mod</text>
+
+        <!-- return arrow -->
+        <path d="M258 222 C 205 250, 205 250, 166 222" class="dg-line-accent" marker-end="url(#arrow-accent)"/>
+        <text x="212" y="262" text-anchor="middle" class="dg-text-mono" font-size="10.5" fill="var(--accent)">merged config</text>
+
+        <!-- inputs -->
+        <rect x="16" y="248" width="150" height="42" rx="8" class="dg-box"/>
+        <text x="91" y="266" text-anchor="middle" class="dg-text" font-size="12.5" font-weight="600">UI editor</text>
+        <text x="91" y="281" text-anchor="middle" class="dg-text-sub" font-size="10.5">source = ui</text>
+
+        <rect x="16" y="298" width="150" height="42" rx="8" class="dg-box"/>
+        <text x="91" y="316" text-anchor="middle" class="dg-text" font-size="12.5" font-weight="600">Visual builder</text>
+        <text x="91" y="331" text-anchor="middle" class="dg-text-sub" font-size="10.5">184 components</text>
+
+        <rect x="16" y="348" width="150" height="42" rx="8" class="dg-box"/>
+        <text x="91" y="366" text-anchor="middle" class="dg-text" font-size="12.5" font-weight="600">Git repo</text>
+        <text x="91" y="381" text-anchor="middle" class="dg-text-sub" font-size="10.5">PAT / SSH / GitHub App</text>
+
+        <path d="M166 269 C 220 269, 220 250, 260 236" class="dg-line" marker-end="url(#arrow)"/>
+        <path d="M166 319 C 220 319, 220 250, 260 244" class="dg-line" marker-end="url(#arrow)"/>
+        <path d="M166 369 C 220 369, 220 260, 260 252" class="dg-line" marker-end="url(#arrow)"/>
+
+        <!-- Shepherd core -->
+        <rect x="260" y="150" width="290" height="130" rx="10" class="dg-box-accent"/>
+        <text x="405" y="174" text-anchor="middle" class="dg-text" font-size="13.5" font-weight="650">Shepherd</text>
+
+        <rect x="278" y="188" width="254" height="36" rx="6" class="dg-box"/>
+        <text x="405" y="210" text-anchor="middle" class="dg-text" font-size="12">Merge engine (matchers)</text>
+
+        <path d="M405 224 V 236" class="dg-line" marker-end="url(#arrow)"/>
+
+        <rect x="278" y="236" width="254" height="36" rx="6" class="dg-box"/>
+        <text x="405" y="258" text-anchor="middle" class="dg-text" font-size="11.5">Validation gate (syntax → alloy validate → dry-run)</text>
+
+        <!-- to postgres -->
+        <rect x="590" y="150" width="150" height="60" rx="8" class="dg-box"/>
+        <text x="665" y="176" text-anchor="middle" class="dg-text" font-size="12.5" font-weight="600">PostgreSQL</text>
+        <text x="665" y="193" text-anchor="middle" class="dg-text-sub" font-size="10.5">pipelines, orgs,</text>
+        <text x="665" y="206" text-anchor="middle" class="dg-text-sub" font-size="10.5">audit log</text>
+        <path d="M550 180 H 590" class="dg-line" marker-end="url(#arrow)"/>
+        <path d="M590 195 H 550" class="dg-line"/>
+
+        <!-- sandbox -->
+        <rect x="590" y="230" width="150" height="60" rx="8" class="dg-box"/>
+        <text x="665" y="256" text-anchor="middle" class="dg-text" font-size="12.5" font-weight="600">Sandbox</text>
+        <text x="665" y="273" text-anchor="middle" class="dg-text-sub" font-size="10.5">opt-in, contained</text>
+        <text x="665" y="286" text-anchor="middle" class="dg-text-sub" font-size="10.5">synthetic sources</text>
+        <path d="M550 260 H 590" class="dg-line" stroke-dasharray="3 3"/>
+
+        <!-- output back to top -->
+        <path d="M550 165 C 640 100, 640 100, 725 100 C 780 100, 780 63, 730 63" class="dg-line-accent" marker-end="url(#arrow-accent)" fill="none"/>
+        <text x="700" y="88" text-anchor="middle" class="dg-text-mono" font-size="10.5" fill="var(--accent)">serve_cache</text>
+
+        <rect x="16" y="40" width="0" height="0" fill="none"/>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<section class="quickstart" id="quickstart">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="kicker">// quick start</p>
+      <h2>Deploy with Helm, point Alloy at it.</h2>
+      <p class="section-sub">
+        Images are published to GitHub Container Registry for linux/amd64 and linux/arm64. The chart
+        lives at <code>deploy/helm/shepherd</code> in the repo.
+      </p>
+    </div>
+
+    <div class="qs-steps">
+      <div class="qs-step">
+        <div class="qs-num">1</div>
+        <div>
+          <h3>Install the chart</h3>
+          <p>
+            Requires a Kubernetes secret with the database URL, encryption key, and OIDC secrets — see
+            <code>deploy/helm/shepherd/values.yaml</code> for the full option list. Sandbox simulation
+            stays off unless you set <code>simulator.enabled=true</code>.
+          </p>
+          <div class="code-block" data-lang="shell">
+            <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+            <pre><code>helm install shepherd deploy/helm/shepherd \
+  --set image.registry=ghcr.io/procoduck \
+  --set image.tag=0.0.1 \
+  --set existingSecret=shepherd-secrets \
+  --set "route.enabled=true" \
+  --set "route.hostnames[0]=shepherd.internal"</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="qs-step">
+        <div class="qs-num">2</div>
+        <div>
+          <h3>Point an Alloy collector at it</h3>
+          <p>Add a <code>remotecfg</code> block to each collector's <code>config.alloy</code>, using a token minted with <code>shepherd token create</code>.</p>
+          <div class="code-block" data-lang="alloy">
+            <div class="code-head"><span>config.alloy</span><button class="copy-btn" type="button">Copy</button></div>
+            <pre><code>remotecfg {
+  url = "https://shepherd.internal"
+  basic_auth {
+    username = "&lt;token-uuid&gt;"
+    password = "&lt;token-secret&gt;"
+  }
+  attributes = {
+    cluster = "&lt;cluster-name&gt;",
+    role    = "metrics",
+  }
+  poll_frequency = "60s"
+}</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="qs-step">
+        <div class="qs-num">3</div>
+        <div>
+          <h3>Or run it locally first</h3>
+          <p>A single binary against Postgres — no Kubernetes required to try it out.</p>
+          <div class="code-block" data-lang="shell">
+            <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+            <pre><code>docker run -d --name shepherd-pg \
+  -e POSTGRES_DB=shepherd -e POSTGRES_USER=shepherd -e POSTGRES_PASSWORD=shepherd \
+  -p 5432:5432 postgres:16-alpine
+
+make build
+SHEPHERD_DATABASE_URL=postgres://shepherd:shepherd@localhost:5432/shepherd \
+SHEPHERD_SECURITY_ENCRYPTION_KEY=$(openssl rand -base64 32) \
+  ./bin/shepherd migrate up && ./bin/shepherd serve</code></pre>
+          </div>
+          <p class="note">See <a href="docs/getting-started.html">the full getting-started guide</a> for token creation, the dev stack, and the sandbox opt-in flag.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="cta">
+  <div class="wrap">
+    <h2>Read the spec, or just clone it.</h2>
+    <p>Shepherd's source lives on GitHub. The full product specification, architecture notes, and a running project ledger live in <code>docs/</code>.</p>
+    <div class="cta-ctas">
+      <a class="btn btn-primary" href="https://github.com/procoduck/sheperd">github.com/procoduck/sheperd</a>
+      <a class="btn btn-outline" href="docs/getting-started.html">Read the docs</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-left">
+      <span class="brand" style="font-size:13.5px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M12 2.5 4 6v6c0 5.2 3.4 9.4 8 10.5 4.6-1.1 8-5.3 8-10.5V6l-8-3.5Z" stroke="var(--text-faint)" stroke-width="1.6" stroke-linejoin="round"/>
+        </svg>
+        Shepherd
+      </span>
+      <span class="pill">v0.0.1</span>
+      <span>self-hosted Grafana Alloy fleet manager</span>
+    </div>
+    <div class="foot-links">
+      <a href="https://github.com/procoduck/sheperd">GitHub</a>
+      <a href="docs/getting-started.html">Docs</a>
+      <a href="https://github.com/procoduck/sheperd/blob/main/docs/spec.md">Spec</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+  document.querySelectorAll(".copy-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var code = btn.closest(".code-block").querySelector("code").innerText;
+      navigator.clipboard.writeText(code).then(function () {
+        var original = btn.textContent;
+        btn.textContent = "Copied";
+        btn.classList.add("copied");
+        setTimeout(function () {
+          btn.textContent = original;
+          btn.classList.remove("copied");
+        }, 1600);
+      });
+    });
+  });
+</script>
+
+</body>
+</html>
