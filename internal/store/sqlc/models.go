@@ -78,6 +78,16 @@ type Destination struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 }
 
+type DestinationBinding struct {
+	ID            pgtype.UUID        `json:"id"`
+	DestinationID pgtype.UUID        `json:"destination_id"`
+	OrgID         pgtype.UUID        `json:"org_id"`
+	Name          string             `json:"name"`
+	TenantID      string             `json:"tenant_id"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+}
+
 type GitCredential struct {
 	ID                    pgtype.UUID        `json:"id"`
 	OrgID                 pgtype.UUID        `json:"org_id"`

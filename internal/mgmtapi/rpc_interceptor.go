@@ -74,6 +74,15 @@ var procedureRequirements = map[string]string{ //nolint:gochecknoglobals // stat
 	mgmtv1connect.DestinationServiceUpdateDestinationProcedure: auth.RoleOrgAdmin,
 	mgmtv1connect.DestinationServiceDeleteDestinationProcedure: auth.RoleOrgAdmin,
 
+	// DestinationService — tenant bindings (W2): same reader/admin split as
+	// destinations themselves.
+	mgmtv1connect.DestinationServiceListDestinationBindingsProcedure:   auth.RoleOrgReader,
+	mgmtv1connect.DestinationServiceGetDestinationBindingProcedure:     auth.RoleOrgReader,
+	mgmtv1connect.DestinationServiceResolveDestinationBindingProcedure: auth.RoleOrgReader,
+	mgmtv1connect.DestinationServiceCreateDestinationBindingProcedure:  auth.RoleOrgAdmin,
+	mgmtv1connect.DestinationServiceUpdateDestinationBindingProcedure:  auth.RoleOrgAdmin,
+	mgmtv1connect.DestinationServiceDeleteDestinationBindingProcedure:  auth.RoleOrgAdmin,
+
 	// GitOpsService — org admin.
 	mgmtv1connect.GitOpsServiceListCredentialsProcedure:  auth.RoleOrgAdmin,
 	mgmtv1connect.GitOpsServiceCreateCredentialProcedure: auth.RoleOrgAdmin,

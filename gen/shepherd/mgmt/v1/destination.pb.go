@@ -620,6 +620,777 @@ func (*DeleteDestinationResponse) Descriptor() ([]byte, []int) {
 	return file_shepherd_mgmt_v1_destination_proto_rawDescGZIP(), []int{7}
 }
 
+// DestinationBinding is a tenant binding: it attaches a tenant_id to a
+// destination template. It deliberately carries no url/type/secret_name/
+// secret_namespace/auth_mode/extra field -- those live only on the
+// referenced Destination (see DestinationService's doc comment).
+type DestinationBinding struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	DestinationId string                 `protobuf:"bytes,2,opt,name=destination_id,json=destinationId,proto3" json:"destination_id,omitempty"`
+	OrgId         string                 `protobuf:"bytes,3,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	Name          string                 `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`
+	TenantId      string                 `protobuf:"bytes,5,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DestinationBinding) Reset() {
+	*x = DestinationBinding{}
+	mi := &file_shepherd_mgmt_v1_destination_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DestinationBinding) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DestinationBinding) ProtoMessage() {}
+
+func (x *DestinationBinding) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_destination_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DestinationBinding.ProtoReflect.Descriptor instead.
+func (*DestinationBinding) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_destination_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *DestinationBinding) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *DestinationBinding) GetDestinationId() string {
+	if x != nil {
+		return x.DestinationId
+	}
+	return ""
+}
+
+func (x *DestinationBinding) GetOrgId() string {
+	if x != nil {
+		return x.OrgId
+	}
+	return ""
+}
+
+func (x *DestinationBinding) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *DestinationBinding) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *DestinationBinding) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *DestinationBinding) GetUpdatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return nil
+}
+
+type ListDestinationBindingsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	OrgId string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	// Optional: restrict to bindings of one template.
+	DestinationId string `protobuf:"bytes,2,opt,name=destination_id,json=destinationId,proto3" json:"destination_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListDestinationBindingsRequest) Reset() {
+	*x = ListDestinationBindingsRequest{}
+	mi := &file_shepherd_mgmt_v1_destination_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListDestinationBindingsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListDestinationBindingsRequest) ProtoMessage() {}
+
+func (x *ListDestinationBindingsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_destination_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListDestinationBindingsRequest.ProtoReflect.Descriptor instead.
+func (*ListDestinationBindingsRequest) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_destination_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ListDestinationBindingsRequest) GetOrgId() string {
+	if x != nil {
+		return x.OrgId
+	}
+	return ""
+}
+
+func (x *ListDestinationBindingsRequest) GetDestinationId() string {
+	if x != nil {
+		return x.DestinationId
+	}
+	return ""
+}
+
+type ListDestinationBindingsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Items         []*DestinationBinding  `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	Total         int32                  `protobuf:"varint,2,opt,name=total,proto3" json:"total,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListDestinationBindingsResponse) Reset() {
+	*x = ListDestinationBindingsResponse{}
+	mi := &file_shepherd_mgmt_v1_destination_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListDestinationBindingsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListDestinationBindingsResponse) ProtoMessage() {}
+
+func (x *ListDestinationBindingsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_destination_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListDestinationBindingsResponse.ProtoReflect.Descriptor instead.
+func (*ListDestinationBindingsResponse) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_destination_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ListDestinationBindingsResponse) GetItems() []*DestinationBinding {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+func (x *ListDestinationBindingsResponse) GetTotal() int32 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
+type GetDestinationBindingRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OrgId         string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	Id            string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDestinationBindingRequest) Reset() {
+	*x = GetDestinationBindingRequest{}
+	mi := &file_shepherd_mgmt_v1_destination_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDestinationBindingRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDestinationBindingRequest) ProtoMessage() {}
+
+func (x *GetDestinationBindingRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_destination_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDestinationBindingRequest.ProtoReflect.Descriptor instead.
+func (*GetDestinationBindingRequest) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_destination_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *GetDestinationBindingRequest) GetOrgId() string {
+	if x != nil {
+		return x.OrgId
+	}
+	return ""
+}
+
+func (x *GetDestinationBindingRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+// CreateDestinationBindingRequest carries the credential-bearing Destination
+// fields ONLY so the server can detect and explicitly refuse an attempt to
+// set them on a binding, rather than silently discarding them as unknown
+// fields on the wire. A well-behaved client populates only org_id,
+// destination_id, name and tenant_id; CreateDestinationBinding rejects the
+// request (CodeInvalidArgument) if any of the others is non-empty/non-nil.
+type CreateDestinationBindingRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	OrgId           string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	DestinationId   string                 `protobuf:"bytes,2,opt,name=destination_id,json=destinationId,proto3" json:"destination_id,omitempty"`
+	Name            string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	TenantId        string                 `protobuf:"bytes,4,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	Url             string                 `protobuf:"bytes,5,opt,name=url,proto3" json:"url,omitempty"`
+	Type            string                 `protobuf:"bytes,6,opt,name=type,proto3" json:"type,omitempty"`
+	SecretName      string                 `protobuf:"bytes,7,opt,name=secret_name,json=secretName,proto3" json:"secret_name,omitempty"`
+	SecretNamespace string                 `protobuf:"bytes,8,opt,name=secret_namespace,json=secretNamespace,proto3" json:"secret_namespace,omitempty"`
+	AuthMode        string                 `protobuf:"bytes,9,opt,name=auth_mode,json=authMode,proto3" json:"auth_mode,omitempty"`
+	Extra           *structpb.Struct       `protobuf:"bytes,10,opt,name=extra,proto3" json:"extra,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *CreateDestinationBindingRequest) Reset() {
+	*x = CreateDestinationBindingRequest{}
+	mi := &file_shepherd_mgmt_v1_destination_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateDestinationBindingRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateDestinationBindingRequest) ProtoMessage() {}
+
+func (x *CreateDestinationBindingRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_destination_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateDestinationBindingRequest.ProtoReflect.Descriptor instead.
+func (*CreateDestinationBindingRequest) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_destination_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *CreateDestinationBindingRequest) GetOrgId() string {
+	if x != nil {
+		return x.OrgId
+	}
+	return ""
+}
+
+func (x *CreateDestinationBindingRequest) GetDestinationId() string {
+	if x != nil {
+		return x.DestinationId
+	}
+	return ""
+}
+
+func (x *CreateDestinationBindingRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CreateDestinationBindingRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *CreateDestinationBindingRequest) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+func (x *CreateDestinationBindingRequest) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *CreateDestinationBindingRequest) GetSecretName() string {
+	if x != nil {
+		return x.SecretName
+	}
+	return ""
+}
+
+func (x *CreateDestinationBindingRequest) GetSecretNamespace() string {
+	if x != nil {
+		return x.SecretNamespace
+	}
+	return ""
+}
+
+func (x *CreateDestinationBindingRequest) GetAuthMode() string {
+	if x != nil {
+		return x.AuthMode
+	}
+	return ""
+}
+
+func (x *CreateDestinationBindingRequest) GetExtra() *structpb.Struct {
+	if x != nil {
+		return x.Extra
+	}
+	return nil
+}
+
+// UpdateDestinationBindingRequest: see CreateDestinationBindingRequest --
+// the same credential-bearing fields are present only so an attempt to set
+// them is refused, never silently ignored.
+type UpdateDestinationBindingRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	OrgId           string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	Id              string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Name            string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	TenantId        string                 `protobuf:"bytes,4,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	Url             string                 `protobuf:"bytes,5,opt,name=url,proto3" json:"url,omitempty"`
+	Type            string                 `protobuf:"bytes,6,opt,name=type,proto3" json:"type,omitempty"`
+	SecretName      string                 `protobuf:"bytes,7,opt,name=secret_name,json=secretName,proto3" json:"secret_name,omitempty"`
+	SecretNamespace string                 `protobuf:"bytes,8,opt,name=secret_namespace,json=secretNamespace,proto3" json:"secret_namespace,omitempty"`
+	AuthMode        string                 `protobuf:"bytes,9,opt,name=auth_mode,json=authMode,proto3" json:"auth_mode,omitempty"`
+	Extra           *structpb.Struct       `protobuf:"bytes,10,opt,name=extra,proto3" json:"extra,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *UpdateDestinationBindingRequest) Reset() {
+	*x = UpdateDestinationBindingRequest{}
+	mi := &file_shepherd_mgmt_v1_destination_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateDestinationBindingRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateDestinationBindingRequest) ProtoMessage() {}
+
+func (x *UpdateDestinationBindingRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_destination_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateDestinationBindingRequest.ProtoReflect.Descriptor instead.
+func (*UpdateDestinationBindingRequest) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_destination_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *UpdateDestinationBindingRequest) GetOrgId() string {
+	if x != nil {
+		return x.OrgId
+	}
+	return ""
+}
+
+func (x *UpdateDestinationBindingRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *UpdateDestinationBindingRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *UpdateDestinationBindingRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *UpdateDestinationBindingRequest) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+func (x *UpdateDestinationBindingRequest) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *UpdateDestinationBindingRequest) GetSecretName() string {
+	if x != nil {
+		return x.SecretName
+	}
+	return ""
+}
+
+func (x *UpdateDestinationBindingRequest) GetSecretNamespace() string {
+	if x != nil {
+		return x.SecretNamespace
+	}
+	return ""
+}
+
+func (x *UpdateDestinationBindingRequest) GetAuthMode() string {
+	if x != nil {
+		return x.AuthMode
+	}
+	return ""
+}
+
+func (x *UpdateDestinationBindingRequest) GetExtra() *structpb.Struct {
+	if x != nil {
+		return x.Extra
+	}
+	return nil
+}
+
+type DeleteDestinationBindingRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OrgId         string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	Id            string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteDestinationBindingRequest) Reset() {
+	*x = DeleteDestinationBindingRequest{}
+	mi := &file_shepherd_mgmt_v1_destination_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteDestinationBindingRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteDestinationBindingRequest) ProtoMessage() {}
+
+func (x *DeleteDestinationBindingRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_destination_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteDestinationBindingRequest.ProtoReflect.Descriptor instead.
+func (*DeleteDestinationBindingRequest) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_destination_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *DeleteDestinationBindingRequest) GetOrgId() string {
+	if x != nil {
+		return x.OrgId
+	}
+	return ""
+}
+
+func (x *DeleteDestinationBindingRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type DeleteDestinationBindingResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteDestinationBindingResponse) Reset() {
+	*x = DeleteDestinationBindingResponse{}
+	mi := &file_shepherd_mgmt_v1_destination_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteDestinationBindingResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteDestinationBindingResponse) ProtoMessage() {}
+
+func (x *DeleteDestinationBindingResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_destination_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteDestinationBindingResponse.ProtoReflect.Descriptor instead.
+func (*DeleteDestinationBindingResponse) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_destination_proto_rawDescGZIP(), []int{15}
+}
+
+type ResolveDestinationBindingRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OrgId         string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	Id            string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResolveDestinationBindingRequest) Reset() {
+	*x = ResolveDestinationBindingRequest{}
+	mi := &file_shepherd_mgmt_v1_destination_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolveDestinationBindingRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolveDestinationBindingRequest) ProtoMessage() {}
+
+func (x *ResolveDestinationBindingRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_destination_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolveDestinationBindingRequest.ProtoReflect.Descriptor instead.
+func (*ResolveDestinationBindingRequest) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_destination_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ResolveDestinationBindingRequest) GetOrgId() string {
+	if x != nil {
+		return x.OrgId
+	}
+	return ""
+}
+
+func (x *ResolveDestinationBindingRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+// ResolvedDestination is a binding merged with its template: the template's
+// url/type/secret_name/secret_namespace/auth_mode/extra plus the binding's
+// own tenant_id. This is the only message a serving-time consumer (e.g. the
+// receiver-tier gateway config, W4) should read -- never a DestinationBinding
+// and a separately-fetched Destination assembled by hand.
+type ResolvedDestination struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	BindingId       string                 `protobuf:"bytes,1,opt,name=binding_id,json=bindingId,proto3" json:"binding_id,omitempty"`
+	DestinationId   string                 `protobuf:"bytes,2,opt,name=destination_id,json=destinationId,proto3" json:"destination_id,omitempty"`
+	OrgId           string                 `protobuf:"bytes,3,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	BindingName     string                 `protobuf:"bytes,4,opt,name=binding_name,json=bindingName,proto3" json:"binding_name,omitempty"`
+	DestinationName string                 `protobuf:"bytes,5,opt,name=destination_name,json=destinationName,proto3" json:"destination_name,omitempty"`
+	Type            string                 `protobuf:"bytes,6,opt,name=type,proto3" json:"type,omitempty"`
+	Url             string                 `protobuf:"bytes,7,opt,name=url,proto3" json:"url,omitempty"`
+	TenantId        string                 `protobuf:"bytes,8,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	SecretName      string                 `protobuf:"bytes,9,opt,name=secret_name,json=secretName,proto3" json:"secret_name,omitempty"`
+	SecretNamespace string                 `protobuf:"bytes,10,opt,name=secret_namespace,json=secretNamespace,proto3" json:"secret_namespace,omitempty"`
+	AuthMode        string                 `protobuf:"bytes,11,opt,name=auth_mode,json=authMode,proto3" json:"auth_mode,omitempty"`
+	Extra           *structpb.Struct       `protobuf:"bytes,12,opt,name=extra,proto3" json:"extra,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ResolvedDestination) Reset() {
+	*x = ResolvedDestination{}
+	mi := &file_shepherd_mgmt_v1_destination_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolvedDestination) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolvedDestination) ProtoMessage() {}
+
+func (x *ResolvedDestination) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_destination_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolvedDestination.ProtoReflect.Descriptor instead.
+func (*ResolvedDestination) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_destination_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *ResolvedDestination) GetBindingId() string {
+	if x != nil {
+		return x.BindingId
+	}
+	return ""
+}
+
+func (x *ResolvedDestination) GetDestinationId() string {
+	if x != nil {
+		return x.DestinationId
+	}
+	return ""
+}
+
+func (x *ResolvedDestination) GetOrgId() string {
+	if x != nil {
+		return x.OrgId
+	}
+	return ""
+}
+
+func (x *ResolvedDestination) GetBindingName() string {
+	if x != nil {
+		return x.BindingName
+	}
+	return ""
+}
+
+func (x *ResolvedDestination) GetDestinationName() string {
+	if x != nil {
+		return x.DestinationName
+	}
+	return ""
+}
+
+func (x *ResolvedDestination) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *ResolvedDestination) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+func (x *ResolvedDestination) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *ResolvedDestination) GetSecretName() string {
+	if x != nil {
+		return x.SecretName
+	}
+	return ""
+}
+
+func (x *ResolvedDestination) GetSecretNamespace() string {
+	if x != nil {
+		return x.SecretNamespace
+	}
+	return ""
+}
+
+func (x *ResolvedDestination) GetAuthMode() string {
+	if x != nil {
+		return x.AuthMode
+	}
+	return ""
+}
+
+func (x *ResolvedDestination) GetExtra() *structpb.Struct {
+	if x != nil {
+		return x.Extra
+	}
+	return nil
+}
+
 var File_shepherd_mgmt_v1_destination_proto protoreflect.FileDescriptor
 
 const file_shepherd_mgmt_v1_destination_proto_rawDesc = "" +
@@ -677,13 +1448,87 @@ const file_shepherd_mgmt_v1_destination_proto_rawDesc = "" +
 	"\x18DeleteDestinationRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\"\x1b\n" +
-	"\x19DeleteDestinationResponse2\x91\x04\n" +
+	"\x19DeleteDestinationResponse\"\x89\x02\n" +
+	"\x12DestinationBinding\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12%\n" +
+	"\x0edestination_id\x18\x02 \x01(\tR\rdestinationId\x12\x15\n" +
+	"\x06org_id\x18\x03 \x01(\tR\x05orgId\x12\x12\n" +
+	"\x04name\x18\x04 \x01(\tR\x04name\x12\x1b\n" +
+	"\ttenant_id\x18\x05 \x01(\tR\btenantId\x129\n" +
+	"\n" +
+	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
+	"\n" +
+	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"^\n" +
+	"\x1eListDestinationBindingsRequest\x12\x15\n" +
+	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12%\n" +
+	"\x0edestination_id\x18\x02 \x01(\tR\rdestinationId\"s\n" +
+	"\x1fListDestinationBindingsResponse\x12:\n" +
+	"\x05items\x18\x01 \x03(\v2$.shepherd.mgmt.v1.DestinationBindingR\x05items\x12\x14\n" +
+	"\x05total\x18\x02 \x01(\x05R\x05total\"E\n" +
+	"\x1cGetDestinationBindingRequest\x12\x15\n" +
+	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\"\xce\x02\n" +
+	"\x1fCreateDestinationBindingRequest\x12\x15\n" +
+	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12%\n" +
+	"\x0edestination_id\x18\x02 \x01(\tR\rdestinationId\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\x12\x1b\n" +
+	"\ttenant_id\x18\x04 \x01(\tR\btenantId\x12\x10\n" +
+	"\x03url\x18\x05 \x01(\tR\x03url\x12\x12\n" +
+	"\x04type\x18\x06 \x01(\tR\x04type\x12\x1f\n" +
+	"\vsecret_name\x18\a \x01(\tR\n" +
+	"secretName\x12)\n" +
+	"\x10secret_namespace\x18\b \x01(\tR\x0fsecretNamespace\x12\x1b\n" +
+	"\tauth_mode\x18\t \x01(\tR\bauthMode\x12-\n" +
+	"\x05extra\x18\n" +
+	" \x01(\v2\x17.google.protobuf.StructR\x05extra\"\xb7\x02\n" +
+	"\x1fUpdateDestinationBindingRequest\x12\x15\n" +
+	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\x12\x1b\n" +
+	"\ttenant_id\x18\x04 \x01(\tR\btenantId\x12\x10\n" +
+	"\x03url\x18\x05 \x01(\tR\x03url\x12\x12\n" +
+	"\x04type\x18\x06 \x01(\tR\x04type\x12\x1f\n" +
+	"\vsecret_name\x18\a \x01(\tR\n" +
+	"secretName\x12)\n" +
+	"\x10secret_namespace\x18\b \x01(\tR\x0fsecretNamespace\x12\x1b\n" +
+	"\tauth_mode\x18\t \x01(\tR\bauthMode\x12-\n" +
+	"\x05extra\x18\n" +
+	" \x01(\v2\x17.google.protobuf.StructR\x05extra\"H\n" +
+	"\x1fDeleteDestinationBindingRequest\x12\x15\n" +
+	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\"\"\n" +
+	" DeleteDestinationBindingResponse\"I\n" +
+	" ResolveDestinationBindingRequest\x12\x15\n" +
+	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\"\x9b\x03\n" +
+	"\x13ResolvedDestination\x12\x1d\n" +
+	"\n" +
+	"binding_id\x18\x01 \x01(\tR\tbindingId\x12%\n" +
+	"\x0edestination_id\x18\x02 \x01(\tR\rdestinationId\x12\x15\n" +
+	"\x06org_id\x18\x03 \x01(\tR\x05orgId\x12!\n" +
+	"\fbinding_name\x18\x04 \x01(\tR\vbindingName\x12)\n" +
+	"\x10destination_name\x18\x05 \x01(\tR\x0fdestinationName\x12\x12\n" +
+	"\x04type\x18\x06 \x01(\tR\x04type\x12\x10\n" +
+	"\x03url\x18\a \x01(\tR\x03url\x12\x1b\n" +
+	"\ttenant_id\x18\b \x01(\tR\btenantId\x12\x1f\n" +
+	"\vsecret_name\x18\t \x01(\tR\n" +
+	"secretName\x12)\n" +
+	"\x10secret_namespace\x18\n" +
+	" \x01(\tR\x0fsecretNamespace\x12\x1b\n" +
+	"\tauth_mode\x18\v \x01(\tR\bauthMode\x12-\n" +
+	"\x05extra\x18\f \x01(\v2\x17.google.protobuf.StructR\x05extra2\xf3\t\n" +
 	"\x12DestinationService\x12k\n" +
 	"\x10ListDestinations\x12).shepherd.mgmt.v1.ListDestinationsRequest\x1a*.shepherd.mgmt.v1.ListDestinationsResponse\"\x00\x12Z\n" +
 	"\x0eGetDestination\x12'.shepherd.mgmt.v1.GetDestinationRequest\x1a\x1d.shepherd.mgmt.v1.Destination\"\x00\x12`\n" +
 	"\x11CreateDestination\x12*.shepherd.mgmt.v1.CreateDestinationRequest\x1a\x1d.shepherd.mgmt.v1.Destination\"\x00\x12`\n" +
 	"\x11UpdateDestination\x12*.shepherd.mgmt.v1.UpdateDestinationRequest\x1a\x1d.shepherd.mgmt.v1.Destination\"\x00\x12n\n" +
-	"\x11DeleteDestination\x12*.shepherd.mgmt.v1.DeleteDestinationRequest\x1a+.shepherd.mgmt.v1.DeleteDestinationResponse\"\x00B&Z$shepherd/gen/shepherd/mgmt/v1;mgmtv1b\x06proto3"
+	"\x11DeleteDestination\x12*.shepherd.mgmt.v1.DeleteDestinationRequest\x1a+.shepherd.mgmt.v1.DeleteDestinationResponse\"\x00\x12\x80\x01\n" +
+	"\x17ListDestinationBindings\x120.shepherd.mgmt.v1.ListDestinationBindingsRequest\x1a1.shepherd.mgmt.v1.ListDestinationBindingsResponse\"\x00\x12o\n" +
+	"\x15GetDestinationBinding\x12..shepherd.mgmt.v1.GetDestinationBindingRequest\x1a$.shepherd.mgmt.v1.DestinationBinding\"\x00\x12u\n" +
+	"\x18CreateDestinationBinding\x121.shepherd.mgmt.v1.CreateDestinationBindingRequest\x1a$.shepherd.mgmt.v1.DestinationBinding\"\x00\x12u\n" +
+	"\x18UpdateDestinationBinding\x121.shepherd.mgmt.v1.UpdateDestinationBindingRequest\x1a$.shepherd.mgmt.v1.DestinationBinding\"\x00\x12\x83\x01\n" +
+	"\x18DeleteDestinationBinding\x121.shepherd.mgmt.v1.DeleteDestinationBindingRequest\x1a2.shepherd.mgmt.v1.DeleteDestinationBindingResponse\"\x00\x12x\n" +
+	"\x19ResolveDestinationBinding\x122.shepherd.mgmt.v1.ResolveDestinationBindingRequest\x1a%.shepherd.mgmt.v1.ResolvedDestination\"\x00B&Z$shepherd/gen/shepherd/mgmt/v1;mgmtv1b\x06proto3"
 
 var (
 	file_shepherd_mgmt_v1_destination_proto_rawDescOnce sync.Once
@@ -697,41 +1542,69 @@ func file_shepherd_mgmt_v1_destination_proto_rawDescGZIP() []byte {
 	return file_shepherd_mgmt_v1_destination_proto_rawDescData
 }
 
-var file_shepherd_mgmt_v1_destination_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_shepherd_mgmt_v1_destination_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_shepherd_mgmt_v1_destination_proto_goTypes = []any{
-	(*Destination)(nil),               // 0: shepherd.mgmt.v1.Destination
-	(*ListDestinationsRequest)(nil),   // 1: shepherd.mgmt.v1.ListDestinationsRequest
-	(*ListDestinationsResponse)(nil),  // 2: shepherd.mgmt.v1.ListDestinationsResponse
-	(*GetDestinationRequest)(nil),     // 3: shepherd.mgmt.v1.GetDestinationRequest
-	(*CreateDestinationRequest)(nil),  // 4: shepherd.mgmt.v1.CreateDestinationRequest
-	(*UpdateDestinationRequest)(nil),  // 5: shepherd.mgmt.v1.UpdateDestinationRequest
-	(*DeleteDestinationRequest)(nil),  // 6: shepherd.mgmt.v1.DeleteDestinationRequest
-	(*DeleteDestinationResponse)(nil), // 7: shepherd.mgmt.v1.DeleteDestinationResponse
-	(*structpb.Struct)(nil),           // 8: google.protobuf.Struct
-	(*timestamppb.Timestamp)(nil),     // 9: google.protobuf.Timestamp
+	(*Destination)(nil),                      // 0: shepherd.mgmt.v1.Destination
+	(*ListDestinationsRequest)(nil),          // 1: shepherd.mgmt.v1.ListDestinationsRequest
+	(*ListDestinationsResponse)(nil),         // 2: shepherd.mgmt.v1.ListDestinationsResponse
+	(*GetDestinationRequest)(nil),            // 3: shepherd.mgmt.v1.GetDestinationRequest
+	(*CreateDestinationRequest)(nil),         // 4: shepherd.mgmt.v1.CreateDestinationRequest
+	(*UpdateDestinationRequest)(nil),         // 5: shepherd.mgmt.v1.UpdateDestinationRequest
+	(*DeleteDestinationRequest)(nil),         // 6: shepherd.mgmt.v1.DeleteDestinationRequest
+	(*DeleteDestinationResponse)(nil),        // 7: shepherd.mgmt.v1.DeleteDestinationResponse
+	(*DestinationBinding)(nil),               // 8: shepherd.mgmt.v1.DestinationBinding
+	(*ListDestinationBindingsRequest)(nil),   // 9: shepherd.mgmt.v1.ListDestinationBindingsRequest
+	(*ListDestinationBindingsResponse)(nil),  // 10: shepherd.mgmt.v1.ListDestinationBindingsResponse
+	(*GetDestinationBindingRequest)(nil),     // 11: shepherd.mgmt.v1.GetDestinationBindingRequest
+	(*CreateDestinationBindingRequest)(nil),  // 12: shepherd.mgmt.v1.CreateDestinationBindingRequest
+	(*UpdateDestinationBindingRequest)(nil),  // 13: shepherd.mgmt.v1.UpdateDestinationBindingRequest
+	(*DeleteDestinationBindingRequest)(nil),  // 14: shepherd.mgmt.v1.DeleteDestinationBindingRequest
+	(*DeleteDestinationBindingResponse)(nil), // 15: shepherd.mgmt.v1.DeleteDestinationBindingResponse
+	(*ResolveDestinationBindingRequest)(nil), // 16: shepherd.mgmt.v1.ResolveDestinationBindingRequest
+	(*ResolvedDestination)(nil),              // 17: shepherd.mgmt.v1.ResolvedDestination
+	(*structpb.Struct)(nil),                  // 18: google.protobuf.Struct
+	(*timestamppb.Timestamp)(nil),            // 19: google.protobuf.Timestamp
 }
 var file_shepherd_mgmt_v1_destination_proto_depIdxs = []int32{
-	8,  // 0: shepherd.mgmt.v1.Destination.extra:type_name -> google.protobuf.Struct
-	9,  // 1: shepherd.mgmt.v1.Destination.created_at:type_name -> google.protobuf.Timestamp
-	9,  // 2: shepherd.mgmt.v1.Destination.updated_at:type_name -> google.protobuf.Timestamp
+	18, // 0: shepherd.mgmt.v1.Destination.extra:type_name -> google.protobuf.Struct
+	19, // 1: shepherd.mgmt.v1.Destination.created_at:type_name -> google.protobuf.Timestamp
+	19, // 2: shepherd.mgmt.v1.Destination.updated_at:type_name -> google.protobuf.Timestamp
 	0,  // 3: shepherd.mgmt.v1.ListDestinationsResponse.items:type_name -> shepherd.mgmt.v1.Destination
-	8,  // 4: shepherd.mgmt.v1.CreateDestinationRequest.extra:type_name -> google.protobuf.Struct
-	8,  // 5: shepherd.mgmt.v1.UpdateDestinationRequest.extra:type_name -> google.protobuf.Struct
-	1,  // 6: shepherd.mgmt.v1.DestinationService.ListDestinations:input_type -> shepherd.mgmt.v1.ListDestinationsRequest
-	3,  // 7: shepherd.mgmt.v1.DestinationService.GetDestination:input_type -> shepherd.mgmt.v1.GetDestinationRequest
-	4,  // 8: shepherd.mgmt.v1.DestinationService.CreateDestination:input_type -> shepherd.mgmt.v1.CreateDestinationRequest
-	5,  // 9: shepherd.mgmt.v1.DestinationService.UpdateDestination:input_type -> shepherd.mgmt.v1.UpdateDestinationRequest
-	6,  // 10: shepherd.mgmt.v1.DestinationService.DeleteDestination:input_type -> shepherd.mgmt.v1.DeleteDestinationRequest
-	2,  // 11: shepherd.mgmt.v1.DestinationService.ListDestinations:output_type -> shepherd.mgmt.v1.ListDestinationsResponse
-	0,  // 12: shepherd.mgmt.v1.DestinationService.GetDestination:output_type -> shepherd.mgmt.v1.Destination
-	0,  // 13: shepherd.mgmt.v1.DestinationService.CreateDestination:output_type -> shepherd.mgmt.v1.Destination
-	0,  // 14: shepherd.mgmt.v1.DestinationService.UpdateDestination:output_type -> shepherd.mgmt.v1.Destination
-	7,  // 15: shepherd.mgmt.v1.DestinationService.DeleteDestination:output_type -> shepherd.mgmt.v1.DeleteDestinationResponse
-	11, // [11:16] is the sub-list for method output_type
-	6,  // [6:11] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	18, // 4: shepherd.mgmt.v1.CreateDestinationRequest.extra:type_name -> google.protobuf.Struct
+	18, // 5: shepherd.mgmt.v1.UpdateDestinationRequest.extra:type_name -> google.protobuf.Struct
+	19, // 6: shepherd.mgmt.v1.DestinationBinding.created_at:type_name -> google.protobuf.Timestamp
+	19, // 7: shepherd.mgmt.v1.DestinationBinding.updated_at:type_name -> google.protobuf.Timestamp
+	8,  // 8: shepherd.mgmt.v1.ListDestinationBindingsResponse.items:type_name -> shepherd.mgmt.v1.DestinationBinding
+	18, // 9: shepherd.mgmt.v1.CreateDestinationBindingRequest.extra:type_name -> google.protobuf.Struct
+	18, // 10: shepherd.mgmt.v1.UpdateDestinationBindingRequest.extra:type_name -> google.protobuf.Struct
+	18, // 11: shepherd.mgmt.v1.ResolvedDestination.extra:type_name -> google.protobuf.Struct
+	1,  // 12: shepherd.mgmt.v1.DestinationService.ListDestinations:input_type -> shepherd.mgmt.v1.ListDestinationsRequest
+	3,  // 13: shepherd.mgmt.v1.DestinationService.GetDestination:input_type -> shepherd.mgmt.v1.GetDestinationRequest
+	4,  // 14: shepherd.mgmt.v1.DestinationService.CreateDestination:input_type -> shepherd.mgmt.v1.CreateDestinationRequest
+	5,  // 15: shepherd.mgmt.v1.DestinationService.UpdateDestination:input_type -> shepherd.mgmt.v1.UpdateDestinationRequest
+	6,  // 16: shepherd.mgmt.v1.DestinationService.DeleteDestination:input_type -> shepherd.mgmt.v1.DeleteDestinationRequest
+	9,  // 17: shepherd.mgmt.v1.DestinationService.ListDestinationBindings:input_type -> shepherd.mgmt.v1.ListDestinationBindingsRequest
+	11, // 18: shepherd.mgmt.v1.DestinationService.GetDestinationBinding:input_type -> shepherd.mgmt.v1.GetDestinationBindingRequest
+	12, // 19: shepherd.mgmt.v1.DestinationService.CreateDestinationBinding:input_type -> shepherd.mgmt.v1.CreateDestinationBindingRequest
+	13, // 20: shepherd.mgmt.v1.DestinationService.UpdateDestinationBinding:input_type -> shepherd.mgmt.v1.UpdateDestinationBindingRequest
+	14, // 21: shepherd.mgmt.v1.DestinationService.DeleteDestinationBinding:input_type -> shepherd.mgmt.v1.DeleteDestinationBindingRequest
+	16, // 22: shepherd.mgmt.v1.DestinationService.ResolveDestinationBinding:input_type -> shepherd.mgmt.v1.ResolveDestinationBindingRequest
+	2,  // 23: shepherd.mgmt.v1.DestinationService.ListDestinations:output_type -> shepherd.mgmt.v1.ListDestinationsResponse
+	0,  // 24: shepherd.mgmt.v1.DestinationService.GetDestination:output_type -> shepherd.mgmt.v1.Destination
+	0,  // 25: shepherd.mgmt.v1.DestinationService.CreateDestination:output_type -> shepherd.mgmt.v1.Destination
+	0,  // 26: shepherd.mgmt.v1.DestinationService.UpdateDestination:output_type -> shepherd.mgmt.v1.Destination
+	7,  // 27: shepherd.mgmt.v1.DestinationService.DeleteDestination:output_type -> shepherd.mgmt.v1.DeleteDestinationResponse
+	10, // 28: shepherd.mgmt.v1.DestinationService.ListDestinationBindings:output_type -> shepherd.mgmt.v1.ListDestinationBindingsResponse
+	8,  // 29: shepherd.mgmt.v1.DestinationService.GetDestinationBinding:output_type -> shepherd.mgmt.v1.DestinationBinding
+	8,  // 30: shepherd.mgmt.v1.DestinationService.CreateDestinationBinding:output_type -> shepherd.mgmt.v1.DestinationBinding
+	8,  // 31: shepherd.mgmt.v1.DestinationService.UpdateDestinationBinding:output_type -> shepherd.mgmt.v1.DestinationBinding
+	15, // 32: shepherd.mgmt.v1.DestinationService.DeleteDestinationBinding:output_type -> shepherd.mgmt.v1.DeleteDestinationBindingResponse
+	17, // 33: shepherd.mgmt.v1.DestinationService.ResolveDestinationBinding:output_type -> shepherd.mgmt.v1.ResolvedDestination
+	23, // [23:34] is the sub-list for method output_type
+	12, // [12:23] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_shepherd_mgmt_v1_destination_proto_init() }
@@ -745,7 +1618,7 @@ func file_shepherd_mgmt_v1_destination_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_shepherd_mgmt_v1_destination_proto_rawDesc), len(file_shepherd_mgmt_v1_destination_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
