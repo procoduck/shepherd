@@ -172,6 +172,65 @@ to `OTEL_EXPORTER_OTLP_ENDPOINT`, so a client is configured with only the base
 (`https://telemetry.example.com/otlp/<segment>`) and the SDK builds the rest. That holds for both
 formats, which is what makes the onboarding artifact a single environment variable.
 
+### D10 — OTLP is the first-class frontend path; Faro is demand-driven
+
+Researched against the pinned Alloy schema and the Faro SDK's own source, not from
+recollection.
+
+**Faro is OpenTelemetry, for traces.** `@grafana/faro-web-tracing` depends on
+`@opentelemetry/sdk-trace-web`, the fetch/XHR instrumentations, and
+`@opentelemetry/exporter-trace-otlp-http` — it already speaks OTLP. What Faro adds beyond OTel
+is the RUM batteries in its own payload format: uncaught error capture, console logs, Web
+Vitals, session tracking, plus the receiver's `sourcemaps` block for unminifying stack traces.
+Only that half needs `faro.receiver`.
+
+**The two paths have very different tenancy properties**, and this is the decision driver:
+
+| | OTLP | Faro (RUM payload) |
+|---|---|---|
+| Trustworthy tenant on ONE port | **yes** — `otelcol.receiver.otlp` has `include_metadata`, and `otelcol.auth.headers` has `from_context`, so the gateway-injected header propagates | **no** |
+| Where a tenant value can come from | gateway-set header (client cannot spoof — G3/G4) | the **client-supplied payload** (`extra_log_labels = {"app" = ""}` reads from the payload; see `exporters.go`'s `labelSet`) |
+| Scaling | one listener, N tenants | one listener **per tenant**, or an instance per tenant |
+
+`include_metadata` on `faro.receiver` propagates connection metadata to *otelcol* consumers
+(the traces output) — it does **not** put HTTP headers onto Loki labels, so the logs path
+cannot see the gateway's header. And the gateway cannot substitute path for port here:
+`faro.receiver` serves a fixed path, so every tenant prefix rewrites onto the same one.
+
+**Therefore: OTLP first.** It is vendor-neutral, carries the correlation-critical signal, and
+scales on a single port with the stronger isolation guarantee. Faro support enters when a user
+asks for the RUM batteries — the same demand-driven rule as W9 — not speculatively.
+
+**Documented hybrid** that halves the problem for teams who want both: use the Faro SDK for RUM
+batteries but point its **traces at Shepherd's OTLP endpoint** via Faro's own OTLP exporter.
+Only the RUM payload reaches a Faro listener, so the sprawl-prone path carries a fraction of the
+volume while traces ride the scalable one.
+
+**If and when Faro is built, three options — sharding recommended:**
+
+1. *Port per tenant.* Trustworthy: identity is which socket received the bytes, and the gateway
+   controls that via `backendRef`. Sprawls.
+2. *Shared port, payload-derived tenant* (`extra_log_labels` → `stage.tenant`). No sprawl, but
+   tenancy is **client-asserted**: a browser on tenant A's URL can claim another tenant's `app`
+   and land in their Loki tenant. A cross-tenant write, not merely noise. Permitted only if
+   documented explicitly as *not* an isolation boundary.
+3. **Shard tenants across instances (recommended).** Keeps option 1's structural isolation,
+   bounds the sprawl, and buys independent blast radius and restart domains. The ceiling is the
+   Kubernetes Service object size rather than a documented port count, so the shard size must be
+   **measured before it is promised**.
+
+Grafana publishes no tenant-isolation guidance for Faro; the only related knob is
+`rate_limiting { strategy = "per_app" }`, which exists for fairness between apps sharing a
+gateway and treats `app` as an identifier, not a boundary. Grafana Cloud's own Frontend
+Observability gives each stack its own endpoint — endpoint-per-tenant, the same conclusion
+option 3 reaches.
+
+**Per-entry dynamic tenancy on the logs path is expressible**, and this corrects an earlier
+assumption that `loki.write.tenant_id` was the only lever: `loki.process` has `stage.tenant`
+with `value` (static), `label` (from a log label) and `source` (from an extracted field), so one
+`loki.write` can serve many tenants. The constraint was never the exporter — it is finding a
+*trustworthy* label to feed it.
+
 ## 3. The model
 
 ```
@@ -234,10 +293,10 @@ gates (§6, §7).
 | **W1** | Signal derivation + role enforcement | — | Derive each pipeline's signal set from the schema's wire types (`prom.metrics`, `loki.logs`, `otel.*`, `pyroscope.profiles`); merge engine refuses a metrics pipeline aimed at a `role=logs` collector. Turns `role` from a label into a contract. |
 | **W2** | Destination templates + tenant bindings | — | One platform-owned endpoint+auth secret; N tenant bindings overriding only `tenant_id`. The `destinations` table already carries `url`/`tenant_id`/`secret_name`/`auth_mode`; this adds inheritance, so teams get a destination without seeing the credential. |
 | **W3** | Gateway API foundation | — | Version+channel pin, CRD detection (D3), `HTTPRoute` renderer, and the kind conformance harness (G3/G4). No product surface yet — this is the substrate. |
-| **W4** | Receiver tier + tenant routes | W1, W3 | Per-tenant receiver Alloy (pipelines with `role=receiver`) for OTLP and Faro, with routes rendered per tenant/app. Supports **both** gateway ownership modes (D8) and **both** prefix formats (D9); operator-owned mode must verify route attachment rather than assume it. First infrastructure Shepherd manages directly, in our own cluster. |
+| **W4** | Receiver tier + tenant routes | W1, W3 | Receiver-tier Alloy (pipelines with `role=receiver`). **OTLP first** (D10): one listener serves N tenants with gateway-injected, unspoofable tenancy. Faro is deferred until a user asks, and then sharded (D10). Supports **both** gateway ownership modes (D8) and **both** prefix formats (D9); operator-owned mode must verify route attachment rather than assume it. First infrastructure Shepherd manages directly, in our own cluster. |
 | **W5** | Beacon + outcome verification | — (W1 makes it more useful) | Ingest endpoint in `agentapi` (D6), baseline pipeline, inventory storage + expiry, and the fleet-health surface it unlocks. **Plus the other half of the same question**: an optional Grafana service-account token so Shepherd can query the destination and confirm data actually arrived. The beacon proves the collector runs what we think; the query proves the data landed — neither is sufficient alone, and building them separately produces two partial answers. |
 | **W6** | Three-way reconciliation | W1, W5 | Reconcile **declared** (attributes) vs **served** (our pipelines' signals) vs **observed** (beacon inventory). Contradictions surface as findings — this is what catches a BYO logs collector actually running `prometheus.scrape`. |
-| **W7** | Onboarding artifacts | W4 | "Connect an app": render endpoint+headers+tenant into Lambda env, Terraform/SAM/CDK, container/k8s env, Faro web snippet, SDK inits. Golden-tested; every emitted endpoint must resolve to a really-rendered route. |
+| **W7** | Onboarding artifacts | W4 | "Connect an app": render endpoint+headers+tenant into Lambda env, Terraform/SAM/CDK, container/k8s env, SDK inits — OTLP-shaped per D10. A Faro snippet ships only alongside Faro support, and should document the hybrid (Faro RUM + traces over OTLP). Golden-tested; every emitted endpoint must resolve to a really-rendered route. |
 | **W8** | Wizard catalog fan-out | W1 | The cluster-metrics / pod-logs / database / blackbox / self-monitoring wizards. W1 first so a wizard cannot generate a pipeline that lands on the wrong collector role. |
 | **W9** | k8s-monitoring chart values generator | — | Guided setup emitting **Helm values** for Grafana's k8s-monitoring chart, pre-wired to this Shepherd (remotecfg endpoint, token, cluster/role/tenant attributes). Same guided-form UX as a wizard, different commit target: a wizard's `Commit()` returns pipeline contents Shepherd *serves*; this returns a deployment artifact that runs in the customer's cluster. Serves the BYO scenario, so it may reasonably run ahead of W4. |
 | **W10** | Teams, scoped identity, machine actors | — | Teams keyed by IdP group (extending `group_assignments`) that can *own* pipelines; scoped write for the service-owner persona; service accounts + capability scoping (propose vs apply) for machine callers; two-part attribution. Blocks W11. |
@@ -418,8 +477,10 @@ Status values: `proposed` → `in progress` → `gated` (built, awaiting its rev
    default).
 3. **Beacon ingest placement.** Inside `agentapi` (same trust boundary, same credential,
    same interceptor — the current preference) or a separate listener for isolation.
-4. **Receiver-tier tenancy granularity.** One Alloy per tenant, or one shared receiver with
-   per-tenant pipelines? Cost versus blast-radius trade-off; R3 depends on the answer.
+4. ~~Receiver-tier tenancy granularity~~ — **resolved for OTLP by D10** (one shared listener,
+   gateway-injected tenancy). Remains open only for Faro, and only if Faro is ever built:
+   the shard size in D10 option 3 must be measured against the Kubernetes Service object
+   ceiling rather than assumed.
 5. **Beacon retention.** How long per-instance inventory is kept, and whether history (not
    just current state) is worth storing for fleet drift analysis.
 
