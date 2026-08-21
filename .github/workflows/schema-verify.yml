@@ -33,6 +33,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      # The first live run died with the runner killed mid-step (no logs,
+      # null step conclusion) — the grafana/alloy clone + go/packages load is
+      # heavy for a 7GB/14GB-free standard runner. Free the unused toolchains
+      # and cap GC headroom; if the job still dies, it needs a larger runner.
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/.ghcup
+          df -h /
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -43,4 +53,7 @@ jobs:
           cache: true
 
       - name: make schema-verify
+        # GOGC=50 trades CPU for peak memory during the alloy packages load.
+        env:
+          GOGC: "50"
         run: make schema-verify
