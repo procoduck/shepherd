@@ -1,4 +1,4 @@
-.PHONY: help build build-web build-all test e2e e2e-k8s e2e-k8s-clean e2e-sim e2e-egress smoke test-ui check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks lint fmt generate gen-alloy-version generate-corpus schema schema-verify helm-lint release-snapshot docker-build docker-build-local docker-build-init docker-build-simulator dev dev-sim dev-frontend dev-restart dev-seed dev-reset test-fullstack clean clean-docker tools preflight-ginkgo preflight-k8s
+.PHONY: preflight-docker help build build-web build-all test e2e e2e-k8s e2e-k8s-clean e2e-sim e2e-egress smoke test-ui check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks lint fmt generate gen-alloy-version generate-corpus schema schema-verify helm-lint release-snapshot docker-build docker-build-local docker-build-init docker-build-simulator dev dev-sim dev-frontend dev-restart dev-seed dev-reset test-fullstack clean clean-docker tools preflight-ginkgo preflight-k8s
 
 # Several recipes are bash-idiomatic (the smoke here-string, trap chains);
 # /bin/sh is dash on Debian/Ubuntu and rejects them.
@@ -44,6 +44,11 @@ preflight-k8s:
 	$(call preflight,kind,Install kind (e.g. brew install kind).)
 	$(call preflight,helm,Install helm (e.g. brew install helm).)
 	$(call preflight,kubectl,Install kubectl (e.g. brew install kubectl).)
+
+# schema/schema-verify run the extractor in a linux container (run.sh) so the
+# artifact matches the linux fleet regardless of host OS.
+preflight-docker:
+	$(call preflight,docker,Install Docker Desktop or the docker engine.)
 
 # The '##' after a target is the one-liner `make help` surfaces; the longer
 # design-note comment blocks above targets are the full documentation.
@@ -409,11 +414,13 @@ gen-alloy-version: ## Regenerate internal/version/alloy_gen.go from versions.env
 # Regenerate the Alloy component schema artifact (internal/schema/artifacts/alloy-v<X>.json)
 # by cloning grafana/alloy at the ALLOY_VERSION pinned in deploy/versions.env and reconciling
 # internal/schema/artifacts/overlay.json against the result.
-# Prerequisites: network access (clones grafana/alloy) and git. NOT part of `make build` —
+# Prerequisites: network access (clones grafana/alloy), git, and docker — the
+# extractor runs in a linux container so the artifact matches the linux fleet
+# regardless of host OS. NOT part of `make build` —
 # app builds stay hermetic; this is a deliberate, occasional maintenance step.
 # Bump procedure: edit ALLOY_VERSION in deploy/versions.env -> make schema ->
 # review overlay entries marked "needs_review": true -> commit.
-schema: gen-alloy-version ## Regenerate the Alloy schema artifact (network; occasional)
+schema: gen-alloy-version preflight-docker ## Regenerate the Alloy schema artifact (network + docker; occasional)
 	./tools/alloy-schema-gen/run.sh
 
 # Verify the committed artifact still matches what the pinned Alloy produces, AND
@@ -429,7 +436,7 @@ schema: gen-alloy-version ## Regenerate the Alloy schema artifact (network; occa
 # Prerequisites: network access, git, go, jq. CI wiring:
 # .github/workflows/schema-verify.yml runs this weekly, on manual dispatch, and
 # on PRs touching deploy/versions.env.
-schema-verify: gen-alloy-version ## Verify the committed schema artifact matches the pinned Alloy
+schema-verify: gen-alloy-version preflight-docker ## Verify the committed schema artifact matches the pinned Alloy
 	@set -eu; \
 	tmp=$$(mktemp -d); \
 	trap 'rm -rf "$$tmp"' EXIT; \
