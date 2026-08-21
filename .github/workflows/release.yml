@@ -77,6 +77,11 @@ jobs:
       # so goreleaser's only before-hook is the SPA build (scripts/build-web.sh
       # needs the pnpm/node setup above) — no buf/sqlc toolchain here.
 
+      # goreleaser's sboms section shells out to syft, which ubuntu-latest
+      # does not preinstall — the first v0.0.1 run died on exactly this.
+      - name: Set up syft (SBOM generation)
+        uses: anchore/sbom-action/download-syft@v0
+
       - name: Set up QEMU (for linux/arm64 cross-build)
         uses: docker/setup-qemu-action@v3
         with:
