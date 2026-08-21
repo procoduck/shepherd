@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Getting started — Shepherd</title>
+<meta name="description" content="Run Shepherd locally, deploy it with Helm, and connect your first Grafana Alloy collector.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="../index.html">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 2.5 4 6v6c0 5.2 3.4 9.4 8 10.5 4.6-1.1 8-5.3 8-10.5V6l-8-3.5Z" stroke="var(--accent)" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M8.5 12.2 11 14.7l4.8-5" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Shepherd
+    </a>
+    <div class="nav-links">
+      <a href="../index.html#features">Features</a>
+      <a href="../index.html#architecture">Architecture</a>
+      <a href="getting-started.html">Docs</a>
+      <a class="btn btn-outline" href="https://github.com/procoduck/sheperd">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<div class="docs-body">
+  <div class="wrap docs-layout">
+    <aside class="docs-toc">
+      <p class="toc-label">On this page</p>
+      <ul>
+        <li><a href="#local">Run it locally</a></li>
+        <li><a href="#token">Create an agent token</a></li>
+        <li><a href="#alloy">Connect an Alloy collector</a></li>
+        <li><a href="#helm">Deploy with Helm</a></li>
+        <li><a href="#sandbox">Sandbox simulation</a></li>
+        <li><a href="#more">Where to go next</a></li>
+      </ul>
+    </aside>
+
+    <div class="docs-content">
+      <p class="back-link"><a href="../index.html">&larr; Back to overview</a></p>
+      <h1>Getting started</h1>
+      <p>
+        Shepherd ships as a single Go binary with the React SPA embedded via <code>go:embed</code>,
+        backed by PostgreSQL. These are the same commands used in local development — see
+        <a href="https://github.com/procoduck/sheperd/blob/main/docs/dev-guide.md">docs/dev-guide.md</a>
+        in the repo for the full dev-stack walkthrough (mock OIDC, Gitea, seeded Alloy agents).
+      </p>
+
+      <h2 id="local">Run it locally</h2>
+      <p>Start Postgres, build the binary, run migrations, and serve.</p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code># 1. Start Postgres
+docker run -d --name shepherd-pg \
+  -e POSTGRES_DB=shepherd -e POSTGRES_USER=shepherd -e POSTGRES_PASSWORD=shepherd \
+  -p 5432:5432 postgres:16-alpine
+
+# 2. Build &amp; run
+make build
+SHEPHERD_DATABASE_URL=postgres://shepherd:shepherd@localhost:5432/shepherd \
+SHEPHERD_SECURITY_ENCRYPTION_KEY=$(openssl rand -base64 32) \
+./bin/shepherd migrate up &amp;&amp; ./bin/shepherd serve</code></pre>
+      </div>
+      <p class="note">Prefer a full stack with a mock IdP, a git server, and live Alloy agents already talking to it? <code>make dev</code> boots that in Docker in about 10 seconds.</p>
+
+      <h2 id="token">Create an agent token</h2>
+      <p>Collectors authenticate to the <code>collector.v1</code> protocol with HTTP Basic auth. Mint a token once — the secret is shown exactly once.</p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>SHEPHERD_DATABASE_URL=postgres://shepherd:shepherd@localhost:5432/shepherd \
+  ./bin/shepherd token create --name dev</code></pre>
+      </div>
+
+      <h2 id="alloy">Connect an Alloy collector</h2>
+      <p>Add a <code>remotecfg</code> block to the collector's <code>config.alloy</code>. Shepherd resolves the collector by its <code>cluster</code> and <code>role</code> attributes — <code>role</code> is one of <code>metrics</code>, <code>logs</code>, <code>singleton</code>, or <code>receiver</code>.</p>
+      <div class="code-block" data-lang="alloy">
+        <div class="code-head"><span>config.alloy</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>remotecfg {
+  url = "http://shepherd:8080"
+  basic_auth {
+    username = "&lt;token-uuid&gt;"
+    password = "&lt;token-secret&gt;"
+  }
+  attributes = {
+    cluster = "&lt;cluster-name&gt;",
+    role    = "metrics",
+  }
+  poll_frequency = "60s"
+}</code></pre>
+      </div>
+      <p>On first poll, an unclaimed cluster gets served an empty config so it keeps running whatever it already has locally — nothing is disrupted until an org admin claims the cluster and enables pipelines that match it.</p>
+
+      <h2 id="helm">Deploy with Helm</h2>
+      <p>
+        The chart lives at <code>deploy/helm/shepherd</code>. Images are published to
+        <code>ghcr.io/procoduck/shepherd</code> (and <code>ghcr.io/procoduck/shepherd-simulator</code> for
+        the optional sandbox) for <code>linux/amd64</code> and <code>linux/arm64</code>.
+      </p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>helm install shepherd deploy/helm/shepherd \
+  --set image.registry=ghcr.io/procoduck \
+  --set image.tag=0.0.1 \
+  --set existingSecret=shepherd-secrets \
+  --set "route.enabled=true" \
+  --set "route.hostnames[0]=shepherd.internal"</code></pre>
+      </div>
+      <p>The chart requires a Kubernetes secret (<code>shepherd-secrets</code> by default, or override <code>existingSecret</code>) with:</p>
+      <table>
+        <thead><tr><th>Key</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>SHEPHERD_DATABASE_URL</code></td><td>PostgreSQL connection string</td></tr>
+          <tr><td><code>SHEPHERD_OIDC_CLIENT_SECRET</code></td><td>OIDC app client secret</td></tr>
+          <tr><td><code>SHEPHERD_GRAPH_CLIENT_SECRET</code></td><td>Microsoft Graph service principal secret (group resolution)</td></tr>
+          <tr><td><code>SHEPHERD_SECURITY_ENCRYPTION_KEY</code></td><td>Base64-encoded 32-byte key for encrypting stored credentials at rest</td></tr>
+        </tbody>
+      </table>
+      <p>See <a href="https://github.com/procoduck/sheperd/blob/main/deploy/helm/shepherd/values.yaml">deploy/helm/shepherd/values.yaml</a> for the full set of options, including <code>networkPolicy</code>, <code>autoscaling</code>, and the optional break-glass local admin account.</p>
+
+      <h2 id="sandbox">Sandbox simulation</h2>
+      <p>
+        Shepherd can run a candidate pipeline against synthetic sources in an isolated sandbox and show
+        the captured series before the pipeline reaches a real collector. As of v0.0.1, the Helm chart
+        ships it <strong>enabled by default</strong> — the chart auto-wires Shepherd's own config to the
+        chart's <code>shepherd-simulator</code> Service, so a plain <code>helm install</code> gets a
+        working sandbox with no extra flags.
+      </p>
+      <p>To turn it off for a deployment where you don't want it:</p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>helm install shepherd deploy/helm/shepherd \
+  --set simulator.enabled=false \
+  --set existingSecret=shepherd-secrets</code></pre>
+      </div>
+      <p>
+        The sandbox runs the simulated Alloy as a child process of a dedicated
+        <code>shepherd-simulator</code> pod with a default-deny egress <code>NetworkPolicy</code>, a
+        read-only root filesystem, no service account token mount, and CPU/memory limits — every one
+        of those controls is asserted by the chart's own tests, and the default render is asserted to
+        ship the simulator with its NetworkPolicy, never without. Containment has been verified with
+        in-cluster probes (<code>e2e/k8s/simulator_containment_test.go</code>) that dial from inside
+        the sandbox pod and confirm the rest of the cluster is unreachable. Stated honestly: the
+        sandbox transform bounds what credentials a run can see, and the network policy bounds where
+        it can reach — that combination is what's been proven, not an absolute guarantee against
+        anything a pipeline's own relabeling could do at runtime. If a deployment's threat model
+        needs the sandbox off entirely, use the switch above. The other two simulation tiers (flow
+        check, relabel/log trace) are unaffected either way — they run in-process and work out of the
+        box.
+      </p>
+      <p class="note">
+        Local dev keeps the sandbox opt-in on purpose (<code>make dev-sim</code>) — that's a
+        test-environment choice so the default <code>make dev</code>/<code>make e2e</code> paths
+        exercise Shepherd without the simulator, not a statement about the production default.
+      </p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>local dev</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>make dev-sim   # boots the dev stack with the sandbox tier enabled</code></pre>
+      </div>
+
+      <h2 id="more">Where to go next</h2>
+      <ul>
+        <li><a href="https://github.com/procoduck/sheperd/blob/main/docs/spec.md">docs/spec.md</a> — the full product and build specification.</li>
+        <li><a href="https://github.com/procoduck/sheperd/blob/main/docs/project-status.md">docs/project-status.md</a> — the live project ledger: what's verified, what's gated, what's next.</li>
+        <li><a href="https://github.com/procoduck/sheperd/blob/main/docs/dev-guide.md">docs/dev-guide.md</a> — the full local dev-stack guide.</li>
+        <li><a href="https://github.com/procoduck/sheperd/blob/main/README.md">README.md</a> — the management API and architecture overview.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-left">
+      <span class="pill">v0.0.1</span>
+      <span>self-hosted Grafana Alloy fleet manager</span>
+    </div>
+    <div class="foot-links">
+      <a href="https://github.com/procoduck/sheperd">GitHub</a>
+      <a href="../index.html">Home</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+  document.querySelectorAll(".copy-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var code = btn.closest(".code-block").querySelector("code").innerText;
+      navigator.clipboard.writeText(code).then(function () {
+        var original = btn.textContent;
+        btn.textContent = "Copied";
+        btn.classList.add("copied");
+        setTimeout(function () {
+          btn.textContent = original;
+          btn.classList.remove("copied");
+        }, 1600);
+      });
+    });
+  });
+</script>
+</body>
+</html>

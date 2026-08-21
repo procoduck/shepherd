@@ -1,0 +1,53 @@
+name: Pages
+
+# Publishes the hand-written static site in site/ to GitHub Pages. No build
+# step — the workflow just hands the directory to the Pages upload/deploy
+# actions as-is, so this stays fast and has nothing to drift from a local
+# build. Runs on pushes to main that touch site/**, plus workflow_dispatch
+# for a manual redeploy (e.g. after enabling Pages for the first time).
+#
+# enablement: true on configure-pages lets this workflow turn Pages on via
+# the API itself, so there is no separate manual "enable Pages" step in the
+# repo settings before the first run can succeed.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    name: deploy
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload site/ as the Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
