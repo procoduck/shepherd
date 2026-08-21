@@ -405,7 +405,7 @@ Status values: `proposed` → `in progress` → `gated` (built, awaiting its rev
 | W1 signal derivation + role enforcement | **done** | G6 ✅ | `internal/signals` (derivation + role policy table) and `internal/merge`'s `WithRoleEnforcement`, wired on **both** serve paths — `internal/mgmtapi`'s write-time recompute and `internal/agentapi.Service.recomputeServeCache`, the lazy path `GetConfig` takes when `serve_cache` is dirty. **G6 closed** by an integration test that drives the real dirty-window poll rather than calling `merge.Assemble` directly (`internal/agentapi/service_test.go`), red-run proven: disabling agent-path enforcement fails it with "a metrics pipeline reached a logs-role collector". Three defects found and fixed by review along the way — `Derive` skipping `foreach`/`declare` bodies (empty-but-*proven* signal set, enforcement passing trivially), `WithRoleEnforcement(nil)` silently disabling the guard it was asked to enable, and the agent path being unenforced entirely. |
 | W2 destination templates + tenant bindings | proposed | — | Schema change; migration required |
 | W3 Gateway API foundation | **done** | G1 ✅, G2 ✅, G3 ✅, G4 ✅ | Pin + conformance facts verified against the released CRDs (2026-08-21): at the v1.4 floor the Standard channel carries `URLRewrite`/`ReplacePrefixMatch` but **no CORS filter** (it reaches Standard only in v1.6.1), confirming D2. `make check-gateway-pin` (G1) and `internal/gateway.CheckSupport` (G2/D3) both red-run proven. `RenderHTTPRoute` emits a typed Gateway API v1 `HTTPRoute` that rewrites the tenant prefix and **sets** (never appends) `X-Scope-OrgID`. G3/G4 proven in the kind suite against a real controller: the backend observed `path="/v1/traces" X-Scope-OrgID="acme"` while the client sent `"evil-client-value"`, tenant B's prefix arrived tagged `globex` despite the client claiming `acme`, and the kill probe confirms removing the filter lets the client value pass straight through. |
-| W4 receiver tier + tenant routes | **in progress** | G3, G4 · R1, R3 | Segment generation + storage + mgmtapi surface built this session: `internal/gateway/segment.go` (D9's two formats, crypto/rand, `ValidateSegment` enforced at generation AND independently by 0009_tenant_routes' segment CHECK constraint), the `tenant_routes` table (org/tenant/kind/segment/status/timestamps, rotation modeled via `deprecated`+`valid_until`+`rotated_from_id`, D8's `gateway_mode` column expressing both ownership modes without a later migration), and `TenantRouteService` (create/list/rotate/revoke, org-reader/org-admin split). **Not built**: the receiver-tier Alloy pipelines, the actual Gateway/HTTPRoute apply to Kubernetes (RenderHTTPRoute from W3 is unused by this slice — segments are opaque values to it already), and the janitor sweep that flips an expired `deprecated` row to `revoked` (RevokeTenantRoute does it on demand instead). G3/G4 stay W3's (already closed); this slice adds no new kind-conformance surface. R1 still open — needs the K8s-apply slice to review together per its own note ("for operator-owned gateways, a route which fails to attach is surfaced as a refusal"), which does not exist yet. |
+| W4 receiver tier + tenant routes | **in progress** | G3, G4 · R1, R3 | Segment generation + storage + mgmtapi surface built this session: `internal/gateway/segment.go` (D9's two formats, crypto/rand, `ValidateSegment` enforced at generation AND independently by 0009_tenant_routes' segment CHECK constraint), the `tenant_routes` table (org/tenant/kind/segment/status/timestamps, rotation modeled via `deprecated`+`valid_until`+`rotated_from_id`, D8's `gateway_mode` column expressing both ownership modes without a later migration), and `TenantRouteService` (create/list/rotate/revoke, org-reader/org-admin split). **Not built**: the receiver-tier Alloy pipelines, the actual Gateway/HTTPRoute apply to Kubernetes (RenderHTTPRoute from W3 is unused by this slice — segments are opaque values to it already), and the janitor sweep that flips an expired `deprecated` row to `revoked` (RevokeTenantRoute does it on demand instead). G3/G4 stay W3's (already closed); this slice adds no new kind-conformance surface. **2026-08-22 — the apply + pass-through slice landed**, closing the two pieces that were named as missing above. (1) `internal/gateway/apply.go`: `ApplyRoute` checks the cluster's actual CRD annotations (D3) *before* applying, renders, applies, then polls `status.parents[]` until the route is verified ATTACHED — `Accepted=True` **and** `ResolvedRefs` not-False, since a route can be Accepted while its backendRef resolves nowhere. Missing status is pending (polled through), a definitive refusal short-circuits, and **deadline expiry returns an error, never an assumed success** (red-run proven: replacing the deadline branch with `return nil, nil` fails with `want a deadline-expiry error, got nil`). Both D8 ownership modes take the same code path with no branch — who created the Gateway is invisible from there. Proven in the kind suite against a real NGF controller in `e2e/k8s/route_apply_test.go`: a route at a Gateway whose `allowedRoutes` does not admit our namespace came back `Accepted=False (NotAllowedByListeners)` as a loud refusal *and* the test confirmed the HTTPRoute object itself exists, so this is a detected refusal rather than a failed create; the admitting case verified attachment and then actually delivered traffic (`path="/v1/traces" X-Scope-OrgID="acme"`). (2) D10 pass-through tenancy in `internal/receiver`: `OTLPPipeline.Mode` selects `TenancyStatic` (unchanged zero value, byte-identical goldens) or `TenancyPassThrough`, which wires `include_metadata` on every listener and one `otelcol.auth.headers` `from_context` component onto **every** exporter — derived from `Mode`, not a per-exporter opt-in, so a half-wired pass-through pipeline is not a representable state. `Validate` refuses pass-through combined with a hardcoded literal tenant header (red-run proven). **Still not built**: the janitor sweep, and Faro sharding (deferred by D10 as demand-driven). **R1 is ready for sign-off** — its operator-owned-attachment obligation is now built and cluster-proven; R3 remains open until the receiver tier defaults on. |
 | W5 beacon ingest + inventory | proposed | G5 · R2 | |
 | W6 three-way reconciliation | proposed | G6 | |
 | W7 onboarding artifacts | proposed | G7 | |
@@ -470,6 +470,44 @@ Status values: `proposed` → `in progress` → `gated` (built, awaiting its rev
 - **An opt-in control needs a loud failure mode for "asked for, not configured".**
   `WithRoleEnforcement(nil)` disabled the guard it was requested to enable. Not passing the option
   remains the way to opt out; passing it with nothing behind it is now an error.
+
+### 2026-08-22 — what building W4's apply path taught us
+
+- **Piping a gate through `tail` throws away its exit status.** `make e2e-k8s 2>&1 | tail -60`
+  reports the exit code of `tail`, which is always 0. The suite had genuinely failed — `make: ***
+  Error 1` was visible in the captured text — while the runner recorded success. A gate must be run
+  so its own status survives: redirect to a file and check `$?`, or set `pipefail`. This is the same
+  class as the CI jobs that once claimed to run and did not; a green signal that cannot go red is
+  not a gate.
+- **A misdirected probe wears the costume of the failure it is probing for.** The operator-owned
+  attachment test addressed the gateway Service at `<svc>.<podNS>` while the Service lived in the
+  operator's namespace, because the shared helper had one parameter where it needed two. Every
+  request failed on DNS, and the test reported "attachment was verified but the route never
+  actually delivered traffic" — which is precisely the product defect the assertion exists to
+  catch, and precisely what it had not found. `curlThroughGatewayUntil` now takes `podNS` and
+  `svcNS` separately and refuses to probe a Service that does not exist, so an addressing mistake
+  fails immediately as an addressing mistake. The general shape: **when a negative result is the
+  interesting result, the harness must rule out its own failure modes first**, or a broken test
+  reads as a discovered bug.
+- **"Verified attached" and "actually routes" had to be checked separately, and it paid off
+  immediately.** The run above returned `Accepted=True` from a real controller while no traffic
+  flowed. The cause turned out to be the harness, not the product — but only because the test
+  asserted both halves did anyone find out. A route's own status is the controller's opinion; the
+  backend's record of what arrived is the fact.
+- **`golangci-lint run` ignores config keys it does not understand.** Chasing phantom findings, this
+  session added a `run.exclude-dirs` key — valid in golangci-lint v1, moved in v2. `run` accepted it
+  and silently did nothing; only `golangci-lint config verify` reported it. The same silence would
+  hide a misspelled key meant to *enable* a check, which is a lint config that looks stricter than
+  it is. `make lint` now runs `config verify` first (red-run proven: injecting an invalid key fails
+  the target).
+- **Delete the fix that turns out to do nothing.** The exclusion above was added to stop
+  `.claude/worktrees/` being linted — then measurement showed Go tooling never walks dot-directories
+  under `./...` at all, so the line was dead config. The phantom findings were golangci-lint replaying
+  *cached* results from runs the agents had performed inside their own worktrees; `golangci-lint cache
+  clean` was the actual fix. Shipping the inert config line would have left the repo claiming a
+  control it does not have — §7's R4 failure in miniature, committed by the person auditing for it.
+  **After removing agent worktrees, clear the lint cache before trusting `make lint`.**
+
 ## 11. Open decisions
 
 1. ~~Gateway ownership~~ — **resolved, see D8.**

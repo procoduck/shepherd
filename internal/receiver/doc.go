@@ -12,6 +12,20 @@
 //   - Faro: faro.receiver (browser RUM) -> loki.write for logs,
 //     otelcol.processor.batch -> otelcol exporter for traces.
 //
+// # OTLP has two tenancy modes (D10)
+//
+// docs/gateway-tier-plan.md D10 establishes OTLP as the frontend/ingest path
+// that scales: one listener can serve N tenants because tenancy is carried
+// by the header the gateway tier injects (internal/gateway.TenantHeader),
+// not by static per-tenant config. OTLPPipeline.Mode selects between the
+// original static shape (each pipeline hardcodes one tenant's identity,
+// still what per-tenant isolation uses — D10 option 1/3) and
+// TenancyPassThrough (one pipeline, every tenant, identity read from the
+// gateway-injected context at request time via otelcol.auth.headers'
+// from_context). See OTLPTenancyMode's doc comment for exactly what the
+// pass-through wiring guarantees and what it trusts the gateway to have
+// already done.
+//
 // # CORS is this package's job, not the gateway's
 //
 // docs/gateway-tier-plan.md D2 records that at the pinned Gateway API floor

@@ -153,7 +153,7 @@ func TestGatewayRoutesAndTenantIsolation(t *testing.T) {
 		}).
 		Assess("G3: the backend receives the rewritten path and the injected tenant header",
 			func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-				resp, ok := curlThroughGatewayUntil(cfg, f.ns, "g3", nginxSvc, "/otlp/"+segA+"/v1/traces",
+				resp, ok := curlThroughGatewayUntil(ctx, t, cfg, f.ns, f.ns, "g3", nginxSvc, "/otlp/"+segA+"/v1/traces",
 					map[string]string{gateway.TenantHeader: "evil-client-value"},
 					func(r echoResponse) bool { return r.Path == "/v1/traces" && r.Headers["x-scope-orgid"] == tenantA },
 					gatewayProbeDeadline)
@@ -168,7 +168,7 @@ func TestGatewayRoutesAndTenantIsolation(t *testing.T) {
 			}).
 		Assess("G4: tenant B's prefix never arrives tagged as tenant A, even when the client claims to be A",
 			func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-				resp, ok := curlThroughGatewayUntil(cfg, f.ns, "g4-cross", nginxSvc, "/otlp/"+segB+"/v1/traces",
+				resp, ok := curlThroughGatewayUntil(ctx, t, cfg, f.ns, f.ns, "g4-cross", nginxSvc, "/otlp/"+segB+"/v1/traces",
 					map[string]string{gateway.TenantHeader: tenantA},
 					func(r echoResponse) bool { return r.Headers["x-scope-orgid"] == tenantB },
 					gatewayProbeDeadline)
@@ -209,7 +209,7 @@ func TestGatewayRoutesAndTenantIsolation(t *testing.T) {
 				waitHTTPRouteAccepted(t, ctx, cfg, f.ns, "route-"+tenantA, gatewayReadyDeadline)
 
 				const spoofed = "evil-client-value"
-				resp, ok := curlThroughGatewayUntil(cfg, f.ns, "g3-kill", nginxSvc, "/otlp/"+segA+"/v1/traces",
+				resp, ok := curlThroughGatewayUntil(ctx, t, cfg, f.ns, f.ns, "g3-kill", nginxSvc, "/otlp/"+segA+"/v1/traces",
 					map[string]string{gateway.TenantHeader: spoofed},
 					func(r echoResponse) bool { return r.Headers["x-scope-orgid"] == spoofed },
 					gatewayProbeDeadline)
@@ -494,14 +494,36 @@ type echoResponse struct {
 // nginx needs a moment to reprogram after a route is created or changed, and
 // a single early probe fails for a reason that has nothing to do with what is
 // being tested.
+//
+// podNS and svcNS are separate on purpose. For a Shepherd-managed Gateway
+// (D8) they are the same namespace and it is tempting to collapse them into
+// one parameter — but D8's operator-owned mode puts the Gateway, and so the
+// data-plane Service the controller provisions for it, in a namespace
+// Shepherd does not own. Collapsing them silently addresses the probe at
+// <svcName>.<podNS>, which does not resolve, and the resulting timeout looks
+// exactly like "the route never delivered traffic" — a wiring bug wearing
+// the costume of the product failure this suite exists to detect.
 func curlThroughGatewayUntil(
-	cfg *envconf.Config, ns, base, svcName, path string, headers map[string]string,
-	accept func(echoResponse) bool, deadline time.Duration,
+	ctx context.Context, t *testing.T, cfg *envconf.Config, podNS, svcNS, base, svcName, path string,
+	headers map[string]string, accept func(echoResponse) bool, deadline time.Duration,
 ) (echoResponse, bool) {
+	t.Helper()
+	// Fail fast and accurately if the Service being probed does not exist:
+	// every retry below would fail on DNS resolution, and the caller would
+	// report "the route never delivered traffic" after burning the whole
+	// deadline. That message would be true and useless — it names the
+	// product behaviour under test rather than the addressing mistake that
+	// actually happened.
+	var svc corev1.Service
+	if err := cfg.Client().Resources().Get(ctx, svcName, svcNS, &svc); err != nil {
+		t.Fatalf("probe target Service %s/%s does not exist, so every request would fail on DNS "+
+			"rather than on routing — this is a test-wiring error, not a routing result: %v",
+			svcNS, svcName, err)
+	}
 	end := time.Now().Add(deadline)
 	var last echoResponse
 	for i := 0; time.Now().Before(end); i++ {
-		if resp, ok := curlThroughGatewayOnce(cfg, ns, fmt.Sprintf("%s-%d", base, i), svcName, path, headers); ok {
+		if resp, ok := curlThroughGatewayOnce(cfg, podNS, svcNS, fmt.Sprintf("%s-%d", base, i), svcName, path, headers); ok {
 			last = resp
 			if accept(resp) {
 				return resp, true
@@ -519,16 +541,16 @@ func curlThroughGatewayUntil(
 // in-cluster DNS name and captures the echo backend's JSON response. Success
 // is judged by whether the output PARSES, matching this suite's rule to judge
 // by observed output rather than exit status.
-func curlThroughGatewayOnce(cfg *envconf.Config, ns, name, svcName, path string, headers map[string]string) (echoResponse, bool) {
+func curlThroughGatewayOnce(cfg *envconf.Config, podNS, svcNS, name, svcName, path string, headers map[string]string) (echoResponse, bool) {
 	var hdrArgs strings.Builder
 	for k, v := range headers {
 		fmt.Fprintf(&hdrArgs, " -H %s", strconv.Quote(fmt.Sprintf("%s: %s", k, v)))
 	}
-	url := fmt.Sprintf("http://%s.%s.svc.cluster.local%s", svcName, ns, path)
+	url := fmt.Sprintf("http://%s.%s.svc.cluster.local%s", svcName, svcNS, path)
 	cmd := fmt.Sprintf(
 		"kubectl --kubeconfig %s -n %s run %s --image=curlimages/curl:8.11.1 --restart=Never --rm --attach "+
 			"--quiet --pod-running-timeout=2m --command -- curl -s -X POST%s %s",
-		cfg.KubeconfigFile(), ns, name, hdrArgs.String(), strconv.Quote(url),
+		cfg.KubeconfigFile(), podNS, name, hdrArgs.String(), strconv.Quote(url),
 	)
 	p := utils.RunCommand(cmd)
 	var resp echoResponse

@@ -1,12 +1,15 @@
 package receiver_test
 
 import (
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"shepherd/internal/gateway"
 	"shepherd/internal/receiver"
 	"shepherd/internal/validate"
 )
@@ -34,6 +37,7 @@ var _ = Describe("Render", func() {
 			Expect(r.Valid).To(BeTrue(), "%s fails Stage 1: %+v", name, r.Diagnostics)
 		},
 		Entry("otlp-basic", "otlp-basic"),
+		Entry("otlp-passthrough", "otlp-passthrough"),
 		Entry("faro-basic", "faro-basic"),
 		Entry("faro-cors-disabled", "faro-cors-disabled"),
 		Entry("faro-cors-wildcard", "faro-cors-wildcard"),
@@ -280,5 +284,113 @@ var _ = Describe("size and rate limits are explicit, not inherited silently", fu
 		Expect(out).To(ContainSubstring(`sys.env("SHEPHERD_DEST_ACME_LOKI_TOKEN")`))
 		Expect(out).To(ContainSubstring(`sys.env("SHEPHERD_DEST_ACME_TEMPO_TOKEN")`))
 		Expect(out).NotTo(ContainSubstring("SHEPHERD_DEST_ACME_LOKI_TOKEN\","))
+	})
+})
+
+// ---------------------------------------------------------------------------
+// D10 pass-through tenancy: the failure mode this shape is designed against
+// is a pass-through pipeline whose auth is silently misconfigured, shipping
+// every tenant's data under one tenant id (or none). These specs prove that
+// shape cannot be expressed: every listener and every exporter in a
+// TenancyPassThrough pipeline is wired automatically by Render (not a
+// per-component opt-in a caller could omit), and the one real ambiguity —
+// hardcoding the tenant header AND reading it from context — is refused by
+// Validate before Render emits anything.
+// ---------------------------------------------------------------------------
+
+var _ = Describe("D10 pass-through tenancy", func() {
+	It("static (the zero value) is unaffected: no auth reference, no include_metadata", func() {
+		out, err := receiver.Render(fixture("otlp-basic"))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(out).NotTo(ContainSubstring("include_metadata"))
+		Expect(out).NotTo(ContainSubstring("otelcol.auth.headers"))
+		Expect(out).NotTo(ContainSubstring("auth ="))
+	})
+
+	// RED-RUN PROOF: comment out the `if passThrough { ... include_metadata
+	// ... }` lines in renderOTLPPipeline (render.go) and this spec's first
+	// assertion fails (count goes from 2 to 0) — the golden comparison spec
+	// ("otlp-passthrough" in the DescribeTable above) also fails
+	// immediately, since testdata/otlp-passthrough.golden.alloy no longer
+	// matches. Confirmed 2026-08-21: `go test ./internal/receiver/ -run
+	// TestReceiver` reports a golden mismatch on the DescribeTable entry and
+	// this spec's `Expect(strings.Count(...)).To(Equal(2))` failing with
+	// "Expected <int>: 0\nto equal <int>: 2" once those lines are removed;
+	// restoring them returns both specs to green.
+	It("wires include_metadata on every configured listener and an auth reference on every configured exporter", func() {
+		out, err := receiver.Render(fixture("otlp-passthrough"))
+		Expect(err).NotTo(HaveOccurred())
+
+		// Requirement 1: include_metadata set on both listener blocks that
+		// are actually configured in this fixture.
+		Expect(strings.Count(out, "include_metadata       = true")).To(Equal(2), "expected include_metadata on both grpc and http blocks")
+
+		// The shared otelcol.auth.headers component reads the tenant header
+		// gateway.RenderHTTPRoute sets (single source of truth — imported,
+		// not restated) from context.
+		Expect(out).To(ContainSubstring(`otelcol.auth.headers "otlp_shared_tenant"`))
+		Expect(out).To(ContainSubstring(fmt.Sprintf("key          = %q", gateway.TenantHeader)))
+		Expect(out).To(ContainSubstring(fmt.Sprintf("from_context = %q", strings.ToLower(gateway.TenantHeader))))
+
+		// Requirement 2: every exporter this fixture configures (metrics,
+		// logs, traces) references the auth handler — none of them was
+		// forgotten.
+		Expect(strings.Count(out, "auth = otelcol.auth.headers.otlp_shared_tenant.handler")).To(Equal(3),
+			"expected all three exporters (metrics, logs, traces) to reference the auth handler")
+	})
+
+	It("refuses a pass-through pipeline whose exporter also hardcodes the tenant header as a literal", func() {
+		_, err := receiver.Render(receiver.Config{OTLP: []receiver.OTLPPipeline{{
+			Label: "x",
+			Mode:  receiver.TenancyPassThrough,
+			GRPC:  &receiver.OTLPGRPCListener{ListenAddr: "0.0.0.0:4317", MaxRecvMsgSize: "4MiB", MaxConcurrentStreams: 100},
+			Metrics: &receiver.OTLPExporter{
+				Name: "m", Protocol: receiver.ExporterGRPC, EndpointExpr: `"https://x"`,
+				Headers: map[string]string{gateway.TenantHeader: "acme"},
+			},
+		}}})
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("mutually exclusive"))
+	})
+
+	It("refuses a pass-through pipeline whose exporter hardcodes the tenant header via SecretHeaderEnv", func() {
+		_, err := receiver.Render(receiver.Config{OTLP: []receiver.OTLPPipeline{{
+			Label: "x",
+			Mode:  receiver.TenancyPassThrough,
+			GRPC:  &receiver.OTLPGRPCListener{ListenAddr: "0.0.0.0:4317", MaxRecvMsgSize: "4MiB", MaxConcurrentStreams: 100},
+			Metrics: &receiver.OTLPExporter{
+				Name: "m", Protocol: receiver.ExporterGRPC, EndpointExpr: `"https://x"`,
+				SecretHeaderEnv: map[string]string{gateway.TenantHeader: "SOME_ENV"},
+			},
+		}}})
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("mutually exclusive"))
+	})
+
+	It("the mutual-exclusion check is case-insensitive, matching HTTP header semantics", func() {
+		_, err := receiver.Render(receiver.Config{OTLP: []receiver.OTLPPipeline{{
+			Label: "x",
+			Mode:  receiver.TenancyPassThrough,
+			GRPC:  &receiver.OTLPGRPCListener{ListenAddr: "0.0.0.0:4317", MaxRecvMsgSize: "4MiB", MaxConcurrentStreams: 100},
+			Metrics: &receiver.OTLPExporter{
+				Name: "m", Protocol: receiver.ExporterGRPC, EndpointExpr: `"https://x"`,
+				Headers: map[string]string{"x-scope-orgid": "acme"},
+			},
+		}}})
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("mutually exclusive"))
+	})
+
+	It("refuses an unrecognized Mode value", func() {
+		_, err := receiver.Render(receiver.Config{OTLP: []receiver.OTLPPipeline{{
+			Label: "x",
+			Mode:  receiver.OTLPTenancyMode("bogus"),
+			GRPC:  &receiver.OTLPGRPCListener{ListenAddr: "0.0.0.0:4317", MaxRecvMsgSize: "4MiB", MaxConcurrentStreams: 100},
+			Metrics: &receiver.OTLPExporter{
+				Name: "m", Protocol: receiver.ExporterGRPC, EndpointExpr: `"https://x"`,
+			},
+		}}})
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("mode"))
 	})
 })

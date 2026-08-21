@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"shepherd/internal/gateway"
 )
 
 // Render validates cfg and produces the Alloy config text for the
@@ -40,18 +42,33 @@ func Render(cfg Config) (string, error) {
 }
 
 func renderOTLPPipeline(sb *strings.Builder, p OTLPPipeline) {
+	passThrough := p.Mode == TenancyPassThrough
+	var authLabel string
+	if passThrough {
+		authLabel = otlpTenantAuthLabel(p.Label)
+	}
+
 	_, _ = fmt.Fprintf(sb, "otelcol.receiver.otlp %q {\n", p.Label)
 	if p.GRPC != nil {
 		_, _ = fmt.Fprintf(sb, "  grpc {\n")
 		_, _ = fmt.Fprintf(sb, "    endpoint               = %q\n", p.GRPC.ListenAddr)
 		_, _ = fmt.Fprintf(sb, "    max_recv_msg_size      = %q\n", p.GRPC.MaxRecvMsgSize)
 		_, _ = fmt.Fprintf(sb, "    max_concurrent_streams = %d\n", p.GRPC.MaxConcurrentStreams)
+		if passThrough {
+			// D10: without this, the gateway-injected tenant header never
+			// reaches otelcol.auth.headers' from_context below — see
+			// TenancyPassThrough's doc comment.
+			_, _ = fmt.Fprintf(sb, "    include_metadata       = true\n")
+		}
 		_, _ = fmt.Fprintf(sb, "  }\n")
 	}
 	if p.HTTP != nil {
 		_, _ = fmt.Fprintf(sb, "  http {\n")
 		_, _ = fmt.Fprintf(sb, "    endpoint               = %q\n", p.HTTP.ListenAddr)
 		_, _ = fmt.Fprintf(sb, "    max_request_body_size  = %q\n", p.HTTP.MaxRequestBodySize)
+		if passThrough {
+			_, _ = fmt.Fprintf(sb, "    include_metadata       = true\n")
+		}
 		_, _ = fmt.Fprintf(sb, "  }\n")
 	}
 	// otelcol.receiver.otlp has no requests/sec throttle in the pinned schema
@@ -74,6 +91,11 @@ func renderOTLPPipeline(sb *strings.Builder, p OTLPPipeline) {
 	_, _ = fmt.Fprintf(sb, "  }\n")
 	_, _ = fmt.Fprintf(sb, "}\n")
 
+	if passThrough {
+		sb.WriteString("\n")
+		renderOTLPTenantAuth(sb, authLabel)
+	}
+
 	sb.WriteString("\n")
 	renderBatch(sb, p.Label, p.Batch, p.Metrics, p.Logs, p.Traces)
 
@@ -82,8 +104,55 @@ func renderOTLPPipeline(sb *strings.Builder, p OTLPPipeline) {
 			continue
 		}
 		sb.WriteString("\n")
-		renderOTLPExporter(sb, *exp)
+		authRef := ""
+		if passThrough {
+			authRef = fmt.Sprintf("otelcol.auth.headers.%s.handler", authLabel)
+		}
+		renderOTLPExporter(sb, *exp, authRef)
 	}
+}
+
+// otlpTenantAuthLabel derives the otelcol.auth.headers component label for a
+// pass-through OTLP pipeline from its own Label — deterministic and, because
+// pipeline Labels are already required unique (Validate's claim map), never
+// collides across pipelines without a caller needing to name it separately.
+func otlpTenantAuthLabel(pipelineLabel string) string {
+	return "otlp_" + pipelineLabel + "_tenant"
+}
+
+// renderOTLPTenantAuth renders the one otelcol.auth.headers component a
+// pass-through OTLP pipeline shares across all of its exporters. See
+// TenancyPassThrough's doc comment for what include_metadata and this
+// component together guarantee, and what they do not: this component trusts
+// that whatever set gateway.TenantHeader on the inbound request is the real
+// gateway (internal/gateway.RenderHTTPRoute, which SETS — never appends —
+// the header, so a client cannot smuggle its own value past it). A
+// pass-through pipeline reachable by any path that is not fronted by that
+// gateway has no tenant isolation at all — this component cannot supply one.
+//
+// from_context is lowercased for readability, not for correctness: the
+// lookup is case-insensitive on both sides. Verified against upstream source
+// on 2026-08-21 rather than assumed — opentelemetry-collector's client.go
+// stores metadata keys via strings.ToLower on insert (NewMetadata) and
+// lowercases the key again on read (Metadata.Get), so "X-Scope-OrgID" and
+// "x-scope-orgid" resolve to the same entry.
+func renderOTLPTenantAuth(sb *strings.Builder, label string) {
+	_, _ = fmt.Fprintf(sb, "// D10 pass-through tenancy for this OTLP pipeline: %s trusts that the\n", gateway.TenantHeader)
+	_, _ = fmt.Fprintf(sb, "// gateway tier (internal/gateway.RenderHTTPRoute) already set %s on the\n", gateway.TenantHeader)
+	_, _ = fmt.Fprintf(sb, "// inbound request — it does not and cannot verify who set it. This\n")
+	_, _ = fmt.Fprintf(sb, "// component reads that value out of the connection context (populated by\n")
+	_, _ = fmt.Fprintf(sb, "// include_metadata = true above) and sets it on every outbound request\n")
+	_, _ = fmt.Fprintf(sb, "// this pipeline's exporters make. It guarantees the header is set from the\n")
+	_, _ = fmt.Fprintf(sb, "// gateway-controlled context on EVERY exporter below, never from a literal\n")
+	_, _ = fmt.Fprintf(sb, "// — see Config's doc comment. It does NOT guarantee the request reached\n")
+	_, _ = fmt.Fprintf(sb, "// this pipeline via the gateway in the first place.\n")
+	_, _ = fmt.Fprintf(sb, "otelcol.auth.headers %q {\n", label)
+	_, _ = fmt.Fprintf(sb, "  header {\n")
+	_, _ = fmt.Fprintf(sb, "    key          = %q\n", gateway.TenantHeader)
+	_, _ = fmt.Fprintf(sb, "    from_context = %q\n", strings.ToLower(gateway.TenantHeader))
+	_, _ = fmt.Fprintf(sb, "    action       = \"upsert\"\n")
+	_, _ = fmt.Fprintf(sb, "  }\n")
+	_, _ = fmt.Fprintf(sb, "}\n")
 }
 
 func renderBatch(sb *strings.Builder, label string, batch BatchConfig, metrics, logs, traces *OTLPExporter) {
@@ -115,23 +184,29 @@ func otlpExporterInput(exp *OTLPExporter) string {
 	return fmt.Sprintf("%s.%s.input", otlpExporterComponent(exp.Protocol), exp.Name)
 }
 
-func renderOTLPExporter(sb *strings.Builder, exp OTLPExporter) {
+// renderOTLPExporter renders one otelcol.exporter.otlp/otlphttp component.
+// authRef, when non-empty, is an otelcol.auth.headers handler reference
+// (e.g. "otelcol.auth.headers.otlp_shared_tenant.handler") rendered as the
+// client block's auth attribute — set for every exporter in a
+// TenancyPassThrough pipeline (see renderOTLPPipeline) and empty for every
+// other caller (static OTLP exporters, and Faro's traces exporter, which has
+// no pass-through mode).
+func renderOTLPExporter(sb *strings.Builder, exp OTLPExporter, authRef string) {
 	_, _ = fmt.Fprintf(sb, "%s %q {\n", otlpExporterComponent(exp.Protocol), exp.Name)
+	_, _ = fmt.Fprintf(sb, "  client {\n")
+	_, _ = fmt.Fprintf(sb, "    endpoint = %s\n", exp.EndpointExpr)
+	if authRef != "" {
+		_, _ = fmt.Fprintf(sb, "    auth = %s\n", authRef)
+	}
 	headerLines := mergedHeaderLines(exp.Headers, exp.SecretHeaderEnv)
 	if len(headerLines) > 0 {
-		_, _ = fmt.Fprintf(sb, "  client {\n")
-		_, _ = fmt.Fprintf(sb, "    endpoint = %s\n", exp.EndpointExpr)
 		_, _ = fmt.Fprintf(sb, "    headers = {\n")
 		for _, line := range headerLines {
 			_, _ = fmt.Fprintf(sb, "      %s\n", line)
 		}
 		_, _ = fmt.Fprintf(sb, "    }\n")
-		_, _ = fmt.Fprintf(sb, "  }\n")
-	} else {
-		_, _ = fmt.Fprintf(sb, "  client {\n")
-		_, _ = fmt.Fprintf(sb, "    endpoint = %s\n", exp.EndpointExpr)
-		_, _ = fmt.Fprintf(sb, "  }\n")
 	}
+	_, _ = fmt.Fprintf(sb, "  }\n")
 	_, _ = fmt.Fprintf(sb, "}\n")
 }
 
@@ -187,7 +262,7 @@ func renderFaroPipeline(sb *strings.Builder, p *FaroPipeline) {
 		sb.WriteString("\n")
 		renderBatch(sb, faroTracesBatchLabel(p.Label), BatchConfig{}, nil, nil, p.Traces)
 		sb.WriteString("\n")
-		renderOTLPExporter(sb, *p.Traces)
+		renderOTLPExporter(sb, *p.Traces, "") // Faro has no pass-through mode (D10)
 	}
 }
 

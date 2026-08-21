@@ -3,6 +3,10 @@ package receiver_test
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -43,16 +47,20 @@ type attrPath struct {
 }
 
 // renderedAttrs is every attribute render.go sets, one entry per line it
-// emits. Keeping this list next to (and checked against) the fixtures in
-// fixtures_test.go means a fixture that stops exercising a field silently
-// stops proving anything about it — see the "fixtures exercise every claimed
-// attribute" spec below.
+// emits. The list is checked in two directions: every entry must exist in the
+// pinned schema artifact (so we never emit a field Alloy does not declare),
+// and every entry must appear in at least one committed golden (so a fixture
+// that stops exercising a field cannot silently stop proving anything about
+// it). The second direction is the "goldens exercise every claimed attribute"
+// spec below.
 var renderedAttrs = []attrPath{
 	{"otelcol.receiver.otlp", []string{"grpc", "endpoint"}},
 	{"otelcol.receiver.otlp", []string{"grpc", "max_recv_msg_size"}},
 	{"otelcol.receiver.otlp", []string{"grpc", "max_concurrent_streams"}},
+	{"otelcol.receiver.otlp", []string{"grpc", "include_metadata"}},
 	{"otelcol.receiver.otlp", []string{"http", "endpoint"}},
 	{"otelcol.receiver.otlp", []string{"http", "max_request_body_size"}},
+	{"otelcol.receiver.otlp", []string{"http", "include_metadata"}},
 	{"otelcol.receiver.otlp", []string{"output", "metrics"}},
 	{"otelcol.receiver.otlp", []string{"output", "logs"}},
 	{"otelcol.receiver.otlp", []string{"output", "traces"}},
@@ -66,8 +74,16 @@ var renderedAttrs = []attrPath{
 
 	{"otelcol.exporter.otlp", []string{"client", "endpoint"}},
 	{"otelcol.exporter.otlp", []string{"client", "headers"}},
+	{"otelcol.exporter.otlp", []string{"client", "auth"}},
 	{"otelcol.exporter.otlphttp", []string{"client", "endpoint"}},
 	{"otelcol.exporter.otlphttp", []string{"client", "headers"}},
+	{"otelcol.exporter.otlphttp", []string{"client", "auth"}},
+
+	// D10 pass-through tenancy (internal/receiver.TenancyPassThrough): the
+	// component and header attributes renderOTLPTenantAuth emits.
+	{"otelcol.auth.headers", []string{"header", "key"}},
+	{"otelcol.auth.headers", []string{"header", "from_context"}},
+	{"otelcol.auth.headers", []string{"header", "action"}},
 
 	{"faro.receiver", []string{"server", "listen_address"}},
 	{"faro.receiver", []string{"server", "listen_port"}},
@@ -113,6 +129,48 @@ var _ = Describe("Every rendered component and attribute exists in the pinned sc
 		tableArgs = append(tableArgs, Entry(fmt.Sprintf("%s %v", a.component, a.path), a))
 	}
 	DescribeTable("declares the attribute at the claimed path", tableArgs...)
+})
+
+// A claim checked only against the schema proves the attribute is spellable,
+// not that this package ever spells it. Without this direction, deleting the
+// line that renders an attribute leaves renderedAttrs still passing — the
+// schema still declares it — and the entry quietly becomes a claim about
+// Alloy rather than about Shepherd. Reading the committed goldens (the same
+// files alloy_validate_test.go feeds to the real pinned binary) ties every
+// entry back to output we actually produce and validate.
+//
+// Red run, executed: stripping the include_metadata lines from
+// testdata/otlp-passthrough.golden.alloy (the only golden that renders them)
+// fails this spec with `otelcol.receiver.otlp: no golden renders
+// "include_metadata"`.
+var _ = Describe("goldens exercise every claimed attribute", func() {
+	It("renders each attribute in renderedAttrs in at least one golden", func() {
+		paths, err := filepath.Glob(filepath.Join("testdata", "*.golden.alloy"))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(paths).NotTo(BeEmpty(), "no goldens found — this spec would pass vacuously")
+
+		var corpus strings.Builder
+		for _, p := range paths {
+			b, err := os.ReadFile(p)
+			Expect(err).NotTo(HaveOccurred())
+			corpus.Write(b)
+			corpus.WriteString("\n")
+		}
+		text := corpus.String()
+
+		for _, a := range renderedAttrs {
+			leaf := a.path[len(a.path)-1]
+			// Alloy assigns attributes as `name = value`, always at the start
+			// of a line once indentation is trimmed. Anchoring on that avoids
+			// matching the same word inside a block name, a string value or a
+			// comment.
+			re := regexp.MustCompile(`(?m)^\s*` + regexp.QuoteMeta(leaf) + `\s*=`)
+			Expect(re.MatchString(text)).To(BeTrue(),
+				"%s: no golden renders %q — either a fixture stopped exercising it, or the "+
+					"entry is a claim about Alloy rather than about this package",
+				a.component, leaf)
+		}
+	})
 })
 
 // resolveAttrPath walks path's leading elements as nested block names inside

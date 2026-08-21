@@ -4,11 +4,27 @@ package receiver
 // may hold any number of OTLP and Faro pipelines. docs/gateway-tier-plan.md
 // §11 leaves "one Alloy per tenant vs. one shared receiver with per-tenant
 // pipelines" as an open decision (item 4); this package does not resolve it
-// — a Config with a single entry renders the former, a Config with several
-// entries (each with distinct listener addresses/ports) renders the latter.
-// Either way, each pipeline entry is scoped to exactly one tenant: its
-// exporters carry that tenant's destination and identity statically, decided
-// at render time by the caller, not extracted from the request at runtime.
+// for Faro — a Config with a single entry renders the former, a Config with
+// several entries (each with distinct listener addresses/ports) renders the
+// latter.
+//
+// D10 resolves the question for OTLP: OTLP is the frontend/ingest path that
+// scales, one listener serving N tenants with tenancy carried by the
+// gateway-injected header rather than static per-tenant config. Each
+// OTLPPipeline therefore picks one of two mutually exclusive tenancy shapes
+// via its Mode field:
+//
+//   - TenancyStatic (the zero value, and Faro's only shape): every exporter's
+//     tenant identity is decided by the caller at render time — baked into
+//     Headers/SecretHeaderEnv — and never read from the request. Used for
+//     per-tenant isolation (D10 option 1/3: a listener, or a whole collector,
+//     per tenant).
+//   - TenancyPassThrough: ONE otelcol.receiver.otlp pipeline serves every
+//     tenant behind it. Tenant identity is read at request time from the
+//     context metadata the gateway already injected (internal/gateway's
+//     TenantHeader, set — never appended — by RenderHTTPRoute) and set on
+//     every outbound request by an otelcol.auth.headers component this
+//     package wires automatically. See OTLPPipeline.Mode.
 type Config struct {
 	// OTLP is the set of OTLP receiver pipelines to render, in order.
 	OTLP []OTLPPipeline
@@ -28,6 +44,45 @@ const (
 	ExporterHTTP ExporterProtocol = "http"
 )
 
+// OTLPTenancyMode selects how an OTLPPipeline's exporters learn which
+// tenant-header value to send downstream. See Config's doc comment and D10
+// (docs/gateway-tier-plan.md).
+type OTLPTenancyMode string
+
+const (
+	// TenancyStatic is the pre-D10 shape and the zero value, so every
+	// Config that predates this field keeps rendering byte-identical
+	// output: the caller decides each exporter's tenant header (if any) via
+	// OTLPExporter.Headers/SecretHeaderEnv, same as always.
+	TenancyStatic OTLPTenancyMode = ""
+	// TenancyPassThrough is D10's shared-listener shape. Render wires,
+	// automatically and unconditionally for every listener block and every
+	// configured exporter in the pipeline — never as a per-exporter opt-in a
+	// caller could forget to set:
+	//
+	//   - include_metadata = true on every configured grpc/http block, so
+	//     the inbound request's headers (including the gateway-injected
+	//     tenant header) are propagated into the collector's internal
+	//     context. Without this, otelcol.auth.headers' from_context has
+	//     nothing to read and — per that component's documented behaviour —
+	//     silently omits the header rather than erroring, which is exactly
+	//     the "ships under no tenant id" failure D10 warns about.
+	//   - one otelcol.auth.headers component per pipeline, whose header
+	//     block reads gateway.TenantHeader from that context and sets it on
+	//     every outbound exporter request (action = "upsert").
+	//   - every configured exporter's client block references that
+	//     component's handler.
+	//
+	// Because this wiring is derived entirely from Mode and not exposed as a
+	// separate field on OTLPHTTPListener/OTLPGRPCListener/OTLPExporter, a
+	// caller cannot construct a pass-through pipeline that is missing it on
+	// some but not all of its listeners/exporters — the shape does not
+	// exist. What Validate does refuse is the other ambiguity: a pipeline
+	// that is pass-through AND also hardcodes the same header as a literal
+	// (see validatePassThroughExporter) — mutually exclusive per D10.
+	TenancyPassThrough OTLPTenancyMode = "pass_through"
+)
+
 // OTLPPipeline is one otelcol.receiver.otlp -> otelcol.processor.batch ->
 // exporter(s) chain, all sharing the Label as a suffix.
 type OTLPPipeline struct {
@@ -35,6 +90,9 @@ type OTLPPipeline struct {
 	// renders (e.g. otelcol.receiver.otlp "<Label>"). Must be a valid Alloy
 	// identifier and unique among every OTLP and Faro pipeline in the Config.
 	Label string
+	// Mode selects TenancyStatic (default) or TenancyPassThrough. See
+	// OTLPTenancyMode.
+	Mode OTLPTenancyMode
 	// HTTP configures the http block of otelcol.receiver.otlp. Nil disables
 	// the HTTP listener. At least one of HTTP/GRPC must be set.
 	HTTP *OTLPHTTPListener

@@ -3,6 +3,9 @@ package receiver
 import (
 	"fmt"
 	"regexp"
+	"strings"
+
+	"shepherd/internal/gateway"
 )
 
 // identRE matches a valid Alloy component label: an identifier, the same
@@ -48,6 +51,11 @@ func Validate(cfg Config) error {
 		}
 		if err := claim("otelcol.processor.batch", p.Label); err != nil {
 			return err
+		}
+		if p.Mode == TenancyPassThrough {
+			if err := claim("otelcol.auth.headers", otlpTenantAuthLabel(p.Label)); err != nil {
+				return err
+			}
 		}
 		for _, exp := range []*OTLPExporter{p.Metrics, p.Logs, p.Traces} {
 			if exp == nil {
@@ -107,6 +115,11 @@ func validateOTLPPipeline(p OTLPPipeline) error {
 	if err := validateLabel("Label", p.Label); err != nil {
 		return err
 	}
+	switch p.Mode {
+	case TenancyStatic, TenancyPassThrough:
+	default:
+		return fmt.Errorf("mode %q must be %q or %q", p.Mode, TenancyStatic, TenancyPassThrough)
+	}
 	if p.HTTP == nil && p.GRPC == nil {
 		return fmt.Errorf("at least one of HTTP or GRPC must be set")
 	}
@@ -138,6 +151,50 @@ func validateOTLPPipeline(p OTLPPipeline) error {
 		}
 		if err := validateOTLPExporter(*exp); err != nil {
 			return fmt.Errorf("%s: %w", field, err)
+		}
+		if p.Mode == TenancyPassThrough {
+			if err := validatePassThroughExporter(*exp); err != nil {
+				return fmt.Errorf("%s: %w", field, err)
+			}
+		}
+	}
+	return nil
+}
+
+// validatePassThroughExporter is the control this package exists to prove
+// for D10 pass-through pipelines: a pipeline cannot both hardcode the tenant
+// header as a literal AND have it read from the gateway-injected context —
+// see docs/gateway-tier-plan.md D10 and TenancyPassThrough's doc comment.
+// That combination is ambiguous about which value an operator meant to
+// reach the destination (Alloy's own client.headers-vs-auth precedence is
+// not a contract this package is willing to depend on), and refusing it is
+// the failure mode this design targets: a misconfigured pass-through
+// pipeline must fail loudly here, not silently ship one tenant's identifier
+// (or a stale one) for every tenant.
+//
+// RED-RUN PROOF: replace this function's body with `return nil` and both
+// "refuses a pass-through pipeline whose exporter also hardcodes the tenant
+// header..." specs in receiver_test.go go from PASS to FAIL — Render
+// instead succeeds and emits an exporter whose client block carries both a
+// literal "X-Scope-OrgID" = "acme" in headers AND an
+// `auth = otelcol.auth.headers...handler` reference to the same header,
+// with no way for a reader of the generated config to know which one the
+// destination will actually see. Confirmed 2026-08-21 by making exactly
+// that edit and running `go test ./internal/receiver/ -count=1 -args
+// --ginkgo.focus="hardcodes the tenant header"`: both specs report
+// "[FAILED] Expected an error to have occurred.  Got:\n    <nil>: nil".
+// Restoring the body returns both to green.
+func validatePassThroughExporter(exp OTLPExporter) error {
+	for k := range exp.Headers {
+		if strings.EqualFold(k, gateway.TenantHeader) {
+			return fmt.Errorf("pass-through pipeline also hardcodes header %q as a literal in "+
+				"Headers — static and pass-through tenancy are mutually exclusive per pipeline (D10)", k)
+		}
+	}
+	for k := range exp.SecretHeaderEnv {
+		if strings.EqualFold(k, gateway.TenantHeader) {
+			return fmt.Errorf("pass-through pipeline also hardcodes header %q via SecretHeaderEnv — "+
+				"static and pass-through tenancy are mutually exclusive per pipeline (D10)", k)
 		}
 	}
 	return nil

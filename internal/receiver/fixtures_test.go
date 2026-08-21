@@ -6,6 +6,7 @@ import "shepherd/internal/receiver"
 // test, the real-alloy-binary validation test, and the (opt-in) generator.
 var fixtureNames = []string{
 	"otlp-basic",
+	"otlp-passthrough",
 	"faro-basic",
 	"faro-cors-disabled",
 	"faro-cors-wildcard",
@@ -49,6 +50,42 @@ func fixture(name string) receiver.Config {
 					Name: "acme_tempo", Protocol: receiver.ExporterGRPC,
 					EndpointExpr:    `sys.env("SHEPHERD_DEST_ACME_TEMPO_URL")`,
 					SecretHeaderEnv: map[string]string{"Authorization": "SHEPHERD_DEST_ACME_TEMPO_TOKEN"},
+				},
+			}},
+		}
+
+	case "otlp-passthrough":
+		// D10 shared/pass-through mode: ONE otelcol.receiver.otlp pipeline
+		// serves every tenant behind the gateway. No exporter here carries a
+		// tenant identifier literal — Render wires it from the
+		// gateway-injected context automatically (Mode alone decides it).
+		// Bearer-token auth to the destination is a separate concern from
+		// tenant identity and still flows through SecretHeaderEnv exactly as
+		// in the static fixture.
+		return receiver.Config{
+			OTLP: []receiver.OTLPPipeline{{
+				Label: "shared",
+				Mode:  receiver.TenancyPassThrough,
+				GRPC: &receiver.OTLPGRPCListener{
+					ListenAddr: "0.0.0.0:4317", MaxRecvMsgSize: "4MiB", MaxConcurrentStreams: 200,
+				},
+				HTTP: &receiver.OTLPHTTPListener{
+					ListenAddr: "0.0.0.0:4318", MaxRequestBodySize: "8MiB",
+				},
+				Batch: receiver.BatchConfig{Timeout: "5s", SendBatchSize: 1000, SendBatchMaxSize: 1500},
+				Metrics: &receiver.OTLPExporter{
+					Name: "shared_mimir", Protocol: receiver.ExporterGRPC,
+					EndpointExpr: `sys.env("SHEPHERD_DEST_SHARED_MIMIR_URL")`,
+				},
+				Logs: &receiver.OTLPExporter{
+					Name: "shared_loki_otlp", Protocol: receiver.ExporterHTTP,
+					EndpointExpr:    `sys.env("SHEPHERD_DEST_SHARED_LOKI_URL")`,
+					SecretHeaderEnv: map[string]string{"Authorization": "SHEPHERD_DEST_SHARED_LOKI_TOKEN"},
+				},
+				Traces: &receiver.OTLPExporter{
+					Name: "shared_tempo", Protocol: receiver.ExporterGRPC,
+					EndpointExpr:    `sys.env("SHEPHERD_DEST_SHARED_TEMPO_URL")`,
+					SecretHeaderEnv: map[string]string{"Authorization": "SHEPHERD_DEST_SHARED_TEMPO_TOKEN"},
 				},
 			}},
 		}

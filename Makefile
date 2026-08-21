@@ -417,6 +417,13 @@ check-gateway-pin: ## Guard: Gateway API version/channel agree with versions.env
 
 lint: check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks check-gateway-pin ## Repo guards + golangci-lint
 	$(call preflight,golangci-lint,Install golangci-lint v2 (https://golangci-lint.run).)
+	@# `golangci-lint run` accepts unknown keys in .golangci.yml without
+	@# complaint, so a misplaced or misspelled setting silently does nothing
+	@# — including one meant to ENABLE a check. Verifying the config against
+	@# its schema first turns that into a loud failure. Found the hard way on
+	@# 2026-08-22: a `run.exclude-dirs` key (valid in v1, moved in v2) was
+	@# accepted and ignored by `run`, and only `config verify` reported it.
+	golangci-lint config verify
 	golangci-lint run ./...
 
 # gci via golangci-lint fmt + standalone gofumpt to avoid gci/gofumpt cycle.
