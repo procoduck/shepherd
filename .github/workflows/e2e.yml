@@ -56,30 +56,8 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Read pnpm version from package.json
-        id: pnpm-version
-        run: |
-          version="$(jq -r '.packageManager' web/package.json | sed -E 's/^pnpm@//')"
-          if [ -z "$version" ] || [ "$version" = "null" ]; then
-            echo "::error::could not read packageManager from web/package.json" >&2
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: ${{ steps.pnpm-version.outputs.version }}
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-
       - name: Install ginkgo CLI
-        run: go install github.com/onsi/ginkgo/v2/ginkgo@$(go list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)
+        run: go install "github.com/onsi/ginkgo/v2/ginkgo@$(go list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)"
 
       - name: make e2e
         run: make e2e
@@ -130,7 +108,7 @@ jobs:
           cache: true
 
       - name: Install ginkgo CLI
-        run: go install github.com/onsi/ginkgo/v2/ginkgo@$(go list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)
+        run: go install "github.com/onsi/ginkgo/v2/ginkgo@$(go list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)"
 
       # `make e2e-sim`, whose first ginkgo pass is exactly the egress-probe
       # filter with --fail-on-empty (this job's whole reason to exist) and

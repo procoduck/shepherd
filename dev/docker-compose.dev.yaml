@@ -1,15 +1,16 @@
 # DEV ONLY — Local development stack. Do not use in production.
 # Ports: postgres=15432, shepherd=8080, mockmsft=9090, oidc=8090, gitea=3080(http)/2222(ssh)
 # Profiles:
-#   (default): postgres, shepherd-init, shepherd, mockmsft
+#   (default): postgres, shepherd-init, shepherd-seed, shepherd, mockmsft,
+#              gitea, and the three Alloy agents (alloy-metrics, alloy-logs,
+#              alloy-staging) — the Alloy services start by default, no
+#              profile needed
 #   --profile oidc: adds mock-oauth2-server (for OIDC login testing)
-#   --profile alloy: adds Alloy agent (for collector screen demo)
 #   --profile sim: adds shepherd-simulator (S3 sandbox runs, VB-1 §6.4)
 #
 # Usage:
 #   make dev                          # start full stack
 #   make dev-frontend                 # start backend only, then pnpm dev
-#   make dev E2E_KEEP=1               # keep stack after tests
 #   make dev-reset                    # wipe all data and start fresh
 
 services:

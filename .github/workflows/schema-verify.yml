@@ -1,0 +1,46 @@
+name: Schema Verify
+
+# Verifies the committed Alloy schema artifact (and the hand-maintained
+# overlay's coverage of it) still matches what the pinned grafana/alloy
+# produces — see the schema-verify target in the Makefile. Weekly cron because
+# the artifact can only drift when the pin or the generator changes, but a
+# silent generator regression would otherwise sit unnoticed until the next
+# Alloy bump; the PR paths filter catches the bump itself.
+#
+# `make schema-verify` needs go, git, and jq — all preinstalled on
+# ubuntu-latest.
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - "deploy/versions.env"
+      - "tools/alloy-schema-gen/**"
+      - ".github/workflows/schema-verify.yml"
+
+concurrency:
+  group: schema-verify-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  schema-verify:
+    name: schema-verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: make schema-verify
+        run: make schema-verify
