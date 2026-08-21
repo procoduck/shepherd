@@ -18,10 +18,30 @@ name: CI
 # `make test` runs the whole Go suite, testcontainers included. smoke is
 # still not wired into CI; that remains follow-up.
 
+# Actions minutes are a budgeted resource (3000/month on this plan) and GitHub
+# bills EVERY JOB separately, so this workflow's eight parallel jobs cost ~22
+# billed minutes for ~6 minutes of wall clock. Two rules follow from that:
+#
+#   1. A change that cannot affect any job here must not start the workflow —
+#      hence paths-ignore. A docs-only push used to cost the full 22 minutes.
+#   2. The two most expensive jobs (test-fullstack ~7 min, generated-drift ~5
+#      min — together over half the bill) gate on the `changes` job below, so
+#      they run only when their own inputs moved.
+#
+# paths-ignore is deliberately narrow: anything not listed still runs
+# everything. A PR touching docs AND code runs in full, which is correct.
 on:
   pull_request:
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "site/**"
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "site/**"
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -31,6 +51,57 @@ permissions:
   contents: read
 
 jobs:
+  # Cheap (<1 min) fan-out gate for the two expensive jobs below. Plain git
+  # rather than a third-party paths-filter action, matching this repo's
+  # existing preference (see release.yml's note on unverified Actions).
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    outputs:
+      generated: ${{ steps.f.outputs.generated }}
+      fullstack: ${{ steps.f.outputs.fullstack }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed paths
+        id: f
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            base="${{ github.event.before }}"
+          fi
+          # A missing/zero base (first push on a branch, force-push) means we
+          # cannot diff — run everything rather than skip a gate blindly.
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "generated=true" >> "$GITHUB_OUTPUT"
+            echo "fullstack=true" >> "$GITHUB_OUTPUT"
+            echo "no usable base ($base) — running all gated jobs"
+            exit 0
+          fi
+          files="$(git diff --name-only "$base" HEAD)"
+          echo "changed files:"; echo "$files"
+
+          # generated-drift can only fail if a generator input or its committed
+          # output moved. Anything else cannot produce drift.
+          if echo "$files" | grep -qE '^(proto/|buf\.(gen\.)?yaml|sqlc\.yaml|gen/|web/src/gen/|internal/store/queries/|internal/store/sqlc/|internal/version/|deploy/versions\.env|Makefile|\.github/workflows/ci\.yml)'; then
+            echo "generated=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "generated=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # test-fullstack drives the real server + SPA. Changes confined to the
+          # k8s e2e suite or the chart cannot affect it; everything else can.
+          if echo "$files" | grep -vE '^(e2e/k8s/|deploy/helm/)' | grep -q .; then
+            echo "fullstack=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "fullstack=false" >> "$GITHUB_OUTPUT"
+          fi
+
   lint:
     name: lint
     runs-on: ubuntu-latest
@@ -99,6 +170,8 @@ jobs:
   # fail on any diff. Tool pins match `make tools`.
   generated-drift:
     name: generated-drift
+    needs: changes
+    if: needs.changes.outputs.generated == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -311,6 +384,8 @@ jobs:
   # root cause was precisely the absence of a layer that touched the shipped schema.
   test-fullstack:
     name: test-fullstack
+    needs: changes
+    if: needs.changes.outputs.fullstack == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:

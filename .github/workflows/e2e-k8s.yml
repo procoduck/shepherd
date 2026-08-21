@@ -4,16 +4,23 @@ name: E2E K8s
 # containment specs, opening with the negative control that proves the CNI
 # enforces before any denial is trusted (docs/kind-test-environment-plan.md).
 #
-# Nightly rather than per-PR: `make e2e-k8s` builds both images, creates a
+# Scheduled rather than per-PR: `make e2e-k8s` builds both images, creates a
 # kind cluster, and installs Calico — ~3-5 min locally, meaningfully longer on
 # CI runners, and heavier than any signal it adds for PRs that don't touch the
 # chart or the suite. PRs that DO touch them run it via the paths filter,
 # because those are the changes it exists to catch. (The 45m go-test timeout
 # is a budget for a wedged cluster, not the expected runtime.)
+#
+# WEEKLY, not nightly: this costs ~12 billed minutes per run, so a nightly
+# schedule alone would spend ~360 of the 3000 monthly minutes re-proving the
+# same thing against an unchanged tree. The paths filter above is what
+# actually catches regressions — the schedule only guards against rot from
+# upstream drift (a new kind/Calico/Kubernetes release), which is a weekly-
+# scale risk, not a daily one. Run it on demand any time via workflow_dispatch.
 
 on:
   schedule:
-    - cron: "43 3 * * *"
+    - cron: "43 3 * * 2"
   workflow_dispatch: {}
   pull_request:
     paths:

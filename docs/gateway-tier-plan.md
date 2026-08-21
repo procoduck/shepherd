@@ -203,6 +203,13 @@ Conventions that made the previous multi-agent sessions land cleanly. They are n
 7. **Update this file's ledger (§9) and, when a session teaches something, append to §10.**
    Product-level status goes in `docs/project-status.md`; do not start a second ledger.
 8. **Docs land in the same commit as the control they describe.** Not the next session.
+9. **Actions minutes are a budgeted resource (3000/month).** GitHub bills every job
+   separately, so a workflow's parallel jobs multiply. Before adding a job or a schedule,
+   state its per-run billed cost and what it buys; prefer a paths filter or an existing job
+   over a new one. Never buy coverage with a nightly schedule that a paths filter already
+   provides — and never trade *coverage* for minutes: reduce redundant executions, not gates.
+   `make lint`, the full Go suite and the kind suite all run locally for free; CI is the
+   backstop, not the first place a change is tested.
 
 ## 9. Ledger
 

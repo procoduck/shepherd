@@ -333,7 +333,14 @@ logout; horizontal-scale coordination beyond stateless replicas + Postgres.
   `web/src/visual/__fixtures__/corpus/`, `make generate-corpus`); Makefile guards
 - **CI**: lint, build, guards (incl. helm-lint), generated-drift, test, web, test-ui,
   test-fullstack, e2e-egress (containment probes, paths-filtered on PRs); scheduled: schema-verify
-  (weekly), e2e-k8s (nightly)
+  (weekly), e2e-k8s (weekly)
+- **Actions minutes are budgeted (3000/month) and GitHub bills every job separately**, so eight
+  parallel CI jobs cost ~22 billed minutes for ~6 of wall clock. Measured 2026-08-21: one heavy
+  development day burned 819 minutes. Three controls keep that in range — `paths-ignore` so a
+  docs-only change never starts CI, a sub-minute `changes` job gating the two most expensive jobs
+  (test-fullstack ~7 min, generated-drift ~5 min) on whether their own inputs moved, and weekly
+  rather than nightly scheduling for the kind suite. **Reduce redundant executions, never
+  coverage**: every gate still runs when its inputs change, and everything runs locally for free.
 
 ### A standard this repo now holds itself to
 
