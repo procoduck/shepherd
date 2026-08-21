@@ -1,0 +1,32 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: shepherd
+    shepherd.io/route-kind: faro
+  name: acme-faro
+  namespace: shepherd-receiver
+spec:
+  parentRefs:
+  - name: shepherd-gateway
+  rules:
+  - backendRefs:
+    - name: receiver-acme
+      port: 12347
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: ""
+          type: ReplacePrefixMatch
+    - requestHeaderModifier:
+        set:
+        - name: X-Scope-OrgID
+          value: acme
+      type: RequestHeaderModifier
+    matches:
+    - path:
+        type: PathPrefix
+        value: /faro/acme-webapp
+status:
+  parents: null

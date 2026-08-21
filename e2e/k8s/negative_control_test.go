@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -50,6 +51,20 @@ import (
 // it demonstrates, in the repo, exactly what an operator loses on a
 // non-enforcing CNI such as Flannel.
 func TestCNIEnforcesNetworkPolicy(t *testing.T) {
+	runCNICheck(t)
+}
+
+// runCNICheck executes the negative control exactly once per test binary,
+// whoever asks first.
+//
+// Ordering used to be implicit: cniVerified was set by TestCNIEnforcesNetworkPolicy
+// and every dependent feature simply asserted it, relying on `go test` running
+// files in FILENAME order. That held only as long as no dependent file sorted
+// earlier — and gateway_test.go does ('g' < 'n'), so the gateway feature failed
+// at 0.00s on an unverified CNI the first time it ran. Filename collation is not
+// a dependency mechanism; sync.Once is. This also makes `go test -run` of a
+// single dependent feature work, which the old scheme could never support.
+func runCNICheck(t *testing.T) {
 	const (
 		targetName = "np-target"
 		proberName = "np-prober"
@@ -160,26 +175,38 @@ func TestCNIEnforcesNetworkPolicy(t *testing.T) {
 	testenv.Test(t, feat)
 }
 
+// cniOnce guards runCNICheck so N dependent features pay for it once.
+var cniOnce sync.Once
+
+// requireCNIVerified ensures the negative control has run and passed before a
+// dependent feature trusts any denial or any routing result. Call it from Setup.
+func requireCNIVerified(t *testing.T) {
+	t.Helper()
+	cniOnce.Do(func() { runCNICheck(t) })
+	if !cniVerified {
+		t.Fatalf("this cluster's CNI did not pass the NetworkPolicy negative control, so no denial " +
+			"or routing result from this feature would mean anything. See TestCNIEnforcesNetworkPolicy.")
+	}
+}
+
 // cniFixture is this feature's namespace, shared between its Setup and Assess
 // closures.
 var cniFixture *fixture
 
-// cniVerified is set true only once all three phases of
-// TestCNIEnforcesNetworkPolicy have passed: connect-with-no-policy succeeded,
-// connect-under-ingress-deny failed, and connect-under-egress-deny failed.
-// Every containment probe in simulator_containment_test.go checks this before
-// doing anything else — a denial observed against an unverified CNI is exactly
-// the meaningless result §4 of the plan warns about, one level up from what
-// P-harness guards inside a single feature. Deliberately package-level rather
-// than threaded through Context: TestMain runs test functions from this
-// package sequentially in one process (no t.Parallel anywhere in this suite),
-// and the filename (negative_control_test.go sorts before
-// simulator_containment_test.go) is what makes `go test` run this feature
-// first. That ordering is source-order within the package, which
-// `go test -shuffle=on` randomizes — under shuffle the containment features
-// fail loudly on this gate rather than silently probing an unverified CNI,
-// which is the acceptable direction; do not wire -shuffle into this suite's
-// invocation without replacing the ordering with an explicit TestMain sequence.
+// cniVerified is set true only once all three phases of runCNICheck have
+// passed: connect-with-no-policy succeeded, connect-under-ingress-deny
+// failed, and connect-under-egress-deny failed. Every feature that depends on
+// a trustworthy denial or routing result calls requireCNIVerified from its
+// Setup, which runs runCNICheck on demand (sync.Once-guarded) rather than
+// relying on `go test` happening to run TestCNIEnforcesNetworkPolicy first —
+// filename-sort ordering is not a dependency mechanism, and a dependent file
+// that happens to sort earlier used to fail at 0:00 on an unverified CNI
+// instead of actually verifying it (gateway_test.go did, once, before it was
+// renamed to route_conformance_test.go and this indirection was added).
+// Deliberately package-level rather than threaded through Context: TestMain
+// runs test functions from this package sequentially in one process (no
+// t.Parallel anywhere in this suite), so a plain package-level bool set once
+// under sync.Once is visible to every later feature in the same run.
 var cniVerified bool
 
 const (

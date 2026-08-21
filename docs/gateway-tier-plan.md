@@ -1,6 +1,6 @@
 # Gateway tier, beacon, and tenant routing — multi-session implementation plan
 
-> Status: **in progress — W1 done (G6 closed); W2–W11 proposed.** This document is the execution plan and
+> Status: **in progress — W1 and W3 done, W2 built (PR open); R1 review gate is next, before W4.** This document is the execution plan and
 > per-step ledger for the work; `docs/project-status.md` remains the single live status
 > document for the product as a whole and links here. Do not start a second product ledger:
 > step status lives in §9 of this file, product status lives there.
@@ -288,7 +288,7 @@ Status values: `proposed` → `in progress` → `gated` (built, awaiting its rev
 |---|---|---|---|
 | W1 signal derivation + role enforcement | **done** | G6 ✅ | `internal/signals` (derivation + role policy table) and `internal/merge`'s `WithRoleEnforcement`, wired on **both** serve paths — `internal/mgmtapi`'s write-time recompute and `internal/agentapi.Service.recomputeServeCache`, the lazy path `GetConfig` takes when `serve_cache` is dirty. **G6 closed** by an integration test that drives the real dirty-window poll rather than calling `merge.Assemble` directly (`internal/agentapi/service_test.go`), red-run proven: disabling agent-path enforcement fails it with "a metrics pipeline reached a logs-role collector". Three defects found and fixed by review along the way — `Derive` skipping `foreach`/`declare` bodies (empty-but-*proven* signal set, enforcement passing trivially), `WithRoleEnforcement(nil)` silently disabling the guard it was asked to enable, and the agent path being unenforced entirely. |
 | W2 destination templates + tenant bindings | proposed | — | Schema change; migration required |
-| W3 Gateway API foundation | **in progress** | G1 ✅, G2 ✅, G3, G4 | Pin + conformance facts **verified against the released CRDs, not recalled** (2026-08-21): at the v1.4 floor the Standard channel carries `URLRewrite`/`ReplacePrefixMatch` but **no CORS filter** — CORS reaches Standard only in v1.6.1, confirming D2's decision to let Alloy answer CORS. `GATEWAY_API_VERSION`/`_CHANNEL` pinned in `deploy/versions.env`; `make check-gateway-pin` (G1) keeps `internal/gateway`'s constants in lockstep, red-run proven. `internal/gateway.CheckSupport` (G2, D3) refuses an old or wrong-channel cluster with an actionable sentence rather than emitting routes a controller ignores; an unstamped CRD is refused rather than assumed modern. **Remains**: the `HTTPRoute` renderer and the kind conformance harness (G3/G4) — installing the pinned CRDs plus a controller and proving a route actually routes. |
+| W3 Gateway API foundation | **done** | G1 ✅, G2 ✅, G3 ✅, G4 ✅ | Pin + conformance facts verified against the released CRDs (2026-08-21): at the v1.4 floor the Standard channel carries `URLRewrite`/`ReplacePrefixMatch` but **no CORS filter** (it reaches Standard only in v1.6.1), confirming D2. `make check-gateway-pin` (G1) and `internal/gateway.CheckSupport` (G2/D3) both red-run proven. `RenderHTTPRoute` emits a typed Gateway API v1 `HTTPRoute` that rewrites the tenant prefix and **sets** (never appends) `X-Scope-OrgID`. G3/G4 proven in the kind suite against a real controller: the backend observed `path="/v1/traces" X-Scope-OrgID="acme"` while the client sent `"evil-client-value"`, tenant B's prefix arrived tagged `globex` despite the client claiming `acme`, and the kill probe confirms removing the filter lets the client value pass straight through. |
 | W4 receiver tier + tenant routes | proposed | G3, G4 · R1, R3 | |
 | W5 beacon ingest + inventory | proposed | G5 · R2 | |
 | W6 three-way reconciliation | proposed | G6 | |
@@ -328,6 +328,23 @@ Status values: `proposed` → `in progress` → `gated` (built, awaiting its rev
   every role. The tests were thorough about components they visited and silent about the ones they
   never reached — a reminder that "the tests pass" says nothing about the inputs the code declines to
   parse. Container recursion is now pinned by a red-run test.
+- **Territory rules govern files, not branches or timing.** Two agents were given the same working
+  tree; the second created its branch and switched the tree out from under the first, mid-run. Nothing
+  was lost (disjoint territories made the work separable by path) but it cost a confusing debug cycle,
+  and the orchestrator then compounded it by editing files while an agent was still live. §8 rule 1 is
+  necessary and not sufficient: give each concurrent agent its own worktree, or serialize edits
+  strictly. This is orchestrator discipline — no rule the agents follow can fix it.
+- **Filename collation is not a dependency mechanism.** The CNI negative control gated dependent
+  features through a package-level flag, relying on `go test` running files in filename order. The
+  first feature added whose name sorted earlier (`gateway_test.go` < `negative_control_test.go`)
+  failed instantly against an unverified CNI. Now `requireCNIVerified` runs the control on demand,
+  `sync.Once`-guarded, which is order-independent and additionally makes `go test -run` of a single
+  gated feature work — something the ordering scheme could never support.
+- **Pick the controller that cannot widen the contract.** Envoy Gateway's Helm chart bundles
+  Experimental-channel Gateway API CRDs by default; installing it would have silently put a wider API
+  surface in the cluster than D2's Standard-channel contract allows, and the conformance suite would
+  have proven routing against a surface real operators do not have. NGINX Gateway Fabric requires the
+  CRDs to be installed separately, so what runs is exactly the `versions.env` pin.
 - **A gate is closed by testing the path the user drives, not the path that is easy to test.**
   W1's unit tests exercised `merge.Assemble` directly and were thorough there, which is exactly why
   they could not see that the live serving path never called it with enforcement on. G6 only closed
