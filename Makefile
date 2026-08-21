@@ -281,13 +281,17 @@ test-ui: ## Mocked Playwright visual suite (no backend required)
 	cd web && $(PNPM) exec playwright test
 
 # Guard: exactly one SPA dist directory (internal/spa/dist); no stray copies.
-# The repo-root ./dist is goreleaser's gitignored output directory (left behind
-# by `make release-snapshot`), not an SPA copy — pruned, not counted.
+# Two directories are pruned rather than counted because neither is a stray SPA
+# build: the repo-root ./dist is goreleaser's gitignored output (left by
+# `make release-snapshot`), and .claude/worktrees/ holds agent git worktrees,
+# each a full checkout that necessarily contains its own internal/spa/dist.
+# Counting those made the guard fail for the whole repo whenever an agent
+# worktree existed — a false positive that says nothing about stray builds.
 check-single-dist: ## Guard: exactly one dist directory
-	@count=$$(find . -path ./web/node_modules -prune -o -path ./.git -prune -o -path ./dist -prune -o -name 'dist' -type d -print | grep -v '^\./$$' | wc -l | tr -d ' '); \
+	@count=$$(find . -path ./web/node_modules -prune -o -path ./.git -prune -o -path ./dist -prune -o -path ./.claude -prune -o -name 'dist' -type d -print | grep -v '^\./$$' | wc -l | tr -d ' '); \
 	if [ "$$count" != "1" ]; then \
 		echo "ERROR: expected 1 dist directory, found $$count:"; \
-		find . -path ./web/node_modules -prune -o -path ./.git -prune -o -path ./dist -prune -o -name 'dist' -type d -print | grep -v '^\./$$'; \
+		find . -path ./web/node_modules -prune -o -path ./.git -prune -o -path ./dist -prune -o -path ./.claude -prune -o -name 'dist' -type d -print | grep -v '^\./$$'; \
 		exit 1; \
 	fi
 	@echo "check-single-dist: OK (1 dist directory)"
