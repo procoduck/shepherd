@@ -1,7 +1,6 @@
 # Gateway tier, beacon, and tenant routing — multi-session implementation plan
 
-> Status: **in progress — W1 partially landed (derivation + enforcement on both serve paths;
-> see §9 for what remains); W2–W8 proposed.** This document is the execution plan and
+> Status: **in progress — W1 done (G6 closed); W2–W11 proposed.** This document is the execution plan and
 > per-step ledger for the work; `docs/project-status.md` remains the single live status
 > document for the product as a whole and links here. Do not start a second product ledger:
 > step status lives in §9 of this file, product status lives there.
@@ -278,7 +277,7 @@ Status values: `proposed` → `in progress` → `gated` (built, awaiting its rev
 
 | Step | Status | Gates | Notes |
 |---|---|---|---|
-| W1 signal derivation + role enforcement | **gated** | G6 | `internal/signals` (derivation + role policy table) and `internal/merge`'s `WithRoleEnforcement` are built, and enforcement now runs on **both** serve paths — `internal/mgmtapi`'s write-time paths and `internal/agentapi.Service.recomputeServeCache`, the lazy path `GetConfig` takes when `serve_cache` is dirty. Enforcing only the eager path would have left the dirty-window hole a polling agent could drive straight through. Two review findings fixed in the same session: `Derive` skipped `foreach`/`declare` bodies, so a pipeline whose components all nested inside one derived an empty-but-*proven* signal set and passed enforcement trivially (now recurses; red-run pinned); and `WithRoleEnforcement(nil)` silently disabled the guard it was asked to enable (now a loud `Assemble` error). **Remains for G6**: an integration-level red run that polls `GetConfig` during the dirty window, rather than unit-testing `merge.Assemble` directly — that is what promotes this row to done. |
+| W1 signal derivation + role enforcement | **done** | G6 ✅ | `internal/signals` (derivation + role policy table) and `internal/merge`'s `WithRoleEnforcement`, wired on **both** serve paths — `internal/mgmtapi`'s write-time recompute and `internal/agentapi.Service.recomputeServeCache`, the lazy path `GetConfig` takes when `serve_cache` is dirty. **G6 closed** by an integration test that drives the real dirty-window poll rather than calling `merge.Assemble` directly (`internal/agentapi/service_test.go`), red-run proven: disabling agent-path enforcement fails it with "a metrics pipeline reached a logs-role collector". Three defects found and fixed by review along the way — `Derive` skipping `foreach`/`declare` bodies (empty-but-*proven* signal set, enforcement passing trivially), `WithRoleEnforcement(nil)` silently disabling the guard it was asked to enable, and the agent path being unenforced entirely. |
 | W2 destination templates + tenant bindings | proposed | — | Schema change; migration required |
 | W3 Gateway API foundation | proposed | G1, G2, G3, G4 | Verify conformance table against the pinned release (D2) |
 | W4 receiver tier + tenant routes | proposed | G3, G4 · R1, R3 | |
@@ -320,6 +319,12 @@ Status values: `proposed` → `in progress` → `gated` (built, awaiting its rev
   every role. The tests were thorough about components they visited and silent about the ones they
   never reached — a reminder that "the tests pass" says nothing about the inputs the code declines to
   parse. Container recursion is now pinned by a red-run test.
+- **A gate is closed by testing the path the user drives, not the path that is easy to test.**
+  W1's unit tests exercised `merge.Assemble` directly and were thorough there, which is exactly why
+  they could not see that the live serving path never called it with enforcement on. G6 only closed
+  once a test polled `GetConfig` inside the dirty window — the same shape the compose and kind
+  suites already use, and the same lesson `alloy validate is not alloy run` taught earlier: the
+  assertion has to sit where reality does.
 - **An opt-in control needs a loud failure mode for "asked for, not configured".**
   `WithRoleEnforcement(nil)` disabled the guard it was requested to enable. Not passing the option
   remains the way to opt out; passing it with nothing behind it is now an error.

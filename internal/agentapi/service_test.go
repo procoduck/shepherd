@@ -320,6 +320,75 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 			Expect(second.Msg.Hash).To(Equal(first.Msg.Hash))
 		})
 
+		// G6 (docs/gateway-tier-plan.md): the gate W1 could not close from
+		// internal/merge's own suite. Enforcement is only real if it holds on
+		// the path a live agent actually drives — GetConfig's lazy
+		// recompute-when-dirty — not just where merge.Assemble is called
+		// directly. A pipeline write marks serve_cache dirty synchronously and
+		// only then launches the eager recompute, so an agent polling inside
+		// that window reaches this path with the dirty flag still set.
+		It("does not serve a metrics pipeline to a logs collector through the dirty-window path", func() {
+			org, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
+				Name: "role-org", DisplayName: "Role org", AdminGroupID: "admins",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			// One cluster, one LOGS-role collector.
+			_, err = client.RegisterCollector(ctx, connect.NewRequest(&collectorv1.RegisterCollectorRequest{
+				Id: "role-instance", Name: "role-instance",
+				LocalAttributes: map[string]string{"cluster": "role-cluster", "role": "logs"},
+			}))
+			Expect(err).NotTo(HaveOccurred())
+			cluster, err := st.Queries.GetClusterByName(ctx, "role-cluster")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: org.ID})).To(Succeed())
+
+			// Two pipelines matching that collector: one genuinely logs-shaped,
+			// one metrics-shaped. Both are valid Alloy; only the role differs.
+			logsContents := `loki.source.file "app" {
+  targets    = []
+  forward_to = []
+}`
+			metricsContents := `prometheus.scrape "app" {
+  targets    = []
+  forward_to = []
+}`
+			for name, contents := range map[string]string{
+				"logs-pipeline": logsContents, "metrics-pipeline": metricsContents,
+			} {
+				_, err = st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+					OrgID: org.ID, Name: name, Contents: contents,
+					Matchers:    json.RawMessage(`["cluster=\"role-cluster\""]`),
+					Enabled:     true,
+					Source:      "ui",
+					WizardState: json.RawMessage(`{}`),
+					CreatedBy:   "test", UpdatedBy: "test",
+				})
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			collector, err := st.Queries.GetCollectorByClusterAndRole(ctx, sqlc.GetCollectorByClusterAndRoleParams{
+				Name: "role-cluster", Role: "logs",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(st.Queries.MarkServeCacheDirty(ctx, collector.ID)).To(Succeed())
+
+			// The poll that lands inside the dirty window.
+			resp, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+				Id: "role-instance", LocalAttributes: map[string]string{"cluster": "role-cluster", "role": "logs"},
+			}))
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(resp.Msg.Content).To(ContainSubstring("logs_pipeline"),
+				"the logs pipeline must still be served — enforcement must not become deny-everything")
+			Expect(resp.Msg.Content).NotTo(ContainSubstring("prometheus.scrape"),
+				"a metrics pipeline reached a logs-role collector through GetConfig's lazy recompute: "+
+					"role enforcement is not wired on the path live agents actually drive (G6)")
+			Expect(resp.Msg.Content).To(ContainSubstring("metrics-pipeline"),
+				"the exclusion must be named in the generated header — a silently dropped pipeline is "+
+					"indistinguishable from one that never matched")
+		})
+
 		It("conditional upsert refuses to clear newer dirty flag", func() {
 			collector, _ := setupClaimedPipeline()
 			_, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{Id: "recompute-instance", LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"}}))

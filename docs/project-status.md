@@ -15,7 +15,7 @@
 | `docs/frontend-testing.md` | three-layer frontend test strategy |
 | `docs/platform-monitoring-architecture.md` | target-fleet reference notes |
 | `docs/kind-test-environment-plan.md` | **steps 1–3 in progress, §5 Layer B done**: kind-based Kubernetes test environment — NetworkPolicy enforcement (probed), Helm deploy, LGTM delivery |
-| `docs/gateway-tier-plan.md` | **in progress** (W1 partially landed — see its §9 for the remaining scope): multi-session plan for the tenant-aware gateway tier, the beacon and outcome verification, signal/role enforcement, the chart-values generator, teams/scoped identity and the agent (MCP) interface — 11 workstreams with its own step ledger (§9), 15 conformance gates (§6), review gates (§7) and the actor model (§3a) |
+| `docs/gateway-tier-plan.md` | **in progress** (W1 done, G6 closed — see its §9): multi-session plan for the tenant-aware gateway tier, the beacon and outcome verification, signal/role enforcement, the chart-values generator, teams/scoped identity and the agent (MCP) interface — 11 workstreams with its own step ledger (§9), 15 conformance gates (§6), review gates (§7) and the actor model (§3a) |
 | `docs/proofs/` | red–green proofs for current work |
 | `docs/archive/` | finished work, kept as the record of why things are the way they are |
 
