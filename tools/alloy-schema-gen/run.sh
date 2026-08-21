@@ -71,10 +71,15 @@ echo "==> Running extractor (linux container)..."
 # into /tmp because that user has no home inside the image).
 GO_CONTAINER_IMAGE="${GO_IMAGE:-golang:1.26}"
 mkdir -p "${OUT_DIR}"
+# Pre-create the module cache dir: if it does not exist when docker mounts it
+# (e.g. a fresh CI runner on a cache miss), docker creates the mount point as
+# root and the uid-mapped container user cannot write into it.
+GOMODCACHE_DIR="$(go env GOMODCACHE)"
+mkdir -p "${GOMODCACHE_DIR}"
 docker run --rm \
   -u "$(id -u):$(id -g)" \
   -e HOME=/tmp -e GOCACHE=/tmp/go-build -e GOGC -e ALLOY_VERSION \
-  -v "${SRC}":/src -v "$(go env GOMODCACHE)":/go/pkg/mod \
+  -v "${SRC}":/src -v "${GOMODCACHE_DIR}":/go/pkg/mod \
   -w /src "${GO_CONTAINER_IMAGE}" \
   go run ./cmd/shepherd-schema-dump | jq -S . > "${OUTPUT}"
 
