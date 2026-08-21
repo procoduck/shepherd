@@ -147,6 +147,12 @@ trade-off is a real product preference and not something to decide for everyone:
 | **Opaque** | `https://telemetry.example.com/otlp/k7f3n9qp/v1/traces` | discloses nothing — no tenant name in URLs, logs, Referer headers or browser history. For operators who treat their customer list as sensitive |
 | **Slug + suffix** | `https://telemetry.example.com/otlp/acme-a1b2c3/v1/traces` | debuggable *and* unguessable: ops reads `acme-…` in a gateway log and knows whose traffic it is, while the suffix stays unguessable |
 
+**Default: slug + suffix.** The only thing it discloses is the tenant's own name, to someone who
+already holds the URL — while the ops benefit (reading `acme-…` in a gateway log mid-incident)
+is real and recurring. Operators who treat their customer list as sensitive set the opaque format
+instead; the setting is per installation, and switching it affects only newly issued segments,
+since existing ones stay valid until rotated.
+
 Both are rotatable (issue new, run both briefly, revoke old) and both are opaque to the
 renderer, which already takes the segment as a value — so this is a generation policy, not a
 rendering concern. Whichever is chosen, generation must enforce: a bounded charset (no path
@@ -408,8 +414,8 @@ Status values: `proposed` → `in progress` → `gated` (built, awaiting its rev
 ## 11. Open decisions
 
 1. ~~Gateway ownership~~ — **resolved, see D8.**
-2. ~~Route prefix format~~ — **resolved, see D9.** One sub-choice remains: which prefix
-   format is the DEFAULT when an operator expresses no preference (see D9).
+2. ~~Route prefix format~~ — **resolved, see D9** (both formats supported; slug+suffix is the
+   default).
 3. **Beacon ingest placement.** Inside `agentapi` (same trust boundary, same credential,
    same interceptor — the current preference) or a separate listener for isolation.
 4. **Receiver-tier tenancy granularity.** One Alloy per tenant, or one shared receiver with
