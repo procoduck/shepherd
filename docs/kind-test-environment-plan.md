@@ -3,7 +3,9 @@
 > Status: **steps 1–2 implemented 2026-08-20** (`e2e/k8s/`, `make e2e-k8s`); **step 3 partially
 > done** (default-values Helm install + repeatability specs landed in `e2e/k8s/helm_install_test.go`
 > and `helm_repeatable_test.go`; full-values install and true previous-version upgrade pending);
-> steps 4–7 proposed.
+> **§5 Layer B implemented 2026-08-21** (`e2e/k8s/simulator_containment_test.go`: all seven probes
+> plus the kill probe, gated behind §4's CNI control — see §8b below for what building it taught
+> us about probe observability); Layer C and the remaining steps proposed.
 > Goal: a repeatable, self-tearing-down Kubernetes environment that verifies the things
 > `docker compose` structurally cannot — NetworkPolicy enforcement, the Helm chart as deployed,
 > and Shepherd's behaviour against a realistic LGTM stack.
@@ -218,6 +220,26 @@ Three things the plan did not anticipate, each now encoded in the harness:
 
 The polling in both probe phases came from the same lesson: a single dial races infrastructure and
 fails for reasons unrelated to policy.
+
+## 8b. What building Layer B actually taught us
+
+- **`kubectl debug --attach` does not reliably propagate the debug container's exit code.** The
+  first probe implementation judged connect-vs-deny by the command's error status; every deny probe
+  therefore reported "reached" on a cluster whose policy provably denied the same dial (verified by
+  hand: pod IP, Service IP, and FQDN all blackholed). A denial was *unobservable* — the exact
+  silent-by-construction failure class §6's standard names, one layer down in the harness. The
+  probes now speak through output sentinels (`PROBE-CONNECTED` / `PROBE-DENIED` printed by an
+  in-container `sh -c`), because stdout does survive attach; an attempt that produces neither
+  sentinel is an attach flake and counts for neither outcome.
+- **A deny deadline is a convergence budget, not a per-run cost.** The retry loop exits on the
+  first observed denial, so a converged cluster pays one ~5s attempt per probe regardless of the
+  deadline; the deadline only burns while dials keep succeeding — a real hole, or Calico/Felix
+  still programming a freshly-installed policy (measured at >17s on a loaded 3-node kind). Sizing
+  it "short to keep seven denials cheap" optimized a cost that does not exist and lost the race.
+- The false alarm was productive: hand-verifying the denial (before finding the harness bug)
+  independently confirmed the chart's simulator NetworkPolicy denies pod-IP, ClusterIP, and FQDN
+  paths once programmed — and a plain `deny-all-egress` on a scratch pod confirmed the CNI
+  enforces egress at all, which §4's ingress-only negative control had never established.
 
 ## 9. Open decisions
 

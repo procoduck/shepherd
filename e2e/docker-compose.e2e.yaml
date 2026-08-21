@@ -154,10 +154,25 @@ services:
     ports:
       # Host ports live in a dedicated range so this stack can run alongside the
       # dev stack (dev/docker-compose.dev.yaml), which owns the low-numbered ones.
-      - "18080:8080"
-      - "18090:9090" # shepherd metrics listener (V4-4)
+      # Bound to 127.0.0.1 only, not the default 0.0.0.0: shepherd's container-side
+      # listener is now a pinned IPv4 literal (B-CONTAIN-1's SHEPHERD_SERVER_LISTEN),
+      # not the dual-stack bare ":port" it used to be, so Docker/OrbStack's
+      # automatic [::]-published half has no IPv6 listener to forward to — a bare
+      # `localhost` on a dual-stack host resolves ::1 first and gets a post-connect
+      # RST instead of falling back to IPv4. Publishing IPv4-only removes the
+      # broken half outright instead of relying on client-side fallback.
+      - "127.0.0.1:18080:8080"
+      - "127.0.0.1:18090:9090" # shepherd metrics listener (V4-4)
     environment:
       SHEPHERD_DATABASE_URL: postgres://shepherd:shepherd@postgres:5432/shepherd_e2e?sslmode=disable
+      # B-CONTAIN-1: bind to the default-network address only. sim-internal
+      # is internal:true (no gateway) so this address is unroutable from
+      # there regardless, but binding explicitly closes it even if a future
+      # engine's internal:true implementation is looser than Docker's own
+      # (see B-CONTAIN-2 — the OrbStack gateway-reachability gap this repo
+      # already hit once). Must equal networks.default.ipv4_address below.
+      SHEPHERD_SERVER_LISTEN: "172.28.0.10:8080"
+      SHEPHERD_SERVER_METRICS_LISTEN: "172.28.0.10:9090"
       SHEPHERD_SECURITY_ENCRYPTION_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
       SHEPHERD_OIDC_ISSUER: http://oidc:8090/default
       SHEPHERD_OIDC_CLIENT_ID: shepherd-e2e
@@ -188,10 +203,12 @@ services:
       SHEPHERD_SIMULATOR_SYSLOG_HOST: simulator
       SHEPHERD_SIMULATOR_TARGET_ADDRESS: simulator:9111
     networks:
-      - default
-      - sim-internal
+      default:
+        ipv4_address: 172.28.0.10
+      sim-internal:
+        ipv4_address: 172.28.1.10
     healthcheck:
-      test: ["CMD", "/usr/local/bin/shepherd", "healthcheck", "--addr", "localhost:8080"]
+      test: ["CMD", "/usr/local/bin/shepherd", "healthcheck", "--addr", "172.28.0.10:8080"]
       interval: 2s
       timeout: 5s
       retries: 30
@@ -231,11 +248,18 @@ services:
   #   mem_limit + memswap_limit — the pair matters: mem_limit alone lets a run
   #     swap past its cap.
   #
-  # RESIDUAL RISK, stated plainly: compose cannot express one-way egress.
-  # Putting shepherd on sim-internal so it can call the simulator also lets the
-  # sandbox reach shepherd's API on that network. Shepherd requires auth and the
-  # simulator's allowlist blocks the endpoint, but the Kubernetes posture
-  # (deploy/helm, NetworkPolicy egress: []) is strictly stricter than this one.
+  # RESIDUAL RISK, stated plainly: compose cannot express one-way egress —
+  # shepherd is still a sim-internal MEMBER (needed for DNS/routing to reach
+  # simulator). B-CONTAIN-1 closed that surface anyway: shepherd's Listen and
+  # MetricsListen are now bound to its default-network address only (see the
+  # shepherd service above), so nothing shepherd-side actually LISTENS on
+  # sim-internal — a SYN arriving there gets a kernel RST, independent of
+  # sim-internal's own routing. What's left is B-CONTAIN-2 (local dev only):
+  # the OrbStack host-gateway path runs through the host's NAT/docker-proxy
+  # layer, entirely orthogonal to which interface shepherd's own process
+  # binds, so this change does not and cannot touch it. The Kubernetes
+  # posture (deploy/helm, NetworkPolicy egress: []) remains strictly
+  # stricter than either.
   simulator:
     profiles: ["sim"]
     image: shepherd-simulator:local
@@ -311,9 +335,20 @@ volumes:
 networks:
   default:
     name: shepherd-e2e
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+          # Dynamic allocation confined to .128+ so pinned addresses (.10)
+          # can never collide with compose auto-assignment, however many
+          # services are later added before shepherd.
+          ip_range: 172.28.0.128/25
   # internal: true is what denies the sandbox egress — no gateway, no DNS to
   # anything outside this network. Removing it silently restores full outbound
   # access for every config a user runs.
   sim-internal:
     name: shepherd-e2e-sim
     internal: true
+    ipam:
+      config:
+        - subnet: 172.28.1.0/24
+          ip_range: 172.28.1.128/25

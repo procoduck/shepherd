@@ -34,8 +34,13 @@ import (
 //	Phase 1  prober -> target with NO policy   MUST CONNECT
 //	         (proves the prober, image, DNS and dial method all work; without
 //	         this a later "denied" could just mean the prober was broken)
-//	Phase 2  apply default-deny, dial again    MUST FAIL
-//	         (proves the CNI actually enforces)
+//	Phase 2  apply default-deny INGRESS, dial  MUST FAIL
+//	         (proves the CNI enforces the Ingress policy type)
+//	Phase 3  swap it for default-deny EGRESS,  MUST FAIL
+//	         dial again
+//	         (proves the Egress policy type separately — it is the direction
+//	         every simulator containment denial actually depends on, and a CNI
+//	         could implement one without the other)
 //
 // If phase 2 still connects, this FAILS — it does not skip. A skip here would
 // be indistinguishable from success in CI, which is the precise failure mode
@@ -117,6 +122,35 @@ func TestCNIEnforcesNetworkPolicy(t *testing.T) {
 				}
 				return ctx
 			}).
+		Assess("phase 3: a default-deny EGRESS policy also makes it unreachable",
+			func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
+				// Egress is the policy type every simulator containment denial
+				// actually rides on (the chart's policy is default-deny egress
+				// with narrow allows), and a CNI could enforce Ingress but not
+				// Egress. Swap the policies so the only possible deny source is
+				// the Egress one: with ingress-deny gone, a still-denied dial
+				// can only mean the prober's own egress was policed. (The deny
+				// may land at DNS resolution rather than the connect — both are
+				// egress from the prober, and either proves the policy type is
+				// enforced, which is all this gate certifies.)
+				if err := cfg.Client().Resources().Delete(ctx, denyAllIngress(cniFixture.ns)); err != nil {
+					t.Fatalf("deleting the phase-2 ingress policy: %v", err)
+				}
+				if err := cfg.Client().Resources().Create(ctx, denyAllEgress(cniFixture.ns)); err != nil {
+					t.Fatalf("creating default-deny egress policy: %v", err)
+				}
+				denied, out := dialUntilIn(ctx, cfg, cniFixture.ns, proberName+"-egress", targetName, targetPort, false, denyDeadline)
+				if !denied {
+					t.Fatalf("THE CNI ENFORCES INGRESS BUT NOT EGRESS NETWORKPOLICY.\n\n"+
+						"A default-deny egress policy is in place (and the ingress one removed) yet the "+
+						"prober still connected — the exact policy type the simulator's containment relies "+
+						"on is not enforced, so every egress denial this suite would report downstream "+
+						"would pass for the wrong reason.\n\n"+
+						"The probe still connected after %s.\nlast probe output: %s", denyDeadline, out)
+				}
+				cniVerified = true
+				return ctx
+			}).
 		Teardown(func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
 			cniFixture.cleanup(cfg)
 			return ctx
@@ -129,6 +163,24 @@ func TestCNIEnforcesNetworkPolicy(t *testing.T) {
 // cniFixture is this feature's namespace, shared between its Setup and Assess
 // closures.
 var cniFixture *fixture
+
+// cniVerified is set true only once all three phases of
+// TestCNIEnforcesNetworkPolicy have passed: connect-with-no-policy succeeded,
+// connect-under-ingress-deny failed, and connect-under-egress-deny failed.
+// Every containment probe in simulator_containment_test.go checks this before
+// doing anything else — a denial observed against an unverified CNI is exactly
+// the meaningless result §4 of the plan warns about, one level up from what
+// P-harness guards inside a single feature. Deliberately package-level rather
+// than threaded through Context: TestMain runs test functions from this
+// package sequentially in one process (no t.Parallel anywhere in this suite),
+// and the filename (negative_control_test.go sorts before
+// simulator_containment_test.go) is what makes `go test` run this feature
+// first. That ordering is source-order within the package, which
+// `go test -shuffle=on` randomizes — under shuffle the containment features
+// fail loudly on this gate rather than silently probing an unverified CNI,
+// which is the acceptable direction; do not wire -shuffle into this suite's
+// invocation without replacing the ordering with an explicit TestMain sequence.
+var cniVerified bool
 
 const (
 	// connectDeadline bounds how long the positive control waits for Service
@@ -230,6 +282,18 @@ func denyAllIngress(ns string) *networkingv1.NetworkPolicy {
 		Spec: networkingv1.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{},
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
+		},
+	}
+}
+
+// denyAllEgress is phase 3's counterpart: an Egress policyType with no rules
+// denies every outbound connection from every pod in the namespace.
+func denyAllEgress(ns string) *networkingv1.NetworkPolicy {
+	return &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "default-deny-egress", Namespace: ns},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{},
+			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
 		},
 	}
 }

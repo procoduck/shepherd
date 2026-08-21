@@ -1,6 +1,7 @@
 package simsvc
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +30,7 @@ type composeService struct {
 	PidsLimit    int               `yaml:"pids_limit"`
 	Tmpfs        []string          `yaml:"tmpfs"`
 	Ports        []any             `yaml:"ports"`
-	Networks     []string          `yaml:"networks"`
+	Networks     composeNetworks   `yaml:"networks"`
 	Environment  map[string]string `yaml:"environment"`
 	Healthcheck  struct {
 		Test []string `yaml:"test"`
@@ -39,6 +40,65 @@ type composeService struct {
 type composeNetwork struct {
 	Name     string `yaml:"name"`
 	Internal bool   `yaml:"internal"`
+}
+
+// composeNetworkAttachment is the value half of the compose "long form" for a
+// service's network attachment (services.<name>.networks.<net>: {ipv4_address: ...}).
+// The short form (services.<name>.networks: [default, sim-internal]) carries no
+// per-network data at all — composeNetworks.UnmarshalYAML normalizes both into
+// the same map so callers don't care which form a given service used.
+type composeNetworkAttachment struct {
+	Ipv4Address string `yaml:"ipv4_address"`
+}
+
+// composeNetworks decodes either YAML shape compose accepts for a service's
+// `networks:` key: the short list form (a bare sequence of network names) or
+// the long map form (network name -> attachment object, which is how a static
+// ipv4_address gets pinned). Both are valid compose YAML; B-CONTAIN-1 needs
+// shepherd on the long form so its per-network IP is assertable, but other
+// services (e.g. simulator) still use the short form, so the loader has to
+// accept both.
+type composeNetworks map[string]composeNetworkAttachment
+
+func (n *composeNetworks) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.SequenceNode:
+		var names []string
+		if err := value.Decode(&names); err != nil {
+			return err
+		}
+		out := make(composeNetworks, len(names))
+		for _, name := range names {
+			out[name] = composeNetworkAttachment{}
+		}
+		*n = out
+		return nil
+	case yaml.MappingNode:
+		var attachments map[string]composeNetworkAttachment
+		if err := value.Decode(&attachments); err != nil {
+			return err
+		}
+		*n = attachments
+		return nil
+	default:
+		return fmt.Errorf("composeNetworks: unsupported YAML node kind %v for networks", value.Kind)
+	}
+}
+
+// Names returns the attached network names, order-independent — the shape
+// Gomega's ConsistOf/ContainElements matchers expect in place of the raw map.
+func (n composeNetworks) Names() []string {
+	names := make([]string, 0, len(n))
+	for name := range n {
+		names = append(names, name)
+	}
+	return names
+}
+
+// IPv4 returns the pinned ipv4_address for the given network, or "" if the
+// service isn't attached to it or used the short form (no address pinned).
+func (n composeNetworks) IPv4(network string) string {
+	return n[network].Ipv4Address
 }
 
 func loadCompose(path string) composeFile {
@@ -113,7 +173,7 @@ var _ = DescribeTable("Compose containment for the simulator service",
 		// Nothing published to the host, and the only network it joins is the
 		// internal one.
 		Expect(sim.Ports).To(BeEmpty(), "the simulator must publish no host ports")
-		Expect(sim.Networks).To(ConsistOf("sim-internal"))
+		Expect(sim.Networks.Names()).To(ConsistOf("sim-internal"))
 
 		// The distroless image has no shell, so the healthcheck has to be the
 		// binary's own subcommand.
@@ -132,12 +192,43 @@ var _ = DescribeTable("Compose containment for the simulator service",
 		// decoration.
 		shepherd, ok := doc.Services["shepherd"]
 		Expect(ok).To(BeTrue())
-		Expect(shepherd.Networks).To(ContainElements("default", "sim-internal"))
+		Expect(shepherd.Networks.Names()).To(ContainElements("default", "sim-internal"))
 
 		// The feature is off unless the operator turns it on, so the default
 		// stack is what exercises the "simulator not configured" path.
 		Expect(shepherd.Environment).To(HaveKey("SHEPHERD_SIMULATOR_ENABLED"))
 		Expect(shepherd.Environment["SHEPHERD_SIMULATOR_ENABLED"]).To(ContainSubstring(":-false"))
+
+		// B-CONTAIN-1: shepherd must not LISTEN on sim-internal even though it
+		// is a member of it — a control that removal of these two env vars (or
+		// reverting them to a bare ":port") silently defeats.
+		Expect(shepherd.Environment).To(HaveKey("SHEPHERD_SERVER_LISTEN"))
+		Expect(shepherd.Environment).To(HaveKey("SHEPHERD_SERVER_METRICS_LISTEN"))
+		listenAddr := shepherd.Environment["SHEPHERD_SERVER_LISTEN"]
+		metricsAddr := shepherd.Environment["SHEPHERD_SERVER_METRICS_LISTEN"]
+		Expect(listenAddr).NotTo(HavePrefix(":"), "a bare :port binds every interface, including sim-internal")
+		Expect(metricsAddr).NotTo(HavePrefix(":"), "same — this is the exact leak B-CONTAIN-1 names")
+		Expect(listenAddr).NotTo(HavePrefix("0.0.0.0"))
+		Expect(metricsAddr).NotTo(HavePrefix("0.0.0.0"))
+
+		// The bound host must equal shepherd's OWN default-network address, and
+		// that address must differ from its sim-internal address — otherwise
+		// this whole check is checking nothing.
+		defaultIP := shepherd.Networks.IPv4("default")
+		simIP := shepherd.Networks.IPv4("sim-internal")
+		Expect(defaultIP).NotTo(BeEmpty(), "%s: shepherd has no pinned ipv4_address on default", relPath)
+		Expect(simIP).NotTo(BeEmpty(), "%s: shepherd has no pinned ipv4_address on sim-internal", relPath)
+		Expect(simIP).NotTo(Equal(defaultIP), "shepherd's default and sim-internal addresses must differ")
+		Expect(listenAddr).To(HavePrefix(defaultIP+":"), "SHEPHERD_SERVER_LISTEN must bind shepherd's default-network address")
+		Expect(metricsAddr).To(HavePrefix(defaultIP+":"), "SHEPHERD_SERVER_METRICS_LISTEN must bind shepherd's default-network address")
+
+		// The healthcheck dials the same literal shepherd binds: with a
+		// specific-IP bind there is no loopback listener, so a renumbered pin
+		// that misses the healthcheck line would only surface as the container
+		// going permanently unhealthy at `up` time with nothing naming the
+		// cause. Tie the two here instead.
+		Expect(shepherd.Healthcheck.Test).To(ContainElement(listenAddr),
+			"shepherd's healthcheck --addr must equal SHEPHERD_SERVER_LISTEN — a specific-IP bind has no loopback listener")
 	},
 	Entry("dev stack", "dev/docker-compose.dev.yaml"),
 	Entry("e2e stack", "e2e/docker-compose.e2e.yaml"),

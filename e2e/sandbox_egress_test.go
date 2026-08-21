@@ -28,17 +28,28 @@ import (
 // compose_containment_test.go asserts the YAML DECLARATION; the observable
 // probes lived only in a proof document and had been run by hand.
 //
-// Four probes, and the first one is the reason the other three mean anything:
+// Seven probes, and the first one is the reason the other three at its shape
+// mean anything:
 //
-//	P-control    dial the canary from the DEFAULT network. MUST SUCCEED.
-//	P-deny-name  dial the canary BY NAME from the simulator's own network
-//	             namespace. MUST FAIL.
-//	P-deny-ip    dial the canary BY IP from the same namespace. MUST FAIL.
-//	             Separates routing denial from mere absence of DNS.
-//	P-topology   the simulator's attached network set is exactly
-//	             {shepherd-e2e-sim} and that network reports Internal=true —
-//	             read from `docker inspect`, i.e. from the running daemon, not
-//	             from the YAML that asked for it.
+//	P-control          dial the canary from the DEFAULT network. MUST SUCCEED.
+//	P-deny-name        dial the canary BY NAME from the simulator's own network
+//	                    namespace. MUST FAIL.
+//	P-deny-ip          dial the canary BY IP from the same namespace. MUST FAIL.
+//	                    Separates routing denial from mere absence of DNS.
+//	P-topology         the simulator's attached network set is exactly
+//	                    {shepherd-e2e-sim} and that network reports Internal=true —
+//	                    read from `docker inspect`, i.e. from the running daemon, not
+//	                    from the YAML that asked for it.
+//	P-shepherd-control shepherd IS reachable on its OWN (default) network —
+//	                    without this half, the two denial probes below would be
+//	                    meaningless (a control nothing exercises is not a
+//	                    control, same pattern as P-control/P-deny-ip above).
+//	P-shepherd-deny    B-CONTAIN-1: shepherd's metrics port (:9090) is NOT
+//	                    reachable from the sandbox's network namespace, dialled
+//	                    at shepherd's OWN sim-internal address. Closes "the
+//	                    sandbox scrapes shepherd's unauthenticated metrics port".
+//	P-shepherd-deny-api shepherd's main API port (:8080) is NOT reachable from
+//	                    the sandbox's network namespace either.
 //
 // `--network container:<simulator>` is the exact namespace the sandbox runs in,
 // not a proxy for it: internal/simsvc/runner.go:90 starts Alloy with
@@ -66,8 +77,10 @@ var _ = Describe("Scenario sandbox-sim: the sandbox cannot reach anything off it
 	)
 
 	var (
-		simulatorID string
-		canaryIP    string
+		simulatorID         string
+		canaryIP            string
+		shepherdDefaultAddr string
+		shepherdSimAddr     string
 	)
 
 	BeforeAll(func() {
@@ -80,6 +93,21 @@ var _ = Describe("Scenario sandbox-sim: the sandbox cannot reach anything off it
 		canaryIP = strings.TrimSpace(dockerOut("inspect", "-f",
 			fmt.Sprintf("{{ (index .NetworkSettings.Networks %q).IPAddress }}", e2eNetwork), canaryID))
 		Expect(canaryIP).NotTo(BeEmpty(), "the canary must have an address on %s", e2eNetwork)
+
+		// B-CONTAIN-1: read shepherd's own per-network addresses from the
+		// running daemon rather than hardcoding the pinned compose literals a
+		// second time here — these probes stay correct even if the subnets in
+		// e2e/docker-compose.e2e.yaml are later renumbered.
+		shepherdID := strings.TrimSpace(dockerOut("compose", "-f", "docker-compose.e2e.yaml", "--profile", "sim", "ps", "-q", "shepherd"))
+		Expect(shepherdID).NotTo(BeEmpty(), "the shepherd container must be up")
+		shepherdDefaultAddr = strings.TrimSpace(dockerOut("inspect", "-f",
+			fmt.Sprintf("{{ (index .NetworkSettings.Networks %q).IPAddress }}", e2eNetwork), shepherdID))
+		Expect(shepherdDefaultAddr).NotTo(BeEmpty(), "shepherd must have an address on %s", e2eNetwork)
+		shepherdSimAddr = strings.TrimSpace(dockerOut("inspect", "-f",
+			fmt.Sprintf("{{ (index .NetworkSettings.Networks %q).IPAddress }}", simNetwork), shepherdID))
+		Expect(shepherdSimAddr).NotTo(BeEmpty(), "shepherd must have an address on %s", simNetwork)
+		Expect(shepherdSimAddr).NotTo(Equal(shepherdDefaultAddr),
+			"shepherd's default and sim-internal addresses must differ, or P-shepherd-deny would be dialling its control address")
 	})
 
 	// P-control. Same image, same command, same canary — only the network
@@ -141,17 +169,69 @@ var _ = Describe("Scenario sandbox-sim: the sandbox cannot reach anything off it
 		Expect(json.Unmarshal([]byte(dockerOut("inspect", "-f", "{{ json .NetworkSettings.Networks }}", canaryID)), &canaryNets)).To(Succeed())
 		Expect(canaryNets).NotTo(HaveKey(simNetwork), "the egress canary must never be attached to %s", simNetwork)
 	})
+
+	// B-CONTAIN-1: "the sandbox can reach the control plane" — shepherd sits on
+	// sim-internal too (it has to, to drive the simulator's control API), so
+	// internal:true alone does not deny THIS neighbor the way it denies the
+	// canary. The fix is bind-address hardening (SHEPHERD_SERVER_LISTEN /
+	// SHEPHERD_SERVER_METRICS_LISTEN pinned to shepherd's default-network
+	// address — see docker-compose.e2e.yaml and
+	// internal/simsvc/compose_containment_test.go, which pins the YAML
+	// declaration this probe verifies actually took effect).
+	//
+	// P-shepherd-control is the reason the two denial probes below mean
+	// anything, same pairing pattern as P-control above.
+	//
+	// Targets /metrics explicitly, not bare "/": shepherd's metrics mux
+	// (internal/server/server.go, newMetricsMux) only handles /metrics and
+	// 404s everything else, so dialling "/" would 404 whether or not the
+	// port were actually reachable — see the probe() doc comment. /metrics
+	// is also the exact endpoint this finding is about.
+	It("P-shepherd-control: shepherd IS reachable on its own network", func() {
+		out, err := probe("--network", e2eNetwork, shepherdDefaultAddr+":9090/metrics")
+		Expect(err).NotTo(HaveOccurred(), "probe output:\n%s", out)
+	})
+
+	It("P-shepherd-deny: shepherd's metrics port is NOT reachable from the sandbox's network namespace", func() {
+		out, err := probe("--network", "container:"+simulatorID, shepherdSimAddr+":9090/metrics")
+		Expect(err).To(HaveOccurred(),
+			"the sandbox reached shepherd's metrics endpoint at %s — B-CONTAIN-1 is back. probe output:\n%s",
+			shepherdSimAddr, out)
+	})
+
+	// /healthz, not bare "/": it is the one main-API route deliberately
+	// unauthenticated (liveness probe contract, internal/server/server.go),
+	// so a reachable connection returns 200 "ok" rather than the 404 every
+	// other unmatched path on :8080 returns — the same reachable-vs-404
+	// distinction P-shepherd-control needs on :9090.
+	It("P-shepherd-deny-api: shepherd's main API port is NOT reachable from the sandbox's network namespace", func() {
+		out, err := probe("--network", "container:"+simulatorID, shepherdSimAddr+":8080/healthz")
+		Expect(err).To(HaveOccurred(), "probe output:\n%s", out)
+	})
 })
 
-// probe dials host:port from a throwaway container and returns its combined
-// output. Reachability is expressed as the exit status: a connect that never
-// completes is failure, which is why every probe carries its own timeout on
-// both sides — busybox wget's -T, and a hard container timeout so a hung DNS
-// lookup cannot stall the suite.
+// probe dials host:port (optionally host:port/path) from a throwaway
+// container and returns its combined output. Reachability is expressed as
+// the exit status: a connect that never completes is failure, which is why
+// every probe carries its own timeout on both sides — busybox wget's -T, and
+// a hard container timeout so a hung DNS lookup cannot stall the suite.
+//
+// If target carries no path, "/" is assumed — that's correct for the canary
+// (a bare nc responder that answers "ok" on every path). It is NOT correct
+// for shepherd: its metrics mux only serves /metrics and its main API 404s
+// every unmatched path (internal/server/server.go), so a denial probe that
+// dialled bare "/" would get an HTTP-level 404 whether or not the network
+// actually blocked it — wget treats that 404 as an error exactly like a
+// connection refusal, so the probe would "pass" even with containment
+// removed. That is the deny-everything failure mode finding H4 describes:
+// callers targeting shepherd MUST pass an explicit real path.
 func probe(networkArgs ...string) (string, error) {
 	target := networkArgs[len(networkArgs)-1]
+	if !strings.Contains(target, "/") {
+		target += "/"
+	}
 	args := append([]string{"run", "--rm"}, networkArgs[:len(networkArgs)-1]...)
-	args = append(args, probeImage, "wget", "-T", "3", "-q", "-O", "-", "http://"+target+"/")
+	args = append(args, probeImage, "wget", "-T", "3", "-q", "-O", "-", "http://"+target)
 
 	cmd := exec.Command("docker", args...)
 	done := make(chan struct{})
