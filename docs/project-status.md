@@ -14,7 +14,7 @@
 | `docs/dev-guide.md` | running the dev stack |
 | `docs/frontend-testing.md` | three-layer frontend test strategy |
 | `docs/platform-monitoring-architecture.md` | target-fleet reference notes |
-| `docs/kind-test-environment-plan.md` | **steps 1–3 in progress**: kind-based Kubernetes test environment — NetworkPolicy enforcement, Helm deploy, LGTM delivery |
+| `docs/kind-test-environment-plan.md` | **steps 1–3 in progress, §5 Layer B done**: kind-based Kubernetes test environment — NetworkPolicy enforcement (probed), Helm deploy, LGTM delivery |
 | `docs/proofs/` | red–green proofs for current work |
 | `docs/archive/` | finished work, kept as the record of why things are the way they are |
 
@@ -52,6 +52,24 @@ Verified on the running stack and in the browser, not inferred:
 - **Wizard, audit, overview, admin CRUD, org switcher** — all functional
 - **S3 sandbox run** — a live run completes in ~20s with 21 captured series and 3/3 healthy
   components. **Disabled by default** — see F5 below.
+
+### 2026-08-21 — sandbox-containment pass
+
+Closed F5's two enablement gates and B-CONCAT in one session (branch `feat/sandbox-containment`).
+Details live in each item's own section; the short form:
+
+- **B-CONTAIN-1 fixed** — bind-address hardening in both compose files (shepherd stays a
+  `sim-internal` member but listens only on its pinned `default`-network IP; ports published
+  IPv4-loopback-only after the dual-stack publish trap surfaced), red/green-proven at both the
+  compose-declaration level and by live `P-shepherd-deny`/`P-shepherd-deny-api` probes.
+- **Layer B built and green** — `e2e/k8s/simulator_containment_test.go`, all seven probes + the
+  kill probe. Two harness defects found and fixed on the way (a Felix-convergence race and
+  `kubectl debug --attach` swallowing exit codes — see the kind plan's §8b); the debugging also
+  hand-verified the chart's policy denies pod-IP/ClusterIP/FQDN paths and that the CNI enforces
+  egress, which the ingress-only negative control had never established.
+- **B-CONCAT fixed** — `array.concat`-of-pure-references carve-out in `CheckEndpoints`, plus the
+  renderer↔guard cross-test that was missing.
+- F5's defaults remain off; enabling is now a product decision (see F5).
 
 ### 2026-08-21 — health-remediation pass
 
@@ -113,13 +131,74 @@ branch as of 2026-08-21 — each earned its first-ever green during this pass.
 
 ## 2. Open bugs
 
-### B-CONTAIN-1 — the sandbox can reach the control plane · **critical** (S3 only)
+### B-CONTAIN-1 — the sandbox can reach the control plane · **critical** (S3 only) · [FIXED 2026-08-21]
 
 `shepherd` is attached to `sim-internal` in **both** compose files, alongside `simulator`.
 `internal: true` denies egress to the internet; it does nothing about *neighbours*. The sandbox
-scrapes Shepherd's unauthenticated metrics port and the data is returned to the user in run
-results. Fix: split the networks so Shepherd reaches the simulator's control API somewhere the
-sandbox is not.
+scraped Shepherd's unauthenticated metrics port and the data was returned to the user in run
+results.
+
+**Fix (bind-address hardening — Option C of `docs/reviews/b-contain-1-bind-hardening.md`).** Both compose files now pin
+`ipam.config.subnet` on `default`/`sim-internal` and give `shepherd` a static `ipv4_address` on
+each (e2e `172.28.0.10` / `172.28.1.10`, dev `172.29.0.10` / `172.29.1.10` — distinct ranges so the
+two stacks can run concurrently). `SHEPHERD_SERVER_LISTEN` / `SHEPHERD_SERVER_METRICS_LISTEN` are
+set to shepherd's own `default`-network literal instead of the bare `:8080`/`:9090` that bound
+every interface, including `sim-internal`; the healthcheck's `--addr` moved off `localhost` to the
+same literal. **Zero Go changes** — `Server.Listen`/`MetricsListen` were already plain
+`http.Server.Addr` strings (`internal/server/server.go:111-123`,
+`internal/config/config.go:225-268`).
+
+`internal/simsvc/compose_containment_test.go` now pins the declaration and is genuinely red/green:
+`shepherd.Networks` was reshaped to decode compose's long map form (`ipv4_address` per network) as
+well as the short list form; new assertions require `SHEPHERD_SERVER_LISTEN`/`_METRICS_LISTEN` to
+be set, non-bare, non-`0.0.0.0`, and prefixed with shepherd's own pinned `default`-network address
+(which must differ from its `sim-internal` address). `e2e/sandbox_egress_test.go` gained three
+probes reading shepherd's real addresses from `docker inspect` (not hardcoded): `P-shepherd-control`
+(shepherd reachable on its own `default` address, dialled at `/metrics`), `P-shepherd-deny` /
+`P-shepherd-deny-api` (shepherd's `:9090`/`:8080` NOT reachable from the sandbox's network
+namespace, dialled at shepherd's `sim-internal` address). Both denial probes target real
+unauthenticated paths (`/metrics`, `/healthz`) rather than bare `/`: shepherd's metrics mux only
+serves `/metrics` and the main API 404s every unmatched path, so a bare-`/` probe would 404
+whether or not the network actually blocked it — a reachable-but-404 response and a connection
+refusal both make `wget` exit non-zero, which would have made the denial probes pass even with
+containment removed (the exact "test that can't fail when the control is removed" trap this
+repo's own testing standard forbids). Caught and fixed before closing this entry.
+
+**IPv6 publish-port side effect, also fixed.** Pinning shepherd's listener to a literal IPv4
+address made the container-side socket IPv4-only (it was previously dual-stack — Go's
+`net.Listen("tcp", ":8080")` binds `[::]:8080` and accepts both families on Linux). Docker/OrbStack
+still published shepherd's host ports dual-stack (`0.0.0.0:PORT` **and** `[::]:PORT`); on a
+dual-stack host `localhost` resolves to `::1` first, so `curl -sf localhost:8080/healthz` (and the
+e2e suite's own `SynchronizedBeforeSuite` healthz wait) connected over the IPv6-published half,
+found nothing listening on any IPv6 address in the container's netns, and got RST (`Connection
+reset by peer`, curl exit 56) — first caught as `make e2e-egress` failing at `Ran 0 of 38 Specs`
+with the `BeforeSuite` timing out, confirmed precisely with `curl -4 localhost:18080/healthz`
+succeeding while bare `curl localhost:18080/healthz` reset. Fix: publish shepherd's host ports
+IPv4-only (`127.0.0.1:18080:8080` / `127.0.0.1:18090:9090` in the e2e file,
+`127.0.0.1:8080:8080` in dev) instead of the default `0.0.0.0`/dual-stack publish — removes the
+broken IPv6 half outright rather than relying on client-side IPv4 fallback. Shepherd's
+container-side bind stays the pinned IPv4 literal; the containment control itself is unchanged.
+No other service needed this — every other compose service still binds its in-container listener
+to a bare port or `0.0.0.0`, so their dual-stack publish has a real listener behind both halves.
+
+**Verified 2026-08-21:**
+- `go test ./internal/simsvc/ -count=1` — 85/85 green. Red-proved: reverting the e2e file's two
+  `SHEPHERD_SERVER_*_LISTEN` env vars to `:8080`/`:9090` fails the new assertion exactly
+  ("a bare :port binds every interface, including sim-internal"); restored, green again.
+- `make e2e-egress` — **green, 11/11 specs** (`P-control`, `P-deny-name`, `P-deny-ip`, `P-topology`,
+  `P-shepherd-control`, `P-shepherd-deny`, `P-shepherd-deny-api`, plus the literal-retarget and
+  runtime-retarget scenarios), full teardown clean.
+- e2e-level red-run, run twice to isolate each denial probe (Ordered spec containers stop at the
+  first in-container failure, so both vars reverted together only reds the first probe):
+  reverting both `SHEPHERD_SERVER_LISTEN`/`_METRICS_LISTEN` to `:8080`/`:9090` reds
+  `P-shepherd-deny` ("the sandbox reached shepherd's metrics endpoint at 172.28.1.10 —
+  B-CONTAIN-1 is back"); reverting only `SHEPHERD_SERVER_LISTEN` (metrics pinned correctly) reds
+  `P-shepherd-deny-api` on its own ("probe output: ok / Expected an error to have occurred. Got:
+  nil") — the sandbox reached shepherd's `/healthz` in both cases when the corresponding bind was
+  reverted. Both vars restored, full suite re-confirmed green (11/11).
+- Dev-stack smoke (decision record §5 step 4): dev compose up, `curl -sf localhost:8080/healthz` (no `-4`)
+  succeeds — `ok`, exit 0 — confirming the IPv6 publish fix works on the dev stack too; torn down
+  clean.
 
 ### B-CONTAIN-2 — `internal: true` does not deny the Docker host · **local dev only**
 
@@ -138,12 +217,18 @@ The real residual risk is different and is now the thing to close: **a NetworkPo
 enforced if the CNI implements it** — Flannel silently ignores it — and nothing has ever verified
 the policy's effect in a real cluster. Plan: `docs/kind-test-environment-plan.md`.
 
-### B-CONCAT — `CheckEndpoints` refuses the expression the renderer now emits · **high**
+### B-CONCAT — `CheckEndpoints` refuses the expression the renderer now emits · [FIXED 2026-08-21]
 
 The M13 fix made `render.go` emit `array.concat(...)` when several discovery sources fan into one
-scrape. `simsvc.CheckEndpoints` refuses expressions outright, so any such graph cannot run in the
-sandbox. The guard's premise ("a transformed config contains no calls") became false when M13 was
-fixed, and nothing tests the two against each other.
+scrape; `simsvc.CheckEndpoints` refused every call expression, so any fan-in graph could not run in
+the sandbox. The guard now treats exactly `array.concat(...)` over pure component references as
+transparent — any other callee, and any argument that is a literal, nested call, or expression,
+still refuses fail-closed. Red-proved: disabling the carve-out fails exactly two named specs
+(guard_test.go's fan-in acceptance and crossguard_test.go's renderer round-trip) while the three
+refusal-side specs stay green. The missing renderer↔guard coupling now exists:
+`internal/simsvc/crossguard_test.go` renders the committed fan-in corpus fixture through the real
+`visual.Render` and asserts `CheckEndpoints` accepts the actual output, so the next renderer change
+that emits a new expression form fails there, loudly, instead of at a user's sandbox run.
 
 ### B-STAGEORDER — `loki.process` stage order is not preserved · [FIXED 2026-08-20]
 
@@ -169,14 +254,19 @@ even though `ssh_known_hosts` is populated. The e2e case is skipped with that re
 
 ## 3. Unbuilt / gated features
 
-### F5 — S3 sandbox simulation · **implemented 2026-08-20, MUST STAY DISABLED**
+### F5 — S3 sandbox simulation · **implemented 2026-08-20; both enablement gates CLOSED 2026-08-21**
 
 VB-1 M7 (§6.4). Built and working: the simulation transform, the `shepherd-simulator` service with
 capture harness and synthetic sources, the run API (migration 0007, cross-replica `RunWorker`), the
 sandbox-run UI, the `sim` compose profile and the `sandbox-sim` e2e scenario.
 
-**Disabled by default and must stay so** until B-CONTAIN-1 closes and NetworkPolicy enforcement is
-verified in a real cluster (B-CONTAIN-2 is local-dev-only — see above). `simulator.enabled`
+**Still disabled by default, but no longer for open containment reasons.** The two named gates are
+closed: B-CONTAIN-1 is fixed and red/green-proven in compose (bind-address hardening +
+`P-shepherd-deny` probes), and NetworkPolicy enforcement is now verified in a real cluster
+(`e2e/k8s/simulator_containment_test.go` — all seven Layer B probes plus the kill probe, green
+2026-08-21). B-CONCAT, which blocked fan-in graphs from running at all, is also fixed. Flipping the
+defaults (`simulator.enabled`, `SHEPHERD_SIM_ENABLED`) is now a **product decision**, not an
+engineering blocker; B-CONTAIN-2 remains a documented local-dev-only caveat. `simulator.enabled`
 has no viper default (false); both compose files default `SHEPHERD_SIM_ENABLED` to false; Helm ships
 `simulator.enabled: false`.
 
