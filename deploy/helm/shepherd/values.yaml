@@ -1,5 +1,6 @@
 image:
-  registry: ""
+  # Default to the released images; set registry: "" to use a bare/local name.
+  registry: "ghcr.io/procoduck"
   repository: shepherd
   tag: ""
   pullPolicy: IfNotPresent
@@ -100,8 +101,20 @@ networkPolicy:
   enabled: false
 
 # -----------------------------------------------------------------------------
-# S3 sandbox simulator (VB-1 §6.4) — DISABLED BY DEFAULT, same convention as
-# every other gate in this repo (SHEPHERD_SIM_ENABLED in both compose files).
+# S3 sandbox simulator (VB-1 §6.4) — ENABLED BY DEFAULT since v0.0.1, after
+# both containment gates closed (docs/project-status.md F5: B-CONTAIN-1 fixed
+# and red/green-proven; NetworkPolicy enforcement verified in a real cluster by
+# e2e/k8s/simulator_containment_test.go's probes and kill probe).
+#
+# TO DISABLE: set `simulator.enabled: false` below (or --set on install) —
+# nothing simulator-related renders, and shepherd's config is not wired to it.
+# The compose stacks keep their opt-in `sim` profile: that is test-environment
+# design (the default `make e2e` deliberately exercises the simulator-absent
+# path), not the product default.
+#
+# When enabled, shepherd's config is wired to this chart's simulator Service
+# automatically unless you set `config.simulator` yourself — an explicit
+# config.simulator block always wins verbatim (see templates/configmap.yaml).
 #
 # It runs USER-AUTHORED Alloy configuration. Every control below is load-bearing,
 # not decoration, and every one is asserted by deploy/helm/chart_test.go so it
@@ -121,14 +134,11 @@ networkPolicy:
 #   - CPU/memory limits, so one runaway sandboxed config cannot starve the node.
 #
 # See docs/visual-builder-design-VB1.md §6.4 and docs/reviews/s3-sandbox-security-findings.md
-# (finding H5) for why each of these exists. Enabling this does NOT wire
-# shepherd's own config to reach it — set config.simulator.* (control_url,
-# capture_base_url, otlp_grpc_address, syslog_host, target_address) yourself,
-# pointed at this Service's DNS name, the same way oidc/graph are hand-set above.
+# (finding H5) for why each of these exists.
 simulator:
-  enabled: false
+  enabled: true
   image:
-    registry: ""
+    registry: "ghcr.io/procoduck"
     repository: shepherd-simulator
     tag: ""
     pullPolicy: IfNotPresent

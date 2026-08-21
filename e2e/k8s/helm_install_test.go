@@ -115,17 +115,38 @@ func TestHelmChartDefaultValuesInstall(t *testing.T) {
 				helmRun(t, cfg, f, "install", release)
 				return ctx
 			}).
-		Assess("the simulator is NOT deployed by default",
+		Assess("the simulator IS deployed by default, WITH its NetworkPolicy",
 			func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-				// simulator.enabled defaults false and must stay false: S3
-				// executes user-authored config and has open containment
-				// findings. A default install that quietly shipped it would be
-				// the worst kind of regression.
+				// simulator.enabled defaults true since v0.0.1 — both
+				// containment gates are closed (project-status.md F5). The
+				// non-negotiable pairing: a default install that shipped the
+				// simulator WITHOUT its default-deny NetworkPolicy would be
+				// the worst kind of regression, so both are asserted together.
+				p := utils.RunCommand(fmt.Sprintf("kubectl --kubeconfig %s -n %s get deploy -o name",
+					cfg.KubeconfigFile(), f.ns))
+				if !strings.Contains(p.Result(), release+"-simulator") {
+					t.Fatalf("the simulator Deployment is missing after a DEFAULT install — "+
+						"simulator.enabled defaults true since v0.0.1:\n%s", p.Result())
+				}
+				np := utils.RunCommand(fmt.Sprintf("kubectl --kubeconfig %s -n %s get networkpolicy -o name",
+					cfg.KubeconfigFile(), f.ns))
+				if !strings.Contains(np.Result(), release+"-simulator") {
+					t.Fatalf("the simulator deployed by DEFAULT without its default-deny NetworkPolicy — "+
+						"shipping the sandbox unconfined is exactly the regression this spec exists to stop:\n%s",
+						np.Result())
+				}
+				return ctx
+			}).
+		Assess("simulator.enabled=false removes it entirely",
+			func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
+				// The documented off-switch must actually switch off: an
+				// upgrade to enabled=false leaves no simulator workload behind.
+				helmRun(t, cfg, f, "upgrade", release, "--set simulator.enabled=false")
 				p := utils.RunCommand(fmt.Sprintf("kubectl --kubeconfig %s -n %s get deploy -o name",
 					cfg.KubeconfigFile(), f.ns))
 				if strings.Contains(p.Result(), release+"-simulator") {
-					t.Fatalf("the simulator Deployment exists after a DEFAULT install — "+
-						"simulator.enabled must default to false:\n%s", p.Result())
+					t.Fatalf("simulator.enabled=false left the simulator Deployment running — "+
+						"the off-switch the chart documents does not work:\n%s", p.Result())
 				}
 				return ctx
 			}).
