@@ -71,15 +71,24 @@ echo "==> Running extractor (linux container)..."
 # into /tmp because that user has no home inside the image).
 GO_CONTAINER_IMAGE="${GO_IMAGE:-golang:1.26}"
 mkdir -p "${OUT_DIR}"
-# Pre-create the module cache dir: if it does not exist when docker mounts it
+# Pre-create the cache dirs: if one does not exist when docker mounts it
 # (e.g. a fresh CI runner on a cache miss), docker creates the mount point as
 # root and the uid-mapped container user cannot write into it.
+#
+# The build cache mount is what makes repeat runs fast: compiling alloy is
+# ~95% of this script's wall clock, and a GOCACHE inside the container dies
+# with it (the first warm CI run proved this — same ~25 min as cold). The
+# host-side dir lives INSIDE `go env GOCACHE` so CI's setup-go cache step
+# saves and restores it; the subdir keeps the container's linux objects from
+# interleaving with the host's native ones.
 GOMODCACHE_DIR="$(go env GOMODCACHE)"
-mkdir -p "${GOMODCACHE_DIR}"
+GOBUILDCACHE_DIR="$(go env GOCACHE)/alloy-linux-container"
+mkdir -p "${GOMODCACHE_DIR}" "${GOBUILDCACHE_DIR}"
 docker run --rm \
   -u "$(id -u):$(id -g)" \
-  -e HOME=/tmp -e GOCACHE=/tmp/go-build -e GOGC -e ALLOY_VERSION \
+  -e HOME=/tmp -e GOCACHE=/gocache -e GOGC -e ALLOY_VERSION \
   -v "${SRC}":/src -v "${GOMODCACHE_DIR}":/go/pkg/mod \
+  -v "${GOBUILDCACHE_DIR}":/gocache \
   -w /src "${GO_CONTAINER_IMAGE}" \
   go run ./cmd/shepherd-schema-dump | jq -S . > "${OUTPUT}"
 
