@@ -16,6 +16,7 @@ import (
 	"shepherd/gen/collector/v1/collectorv1connect"
 	"shepherd/internal/merge"
 	"shepherd/internal/metrics"
+	"shepherd/internal/schema"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/validate"
@@ -38,11 +39,19 @@ type Service struct {
 	validator *validate.Validator
 	logger    *slog.Logger
 	sf        singleflight.Group
+	// schema drives signal/role enforcement on the lazy recompute path. This
+	// path and internal/mgmtapi's eager one produce the SAME served config, so
+	// enforcing only one of them would not be enforcement at all — it would
+	// just move the hole. Nil disables enforcement here (see New).
+	schema *schema.Registry
 }
 
-// New creates a new agent API Service.
-func New(st *store.Store, v *validate.Validator, logger *slog.Logger) *Service {
-	return &Service{store: st, validator: v, logger: logger.With("component", "agentapi")}
+// New creates a new agent API Service. reg may be nil, in which case the lazy
+// recompute path serves without role enforcement — a corrupt embedded schema
+// degrades the guard rather than taking the fleet offline. Callers that can
+// load a registry must pass it.
+func New(st *store.Store, v *validate.Validator, logger *slog.Logger, reg *schema.Registry) *Service {
+	return &Service{store: st, validator: v, logger: logger.With("component", "agentapi"), schema: reg}
 }
 
 // RegisterCollector handles collector registration.
@@ -332,7 +341,11 @@ func (s *Service) recomputeServeCache(ctx context.Context, coll sqlc.Collector, 
 		Labels:      map[string]string{"role": coll.Role, "cluster": clusterName},
 	}
 
-	result, err := merge.Assemble(coll.ID.String(), clusterName+"/"+coll.Role, cl, mergePipelines, "prod", "")
+	var opts []merge.AssembleOption
+	if s.schema != nil {
+		opts = append(opts, merge.WithRoleEnforcement(s.schema))
+	}
+	result, err := merge.Assemble(coll.ID.String(), clusterName+"/"+coll.Role, cl, mergePipelines, "prod", "", opts...)
 	if err != nil {
 		return "", "", fmt.Errorf("assembling config: %w", err)
 	}

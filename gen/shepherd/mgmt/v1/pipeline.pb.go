@@ -851,12 +851,30 @@ func (x *ValidatePipelineRequest) GetContents() string {
 // ValidatePipelineResponse mirrors internal/validate.Result. The endpoint
 // returns 200 with valid=false + diagnostics on validation failure (not an
 // error code) — "validate endpoints return 200 + diagnostics today".
+//
+// signals/signals_proven/unknown_components (docs/gateway-tier-plan.md W1)
+// surface the pipeline's derived signal set at authoring time, so a mismatch
+// with the collector role(s) this pipeline will eventually match is visible
+// before save, not only when merge assembly excludes it later. Populated on
+// a best-effort basis: absent when contents fails to parse as Alloy syntax
+// (that failure is already reported via valid/diagnostics above).
 type ValidatePipelineResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Valid         bool                   `protobuf:"varint,1,opt,name=valid,proto3" json:"valid,omitempty"`
-	Diagnostics   []*Diagnostic          `protobuf:"bytes,2,rep,name=diagnostics,proto3" json:"diagnostics,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Valid       bool                   `protobuf:"varint,1,opt,name=valid,proto3" json:"valid,omitempty"`
+	Diagnostics []*Diagnostic          `protobuf:"bytes,2,rep,name=diagnostics,proto3" json:"diagnostics,omitempty"`
+	// signals lists the derived signal set ("metrics", "logs", "traces",
+	// "profiles"), in that fixed display order.
+	Signals []string `protobuf:"bytes,3,rep,name=signals,proto3" json:"signals,omitempty"`
+	// signals_proven is false when signals is a floor, not a proof — contents
+	// has a top-level component the pinned schema does not recognize (see
+	// unknown_components) or an unclassified wire type.
+	SignalsProven bool `protobuf:"varint,4,opt,name=signals_proven,json=signalsProven,proto3" json:"signals_proven,omitempty"`
+	// unknown_components lists top-level component names contents uses that
+	// the pinned schema artifact has no entry for. Never silently dropped —
+	// signals may be missing signals these could carry.
+	UnknownComponents []string `protobuf:"bytes,5,rep,name=unknown_components,json=unknownComponents,proto3" json:"unknown_components,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *ValidatePipelineResponse) Reset() {
@@ -899,6 +917,27 @@ func (x *ValidatePipelineResponse) GetValid() bool {
 func (x *ValidatePipelineResponse) GetDiagnostics() []*Diagnostic {
 	if x != nil {
 		return x.Diagnostics
+	}
+	return nil
+}
+
+func (x *ValidatePipelineResponse) GetSignals() []string {
+	if x != nil {
+		return x.Signals
+	}
+	return nil
+}
+
+func (x *ValidatePipelineResponse) GetSignalsProven() bool {
+	if x != nil {
+		return x.SignalsProven
+	}
+	return false
+}
+
+func (x *ValidatePipelineResponse) GetUnknownComponents() []string {
+	if x != nil {
+		return x.UnknownComponents
 	}
 	return nil
 }
@@ -1235,10 +1274,13 @@ const file_shepherd_mgmt_v1_pipeline_proto_rawDesc = "" +
 	"\x17ValidatePipelineRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1a\n" +
-	"\bcontents\x18\x03 \x01(\tR\bcontents\"p\n" +
+	"\bcontents\x18\x03 \x01(\tR\bcontents\"\xe0\x01\n" +
 	"\x18ValidatePipelineResponse\x12\x14\n" +
 	"\x05valid\x18\x01 \x01(\bR\x05valid\x12>\n" +
-	"\vdiagnostics\x18\x02 \x03(\v2\x1c.shepherd.mgmt.v1.DiagnosticR\vdiagnostics\">\n" +
+	"\vdiagnostics\x18\x02 \x03(\v2\x1c.shepherd.mgmt.v1.DiagnosticR\vdiagnostics\x12\x18\n" +
+	"\asignals\x18\x03 \x03(\tR\asignals\x12%\n" +
+	"\x0esignals_proven\x18\x04 \x01(\bR\rsignalsProven\x12-\n" +
+	"\x12unknown_components\x18\x05 \x03(\tR\x11unknownComponents\">\n" +
 	"\x15PreviewMatchesRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\"P\n" +

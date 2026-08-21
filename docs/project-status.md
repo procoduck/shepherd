@@ -15,7 +15,7 @@
 | `docs/frontend-testing.md` | three-layer frontend test strategy |
 | `docs/platform-monitoring-architecture.md` | target-fleet reference notes |
 | `docs/kind-test-environment-plan.md` | **steps 1–3 in progress, §5 Layer B done**: kind-based Kubernetes test environment — NetworkPolicy enforcement (probed), Helm deploy, LGTM delivery |
-| `docs/gateway-tier-plan.md` | **proposed**: multi-session plan for the tenant-aware gateway tier, the self-report beacon, and signal/role enforcement — its own step ledger (§9), conformance gates (§6) and review gates (§7) |
+| `docs/gateway-tier-plan.md` | **in progress** (W1 done, G6 closed — see its §9): multi-session plan for the tenant-aware gateway tier, the beacon and outcome verification, signal/role enforcement, the chart-values generator, teams/scoped identity and the agent (MCP) interface — 11 workstreams with its own step ledger (§9), 15 conformance gates (§6), review gates (§7) and the actor model (§3a) |
 | `docs/proofs/` | red–green proofs for current work |
 | `docs/archive/` | finished work, kept as the record of why things are the way they are |
 
@@ -53,6 +53,17 @@ Verified on the running stack and in the browser, not inferred:
 - **Wizard, audit, overview, admin CRUD, org switcher** — all functional
 - **S3 sandbox run** — a live run completes in ~20s with 21 captured series and 3/3 healthy
   components. **Disabled by default** — see F5 below.
+
+### 2026-08-21 — signal derivation + role enforcement (W1)
+
+`docs/gateway-tier-plan.md` W1. New `internal/signals` package derives a pipeline's signal set
+(metrics/logs/traces/profiles) from its Alloy syntax and the schema artifact's wire types, and
+holds the role → allowed-signals policy table; `internal/merge.WithRoleEnforcement` excludes a
+role-mismatched pipeline from an assembled config instead of shipping it silently, recorded in
+both `AssembleResult.Exclusions` and the generated header comment; `ValidatePipeline` surfaces a
+pipeline's derived signals at authoring time. Full step ledger, the demonstrated red run, and the
+one gap this pass leaves open (enforcement does not yet reach `internal/agentapi`'s live
+`GetConfig` recompute path) are in `docs/gateway-tier-plan.md` §9 and §10 — not duplicated here.
 
 ### 2026-08-21 — sandbox-containment pass
 
@@ -282,6 +293,16 @@ that (rule P5) was deleted because it was simultaneously permeable and refused 5
 graphs.
 
 Full findings with evidence: **`docs/reviews/s3-sandbox-security-findings.md`**.
+
+### F-SIGNAL-SERVE — role enforcement does not cover the live agent serve path · **medium**
+
+W1 (`docs/gateway-tier-plan.md` §9/§10) built and tested signal/role enforcement, but only wired
+it into `internal/mgmtapi`'s write-time paths (validate, dry-run preview, async recompute-on-save).
+`internal/agentapi.Service`'s own lazy recompute — the path a real collector's `GetConfig` poll
+takes when `serve_cache` is dirty — calls `merge.Assemble` without `WithRoleEnforcement`, and a
+pipeline write marks the cache dirty synchronously before the enforced background recompute even
+starts, so a role-mismatched pipeline can reach a live collector's served config in that window.
+Details and the remaining fix in `docs/gateway-tier-plan.md` §9's W1 row.
 
 ### F-REVISIONS — revision diff and restore are not buildable yet · **medium**
 

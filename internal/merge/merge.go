@@ -7,6 +7,7 @@ package merge
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -85,14 +86,26 @@ func MatchesPipeline(p Pipeline, cl CollectorLabels) (bool, error) {
 type AssembleResult struct {
 	Content string
 	Hash    string
+	// Exclusions lists every pipeline that matched cl's labels but was left
+	// out of Content because of role enforcement (see WithRoleEnforcement).
+	// Empty when enforcement was not requested or excluded nothing.
+	Exclusions []Exclusion
 }
 
 // Assemble builds the merged Alloy configuration for a collector.
 //
 // It selects matching pipelines (git first, then ui/wizard sorted by name),
-// wraps each in a declare block, and prepends a header comment.
-// Returns (content, hash) ready to be stored in serve_cache.
-func Assemble(collectorID, collectorDisplayName string, cl CollectorLabels, pipelines []Pipeline, version, generatedAt string) (AssembleResult, error) {
+// optionally drops any whose signals the collector's role does not allow
+// (WithRoleEnforcement — gate G6), wraps each survivor in a declare block,
+// and prepends a header comment naming both what was included and what was
+// excluded and why. Returns (content, hash, exclusions) ready to be stored
+// in serve_cache.
+func Assemble(collectorID, collectorDisplayName string, cl CollectorLabels, pipelines []Pipeline, version, generatedAt string, opts ...AssembleOption) (AssembleResult, error) {
+	var cfg assembleConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
 	// Select pipelines.
 	var selected []Pipeline
 	for _, p := range pipelines {
@@ -118,16 +131,26 @@ func Assemble(collectorID, collectorDisplayName string, cl CollectorLabels, pipe
 		return strings.Compare(a.Name, b.Name)
 	})
 
+	if cfg.enforcementRequested && cfg.registry == nil {
+		return AssembleResult{}, errors.New(
+			"merge: role enforcement was requested but the schema registry is nil — " +
+				"refusing to serve unenforced config that would look enforced")
+	}
+	var exclusions []Exclusion
+	if cfg.registry != nil {
+		selected, exclusions = enforceRoles(selected, cl, cfg.registry)
+	}
+
 	if len(selected) == 0 {
-		// Empty config.
-		content := buildHeader(collectorID, collectorDisplayName, version, generatedAt, nil)
-		return AssembleResult{Content: content, Hash: HashContent(content)}, nil
+		// Empty config (nothing matched, or role enforcement excluded everything that did).
+		content := buildHeader(collectorID, collectorDisplayName, version, generatedAt, nil, exclusions)
+		return AssembleResult{Content: content, Hash: HashContent(content), Exclusions: exclusions}, nil
 	}
 
 	var sb strings.Builder
 
 	// Header comment.
-	sb.WriteString(buildHeader(collectorID, collectorDisplayName, version, generatedAt, selected))
+	sb.WriteString(buildHeader(collectorID, collectorDisplayName, version, generatedAt, selected, exclusions))
 
 	// Check for sanitized-name collisions before assembling.
 	seen := make(map[string]string, len(selected)) // blockName → pipeline name
@@ -162,7 +185,7 @@ func Assemble(collectorID, collectorDisplayName string, cl CollectorLabels, pipe
 	}
 
 	content := sb.String()
-	return AssembleResult{Content: content, Hash: HashContent(content)}, nil
+	return AssembleResult{Content: content, Hash: HashContent(content), Exclusions: exclusions}, nil
 }
 
 // HashContent computes hex(sha256(content)).
@@ -171,8 +194,11 @@ func HashContent(content string) string {
 	return hex.EncodeToString(h[:])
 }
 
-// buildHeader returns the header comment for a merged config.
-func buildHeader(collectorID, displayName, version, generatedAt string, pipelines []Pipeline) string {
+// buildHeader returns the header comment for a merged config. exclusions
+// (from role enforcement — see WithRoleEnforcement) are always listed when
+// present, even when pipelines is otherwise empty, so an excluded pipeline
+// is never invisible just because nothing else matched.
+func buildHeader(collectorID, displayName, version, generatedAt string, pipelines []Pipeline, exclusions []Exclusion) string {
 	if generatedAt == "" {
 		generatedAt = time.Now().UTC().Format(time.RFC3339)
 	}
@@ -185,6 +211,12 @@ func buildHeader(collectorID, displayName, version, generatedAt string, pipeline
 		fmt.Fprintf(&sb, "// Pipelines (%d):\n", len(pipelines))
 		for _, p := range pipelines {
 			fmt.Fprintf(&sb, "//   - %s (rev %d)\n", p.Name, p.Revision)
+		}
+	}
+	if len(exclusions) > 0 {
+		fmt.Fprintf(&sb, "// Excluded (%d) - signal/role mismatch (docs/gateway-tier-plan.md W1, gate G6):\n", len(exclusions))
+		for _, e := range exclusions {
+			fmt.Fprintf(&sb, "//   - %s: %s\n", e.PipelineName, e.Reason)
 		}
 	}
 	sb.WriteString("\n")
