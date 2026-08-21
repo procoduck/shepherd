@@ -5,7 +5,7 @@ has moved to [`docs/archive/reviews/`](../archive/reviews/).
 
 | Document | Why it is still live |
 |---|---|
-| [`s3-sandbox-security-findings.md`](s3-sandbox-security-findings.md) | **Open.** S3 sandbox simulation has unresolved containment criticals. The feature is disabled by default and must stay disabled until they close. |
+| [`s3-sandbox-security-findings.md`](s3-sandbox-security-findings.md) | **Annotated record.** The 2026-08-20 adversarial review of S3 sandbox containment, with a per-finding status pass (most findings, including both CRITICALs, are closed — see each finding's status line). The **live** open containment criticals are B-CONTAIN-1/2 in `docs/project-status.md`; the feature stays disabled by default until they close. |
 | [`canvas-framework-evaluation.md`](canvas-framework-evaluation.md) | **Decision record.** Why the canvas uses React Flow, and the controlled-mode contract the canvas now depends on. Read this before changing `CanvasPane`'s node/edge projection — the contract is easy to break silently. |
 
 ---
@@ -36,7 +36,7 @@ What closed them, because each was a distinct class of defect worth remembering:
 | `/api/schema/current` served `immutable, max-age=86400` | `no-cache` with ETag retained — the page had been reading a day-old schema, which is why edges vanished |
 | Self-skipping specs went green exactly when a feature was missing | Every `test.skip()` removed; five vacuous tests deleted |
 | 47 unnamed ports | 0 unnamed (314 total) |
-| `make schema-verify` referenced in three docs but absent | Exists, and runs in CI |
+| `make schema-verify` referenced in three docs but absent | Exists; its overlay guards run in CI via `go test`, and the upstream-clone artifact diff runs on the weekly `schema-verify` scheduled workflow |
 
 One correction recorded at the time is worth keeping: the reverse-direction edge that "could not
 be made to render" was never a React Flow bug. The graph model correctly encodes Alloy's

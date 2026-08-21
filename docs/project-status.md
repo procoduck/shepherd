@@ -14,7 +14,7 @@
 | `docs/dev-guide.md` | running the dev stack |
 | `docs/frontend-testing.md` | three-layer frontend test strategy |
 | `docs/platform-monitoring-architecture.md` | target-fleet reference notes |
-| `docs/kind-test-environment-plan.md` | **proposed**: kind-based Kubernetes test environment — NetworkPolicy enforcement, Helm deploy, LGTM delivery |
+| `docs/kind-test-environment-plan.md` | **steps 1–3 in progress**: kind-based Kubernetes test environment — NetworkPolicy enforcement, Helm deploy, LGTM delivery |
 | `docs/proofs/` | red–green proofs for current work |
 | `docs/archive/` | finished work, kept as the record of why things are the way they are |
 
@@ -52,6 +52,35 @@ Verified on the running stack and in the browser, not inferred:
 - **Wizard, audit, overview, admin CRUD, org switcher** — all functional
 - **S3 sandbox run** — a live run completes in ~20s with 21 captured series and 3/3 healthy
   components. **Disabled by default** — see F5 below.
+
+### 2026-08-21 — health-remediation pass
+
+One session, four parallel workstreams, from a verified full-repo review. Summary only — the
+diff is the detail.
+
+- **CI can actually build images.** `docker-build-local` no longer hardcodes
+  `--platform linux/arm64` (which failed with `exec format error` on CI's amd64 runners, so the
+  image-building e2e targets had never run in CI); the duplicate `docker-build`/`deploy/Dockerfile`
+  pair collapsed into one native-platform `docker-build-local` + `deploy/Dockerfile.local`, with
+  `docker-build` kept as a deprecated alias.
+- **Makefile honesty + ergonomics.** `make test`'s comment now says what it does (all Go tests,
+  Docker required); the fictitious `test-integration` deleted (`-tags=integration` matched zero
+  files); phantom `migrate` dropped from `.PHONY`; new `help` (default goal), `clean`,
+  `clean-docker` and `tools` targets; the guards gained a real `page.route` grep gate over
+  `web/tests/fullstack/` (`check-no-route-mocks`).
+- **Controls that were only claimed now run.** `make helm-lint` joined CI's guards job; a
+  `generated-drift` CI job fails on stale `make generate` output; `make schema-verify` runs on a
+  weekly scheduled workflow; `make e2e-k8s` runs nightly.
+- **Cannot-fail tests removed or rewritten.** The specs that asserted on fixtures they built
+  themselves or could not fail (server-router/metrics specs, the PKCE spec that split its own
+  string literal, tautological "red run" specs, the zero-assertion debug spec, always-true
+  header/diagnostics assertions) are gone or re-pointed at production code; reader-persona RBAC
+  negatives added to the mocked suite.
+- **Dead code sweep.** Unused test helpers and dead fixtures removed.
+- **Docs truth pass.** Claimed-but-nonexistent CI gates struck or made real; the dev password is
+  documented as `admin` / `admin` everywhere; `e2e/AGENTS.md` written; the S3 security findings
+  file carries per-finding statuses (B-CONTAIN-1/2 above remain the live criticals); root
+  AGENTS.md, README, dev-guide seed table and the stale proof scopes refreshed.
 
 ---
 
@@ -172,16 +201,17 @@ logout; horizontal-scale coordination beyond stateless replicas + Postgres.
 
 ## 6. Test infrastructure reference
 
-- **Backend**: Ginkgo v2 + Gomega; testcontainers Postgres for integration;
-  `make test` / `make test-integration` / `make e2e` (compose: postgres, mock-oauth2, mockmsft
+- **Backend**: Ginkgo v2 + Gomega; testcontainers Postgres (Docker required for `make test`);
+  `make test` / `make e2e` (compose: postgres, mock-oauth2, mockmsft
   Graph+ADO mock with `/__fixture` injection, shepherd, real Alloy)
 - **Frontend**: Vitest units; Playwright mocked suite (route interception, no MSW); Playwright
   fullstack suite against the real dev stack (`make test-fullstack`), including `walkthrough.spec.ts`
   which walks every route asserting no console errors, failed requests or blank pages
 - **Cross-cutting**: shared Go↔TS golden corpus (`internal/visual/testdata/corpus/` mirrored to
   `web/src/visual/__fixtures__/corpus/`, `make generate-corpus`); Makefile guards
-- **CI**: lint, build, guards, test, web, test-ui, test-fullstack, e2e-egress (containment probes,
-  paths-filtered on PRs)
+- **CI**: lint, build, guards (incl. helm-lint), generated-drift, test, web, test-ui,
+  test-fullstack, e2e-egress (containment probes, paths-filtered on PRs); scheduled: schema-verify
+  (weekly), e2e-k8s (nightly)
 
 ### A standard this repo now holds itself to
 

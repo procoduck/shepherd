@@ -1,6 +1,9 @@
 # Kubernetes test environment — plan
 
-> Status: **steps 1–2 implemented 2026-08-20** (`e2e/k8s/`, `make e2e-k8s`); steps 3–7 proposed.
+> Status: **steps 1–2 implemented 2026-08-20** (`e2e/k8s/`, `make e2e-k8s`); **step 3 partially
+> done** (default-values Helm install + repeatability specs landed in `e2e/k8s/helm_install_test.go`
+> and `helm_repeatable_test.go`; full-values install and true previous-version upgrade pending);
+> steps 4–7 proposed.
 > Goal: a repeatable, self-tearing-down Kubernetes environment that verifies the things
 > `docker compose` structurally cannot — NetworkPolicy enforcement, the Helm chart as deployed,
 > and Shepherd's behaviour against a realistic LGTM stack.
@@ -185,7 +188,7 @@ that reproduces the failure instead of asking the reader to take it on faith.
 |---|---|---|
 | 1 | ~~`e2e/k8s` skeleton: TestMain, kind config, Calico, teardown, `make e2e-k8s`~~ **done** | — |
 | 2 | ~~§4 negative control + the "CNI does not enforce" hard failure~~ **done** | 1 |
-| 3 | Layer A chart-deploys specs | 1 |
+| 3 | Layer A chart-deploys specs — **partially done** (default-values install + repeatability landed; full-values + upgrade pending) | 1 |
 | 4 | Layer B containment probes + kill probe | 2, 3 |
 | 5 | §7 documentation and `NOTES.txt` warning | 4 |
 | 6 | CI wiring, paths-filtered | 4 |

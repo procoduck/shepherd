@@ -1,5 +1,12 @@
 # S3 sandbox simulation — security & conformance findings (2026-08-20)
 
+> **Status pass 2026-08-21.** This is a point-in-time review; each finding below now carries a
+> status line. Most findings — including both CRITICALs — are closed by the rule-K rework and the
+> executable egress probes (see `docs/proofs/transform-secret-drop.md`,
+> `docs/proofs/transform-address-closure.md`, `docs/proofs/simulator-containment.md`). **The live
+> open containment criticals are B-CONTAIN-1 and B-CONTAIN-2 in `docs/project-status.md`** — they
+> are what keeps the feature disabled by default, not the findings in this file.
+
 Milestone 7 (VB-1 §6.4) is **implemented but its containment claim is NOT sound**. The feature is
 **disabled by default** (`simulator.enabled` has no default, so it is `false`; both compose files
 default `SHEPHERD_SIM_ENABLED` to `false`) and **must stay disabled** until the critical findings
@@ -31,6 +38,9 @@ zero-secrets proof genuinely fails when the drop is removed **for attributes the
 ## Findings
 
 ### 1. [CRITICAL] `internal/simulate/transform.go`
+
+> **Status: Fixed.** The type-driven sweep is gone; props survive only via the rule-K `sim_keep` allowlist (`constrainKeys` in `internal/simulate/transform.go`). Red run 2 in `docs/proofs/transform-secret-drop.md` is the run that would have caught this finding.
+
 *(found by: security)*
 
 The secret sweep is purely type-driven, so any credential that upstream Alloy declares as `string` rather than `secret` enters the sandbox verbatim. Proven for otelcol.receiver.cloudflare `secret`, otelcol.receiver.solace `auth.sasl_xauth2.bearer`, and otelcol.processor.resourcedetection `openshift.token`. The solace case renders with ZERO diagnostics, passes real `alloy validate` v1.18.1 with exit 0, and passes the simsvc endpoint allowlist — it clears every gate the design has. 518 of 718 credential-named attributes in the shipped artifact are NOT typed `secret`.
@@ -81,6 +91,9 @@ Code: dropSecretTypedPr
 </details>
 
 ### 2. [CRITICAL] `internal/simulate/transform.go`
+
+> **Status: Superseded.** The transform cannot bound reachability and no longer claims to (`docs/proofs/transform-address-closure.md` — rule P5 deleted). The reachability control is the sandbox network, now verified by execution: `e2e/sandbox_egress_test.go` dials out from the sandbox namespace and CI runs it (`e2e-egress` job, `--fail-on-empty`). What remains open network-side is B-CONTAIN-1/2 in `docs/project-status.md`.
+
 *(found by: security)*
 
 A malicious graph reaches an arbitrary host through BOTH software gates. A prometheus.scrape node with a literal bare-hostname `__address__` renders with zero diagnostics, survives Transform untouched, passes real `alloy validate` (exit 0), and is ALLOWED by simsvc's endpoint allowlist (which by design does not inspect bare hostnames). The only remaining control is Docker's `internal: true` network, whose observable effect no automated test verifies.
@@ -111,6 +124,9 @@ The destination WAS correctly re-pointed at the harness; the scrape target was n
 </details>
 
 ### 3. [HIGH] `internal/simulate/transform.go`
+
+> **Status: Fixed.** Rule K keeps only allowlisted paths; `proxy_url`, the per-signal `*_endpoint` overrides and `oauth2.token_url` are in no `sim_keep` list, so they are dropped (round-2 verification in `docs/proofs/transform-secret-drop.md`).
+
 *(found by: security)*
 
 Destination endpoints ARE left pointing at user-supplied URLs after transform (question 3: yes). rewriteDestinations only writes the overlay's `endpoint_paths`, so sibling address-bearing attributes on the SAME mapped destination survive: otelcol.exporter.otlphttp's per-signal `logs_endpoint`/`traces_endpoint`/`metrics_endpoint` (which override the rewritten `client.endpoint`), `proxy_url` on prometheus.remote_write / loki.write / pyroscope.write / prometheus.write.queue / otelcol.exporter.faro / otlphttp (which tunnels the harness-destined request out through an attacker host), and `oauth2.token_url`.
@@ -150,6 +166,9 @@ The allowlist blocks the plain-literal forms (secondary gate), but no transform 
 </details>
 
 ### 4. [HIGH] `internal/simsvc/compose_containment_test.go`
+
+> **Status: Fixed.** Egress denial is now verified by execution: `e2e/sandbox_egress_test.go` (`P-deny-ip` and friends) probes from inside the sandbox network, and `.github/workflows/e2e.yml`’s `e2e-egress` job runs `make e2e-sim`, whose first ginkgo pass is those probes under `--fail-on-empty`. See `docs/proofs/simulator-containment.md` §P0.
+
 *(found by: security)*
 
 Egress denial is configured but never verified by execution in any automated test. compose_containment_test.go asserts only the YAML DECLARATION (sim-internal has internal: true, no ports, cap_drop). The observable probes (getent from the sim network, docker network Internal=true) live only in docs/proofs/simulator-containment.md and were run by hand. e2e/sandbox_sim_test.go contains zero containment probes, and no CI workflow ever invokes `make e2e-sim` — `make e2e` explicitly filters it out. Given the findings above, network isolation is the ONLY control actually stopping a malicious graph, and it is the one control nothing tests.
@@ -173,6 +192,9 @@ compose_containment_test.go:116: Expect(simNet.Internal).To(BeTrue(), "sim-inter
 </details>
 
 ### 5. [HIGH] `deploy/helm/shepherd/templates/networkpolicy.yaml`
+
+> **Status: Fixed (artifacts) / Open (verification).** `deploy/helm/shepherd/templates/{deployment,service,serviceaccount,networkpolicy}-simulator.yaml` now exist, with default-deny egress and `automountServiceAccountToken: false`, asserted by `deploy/helm/chart_test.go`. The open half is that a template assertion is not a probe — nothing yet dials from inside a real cluster’s simulator Pod (B-CONTAIN-2; plan: `docs/kind-test-environment-plan.md`).
+
 *(found by: security)*
 
 The Helm chart — the documented Kubernetes deployment path — contains no simulator at all: no Deployment, no Service, and above all no NetworkPolicy egress restriction and no automountServiceAccountToken:false. Every containment control in §6.4 exists only in docker-compose. Anyone running Shepherd on Kubernetes with the simulator enabled has none of them.
@@ -191,6 +213,9 @@ The compose comment and design doc describe "NetworkPolicy egress: [], automount
 </details>
 
 ### 6. [HIGH] `internal/simsvc/guard.go`
+
+> **Status: Fixed.** `internal/simsvc/guard.go` now refuses all five bypass shapes (IPv6 literals, non-http schemes, DSN hosts, `sys.env()`-sourced endpoints, bare hostnames); RED C in `docs/proofs/transform-address-closure.md` shows 6 specs go red when the guard is reverted.
+
 *(found by: security)*
 
 The endpoint allowlist (the documented "second gate") has several bypasses beyond the one bare-hostname case its comment discloses: bare IPv6 host:port literals, URLs with any scheme other than http/https, hosts embedded in connection/DSN strings, and endpoints sourced from sys.env(). extractHost only recognises http(s):// URLs and the regex ^[A-Za-z0-9_.\-]+:[0-9]{1,5}$.
@@ -215,6 +240,9 @@ Only the bare-hostname case is documented in the hostPortLiteral comment; the IP
 </details>
 
 ### 7. [HIGH] `internal/spa/dist/index.html`
+
+> **Status: Fixed.** `make check-dist-consistency` passes, and CI’s guards job runs it on every PR.
+
 *(found by: build)*
 
 check-dist-consistency fails: internal/spa/dist is stale relative to web/src and contains untracked asset files that index.html references
@@ -246,6 +274,9 @@ $ git status --porcelain=v1 internal/spa/dist
 </details>
 
 ### 8. [HIGH] `web/src/visual/components/SandboxRunPanel.tsx`
+
+> **Status: Fixed.** `SandboxRunPanel.tsx` renders `run.stderr_tail` in the results view.
+
 *(found by: conformance)*
 
 §6.4 step 3 requires the sandbox's stderr tail be part of the results a user sees; it is captured and plumbed all the way through simsvc -> proto -> api/client.ts, but SandboxRunPanel.tsx never reads or renders run.stderr_tail anywhere in the results view.
@@ -258,6 +289,9 @@ grep -rn "stderr" web/src/visual/ returns nothing; web/src/api/client.ts:346/404
 </details>
 
 ### 9. [MEDIUM] `internal/simulate/transform.go`
+
+> **Status: Fixed.** `applyStubs` fails closed (`cannot_stub`) for every unstubbed `discovery.*`/`loki.source.*` source; every other unstubbed Sources component is constrained by rule K (empty `sim_keep` — no authored setting survives), and the two whose target lists carried an ordinary address key (`prometheus.exporter.blackbox`/`snmp`) are `sim_unsupported`. Rationale: `applyStubs`’ doc comment in `internal/simulate/transform.go`.
+
 *(found by: security)*
 
 Question 5 answered: yes — an unmapped source silently passes through instead of failing cannot_stub, because applyStubs gates on the component NAME PREFIX (discovery. / loki.source.) rather than on the Sources category. 80 of the 114 Sources-category components bypass the stub requirement entirely, including every prometheus.exporter.* (mysql, postgres, redis, mongodb, snmp, blackbox, cloudwatch, github, azure, gcp), every otelcol.receiver.*, and all four prometheus.operator.* Kubernetes-API discoverers. Each runs against whatever the user authored.
@@ -289,6 +323,9 @@ Count from overlay.json: 114 sources; 80 of them carry no discovery_stub and are
 </details>
 
 ### 10. [MEDIUM] `internal/visual/render.go`
+
+> **Status: Fixed.** Rule K removes every binding that survived rule D — expressions are never keepable at any depth — closing the `topLevelType()` gap (`keepProps`’ doc comment in `internal/simulate/transform.go`).
+
 *(found by: security)*
 
 GraphBindings are an essentially unvalidated channel into the sandbox config. render.go:534 writes `bind.Prop = bind.Ref.Expr` verbatim at the node's top level with no type check, while the transform (dropSecretTypedProps) and its own self-check (checkContainment P1) only remove a binding whose Prop is a TOP-LEVEL secret-typed attribute or an endpoint-path tail. topLevelType() returns "" for any nested or dotted Prop, so those bindings survive with their expression intact — including a binding onto a top-level attribute that is credential-bearing but declared `string` (e.g. otelcol.receiver.cloudflare `secret`), which produces valid Alloy.
@@ -318,6 +355,9 @@ These two specific shapes are later rejected by alloy validate (unknown attribut
 </details>
 
 ### 11. [MEDIUM] `internal/simulate/transform_validate_test.go`
+
+> **Status: Fixed.** The spec no longer self-skips: it Fails when neither an Alloy binary nor Docker is available, using the same docker-alloy shim as `internal/visual/render_test.go`.
+
 *(found by: security)*
 
 The only spec that runs the transformed config against the real Alloy binary self-skips, and CI provides neither `alloy` on PATH nor SHEPHERD_VALIDATE_ALLOY_BINARY — so it never runs. This reintroduces exactly the self-skipping pattern the repo just removed (commit a2db25d), and internal/visual/render_test.go already solved it with dockerAlloyShim(), which this file does not use.
@@ -343,6 +383,9 @@ $ grep -n dockerAlloyShim internal/visual/render_test.go -> 510,515 (the fallbac
 </details>
 
 ### 12. [MEDIUM] `internal/simsvc/queue.go`
+
+> **Status: Open (accepted deviation).** The queue still serialises onto a single sandbox slot; `internal/simsvc/queue.go`’s doc comment records why a pool is not wanted.
+
 *(found by: conformance)*
 
 §6.4 says runs are 'queued (1-2 concurrent)'; the simulator's Queue hard-codes exactly ONE sandbox slot, so true execution concurrency is always 1, not 1-2, regardless of the Shepherd-side `max_concurrent_runs` default of 2.
@@ -355,6 +398,9 @@ internal/simsvc/queue.go:83: "Queue serialises runs onto THE SINGLE sandbox slot
 </details>
 
 ### 13. [MEDIUM] `e2e/sandbox_sim_test.go`
+
+> **Status: Fixed.** M13 closed — `refValue` in `internal/visual/render.go`; red and green transcripts in `docs/proofs/sandbox-sim-e2e.md`. CI now runs the full S3 suite (`make e2e-sim`).
+
 *(found by: conformance)*
 
 §7.4/§11 item 9's 'Simulator run lifecycle' requirement (submit minimal-scrape -> poll to completed within 90s -> captured series present, health all-green) is implemented as a real e2e spec against the live simulator container, but the happy-path spec is currently RED, blocked by a pre-existing internal/visual/render.go defect (list-cardinality bracket-wrap breaks `alloy run` for any discovery-sourced graph, including minimal-scrape's own committed golden).
@@ -367,6 +413,9 @@ e2e/sandbox_sim_test.go:14-16: "KNOWN BLOCKER (docs/proofs/sandbox-sim-e2e.md ha
 </details>
 
 ### 14. [LOW] `internal/migrations/sql/0007_simulate_runs.up.sql`
+
+> **Status: Open (accepted).** The authored graph and `stderr_tail` remain plaintext in Postgres for the retention window — same-tenant exposure, accepted at LOW.
+
 *(found by: security)*
 
 Question 7: the UNtransformed authored graph is persisted verbatim in simulate_runs.graph JSONB for the retention window, and stderr_tail stores the sandbox Alloy's stderr, which echoes whole config blocks (including the string-typed credential attributes of finding 1) on any error. Both are same-tenant exposure, so this is low severity, but both sit in Postgres in plaintext. Positives: nothing logs the graph or rendered config, Rewrite.LogValue redacts From to "***", and GetRun does not return `graph`.
@@ -388,6 +437,9 @@ Logging audit: grep over internal/simulate/worker.go, client.go and internal/mgm
 </details>
 
 ### 15. [LOW] `internal/simulate/transform.go`
+
+> **Status: N/A (recorded verified-sound).** Note the secret-drop mechanism it verified has since been replaced by rule K; the current red–green record is `docs/proofs/transform-secret-drop.md`.
+
 *(found by: security)*
 
 VERIFIED SOUND (recorded for completeness, not a defect). Two of the seven questions came back clean. (2) The zero-secrets red proof is genuine: deleting the dropSecretTypedProps call turns 2 specs red with the runtime self-check naming the leaking paths — for secrets the artifact actually declares as `secret`. (6) Run-API tenant isolation is real at both layers: the interceptor scopes the org-admin check to the request's org id, and loadRun returns NotFound (never PermissionDenied) on org mismatch; both the Connect and REST tenant-isolation specs pass.
@@ -414,6 +466,9 @@ rpc_interceptor.go: orgID taken from the request via orgScoped, then auth.Author
 </details>
 
 ### 16. [LOW] `internal/schema/simpolicy.go`
+
+> **Status: Fixed.** `internal/schema/simpolicy.go` now enforces exactly one S3 disposition per artifact component and requires a `discovery_stub` on every `discovery.*`/`loki.source.*` source (`validateRequiredCoverage` and the disposition guard), so an unmapped source fails `make schema-verify` at build time.
+
 *(found by: conformance)*
 
 The overlay guard for `sim_destination` (destinations) enforces exhaustive coverage -- every Destinations-category component must have a policy or be explicitly on the unmappable list, failing schema-verify otherwise -- but no equivalent exhaustiveness check exists for `discovery_stub` (sources): a newly added, unmapped discovery.*/loki.source.* component would pass validateSimPolicy silently and only fail at S3 runtime with `cannot_stub`.
@@ -426,6 +481,9 @@ internal/schema/simpolicy.go:106-115 implements the exhaustive switch for `sim_d
 </details>
 
 ### 17. [LOW] `docs/proofs/`
+
+> **Status: Open.** No proof registry / mutation-gate enumeration exists; VB-1 §7.9’s gate extension remains unimplemented.
+
 *(found by: conformance)*
 
 §7.9's mutation-gate extension calls for the transform secret-drop proof to be registered as one of the three new VB invariants in the 8-invariant PR-gate check; no such registry/enumeration of proof entries exists anywhere in the repo (searched for 'mutation gate', 'WSR', '8-invariant' outside the design doc itself), so this was not just skipped by this stage but appears to have no implementation to register into.

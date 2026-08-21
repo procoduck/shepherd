@@ -4,7 +4,7 @@ A Node-RED-style visual editor for building Alloy pipelines: drag components ont
 
 **Standing rulings carried in from prior design work (not re-litigated here):**
 - Graph JSON is the single source of truth for visual pipelines; generated text is an artifact. **No bidirectional editing** — hand-written pipelines get a read-only "view as graph"; visual pipelines are edited only on the canvas. One-way, forever.
-- Block definitions come from the **generated schema artifact** (`schema/alloy-v<X>.json`, produced by `tools/alloy-schema-gen` running inside a pinned checkout of grafana/alloy, walking `component.Register` registrations + the `internal/component/metadata` accepts/exports data), deep-merged with a hand-maintained **overlay** (docs one-liners, palette categories, enum values, icons). Experimental components included, badged, gated.
+- Block definitions come from the **generated schema artifact** (`internal/schema/artifacts/alloy-v<X>.json`, produced by `tools/alloy-schema-gen` running inside a pinned checkout of grafana/alloy, walking `component.Register` registrations + the `internal/component/metadata` accepts/exports data), deep-merged with a hand-maintained **overlay** (docs one-liners, palette categories, enum values, icons). Experimental components included, badged, gated.
 - Everything generated flows through the existing validation gate (stages 1–3) before save/enable. The builder adds *earlier* layers, it never bypasses later ones.
 
 ---
@@ -75,7 +75,7 @@ Pipeline save/enable endpoints are UNCHANGED — the client calls `render`, then
 | `fast-deep-equal` | `^3` | zundo equality + graph-diff leaf compare | |
 | *(already present, reused — add nothing)* | | `zod` (inspector schemas generated at runtime from the schema artifact), `react-hook-form`, CodeMirror 6 stack (Code tab), TanStack Query (render/validate/simulate calls), shadcn/ui (inspector widgets, Sheet, drawer tabs) | |
 
-**Forbidden:** any second graph lib, `reactflow` (v11 legacy), `elkjs`, `immer` (zustand set-fns suffice; immer+zundo interplay causes history bloat), any wasm bridge for codegen (the two-implementation + corpus decision in §4.2 stands). Bundle rule: the entire visual builder is a lazy route chunk (`/pipelines/visual/*` code-split); `pnpm build` chunk report must show it separate from the main bundle, and the main bundle must not grow — asserted in CI by a size-limit check (`web/scripts/check-chunks.mjs`: main chunk delta < 5KB vs committed baseline, visual chunk < 450KB gz).
+**Forbidden:** any second graph lib, `reactflow` (v11 legacy), `elkjs`, `immer` (zustand set-fns suffice; immer+zundo interplay causes history bloat), any wasm bridge for codegen (the two-implementation + corpus decision in §4.2 stands). Bundle rule: the entire visual builder is a lazy route chunk (`/pipelines/visual/*` code-split); `pnpm build`'s chunk report must show it separate from the main bundle. There is no automated size gate — review the chunk report when touching the route split.
 
 ## 2.1 Layout
 
@@ -215,7 +215,7 @@ The Node-RED muscle-memory feature: per-node bypass without deletion. Disabled n
 | Port types (accepts/exports) | `internal/component/metadata` — `metadata.ForComponent(name)` → `{Accepts, Exports []DataType}` (Targets, LokiLogs, PrometheusMetricsReceiver, OTel consumers, PyroscopeProfilesReceiver) | DataType → our wire-type ids (§3.1); input PROP names identified as the list-of-capsule reference-accepting Args fields (`forward_to`, `targets`, …); output export names from the Exports struct fields |
 | Default snippet per component | `Args` implementing `syntax.Defaulter` (`SetToDefault()`), re-marshalled with `github.com/grafana/alloy/syntax.Marshal` | `reflect.New(argsType)` → SetToDefault → Marshal → the palette drop template |
 
-**The runner** — `tools/alloy-schema-gen/{run.sh, extract.go, README.md}`. `run.sh` (invoked as `make schema`; needs network to the git mirror — a CI job concern only, never part of app builds):
+**The runner** — `tools/alloy-schema-gen/{run.sh, extract.go, README.md}`. `run.sh` (invoked as `make schema`; needs network to the git mirror — a CI job concern only, never part of app builds). *The listing below is the historical design sketch; the current interface is the Makefile's `schema`/`schema-verify` targets, which drive `run.sh` via `SCHEMA_OUT_DIR`/`SKIP_RECONCILE` and write into `internal/schema/artifacts/`:*
 
 ```bash
 #!/usr/bin/env bash
@@ -232,9 +232,9 @@ rm -rf "$SRC"
 
 `extract.go` (~300 lines): registers all components via the blank import, iterates the registry, performs the extractions above, emits the artifact exactly as `GET /api/schema` serves it — components keyed by name: `{stability, doc:"", attributes:[{name,type,required}], blocks:[…recursive], inputs:[{prop,type,cardinality}], outputs:[{export,type}], default_snippet}` (`doc` empty; the overlay fills it). Components whose Args defy reflection (rare capsule-only oddities) are emitted `"opaque": true` — palette Advanced category, inspector reduced to the raw default snippet — and the extractor logs them for overlay special-casing. The extractor NEVER silently drops a registered component: the artifact header's `components_total` must equal the registry count (self-checked, non-zero exit on mismatch).
 
-**Committed outputs & CI discipline:** `schema/alloy-v<X>.json` is COMMITTED (app builds stay hermetic — no network, no clone at build time) alongside `schema/overlay.json`. CI job `make schema-verify` (runs on Alloy-bump PRs + weekly): regenerate and diff against the committed artifact — drift fails with the diff attached. An Alloy version bump is therefore ONE reviewable PR: `versions.env` change + regenerated artifact + overlay entries for new components + the fleet stage-3 revalidation sweep. Overlay guards: overlay keys must exist in the artifact (hard fail — overlay can't rot); new artifact components lacking an overlay `category` land in Advanced with a CI **warning** naming them (a warning, not a failure — a new experimental component must never block the version bump; categorization is tracked follow-up).
+**Committed outputs & CI discipline:** `internal/schema/artifacts/alloy-v<X>.json` is COMMITTED (app builds stay hermetic — no network, no clone at build time) alongside `internal/schema/artifacts/overlay.json`. CI job `make schema-verify` (weekly scheduled workflow; run it on Alloy-bump PRs): regenerate and diff against the committed artifact — drift fails with the diff attached. An Alloy version bump is therefore ONE reviewable PR: `versions.env` change + regenerated artifact + overlay entries for new components + the fleet stage-3 revalidation sweep. Overlay guards: overlay keys must exist in the artifact (hard fail — overlay can't rot); new artifact components lacking an overlay `category` land in Advanced with a CI **warning** naming them (a warning, not a failure — a new experimental component must never block the version bump; categorization is tracked follow-up).
 
-The **overlay** (`schema/overlay.json`) deep-merges over the artifact: docs one-liners, palette categories, icons, enum value lists, terminal-ok flags, port display order, discovery-stub mappings (§6.4), and rename migrations (§5.3).
+The **overlay** (`internal/schema/artifacts/overlay.json`) deep-merges over the artifact: docs one-liners, palette categories, icons, enum value lists, terminal-ok flags, port display order, discovery-stub mappings (§6.4), and rename migrations (§5.3).
 
 ## 5.2 Serving & client consumption
 
@@ -385,7 +385,7 @@ Mock layer: `GET /api/schema` served from the committed artifact fixture (trimme
 7. **`visual-simulate-s2.spec.ts`** — select relabel node → Simulate tab → pick built-in fixture → mocked trace renders as stage cards; a dropped target row shows the rule that dropped it; clicking a stage card selects the node.
 Quality bars: every assertion content-level (the `locator('body')` grep applies); the autocomplete-kill-probe analog here: `visual-linking` red run = remove `isValidConnection` → the invalid-wire test fails (proof file).
 
-## 7.7 Fullstack (`web/tests/fullstack/visual.spec.ts`) — real stack, no mocks
+## 7.7 Fullstack (`web/tests/fullstack/visual-graph-roundtrip.spec.ts`, `visual-pipeline-wiring.spec.ts`) — real stack, no mocks
 
 1. **Build-and-serve journey**: login (LA-1) → new visual pipeline → place static-targets + scrape + remote_write (click-to-place), wire them, bind the seeded destination preset → Problems reaches zero → Save & Enable with matcher `cluster="prod-eu-1", role="metrics"` (seeded) → navigate to the collector's Served Config → assert it CONTAINS the generated header comment AND the scrape block with the chosen label (content-level, against the REAL render+merge). Expected outcome precisely: served config contains `// generated by shepherd visual builder` and `prometheus.scrape "<label>"`.
 2. **Revision restore**: edit the graph (change scrape_interval), save → 2 revisions; restore rev 1 → reopen canvas → the interval prop shows the original value (graph round-trip through the DB proven in-browser).
@@ -396,14 +396,13 @@ Quality bars: every assertion content-level (the `locator('body')` grep applies)
 
 1. **Scenario `visual-serve`** (joins the ordered flow after scenario 2): via the API, save+enable a corpus-equivalent visual pipeline matched to the e2e collector → `Eventually` the real Alloy reports APPLIED with the new hash and Shepherd's served-config endpoint shows the generated content → disable → hash reverts. (The agent applying visually-generated config is the end of the chain; content assertion includes the header comment.)
 2. **Scenario `sandbox-sim`** (`--profile sim`, simulator service in compose): submit `minimal-scrape` for a real run → completed → captured series include the synthetic counter with the relabel-produced label; component health all-green in results; the rewrite disclosure lists exactly {2 destination rewrites? per graph: 1 destination rewrite, 1 discovery stub}. **Kill probe (the suite-review standard):** break the destination rewrite in the transform → captured series EMPTY → scenario fails; capture as the group's red proof.
-3. Quality probes inherited: no sleeps, 3× stability run, content assertions — the test-suite review prompt (`docs/review-prompt-tests-e2e-playwright.md`) gains a VB part mirroring these as re-executable probes.
+3. Quality probes inherited: no sleeps, 3× stability run, content assertions.
 
 ## 7.9 Suite-level gates & budgets
 
 | Suite | Budget | Gate |
 |---|---|---|
-| Go unit (visual + schema invariants) | ≤ 30s | `make test`, every PR |
-| Go integration (7.4, incl. binary-labelled) | ≤ 3m | `make test-integration` |
+| Go tests (visual + schema invariants, incl. binary-labelled) | ≤ 3m | `make test`, every PR |
 | Vitest visual | ≤ 20s | `make test-ui` prelude |
 | Playwright mocked visual specs | ≤ 60s added | `make test-ui`, every PR |
 | Fullstack visual spec | ≤ 45s added | `make test-fullstack`, every PR |

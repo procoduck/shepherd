@@ -1,17 +1,19 @@
 # Shepherd
 
-Self-hosted Grafana Alloy fleet manager. Go 1.24 backend (Connect RPC agent API + chi REST),
+Self-hosted Grafana Alloy fleet manager. Go 1.26 backend (Connect RPC agent API + chi REST),
 React 18/TS/Vite SPA embedded via go:embed, PostgreSQL 16. Spec: docs/spec.md (authoritative).
 
 ## Commands
+- Discover targets: `make help` (lists all targets + env knobs E2E_KEEP/E2E_K8S_KEEP/E2E_K8S_NODE_IMAGE)
 - Build: `make build` (builds web first — required for go:embed)
-- Test all: `make test` · single pkg: `ginkgo ./internal/<pkg>` · focused: `ginkgo --focus "name" ./internal/<pkg>`
-- Integration (needs Docker): `make test-integration`
-- E2E (needs Docker, ~10 min): `make e2e`
-- Fullstack Playwright (needs Docker dev stack): `make test-fullstack`
-- Local dev stack: `make dev` (boots at :8080, login admin/e2e-local-admin-pass) · `make dev-reset` (wipe data)
-- Lint+format: `make lint` / `make fmt` (golangci-lint v2)
-- Codegen after proto/SQL changes: `buf generate` / `sqlc generate`
+- Test all: `make test` (all Go tests; needs Docker for testcontainers) · single pkg: `ginkgo ./internal/<pkg>` · focused: `ginkgo --focus "name" ./internal/<pkg>`
+- E2E (needs Docker, ~10 min): `make e2e` · sandbox: `make e2e-sim` / `make e2e-egress` · Kubernetes (kind): `make e2e-k8s`
+- Mocked UI suite: `make test-ui` · fullstack Playwright (needs Docker dev stack): `make test-fullstack`
+- Local dev stack: `make dev` (boots at :8080, login admin/admin) · `make dev-reset` (wipe data)
+- Lint+format: `make lint` / `make fmt` (golangci-lint v2) · Helm chart: `make helm-lint`
+- Codegen after proto/SQL changes: `make generate`
+- Tool bootstrap: `make tools` (ginkgo, gofumpt, sqlc, buf) · cleanup: `make clean` / `make clean-docker`
+- Schema artifact drift check: `make schema-verify` · container smoke test: `make smoke`
 - Release dry-run: `make release-snapshot`
 
 ## Architecture
@@ -19,8 +21,10 @@ React 18/TS/Vite SPA embedded via go:embed, PostgreSQL 16. Spec: docs/spec.md (a
 - `internal/agentapi/` — collector.v1 Connect service (the protocol Alloy polls)
 - `internal/mgmtapi/` — REST handlers · `internal/auth/` — OIDC BFF + RBAC middleware
 - `internal/merge/` — matcher eval + declare-wrap merge + hashing · `internal/validate/` — 3-stage gate
-- `internal/store/` — sqlc output + repositories · `migrations/` — golang-migrate SQL
-- `internal/graph/`, `internal/ado/`, `internal/gitsync/` — Entra Graph, Azure DevOps, repo sync
+- `internal/store/` — sqlc output + repositories · `internal/migrations/sql/` — golang-migrate SQL
+- `internal/graph/`, `internal/ado/`, `internal/gitsync/`, `internal/gitrepo/` — Entra Graph, ADO auth, repo sync, git transport
+- `internal/visual/`, `internal/schema/` — graph→Alloy renderer, component schema artifact + overlay
+- `internal/simulate/`, `internal/simsvc/`, `internal/netshape/` — S2/S3 simulation transform, sandbox simulator service, host-literal analysis
 - `web/` — SPA (own AGENTS.md) · `e2e/` — compose-based e2e (own AGENTS.md)
 
 ## Conventions
@@ -48,16 +52,20 @@ All Docker images used in Dockerfiles, Compose files, and testcontainers calls
 should use the standard public registries unless your organisation operates a mirror.
 Replace the examples below with your internal registry prefix if needed.
 
-| Upstream image | Reference used in this repo |
+| Upstream image | Pin lives in |
 |---|---|
-| `gcr.io/distroless/static-debian12:nonroot` | `gcr.io/distroless/static-debian12:nonroot` |
-| `grafana/alloy:v1.18.1` | `grafana/alloy:v1.18.1` |
-| `golang:1.26-alpine` | `golang:1.26-alpine` |
-| `node:24-slim` | `node:24-slim` |
-| `postgres:16-alpine` | `postgres:16-alpine` |
-| `ghcr.io/navikt/mock-oauth2-server:6.0.1` | `ghcr.io/navikt/mock-oauth2-server:6.0.1` |
+| `gcr.io/distroless/static-debian12:nonroot` | `deploy/versions.env` (DISTROLESS_IMAGE) |
+| `gcr.io/distroless/base-debian12:nonroot` | `deploy/versions.env` (DISTROLESS_BASE_IMAGE) |
+| `grafana/alloy:v1.18.1` | `deploy/versions.env` (ALLOY_IMAGE) |
+| `golang:1.26-alpine` | `deploy/versions.env` (GO_IMAGE) |
+| `node:24-slim` | `deploy/versions.env` (NODE_IMAGE) |
+| `postgres:16-alpine` | compose files, `Makefile` (smoke), `internal/testutil/postgres.go` — NOT versions.env |
+| `ghcr.io/navikt/mock-oauth2-server:6.0.1` | compose files — NOT versions.env |
+| `gitea/gitea:1-rootless` | compose files (e2e + dev) — NOT versions.env |
+| `alpine:3.22` | `e2e/docker-compose.e2e.yaml` (probe helper) — NOT versions.env |
 
-Pins live in `deploy/versions.env`; update there first, this table is kept in sync with it.
+`deploy/versions.env` is the source of truth for the rows that name it; the rest are
+hardcoded where the table says. Update pins there first.
 
-This applies to: `deploy/Dockerfile`, `deploy/Dockerfile.goreleaser`, `e2e/docker-compose.e2e.yaml`,
+This applies to: `deploy/Dockerfile.local`, `deploy/Dockerfile.goreleaser`, `e2e/docker-compose.e2e.yaml`,
 and any `testcontainers-go` image string (e.g. in `internal/testutil/postgres.go`).

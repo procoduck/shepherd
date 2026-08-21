@@ -4,8 +4,7 @@
 
 ```bash
 git clone <repo>
-make build-web && make docker-build && make docker-build-init
-make dev
+make dev   # builds the shepherd images itself, then boots the stack
 # → Open http://localhost:8080 and log in as admin / admin
 ```
 
@@ -13,6 +12,9 @@ The dev stack starts in ~10s (images cached). It includes:
 - Shepherd at `:8080` with the embedded SPA
 - PostgreSQL at `:15432` (named volume — data persists across restarts)
 - `mockmsft` at `:9090` — mock Microsoft Graph API for group search
+- Gitea (git server for the seeded GitOps fixtures)
+- Three real Alloy agents (prod-eu-1/metrics, prod-eu-1/logs, staging-eu-1/metrics), so the
+  Collectors screen shows live instances
 
 ---
 
@@ -47,12 +49,10 @@ is set in the dev env file to disable the `Secure` flag for non-TLS local dev.
 
 ## Optional profiles
 
-Add `--profile` flags to include extra services:
+Add `--profile` flags to include extra services (the Alloy agents and Gitea need no profile —
+they start by default):
 
 ```bash
-# With Alloy agent (Collectors screen shows a real live collector)
-docker compose -f dev/docker-compose.dev.yaml --profile alloy up -d --build --wait
-
 # With mock-OAuth2 server (for OIDC login flow testing)
 docker compose -f dev/docker-compose.dev.yaml --profile oidc up -d --build --wait
 ```
@@ -85,13 +85,16 @@ The dev seed (`shepherd dev seed`) creates:
 
 | Entity | Details |
 |---|---|
-| Orgs | `platform-org` (admin group: `22222222-aaaa-4000-8000-000000000001`) + `data-eng` |
-| Clusters | `prod-eu-1` (claimed by platform-org), `staging-us-1` (unclaimed) |
-| Collectors | `metrics` (APPLIED), `logs` (stale, 2h old), `singleton` (FAILED) — all on prod-eu-1 |
-| Pipelines | `base-metrics` (ui, enabled), `loki-logs` (ui, disabled), `app-obs-wizard` (wizard) |
-| Agent token | ID `00000000-dev0-4000-a000-000000000001`, secret `dev-only-agent-secret-32byteslong` |
+| Orgs | `platform-org` (admin group `22222222-aaaa-4000-8000-000000000001`, reader group `…0002`) + `data-eng` (admin group `…0003`) |
+| Clusters | `prod-eu-1`, `staging-eu-1` (both claimed by platform-org), `data-eng-eu-1` (claimed by data-eng) |
+| Collectors | `metrics`, `logs`, `singleton` on prod-eu-1; `metrics` on data-eng-eu-1. Collector rows only — instances register themselves from the compose Alloy containers; `singleton` shows zero instances until something registers, which is expected |
+| Pipelines (platform-org) | `base-metrics` (ui, enabled), `demo-visual` (visual, enabled — real `alloy-graph/v1` wizard_state so the visual builder opens with an editable example), `loki-logs` (ui, disabled), `app-obs-wizard` (wizard, disabled) |
+| Pipelines (data-eng) | `example-metrics` (ui, disabled) |
+| Destinations | `prom-prod` (prometheus), `loki-prod` (loki) — platform-org |
+| GitOps | Gitea repo `shepherd-demo-config` + `pat` credential `gitea-demo` + repo link → git-sourced `demo-git.alloy` pipeline (skipped with a notice if Gitea is unreachable) |
+| Agent token | ID `00000000-de00-4000-a000-000000000001`, secret `dev-only-agent-secret-32byteslong` |
 
-To reseed without resetting data: `make dev-seed` (idempotent — all inserts use `ON CONFLICT DO NOTHING`).
+To reseed without resetting data: `make dev-seed` (idempotent — inserts use `ON CONFLICT DO NOTHING`, orgs `ON CONFLICT DO UPDATE`).
 
 ---
 
