@@ -268,6 +268,9 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 		func() (string, http.Handler) {
 			return mgmtv1connect.NewAuditServiceHandler(NewAuditService(st, logger), authz)
 		},
+		func() (string, http.Handler) {
+			return mgmtv1connect.NewTenantRouteServiceHandler(NewTenantRouteService(st, logger), authz)
+		},
 	}
 	for _, mount := range mounts {
 		path, handler := mount()

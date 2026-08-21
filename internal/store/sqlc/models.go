@@ -215,3 +215,20 @@ type SimulateRun struct {
 	ErrorCode                string             `json:"error_code"`
 	ErrorMessage             string             `json:"error_message"`
 }
+
+type TenantRoute struct {
+	ID               pgtype.UUID        `json:"id"`
+	OrgID            pgtype.UUID        `json:"org_id"`
+	TenantID         string             `json:"tenant_id"`
+	Kind             string             `json:"kind"`
+	Segment          string             `json:"segment"`
+	Status           string             `json:"status"`
+	ValidUntil       pgtype.Timestamptz `json:"valid_until"`
+	RotatedFromID    pgtype.UUID        `json:"rotated_from_id"`
+	GatewayMode      string             `json:"gateway_mode"`
+	GatewayName      string             `json:"gateway_name"`
+	GatewayNamespace string             `json:"gateway_namespace"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
+}

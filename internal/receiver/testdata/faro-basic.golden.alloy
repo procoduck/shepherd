@@ -1,0 +1,44 @@
+faro.receiver "acme_faro" {
+  server {
+    listen_address = "0.0.0.0"
+    listen_port    = 12347
+    max_allowed_payload_size = "5MiB"
+    // CORS answers docs/gateway-tier-plan.md D2: the Gateway API Standard
+    // channel carries no CORS filter at the pinned floor, so this receiver is
+    // the only place origin is enforced for browser traffic.
+    cors_allowed_origins = ["https://app.acme.example.com"]
+    rate_limiting {
+      enabled = true
+      strategy   = "global"
+      rate       = 50
+      burst_size = 100
+    }
+  }
+  output {
+    logs   = [loki.write.acme_faro_logs.receiver]
+    traces = [otelcol.processor.batch.faro_acme_faro_traces.input]
+  }
+}
+
+loki.write "acme_faro_logs" {
+  endpoint {
+    url       = sys.env("SHEPHERD_DEST_ACME_LOKI_URL")
+    tenant_id = "acme"
+    bearer_token = sys.env("SHEPHERD_DEST_ACME_LOKI_TOKEN")
+  }
+}
+
+otelcol.processor.batch "faro_acme_faro_traces" {
+  output {
+    traces  = [otelcol.exporter.otlp.acme_faro_tempo.input]
+  }
+}
+
+otelcol.exporter.otlp "acme_faro_tempo" {
+  client {
+    endpoint = sys.env("SHEPHERD_DEST_ACME_TEMPO_URL")
+    headers = {
+      "Authorization" = sys.env("SHEPHERD_DEST_ACME_TEMPO_TOKEN"),
+    }
+  }
+}

@@ -112,6 +112,13 @@ var procedureRequirements = map[string]string{ //nolint:gochecknoglobals // stat
 
 	// AuditService — org admin.
 	mgmtv1connect.AuditServiceListAuditProcedure: auth.RoleOrgAdmin,
+
+	// TenantRouteService — org reader for reads, org admin for writes
+	// (create/rotate/revoke all mint or destroy routing capacity).
+	mgmtv1connect.TenantRouteServiceListTenantRoutesProcedure:  auth.RoleOrgReader,
+	mgmtv1connect.TenantRouteServiceCreateTenantRouteProcedure: auth.RoleOrgAdmin,
+	mgmtv1connect.TenantRouteServiceRotateTenantRouteProcedure: auth.RoleOrgAdmin,
+	mgmtv1connect.TenantRouteServiceRevokeTenantRouteProcedure: auth.RoleOrgAdmin,
 }
 
 // errUnknownProcedure is returned (fail closed) for any Connect procedure not

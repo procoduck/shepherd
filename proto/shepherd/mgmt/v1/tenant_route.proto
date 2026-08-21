@@ -1,0 +1,113 @@
+syntax = "proto3";
+
+package shepherd.mgmt.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
+
+// TenantRouteService covers tenant route records for the receiver tier's
+// gateway (docs/gateway-tier-plan.md §4 W4). A tenant route pairs a tenant
+// with a rotatable, unguessable path segment (D9) that
+// internal/gateway.RenderHTTPRoute renders into a Gateway API HTTPRoute
+// (D8's two ownership modes: gateway_mode "managed" or "operator"). This
+// service is the storage/lifecycle surface only — it does not apply
+// anything to Kubernetes; that is the next slice. Reads require org-reader;
+// writes (Create/Rotate/Revoke) require org-admin.
+service TenantRouteService {
+  rpc ListTenantRoutes(ListTenantRoutesRequest) returns (ListTenantRoutesResponse) {}
+  rpc CreateTenantRoute(CreateTenantRouteRequest) returns (TenantRoute) {}
+  rpc RotateTenantRoute(RotateTenantRouteRequest) returns (RotateTenantRouteResponse) {}
+  rpc RevokeTenantRoute(RevokeTenantRouteRequest) returns (TenantRoute) {}
+}
+
+// TenantRoute mirrors internal/store/sqlc.TenantRoute (0009_tenant_routes).
+message TenantRoute {
+  string id = 1;
+  string org_id = 2;
+  string tenant_id = 3;
+  // kind is "otlp" or "faro" (internal/gateway.KindOTLP / KindFaro).
+  string kind = 4;
+  // segment is the route-prefix path segment minted by
+  // internal/gateway.GenerateSegment: "/{kind}/{segment}/...".
+  string segment = 5;
+  // status is "active", "deprecated" (still routes, mid-rotation), or
+  // "revoked".
+  string status = 6;
+  // valid_until is set only for a "deprecated" route: the end of its
+  // rotation overlap window. Unset for "active"/"revoked".
+  google.protobuf.Timestamp valid_until = 7;
+  // rotated_from_id is the id of the route this one replaced, if any (set
+  // only on a route created by RotateTenantRoute).
+  string rotated_from_id = 8;
+  // gateway_mode is "managed" (Shepherd owns the Gateway object) or
+  // "operator" (Shepherd only creates HTTPRoutes against an
+  // operator-supplied Gateway) — D8.
+  string gateway_mode = 9;
+  string gateway_name = 10;
+  // gateway_namespace is empty to mean "same namespace as the HTTPRoute",
+  // matching internal/gateway.RouteSpec.GatewayNamespace's convention.
+  string gateway_namespace = 11;
+  google.protobuf.Timestamp created_at = 12;
+  google.protobuf.Timestamp updated_at = 13;
+  google.protobuf.Timestamp revoked_at = 14;
+}
+
+message ListTenantRoutesRequest {
+  string org_id = 1;
+}
+
+message ListTenantRoutesResponse {
+  repeated TenantRoute items = 1;
+  int32 total = 2;
+}
+
+// CreateTenantRouteRequest mints a new active tenant route. The segment is
+// always generated server-side (internal/gateway.GenerateSegment) — this
+// request never accepts a caller-supplied segment.
+message CreateTenantRouteRequest {
+  string org_id = 1;
+  string tenant_id = 2;
+  // kind is "otlp" or "faro".
+  string kind = 3;
+  // format selects the segment format (internal/gateway.SegmentFormat):
+  // "opaque" or "slug-suffix". Empty defaults to "slug-suffix" (D9's
+  // documented default).
+  string format = 4;
+  // gateway_mode is "managed" or "operator" (D8), required.
+  string gateway_mode = 5;
+  string gateway_name = 6;
+  string gateway_namespace = 7;
+}
+
+// RotateTenantRouteRequest issues a new active segment for an existing
+// active route, demoting the old one to "deprecated" with a
+// valid_until deadline overlap_seconds in the future (D9: "issue new, run
+// both briefly, revoke old").
+message RotateTenantRouteRequest {
+  string org_id = 1;
+  // id is the currently-active TenantRoute to rotate.
+  string id = 2;
+  // format selects the new segment's format; empty keeps the same format
+  // policy as CreateTenantRoute's default (slug-suffix).
+  string format = 3;
+  // overlap_seconds is how long the old segment keeps routing traffic
+  // after rotation. <= 0 uses the service's default (24h).
+  int32 overlap_seconds = 4;
+}
+
+message RotateTenantRouteResponse {
+  // active is the newly minted route.
+  TenantRoute active = 1;
+  // deprecated is the previously-active route, now status "deprecated"
+  // with valid_until set.
+  TenantRoute deprecated = 2;
+}
+
+// RevokeTenantRouteRequest immediately revokes a route (any status),
+// regardless of valid_until — for the "and then revoke it" half of a
+// rotation, or for an out-of-band incident response revoke.
+message RevokeTenantRouteRequest {
+  string org_id = 1;
+  string id = 2;
+}

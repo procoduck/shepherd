@@ -1,0 +1,25 @@
+faro.receiver "globex_faro" {
+  server {
+    listen_address = "0.0.0.0"
+    listen_port    = 12348
+    max_allowed_payload_size = "2MiB"
+    // CORS answers docs/gateway-tier-plan.md D2: the Gateway API Standard
+    // channel carries no CORS filter at the pinned floor, so this receiver is
+    // the only place origin is enforced for browser traffic.
+    // no origins configured: CORS is disabled (Alloy's own default for []).
+    cors_allowed_origins = []
+    rate_limiting {
+      enabled = false
+    }
+  }
+  output {
+    logs   = [loki.write.globex_faro_logs.receiver]
+  }
+}
+
+loki.write "globex_faro_logs" {
+  endpoint {
+    url       = sys.env("SHEPHERD_DEST_GLOBEX_LOKI_URL")
+    tenant_id = "globex"
+  }
+}
