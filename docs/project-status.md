@@ -260,15 +260,19 @@ VB-1 M7 (§6.4). Built and working: the simulation transform, the `shepherd-simu
 capture harness and synthetic sources, the run API (migration 0007, cross-replica `RunWorker`), the
 sandbox-run UI, the `sim` compose profile and the `sandbox-sim` e2e scenario.
 
-**Still disabled by default, but no longer for open containment reasons.** The two named gates are
-closed: B-CONTAIN-1 is fixed and red/green-proven in compose (bind-address hardening +
-`P-shepherd-deny` probes), and NetworkPolicy enforcement is now verified in a real cluster
-(`e2e/k8s/simulator_containment_test.go` — all seven Layer B probes plus the kill probe, green
-2026-08-21). B-CONCAT, which blocked fan-in graphs from running at all, is also fixed. Flipping the
-defaults (`simulator.enabled`, `SHEPHERD_SIM_ENABLED`) is now a **product decision**, not an
-engineering blocker; B-CONTAIN-2 remains a documented local-dev-only caveat. `simulator.enabled`
-has no viper default (false); both compose files default `SHEPHERD_SIM_ENABLED` to false; Helm ships
-`simulator.enabled: false`.
+**ENABLED BY DEFAULT in the Helm chart as of v0.0.1** (product decision, 2026-08-21, after both
+gates closed): B-CONTAIN-1 is fixed and red/green-proven in compose (bind-address hardening +
+`P-shepherd-deny` probes), NetworkPolicy enforcement is verified in a real cluster
+(`e2e/k8s/simulator_containment_test.go` — all seven Layer B probes plus the kill probe), and
+B-CONCAT, which blocked fan-in graphs from running at all, is fixed. The chart ships
+`simulator.enabled: true`, auto-wires shepherd's `config.simulator` to the chart's own simulator
+Service (an explicit `config.simulator` block wins), and documents the off-switch
+(`simulator.enabled: false` — proven by chart_test.go and the kind suite's upgrade-to-disabled
+spec). The default render is asserted to ship the simulator WITH its default-deny NetworkPolicy,
+never without. The compose stacks keep their opt-in `sim` profile deliberately — the default
+`make e2e` exercises the simulator-absent path — and shepherd's viper default stays false
+(environments opt in via config; the chart is what opts production in). B-CONTAIN-2 remains a
+documented local-dev-only caveat.
 
 Containment posture, stated honestly: **the transform bounds credentials; the network bounds
 reachability.** Static analysis cannot bound where a relabel rule steers a scrape — a rule writes

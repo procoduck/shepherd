@@ -280,12 +280,14 @@ test-ui: ## Mocked Playwright visual suite (no backend required)
 	@lsof -ti tcp:4173 2>/dev/null | xargs kill 2>/dev/null || true
 	cd web && $(PNPM) exec playwright test
 
-# Guard: exactly one dist directory (internal/spa/dist); no stray copies.
+# Guard: exactly one SPA dist directory (internal/spa/dist); no stray copies.
+# The repo-root ./dist is goreleaser's gitignored output directory (left behind
+# by `make release-snapshot`), not an SPA copy — pruned, not counted.
 check-single-dist: ## Guard: exactly one dist directory
-	@count=$$(find . -path ./web/node_modules -prune -o -path ./.git -prune -o -name 'dist' -type d -print | grep -v '^\./$$' | wc -l | tr -d ' '); \
+	@count=$$(find . -path ./web/node_modules -prune -o -path ./.git -prune -o -path ./dist -prune -o -name 'dist' -type d -print | grep -v '^\./$$' | wc -l | tr -d ' '); \
 	if [ "$$count" != "1" ]; then \
 		echo "ERROR: expected 1 dist directory, found $$count:"; \
-		find . -path ./web/node_modules -prune -o -path ./.git -prune -o -name 'dist' -type d -print | grep -v '^\./$$'; \
+		find . -path ./web/node_modules -prune -o -path ./.git -prune -o -path ./dist -prune -o -name 'dist' -type d -print | grep -v '^\./$$'; \
 		exit 1; \
 	fi
 	@echo "check-single-dist: OK (1 dist directory)"
@@ -352,7 +354,7 @@ check-raw-sql: ## Guard: raw SQL outside internal/store carries RAW-SQL-OK
 # Dockerfile directly, e.g. `docker build` without our Makefile) silently
 # ships a different image.
 check-docker: ## Guard: Dockerfile FROMs/ARG defaults agree with versions.env
-	@HARDCODED=$$(grep -n '^FROM ' deploy/Dockerfile.local deploy/Dockerfile.init deploy/Dockerfile.goreleaser deploy/Dockerfile.simulator \
+	@HARDCODED=$$(grep -n '^FROM ' deploy/Dockerfile.local deploy/Dockerfile.init deploy/Dockerfile.goreleaser deploy/Dockerfile.goreleaser-simulator deploy/Dockerfile.simulator \
 	    | grep -v 'FROM \$${\|AS '); \
 	if [ -n "$$HARDCODED" ]; then \
 		echo "ERROR: hardcoded FROM found (should use ARG variables):"; \
@@ -360,7 +362,7 @@ check-docker: ## Guard: Dockerfile FROMs/ARG defaults agree with versions.env
 		exit 1; \
 	fi
 	@FAIL=0; \
-	for f in deploy/Dockerfile.local deploy/Dockerfile.init deploy/Dockerfile.goreleaser deploy/Dockerfile.simulator; do \
+	for f in deploy/Dockerfile.local deploy/Dockerfile.init deploy/Dockerfile.goreleaser deploy/Dockerfile.goreleaser-simulator deploy/Dockerfile.simulator; do \
 		for var in GO_IMAGE NODE_IMAGE ALLOY_IMAGE DISTROLESS_IMAGE DISTROLESS_BASE_IMAGE PNPM_VERSION; do \
 			default=$$(sed -n "s/^ARG $$var=\(.*\)/\1/p" "$$f"); \
 			if [ -n "$$default" ]; then \

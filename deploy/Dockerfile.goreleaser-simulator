@@ -1,0 +1,16 @@
+ARG ALLOY_IMAGE=grafana/alloy:v1.18.1
+ARG DISTROLESS_BASE_IMAGE=gcr.io/distroless/base-debian12:nonroot
+
+# Stage 1: the pinned Alloy the sandbox runs as a child process
+FROM ${ALLOY_IMAGE} AS alloy
+
+# Stage 2: final image (GoReleaser copies the pre-built binary).
+#
+# distroless/BASE, not distroless/static as the app image uses: this container
+# execs the Alloy binary, and Alloy v1.18.1 is dynamically linked against glibc
+# (see deploy/Dockerfile.simulator for the failure mode static produces).
+FROM ${DISTROLESS_BASE_IMAGE}
+COPY --from=alloy /bin/alloy /usr/local/bin/alloy
+COPY shepherd-simulator /usr/local/bin/shepherd-simulator
+USER nonroot
+ENTRYPOINT ["/usr/local/bin/shepherd-simulator"]

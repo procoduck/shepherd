@@ -4,16 +4,18 @@ project_name: shepherd
 
 before:
   hooks:
-    - go mod tidy
-    - buf generate
-    - sqlc generate
-    - ./scripts/build-web.sh   # SPA must exist before go build (go:embed); canonical build script per check-build-script guard
+    # Generated code (gen/, sqlc, alloy_gen.go) is committed and CI's
+    # generated-drift job fails any PR where it no longer matches its sources,
+    # so regenerating here would only add failure modes (plugin versions,
+    # node_modules) to the release path. The SPA is the one build-time input:
+    # go:embed needs internal/spa/dist populated before go build.
+    - ./scripts/build-web.sh   # canonical build script per check-build-script guard
 
 builds:
   - id: shepherd
     main: ./cmd/shepherd
     env: [CGO_ENABLED=0]
-    goos: [linux, darwin]
+    goos: [linux]              # release targets are linux amd64/arm64 only
     goarch: [amd64, arm64]
     ldflags:
       - -s -w
@@ -21,6 +23,18 @@ builds:
       - -X shepherd/internal/version.Commit={{ .ShortCommit }}
       - -X shepherd/internal/version.Date={{ .CommitDate }}
     mod_timestamp: "{{ .CommitTimestamp }}"        # reproducible builds
+  - id: shepherd-simulator
+    main: ./cmd/shepherd-simulator
+    binary: shepherd-simulator
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X shepherd/internal/version.Version={{ .Version }}
+      - -X shepherd/internal/version.Commit={{ .ShortCommit }}
+      - -X shepherd/internal/version.Date={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
   - formats: [tar.gz]
@@ -36,6 +50,7 @@ dockers:
   - id: amd64
     use: buildx
     goarch: amd64
+    ids: [shepherd]
     dockerfile: deploy/Dockerfile.goreleaser
     image_templates:
       - "{{ .Env.IMAGE_REGISTRY }}/shepherd:{{ .Version }}-amd64"
@@ -47,9 +62,37 @@ dockers:
   - id: arm64
     use: buildx
     goarch: arm64
+    ids: [shepherd]
     dockerfile: deploy/Dockerfile.goreleaser
     image_templates:
       - "{{ .Env.IMAGE_REGISTRY }}/shepherd:{{ .Version }}-arm64"
+    build_flag_templates:
+      - --platform=linux/arm64
+      - --label=org.opencontainers.image.version={{ .Version }}
+      - --label=org.opencontainers.image.revision={{ .FullCommit }}
+      - --label=org.opencontainers.image.source={{ .Env.SOURCE_URL }}
+  # The chart deploys the simulator by default since v0.0.1, so its image is a
+  # first-class release artifact — a chart whose default install names an image
+  # nothing publishes would fail to pull on every fresh cluster.
+  - id: simulator-amd64
+    use: buildx
+    goarch: amd64
+    ids: [shepherd-simulator]
+    dockerfile: deploy/Dockerfile.goreleaser-simulator
+    image_templates:
+      - "{{ .Env.IMAGE_REGISTRY }}/shepherd-simulator:{{ .Version }}-amd64"
+    build_flag_templates:
+      - --platform=linux/amd64
+      - --label=org.opencontainers.image.version={{ .Version }}
+      - --label=org.opencontainers.image.revision={{ .FullCommit }}
+      - --label=org.opencontainers.image.source={{ .Env.SOURCE_URL }}
+  - id: simulator-arm64
+    use: buildx
+    goarch: arm64
+    ids: [shepherd-simulator]
+    dockerfile: deploy/Dockerfile.goreleaser-simulator
+    image_templates:
+      - "{{ .Env.IMAGE_REGISTRY }}/shepherd-simulator:{{ .Version }}-arm64"
     build_flag_templates:
       - --platform=linux/arm64
       - --label=org.opencontainers.image.version={{ .Version }}
@@ -65,6 +108,15 @@ docker_manifests:
     image_templates:
       - "{{ .Env.IMAGE_REGISTRY }}/shepherd:{{ .Version }}-amd64"
       - "{{ .Env.IMAGE_REGISTRY }}/shepherd:{{ .Version }}-arm64"
+    skip_push: "{{ if .Prerelease }}true{{ end }}"
+  - name_template: "{{ .Env.IMAGE_REGISTRY }}/shepherd-simulator:{{ .Version }}"
+    image_templates:
+      - "{{ .Env.IMAGE_REGISTRY }}/shepherd-simulator:{{ .Version }}-amd64"
+      - "{{ .Env.IMAGE_REGISTRY }}/shepherd-simulator:{{ .Version }}-arm64"
+  - name_template: "{{ .Env.IMAGE_REGISTRY }}/shepherd-simulator:latest"
+    image_templates:
+      - "{{ .Env.IMAGE_REGISTRY }}/shepherd-simulator:{{ .Version }}-amd64"
+      - "{{ .Env.IMAGE_REGISTRY }}/shepherd-simulator:{{ .Version }}-arm64"
     skip_push: "{{ if .Prerelease }}true{{ end }}"
 
 changelog:

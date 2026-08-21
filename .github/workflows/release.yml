@@ -73,22 +73,9 @@ jobs:
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
 
-      # `go install` puts binaries in `go env GOPATH`/bin; make sure that's on
-      # PATH for the sqlc install below and for goreleaser's before-hooks.
-      - name: Add Go bin to PATH
-        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-
-      # goreleaser's `before.hooks` run `buf generate` and `sqlc generate`.
-      - name: Set up buf
-        uses: bufbuild/buf-setup-action@v1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-
-      # No official sqlc setup Action is pinned here to avoid depending on an
-      # unverified third-party Action; `go install` is deterministic and
-      # uses the Go toolchain already set up above.
-      - name: Set up sqlc
-        run: go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+      # Generated code is committed and guarded by CI's generated-drift job,
+      # so goreleaser's only before-hook is the SPA build (scripts/build-web.sh
+      # needs the pnpm/node setup above) — no buf/sqlc toolchain here.
 
       - name: Set up QEMU (for linux/arm64 cross-build)
         uses: docker/setup-qemu-action@v3
