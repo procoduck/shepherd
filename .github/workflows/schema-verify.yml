@@ -52,8 +52,32 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Read Alloy version
+        id: alloy
+        run: |
+          version="$(sed -n 's/^ALLOY_VERSION=\(.*\)/\1/p' deploy/versions.env)"
+          if [ -z "$version" ]; then
+            echo "::error::ALLOY_VERSION not found in deploy/versions.env" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # run.sh honors ALLOY_SRC to reuse an existing checkout, so cache the
+      # grafana/alloy clone keyed on the pinned version instead of cloning
+      # the (large) repo fresh on every scheduled run.
+      - name: Cache grafana/alloy checkout
+        id: alloy-src
+        uses: actions/cache@v4
+        with:
+          path: ~/alloy-src
+          key: alloy-src-${{ steps.alloy.outputs.version }}
+
+      - name: Clone grafana/alloy
+        if: steps.alloy-src.outputs.cache-hit != 'true'
+        run: git clone --depth 1 --branch "${{ steps.alloy.outputs.version }}" https://github.com/grafana/alloy.git ~/alloy-src
+
       - name: make schema-verify
         # GOGC=50 trades CPU for peak memory during the alloy packages load.
         env:
           GOGC: "50"
-        run: make schema-verify
+        run: ALLOY_SRC="$HOME/alloy-src" make schema-verify

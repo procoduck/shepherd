@@ -20,6 +20,12 @@ DOCKER_BUILD_ARGS := \
 	--build-arg DISTROLESS_BASE_IMAGE=$(DISTROLESS_BASE_IMAGE) \
 	--build-arg PNPM_VERSION=$(PNPM_VERSION)
 
+# Extra flags for the image builds. Empty locally (the daemon's own layer
+# cache does the job); CI sets --cache-from/--cache-to so runs don't rebuild
+# the multi-stage images cold every time (see the buildx-cache steps in
+# .github/workflows).
+DOCKER_CACHE_FLAGS ?=
+
 # Fail fast (<1s) on a missing CLI instead of discovering it after minutes of
 # docker builds or stack boots. $(1) = binary, $(2) = how to get it.
 define preflight
@@ -511,7 +517,7 @@ release-snapshot: ## GoReleaser dry run
 # the SPA in-stage and overwrites whatever the host tree holds, so a host
 # build would be discarded (and would dirty the tracked internal/spa/dist).
 docker-build-local: ## Build shepherd:local from deploy/Dockerfile.local
-	docker buildx build --load $(DOCKER_BUILD_ARGS) -f deploy/Dockerfile.local -t shepherd:local .
+	docker buildx build --load $(DOCKER_BUILD_ARGS) $(DOCKER_CACHE_FLAGS) -f deploy/Dockerfile.local -t shepherd:local .
 
 # Deprecated alias. The docker-build/docker-build-local split (two Dockerfiles,
 # same tag, conflicting platforms) is gone; deploy/Dockerfile.local is the one
@@ -519,13 +525,13 @@ docker-build-local: ## Build shepherd:local from deploy/Dockerfile.local
 docker-build: docker-build-local
 
 docker-build-init: ## Build shepherd:local-init (init/CLI image for migrate + seed)
-	docker build $(DOCKER_BUILD_ARGS) -f deploy/Dockerfile.init -t shepherd:local-init .
+	docker buildx build --load $(DOCKER_BUILD_ARGS) $(DOCKER_CACHE_FLAGS) -f deploy/Dockerfile.init -t shepherd:local-init .
 
 # Build the S3 sandbox simulator image (VB-1 §6.4). Same DOCKER_BUILD_ARGS as the
 # app image so the sandbox runs the Alloy build pinned in deploy/versions.env —
 # a sandbox on a different Alloy would make S3 results lie about the fleet.
 docker-build-simulator: ## Build the S3 sandbox simulator image
-	docker build $(DOCKER_BUILD_ARGS) -f deploy/Dockerfile.simulator -t shepherd-simulator:local .
+	docker buildx build --load $(DOCKER_BUILD_ARGS) $(DOCKER_CACHE_FLAGS) -f deploy/Dockerfile.simulator -t shepherd-simulator:local .
 	docker tag shepherd-simulator:local shepherd-simulator:dev
 
 # Start the local dev stack (postgres, shepherd, mockmsft, gitea, and the three

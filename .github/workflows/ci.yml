@@ -278,6 +278,14 @@ jobs:
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
 
+      # Warm cache makes the target's `playwright install` a no-op instead of
+      # a ~120MB browser download.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('web/pnpm-lock.yaml') }}
+
       # make test-ui installs Playwright's browser + OS deps, builds the SPA
       # via scripts/build-web.sh, and runs the mocked Playwright visual suite
       # (web/tests/specs) against a local `vite preview` server. This is the
@@ -338,16 +346,49 @@ jobs:
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
 
+      # Restored before the install so playwright's postinstall skips the
+      # ~120MB browser download on a warm cache (and fills it on a cold one).
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('web/pnpm-lock.yaml') }}
+
       - name: Install web dependencies
         working-directory: web
         run: pnpm install --frozen-lockfile
+
+      - name: Set up Docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Layer cache for the multi-stage image builds (base pulls, go mod
+      # download, pnpm install + vite build all happen inside Docker and are
+      # otherwise cold on every runner). cache-to writes to a fresh dir and a
+      # rotate step swaps it in, so the cache doesn't grow without bound.
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: buildx-${{ runner.os }}-${{ hashFiles('go.sum', 'web/pnpm-lock.yaml', 'deploy/versions.env', 'deploy/Dockerfile.local', 'deploy/Dockerfile.init', 'deploy/Dockerfile.simulator') }}
+          restore-keys: |
+            buildx-${{ runner.os }}-
 
       # Brings up the dev compose stack (postgres, gitea, mockmsft, shepherd, alloy),
       # runs the fullstack specs against it, and tears it down. The target builds the
       # shepherd:local images first — compose's --build does not, since those services
       # reference an image rather than declaring a build context.
       - name: make test-fullstack
+        env:
+          DOCKER_CACHE_FLAGS: --cache-from type=local,src=/tmp/.buildx-cache --cache-to type=local,dest=/tmp/.buildx-cache-new,mode=max
         run: make test-fullstack
+
+      - name: Rotate Docker layer cache
+        if: always()
+        run: |
+          if [ -d /tmp/.buildx-cache-new ]; then
+            rm -rf /tmp/.buildx-cache
+            mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+          fi
 
       - name: Upload stack logs on failure
         if: failure()
