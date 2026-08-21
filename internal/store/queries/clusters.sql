@@ -21,6 +21,3 @@ UPDATE clusters SET org_id = $2, updated_at = now() WHERE id = $1;
 
 -- name: UnclaimCluster :exec
 UPDATE clusters SET org_id = NULL, updated_at = now() WHERE id = $1;
-
--- name: ListClustersByOrg :many
-SELECT * FROM clusters WHERE org_id = $1 ORDER BY name;

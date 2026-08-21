@@ -20,7 +20,7 @@ import (
 // DestinationService implements mgmtv1connect.DestinationServiceHandler.
 // Business logic moved here from OrgsHandler's destination methods
 // (orgs.go), which are now thin REST shims delegating to these methods
-// in-process. See docs/api-contract-design.md, "Server wiring".
+// in-process. See docs/archive/api-contract-design.md, "Server wiring".
 type DestinationService struct {
 	store  *store.Store
 	logger *slog.Logger

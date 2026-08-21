@@ -62,8 +62,7 @@ var _ = Describe("Sweeper", Label("integration"), func() {
 		createSession("test-session-b", now.Add(time.Hour))
 		createSession("test-session-c", now.Add(-time.Second))
 
-		sw := &Sweeper{store: st}
-		n, err := sw.sweepSessions(ctx)
+		n, err := st.Queries.DeleteExpiredSessions(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(n).To(Equal(int64(2)))
 

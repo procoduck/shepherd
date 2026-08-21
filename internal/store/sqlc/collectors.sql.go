@@ -65,51 +65,6 @@ func (q *Queries) GetCollectorOrgID(ctx context.Context, id pgtype.UUID) (pgtype
 	return org_id, err
 }
 
-const listAllCollectors = `-- name: ListAllCollectors :many
-SELECT c.id, c.cluster_id, c.role, c.created_at, c.updated_at, cl.name AS cluster_name, cl.org_id
-FROM collectors c
-JOIN clusters cl ON c.cluster_id = cl.id
-ORDER BY cl.name, c.role
-`
-
-type ListAllCollectorsRow struct {
-	ID          pgtype.UUID        `json:"id"`
-	ClusterID   pgtype.UUID        `json:"cluster_id"`
-	Role        string             `json:"role"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-	ClusterName string             `json:"cluster_name"`
-	OrgID       pgtype.UUID        `json:"org_id"`
-}
-
-func (q *Queries) ListAllCollectors(ctx context.Context) ([]ListAllCollectorsRow, error) {
-	rows, err := q.db.Query(ctx, listAllCollectors)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListAllCollectorsRow
-	for rows.Next() {
-		var i ListAllCollectorsRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.ClusterID,
-			&i.Role,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.ClusterName,
-			&i.OrgID,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listCollectorsByOrg = `-- name: ListCollectorsByOrg :many
 SELECT c.id, c.cluster_id, c.role, c.created_at, c.updated_at FROM collectors c
 JOIN clusters cl ON c.cluster_id = cl.id

@@ -15,7 +15,7 @@ import (
 
 // AuditService implements mgmtv1connect.AuditServiceHandler. Business logic
 // moved here from AuditHandler (audit.go), which is now a thin REST shim
-// delegating to this service in-process. See docs/api-contract-design.md,
+// delegating to this service in-process. See docs/archive/api-contract-design.md,
 // "Server wiring".
 type AuditService struct {
 	store  *store.Store

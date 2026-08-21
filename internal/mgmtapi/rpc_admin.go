@@ -278,10 +278,10 @@ func (s *AdminService) RevokeAgentToken(ctx context.Context, req *connect.Reques
 // SearchGroups searches Entra groups by display-name prefix. Stubbed to
 // match the pre-migration legacy handler exactly (see admin.go's original
 // AdminHandler.SearchGroups comment): no Graph client is threaded through
-// the server anywhere today (auth.Handler builds a private *graph.Client
-// for transitive-membership lookups during login, but never exposes it),
-// so this always returns an empty list rather than guessing at behavior.
-// See this migration's notes for the wiring change needed to implement it.
+// the server anywhere today, so this always returns an empty list rather
+// than guessing at behavior. Implementing it needs both the wiring change
+// and an app-mode search call on internal/graph's Client (the unused cached
+// implementation that once lived there has been deleted as dead code).
 func (s *AdminService) SearchGroups(_ context.Context, _ *connect.Request[mgmtv1.SearchGroupsRequest]) (*connect.Response[mgmtv1.SearchGroupsResponse], error) {
 	return connect.NewResponse(&mgmtv1.SearchGroupsResponse{Items: []*mgmtv1.GroupSearchResult{}, Total: 0}), nil
 }

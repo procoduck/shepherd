@@ -59,13 +59,16 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 	return i, err
 }
 
-const deleteExpiredSessions = `-- name: DeleteExpiredSessions :exec
+const deleteExpiredSessions = `-- name: DeleteExpiredSessions :execrows
 DELETE FROM sessions WHERE expires_at < now()
 `
 
-func (q *Queries) DeleteExpiredSessions(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, deleteExpiredSessions)
-	return err
+func (q *Queries) DeleteExpiredSessions(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteExpiredSessions)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const deleteSession = `-- name: DeleteSession :exec
@@ -98,33 +101,4 @@ func (q *Queries) GetSessionByID(ctx context.Context, id string) (Session, error
 		&i.Source,
 	)
 	return i, err
-}
-
-const updateSession = `-- name: UpdateSession :exec
-UPDATE sessions
-SET group_ids        = $2,
-    is_app_admin     = $3,
-    id_token_expires = $4,
-    expires_at       = $5,
-    updated_at       = now()
-WHERE id = $1
-`
-
-type UpdateSessionParams struct {
-	ID             string             `json:"id"`
-	GroupIds       json.RawMessage    `json:"group_ids"`
-	IsAppAdmin     bool               `json:"is_app_admin"`
-	IDTokenExpires pgtype.Timestamptz `json:"id_token_expires"`
-	ExpiresAt      pgtype.Timestamptz `json:"expires_at"`
-}
-
-func (q *Queries) UpdateSession(ctx context.Context, arg UpdateSessionParams) error {
-	_, err := q.db.Exec(ctx, updateSession,
-		arg.ID,
-		arg.GroupIds,
-		arg.IsAppAdmin,
-		arg.IDTokenExpires,
-		arg.ExpiresAt,
-	)
-	return err
 }

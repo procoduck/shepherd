@@ -130,7 +130,7 @@ func Router(st *store.Store, cfg *config.Config, enc *crypto.Encryptor, logger *
 	// Org-scoped endpoints. Each group's role requirement mirrors the
 	// corresponding procedure's entry in procedureRequirements
 	// (rpc_interceptor.go) / the Services table in
-	// docs/api-contract-design.md.
+	// docs/archive/api-contract-design.md.
 	r.Route("/orgs/{org}", func(r chi.Router) {
 		// org-reader: read-only routes.
 		r.Group(func(r chi.Router) {
@@ -217,9 +217,6 @@ func Router(st *store.Store, cfg *config.Config, enc *crypto.Encryptor, logger *
 // this inside the same chi router group that already applies session +
 // CSRF middleware — see internal/server/server.go, where it is called
 // alongside r.Mount("/api", Router(...)).
-//
-// Service implementations are still stubs (connect.CodeUnimplemented for
-// every method); this only wires the transport, mounting, and authz layers.
 func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Encryptor, logger *slog.Logger) {
 	if logger == nil {
 		logger = slog.Default()
@@ -227,7 +224,16 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 	logger = logger.With("component", "mgmtapi.rpc")
 	v := validate.New(&cfg.Validate)
 	schemaReg, schemaErr := schema.New(schema.Embedded, version.AlloySchemaVersion)
-	_ = schemaErr // nil-safe: stub Pipeline/Visual services don't dereference the registry yet; REST schema handler already surfaces registry errors
+	if schemaErr != nil {
+		// schemaReg is nil here. The services that dereference the registry
+		// must nil-check it; UpgradeCheck answers CodeUnavailable (see
+		// errSchemaUnavailable in rpc_visual.go), Render/Validate keep their
+		// legacy CodeInvalidArgument mapping, and GraphView degrades to a
+		// schemaless parse. Everything else keeps working, so mounting
+		// proceeds — but a corrupt embedded schema is a build defect worth
+		// shouting about, not a per-request curiosity.
+		logger.Error("schema registry unavailable; schema-dependent RPCs will answer unavailable", "err", schemaErr)
+	}
 
 	authz := connect.WithInterceptors(newAuthzInterceptor(st))
 

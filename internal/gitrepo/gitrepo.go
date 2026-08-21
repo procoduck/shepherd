@@ -1,6 +1,6 @@
-// Package gitrepo speaks the git wire protocol over HTTPS (SSH lands in a
-// later step) to read *.alloy files out of one branch of a remote
-// repository. It never shells out to a git binary — transport, protocol,
+// Package gitrepo speaks the git wire protocol over HTTPS and SSH to read
+// *.alloy files out of one branch of a remote repository. It never shells
+// out to a git binary — transport, protocol,
 // and object decoding are all pure Go via github.com/go-git/go-git/v6, so
 // the distroless production image needs no git binary at all.
 //

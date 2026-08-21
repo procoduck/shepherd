@@ -37,16 +37,20 @@ var _ = Describe("Stage1", func() {
 		Expect(r.Diagnostics[0].Line).To(BeNumerically(">", 0))
 	})
 
-	It("returns line/col for mismatched brace", func() {
+	It("reports line/col at EOF for an unclosed declare block", func() {
 		content := `declare "foo" {
   prometheus.scrape "a" {
   }
 // missing closing brace for declare`
 		r := validate.Stage1(content)
-		// Either valid (parser may not catch unclosed declare) or has diagnostics — check both paths.
-		if !r.Valid {
-			Expect(r.Diagnostics[0].Stage).To(Equal(1))
-		}
+		Expect(r.Valid).To(BeFalse())
+		Expect(r.Diagnostics).NotTo(BeEmpty())
+		d := r.Diagnostics[0]
+		Expect(d.Stage).To(Equal(1))
+		// The parser reports the missing brace at EOF: end of the last line.
+		Expect(d.Line).To(Equal(4))
+		Expect(d.Col).To(Equal(37))
+		Expect(d.Message).To(ContainSubstring("expected }"))
 	})
 })
 

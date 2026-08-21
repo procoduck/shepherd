@@ -25,7 +25,7 @@ import (
 // newRPCWiringRouter(...) wiring rpc_wiring_test.go proves 404-guards and
 // unimplemented-stub behavior with — this suite exercises the now-migrated
 // FleetService methods themselves: a happy path, an authz denial, and an
-// error-code mapping case, per docs/api-contract-design.md's testing rules.
+// error-code mapping case, per docs/archive/api-contract-design.md's testing rules.
 // collectors_metadata_test.go and mgmtapi_test.go cover the REST shim paths
 // (the compatibility oracle) and are unchanged by this migration.
 var _ = Describe("shepherd.mgmt.v1.FleetService RPC", Label("integration"), func() {

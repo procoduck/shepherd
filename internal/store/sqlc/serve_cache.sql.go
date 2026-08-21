@@ -39,18 +39,6 @@ func (q *Queries) MarkServeCacheDirty(ctx context.Context, collectorID pgtype.UU
 	return err
 }
 
-const markServeCacheDirtyByCluster = `-- name: MarkServeCacheDirtyByCluster :exec
-UPDATE serve_cache sc
-SET dirty = true
-FROM collectors c
-WHERE sc.collector_id = c.id AND c.cluster_id = $1
-`
-
-func (q *Queries) MarkServeCacheDirtyByCluster(ctx context.Context, clusterID pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, markServeCacheDirtyByCluster, clusterID)
-	return err
-}
-
 const markServeCacheDirtyByOrg = `-- name: MarkServeCacheDirtyByOrg :exec
 UPDATE serve_cache sc
 SET dirty = true
@@ -62,36 +50,6 @@ WHERE sc.collector_id = c.id AND cl.org_id = $1
 func (q *Queries) MarkServeCacheDirtyByOrg(ctx context.Context, orgID pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, markServeCacheDirtyByOrg, orgID)
 	return err
-}
-
-const upsertServeCache = `-- name: UpsertServeCache :one
-INSERT INTO serve_cache (collector_id, content, hash, computed_at, dirty)
-VALUES ($1, $2, $3, now(), false)
-ON CONFLICT (collector_id) DO UPDATE SET
-    content     = EXCLUDED.content,
-    hash        = EXCLUDED.hash,
-    computed_at = now(),
-    dirty       = false
-RETURNING collector_id, content, hash, computed_at, dirty
-`
-
-type UpsertServeCacheParams struct {
-	CollectorID pgtype.UUID `json:"collector_id"`
-	Content     string      `json:"content"`
-	Hash        string      `json:"hash"`
-}
-
-func (q *Queries) UpsertServeCache(ctx context.Context, arg UpsertServeCacheParams) (ServeCache, error) {
-	row := q.db.QueryRow(ctx, upsertServeCache, arg.CollectorID, arg.Content, arg.Hash)
-	var i ServeCache
-	err := row.Scan(
-		&i.CollectorID,
-		&i.Content,
-		&i.Hash,
-		&i.ComputedAt,
-		&i.Dirty,
-	)
-	return i, err
 }
 
 const upsertServeCacheConditional = `-- name: UpsertServeCacheConditional :one

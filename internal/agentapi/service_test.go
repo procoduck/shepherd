@@ -241,7 +241,7 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 
 			cred, err := st.Queries.CreateGitCredential(ctx, sqlc.CreateGitCredentialParams{
 				OrgID: org.ID, Name: "git-cred", Kind: "pat",
-				Username: pgtype.Text{String: "git", Valid: true},
+				Username:        pgtype.Text{String: "git", Valid: true},
 				ClientSecretEnc: []byte("enc"),
 				ProviderConfig:  json.RawMessage(`{}`),
 			})
@@ -295,12 +295,27 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 			collector, pipeline := setupClaimedPipeline()
 			first, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{Id: "recompute-instance", LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"}}))
 			Expect(err).NotTo(HaveOccurred())
+			Expect(first.Msg.Content).NotTo(BeEmpty())
+
+			// Make the next recompute actually FAIL: an enabled pipeline with a
+			// malformed matcher (invalid regex, inserted directly so the API
+			// validation is bypassed) makes merge.Assemble return an error.
+			// (Deleting the pipeline instead would be a SUCCESSFUL recompute of
+			// the empty set, which serves the header-only config — a different
+			// contract.)
+			_, err = st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+				OrgID: pipeline.OrgID, Name: "broken-matcher", Contents: "// broken",
+				Matchers: json.RawMessage(`["cluster=~\"[\""]`), Enabled: true, Source: "ui",
+				WizardState: json.RawMessage(`{}`), CreatedBy: "test", UpdatedBy: "test",
+			})
+			Expect(err).NotTo(HaveOccurred())
 			Expect(st.Queries.MarkServeCacheDirty(ctx, collector.ID)).To(Succeed())
-			Expect(st.Queries.DeletePipeline(ctx, pipeline.ID)).To(Succeed())
+
 			second, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{Id: "recompute-instance", LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"}}))
 			Expect(err).NotTo(HaveOccurred())
-			Expect(second.Msg.Content).NotTo(BeEmpty())
-			Expect(first.Msg.Content).NotTo(BeEmpty())
+			Expect(second.Msg.Content).To(Equal(first.Msg.Content),
+				"the previously cached content must be served verbatim when recompute fails")
+			Expect(second.Msg.Hash).To(Equal(first.Msg.Hash))
 		})
 
 		It("conditional upsert refuses to clear newer dirty flag", func() {

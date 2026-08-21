@@ -6,8 +6,5 @@ RETURNING *;
 -- name: ListPipelineRevisions :many
 SELECT * FROM pipeline_revisions WHERE pipeline_id = $1 ORDER BY revision DESC;
 
--- name: GetPipelineRevision :one
-SELECT * FROM pipeline_revisions WHERE pipeline_id = $1 AND revision = $2;
-
 -- name: GetMaxPipelineRevision :one
 SELECT COALESCE(MAX(revision), 0)::int AS max_rev FROM pipeline_revisions WHERE pipeline_id = $1;

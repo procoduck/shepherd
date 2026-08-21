@@ -47,30 +47,20 @@ type Server struct {
 	validator   *validate.Validator
 }
 
-type ctxKeyLogger struct{}
-
-// LoggerFromCtx returns the request-scoped logger, or the default logger.
-func LoggerFromCtx(ctx context.Context) *slog.Logger {
-	if logger, ok := ctx.Value(ctxKeyLogger{}).(*slog.Logger); ok && logger != nil {
-		return logger
-	}
-	return slog.Default()
-}
-
 func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
 			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 			reqLogger := logger.With("request_id", middleware.GetReqID(r.Context()))
-			r = r.WithContext(context.WithValue(r.Context(), ctxKeyLogger{}, reqLogger))
 			next.ServeHTTP(ww, r)
 			reqLogger.Debug("request", "method", r.Method, "path", r.URL.Path, "status", ww.Status(), "duration_ms", time.Since(start).Milliseconds())
 		})
 	}
 }
 
-// New creates a new Server. Management API and SPA will be added in subsequent milestones.
+// New creates a new Server: it connects the store, wires auth, and assembles
+// the full route tree (newRouter) plus the separate metrics listener.
 func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	spaInfo, err := spa.ParseBuildInfo()
 	if err != nil {
@@ -88,6 +78,68 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		return nil, fmt.Errorf("connecting to database: %w", err)
 	}
 
+	// Build encryptor for secret-at-rest (may be nil if key not configured yet).
+	var enc *crypto.Encryptor
+	if cfg.Security.EncryptionKey != "" {
+		var encErr error
+		enc, encErr = crypto.NewEncryptor(cfg.Security.EncryptionKey)
+		if encErr != nil {
+			return nil, fmt.Errorf("initializing encryptor: %w", encErr)
+		}
+	}
+
+	// Auth handler initialization requires OIDC discovery (network call); skip in dev/test when OIDC config is empty.
+	var authHandler *auth.Handler
+	if cfg.OIDC.Issuer != "" {
+		authHandler, err = auth.New(context.Background(), cfg, st, logger)
+		if err != nil {
+			return nil, fmt.Errorf("initializing auth: %w", err)
+		}
+	} else if cfg.Auth.LocalAdmin.Enabled {
+		authHandler = auth.NewLocalAdmin(cfg, st, logger)
+	}
+	if cfg.Auth.LocalAdmin.Enabled {
+		logger.Warn("local admin account enabled", "username", cfg.Auth.LocalAdmin.Username, "oidc_also_active", cfg.OIDC.Issuer != "")
+	}
+
+	v := validate.New(&cfg.Validate)
+	r := newRouter(cfg, st, enc, authHandler, v, spaInfo, logger)
+
+	// Wrap the entire mux with h2c so agents using HTTP/2 connect without TLS.
+	h2cHandler := h2c.NewHandler(r, &http2.Server{}) //nolint:staticcheck // h2c is still required for Connect/gRPC cleartext
+
+	httpSrv := &http.Server{
+		Addr:              cfg.Server.Listen,
+		Handler:           h2cHandler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+	metricsSrv := &http.Server{
+		Addr:              cfg.Server.MetricsListen,
+		Handler:           newMetricsMux(),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	return &Server{
+		cfg:         cfg,
+		logger:      logger,
+		http:        httpSrv,
+		metricsHTTP: metricsSrv,
+		store:       st,
+		enc:         enc,
+		validator:   v,
+	}, nil
+}
+
+// newRouter assembles the production route tree in serving order: health
+// endpoints, the collector Connect API, the management REST + Connect RPC
+// APIs (session + CSRF group), the reserved-prefix 404 guards, and the SPA
+// fallback last. Split from New — which owns the store/auth/encryptor
+// construction — so tests can exercise the real mounting and guard ordering
+// without a database or OIDC discovery.
+func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authHandler *auth.Handler, v *validate.Validator, spaInfo spa.BuildInfo, logger *slog.Logger) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(requestLogger(logger))
@@ -116,7 +168,6 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	})
 
 	// Agent API — Connect RPC over h2c so both HTTP/1.1+JSON and HTTP/2+proto work.
-	v := validate.New(&cfg.Validate)
 	svc := agentapi.New(st, v, logger)
 	authInterceptor := agentapi.NewAuthInterceptor(st)
 	connectPath, connectHandler := collectorv1connect.NewCollectorServiceHandler(
@@ -127,31 +178,8 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 
 	// Management REST API with session + OIDC auth wiring.
 	r.Get("/auth/methods", auth.MethodsHandler(cfg))
-	// Auth handler initialization requires OIDC discovery (network call); skip in dev/test when OIDC config is empty.
 	// Session and CSRF middleware are applied on a sub-router so they don't conflict
 	// with the Connect RPC mount already registered above.
-	// Build encryptor for secret-at-rest (may be nil if key not configured yet).
-	var enc *crypto.Encryptor
-	if cfg.Security.EncryptionKey != "" {
-		var encErr error
-		enc, encErr = crypto.NewEncryptor(cfg.Security.EncryptionKey)
-		if encErr != nil {
-			return nil, fmt.Errorf("initializing encryptor: %w", encErr)
-		}
-	}
-
-	var authHandler *auth.Handler
-	if cfg.OIDC.Issuer != "" {
-		authHandler, err = auth.New(context.Background(), cfg, st, logger)
-		if err != nil {
-			return nil, fmt.Errorf("initializing auth: %w", err)
-		}
-	} else if cfg.Auth.LocalAdmin.Enabled {
-		authHandler = auth.NewLocalAdmin(cfg, st, logger)
-	}
-	if cfg.Auth.LocalAdmin.Enabled {
-		logger.Warn("local admin account enabled", "username", cfg.Auth.LocalAdmin.Username, "oidc_also_active", cfg.OIDC.Issuer != "")
-	}
 	r.Group(func(r chi.Router) {
 		// Middleware must be registered before routes (chi requirement).
 		if authHandler != nil {
@@ -172,7 +200,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		r.Mount("/api", mgmtapi.Router(st, cfg, enc, logger))
 
 		// shepherd.mgmt.v1 Connect RPC handlers — the typed contract behind the
-		// /api shims above (docs/api-contract-design.md). Mounted in the same
+		// /api shims above (docs/archive/api-contract-design.md). Mounted in the same
 		// group so they get session population + CSRF enforcement; each
 		// handler additionally requires its own authz interceptor role.
 		mgmtapi.MountRPC(r, st, cfg, enc, logger)
@@ -189,34 +217,16 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 
 	r.Mount("/", spa.Handler())
 
-	// Wrap the entire mux with h2c so agents using HTTP/2 connect without TLS.
-	h2cHandler := h2c.NewHandler(r, &http2.Server{}) //nolint:staticcheck // h2c is still required for Connect/gRPC cleartext
+	return r
+}
 
-	httpSrv := &http.Server{
-		Addr:              cfg.Server.Listen,
-		Handler:           h2cHandler,
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      60 * time.Second,
-		IdleTimeout:       120 * time.Second,
-	}
+// newMetricsMux builds the handler for the separate metrics listener — the
+// only place promhttp is mounted (V4-4: /metrics never serves on the main
+// listener).
+func newMetricsMux() *http.ServeMux {
 	metricsMux := http.NewServeMux()
 	metricsMux.Handle("/metrics", promhttp.Handler())
-	metricsSrv := &http.Server{
-		Addr:              cfg.Server.MetricsListen,
-		Handler:           metricsMux,
-		ReadHeaderTimeout: 10 * time.Second,
-	}
-
-	return &Server{
-		cfg:         cfg,
-		logger:      logger,
-		http:        httpSrv,
-		metricsHTTP: metricsSrv,
-		store:       st,
-		enc:         enc,
-		validator:   v,
-	}, nil
+	return metricsMux
 }
 
 // Run starts the server and blocks until ctx is cancelled, then gracefully shuts down.

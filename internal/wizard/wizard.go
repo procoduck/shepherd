@@ -92,15 +92,3 @@ func MarshalState(state map[string]any) (json.RawMessage, error) {
 	}
 	return b, nil
 }
-
-// UnmarshalState unmarshals JSON bytes into a wizard state map.
-func UnmarshalState(raw json.RawMessage) (map[string]any, error) {
-	if raw == nil {
-		return map[string]any{}, nil
-	}
-	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return nil, fmt.Errorf("unmarshaling wizard state: %w", err)
-	}
-	return m, nil
-}

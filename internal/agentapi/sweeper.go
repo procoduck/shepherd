@@ -2,7 +2,6 @@ package agentapi
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -72,9 +71,7 @@ func (sw *Sweeper) sweep(ctx context.Context) {
 	}
 
 	// Sweep expired sessions; log count at Debug when any were deleted.
-	// Note: DeleteExpiredSessions is :exec and doesn't return a count.
-	// Use a raw query via the pool for the count.
-	n, err := sw.sweepSessions(ctx)
+	n, err := sw.store.Queries.DeleteExpiredSessions(ctx)
 	if err != nil {
 		sw.logger.Error("sweeper: failed to delete expired sessions", "err", err)
 	} else if n > 0 {
@@ -96,13 +93,4 @@ func (sw *Sweeper) refreshTableGauges(ctx context.Context) {
 		}
 		tableRowsGauge.WithLabelValues(table).Set(count)
 	}
-}
-
-func (sw *Sweeper) sweepSessions(ctx context.Context) (int64, error) {
-	// RAW-SQL-OK: needs RowsAffected count; sqlc :exec does not return pgconn.CommandTag
-	tag, err := sw.store.Pool().Exec(ctx, "DELETE FROM sessions WHERE expires_at < now()")
-	if err != nil {
-		return 0, fmt.Errorf("deleting expired sessions: %w", err)
-	}
-	return tag.RowsAffected(), nil
 }

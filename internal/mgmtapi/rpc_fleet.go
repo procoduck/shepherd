@@ -21,7 +21,7 @@ import (
 // FleetService implements mgmtv1connect.FleetServiceHandler. Business logic
 // migrated here from OrgsHandler's collector/assignment/attribute methods
 // (orgs.go), which are now thin REST shims delegating to these methods
-// in-process. See docs/api-contract-design.md, "Server wiring".
+// in-process. See docs/archive/api-contract-design.md, "Server wiring".
 type FleetService struct {
 	store  *store.Store
 	logger *slog.Logger

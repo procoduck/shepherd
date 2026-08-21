@@ -89,36 +89,6 @@ func (q *Queries) ListAllClusters(ctx context.Context) ([]Cluster, error) {
 	return items, nil
 }
 
-const listClustersByOrg = `-- name: ListClustersByOrg :many
-SELECT id, name, org_id, created_at, updated_at FROM clusters WHERE org_id = $1 ORDER BY name
-`
-
-func (q *Queries) ListClustersByOrg(ctx context.Context, orgID pgtype.UUID) ([]Cluster, error) {
-	rows, err := q.db.Query(ctx, listClustersByOrg, orgID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Cluster
-	for rows.Next() {
-		var i Cluster
-		if err := rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.OrgID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listUnclaimedClusters = `-- name: ListUnclaimedClusters :many
 SELECT id, name, org_id, created_at, updated_at FROM clusters WHERE org_id IS NULL ORDER BY created_at
 `

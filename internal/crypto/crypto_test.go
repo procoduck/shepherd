@@ -67,6 +67,5 @@ var _ = Describe("Encryptor", func() {
 
 		_, err2 := crypto.NewEncryptor("dG9vc2hvcnQ=") // base64 of "tooshort"
 		Expect(err2).To(HaveOccurred())
-		Expect(err).To(HaveOccurred())
 	})
 })
