@@ -1,0 +1,241 @@
+# Gateway tier, beacon, and tenant routing — multi-session implementation plan
+
+> Status: **proposed — no steps implemented.** This document is the execution plan and
+> per-step ledger for the work; `docs/project-status.md` remains the single live status
+> document for the product as a whole and links here. Do not start a second product ledger:
+> step status lives in §9 of this file, product status lives there.
+
+## 1. Why this exists
+
+Two deployment scenarios pull Shepherd in different directions, and the difference decides
+what we build:
+
+- **BYO Alloy.** An operator deploys Alloy themselves (usually via Grafana's k8s-monitoring
+  chart) and points `remotecfg` at Shepherd. Shepherd is a config server. It knows only what
+  the agent reports: `id`, `name`, `local_attributes`, `hash` (`proto/collector/v1`). It has
+  **no visibility** into what that agent already collects or where it already ships —
+  remotecfg is pull-only and never uploads local config.
+- **Shepherd-managed.** Shepherd is the hub for many clusters' collectors. The temptation is
+  to have Shepherd deploy and reconcile Alloy in customer clusters; see D4 for why we do not.
+
+Both scenarios converge on one keystone: **a tenant-aware gateway tier**. It is what makes
+browser (Faro) and OTLP ingest work without client-side tenant configuration, and it is what
+makes serverless onboarding a matter of handing out an endpoint rather than generating
+collector configs.
+
+## 2. Decisions
+
+These are settled. Revisit them in a new amendment, not by quiet drift.
+
+### D1 — Gateway API only; no Ingress path
+
+Shepherd renders `HTTPRoute` and nothing else. There is no Ingress fallback and no
+annotation-based abstraction layer. One renderer, portable route semantics, no
+lowest-common-denominator behaviour.
+
+`GATEWAY_API_VERSION` is pinned in `deploy/versions.env` (baseline: the 1.4 line — most
+controllers support it), guarded for consistency the way image pins already are
+(`make check-docker` pattern), and **the Standard channel is the contract**. The channel
+matters more than the number: Experimental-channel features can change shape between
+releases.
+
+### D2 — Conformance requirements, and no hard dependency on the CORS filter
+
+Shepherd depends on exactly two filter behaviours, at these conformance levels:
+
+| Need | Filter | Level | Used for |
+|---|---|---|---|
+| Tenant identity | `RequestHeaderModifier` | Core | inject `X-Scope-OrgID` downstream so clients never set it |
+| Prefix routing | `URLRewrite` (`ReplacePrefixMatch`) | Extended | `/otlp/{tenant}/v1/traces` → `/v1/traces` at the backend |
+
+**CORS is handled by Alloy, not the gateway.** `faro.receiver` has `cors_allowed_origins`;
+the Gateway API CORS filter is the newest of the three needs and may be Experimental-channel
+only in the pinned release. Layering: the gateway routes and injects tenant, Alloy answers
+CORS. Promoting CORS to the gateway is a later optimization, never a day-one dependency.
+
+> **Implementation note, deliberately unresolved here:** the exact conformance level and
+> channel of `URLRewrite` and the CORS filter **must be read from the pinned version's own
+> conformance tables** at implementation time. They move between releases. Do not take the
+> table above — or any model's recollection — as the source of truth; verify and correct it
+> in the same commit that pins the version.
+
+### D3 — Detect the CRD version at runtime and refuse clearly
+
+Shepherd reads the installed Gateway API CRD version and refuses with a sentence naming what
+it found and what it needs, rather than emitting `HTTPRoute`s a controller silently ignores.
+A route that renders but routes nothing is exactly the silent-by-construction failure class
+`docs/project-status.md` §6 names.
+
+### D4 — GitOps is the delivery mechanism for customer clusters
+
+Shepherd does **not** hold customer cluster credentials and does not imperatively deploy or
+reconcile Alloy there. It generates the deployment artifact (chart values / manifests),
+commits it through the existing GitOps machinery (repo links, credentials, revisions, audit),
+and the customer's Flux/Argo applies it. Rebuilding Argo inside Shepherd buys a worse version
+of something the customer already runs, plus the blast radius of cluster-admin credentials.
+
+The exception, and the only infrastructure Shepherd manages directly: **the receiver/gateway
+tier in the observability cluster we already own** (D5, W4).
+
+### D5 — No OpenTelemetry Collector renderer
+
+The schema artifact, renderer, and visual builder are Alloy-shaped. Serverless and SDK
+clients are served by **an endpoint plus onboarding artifacts**, not by generating collector
+configs: a Lambda needs `OTEL_EXPORTER_OTLP_ENDPOINT`/`_HEADERS` and a layer, not a pipeline.
+Revisit only if a customer needs per-function pipeline logic the gateway cannot express.
+
+Corollary: onboarding artifacts must not hardcode ADOT layer ARNs (region- and
+arch-specific, drift constantly) unless they are pinned and freshness-checked like
+`ALLOY_VERSION`. First implementation links AWS's published list and fills in the env vars.
+
+### D6 — The beacon is baseline-served, and carries inventory, not config
+
+Every collector is served a small baseline pipeline (`prometheus.exporter.self` →
+`prometheus.relabel` → `prometheus.remote_write` to Shepherd). It is **not opt-in**: the
+collector we know nothing about is precisely the one that would never opt in.
+
+- Auth is free: agents already authenticate with HTTP Basic (`uuid:secret`,
+  `internal/agentapi/auth.go`) and Alloy's `remote_write` speaks basic auth.
+- It carries **component names and health, never config text** — no secret ever crosses the
+  wire, which is a materially easier security conversation than "upload your config".
+- Shepherd is not a TSDB: the ingest endpoint parses, projects to inventory + health, and
+  discards. Rate-limited per instance, body-size capped.
+
+## 3. The model
+
+```
+client (browser / lambda / service)
+   │  https://gw.example/{kind}/{tenant-route}/…
+   ▼
+Gateway (Gateway API, customer- or platform-owned)
+   │  HTTPRoute rendered by Shepherd:
+   │    · URLRewrite   strips the /{kind}/{tenant-route} prefix
+   │    · HeaderModifier injects X-Scope-OrgID: <tenant>
+   ▼
+receiver-tier Alloy (role=receiver, pipeline served by Shepherd)
+   │  otelcol.receiver.otlp / faro.receiver → batch → destinations
+   ▼
+destination (Mimir / Loki / Tempo / Pyroscope)
+```
+
+The route prefix is an **identifier, not an authorizer**. A token in a URL leaks via Referer
+headers, proxy logs and browser history; RUM endpoints are semi-public by nature. The real
+controls at the edge are origin allowlists, rate limits, and rotation — say so in the docs
+and enforce it in the render, do not imply the prefix is a secret.
+
+## 4. Workstreams
+
+Dependencies are strict: a workstream may not start until its prerequisites have passed their
+gates (§6, §7).
+
+| # | Workstream | Depends on | Summary |
+|---|---|---|---|
+| **W1** | Signal derivation + role enforcement | — | Derive each pipeline's signal set from the schema's wire types (`prom.metrics`, `loki.logs`, `otel.*`, `pyroscope.profiles`); merge engine refuses a metrics pipeline aimed at a `role=logs` collector. Turns `role` from a label into a contract. |
+| **W2** | Destination templates + tenant bindings | — | One platform-owned endpoint+auth secret; N tenant bindings overriding only `tenant_id`. The `destinations` table already carries `url`/`tenant_id`/`secret_name`/`auth_mode`; this adds inheritance, so teams get a destination without seeing the credential. |
+| **W3** | Gateway API foundation | — | Version+channel pin, CRD detection (D3), `HTTPRoute` renderer, and the kind conformance harness (G3/G4). No product surface yet — this is the substrate. |
+| **W4** | Receiver tier + tenant routes | W1, W3 | Per-tenant receiver Alloy (pipelines with `role=receiver`) for OTLP and Faro, with routes rendered per tenant/app. First infrastructure Shepherd manages directly, in our own cluster. |
+| **W5** | Beacon: ingest + inventory | — (W1 makes it more useful) | Ingest endpoint in `agentapi` (D6), baseline pipeline, inventory storage + expiry, and the fleet-health surface it unlocks. |
+| **W6** | Three-way reconciliation | W1, W5 | Reconcile **declared** (attributes) vs **served** (our pipelines' signals) vs **observed** (beacon inventory). Contradictions surface as findings — this is what catches a BYO logs collector actually running `prometheus.scrape`. |
+| **W7** | Onboarding artifacts | W4 | "Connect an app": render endpoint+headers+tenant into Lambda env, Terraform/SAM/CDK, container/k8s env, Faro web snippet, SDK inits. Golden-tested; every emitted endpoint must resolve to a really-rendered route. |
+| **W8** | Wizard catalog fan-out | W1 | The cluster-metrics / pod-logs / database / blackbox / self-monitoring wizards. W1 first so a wizard cannot generate a pipeline that lands on the wrong collector role. |
+
+## 5. What each workstream must not do
+
+- **W1** must not silently downgrade a mismatch to a warning "for compatibility". If the
+  merge engine cannot prove the signal set, it refuses and says why.
+- **W3** must not render routes that a controller may ignore (D3), and must not depend on any
+  Experimental-channel feature (D2).
+- **W4** must not enable the receiver tier by default until R3 signs off.
+- **W5** must not persist raw samples, ever. Parse, project, discard.
+- **W7** must not emit an endpoint that no route serves, and must not hardcode ADOT ARNs (D5).
+
+## 6. Conformance gates (machine-checked)
+
+Every gate is a test that **fails when the control is removed** — the repo standard. A gate
+without a demonstrated red run is not a gate.
+
+| Gate | Proves | Where |
+|---|---|---|
+| **G1** | `GATEWAY_API_VERSION` agrees across `versions.env`, chart, docs and tests | Makefile guard, `make lint` |
+| **G2** | Shepherd refuses a cluster whose Gateway API CRDs are absent/older/wrong-channel, with an actionable message | Go unit + kind suite |
+| **G3** | A rendered route **actually routes**: POST through the gateway arrives at the backend with the prefix rewritten and `X-Scope-OrgID` injected | kind suite, real controller |
+| **G4** | **Tenant isolation, kill-probe style**: a request to tenant A's prefix never arrives tagged as tenant B; deleting the header filter turns G3/G4 red | kind suite |
+| **G5** | Beacon ingest rejects unauthenticated writes, enforces the rate/size caps, and stores no raw samples | Go integration |
+| **G6** | A pipeline whose signals contradict the target role is refused; removing the check makes named specs red | Go unit + merge integration |
+| **G7** | Every onboarding artifact renders to goldens, and every endpoint it emits resolves to a rendered route | Go golden tests |
+
+The kind suite already installs a CNI and proves NetworkPolicy enforcement before trusting a
+denial (`e2e/k8s/`, `docs/kind-test-environment-plan.md` §4, §8b). G3/G4 extend the same
+harness: install the pinned Gateway API CRDs plus a controller (Envoy Gateway is the
+default), then assert the *observable effect* of a route — never that the YAML rendered.
+
+## 7. Review gates (human sign-off between sessions)
+
+A workstream is not done when its tests pass; it is done when its gate is signed off.
+
+| Gate | When | What must be reviewed |
+|---|---|---|
+| **R1** | After W3, before W4 | Route/security model: URL-as-identifier caveat documented and not overstated, rate limits, origin allowlist, what a leaked prefix does and does not grant |
+| **R2** | After W5 ingest lands | Data review of the beacon: exactly what is stored, retention/expiry, proof no config text or secret is retained, ingest abuse surface |
+| **R3** | Before the receiver tier defaults on | Same bar F5 had to clear: containment, blast radius, and a documented off-switch that is itself tested |
+| **R4** | Every session, at the end | No doc claims a control that is not wired. This repo has shipped that failure once (claimed CI gates that ran nowhere); the ledger entry and the code must agree |
+
+## 8. How sub-agents work on this
+
+Conventions that made the previous multi-agent sessions land cleanly. They are not optional.
+
+1. **Disjoint territory.** Each parallel agent owns a declared, non-overlapping file set and
+   modifies nothing outside it. Cross-cutting edits (renames, path sweeps) are done by the
+   orchestrator after the parallel phase, never concurrently.
+2. **Every control ships with its red run.** State the exact one-line revert that disables the
+   control, run it, and report the observed failure verbatim. "I believe this would fail" is
+   not a red run.
+3. **A detected gap is a finding, not a test to weaken.** If a probe fails, report it and
+   diagnose. Never relax an assertion to reach green. Two real defects (a Felix convergence
+   race, `kubectl debug --attach` swallowing exit codes) were found exactly this way.
+4. **Structured report every time**: `done[]`, `skipped[]` with reasons, `decisions[]`,
+   `verification` with the exact commands and their outcomes.
+5. **Serialize the cluster.** `make e2e-k8s` and image builds must not run concurrently with
+   another agent's kind session. The orchestrator sequences them.
+6. **Verify version-dependent facts against the pinned artifact, not from memory.** Gateway
+   API conformance levels and channels move between releases (D2's note). The same discipline
+   that caught a darwin-flavoured schema artifact applies here.
+7. **Update this file's ledger (§9) and, when a session teaches something, append to §10.**
+   Product-level status goes in `docs/project-status.md`; do not start a second ledger.
+8. **Docs land in the same commit as the control they describe.** Not the next session.
+
+## 9. Ledger
+
+Status values: `proposed` → `in progress` → `gated` (built, awaiting its review gate) →
+`done`. Update in the same commit as the work.
+
+| Step | Status | Gates | Notes |
+|---|---|---|---|
+| W1 signal derivation + role enforcement | proposed | G6 | No dependencies — safe first session |
+| W2 destination templates + tenant bindings | proposed | — | Schema change; migration required |
+| W3 Gateway API foundation | proposed | G1, G2, G3, G4 | Verify conformance table against the pinned release (D2) |
+| W4 receiver tier + tenant routes | proposed | G3, G4 · R1, R3 | |
+| W5 beacon ingest + inventory | proposed | G5 · R2 | |
+| W6 three-way reconciliation | proposed | G6 | |
+| W7 onboarding artifacts | proposed | G7 | |
+| W8 wizard catalog fan-out | proposed | G6 | See the wizard catalog in the session notes; W1 first |
+
+## 10. What building this taught us
+
+*(Empty by design. Append per session, in the style of
+`docs/kind-test-environment-plan.md` §8a/§8b: what surprised us, what a test could not see,
+what a control failed to control.)*
+
+## 11. Open decisions
+
+1. **Gateway ownership.** Does Shepherd render routes into a gateway the customer owns
+   (Shepherd needs RBAC for `HTTPRoute` in that namespace), or does it own a gateway
+   outright? Affects W3's permission model and R1.
+2. **Route prefix format.** `/{kind}/{tenant}` with an opaque per-app token, or a signed
+   prefix? Decides rotation mechanics and what a leaked URL grants.
+3. **Beacon ingest placement.** Inside `agentapi` (same trust boundary, same credential,
+   same interceptor — the current preference) or a separate listener for isolation.
+4. **Receiver-tier tenancy granularity.** One Alloy per tenant, or one shared receiver with
+   per-tenant pipelines? Cost versus blast-radius trade-off; R3 depends on the answer.
+5. **Beacon retention.** How long per-instance inventory is kept, and whether history (not
+   just current state) is worth storing for fleet drift analysis.
