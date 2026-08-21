@@ -9,12 +9,31 @@ option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 
 // DestinationService covers /api/orgs/{org}/destinations/*. Reads require
 // org-reader; writes require org-admin.
+//
+// Destination templates + tenant bindings (W2, docs/gateway-tier-plan.md
+// §4): a Destination row doubles as a "template" -- one platform-owned
+// endpoint + auth secret -- the moment one or more DestinationBinding rows
+// point at it. A binding contributes exactly one thing on top of its
+// template: tenant_id. Create/UpdateDestinationBinding refuse
+// (CodeInvalidArgument) any attempt to also set a credential-bearing field
+// (url/type/secret_name/secret_namespace/auth_mode/extra) on the binding —
+// that refusal is a control, not a courtesy: DestinationBinding itself has
+// no such fields, so even a bypassed check has no column to write into.
+// ResolveDestinationBinding is the one place a consumer should read a
+// binding's fully-merged (template fields + binding's tenant_id) view.
 service DestinationService {
   rpc ListDestinations(ListDestinationsRequest) returns (ListDestinationsResponse) {}
   rpc GetDestination(GetDestinationRequest) returns (Destination) {}
   rpc CreateDestination(CreateDestinationRequest) returns (Destination) {}
   rpc UpdateDestination(UpdateDestinationRequest) returns (Destination) {}
   rpc DeleteDestination(DeleteDestinationRequest) returns (DeleteDestinationResponse) {}
+
+  rpc ListDestinationBindings(ListDestinationBindingsRequest) returns (ListDestinationBindingsResponse) {}
+  rpc GetDestinationBinding(GetDestinationBindingRequest) returns (DestinationBinding) {}
+  rpc CreateDestinationBinding(CreateDestinationBindingRequest) returns (DestinationBinding) {}
+  rpc UpdateDestinationBinding(UpdateDestinationBindingRequest) returns (DestinationBinding) {}
+  rpc DeleteDestinationBinding(DeleteDestinationBindingRequest) returns (DeleteDestinationBindingResponse) {}
+  rpc ResolveDestinationBinding(ResolveDestinationBindingRequest) returns (ResolvedDestination) {}
 }
 
 // Destination mirrors internal/mgmtapi/orgs.go: destinationResponse.
@@ -82,3 +101,100 @@ message DeleteDestinationRequest {
 }
 
 message DeleteDestinationResponse {}
+
+// DestinationBinding is a tenant binding: it attaches a tenant_id to a
+// destination template. It deliberately carries no url/type/secret_name/
+// secret_namespace/auth_mode/extra field -- those live only on the
+// referenced Destination (see DestinationService's doc comment).
+message DestinationBinding {
+  string id = 1;
+  string destination_id = 2;
+  string org_id = 3;
+  string name = 4;
+  string tenant_id = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+message ListDestinationBindingsRequest {
+  string org_id = 1;
+  // Optional: restrict to bindings of one template.
+  string destination_id = 2;
+}
+
+message ListDestinationBindingsResponse {
+  repeated DestinationBinding items = 1;
+  int32 total = 2;
+}
+
+message GetDestinationBindingRequest {
+  string org_id = 1;
+  string id = 2;
+}
+
+// CreateDestinationBindingRequest carries the credential-bearing Destination
+// fields ONLY so the server can detect and explicitly refuse an attempt to
+// set them on a binding, rather than silently discarding them as unknown
+// fields on the wire. A well-behaved client populates only org_id,
+// destination_id, name and tenant_id; CreateDestinationBinding rejects the
+// request (CodeInvalidArgument) if any of the others is non-empty/non-nil.
+message CreateDestinationBindingRequest {
+  string org_id = 1;
+  string destination_id = 2;
+  string name = 3;
+  string tenant_id = 4;
+  string url = 5;
+  string type = 6;
+  string secret_name = 7;
+  string secret_namespace = 8;
+  string auth_mode = 9;
+  google.protobuf.Struct extra = 10;
+}
+
+// UpdateDestinationBindingRequest: see CreateDestinationBindingRequest --
+// the same credential-bearing fields are present only so an attempt to set
+// them is refused, never silently ignored.
+message UpdateDestinationBindingRequest {
+  string org_id = 1;
+  string id = 2;
+  string name = 3;
+  string tenant_id = 4;
+  string url = 5;
+  string type = 6;
+  string secret_name = 7;
+  string secret_namespace = 8;
+  string auth_mode = 9;
+  google.protobuf.Struct extra = 10;
+}
+
+message DeleteDestinationBindingRequest {
+  string org_id = 1;
+  string id = 2;
+}
+
+message DeleteDestinationBindingResponse {}
+
+message ResolveDestinationBindingRequest {
+  string org_id = 1;
+  string id = 2;
+}
+
+// ResolvedDestination is a binding merged with its template: the template's
+// url/type/secret_name/secret_namespace/auth_mode/extra plus the binding's
+// own tenant_id. This is the only message a serving-time consumer (e.g. the
+// receiver-tier gateway config, W4) should read -- never a DestinationBinding
+// and a separately-fetched Destination assembled by hand.
+message ResolvedDestination {
+  string binding_id = 1;
+  string destination_id = 2;
+  string org_id = 3;
+  string binding_name = 4;
+  string destination_name = 5;
+  string type = 6;
+  string url = 7;
+  string tenant_id = 8;
+  string secret_name = 9;
+  string secret_namespace = 10;
+  string auth_mode = 11;
+  google.protobuf.Struct extra = 12;
+}

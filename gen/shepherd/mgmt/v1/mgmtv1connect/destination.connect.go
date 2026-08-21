@@ -48,6 +48,24 @@ const (
 	// DestinationServiceDeleteDestinationProcedure is the fully-qualified name of the
 	// DestinationService's DeleteDestination RPC.
 	DestinationServiceDeleteDestinationProcedure = "/shepherd.mgmt.v1.DestinationService/DeleteDestination"
+	// DestinationServiceListDestinationBindingsProcedure is the fully-qualified name of the
+	// DestinationService's ListDestinationBindings RPC.
+	DestinationServiceListDestinationBindingsProcedure = "/shepherd.mgmt.v1.DestinationService/ListDestinationBindings"
+	// DestinationServiceGetDestinationBindingProcedure is the fully-qualified name of the
+	// DestinationService's GetDestinationBinding RPC.
+	DestinationServiceGetDestinationBindingProcedure = "/shepherd.mgmt.v1.DestinationService/GetDestinationBinding"
+	// DestinationServiceCreateDestinationBindingProcedure is the fully-qualified name of the
+	// DestinationService's CreateDestinationBinding RPC.
+	DestinationServiceCreateDestinationBindingProcedure = "/shepherd.mgmt.v1.DestinationService/CreateDestinationBinding"
+	// DestinationServiceUpdateDestinationBindingProcedure is the fully-qualified name of the
+	// DestinationService's UpdateDestinationBinding RPC.
+	DestinationServiceUpdateDestinationBindingProcedure = "/shepherd.mgmt.v1.DestinationService/UpdateDestinationBinding"
+	// DestinationServiceDeleteDestinationBindingProcedure is the fully-qualified name of the
+	// DestinationService's DeleteDestinationBinding RPC.
+	DestinationServiceDeleteDestinationBindingProcedure = "/shepherd.mgmt.v1.DestinationService/DeleteDestinationBinding"
+	// DestinationServiceResolveDestinationBindingProcedure is the fully-qualified name of the
+	// DestinationService's ResolveDestinationBinding RPC.
+	DestinationServiceResolveDestinationBindingProcedure = "/shepherd.mgmt.v1.DestinationService/ResolveDestinationBinding"
 )
 
 // DestinationServiceClient is a client for the shepherd.mgmt.v1.DestinationService service.
@@ -57,6 +75,12 @@ type DestinationServiceClient interface {
 	CreateDestination(context.Context, *connect.Request[v1.CreateDestinationRequest]) (*connect.Response[v1.Destination], error)
 	UpdateDestination(context.Context, *connect.Request[v1.UpdateDestinationRequest]) (*connect.Response[v1.Destination], error)
 	DeleteDestination(context.Context, *connect.Request[v1.DeleteDestinationRequest]) (*connect.Response[v1.DeleteDestinationResponse], error)
+	ListDestinationBindings(context.Context, *connect.Request[v1.ListDestinationBindingsRequest]) (*connect.Response[v1.ListDestinationBindingsResponse], error)
+	GetDestinationBinding(context.Context, *connect.Request[v1.GetDestinationBindingRequest]) (*connect.Response[v1.DestinationBinding], error)
+	CreateDestinationBinding(context.Context, *connect.Request[v1.CreateDestinationBindingRequest]) (*connect.Response[v1.DestinationBinding], error)
+	UpdateDestinationBinding(context.Context, *connect.Request[v1.UpdateDestinationBindingRequest]) (*connect.Response[v1.DestinationBinding], error)
+	DeleteDestinationBinding(context.Context, *connect.Request[v1.DeleteDestinationBindingRequest]) (*connect.Response[v1.DeleteDestinationBindingResponse], error)
+	ResolveDestinationBinding(context.Context, *connect.Request[v1.ResolveDestinationBindingRequest]) (*connect.Response[v1.ResolvedDestination], error)
 }
 
 // NewDestinationServiceClient constructs a client for the shepherd.mgmt.v1.DestinationService
@@ -100,16 +124,58 @@ func NewDestinationServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(destinationServiceMethods.ByName("DeleteDestination")),
 			connect.WithClientOptions(opts...),
 		),
+		listDestinationBindings: connect.NewClient[v1.ListDestinationBindingsRequest, v1.ListDestinationBindingsResponse](
+			httpClient,
+			baseURL+DestinationServiceListDestinationBindingsProcedure,
+			connect.WithSchema(destinationServiceMethods.ByName("ListDestinationBindings")),
+			connect.WithClientOptions(opts...),
+		),
+		getDestinationBinding: connect.NewClient[v1.GetDestinationBindingRequest, v1.DestinationBinding](
+			httpClient,
+			baseURL+DestinationServiceGetDestinationBindingProcedure,
+			connect.WithSchema(destinationServiceMethods.ByName("GetDestinationBinding")),
+			connect.WithClientOptions(opts...),
+		),
+		createDestinationBinding: connect.NewClient[v1.CreateDestinationBindingRequest, v1.DestinationBinding](
+			httpClient,
+			baseURL+DestinationServiceCreateDestinationBindingProcedure,
+			connect.WithSchema(destinationServiceMethods.ByName("CreateDestinationBinding")),
+			connect.WithClientOptions(opts...),
+		),
+		updateDestinationBinding: connect.NewClient[v1.UpdateDestinationBindingRequest, v1.DestinationBinding](
+			httpClient,
+			baseURL+DestinationServiceUpdateDestinationBindingProcedure,
+			connect.WithSchema(destinationServiceMethods.ByName("UpdateDestinationBinding")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteDestinationBinding: connect.NewClient[v1.DeleteDestinationBindingRequest, v1.DeleteDestinationBindingResponse](
+			httpClient,
+			baseURL+DestinationServiceDeleteDestinationBindingProcedure,
+			connect.WithSchema(destinationServiceMethods.ByName("DeleteDestinationBinding")),
+			connect.WithClientOptions(opts...),
+		),
+		resolveDestinationBinding: connect.NewClient[v1.ResolveDestinationBindingRequest, v1.ResolvedDestination](
+			httpClient,
+			baseURL+DestinationServiceResolveDestinationBindingProcedure,
+			connect.WithSchema(destinationServiceMethods.ByName("ResolveDestinationBinding")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // destinationServiceClient implements DestinationServiceClient.
 type destinationServiceClient struct {
-	listDestinations  *connect.Client[v1.ListDestinationsRequest, v1.ListDestinationsResponse]
-	getDestination    *connect.Client[v1.GetDestinationRequest, v1.Destination]
-	createDestination *connect.Client[v1.CreateDestinationRequest, v1.Destination]
-	updateDestination *connect.Client[v1.UpdateDestinationRequest, v1.Destination]
-	deleteDestination *connect.Client[v1.DeleteDestinationRequest, v1.DeleteDestinationResponse]
+	listDestinations          *connect.Client[v1.ListDestinationsRequest, v1.ListDestinationsResponse]
+	getDestination            *connect.Client[v1.GetDestinationRequest, v1.Destination]
+	createDestination         *connect.Client[v1.CreateDestinationRequest, v1.Destination]
+	updateDestination         *connect.Client[v1.UpdateDestinationRequest, v1.Destination]
+	deleteDestination         *connect.Client[v1.DeleteDestinationRequest, v1.DeleteDestinationResponse]
+	listDestinationBindings   *connect.Client[v1.ListDestinationBindingsRequest, v1.ListDestinationBindingsResponse]
+	getDestinationBinding     *connect.Client[v1.GetDestinationBindingRequest, v1.DestinationBinding]
+	createDestinationBinding  *connect.Client[v1.CreateDestinationBindingRequest, v1.DestinationBinding]
+	updateDestinationBinding  *connect.Client[v1.UpdateDestinationBindingRequest, v1.DestinationBinding]
+	deleteDestinationBinding  *connect.Client[v1.DeleteDestinationBindingRequest, v1.DeleteDestinationBindingResponse]
+	resolveDestinationBinding *connect.Client[v1.ResolveDestinationBindingRequest, v1.ResolvedDestination]
 }
 
 // ListDestinations calls shepherd.mgmt.v1.DestinationService.ListDestinations.
@@ -137,6 +203,36 @@ func (c *destinationServiceClient) DeleteDestination(ctx context.Context, req *c
 	return c.deleteDestination.CallUnary(ctx, req)
 }
 
+// ListDestinationBindings calls shepherd.mgmt.v1.DestinationService.ListDestinationBindings.
+func (c *destinationServiceClient) ListDestinationBindings(ctx context.Context, req *connect.Request[v1.ListDestinationBindingsRequest]) (*connect.Response[v1.ListDestinationBindingsResponse], error) {
+	return c.listDestinationBindings.CallUnary(ctx, req)
+}
+
+// GetDestinationBinding calls shepherd.mgmt.v1.DestinationService.GetDestinationBinding.
+func (c *destinationServiceClient) GetDestinationBinding(ctx context.Context, req *connect.Request[v1.GetDestinationBindingRequest]) (*connect.Response[v1.DestinationBinding], error) {
+	return c.getDestinationBinding.CallUnary(ctx, req)
+}
+
+// CreateDestinationBinding calls shepherd.mgmt.v1.DestinationService.CreateDestinationBinding.
+func (c *destinationServiceClient) CreateDestinationBinding(ctx context.Context, req *connect.Request[v1.CreateDestinationBindingRequest]) (*connect.Response[v1.DestinationBinding], error) {
+	return c.createDestinationBinding.CallUnary(ctx, req)
+}
+
+// UpdateDestinationBinding calls shepherd.mgmt.v1.DestinationService.UpdateDestinationBinding.
+func (c *destinationServiceClient) UpdateDestinationBinding(ctx context.Context, req *connect.Request[v1.UpdateDestinationBindingRequest]) (*connect.Response[v1.DestinationBinding], error) {
+	return c.updateDestinationBinding.CallUnary(ctx, req)
+}
+
+// DeleteDestinationBinding calls shepherd.mgmt.v1.DestinationService.DeleteDestinationBinding.
+func (c *destinationServiceClient) DeleteDestinationBinding(ctx context.Context, req *connect.Request[v1.DeleteDestinationBindingRequest]) (*connect.Response[v1.DeleteDestinationBindingResponse], error) {
+	return c.deleteDestinationBinding.CallUnary(ctx, req)
+}
+
+// ResolveDestinationBinding calls shepherd.mgmt.v1.DestinationService.ResolveDestinationBinding.
+func (c *destinationServiceClient) ResolveDestinationBinding(ctx context.Context, req *connect.Request[v1.ResolveDestinationBindingRequest]) (*connect.Response[v1.ResolvedDestination], error) {
+	return c.resolveDestinationBinding.CallUnary(ctx, req)
+}
+
 // DestinationServiceHandler is an implementation of the shepherd.mgmt.v1.DestinationService
 // service.
 type DestinationServiceHandler interface {
@@ -145,6 +241,12 @@ type DestinationServiceHandler interface {
 	CreateDestination(context.Context, *connect.Request[v1.CreateDestinationRequest]) (*connect.Response[v1.Destination], error)
 	UpdateDestination(context.Context, *connect.Request[v1.UpdateDestinationRequest]) (*connect.Response[v1.Destination], error)
 	DeleteDestination(context.Context, *connect.Request[v1.DeleteDestinationRequest]) (*connect.Response[v1.DeleteDestinationResponse], error)
+	ListDestinationBindings(context.Context, *connect.Request[v1.ListDestinationBindingsRequest]) (*connect.Response[v1.ListDestinationBindingsResponse], error)
+	GetDestinationBinding(context.Context, *connect.Request[v1.GetDestinationBindingRequest]) (*connect.Response[v1.DestinationBinding], error)
+	CreateDestinationBinding(context.Context, *connect.Request[v1.CreateDestinationBindingRequest]) (*connect.Response[v1.DestinationBinding], error)
+	UpdateDestinationBinding(context.Context, *connect.Request[v1.UpdateDestinationBindingRequest]) (*connect.Response[v1.DestinationBinding], error)
+	DeleteDestinationBinding(context.Context, *connect.Request[v1.DeleteDestinationBindingRequest]) (*connect.Response[v1.DeleteDestinationBindingResponse], error)
+	ResolveDestinationBinding(context.Context, *connect.Request[v1.ResolveDestinationBindingRequest]) (*connect.Response[v1.ResolvedDestination], error)
 }
 
 // NewDestinationServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -184,6 +286,42 @@ func NewDestinationServiceHandler(svc DestinationServiceHandler, opts ...connect
 		connect.WithSchema(destinationServiceMethods.ByName("DeleteDestination")),
 		connect.WithHandlerOptions(opts...),
 	)
+	destinationServiceListDestinationBindingsHandler := connect.NewUnaryHandler(
+		DestinationServiceListDestinationBindingsProcedure,
+		svc.ListDestinationBindings,
+		connect.WithSchema(destinationServiceMethods.ByName("ListDestinationBindings")),
+		connect.WithHandlerOptions(opts...),
+	)
+	destinationServiceGetDestinationBindingHandler := connect.NewUnaryHandler(
+		DestinationServiceGetDestinationBindingProcedure,
+		svc.GetDestinationBinding,
+		connect.WithSchema(destinationServiceMethods.ByName("GetDestinationBinding")),
+		connect.WithHandlerOptions(opts...),
+	)
+	destinationServiceCreateDestinationBindingHandler := connect.NewUnaryHandler(
+		DestinationServiceCreateDestinationBindingProcedure,
+		svc.CreateDestinationBinding,
+		connect.WithSchema(destinationServiceMethods.ByName("CreateDestinationBinding")),
+		connect.WithHandlerOptions(opts...),
+	)
+	destinationServiceUpdateDestinationBindingHandler := connect.NewUnaryHandler(
+		DestinationServiceUpdateDestinationBindingProcedure,
+		svc.UpdateDestinationBinding,
+		connect.WithSchema(destinationServiceMethods.ByName("UpdateDestinationBinding")),
+		connect.WithHandlerOptions(opts...),
+	)
+	destinationServiceDeleteDestinationBindingHandler := connect.NewUnaryHandler(
+		DestinationServiceDeleteDestinationBindingProcedure,
+		svc.DeleteDestinationBinding,
+		connect.WithSchema(destinationServiceMethods.ByName("DeleteDestinationBinding")),
+		connect.WithHandlerOptions(opts...),
+	)
+	destinationServiceResolveDestinationBindingHandler := connect.NewUnaryHandler(
+		DestinationServiceResolveDestinationBindingProcedure,
+		svc.ResolveDestinationBinding,
+		connect.WithSchema(destinationServiceMethods.ByName("ResolveDestinationBinding")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/shepherd.mgmt.v1.DestinationService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DestinationServiceListDestinationsProcedure:
@@ -196,6 +334,18 @@ func NewDestinationServiceHandler(svc DestinationServiceHandler, opts ...connect
 			destinationServiceUpdateDestinationHandler.ServeHTTP(w, r)
 		case DestinationServiceDeleteDestinationProcedure:
 			destinationServiceDeleteDestinationHandler.ServeHTTP(w, r)
+		case DestinationServiceListDestinationBindingsProcedure:
+			destinationServiceListDestinationBindingsHandler.ServeHTTP(w, r)
+		case DestinationServiceGetDestinationBindingProcedure:
+			destinationServiceGetDestinationBindingHandler.ServeHTTP(w, r)
+		case DestinationServiceCreateDestinationBindingProcedure:
+			destinationServiceCreateDestinationBindingHandler.ServeHTTP(w, r)
+		case DestinationServiceUpdateDestinationBindingProcedure:
+			destinationServiceUpdateDestinationBindingHandler.ServeHTTP(w, r)
+		case DestinationServiceDeleteDestinationBindingProcedure:
+			destinationServiceDeleteDestinationBindingHandler.ServeHTTP(w, r)
+		case DestinationServiceResolveDestinationBindingProcedure:
+			destinationServiceResolveDestinationBindingHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -223,4 +373,28 @@ func (UnimplementedDestinationServiceHandler) UpdateDestination(context.Context,
 
 func (UnimplementedDestinationServiceHandler) DeleteDestination(context.Context, *connect.Request[v1.DeleteDestinationRequest]) (*connect.Response[v1.DeleteDestinationResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.DestinationService.DeleteDestination is not implemented"))
+}
+
+func (UnimplementedDestinationServiceHandler) ListDestinationBindings(context.Context, *connect.Request[v1.ListDestinationBindingsRequest]) (*connect.Response[v1.ListDestinationBindingsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.DestinationService.ListDestinationBindings is not implemented"))
+}
+
+func (UnimplementedDestinationServiceHandler) GetDestinationBinding(context.Context, *connect.Request[v1.GetDestinationBindingRequest]) (*connect.Response[v1.DestinationBinding], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.DestinationService.GetDestinationBinding is not implemented"))
+}
+
+func (UnimplementedDestinationServiceHandler) CreateDestinationBinding(context.Context, *connect.Request[v1.CreateDestinationBindingRequest]) (*connect.Response[v1.DestinationBinding], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.DestinationService.CreateDestinationBinding is not implemented"))
+}
+
+func (UnimplementedDestinationServiceHandler) UpdateDestinationBinding(context.Context, *connect.Request[v1.UpdateDestinationBindingRequest]) (*connect.Response[v1.DestinationBinding], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.DestinationService.UpdateDestinationBinding is not implemented"))
+}
+
+func (UnimplementedDestinationServiceHandler) DeleteDestinationBinding(context.Context, *connect.Request[v1.DeleteDestinationBindingRequest]) (*connect.Response[v1.DeleteDestinationBindingResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.DestinationService.DeleteDestinationBinding is not implemented"))
+}
+
+func (UnimplementedDestinationServiceHandler) ResolveDestinationBinding(context.Context, *connect.Request[v1.ResolveDestinationBindingRequest]) (*connect.Response[v1.ResolvedDestination], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.DestinationService.ResolveDestinationBinding is not implemented"))
 }

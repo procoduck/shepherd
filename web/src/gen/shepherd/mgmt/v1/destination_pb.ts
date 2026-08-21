@@ -12,7 +12,7 @@ import type { JsonObject, Message } from "@bufbuild/protobuf";
  * Describes the file shepherd/mgmt/v1/destination.proto.
  */
 export const file_shepherd_mgmt_v1_destination: GenFile = /*@__PURE__*/
-  fileDesc("CiJzaGVwaGVyZC9tZ210L3YxL2Rlc3RpbmF0aW9uLnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIq8CCgtEZXN0aW5hdGlvbhIKCgJpZBgBIAEoCRIOCgZvcmdfaWQYAiABKAkSDAoEbmFtZRgDIAEoCRIMCgR0eXBlGAQgASgJEgsKA3VybBgFIAEoCRIRCgl0ZW5hbnRfaWQYBiABKAkSEwoLc2VjcmV0X25hbWUYByABKAkSGAoQc2VjcmV0X25hbWVzcGFjZRgIIAEoCRIRCglhdXRoX21vZGUYCSABKAkSJgoFZXh0cmEYCiABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0Ei4KCmNyZWF0ZWRfYXQYCyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYDCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIikKF0xpc3REZXN0aW5hdGlvbnNSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCSJXChhMaXN0RGVzdGluYXRpb25zUmVzcG9uc2USLAoFaXRlbXMYASADKAsyHS5zaGVwaGVyZC5tZ210LnYxLkRlc3RpbmF0aW9uEg0KBXRvdGFsGAIgASgFIjMKFUdldERlc3RpbmF0aW9uUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAki0AEKGENyZWF0ZURlc3RpbmF0aW9uUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSDAoEbmFtZRgCIAEoCRIMCgR0eXBlGAMgASgJEgsKA3VybBgEIAEoCRIRCgl0ZW5hbnRfaWQYBSABKAkSEwoLc2VjcmV0X25hbWUYBiABKAkSGAoQc2VjcmV0X25hbWVzcGFjZRgHIAEoCRIRCglhdXRoX21vZGUYCCABKAkSJgoFZXh0cmEYCSABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0ItwBChhVcGRhdGVEZXN0aW5hdGlvblJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgoKAmlkGAIgASgJEgwKBG5hbWUYAyABKAkSDAoEdHlwZRgEIAEoCRILCgN1cmwYBSABKAkSEQoJdGVuYW50X2lkGAYgASgJEhMKC3NlY3JldF9uYW1lGAcgASgJEhgKEHNlY3JldF9uYW1lc3BhY2UYCCABKAkSEQoJYXV0aF9tb2RlGAkgASgJEiYKBWV4dHJhGAogASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdCI2ChhEZWxldGVEZXN0aW5hdGlvblJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgoKAmlkGAIgASgJIhsKGURlbGV0ZURlc3RpbmF0aW9uUmVzcG9uc2UykQQKEkRlc3RpbmF0aW9uU2VydmljZRJrChBMaXN0RGVzdGluYXRpb25zEikuc2hlcGhlcmQubWdtdC52MS5MaXN0RGVzdGluYXRpb25zUmVxdWVzdBoqLnNoZXBoZXJkLm1nbXQudjEuTGlzdERlc3RpbmF0aW9uc1Jlc3BvbnNlIgASWgoOR2V0RGVzdGluYXRpb24SJy5zaGVwaGVyZC5tZ210LnYxLkdldERlc3RpbmF0aW9uUmVxdWVzdBodLnNoZXBoZXJkLm1nbXQudjEuRGVzdGluYXRpb24iABJgChFDcmVhdGVEZXN0aW5hdGlvbhIqLnNoZXBoZXJkLm1nbXQudjEuQ3JlYXRlRGVzdGluYXRpb25SZXF1ZXN0Gh0uc2hlcGhlcmQubWdtdC52MS5EZXN0aW5hdGlvbiIAEmAKEVVwZGF0ZURlc3RpbmF0aW9uEiouc2hlcGhlcmQubWdtdC52MS5VcGRhdGVEZXN0aW5hdGlvblJlcXVlc3QaHS5zaGVwaGVyZC5tZ210LnYxLkRlc3RpbmF0aW9uIgASbgoRRGVsZXRlRGVzdGluYXRpb24SKi5zaGVwaGVyZC5tZ210LnYxLkRlbGV0ZURlc3RpbmF0aW9uUmVxdWVzdBorLnNoZXBoZXJkLm1nbXQudjEuRGVsZXRlRGVzdGluYXRpb25SZXNwb25zZSIAQiZaJHNoZXBoZXJkL2dlbi9zaGVwaGVyZC9tZ210L3YxO21nbXR2MWIGcHJvdG8z", [file_google_protobuf_struct, file_google_protobuf_timestamp]);
+  fileDesc("CiJzaGVwaGVyZC9tZ210L3YxL2Rlc3RpbmF0aW9uLnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIq8CCgtEZXN0aW5hdGlvbhIKCgJpZBgBIAEoCRIOCgZvcmdfaWQYAiABKAkSDAoEbmFtZRgDIAEoCRIMCgR0eXBlGAQgASgJEgsKA3VybBgFIAEoCRIRCgl0ZW5hbnRfaWQYBiABKAkSEwoLc2VjcmV0X25hbWUYByABKAkSGAoQc2VjcmV0X25hbWVzcGFjZRgIIAEoCRIRCglhdXRoX21vZGUYCSABKAkSJgoFZXh0cmEYCiABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0Ei4KCmNyZWF0ZWRfYXQYCyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYDCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIikKF0xpc3REZXN0aW5hdGlvbnNSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCSJXChhMaXN0RGVzdGluYXRpb25zUmVzcG9uc2USLAoFaXRlbXMYASADKAsyHS5zaGVwaGVyZC5tZ210LnYxLkRlc3RpbmF0aW9uEg0KBXRvdGFsGAIgASgFIjMKFUdldERlc3RpbmF0aW9uUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAki0AEKGENyZWF0ZURlc3RpbmF0aW9uUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSDAoEbmFtZRgCIAEoCRIMCgR0eXBlGAMgASgJEgsKA3VybBgEIAEoCRIRCgl0ZW5hbnRfaWQYBSABKAkSEwoLc2VjcmV0X25hbWUYBiABKAkSGAoQc2VjcmV0X25hbWVzcGFjZRgHIAEoCRIRCglhdXRoX21vZGUYCCABKAkSJgoFZXh0cmEYCSABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0ItwBChhVcGRhdGVEZXN0aW5hdGlvblJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgoKAmlkGAIgASgJEgwKBG5hbWUYAyABKAkSDAoEdHlwZRgEIAEoCRILCgN1cmwYBSABKAkSEQoJdGVuYW50X2lkGAYgASgJEhMKC3NlY3JldF9uYW1lGAcgASgJEhgKEHNlY3JldF9uYW1lc3BhY2UYCCABKAkSEQoJYXV0aF9tb2RlGAkgASgJEiYKBWV4dHJhGAogASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdCI2ChhEZWxldGVEZXN0aW5hdGlvblJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgoKAmlkGAIgASgJIhsKGURlbGV0ZURlc3RpbmF0aW9uUmVzcG9uc2UiyQEKEkRlc3RpbmF0aW9uQmluZGluZxIKCgJpZBgBIAEoCRIWCg5kZXN0aW5hdGlvbl9pZBgCIAEoCRIOCgZvcmdfaWQYAyABKAkSDAoEbmFtZRgEIAEoCRIRCgl0ZW5hbnRfaWQYBSABKAkSLgoKY3JlYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiSAoeTGlzdERlc3RpbmF0aW9uQmluZGluZ3NSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIWCg5kZXN0aW5hdGlvbl9pZBgCIAEoCSJlCh9MaXN0RGVzdGluYXRpb25CaW5kaW5nc1Jlc3BvbnNlEjMKBWl0ZW1zGAEgAygLMiQuc2hlcGhlcmQubWdtdC52MS5EZXN0aW5hdGlvbkJpbmRpbmcSDQoFdG90YWwYAiABKAUiOgocR2V0RGVzdGluYXRpb25CaW5kaW5nUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAki7wEKH0NyZWF0ZURlc3RpbmF0aW9uQmluZGluZ1JlcXVlc3QSDgoGb3JnX2lkGAEgASgJEhYKDmRlc3RpbmF0aW9uX2lkGAIgASgJEgwKBG5hbWUYAyABKAkSEQoJdGVuYW50X2lkGAQgASgJEgsKA3VybBgFIAEoCRIMCgR0eXBlGAYgASgJEhMKC3NlY3JldF9uYW1lGAcgASgJEhgKEHNlY3JldF9uYW1lc3BhY2UYCCABKAkSEQoJYXV0aF9tb2RlGAkgASgJEiYKBWV4dHJhGAogASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdCLjAQofVXBkYXRlRGVzdGluYXRpb25CaW5kaW5nUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkSDAoEbmFtZRgDIAEoCRIRCgl0ZW5hbnRfaWQYBCABKAkSCwoDdXJsGAUgASgJEgwKBHR5cGUYBiABKAkSEwoLc2VjcmV0X25hbWUYByABKAkSGAoQc2VjcmV0X25hbWVzcGFjZRgIIAEoCRIRCglhdXRoX21vZGUYCSABKAkSJgoFZXh0cmEYCiABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0Ij0KH0RlbGV0ZURlc3RpbmF0aW9uQmluZGluZ1JlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgoKAmlkGAIgASgJIiIKIERlbGV0ZURlc3RpbmF0aW9uQmluZGluZ1Jlc3BvbnNlIj4KIFJlc29sdmVEZXN0aW5hdGlvbkJpbmRpbmdSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIKCgJpZBgCIAEoCSKZAgoTUmVzb2x2ZWREZXN0aW5hdGlvbhISCgpiaW5kaW5nX2lkGAEgASgJEhYKDmRlc3RpbmF0aW9uX2lkGAIgASgJEg4KBm9yZ19pZBgDIAEoCRIUCgxiaW5kaW5nX25hbWUYBCABKAkSGAoQZGVzdGluYXRpb25fbmFtZRgFIAEoCRIMCgR0eXBlGAYgASgJEgsKA3VybBgHIAEoCRIRCgl0ZW5hbnRfaWQYCCABKAkSEwoLc2VjcmV0X25hbWUYCSABKAkSGAoQc2VjcmV0X25hbWVzcGFjZRgKIAEoCRIRCglhdXRoX21vZGUYCyABKAkSJgoFZXh0cmEYDCABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0MvMJChJEZXN0aW5hdGlvblNlcnZpY2USawoQTGlzdERlc3RpbmF0aW9ucxIpLnNoZXBoZXJkLm1nbXQudjEuTGlzdERlc3RpbmF0aW9uc1JlcXVlc3QaKi5zaGVwaGVyZC5tZ210LnYxLkxpc3REZXN0aW5hdGlvbnNSZXNwb25zZSIAEloKDkdldERlc3RpbmF0aW9uEicuc2hlcGhlcmQubWdtdC52MS5HZXREZXN0aW5hdGlvblJlcXVlc3QaHS5zaGVwaGVyZC5tZ210LnYxLkRlc3RpbmF0aW9uIgASYAoRQ3JlYXRlRGVzdGluYXRpb24SKi5zaGVwaGVyZC5tZ210LnYxLkNyZWF0ZURlc3RpbmF0aW9uUmVxdWVzdBodLnNoZXBoZXJkLm1nbXQudjEuRGVzdGluYXRpb24iABJgChFVcGRhdGVEZXN0aW5hdGlvbhIqLnNoZXBoZXJkLm1nbXQudjEuVXBkYXRlRGVzdGluYXRpb25SZXF1ZXN0Gh0uc2hlcGhlcmQubWdtdC52MS5EZXN0aW5hdGlvbiIAEm4KEURlbGV0ZURlc3RpbmF0aW9uEiouc2hlcGhlcmQubWdtdC52MS5EZWxldGVEZXN0aW5hdGlvblJlcXVlc3QaKy5zaGVwaGVyZC5tZ210LnYxLkRlbGV0ZURlc3RpbmF0aW9uUmVzcG9uc2UiABKAAQoXTGlzdERlc3RpbmF0aW9uQmluZGluZ3MSMC5zaGVwaGVyZC5tZ210LnYxLkxpc3REZXN0aW5hdGlvbkJpbmRpbmdzUmVxdWVzdBoxLnNoZXBoZXJkLm1nbXQudjEuTGlzdERlc3RpbmF0aW9uQmluZGluZ3NSZXNwb25zZSIAEm8KFUdldERlc3RpbmF0aW9uQmluZGluZxIuLnNoZXBoZXJkLm1nbXQudjEuR2V0RGVzdGluYXRpb25CaW5kaW5nUmVxdWVzdBokLnNoZXBoZXJkLm1nbXQudjEuRGVzdGluYXRpb25CaW5kaW5nIgASdQoYQ3JlYXRlRGVzdGluYXRpb25CaW5kaW5nEjEuc2hlcGhlcmQubWdtdC52MS5DcmVhdGVEZXN0aW5hdGlvbkJpbmRpbmdSZXF1ZXN0GiQuc2hlcGhlcmQubWdtdC52MS5EZXN0aW5hdGlvbkJpbmRpbmciABJ1ChhVcGRhdGVEZXN0aW5hdGlvbkJpbmRpbmcSMS5zaGVwaGVyZC5tZ210LnYxLlVwZGF0ZURlc3RpbmF0aW9uQmluZGluZ1JlcXVlc3QaJC5zaGVwaGVyZC5tZ210LnYxLkRlc3RpbmF0aW9uQmluZGluZyIAEoMBChhEZWxldGVEZXN0aW5hdGlvbkJpbmRpbmcSMS5zaGVwaGVyZC5tZ210LnYxLkRlbGV0ZURlc3RpbmF0aW9uQmluZGluZ1JlcXVlc3QaMi5zaGVwaGVyZC5tZ210LnYxLkRlbGV0ZURlc3RpbmF0aW9uQmluZGluZ1Jlc3BvbnNlIgASeAoZUmVzb2x2ZURlc3RpbmF0aW9uQmluZGluZxIyLnNoZXBoZXJkLm1nbXQudjEuUmVzb2x2ZURlc3RpbmF0aW9uQmluZGluZ1JlcXVlc3QaJS5zaGVwaGVyZC5tZ210LnYxLlJlc29sdmVkRGVzdGluYXRpb24iAEImWiRzaGVwaGVyZC9nZW4vc2hlcGhlcmQvbWdtdC92MTttZ210djFiBnByb3RvMw", [file_google_protobuf_struct, file_google_protobuf_timestamp]);
 
 /**
  * Destination mirrors internal/mgmtapi/orgs.go: destinationResponse.
@@ -312,8 +312,410 @@ export const DeleteDestinationResponseSchema: GenMessage<DeleteDestinationRespon
   messageDesc(file_shepherd_mgmt_v1_destination, 7);
 
 /**
+ * DestinationBinding is a tenant binding: it attaches a tenant_id to a
+ * destination template. It deliberately carries no url/type/secret_name/
+ * secret_namespace/auth_mode/extra field -- those live only on the
+ * referenced Destination (see DestinationService's doc comment).
+ *
+ * @generated from message shepherd.mgmt.v1.DestinationBinding
+ */
+export type DestinationBinding = Message<"shepherd.mgmt.v1.DestinationBinding"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string destination_id = 2;
+   */
+  destinationId: string;
+
+  /**
+   * @generated from field: string org_id = 3;
+   */
+  orgId: string;
+
+  /**
+   * @generated from field: string name = 4;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string tenant_id = 5;
+   */
+  tenantId: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp created_at = 6;
+   */
+  createdAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp updated_at = 7;
+   */
+  updatedAt?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.DestinationBinding.
+ * Use `create(DestinationBindingSchema)` to create a new message.
+ */
+export const DestinationBindingSchema: GenMessage<DestinationBinding> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_destination, 8);
+
+/**
+ * @generated from message shepherd.mgmt.v1.ListDestinationBindingsRequest
+ */
+export type ListDestinationBindingsRequest = Message<"shepherd.mgmt.v1.ListDestinationBindingsRequest"> & {
+  /**
+   * @generated from field: string org_id = 1;
+   */
+  orgId: string;
+
+  /**
+   * Optional: restrict to bindings of one template.
+   *
+   * @generated from field: string destination_id = 2;
+   */
+  destinationId: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.ListDestinationBindingsRequest.
+ * Use `create(ListDestinationBindingsRequestSchema)` to create a new message.
+ */
+export const ListDestinationBindingsRequestSchema: GenMessage<ListDestinationBindingsRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_destination, 9);
+
+/**
+ * @generated from message shepherd.mgmt.v1.ListDestinationBindingsResponse
+ */
+export type ListDestinationBindingsResponse = Message<"shepherd.mgmt.v1.ListDestinationBindingsResponse"> & {
+  /**
+   * @generated from field: repeated shepherd.mgmt.v1.DestinationBinding items = 1;
+   */
+  items: DestinationBinding[];
+
+  /**
+   * @generated from field: int32 total = 2;
+   */
+  total: number;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.ListDestinationBindingsResponse.
+ * Use `create(ListDestinationBindingsResponseSchema)` to create a new message.
+ */
+export const ListDestinationBindingsResponseSchema: GenMessage<ListDestinationBindingsResponse> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_destination, 10);
+
+/**
+ * @generated from message shepherd.mgmt.v1.GetDestinationBindingRequest
+ */
+export type GetDestinationBindingRequest = Message<"shepherd.mgmt.v1.GetDestinationBindingRequest"> & {
+  /**
+   * @generated from field: string org_id = 1;
+   */
+  orgId: string;
+
+  /**
+   * @generated from field: string id = 2;
+   */
+  id: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.GetDestinationBindingRequest.
+ * Use `create(GetDestinationBindingRequestSchema)` to create a new message.
+ */
+export const GetDestinationBindingRequestSchema: GenMessage<GetDestinationBindingRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_destination, 11);
+
+/**
+ * CreateDestinationBindingRequest carries the credential-bearing Destination
+ * fields ONLY so the server can detect and explicitly refuse an attempt to
+ * set them on a binding, rather than silently discarding them as unknown
+ * fields on the wire. A well-behaved client populates only org_id,
+ * destination_id, name and tenant_id; CreateDestinationBinding rejects the
+ * request (CodeInvalidArgument) if any of the others is non-empty/non-nil.
+ *
+ * @generated from message shepherd.mgmt.v1.CreateDestinationBindingRequest
+ */
+export type CreateDestinationBindingRequest = Message<"shepherd.mgmt.v1.CreateDestinationBindingRequest"> & {
+  /**
+   * @generated from field: string org_id = 1;
+   */
+  orgId: string;
+
+  /**
+   * @generated from field: string destination_id = 2;
+   */
+  destinationId: string;
+
+  /**
+   * @generated from field: string name = 3;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string tenant_id = 4;
+   */
+  tenantId: string;
+
+  /**
+   * @generated from field: string url = 5;
+   */
+  url: string;
+
+  /**
+   * @generated from field: string type = 6;
+   */
+  type: string;
+
+  /**
+   * @generated from field: string secret_name = 7;
+   */
+  secretName: string;
+
+  /**
+   * @generated from field: string secret_namespace = 8;
+   */
+  secretNamespace: string;
+
+  /**
+   * @generated from field: string auth_mode = 9;
+   */
+  authMode: string;
+
+  /**
+   * @generated from field: google.protobuf.Struct extra = 10;
+   */
+  extra?: JsonObject | undefined;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.CreateDestinationBindingRequest.
+ * Use `create(CreateDestinationBindingRequestSchema)` to create a new message.
+ */
+export const CreateDestinationBindingRequestSchema: GenMessage<CreateDestinationBindingRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_destination, 12);
+
+/**
+ * UpdateDestinationBindingRequest: see CreateDestinationBindingRequest --
+ * the same credential-bearing fields are present only so an attempt to set
+ * them is refused, never silently ignored.
+ *
+ * @generated from message shepherd.mgmt.v1.UpdateDestinationBindingRequest
+ */
+export type UpdateDestinationBindingRequest = Message<"shepherd.mgmt.v1.UpdateDestinationBindingRequest"> & {
+  /**
+   * @generated from field: string org_id = 1;
+   */
+  orgId: string;
+
+  /**
+   * @generated from field: string id = 2;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string name = 3;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string tenant_id = 4;
+   */
+  tenantId: string;
+
+  /**
+   * @generated from field: string url = 5;
+   */
+  url: string;
+
+  /**
+   * @generated from field: string type = 6;
+   */
+  type: string;
+
+  /**
+   * @generated from field: string secret_name = 7;
+   */
+  secretName: string;
+
+  /**
+   * @generated from field: string secret_namespace = 8;
+   */
+  secretNamespace: string;
+
+  /**
+   * @generated from field: string auth_mode = 9;
+   */
+  authMode: string;
+
+  /**
+   * @generated from field: google.protobuf.Struct extra = 10;
+   */
+  extra?: JsonObject | undefined;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.UpdateDestinationBindingRequest.
+ * Use `create(UpdateDestinationBindingRequestSchema)` to create a new message.
+ */
+export const UpdateDestinationBindingRequestSchema: GenMessage<UpdateDestinationBindingRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_destination, 13);
+
+/**
+ * @generated from message shepherd.mgmt.v1.DeleteDestinationBindingRequest
+ */
+export type DeleteDestinationBindingRequest = Message<"shepherd.mgmt.v1.DeleteDestinationBindingRequest"> & {
+  /**
+   * @generated from field: string org_id = 1;
+   */
+  orgId: string;
+
+  /**
+   * @generated from field: string id = 2;
+   */
+  id: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.DeleteDestinationBindingRequest.
+ * Use `create(DeleteDestinationBindingRequestSchema)` to create a new message.
+ */
+export const DeleteDestinationBindingRequestSchema: GenMessage<DeleteDestinationBindingRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_destination, 14);
+
+/**
+ * @generated from message shepherd.mgmt.v1.DeleteDestinationBindingResponse
+ */
+export type DeleteDestinationBindingResponse = Message<"shepherd.mgmt.v1.DeleteDestinationBindingResponse"> & {
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.DeleteDestinationBindingResponse.
+ * Use `create(DeleteDestinationBindingResponseSchema)` to create a new message.
+ */
+export const DeleteDestinationBindingResponseSchema: GenMessage<DeleteDestinationBindingResponse> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_destination, 15);
+
+/**
+ * @generated from message shepherd.mgmt.v1.ResolveDestinationBindingRequest
+ */
+export type ResolveDestinationBindingRequest = Message<"shepherd.mgmt.v1.ResolveDestinationBindingRequest"> & {
+  /**
+   * @generated from field: string org_id = 1;
+   */
+  orgId: string;
+
+  /**
+   * @generated from field: string id = 2;
+   */
+  id: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.ResolveDestinationBindingRequest.
+ * Use `create(ResolveDestinationBindingRequestSchema)` to create a new message.
+ */
+export const ResolveDestinationBindingRequestSchema: GenMessage<ResolveDestinationBindingRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_destination, 16);
+
+/**
+ * ResolvedDestination is a binding merged with its template: the template's
+ * url/type/secret_name/secret_namespace/auth_mode/extra plus the binding's
+ * own tenant_id. This is the only message a serving-time consumer (e.g. the
+ * receiver-tier gateway config, W4) should read -- never a DestinationBinding
+ * and a separately-fetched Destination assembled by hand.
+ *
+ * @generated from message shepherd.mgmt.v1.ResolvedDestination
+ */
+export type ResolvedDestination = Message<"shepherd.mgmt.v1.ResolvedDestination"> & {
+  /**
+   * @generated from field: string binding_id = 1;
+   */
+  bindingId: string;
+
+  /**
+   * @generated from field: string destination_id = 2;
+   */
+  destinationId: string;
+
+  /**
+   * @generated from field: string org_id = 3;
+   */
+  orgId: string;
+
+  /**
+   * @generated from field: string binding_name = 4;
+   */
+  bindingName: string;
+
+  /**
+   * @generated from field: string destination_name = 5;
+   */
+  destinationName: string;
+
+  /**
+   * @generated from field: string type = 6;
+   */
+  type: string;
+
+  /**
+   * @generated from field: string url = 7;
+   */
+  url: string;
+
+  /**
+   * @generated from field: string tenant_id = 8;
+   */
+  tenantId: string;
+
+  /**
+   * @generated from field: string secret_name = 9;
+   */
+  secretName: string;
+
+  /**
+   * @generated from field: string secret_namespace = 10;
+   */
+  secretNamespace: string;
+
+  /**
+   * @generated from field: string auth_mode = 11;
+   */
+  authMode: string;
+
+  /**
+   * @generated from field: google.protobuf.Struct extra = 12;
+   */
+  extra?: JsonObject | undefined;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.ResolvedDestination.
+ * Use `create(ResolvedDestinationSchema)` to create a new message.
+ */
+export const ResolvedDestinationSchema: GenMessage<ResolvedDestination> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_destination, 17);
+
+/**
  * DestinationService covers /api/orgs/{org}/destinations/*. Reads require
  * org-reader; writes require org-admin.
+ *
+ * Destination templates + tenant bindings (W2, docs/gateway-tier-plan.md
+ * §4): a Destination row doubles as a "template" -- one platform-owned
+ * endpoint + auth secret -- the moment one or more DestinationBinding rows
+ * point at it. A binding contributes exactly one thing on top of its
+ * template: tenant_id. Create/UpdateDestinationBinding refuse
+ * (CodeInvalidArgument) any attempt to also set a credential-bearing field
+ * (url/type/secret_name/secret_namespace/auth_mode/extra) on the binding —
+ * that refusal is a control, not a courtesy: DestinationBinding itself has
+ * no such fields, so even a bypassed check has no column to write into.
+ * ResolveDestinationBinding is the one place a consumer should read a
+ * binding's fully-merged (template fields + binding's tenant_id) view.
  *
  * @generated from service shepherd.mgmt.v1.DestinationService
  */
@@ -357,6 +759,54 @@ export const DestinationService: GenService<{
     methodKind: "unary";
     input: typeof DeleteDestinationRequestSchema;
     output: typeof DeleteDestinationResponseSchema;
+  },
+  /**
+   * @generated from rpc shepherd.mgmt.v1.DestinationService.ListDestinationBindings
+   */
+  listDestinationBindings: {
+    methodKind: "unary";
+    input: typeof ListDestinationBindingsRequestSchema;
+    output: typeof ListDestinationBindingsResponseSchema;
+  },
+  /**
+   * @generated from rpc shepherd.mgmt.v1.DestinationService.GetDestinationBinding
+   */
+  getDestinationBinding: {
+    methodKind: "unary";
+    input: typeof GetDestinationBindingRequestSchema;
+    output: typeof DestinationBindingSchema;
+  },
+  /**
+   * @generated from rpc shepherd.mgmt.v1.DestinationService.CreateDestinationBinding
+   */
+  createDestinationBinding: {
+    methodKind: "unary";
+    input: typeof CreateDestinationBindingRequestSchema;
+    output: typeof DestinationBindingSchema;
+  },
+  /**
+   * @generated from rpc shepherd.mgmt.v1.DestinationService.UpdateDestinationBinding
+   */
+  updateDestinationBinding: {
+    methodKind: "unary";
+    input: typeof UpdateDestinationBindingRequestSchema;
+    output: typeof DestinationBindingSchema;
+  },
+  /**
+   * @generated from rpc shepherd.mgmt.v1.DestinationService.DeleteDestinationBinding
+   */
+  deleteDestinationBinding: {
+    methodKind: "unary";
+    input: typeof DeleteDestinationBindingRequestSchema;
+    output: typeof DeleteDestinationBindingResponseSchema;
+  },
+  /**
+   * @generated from rpc shepherd.mgmt.v1.DestinationService.ResolveDestinationBinding
+   */
+  resolveDestinationBinding: {
+    methodKind: "unary";
+    input: typeof ResolveDestinationBindingRequestSchema;
+    output: typeof ResolvedDestinationSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_shepherd_mgmt_v1_destination, 0);
