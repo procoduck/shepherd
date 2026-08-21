@@ -30,3 +30,7 @@ web/.playwright/
 
 # Playwright walkthrough screenshots
 web/walkthrough/
+
+# Agent git worktrees (see the check-single-dist guard). Each is a full
+# checkout with its own build outputs; none of it belongs in this repo's index.
+/.claude/
