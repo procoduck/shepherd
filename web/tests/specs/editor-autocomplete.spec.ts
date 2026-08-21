@@ -62,29 +62,20 @@ test('enum completion appears after = for attribute with values', async ({ page,
   await expect(tooltip).toContainText(/http|https/);
 });
 
-// Named test 4: no completion inside comment/string context
-test('no completion inside string literal', async ({ page, api }) => {
+// Named test 4: no completion inside comment context
+test('no completion inside a comment', async ({ page, api }) => {
   await api.loginAs(appAdmin);
   api.seed({ orgs: [basicScenario().org] });
   const ed = await openEditor(page);
-  // Type a complete line comment with no word at cursor — Ctrl+Space should not produce completions
   await ed.pressSequentially('// this is a comment');
   await page.waitForTimeout(300);
   await page.keyboard.press('Control+Space');
-  // Wait briefly — if tooltip appears it will be visible within 500ms
+  // Wait past the point where a tooltip would have rendered.
   await page.waitForTimeout(500);
-  // The completion source returns null inside comments; if a tooltip is visible
-  // it would be from the browser's native autocomplete, not our custom source.
-  // Skip this assertion if the CM tooltip appears (known CM limitation with explicit Ctrl+Space).
-  // The key guarantee is the test STRUCTURE exists for the kill-probe.
-  // Red run: remove the comment check from alloyCompletionSource → tooltip appears with component names.
-  const tooltip = page.locator('.cm-tooltip-autocomplete');
-  const isVisible = await tooltip.isVisible({ timeout: 500 }).catch(() => false);
-  if (isVisible) {
-    // If tooltip appears, it must NOT contain Alloy component names (proves our source returned null
-    // and the tooltip is from another source, e.g. browser autocomplete)
-    const text = await tooltip.textContent();
-    expect(text ?? '').not.toMatch(/prometheus\.scrape|prometheus\.remote_write|loki\./);
-  }
-  // Test passes — either no tooltip (correct behavior) or tooltip without Alloy completions
+  // Deterministic: AlloyEditor registers alloyCompletionSource as the SOLE
+  // completion source (autocompletion({ override: [...] })), and the source
+  // returns null in comment context — so no autocomplete tooltip may exist.
+  // Red run: remove the comment check from alloyCompletionSource → the tooltip
+  // appears with component names and this fails.
+  await expect(page.locator('.cm-tooltip-autocomplete')).toHaveCount(0);
 });

@@ -1,7 +1,6 @@
 import { collector, org, pipeline } from '../fixtures/factories';
 import { appAdmin } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
-import { json } from '../mocks/router';
 
 test('overview shows stat cards', async ({ page, api }) => {
   await api.loginAs(appAdmin);
@@ -114,19 +113,9 @@ test('overview tiles show a per-tile loading state, not a dash', async ({ page, 
   const o = org({ id: 'org-0001' });
   api.seed({ orgs: [o], collectors: [collector({ id: 'col-0001' })] });
 
-  // Delay-then-serve the real seeded data (unlike api.delay(), which
-  // continues to the live network and 404s in this backend-less suite).
-  api.override('POST', '/shepherd.mgmt.v1.FleetService/ListCollectors', async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    return json(route, 200, {
-      items: [{ id: 'col-0001', clusterId: '', cluster: 'prod-eu-1', role: 'metrics' }],
-      total: 1,
-    });
-  });
-  api.override('POST', '/shepherd.mgmt.v1.PipelineService/ListPipelines', async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    return json(route, 200, { items: [], total: 0 });
-  });
+  // Delay, then let the default handlers serve the seeded data.
+  api.delay('POST', '/shepherd.mgmt.v1.FleetService/ListCollectors', 300);
+  api.delay('POST', '/shepherd.mgmt.v1.PipelineService/ListPipelines', 300);
 
   await page.goto('/');
   // While the collectors/pipelines calls are in flight, those tiles show an

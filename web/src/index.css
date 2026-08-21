@@ -5,7 +5,7 @@
 /*
  * Design-token layer (Tailwind v4 CSS-first theme).
  * Values match the visual builder mockup ("Refined builder layout" /
- * "Connection drag states" artboards) — see docs/visual-builder-refinement.md B1.
+ * "Connection drag states" artboards) — see docs/archive/visual-builder-refinement.md B1.
  * Token names follow Tailwind v4 conventions so utilities resolve automatically:
  * --color-card -> bg-card/text-card/border-card, --color-border-strong ->
  * border-border-strong, --color-muted -> text-muted, etc.

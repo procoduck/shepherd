@@ -106,3 +106,16 @@ export function useOrg(): { orgId: string; orgs: OrgSummary[]; setOrgId: (id: st
 export function useOrgId(): string {
   return useOrg().orgId;
 }
+
+/**
+ * Whether the current user holds write access in the selected org. Mirrors
+ * the server's enforcement (internal/mgmtapi/rpc_interceptor.go: write
+ * procedures require org admin or app admin), so pages hide — not disable —
+ * write affordances for readers instead of offering actions the server
+ * would reject.
+ */
+export function useCanWrite(): boolean {
+  const { data: me } = useMe();
+  const { orgId, orgs } = useOrg();
+  return !!me?.isAppAdmin || orgs.some((o) => o.id === orgId && o.role === 'admin');
+}

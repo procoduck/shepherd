@@ -7,10 +7,9 @@ test('empty pipelines shows empty state', async ({ page, api }) => {
   const s = basicScenario();
   api.seed({ orgs: [s.org], pipelines: [] });
   await page.goto('/pipelines');
-  // Page must render — either an empty-state message or the table heading
-  await expect(
-    page.getByText(/no pipelines|empty/i).or(page.getByRole('heading', { name: /pipelines/i })),
-  ).toBeVisible();
+  // The empty state itself must render — the page heading renders even when
+  // the empty state is missing, so it must not be an acceptable alternative.
+  await expect(page.getByText(/no pipelines yet/i)).toBeVisible();
 });
 
 test('mutation failure shows toast with error content', async ({ page, api }) => {
@@ -48,24 +47,13 @@ test('theme toggle persists class on html element after reload', async ({ page, 
   await page.goto('/');
   const html = page.locator('html');
   const initialClass = (await html.getAttribute('class')) ?? '';
+  // The toggle's presence is part of the claim — a missing button must fail,
+  // not silently degrade to a weaker assertion.
   const themeBtn = page.getByRole('button', { name: /toggle theme/i });
-  if (await themeBtn.isVisible()) {
-    await themeBtn.click();
-    await page.reload();
-    expect(await html.getAttribute('class')).not.toEqual(initialClass);
-  } else {
-    // No theme toggle present — assert html has a class (dark mode default)
-    await expect(html).toHaveAttribute('class', /.+/);
-  }
-});
-
-test('mutation requests include X-Requested-With header', async ({ page, api }) => {
-  await api.loginAs(appAdmin);
-  const s = basicScenario();
-  api.seed({ orgs: [s.org], pipelines: [] });
-  await page.goto('/pipelines/new');
-  // api.calls returns a defined array (even if empty before any mutation fires)
-  expect(api.calls('POST')).toBeDefined();
+  await expect(themeBtn).toBeVisible();
+  await themeBtn.click();
+  await page.reload();
+  expect(await html.getAttribute('class')).not.toEqual(initialClass);
 });
 
 test('logout clears cached persona data before navigating to login', async ({ page, api }) => {

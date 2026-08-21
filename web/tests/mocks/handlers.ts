@@ -19,7 +19,7 @@ export function resetMockState() {
 // visual-builder's local domain model (web/src/visual/types.ts) still
 // speaks for the resources it owns (graph/simulate). Real Connect JSON
 // wire responses are camelCase (protojson canonical encoding, see
-// docs/api-contract-design.md). These helpers translate fixture -> wire
+// docs/archive/api-contract-design.md). These helpers translate fixture -> wire
 // so `api.seed({ pipelines: [...] })` etc. keeps reading exactly as it did
 // before the cutover. Unknown/extra JSON keys are safely ignored by the
 // generated client (connect-es defaults ignoreUnknownFields: true), so
@@ -379,16 +379,12 @@ export function installDefaultHandlers(router: Router) {
     const clusterCount = (st.clusters as Obj[]).filter((c) => c['org_id'] === orgId).length;
     const pipelineCount = (st.pipelines as Obj[]).filter((p) => p['org_id'] === orgId).length;
     if (clusterCount > 0 || pipelineCount > 0) {
-      // Real server uses connect.CodeAlreadyExists (see
-      // internal/mgmtapi/rpc_admin.go: DeleteOrg) for a non-empty org. The
-      // HTTP status here only needs to be non-200 for the Connect client to
-      // treat it as an error (the JSON body's `code` field is what the
-      // client and toApiError() key on) — 422 is used, matching the other
-      // statuses this mock suite's console-error allowlist expects
-      // (tests/fixtures/test.ts), since 409 is not on that list.
+      // 409: connect.CodeAlreadyExists's canonical HTTP mapping, matching the
+      // real server (internal/mgmtapi/rpc_admin.go: DeleteOrg) for a
+      // non-empty org.
       return connectError(
         r,
-        422,
+        409,
         'already_exists',
         `org has ${clusterCount} clusters, ${pipelineCount} pipelines`,
       );
@@ -1064,7 +1060,7 @@ export function installDefaultHandlers(router: Router) {
   );
 
   // Schema endpoint — serves the visual builder schema fixture if seeded.
-  // Stays REST per docs/api-contract-design.md ("out of contract, unchanged").
+  // Stays REST per docs/archive/api-contract-design.md ("out of contract, unchanged").
   router.register('GET', '/api/schema/:version', (r) => {
     if (st.schema) return json(r, 200, st.schema);
     return json(r, 404, { error: { code: 'not_found', message: 'schema not seeded in mock' } });

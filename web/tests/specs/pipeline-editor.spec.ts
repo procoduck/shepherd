@@ -62,6 +62,9 @@ test('validates and shows problems panel for syntax errors', async ({ page, api 
   await ed.click();
   await page.keyboard.type('x');
   await page.clock.fastForward(801);
-  // Problems panel should appear after validate call
-  await expect(page.getByText(/problem/i)).toBeVisible();
+  // Assert the diagnostic's own text, not /problem/i — that regex also matches
+  // the success state's "No problems", so it passes even when the seeded
+  // diagnostics are ignored entirely.
+  await expect(page.getByText('unexpected token')).toBeVisible();
+  await expect(page.getByText(/No problems/i)).not.toBeVisible();
 });

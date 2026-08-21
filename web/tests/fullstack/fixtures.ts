@@ -3,7 +3,7 @@
  * Provides real-backend login helpers and DB-backed utilities.
  *
  * NEVER import the mocked `api` fixture here.
- * NEVER use page.route() in fullstack specs.
+ * NEVER intercept network requests (page-level route mocks) in fullstack specs.
  */
 import { test as base, expect, type Page } from '@playwright/test';
 
@@ -53,8 +53,11 @@ export async function forceRecompute(
       localAttributes: { cluster: collectorCluster, role: collectorRole },
     },
   });
-  // 200 or connect error is acceptable — we just need to trigger the recompute path
-  expect([200, 401]).toContain(resp.status());
+  // A non-200 (e.g. 401 for a rejected token) means the recompute was NOT
+  // triggered, which defeats this helper's purpose — fail loudly.
+  if (resp.status() !== 200) {
+    throw new Error(`forceRecompute failed: ${resp.status()} ${await resp.text()}`);
+  }
 }
 
 /** Fullstack test fixture type — same base as Playwright test, no mock api. */
