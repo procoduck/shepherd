@@ -70,8 +70,12 @@ export function Toolbar({ pipelineId }: { pipelineId: string }) {
         // wizard_state is the visual graph document itself (see
         // pipeline.proto), not the wire-shaped Render request — cast is the
         // same "local domain object as JsonObject" pattern api/client.ts
-        // uses for node props.
-        wizardState: doc as unknown as JsonObject,
+        // uses for node props. The JSON round-trip drops any explicitly-
+        // undefined keys a store patch may have planted: protobuf's Struct
+        // conversion rejects undefined ("google.protobuf.Value must have a
+        // value"), and wizard_state is persisted as JSON anyway, so this is
+        // semantically exact.
+        wizardState: JSON.parse(JSON.stringify(doc)) as JsonObject,
       };
       return pipelineId === 'new'
         ? clients.pipeline.createPipeline(body)

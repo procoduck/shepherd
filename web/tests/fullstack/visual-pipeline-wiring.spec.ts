@@ -142,6 +142,10 @@ test('a fully wired discovery -> scrape -> remote_write pipeline saves with both
   expect(getResp.status()).toBe(200);
   const pipeline = await getResp.json();
   expect(pipeline.contents).toContain('forward_to = [prometheus.remote_write.');
-  expect(pipeline.contents).toContain('targets = [discovery.kubernetes.');
+  // Bare reference, deliberately unbracketed: `targets` is already a list, so
+  // wrapping a single wire in [...] renders the list-of-lists Alloy v1.18.1
+  // refuses (internal/visual/render.go's refValue comment has the proof).
+  expect(pipeline.contents).toContain('targets = discovery.kubernetes.');
+  expect(pipeline.contents).not.toContain('targets = [');
   expect(pipeline.contents).toContain('url');
 });
