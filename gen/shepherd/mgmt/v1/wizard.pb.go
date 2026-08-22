@@ -188,10 +188,14 @@ func (x *Step) GetFields() []*StepField {
 // WizardSchema mirrors internal/wizard.Schema, returned by GetWizardSchema
 // and (as list items) by ListWizards.
 type WizardSchema struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
-	Title         string                 `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
-	Steps         []*Step                `protobuf:"bytes,3,rep,name=steps,proto3" json:"steps,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Kind  string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	Title string                 `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
+	Steps []*Step                `protobuf:"bytes,3,rep,name=steps,proto3" json:"steps,omitempty"`
+	// description is one sentence on what this wizard produces, for the catalog
+	// card. Carried from the wizard itself so the UI never needs a parallel map
+	// of kinds it knows about.
+	Description   string `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -245,6 +249,13 @@ func (x *WizardSchema) GetSteps() []*Step {
 		return x.Steps
 	}
 	return nil
+}
+
+func (x *WizardSchema) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
 }
 
 type ListWizardsRequest struct {
@@ -633,11 +644,12 @@ const file_shepherd_mgmt_v1_wizard_proto_rawDesc = "" +
 	"\x04Step\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x123\n" +
-	"\x06fields\x18\x03 \x03(\v2\x1b.shepherd.mgmt.v1.StepFieldR\x06fields\"f\n" +
+	"\x06fields\x18\x03 \x03(\v2\x1b.shepherd.mgmt.v1.StepFieldR\x06fields\"\x88\x01\n" +
 	"\fWizardSchema\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12,\n" +
-	"\x05steps\x18\x03 \x03(\v2\x16.shepherd.mgmt.v1.StepR\x05steps\"+\n" +
+	"\x05steps\x18\x03 \x03(\v2\x16.shepherd.mgmt.v1.StepR\x05steps\x12 \n" +
+	"\vdescription\x18\x04 \x01(\tR\vdescription\"+\n" +
 	"\x12ListWizardsRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\"a\n" +
 	"\x13ListWizardsResponse\x124\n" +

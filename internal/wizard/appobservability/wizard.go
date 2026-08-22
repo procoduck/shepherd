@@ -44,8 +44,9 @@ func (w *Wizard) Role(state map[string]any) string {
 // Schema returns the wizard's input schema.
 func (w *Wizard) Schema() wizard.Schema {
 	return wizard.Schema{
-		Kind:  Kind,
-		Title: "App Observability",
+		Kind:        Kind,
+		Title:       "App Observability",
+		Description: "Scrape metrics and logs from one application and ship them to your org's destinations.",
 		Steps: []wizard.Step{
 			{
 				ID:    "targets",

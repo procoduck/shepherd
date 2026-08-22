@@ -241,7 +241,7 @@ func wizardSchemaToProto(sc wizard.Schema) *mgmtv1.WizardSchema {
 		}
 		steps = append(steps, &mgmtv1.Step{Id: st.ID, Title: st.Title, Fields: fields})
 	}
-	return &mgmtv1.WizardSchema{Kind: sc.Kind, Title: sc.Title, Steps: steps}
+	return &mgmtv1.WizardSchema{Kind: sc.Kind, Title: sc.Title, Description: sc.Description, Steps: steps}
 }
 
 // wizardPipelineToProto converts a freshly created pipeline row to the

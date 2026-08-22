@@ -40,7 +40,14 @@ type Step struct {
 type Schema struct {
 	Kind  string `json:"kind"`
 	Title string `json:"title"`
-	Steps []Step `json:"steps"`
+	// Description is one sentence on what this wizard produces, shown on the
+	// catalog card. It lives here rather than in the UI because a wizard that
+	// cannot describe itself needs a matching entry in a hand-kept map on the
+	// other side of the wire — which is exactly how five registered wizards
+	// ended up invisible: the catalog page filtered out every kind it had no
+	// local copy for.
+	Description string `json:"description"`
+	Steps       []Step `json:"steps"`
 }
 
 // CommitResult is the output of committing a wizard to a pipeline.

@@ -45,6 +45,10 @@ message WizardSchema {
   string kind = 1;
   string title = 2;
   repeated Step steps = 3;
+  // description is one sentence on what this wizard produces, for the catalog
+  // card. Carried from the wizard itself so the UI never needs a parallel map
+  // of kinds it knows about.
+  string description = 4;
 }
 
 message ListWizardsRequest {

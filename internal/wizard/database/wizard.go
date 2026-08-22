@@ -57,8 +57,9 @@ var engines = map[string]string{
 // Schema returns the wizard's input schema.
 func (w *Wizard) Schema() wizard.Schema {
 	return wizard.Schema{
-		Kind:  Kind,
-		Title: "Database Metrics",
+		Kind:        Kind,
+		Title:       "Database Metrics",
+		Description: "Collect metrics from a PostgreSQL, MySQL, Redis or MongoDB instance.",
 		Steps: []wizard.Step{
 			{
 				ID:    "engine",

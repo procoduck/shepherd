@@ -13,6 +13,7 @@ import (
 
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
+	"shepherd/internal/gateway"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 )
@@ -183,6 +184,12 @@ func (s *DestinationService) CreateDestination(ctx context.Context, req *connect
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to decode destination"))
 	}
+	// Destination and binding writes went unaudited until a post-merge review
+	// asked why. They decide where an org's telemetry is sent and, for a
+	// binding, under which tenant — squarely the "why did this change"
+	// question an audit log exists to answer. auditLog derives the actor
+	// (and, for a machine caller, the verified on-behalf-of) from ctx.
+	auditLog(ctx, s.store, actorFromCtx(ctx), orgID, "destination.create", "destination", d.ID.String())
 	return connect.NewResponse(item), nil
 }
 
@@ -221,6 +228,7 @@ func (s *DestinationService) UpdateDestination(ctx context.Context, req *connect
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to decode destination"))
 	}
+	auditLog(ctx, s.store, actorFromCtx(ctx), owned.OrgID, "destination.update", "destination", id.String())
 	return connect.NewResponse(item), nil
 }
 
@@ -271,6 +279,7 @@ func (s *DestinationService) DeleteDestination(ctx context.Context, req *connect
 		s.logger.Warn("delete destination", "err", err)
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to delete destination"))
 	}
+	auditLog(ctx, s.store, actorFromCtx(ctx), owned.OrgID, "destination.delete", "destination", owned.ID.String())
 	return connect.NewResponse(&mgmtv1.DeleteDestinationResponse{}), nil
 }
 
@@ -431,6 +440,20 @@ func (s *DestinationService) CreateDestinationBinding(ctx context.Context, req *
 		return nil, connect.NewError(connect.CodeNotFound, errDestinationNotFound)
 	}
 
+	// A binding's whole purpose is to vary the tenant, so this field decides
+	// which tenant a team's telemetry ships under — the same decision
+	// orgs.tenant_id makes for routes, and it deserves the same rule rather
+	// than a second, looser one. gateway.ValidateTenantID is Grafana Mimir's
+	// documented charset; an id Shepherd accepts but the destination rejects
+	// fails at ingest, far from the screen where it was typed.
+	//
+	// Today a binding can only reference a template in the caller's own org,
+	// so a bad value is contained. That containment is a property of W2's
+	// current shape, not of this field — if platform-owned templates are ever
+	// shared across orgs, this check is what stops it becoming D11's hole.
+	if err := gateway.ValidateTenantID(req.Msg.GetTenantId()); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
 	b, err := s.store.Queries.CreateDestinationBinding(ctx, sqlc.CreateDestinationBindingParams{
 		DestinationID: destID,
 		OrgID:         orgID,
@@ -443,6 +466,7 @@ func (s *DestinationService) CreateDestinationBinding(ctx context.Context, req *
 		}
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create destination binding"))
 	}
+	auditLog(ctx, s.store, actorFromCtx(ctx), orgID, "destination_binding.create", "destination_binding", b.ID.String())
 	return connect.NewResponse(toDestinationBindingProto(b)), nil
 }
 
@@ -461,6 +485,20 @@ func (s *DestinationService) UpdateDestinationBinding(ctx context.Context, req *
 	if err != nil {
 		return nil, err
 	}
+	// A binding's whole purpose is to vary the tenant, so this field decides
+	// which tenant a team's telemetry ships under — the same decision
+	// orgs.tenant_id makes for routes, and it deserves the same rule rather
+	// than a second, looser one. gateway.ValidateTenantID is Grafana Mimir's
+	// documented charset; an id Shepherd accepts but the destination rejects
+	// fails at ingest, far from the screen where it was typed.
+	//
+	// Today a binding can only reference a template in the caller's own org,
+	// so a bad value is contained. That containment is a property of W2's
+	// current shape, not of this field — if platform-owned templates are ever
+	// shared across orgs, this check is what stops it becoming D11's hole.
+	if err := gateway.ValidateTenantID(req.Msg.GetTenantId()); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
 	b, err := s.store.Queries.UpdateDestinationBinding(ctx, sqlc.UpdateDestinationBindingParams{
 		ID:       owned.ID,
 		Name:     req.Msg.GetName(),
@@ -472,6 +510,7 @@ func (s *DestinationService) UpdateDestinationBinding(ctx context.Context, req *
 		}
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to update destination binding"))
 	}
+	auditLog(ctx, s.store, actorFromCtx(ctx), owned.OrgID, "destination_binding.update", "destination_binding", owned.ID.String())
 	return connect.NewResponse(toDestinationBindingProto(b)), nil
 }
 
@@ -489,6 +528,7 @@ func (s *DestinationService) DeleteDestinationBinding(ctx context.Context, req *
 		s.logger.Warn("delete destination binding", "err", err)
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to delete destination binding"))
 	}
+	auditLog(ctx, s.store, actorFromCtx(ctx), owned.OrgID, "destination_binding.delete", "destination_binding", owned.ID.String())
 	return connect.NewResponse(&mgmtv1.DeleteDestinationBindingResponse{}), nil
 }
 

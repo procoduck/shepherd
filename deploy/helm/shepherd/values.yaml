@@ -8,6 +8,20 @@ image:
 
 replicas: 2
 
+# The Service in front of Shepherd. ClusterIP by default: an Ingress or
+# HTTPRoute (both below) is the intended way in for a real deployment.
+#
+# type is exposed because the template hardcoded ClusterIP, which left no way
+# to reach Shepherd on a bare cluster without editing the rendered object by
+# hand — kind and other local clusters have no ingress controller, and that is
+# exactly where someone is trying the chart for the first time.
+service:
+  type: ClusterIP
+  port: 8080
+  # Only used when type is NodePort. Leave empty to let Kubernetes pick one
+  # from the node port range.
+  nodePort: ""
+
 config:
   server:
     listen: ":8080"

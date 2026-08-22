@@ -1,6 +1,6 @@
 import type { JsonObject } from '@bufbuild/protobuf';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { useNavigate } from '@tanstack/react-router';
+import { useNavigate, useParams } from '@tanstack/react-router';
 import { CheckCircle2, XCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -16,8 +16,6 @@ import {
 } from './WizardStepFields';
 import { WizardStepper } from './WizardStepper';
 
-const KIND = 'app-observability';
-
 function slugify(s: string): string {
   return (
     s
@@ -27,9 +25,16 @@ function slugify(s: string): string {
   );
 }
 
-export function AppObservabilityWizardPage() {
+// One page for every wizard. The backend already returns a full schema —
+// steps, fields, types, options — so a wizard needs no bespoke page; it needs
+// this page pointed at its kind. It was written against a hardcoded
+// 'app-observability' and a hardcoded catalog, which is why five wizards that
+// existed in the registry were unreachable in the UI.
+export function WizardRunnerPage() {
   const orgId = useOrgId();
   const navigate = useNavigate();
+  const { kind } = useParams({ from: '/shell/content/wizards/$kind' });
+  const KIND = kind;
 
   const { data: schema, isLoading: schemaLoading } = useQuery({
     queryKey: ['wizard-schema', orgId, KIND],
@@ -67,8 +72,10 @@ export function AppObservabilityWizardPage() {
   useEffect(() => {
     if (nameTouched) return;
     const jobName = form.job_name;
-    if (typeof jobName === 'string' && jobName) setName(`appobs-${slugify(jobName)}`);
-  }, [form.job_name, nameTouched]);
+    // Suggest "<kind>-<job>" rather than a per-wizard literal, so a new
+    // wizard gets a sensible default without touching this file.
+    if (typeof jobName === 'string' && jobName) setName(`${slugify(KIND)}-${slugify(jobName)}`);
+  }, [form.job_name, nameTouched, KIND]);
 
   const isReview = stepIndex === reviewIndex;
 

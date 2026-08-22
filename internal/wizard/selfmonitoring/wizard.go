@@ -52,8 +52,9 @@ func (w *Wizard) Role(map[string]any) string { return role }
 // Schema returns the wizard's input schema.
 func (w *Wizard) Schema() wizard.Schema {
 	return wizard.Schema{
-		Kind:  Kind,
-		Title: "Self Monitoring",
+		Kind:        Kind,
+		Title:       "Self Monitoring",
+		Description: "Monitor the collector itself — component health, resource use and pipeline throughput.",
 		Steps: []wizard.Step{
 			{
 				ID:    "metrics",

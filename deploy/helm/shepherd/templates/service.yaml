@@ -5,12 +5,15 @@ metadata:
   labels:
     {{- include "shepherd.labels" . | nindent 4 }}
 spec:
-  type: ClusterIP
+  type: {{ .Values.service.type }}
   ports:
     - name: http
-      port: 8080
+      port: {{ .Values.service.port }}
       targetPort: http
       protocol: TCP
       appProtocol: kubernetes.io/h2c
+      {{- if and (eq .Values.service.type "NodePort") .Values.service.nodePort }}
+      nodePort: {{ .Values.service.nodePort }}
+      {{- end }}
   selector:
     {{- include "shepherd.selectorLabels" . | nindent 4 }}
