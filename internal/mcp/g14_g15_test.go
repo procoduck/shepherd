@@ -225,10 +225,11 @@ func TestG14_ProposeCredentialRefusedOnEveryLiveMutatingProcedure(t *testing.T) 
 //
 // Command: go test ./internal/mcp/... -run TestG14_ProposeCredentialRefusedOnEveryLiveMutatingProcedure -v
 //
-// Observed (re-measured 2026-08-22 against the merged tree; an earlier
+// Observed (re-measured 2026-08-22 after the rebase onto main restored W2's
+// three DestinationService binding RPCs, which moved the totals; an earlier
 // draft of this comment said "20 of 27", which review caught as stale —
 // evidence recorded from memory rather than re-run is exactly the kind of
-// claim §8 rule 2 exists to prevent): **23 of the 30** enumerated subtests
+// claim §8 rule 2 exists to prevent): **25 of the 34** enumerated subtests
 // flip from PASS to FAIL, each now returning the handler's ordinary
 // validation error instead of a refusal, e.g.:
 //

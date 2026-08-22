@@ -166,6 +166,56 @@ var _ = Describe("G13: two-part attribution", Label("integration"), func() {
 				"so the claim must be verified where it enters, not only where writes are gated")
 	})
 
+	// R6 asked how an agent's proposal is attributed. It was not: the MCP
+	// propose tool composes ValidatePipeline and PreviewMatches, both reads,
+	// so an agent proposing a change to raw Alloy text left no trace it had.
+	// A machine calling this endpoint is proposing; a human calling it is
+	// typing — so only the machine case is recorded, which keeps every
+	// keystroke-level UI validation out of the audit log.
+	//
+	// Red run, executed: removing the serviceAccountFromCtx audit block in
+	// ValidatePipeline fails this spec with `no pipeline.propose audit row`.
+	It("records a machine's proposal, with both actors, while a human's validation records nothing", func() {
+		resp := g12PostConnect(server, "/shepherd.mgmt.v1.PipelineService/ValidatePipeline", map[string]any{
+			"orgId": orgID.String(), "name": "proposed", "contents": "// proposed by an agent",
+		}, applyID, applySecret, g12DelegatedPrincipal)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		rows, err := st.Queries.ListAuditLog(ctx, sqlc.ListAuditLogParams{Limit: 100})
+		Expect(err).NotTo(HaveOccurred())
+		var proposal *sqlc.AuditLog
+		for i := range rows {
+			if rows[i].Action == "pipeline.propose" {
+				proposal = &rows[i]
+				break
+			}
+		}
+		Expect(proposal).NotTo(BeNil(), "no pipeline.propose audit row — an agent proposed and left no trace")
+		Expect(proposal.ActorType).To(Equal("service_account"))
+		Expect(proposal.OnBehalfOf.Valid).To(BeTrue())
+		Expect(proposal.OnBehalfOf.String).To(Equal(g12DelegatedPrincipal),
+			"a proposal must carry both halves of the delegated action, same as a write (G13)")
+
+		// A human validating in the authoring UI must NOT produce a row, or
+		// the audit log fills with keystrokes and stops being readable.
+		admin := newAppAdminSession(ctx, st)
+		humanResp := g11PostConnect(server, "/shepherd.mgmt.v1.PipelineService/ValidatePipeline", map[string]any{
+			"orgId": orgID.String(), "name": "typing", "contents": "// a human editing",
+		}, admin)
+		Expect(humanResp.StatusCode).To(Equal(http.StatusOK))
+
+		after, err := st.Queries.ListAuditLog(ctx, sqlc.ListAuditLogParams{Limit: 100})
+		Expect(err).NotTo(HaveOccurred())
+		count := 0
+		for i := range after {
+			if after[i].Action == "pipeline.propose" {
+				count++
+			}
+		}
+		Expect(count).To(Equal(1), "a human validating in the UI produced an audit row; only machine "+
+			"callers are proposing, and logging every keystroke makes the trail unreadable")
+	})
+
 	It("leaves on_behalf_of empty for a human session's own action (no delegation to record)", func() {
 		admin := newAppAdminSession(ctx, st)
 		resp := g11PostConnect(server, "/shepherd.mgmt.v1.PipelineService/UpdatePipeline", map[string]any{

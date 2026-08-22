@@ -76,13 +76,16 @@ outcome verification (W5/D7), three-way reconciliation (W6), onboarding artifact
 catalog wizards (W8), the k8s-monitoring chart-values generator (W9), teams with scoped write and
 capability-scoped machine actors (W10), and a read-plus-propose MCP interface (W11).
 
-**Nothing here is user-reachable yet.** W6, W7, W9, D7, W10's team/service-account services and
-W11 have no UI, and several have no RPC surface either — they are libraries with tests. The
-receiver tier is not deployed and must not default on before R3.
+**Nothing here is user-reachable yet**, with one exception: an application administrator now sets
+an org's **tenant identity** at creation (D11, `0013_org_tenant_id`), and the org admin screen
+shows it. Everything else — W6, W7, W9, D7, W10's team/service-account services, W11 — has no UI,
+and several have no RPC surface either; they are libraries with tests. The receiver tier is not
+deployed and must not default on before R3.
 
-**Review gates outstanding: R1, R2, R3, R5, R6.** A workstream is not done when its tests pass; it
-is done when its gate is signed. Two defects found by the final review are fixed but worth a human
-reading: D10's pass-through tenancy did not preserve the tenant header through the batch processor
+**Review gates outstanding: R1, R2, R3, R6** (R5 was resolved 2026-08-22 — a machine may not issue credentials; R6 is partly resolved, with agent proposals now audited). A workstream is not done when its tests pass; it
+is done when its gate is signed. Three defects found by the final review are fixed but worth a human reading: tenant identity
+was caller-supplied, so an org admin could mint a route injecting another org's tenant (now an
+app-admin-set org property, D11); D10's pass-through tenancy did not preserve the tenant header through the batch processor
 (every tenant would have shipped untagged), and a machine actor's on-behalf-of claim was recorded
 unverified before being checked against the credential's delegating human.
 

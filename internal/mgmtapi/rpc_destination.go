@@ -408,6 +408,9 @@ func (s *DestinationService) GetDestinationBinding(ctx context.Context, req *con
 // which would otherwise let an org admin bind to, and later resolve, another
 // org's template and read its url/secret reference back out.
 func (s *DestinationService) CreateDestinationBinding(ctx context.Context, req *connect.Request[mgmtv1.CreateDestinationBindingRequest]) (*connect.Response[mgmtv1.DestinationBinding], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	if err := rejectCredentialOverride(req.Msg); err != nil {
 		return nil, err
 	}
@@ -448,6 +451,9 @@ func (s *DestinationService) CreateDestinationBinding(ctx context.Context, req *
 // see rejectCredentialOverride. destination_id is immutable by design: this
 // procedure has no way to change which template a binding resolves against.
 func (s *DestinationService) UpdateDestinationBinding(ctx context.Context, req *connect.Request[mgmtv1.UpdateDestinationBindingRequest]) (*connect.Response[mgmtv1.DestinationBinding], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	if err := rejectCredentialOverride(req.Msg); err != nil {
 		return nil, err
 	}
@@ -472,6 +478,9 @@ func (s *DestinationService) UpdateDestinationBinding(ctx context.Context, req *
 // DeleteDestinationBinding deletes a tenant binding. Unlike DeleteDestination,
 // nothing else references a binding, so there is no in-use check.
 func (s *DestinationService) DeleteDestinationBinding(ctx context.Context, req *connect.Request[mgmtv1.DeleteDestinationBindingRequest]) (*connect.Response[mgmtv1.DeleteDestinationBindingResponse], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	owned, err := s.loadOwnedDestinationBinding(ctx, req.Msg.GetOrgId(), req.Msg.GetId())
 	if err != nil {
 		return nil, err

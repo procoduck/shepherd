@@ -36,6 +36,7 @@ var procedureRequirements = map[string]string{ //nolint:gochecknoglobals // stat
 	mgmtv1connect.AdminServiceCreateOrgProcedure:        auth.RoleAppAdmin,
 	mgmtv1connect.AdminServiceUpdateOrgProcedure:        auth.RoleAppAdmin,
 	mgmtv1connect.AdminServiceDeleteOrgProcedure:        auth.RoleAppAdmin,
+	mgmtv1connect.AdminServiceSetOrgTenantIDProcedure:   auth.RoleAppAdmin,
 	mgmtv1connect.AdminServiceListClustersProcedure:     auth.RoleAppAdmin,
 	mgmtv1connect.AdminServiceClaimClusterProcedure:     auth.RoleAppAdmin,
 	mgmtv1connect.AdminServiceUnclaimClusterProcedure:   auth.RoleAppAdmin,
@@ -162,6 +163,7 @@ var capabilityRequirements = map[string]string{ //nolint:gochecknoglobals // sta
 	mgmtv1connect.AdminServiceCreateOrgProcedure:        capabilityApply,
 	mgmtv1connect.AdminServiceUpdateOrgProcedure:        capabilityApply,
 	mgmtv1connect.AdminServiceDeleteOrgProcedure:        capabilityApply,
+	mgmtv1connect.AdminServiceSetOrgTenantIDProcedure:   capabilityApply,
 	mgmtv1connect.AdminServiceClaimClusterProcedure:     capabilityApply,
 	mgmtv1connect.AdminServiceUnclaimClusterProcedure:   capabilityApply,
 	mgmtv1connect.AdminServiceCreateAgentTokenProcedure: capabilityApply,
@@ -180,6 +182,13 @@ var capabilityRequirements = map[string]string{ //nolint:gochecknoglobals // sta
 	mgmtv1connect.DestinationServiceCreateDestinationProcedure: capabilityApply,
 	mgmtv1connect.DestinationServiceUpdateDestinationProcedure: capabilityApply,
 	mgmtv1connect.DestinationServiceDeleteDestinationProcedure: capabilityApply,
+
+	// W2's tenant bindings. A binding cannot carry a credential (0008 has no
+	// column for one), but it does decide which tenant a team's telemetry
+	// ships under, so writing one is an apply, not a propose.
+	mgmtv1connect.DestinationServiceCreateDestinationBindingProcedure: capabilityApply,
+	mgmtv1connect.DestinationServiceUpdateDestinationBindingProcedure: capabilityApply,
+	mgmtv1connect.DestinationServiceDeleteDestinationBindingProcedure: capabilityApply,
 
 	mgmtv1connect.GitOpsServiceCreateCredentialProcedure: capabilityApply,
 	mgmtv1connect.GitOpsServiceDeleteCredentialProcedure: capabilityApply,

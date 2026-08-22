@@ -144,6 +144,7 @@ type Org struct {
 	ReaderGroupID pgtype.Text        `json:"reader_group_id"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	TenantID      pgtype.Text        `json:"tenant_id"`
 }
 
 type Pipeline struct {

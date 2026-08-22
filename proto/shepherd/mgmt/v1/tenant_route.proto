@@ -67,7 +67,16 @@ message ListTenantRoutesResponse {
 // request never accepts a caller-supplied segment.
 message CreateTenantRouteRequest {
   string org_id = 1;
-  string tenant_id = 2;
+  // Field 2 was tenant_id, removed 2026-08-22. Tenant identity is a property
+  // of the ORG, set once by an app admin (orgs.tenant_id,
+  // 0013_org_tenant_id), and read from there by CreateTenantRoute. It was
+  // caller-supplied until a review pointed out the consequence: an org admin
+  // could mint a route injecting a DIFFERENT org's tenant identity, and once
+  // routes are applied to a cluster that is a cross-tenant write authorized
+  // by the wrong org. Reserved rather than deprecated so no client can send
+  // the field at all — validating it would have been the weaker fix.
+  reserved 2;
+  reserved "tenant_id";
   // kind is "otlp" or "faro".
   string kind = 3;
   // format selects the segment format (internal/gateway.SegmentFormat):

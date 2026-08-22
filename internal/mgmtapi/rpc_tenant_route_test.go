@@ -48,6 +48,10 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 			DisplayName:   "Tenant Route RPC Org",
 			AdminGroupID:  "tenant-route-admin-group",
 			ReaderGroupID: pgtype.Text{String: "tenant-route-reader-group", Valid: true},
+			// Tenant identity is an org property set by an app admin
+			// (0013_org_tenant_id). Routes read it from here; the request
+			// cannot carry one.
+			TenantID: pgtype.Text{String: "acme", Valid: true},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		orgID = o.ID
@@ -103,7 +107,7 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 	}
 
 	createBody := map[string]any{
-		"orgId": "", "tenantId": "acme", "kind": "otlp",
+		"orgId": "", "kind": "otlp",
 		"gatewayMode": "managed", "gatewayName": "shepherd-receiver-gw",
 	}
 
@@ -225,6 +229,7 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 
 		other, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
 			Name: "other-org-for-tenant-route", DisplayName: "Other Org", AdminGroupID: "other-admin-group",
+			TenantID: pgtype.Text{String: "globex", Valid: true},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		otherAdmin := createSession(false, []string{"other-admin-group"})
@@ -232,5 +237,59 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 		resp := postConnect("/shepherd.mgmt.v1.TenantRouteService/RotateTenantRoute",
 			map[string]any{"orgId": other.ID.String(), "id": routeID}, otherAdmin)
 		Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+	})
+
+	// The hole this closes was found by a final review while still latent:
+	// tenant_id used to be free-form request input, so an org admin could mint
+	// an active route whose injected X-Scope-OrgID named a DIFFERENT org's
+	// tenant. Once routes are applied to a cluster, that is a cross-tenant
+	// write authorized by the wrong org.
+	//
+	// The fix is structural — the proto field is reserved, so the value cannot
+	// be sent at all — which is why this spec asserts on the RESULT rather
+	// than on a rejection: a request carrying a stray tenantId is simply
+	// ignored by protojson, and the route still gets the org's own identity.
+	It("takes tenant identity from the org, ignoring any tenant the caller tries to supply", func() {
+		admin := createSession(false, []string{"tenant-route-admin-group"})
+		body := map[string]any{
+			"orgId": orgID.String(), "kind": "faro",
+			"gatewayMode": "managed", "gatewayName": "shepherd-receiver-gw",
+			// A caller reaching for the old field, or a hand-rolled client
+			// aimed at another org's tenant. Field 2 is reserved in the proto.
+			"tenantId": "globex",
+		}
+		resp := postConnect("/shepherd.mgmt.v1.TenantRouteService/CreateTenantRoute", body, admin)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		created := decodeBody(resp)
+		Expect(created["tenantId"]).To(Equal("acme"),
+			"the route was minted with a caller-supplied tenant identity — an org admin could stamp "+
+				"another org's tenant on their own traffic")
+		Expect(created["segment"]).To(HavePrefix("acme-"),
+			"the slug is derived from the tenant too, so it must come from the same place")
+	})
+
+	It("refuses to create a route for an org that has no tenant identity yet", func() {
+		noTenant, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
+			Name: "org-without-tenant", DisplayName: "No Tenant", AdminGroupID: "no-tenant-admin-group",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		admin := createSession(false, []string{"no-tenant-admin-group"})
+
+		resp := postConnect("/shepherd.mgmt.v1.TenantRouteService/CreateTenantRoute", map[string]any{
+			"orgId": noTenant.ID.String(), "kind": "otlp",
+			"gatewayMode": "managed", "gatewayName": "shepherd-receiver-gw",
+		}, admin)
+		// Connect maps FailedPrecondition to HTTP 400, so the code in the body
+		// is the precise signal — a 400 alone would not distinguish this from
+		// an ordinary validation error.
+		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+		body := decodeBody(resp)
+		code, _ := body["code"].(string)   //nolint:errcheck // asserted below
+		msg, _ := body["message"].(string) //nolint:errcheck // asserted below
+		Expect(code).To(Equal("failed_precondition"),
+			"a route for a tenant-less org would have no value to inject; that is a precondition "+
+				"failure the operator can fix, not a malformed request")
+		Expect(msg).To(ContainSubstring("SetOrgTenantID"),
+			"the refusal must name the app-admin action that fixes it")
 	})
 })

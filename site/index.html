@@ -149,11 +149,53 @@
         </div>
         <h3>RBAC, orgs, and an audit log</h3>
         <p>
-          Multi-tenant by design: application admins manage orgs, org admins manage their own
-          collectors and pipelines, and readers get view-only access. Every mutating action is
-          written to the audit log.
+          Multi-tenant by design: application admins manage orgs and set each one&rsquo;s tenant
+          identity, org admins manage their own collectors and pipelines, teams get scoped write,
+          and readers get view-only access. Every mutating action is written to the audit log.
         </p>
         <span class="tag">org-scoped roles</span>
+      </article>
+
+      <article class="feature-card">
+        <div class="icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M4 12h10"/><path d="M4 17h6"/><circle cx="18" cy="15" r="3"/></svg>
+        </div>
+        <h3>Tenant-aware gateway tier</h3>
+        <p>
+          OTLP and browser telemetry arrive on one endpoint per tenant. The gateway rewrites the
+          prefix and <em>sets</em> the tenant header, so a client never chooses its own tenant
+          &mdash; and tenant identity itself belongs to the org, assigned by an application
+          administrator rather than supplied per request.
+        </p>
+        <span class="tag">Gateway API, Standard channel</span>
+      </article>
+
+      <article class="feature-card">
+        <div class="icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20v-6"/><path d="M12 8V4"/><circle cx="12" cy="11" r="3"/><path d="M5 20h14"/></svg>
+        </div>
+        <h3>A beacon, not a survey</h3>
+        <p>
+          Every collector is served a small baseline pipeline that reports which components it is
+          actually running, and whether they are healthy. Component names only &mdash; never config
+          text, never raw samples. The collector you know nothing about is the one that would never
+          have opted in.
+        </p>
+        <span class="tag">inventory + health</span>
+      </article>
+
+      <article class="feature-card">
+        <div class="icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 10h6"/><path d="M9 14h3"/></svg>
+        </div>
+        <h3>An agent interface that cannot apply</h3>
+        <p>
+          An MCP server exposes the fleet to AI agents in read-plus-propose mode. The limit is
+          enforced by the credential, not by which tools were registered: a propose-scoped service
+          account is refused at every mutating endpoint, so a tool that does not exist yet would be
+          refused too. A machine action records both the agent and the human it acts for.
+        </p>
+        <span class="tag">read + propose, no apply</span>
       </article>
     </div>
   </div>

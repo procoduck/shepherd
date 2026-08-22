@@ -143,11 +143,11 @@ func runDevSeed(cmd *cobra.Command, _ []string) error {
 	}
 	defer st.Close()
 	ctx := cmd.Context()
-	platform, err := upsertSeedOrg(ctx, st, seedOrgPlatformID, "platform-org", "Platform Engineering", seedPlatformAdminGroupID, seedPlatformReaderGroupID)
+	platform, err := upsertSeedOrg(ctx, st, seedOrgPlatformID, "platform-org", "Platform Engineering", seedPlatformAdminGroupID, seedPlatformReaderGroupID, "platform-org")
 	if err != nil {
 		return fmt.Errorf("creating platform org: %w", err)
 	}
-	dataEng, err := upsertSeedOrg(ctx, st, seedOrgDataEngID, "data-eng", "Data Engineering", seedDataEngAdminGroupID, "")
+	dataEng, err := upsertSeedOrg(ctx, st, seedOrgDataEngID, "data-eng", "Data Engineering", seedDataEngAdminGroupID, "", "data-eng")
 	if err != nil {
 		return fmt.Errorf("creating data-eng org: %w", err)
 	}
@@ -236,13 +236,22 @@ func runDevSeed(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func upsertSeedOrg(ctx context.Context, st *store.Store, id, name, displayName, adminGroup, readerGroup string) (sqlc.Org, error) {
+// upsertSeedOrg seeds one org. tenantID is the org's telemetry tenant
+// identity (D11) — seeded here so tenant routes are exercisable in dev
+// without an extra admin step, using the org's own name so a dev reading an
+// injected X-Scope-OrgID header can tell immediately whose traffic it is.
+//
+// The ON CONFLICT clause deliberately does NOT update tenant_id: it is
+// set-once in production (SetOrgTenantID), and a seed that quietly rewrote it
+// on every `make dev-seed` would be the one place in the system where the
+// rule does not hold.
+func upsertSeedOrg(ctx context.Context, st *store.Store, id, name, displayName, adminGroup, readerGroup, tenantID string) (sqlc.Org, error) {
 	var org sqlc.Org
 	var reader any
 	if readerGroup != "" {
 		reader = readerGroup
 	}
-	err := st.Pool().QueryRow(ctx, `INSERT INTO orgs (id, name, display_name, admin_group_id, reader_group_id) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (name) DO UPDATE SET display_name=EXCLUDED.display_name, admin_group_id=EXCLUDED.admin_group_id, reader_group_id=EXCLUDED.reader_group_id RETURNING id, name, display_name, admin_group_id, reader_group_id, created_at, updated_at`, id, name, displayName, adminGroup, reader).Scan(&org.ID, &org.Name, &org.DisplayName, &org.AdminGroupID, &org.ReaderGroupID, &org.CreatedAt, &org.UpdatedAt)
+	err := st.Pool().QueryRow(ctx, `INSERT INTO orgs (id, name, display_name, admin_group_id, reader_group_id, tenant_id) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (name) DO UPDATE SET display_name=EXCLUDED.display_name, admin_group_id=EXCLUDED.admin_group_id, reader_group_id=EXCLUDED.reader_group_id RETURNING id, name, display_name, admin_group_id, reader_group_id, created_at, updated_at`, id, name, displayName, adminGroup, reader, tenantID).Scan(&org.ID, &org.Name, &org.DisplayName, &org.AdminGroupID, &org.ReaderGroupID, &org.CreatedAt, &org.UpdatedAt)
 	return org, err
 }
 

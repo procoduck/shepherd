@@ -660,6 +660,34 @@ func (s *PipelineService) ValidatePipeline(ctx context.Context, req *connect.Req
 		}
 	}
 
+	// A machine calling this is proposing; a human calling it is typing.
+	//
+	// R6 asked how an agent's proposal is attributed, and the honest answer
+	// was that it was not: internal/mcp's propose_pipeline_revision composes
+	// this call and PreviewMatches, both reads, so an agent proposing a
+	// change to raw Alloy text left no record that it had. Auditing this
+	// endpoint unconditionally would instead log every keystroke-level
+	// validation the authoring UI performs, and an audit trail nobody can
+	// read is its own failure — so the record is written only when the caller
+	// is a machine identity, which is exactly the case R6 cares about.
+	//
+	// Best-effort by design: a proposal is a read, and failing to record it
+	// must not fail it. auditLogDetail already derives actor and the verified
+	// on_behalf_of from ctx, so both halves of the delegated action land here
+	// the same way they do for a write (G13).
+	if sa, ok := serviceAccountFromCtx(ctx); ok {
+		orgID, orgErr := scanUUID(req.Msg.GetOrgId())
+		if orgErr == nil {
+			auditLogDetail(ctx, s.store, actorFromCtx(ctx), "user", orgID,
+				"pipeline.propose", "pipeline", "", map[string]any{
+					"service_account": sa.Name,
+					"pipeline_name":   name,
+					"valid":           result.Valid,
+					"signals":         resp.Signals,
+				})
+		}
+	}
+
 	return connect.NewResponse(resp), nil
 }
 

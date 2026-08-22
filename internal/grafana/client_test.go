@@ -56,13 +56,19 @@ func TestClientStringRedactsToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
+	// BOTH the pointer and the dereferenced value. The receiver was a pointer
+	// until review pointed out the seam: with a pointer receiver, fmt selects
+	// the method only for *Client, and fmt.Sprintf("%+v", *client) — easy to
+	// write by accident — printed the token via default struct formatting.
 	for _, verb := range []string{"%v", "%+v", "%#v", "%s"} {
-		formatted := fmt.Sprintf(verb, c)
-		if strings.Contains(formatted, "super-secret-token") {
-			t.Fatalf("formatting Client with %s contains the raw token: %q", verb, formatted)
-		}
-		if !strings.Contains(formatted, "REDACTED") {
-			t.Fatalf("formatting Client with %s does not mention REDACTED: %q", verb, formatted)
+		for name, val := range map[string]any{"pointer": c, "value": *c} {
+			formatted := fmt.Sprintf(verb, val)
+			if strings.Contains(formatted, "super-secret-token") {
+				t.Fatalf("formatting a Client %s with %s contains the raw token: %q", name, verb, formatted)
+			}
+			if !strings.Contains(formatted, "REDACTED") {
+				t.Fatalf("formatting a Client %s with %s does not mention REDACTED: %q", name, verb, formatted)
+			}
 		}
 	}
 }

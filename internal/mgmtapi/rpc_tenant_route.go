@@ -183,9 +183,22 @@ func (s *TenantRouteService) CreateTenantRoute(ctx context.Context, req *connect
 	if err != nil {
 		return nil, err
 	}
-	if req.Msg.GetTenantId() == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("tenant_id must not be empty"))
+	// Tenant identity comes from the ORG, never from the request. An org
+	// admin may create routes for their own org; letting them name the tenant
+	// would let them name someone else's, and a route that injects another
+	// org's X-Scope-OrgID is a cross-tenant write the gateway would happily
+	// authorize. See 0013_org_tenant_id.
+	org, err := s.store.Queries.GetOrgByID(ctx, orgID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("org not found"))
 	}
+	if !org.TenantID.Valid || org.TenantID.String == "" {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
+			"org %q has no tenant identity yet, so a route for it would have no %s value to inject. "+
+				"An application administrator sets this once, on the org (SetOrgTenantID)",
+			org.Name, gateway.TenantHeader))
+	}
+	tenantID := org.TenantID.String
 	if err := validateKind(req.Msg.GetKind()); err != nil {
 		return nil, err
 	}
@@ -201,14 +214,14 @@ func (s *TenantRouteService) CreateTenantRoute(ctx context.Context, req *connect
 	}
 	kind := gateway.RouteKind(req.Msg.GetKind())
 
-	segment, err := gateway.GenerateSegment(ctx, format, kind, req.Msg.GetTenantId(), s.segmentExists)
+	segment, err := gateway.GenerateSegment(ctx, format, kind, tenantID, s.segmentExists)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("minting tenant route segment: %w", err))
 	}
 
 	r, err := s.store.Queries.CreateTenantRoute(ctx, sqlc.CreateTenantRouteParams{
 		OrgID:            orgID,
-		TenantID:         req.Msg.GetTenantId(),
+		TenantID:         tenantID,
 		Kind:             string(kind),
 		Segment:          segment,
 		GatewayMode:      req.Msg.GetGatewayMode(),

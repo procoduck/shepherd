@@ -8,7 +8,7 @@ import { AdminModal, AdminModalActions } from '@/components/admin/AdminModal';
 import type { Org } from '@/gen/shepherd/mgmt/v1/admin_pb';
 import { useMe } from '@/hooks/useMe';
 
-const emptyCreateForm = { name: '', displayName: '', adminGroupId: '', readerGroupId: '' };
+const emptyCreateForm = { name: '', displayName: '', adminGroupId: '', readerGroupId: '', tenantId: '' };
 
 export function AdminOrgsPage() {
   const { data: me } = useMe();
@@ -115,6 +115,7 @@ export function AdminOrgsPage() {
               <tr>
                 <th className='px-4 py-3 text-left font-medium'>Name</th>
                 <th className='px-4 py-3 text-left font-medium'>Display name</th>
+                <th className='px-4 py-3 text-left font-medium'>Tenant</th>
                 {isAppAdmin && <th className='px-4 py-3' />}
               </tr>
             </thead>
@@ -123,6 +124,16 @@ export function AdminOrgsPage() {
                 <tr key={o.id} className='border-t border-border hover:bg-card/60'>
                   <td className='px-4 py-2.5 font-mono text-xs'>{o.name}</td>
                   <td className='px-4 py-2.5'>{o.displayName}</td>
+                  <td className='px-4 py-2.5 font-mono text-xs'>
+                    {o.tenantId ? (
+                      o.tenantId
+                    ) : (
+                      // An org without a tenant cannot have tenant routes, so
+                      // say that rather than showing an empty cell an admin
+                      // would read as "nothing to do here".
+                      <span className='text-muted-3 italic'>not set &mdash; no routes possible</span>
+                    )}
+                  </td>
                   {isAppAdmin && (
                     <td className='px-4 py-2.5 text-right'>
                       <div className='flex justify-end gap-3'>
@@ -197,6 +208,21 @@ export function AdminOrgsPage() {
                 className='mt-1 w-full rounded-md border border-border-strong bg-card px-3 py-1.5 text-sm font-mono'
                 placeholder='22222222-2222-2222-2222-222222222222'
               />
+            </label>
+            <label className='block text-xs font-medium text-muted'>
+              Tenant ID <span className='text-muted-3'>(optional, set once)</span>
+              <input
+                value={createForm.tenantId}
+                onChange={(e) => setCreateForm((f) => ({ ...f, tenantId: e.target.value }))}
+                className='mt-1 w-full rounded-md border border-border-strong bg-card px-3 py-1.5 text-sm font-mono'
+                placeholder='acme'
+              />
+              <span className='mt-1 block text-2xs font-normal text-muted-3'>
+                The tenant this org&rsquo;s telemetry ships under, sent downstream as X-Scope-OrgID.
+                Only an application administrator sets it, and it cannot be changed afterwards
+                &mdash; routes already issued would keep working while naming the wrong tenant.
+                Leave blank to decide later; the org cannot have tenant routes until it is set.
+              </span>
             </label>
             <AdminModalActions
               onCancel={() => setShowCreate(false)}

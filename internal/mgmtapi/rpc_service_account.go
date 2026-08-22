@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"log/slog"
 
 	"connectrpc.com/connect"
@@ -79,6 +80,24 @@ func (s *ServiceAccountService) ListServiceAccounts(ctx context.Context, req *co
 func (s *ServiceAccountService) CreateServiceAccount(ctx context.Context, req *connect.Request[mgmtv1.CreateServiceAccountRequest]) (*connect.Response[mgmtv1.CreateServiceAccountResponse], error) {
 	if err := requireWriteAuthorized(ctx); err != nil {
 		return nil, err
+	}
+	// Issuing a credential is not an ordinary write: it grants identity. A
+	// machine may not do it, even with apply capability.
+	//
+	// The reason is what the credential's created_by means. Every machine
+	// write is checked against that field (machine_auth.go's verifyOnBehalfOf)
+	// precisely because a human put their name on it. If a service account
+	// could mint another, the new credential's created_by would be
+	// "svcacct:<parent>" and the delegation chain would no longer bottom out
+	// at anyone accountable — while still passing every check, because each
+	// link is individually valid. Revoking the parent would not revoke the
+	// child either. Found by review as an attenuation rather than a spoof,
+	// and closed here so the chain is one link deep by construction.
+	if sa, ok := serviceAccountFromCtx(ctx); ok {
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf(
+			"service account %q may not create service accounts: a credential must be issued by a "+
+				"human, so that the on-behalf-of claims made with it can be checked against one",
+			sa.Name))
 	}
 	orgID, err := scanUUID(req.Msg.GetOrgId())
 	if err != nil {

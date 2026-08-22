@@ -91,7 +91,13 @@ func validateBaseURL(baseURL string) (*url.URL, error) {
 // unexported is not sufficient on its own to keep it out of a log line a
 // future change adds — so Client defines its own Stringer rather than
 // leaving that to chance. TestClientStringRedactsToken pins this.
-func (c *Client) String() string {
+//
+// VALUE receiver, deliberately. With a pointer receiver, fmt selects the
+// method only for a *Client; a dereferenced value — fmt.Sprintf("%+v",
+// *client), which is easy to write by accident — would fall back to default
+// struct formatting and print the token. A value receiver covers both forms.
+// Review caught this as the last place the redaction had a seam.
+func (c Client) String() string {
 	host := ""
 	if c.baseURL != nil {
 		host = c.baseURL.Host
@@ -101,7 +107,7 @@ func (c *Client) String() string {
 
 // GoString mirrors String so %#v (go-syntax formatting, fmt's other
 // full-value verb) redacts too.
-func (c *Client) GoString() string { return c.String() }
+func (c Client) GoString() string { return c.String() }
 
 // maxErrorBodyBytes bounds how much of a non-2xx response body do() reads
 // into an error message — enough to be useful, small enough that a
