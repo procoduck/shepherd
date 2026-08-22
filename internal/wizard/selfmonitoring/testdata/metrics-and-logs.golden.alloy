@@ -1,0 +1,31 @@
+prometheus.exporter.self "alloy" {}
+
+prometheus.scrape "self" {
+  targets         = prometheus.exporter.self.alloy.targets
+  forward_to      = [prometheus.remote_write.metrics.receiver]
+  scrape_interval = "60s"
+  job_name        = "alloy-self"
+}
+
+prometheus.remote_write "metrics" {
+  endpoint {
+    name = "prom-prod"
+    url  = sys.env("SHEPHERD_DEST_PROM_PROD_URL")
+    // auth injected by Shepherd at serve time
+  }
+}
+
+loki.source.file "self" {
+  targets = [
+    {__path__ = "/var/log/alloy/*.log", job = "alloy-self"},
+  ]
+  forward_to = [loki.write.logs.receiver]
+}
+
+loki.write "logs" {
+  endpoint {
+    name = "loki-prod"
+    url  = sys.env("SHEPHERD_DEST_LOKI_PROD_URL")
+    // auth injected by Shepherd at serve time
+  }
+}

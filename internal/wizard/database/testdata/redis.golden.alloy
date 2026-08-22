@@ -1,0 +1,18 @@
+prometheus.exporter.redis "db" {
+  redis_addr = sys.env("APP_REDIS_ADDR")
+}
+
+prometheus.scrape "database" {
+  targets         = prometheus.exporter.redis.db.targets
+  forward_to      = [prometheus.remote_write.metrics.receiver]
+  scrape_interval = "15s"
+  job_name        = "app-cache"
+}
+
+prometheus.remote_write "metrics" {
+  endpoint {
+    name = "prom-prod"
+    url  = sys.env("SHEPHERD_DEST_PROM_PROD_URL")
+    // auth injected by Shepherd at serve time
+  }
+}

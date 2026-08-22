@@ -30,6 +30,17 @@ type AuditLog struct {
 	ResourceType string             `json:"resource_type"`
 	ResourceID   string             `json:"resource_id"`
 	Detail       json.RawMessage    `json:"detail"`
+	OnBehalfOf   pgtype.Text        `json:"on_behalf_of"`
+}
+
+type BeaconInventory struct {
+	ID            pgtype.UUID        `json:"id"`
+	TokenID       pgtype.UUID        `json:"token_id"`
+	InstanceLabel string             `json:"instance_label"`
+	ComponentName string             `json:"component_name"`
+	Healthy       bool               `json:"healthy"`
+	LastSeen      pgtype.Timestamptz `json:"last_seen"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 }
 
 type Cluster struct {
@@ -107,6 +118,15 @@ type GitCredential struct {
 	TlsInsecureSkipVerify bool               `json:"tls_insecure_skip_verify"`
 }
 
+type GrafanaConnection struct {
+	ID        pgtype.UUID        `json:"id"`
+	OrgID     pgtype.UUID        `json:"org_id"`
+	BaseUrl   string             `json:"base_url"`
+	TokenEnc  []byte             `json:"token_enc"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
 type GroupAssignment struct {
 	ID               pgtype.UUID        `json:"id"`
 	CollectorID      pgtype.UUID        `json:"collector_id"`
@@ -124,6 +144,7 @@ type Org struct {
 	ReaderGroupID pgtype.Text        `json:"reader_group_id"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	TenantID      pgtype.Text        `json:"tenant_id"`
 }
 
 type Pipeline struct {
@@ -143,6 +164,7 @@ type Pipeline struct {
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 	SanitizedName pgtype.Text        `json:"sanitized_name"`
+	OwnerTeamID   pgtype.UUID        `json:"owner_team_id"`
 }
 
 type PipelineRevision struct {
@@ -182,6 +204,18 @@ type ServeCache struct {
 	Dirty       bool               `json:"dirty"`
 }
 
+type ServiceAccount struct {
+	ID         pgtype.UUID        `json:"id"`
+	OrgID      pgtype.UUID        `json:"org_id"`
+	Name       string             `json:"name"`
+	Capability string             `json:"capability"`
+	TokenHash  []byte             `json:"token_hash"`
+	CreatedBy  string             `json:"created_by"`
+	RevokedAt  pgtype.Timestamptz `json:"revoked_at"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Session struct {
 	ID             string             `json:"id"`
 	UserOid        string             `json:"user_oid"`
@@ -214,4 +248,30 @@ type SimulateRun struct {
 	StderrTail               string             `json:"stderr_tail"`
 	ErrorCode                string             `json:"error_code"`
 	ErrorMessage             string             `json:"error_message"`
+}
+
+type Team struct {
+	ID         pgtype.UUID        `json:"id"`
+	OrgID      pgtype.UUID        `json:"org_id"`
+	Name       string             `json:"name"`
+	IdpGroupID string             `json:"idp_group_id"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
+type TenantRoute struct {
+	ID               pgtype.UUID        `json:"id"`
+	OrgID            pgtype.UUID        `json:"org_id"`
+	TenantID         string             `json:"tenant_id"`
+	Kind             string             `json:"kind"`
+	Segment          string             `json:"segment"`
+	Status           string             `json:"status"`
+	ValidUntil       pgtype.Timestamptz `json:"valid_until"`
+	RotatedFromID    pgtype.UUID        `json:"rotated_from_id"`
+	GatewayMode      string             `json:"gateway_mode"`
+	GatewayName      string             `json:"gateway_name"`
+	GatewayNamespace string             `json:"gateway_namespace"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
 }

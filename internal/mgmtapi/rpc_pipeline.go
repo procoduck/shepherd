@@ -16,6 +16,8 @@ import (
 
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
+	"shepherd/internal/auth"
+	"shepherd/internal/beacon"
 	"shepherd/internal/merge"
 	"shepherd/internal/schema"
 	"shepherd/internal/signals"
@@ -33,11 +35,42 @@ type PipelineService struct {
 	validator *validate.Validator
 	schema    *schema.Registry
 	logger    *slog.Logger
+	// beaconBaseline configures D6's baseline pipeline, appended to every
+	// collector's served config by recomputeOrgCaches — the eager
+	// write-time recompute counterpart to internal/agentapi's lazy
+	// recomputeServeCache. docs/gateway-tier-plan.md §10 recorded, for W1,
+	// that "two paths produce the same served config; enforcing one of them
+	// is not enforcement" — the same is true for D6's baseline, hence this
+	// field exists here too rather than only in agentapi.Service. See
+	// beacon.AppendBaseline, the single function both paths call.
+	beaconBaseline beacon.BaselineConfig
+}
+
+// PipelineServiceOption configures optional PipelineService behavior. See
+// WithBeaconRemoteWrite.
+type PipelineServiceOption func(*PipelineService)
+
+// WithBeaconRemoteWrite enables D6's baseline pipeline on the eager
+// recompute path — see internal/agentapi.WithBeaconRemoteWrite, which does
+// the identical thing for the lazy path. baseURL is
+// config.ServerConfig.BaseURL; "" is equivalent to omitting this option.
+func WithBeaconRemoteWrite(baseURL string) PipelineServiceOption {
+	return func(s *PipelineService) {
+		remoteWriteURL := ""
+		if baseURL != "" {
+			remoteWriteURL = strings.TrimSuffix(baseURL, "/") + beacon.WritePath
+		}
+		s.beaconBaseline = beacon.NewBaselineConfig(remoteWriteURL)
+	}
 }
 
 // NewPipelineService constructs a PipelineService with the deps PipelinesHandler uses today.
-func NewPipelineService(st *store.Store, v *validate.Validator, reg *schema.Registry, logger *slog.Logger) *PipelineService {
-	return &PipelineService{store: st, validator: v, schema: reg, logger: logger}
+func NewPipelineService(st *store.Store, v *validate.Validator, reg *schema.Registry, logger *slog.Logger, opts ...PipelineServiceOption) *PipelineService {
+	s := &PipelineService{store: st, validator: v, schema: reg, logger: logger}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 var _ mgmtv1connect.PipelineServiceHandler = (*PipelineService)(nil)
@@ -128,6 +161,9 @@ func pipelineToProto(p sqlc.Pipeline) *mgmtv1.Pipeline {
 			pb.WizardState = ws
 		}
 	}
+	if p.OwnerTeamID.Valid {
+		pb.OwnerTeamId = p.OwnerTeamID.String()
+	}
 	return pb
 }
 
@@ -213,6 +249,50 @@ func (s *PipelineService) loadPipeline(ctx context.Context, orgIDStr, idStr stri
 		return sqlc.Pipeline{}, connect.NewError(connect.CodeNotFound, errPipelineNotFound)
 	}
 	return p, nil
+}
+
+// authorizeOwnership enforces G11 (docs/gateway-tier-plan.md): the caller
+// must be an org admin, or a member of the team identified by
+// ownerTeamID. Called individually inside every PipelineService write
+// handler (Create/Update/Delete/Enable/Disable) — per write path, not from
+// the interceptor, which only proved "has some access to this org" (see
+// procedureRequirements' comment). ownerTeamID is "" for an unowned
+// pipeline, which auth.AuthorizeOwnership treats as org-admin-only.
+func (s *PipelineService) authorizeOwnership(ctx context.Context, orgIDStr, ownerTeamID string) error {
+	sess := auth.SessionFromCtx(ctx)
+	if sess == nil {
+		// A machine (service-account) caller has no team membership to check:
+		// G11's ownership model is keyed on IdP groups carried by a human
+		// session, and a service account has none. requireWriteAuthorized has
+		// already gated this call on capability AND on the on-behalf-of claim
+		// matching the human the credential was issued to, so the write is
+		// attributable — but attribution is not authorization.
+		//
+		// State this plainly because it is the real limit of G11: an
+		// apply-capability service account can write ANY pipeline in its org,
+		// including one owned by a team its delegating human is not in. Team
+		// scoping for machine credentials means resolving that human's group
+		// membership without a session, which is new scope (an allow-list on
+		// the service account, or an IdP lookup), not a missing check here.
+		// Until then, an apply credential is an org-level power and should be
+		// issued as one.
+		if _, ok := serviceAccountFromCtx(ctx); ok {
+			return nil
+		}
+		return connect.NewError(connect.CodeUnauthenticated, auth.ErrUnauthenticated)
+	}
+	switch err := auth.AuthorizeOwnership(ctx, s.store, sess, orgIDStr, ownerTeamID); {
+	case err == nil:
+		return nil
+	case errors.Is(err, auth.ErrUnauthenticated):
+		return connect.NewError(connect.CodeUnauthenticated, err)
+	case errors.Is(err, auth.ErrOrgNotFound):
+		return connect.NewError(connect.CodeNotFound, err)
+	case errors.Is(err, auth.ErrInvalidOrgID):
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	default:
+		return connect.NewError(connect.CodePermissionDenied, err)
+	}
 }
 
 // looseUUID parses s into a pgtype.UUID, leaving it as the invalid zero
@@ -320,10 +400,18 @@ func (s *PipelineService) validateSaveInput(ctx context.Context, in pipelineSave
 
 // CreatePipeline creates a pipeline.
 func (s *PipelineService) CreatePipeline(ctx context.Context, req *connect.Request[mgmtv1.CreatePipelineRequest]) (*connect.Response[mgmtv1.Pipeline], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	msg := req.Msg
 	orgID, err := scanUUID(msg.GetOrgId())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errOrgIDInvalid)
+	}
+	// G11: creating a pipeline owned by a team requires membership of that
+	// team (or org-admin); creating an unowned pipeline requires org-admin.
+	if err := s.authorizeOwnership(ctx, msg.GetOrgId(), msg.GetOwnerTeamId()); err != nil {
+		return nil, err
 	}
 
 	var wsJSON []byte
@@ -356,6 +444,7 @@ func (s *PipelineService) CreatePipeline(ctx context.Context, req *connect.Reque
 		WizardState: wsJSON,
 		CreatedBy:   actor,
 		UpdatedBy:   actor,
+		OwnerTeamID: looseUUID(msg.GetOwnerTeamId()),
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -380,9 +469,15 @@ func (s *PipelineService) CreatePipeline(ctx context.Context, req *connect.Reque
 
 // UpdatePipeline updates a pipeline.
 func (s *PipelineService) UpdatePipeline(ctx context.Context, req *connect.Request[mgmtv1.UpdatePipelineRequest]) (*connect.Response[mgmtv1.Pipeline], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	msg := req.Msg
 	p, err := s.loadPipeline(ctx, msg.GetOrgId(), msg.GetId())
 	if err != nil {
+		return nil, err
+	}
+	if err := s.authorizeOwnership(ctx, msg.GetOrgId(), pipelineOwnerTeamID(p)); err != nil {
 		return nil, err
 	}
 	if p.Source == "git" {
@@ -440,8 +535,14 @@ func (s *PipelineService) UpdatePipeline(ctx context.Context, req *connect.Reque
 
 // DeletePipeline deletes a pipeline.
 func (s *PipelineService) DeletePipeline(ctx context.Context, req *connect.Request[mgmtv1.DeletePipelineRequest]) (*connect.Response[mgmtv1.DeletePipelineResponse], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	p, err := s.loadPipeline(ctx, req.Msg.GetOrgId(), req.Msg.GetId())
 	if err != nil {
+		return nil, err
+	}
+	if err := s.authorizeOwnership(ctx, req.Msg.GetOrgId(), pipelineOwnerTeamID(p)); err != nil {
 		return nil, err
 	}
 	if p.Source == "git" {
@@ -466,8 +567,14 @@ func (s *PipelineService) DeletePipeline(ctx context.Context, req *connect.Reque
 // included), then persists the new enabled state and dirties/recomputes the
 // serve cache for the org.
 func (s *PipelineService) setEnabled(ctx context.Context, orgIDStr, idStr string, enable bool) (*connect.Response[mgmtv1.Pipeline], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	p, err := s.loadPipeline(ctx, orgIDStr, idStr)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.authorizeOwnership(ctx, orgIDStr, pipelineOwnerTeamID(p)); err != nil {
 		return nil, err
 	}
 	orgID := looseUUID(orgIDStr)
@@ -553,6 +660,34 @@ func (s *PipelineService) ValidatePipeline(ctx context.Context, req *connect.Req
 		}
 	}
 
+	// A machine calling this is proposing; a human calling it is typing.
+	//
+	// R6 asked how an agent's proposal is attributed, and the honest answer
+	// was that it was not: internal/mcp's propose_pipeline_revision composes
+	// this call and PreviewMatches, both reads, so an agent proposing a
+	// change to raw Alloy text left no record that it had. Auditing this
+	// endpoint unconditionally would instead log every keystroke-level
+	// validation the authoring UI performs, and an audit trail nobody can
+	// read is its own failure — so the record is written only when the caller
+	// is a machine identity, which is exactly the case R6 cares about.
+	//
+	// Best-effort by design: a proposal is a read, and failing to record it
+	// must not fail it. auditLogDetail already derives actor and the verified
+	// on_behalf_of from ctx, so both halves of the delegated action land here
+	// the same way they do for a write (G13).
+	if sa, ok := serviceAccountFromCtx(ctx); ok {
+		orgID, orgErr := scanUUID(req.Msg.GetOrgId())
+		if orgErr == nil {
+			auditLogDetail(ctx, s.store, actorFromCtx(ctx), "user", orgID,
+				"pipeline.propose", "pipeline", "", map[string]any{
+					"service_account": sa.Name,
+					"pipeline_name":   name,
+					"valid":           result.Valid,
+					"signals":         resp.Signals,
+				})
+		}
+	}
+
 	return connect.NewResponse(resp), nil
 }
 
@@ -599,6 +734,41 @@ func (s *PipelineService) PreviewMatches(ctx context.Context, req *connect.Reque
 		items[i] = &mgmtv1.MatchedCollector{Cluster: m["cluster"], Role: m["role"], Id: m["id"]}
 	}
 	return connect.NewResponse(&mgmtv1.PreviewMatchesResponse{Collectors: items}), nil
+}
+
+// pipelineOwnerTeamID returns p's owner_team_id as a string, or "" for an
+// unowned pipeline — the shape authorizeOwnership/auth.AuthorizeOwnership
+// expect.
+func pipelineOwnerTeamID(p sqlc.Pipeline) string {
+	if !p.OwnerTeamID.Valid {
+		return ""
+	}
+	return p.OwnerTeamID.String()
+}
+
+// SetPipelineOwner reassigns (or, with an empty owner_team_id, clears) a
+// pipeline's owning team. Org-admin-only regardless of the pipeline's
+// current owner (see procedureRequirements' comment and
+// SetPipelineOwnerRequest's proto doc) — granting/revoking ownership is a
+// platform decision, not a delegated one, so this deliberately does NOT
+// call authorizeOwnership.
+func (s *PipelineService) SetPipelineOwner(ctx context.Context, req *connect.Request[mgmtv1.SetPipelineOwnerRequest]) (*connect.Response[mgmtv1.Pipeline], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
+	p, err := s.loadPipeline(ctx, req.Msg.GetOrgId(), req.Msg.GetId())
+	if err != nil {
+		return nil, err
+	}
+	updated, err := s.store.Queries.SetPipelineOwnerTeam(ctx, sqlc.SetPipelineOwnerTeamParams{
+		ID: p.ID, OwnerTeamID: looseUUID(req.Msg.GetOwnerTeamId()),
+	})
+	if err != nil {
+		s.logger.Error("set pipeline owner", "err", err)
+		return nil, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
+	}
+	auditLog(ctx, s.store, actorFromCtx(ctx), looseUUID(req.Msg.GetOrgId()), "pipeline.set_owner", "pipeline", p.ID.String())
+	return connect.NewResponse(pipelineToProto(updated)), nil
 }
 
 // ListRevisions lists a pipeline's revision history.
@@ -873,15 +1043,31 @@ func (s *PipelineService) recomputeOrgCaches(ctx context.Context, orgID pgtype.U
 			s.logger.Warn("recomputeOrgCaches: pipeline excluded (role/signal mismatch)",
 				"collector_id", c.ID.String(), "role", c.Role, "pipeline", ex.PipelineName, "reason", ex.Reason)
 		}
-		r1 := validate.Stage1(result.Content)
+
+		// D6: every collector gets the baseline pipeline here too — see
+		// internal/agentapi.WithBeaconRemoteWrite's doc comment and
+		// beacon.AppendBaseline for why this must be the SAME call the lazy
+		// recompute path makes, not a separate re-implementation.
+		content, appendErr := beacon.AppendBaseline(result.Content, s.beaconBaseline)
+		if appendErr != nil {
+			s.logger.Warn("recomputeOrgCaches: appending beacon baseline pipeline failed; serving without it",
+				"collector_id", c.ID.String(), "err", appendErr)
+			content = result.Content
+		}
+		hash := result.Hash
+		if content != result.Content {
+			hash = merge.HashContent(content)
+		}
+
+		r1 := validate.Stage1(content)
 		if !r1.Valid {
 			s.logger.Warn("recomputeOrgCaches: stage-1 invalid on merged output", "collector_id", c.ID.String())
 			continue
 		}
 		if _, upsertErr := s.store.Queries.UpsertServeCacheConditional(ctx, sqlc.UpsertServeCacheConditionalParams{
 			CollectorID: c.ID,
-			Content:     result.Content,
-			Hash:        result.Hash,
+			Content:     content,
+			Hash:        hash,
 		}); upsertErr != nil {
 			s.logger.Warn("recomputeOrgCaches: upsert failed", "collector_id", c.ID.String(), "err", upsertErr)
 		}

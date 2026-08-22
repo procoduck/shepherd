@@ -1,4 +1,4 @@
-.PHONY: preflight-docker help build build-web build-all test e2e e2e-k8s e2e-k8s-clean e2e-sim e2e-egress smoke test-ui check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks lint fmt generate gen-alloy-version generate-corpus schema schema-verify helm-lint release-snapshot docker-build docker-build-local docker-build-init docker-build-simulator dev dev-sim dev-frontend dev-restart dev-seed dev-reset test-fullstack clean clean-docker tools preflight-ginkgo preflight-k8s
+.PHONY: web-ci check-gateway-pin check-chartvalues-pin chart-verify preflight-docker help build build-web build-all test e2e e2e-k8s e2e-k8s-clean e2e-sim e2e-egress smoke test-ui check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks lint fmt generate gen-alloy-version generate-corpus schema schema-verify helm-lint release-snapshot docker-build docker-build-local docker-build-init docker-build-simulator dev dev-sim dev-frontend dev-restart dev-seed dev-reset test-fullstack clean clean-docker tools preflight-ginkgo preflight-k8s
 
 # Several recipes are bash-idiomatic (the smoke here-string, trap chains);
 # /bin/sh is dash on Debian/Ubuntu and rejects them.
@@ -271,6 +271,14 @@ smoke: ## Container smoke test (< 60s, Docker only)
 	docker rm -f $$SMOKE_LA >/dev/null && \
 	echo "==> Smoke test PASSED."
 
+# Reproduces CI's `web` job exactly (typecheck, unit tests, biome CHECK — lint
+# AND format — then the production build). Exists because `pnpm lint` alone
+# runs only the lint half, so a formatting difference passes locally and fails
+# in CI; a check that cannot go red on your machine is not a check.
+web-ci: ## Run CI's web job locally (typecheck + tests + biome check + build)
+	$(call preflight,$(PNPM),Install pnpm (https://pnpm.io/installation).)
+	cd web && $(PNPM) run ci
+
 test-ui: ## Mocked Playwright visual suite (no backend required)
 	cd web && $(PNPM) exec playwright install --with-deps chromium
 	./scripts/build-web.sh
@@ -281,13 +289,17 @@ test-ui: ## Mocked Playwright visual suite (no backend required)
 	cd web && $(PNPM) exec playwright test
 
 # Guard: exactly one SPA dist directory (internal/spa/dist); no stray copies.
-# The repo-root ./dist is goreleaser's gitignored output directory (left behind
-# by `make release-snapshot`), not an SPA copy — pruned, not counted.
+# Two directories are pruned rather than counted because neither is a stray SPA
+# build: the repo-root ./dist is goreleaser's gitignored output (left by
+# `make release-snapshot`), and .claude/worktrees/ holds agent git worktrees,
+# each a full checkout that necessarily contains its own internal/spa/dist.
+# Counting those made the guard fail for the whole repo whenever an agent
+# worktree existed — a false positive that says nothing about stray builds.
 check-single-dist: ## Guard: exactly one dist directory
-	@count=$$(find . -path ./web/node_modules -prune -o -path ./.git -prune -o -path ./dist -prune -o -name 'dist' -type d -print | grep -v '^\./$$' | wc -l | tr -d ' '); \
+	@count=$$(find . -path ./web/node_modules -prune -o -path ./.git -prune -o -path ./dist -prune -o -path ./.claude -prune -o -name 'dist' -type d -print | grep -v '^\./$$' | wc -l | tr -d ' '); \
 	if [ "$$count" != "1" ]; then \
 		echo "ERROR: expected 1 dist directory, found $$count:"; \
-		find . -path ./web/node_modules -prune -o -path ./.git -prune -o -path ./dist -prune -o -name 'dist' -type d -print | grep -v '^\./$$'; \
+		find . -path ./web/node_modules -prune -o -path ./.git -prune -o -path ./dist -prune -o -path ./.claude -prune -o -name 'dist' -type d -print | grep -v '^\./$$'; \
 		exit 1; \
 	fi
 	@echo "check-single-dist: OK (1 dist directory)"
@@ -389,8 +401,95 @@ check-no-route-mocks: ## Guard: no page.route() in web/tests/fullstack
 	fi
 	@echo "check-no-route-mocks: OK"
 
-lint: check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks ## Repo guards + golangci-lint
+# Guard: the Gateway API pin is the floor Shepherd claims to support, so every
+# place that names a version must agree with deploy/versions.env — otherwise the
+# kind suite proves conformance against one version while the code refuses
+# another, and the claim in docs/gateway-tier-plan.md D1 means nothing.
+check-gateway-pin: ## Guard: Gateway API version/channel agree with versions.env
+	@fail=0; \
+	want="$(GATEWAY_API_VERSION)"; wantch="$(GATEWAY_API_CHANNEL)"; \
+	if [ -z "$$want" ] || [ -z "$$wantch" ]; then \
+		echo "ERROR: GATEWAY_API_VERSION/GATEWAY_API_CHANNEL missing from deploy/versions.env"; exit 1; \
+	fi; \
+	minor=$$(echo "$$want" | sed -E 's/^v([0-9]+\.[0-9]+).*/\1/'); \
+	got=$$(sed -n 's/^const MinBundleVersion = "\(.*\)"/\1/p' internal/gateway/version.go); \
+	if [ "$$got" != "$$minor" ]; then \
+		echo "ERROR: internal/gateway.MinBundleVersion is '$$got' but versions.env pins $$want (minor $$minor)"; fail=1; \
+	fi; \
+	gotch=$$(sed -n 's/^const RequiredChannel = "\(.*\)"/\1/p' internal/gateway/version.go); \
+	if [ "$$gotch" != "$$wantch" ]; then \
+		echo "ERROR: internal/gateway.RequiredChannel is '$$gotch' but versions.env pins '$$wantch'"; fail=1; \
+	fi; \
+	[ "$$fail" = "0" ] || exit 1
+	@echo "check-gateway-pin: OK ($(GATEWAY_API_VERSION), $(GATEWAY_API_CHANNEL))"
+
+# Guard: the k8s-monitoring chart pin (docs/gateway-tier-plan.md W9, G8) must
+# agree across deploy/versions.env, internal/chartvalues.PinnedChartVersion,
+# and the provenance record vendored alongside testdata/values.schema.json —
+# otherwise internal/chartvalues could generate values proven against a
+# schema for a DIFFERENT chart release than the one it claims to target.
+# Offline and fast (no network): the online half — does the vendored schema
+# still match what upstream actually publishes for this version — is
+# `chart-verify`, below.
+check-chartvalues-pin: ## Guard: k8s-monitoring chart version agrees with versions.env
+	@fail=0; \
+	want="$(K8S_MONITORING_CHART_VERSION)"; \
+	if [ -z "$$want" ]; then \
+		echo "ERROR: K8S_MONITORING_CHART_VERSION missing from deploy/versions.env"; exit 1; \
+	fi; \
+	got=$$(sed -n 's/^const PinnedChartVersion = "\(.*\)"/\1/p' internal/chartvalues/version.go); \
+	if [ "$$got" != "$$want" ]; then \
+		echo "ERROR: internal/chartvalues.PinnedChartVersion is '$$got' but versions.env pins '$$want'"; fail=1; \
+	fi; \
+	gotmeta=$$(sed -n 's/.*"chart_version": *"\([^"]*\)".*/\1/p' internal/chartvalues/testdata/values.schema.meta.json); \
+	if [ "$$gotmeta" != "$$want" ]; then \
+		echo "ERROR: internal/chartvalues/testdata/values.schema.meta.json chart_version is '$$gotmeta' but versions.env pins '$$want'"; fail=1; \
+	fi; \
+	[ "$$fail" = "0" ] || exit 1
+	@echo "check-chartvalues-pin: OK ($(K8S_MONITORING_CHART_VERSION))"
+
+# Verify the vendored values.schema.json still matches what upstream actually
+# publishes for K8S_MONITORING_CHART_VERSION — the online half check-chartvalues-pin
+# (above) cannot do. Re-fetches the exact release URL recorded in
+# testdata/values.schema.meta.json's source_url and diffs it byte-for-byte
+# against the committed copy; unlike schema-verify's JSON artifact, this file
+# has no generated-at timestamp field to strip, so a plain diff is already
+# exact. Then runs the package's own test suite, which is where G9's
+# stronger checks live (every emitted key proven against the schema, every
+# golden validated against it, and a real `helm template` per feature
+# combination — see internal/chartvalues/schema_test.go and
+# helmtemplate_test.go).
+# Prerequisites: network access. Not part of `make lint` — like
+# schema-verify, this belongs on a schedule (weekly, or on PRs touching
+# deploy/versions.env), not on every local `make lint` run.
+chart-verify: check-chartvalues-pin ## Verify the vendored chart schema matches upstream (network; occasional)
+	@set -eu; \
+	url=$$(sed -n 's/.*"source_url": *"\([^"]*\)".*/\1/p' internal/chartvalues/testdata/values.schema.meta.json); \
+	if [ -z "$$url" ]; then echo "ERROR: no source_url in values.schema.meta.json"; exit 1; fi; \
+	tmp=$$(mktemp -d); \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	if ! curl -sfL "$$url" -o "$$tmp/fresh.json"; then \
+		echo "chart-verify: FAIL — could not fetch $$url"; exit 1; \
+	fi; \
+	if diff -u internal/chartvalues/testdata/values.schema.json "$$tmp/fresh.json"; then \
+		echo "chart-verify: OK (vendored schema matches $$url)"; \
+	else \
+		echo "chart-verify: FAIL — the vendored schema no longer matches upstream for K8S_MONITORING_CHART_VERSION=$(K8S_MONITORING_CHART_VERSION)."; \
+		echo "Re-fetch it, update values.schema.meta.json's sha256/fetched_at, and commit both."; \
+		exit 1; \
+	fi
+	@go test ./internal/chartvalues/ -count=1
+	@echo "chart-verify: OK (G9 golden/schema/helm-template checks passed)"
+
+lint: check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks check-gateway-pin check-chartvalues-pin ## Repo guards + golangci-lint
 	$(call preflight,golangci-lint,Install golangci-lint v2 (https://golangci-lint.run).)
+	@# `golangci-lint run` accepts unknown keys in .golangci.yml without
+	@# complaint, so a misplaced or misspelled setting silently does nothing
+	@# — including one meant to ENABLE a check. Verifying the config against
+	@# its schema first turns that into a loud failure. Found the hard way on
+	@# 2026-08-22: a `run.exclude-dirs` key (valid in v1, moved in v2) was
+	@# accepted and ignored by `run`, and only `config verify` reported it.
+	golangci-lint config verify
 	golangci-lint run ./...
 
 # gci via golangci-lint fmt + standalone gofumpt to avoid gci/gofumpt cycle.

@@ -10,12 +10,14 @@
     "lint": "biome lint --write .",
     "fmt": "biome format --write .",
     "check": "biome check --write .",
+    "check:ci": "biome check .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "playwright test",
     "test:ui:headed": "playwright test --headed",
-    "test:ui:report": "playwright show-report"
+    "test:ui:report": "playwright show-report",
+    "ci": "pnpm typecheck && pnpm test && pnpm check:ci && CI=true pnpm run build"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.14.0",

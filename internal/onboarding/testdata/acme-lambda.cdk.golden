@@ -1,0 +1,16 @@
+// Fragment for "checkout-api". Route: kind=otlp segment=acme-a1b2c3d4
+
+// D5: no literal ARN — pass it in as a prop/context value looked up for
+// your region/runtime/architecture at https://aws-otel.github.io/docs/getting-started/lambda
+const adotLayer = lambda.LayerVersion.fromLayerVersionArn(
+  this, 'ADOTLayer', props.adotLayerArn,
+);
+
+// ... existing lambda.Function(this, 'Fn', { ... }) props ...
+layers: [adotLayer],
+environment: {
+  OTEL_EXPORTER_OTLP_ENDPOINT: "https://telemetry.example.com/otlp/acme-a1b2c3d4",
+  OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf",
+  OTEL_SERVICE_NAME: "checkout-api",
+  AWS_LAMBDA_EXEC_WRAPPER: "/opt/otel-instrument",
+},

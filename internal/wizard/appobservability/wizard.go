@@ -23,6 +23,24 @@ type Wizard struct{}
 // Kind returns the wizard kind identifier.
 func (w *Wizard) Kind() string { return Kind }
 
+// Role returns the collector role this wizard's committed pipeline targets.
+// Unlike the fixed-role wizards in the catalog, this wizard exposes a
+// "role" step field the operator chooses directly (matchers.Title above),
+// so Role reads that same field — with the same default Commit falls back
+// to when the operator (or a stale client) omits it — rather than a
+// constant. Reading exactly what Commit reads is what keeps this and
+// Commit's actual output from disagreeing: wizard.Register wraps this
+// wizard's Commit and checks its result against whatever Role reports, so a
+// mismatch between the two would either wrongly refuse a valid pipeline or
+// wrongly wave through an invalid one.
+func (w *Wizard) Role(state map[string]any) string {
+	role, _ := state["role"].(string) //nolint:errcheck // type assert ok flag; empty string falls through to the default below
+	if role == "" {
+		return "metrics"
+	}
+	return role
+}
+
 // Schema returns the wizard's input schema.
 func (w *Wizard) Schema() wizard.Schema {
 	return wizard.Schema{
@@ -77,7 +95,21 @@ func (w *Wizard) Schema() wizard.Schema {
 					},
 					{
 						Name: "role", Label: "Collector role", Type: "select",
-						Options: []string{"metrics", "logs", "singleton"}, Default: "metrics",
+						// "logs" is deliberately NOT offered. Commit always
+						// emits the prometheus.scrape/remote_write block —
+						// metrics are this wizard's reason to exist — and a
+						// role=logs collector may carry logs and nothing else
+						// (internal/signals.Policies), so every commit at that
+						// role would be refused by role enforcement. Offering a
+						// choice that can never succeed is a dead end dressed
+						// as an option; the refusal was correct but the
+						// dropdown should not have led anyone there.
+						// The Ginkgo spec "every offered role is satisfiable"
+						// (wizard_test.go) pins this.
+						Options: []string{"metrics", "singleton"}, Default: "metrics",
+						Description: "Pick \"singleton\" when collecting logs as well: a role=metrics " +
+							"collector may only carry metrics, so a metrics+logs pipeline belongs on an " +
+							"unrestricted collector.",
 					},
 				},
 			},

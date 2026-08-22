@@ -8,12 +8,15 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"connectrpc.com/connect"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
+	"shepherd/internal/gateway"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 )
@@ -42,6 +45,7 @@ func toOrgProto(o sqlc.Org) *mgmtv1.Org {
 		ReaderGroupId: o.ReaderGroupID.String,
 		CreatedAt:     protoTimestamp(o.CreatedAt),
 		UpdatedAt:     protoTimestamp(o.UpdatedAt),
+		TenantId:      o.TenantID.String,
 	}
 }
 
@@ -83,15 +87,29 @@ func (s *AdminService) ListOrgs(ctx context.Context, _ *connect.Request[mgmtv1.L
 
 // CreateOrg creates an org.
 func (s *AdminService) CreateOrg(ctx context.Context, req *connect.Request[mgmtv1.CreateOrgRequest]) (*connect.Response[mgmtv1.Org], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	msg := req.Msg
 	if msg.GetName() == "" || msg.GetDisplayName() == "" || msg.GetAdminGroupId() == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("name, display_name, admin_group_id required"))
+	}
+	// Tenant identity is optional at creation but validated when present:
+	// an org may exist before its destination tenancy is decided, but a bad
+	// value must never be storable. gateway.ValidateTenantID is the one
+	// definition of that rule (Mimir's own), and 0013's CHECK mirrors it.
+	tenantID := strings.TrimSpace(msg.GetTenantId())
+	if tenantID != "" {
+		if err := gateway.ValidateTenantID(tenantID); err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
 	}
 	o, err := s.store.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
 		Name:          msg.GetName(),
 		DisplayName:   msg.GetDisplayName(),
 		AdminGroupID:  msg.GetAdminGroupId(),
 		ReaderGroupID: pgtype.Text{String: msg.GetReaderGroupId(), Valid: msg.GetReaderGroupId() != ""},
+		TenantID:      pgtype.Text{String: tenantID, Valid: tenantID != ""},
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -103,8 +121,62 @@ func (s *AdminService) CreateOrg(ctx context.Context, req *connect.Request[mgmtv
 	return connect.NewResponse(toOrgProto(o)), nil
 }
 
+// SetOrgTenantID assigns tenant identity to an org created without one.
+//
+// Set-once, and the SQL is what enforces it (SetOrgTenantID's WHERE clause
+// matches only a NULL tenant_id), so a concurrent second caller loses the
+// race cleanly instead of both believing they won. Changing an org's tenant
+// after routes exist would leave every already-applied HTTPRoute injecting
+// the previous value: the routes keep working and keep being wrong, which is
+// harder to notice than an outage.
+func (s *AdminService) SetOrgTenantID(ctx context.Context, req *connect.Request[mgmtv1.SetOrgTenantIDRequest]) (*connect.Response[mgmtv1.Org], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
+	id, err := scanUUID(req.Msg.GetOrgId())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid org id"))
+	}
+	tenantID := strings.TrimSpace(req.Msg.GetTenantId())
+	if err := gateway.ValidateTenantID(tenantID); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	o, err := s.store.Queries.SetOrgTenantID(ctx, sqlc.SetOrgTenantIDParams{
+		ID:       id,
+		TenantID: pgtype.Text{String: tenantID, Valid: true},
+	})
+	if err != nil {
+		if isUniqueViolation(err) {
+			return nil, connect.NewError(connect.CodeAlreadyExists,
+				fmt.Errorf("tenant id %q is already assigned to another org; one tenant identity "+
+					"belongs to exactly one org, or the gateway would stamp both orgs' traffic alike", tenantID))
+		}
+		// No row updated means either the org does not exist or its tenant is
+		// already set. Distinguish them: "already set" is the interesting one
+		// and deserves to say so rather than reading as "not found".
+		if errors.Is(err, pgx.ErrNoRows) {
+			existing, getErr := s.store.Queries.GetOrgByID(ctx, id)
+			if getErr != nil {
+				return nil, connect.NewError(connect.CodeNotFound, errors.New("org not found"))
+			}
+			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
+				"org %q already has tenant identity %q, and it cannot be changed: every tenant route "+
+					"already minted for this org injects that value, and they would keep routing while "+
+					"naming the wrong tenant", existing.Name, existing.TenantID.String))
+		}
+		s.logger.Warn("set org tenant id", "err", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to set org tenant id"))
+	}
+	auditLog(ctx, s.store, actorFromCtx(ctx), o.ID, "org.set_tenant_id", "org", o.ID.String())
+	return connect.NewResponse(toOrgProto(o)), nil
+}
+
 // UpdateOrg updates an org.
 func (s *AdminService) UpdateOrg(ctx context.Context, req *connect.Request[mgmtv1.UpdateOrgRequest]) (*connect.Response[mgmtv1.Org], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	msg := req.Msg
 	id, err := scanUUID(msg.GetOrgId())
 	if err != nil {
@@ -124,6 +196,9 @@ func (s *AdminService) UpdateOrg(ctx context.Context, req *connect.Request[mgmtv
 
 // DeleteOrg deletes an org.
 func (s *AdminService) DeleteOrg(ctx context.Context, req *connect.Request[mgmtv1.DeleteOrgRequest]) (*connect.Response[mgmtv1.DeleteOrgResponse], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	id, err := scanUUID(req.Msg.GetOrgId())
 	if err != nil {
 		return nil, err
@@ -189,6 +264,9 @@ func (s *AdminService) ListClusters(ctx context.Context, req *connect.Request[mg
 
 // ClaimCluster assigns a cluster to an org.
 func (s *AdminService) ClaimCluster(ctx context.Context, req *connect.Request[mgmtv1.ClaimClusterRequest]) (*connect.Response[mgmtv1.ClaimClusterResponse], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	msg := req.Msg
 	cluster, err := s.store.Queries.GetClusterByName(ctx, msg.GetCluster())
 	if err != nil {
@@ -208,6 +286,9 @@ func (s *AdminService) ClaimCluster(ctx context.Context, req *connect.Request[mg
 // UnclaimCluster removes a cluster's org assignment and marks its
 // collectors' serve cache dirty.
 func (s *AdminService) UnclaimCluster(ctx context.Context, req *connect.Request[mgmtv1.UnclaimClusterRequest]) (*connect.Response[mgmtv1.UnclaimClusterResponse], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	cluster, err := s.store.Queries.GetClusterByName(ctx, req.Msg.GetCluster())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("cluster not found"))
@@ -239,6 +320,9 @@ func (s *AdminService) ListAgentTokens(ctx context.Context, _ *connect.Request[m
 // exactly once in the response and is never logged or persisted — only its
 // SHA-256 hash is stored.
 func (s *AdminService) CreateAgentToken(ctx context.Context, req *connect.Request[mgmtv1.CreateAgentTokenRequest]) (*connect.Response[mgmtv1.CreateAgentTokenResponse], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	name := req.Msg.GetName()
 	if name == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("name required"))
@@ -265,6 +349,9 @@ func (s *AdminService) CreateAgentToken(ctx context.Context, req *connect.Reques
 
 // RevokeAgentToken revokes an agent token.
 func (s *AdminService) RevokeAgentToken(ctx context.Context, req *connect.Request[mgmtv1.RevokeAgentTokenRequest]) (*connect.Response[mgmtv1.RevokeAgentTokenResponse], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	id, err := scanUUID(req.Msg.GetId())
 	if err != nil {
 		return nil, err

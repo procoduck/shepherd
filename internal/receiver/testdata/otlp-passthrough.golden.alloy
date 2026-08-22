@@ -1,0 +1,70 @@
+otelcol.receiver.otlp "shared" {
+  http {
+    endpoint               = "0.0.0.0:4318"
+    max_request_body_size  = "8MiB"
+    include_metadata       = true
+  }
+  // no requests/sec limit is expressible here — see package doc.
+  output {
+    metrics = [otelcol.processor.batch.shared.input]
+    logs    = [otelcol.processor.batch.shared.input]
+    traces  = [otelcol.processor.batch.shared.input]
+  }
+}
+
+// D10 pass-through tenancy for this OTLP pipeline: X-Scope-OrgID trusts that the
+// gateway tier (internal/gateway.RenderHTTPRoute) already set X-Scope-OrgID on the
+// inbound request — it does not and cannot verify who set it. This
+// component reads that value out of the connection context (populated by
+// include_metadata = true above) and sets it on every outbound request
+// this pipeline's exporters make. It guarantees the header is set from the
+// gateway-controlled context on EVERY exporter below, never from a literal
+// — see Config's doc comment. It does NOT guarantee the request reached
+// this pipeline via the gateway in the first place.
+otelcol.auth.headers "otlp_shared_tenant" {
+  header {
+    key          = "X-Scope-OrgID"
+    from_context = "x-scope-orgid"
+    action       = "upsert"
+  }
+}
+
+otelcol.processor.batch "shared" {
+  timeout = "5s"
+  send_batch_size = 1000
+  send_batch_max_size = 1500
+  metadata_keys = ["x-scope-orgid"]
+  metadata_cardinality_limit = 1000
+  output {
+    metrics = [otelcol.exporter.otlp.shared_mimir.input]
+    logs    = [otelcol.exporter.otlphttp.shared_loki_otlp.input]
+    traces  = [otelcol.exporter.otlp.shared_tempo.input]
+  }
+}
+
+otelcol.exporter.otlp "shared_mimir" {
+  client {
+    endpoint = sys.env("SHEPHERD_DEST_SHARED_MIMIR_URL")
+    auth = otelcol.auth.headers.otlp_shared_tenant.handler
+  }
+}
+
+otelcol.exporter.otlphttp "shared_loki_otlp" {
+  client {
+    endpoint = sys.env("SHEPHERD_DEST_SHARED_LOKI_URL")
+    auth = otelcol.auth.headers.otlp_shared_tenant.handler
+    headers = {
+      "Authorization" = sys.env("SHEPHERD_DEST_SHARED_LOKI_TOKEN"),
+    }
+  }
+}
+
+otelcol.exporter.otlp "shared_tempo" {
+  client {
+    endpoint = sys.env("SHEPHERD_DEST_SHARED_TEMPO_URL")
+    auth = otelcol.auth.headers.otlp_shared_tenant.handler
+    headers = {
+      "Authorization" = sys.env("SHEPHERD_DEST_SHARED_TEMPO_TOKEN"),
+    }
+  }
+}

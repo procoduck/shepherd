@@ -13,7 +13,8 @@
       "!dist/**",
       "!coverage/**",
       "!src/gen/**",
-      "!src/visual/__fixtures__/corpus/**"
+      "!src/visual/__fixtures__/corpus/**",
+      "!test-results/**"
     ]
   },
   "formatter": {

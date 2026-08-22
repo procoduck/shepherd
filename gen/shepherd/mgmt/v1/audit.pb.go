@@ -24,15 +24,20 @@ const (
 
 // AuditEntry mirrors internal/mgmtapi/audit.go: auditResponse.
 type AuditEntry struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	At            *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=at,proto3" json:"at,omitempty"`
-	Actor         string                 `protobuf:"bytes,3,opt,name=actor,proto3" json:"actor,omitempty"`
-	ActorType     string                 `protobuf:"bytes,4,opt,name=actor_type,json=actorType,proto3" json:"actor_type,omitempty"`
-	OrgId         string                 `protobuf:"bytes,5,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
-	Action        string                 `protobuf:"bytes,6,opt,name=action,proto3" json:"action,omitempty"`
-	ResourceType  string                 `protobuf:"bytes,7,opt,name=resource_type,json=resourceType,proto3" json:"resource_type,omitempty"`
-	ResourceId    string                 `protobuf:"bytes,8,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Id           int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	At           *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=at,proto3" json:"at,omitempty"`
+	Actor        string                 `protobuf:"bytes,3,opt,name=actor,proto3" json:"actor,omitempty"`
+	ActorType    string                 `protobuf:"bytes,4,opt,name=actor_type,json=actorType,proto3" json:"actor_type,omitempty"`
+	OrgId        string                 `protobuf:"bytes,5,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	Action       string                 `protobuf:"bytes,6,opt,name=action,proto3" json:"action,omitempty"`
+	ResourceType string                 `protobuf:"bytes,7,opt,name=resource_type,json=resourceType,proto3" json:"resource_type,omitempty"`
+	ResourceId   string                 `protobuf:"bytes,8,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
+	// on_behalf_of is G13's second attribution half
+	// (docs/gateway-tier-plan.md): the human a machine (actor_type
+	// "service_account") actor's write was performed for. Empty for a human
+	// session's own actions — there is no delegation to record.
+	OnBehalfOf    string `protobuf:"bytes,9,opt,name=on_behalf_of,json=onBehalfOf,proto3" json:"on_behalf_of,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -119,6 +124,13 @@ func (x *AuditEntry) GetResourceType() string {
 func (x *AuditEntry) GetResourceId() string {
 	if x != nil {
 		return x.ResourceId
+	}
+	return ""
+}
+
+func (x *AuditEntry) GetOnBehalfOf() string {
+	if x != nil {
+		return x.OnBehalfOf
 	}
 	return ""
 }
@@ -257,7 +269,7 @@ var File_shepherd_mgmt_v1_audit_proto protoreflect.FileDescriptor
 
 const file_shepherd_mgmt_v1_audit_proto_rawDesc = "" +
 	"\n" +
-	"\x1cshepherd/mgmt/v1/audit.proto\x12\x10shepherd.mgmt.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xf2\x01\n" +
+	"\x1cshepherd/mgmt/v1/audit.proto\x12\x10shepherd.mgmt.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x94\x02\n" +
 	"\n" +
 	"AuditEntry\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12*\n" +
@@ -269,7 +281,9 @@ const file_shepherd_mgmt_v1_audit_proto_rawDesc = "" +
 	"\x06action\x18\x06 \x01(\tR\x06action\x12#\n" +
 	"\rresource_type\x18\a \x01(\tR\fresourceType\x12\x1f\n" +
 	"\vresource_id\x18\b \x01(\tR\n" +
-	"resourceId\"\x85\x01\n" +
+	"resourceId\x12 \n" +
+	"\fon_behalf_of\x18\t \x01(\tR\n" +
+	"onBehalfOf\"\x85\x01\n" +
 	"\x10ListAuditRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\x05R\x05limit\x12\x16\n" +

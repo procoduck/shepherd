@@ -14,6 +14,9 @@ service AdminService {
   rpc CreateOrg(CreateOrgRequest) returns (Org) {}
   rpc UpdateOrg(UpdateOrgRequest) returns (Org) {}
   rpc DeleteOrg(DeleteOrgRequest) returns (DeleteOrgResponse) {}
+  // SetOrgTenantID assigns tenant identity to an org created without one.
+  // App admin only, set-once.
+  rpc SetOrgTenantID(SetOrgTenantIDRequest) returns (Org) {}
 
   rpc ListClusters(ListClustersRequest) returns (ListClustersResponse) {}
   rpc ClaimCluster(ClaimClusterRequest) returns (ClaimClusterResponse) {}
@@ -35,6 +38,11 @@ message Org {
   string reader_group_id = 5;
   google.protobuf.Timestamp created_at = 6;
   google.protobuf.Timestamp updated_at = 7;
+  // tenant_id is the identity Shepherd injects as X-Scope-OrgID on every
+  // request this org's tenant routes carry. Only an app admin sets it, and
+  // only once — see CreateOrgRequest.tenant_id. Empty means this org cannot
+  // have tenant routes yet.
+  string tenant_id = 8;
 }
 
 message ListOrgsRequest {}
@@ -50,6 +58,13 @@ message CreateOrgRequest {
   string display_name = 2;
   string admin_group_id = 3;
   string reader_group_id = 4;
+  // tenant_id is the org's telemetry tenant identity — the X-Scope-OrgID
+  // value its routes inject downstream. Optional here so an org can be
+  // created before its destination tenancy is decided, but an org without
+  // one cannot have tenant routes: CreateTenantRoute refuses and names this
+  // field. Must satisfy internal/gateway.ValidateTenantID (Grafana Mimir's
+  // documented rule). Settable exactly once — see SetOrgTenantId.
+  string tenant_id = 5;
 }
 
 message UpdateOrgRequest {
@@ -58,6 +73,16 @@ message UpdateOrgRequest {
   string display_name = 2;
   string admin_group_id = 3;
   string reader_group_id = 4;
+}
+
+// SetOrgTenantIDRequest assigns an org's tenant identity when it was created
+// without one. App admin only, and set-once: an org whose tenant_id is
+// already set is refused rather than rewritten, because every HTTPRoute
+// already minted for it injects the old value and would keep routing
+// perfectly well while naming the wrong tenant.
+message SetOrgTenantIDRequest {
+  string org_id = 1;
+  string tenant_id = 2;
 }
 
 message DeleteOrgRequest {

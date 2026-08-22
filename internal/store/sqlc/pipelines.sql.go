@@ -13,9 +13,9 @@ import (
 )
 
 const createPipeline = `-- name: CreatePipeline :one
-INSERT INTO pipelines (org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, created_by, updated_by, repo_link_id, git_path)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-RETURNING id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name
+INSERT INTO pipelines (org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, created_by, updated_by, repo_link_id, git_path, owner_team_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+RETURNING id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id
 `
 
 type CreatePipelineParams struct {
@@ -31,6 +31,7 @@ type CreatePipelineParams struct {
 	UpdatedBy   string          `json:"updated_by"`
 	RepoLinkID  pgtype.UUID     `json:"repo_link_id"`
 	GitPath     pgtype.Text     `json:"git_path"`
+	OwnerTeamID pgtype.UUID     `json:"owner_team_id"`
 }
 
 func (q *Queries) CreatePipeline(ctx context.Context, arg CreatePipelineParams) (Pipeline, error) {
@@ -47,6 +48,7 @@ func (q *Queries) CreatePipeline(ctx context.Context, arg CreatePipelineParams) 
 		arg.UpdatedBy,
 		arg.RepoLinkID,
 		arg.GitPath,
+		arg.OwnerTeamID,
 	)
 	var i Pipeline
 	err := row.Scan(
@@ -66,6 +68,7 @@ func (q *Queries) CreatePipeline(ctx context.Context, arg CreatePipelineParams) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.SanitizedName,
+		&i.OwnerTeamID,
 	)
 	return i, err
 }
@@ -80,7 +83,7 @@ func (q *Queries) DeletePipeline(ctx context.Context, id pgtype.UUID) error {
 }
 
 const getPipelineByID = `-- name: GetPipelineByID :one
-SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name FROM pipelines WHERE id = $1
+SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id FROM pipelines WHERE id = $1
 `
 
 func (q *Queries) GetPipelineByID(ctx context.Context, id pgtype.UUID) (Pipeline, error) {
@@ -103,12 +106,13 @@ func (q *Queries) GetPipelineByID(ctx context.Context, id pgtype.UUID) (Pipeline
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.SanitizedName,
+		&i.OwnerTeamID,
 	)
 	return i, err
 }
 
 const getPipelineByOrgAndName = `-- name: GetPipelineByOrgAndName :one
-SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name FROM pipelines WHERE org_id = $1 AND name = $2
+SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id FROM pipelines WHERE org_id = $1 AND name = $2
 `
 
 type GetPipelineByOrgAndNameParams struct {
@@ -136,12 +140,13 @@ func (q *Queries) GetPipelineByOrgAndName(ctx context.Context, arg GetPipelineBy
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.SanitizedName,
+		&i.OwnerTeamID,
 	)
 	return i, err
 }
 
 const listEnabledPipelinesByOrg = `-- name: ListEnabledPipelinesByOrg :many
-SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name FROM pipelines WHERE org_id = $1 AND enabled = true ORDER BY name
+SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id FROM pipelines WHERE org_id = $1 AND enabled = true ORDER BY name
 `
 
 func (q *Queries) ListEnabledPipelinesByOrg(ctx context.Context, orgID pgtype.UUID) ([]Pipeline, error) {
@@ -170,6 +175,7 @@ func (q *Queries) ListEnabledPipelinesByOrg(ctx context.Context, orgID pgtype.UU
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.SanitizedName,
+			&i.OwnerTeamID,
 		); err != nil {
 			return nil, err
 		}
@@ -182,7 +188,7 @@ func (q *Queries) ListEnabledPipelinesByOrg(ctx context.Context, orgID pgtype.UU
 }
 
 const listEnabledPipelinesForMerge = `-- name: ListEnabledPipelinesForMerge :many
-SELECT p.id, p.org_id, p.name, p.contents, p.matchers, p.enabled, p.source, p.wizard_kind, p.wizard_state, p.repo_link_id, p.git_path, p.created_by, p.updated_by, p.created_at, p.updated_at, p.sanitized_name, rl.collector_id AS repo_link_collector_id
+SELECT p.id, p.org_id, p.name, p.contents, p.matchers, p.enabled, p.source, p.wizard_kind, p.wizard_state, p.repo_link_id, p.git_path, p.created_by, p.updated_by, p.created_at, p.updated_at, p.sanitized_name, p.owner_team_id, rl.collector_id AS repo_link_collector_id
 FROM pipelines p
 LEFT JOIN repo_links rl ON rl.id = p.repo_link_id
 WHERE p.org_id = $1 AND p.enabled = true
@@ -206,6 +212,7 @@ type ListEnabledPipelinesForMergeRow struct {
 	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 	SanitizedName       pgtype.Text        `json:"sanitized_name"`
+	OwnerTeamID         pgtype.UUID        `json:"owner_team_id"`
 	RepoLinkCollectorID pgtype.UUID        `json:"repo_link_collector_id"`
 }
 
@@ -239,6 +246,7 @@ func (q *Queries) ListEnabledPipelinesForMerge(ctx context.Context, orgID pgtype
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.SanitizedName,
+			&i.OwnerTeamID,
 			&i.RepoLinkCollectorID,
 		); err != nil {
 			return nil, err
@@ -252,7 +260,7 @@ func (q *Queries) ListEnabledPipelinesForMerge(ctx context.Context, orgID pgtype
 }
 
 const listPipelinesByOrg = `-- name: ListPipelinesByOrg :many
-SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name FROM pipelines WHERE org_id = $1 ORDER BY name
+SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id FROM pipelines WHERE org_id = $1 ORDER BY name
 `
 
 func (q *Queries) ListPipelinesByOrg(ctx context.Context, orgID pgtype.UUID) ([]Pipeline, error) {
@@ -281,6 +289,7 @@ func (q *Queries) ListPipelinesByOrg(ctx context.Context, orgID pgtype.UUID) ([]
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.SanitizedName,
+			&i.OwnerTeamID,
 		); err != nil {
 			return nil, err
 		}
@@ -298,7 +307,7 @@ SET enabled    = $2,
     updated_by = $3,
     updated_at = now()
 WHERE id = $1
-RETURNING id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name
+RETURNING id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id
 `
 
 type SetPipelineEnabledParams struct {
@@ -327,6 +336,53 @@ func (q *Queries) SetPipelineEnabled(ctx context.Context, arg SetPipelineEnabled
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.SanitizedName,
+		&i.OwnerTeamID,
+	)
+	return i, err
+}
+
+const setPipelineOwnerTeam = `-- name: SetPipelineOwnerTeam :one
+UPDATE pipelines
+SET owner_team_id = $2,
+    updated_at     = now()
+WHERE id = $1
+RETURNING id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id
+`
+
+type SetPipelineOwnerTeamParams struct {
+	ID          pgtype.UUID `json:"id"`
+	OwnerTeamID pgtype.UUID `json:"owner_team_id"`
+}
+
+// Reassigns (or, with a NULL owner_team_id, clears — demotes to
+// unowned/admin-only) a pipeline's owning team. Deliberately its own query
+// rather than folded into UpdatePipeline: content edits and ownership
+// transfer are different operations with different authorization
+// requirements (see internal/mgmtapi's PipelineService — a team member may
+// edit their team's pipeline content, but reassigning OWNERSHIP away from
+// their team is an org-admin action), and merging them would let a content
+// edit request accidentally carry an ownership change along for the ride.
+func (q *Queries) SetPipelineOwnerTeam(ctx context.Context, arg SetPipelineOwnerTeamParams) (Pipeline, error) {
+	row := q.db.QueryRow(ctx, setPipelineOwnerTeam, arg.ID, arg.OwnerTeamID)
+	var i Pipeline
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Name,
+		&i.Contents,
+		&i.Matchers,
+		&i.Enabled,
+		&i.Source,
+		&i.WizardKind,
+		&i.WizardState,
+		&i.RepoLinkID,
+		&i.GitPath,
+		&i.CreatedBy,
+		&i.UpdatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.SanitizedName,
+		&i.OwnerTeamID,
 	)
 	return i, err
 }
@@ -340,7 +396,7 @@ SET name         = $2,
     updated_by   = $6,
     updated_at   = now()
 WHERE id = $1
-RETURNING id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name
+RETURNING id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id
 `
 
 type UpdatePipelineParams struct {
@@ -387,6 +443,7 @@ func (q *Queries) UpdatePipeline(ctx context.Context, arg UpdatePipelineParams) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.SanitizedName,
+		&i.OwnerTeamID,
 	)
 	return i, err
 }

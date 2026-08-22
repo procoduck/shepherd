@@ -1,0 +1,33 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: shepherd
+    shepherd.io/route-kind: otlp
+  name: acme-otlp
+  namespace: shepherd-receiver
+spec:
+  parentRefs:
+  - name: shepherd-gateway
+    namespace: shepherd-gateway-system
+  rules:
+  - backendRefs:
+    - name: receiver-acme
+      port: 4318
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: ""
+          type: ReplacePrefixMatch
+    - requestHeaderModifier:
+        set:
+        - name: X-Scope-OrgID
+          value: acme
+      type: RequestHeaderModifier
+    matches:
+    - path:
+        type: PathPrefix
+        value: /otlp/acme-a1b2c3
+status:
+  parents: null

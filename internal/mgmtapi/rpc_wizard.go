@@ -148,6 +148,9 @@ func (s *WizardService) previewMatchedCollectors(ctx context.Context, p merge.Pi
 
 // CommitWizard generates a pipeline from wizard state and creates it.
 func (s *WizardService) CommitWizard(ctx context.Context, req *connect.Request[mgmtv1.CommitWizardRequest]) (*connect.Response[mgmtv1.Pipeline], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	var orgID pgtype.UUID
 	if err := orgID.Scan(req.Msg.GetOrgId()); err != nil {
 		orgID.Valid = false

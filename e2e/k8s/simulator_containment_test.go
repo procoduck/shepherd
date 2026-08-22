@@ -81,13 +81,11 @@ func TestSimulatorContainmentProbes(t *testing.T) {
 	feat := features.New("simulator containment probes").
 		WithLabel("suite", "containment").
 		Setup(func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-			if !cniVerified {
-				t.Fatalf("TestCNIEnforcesNetworkPolicy has not verified this cluster's CNI enforces " +
-					"NetworkPolicy (it must run — and pass — first). Any denial reported by this feature " +
-					"would be meaningless: it could mean the policy works, or it could mean the CNI ignores " +
-					"NetworkPolicy entirely and every dial below fails for some unrelated reason. Run the " +
-					"whole suite (`make e2e-k8s`), not this test in isolation.")
-			}
+			// Any denial reported by this feature would be meaningless if the
+			// CNI does not enforce NetworkPolicy at all. requireCNIVerified
+			// runs the negative control on demand rather than trusting
+			// filename-sort ordering.
+			requireCNIVerified(t)
 
 			f = newFixture(ctx, t, cfg, "containment")
 			helmRun(t, cfg, f, "install", release, simulatorOn()...)
@@ -255,11 +253,9 @@ func TestSimulatorContainmentKillProbe(t *testing.T) {
 	feat := features.New("kill probe: containment depends on the NetworkPolicy, not on something else").
 		WithLabel("suite", "containment").
 		Setup(func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-			if !cniVerified {
-				t.Fatalf("TestCNIEnforcesNetworkPolicy has not verified this cluster's CNI enforces " +
-					"NetworkPolicy — see TestSimulatorContainmentProbes for why that makes every result here " +
-					"meaningless too.")
-			}
+			// See TestSimulatorContainmentProbes for why an unverified CNI
+			// makes every result here meaningless too.
+			requireCNIVerified(t)
 
 			f = newFixture(ctx, t, cfg, "killprobe")
 			helmRun(t, cfg, f, "install", release, simulatorOn()...)

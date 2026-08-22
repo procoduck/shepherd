@@ -1,0 +1,33 @@
+faro.receiver "public_faro" {
+  server {
+    listen_address = "0.0.0.0"
+    listen_port    = 12349
+    max_allowed_payload_size = "5MiB"
+    // CORS answers docs/gateway-tier-plan.md D2: the Gateway API Standard
+    // channel carries no CORS filter at the pinned floor, so this receiver is
+    // the only place origin is enforced for browser traffic.
+    // deliberate wildcard: CORSPolicy.AllowAll was set explicitly.
+    cors_allowed_origins = ["*"]
+    rate_limiting {
+      enabled = true
+      strategy   = "per_app"
+      rate       = 20
+      burst_size = 40
+    }
+  }
+  output {
+    traces = [otelcol.processor.batch.faro_public_faro_traces.input]
+  }
+}
+
+otelcol.processor.batch "faro_public_faro_traces" {
+  output {
+    traces  = [otelcol.exporter.otlphttp.public_faro_tempo.input]
+  }
+}
+
+otelcol.exporter.otlphttp "public_faro_tempo" {
+  client {
+    endpoint = sys.env("SHEPHERD_DEST_PUBLIC_TEMPO_URL")
+  }
+}

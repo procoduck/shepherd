@@ -144,6 +144,9 @@ func (s *GitOpsService) ListCredentials(ctx context.Context, req *connect.Reques
 // for every kind except "none"; it and secret2 (only ssh's optional key
 // passphrase today) are encrypted at rest and never returned.
 func (s *GitOpsService) CreateCredential(ctx context.Context, req *connect.Request[mgmtv1.CreateCredentialRequest]) (*connect.Response[mgmtv1.GitCredential], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	if s.crypto == nil {
 		return nil, connect.NewError(connect.CodeUnavailable, errEncryptionUnavailable)
 	}
@@ -218,6 +221,9 @@ func (s *GitOpsService) CreateCredential(ctx context.Context, req *connect.Reque
 
 // DeleteCredential deletes a git credential.
 func (s *GitOpsService) DeleteCredential(ctx context.Context, req *connect.Request[mgmtv1.DeleteCredentialRequest]) (*connect.Response[mgmtv1.DeleteCredentialResponse], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	if s.crypto == nil {
 		return nil, connect.NewError(connect.CodeUnavailable, errEncryptionUnavailable)
 	}
@@ -425,6 +431,9 @@ func (s *GitOpsService) ListRepoLinks(ctx context.Context, req *connect.Request[
 // CreateRepoLink creates a repo link. Defaults branch="main", path="/",
 // poll_interval_seconds=180 when unset, matching the legacy handler.
 func (s *GitOpsService) CreateRepoLink(ctx context.Context, req *connect.Request[mgmtv1.CreateRepoLinkRequest]) (*connect.Response[mgmtv1.RepoLink], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	if s.crypto == nil {
 		return nil, connect.NewError(connect.CodeUnavailable, errEncryptionUnavailable)
 	}
@@ -468,6 +477,9 @@ func (s *GitOpsService) CreateRepoLink(ctx context.Context, req *connect.Request
 
 // DeleteRepoLink deletes a repo link.
 func (s *GitOpsService) DeleteRepoLink(ctx context.Context, req *connect.Request[mgmtv1.DeleteRepoLinkRequest]) (*connect.Response[mgmtv1.DeleteRepoLinkResponse], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	if s.crypto == nil {
 		return nil, connect.NewError(connect.CodeUnavailable, errEncryptionUnavailable)
 	}

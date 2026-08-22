@@ -1,0 +1,31 @@
+discovery.kubernetes "pods" {
+  role = "pod"
+}
+
+discovery.relabel "pods" {
+  targets = discovery.kubernetes.pods.targets
+
+  rule {
+    source_labels = ["__meta_kubernetes_namespace"]
+    regex         = "staging-.*"
+    action        = "keep"
+  }
+}
+
+loki.source.kubernetes "pods" {
+  targets    = discovery.relabel.pods.output
+  forward_to = [loki.process.pods.receiver]
+}
+
+loki.process "pods" {
+  forward_to = [loki.write.logs.receiver]
+  stage.json {}
+}
+
+loki.write "logs" {
+  endpoint {
+    name = "loki-staging"
+    url  = sys.env("SHEPHERD_DEST_LOKI_STAGING_URL")
+    // auth injected by Shepherd at serve time
+  }
+}

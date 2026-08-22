@@ -1,0 +1,56 @@
+otelcol.receiver.otlp "acme" {
+  grpc {
+    endpoint               = "0.0.0.0:4317"
+    max_recv_msg_size      = "4MiB"
+    max_concurrent_streams = 100
+  }
+  http {
+    endpoint               = "0.0.0.0:4318"
+    max_request_body_size  = "8MiB"
+  }
+  // no requests/sec limit is expressible here — see package doc.
+  output {
+    metrics = [otelcol.processor.batch.acme.input]
+    logs    = [otelcol.processor.batch.acme.input]
+    traces  = [otelcol.processor.batch.acme.input]
+  }
+}
+
+otelcol.processor.batch "acme" {
+  timeout = "5s"
+  send_batch_size = 1000
+  send_batch_max_size = 1500
+  output {
+    metrics = [otelcol.exporter.otlp.acme_mimir.input]
+    logs    = [otelcol.exporter.otlphttp.acme_loki_otlp.input]
+    traces  = [otelcol.exporter.otlp.acme_tempo.input]
+  }
+}
+
+otelcol.exporter.otlp "acme_mimir" {
+  client {
+    endpoint = sys.env("SHEPHERD_DEST_ACME_MIMIR_URL")
+    headers = {
+      "X-Scope-OrgID" = "acme",
+    }
+  }
+}
+
+otelcol.exporter.otlphttp "acme_loki_otlp" {
+  client {
+    endpoint = sys.env("SHEPHERD_DEST_ACME_LOKI_URL")
+    headers = {
+      "Authorization" = sys.env("SHEPHERD_DEST_ACME_LOKI_TOKEN"),
+      "X-Scope-OrgID" = "acme",
+    }
+  }
+}
+
+otelcol.exporter.otlp "acme_tempo" {
+  client {
+    endpoint = sys.env("SHEPHERD_DEST_ACME_TEMPO_URL")
+    headers = {
+      "Authorization" = sys.env("SHEPHERD_DEST_ACME_TEMPO_TOKEN"),
+    }
+  }
+}

@@ -18,6 +18,20 @@ var tableRowsGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
 	Help: "Estimated row count per table (pg_class.reltuples).",
 }, []string{"table"})
 
+// beaconInventoryExpireAfter bounds how long a beacon_inventory row survives
+// without a fresh report before the sweeper deletes it (plan §4, W5: "a
+// collector that stops reporting ages out rather than lingering as a
+// permanently-healthy ghost"). Five times the baseline pipeline's rendered
+// scrape_interval (60s — beacon.RenderBaselinePipeline's caller sets this;
+// see internal/beacon/render.go) tolerates a handful of missed/slow
+// remote_write batches without flapping a row in and out of existence on
+// every transient failure, while still being short enough that "still
+// present" stays a meaningful signal. Not wired through config.AgentConfig
+// (unlike inactiveAfter/deleteAfter below): this expiry is a property of the
+// baseline pipeline's own cadence, which this package also controls, rather
+// than an independent operator-tunable knob.
+const beaconInventoryExpireAfter = 5 * time.Minute
+
 // Sweeper marks collector instances inactive after inactiveAfter and hard-deletes
 // them after deleteAfter. It runs on a background goroutine.
 type Sweeper struct {
@@ -76,6 +90,15 @@ func (sw *Sweeper) sweep(ctx context.Context) {
 		sw.logger.Error("sweeper: failed to delete expired sessions", "err", err)
 	} else if n > 0 {
 		sw.logger.Debug("sweeper: deleted expired sessions", "sessions_swept", n)
+	}
+
+	// W5 (D6): age out beacon inventory nobody has reported for a while —
+	// same shape as the collector-instance sweep above, new table.
+	beaconCutoff := pgtype.Timestamptz{Time: now.Add(-beaconInventoryExpireAfter), Valid: true}
+	if bn, err := sw.store.Queries.DeleteExpiredBeaconInventory(ctx, beaconCutoff); err != nil {
+		sw.logger.Error("sweeper: failed to delete expired beacon inventory", "err", err)
+	} else if bn > 0 {
+		sw.logger.Debug("sweeper: deleted expired beacon inventory rows", "rows_swept", bn)
 	}
 
 	sw.refreshTableGauges(ctx)

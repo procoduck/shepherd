@@ -1,0 +1,18 @@
+prometheus.exporter.mysql "db" {
+  data_source_name = sys.env("APP_MYSQL_DSN")
+}
+
+prometheus.scrape "database" {
+  targets         = prometheus.exporter.mysql.db.targets
+  forward_to      = [prometheus.remote_write.metrics.receiver]
+  scrape_interval = "30s"
+  job_name        = "app-db"
+}
+
+prometheus.remote_write "metrics" {
+  endpoint {
+    name = "prom-staging"
+    url  = sys.env("SHEPHERD_DEST_PROM_STAGING_URL")
+    // auth injected by Shepherd at serve time
+  }
+}

@@ -83,6 +83,11 @@ func TestMain(m *testing.M) {
 		// inside it — see fixtures_test.go for the isolation rules).
 		loadImages,
 		deploySharedPostgres,
+		// Gateway API foundation (docs/gateway-tier-plan.md W3, gates G3/G4):
+		// the PINNED CRDs plus one controller, installed once and shared by
+		// every feature that needs them — see route_conformance_test.go.
+		installGatewayAPI,
+		installGatewayController,
 	)
 
 	// Finish runs on success, on failure and on panic. The one case it cannot

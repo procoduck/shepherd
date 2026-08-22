@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package shepherd.mgmt.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
+
+// TeamService covers team definitions: an org-scoped binding of a name to
+// an IdP group (docs/gateway-tier-plan.md W10), extending
+// group_assignments' "IdP group grants access" model from the collector
+// level up to the org level. A team can OWN a pipeline
+// (pipeline.owner_team_id); ownership is what PipelineService's scoped
+// write (G11) is scoped by.
+//
+// Team *definition* (who counts as a team, which IdP group backs it)
+// requires org-admin — the same "org-admin edits everything" ceiling every
+// other admin surface in this API has. What G11 actually adds is that a
+// non-admin member of a team's IdP group can then write the pipelines that
+// team owns, without needing org-admin at all — see PipelineService.
+service TeamService {
+  rpc ListTeams(ListTeamsRequest) returns (ListTeamsResponse) {}
+  rpc CreateTeam(CreateTeamRequest) returns (Team) {}
+  rpc DeleteTeam(DeleteTeamRequest) returns (DeleteTeamResponse) {}
+}
+
+// Team mirrors internal/store/sqlc.Team (0012_teams_service_accounts).
+message Team {
+  string id = 1;
+  string org_id = 2;
+  string name = 3;
+  string idp_group_id = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message ListTeamsRequest {
+  string org_id = 1;
+}
+
+message ListTeamsResponse {
+  repeated Team items = 1;
+  int32 total = 2;
+}
+
+message CreateTeamRequest {
+  string org_id = 1;
+  string name = 2;
+  string idp_group_id = 3;
+}
+
+message DeleteTeamRequest {
+  string org_id = 1;
+  string id = 2;
+}
+
+message DeleteTeamResponse {}

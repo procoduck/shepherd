@@ -1,0 +1,18 @@
+prometheus.exporter.cadvisor "cluster" {
+  docker_only = true
+}
+
+prometheus.scrape "cluster_metrics" {
+  targets          = prometheus.exporter.cadvisor.cluster.targets
+  forward_to       = [prometheus.remote_write.metrics.receiver]
+  scrape_interval  = "30s"
+  job_name         = "docker-cluster"
+}
+
+prometheus.remote_write "metrics" {
+  endpoint {
+    name = "prom-staging"
+    url  = sys.env("SHEPHERD_DEST_PROM_STAGING_URL")
+    // auth injected by Shepherd at serve time
+  }
+}
