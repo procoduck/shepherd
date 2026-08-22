@@ -8,7 +8,13 @@ import { AdminModal, AdminModalActions } from '@/components/admin/AdminModal';
 import type { Org } from '@/gen/shepherd/mgmt/v1/admin_pb';
 import { useMe } from '@/hooks/useMe';
 
-const emptyCreateForm = { name: '', displayName: '', adminGroupId: '', readerGroupId: '', tenantId: '' };
+const emptyCreateForm = {
+  name: '',
+  displayName: '',
+  adminGroupId: '',
+  readerGroupId: '',
+  tenantId: '',
+};
 
 export function AdminOrgsPage() {
   const { data: me } = useMe();
@@ -131,7 +137,9 @@ export function AdminOrgsPage() {
                       // An org without a tenant cannot have tenant routes, so
                       // say that rather than showing an empty cell an admin
                       // would read as "nothing to do here".
-                      <span className='text-muted-3 italic'>not set &mdash; no routes possible</span>
+                      <span className='text-muted-3 italic'>
+                        not set &mdash; no routes possible
+                      </span>
                     )}
                   </td>
                   {isAppAdmin && (
