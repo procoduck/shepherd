@@ -321,9 +321,13 @@ var _ = Describe("D10 pass-through tenancy", func() {
 		out, err := receiver.Render(fixture("otlp-passthrough"))
 		Expect(err).NotTo(HaveOccurred())
 
-		// Requirement 1: include_metadata set on both listener blocks that
-		// are actually configured in this fixture.
-		Expect(strings.Count(out, "include_metadata       = true")).To(Equal(2), "expected include_metadata on both grpc and http blocks")
+		// Requirement 1: include_metadata set on every listener block the
+		// fixture configures. That is exactly one now — Validate refuses a
+		// gRPC listener in pass-through mode, since an HTTPRoute cannot front
+		// gRPC and the tenant header would be whatever the client sent.
+		Expect(strings.Count(out, "include_metadata       = true")).To(Equal(1),
+			"expected include_metadata on the http listener (and only that one — pass-through "+
+				"has no gRPC listener to set it on)")
 
 		// The shared otelcol.auth.headers component reads the tenant header
 		// gateway.RenderHTTPRoute sets (single source of truth — imported,
@@ -343,7 +347,9 @@ var _ = Describe("D10 pass-through tenancy", func() {
 		_, err := receiver.Render(receiver.Config{OTLP: []receiver.OTLPPipeline{{
 			Label: "x",
 			Mode:  receiver.TenancyPassThrough,
-			GRPC:  &receiver.OTLPGRPCListener{ListenAddr: "0.0.0.0:4317", MaxRecvMsgSize: "4MiB", MaxConcurrentStreams: 100},
+			// HTTP, not gRPC: pass-through refuses a gRPC listener outright,
+			// and that refusal would mask the mutual-exclusion check under test.
+			HTTP: &receiver.OTLPHTTPListener{ListenAddr: "0.0.0.0:4318", MaxRequestBodySize: "8MiB"},
 			Metrics: &receiver.OTLPExporter{
 				Name: "m", Protocol: receiver.ExporterGRPC, EndpointExpr: `"https://x"`,
 				Headers: map[string]string{gateway.TenantHeader: "acme"},
@@ -357,7 +363,9 @@ var _ = Describe("D10 pass-through tenancy", func() {
 		_, err := receiver.Render(receiver.Config{OTLP: []receiver.OTLPPipeline{{
 			Label: "x",
 			Mode:  receiver.TenancyPassThrough,
-			GRPC:  &receiver.OTLPGRPCListener{ListenAddr: "0.0.0.0:4317", MaxRecvMsgSize: "4MiB", MaxConcurrentStreams: 100},
+			// HTTP, not gRPC: pass-through refuses a gRPC listener outright,
+			// and that refusal would mask the mutual-exclusion check under test.
+			HTTP: &receiver.OTLPHTTPListener{ListenAddr: "0.0.0.0:4318", MaxRequestBodySize: "8MiB"},
 			Metrics: &receiver.OTLPExporter{
 				Name: "m", Protocol: receiver.ExporterGRPC, EndpointExpr: `"https://x"`,
 				SecretHeaderEnv: map[string]string{gateway.TenantHeader: "SOME_ENV"},
@@ -371,7 +379,9 @@ var _ = Describe("D10 pass-through tenancy", func() {
 		_, err := receiver.Render(receiver.Config{OTLP: []receiver.OTLPPipeline{{
 			Label: "x",
 			Mode:  receiver.TenancyPassThrough,
-			GRPC:  &receiver.OTLPGRPCListener{ListenAddr: "0.0.0.0:4317", MaxRecvMsgSize: "4MiB", MaxConcurrentStreams: 100},
+			// HTTP, not gRPC: pass-through refuses a gRPC listener outright,
+			// and that refusal would mask the mutual-exclusion check under test.
+			HTTP: &receiver.OTLPHTTPListener{ListenAddr: "0.0.0.0:4318", MaxRequestBodySize: "8MiB"},
 			Metrics: &receiver.OTLPExporter{
 				Name: "m", Protocol: receiver.ExporterGRPC, EndpointExpr: `"https://x"`,
 				Headers: map[string]string{"x-scope-orgid": "acme"},
@@ -385,12 +395,90 @@ var _ = Describe("D10 pass-through tenancy", func() {
 		_, err := receiver.Render(receiver.Config{OTLP: []receiver.OTLPPipeline{{
 			Label: "x",
 			Mode:  receiver.OTLPTenancyMode("bogus"),
-			GRPC:  &receiver.OTLPGRPCListener{ListenAddr: "0.0.0.0:4317", MaxRecvMsgSize: "4MiB", MaxConcurrentStreams: 100},
+			// HTTP, not gRPC: pass-through refuses a gRPC listener outright,
+			// and that refusal would mask the mutual-exclusion check under test.
+			HTTP: &receiver.OTLPHTTPListener{ListenAddr: "0.0.0.0:4318", MaxRequestBodySize: "8MiB"},
 			Metrics: &receiver.OTLPExporter{
 				Name: "m", Protocol: receiver.ExporterGRPC, EndpointExpr: `"https://x"`,
 			},
 		}}})
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("mode"))
+	})
+})
+
+// The defect this pins was found by a final review, not by any test here,
+// and it made D10's pass-through mode not work at all while looking correct.
+//
+// otelcol.processor.batch sits between the receiver and the exporters, and it
+// does NOT forward client metadata unless told which keys to preserve. Alloy's
+// otelcol.auth.headers reference is explicit: "If an otelcol.processor.batch
+// is present in the pipeline, it must be configured to preserve client
+// metadata. Do this by adding the value that from_context needs to the
+// metadata_keys of the batch processor." Without it, from_context finds
+// nothing and omits the header rather than erroring — so EVERY tenant ships
+// with no X-Scope-OrgID. Against a strictly multi-tenant destination that is
+// an outage; against one with a default tenant it is a silent cross-tenant
+// merge, which is the exact outcome D10 exists to prevent.
+//
+// Nothing already here could catch it: the config is syntactically valid, so
+// `alloy validate` passes, and the kind suite's backend is an echo server
+// rather than a real Alloy pipeline. That is §10's "alloy validate is not
+// alloy run" one layer up, so this asserts the WIRING invariant instead —
+// tenancy read from context at the exporter is only real if every stage
+// between it and the listener preserves the key.
+//
+// Red run, executed: dropping the `if passThrough` metadata_keys block in
+// renderBatch fails this spec with `a pass-through pipeline batches through
+// otelcol.processor.batch without preserving "x-scope-orgid"`.
+var _ = Describe("pass-through tenancy survives the batch processor", func() {
+	It("preserves the tenant key on every batch processor in a pass-through pipeline", func() {
+		out, err := receiver.Render(fixture("otlp-passthrough"))
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(out).To(ContainSubstring("otelcol.processor.batch"),
+			"fixture no longer batches — this spec would pass vacuously")
+		Expect(out).To(ContainSubstring(`metadata_keys = ["x-scope-orgid"]`),
+			"a pass-through pipeline batches through otelcol.processor.batch without preserving "+
+				"%q, so from_context finds nothing at the exporter and every tenant ships untagged",
+			strings.ToLower(gateway.TenantHeader))
+
+		// The key preserved must be the same one the auth component reads.
+		// Two independently-written literals here is exactly how this drifts.
+		Expect(out).To(ContainSubstring(`from_context = "x-scope-orgid"`))
+	})
+
+	It("does not add metadata_keys to a static-tenancy pipeline", func() {
+		out, err := receiver.Render(fixture("otlp-basic"))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(out).NotTo(ContainSubstring("metadata_keys"),
+			"static tenancy hardcodes the tenant per pipeline and reads nothing from context; "+
+				"preserving metadata there would shard batches for no reason")
+	})
+})
+
+// Red run, executed: deleting the `p.Mode == TenancyPassThrough && p.GRPC != nil`
+// refusal in validateOTLPPipeline fails this spec with `Render accepted a
+// pass-through pipeline with a gRPC listener`.
+var _ = Describe("pass-through refuses a listener no rendered route can front", func() {
+	It("refuses a gRPC listener in pass-through mode", func() {
+		cfg := fixture("otlp-passthrough")
+		cfg.OTLP[0].GRPC = &receiver.OTLPGRPCListener{
+			ListenAddr: "0.0.0.0:4317", MaxRecvMsgSize: "4MiB", MaxConcurrentStreams: 200,
+		}
+		_, err := receiver.Render(cfg)
+		Expect(err).To(HaveOccurred(),
+			"Render accepted a pass-through pipeline with a gRPC listener — an HTTPRoute cannot "+
+				"front gRPC, so every client would choose its own tenant")
+		Expect(err.Error()).To(ContainSubstring("GRPCRoute"),
+			"the refusal must say why, not just that it refused")
+	})
+
+	It("still allows a gRPC listener under static tenancy", func() {
+		cfg := fixture("otlp-basic")
+		Expect(cfg.OTLP[0].GRPC).NotTo(BeNil(), "fixture no longer has gRPC — spec would pass vacuously")
+		_, err := receiver.Render(cfg)
+		Expect(err).NotTo(HaveOccurred(),
+			"static tenancy hardcodes the tenant per pipeline, so gRPC needs no gateway-set header")
 	})
 })

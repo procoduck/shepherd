@@ -55,5 +55,5 @@
 // empty or partial Observed: every Finding this package emits is built from
 // a POSITIVE fact one of the three sources actually asserted, never from
 // one being silently absent. See TestNoInventoryNeverContradicts and
-// TestStaleComponentIsPositiveEvidenceNotRemovalProof.
+// TestCompare_StaleObservationStillCountsButIsFlagged.
 package reconcile

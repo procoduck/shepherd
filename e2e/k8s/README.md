@@ -8,7 +8,9 @@ make e2e-k8s          # build images, create cluster, run, destroy
 make e2e-k8s-clean    # remove clusters a killed run left behind
 ```
 
-One cycle is ~200s for four features, including cluster create and destroy.
+One cycle is ~500s for six features, including cluster create and destroy. (It was ~200s for
+four before the Gateway API route-conformance and operator-owned-attachment features landed —
+if you add a feature, update this number rather than leaving a stale one to mislead.)
 
 ## Isolation model
 

@@ -57,7 +57,12 @@ var renderedAttrs = []attrPath{
 	{"otelcol.receiver.otlp", []string{"grpc", "endpoint"}},
 	{"otelcol.receiver.otlp", []string{"grpc", "max_recv_msg_size"}},
 	{"otelcol.receiver.otlp", []string{"grpc", "max_concurrent_streams"}},
-	{"otelcol.receiver.otlp", []string{"grpc", "include_metadata"}},
+	// No grpc include_metadata entry: Validate refuses a gRPC listener in
+	// pass-through mode (an HTTPRoute cannot front gRPC), and static mode
+	// never emits include_metadata — so this package cannot render it on a
+	// grpc block at all. Claiming it here would be a claim about Alloy
+	// rather than about Shepherd, which the goldens direction below exists
+	// to catch.
 	{"otelcol.receiver.otlp", []string{"http", "endpoint"}},
 	{"otelcol.receiver.otlp", []string{"http", "max_request_body_size"}},
 	{"otelcol.receiver.otlp", []string{"http", "include_metadata"}},
@@ -68,6 +73,8 @@ var renderedAttrs = []attrPath{
 	{"otelcol.processor.batch", []string{"timeout"}},
 	{"otelcol.processor.batch", []string{"send_batch_size"}},
 	{"otelcol.processor.batch", []string{"send_batch_max_size"}},
+	{"otelcol.processor.batch", []string{"metadata_keys"}},
+	{"otelcol.processor.batch", []string{"metadata_cardinality_limit"}},
 	{"otelcol.processor.batch", []string{"output", "metrics"}},
 	{"otelcol.processor.batch", []string{"output", "logs"}},
 	{"otelcol.processor.batch", []string{"output", "traces"}},

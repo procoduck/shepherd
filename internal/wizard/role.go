@@ -109,12 +109,15 @@ func (r roleEnforced) Commit(state map[string]any) (CommitResult, error) {
 		// them with "does not match its declared role" — which is also untrue,
 		// since nothing was determined about the role at all.
 		//
-		// This is not a hole in gate G6. Content that does not parse cannot be
-		// served: Stage 1 gates the save path, and the two serve paths run
-		// merge's own role enforcement over whatever is ultimately stored
-		// (internal/merge.WithRoleEnforcement). Enforcement here is a check on
-		// pipelines that COULD run; text that cannot parse is refused by a
-		// different control with a better error.
+		// This is not a hole in gate G6, but be precise about why, because the
+		// obvious reason is wrong: CommitWizard does NOT Stage-1 validate
+		// before saving (only RenderWizard, the preview, does), so unparseable
+		// wizard output can reach the database. What it cannot do is reach a
+		// COLLECTOR: merge's enforceRoles excludes a pipeline whose signals
+		// cannot be derived, fail-safe, and recomputeServeCache Stage-1 checks
+		// the assembled output before writing serve_cache. So the guarantee is
+		// "cannot be served", not "cannot be stored" — a weaker claim than the
+		// earlier wording here made, and the accurate one.
 		if errors.Is(checkErr, signals.ErrParse) {
 			result.Role = role
 			return result, nil

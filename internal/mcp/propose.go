@@ -54,6 +54,21 @@ import (
 // An agent proposing a change to an existing SOURCE="VISUAL" pipeline can
 // still get real sandbox evidence: read its wizard_state via get_pipeline
 // and call create_sandbox_run directly.
+//
+// SECOND LIMIT, and the one that matters for G15/R6: this tool WRITES NO
+// AUDIT ROW. It composes ValidatePipeline and PreviewMatches, both of which
+// are reads and neither of which audits, so an agent proposing a change to
+// raw Alloy text leaves no record that a proposal was ever made. The
+// round-trip G15 proves end to end uses create_sandbox_run, which does
+// audit; the text path does not.
+//
+// Not fixed here on purpose: making these two endpoints audit would also log
+// every keystroke-level validation the UI performs, and an audit trail
+// nobody can read is its own failure. The right shape is probably a distinct
+// "proposal recorded" event rather than auditing the reads it is built from
+// — an R6 decision, not a silent one. Stated here because the ledger points
+// at this comment for it, and a pointer to a disclosure that is not written
+// is exactly the rot this repo keeps finding.
 type proposePipelineRevisionIn struct {
 	OrgID string `json:"org_id" jsonschema:"the Shepherd org UUID"`
 	// PipelineID, when set, proposes an update to an existing pipeline and

@@ -104,7 +104,8 @@ func (w *Wizard) Schema() wizard.Schema {
 						// choice that can never succeed is a dead end dressed
 						// as an option; the refusal was correct but the
 						// dropdown should not have led anyone there.
-						// TestEveryOfferedRoleIsSatisfiable pins this.
+						// The Ginkgo spec "every offered role is satisfiable"
+						// (wizard_test.go) pins this.
 						Options: []string{"metrics", "singleton"}, Default: "metrics",
 						Description: "Pick \"singleton\" when collecting logs as well: a role=metrics " +
 							"collector may only carry metrics, so a metrics+logs pipeline belongs on an " +

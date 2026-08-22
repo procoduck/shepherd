@@ -50,12 +50,21 @@ type assembleConfig struct {
 // silently missing from a collector's config.
 //
 // Callers that do not pass this option keep the old, unenforced behavior.
-// As of this change that includes internal/agentapi's own call to Assemble:
-// wiring the *schema.Registry through internal/agentapi.Service was outside
-// this task's declared territory (internal/merge/** and internal/mgmtapi/**
-// only — docs/gateway-tier-plan.md §8). See the W1 session notes for the
-// consequence: agentapi's lazy serve-cache recompute path is not yet
-// enforced, only internal/mgmtapi's eager one is.
+//
+// BOTH serving paths pass it: internal/mgmtapi's eager recompute and
+// internal/agentapi.Service.recomputeServeCache, the lazy path taken when
+// serve_cache is dirty. That was not true when this option was first written
+// — the agent path was left unwired because the *schema.Registry had not been
+// threaded through internal/agentapi.Service — and this comment used to say
+// so. It was closed in the same session, and G6 is proven on the agent path
+// specifically (internal/agentapi/service_test.go, "does not serve a metrics
+// pipeline to a logs collector through the dirty-window path"), because
+// enforcing one of two paths that produce the same served config is not
+// enforcement.
+//
+// The stale wording survived until a review caught it, which is worth a note
+// of its own: a comment that DENIES a control now wired misleads exactly as
+// badly as one claiming a control that is not.
 // Passing a nil registry is a wiring error, not a way to opt out: Assemble
 // fails loudly rather than serving unenforced config that looks enforced. To
 // genuinely opt out, do not pass the option.

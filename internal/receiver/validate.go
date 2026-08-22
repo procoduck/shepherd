@@ -120,6 +120,26 @@ func validateOTLPPipeline(p OTLPPipeline) error {
 	default:
 		return fmt.Errorf("mode %q must be %q or %q", p.Mode, TenancyStatic, TenancyPassThrough)
 	}
+	// Pass-through tenancy is only as trustworthy as the thing that sets the
+	// header, and the only thing Shepherd renders that sets it is an
+	// HTTPRoute (internal/gateway.RenderHTTPRoute). HTTPRoute matches HTTP
+	// paths; a gRPC listener would need a GRPCRoute, which this repo does not
+	// render and D1 does not contemplate.
+	//
+	// So a pass-through pipeline with a gRPC listener is not
+	// "gateway-fronted with a gap" — it is client-asserted tenancy by
+	// construction, in every deployment, with no configuration that could
+	// make it otherwise. Whatever a client sends as the tenant header is what
+	// its data ships under. Refusing it here is the difference between a
+	// control that cannot be satisfied and one that is simply absent.
+	if p.Mode == TenancyPassThrough && p.GRPC != nil {
+		return fmt.Errorf("pass-through tenancy cannot serve a gRPC listener: tenancy comes from the "+
+			"header %s, which is set by the rendered HTTPRoute, and an HTTPRoute cannot front gRPC "+
+			"(that needs a GRPCRoute, which Shepherd does not render). A gRPC listener here would let "+
+			"every client choose its own tenant. Use the HTTP listener for pass-through, or use %q "+
+			"tenancy with one pipeline per tenant",
+			gateway.TenantHeader, TenancyStatic)
+	}
 	if p.HTTP == nil && p.GRPC == nil {
 		return fmt.Errorf("at least one of HTTP or GRPC must be set")
 	}

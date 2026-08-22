@@ -1,10 +1,4 @@
 otelcol.receiver.otlp "shared" {
-  grpc {
-    endpoint               = "0.0.0.0:4317"
-    max_recv_msg_size      = "4MiB"
-    max_concurrent_streams = 200
-    include_metadata       = true
-  }
   http {
     endpoint               = "0.0.0.0:4318"
     max_request_body_size  = "8MiB"
@@ -39,6 +33,8 @@ otelcol.processor.batch "shared" {
   timeout = "5s"
   send_batch_size = 1000
   send_batch_max_size = 1500
+  metadata_keys = ["x-scope-orgid"]
+  metadata_cardinality_limit = 1000
   output {
     metrics = [otelcol.exporter.otlp.shared_mimir.input]
     logs    = [otelcol.exporter.otlphttp.shared_loki_otlp.input]

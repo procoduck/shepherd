@@ -134,7 +134,7 @@ var _ = Describe("ConnectionStore", Label("integration"), func() {
 		})
 	})
 
-	// TestGrafanaAbsentMeansNoReducedFunction: plan §5's must-not, D7's own
+	// Plan §5's must-not, D7's own
 	// "Grafana absent means no outcome verification, never reduced
 	// function" — proven directly against a real database with NO
 	// grafana_connections row for this org at all, not a mock standing in

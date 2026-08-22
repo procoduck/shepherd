@@ -97,7 +97,7 @@ func renderOTLPPipeline(sb *strings.Builder, p OTLPPipeline) {
 	}
 
 	sb.WriteString("\n")
-	renderBatch(sb, p.Label, p.Batch, p.Metrics, p.Logs, p.Traces)
+	renderBatch(sb, p.Label, p.Batch, p.Mode == TenancyPassThrough, p.Metrics, p.Logs, p.Traces)
 
 	for _, exp := range []*OTLPExporter{p.Metrics, p.Logs, p.Traces} {
 		if exp == nil {
@@ -155,7 +155,24 @@ func renderOTLPTenantAuth(sb *strings.Builder, label string) {
 	_, _ = fmt.Fprintf(sb, "}\n")
 }
 
-func renderBatch(sb *strings.Builder, label string, batch BatchConfig, metrics, logs, traces *OTLPExporter) {
+// renderBatch renders the batch processor between a receiver and its
+// exporters. passThrough matters here for a reason that is easy to miss and
+// silent when missed: the batch processor does NOT carry client metadata
+// through to the exporters unless it is told which keys to preserve.
+//
+// Alloy's otelcol.auth.headers reference states it directly: "If an
+// otelcol.processor.batch is present in the pipeline, it must be configured
+// to preserve client metadata. Do this by adding the value that from_context
+// needs to the metadata_keys of the batch processor."
+//
+// Without it, from_context finds nothing at the exporter and — per this
+// package's own doc comment — omits the header rather than erroring. Every
+// tenant's data then ships with NO tenant header: a loud outage against a
+// strictly multi-tenant destination, and a silent cross-tenant merge against
+// one with a default tenant. The config is syntactically valid either way,
+// so `alloy validate` cannot catch it; this is docs/gateway-tier-plan.md
+// §10's "alloy validate is not alloy run" one layer up.
+func renderBatch(sb *strings.Builder, label string, batch BatchConfig, passThrough bool, metrics, logs, traces *OTLPExporter) {
 	_, _ = fmt.Fprintf(sb, "otelcol.processor.batch %q {\n", label)
 	if batch.Timeout != "" {
 		_, _ = fmt.Fprintf(sb, "  timeout = %q\n", batch.Timeout)
@@ -165,6 +182,20 @@ func renderBatch(sb *strings.Builder, label string, batch BatchConfig, metrics, 
 	}
 	if batch.SendBatchMaxSize != 0 {
 		_, _ = fmt.Fprintf(sb, "  send_batch_max_size = %d\n", batch.SendBatchMaxSize)
+	}
+	if passThrough {
+		// Preserve exactly the one key the tenant auth component reads, and
+		// nothing else: every distinct value of a preserved key creates its
+		// own batch shard, so preserving more keys multiplies shards for no
+		// benefit here.
+		_, _ = fmt.Fprintf(sb, "  metadata_keys = [%q]\n", strings.ToLower(gateway.TenantHeader))
+		// Batching is now per tenant, so the shard count is the number of
+		// distinct tenants behind this listener. Stated explicitly rather
+		// than left to the schema default (1000) because in pass-through
+		// mode this number is a tenancy capacity limit, not a tuning knob —
+		// a deployment past it starts dropping, and an operator reading the
+		// generated config should see the bound they are living under.
+		_, _ = fmt.Fprintf(sb, "  metadata_cardinality_limit = %d\n", passThroughTenantShardLimit)
 	}
 	_, _ = fmt.Fprintf(sb, "  output {\n")
 	if metrics != nil {
@@ -260,7 +291,7 @@ func renderFaroPipeline(sb *strings.Builder, p *FaroPipeline) {
 	}
 	if p.Traces != nil {
 		sb.WriteString("\n")
-		renderBatch(sb, faroTracesBatchLabel(p.Label), BatchConfig{}, nil, nil, p.Traces)
+		renderBatch(sb, faroTracesBatchLabel(p.Label), BatchConfig{}, false, nil, nil, p.Traces)
 		sb.WriteString("\n")
 		renderOTLPExporter(sb, *p.Traces, "") // Faro has no pass-through mode (D10)
 	}

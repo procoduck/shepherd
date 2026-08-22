@@ -89,6 +89,13 @@ func (h *BeaconHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// itself starts returning an error once the limit is crossed, so an
 	// oversized body is never fully read into memory. beacon.DecodeWriteRequest
 	// re-enforces the same bound independently below.
+	// Defense in depth, and honestly labelled as such: removing this line
+	// alone does not turn any test red, because DecodeWriteRequest reads
+	// through its own io.LimitReader and still answers 413. Memory stays
+	// bounded without it. It stays because bounding at the HTTP layer is
+	// the right shape and costs nothing — but do not mistake it for the
+	// enforced cap; that is the one inside DecodeWriteRequest, which has a
+	// named red-run-proven test.
 	r.Body = http.MaxBytesReader(w, r.Body, h.limits.MaxBodyBytes)
 
 	wr, err := beacon.DecodeWriteRequest(r.Header, r.Body, h.limits.MaxBodyBytes)

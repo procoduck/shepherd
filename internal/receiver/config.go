@@ -83,6 +83,16 @@ const (
 	TenancyPassThrough OTLPTenancyMode = "pass_through"
 )
 
+// passThroughTenantShardLimit bounds how many distinct tenants a single
+// pass-through pipeline batches concurrently. Preserving the tenant header
+// through the batch processor means batching is per tenant, so this is a
+// tenancy capacity limit rather than a tuning knob: past it, the processor
+// stops honoring the key for new values. Set to the pinned schema's own
+// default so the rendered value is explicit rather than implied — an
+// operator reading the config should see the bound they are living under
+// (D10 sizes a shard, this is where that sizing lands).
+const passThroughTenantShardLimit = 1000
+
 // OTLPPipeline is one otelcol.receiver.otlp -> otelcol.processor.batch ->
 // exporter(s) chain, all sharing the Label as a suffix.
 type OTLPPipeline struct {

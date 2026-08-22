@@ -66,9 +66,6 @@ func fixture(name string) receiver.Config {
 			OTLP: []receiver.OTLPPipeline{{
 				Label: "shared",
 				Mode:  receiver.TenancyPassThrough,
-				GRPC: &receiver.OTLPGRPCListener{
-					ListenAddr: "0.0.0.0:4317", MaxRecvMsgSize: "4MiB", MaxConcurrentStreams: 200,
-				},
 				HTTP: &receiver.OTLPHTTPListener{
 					ListenAddr: "0.0.0.0:4318", MaxRequestBodySize: "8MiB",
 				},
