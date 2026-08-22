@@ -16,7 +16,6 @@ DOCKER_BUILD_ARGS := \
 	--build-arg GO_IMAGE=$(GO_IMAGE) \
 	--build-arg NODE_IMAGE=$(NODE_IMAGE) \
 	--build-arg ALLOY_IMAGE=$(ALLOY_IMAGE) \
-	--build-arg DISTROLESS_IMAGE=$(DISTROLESS_IMAGE) \
 	--build-arg DISTROLESS_BASE_IMAGE=$(DISTROLESS_BASE_IMAGE) \
 	--build-arg PNPM_VERSION=$(PNPM_VERSION)
 
@@ -375,7 +374,7 @@ check-docker: ## Guard: Dockerfile FROMs/ARG defaults agree with versions.env
 	fi
 	@FAIL=0; \
 	for f in deploy/Dockerfile.local deploy/Dockerfile.init deploy/Dockerfile.goreleaser deploy/Dockerfile.goreleaser-simulator deploy/Dockerfile.simulator; do \
-		for var in GO_IMAGE NODE_IMAGE ALLOY_IMAGE DISTROLESS_IMAGE DISTROLESS_BASE_IMAGE PNPM_VERSION; do \
+		for var in GO_IMAGE NODE_IMAGE ALLOY_IMAGE DISTROLESS_BASE_IMAGE PNPM_VERSION; do \
 			default=$$(sed -n "s/^ARG $$var=\(.*\)/\1/p" "$$f"); \
 			if [ -n "$$default" ]; then \
 				expected=$$(sed -n "s/^$$var=\(.*\)/\1/p" deploy/versions.env); \

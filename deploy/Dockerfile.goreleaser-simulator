@@ -6,7 +6,7 @@ FROM ${ALLOY_IMAGE} AS alloy
 
 # Stage 2: final image (GoReleaser copies the pre-built binary).
 #
-# distroless/BASE, not distroless/static as the app image uses: this container
+# distroless/BASE, not distroless/static: this container
 # execs the Alloy binary, and Alloy v1.18.1 is dynamically linked against glibc
 # (see deploy/Dockerfile.simulator for the failure mode static produces).
 FROM ${DISTROLESS_BASE_IMAGE}

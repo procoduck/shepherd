@@ -1,6 +1,6 @@
 import type { JsonObject } from '@bufbuild/protobuf';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { useNavigate, useParams } from '@tanstack/react-router';
+import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { CheckCircle2, XCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -36,10 +36,18 @@ export function WizardRunnerPage() {
   const { kind } = useParams({ from: '/shell/content/wizards/$kind' });
   const KIND = kind;
 
-  const { data: schema, isLoading: schemaLoading } = useQuery({
+  const {
+    data: schema,
+    isLoading: schemaLoading,
+    error: schemaError,
+  } = useQuery({
     queryKey: ['wizard-schema', orgId, KIND],
     queryFn: () => clients.wizard.getWizardSchema({ orgId, kind: KIND }),
     enabled: !!orgId,
+    // An unknown kind is a 404 and will stay one — retrying it only delays
+    // the message. Without this the query sits pending through the retry
+    // cycle and the page shows "Loading…" for a kind that does not exist.
+    retry: false,
   });
 
   const dataSteps = schema?.steps ?? [];
@@ -100,6 +108,25 @@ export function WizardRunnerPage() {
   });
 
   if (!orgId) return <p className='text-sm text-muted'>No organisation context.</p>;
+  // An unknown kind used to sit on "Loading…" forever: the query had failed,
+  // schema stayed undefined, and the two states were rendered identically.
+  // Distinguish them — a mistyped or removed wizard should say so.
+  // Covers the error case AND any settled-but-empty result: once the query is
+  // no longer loading, no schema means no such wizard. Keying only on `error`
+  // left a gap where a non-throwing failure still rendered "Loading…".
+  if (schemaError || (!schemaLoading && !schema)) {
+    return (
+      <div className='space-y-2'>
+        <h1 className='text-xl font-semibold'>Wizard not available</h1>
+        <p className='text-sm text-muted'>
+          No wizard named <span className='font-mono'>{KIND}</span> is registered on this server.
+        </p>
+        <Link to='/wizards' className='text-sm text-indigo-400 hover:text-indigo-300'>
+          Back to wizards
+        </Link>
+      </div>
+    );
+  }
   if (schemaLoading || !schema) return <p className='text-sm text-muted'>Loading…</p>;
 
   const steppers = [
@@ -148,7 +175,7 @@ export function WizardRunnerPage() {
                       setNameTouched(true);
                     }}
                     className='mt-1 w-full rounded-md border border-border-strong bg-card px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500'
-                    placeholder='appobs-my-app'
+                    placeholder={`${KIND}-my-app`}
                   />
                 </label>
 

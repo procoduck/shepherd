@@ -24,7 +24,7 @@ FROM ${ALLOY_IMAGE} AS alloy
 
 # Stage 3: final image.
 #
-# distroless/BASE, not distroless/static as the app image uses: this container
+# distroless/BASE, not distroless/static: this container
 # execs the Alloy binary, and Alloy v1.18.1 is dynamically linked against glibc.
 # On static it fails with "fork/exec /usr/local/bin/alloy: no such file or
 # directory" — the missing dynamic loader, not a missing file. base adds glibc

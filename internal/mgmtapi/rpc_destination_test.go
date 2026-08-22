@@ -212,6 +212,71 @@ var _ = Describe("shepherd.mgmt.v1.DestinationService RPC", Label("integration")
 			Expect(resolved["authMode"]).To(Equal("basic_secret"))
 		})
 
+		// A binding exists to vary the tenant, so this field decides which
+		// tenant a team's telemetry ships under — the same decision
+		// orgs.tenant_id makes for routes (D11), and until a post-merge review
+		// asked, it had no charset rule at all. gateway.ValidateTenantID is
+		// the single definition; this proves the binding path actually reaches
+		// it rather than having its own looser idea.
+		//
+		// Red run, executed: removing the ValidateTenantID call from
+		// CreateDestinationBinding lets "team a/evil" through with 200.
+		It("refuses a binding whose tenant id is not a legal tenant identifier", func() {
+			for _, bad := range []string{"team a", "team/a", "", ".."} {
+				resp := postConnect("/shepherd.mgmt.v1.DestinationService/CreateDestinationBinding", map[string]any{
+					"orgId": orgID.String(), "destinationId": template["id"],
+					"name": "probe", "tenantId": bad,
+				}, admin)
+				Expect(resp.StatusCode).To(Equal(http.StatusBadRequest),
+					"tenant id %q was accepted on a binding; it would be sent verbatim as the "+
+						"X-Scope-OrgID header and rejected by the destination at ingest instead", bad)
+			}
+		})
+
+		// The same rule has to hold on update, or a binding can be created
+		// clean and then edited into an illegal tenant — the shape a check
+		// applied on only one of two write paths always has.
+		It("refuses an illegal tenant id on update too, not just on create", func() {
+			createResp := postConnect("/shepherd.mgmt.v1.DestinationService/CreateDestinationBinding", map[string]any{
+				"orgId": orgID.String(), "destinationId": template["id"], "name": "upd", "tenantId": "good",
+			}, admin)
+			Expect(createResp.StatusCode).To(Equal(http.StatusOK))
+			created := decodeBody(createResp)
+
+			resp := postConnect("/shepherd.mgmt.v1.DestinationService/UpdateDestinationBinding", map[string]any{
+				"orgId": orgID.String(), "id": created["id"], "name": "upd", "tenantId": "bad tenant",
+			}, admin)
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest),
+				"update accepted a tenant id create would have refused")
+		})
+
+		// These writes decide where an org's telemetry goes and under which
+		// tenant, and were silent until a post-merge review asked why.
+		//
+		// Red run, executed: removing the auditLog call from
+		// CreateDestinationBinding fails this spec with `no
+		// destination_binding.create audit row`.
+		It("writes an audit row for a binding create", func() {
+			resp := postConnect("/shepherd.mgmt.v1.DestinationService/CreateDestinationBinding", map[string]any{
+				"orgId": orgID.String(), "destinationId": template["id"], "name": "audited", "tenantId": "audited",
+			}, admin)
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			rows, err := st.Queries.ListAuditLog(ctx, sqlc.ListAuditLogParams{Limit: 100})
+			Expect(err).NotTo(HaveOccurred())
+			found := false
+			for i := range rows {
+				if rows[i].Action == "destination_binding.create" {
+					found = true
+					break
+				}
+			}
+			Expect(found).To(BeTrue(),
+				"no destination_binding.create audit row — a binding decides which tenant a team's "+
+					"telemetry ships under, which is exactly the \"why did this change\" question the "+
+					"audit log exists to answer")
+		})
+
 		It("denies CreateDestinationBinding for an org reader (write requires org admin)", func() {
 			resp := postConnect("/shepherd.mgmt.v1.DestinationService/CreateDestinationBinding", map[string]any{
 				"orgId": orgID.String(), "destinationId": template["id"], "name": "team-b", "tenantId": "team-b",
