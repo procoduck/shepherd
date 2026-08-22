@@ -1,4 +1,4 @@
-.PHONY: check-gateway-pin check-chartvalues-pin chart-verify preflight-docker help build build-web build-all test e2e e2e-k8s e2e-k8s-clean e2e-sim e2e-egress smoke test-ui check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks lint fmt generate gen-alloy-version generate-corpus schema schema-verify helm-lint release-snapshot docker-build docker-build-local docker-build-init docker-build-simulator dev dev-sim dev-frontend dev-restart dev-seed dev-reset test-fullstack clean clean-docker tools preflight-ginkgo preflight-k8s
+.PHONY: web-ci check-gateway-pin check-chartvalues-pin chart-verify preflight-docker help build build-web build-all test e2e e2e-k8s e2e-k8s-clean e2e-sim e2e-egress smoke test-ui check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks lint fmt generate gen-alloy-version generate-corpus schema schema-verify helm-lint release-snapshot docker-build docker-build-local docker-build-init docker-build-simulator dev dev-sim dev-frontend dev-restart dev-seed dev-reset test-fullstack clean clean-docker tools preflight-ginkgo preflight-k8s
 
 # Several recipes are bash-idiomatic (the smoke here-string, trap chains);
 # /bin/sh is dash on Debian/Ubuntu and rejects them.
@@ -270,6 +270,14 @@ smoke: ## Container smoke test (< 60s, Docker only)
 	echo "[/api/me auth_method:local OK]" && \
 	docker rm -f $$SMOKE_LA >/dev/null && \
 	echo "==> Smoke test PASSED."
+
+# Reproduces CI's `web` job exactly (typecheck, unit tests, biome CHECK — lint
+# AND format — then the production build). Exists because `pnpm lint` alone
+# runs only the lint half, so a formatting difference passes locally and fails
+# in CI; a check that cannot go red on your machine is not a check.
+web-ci: ## Run CI's web job locally (typecheck + tests + biome check + build)
+	$(call preflight,$(PNPM),Install pnpm (https://pnpm.io/installation).)
+	cd web && $(PNPM) run ci
 
 test-ui: ## Mocked Playwright visual suite (no backend required)
 	cd web && $(PNPM) exec playwright install --with-deps chromium
