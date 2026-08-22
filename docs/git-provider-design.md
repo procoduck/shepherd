@@ -10,6 +10,12 @@
 > principals, GitHub needs GitHub Apps; everything else is ordinary git credentials.
 > Testing uses a real **Gitea** instance rather than a hand-written mock.
 > Tracked in `docs/project-status.md` as F9. Supersedes `docs/spec.md` §10.
+>
+> **Reading note (added 2026-08-22):** §1 and §2 describe the state *before* this design
+> shipped, in the present tense they were written in. They are the problem statement, not
+> current architecture — `internal/ado/client.go` no longer exists, and `internal/ado/` now
+> holds only the Entra token provider that §3.2's `ado_sp` auth kind uses. Everything from
+> §3 onward is normative and current.
 
 ## 1. Why this changes
 
