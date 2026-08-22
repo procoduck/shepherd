@@ -107,3 +107,47 @@ var _ = Describe("SPA cache headers", func() {
 		Expect(rec.Header().Get("Cache-Control")).To(Equal("no-cache"))
 	})
 })
+
+// The beacon is on by default (D6: "the collector we know nothing about is
+// precisely the one that would never opt in"), but an operator must be able
+// to opt out — it accepts writes and stores inventory, and R2, the review of
+// exactly that data, is not signed. A release that made the beacon reachable
+// with no way to decline would be making that decision for every upgrader.
+//
+// Disabling must remove the endpoint, not leave one that rejects: an endpoint
+// that exists and always refuses still advertises the surface and still has
+// to be reasoned about in a security review.
+//
+// Red run, executed: making the r.Post(BeaconWritePath, ...) mount
+// unconditional again fails the disabled case here with `beacon ingest is
+// still mounted with the beacon disabled` (405 rather than 404, because chi
+// answers a known path with the wrong method).
+var _ = Describe("beacon off-switch", func() {
+	routerWith := func(disabled bool) http.Handler {
+		cfg := &config.Config{}
+		cfg.Server.BeaconDisabled = disabled
+		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+		return server.NewRouter(cfg, &store.Store{}, nil, nil, validate.New(&cfg.Validate), spa.BuildInfo{}, logger)
+	}
+
+	// Probe with POST, the method the endpoint actually serves. A GET would
+	// 404 either way and prove nothing.
+	post := func(r http.Handler) int {
+		req := httptest.NewRequest(http.MethodPost, "/beacon/v1/write", http.NoBody)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	It("mounts the ingest endpoint by default", func() {
+		code := post(routerWith(false))
+		Expect(code).NotTo(Equal(http.StatusNotFound),
+			"the beacon is not opt-in (D6) — with no configuration at all the endpoint must exist")
+	})
+
+	It("does not mount the ingest endpoint when disabled", func() {
+		Expect(post(routerWith(true))).To(Equal(http.StatusNotFound),
+			"beacon ingest is still mounted with the beacon disabled; an operator who turned it off "+
+				"still has an endpoint accepting agent credentials")
+	})
+})

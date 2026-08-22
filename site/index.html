@@ -33,7 +33,7 @@
 
 <header class="hero" id="top">
   <div class="wrap">
-    <span class="eyebrow"><span class="dot"></span> v0.0.1 · self-hosted · single binary</span>
+    <span class="eyebrow"><span class="dot"></span> v0.0.2 · self-hosted · single binary</span>
     <h1>Run a fleet of Grafana Alloy collectors from one place.</h1>
     <p class="lede">
       Shepherd is a self-hosted fleet manager for Grafana Alloy. Build pipelines visually or in Git,
@@ -137,10 +137,10 @@
         <p>
           Run a candidate pipeline against synthetic sources in a network-contained sandbox and
           inspect the captured series before it ever reaches a collector. Enabled by default as
-          of v0.0.1 — a default-deny NetworkPolicy contains it, proven with in-cluster probes;
+          of v0.0.2 — a default-deny NetworkPolicy contains it, proven with in-cluster probes;
           turn it off per-deployment with <code>simulator.enabled=false</code>.
         </p>
-        <span class="tag">enabled by default · v0.0.1</span>
+        <span class="tag">enabled by default · v0.0.2</span>
       </article>
 
       <article class="feature-card">
@@ -160,14 +160,16 @@
         <div class="icon">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M4 12h10"/><path d="M4 17h6"/><circle cx="18" cy="15" r="3"/></svg>
         </div>
-        <h3>Tenant-aware gateway tier</h3>
+        <h3>Tenant-aware gateway tier <em>(in development)</em></h3>
         <p>
-          OTLP and browser telemetry arrive on one endpoint per tenant. The gateway rewrites the
-          prefix and <em>sets</em> the tenant header, so a client never chooses its own tenant
-          &mdash; and tenant identity itself belongs to the org, assigned by an application
-          administrator rather than supplied per request.
+          Renders Gateway API routes that rewrite a per-tenant prefix and <em>set</em> the tenant
+          header, so a client can never choose its own tenant. Proven against a real controller in
+          the Kubernetes test suite &mdash; but nothing applies these routes to a cluster yet, so
+          treat it as a design you can read rather than a feature you can use. What <em>is</em>
+          live today: tenant identity belongs to the org and is assigned by an application
+          administrator.
         </p>
-        <span class="tag">Gateway API, Standard channel</span>
+        <span class="tag">built &amp; tested, not yet wired</span>
       </article>
 
       <article class="feature-card">
@@ -179,7 +181,7 @@
           Every collector is served a small baseline pipeline that reports which components it is
           actually running, and whether they are healthy. Component names only &mdash; never config
           text, never raw samples. The collector you know nothing about is the one that would never
-          have opted in.
+          have opted in &mdash; so it is on by default, with a single chart value to turn it off.
         </p>
         <span class="tag">inventory + health</span>
       </article>
@@ -188,14 +190,15 @@
         <div class="icon">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 10h6"/><path d="M9 14h3"/></svg>
         </div>
-        <h3>An agent interface that cannot apply</h3>
+        <h3>An agent interface that cannot apply <em>(in development)</em></h3>
         <p>
           An MCP server exposes the fleet to AI agents in read-plus-propose mode. The limit is
           enforced by the credential, not by which tools were registered: a propose-scoped service
           account is refused at every mutating endpoint, so a tool that does not exist yet would be
-          refused too. A machine action records both the agent and the human it acts for.
+          refused too. A machine action records both the agent and the human it acts for. Not in
+          the release archives &mdash; build it from source while its review gate is open.
         </p>
-        <span class="tag">read + propose, no apply</span>
+        <span class="tag">source-only until reviewed</span>
       </article>
     </div>
   </div>
@@ -288,7 +291,7 @@
         <!-- sandbox -->
         <rect x="590" y="230" width="150" height="60" rx="8" class="dg-box"/>
         <text x="665" y="256" text-anchor="middle" class="dg-text" font-size="12.5" font-weight="600">Sandbox</text>
-        <text x="665" y="273" text-anchor="middle" class="dg-text-sub" font-size="10.5">on by default (v0.0.1)</text>
+        <text x="665" y="273" text-anchor="middle" class="dg-text-sub" font-size="10.5">on by default (v0.0.2)</text>
         <text x="665" y="286" text-anchor="middle" class="dg-text-sub" font-size="10.5">network-contained</text>
         <path d="M550 260 H 590" class="dg-line" stroke-dasharray="3 3"/>
 
@@ -321,14 +324,14 @@
           <p>
             Requires a Kubernetes secret with the database URL, encryption key, and OIDC secrets — see
             <code>deploy/helm/shepherd/values.yaml</code> for the full option list. Sandbox
-            simulation ships enabled by default as of v0.0.1; add
+            simulation ships enabled by default as of v0.0.2; add
             <code>--set simulator.enabled=false</code> to turn it off.
           </p>
           <div class="code-block" data-lang="shell">
             <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
             <pre><code>helm install shepherd deploy/helm/shepherd \
   --set image.registry=ghcr.io/procoduck \
-  --set image.tag=0.0.1 \
+  --set image.tag=0.0.2 \
   --set existingSecret=shepherd-secrets \
   --set "route.enabled=true" \
   --set "route.hostnames[0]=shepherd.internal"</code></pre>
@@ -402,7 +405,7 @@ SHEPHERD_SECURITY_ENCRYPTION_KEY=$(openssl rand -base64 32) \
         </svg>
         Shepherd
       </span>
-      <span class="pill">v0.0.1</span>
+      <span class="pill">v0.0.2</span>
       <span>self-hosted Grafana Alloy fleet manager</span>
     </div>
     <div class="foot-links">

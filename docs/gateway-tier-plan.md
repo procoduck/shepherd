@@ -428,6 +428,34 @@ Recorded here so a signer sees what has already been settled and what is still t
   the auto-applying `gitsync` path (recommendation: no) and what budget/rate limits an agent actor
   should carry.
 
+### The beacon reaches real deployments at v0.0.2 — and R2 is unsigned
+
+A release review caught a contradiction this plan was making about itself. §9 and
+`docs/project-status.md` both said "nothing here is user-reachable until the gates are signed", but
+the beacon is **on by default in the shipped binary**: `/beacon/v1/write` is mounted
+unconditionally and every claimed collector is served the baseline pipeline. Tagging v0.0.2 makes
+that true for every upgrader, while **R2 — the review of exactly what the beacon stores — has not
+been signed.**
+
+That is D6 working as designed ("the collector we know nothing about is precisely the one that
+would never opt in"), not a bug. But "not opt-in" and "no way to decline" are different claims, and
+only the first was decided here. So v0.0.2 ships `server.beacon_disabled` (default `false`, exposed
+as a chart value): the beacon stays on by default per D6, and an operator who cannot yet answer for
+an ingest endpoint and an inventory table can turn it off without downgrading. Disabling mounts no
+endpoint at all rather than one that always refuses — an endpoint that exists still advertises the
+surface and still has to be reasoned about. Red-run proven.
+
+**This does not close R2.** The data review is still owed, and the off-switch is a courtesy to
+operators, not a substitute for it.
+
+### `shepherd-mcp` is deliberately not in the release archives
+
+The release builds `shepherd` and `shepherd-simulator` for linux/amd64 and linux/arm64 only.
+`cmd/shepherd-mcp` is absent on purpose: it is a client-side stdio process that runs under an
+editor's MCP integration, so linux-only server archives would be the wrong vehicle even if W11 were
+signed off — and R6 is open. Build it from source until then. Recorded here because an omission
+nobody wrote down reads as an oversight the next time someone checks.
+
 ## 8. How sub-agents work on this
 
 Conventions that made the previous multi-agent sessions land cleanly. They are not optional.

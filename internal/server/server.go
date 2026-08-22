@@ -175,7 +175,14 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 		// the lazy recompute path serves unenforced (see agentapi.New).
 		logger.Error("schema registry unavailable; agent-path role enforcement disabled", "err", agentSchemaErr)
 	}
-	svc := agentapi.New(st, v, logger, agentReg, agentapi.WithBeaconRemoteWrite(cfg.Server.BaseURL))
+	// D6's baseline pipeline, unless the operator opted out. Passing "" is
+	// WithBeaconRemoteWrite's documented no-op, so a disabled beacon serves
+	// exactly the config it served before the beacon existed.
+	beaconBaseURL := cfg.Server.BaseURL
+	if cfg.Server.BeaconDisabled {
+		beaconBaseURL = ""
+	}
+	svc := agentapi.New(st, v, logger, agentReg, agentapi.WithBeaconRemoteWrite(beaconBaseURL))
 	authInterceptor := agentapi.NewAuthInterceptor(st)
 	connectPath, connectHandler := collectorv1connect.NewCollectorServiceHandler(
 		svc,
@@ -190,7 +197,17 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 	// reuses verifyBasicAuth), so it is mounted at router root next to it —
 	// never inside the /api session+CSRF group below, which is for
 	// browser-session-authenticated callers, not agents.
-	r.Post(agentapi.BeaconWritePath, agentapi.NewBeaconHandler(st, logger, beacon.DefaultLimits).ServeHTTP)
+	//
+	// Not mounted at all when the beacon is disabled: an endpoint that exists
+	// but rejects everything is a worse answer than one that is not there,
+	// because it still advertises the surface and still has to be reasoned
+	// about in a security review.
+	if !cfg.Server.BeaconDisabled {
+		r.Post(agentapi.BeaconWritePath, agentapi.NewBeaconHandler(st, logger, beacon.DefaultLimits).ServeHTTP)
+	} else {
+		logger.Warn("beacon disabled by configuration: no ingest endpoint is mounted and no baseline " +
+			"pipeline will be served; fleet inventory and health will be unavailable (D6)")
+	}
 
 	// Management REST API with session + OIDC auth wiring.
 	r.Get("/auth/methods", auth.MethodsHandler(cfg))

@@ -113,6 +113,14 @@ func (s *AdminService) CreateOrg(ctx context.Context, req *connect.Request[mgmtv
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
+			// Two unique constraints can fire here, and telling an admin the
+			// wrong one sends them to rename an org when the real collision
+			// is a tenant identity already claimed by a different org.
+			if tenantID != "" && strings.Contains(err.Error(), "idx_orgs_tenant_id") {
+				return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf(
+					"tenant id %q is already assigned to another org; one tenant identity belongs to "+
+						"exactly one org, or the gateway would stamp both orgs' traffic alike", tenantID))
+			}
 			return nil, connect.NewError(connect.CodeAlreadyExists, errors.New("org name already exists"))
 		}
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create org"))

@@ -33,6 +33,18 @@ type ServerConfig struct {
 	Listen        string `mapstructure:"listen"`
 	BaseURL       string `mapstructure:"base_url"`
 	MetricsListen string `mapstructure:"metrics_listen"`
+	// BeaconDisabled turns off D6's beacon entirely: no ingest endpoint is
+	// mounted and no baseline pipeline is appended to any served config.
+	//
+	// D6 settles that the beacon is NOT opt-in — "the collector we know
+	// nothing about is precisely the one that would never opt in" — so this
+	// defaults to false and the beacon is on. Opting OUT is a different thing
+	// from opting in, and an operator needs it: the beacon adds an ingest
+	// endpoint and stores component inventory, and R2 (the beacon's data
+	// review) is not signed. An operator who cannot answer for that yet must
+	// be able to turn it off without downgrading, rather than discovering it
+	// running after an upgrade.
+	BeaconDisabled bool `mapstructure:"beacon_disabled"`
 }
 
 // DatabaseConfig holds PostgreSQL connection settings.

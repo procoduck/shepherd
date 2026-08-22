@@ -4,7 +4,9 @@
 
 Self-hosted **Grafana Alloy fleet manager**. Shepherd serves centralised pipeline configurations to Alloy instances via the `remotecfg` protocol, providing a UI for managing pipelines, destinations, wizards, and GitOps sync from any git server (ADO and GitHub-App auth supported).
 
-It also runs the tenant-aware **gateway and receiver tier** that makes OTLP and browser ingest work without client-side tenant configuration, a **beacon** that reports what each collector is actually running, and a read-plus-propose **MCP interface** for AI agents. See `docs/gateway-tier-plan.md` for that work and its review gates.
+It also ships a **beacon**: every claimed collector is served a small baseline pipeline that reports which components it is running and whether they are healthy — component names only, never config text or raw samples. On by default; set `server.beacon_disabled: true` to turn it off.
+
+**Being built, not yet reachable.** A tenant-aware gateway and receiver tier (OTLP ingest with gateway-injected tenancy), three-way reconciliation, onboarding artifacts, a k8s-monitoring chart-values generator, and a read-plus-propose MCP interface for AI agents are implemented and tested but are **not wired to a running surface**, and are gated on review sign-off. `docs/gateway-tier-plan.md` §9 tracks each one and what still stands between it and being usable. Do not plan against them yet.
 
 ---
 
@@ -93,7 +95,7 @@ See `docs/spec.md` for the full specification.
 
 ```bash
 helm install shepherd deploy/helm/shepherd \
-  --set image.tag=0.1.0 \
+  --set image.tag=0.0.2 \
   --set existingSecret=shepherd-secrets \
   --set "route.enabled=true" \
   --set "route.hostnames[0]=shepherd.internal"
@@ -128,10 +130,10 @@ Alloy (spoke)  ──remotecfg──▶  Shepherd  ──serves──▶  merged
 - **Merge engine**: Alertmanager-syntax matchers → declare-wrapped Alloy blocks
 - **Validation gate**: 3 stages (syntax, `alloy validate`, merge dry-run)
 - **GitOps**: any-git-server repo polling via go-git (`git_credentials`: PAT/basic/SSH/ADO-SP/GitHub-App) → validated pipelines (`source = git`)
-- **Gateway tier**: Gateway API `HTTPRoute` only (no Ingress fallback), Standard channel, pinned in `deploy/versions.env`. Routes rewrite a per-tenant prefix and **set** `X-Scope-OrgID` so clients never choose their own tenant
-- **Tenant identity**: a property of the org, set once by an application administrator. Route creation reads it from there — it cannot be supplied per request
-- **Beacon**: every collector is served a small baseline pipeline that reports component names and health back to Shepherd. Never config text, never raw samples
-- **Machine actors**: service accounts scoped `propose` or `apply`, with every mutating RPC checked individually rather than at one chokepoint; a machine write must name the human it acts for, and that claim is verified against the credential
+- **Beacon** (shipped, on by default): a baseline pipeline served to every claimed collector reports component names and health back to Shepherd. Never config text, never raw samples
+- **Tenant identity** (shipped): a property of the org, set once by an application administrator. Route creation reads it from there — it cannot be supplied per request
+- **Machine actors** (shipped, RPC only — no UI): service accounts scoped `propose` or `apply`, with every mutating RPC checked individually rather than at one chokepoint; a machine write must name the human it acts for, and that claim is verified against the credential
+- **Gateway tier** (*built, not wired*): renders Gateway API `HTTPRoute` only — no Ingress fallback, Standard channel, pinned in `deploy/versions.env` — rewriting a per-tenant prefix and **setting** `X-Scope-OrgID` so clients never choose their own tenant. Proven against a real controller in the kind suite; nothing applies these routes to a cluster yet
 
 ### Roles
 
