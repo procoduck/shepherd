@@ -145,6 +145,27 @@ var _ = Describe("G13: two-part attribution", Label("integration"), func() {
 		}
 	})
 
+	// The write gate is not the only place a claimed principal gets recorded.
+	// requireWriteAuthorized runs on apply-gated writes; propose-safe
+	// procedures never call it, yet some still stamp on_behalf_of into an
+	// audit row via auditLogDetail. Verifying only at the write gate left
+	// SimulateService.CreateRun able to record an unverified human — the same
+	// impersonation, on a quieter procedure — which is why the check now runs
+	// in the auth interceptor for every request instead.
+	//
+	// Red run, executed: moving the verification back inside
+	// requireWriteAuthorized (so the interceptor only copies the header) fails
+	// this spec — the forged claim is accepted and reaches CreateRun.
+	It("REFUSES a forged on-behalf-of even on a propose-safe procedure that never reaches the write gate", func() {
+		const impersonated = "someone-else@example.com"
+		resp := g12PostConnect(server, "/shepherd.mgmt.v1.SimulateService/CreateRun", map[string]any{
+			"orgId": orgID.String(),
+		}, applyID, applySecret, impersonated)
+		Expect(resp.StatusCode).To(Equal(http.StatusForbidden),
+			"a propose-safe procedure accepted a forged on-behalf-of; it can still write an audit row, "+
+				"so the claim must be verified where it enters, not only where writes are gated")
+	})
+
 	It("leaves on_behalf_of empty for a human session's own action (no delegation to record)", func() {
 		admin := newAppAdminSession(ctx, st)
 		resp := g11PostConnect(server, "/shepherd.mgmt.v1.PipelineService/UpdatePipeline", map[string]any{

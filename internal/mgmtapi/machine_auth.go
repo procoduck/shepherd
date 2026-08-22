@@ -95,7 +95,25 @@ func newServiceAccountAuthInterceptor(st *store.Store) connect.UnaryInterceptorF
 			if err != nil {
 				return nil, connect.NewError(connect.CodeUnauthenticated, errBadServiceAccountAuth)
 			}
-			sa.OnBehalfOf = req.Header().Get(onBehalfOfHeader)
+			// Verify the on-behalf-of claim HERE, where it enters, rather
+			// than only in requireWriteAuthorized. That guard runs on
+			// apply-gated writes; propose-safe procedures never call it, and
+			// some of them still stamp the claim into an audit row through
+			// auditLogDetail. Verifying only at the write gate therefore left
+			// exactly one path — SimulateService.CreateRun — able to record an
+			// unverified human as the principal, which is the same
+			// impersonation this check exists to stop, just on a quieter
+			// procedure.
+			//
+			// A claim that does not match the credential's delegating human is
+			// refused outright, on reads as well as writes: there is no benign
+			// reading of a caller naming someone it was not issued to.
+			if claim := req.Header().Get(onBehalfOfHeader); claim != "" {
+				if err := verifyOnBehalfOf(sa, claim); err != nil {
+					return nil, err
+				}
+				sa.OnBehalfOf = claim
+			}
 			ctx = withServiceAccount(ctx, sa)
 			return next(ctx, req)
 		}
@@ -198,16 +216,34 @@ func requireWriteAuthorized(ctx context.Context) error {
 	// for exactly one human. Shared CI acting for many engineers needs an
 	// explicit allow-list on the service account — additive, and a
 	// deliberate decision to make rather than a default to fall into.
+	// The claim itself was already verified by the auth interceptor, for
+	// every procedure rather than only the gated ones — see
+	// verifyOnBehalfOf. What remains here is the requirement that a WRITE
+	// carry one at all, which reads legitimately do not need.
+	return verifyOnBehalfOf(sa, sa.OnBehalfOf)
+}
+
+// verifyOnBehalfOf checks a claimed principal against the human recorded on
+// the service-account row when an authenticated admin issued the credential.
+//
+// That recorded human is the only identity in a machine request the caller
+// cannot influence, which is what makes it the thing worth checking against.
+// The header alone proves nothing: unverified, it lets any credential holder
+// name any human — including an org admin who never touched the system — and
+// that name becomes the permanent audit record of who authorized the change.
+// An unverified claim in a field that reads as authoritative is worse than no
+// attribution at all, because the audit trail then lies with confidence.
+func verifyOnBehalfOf(sa serviceAccountIdentity, claim string) error {
 	if sa.DelegatedPrincipal == "" {
 		return connect.NewError(connect.CodePermissionDenied,
 			fmt.Errorf("service account %q records no creating principal, so no on-behalf-of claim about it "+
 				"can be verified; re-create the credential so the delegation is anchored to a real human", sa.Name))
 	}
-	if !strings.EqualFold(strings.TrimSpace(sa.OnBehalfOf), strings.TrimSpace(sa.DelegatedPrincipal)) {
+	if !strings.EqualFold(strings.TrimSpace(claim), strings.TrimSpace(sa.DelegatedPrincipal)) {
 		return connect.NewError(connect.CodePermissionDenied,
 			fmt.Errorf("service account %q may only act on behalf of %q, but the request claimed %q — "+
-				"an unverified claim here would become the audit record of who authorized this change",
-				sa.Name, sa.DelegatedPrincipal, sa.OnBehalfOf))
+				"an unverified claim would become the audit record of who authorized this change",
+				sa.Name, sa.DelegatedPrincipal, claim))
 	}
 	return nil
 }
