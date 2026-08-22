@@ -117,6 +117,15 @@ type GitCredential struct {
 	TlsInsecureSkipVerify bool               `json:"tls_insecure_skip_verify"`
 }
 
+type GrafanaConnection struct {
+	ID        pgtype.UUID        `json:"id"`
+	OrgID     pgtype.UUID        `json:"org_id"`
+	BaseUrl   string             `json:"base_url"`
+	TokenEnc  []byte             `json:"token_enc"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
 type GroupAssignment struct {
 	ID               pgtype.UUID        `json:"id"`
 	CollectorID      pgtype.UUID        `json:"collector_id"`

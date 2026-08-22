@@ -12,6 +12,19 @@ import (
 	"shepherd/internal/schema"
 )
 
+// ErrParse marks a Derive failure caused by contents not being parseable
+// Alloy, as opposed to a failure to load or read the schema. Callers need
+// the distinction because the two demand opposite responses: an unreadable
+// schema means this package cannot answer at all and must refuse, while
+// unparseable contents are a syntax problem that Stage 1 validation reports
+// with line-level diagnostics an operator can act on. A caller that folds
+// the parse case into a generic refusal replaces those diagnostics with
+// "role check failed", which is both less useful and untrue.
+//
+// Deriving a signal set from unparseable text remains impossible either
+// way: Derive still returns an error, never an empty-and-proven Signals.
+var ErrParse = errors.New("signals: parse")
+
 // nonComponentBlocks names top-level Alloy syntax constructs that are not
 // pipeline components and therefore never appear in the schema artifact's
 // components map. Skipping them in Derive is not the "unknown component"
@@ -171,7 +184,7 @@ type componentDef struct {
 func Derive(contents string, reg *schema.Registry) (Signals, error) {
 	file, err := parser.ParseFile("<pipeline>", []byte(contents))
 	if err != nil {
-		return Signals{}, fmt.Errorf("signals: parse: %w", err)
+		return Signals{}, fmt.Errorf("%w: %w", ErrParse, err)
 	}
 
 	defs, err := loadComponentDefs(reg)

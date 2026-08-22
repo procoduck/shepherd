@@ -1,0 +1,8 @@
+{
+  "chart_version": "4.4.0",
+  "source_url": "https://raw.githubusercontent.com/grafana/k8s-monitoring-helm/k8s-monitoring-4.4.0/charts/k8s-monitoring/values.schema.json",
+  "release_tag": "k8s-monitoring-4.4.0",
+  "fetched_at": "2026-08-22T00:09:59Z",
+  "sha256": "6e7b85b16fba6cdc148d8418197a7a057bdd5be9bc14d6c1a849877698f988c4",
+  "note": "Fetched verbatim from the upstream chart release, never hand-written (docs/gateway-tier-plan.md W9 brief). `make chart-verify` re-fetches this exact URL and fails if the bytes drift. Bump procedure: edit K8S_MONITORING_CHART_VERSION in deploy/versions.env, re-fetch this file and update chart_version/source_url/release_tag/fetched_at/sha256 together, update internal/chartvalues.PinnedChartVersion, run `make check-chartvalues-pin` and `make chart-verify`."
+}

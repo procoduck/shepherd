@@ -1,6 +1,15 @@
 // Package wizard provides a pluggable wizard registry.
 // Each wizard kind knows how to render its step schema and commit its output
 // to a pipeline.
+//
+// Every wizard declares, via Role, which collector role its committed
+// pipeline is meant to be served to (docs/gateway-tier-plan.md W8's gate,
+// G6). Register wraps every wizard so that guarantee is structural rather
+// than a discipline each wizard author has to remember: Commit's generated
+// contents are derived and checked against the declared role's
+// internal/signals policy before a caller ever sees a successful result —
+// see role.go. A wizard whose output contradicts its own declared role is
+// refused, not merely unlikely to occur.
 package wizard
 
 import (
@@ -40,12 +49,28 @@ type CommitResult struct {
 	Contents string
 	// Matchers is the suggested matcher set.
 	Matchers []string
+	// Role is the collector role this pipeline was checked against — the
+	// same value Role(state) returned for this commit. Set by Register's
+	// wrapper after a successful role check, never by a wizard's own
+	// Commit; a caller (a UI, an audit trail) can show it without
+	// recomputing Role itself.
+	Role string
 }
 
 // Wizard is the interface each wizard kind must implement.
 type Wizard interface {
 	Kind() string
 	Schema() Schema
+	// Role returns the collector role this wizard's output is meant to be
+	// served to, for the given committed state. Most wizards return a fixed
+	// role regardless of state (a wizard that only ever generates a
+	// metrics-shaped pipeline has no reason to ask); a wizard whose schema
+	// lets the operator pick a role (e.g. a step field) must derive it from
+	// state the same way Commit does, so the two never disagree. Register's
+	// wrapper calls this to check Commit's actual output against it — see
+	// role.go — so Role must return the role the generated content is
+	// ACTUALLY meant for, not an aspirational or default one.
+	Role(state map[string]any) string
 	// Commit generates the pipeline contents from the wizard state.
 	// state is the user-provided JSON blob (map of fieldName → value).
 	Commit(state map[string]any) (CommitResult, error)
@@ -58,9 +83,13 @@ type Registry struct {
 
 var defaultRegistry = &Registry{wizards: make(map[string]Wizard)}
 
-// Register adds a wizard to the default registry.
+// Register adds a wizard to the default registry, wrapped in roleEnforced
+// (role.go) so every Commit call — from any caller, present or future — is
+// checked against the wizard's declared role before it can succeed. This is
+// the only path onto defaultRegistry, so there is no way to register a
+// wizard that bypasses the check.
 func Register(w Wizard) {
-	defaultRegistry.wizards[w.Kind()] = w
+	defaultRegistry.wizards[w.Kind()] = roleEnforced{Wizard: w}
 }
 
 // Default returns the default registry.

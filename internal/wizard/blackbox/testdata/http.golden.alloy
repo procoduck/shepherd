@@ -1,0 +1,27 @@
+prometheus.exporter.blackbox "probes" {
+  target {
+    name    = "https-example-com"
+    address = "https://example.com"
+    module  = "http_2xx"
+  }
+  target {
+    name    = "https-example-org"
+    address = "https://example.org"
+    module  = "http_2xx"
+  }
+}
+
+prometheus.scrape "probes" {
+  targets         = prometheus.exporter.blackbox.probes.targets
+  forward_to      = [prometheus.remote_write.metrics.receiver]
+  scrape_interval = "60s"
+  job_name        = "blackbox-http"
+}
+
+prometheus.remote_write "metrics" {
+  endpoint {
+    name = "prom-prod"
+    url  = sys.env("SHEPHERD_DEST_PROM_PROD_URL")
+    // auth injected by Shepherd at serve time
+  }
+}

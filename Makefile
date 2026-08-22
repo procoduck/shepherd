@@ -1,4 +1,4 @@
-.PHONY: check-gateway-pin preflight-docker help build build-web build-all test e2e e2e-k8s e2e-k8s-clean e2e-sim e2e-egress smoke test-ui check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks lint fmt generate gen-alloy-version generate-corpus schema schema-verify helm-lint release-snapshot docker-build docker-build-local docker-build-init docker-build-simulator dev dev-sim dev-frontend dev-restart dev-seed dev-reset test-fullstack clean clean-docker tools preflight-ginkgo preflight-k8s
+.PHONY: check-gateway-pin check-chartvalues-pin chart-verify preflight-docker help build build-web build-all test e2e e2e-k8s e2e-k8s-clean e2e-sim e2e-egress smoke test-ui check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks lint fmt generate gen-alloy-version generate-corpus schema schema-verify helm-lint release-snapshot docker-build docker-build-local docker-build-init docker-build-simulator dev dev-sim dev-frontend dev-restart dev-seed dev-reset test-fullstack clean clean-docker tools preflight-ginkgo preflight-k8s
 
 # Several recipes are bash-idiomatic (the smoke here-string, trap chains);
 # /bin/sh is dash on Debian/Ubuntu and rejects them.
@@ -415,7 +415,65 @@ check-gateway-pin: ## Guard: Gateway API version/channel agree with versions.env
 	[ "$$fail" = "0" ] || exit 1
 	@echo "check-gateway-pin: OK ($(GATEWAY_API_VERSION), $(GATEWAY_API_CHANNEL))"
 
-lint: check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks check-gateway-pin ## Repo guards + golangci-lint
+# Guard: the k8s-monitoring chart pin (docs/gateway-tier-plan.md W9, G8) must
+# agree across deploy/versions.env, internal/chartvalues.PinnedChartVersion,
+# and the provenance record vendored alongside testdata/values.schema.json —
+# otherwise internal/chartvalues could generate values proven against a
+# schema for a DIFFERENT chart release than the one it claims to target.
+# Offline and fast (no network): the online half — does the vendored schema
+# still match what upstream actually publishes for this version — is
+# `chart-verify`, below.
+check-chartvalues-pin: ## Guard: k8s-monitoring chart version agrees with versions.env
+	@fail=0; \
+	want="$(K8S_MONITORING_CHART_VERSION)"; \
+	if [ -z "$$want" ]; then \
+		echo "ERROR: K8S_MONITORING_CHART_VERSION missing from deploy/versions.env"; exit 1; \
+	fi; \
+	got=$$(sed -n 's/^const PinnedChartVersion = "\(.*\)"/\1/p' internal/chartvalues/version.go); \
+	if [ "$$got" != "$$want" ]; then \
+		echo "ERROR: internal/chartvalues.PinnedChartVersion is '$$got' but versions.env pins '$$want'"; fail=1; \
+	fi; \
+	gotmeta=$$(sed -n 's/.*"chart_version": *"\([^"]*\)".*/\1/p' internal/chartvalues/testdata/values.schema.meta.json); \
+	if [ "$$gotmeta" != "$$want" ]; then \
+		echo "ERROR: internal/chartvalues/testdata/values.schema.meta.json chart_version is '$$gotmeta' but versions.env pins '$$want'"; fail=1; \
+	fi; \
+	[ "$$fail" = "0" ] || exit 1
+	@echo "check-chartvalues-pin: OK ($(K8S_MONITORING_CHART_VERSION))"
+
+# Verify the vendored values.schema.json still matches what upstream actually
+# publishes for K8S_MONITORING_CHART_VERSION — the online half check-chartvalues-pin
+# (above) cannot do. Re-fetches the exact release URL recorded in
+# testdata/values.schema.meta.json's source_url and diffs it byte-for-byte
+# against the committed copy; unlike schema-verify's JSON artifact, this file
+# has no generated-at timestamp field to strip, so a plain diff is already
+# exact. Then runs the package's own test suite, which is where G9's
+# stronger checks live (every emitted key proven against the schema, every
+# golden validated against it, and a real `helm template` per feature
+# combination — see internal/chartvalues/schema_test.go and
+# helmtemplate_test.go).
+# Prerequisites: network access. Not part of `make lint` — like
+# schema-verify, this belongs on a schedule (weekly, or on PRs touching
+# deploy/versions.env), not on every local `make lint` run.
+chart-verify: check-chartvalues-pin ## Verify the vendored chart schema matches upstream (network; occasional)
+	@set -eu; \
+	url=$$(sed -n 's/.*"source_url": *"\([^"]*\)".*/\1/p' internal/chartvalues/testdata/values.schema.meta.json); \
+	if [ -z "$$url" ]; then echo "ERROR: no source_url in values.schema.meta.json"; exit 1; fi; \
+	tmp=$$(mktemp -d); \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	if ! curl -sfL "$$url" -o "$$tmp/fresh.json"; then \
+		echo "chart-verify: FAIL — could not fetch $$url"; exit 1; \
+	fi; \
+	if diff -u internal/chartvalues/testdata/values.schema.json "$$tmp/fresh.json"; then \
+		echo "chart-verify: OK (vendored schema matches $$url)"; \
+	else \
+		echo "chart-verify: FAIL — the vendored schema no longer matches upstream for K8S_MONITORING_CHART_VERSION=$(K8S_MONITORING_CHART_VERSION)."; \
+		echo "Re-fetch it, update values.schema.meta.json's sha256/fetched_at, and commit both."; \
+		exit 1; \
+	fi
+	@go test ./internal/chartvalues/ -count=1
+	@echo "chart-verify: OK (G9 golden/schema/helm-template checks passed)"
+
+lint: check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks check-gateway-pin check-chartvalues-pin ## Repo guards + golangci-lint
 	$(call preflight,golangci-lint,Install golangci-lint v2 (https://golangci-lint.run).)
 	@# `golangci-lint run` accepts unknown keys in .golangci.yml without
 	@# complaint, so a misplaced or misspelled setting silently does nothing
