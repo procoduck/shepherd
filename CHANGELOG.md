@@ -11,6 +11,49 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
+## v0.0.3
+
+A fix release. v0.0.2's shipped image could not run `alloy validate` at all, and a manual
+walkthrough of a real deployment found that plus three more gaps that the test suite could not.
+No new features; nothing that was gated in v0.0.2 has been ungated.
+
+### Fixed
+
+- **`alloy validate` (Stage 2 of the validation gate) was dead in every container, the released
+  v0.0.2 image included.** The image bundles the `alloy` binary so it can validate pipeline config
+  before serving it, and `alloy` is dynamically linked — but the base was `distroless/static`,
+  which carries no dynamic loader, so the binary was present and unrunnable. Every pipeline save in
+  a Helm deployment failed Stage 2; dev and compose stacks silently *skipped* it (they leave the
+  binary path empty), which is why no test caught it. Fixed by moving to `distroless/base-nossl`,
+  and `make check-alloy-runnable` now fails the build if it regresses. **This is the reason to
+  upgrade.**
+- **Five of six wizards were absent from the running product.** Their packages were never imported,
+  so they never registered; `ListWizards` returned one. Now all six are registered and reachable,
+  and the wizard gallery/runner render whatever the backend serves rather than a hardcoded list.
+- **A machine actor's on-behalf-of attribution was not shown in the audit UI.** The value was
+  stored and returned but never rendered, so a human reading the audit log could not see who
+  authorised a machine's write. The audit table now has an "On behalf of" column.
+- **Destination and binding writes were not audited**, and a binding's `tenant_id` was not
+  validated. Both fixed — a binding decides which tenant a team's telemetry ships under, so it is
+  audit-worthy and its tenant id now goes through the same rule routes use.
+
+### Also
+
+- Images drop OpenSSL (`base-nossl`, not `base`): nothing in either binary links it. Still
+  distroless — no shell, no package manager, `nonroot`. Cost of a working Stage 2 is ~29MB of glibc.
+- The Helm chart exposes `service.type` (was hardcoded `ClusterIP`), so the app is reachable on a
+  cluster with no ingress controller without editing the rendered Service.
+- The kind e2e suite now runs when the Dockerfiles or image pins change — the gap that let the
+  Stage 2 break reach a release.
+- `github.com/moby/spdystream` and `github.com/moby/go-archive` bumped (test-only dependencies).
+
+### Upgrading from v0.0.2
+
+No migrations, no configuration changes. The image is the whole point of the release. Six
+`github.com/docker/docker` Dependabot alerts remain open and are **not fixable** — v28.5.2 is the
+newest version on that module path and the advisories cover it; it reaches us only through a
+dependency's test binary and is in no shipped code (see `docs/project-status.md` §4).
+
 ## v0.0.2
 
 ### Shipped
