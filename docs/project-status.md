@@ -358,6 +358,15 @@ the contributing set.
       pass on the next Alloy bump
 - [ ] `go.mod` carries a vestigial `github.com/lib/pq` line via testcontainers' own test dependency.
       No package we build or test imports it; `govulncheck` is clean
+- [ ] **Six open Dependabot alerts on `github.com/docker/docker` (2 high, 2 medium at last count)
+      cannot currently be fixed, and this is not neglect.** Checked 2026-08-22: `v28.5.2+incompatible`
+      is the newest version published on that module path, and the advisories cover `<= 28.5.2` and
+      `< 29.3.1` — 29.x is not published there, so there is no version to move to. We are already on
+      the latest `golang-migrate` (v4.19.1), which is what drags it in, and only through the *test*
+      binary of `database/pgx/v5`. It appears in **zero** packages of our build graph (`go list -deps
+      ./...`), so nothing we compile, test, or ship links it; `govulncheck` reports 0 reachable
+      vulnerabilities. Revisit when golang-migrate/dktest moves to a patched docker, and re-check
+      rather than assuming — the alert count going up does not necessarily mean new exposure.
 - [ ] `make e2e-sim` cannot be run as a single invocation locally — the installed ginkgo CLI is
       version-mismatched (2.32.0 vs the module's 2.32.1). Its steps run individually
 - [ ] Helm's Kubernetes containment is asserted at `helm template` text level only. A template
