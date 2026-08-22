@@ -1,7 +1,7 @@
 ARG GO_IMAGE=golang:1.26-alpine
 ARG NODE_IMAGE=node:24-slim
 ARG ALLOY_IMAGE=grafana/alloy:v1.18.1
-ARG DISTROLESS_BASE_IMAGE=gcr.io/distroless/base-debian12:nonroot
+ARG DISTROLESS_BASE_IMAGE=gcr.io/distroless/base-nossl-debian12:nonroot
 ARG PNPM_VERSION=11.22.0
 
 # Stage 1: Build the web SPA via the canonical build script

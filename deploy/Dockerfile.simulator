@@ -9,7 +9,7 @@
 # reach is everything a user's graph can reach.
 ARG GO_IMAGE=golang:1.26-alpine
 ARG ALLOY_IMAGE=grafana/alloy:v1.18.1
-ARG DISTROLESS_BASE_IMAGE=gcr.io/distroless/base-debian12:nonroot
+ARG DISTROLESS_BASE_IMAGE=gcr.io/distroless/base-nossl-debian12:nonroot
 
 # Stage 1: build the simulator binary
 FROM ${GO_IMAGE} AS builder
