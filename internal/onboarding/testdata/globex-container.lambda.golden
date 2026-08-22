@@ -1,0 +1,15 @@
+# aws lambda update-function-configuration --function-name <fn> \
+#   --environment file://env.json
+#
+# No ADOT layer attached (ConnectAppSpec.IncludeADOTLayer was false) — add
+# one via --layers to get auto-instrumentation; look the ARN up for your
+# region/runtime/architecture at https://aws-otel.github.io/docs/getting-started/lambda
+# (Shepherd does not hardcode this ARN — it drifts per release).
+# env.json:
+{
+  "Variables": {
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "https://telemetry.example.com/otlp/k7f3n9qp3mx8vh2q",
+    "OTEL_EXPORTER_OTLP_PROTOCOL": "http/json",
+    "OTEL_SERVICE_NAME": "billing-worker"
+  }
+}

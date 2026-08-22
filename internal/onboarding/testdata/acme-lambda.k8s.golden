@@ -1,0 +1,13 @@
+# Fragment of a Deployment's pod template for "checkout-api".
+# Route: kind=otlp segment=acme-a1b2c3d4
+spec:
+  containers:
+    - name: checkout-api
+      # ... image, ports, etc. unchanged ...
+      env:
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "https://telemetry.example.com/otlp/acme-a1b2c3d4"
+        - name: OTEL_EXPORTER_OTLP_PROTOCOL
+          value: "http/protobuf"
+        - name: OTEL_SERVICE_NAME
+          value: "checkout-api"

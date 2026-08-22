@@ -2,6 +2,8 @@ package agentapi
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -72,6 +74,37 @@ var _ = Describe("Sweeper", Label("integration"), func() {
 		Expect(err).To(HaveOccurred())
 		_, err = st.Queries.GetSessionByID(ctx, "test-session-b")
 		Expect(err).NotTo(HaveOccurred())
+	})
+
+	It("sweeper deletes expired beacon inventory and preserves fresh rows", func() {
+		raw := make([]byte, 32)
+		_, _ = rand.Read(raw)
+		hash := sha256.Sum256(raw)
+		tok, err := st.Queries.CreateAgentToken(ctx, sqlc.CreateAgentTokenParams{
+			Name: "sweeper-beacon-token", TokenHash: hash[:], CreatedBy: "test",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		insertAt := func(instance string, ts time.Time) {
+			// RAW-SQL-OK: backdating last_seen for a sweep test — no sqlc
+			// query exposes an explicit timestamp (UpsertBeaconComponent
+			// always writes now()), and this is a _test.go file anyway.
+			_, err := st.Pool().Exec(ctx,
+				`INSERT INTO beacon_inventory (token_id, instance_label, component_name, healthy, last_seen)
+				 VALUES ($1, $2, 'pipe_x', true, $3)`, tok.ID, instance, ts)
+			Expect(err).NotTo(HaveOccurred())
+		}
+		now := time.Now()
+		insertAt("stale-instance", now.Add(-time.Hour))
+		insertAt("fresh-instance", now)
+
+		sw := NewSweeper(st, &config.AgentConfig{InactiveAfter: time.Hour, DeleteAfter: 24 * time.Hour, SweepInterval: time.Minute}, slog.Default())
+		sw.sweep(ctx)
+
+		rows, err := st.Queries.ListBeaconInventoryByToken(ctx, tok.ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(rows).To(HaveLen(1))
+		Expect(rows[0].InstanceLabel).To(Equal("fresh-instance"))
 	})
 
 	It("an expired but undeleted session is rejected by middleware", func() {

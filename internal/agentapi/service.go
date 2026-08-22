@@ -14,6 +14,7 @@ import (
 
 	collectorv1 "shepherd/gen/collector/v1"
 	"shepherd/gen/collector/v1/collectorv1connect"
+	"shepherd/internal/beacon"
 	"shepherd/internal/merge"
 	"shepherd/internal/metrics"
 	"shepherd/internal/schema"
@@ -44,14 +45,45 @@ type Service struct {
 	// enforcing only one of them would not be enforcement at all — it would
 	// just move the hole. Nil disables enforcement here (see New).
 	schema *schema.Registry
+	// beaconBaseline configures D6's baseline pipeline, appended to every
+	// claimed collector's served config by recomputeServeCache — see
+	// WithBeaconRemoteWrite. Zero value (RemoteWriteURL == "") means
+	// disabled; beacon.AppendBaseline treats that as "leave content
+	// unchanged", never as an error.
+	beaconBaseline beacon.BaselineConfig
+}
+
+// ServiceOption configures optional Service behavior not required by every
+// caller (server.go's production wiring vs. a test constructing a minimal
+// Service) — the same variadic-option shape internal/merge.AssembleOption
+// already uses for the same reason (WithRoleEnforcement).
+type ServiceOption func(*Service)
+
+// WithBeaconRemoteWrite enables D6's baseline pipeline on the lazy recompute
+// path: every claimed collector's served config gets
+// beacon.RenderBaselinePipeline appended, pointed at baseURL+BeaconWritePath.
+// baseURL is config.ServerConfig.BaseURL; passing "" is equivalent to not
+// applying this option at all (beacon.AppendBaseline's documented no-op).
+func WithBeaconRemoteWrite(baseURL string) ServiceOption {
+	return func(s *Service) {
+		remoteWriteURL := ""
+		if baseURL != "" {
+			remoteWriteURL = strings.TrimSuffix(baseURL, "/") + beacon.WritePath
+		}
+		s.beaconBaseline = beacon.NewBaselineConfig(remoteWriteURL)
+	}
 }
 
 // New creates a new agent API Service. reg may be nil, in which case the lazy
 // recompute path serves without role enforcement — a corrupt embedded schema
 // degrades the guard rather than taking the fleet offline. Callers that can
 // load a registry must pass it.
-func New(st *store.Store, v *validate.Validator, logger *slog.Logger, reg *schema.Registry) *Service {
-	return &Service{store: st, validator: v, logger: logger.With("component", "agentapi"), schema: reg}
+func New(st *store.Store, v *validate.Validator, logger *slog.Logger, reg *schema.Registry, opts ...ServiceOption) *Service {
+	s := &Service{store: st, validator: v, logger: logger.With("component", "agentapi"), schema: reg}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // RegisterCollector handles collector registration.
@@ -350,13 +382,36 @@ func (s *Service) recomputeServeCache(ctx context.Context, coll sqlc.Collector, 
 		return "", "", fmt.Errorf("assembling config: %w", err)
 	}
 
-	// Stage 1 validation on the merged output.
+	// D6: every claimed collector gets the baseline pipeline, independent of
+	// role/matchers — see beacon.AppendBaseline's doc comment for why this is
+	// a plain append rather than another entry in mergePipelines (role
+	// enforcement above would reject it for role=logs collectors, and D6
+	// says "not opt-in", not "opt-in for roles that happen to allow Metrics").
+	// A no-op when WithBeaconRemoteWrite was never applied (RemoteWriteURL
+	// == "").
+	content, err := beacon.AppendBaseline(result.Content, s.beaconBaseline)
+	if err != nil {
+		// Render failure is a static-config bug (bad Label, e.g.), not a
+		// per-collector condition — degrade to serving without the baseline
+		// rather than taking every collector's config offline over it, and
+		// say so loudly.
+		s.logger.Error("appending beacon baseline pipeline failed; serving without it", "collector_id", coll.ID.String(), "err", err)
+		content = result.Content
+	}
+	hash := result.Hash
+	if content != result.Content {
+		hash = merge.HashContent(content)
+	}
+
+	// Stage 1 validation on the FINAL served output, baseline included — a
+	// broken baseline render must fail the same way a broken user pipeline
+	// would, not slip through because it was appended after this check.
 	if s.validator != nil {
-		r1 := validate.Stage1(result.Content)
+		r1 := validate.Stage1(content)
 		if !r1.Valid {
 			return "", "", fmt.Errorf("merged config failed stage-1 validation")
 		}
 	}
 
-	return result.Content, result.Hash, nil
+	return content, hash, nil
 }

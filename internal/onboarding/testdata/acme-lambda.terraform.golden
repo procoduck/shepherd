@@ -1,0 +1,25 @@
+# Layer this into the aws_lambda_function resource for "checkout-api".
+# Route: kind=otlp segment=acme-a1b2c3d4
+
+# D5: Shepherd does not hardcode ADOT layer ARNs — they are region/arch
+# specific and drift between releases. Look yours up at
+# https://aws-otel.github.io/docs/getting-started/lambda and set it below.
+variable "adot_layer_arn" {
+  description = "ADOT Lambda layer ARN for this function's runtime/arch/region — https://aws-otel.github.io/docs/getting-started/lambda"
+  type        = string
+}
+
+resource "aws_lambda_function" "this" {
+  # ... function_name, role, handler, runtime, etc. unchanged ...
+
+  layers = [var.adot_layer_arn]
+
+  environment {
+    variables = {
+      OTEL_EXPORTER_OTLP_ENDPOINT = "https://telemetry.example.com/otlp/acme-a1b2c3d4"
+      OTEL_EXPORTER_OTLP_PROTOCOL = "http/protobuf"
+      OTEL_SERVICE_NAME = "checkout-api"
+      AWS_LAMBDA_EXEC_WRAPPER = "/opt/otel-instrument"
+    }
+  }
+}

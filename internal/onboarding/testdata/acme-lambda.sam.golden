@@ -1,0 +1,23 @@
+# Fragment of template.yaml for "checkout-api". Route: kind=otlp segment=acme-a1b2c3d4
+
+# D5: no literal ARN — look yours up at https://aws-otel.github.io/docs/getting-started/lambda
+Parameters:
+  ADOTLayerArn:
+    Type: String
+    Description: >-
+      ADOT Lambda layer ARN for this function's runtime/arch/region —
+      https://aws-otel.github.io/docs/getting-started/lambda
+
+Resources:
+  Function:
+    Type: AWS::Serverless::Function
+    Properties:
+      # ... CodeUri, Handler, Runtime, etc. unchanged ...
+      Layers:
+        - !Ref ADOTLayerArn
+      Environment:
+        Variables:
+          OTEL_EXPORTER_OTLP_ENDPOINT: "https://telemetry.example.com/otlp/acme-a1b2c3d4"
+          OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
+          OTEL_SERVICE_NAME: "checkout-api"
+          AWS_LAMBDA_EXEC_WRAPPER: "/opt/otel-instrument"

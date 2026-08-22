@@ -16,6 +16,7 @@ import (
 
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
+	"shepherd/internal/beacon"
 	"shepherd/internal/merge"
 	"shepherd/internal/schema"
 	"shepherd/internal/signals"
@@ -33,11 +34,42 @@ type PipelineService struct {
 	validator *validate.Validator
 	schema    *schema.Registry
 	logger    *slog.Logger
+	// beaconBaseline configures D6's baseline pipeline, appended to every
+	// collector's served config by recomputeOrgCaches — the eager
+	// write-time recompute counterpart to internal/agentapi's lazy
+	// recomputeServeCache. docs/gateway-tier-plan.md §10 recorded, for W1,
+	// that "two paths produce the same served config; enforcing one of them
+	// is not enforcement" — the same is true for D6's baseline, hence this
+	// field exists here too rather than only in agentapi.Service. See
+	// beacon.AppendBaseline, the single function both paths call.
+	beaconBaseline beacon.BaselineConfig
+}
+
+// PipelineServiceOption configures optional PipelineService behavior. See
+// WithBeaconRemoteWrite.
+type PipelineServiceOption func(*PipelineService)
+
+// WithBeaconRemoteWrite enables D6's baseline pipeline on the eager
+// recompute path — see internal/agentapi.WithBeaconRemoteWrite, which does
+// the identical thing for the lazy path. baseURL is
+// config.ServerConfig.BaseURL; "" is equivalent to omitting this option.
+func WithBeaconRemoteWrite(baseURL string) PipelineServiceOption {
+	return func(s *PipelineService) {
+		remoteWriteURL := ""
+		if baseURL != "" {
+			remoteWriteURL = strings.TrimSuffix(baseURL, "/") + beacon.WritePath
+		}
+		s.beaconBaseline = beacon.NewBaselineConfig(remoteWriteURL)
+	}
 }
 
 // NewPipelineService constructs a PipelineService with the deps PipelinesHandler uses today.
-func NewPipelineService(st *store.Store, v *validate.Validator, reg *schema.Registry, logger *slog.Logger) *PipelineService {
-	return &PipelineService{store: st, validator: v, schema: reg, logger: logger}
+func NewPipelineService(st *store.Store, v *validate.Validator, reg *schema.Registry, logger *slog.Logger, opts ...PipelineServiceOption) *PipelineService {
+	s := &PipelineService{store: st, validator: v, schema: reg, logger: logger}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 var _ mgmtv1connect.PipelineServiceHandler = (*PipelineService)(nil)
@@ -873,15 +905,31 @@ func (s *PipelineService) recomputeOrgCaches(ctx context.Context, orgID pgtype.U
 			s.logger.Warn("recomputeOrgCaches: pipeline excluded (role/signal mismatch)",
 				"collector_id", c.ID.String(), "role", c.Role, "pipeline", ex.PipelineName, "reason", ex.Reason)
 		}
-		r1 := validate.Stage1(result.Content)
+
+		// D6: every collector gets the baseline pipeline here too — see
+		// internal/agentapi.WithBeaconRemoteWrite's doc comment and
+		// beacon.AppendBaseline for why this must be the SAME call the lazy
+		// recompute path makes, not a separate re-implementation.
+		content, appendErr := beacon.AppendBaseline(result.Content, s.beaconBaseline)
+		if appendErr != nil {
+			s.logger.Warn("recomputeOrgCaches: appending beacon baseline pipeline failed; serving without it",
+				"collector_id", c.ID.String(), "err", appendErr)
+			content = result.Content
+		}
+		hash := result.Hash
+		if content != result.Content {
+			hash = merge.HashContent(content)
+		}
+
+		r1 := validate.Stage1(content)
 		if !r1.Valid {
 			s.logger.Warn("recomputeOrgCaches: stage-1 invalid on merged output", "collector_id", c.ID.String())
 			continue
 		}
 		if _, upsertErr := s.store.Queries.UpsertServeCacheConditional(ctx, sqlc.UpsertServeCacheConditionalParams{
 			CollectorID: c.ID,
-			Content:     result.Content,
-			Hash:        result.Hash,
+			Content:     content,
+			Hash:        hash,
 		}); upsertErr != nil {
 			s.logger.Warn("recomputeOrgCaches: upsert failed", "collector_id", c.ID.String(), "err", upsertErr)
 		}

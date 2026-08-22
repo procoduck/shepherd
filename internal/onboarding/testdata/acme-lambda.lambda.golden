@@ -1,0 +1,11 @@
+# aws lambda update-function-configuration --function-name <fn> \
+#   --environment file://env.json
+# env.json:
+{
+  "Variables": {
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "https://telemetry.example.com/otlp/acme-a1b2c3d4",
+    "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+    "OTEL_SERVICE_NAME": "checkout-api",
+    "AWS_LAMBDA_EXEC_WRAPPER": "/opt/otel-instrument"
+  }
+}

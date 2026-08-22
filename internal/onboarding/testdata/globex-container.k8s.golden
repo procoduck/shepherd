@@ -1,0 +1,13 @@
+# Fragment of a Deployment's pod template for "billing-worker".
+# Route: kind=otlp segment=k7f3n9qp3mx8vh2q
+spec:
+  containers:
+    - name: billing-worker
+      # ... image, ports, etc. unchanged ...
+      env:
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "https://telemetry.example.com/otlp/k7f3n9qp3mx8vh2q"
+        - name: OTEL_EXPORTER_OTLP_PROTOCOL
+          value: "http/json"
+        - name: OTEL_SERVICE_NAME
+          value: "billing-worker"

@@ -65,7 +65,7 @@ func Router(st *store.Store, cfg *config.Config, enc *crypto.Encryptor, logger *
 	logger = logger.With("component", "mgmtapi")
 	// pipelines is a thin REST shim over PipelineService (rpc_pipeline.go),
 	// which owns all pipeline business logic; see pipelines.go.
-	pipelines := NewPipelinesHandler(NewPipelineService(st, v, schemaReg, logger))
+	pipelines := NewPipelinesHandler(NewPipelineService(st, v, schemaReg, logger, WithBeaconRemoteWrite(cfg.Server.BaseURL)))
 	admin := NewAdminHandler(st, logger)
 	orgs := NewOrgsHandler(st, logger)
 	audit := NewAuditHandler(st, logger)
@@ -248,7 +248,7 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 			return mgmtv1connect.NewFleetServiceHandler(NewFleetService(st, logger), authz)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewPipelineServiceHandler(NewPipelineService(st, v, schemaReg, logger), authz)
+			return mgmtv1connect.NewPipelineServiceHandler(NewPipelineService(st, v, schemaReg, logger, WithBeaconRemoteWrite(cfg.Server.BaseURL)), authz)
 		},
 		func() (string, http.Handler) {
 			return mgmtv1connect.NewDestinationServiceHandler(NewDestinationService(st, logger), authz)

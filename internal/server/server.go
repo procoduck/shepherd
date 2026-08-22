@@ -23,6 +23,7 @@ import (
 	"shepherd/gen/collector/v1/collectorv1connect"
 	"shepherd/internal/agentapi"
 	"shepherd/internal/auth"
+	"shepherd/internal/beacon"
 	"shepherd/internal/config"
 	"shepherd/internal/crypto"
 	"shepherd/internal/gitsync"
@@ -174,13 +175,22 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 		// the lazy recompute path serves unenforced (see agentapi.New).
 		logger.Error("schema registry unavailable; agent-path role enforcement disabled", "err", agentSchemaErr)
 	}
-	svc := agentapi.New(st, v, logger, agentReg)
+	svc := agentapi.New(st, v, logger, agentReg, agentapi.WithBeaconRemoteWrite(cfg.Server.BaseURL))
 	authInterceptor := agentapi.NewAuthInterceptor(st)
 	connectPath, connectHandler := collectorv1connect.NewCollectorServiceHandler(
 		svc,
 		connect.WithInterceptors(authInterceptor),
 	)
 	r.Mount(connectPath, connectHandler)
+
+	// Beacon ingest (D6, G5): plain HTTP, not Connect RPC — Prometheus
+	// remote_write is its own wire format (snappy-compressed protobuf), not
+	// something a collector.v1 RPC could carry. Authenticated by the SAME
+	// Basic Auth mechanism as the Connect API above (agentapi.BeaconHandler
+	// reuses verifyBasicAuth), so it is mounted at router root next to it —
+	// never inside the /api session+CSRF group below, which is for
+	// browser-session-authenticated callers, not agents.
+	r.Post(agentapi.BeaconWritePath, agentapi.NewBeaconHandler(st, logger, beacon.DefaultLimits).ServeHTTP)
 
 	// Management REST API with session + OIDC auth wiring.
 	r.Get("/auth/methods", auth.MethodsHandler(cfg))
@@ -219,6 +229,7 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 	r.Handle("/auth/*", apiGuard)
 	r.Handle("/collector.v1.*", apiGuard)
 	r.Handle("/shepherd.mgmt.v1.*", apiGuard)
+	r.Handle("/beacon/*", apiGuard)
 	r.Handle("/metrics", apiGuard) // metrics moved to separate listener (V4-4)
 
 	r.Mount("/", spa.Handler())

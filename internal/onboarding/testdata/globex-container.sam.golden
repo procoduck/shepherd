@@ -1,0 +1,12 @@
+# Fragment of template.yaml for "billing-worker". Route: kind=otlp segment=k7f3n9qp3mx8vh2q
+
+Resources:
+  Function:
+    Type: AWS::Serverless::Function
+    Properties:
+      # ... CodeUri, Handler, Runtime, etc. unchanged ...
+      Environment:
+        Variables:
+          OTEL_EXPORTER_OTLP_ENDPOINT: "https://telemetry.example.com/otlp/k7f3n9qp3mx8vh2q"
+          OTEL_EXPORTER_OTLP_PROTOCOL: "http/json"
+          OTEL_SERVICE_NAME: "billing-worker"
