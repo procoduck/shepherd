@@ -117,7 +117,7 @@ None of these exist in the proto contract either, so each needs an RPC + shim + 
 
 `docs/visual-builder-design-VB1.md` §6.4. Built on 2026-08-20 but its containment claim does not
 hold; the feature is off by default and must stay off. See `docs/project-status.md` (the live ledger)
-and `docs/reviews/s3-sandbox-security-findings.md`.
+and `docs/archive/reviews/s3-sandbox-security-findings.md`.
 
 ### F6 — [DONE 2026-08-19] VB-1 M8: hardening · **low**
 

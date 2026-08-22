@@ -8,6 +8,20 @@ image:
 
 replicas: 2
 
+# The Service in front of Shepherd. ClusterIP by default: an Ingress or
+# HTTPRoute (both below) is the intended way in for a real deployment.
+#
+# type is exposed because the template hardcoded ClusterIP, which left no way
+# to reach Shepherd on a bare cluster without editing the rendered object by
+# hand — kind and other local clusters have no ingress controller, and that is
+# exactly where someone is trying the chart for the first time.
+service:
+  type: ClusterIP
+  port: 8080
+  # Only used when type is NodePort. Leave empty to let Kubernetes pick one
+  # from the node port range.
+  nodePort: ""
+
 config:
   server:
     listen: ":8080"
@@ -147,7 +161,7 @@ networkPolicy:
 #     emptyDir mounted over /tmp).
 #   - CPU/memory limits, so one runaway sandboxed config cannot starve the node.
 #
-# See docs/visual-builder-design-VB1.md §6.4 and docs/reviews/s3-sandbox-security-findings.md
+# See docs/visual-builder-design-VB1.md §6.4 and docs/archive/reviews/s3-sandbox-security-findings.md
 # (finding H5) for why each of these exists.
 simulator:
   enabled: true

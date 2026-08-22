@@ -14,7 +14,7 @@ import { OverviewPage } from '@/pages/OverviewPage';
 import { PipelineEditorPage } from '@/pages/PipelineEditorPage';
 import { PipelinesPage } from '@/pages/PipelinesPage';
 import { WizardsPage } from '@/pages/WizardsPage';
-import { AppObservabilityWizardPage } from '@/wizard/AppObservabilityWizardPage';
+import { WizardRunnerPage } from '@/wizard/WizardRunnerPage';
 
 const rootRoute = createRootRoute({
   component: Outlet,
@@ -141,10 +141,12 @@ const wizardsRoute = createRoute({
   component: WizardsPage,
 });
 
-const appObservabilityWizardRoute = createRoute({
+// One route for every wizard: the runner reads the kind from the path and
+// renders whatever schema the backend returns for it.
+const wizardRunnerRoute = createRoute({
   getParentRoute: () => contentRoute,
-  path: '/wizards/app-observability',
-  component: AppObservabilityWizardPage,
+  path: '/wizards/$kind',
+  component: WizardRunnerPage,
 });
 
 const adminOrgsRoute = createRoute({
@@ -184,7 +186,7 @@ const routeTree = rootRoute.addChildren([
       destinationsRoute,
       gitRoute,
       wizardsRoute,
-      appObservabilityWizardRoute,
+      wizardRunnerRoute,
       adminOrgsRoute,
       adminClustersRoute,
       adminTokensRoute,

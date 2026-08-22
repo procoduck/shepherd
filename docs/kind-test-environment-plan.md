@@ -1,11 +1,18 @@
 # Kubernetes test environment — plan
 
-> Status: **steps 1–2 implemented 2026-08-20** (`e2e/k8s/`, `make e2e-k8s`); **step 3 partially
-> done** (default-values Helm install + repeatability specs landed in `e2e/k8s/helm_install_test.go`
-> and `helm_repeatable_test.go`; full-values install and true previous-version upgrade pending);
-> **§5 Layer B implemented 2026-08-21** (`e2e/k8s/simulator_containment_test.go`: all seven probes
-> plus the kill probe, gated behind §4's CNI control — see §8b below for what building it taught
-> us about probe observability); Layer C and the remaining steps proposed.
+> Status (2026-08-22): **steps 1–2 implemented** (`e2e/k8s/`, `make e2e-k8s`); **step 3 partially
+> done** (default-values Helm install + repeatability specs in `e2e/k8s/helm_install_test.go` and
+> `helm_repeatable_test.go`; full-values install and true previous-version upgrade still pending);
+> **§5 Layer B implemented** (`e2e/k8s/simulator_containment_test.go`: all seven probes plus the
+> kill probe, gated behind §4's CNI control — see §8b for what building it taught us about probe
+> observability); Layer C and the remaining steps proposed.
+>
+> **Grown since**: the suite now runs **six features in ~500s**, adding Gateway API route
+> conformance (`route_conformance_test.go`, gates G3/G4 with a live kill probe) and operator-owned
+> attachment verification (`route_apply_test.go`). Its `pull_request` paths filter also now covers
+> `deploy/Dockerfile*` and `deploy/versions.env`, because the suite builds and installs
+> `shepherd:local` — a base-image change that broke `alloy validate` in the shipped image reached a
+> release without ever triggering this job.
 > Goal: a repeatable, self-tearing-down Kubernetes environment that verifies the things
 > `docker compose` structurally cannot — NetworkPolicy enforcement, the Helm chart as deployed,
 > and Shepherd's behaviour against a realistic LGTM stack.

@@ -7,6 +7,8 @@ React 18 + TypeScript + Vite SPA, embedded into the Go binary via `go:embed`.
 - `pnpm build` — TypeScript check + Vite build → `dist/`
 - `pnpm typecheck` — tsc --noEmit
 - `pnpm check` — Biome lint + format (fix in place)
+- `pnpm check:ci` — the same check WITHOUT writing; this is what CI runs
+- `pnpm ci` — the whole CI web job in one command (typecheck + tests + check:ci + build); also `make web-ci` from the repo root
 - `pnpm test` — Vitest unit tests
 - `pnpm test:ui` — Playwright **mocked** suite (full network mock — no real backend). Scope: UI behaviour, component contracts.
 - `pnpm exec playwright test --config playwright.fullstack.config.ts` — Playwright **fullstack** suite (real backend at :8080, no mocks). Run via `make test-fullstack`.
@@ -30,7 +32,7 @@ React 18 + TypeScript + Vite SPA, embedded into the Go binary via `go:embed`.
 - `pnpm check --write .` before committing
 
 ## Rules
-- **If a bug or failing test takes more than 3 rounds of attempts to fix, stop and invoke the `adversarial-reviewer` subagent before continuing.** Describe the exact symptom, the failing code, what you have already tried, and the exact error output. Act on the reviewer's findings before making further changes.
-- Always run `pnpm typecheck` and `pnpm exec biome check` on changed files before finishing a task.
+- **If a bug or failing test takes more than 3 rounds of attempts to fix, stop and get an independent adversarial review before continuing** — a fresh reviewer with no stake in the current theory. Give it the exact symptom, the failing code, everything already tried, and the exact error output. Act on its findings before making further changes.
+- Always run `pnpm ci` before finishing a task — it is exactly the CI web job. `pnpm lint` is the lint half only, so a formatting difference passes locally and fails in CI; that has happened.
 - make test-ui always rebuilds dist/ then kills any stale vite preview (reuseExistingServer=false) — no manual pkill needed.
 - Single-spec runs (`pnpm exec playwright test tests/specs/<name>.spec.ts`) do NOT rebuild — run `pnpm build` first.

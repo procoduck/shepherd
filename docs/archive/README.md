@@ -14,7 +14,9 @@ live ledger.
 | `proofs/` | 17 red–green proofs, one per fix, written while the work was done | 2026-08-17 → 2026-08-18 |
 | [`../git-provider-design.md`](../git-provider-design.md) (live, not archived — kept at top level because source files cite its § numbers) | Standard-git GitOps with pluggable provider auth (basic/pat/ssh/ado_sp/github_app), tested against a real Gitea. Shipped as F9; `ssh` in the compose stack remains open as F9-a | 2026-08-19 |
 | `completed-2026-08-19.md` | The 2026-08-19 baseline round verbatim: seven bugs (B1–B7) and the features F1–F9 that closed with it | 2026-08-19 |
-| `reviews/` | The three fresh-context deep reviews of the visual builder and schema pipeline. All ten priority items implemented; see `docs/reviews/README.md` for what closed each | 2026-08-19 → 2026-08-20 |
+| `reviews/` | The three fresh-context deep reviews of the visual builder and schema pipeline. All ten priority items implemented; see `docs/reviews/README.md` for what closed each |
+| `reviews/s3-sandbox-security-findings.md` | The 2026-08-20 adversarial review of S3 sandbox containment. All findings closed. **Archived 2026-08-22 because its conclusion is now false** — it says the feature must stay disabled, and the sandbox ships enabled by default since v0.0.1 | gates closed 2026-08-21; enabled in v0.0.1 |
+| `reviews/b-contain-1-bind-hardening.md` | Decision record for B-CONTAIN-1's fix: bind-address hardening (Option C), with the rejected options' analysis | 2026-08-21 | 2026-08-19 → 2026-08-20 |
 
 ## Where the live documents are
 
@@ -23,8 +25,11 @@ live ledger.
 - `docs/visual-builder-design-VB1.md` — still live: M1–M8 are built, and §6.4 remains the
   specification for S3 sandbox simulation, which ships **disabled by default** with open
   containment criticals
-- `docs/reviews/` — live findings only: the S3 containment criticals, and the canvas decision
-  record explaining React Flow's controlled-mode contract
+- `docs/reviews/` — one live decision record: React Flow's controlled-mode contract
+- `docs/gateway-tier-plan.md` — the multi-session plan for the gateway tier, beacon, teams and
+  agent interface; its §9 ledger is where workstream status lives
+- `docs/proofs/` — red–green proofs for shipped controls. **Not archived**, because Go source and
+  CI workflows cite these paths directly (the same reason `git-provider-design.md` stayed live)
 - `docs/dev-guide.md` — how to run the dev stack
 - `docs/frontend-testing.md` — the three-layer frontend test strategy
 - `docs/platform-monitoring-architecture.md` — target-fleet reference notes

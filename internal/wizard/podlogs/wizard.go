@@ -59,8 +59,9 @@ var logFormats = map[string]bool{
 // Schema returns the wizard's input schema.
 func (w *Wizard) Schema() wizard.Schema {
 	return wizard.Schema{
-		Kind:  Kind,
-		Title: "Pod Logs",
+		Kind:        Kind,
+		Title:       "Pod Logs",
+		Description: "Tail pod logs from selected namespaces, parse them, and forward to a Loki destination.",
 		Steps: []wizard.Step{
 			{
 				ID:    "targets",

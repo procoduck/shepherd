@@ -16,7 +16,6 @@ DOCKER_BUILD_ARGS := \
 	--build-arg GO_IMAGE=$(GO_IMAGE) \
 	--build-arg NODE_IMAGE=$(NODE_IMAGE) \
 	--build-arg ALLOY_IMAGE=$(ALLOY_IMAGE) \
-	--build-arg DISTROLESS_IMAGE=$(DISTROLESS_IMAGE) \
 	--build-arg DISTROLESS_BASE_IMAGE=$(DISTROLESS_BASE_IMAGE) \
 	--build-arg PNPM_VERSION=$(PNPM_VERSION)
 
@@ -375,7 +374,7 @@ check-docker: ## Guard: Dockerfile FROMs/ARG defaults agree with versions.env
 	fi
 	@FAIL=0; \
 	for f in deploy/Dockerfile.local deploy/Dockerfile.init deploy/Dockerfile.goreleaser deploy/Dockerfile.goreleaser-simulator deploy/Dockerfile.simulator; do \
-		for var in GO_IMAGE NODE_IMAGE ALLOY_IMAGE DISTROLESS_IMAGE DISTROLESS_BASE_IMAGE PNPM_VERSION; do \
+		for var in GO_IMAGE NODE_IMAGE ALLOY_IMAGE DISTROLESS_BASE_IMAGE PNPM_VERSION; do \
 			default=$$(sed -n "s/^ARG $$var=\(.*\)/\1/p" "$$f"); \
 			if [ -n "$$default" ]; then \
 				expected=$$(sed -n "s/^$$var=\(.*\)/\1/p" deploy/versions.env); \
@@ -624,8 +623,29 @@ release-snapshot: ## GoReleaser dry run
 # previous shepherd:local. No build-web prerequisite: the Dockerfile rebuilds
 # the SPA in-stage and overwrites whatever the host tree holds, so a host
 # build would be discarded (and would dirty the tracked internal/spa/dist).
+# The shepherd image bundles the alloy binary so Stage 2 of the validation
+# gate (`alloy validate`) can run. alloy is DYNAMICALLY linked, so the image
+# has to carry a dynamic loader — distroless/base, not distroless/static.
+# Copying it into a static base silently produces an image where the file is
+# present and unrunnable, and Stage 2 then fails on every pipeline save with
+# an error that names the loader rather than the cause. Found by a browser
+# walkthrough of a real Helm deployment, not by any test: the compose and dev
+# stacks leave alloy_binary empty, which SKIPS Stage 2 instead of failing it.
+#
+# $(1) = image tag to check.
+define check-alloy-runnable
+@docker run --rm --entrypoint /usr/local/bin/alloy $(1) --version >/dev/null 2>&1 || { \
+	echo "ERROR: $(1) cannot execute /usr/local/bin/alloy."; \
+	echo "       Stage 2 (alloy validate) would fail on every pipeline save."; \
+	echo "       alloy is dynamically linked: the final stage needs"; \
+	echo "       DISTROLESS_BASE_IMAGE (distroless/base), not distroless/static."; \
+	exit 1; }
+@echo "check-alloy-runnable: OK ($(1) can run alloy validate)"
+endef
+
 docker-build-local: ## Build shepherd:local from deploy/Dockerfile.local
 	docker buildx build --load $(DOCKER_BUILD_ARGS) $(DOCKER_CACHE_FLAGS) -f deploy/Dockerfile.local -t shepherd:local .
+	$(call check-alloy-runnable,shepherd:local)
 
 # Deprecated alias. The docker-build/docker-build-local split (two Dockerfiles,
 # same tag, conflicting platforms) is gone; deploy/Dockerfile.local is the one

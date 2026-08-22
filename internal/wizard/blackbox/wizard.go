@@ -60,8 +60,9 @@ var modules = map[string]bool{
 // Schema returns the wizard's input schema.
 func (w *Wizard) Schema() wizard.Schema {
 	return wizard.Schema{
-		Kind:  Kind,
-		Title: "Blackbox Probes",
+		Kind:        Kind,
+		Title:       "Blackbox Probes",
+		Description: "Probe HTTP, TCP or DNS endpoints from your cluster and alert on reachability and latency.",
 		Steps: []wizard.Step{
 			{
 				ID:    "targets",

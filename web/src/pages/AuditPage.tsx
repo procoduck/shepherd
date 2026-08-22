@@ -108,6 +108,7 @@ export function AuditPage() {
                 <tr>
                   <th className='px-4 py-3 text-left font-medium'>When</th>
                   <th className='px-4 py-3 text-left font-medium'>Actor</th>
+                  <th className='px-4 py-3 text-left font-medium'>On behalf of</th>
                   <th className='px-4 py-3 text-left font-medium'>Action</th>
                   <th className='px-4 py-3 text-left font-medium'>Resource</th>
                 </tr>
@@ -125,6 +126,21 @@ export function AuditPage() {
                       {entry.actor || '—'}
                       {entry.actorType && (
                         <span className='ml-1.5 text-muted-3'>({entry.actorType})</span>
+                      )}
+                    </td>
+                    {/*
+                      The delegated half of a machine action. It was stored and
+                      returned by the API but never shown, which defeats the
+                      point: two-part attribution exists so a human reading this
+                      log can see who authorised a machine's write. A dash means
+                      no delegation — a person acting for themselves — not a
+                      missing value.
+                    */}
+                    <td className='px-4 py-2.5 font-mono text-xs'>
+                      {entry.onBehalfOf ? (
+                        entry.onBehalfOf
+                      ) : (
+                        <span className='text-muted-3'>—</span>
                       )}
                     </td>
                     <td className='px-4 py-2.5 font-mono text-xs'>{entry.action}</td>

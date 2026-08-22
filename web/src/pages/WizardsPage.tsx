@@ -4,18 +4,16 @@ import { AppWindow } from 'lucide-react';
 import { clients } from '@/api/transport';
 import { useOrgId } from '@/hooks/useOrg';
 
-// Static gallery copy for known wizard kinds (spec §13.5: "v1 has one card").
-// Keyed by the wizard `kind` returned by ListWizards so a second registered
-// wizard picks up a card automatically once it's added here.
-const WIZARD_CARDS: Record<string, { title: string; description: string; href: string }> = {
-  'app-observability': {
-    title: 'Application observability',
-    description:
-      "Scrape logs and metrics from selected namespaces and ship them to your org's destinations.",
-    href: '/wizards/app-observability',
-  },
-};
-
+// The catalog is whatever the backend registry serves — title and description
+// come from the wizard itself.
+//
+// This page used to hold a hardcoded map of kinds and filter the API response
+// down to the entries it recognised. The comment on that map claimed a new
+// wizard "picks up a card automatically once it's added here", which is a
+// contradiction, and the filter is how five registered wizards stayed
+// invisible: the API returned them and the page silently dropped them. A UI
+// that keeps its own copy of a backend list will eventually disagree with it,
+// and the failure is quiet in exactly this direction.
 export function WizardsPage() {
   const orgId = useOrgId();
   const { data, isLoading } = useQuery({
@@ -24,7 +22,7 @@ export function WizardsPage() {
     enabled: !!orgId,
   });
 
-  const cards = (data?.items ?? []).filter((w) => WIZARD_CARDS[w.kind]);
+  const wizards = [...(data?.items ?? [])].sort((a, b) => a.title.localeCompare(b.title));
 
   return (
     <div className='space-y-4'>
@@ -37,30 +35,29 @@ export function WizardsPage() {
         <p className='text-sm text-muted'>No organisation context.</p>
       ) : isLoading ? (
         <p className='text-sm text-muted'>Loading…</p>
+      ) : wizards.length === 0 ? (
+        // Distinct from "loading": no wizard is registered at all, which is a
+        // deployment problem rather than an empty catalog.
+        <p className='text-sm text-muted'>No wizards are registered on this server.</p>
       ) : (
         <div className='grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3'>
-          {cards.map((w) => {
-            const card = WIZARD_CARDS[w.kind];
-            return (
-              <div
-                key={w.kind}
-                className='flex flex-col rounded-lg border border-border bg-card/40 p-5'
+          {wizards.map((w) => (
+            <div
+              key={w.kind}
+              className='flex flex-col rounded-lg border border-border bg-card/40 p-5'
+            >
+              <AppWindow size={20} className='mb-3 text-indigo-400' />
+              <h2 className='text-sm font-semibold text-zinc-100'>{w.title}</h2>
+              <p className='mt-1 flex-1 text-xs text-muted'>{w.description}</p>
+              <Link
+                to='/wizards/$kind'
+                params={{ kind: w.kind }}
+                className='mt-4 self-start rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500'
               >
-                <AppWindow size={20} className='mb-3 text-indigo-400' />
-                <h2 className='text-sm font-semibold text-zinc-100'>{card.title}</h2>
-                <p className='mt-1 flex-1 text-xs text-muted'>{card.description}</p>
-                <Link
-                  to={card.href}
-                  className='mt-4 self-start rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500'
-                >
-                  Start
-                </Link>
-              </div>
-            );
-          })}
-          <div className='flex flex-col items-center justify-center rounded-lg border border-dashed border-border p-5 text-center'>
-            <p className='text-xs text-muted'>More wizards coming</p>
-          </div>
+                Start
+              </Link>
+            </div>
+          ))}
         </div>
       )}
     </div>

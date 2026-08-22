@@ -25,7 +25,7 @@ spec:
               service:
                 name: {{ include "shepherd.fullname" $ }}
                 port:
-                  number: 8080
+                  number: {{ $.Values.service.port }}
           {{- end }}
     {{- end }}
 {{- end }}

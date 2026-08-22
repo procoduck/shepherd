@@ -27,6 +27,15 @@ on:
       - "deploy/helm/**"
       - "e2e/k8s/**"
       - ".github/workflows/e2e-k8s.yml"
+      # The Dockerfiles and the image pins decide what is actually INSTALLED:
+      # this suite builds shepherd:local from deploy/Dockerfile.local and runs
+      # it in the cluster, so a change there is exactly the kind this job
+      # exists to catch. Omitting them let a base-image change ship an image
+      # where `alloy validate` could not execute at all — Stage 2 of the
+      # validation gate dead in every deployment — without this job ever
+      # running. Found by a browser walkthrough, not by CI.
+      - "deploy/Dockerfile*"
+      - "deploy/versions.env"
 
 concurrency:
   group: e2e-k8s-${{ github.ref }}

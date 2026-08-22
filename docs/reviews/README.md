@@ -1,13 +1,24 @@
 # Reviews — live findings and decision records
 
-Two documents live here. Everything else from the 2026-08-19 deep review is **implemented** and
-has moved to [`docs/archive/reviews/`](../archive/reviews/).
+One document lives here. Everything else — the 2026-08-19 deep review, and as of 2026-08-22 the
+S3 containment findings and the B-CONTAIN-1 decision record — is **implemented** and has moved to
+[`docs/archive/reviews/`](../archive/reviews/).
 
 | Document | Why it is still live |
 |---|---|
-| [`s3-sandbox-security-findings.md`](s3-sandbox-security-findings.md) | **Annotated record.** The 2026-08-20 adversarial review of S3 sandbox containment, with a per-finding status pass (most findings, including both CRITICALs, are closed — see each finding's status line). B-CONTAIN-1 closed 2026-08-21 (see `b-contain-1-bind-hardening.md`); B-CONTAIN-2 remains a documented local-dev-only caveat. The feature's enablement gates are closed — see F5 in `docs/project-status.md`. |
 | [`canvas-framework-evaluation.md`](canvas-framework-evaluation.md) | **Decision record.** Why the canvas uses React Flow, and the controlled-mode contract the canvas now depends on. Read this before changing `CanvasPane`'s node/edge projection — the contract is easy to break silently. |
-| [`b-contain-1-bind-hardening.md`](b-contain-1-bind-hardening.md) | **Decision record.** Why B-CONTAIN-1's fix is bind-address hardening (Option C) rather than a container split, reversed control flow, or accept-and-document — with the rejected options' full analysis. The fix shipped 2026-08-21. |
+
+Two documents moved to the archive on 2026-08-22, because both describe work that is finished:
+
+- [`archive/reviews/s3-sandbox-security-findings.md`](../archive/reviews/s3-sandbox-security-findings.md)
+  — the 2026-08-20 adversarial review of S3 sandbox containment. Every finding carries a status
+  line and all are closed. **Archived because its headline conclusion is now false**: it says the
+  feature "must stay disabled", and the sandbox has shipped **enabled by default** since v0.0.1
+  (F5 in `docs/project-status.md`). A document that reads as a current instruction while stating
+  the opposite of what ships is the exact hazard the archive exists to contain.
+- [`archive/reviews/b-contain-1-bind-hardening.md`](../archive/reviews/b-contain-1-bind-hardening.md)
+  — the decision record for B-CONTAIN-1's fix (Option C, bind-address hardening), shipped
+  2026-08-21. Kept as the record of why the rejected options lost.
 
 ---
 

@@ -45,8 +45,9 @@ func (w *Wizard) Role(map[string]any) string { return role }
 // Schema returns the wizard's input schema.
 func (w *Wizard) Schema() wizard.Schema {
 	return wizard.Schema{
-		Kind:  Kind,
-		Title: "Cluster Metrics",
+		Kind:        Kind,
+		Title:       "Cluster Metrics",
+		Description: "Collect Kubernetes cluster and node metrics — kubelet, cAdvisor and kube-state-metrics.",
 		Steps: []wizard.Step{
 			{
 				ID:    "scrape",
