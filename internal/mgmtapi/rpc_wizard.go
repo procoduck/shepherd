@@ -20,7 +20,23 @@ import (
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/validate"
 	"shepherd/internal/wizard"
+	// Blank imports are what put a wizard in the registry: each package
+	// registers itself in init(), so a wizard the binary does not import
+	// cannot exist at runtime no matter how well it is tested. W8's five
+	// catalog wizards shipped with passing suites and were absent from the
+	// running product for exactly this reason — their tests import their own
+	// package, so the packages proved themselves in isolation while nothing
+	// reached them from cmd/shepherd. Found by walking the Wizards page in a
+	// real deployment and seeing one wizard where there should have been six.
+	//
+	// TestEveryWizardPackageIsRegistered (wizard_registration_test.go) now
+	// fails if a package under internal/wizard/ is missing from this list.
 	_ "shepherd/internal/wizard/appobservability" // register wizard
+	_ "shepherd/internal/wizard/blackbox"         // register wizard
+	_ "shepherd/internal/wizard/clustermetrics"   // register wizard
+	_ "shepherd/internal/wizard/database"         // register wizard
+	_ "shepherd/internal/wizard/podlogs"          // register wizard
+	_ "shepherd/internal/wizard/selfmonitoring"   // register wizard
 )
 
 // WizardService implements mgmtv1connect.WizardServiceHandler — the business

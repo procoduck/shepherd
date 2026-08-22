@@ -1,7 +1,7 @@
 ARG GO_IMAGE=golang:1.26-alpine
 ARG NODE_IMAGE=node:24-slim
 ARG ALLOY_IMAGE=grafana/alloy:v1.18.1
-ARG DISTROLESS_IMAGE=gcr.io/distroless/static-debian12:nonroot
+ARG DISTROLESS_BASE_IMAGE=gcr.io/distroless/base-debian12:nonroot
 ARG PNPM_VERSION=11.22.0
 
 # Stage 1: Build the web SPA via the canonical build script
@@ -30,7 +30,15 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /shepherd ./cmd/shephe
 FROM ${ALLOY_IMAGE} AS alloy
 
 # Stage 4: Final image
-FROM ${DISTROLESS_IMAGE}
+#
+# base-debian12, NOT static-debian12. The alloy binary copied in below is
+# dynamically linked (interpreter /lib/ld-linux-*.so), and the static variant
+# ships no dynamic loader — the binary lands in the image and then cannot
+# execute, failing with a "no such file or directory" that names the loader,
+# not the file. That takes Stage 2 (`alloy validate`) out of the validation
+# gate in every container deployment. The simulator images already use this
+# base for the same reason.
+FROM ${DISTROLESS_BASE_IMAGE}
 COPY --from=alloy /bin/alloy /usr/local/bin/alloy
 COPY --from=builder /shepherd /usr/local/bin/shepherd
 USER nonroot

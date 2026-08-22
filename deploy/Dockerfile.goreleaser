@@ -1,11 +1,15 @@
 ARG ALLOY_IMAGE=grafana/alloy:v1.18.1
-ARG DISTROLESS_IMAGE=gcr.io/distroless/static-debian12:nonroot
+ARG DISTROLESS_BASE_IMAGE=gcr.io/distroless/base-debian12:nonroot
 
 # Stage 1: Get alloy binary from the pinned fleet version
 FROM ${ALLOY_IMAGE} AS alloy
 
 # Stage 2: Final distroless image (GoReleaser copies the pre-built binary)
-FROM ${DISTROLESS_IMAGE}
+#
+# base-debian12, NOT static-debian12: alloy is dynamically linked and the
+# static variant has no dynamic loader, so `alloy validate` — Stage 2 of the
+# validation gate — cannot run at all. See Dockerfile.local for the full note.
+FROM ${DISTROLESS_BASE_IMAGE}
 COPY --from=alloy /bin/alloy /usr/local/bin/alloy
 COPY shepherd /usr/local/bin/shepherd
 USER nonroot
