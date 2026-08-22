@@ -76,7 +76,7 @@ Author: W3 (read-only design pass). Scope: `e2e/docker-compose.e2e.yaml`,
   about what shepherd exposes on that network — nothing there would fail if
   this bug were reintroduced.
 - `docs/proofs/simulator-containment.md` and
-  `docs/reviews/s3-sandbox-security-findings.md` both predate/pre-date a
+  `docs/archive/reviews/s3-sandbox-security-findings.md` both predate/pre-date a
   fully separate treatment of B-CONTAIN-1: the findings doc's focus is the
   *transform's* address-closure gaps (SSRF via literal targets, runtime
   relabel non-containment — all now handled by the network-is-the-control
@@ -566,7 +566,7 @@ restore).
    red/green evidence line style the B-STAGEORDER entry already uses (dated,
    naming the exact probes). Update the RESIDUAL RISK compose comments (done
    in steps 2-3) and cross-check
-   `docs/reviews/s3-sandbox-security-findings.md`'s status line for
+   `docs/archive/reviews/s3-sandbox-security-findings.md`'s status line for
    B-CONTAIN-1/2 if it references compose-level exposure anywhere.
 9. Do NOT flip `simulator.enabled` defaults or touch F5's gate — B-CONTAIN-1
    closing is necessary but not sufficient per `project-status.md` (F5 also

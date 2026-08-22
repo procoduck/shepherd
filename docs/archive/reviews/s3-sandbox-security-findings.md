@@ -1,5 +1,11 @@
 # S3 sandbox simulation — security & conformance findings (2026-08-20)
 
+> **ARCHIVED 2026-08-22 — superseded, do not follow as instruction.** Every finding below is
+> closed, and this document's operative conclusion ("the feature must stay disabled") is no longer
+> true: the S3 sandbox has shipped **enabled by default** since v0.0.1, after both enablement gates
+> closed. See F5 in `docs/project-status.md` for the current state. Kept as the historical record
+> of what the review found and how each finding was answered.
+
 > **Status pass 2026-08-21.** This is a point-in-time review; each finding below now carries a
 > status line. Most findings — including both CRITICALs — are closed by the rule-K rework and the
 > executable egress probes (see `docs/proofs/transform-secret-drop.md`,

@@ -3,7 +3,7 @@
 > Review date: 2026-08-19. Sources: full code review of `web/src/visual/` and
 > `tools/alloy-schema-gen/`, the design-pass mockups (artifact "Visual Builder
 > Refinement" — refined layout + connection-drag states), and the open HIGH
-> findings from `docs/vb1-progress.md` (R1-H1, R1-H2, R3-H5).
+> findings from `docs/archive/vb1-progress.md` (R1-H1, R1-H2, R3-H5).
 > Companion tracking: `docs/project-status.md`.
 
 ## A. Canvas & connection UX — draw.io-grade drag affordance

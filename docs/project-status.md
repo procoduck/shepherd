@@ -175,7 +175,7 @@ branch as of 2026-08-21 — each earned its first-ever green during this pass.
 scraped Shepherd's unauthenticated metrics port and the data was returned to the user in run
 results.
 
-**Fix (bind-address hardening — Option C of `docs/reviews/b-contain-1-bind-hardening.md`).** Both compose files now pin
+**Fix (bind-address hardening — Option C of `docs/archive/reviews/b-contain-1-bind-hardening.md`).** Both compose files now pin
 `ipam.config.subnet` on `default`/`sim-internal` and give `shepherd` a static `ipv4_address` on
 each (e2e `172.28.0.10` / `172.28.1.10`, dev `172.29.0.10` / `172.29.1.10` — distinct ranges so the
 two stacks can run concurrently). `SHEPHERD_SERVER_LISTEN` / `SHEPHERD_SERVER_METRICS_LISTEN` are
@@ -317,7 +317,7 @@ reachability.** Static analysis cannot bound where a relabel rule steers a scrap
 that (rule P5) was deleted because it was simultaneously permeable and refused 5 of 6 ordinary
 graphs.
 
-Full findings with evidence: **`docs/reviews/s3-sandbox-security-findings.md`**.
+Full findings with evidence: **`docs/archive/reviews/s3-sandbox-security-findings.md`**.
 
 ### F-SIGNAL-SERVE — role enforcement did not cover the live agent serve path · **CLOSED 2026-08-22**
 

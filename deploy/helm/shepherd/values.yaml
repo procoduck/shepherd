@@ -161,7 +161,7 @@ networkPolicy:
 #     emptyDir mounted over /tmp).
 #   - CPU/memory limits, so one runaway sandboxed config cannot starve the node.
 #
-# See docs/visual-builder-design-VB1.md §6.4 and docs/reviews/s3-sandbox-security-findings.md
+# See docs/visual-builder-design-VB1.md §6.4 and docs/archive/reviews/s3-sandbox-security-findings.md
 # (finding H5) for why each of these exists.
 simulator:
   enabled: true
