@@ -1,6 +1,6 @@
 -- name: CreatePipeline :one
-INSERT INTO pipelines (org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, created_by, updated_by, repo_link_id, git_path)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+INSERT INTO pipelines (org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, created_by, updated_by, repo_link_id, git_path, owner_team_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 RETURNING *;
 
 -- name: GetPipelineByID :one
@@ -11,6 +11,21 @@ SELECT * FROM pipelines WHERE org_id = $1 AND name = $2;
 
 -- name: ListPipelinesByOrg :many
 SELECT * FROM pipelines WHERE org_id = $1 ORDER BY name;
+
+-- name: SetPipelineOwnerTeam :one
+-- Reassigns (or, with a NULL owner_team_id, clears — demotes to
+-- unowned/admin-only) a pipeline's owning team. Deliberately its own query
+-- rather than folded into UpdatePipeline: content edits and ownership
+-- transfer are different operations with different authorization
+-- requirements (see internal/mgmtapi's PipelineService — a team member may
+-- edit their team's pipeline content, but reassigning OWNERSHIP away from
+-- their team is an org-admin action), and merging them would let a content
+-- edit request accidentally carry an ownership change along for the ride.
+UPDATE pipelines
+SET owner_team_id = $2,
+    updated_at     = now()
+WHERE id = $1
+RETURNING *;
 
 -- name: UpdatePipeline :one
 -- wizard_state is COALESCE'd against the existing column value: the caller

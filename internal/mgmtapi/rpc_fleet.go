@@ -239,6 +239,9 @@ func (s *FleetService) ListAssignments(ctx context.Context, req *connect.Request
 
 // CreateAssignment assigns a group to a collector.
 func (s *FleetService) CreateAssignment(ctx context.Context, req *connect.Request[mgmtv1.CreateAssignmentRequest]) (*connect.Response[mgmtv1.CreateAssignmentResponse], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	id, ok := parseUUID(req.Msg.GetCollectorId())
 	if !ok {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid collector id"))
@@ -256,6 +259,9 @@ func (s *FleetService) CreateAssignment(ctx context.Context, req *connect.Reques
 
 // DeleteAssignment removes a group assignment from a collector.
 func (s *FleetService) DeleteAssignment(ctx context.Context, req *connect.Request[mgmtv1.DeleteAssignmentRequest]) (*connect.Response[mgmtv1.DeleteAssignmentResponse], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	collID, ok := parseUUID(req.Msg.GetCollectorId())
 	if !ok {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid collector id"))

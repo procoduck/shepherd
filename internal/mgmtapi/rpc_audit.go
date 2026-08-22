@@ -87,6 +87,7 @@ func (s *AuditService) ListAudit(ctx context.Context, req *connect.Request[mgmtv
 			Action:       row.Action,
 			ResourceType: row.ResourceType,
 			ResourceId:   row.ResourceID,
+			OnBehalfOf:   row.OnBehalfOf.String,
 		}
 	}
 	return connect.NewResponse(&mgmtv1.ListAuditResponse{Items: items, Total: total}), nil

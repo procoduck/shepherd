@@ -63,6 +63,9 @@ const (
 	// PipelineServiceListRevisionsProcedure is the fully-qualified name of the PipelineService's
 	// ListRevisions RPC.
 	PipelineServiceListRevisionsProcedure = "/shepherd.mgmt.v1.PipelineService/ListRevisions"
+	// PipelineServiceSetPipelineOwnerProcedure is the fully-qualified name of the PipelineService's
+	// SetPipelineOwner RPC.
+	PipelineServiceSetPipelineOwnerProcedure = "/shepherd.mgmt.v1.PipelineService/SetPipelineOwner"
 )
 
 // PipelineServiceClient is a client for the shepherd.mgmt.v1.PipelineService service.
@@ -77,6 +80,11 @@ type PipelineServiceClient interface {
 	ValidatePipeline(context.Context, *connect.Request[v1.ValidatePipelineRequest]) (*connect.Response[v1.ValidatePipelineResponse], error)
 	PreviewMatches(context.Context, *connect.Request[v1.PreviewMatchesRequest]) (*connect.Response[v1.PreviewMatchesResponse], error)
 	ListRevisions(context.Context, *connect.Request[v1.ListRevisionsRequest]) (*connect.Response[v1.ListRevisionsResponse], error)
+	// SetPipelineOwner reassigns (or, with an empty owner_team_id, clears) a
+	// pipeline's owning team. Deliberately org-admin-only regardless of
+	// current ownership — a team can write what it owns, but granting or
+	// revoking ownership is a platform decision, not a delegated one.
+	SetPipelineOwner(context.Context, *connect.Request[v1.SetPipelineOwnerRequest]) (*connect.Response[v1.Pipeline], error)
 }
 
 // NewPipelineServiceClient constructs a client for the shepherd.mgmt.v1.PipelineService service. By
@@ -150,6 +158,12 @@ func NewPipelineServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(pipelineServiceMethods.ByName("ListRevisions")),
 			connect.WithClientOptions(opts...),
 		),
+		setPipelineOwner: connect.NewClient[v1.SetPipelineOwnerRequest, v1.Pipeline](
+			httpClient,
+			baseURL+PipelineServiceSetPipelineOwnerProcedure,
+			connect.WithSchema(pipelineServiceMethods.ByName("SetPipelineOwner")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -165,6 +179,7 @@ type pipelineServiceClient struct {
 	validatePipeline *connect.Client[v1.ValidatePipelineRequest, v1.ValidatePipelineResponse]
 	previewMatches   *connect.Client[v1.PreviewMatchesRequest, v1.PreviewMatchesResponse]
 	listRevisions    *connect.Client[v1.ListRevisionsRequest, v1.ListRevisionsResponse]
+	setPipelineOwner *connect.Client[v1.SetPipelineOwnerRequest, v1.Pipeline]
 }
 
 // ListPipelines calls shepherd.mgmt.v1.PipelineService.ListPipelines.
@@ -217,6 +232,11 @@ func (c *pipelineServiceClient) ListRevisions(ctx context.Context, req *connect.
 	return c.listRevisions.CallUnary(ctx, req)
 }
 
+// SetPipelineOwner calls shepherd.mgmt.v1.PipelineService.SetPipelineOwner.
+func (c *pipelineServiceClient) SetPipelineOwner(ctx context.Context, req *connect.Request[v1.SetPipelineOwnerRequest]) (*connect.Response[v1.Pipeline], error) {
+	return c.setPipelineOwner.CallUnary(ctx, req)
+}
+
 // PipelineServiceHandler is an implementation of the shepherd.mgmt.v1.PipelineService service.
 type PipelineServiceHandler interface {
 	ListPipelines(context.Context, *connect.Request[v1.ListPipelinesRequest]) (*connect.Response[v1.ListPipelinesResponse], error)
@@ -229,6 +249,11 @@ type PipelineServiceHandler interface {
 	ValidatePipeline(context.Context, *connect.Request[v1.ValidatePipelineRequest]) (*connect.Response[v1.ValidatePipelineResponse], error)
 	PreviewMatches(context.Context, *connect.Request[v1.PreviewMatchesRequest]) (*connect.Response[v1.PreviewMatchesResponse], error)
 	ListRevisions(context.Context, *connect.Request[v1.ListRevisionsRequest]) (*connect.Response[v1.ListRevisionsResponse], error)
+	// SetPipelineOwner reassigns (or, with an empty owner_team_id, clears) a
+	// pipeline's owning team. Deliberately org-admin-only regardless of
+	// current ownership — a team can write what it owns, but granting or
+	// revoking ownership is a platform decision, not a delegated one.
+	SetPipelineOwner(context.Context, *connect.Request[v1.SetPipelineOwnerRequest]) (*connect.Response[v1.Pipeline], error)
 }
 
 // NewPipelineServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -298,6 +323,12 @@ func NewPipelineServiceHandler(svc PipelineServiceHandler, opts ...connect.Handl
 		connect.WithSchema(pipelineServiceMethods.ByName("ListRevisions")),
 		connect.WithHandlerOptions(opts...),
 	)
+	pipelineServiceSetPipelineOwnerHandler := connect.NewUnaryHandler(
+		PipelineServiceSetPipelineOwnerProcedure,
+		svc.SetPipelineOwner,
+		connect.WithSchema(pipelineServiceMethods.ByName("SetPipelineOwner")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/shepherd.mgmt.v1.PipelineService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PipelineServiceListPipelinesProcedure:
@@ -320,6 +351,8 @@ func NewPipelineServiceHandler(svc PipelineServiceHandler, opts ...connect.Handl
 			pipelineServicePreviewMatchesHandler.ServeHTTP(w, r)
 		case PipelineServiceListRevisionsProcedure:
 			pipelineServiceListRevisionsHandler.ServeHTTP(w, r)
+		case PipelineServiceSetPipelineOwnerProcedure:
+			pipelineServiceSetPipelineOwnerHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -367,4 +400,8 @@ func (UnimplementedPipelineServiceHandler) PreviewMatches(context.Context, *conn
 
 func (UnimplementedPipelineServiceHandler) ListRevisions(context.Context, *connect.Request[v1.ListRevisionsRequest]) (*connect.Response[v1.ListRevisionsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.PipelineService.ListRevisions is not implemented"))
+}
+
+func (UnimplementedPipelineServiceHandler) SetPipelineOwner(context.Context, *connect.Request[v1.SetPipelineOwnerRequest]) (*connect.Response[v1.Pipeline], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.PipelineService.SetPipelineOwner is not implemented"))
 }

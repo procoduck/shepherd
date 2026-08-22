@@ -151,6 +151,9 @@ func (s *DestinationService) GetDestination(ctx context.Context, req *connect.Re
 
 // CreateDestination creates a destination.
 func (s *DestinationService) CreateDestination(ctx context.Context, req *connect.Request[mgmtv1.CreateDestinationRequest]) (*connect.Response[mgmtv1.Destination], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	orgID, err := scanUUID(req.Msg.GetOrgId())
 	if err != nil {
 		return nil, err
@@ -188,6 +191,9 @@ func (s *DestinationService) CreateDestination(ctx context.Context, req *connect
 // (including a unique-name violation) maps to a generic internal error — the
 // legacy handler never special-cased conflicts here the way Create does.
 func (s *DestinationService) UpdateDestination(ctx context.Context, req *connect.Request[mgmtv1.UpdateDestinationRequest]) (*connect.Response[mgmtv1.Destination], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	owned, err := s.loadOwnedDestination(ctx, req.Msg.GetOrgId(), req.Msg.GetId())
 	if err != nil {
 		return nil, err
@@ -223,6 +229,9 @@ func (s *DestinationService) UpdateDestination(ctx context.Context, req *connect
 // pipeline's wizard_state. Mirrors OrgsHandler.DeleteDestination's raw JSONB
 // containment query exactly — sqlc has no equivalent.
 func (s *DestinationService) DeleteDestination(ctx context.Context, req *connect.Request[mgmtv1.DeleteDestinationRequest]) (*connect.Response[mgmtv1.DeleteDestinationResponse], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	owned, err := s.loadOwnedDestination(ctx, req.Msg.GetOrgId(), req.Msg.GetId())
 	if err != nil {
 		return nil, err

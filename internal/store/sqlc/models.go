@@ -30,6 +30,7 @@ type AuditLog struct {
 	ResourceType string             `json:"resource_type"`
 	ResourceID   string             `json:"resource_id"`
 	Detail       json.RawMessage    `json:"detail"`
+	OnBehalfOf   pgtype.Text        `json:"on_behalf_of"`
 }
 
 type BeaconInventory struct {
@@ -162,6 +163,7 @@ type Pipeline struct {
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 	SanitizedName pgtype.Text        `json:"sanitized_name"`
+	OwnerTeamID   pgtype.UUID        `json:"owner_team_id"`
 }
 
 type PipelineRevision struct {
@@ -201,6 +203,18 @@ type ServeCache struct {
 	Dirty       bool               `json:"dirty"`
 }
 
+type ServiceAccount struct {
+	ID         pgtype.UUID        `json:"id"`
+	OrgID      pgtype.UUID        `json:"org_id"`
+	Name       string             `json:"name"`
+	Capability string             `json:"capability"`
+	TokenHash  []byte             `json:"token_hash"`
+	CreatedBy  string             `json:"created_by"`
+	RevokedAt  pgtype.Timestamptz `json:"revoked_at"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Session struct {
 	ID             string             `json:"id"`
 	UserOid        string             `json:"user_oid"`
@@ -233,6 +247,15 @@ type SimulateRun struct {
 	StderrTail               string             `json:"stderr_tail"`
 	ErrorCode                string             `json:"error_code"`
 	ErrorMessage             string             `json:"error_message"`
+}
+
+type Team struct {
+	ID         pgtype.UUID        `json:"id"`
+	OrgID      pgtype.UUID        `json:"org_id"`
+	Name       string             `json:"name"`
+	IdpGroupID string             `json:"idp_group_id"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
 }
 
 type TenantRoute struct {

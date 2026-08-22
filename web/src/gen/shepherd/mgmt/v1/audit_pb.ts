@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file shepherd/mgmt/v1/audit.proto.
  */
 export const file_shepherd_mgmt_v1_audit: GenFile = /*@__PURE__*/
-  fileDesc("ChxzaGVwaGVyZC9tZ210L3YxL2F1ZGl0LnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIq8BCgpBdWRpdEVudHJ5EgoKAmlkGAEgASgDEiYKAmF0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBINCgVhY3RvchgDIAEoCRISCgphY3Rvcl90eXBlGAQgASgJEg4KBm9yZ19pZBgFIAEoCRIOCgZhY3Rpb24YBiABKAkSFQoNcmVzb3VyY2VfdHlwZRgHIAEoCRITCgtyZXNvdXJjZV9pZBgIIAEoCSJgChBMaXN0QXVkaXRSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRINCgVsaW1pdBgCIAEoBRIOCgZvZmZzZXQYAyABKAUSDQoFYWN0b3IYBCABKAkSDgoGYWN0aW9uGAUgASgJIk8KEUxpc3RBdWRpdFJlc3BvbnNlEisKBWl0ZW1zGAEgAygLMhwuc2hlcGhlcmQubWdtdC52MS5BdWRpdEVudHJ5Eg0KBXRvdGFsGAIgASgFMmYKDEF1ZGl0U2VydmljZRJWCglMaXN0QXVkaXQSIi5zaGVwaGVyZC5tZ210LnYxLkxpc3RBdWRpdFJlcXVlc3QaIy5zaGVwaGVyZC5tZ210LnYxLkxpc3RBdWRpdFJlc3BvbnNlIgBCJlokc2hlcGhlcmQvZ2VuL3NoZXBoZXJkL21nbXQvdjE7bWdtdHYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
+  fileDesc("ChxzaGVwaGVyZC9tZ210L3YxL2F1ZGl0LnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIsUBCgpBdWRpdEVudHJ5EgoKAmlkGAEgASgDEiYKAmF0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBINCgVhY3RvchgDIAEoCRISCgphY3Rvcl90eXBlGAQgASgJEg4KBm9yZ19pZBgFIAEoCRIOCgZhY3Rpb24YBiABKAkSFQoNcmVzb3VyY2VfdHlwZRgHIAEoCRITCgtyZXNvdXJjZV9pZBgIIAEoCRIUCgxvbl9iZWhhbGZfb2YYCSABKAkiYAoQTGlzdEF1ZGl0UmVxdWVzdBIOCgZvcmdfaWQYASABKAkSDQoFbGltaXQYAiABKAUSDgoGb2Zmc2V0GAMgASgFEg0KBWFjdG9yGAQgASgJEg4KBmFjdGlvbhgFIAEoCSJPChFMaXN0QXVkaXRSZXNwb25zZRIrCgVpdGVtcxgBIAMoCzIcLnNoZXBoZXJkLm1nbXQudjEuQXVkaXRFbnRyeRINCgV0b3RhbBgCIAEoBTJmCgxBdWRpdFNlcnZpY2USVgoJTGlzdEF1ZGl0EiIuc2hlcGhlcmQubWdtdC52MS5MaXN0QXVkaXRSZXF1ZXN0GiMuc2hlcGhlcmQubWdtdC52MS5MaXN0QXVkaXRSZXNwb25zZSIAQiZaJHNoZXBoZXJkL2dlbi9zaGVwaGVyZC9tZ210L3YxO21nbXR2MWIGcHJvdG8z", [file_google_protobuf_timestamp]);
 
 /**
  * AuditEntry mirrors internal/mgmtapi/audit.go: auditResponse.
@@ -59,6 +59,16 @@ export type AuditEntry = Message<"shepherd.mgmt.v1.AuditEntry"> & {
    * @generated from field: string resource_id = 8;
    */
   resourceId: string;
+
+  /**
+   * on_behalf_of is G13's second attribution half
+   * (docs/gateway-tier-plan.md): the human a machine (actor_type
+   * "service_account") actor's write was performed for. Empty for a human
+   * session's own actions — there is no delegation to record.
+   *
+   * @generated from field: string on_behalf_of = 9;
+   */
+  onBehalfOf: string;
 };
 
 /**

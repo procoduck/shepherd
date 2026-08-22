@@ -116,7 +116,11 @@ type Pipeline struct {
 	// D3 (docs/reviews): this is the source of truth the visual builder loads
 	// from — re-parsing `contents` is a lossy fallback used only when this is
 	// missing/invalid, or for the read-only graph view of a non-visual pipeline.
-	WizardState   *structpb.Struct `protobuf:"bytes,14,opt,name=wizard_state,json=wizardState,proto3" json:"wizard_state,omitempty"`
+	WizardState *structpb.Struct `protobuf:"bytes,14,opt,name=wizard_state,json=wizardState,proto3" json:"wizard_state,omitempty"`
+	// owner_team_id is the team (0012_teams_service_accounts) this pipeline
+	// is scoped-write-owned by (G11); empty means unowned — org-admin-only,
+	// matching every pipeline's behavior before W10.
+	OwnerTeamId   string `protobuf:"bytes,15,opt,name=owner_team_id,json=ownerTeamId,proto3" json:"owner_team_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -247,6 +251,13 @@ func (x *Pipeline) GetWizardState() *structpb.Struct {
 		return x.WizardState
 	}
 	return nil
+}
+
+func (x *Pipeline) GetOwnerTeamId() string {
+	if x != nil {
+		return x.OwnerTeamId
+	}
+	return ""
 }
 
 type ListPipelinesRequest struct {
@@ -412,13 +423,19 @@ func (x *GetPipelineRequest) GetId() string {
 // is the visual-builder graph document (source="visual") or wizard form
 // state (source="wizard") — dynamic, hence Struct.
 type CreatePipelineRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	OrgId         string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Contents      string                 `protobuf:"bytes,3,opt,name=contents,proto3" json:"contents,omitempty"`
-	Matchers      []string               `protobuf:"bytes,4,rep,name=matchers,proto3" json:"matchers,omitempty"`
-	Source        string                 `protobuf:"bytes,5,opt,name=source,proto3" json:"source,omitempty"`
-	WizardState   *structpb.Struct       `protobuf:"bytes,6,opt,name=wizard_state,json=wizardState,proto3" json:"wizard_state,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	OrgId       string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	Name        string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Contents    string                 `protobuf:"bytes,3,opt,name=contents,proto3" json:"contents,omitempty"`
+	Matchers    []string               `protobuf:"bytes,4,rep,name=matchers,proto3" json:"matchers,omitempty"`
+	Source      string                 `protobuf:"bytes,5,opt,name=source,proto3" json:"source,omitempty"`
+	WizardState *structpb.Struct       `protobuf:"bytes,6,opt,name=wizard_state,json=wizardState,proto3" json:"wizard_state,omitempty"`
+	// owner_team_id, when set, requires the caller be an org-admin OR a
+	// member of that team's IdP group (G11) — a team member may create a
+	// pipeline owned by their own team, but not one owned by someone else's.
+	// Empty (the default) creates an unowned pipeline, which only an
+	// org-admin caller may do.
+	OwnerTeamId   string `protobuf:"bytes,7,opt,name=owner_team_id,json=ownerTeamId,proto3" json:"owner_team_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -493,6 +510,13 @@ func (x *CreatePipelineRequest) GetWizardState() *structpb.Struct {
 		return x.WizardState
 	}
 	return nil
+}
+
+func (x *CreatePipelineRequest) GetOwnerTeamId() string {
+	if x != nil {
+		return x.OwnerTeamId
+	}
+	return ""
 }
 
 type UpdatePipelineRequest struct {
@@ -1204,6 +1228,67 @@ func (x *ListRevisionsResponse) GetTotal() int32 {
 	return 0
 }
 
+type SetPipelineOwnerRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	OrgId string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	Id    string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	// owner_team_id, empty to clear (demote to unowned/admin-only).
+	OwnerTeamId   string `protobuf:"bytes,3,opt,name=owner_team_id,json=ownerTeamId,proto3" json:"owner_team_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetPipelineOwnerRequest) Reset() {
+	*x = SetPipelineOwnerRequest{}
+	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetPipelineOwnerRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetPipelineOwnerRequest) ProtoMessage() {}
+
+func (x *SetPipelineOwnerRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetPipelineOwnerRequest.ProtoReflect.Descriptor instead.
+func (*SetPipelineOwnerRequest) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_pipeline_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *SetPipelineOwnerRequest) GetOrgId() string {
+	if x != nil {
+		return x.OrgId
+	}
+	return ""
+}
+
+func (x *SetPipelineOwnerRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *SetPipelineOwnerRequest) GetOwnerTeamId() string {
+	if x != nil {
+		return x.OwnerTeamId
+	}
+	return ""
+}
+
 var File_shepherd_mgmt_v1_pipeline_proto protoreflect.FileDescriptor
 
 const file_shepherd_mgmt_v1_pipeline_proto_rawDesc = "" +
@@ -1216,7 +1301,7 @@ const file_shepherd_mgmt_v1_pipeline_proto_rawDesc = "" +
 	"\n" +
 	"changed_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tchangedAt\x12\x1f\n" +
 	"\vchange_note\x18\x04 \x01(\tR\n" +
-	"changeNote\"\xfd\x03\n" +
+	"changeNote\"\xa1\x04\n" +
 	"\bPipeline\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06org_id\x18\x02 \x01(\tR\x05orgId\x12\x12\n" +
@@ -1236,7 +1321,8 @@ const file_shepherd_mgmt_v1_pipeline_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12@\n" +
 	"\trevisions\x18\r \x03(\v2\".shepherd.mgmt.v1.PipelineRevisionR\trevisions\x12:\n" +
-	"\fwizard_state\x18\x0e \x01(\v2\x17.google.protobuf.StructR\vwizardState\"R\n" +
+	"\fwizard_state\x18\x0e \x01(\v2\x17.google.protobuf.StructR\vwizardState\x12\"\n" +
+	"\rowner_team_id\x18\x0f \x01(\tR\vownerTeamId\"R\n" +
 	"\x14ListPipelinesRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12#\n" +
 	"\rneeds_upgrade\x18\x02 \x01(\bR\fneedsUpgrade\"_\n" +
@@ -1245,14 +1331,15 @@ const file_shepherd_mgmt_v1_pipeline_proto_rawDesc = "" +
 	"\x05total\x18\x02 \x01(\x05R\x05total\";\n" +
 	"\x12GetPipelineRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x0e\n" +
-	"\x02id\x18\x02 \x01(\tR\x02id\"\xce\x01\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\"\xf2\x01\n" +
 	"\x15CreatePipelineRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1a\n" +
 	"\bcontents\x18\x03 \x01(\tR\bcontents\x12\x1a\n" +
 	"\bmatchers\x18\x04 \x03(\tR\bmatchers\x12\x16\n" +
 	"\x06source\x18\x05 \x01(\tR\x06source\x12:\n" +
-	"\fwizard_state\x18\x06 \x01(\v2\x17.google.protobuf.StructR\vwizardState\"\xde\x01\n" +
+	"\fwizard_state\x18\x06 \x01(\v2\x17.google.protobuf.StructR\vwizardState\x12\"\n" +
+	"\rowner_team_id\x18\a \x01(\tR\vownerTeamId\"\xde\x01\n" +
 	"\x15UpdatePipelineRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x12\n" +
@@ -1297,7 +1384,11 @@ const file_shepherd_mgmt_v1_pipeline_proto_rawDesc = "" +
 	"\x02id\x18\x02 \x01(\tR\x02id\"g\n" +
 	"\x15ListRevisionsResponse\x128\n" +
 	"\x05items\x18\x01 \x03(\v2\".shepherd.mgmt.v1.PipelineRevisionR\x05items\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x05R\x05total2\xcd\a\n" +
+	"\x05total\x18\x02 \x01(\x05R\x05total\"d\n" +
+	"\x17SetPipelineOwnerRequest\x12\x15\n" +
+	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12\"\n" +
+	"\rowner_team_id\x18\x03 \x01(\tR\vownerTeamId2\xaa\b\n" +
 	"\x0fPipelineService\x12b\n" +
 	"\rListPipelines\x12&.shepherd.mgmt.v1.ListPipelinesRequest\x1a'.shepherd.mgmt.v1.ListPipelinesResponse\"\x00\x12Q\n" +
 	"\vGetPipeline\x12$.shepherd.mgmt.v1.GetPipelineRequest\x1a\x1a.shepherd.mgmt.v1.Pipeline\"\x00\x12W\n" +
@@ -1308,7 +1399,8 @@ const file_shepherd_mgmt_v1_pipeline_proto_rawDesc = "" +
 	"\x0fDisablePipeline\x12(.shepherd.mgmt.v1.DisablePipelineRequest\x1a\x1a.shepherd.mgmt.v1.Pipeline\"\x00\x12k\n" +
 	"\x10ValidatePipeline\x12).shepherd.mgmt.v1.ValidatePipelineRequest\x1a*.shepherd.mgmt.v1.ValidatePipelineResponse\"\x00\x12e\n" +
 	"\x0ePreviewMatches\x12'.shepherd.mgmt.v1.PreviewMatchesRequest\x1a(.shepherd.mgmt.v1.PreviewMatchesResponse\"\x00\x12b\n" +
-	"\rListRevisions\x12&.shepherd.mgmt.v1.ListRevisionsRequest\x1a'.shepherd.mgmt.v1.ListRevisionsResponse\"\x00B&Z$shepherd/gen/shepherd/mgmt/v1;mgmtv1b\x06proto3"
+	"\rListRevisions\x12&.shepherd.mgmt.v1.ListRevisionsRequest\x1a'.shepherd.mgmt.v1.ListRevisionsResponse\"\x00\x12[\n" +
+	"\x10SetPipelineOwner\x12).shepherd.mgmt.v1.SetPipelineOwnerRequest\x1a\x1a.shepherd.mgmt.v1.Pipeline\"\x00B&Z$shepherd/gen/shepherd/mgmt/v1;mgmtv1b\x06proto3"
 
 var (
 	file_shepherd_mgmt_v1_pipeline_proto_rawDescOnce sync.Once
@@ -1322,7 +1414,7 @@ func file_shepherd_mgmt_v1_pipeline_proto_rawDescGZIP() []byte {
 	return file_shepherd_mgmt_v1_pipeline_proto_rawDescData
 }
 
-var file_shepherd_mgmt_v1_pipeline_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_shepherd_mgmt_v1_pipeline_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_shepherd_mgmt_v1_pipeline_proto_goTypes = []any{
 	(*PipelineRevision)(nil),         // 0: shepherd.mgmt.v1.PipelineRevision
 	(*Pipeline)(nil),                 // 1: shepherd.mgmt.v1.Pipeline
@@ -1342,20 +1434,21 @@ var file_shepherd_mgmt_v1_pipeline_proto_goTypes = []any{
 	(*PreviewMatchesResponse)(nil),   // 15: shepherd.mgmt.v1.PreviewMatchesResponse
 	(*ListRevisionsRequest)(nil),     // 16: shepherd.mgmt.v1.ListRevisionsRequest
 	(*ListRevisionsResponse)(nil),    // 17: shepherd.mgmt.v1.ListRevisionsResponse
-	(*timestamppb.Timestamp)(nil),    // 18: google.protobuf.Timestamp
-	(*structpb.Struct)(nil),          // 19: google.protobuf.Struct
-	(*Diagnostic)(nil),               // 20: shepherd.mgmt.v1.Diagnostic
+	(*SetPipelineOwnerRequest)(nil),  // 18: shepherd.mgmt.v1.SetPipelineOwnerRequest
+	(*timestamppb.Timestamp)(nil),    // 19: google.protobuf.Timestamp
+	(*structpb.Struct)(nil),          // 20: google.protobuf.Struct
+	(*Diagnostic)(nil),               // 21: shepherd.mgmt.v1.Diagnostic
 }
 var file_shepherd_mgmt_v1_pipeline_proto_depIdxs = []int32{
-	18, // 0: shepherd.mgmt.v1.PipelineRevision.changed_at:type_name -> google.protobuf.Timestamp
-	18, // 1: shepherd.mgmt.v1.Pipeline.created_at:type_name -> google.protobuf.Timestamp
-	18, // 2: shepherd.mgmt.v1.Pipeline.updated_at:type_name -> google.protobuf.Timestamp
+	19, // 0: shepherd.mgmt.v1.PipelineRevision.changed_at:type_name -> google.protobuf.Timestamp
+	19, // 1: shepherd.mgmt.v1.Pipeline.created_at:type_name -> google.protobuf.Timestamp
+	19, // 2: shepherd.mgmt.v1.Pipeline.updated_at:type_name -> google.protobuf.Timestamp
 	0,  // 3: shepherd.mgmt.v1.Pipeline.revisions:type_name -> shepherd.mgmt.v1.PipelineRevision
-	19, // 4: shepherd.mgmt.v1.Pipeline.wizard_state:type_name -> google.protobuf.Struct
+	20, // 4: shepherd.mgmt.v1.Pipeline.wizard_state:type_name -> google.protobuf.Struct
 	1,  // 5: shepherd.mgmt.v1.ListPipelinesResponse.items:type_name -> shepherd.mgmt.v1.Pipeline
-	19, // 6: shepherd.mgmt.v1.CreatePipelineRequest.wizard_state:type_name -> google.protobuf.Struct
-	19, // 7: shepherd.mgmt.v1.UpdatePipelineRequest.wizard_state:type_name -> google.protobuf.Struct
-	20, // 8: shepherd.mgmt.v1.ValidatePipelineResponse.diagnostics:type_name -> shepherd.mgmt.v1.Diagnostic
+	20, // 6: shepherd.mgmt.v1.CreatePipelineRequest.wizard_state:type_name -> google.protobuf.Struct
+	20, // 7: shepherd.mgmt.v1.UpdatePipelineRequest.wizard_state:type_name -> google.protobuf.Struct
+	21, // 8: shepherd.mgmt.v1.ValidatePipelineResponse.diagnostics:type_name -> shepherd.mgmt.v1.Diagnostic
 	14, // 9: shepherd.mgmt.v1.PreviewMatchesResponse.collectors:type_name -> shepherd.mgmt.v1.MatchedCollector
 	0,  // 10: shepherd.mgmt.v1.ListRevisionsResponse.items:type_name -> shepherd.mgmt.v1.PipelineRevision
 	2,  // 11: shepherd.mgmt.v1.PipelineService.ListPipelines:input_type -> shepherd.mgmt.v1.ListPipelinesRequest
@@ -1368,18 +1461,20 @@ var file_shepherd_mgmt_v1_pipeline_proto_depIdxs = []int32{
 	11, // 18: shepherd.mgmt.v1.PipelineService.ValidatePipeline:input_type -> shepherd.mgmt.v1.ValidatePipelineRequest
 	13, // 19: shepherd.mgmt.v1.PipelineService.PreviewMatches:input_type -> shepherd.mgmt.v1.PreviewMatchesRequest
 	16, // 20: shepherd.mgmt.v1.PipelineService.ListRevisions:input_type -> shepherd.mgmt.v1.ListRevisionsRequest
-	3,  // 21: shepherd.mgmt.v1.PipelineService.ListPipelines:output_type -> shepherd.mgmt.v1.ListPipelinesResponse
-	1,  // 22: shepherd.mgmt.v1.PipelineService.GetPipeline:output_type -> shepherd.mgmt.v1.Pipeline
-	1,  // 23: shepherd.mgmt.v1.PipelineService.CreatePipeline:output_type -> shepherd.mgmt.v1.Pipeline
-	1,  // 24: shepherd.mgmt.v1.PipelineService.UpdatePipeline:output_type -> shepherd.mgmt.v1.Pipeline
-	8,  // 25: shepherd.mgmt.v1.PipelineService.DeletePipeline:output_type -> shepherd.mgmt.v1.DeletePipelineResponse
-	1,  // 26: shepherd.mgmt.v1.PipelineService.EnablePipeline:output_type -> shepherd.mgmt.v1.Pipeline
-	1,  // 27: shepherd.mgmt.v1.PipelineService.DisablePipeline:output_type -> shepherd.mgmt.v1.Pipeline
-	12, // 28: shepherd.mgmt.v1.PipelineService.ValidatePipeline:output_type -> shepherd.mgmt.v1.ValidatePipelineResponse
-	15, // 29: shepherd.mgmt.v1.PipelineService.PreviewMatches:output_type -> shepherd.mgmt.v1.PreviewMatchesResponse
-	17, // 30: shepherd.mgmt.v1.PipelineService.ListRevisions:output_type -> shepherd.mgmt.v1.ListRevisionsResponse
-	21, // [21:31] is the sub-list for method output_type
-	11, // [11:21] is the sub-list for method input_type
+	18, // 21: shepherd.mgmt.v1.PipelineService.SetPipelineOwner:input_type -> shepherd.mgmt.v1.SetPipelineOwnerRequest
+	3,  // 22: shepherd.mgmt.v1.PipelineService.ListPipelines:output_type -> shepherd.mgmt.v1.ListPipelinesResponse
+	1,  // 23: shepherd.mgmt.v1.PipelineService.GetPipeline:output_type -> shepherd.mgmt.v1.Pipeline
+	1,  // 24: shepherd.mgmt.v1.PipelineService.CreatePipeline:output_type -> shepherd.mgmt.v1.Pipeline
+	1,  // 25: shepherd.mgmt.v1.PipelineService.UpdatePipeline:output_type -> shepherd.mgmt.v1.Pipeline
+	8,  // 26: shepherd.mgmt.v1.PipelineService.DeletePipeline:output_type -> shepherd.mgmt.v1.DeletePipelineResponse
+	1,  // 27: shepherd.mgmt.v1.PipelineService.EnablePipeline:output_type -> shepherd.mgmt.v1.Pipeline
+	1,  // 28: shepherd.mgmt.v1.PipelineService.DisablePipeline:output_type -> shepherd.mgmt.v1.Pipeline
+	12, // 29: shepherd.mgmt.v1.PipelineService.ValidatePipeline:output_type -> shepherd.mgmt.v1.ValidatePipelineResponse
+	15, // 30: shepherd.mgmt.v1.PipelineService.PreviewMatches:output_type -> shepherd.mgmt.v1.PreviewMatchesResponse
+	17, // 31: shepherd.mgmt.v1.PipelineService.ListRevisions:output_type -> shepherd.mgmt.v1.ListRevisionsResponse
+	1,  // 32: shepherd.mgmt.v1.PipelineService.SetPipelineOwner:output_type -> shepherd.mgmt.v1.Pipeline
+	22, // [22:33] is the sub-list for method output_type
+	11, // [11:22] is the sub-list for method input_type
 	11, // [11:11] is the sub-list for extension type_name
 	11, // [11:11] is the sub-list for extension extendee
 	0,  // [0:11] is the sub-list for field type_name
@@ -1397,7 +1492,7 @@ func file_shepherd_mgmt_v1_pipeline_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_shepherd_mgmt_v1_pipeline_proto_rawDesc), len(file_shepherd_mgmt_v1_pipeline_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   18,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

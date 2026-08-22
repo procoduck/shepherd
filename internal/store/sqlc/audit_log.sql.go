@@ -33,8 +33,8 @@ func (q *Queries) CountAuditLog(ctx context.Context, arg CountAuditLogParams) (i
 }
 
 const insertAuditLog = `-- name: InsertAuditLog :exec
-INSERT INTO audit_log (actor, actor_type, org_id, action, resource_type, resource_id, detail)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO audit_log (actor, actor_type, org_id, action, resource_type, resource_id, detail, on_behalf_of)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 `
 
 type InsertAuditLogParams struct {
@@ -45,8 +45,16 @@ type InsertAuditLogParams struct {
 	ResourceType string          `json:"resource_type"`
 	ResourceID   string          `json:"resource_id"`
 	Detail       json.RawMessage `json:"detail"`
+	OnBehalfOf   pgtype.Text     `json:"on_behalf_of"`
 }
 
+// on_behalf_of is G13's second attribution half (docs/gateway-tier-plan.md):
+// the human a machine actor's write is performed for. NULL for every human
+// session's own action; a 'service_account' actor_type row always carries
+// one, because internal/mgmtapi.requireWriteAuthorized rejects a machine
+// write with no on-behalf-of before any InsertAuditLog call is reached — see
+// that function's doc comment for the reject-vs-record-as-unattributed
+// decision.
 func (q *Queries) InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) error {
 	_, err := q.db.Exec(ctx, insertAuditLog,
 		arg.Actor,
@@ -56,12 +64,13 @@ func (q *Queries) InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) 
 		arg.ResourceType,
 		arg.ResourceID,
 		arg.Detail,
+		arg.OnBehalfOf,
 	)
 	return err
 }
 
 const listAuditLog = `-- name: ListAuditLog :many
-SELECT id, at, actor, actor_type, org_id, action, resource_type, resource_id, detail FROM audit_log
+SELECT id, at, actor, actor_type, org_id, action, resource_type, resource_id, detail, on_behalf_of FROM audit_log
 WHERE ($1::uuid IS NULL OR org_id = $1)
   AND (NULLIF($2::text, '') IS NULL OR actor ILIKE '%' || $2 || '%')
   AND (NULLIF($3::text, '') IS NULL OR action = $3)
@@ -102,6 +111,7 @@ func (q *Queries) ListAuditLog(ctx context.Context, arg ListAuditLogParams) ([]A
 			&i.ResourceType,
 			&i.ResourceID,
 			&i.Detail,
+			&i.OnBehalfOf,
 		); err != nil {
 			return nil, err
 		}

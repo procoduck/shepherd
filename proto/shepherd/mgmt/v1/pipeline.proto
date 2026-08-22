@@ -9,7 +9,13 @@ import "shepherd/mgmt/v1/common.proto";
 option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 
 // PipelineService covers /api/orgs/{org}/pipelines/*. Reads require
-// org-reader; writes (create/update/delete/enable/disable) require org-admin.
+// org-reader. Writes (create/update/delete/enable/disable/set-owner) require
+// EITHER org-admin OR — W10, docs/gateway-tier-plan.md G11 — membership (via
+// IdP group) of the team that owns the target pipeline; an unowned pipeline
+// stays org-admin-only. See internal/auth.AuthorizeOwnership and
+// internal/mgmtapi's per-handler ownership checks: the coarse org-reader
+// gate below only proves "has some access to this org", the fine-grained
+// ownership decision is made inside each handler, not at this table.
 service PipelineService {
   rpc ListPipelines(ListPipelinesRequest) returns (ListPipelinesResponse) {}
   rpc GetPipeline(GetPipelineRequest) returns (Pipeline) {}
@@ -21,6 +27,11 @@ service PipelineService {
   rpc ValidatePipeline(ValidatePipelineRequest) returns (ValidatePipelineResponse) {}
   rpc PreviewMatches(PreviewMatchesRequest) returns (PreviewMatchesResponse) {}
   rpc ListRevisions(ListRevisionsRequest) returns (ListRevisionsResponse) {}
+  // SetPipelineOwner reassigns (or, with an empty owner_team_id, clears) a
+  // pipeline's owning team. Deliberately org-admin-only regardless of
+  // current ownership — a team can write what it owns, but granting or
+  // revoking ownership is a platform decision, not a delegated one.
+  rpc SetPipelineOwner(SetPipelineOwnerRequest) returns (Pipeline) {}
 }
 
 // PipelineRevision mirrors internal/mgmtapi/pipelines.go: revisionResponse.
@@ -55,6 +66,10 @@ message Pipeline {
   // from — re-parsing `contents` is a lossy fallback used only when this is
   // missing/invalid, or for the read-only graph view of a non-visual pipeline.
   google.protobuf.Struct wizard_state = 14;
+  // owner_team_id is the team (0012_teams_service_accounts) this pipeline
+  // is scoped-write-owned by (G11); empty means unowned — org-admin-only,
+  // matching every pipeline's behavior before W10.
+  string owner_team_id = 15;
 }
 
 message ListPipelinesRequest {
@@ -85,6 +100,12 @@ message CreatePipelineRequest {
   repeated string matchers = 4;
   string source = 5;
   google.protobuf.Struct wizard_state = 6;
+  // owner_team_id, when set, requires the caller be an org-admin OR a
+  // member of that team's IdP group (G11) — a team member may create a
+  // pipeline owned by their own team, but not one owned by someone else's.
+  // Empty (the default) creates an unowned pipeline, which only an
+  // org-admin caller may do.
+  string owner_team_id = 7;
 }
 
 message UpdatePipelineRequest {
@@ -180,4 +201,11 @@ message ListRevisionsRequest {
 message ListRevisionsResponse {
   repeated PipelineRevision items = 1;
   int32 total = 2;
+}
+
+message SetPipelineOwnerRequest {
+  string org_id = 1;
+  string id = 2;
+  // owner_team_id, empty to clear (demote to unowned/admin-only).
+  string owner_team_id = 3;
 }

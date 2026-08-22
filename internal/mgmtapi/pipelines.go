@@ -230,8 +230,14 @@ func (h *PipelinesHandler) PreviewMatches(w http.ResponseWriter, r *http.Request
 	writeProtoJSON(w, http.StatusOK, resp.Msg)
 }
 
-// actorFromCtx returns the authenticated actor identity from the request context.
-// Returns "anonymous" if not set (should not happen in practice).
+// actorFromCtx returns the authenticated actor identity from the request
+// context: a machine caller's service account name (prefixed "svcacct:",
+// matching auditLogDetail's identical prefix — see helpers.go) when the
+// request is machine-authenticated, otherwise the human session's actor.
+// Returns "anonymous" if neither is set (should not happen in practice).
 func actorFromCtx(ctx context.Context) string {
+	if sa, ok := serviceAccountFromCtx(ctx); ok {
+		return "svcacct:" + sa.Name
+	}
 	return auth.ActorFromCtx(ctx)
 }

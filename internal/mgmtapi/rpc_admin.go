@@ -83,6 +83,9 @@ func (s *AdminService) ListOrgs(ctx context.Context, _ *connect.Request[mgmtv1.L
 
 // CreateOrg creates an org.
 func (s *AdminService) CreateOrg(ctx context.Context, req *connect.Request[mgmtv1.CreateOrgRequest]) (*connect.Response[mgmtv1.Org], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	msg := req.Msg
 	if msg.GetName() == "" || msg.GetDisplayName() == "" || msg.GetAdminGroupId() == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("name, display_name, admin_group_id required"))
@@ -105,6 +108,9 @@ func (s *AdminService) CreateOrg(ctx context.Context, req *connect.Request[mgmtv
 
 // UpdateOrg updates an org.
 func (s *AdminService) UpdateOrg(ctx context.Context, req *connect.Request[mgmtv1.UpdateOrgRequest]) (*connect.Response[mgmtv1.Org], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	msg := req.Msg
 	id, err := scanUUID(msg.GetOrgId())
 	if err != nil {
@@ -124,6 +130,9 @@ func (s *AdminService) UpdateOrg(ctx context.Context, req *connect.Request[mgmtv
 
 // DeleteOrg deletes an org.
 func (s *AdminService) DeleteOrg(ctx context.Context, req *connect.Request[mgmtv1.DeleteOrgRequest]) (*connect.Response[mgmtv1.DeleteOrgResponse], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	id, err := scanUUID(req.Msg.GetOrgId())
 	if err != nil {
 		return nil, err
@@ -189,6 +198,9 @@ func (s *AdminService) ListClusters(ctx context.Context, req *connect.Request[mg
 
 // ClaimCluster assigns a cluster to an org.
 func (s *AdminService) ClaimCluster(ctx context.Context, req *connect.Request[mgmtv1.ClaimClusterRequest]) (*connect.Response[mgmtv1.ClaimClusterResponse], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	msg := req.Msg
 	cluster, err := s.store.Queries.GetClusterByName(ctx, msg.GetCluster())
 	if err != nil {
@@ -208,6 +220,9 @@ func (s *AdminService) ClaimCluster(ctx context.Context, req *connect.Request[mg
 // UnclaimCluster removes a cluster's org assignment and marks its
 // collectors' serve cache dirty.
 func (s *AdminService) UnclaimCluster(ctx context.Context, req *connect.Request[mgmtv1.UnclaimClusterRequest]) (*connect.Response[mgmtv1.UnclaimClusterResponse], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	cluster, err := s.store.Queries.GetClusterByName(ctx, req.Msg.GetCluster())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("cluster not found"))
@@ -239,6 +254,9 @@ func (s *AdminService) ListAgentTokens(ctx context.Context, _ *connect.Request[m
 // exactly once in the response and is never logged or persisted — only its
 // SHA-256 hash is stored.
 func (s *AdminService) CreateAgentToken(ctx context.Context, req *connect.Request[mgmtv1.CreateAgentTokenRequest]) (*connect.Response[mgmtv1.CreateAgentTokenResponse], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	name := req.Msg.GetName()
 	if name == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("name required"))
@@ -265,6 +283,9 @@ func (s *AdminService) CreateAgentToken(ctx context.Context, req *connect.Reques
 
 // RevokeAgentToken revokes an agent token.
 func (s *AdminService) RevokeAgentToken(ctx context.Context, req *connect.Request[mgmtv1.RevokeAgentTokenRequest]) (*connect.Response[mgmtv1.RevokeAgentTokenResponse], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	id, err := scanUUID(req.Msg.GetId())
 	if err != nil {
 		return nil, err

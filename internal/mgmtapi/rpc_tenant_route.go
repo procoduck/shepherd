@@ -176,6 +176,9 @@ func (s *TenantRouteService) loadOwnedTenantRoute(ctx context.Context, orgIDStr,
 // proto doc comment); this method's job is validating the rest of the
 // request and persisting the result.
 func (s *TenantRouteService) CreateTenantRoute(ctx context.Context, req *connect.Request[mgmtv1.CreateTenantRouteRequest]) (*connect.Response[mgmtv1.TenantRoute], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	orgID, err := scanUUID(req.Msg.GetOrgId())
 	if err != nil {
 		return nil, err
@@ -235,6 +238,9 @@ func (s *TenantRouteService) CreateTenantRoute(ctx context.Context, req *connect
 // old route without ever creating its replacement would leave the tenant
 // with no active route, so the two writes must succeed or fail together.
 func (s *TenantRouteService) RotateTenantRoute(ctx context.Context, req *connect.Request[mgmtv1.RotateTenantRouteRequest]) (*connect.Response[mgmtv1.RotateTenantRouteResponse], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	current, err := s.loadOwnedTenantRoute(ctx, req.Msg.GetOrgId(), req.Msg.GetId())
 	if err != nil {
 		return nil, err
@@ -305,6 +311,9 @@ func (s *TenantRouteService) RotateTenantRoute(ctx context.Context, req *connect
 // status), regardless of any valid_until deadline — the "and then revoke
 // it" half of a rotation, or an out-of-band incident-response revoke.
 func (s *TenantRouteService) RevokeTenantRoute(ctx context.Context, req *connect.Request[mgmtv1.RevokeTenantRouteRequest]) (*connect.Response[mgmtv1.TenantRoute], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
 	owned, err := s.loadOwnedTenantRoute(ctx, req.Msg.GetOrgId(), req.Msg.GetId())
 	if err != nil {
 		return nil, err

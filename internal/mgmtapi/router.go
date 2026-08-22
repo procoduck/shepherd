@@ -151,6 +151,23 @@ func Router(st *store.Store, cfg *config.Config, enc *crypto.Encryptor, logger *
 
 		// org-admin: writes, plus the org-admin-only services
 		// (WizardService, GitOpsService, AuditService).
+		//
+		// W10 note — this group is deliberately NOT in step with
+		// procedureRequirements any more, and the difference is safe in one
+		// direction only. The pipeline procedures were loosened to
+		// org-reader on the RPC side so a team member can reach the handler
+		// and have AuthorizeOwnership make the fine-grained call
+		// (docs/gateway-tier-plan.md G11); this REST group still demands
+		// org-admin. So the shim is STRICTER, never looser — a team member
+		// gets 403 here rather than scoped write. That is a missing feature
+		// on a legacy surface, not a bypass: the live UI speaks Connect RPC
+		// (web/src/api/transport.ts), and a service account cannot reach
+		// this router at all, since SessionMiddleware only reads the session
+		// cookie and never inspects Authorization.
+		//
+		// Recorded rather than silently fixed because aligning it means
+		// duplicating ownership resolution in the REST shim, and the shim is
+		// on its way out. If it survives, that duplication is the work.
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireOrgAccess(st, "org", "orgadmin"))
 			r.Get("/collectors/{id}/assignments", orgs.ListAssignments)
@@ -235,7 +252,13 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 		logger.Error("schema registry unavailable; schema-dependent RPCs will answer unavailable", "err", schemaErr)
 	}
 
-	authz := connect.WithInterceptors(newAuthzInterceptor(st))
+	// Interceptor order matters: the service-account auth interceptor runs
+	// first so a machine caller's identity (if any) is in ctx before
+	// newAuthzInterceptor's role/org decision runs — see
+	// authorizeProcedure's service-account branch (rpc_interceptor.go). A
+	// human-session request (no Basic-auth Authorization header) passes
+	// through the first interceptor unchanged.
+	authz := connect.WithInterceptors(newServiceAccountAuthInterceptor(st), newAuthzInterceptor(st))
 
 	mounts := []func() (string, http.Handler){
 		func() (string, http.Handler) {
@@ -270,6 +293,12 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 		},
 		func() (string, http.Handler) {
 			return mgmtv1connect.NewTenantRouteServiceHandler(NewTenantRouteService(st, logger), authz)
+		},
+		func() (string, http.Handler) {
+			return mgmtv1connect.NewTeamServiceHandler(NewTeamService(st, logger), authz)
+		},
+		func() (string, http.Handler) {
+			return mgmtv1connect.NewServiceAccountServiceHandler(NewServiceAccountService(st, logger), authz)
 		},
 	}
 	for _, mount := range mounts {

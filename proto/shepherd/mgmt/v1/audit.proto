@@ -21,6 +21,11 @@ message AuditEntry {
   string action = 6;
   string resource_type = 7;
   string resource_id = 8;
+  // on_behalf_of is G13's second attribution half
+  // (docs/gateway-tier-plan.md): the human a machine (actor_type
+  // "service_account") actor's write was performed for. Empty for a human
+  // session's own actions — there is no delegation to record.
+  string on_behalf_of = 9;
 }
 
 // ListAuditRequest mirrors the query params read by AuditHandler.List.
