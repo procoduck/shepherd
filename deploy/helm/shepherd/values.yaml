@@ -12,6 +12,20 @@ config:
   server:
     listen: ":8080"
     base_url: "https://shepherd.example.internal"
+    # The beacon (docs/gateway-tier-plan.md D6) serves every claimed collector
+    # a small baseline pipeline that reports which components it is running
+    # and whether they are healthy — component names only, never config text
+    # and never raw samples — and mounts an ingest endpoint at
+    # /beacon/v1/write authenticated by the same agent token everything else
+    # uses.
+    #
+    # It is ON by default and that is deliberate: the collector nobody knows
+    # about is exactly the one that would never opt in. Set this to true to
+    # turn it off entirely — no endpoint is mounted and no baseline is served.
+    # Opting out is offered because the beacon stores inventory and accepts
+    # writes, and an operator who cannot answer for that yet should be able to
+    # say no without downgrading.
+    beacon_disabled: false
   database:
     max_conns: 20
   oidc:

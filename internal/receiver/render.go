@@ -54,12 +54,11 @@ func renderOTLPPipeline(sb *strings.Builder, p OTLPPipeline) {
 		_, _ = fmt.Fprintf(sb, "    endpoint               = %q\n", p.GRPC.ListenAddr)
 		_, _ = fmt.Fprintf(sb, "    max_recv_msg_size      = %q\n", p.GRPC.MaxRecvMsgSize)
 		_, _ = fmt.Fprintf(sb, "    max_concurrent_streams = %d\n", p.GRPC.MaxConcurrentStreams)
-		if passThrough {
-			// D10: without this, the gateway-injected tenant header never
-			// reaches otelcol.auth.headers' from_context below — see
-			// TenancyPassThrough's doc comment.
-			_, _ = fmt.Fprintf(sb, "    include_metadata       = true\n")
-		}
+		// No include_metadata here, and no branch for it: Validate refuses a
+		// gRPC listener in pass-through mode outright, because an HTTPRoute
+		// cannot front gRPC and the header would be whatever the client sent.
+		// A branch for a state Validate makes unreachable reads as support for
+		// that state.
 		_, _ = fmt.Fprintf(sb, "  }\n")
 	}
 	if p.HTTP != nil {

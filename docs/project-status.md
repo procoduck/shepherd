@@ -15,7 +15,7 @@
 | `docs/frontend-testing.md` | three-layer frontend test strategy |
 | `docs/platform-monitoring-architecture.md` | target-fleet reference notes |
 | `docs/kind-test-environment-plan.md` | **steps 1–3 in progress, §5 Layer B done**: kind-based Kubernetes test environment — NetworkPolicy enforcement (probed), Helm deploy, LGTM delivery |
-| `docs/gateway-tier-plan.md` | **in progress** (all 11 workstreams built as of 2026-08-22; W1–W3 done, the rest awaiting review gates R1/R2/R3/R5/R6 — see its §9): multi-session plan for the tenant-aware gateway tier, the beacon and outcome verification, signal/role enforcement, the chart-values generator, teams/scoped identity and the agent (MCP) interface — 11 workstreams with its own step ledger (§9), 15 conformance gates (§6), review gates (§7) and the actor model (§3a) |
+| `docs/gateway-tier-plan.md` | **in progress** (all 11 workstreams built as of 2026-08-22; W1–W3 done, the rest awaiting review gates R1/R2/R3/R6 — R5 was resolved 2026-08-22 — see its §9): multi-session plan for the tenant-aware gateway tier, the beacon and outcome verification, signal/role enforcement, the chart-values generator, teams/scoped identity and the agent (MCP) interface — 11 workstreams with its own step ledger (§9), 15 conformance gates (§6), review gates (§7) and the actor model (§3a) |
 | `docs/proofs/` | red–green proofs for current work |
 | `docs/archive/` | finished work, kept as the record of why things are the way they are |
 
@@ -30,6 +30,7 @@ Every line re-run today.
 | `go build ./...`, `go vet ./...` | clean |
 | `golangci-lint run ./...` | **0 issues** |
 | `go test ./...` | **all 20 packages green** (testcontainers suites included) |
+| _(as of 2026-08-22: 37 packages green — the figures in this table are the 2026-08-20 baseline snapshot and are not re-measured on every change; see the dated sections below for current state)_ | |
 | `cd web && npx tsc --noEmit` | clean |
 | `npx vitest run` | **272/272** across 15 files |
 | `npx playwright test` (mocked) | **148/148, zero skips** |
@@ -45,7 +46,7 @@ Verified on the running stack and in the browser, not inferred:
   matchers resolving against real collector labels
 - **Management API** — `shepherd.mgmt.v1` Connect contract generated for Go and TypeScript; every
   legacy REST route preserved as a wire-compatible shim; fail-closed per-procedure authz
-- **All 12 SPA routes** — walked in Chrome with a console/network collector: zero console errors,
+- **All 12 SPA routes** as of this baseline — walked in Chrome with a console/network collector: zero console errors,
   zero JS exceptions, zero failed requests
 - **Visual builder** — schema-driven palette (184 components, 314 named ports, 0 unnamed),
   draw.io-style connection dragging, delete/undo/redo, minimap, save/load with matchers

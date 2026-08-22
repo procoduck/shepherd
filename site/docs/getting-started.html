@@ -108,7 +108,7 @@ SHEPHERD_SECURITY_ENCRYPTION_KEY=$(openssl rand -base64 32) \
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
         <pre><code>helm install shepherd deploy/helm/shepherd \
   --set image.registry=ghcr.io/procoduck \
-  --set image.tag=0.0.1 \
+  --set image.tag=0.0.2 \
   --set existingSecret=shepherd-secrets \
   --set "route.enabled=true" \
   --set "route.hostnames[0]=shepherd.internal"</code></pre>
@@ -128,7 +128,7 @@ SHEPHERD_SECURITY_ENCRYPTION_KEY=$(openssl rand -base64 32) \
       <h2 id="sandbox">Sandbox simulation</h2>
       <p>
         Shepherd can run a candidate pipeline against synthetic sources in an isolated sandbox and show
-        the captured series before the pipeline reaches a real collector. As of v0.0.1, the Helm chart
+        the captured series before the pipeline reaches a real collector. As of v0.0.2, the Helm chart
         ships it <strong>enabled by default</strong> — the chart auto-wires Shepherd's own config to the
         chart's <code>shepherd-simulator</code> Service, so a plain <code>helm install</code> gets a
         working sandbox with no extra flags.
@@ -179,7 +179,7 @@ SHEPHERD_SECURITY_ENCRYPTION_KEY=$(openssl rand -base64 32) \
 <footer>
   <div class="wrap">
     <div class="foot-left">
-      <span class="pill">v0.0.1</span>
+      <span class="pill">v0.0.2</span>
       <span>self-hosted Grafana Alloy fleet manager</span>
     </div>
     <div class="foot-links">
