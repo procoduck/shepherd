@@ -89,15 +89,29 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		}
 	}
 
-	// Auth handler initialization requires OIDC discovery (network call); skip in dev/test when OIDC config is empty.
-	var authHandler *auth.Handler
-	if cfg.OIDC.Issuer != "" {
-		authHandler, err = auth.New(context.Background(), cfg, st, logger)
-		if err != nil {
-			return nil, fmt.Errorf("initializing auth: %w", err)
-		}
-	} else if cfg.Auth.LocalAdmin.Enabled {
-		authHandler = auth.NewLocalAdmin(cfg, st, logger)
+	// The auth handler is now always constructed, not only when the chart
+	// configured an issuer: OIDC can be turned on from the admin UI while the
+	// process is running (auth.Handler.Reload), so there is no startup moment
+	// at which "this deployment will never serve /auth/login" is knowable.
+	// auth.New still performs discovery when the CHART names an issuer, and
+	// still fails hard if that discovery fails — an operator who declared a
+	// provider in values.yaml must not get a server that quietly came up
+	// without it. A stored (UI-managed) provider that fails discovery only
+	// logs, because the local-admin session needed to fix it lives in the same
+	// process.
+	//
+	// Bounded, because this runs before ListenAndServe: an issuer whose host
+	// accepts the connection and never replies would otherwise keep the
+	// process from ever becoming ready, and the local-admin session that is
+	// supposed to be the way to fix a bad stored provider lives in this same
+	// process. The discovery client has its own timeout too (see
+	// internal/auth/discovery.go); this is the outer bound on the whole
+	// resolve-and-activate step.
+	authCtx, cancelAuth := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelAuth()
+	authHandler, err := auth.New(authCtx, cfg, st, enc, logger)
+	if err != nil {
+		return nil, fmt.Errorf("initializing auth: %w", err)
 	}
 	if cfg.Auth.LocalAdmin.Enabled {
 		logger.Warn("local admin account enabled", "username", cfg.Auth.LocalAdmin.Username, "oidc_also_active", cfg.OIDC.Issuer != "")
@@ -210,7 +224,13 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 	}
 
 	// Management REST API with session + OIDC auth wiring.
-	r.Get("/auth/methods", auth.MethodsHandler(cfg))
+	//
+	// authHandler is nil only in the route-tree unit test, which builds the
+	// real tree from zeroed collaborators to prove mounting and guard
+	// ordering; New always supplies one in production.
+	if authHandler != nil {
+		r.Get("/auth/methods", authHandler.MethodsHandler)
+	}
 	// Session and CSRF middleware are applied on a sub-router so they don't conflict
 	// with the Connect RPC mount already registered above.
 	r.Group(func(r chi.Router) {
@@ -220,10 +240,15 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 		}
 		r.Use(auth.CSRFMiddleware)
 		if authHandler != nil {
-			if cfg.OIDC.Issuer != "" {
-				r.Get("/auth/login", authHandler.LoginHandler)
-				r.Get("/auth/callback", authHandler.CallbackHandler)
-			}
+			// Mounted unconditionally. These used to be registered only when
+			// the chart named an issuer, which is no longer a decision that can
+			// be made at startup: an app admin can configure a provider through
+			// the UI and expect to sign in with it without a rollout. Both
+			// handlers answer "OIDC is not configured" (a redirect back to
+			// /login naming the reason) when no provider is live, so mounting
+			// them costs nothing in a deployment that never configures one.
+			r.Get("/auth/login", authHandler.LoginHandler)
+			r.Get(auth.CallbackPath, authHandler.CallbackHandler)
 			// Logout always registered when any auth method is active
 			r.Get("/auth/logout", authHandler.LogoutHandler)
 			if cfg.Auth.LocalAdmin.Enabled {
@@ -236,7 +261,7 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 		// /api shims above (docs/archive/api-contract-design.md). Mounted in the same
 		// group so they get session population + CSRF enforcement; each
 		// handler additionally requires its own authz interceptor role.
-		mgmtapi.MountRPC(r, st, cfg, enc, logger)
+		mgmtapi.MountRPC(r, st, cfg, enc, logger, mgmtapi.WithOIDCSettings(authHandler))
 	})
 
 	// Guard: reserved prefixes that didn't match any real route return 404 JSON, never the SPA.

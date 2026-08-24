@@ -42,8 +42,46 @@ config:
     beacon_disabled: false
   database:
     max_conns: 20
+  # ---------------------------------------------------------------------------
+  # OIDC single sign-on (OPTIONAL)
+  #
+  # Leaving `issuer` unset does NOT mean "no SSO": it hands configuration to
+  # the app admins, who can point Shepherd at a provider from the UI
+  # (Admin -> Single sign-on) without a rollout. Setting `issuer` here takes
+  # that ability away — chart config always wins, and the UI shows the values
+  # read-only. Choose deliberately: declare it here if your identity provider
+  # belongs in git, leave it out if you would rather bootstrap through the
+  # local admin account and configure SSO in the product.
+  #
+  # The claim fields below default to Microsoft Entra ID's shapes, which is
+  # what this chart has always assumed. A non-Entra provider MUST override at
+  # least provider, subject_claim, and groups_claim.
+  # ---------------------------------------------------------------------------
   oidc:
     scopes: ["openid", "profile", "email"]
+    # issuer: "https://login.microsoftonline.com/<tenant-id>/v2.0"
+    # client_id: ""                  # client_secret via SHEPHERD_OIDC_CLIENT_SECRET
+    # redirect_url: "https://shepherd.example.internal/auth/callback"
+    #
+    # provider: one of entra | okta | google | auth0 | keycloak | cognito |
+    # gitlab | authentik | onelogin | generic. It sets the use_graph_groups
+    # default and labels the deployment; it does not change any value spelled
+    # out below.
+    # provider: "entra"
+    # display_name: "Microsoft"      # sign-in button label
+    #
+    # Claim mapping. subject_claim defaults to "oid" (Entra's object ID);
+    # every other provider needs "sub".
+    # subject_claim: "oid"
+    # email_claim: "email"
+    # name_claim: "name"
+    # groups_claim: "groups"         # "cognito:groups" for Cognito, "groups_direct" for GitLab
+    #
+    # use_graph_groups resolves membership through Microsoft Graph instead of
+    # the ID token claim. Defaults to true for provider "entra" and false
+    # otherwise. Keep it on for Entra: the groups claim is dropped entirely
+    # once a user is in more than ~200 groups.
+    # use_graph_groups: true
   auth:
     session_ttl: "8h"
     # -----------------------------------------------------------------------

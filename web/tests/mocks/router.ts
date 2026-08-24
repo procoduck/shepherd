@@ -25,7 +25,18 @@ export interface MockState {
   validateResult: { valid: boolean; diagnostics: unknown[] };
   servedConfig: { content: string; hash: string };
   unmatched: string[];
-  authMethods?: { oidc: boolean; local_admin: boolean };
+  authMethods?: {
+    oidc: boolean;
+    local_admin: boolean;
+    oidc_display_name?: string;
+    oidc_provider?: string;
+  };
+  // Admin → Single sign-on. `oidcSettings` seeds GetOidcSettings/
+  // UpdateOidcSettings (wire shape, snake_case like every other mock);
+  // `oidcTestResult` seeds TestOidcSettings so a spec can drive both the
+  // discovery-succeeded and discovery-failed branches without a live IdP.
+  oidcSettings?: Record<string, unknown>;
+  oidcTestResult?: Record<string, unknown>;
   localAdminCreds?: { username: string; password: string };
   localAdminPersona?: import('../fixtures/personas').MeResponse | null;
   schema?: unknown; // schema payload for GET /api/schema/:version

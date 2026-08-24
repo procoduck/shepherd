@@ -339,11 +339,42 @@ hash := hex(sha256(content))
 
 ### 7.1 OIDC (human users) — standard BFF code flow
 
-- Shepherd is a **confidential client** in Entra ID. Viper config: `oidc.issuer` (`https://login.microsoftonline.com/<tenant>/v2.0`), `oidc.client_id`, `oidc.client_secret`, `oidc.redirect_url`, `oidc.scopes` (default `openid profile email offline_access GroupMember.Read.All`).
+- Shepherd is a **confidential client** at a spec-compliant OIDC issuer. Entra ID is the reference deployment, but any provider that serves a discovery document works — see §7.1a for the per-provider knobs and §7.1b for where the configuration comes from.
+- Viper config: `oidc.issuer` (Entra: `https://login.microsoftonline.com/<tenant>/v2.0`), `oidc.client_id`, `oidc.client_secret`, `oidc.redirect_url`, `oidc.scopes` (default `openid profile email offline_access GroupMember.Read.All`).
 - `GET /auth/login` → generate `state` + PKCE verifier, store in a short-lived httpOnly cookie, redirect to the authorize endpoint.
-- `GET /auth/callback` → verify state, exchange code (with PKCE) for tokens, verify ID token with go-oidc. Then **always call Microsoft Graph** with the access token: `GET https://graph.microsoft.com/v1.0/me/transitiveMemberOf/microsoft.graph.group?$select=id,displayName&$top=999` (follow `@odata.nextLink`) to get the user's complete transitive group list — do NOT rely on the `groups` claim (it's omitted on >200-group overage). Store the session row (§5) with `group_ids`, set session cookie: httpOnly, `Secure`, `SameSite=Lax`, name `shepherd_session`. Session TTL: `auth.session_ttl` (default 8h, sliding).
+- `GET /auth/callback` → verify state, exchange code (with PKCE) for tokens, verify ID token with go-oidc. Resolve the user's groups per §7.1a. Store the session row (§5) with `group_ids`, set session cookie: httpOnly, `Secure`, `SameSite=Lax`, name `shepherd_session`. Session TTL: `auth.session_ttl` (default 8h, sliding).
 - `GET /auth/me` → current user profile + computed roles. `POST /auth/logout` → delete session.
+- `GET /auth/methods` → which sign-in methods the login page should offer, plus the label for the OIDC button. It reports whether OIDC is **live** (a discovered provider is loaded), not merely whether one is configured: a saved-but-undiscoverable provider must not render a button that can only dead-end.
 - All `/api/*` routes require a valid session (middleware). CSRF: require header `X-Requested-With: XMLHttpRequest` on mutating requests (sufficient with SameSite=Lax).
+
+### 7.1a Provider portability — claims and groups
+
+Which claim carries the subject, the email, the display name, and the group list is per-provider configuration, not a constant. `internal/auth.Presets` holds the built-in catalogue (Entra, Okta, Google, Auth0, Keycloak, Cognito, GitLab, authentik, OneLogin, generic); a preset only supplies **defaults** — every value it prefills is stored explicitly, so the effective configuration is readable without consulting the preset table.
+
+- **Subject** — `oidc.subject_claim`, default `oid` (Entra's immutable object ID, what this code has always read). Every other provider needs `sub`. Falls back to the ID token's spec-mandated `sub` when the configured claim is absent, so a mistyped setting degrades to a working identity rather than an empty `user_oid`.
+- **Groups** — `oidc.groups_claim`, default `groups` (`cognito:groups` for Cognito, `groups_direct` for GitLab, a namespaced URI for Auth0). Values are matched against `auth.app_admin_group_ids` and against each org's `admin_group_id` / `reader_group_id`; for a non-Entra provider those columns therefore hold whatever the IdP emits (usually a group name or path), not a GUID. Nothing in the schema ever assumed a GUID — only the Entra-shaped documentation did. The reader accepts all three shapes providers use: a JSON array, a bare string, or a space-separated list.
+- **Microsoft Graph** — `oidc.use_graph_groups` (default: true when `oidc.provider` is `entra`, false otherwise) keeps the transitive lookup `GET {graph_base_url}/v1.0/me/transitiveMemberOf/microsoft.graph.group?$select=id,displayName&$top=999` (follow `@odata.nextLink`). It stays the default for Entra because Entra omits the groups claim entirely on >200-group overage. `graph.base_url` is pinned to Microsoft's own Graph hosts (global plus the sovereign clouds) on the UI-managed path: the signing-in user's **delegated access token** is sent to it as a bearer credential, so an unconstrained value would let an app admin redirect every user's token to a collector they control.
+  - **Behavioral change, deliberate:** when the Graph call fails, the groups claim is now used as a fallback. Previously a Graph error yielded *no* groups, which silently stripped every administrator of access during a Graph outage or a revoked `GroupMember.Read.All` consent. The claim is signed by the same IdP so it cannot be forged, but it is **not the same set** — claim scope is configured per app registration ("all groups" vs "groups assigned to the application"), and AD-synced groups may emit `sAMAccountName` rather than GUIDs. An Entra deployment that wants the old all-or-nothing behavior must leave the groups claim unmapped in its app registration.
+
+### 7.1b Configuration source — chart, or the UI
+
+OIDC configuration has exactly two sources, and **`oidc.issuer` decides which**:
+
+- **Set in the chart / environment** → chart config wins. The admin UI shows the values read-only and refuses writes (`FailedPrecondition`). A cluster whose identity provider is declared in git must not be silently re-pointed by whoever holds an app-admin session.
+- **Not set** → an app admin configures a provider from the UI (Admin → Single sign-on), persisted to the singleton `oidc_settings` row (migration 0014). The client secret is AES-256-GCM-encrypted at rest via `internal/crypto`, following `git_credentials.client_secret_enc`'s precedent, and is never returned by the API — `GetOidcSettings` answers `client_secret_set` only. The local-admin break-glass account (§7.4) is the bootstrap path.
+
+Saving takes effect **without a restart**: `auth.Handler` holds the discovered provider and oauth2 client behind an atomic pointer that `Reload` swaps, and `/auth/login` + `/auth/callback` are mounted unconditionally (they redirect to `/login?auth_error=oidc_not_configured` when no provider is live). Other replicas pick the change up within 30s via a staleness check on the auth paths. Discovery runs **before** the write whenever the configuration is being enabled, so a provider that cannot discover is never stored as live — the admin who would have to fix it may be relying on that same login page.
+
+`AdminService` carries the surface, app-admin only, with no org-scoped variant: this configuration decides who can hold an app-admin session in the first place, so delegating any part of it would let an org admin widen their own reach. `TestOidcSettings` probes a candidate configuration without storing it and reports the discovered issuer, endpoints, advertised scopes, and PKCE support — a failed probe comes back in the response body, not as an RPC error, so the form renders the reason inline. It probes **discovery only**: it never exercises the client ID, secret, or redirect URL, so a green result means "this issuer is real", not "sign-in will work".
+
+**Discovery is a deliberately constrained fetch** (`internal/auth/discovery.go`). It is the one place an authenticated user picks a URL the *server* then retrieves, which makes it an SSRF primitive unless it is bounded — and app admin is an application role, not cluster-admin. Four constraints, each closing a distinct hole:
+
+1. A 10s client timeout. `go-oidc` uses `http.DefaultClient`, which has none; `Reload` holds `reloadMu` across the fetch and three *unauthenticated* routes can trigger one, and it also runs before `ListenAndServe`, so an unbounded fetch is both a goroutine pile-up and a boot hang.
+2. A `net.Dialer.Control` guard rejecting loopback, private, link-local, CGNAT, and unspecified addresses — applied **after** DNS resolution, so a hostname resolving to `169.254.169.254` and DNS rebinding are both covered.
+3. Redirects restricted to `https`, capped at 5 hops.
+4. **Discovery errors never carry the response body.** `go-oidc`'s own error is `fmt.Errorf("%s: %s", resp.Status, body)`; surfacing that through `TestOidcSettings` would turn "an admin can probe a URL" into "an admin can read it". Shepherd fetches and parses the document itself and reports status codes only, then builds the provider from `oidc.ProviderConfig` so the constrained client also governs JWKS fetches for the provider's lifetime.
+
+Background refreshes run on a context **detached from the request** (`context.WithoutCancel` + its own timeout): `Reload` spends the 30s backoff before it attempts anything, so inheriting cancellation would let an anonymous client that aborts `/auth/methods` every 30s keep a replica from ever activating OIDC.
 
 ### 7.2 Roles
 
@@ -592,7 +623,7 @@ Role-based rendering: admin routes and every write affordance (buttons, switches
 
 ### 13.5 Screen-by-screen specification
 
-**Login** (`/login`): centered card `max-w-sm` on the page background: product mark, "Sign in to Shepherd" (`text-lg font-semibold`), one full-width primary button "Continue with Microsoft" (Microsoft glyph icon) → `GET /auth/login`. Footer caption: "Access is managed through your Entra ID groups." Auth-failure query param renders a destructive Alert above the button.
+**Login** (`/login`): centered card `max-w-sm` on the page background: product mark, "Sign in to Shepherd" (`text-lg font-semibold`), one full-width primary button "Continue with <provider>" → `GET /auth/login`, where the label comes from `/auth/methods`'s `oidc_display_name` (§7.1) rather than being hardcoded. Footer caption names the same provider's groups. Auth-failure query param renders a destructive Alert above the button; `auth_error=oidc_not_configured` says so specifically and points at Admin → Single sign-on.
 
 **Overview** (`/`): row of four stat cards (grid `grid-cols-4 gap-4`; each: `text-xs text-zinc-400` label over `text-2xl font-semibold tabular-nums` value + small context line): Collectors (value = total, context = "n healthy · n stale"), Active pipelines, Clusters, Sync errors (red value when > 0). Below, two half-width cards side by side: **"Needs attention"** — table of collectors with status Failed or zero live instances (columns Cluster, Role, Status, Last seen; empty state: `CheckCircle2` icon, "All quiet", "Every collector is applying its config.") — and **"Recent changes"** — last 10 audit rows (actor, action verb + resource as one sentence, relative time).
 
@@ -624,6 +655,8 @@ Role-based rendering: admin routes and every write affordance (buttons, switches
 **Admin — Orgs**: table (Name, Display name, Admin group (name + GUID), Reader group, Clusters n, Pipelines n). Create/edit Dialog uses the Graph group Combobox for both group fields.
 
 **Admin — Clusters**: two stacked cards. **Unclaimed** (amber left-border accent): table (Cluster, First seen, Roles seen as role-icon row, Live instances) + row action "Claim…" → Dialog with org Select. Empty: "No unclaimed clusters." **Claimed**: table (Cluster, Org, Roles, Instances) + "Unclaim" (typed-confirm AlertDialog warning that collectors stop receiving org pipelines).
+
+**Admin — Single sign-on** (`/admin/auth`, app admin only): one form over §7.1b's settings, grouped as Provider / Groups and administrators / Claim mapping. A provider picker seeds claim names, scopes, and the button label from the preset catalogue (`ListOidcProviderPresets`) and shows that provider's "what you must configure in the IdP for the groups claim to arrive" note — the likeliest way to misconfigure this. "Test connection" runs discovery without saving and renders the discovered issuer and endpoints. The client secret field is write-only: blank means "keep the stored one", and the typed value is dropped from component state the moment the save succeeds. When the chart owns the configuration every control is disabled and a banner says why — an admin must still be able to *read* which provider their cluster trusts. An inline warning fires while the app-admin group list is empty, because saving in that state leaves the local-admin account as the only way in.
 
 **Admin — Agent tokens**: table (Name, Token ID mono, Created by/at, Status: Active / Revoked badge; action Revoke w/ confirm). "New token" Dialog → on create, swaps to a success view: amber Alert "Copy this secret now — it won't be shown again", two copy fields (Token ID / Secret, mono), and a ready-made YAML snippet block (`auth: {type: basic, username: <id>, password: <secret>}`) with copy button; Close button only.
 
@@ -668,7 +701,11 @@ Viper: config file `shepherd.yaml` (path via `--config`), env override prefix `S
 ```yaml
 server:    { listen: ":8080", base_url: "https://shepherd.example.internal" }
 database:  { url: "postgres://...", max_conns: 20 }
-oidc:      { issuer: "", client_id: "", client_secret: "", redirect_url: "", scopes: [openid, profile, email, offline_access, GroupMember.Read.All] }
+oidc:      { issuer: "", client_id: "", client_secret: "", redirect_url: "", scopes: [openid, profile, email, offline_access, GroupMember.Read.All],
+             provider: "entra", display_name: "Microsoft",              # preset key (§7.1a); sets the use_graph_groups default
+             subject_claim: "oid", email_claim: "email", name_claim: "name", groups_claim: "groups",
+             use_graph_groups: true }                                    # default: true iff provider == "entra"
+             # issuer: "" does NOT mean "no SSO" — it hands configuration to app admins via the UI (§7.1b).
 auth:      { app_admin_group_ids: [], session_ttl: "8h" }
 graph:     { tenant_id: "", client_id: "", client_secret: "" }   # app-mode Graph; may reuse oidc app
 agent:     { inactive_after: "3h", delete_after: "720h" }

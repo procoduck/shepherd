@@ -82,7 +82,7 @@ func auditLog(ctx context.Context, st *store.Store, actor string, orgID pgtype.U
 // on-behalf-of (machine_auth.go) — a "service_account" actor_type row here
 // is therefore never missing on_behalf_of on any path that reaches this
 // function after that guard, which is every write path in this package.
-func auditLogDetail(ctx context.Context, st *store.Store, actor, actorType string, orgID pgtype.UUID, action, resType, resID string, detail any) {
+func auditLogDetail(ctx context.Context, st *store.Store, actor, actorType string, orgID pgtype.UUID, action, resType, resID string, detail any) { //nolint:unparam // actorType is a deliberate seam: every current caller is a human session, and a background component auditing as "system" (gitsync/reconciler.go's direct InsertAuditLog today) is the case it exists for
 	var onBehalfOf pgtype.Text
 	if sa, ok := serviceAccountFromCtx(ctx); ok {
 		actorType = "service_account"

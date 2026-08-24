@@ -53,18 +53,51 @@ type DatabaseConfig struct {
 	MaxConns int32  `mapstructure:"max_conns"`
 }
 
-// OIDCConfig holds OIDC / Entra ID settings.
+// OIDCConfig holds OIDC settings supplied by the Helm chart / environment.
+//
+// Issuer is the switch that decides where OIDC configuration comes from at
+// all: non-empty means the chart owns it and the UI-managed oidc_settings row
+// (migration 0014) is ignored and shown read-only; empty means an app admin
+// may configure a provider from the admin UI instead. Chart config winning is
+// deliberate — a cluster whose identity provider is declared in git must not
+// be silently re-pointed by whoever holds an app-admin session.
+//
+// The claim/provider fields below default to the Entra-shaped behaviour this
+// config had before it could describe any other provider, so an existing
+// values.yaml keeps working unchanged.
 type OIDCConfig struct {
 	Issuer       string   `mapstructure:"issuer"`
 	ClientID     string   `mapstructure:"client_id"`
 	ClientSecret string   `mapstructure:"client_secret"`
 	RedirectURL  string   `mapstructure:"redirect_url"`
 	Scopes       []string `mapstructure:"scopes"`
+
+	// Provider is a preset key from internal/auth.Presets ("entra", "okta",
+	// "google", ...). It selects nothing at login time on its own — every
+	// value it would prefill is spelled out in the fields below — but it does
+	// decide the UseGraphGroups default and labels the deployment in the UI.
+	Provider string `mapstructure:"provider"`
+	// DisplayName is the login button label ("Continue with Okta").
+	DisplayName string `mapstructure:"display_name"`
+
+	// Claim names. SubjectClaim defaults to "oid" (Entra's immutable object
+	// ID, what this code has always read) rather than the spec's "sub"; a
+	// non-Entra deployment must set it to "sub".
+	SubjectClaim string `mapstructure:"subject_claim"`
+	EmailClaim   string `mapstructure:"email_claim"`
+	NameClaim    string `mapstructure:"name_claim"`
+	GroupsClaim  string `mapstructure:"groups_claim"`
+
+	// UseGraphGroups resolves group membership through Microsoft Graph's
+	// transitiveMemberOf instead of the ID token's groups claim. Defaults to
+	// true when Provider is "entra" (preserving the pre-existing behaviour,
+	// which had no other option) and false otherwise.
+	UseGraphGroups bool `mapstructure:"use_graph_groups"`
 }
 
 // LogValue redacts the OIDC client secret in structured logs.
 func (c OIDCConfig) LogValue() slog.Value {
-	return slog.GroupValue(slog.String("issuer", c.Issuer), slog.String("client_id", c.ClientID), slog.String("client_secret", "***"), slog.String("redirect_url", c.RedirectURL))
+	return slog.GroupValue(slog.String("issuer", c.Issuer), slog.String("client_id", c.ClientID), slog.String("client_secret", "***"), slog.String("redirect_url", c.RedirectURL), slog.String("provider", c.Provider), slog.String("groups_claim", c.GroupsClaim), slog.Bool("use_graph_groups", c.UseGraphGroups))
 }
 
 // AuthConfig holds session and RBAC settings.
@@ -266,7 +299,31 @@ func Load(file string) (*Config, error) {
 	v.SetDefault("gitsync.fetch_timeout", "60s")
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "json")
+	// A zero session TTL makes every session expire the instant it is created
+	// (createSessionAndSetCookie refuses a non-future expiry), so this needs a
+	// value even when nothing configures auth at all — which is now reachable,
+	// since OIDC can be turned on from the UI in a deployment whose chart
+	// never set an auth block. Matches the chart's own default.
+	v.SetDefault("auth.session_ttl", "8h")
 	v.SetDefault("auth.local_admin.username", "admin")
+	// OIDC claim/provider defaults reproduce the Entra-only behaviour this
+	// code had before it could describe any other provider, so an existing
+	// chart values.yaml keeps authenticating exactly as it did.
+	// Without this default, a deployment configured purely through
+	// SHEPHERD_OIDC_* env vars (no chart values.yaml — e2e/docker-compose.e2e.yaml
+	// is exactly that shape) would arrive with a nil scope list, and
+	// auth.Settings.Normalize would then substitute the provider preset's
+	// scopes. For the "entra" default that silently adds GroupMember.Read.All
+	// to the authorize request, which needs admin consent in a real tenant and
+	// turns a working login into AADSTS65001. Matching the chart's own default
+	// keeps what is sent to the IdP a thing the operator chose.
+	v.SetDefault("oidc.scopes", []string{"openid", "profile", "email"})
+	v.SetDefault("oidc.provider", "entra")
+	v.SetDefault("oidc.display_name", "Microsoft")
+	v.SetDefault("oidc.subject_claim", "oid")
+	v.SetDefault("oidc.email_claim", "email")
+	v.SetDefault("oidc.name_claim", "name")
+	v.SetDefault("oidc.groups_claim", "groups")
 	v.SetDefault("auth.local_admin.session_ttl", "1h")
 	v.SetEnvPrefix("SHEPHERD")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
@@ -284,6 +341,14 @@ func Load(file string) (*Config, error) {
 		{"oidc.client_id", "SHEPHERD_OIDC_CLIENT_ID"},
 		{"oidc.client_secret", "SHEPHERD_OIDC_CLIENT_SECRET"},
 		{"oidc.redirect_url", "SHEPHERD_OIDC_REDIRECT_URL"},
+		{"oidc.scopes", "SHEPHERD_OIDC_SCOPES"},
+		{"oidc.provider", "SHEPHERD_OIDC_PROVIDER"},
+		{"oidc.display_name", "SHEPHERD_OIDC_DISPLAY_NAME"},
+		{"oidc.subject_claim", "SHEPHERD_OIDC_SUBJECT_CLAIM"},
+		{"oidc.email_claim", "SHEPHERD_OIDC_EMAIL_CLAIM"},
+		{"oidc.name_claim", "SHEPHERD_OIDC_NAME_CLAIM"},
+		{"oidc.groups_claim", "SHEPHERD_OIDC_GROUPS_CLAIM"},
+		{"oidc.use_graph_groups", "SHEPHERD_OIDC_USE_GRAPH_GROUPS"},
 		{"auth.app_admin_group_ids", "SHEPHERD_AUTH_APP_ADMIN_GROUP_IDS"},
 		{"auth.session_ttl", "SHEPHERD_AUTH_SESSION_TTL"},
 		{"auth.insecure_cookies", "SHEPHERD_AUTH_INSECURE_COOKIES"},
@@ -360,6 +425,13 @@ func Load(file string) (*Config, error) {
 	key, err := base64.StdEncoding.DecodeString(c.Security.EncryptionKey)
 	if err != nil || len(key) != 32 {
 		return nil, fmt.Errorf("configuration errors:\n  - security.encryption_key must be a base64-encoded 32-byte value")
+	}
+	// UseGraphGroups has no SetDefault because its default depends on another
+	// key: Graph is Entra's directory API, so "on" is right for Entra and
+	// meaningless anywhere else. IsSet distinguishes "the operator chose
+	// false" from "the operator said nothing".
+	if !v.IsSet("oidc.use_graph_groups") {
+		c.OIDC.UseGraphGroups = c.OIDC.Provider == "entra"
 	}
 	if c.Auth.LocalAdmin.Enabled {
 		if c.Auth.LocalAdmin.PasswordHash == "" {

@@ -23,5 +23,6 @@ export const routeManifest: RouteEntry[] = [
   { path: '/admin/orgs', tag: 'protected', distinctLocator: 'text=Organisations' },
   { path: '/admin/clusters', tag: 'protected', distinctLocator: 'text=Clusters' },
   { path: '/admin/tokens', tag: 'protected', distinctLocator: 'text=Agent Tokens' },
+  { path: '/admin/auth', tag: 'protected', distinctLocator: 'text=Single sign-on' },
   { path: '/audit', tag: 'protected', distinctLocator: 'text=Audit log' },
 ];

@@ -229,12 +229,34 @@ func Router(st *store.Store, cfg *config.Config, enc *crypto.Encryptor, logger *
 	return r
 }
 
+// MountOption configures optional MountRPC dependencies — things the route
+// tree can supply but a bare RPC-surface test wiring cannot. Variadic so the
+// several tests that call MountRPC with the original five arguments keep
+// compiling.
+type MountOption func(*mountConfig)
+
+type mountConfig struct {
+	oidc *auth.Handler
+}
+
+// WithOIDCSettings supplies the live auth handler that AdminService's OIDC
+// settings procedures read and write through. Without it those procedures
+// answer CodeUnavailable; the production route tree always supplies it (see
+// internal/server/server.go).
+func WithOIDCSettings(h *auth.Handler) MountOption {
+	return func(m *mountConfig) { m.oidc = h }
+}
+
 // MountRPC mounts every shepherd.mgmt.v1 Connect service handler onto r,
 // each wrapped with the shared authz interceptor (rpc_interceptor.go). Call
 // this inside the same chi router group that already applies session +
 // CSRF middleware — see internal/server/server.go, where it is called
 // alongside r.Mount("/api", Router(...)).
-func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Encryptor, logger *slog.Logger) {
+func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Encryptor, logger *slog.Logger, opts ...MountOption) {
+	var mc mountConfig
+	for _, opt := range opts {
+		opt(&mc)
+	}
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -265,7 +287,7 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 			return mgmtv1connect.NewMeServiceHandler(NewMeService(st, logger), authz)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewAdminServiceHandler(NewAdminService(st, logger), authz)
+			return mgmtv1connect.NewAdminServiceHandler(NewAdminService(st, logger, WithOIDCHandler(mc.oidc)), authz)
 		},
 		func() (string, http.Handler) {
 			return mgmtv1connect.NewFleetServiceHandler(NewFleetService(st, logger), authz)

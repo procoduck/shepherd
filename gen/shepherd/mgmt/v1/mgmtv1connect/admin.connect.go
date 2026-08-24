@@ -65,6 +65,21 @@ const (
 	// AdminServiceSearchGroupsProcedure is the fully-qualified name of the AdminService's SearchGroups
 	// RPC.
 	AdminServiceSearchGroupsProcedure = "/shepherd.mgmt.v1.AdminService/SearchGroups"
+	// AdminServiceGetOidcSettingsProcedure is the fully-qualified name of the AdminService's
+	// GetOidcSettings RPC.
+	AdminServiceGetOidcSettingsProcedure = "/shepherd.mgmt.v1.AdminService/GetOidcSettings"
+	// AdminServiceUpdateOidcSettingsProcedure is the fully-qualified name of the AdminService's
+	// UpdateOidcSettings RPC.
+	AdminServiceUpdateOidcSettingsProcedure = "/shepherd.mgmt.v1.AdminService/UpdateOidcSettings"
+	// AdminServiceTestOidcSettingsProcedure is the fully-qualified name of the AdminService's
+	// TestOidcSettings RPC.
+	AdminServiceTestOidcSettingsProcedure = "/shepherd.mgmt.v1.AdminService/TestOidcSettings"
+	// AdminServiceDeleteOidcSettingsProcedure is the fully-qualified name of the AdminService's
+	// DeleteOidcSettings RPC.
+	AdminServiceDeleteOidcSettingsProcedure = "/shepherd.mgmt.v1.AdminService/DeleteOidcSettings"
+	// AdminServiceListOidcProviderPresetsProcedure is the fully-qualified name of the AdminService's
+	// ListOidcProviderPresets RPC.
+	AdminServiceListOidcProviderPresetsProcedure = "/shepherd.mgmt.v1.AdminService/ListOidcProviderPresets"
 )
 
 // AdminServiceClient is a client for the shepherd.mgmt.v1.AdminService service.
@@ -83,6 +98,24 @@ type AdminServiceClient interface {
 	CreateAgentToken(context.Context, *connect.Request[v1.CreateAgentTokenRequest]) (*connect.Response[v1.CreateAgentTokenResponse], error)
 	RevokeAgentToken(context.Context, *connect.Request[v1.RevokeAgentTokenRequest]) (*connect.Response[v1.RevokeAgentTokenResponse], error)
 	SearchGroups(context.Context, *connect.Request[v1.SearchGroupsRequest]) (*connect.Response[v1.SearchGroupsResponse], error)
+	// OIDC single sign-on configuration. Available only when the Helm chart did
+	// NOT configure an issuer: chart config always wins, and GetOidcSettings
+	// says so through `source` and `editable` rather than by hiding the values,
+	// so an admin looking at a chart-managed deployment can still see what it is
+	// pointed at.
+	GetOidcSettings(context.Context, *connect.Request[v1.GetOidcSettingsRequest]) (*connect.Response[v1.OidcSettings], error)
+	UpdateOidcSettings(context.Context, *connect.Request[v1.UpdateOidcSettingsRequest]) (*connect.Response[v1.OidcSettings], error)
+	// TestOidcSettings performs OIDC discovery against a candidate
+	// configuration WITHOUT storing it, so an admin can find a wrong issuer
+	// before turning sign-in over to it. A read by the capability
+	// classification's naming rule (it mutates nothing), and deliberately so.
+	TestOidcSettings(context.Context, *connect.Request[v1.TestOidcSettingsRequest]) (*connect.Response[v1.TestOidcSettingsResponse], error)
+	DeleteOidcSettings(context.Context, *connect.Request[v1.DeleteOidcSettingsRequest]) (*connect.Response[v1.DeleteOidcSettingsResponse], error)
+	// ListOidcProviderPresets returns the built-in provider catalogue the
+	// settings form prefills from. Served by the backend rather than hardcoded
+	// in the UI so the defaults the server applies on save and the defaults the
+	// form shows cannot drift apart.
+	ListOidcProviderPresets(context.Context, *connect.Request[v1.ListOidcProviderPresetsRequest]) (*connect.Response[v1.ListOidcProviderPresetsResponse], error)
 }
 
 // NewAdminServiceClient constructs a client for the shepherd.mgmt.v1.AdminService service. By
@@ -168,23 +201,58 @@ func NewAdminServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(adminServiceMethods.ByName("SearchGroups")),
 			connect.WithClientOptions(opts...),
 		),
+		getOidcSettings: connect.NewClient[v1.GetOidcSettingsRequest, v1.OidcSettings](
+			httpClient,
+			baseURL+AdminServiceGetOidcSettingsProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("GetOidcSettings")),
+			connect.WithClientOptions(opts...),
+		),
+		updateOidcSettings: connect.NewClient[v1.UpdateOidcSettingsRequest, v1.OidcSettings](
+			httpClient,
+			baseURL+AdminServiceUpdateOidcSettingsProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("UpdateOidcSettings")),
+			connect.WithClientOptions(opts...),
+		),
+		testOidcSettings: connect.NewClient[v1.TestOidcSettingsRequest, v1.TestOidcSettingsResponse](
+			httpClient,
+			baseURL+AdminServiceTestOidcSettingsProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("TestOidcSettings")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteOidcSettings: connect.NewClient[v1.DeleteOidcSettingsRequest, v1.DeleteOidcSettingsResponse](
+			httpClient,
+			baseURL+AdminServiceDeleteOidcSettingsProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("DeleteOidcSettings")),
+			connect.WithClientOptions(opts...),
+		),
+		listOidcProviderPresets: connect.NewClient[v1.ListOidcProviderPresetsRequest, v1.ListOidcProviderPresetsResponse](
+			httpClient,
+			baseURL+AdminServiceListOidcProviderPresetsProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("ListOidcProviderPresets")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // adminServiceClient implements AdminServiceClient.
 type adminServiceClient struct {
-	listOrgs         *connect.Client[v1.ListOrgsRequest, v1.ListOrgsResponse]
-	createOrg        *connect.Client[v1.CreateOrgRequest, v1.Org]
-	updateOrg        *connect.Client[v1.UpdateOrgRequest, v1.Org]
-	deleteOrg        *connect.Client[v1.DeleteOrgRequest, v1.DeleteOrgResponse]
-	setOrgTenantID   *connect.Client[v1.SetOrgTenantIDRequest, v1.Org]
-	listClusters     *connect.Client[v1.ListClustersRequest, v1.ListClustersResponse]
-	claimCluster     *connect.Client[v1.ClaimClusterRequest, v1.ClaimClusterResponse]
-	unclaimCluster   *connect.Client[v1.UnclaimClusterRequest, v1.UnclaimClusterResponse]
-	listAgentTokens  *connect.Client[v1.ListAgentTokensRequest, v1.ListAgentTokensResponse]
-	createAgentToken *connect.Client[v1.CreateAgentTokenRequest, v1.CreateAgentTokenResponse]
-	revokeAgentToken *connect.Client[v1.RevokeAgentTokenRequest, v1.RevokeAgentTokenResponse]
-	searchGroups     *connect.Client[v1.SearchGroupsRequest, v1.SearchGroupsResponse]
+	listOrgs                *connect.Client[v1.ListOrgsRequest, v1.ListOrgsResponse]
+	createOrg               *connect.Client[v1.CreateOrgRequest, v1.Org]
+	updateOrg               *connect.Client[v1.UpdateOrgRequest, v1.Org]
+	deleteOrg               *connect.Client[v1.DeleteOrgRequest, v1.DeleteOrgResponse]
+	setOrgTenantID          *connect.Client[v1.SetOrgTenantIDRequest, v1.Org]
+	listClusters            *connect.Client[v1.ListClustersRequest, v1.ListClustersResponse]
+	claimCluster            *connect.Client[v1.ClaimClusterRequest, v1.ClaimClusterResponse]
+	unclaimCluster          *connect.Client[v1.UnclaimClusterRequest, v1.UnclaimClusterResponse]
+	listAgentTokens         *connect.Client[v1.ListAgentTokensRequest, v1.ListAgentTokensResponse]
+	createAgentToken        *connect.Client[v1.CreateAgentTokenRequest, v1.CreateAgentTokenResponse]
+	revokeAgentToken        *connect.Client[v1.RevokeAgentTokenRequest, v1.RevokeAgentTokenResponse]
+	searchGroups            *connect.Client[v1.SearchGroupsRequest, v1.SearchGroupsResponse]
+	getOidcSettings         *connect.Client[v1.GetOidcSettingsRequest, v1.OidcSettings]
+	updateOidcSettings      *connect.Client[v1.UpdateOidcSettingsRequest, v1.OidcSettings]
+	testOidcSettings        *connect.Client[v1.TestOidcSettingsRequest, v1.TestOidcSettingsResponse]
+	deleteOidcSettings      *connect.Client[v1.DeleteOidcSettingsRequest, v1.DeleteOidcSettingsResponse]
+	listOidcProviderPresets *connect.Client[v1.ListOidcProviderPresetsRequest, v1.ListOidcProviderPresetsResponse]
 }
 
 // ListOrgs calls shepherd.mgmt.v1.AdminService.ListOrgs.
@@ -247,6 +315,31 @@ func (c *adminServiceClient) SearchGroups(ctx context.Context, req *connect.Requ
 	return c.searchGroups.CallUnary(ctx, req)
 }
 
+// GetOidcSettings calls shepherd.mgmt.v1.AdminService.GetOidcSettings.
+func (c *adminServiceClient) GetOidcSettings(ctx context.Context, req *connect.Request[v1.GetOidcSettingsRequest]) (*connect.Response[v1.OidcSettings], error) {
+	return c.getOidcSettings.CallUnary(ctx, req)
+}
+
+// UpdateOidcSettings calls shepherd.mgmt.v1.AdminService.UpdateOidcSettings.
+func (c *adminServiceClient) UpdateOidcSettings(ctx context.Context, req *connect.Request[v1.UpdateOidcSettingsRequest]) (*connect.Response[v1.OidcSettings], error) {
+	return c.updateOidcSettings.CallUnary(ctx, req)
+}
+
+// TestOidcSettings calls shepherd.mgmt.v1.AdminService.TestOidcSettings.
+func (c *adminServiceClient) TestOidcSettings(ctx context.Context, req *connect.Request[v1.TestOidcSettingsRequest]) (*connect.Response[v1.TestOidcSettingsResponse], error) {
+	return c.testOidcSettings.CallUnary(ctx, req)
+}
+
+// DeleteOidcSettings calls shepherd.mgmt.v1.AdminService.DeleteOidcSettings.
+func (c *adminServiceClient) DeleteOidcSettings(ctx context.Context, req *connect.Request[v1.DeleteOidcSettingsRequest]) (*connect.Response[v1.DeleteOidcSettingsResponse], error) {
+	return c.deleteOidcSettings.CallUnary(ctx, req)
+}
+
+// ListOidcProviderPresets calls shepherd.mgmt.v1.AdminService.ListOidcProviderPresets.
+func (c *adminServiceClient) ListOidcProviderPresets(ctx context.Context, req *connect.Request[v1.ListOidcProviderPresetsRequest]) (*connect.Response[v1.ListOidcProviderPresetsResponse], error) {
+	return c.listOidcProviderPresets.CallUnary(ctx, req)
+}
+
 // AdminServiceHandler is an implementation of the shepherd.mgmt.v1.AdminService service.
 type AdminServiceHandler interface {
 	ListOrgs(context.Context, *connect.Request[v1.ListOrgsRequest]) (*connect.Response[v1.ListOrgsResponse], error)
@@ -263,6 +356,24 @@ type AdminServiceHandler interface {
 	CreateAgentToken(context.Context, *connect.Request[v1.CreateAgentTokenRequest]) (*connect.Response[v1.CreateAgentTokenResponse], error)
 	RevokeAgentToken(context.Context, *connect.Request[v1.RevokeAgentTokenRequest]) (*connect.Response[v1.RevokeAgentTokenResponse], error)
 	SearchGroups(context.Context, *connect.Request[v1.SearchGroupsRequest]) (*connect.Response[v1.SearchGroupsResponse], error)
+	// OIDC single sign-on configuration. Available only when the Helm chart did
+	// NOT configure an issuer: chart config always wins, and GetOidcSettings
+	// says so through `source` and `editable` rather than by hiding the values,
+	// so an admin looking at a chart-managed deployment can still see what it is
+	// pointed at.
+	GetOidcSettings(context.Context, *connect.Request[v1.GetOidcSettingsRequest]) (*connect.Response[v1.OidcSettings], error)
+	UpdateOidcSettings(context.Context, *connect.Request[v1.UpdateOidcSettingsRequest]) (*connect.Response[v1.OidcSettings], error)
+	// TestOidcSettings performs OIDC discovery against a candidate
+	// configuration WITHOUT storing it, so an admin can find a wrong issuer
+	// before turning sign-in over to it. A read by the capability
+	// classification's naming rule (it mutates nothing), and deliberately so.
+	TestOidcSettings(context.Context, *connect.Request[v1.TestOidcSettingsRequest]) (*connect.Response[v1.TestOidcSettingsResponse], error)
+	DeleteOidcSettings(context.Context, *connect.Request[v1.DeleteOidcSettingsRequest]) (*connect.Response[v1.DeleteOidcSettingsResponse], error)
+	// ListOidcProviderPresets returns the built-in provider catalogue the
+	// settings form prefills from. Served by the backend rather than hardcoded
+	// in the UI so the defaults the server applies on save and the defaults the
+	// form shows cannot drift apart.
+	ListOidcProviderPresets(context.Context, *connect.Request[v1.ListOidcProviderPresetsRequest]) (*connect.Response[v1.ListOidcProviderPresetsResponse], error)
 }
 
 // NewAdminServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -344,6 +455,36 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(adminServiceMethods.ByName("SearchGroups")),
 		connect.WithHandlerOptions(opts...),
 	)
+	adminServiceGetOidcSettingsHandler := connect.NewUnaryHandler(
+		AdminServiceGetOidcSettingsProcedure,
+		svc.GetOidcSettings,
+		connect.WithSchema(adminServiceMethods.ByName("GetOidcSettings")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceUpdateOidcSettingsHandler := connect.NewUnaryHandler(
+		AdminServiceUpdateOidcSettingsProcedure,
+		svc.UpdateOidcSettings,
+		connect.WithSchema(adminServiceMethods.ByName("UpdateOidcSettings")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceTestOidcSettingsHandler := connect.NewUnaryHandler(
+		AdminServiceTestOidcSettingsProcedure,
+		svc.TestOidcSettings,
+		connect.WithSchema(adminServiceMethods.ByName("TestOidcSettings")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceDeleteOidcSettingsHandler := connect.NewUnaryHandler(
+		AdminServiceDeleteOidcSettingsProcedure,
+		svc.DeleteOidcSettings,
+		connect.WithSchema(adminServiceMethods.ByName("DeleteOidcSettings")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceListOidcProviderPresetsHandler := connect.NewUnaryHandler(
+		AdminServiceListOidcProviderPresetsProcedure,
+		svc.ListOidcProviderPresets,
+		connect.WithSchema(adminServiceMethods.ByName("ListOidcProviderPresets")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/shepherd.mgmt.v1.AdminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AdminServiceListOrgsProcedure:
@@ -370,6 +511,16 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 			adminServiceRevokeAgentTokenHandler.ServeHTTP(w, r)
 		case AdminServiceSearchGroupsProcedure:
 			adminServiceSearchGroupsHandler.ServeHTTP(w, r)
+		case AdminServiceGetOidcSettingsProcedure:
+			adminServiceGetOidcSettingsHandler.ServeHTTP(w, r)
+		case AdminServiceUpdateOidcSettingsProcedure:
+			adminServiceUpdateOidcSettingsHandler.ServeHTTP(w, r)
+		case AdminServiceTestOidcSettingsProcedure:
+			adminServiceTestOidcSettingsHandler.ServeHTTP(w, r)
+		case AdminServiceDeleteOidcSettingsProcedure:
+			adminServiceDeleteOidcSettingsHandler.ServeHTTP(w, r)
+		case AdminServiceListOidcProviderPresetsProcedure:
+			adminServiceListOidcProviderPresetsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -425,4 +576,24 @@ func (UnimplementedAdminServiceHandler) RevokeAgentToken(context.Context, *conne
 
 func (UnimplementedAdminServiceHandler) SearchGroups(context.Context, *connect.Request[v1.SearchGroupsRequest]) (*connect.Response[v1.SearchGroupsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.SearchGroups is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) GetOidcSettings(context.Context, *connect.Request[v1.GetOidcSettingsRequest]) (*connect.Response[v1.OidcSettings], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.GetOidcSettings is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) UpdateOidcSettings(context.Context, *connect.Request[v1.UpdateOidcSettingsRequest]) (*connect.Response[v1.OidcSettings], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.UpdateOidcSettings is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) TestOidcSettings(context.Context, *connect.Request[v1.TestOidcSettingsRequest]) (*connect.Response[v1.TestOidcSettingsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.TestOidcSettings is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) DeleteOidcSettings(context.Context, *connect.Request[v1.DeleteOidcSettingsRequest]) (*connect.Response[v1.DeleteOidcSettingsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.DeleteOidcSettings is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) ListOidcProviderPresets(context.Context, *connect.Request[v1.ListOidcProviderPresetsRequest]) (*connect.Response[v1.ListOidcProviderPresetsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.ListOidcProviderPresets is not implemented"))
 }
