@@ -27,6 +27,25 @@ service AdminService {
   rpc RevokeAgentToken(RevokeAgentTokenRequest) returns (RevokeAgentTokenResponse) {}
 
   rpc SearchGroups(SearchGroupsRequest) returns (SearchGroupsResponse) {}
+
+  // OIDC single sign-on configuration. Available only when the Helm chart did
+  // NOT configure an issuer: chart config always wins, and GetOidcSettings
+  // says so through `source` and `editable` rather than by hiding the values,
+  // so an admin looking at a chart-managed deployment can still see what it is
+  // pointed at.
+  rpc GetOidcSettings(GetOidcSettingsRequest) returns (OidcSettings) {}
+  rpc UpdateOidcSettings(UpdateOidcSettingsRequest) returns (OidcSettings) {}
+  // TestOidcSettings performs OIDC discovery against a candidate
+  // configuration WITHOUT storing it, so an admin can find a wrong issuer
+  // before turning sign-in over to it. A read by the capability
+  // classification's naming rule (it mutates nothing), and deliberately so.
+  rpc TestOidcSettings(TestOidcSettingsRequest) returns (TestOidcSettingsResponse) {}
+  rpc DeleteOidcSettings(DeleteOidcSettingsRequest) returns (DeleteOidcSettingsResponse) {}
+  // ListOidcProviderPresets returns the built-in provider catalogue the
+  // settings form prefills from. Served by the backend rather than hardcoded
+  // in the UI so the defaults the server applies on save and the defaults the
+  // form shows cannot drift apart.
+  rpc ListOidcProviderPresets(ListOidcProviderPresetsRequest) returns (ListOidcProviderPresetsResponse) {}
 }
 
 // Org mirrors internal/mgmtapi/admin.go: orgResponse.
@@ -181,4 +200,162 @@ message SearchGroupsRequest {
 message SearchGroupsResponse {
   repeated GroupSearchResult items = 1;
   int32 total = 2;
+}
+
+// OidcSettings is the effective single sign-on configuration.
+//
+// The client secret is never present: it is stored AES-256-GCM-encrypted
+// (migration 0014) and decrypted only in-process at token-exchange time.
+// client_secret_set reports whether one is stored, which is all a settings
+// form needs to render "leave blank to keep the current secret".
+message OidcSettings {
+  // configured is false when neither the chart nor the database has an
+  // issuer — the state of a deployment that has never set SSO up.
+  bool configured = 1;
+  // enabled is the operator's explicit "this provider is live" switch. A
+  // provider can be saved and tested while disabled.
+  bool enabled = 2;
+  // active is true only when a discovered provider is loaded RIGHT NOW, i.e.
+  // sign-in through it actually works. enabled && !active means the saved
+  // configuration failed discovery — see status_message.
+  bool active = 3;
+  // source is "helm" or "database": which of the two configuration inputs
+  // won. See editable.
+  string source = 4;
+  // editable is false when source is "helm". A cluster whose identity
+  // provider is declared in git must not be re-pointed from a browser
+  // session, so UpdateOidcSettings refuses in that case rather than writing a
+  // row that would never be read.
+  bool editable = 5;
+
+  string provider = 6;
+  string display_name = 7;
+  string issuer = 8;
+  string client_id = 9;
+  bool client_secret_set = 10;
+  string redirect_url = 11;
+  repeated string scopes = 12;
+
+  string subject_claim = 13;
+  string email_claim = 14;
+  string name_claim = 15;
+  string groups_claim = 16;
+  repeated string app_admin_groups = 17;
+
+  bool use_graph_groups = 18;
+  string graph_base_url = 19;
+
+  // status_message explains a non-obvious state in one sentence: why an
+  // enabled provider is not active, or that the chart owns this config.
+  // Empty when everything is as it looks.
+  string status_message = 20;
+
+  google.protobuf.Timestamp updated_at = 21;
+  string updated_by = 22;
+}
+
+message GetOidcSettingsRequest {}
+
+// UpdateOidcSettingsRequest is a full replacement of the settings row, with
+// one exception: client_secret may be left empty to keep the stored secret,
+// because the API never returns it and a form that round-tripped a blank
+// would otherwise erase it on every save.
+message UpdateOidcSettingsRequest {
+  bool enabled = 1;
+  string provider = 2;
+  string display_name = 3;
+  string issuer = 4;
+  string client_id = 5;
+  // client_secret is write-only. Empty means "keep the stored secret"; a
+  // non-empty value replaces it.
+  string client_secret = 6;
+  string redirect_url = 7;
+  repeated string scopes = 8;
+  string subject_claim = 9;
+  string email_claim = 10;
+  string name_claim = 11;
+  string groups_claim = 12;
+  repeated string app_admin_groups = 13;
+  bool use_graph_groups = 14;
+  string graph_base_url = 15;
+}
+
+// TestOidcSettingsRequest mirrors UpdateOidcSettingsRequest's connection
+// fields. client_secret may be empty to test with the stored one — an admin
+// verifying an issuer change should not have to re-paste a secret that has
+// not changed.
+message TestOidcSettingsRequest {
+  string provider = 1;
+  string issuer = 2;
+  string client_id = 3;
+  string client_secret = 4;
+  repeated string scopes = 5;
+}
+
+// TestOidcSettingsResponse reports what discovery found, so an admin can
+// confirm they are pointed at the right tenant/realm before enabling sign-in.
+message TestOidcSettingsResponse {
+  bool ok = 1;
+  // message is the failure reason when ok is false, or a one-line confirmation
+  // when it is true.
+  string message = 2;
+  // issuer is the issuer the discovery document itself declares, which is not
+  // always the URL it was fetched from — a mismatch is the single most common
+  // OIDC misconfiguration (trailing slashes, Auth0 vs Okta URL shapes), and
+  // go-oidc rejects it at login time with an error nobody sees.
+  string issuer = 3;
+  string authorization_endpoint = 4;
+  string token_endpoint = 5;
+  string jwks_uri = 6;
+  // supported_scopes / missing_scopes compare the requested scopes against
+  // the discovery document's scopes_supported. Advisory only: the list is
+  // optional in the spec and many providers under-report it, so a missing
+  // scope is a warning in the UI, never a refusal here.
+  repeated string supported_scopes = 7;
+  repeated string missing_scopes = 8;
+  // supports_pkce reports whether S256 appears in
+  // code_challenge_methods_supported. Shepherd always sends a PKCE challenge
+  // (auth.Handler.LoginHandler), so a provider that does not advertise it is
+  // worth flagging before sign-in is switched on.
+  bool supports_pkce = 9;
+  // issuer_mismatch is set when the discovery document declares an issuer
+  // different from the URL it was fetched from. go-oidc rejects that at login
+  // time with an error nobody sees, so the probe is the only place it can be
+  // caught while it is still cheap to fix. Empty when they match.
+  string issuer_mismatch = 10;
+}
+
+message DeleteOidcSettingsRequest {}
+
+message DeleteOidcSettingsResponse {}
+
+message ListOidcProviderPresetsRequest {}
+
+message ListOidcProviderPresetsResponse {
+  repeated OidcProviderPreset items = 1;
+}
+
+// OidcProviderPreset is one entry in the built-in provider catalogue
+// (internal/auth.Presets): the conventional defaults for a provider plus the
+// prose an admin needs to find the values in that provider's console.
+message OidcProviderPreset {
+  string key = 1;
+  string display_name = 2;
+  // issuer_template shows the shape of the issuer URL with {placeholders};
+  // it is documentation, never interpolated by the server.
+  string issuer_template = 3;
+  string issuer_hint = 4;
+  repeated string scopes = 5;
+  string subject_claim = 6;
+  string email_claim = 7;
+  string name_claim = 8;
+  string groups_claim = 9;
+  // supports_graph_groups is true for Entra only — the one provider with a
+  // directory API Shepherd knows how to call when the groups claim is absent.
+  bool supports_graph_groups = 10;
+  // groups_note states what must be configured IN THE IDP for the groups
+  // claim to arrive. Every provider needs some deliberate act, and skipping it
+  // yields an empty group list with no error — the likeliest way to
+  // misconfigure this feature.
+  string groups_note = 11;
 }

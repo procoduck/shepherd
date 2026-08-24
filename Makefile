@@ -491,12 +491,22 @@ lint: check-single-dist check-dist-consistency check-build-script check-raw-sql 
 	golangci-lint config verify
 	golangci-lint run ./...
 
-# gci via golangci-lint fmt + standalone gofumpt to avoid gci/gofumpt cycle.
+# golangci-lint fmt runs BOTH formatters this repo enables (gofumpt, then gci
+# — see .golangci.yml's formatters block), so it is the whole job.
+#
+# It used to also shell out to the standalone gofumpt binary, which broke the
+# thing it was meant to fix. gofumpt decides whether an import is local by
+# looking for a dot in its first path segment; this module is plain "shepherd",
+# with no dot, so the standalone binary classifies "shepherd/internal/..." as
+# stdlib and merges it into the std group — which gci then rejects, because
+# .golangci.yml puts prefix(shepherd) in its own section. golangci-lint's
+# gofumpt does not have that problem: it is configured with
+# `gofumpt.module-path: shepherd`, and the standalone binary has no equivalent
+# flag (gofumpt -h: only -lang, -extra, -r, -s). The result was that `make fmt`
+# reformatted ~200 files into a state `make lint` refused.
 fmt: ## Format Go code
 	$(call preflight,golangci-lint,Install golangci-lint v2 (https://golangci-lint.run).)
-	$(call preflight,gofumpt,Run 'make tools'.)
 	golangci-lint fmt ./...
-	gofumpt -w $$(find . -name '*.go' ! -path './gen/*' ! -path './internal/store/sqlc/*')
 
 generate: gen-alloy-version ## Regenerate buf + sqlc code (and the Alloy version constant)
 	$(call preflight,buf,Run 'make tools'.)

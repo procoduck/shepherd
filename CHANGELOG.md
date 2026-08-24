@@ -11,6 +11,91 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
+## v0.1.0
+
+A feature release. Single sign-on can now be configured from the admin UI, and against providers
+other than Microsoft Entra ID. The minor bump rather than another 0.0.x is deliberate: this
+changes how authentication is configured, and two existing behaviours change with it — read
+"Changed" below before upgrading an Entra deployment.
+
+### Shipped
+
+- **OIDC is configurable from the UI, for ten common providers.** `oidc.issuer` decides where
+  configuration comes from. Set it in the chart and the chart wins, with the UI showing the values
+  read-only — a cluster whose identity provider is declared in git must not be re-pointed by
+  whoever holds an app-admin session. Leave it unset and an app admin configures a provider at
+  **Admin → Single sign-on**, with the local-admin break-glass account as the bootstrap path.
+  Presets for Entra, Okta, Google, Auth0, Keycloak, AWS Cognito, GitLab, authentik, OneLogin, and
+  generic, each carrying the claim names that provider actually emits plus a note on what must be
+  configured *in the IdP* for group membership to arrive at all — the likeliest way to get this
+  wrong, because it fails silently as an empty group list.
+- **Saving takes effect without a restart.** The discovered provider lives behind an atomic
+  pointer; other replicas converge within 30s. Discovery runs *before* the write when enabling, so
+  a provider that cannot discover is never stored as live — the admin who would have to fix it may
+  be relying on that same login page.
+- **Claim mapping is per-provider configuration**, not constants: subject, email, name, and groups
+  claim names are all settable. The groups reader accepts every shape providers use (JSON array,
+  bare string, space-separated). Group *values* are matched against the app-admin list and each
+  org's admin/reader group, so for a non-Entra provider those hold whatever your IdP emits —
+  usually a group name or path, not a GUID.
+- **A "Test connection" probe** reports the discovered issuer and endpoints before you enable
+  sign-in. It checks discovery only: the client ID, secret, and redirect URL are not exercised
+  until someone actually signs in, and the UI says so.
+- The client secret is AES-256-GCM encrypted at rest and never returned by the API — the settings
+  form is told only whether one is stored.
+
+### Changed
+
+Both of these affect existing Entra deployments configured through the chart. Neither requires a
+config change, but both are worth knowing before you upgrade.
+
+- **A failed Microsoft Graph lookup now falls back to the ID token's groups claim.** Previously a
+  Graph outage, a revoked `GroupMember.Read.All` consent, or a 403 produced *no* groups, which
+  silently stripped every administrator of access until Graph recovered. The claim is signed by
+  the same provider so it cannot be forged, but it is **not the same set** — claim scope is
+  configured per app registration ("all groups" vs "groups assigned to the application"), and
+  AD-synced groups may emit `sAMAccountName` rather than GUIDs. A deployment that wants the old
+  all-or-nothing behaviour should leave the groups claim unmapped in its app registration.
+- **`oidc.scopes` gained a default of `[openid, profile, email]`.** A deployment configured purely
+  through `SHEPHERD_OIDC_*` environment variables previously arrived with an empty scope list,
+  which was then filled in from the Entra preset — silently adding `GroupMember.Read.All` to the
+  authorize request. That scope needs admin consent in a real tenant, so this could turn a working
+  login into `AADSTS65001`. Set `oidc.scopes` explicitly if you rely on the Graph lookup.
+- **`auth.session_ttl` gained a default of `8h`**, matching the chart. A zero TTL expires every
+  session the instant it is created; that was unreachable while authentication required chart
+  config, and became reachable once OIDC could be enabled in a deployment whose chart set no
+  `auth` block.
+
+### Security
+
+These were found by an adversarial review of the feature before it shipped, not in the field. They
+are listed because the code is new, not because any released version was affected.
+
+- **OIDC discovery is a constrained fetch.** It is the one place an authenticated user picks a URL
+  the *server* then retrieves, and app admin is an application role, not cluster-admin. Discovery
+  now runs under a 10s timeout, through a dialer that rejects loopback, private, link-local, and
+  CGNAT addresses *after* DNS resolution (so a hostname resolving to `169.254.169.254`, and DNS
+  rebinding, are both covered), and follows only `https` redirects. Discovery errors carry the
+  status code and never the response body — `go-oidc`'s own error embeds the whole body, which
+  would have made the connection test readable as well as probeable.
+- **`graph.base_url` is pinned to Microsoft's own Graph hosts** (global plus the sovereign clouds).
+  The signing-in user's delegated access token is sent to it as a bearer credential, so an
+  unconstrained value would let an app admin collect every user's token on their next login.
+- **The redirect URL must be exactly `/auth/callback`.** A suffix check would also have accepted
+  `/evil/auth/callback`.
+- **Background settings refreshes run on a context detached from the request.** The refresh spends
+  its 30s backoff before it attempts anything, so inheriting request cancellation let an
+  unauthenticated caller who aborts `/auth/methods` every 30s keep a replica from ever activating
+  OIDC.
+
+### Fixed
+
+- `make fmt` no longer reformats the repository into a state `make lint` rejects. It shelled out to
+  the standalone `gofumpt` binary, which decides an import is local by looking for a dot in its
+  first path segment; this module is plain `shepherd`, so `shepherd/internal/...` was classified as
+  stdlib and merged into the std import group, which `gci` then refused. `golangci-lint fmt` runs
+  both formatters with the right configuration and was always the whole job.
+
 ## v0.0.3
 
 A fix release. v0.0.2's shipped image could not run `alloy validate` at all, and a manual

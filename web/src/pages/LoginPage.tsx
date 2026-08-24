@@ -49,6 +49,11 @@ export function LoginPage() {
 
   const oidc = methods?.oidc === true;
   const localAdmin = methods?.local_admin === true;
+  // The button used to read "Continue with Microsoft" unconditionally, which
+  // stopped being true the moment the provider became configurable.
+  const providerName = methods?.oidc_display_name?.trim() || 'SSO';
+  const isEntra = methods?.oidc_provider === 'entra';
+  const authError = new URLSearchParams(window.location.search).get('auth_error');
   return (
     <div className='min-h-screen bg-background flex items-center justify-center'>
       <div className='w-full max-w-sm rounded-lg border border-border bg-card p-6 space-y-6'>
@@ -57,9 +62,14 @@ export function LoginPage() {
           <h1 className='text-lg font-semibold text-zinc-100'>Sign in to Shepherd</h1>
         </div>
 
-        {window.location.search.includes('auth_error') && (
-          <div className='rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400'>
-            Authentication failed. Please try again.
+        {authError && (
+          <div
+            data-testid='auth-error'
+            className='rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400'
+          >
+            {authError === 'oidc_not_configured'
+              ? 'Single sign-on is not configured on this deployment. An app admin can set it up under Admin → Single sign-on.'
+              : 'Authentication failed. Please try again.'}
           </div>
         )}
 
@@ -70,10 +80,12 @@ export function LoginPage() {
               href='/auth/login'
               className='flex w-full items-center justify-center gap-2 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 transition-colors'
             >
-              Continue with Microsoft
+              Continue with {providerName}
             </a>
             <p className='text-center text-xs text-muted-2'>
-              Access is managed through your Entra ID groups.
+              {isEntra
+                ? 'Access is managed through your Entra ID groups.'
+                : `Access is managed through your ${providerName} groups.`}
             </p>
           </>
         )}

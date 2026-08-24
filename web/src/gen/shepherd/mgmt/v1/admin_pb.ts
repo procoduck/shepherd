@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file shepherd/mgmt/v1/admin.proto.
  */
 export const file_shepherd_mgmt_v1_admin: GenFile = /*@__PURE__*/
-  fileDesc("ChxzaGVwaGVyZC9tZ210L3YxL2FkbWluLnByb3RvEhBzaGVwaGVyZC5tZ210LnYxItkBCgNPcmcSCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkSFgoOYWRtaW5fZ3JvdXBfaWQYBCABKAkSFwoPcmVhZGVyX2dyb3VwX2lkGAUgASgJEi4KCmNyZWF0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhEKCXRlbmFudF9pZBgIIAEoCSIRCg9MaXN0T3Jnc1JlcXVlc3QiRwoQTGlzdE9yZ3NSZXNwb25zZRIkCgVpdGVtcxgBIAMoCzIVLnNoZXBoZXJkLm1nbXQudjEuT3JnEg0KBXRvdGFsGAIgASgFInoKEENyZWF0ZU9yZ1JlcXVlc3QSDAoEbmFtZRgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSFgoOYWRtaW5fZ3JvdXBfaWQYAyABKAkSFwoPcmVhZGVyX2dyb3VwX2lkGAQgASgJEhEKCXRlbmFudF9pZBgFIAEoCSJpChBVcGRhdGVPcmdSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSFgoOYWRtaW5fZ3JvdXBfaWQYAyABKAkSFwoPcmVhZGVyX2dyb3VwX2lkGAQgASgJIjoKFVNldE9yZ1RlbmFudElEUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSEQoJdGVuYW50X2lkGAIgASgJIiIKEERlbGV0ZU9yZ1JlcXVlc3QSDgoGb3JnX2lkGAEgASgJIhMKEURlbGV0ZU9yZ1Jlc3BvbnNlImMKB0NsdXN0ZXISCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIOCgZvcmdfaWQYAyABKAkSLgoKY3JlYXRlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiKAoTTGlzdENsdXN0ZXJzUmVxdWVzdBIRCgl1bmNsYWltZWQYASABKAgiTwoUTGlzdENsdXN0ZXJzUmVzcG9uc2USKAoFaXRlbXMYASADKAsyGS5zaGVwaGVyZC5tZ210LnYxLkNsdXN0ZXISDQoFdG90YWwYAiABKAUiNgoTQ2xhaW1DbHVzdGVyUmVxdWVzdBIPCgdjbHVzdGVyGAEgASgJEg4KBm9yZ19pZBgCIAEoCSImChRDbGFpbUNsdXN0ZXJSZXNwb25zZRIOCgZzdGF0dXMYASABKAkiKAoVVW5jbGFpbUNsdXN0ZXJSZXF1ZXN0Eg8KB2NsdXN0ZXIYASABKAkiKAoWVW5jbGFpbUNsdXN0ZXJSZXNwb25zZRIOCgZzdGF0dXMYASABKAkiegoKQWdlbnRUb2tlbhIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEhIKCmNyZWF0ZWRfYnkYAyABKAkSDgoGc3RhdHVzGAQgASgJEi4KCmNyZWF0ZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIhgKFkxpc3RBZ2VudFRva2Vuc1JlcXVlc3QiVQoXTGlzdEFnZW50VG9rZW5zUmVzcG9uc2USKwoFaXRlbXMYASADKAsyHC5zaGVwaGVyZC5tZ210LnYxLkFnZW50VG9rZW4SDQoFdG90YWwYAiABKAUiJwoXQ3JlYXRlQWdlbnRUb2tlblJlcXVlc3QSDAoEbmFtZRgBIAEoCSJEChhDcmVhdGVBZ2VudFRva2VuUmVzcG9uc2USCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIOCgZzZWNyZXQYAyABKAkiJQoXUmV2b2tlQWdlbnRUb2tlblJlcXVlc3QSCgoCaWQYASABKAkiGgoYUmV2b2tlQWdlbnRUb2tlblJlc3BvbnNlIjUKEUdyb3VwU2VhcmNoUmVzdWx0EgoKAmlkGAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCSIwChNTZWFyY2hHcm91cHNSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIJCgFxGAIgASgJIlkKFFNlYXJjaEdyb3Vwc1Jlc3BvbnNlEjIKBWl0ZW1zGAEgAygLMiMuc2hlcGhlcmQubWdtdC52MS5Hcm91cFNlYXJjaFJlc3VsdBINCgV0b3RhbBgCIAEoBTLxCAoMQWRtaW5TZXJ2aWNlElMKCExpc3RPcmdzEiEuc2hlcGhlcmQubWdtdC52MS5MaXN0T3Jnc1JlcXVlc3QaIi5zaGVwaGVyZC5tZ210LnYxLkxpc3RPcmdzUmVzcG9uc2UiABJICglDcmVhdGVPcmcSIi5zaGVwaGVyZC5tZ210LnYxLkNyZWF0ZU9yZ1JlcXVlc3QaFS5zaGVwaGVyZC5tZ210LnYxLk9yZyIAEkgKCVVwZGF0ZU9yZxIiLnNoZXBoZXJkLm1nbXQudjEuVXBkYXRlT3JnUmVxdWVzdBoVLnNoZXBoZXJkLm1nbXQudjEuT3JnIgASVgoJRGVsZXRlT3JnEiIuc2hlcGhlcmQubWdtdC52MS5EZWxldGVPcmdSZXF1ZXN0GiMuc2hlcGhlcmQubWdtdC52MS5EZWxldGVPcmdSZXNwb25zZSIAElIKDlNldE9yZ1RlbmFudElEEicuc2hlcGhlcmQubWdtdC52MS5TZXRPcmdUZW5hbnRJRFJlcXVlc3QaFS5zaGVwaGVyZC5tZ210LnYxLk9yZyIAEl8KDExpc3RDbHVzdGVycxIlLnNoZXBoZXJkLm1nbXQudjEuTGlzdENsdXN0ZXJzUmVxdWVzdBomLnNoZXBoZXJkLm1nbXQudjEuTGlzdENsdXN0ZXJzUmVzcG9uc2UiABJfCgxDbGFpbUNsdXN0ZXISJS5zaGVwaGVyZC5tZ210LnYxLkNsYWltQ2x1c3RlclJlcXVlc3QaJi5zaGVwaGVyZC5tZ210LnYxLkNsYWltQ2x1c3RlclJlc3BvbnNlIgASZQoOVW5jbGFpbUNsdXN0ZXISJy5zaGVwaGVyZC5tZ210LnYxLlVuY2xhaW1DbHVzdGVyUmVxdWVzdBooLnNoZXBoZXJkLm1nbXQudjEuVW5jbGFpbUNsdXN0ZXJSZXNwb25zZSIAEmgKD0xpc3RBZ2VudFRva2VucxIoLnNoZXBoZXJkLm1nbXQudjEuTGlzdEFnZW50VG9rZW5zUmVxdWVzdBopLnNoZXBoZXJkLm1nbXQudjEuTGlzdEFnZW50VG9rZW5zUmVzcG9uc2UiABJrChBDcmVhdGVBZ2VudFRva2VuEikuc2hlcGhlcmQubWdtdC52MS5DcmVhdGVBZ2VudFRva2VuUmVxdWVzdBoqLnNoZXBoZXJkLm1nbXQudjEuQ3JlYXRlQWdlbnRUb2tlblJlc3BvbnNlIgASawoQUmV2b2tlQWdlbnRUb2tlbhIpLnNoZXBoZXJkLm1nbXQudjEuUmV2b2tlQWdlbnRUb2tlblJlcXVlc3QaKi5zaGVwaGVyZC5tZ210LnYxLlJldm9rZUFnZW50VG9rZW5SZXNwb25zZSIAEl8KDFNlYXJjaEdyb3VwcxIlLnNoZXBoZXJkLm1nbXQudjEuU2VhcmNoR3JvdXBzUmVxdWVzdBomLnNoZXBoZXJkLm1nbXQudjEuU2VhcmNoR3JvdXBzUmVzcG9uc2UiAEImWiRzaGVwaGVyZC9nZW4vc2hlcGhlcmQvbWdtdC92MTttZ210djFiBnByb3RvMw", [file_google_protobuf_timestamp]);
+  fileDesc("ChxzaGVwaGVyZC9tZ210L3YxL2FkbWluLnByb3RvEhBzaGVwaGVyZC5tZ210LnYxItkBCgNPcmcSCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkSFgoOYWRtaW5fZ3JvdXBfaWQYBCABKAkSFwoPcmVhZGVyX2dyb3VwX2lkGAUgASgJEi4KCmNyZWF0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhEKCXRlbmFudF9pZBgIIAEoCSIRCg9MaXN0T3Jnc1JlcXVlc3QiRwoQTGlzdE9yZ3NSZXNwb25zZRIkCgVpdGVtcxgBIAMoCzIVLnNoZXBoZXJkLm1nbXQudjEuT3JnEg0KBXRvdGFsGAIgASgFInoKEENyZWF0ZU9yZ1JlcXVlc3QSDAoEbmFtZRgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSFgoOYWRtaW5fZ3JvdXBfaWQYAyABKAkSFwoPcmVhZGVyX2dyb3VwX2lkGAQgASgJEhEKCXRlbmFudF9pZBgFIAEoCSJpChBVcGRhdGVPcmdSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSFgoOYWRtaW5fZ3JvdXBfaWQYAyABKAkSFwoPcmVhZGVyX2dyb3VwX2lkGAQgASgJIjoKFVNldE9yZ1RlbmFudElEUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSEQoJdGVuYW50X2lkGAIgASgJIiIKEERlbGV0ZU9yZ1JlcXVlc3QSDgoGb3JnX2lkGAEgASgJIhMKEURlbGV0ZU9yZ1Jlc3BvbnNlImMKB0NsdXN0ZXISCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIOCgZvcmdfaWQYAyABKAkSLgoKY3JlYXRlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiKAoTTGlzdENsdXN0ZXJzUmVxdWVzdBIRCgl1bmNsYWltZWQYASABKAgiTwoUTGlzdENsdXN0ZXJzUmVzcG9uc2USKAoFaXRlbXMYASADKAsyGS5zaGVwaGVyZC5tZ210LnYxLkNsdXN0ZXISDQoFdG90YWwYAiABKAUiNgoTQ2xhaW1DbHVzdGVyUmVxdWVzdBIPCgdjbHVzdGVyGAEgASgJEg4KBm9yZ19pZBgCIAEoCSImChRDbGFpbUNsdXN0ZXJSZXNwb25zZRIOCgZzdGF0dXMYASABKAkiKAoVVW5jbGFpbUNsdXN0ZXJSZXF1ZXN0Eg8KB2NsdXN0ZXIYASABKAkiKAoWVW5jbGFpbUNsdXN0ZXJSZXNwb25zZRIOCgZzdGF0dXMYASABKAkiegoKQWdlbnRUb2tlbhIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEhIKCmNyZWF0ZWRfYnkYAyABKAkSDgoGc3RhdHVzGAQgASgJEi4KCmNyZWF0ZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIhgKFkxpc3RBZ2VudFRva2Vuc1JlcXVlc3QiVQoXTGlzdEFnZW50VG9rZW5zUmVzcG9uc2USKwoFaXRlbXMYASADKAsyHC5zaGVwaGVyZC5tZ210LnYxLkFnZW50VG9rZW4SDQoFdG90YWwYAiABKAUiJwoXQ3JlYXRlQWdlbnRUb2tlblJlcXVlc3QSDAoEbmFtZRgBIAEoCSJEChhDcmVhdGVBZ2VudFRva2VuUmVzcG9uc2USCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIOCgZzZWNyZXQYAyABKAkiJQoXUmV2b2tlQWdlbnRUb2tlblJlcXVlc3QSCgoCaWQYASABKAkiGgoYUmV2b2tlQWdlbnRUb2tlblJlc3BvbnNlIjUKEUdyb3VwU2VhcmNoUmVzdWx0EgoKAmlkGAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCSIwChNTZWFyY2hHcm91cHNSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIJCgFxGAIgASgJIlkKFFNlYXJjaEdyb3Vwc1Jlc3BvbnNlEjIKBWl0ZW1zGAEgAygLMiMuc2hlcGhlcmQubWdtdC52MS5Hcm91cFNlYXJjaFJlc3VsdBINCgV0b3RhbBgCIAEoBSLvAwoMT2lkY1NldHRpbmdzEhIKCmNvbmZpZ3VyZWQYASABKAgSDwoHZW5hYmxlZBgCIAEoCBIOCgZhY3RpdmUYAyABKAgSDgoGc291cmNlGAQgASgJEhAKCGVkaXRhYmxlGAUgASgIEhAKCHByb3ZpZGVyGAYgASgJEhQKDGRpc3BsYXlfbmFtZRgHIAEoCRIOCgZpc3N1ZXIYCCABKAkSEQoJY2xpZW50X2lkGAkgASgJEhkKEWNsaWVudF9zZWNyZXRfc2V0GAogASgIEhQKDHJlZGlyZWN0X3VybBgLIAEoCRIOCgZzY29wZXMYDCADKAkSFQoNc3ViamVjdF9jbGFpbRgNIAEoCRITCgtlbWFpbF9jbGFpbRgOIAEoCRISCgpuYW1lX2NsYWltGA8gASgJEhQKDGdyb3Vwc19jbGFpbRgQIAEoCRIYChBhcHBfYWRtaW5fZ3JvdXBzGBEgAygJEhgKEHVzZV9ncmFwaF9ncm91cHMYEiABKAgSFgoOZ3JhcGhfYmFzZV91cmwYEyABKAkSFgoOc3RhdHVzX21lc3NhZ2UYFCABKAkSLgoKdXBkYXRlZF9hdBgVIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEgoKdXBkYXRlZF9ieRgWIAEoCSIYChZHZXRPaWRjU2V0dGluZ3NSZXF1ZXN0ItYCChlVcGRhdGVPaWRjU2V0dGluZ3NSZXF1ZXN0Eg8KB2VuYWJsZWQYASABKAgSEAoIcHJvdmlkZXIYAiABKAkSFAoMZGlzcGxheV9uYW1lGAMgASgJEg4KBmlzc3VlchgEIAEoCRIRCgljbGllbnRfaWQYBSABKAkSFQoNY2xpZW50X3NlY3JldBgGIAEoCRIUCgxyZWRpcmVjdF91cmwYByABKAkSDgoGc2NvcGVzGAggAygJEhUKDXN1YmplY3RfY2xhaW0YCSABKAkSEwoLZW1haWxfY2xhaW0YCiABKAkSEgoKbmFtZV9jbGFpbRgLIAEoCRIUCgxncm91cHNfY2xhaW0YDCABKAkSGAoQYXBwX2FkbWluX2dyb3VwcxgNIAMoCRIYChB1c2VfZ3JhcGhfZ3JvdXBzGA4gASgIEhYKDmdyYXBoX2Jhc2VfdXJsGA8gASgJInUKF1Rlc3RPaWRjU2V0dGluZ3NSZXF1ZXN0EhAKCHByb3ZpZGVyGAEgASgJEg4KBmlzc3VlchgCIAEoCRIRCgljbGllbnRfaWQYAyABKAkSFQoNY2xpZW50X3NlY3JldBgEIAEoCRIOCgZzY29wZXMYBSADKAki8wEKGFRlc3RPaWRjU2V0dGluZ3NSZXNwb25zZRIKCgJvaxgBIAEoCBIPCgdtZXNzYWdlGAIgASgJEg4KBmlzc3VlchgDIAEoCRIeChZhdXRob3JpemF0aW9uX2VuZHBvaW50GAQgASgJEhYKDnRva2VuX2VuZHBvaW50GAUgASgJEhAKCGp3a3NfdXJpGAYgASgJEhgKEHN1cHBvcnRlZF9zY29wZXMYByADKAkSFgoObWlzc2luZ19zY29wZXMYCCADKAkSFQoNc3VwcG9ydHNfcGtjZRgJIAEoCBIXCg9pc3N1ZXJfbWlzbWF0Y2gYCiABKAkiGwoZRGVsZXRlT2lkY1NldHRpbmdzUmVxdWVzdCIcChpEZWxldGVPaWRjU2V0dGluZ3NSZXNwb25zZSIgCh5MaXN0T2lkY1Byb3ZpZGVyUHJlc2V0c1JlcXVlc3QiVgofTGlzdE9pZGNQcm92aWRlclByZXNldHNSZXNwb25zZRIzCgVpdGVtcxgBIAMoCzIkLnNoZXBoZXJkLm1nbXQudjEuT2lkY1Byb3ZpZGVyUHJlc2V0Iv8BChJPaWRjUHJvdmlkZXJQcmVzZXQSCwoDa2V5GAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRIXCg9pc3N1ZXJfdGVtcGxhdGUYAyABKAkSEwoLaXNzdWVyX2hpbnQYBCABKAkSDgoGc2NvcGVzGAUgAygJEhUKDXN1YmplY3RfY2xhaW0YBiABKAkSEwoLZW1haWxfY2xhaW0YByABKAkSEgoKbmFtZV9jbGFpbRgIIAEoCRIUCgxncm91cHNfY2xhaW0YCSABKAkSHQoVc3VwcG9ydHNfZ3JhcGhfZ3JvdXBzGAogASgIEhMKC2dyb3Vwc19ub3RlGAsgASgJMpgNCgxBZG1pblNlcnZpY2USUwoITGlzdE9yZ3MSIS5zaGVwaGVyZC5tZ210LnYxLkxpc3RPcmdzUmVxdWVzdBoiLnNoZXBoZXJkLm1nbXQudjEuTGlzdE9yZ3NSZXNwb25zZSIAEkgKCUNyZWF0ZU9yZxIiLnNoZXBoZXJkLm1nbXQudjEuQ3JlYXRlT3JnUmVxdWVzdBoVLnNoZXBoZXJkLm1nbXQudjEuT3JnIgASSAoJVXBkYXRlT3JnEiIuc2hlcGhlcmQubWdtdC52MS5VcGRhdGVPcmdSZXF1ZXN0GhUuc2hlcGhlcmQubWdtdC52MS5PcmciABJWCglEZWxldGVPcmcSIi5zaGVwaGVyZC5tZ210LnYxLkRlbGV0ZU9yZ1JlcXVlc3QaIy5zaGVwaGVyZC5tZ210LnYxLkRlbGV0ZU9yZ1Jlc3BvbnNlIgASUgoOU2V0T3JnVGVuYW50SUQSJy5zaGVwaGVyZC5tZ210LnYxLlNldE9yZ1RlbmFudElEUmVxdWVzdBoVLnNoZXBoZXJkLm1nbXQudjEuT3JnIgASXwoMTGlzdENsdXN0ZXJzEiUuc2hlcGhlcmQubWdtdC52MS5MaXN0Q2x1c3RlcnNSZXF1ZXN0GiYuc2hlcGhlcmQubWdtdC52MS5MaXN0Q2x1c3RlcnNSZXNwb25zZSIAEl8KDENsYWltQ2x1c3RlchIlLnNoZXBoZXJkLm1nbXQudjEuQ2xhaW1DbHVzdGVyUmVxdWVzdBomLnNoZXBoZXJkLm1nbXQudjEuQ2xhaW1DbHVzdGVyUmVzcG9uc2UiABJlCg5VbmNsYWltQ2x1c3RlchInLnNoZXBoZXJkLm1nbXQudjEuVW5jbGFpbUNsdXN0ZXJSZXF1ZXN0Giguc2hlcGhlcmQubWdtdC52MS5VbmNsYWltQ2x1c3RlclJlc3BvbnNlIgASaAoPTGlzdEFnZW50VG9rZW5zEiguc2hlcGhlcmQubWdtdC52MS5MaXN0QWdlbnRUb2tlbnNSZXF1ZXN0Gikuc2hlcGhlcmQubWdtdC52MS5MaXN0QWdlbnRUb2tlbnNSZXNwb25zZSIAEmsKEENyZWF0ZUFnZW50VG9rZW4SKS5zaGVwaGVyZC5tZ210LnYxLkNyZWF0ZUFnZW50VG9rZW5SZXF1ZXN0Giouc2hlcGhlcmQubWdtdC52MS5DcmVhdGVBZ2VudFRva2VuUmVzcG9uc2UiABJrChBSZXZva2VBZ2VudFRva2VuEikuc2hlcGhlcmQubWdtdC52MS5SZXZva2VBZ2VudFRva2VuUmVxdWVzdBoqLnNoZXBoZXJkLm1nbXQudjEuUmV2b2tlQWdlbnRUb2tlblJlc3BvbnNlIgASXwoMU2VhcmNoR3JvdXBzEiUuc2hlcGhlcmQubWdtdC52MS5TZWFyY2hHcm91cHNSZXF1ZXN0GiYuc2hlcGhlcmQubWdtdC52MS5TZWFyY2hHcm91cHNSZXNwb25zZSIAEl0KD0dldE9pZGNTZXR0aW5ncxIoLnNoZXBoZXJkLm1nbXQudjEuR2V0T2lkY1NldHRpbmdzUmVxdWVzdBoeLnNoZXBoZXJkLm1nbXQudjEuT2lkY1NldHRpbmdzIgASYwoSVXBkYXRlT2lkY1NldHRpbmdzEisuc2hlcGhlcmQubWdtdC52MS5VcGRhdGVPaWRjU2V0dGluZ3NSZXF1ZXN0Gh4uc2hlcGhlcmQubWdtdC52MS5PaWRjU2V0dGluZ3MiABJrChBUZXN0T2lkY1NldHRpbmdzEikuc2hlcGhlcmQubWdtdC52MS5UZXN0T2lkY1NldHRpbmdzUmVxdWVzdBoqLnNoZXBoZXJkLm1nbXQudjEuVGVzdE9pZGNTZXR0aW5nc1Jlc3BvbnNlIgAScQoSRGVsZXRlT2lkY1NldHRpbmdzEisuc2hlcGhlcmQubWdtdC52MS5EZWxldGVPaWRjU2V0dGluZ3NSZXF1ZXN0Giwuc2hlcGhlcmQubWdtdC52MS5EZWxldGVPaWRjU2V0dGluZ3NSZXNwb25zZSIAEoABChdMaXN0T2lkY1Byb3ZpZGVyUHJlc2V0cxIwLnNoZXBoZXJkLm1nbXQudjEuTGlzdE9pZGNQcm92aWRlclByZXNldHNSZXF1ZXN0GjEuc2hlcGhlcmQubWdtdC52MS5MaXN0T2lkY1Byb3ZpZGVyUHJlc2V0c1Jlc3BvbnNlIgBCJlokc2hlcGhlcmQvZ2VuL3NoZXBoZXJkL21nbXQvdjE7bWdtdHYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
 
 /**
  * Org mirrors internal/mgmtapi/admin.go: orgResponse.
@@ -624,6 +624,533 @@ export const SearchGroupsResponseSchema: GenMessage<SearchGroupsResponse> = /*@_
   messageDesc(file_shepherd_mgmt_v1_admin, 24);
 
 /**
+ * OidcSettings is the effective single sign-on configuration.
+ *
+ * The client secret is never present: it is stored AES-256-GCM-encrypted
+ * (migration 0014) and decrypted only in-process at token-exchange time.
+ * client_secret_set reports whether one is stored, which is all a settings
+ * form needs to render "leave blank to keep the current secret".
+ *
+ * @generated from message shepherd.mgmt.v1.OidcSettings
+ */
+export type OidcSettings = Message<"shepherd.mgmt.v1.OidcSettings"> & {
+  /**
+   * configured is false when neither the chart nor the database has an
+   * issuer — the state of a deployment that has never set SSO up.
+   *
+   * @generated from field: bool configured = 1;
+   */
+  configured: boolean;
+
+  /**
+   * enabled is the operator's explicit "this provider is live" switch. A
+   * provider can be saved and tested while disabled.
+   *
+   * @generated from field: bool enabled = 2;
+   */
+  enabled: boolean;
+
+  /**
+   * active is true only when a discovered provider is loaded RIGHT NOW, i.e.
+   * sign-in through it actually works. enabled && !active means the saved
+   * configuration failed discovery — see status_message.
+   *
+   * @generated from field: bool active = 3;
+   */
+  active: boolean;
+
+  /**
+   * source is "helm" or "database": which of the two configuration inputs
+   * won. See editable.
+   *
+   * @generated from field: string source = 4;
+   */
+  source: string;
+
+  /**
+   * editable is false when source is "helm". A cluster whose identity
+   * provider is declared in git must not be re-pointed from a browser
+   * session, so UpdateOidcSettings refuses in that case rather than writing a
+   * row that would never be read.
+   *
+   * @generated from field: bool editable = 5;
+   */
+  editable: boolean;
+
+  /**
+   * @generated from field: string provider = 6;
+   */
+  provider: string;
+
+  /**
+   * @generated from field: string display_name = 7;
+   */
+  displayName: string;
+
+  /**
+   * @generated from field: string issuer = 8;
+   */
+  issuer: string;
+
+  /**
+   * @generated from field: string client_id = 9;
+   */
+  clientId: string;
+
+  /**
+   * @generated from field: bool client_secret_set = 10;
+   */
+  clientSecretSet: boolean;
+
+  /**
+   * @generated from field: string redirect_url = 11;
+   */
+  redirectUrl: string;
+
+  /**
+   * @generated from field: repeated string scopes = 12;
+   */
+  scopes: string[];
+
+  /**
+   * @generated from field: string subject_claim = 13;
+   */
+  subjectClaim: string;
+
+  /**
+   * @generated from field: string email_claim = 14;
+   */
+  emailClaim: string;
+
+  /**
+   * @generated from field: string name_claim = 15;
+   */
+  nameClaim: string;
+
+  /**
+   * @generated from field: string groups_claim = 16;
+   */
+  groupsClaim: string;
+
+  /**
+   * @generated from field: repeated string app_admin_groups = 17;
+   */
+  appAdminGroups: string[];
+
+  /**
+   * @generated from field: bool use_graph_groups = 18;
+   */
+  useGraphGroups: boolean;
+
+  /**
+   * @generated from field: string graph_base_url = 19;
+   */
+  graphBaseUrl: string;
+
+  /**
+   * status_message explains a non-obvious state in one sentence: why an
+   * enabled provider is not active, or that the chart owns this config.
+   * Empty when everything is as it looks.
+   *
+   * @generated from field: string status_message = 20;
+   */
+  statusMessage: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp updated_at = 21;
+   */
+  updatedAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: string updated_by = 22;
+   */
+  updatedBy: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.OidcSettings.
+ * Use `create(OidcSettingsSchema)` to create a new message.
+ */
+export const OidcSettingsSchema: GenMessage<OidcSettings> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_admin, 25);
+
+/**
+ * @generated from message shepherd.mgmt.v1.GetOidcSettingsRequest
+ */
+export type GetOidcSettingsRequest = Message<"shepherd.mgmt.v1.GetOidcSettingsRequest"> & {
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.GetOidcSettingsRequest.
+ * Use `create(GetOidcSettingsRequestSchema)` to create a new message.
+ */
+export const GetOidcSettingsRequestSchema: GenMessage<GetOidcSettingsRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_admin, 26);
+
+/**
+ * UpdateOidcSettingsRequest is a full replacement of the settings row, with
+ * one exception: client_secret may be left empty to keep the stored secret,
+ * because the API never returns it and a form that round-tripped a blank
+ * would otherwise erase it on every save.
+ *
+ * @generated from message shepherd.mgmt.v1.UpdateOidcSettingsRequest
+ */
+export type UpdateOidcSettingsRequest = Message<"shepherd.mgmt.v1.UpdateOidcSettingsRequest"> & {
+  /**
+   * @generated from field: bool enabled = 1;
+   */
+  enabled: boolean;
+
+  /**
+   * @generated from field: string provider = 2;
+   */
+  provider: string;
+
+  /**
+   * @generated from field: string display_name = 3;
+   */
+  displayName: string;
+
+  /**
+   * @generated from field: string issuer = 4;
+   */
+  issuer: string;
+
+  /**
+   * @generated from field: string client_id = 5;
+   */
+  clientId: string;
+
+  /**
+   * client_secret is write-only. Empty means "keep the stored secret"; a
+   * non-empty value replaces it.
+   *
+   * @generated from field: string client_secret = 6;
+   */
+  clientSecret: string;
+
+  /**
+   * @generated from field: string redirect_url = 7;
+   */
+  redirectUrl: string;
+
+  /**
+   * @generated from field: repeated string scopes = 8;
+   */
+  scopes: string[];
+
+  /**
+   * @generated from field: string subject_claim = 9;
+   */
+  subjectClaim: string;
+
+  /**
+   * @generated from field: string email_claim = 10;
+   */
+  emailClaim: string;
+
+  /**
+   * @generated from field: string name_claim = 11;
+   */
+  nameClaim: string;
+
+  /**
+   * @generated from field: string groups_claim = 12;
+   */
+  groupsClaim: string;
+
+  /**
+   * @generated from field: repeated string app_admin_groups = 13;
+   */
+  appAdminGroups: string[];
+
+  /**
+   * @generated from field: bool use_graph_groups = 14;
+   */
+  useGraphGroups: boolean;
+
+  /**
+   * @generated from field: string graph_base_url = 15;
+   */
+  graphBaseUrl: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.UpdateOidcSettingsRequest.
+ * Use `create(UpdateOidcSettingsRequestSchema)` to create a new message.
+ */
+export const UpdateOidcSettingsRequestSchema: GenMessage<UpdateOidcSettingsRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_admin, 27);
+
+/**
+ * TestOidcSettingsRequest mirrors UpdateOidcSettingsRequest's connection
+ * fields. client_secret may be empty to test with the stored one — an admin
+ * verifying an issuer change should not have to re-paste a secret that has
+ * not changed.
+ *
+ * @generated from message shepherd.mgmt.v1.TestOidcSettingsRequest
+ */
+export type TestOidcSettingsRequest = Message<"shepherd.mgmt.v1.TestOidcSettingsRequest"> & {
+  /**
+   * @generated from field: string provider = 1;
+   */
+  provider: string;
+
+  /**
+   * @generated from field: string issuer = 2;
+   */
+  issuer: string;
+
+  /**
+   * @generated from field: string client_id = 3;
+   */
+  clientId: string;
+
+  /**
+   * @generated from field: string client_secret = 4;
+   */
+  clientSecret: string;
+
+  /**
+   * @generated from field: repeated string scopes = 5;
+   */
+  scopes: string[];
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.TestOidcSettingsRequest.
+ * Use `create(TestOidcSettingsRequestSchema)` to create a new message.
+ */
+export const TestOidcSettingsRequestSchema: GenMessage<TestOidcSettingsRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_admin, 28);
+
+/**
+ * TestOidcSettingsResponse reports what discovery found, so an admin can
+ * confirm they are pointed at the right tenant/realm before enabling sign-in.
+ *
+ * @generated from message shepherd.mgmt.v1.TestOidcSettingsResponse
+ */
+export type TestOidcSettingsResponse = Message<"shepherd.mgmt.v1.TestOidcSettingsResponse"> & {
+  /**
+   * @generated from field: bool ok = 1;
+   */
+  ok: boolean;
+
+  /**
+   * message is the failure reason when ok is false, or a one-line confirmation
+   * when it is true.
+   *
+   * @generated from field: string message = 2;
+   */
+  message: string;
+
+  /**
+   * issuer is the issuer the discovery document itself declares, which is not
+   * always the URL it was fetched from — a mismatch is the single most common
+   * OIDC misconfiguration (trailing slashes, Auth0 vs Okta URL shapes), and
+   * go-oidc rejects it at login time with an error nobody sees.
+   *
+   * @generated from field: string issuer = 3;
+   */
+  issuer: string;
+
+  /**
+   * @generated from field: string authorization_endpoint = 4;
+   */
+  authorizationEndpoint: string;
+
+  /**
+   * @generated from field: string token_endpoint = 5;
+   */
+  tokenEndpoint: string;
+
+  /**
+   * @generated from field: string jwks_uri = 6;
+   */
+  jwksUri: string;
+
+  /**
+   * supported_scopes / missing_scopes compare the requested scopes against
+   * the discovery document's scopes_supported. Advisory only: the list is
+   * optional in the spec and many providers under-report it, so a missing
+   * scope is a warning in the UI, never a refusal here.
+   *
+   * @generated from field: repeated string supported_scopes = 7;
+   */
+  supportedScopes: string[];
+
+  /**
+   * @generated from field: repeated string missing_scopes = 8;
+   */
+  missingScopes: string[];
+
+  /**
+   * supports_pkce reports whether S256 appears in
+   * code_challenge_methods_supported. Shepherd always sends a PKCE challenge
+   * (auth.Handler.LoginHandler), so a provider that does not advertise it is
+   * worth flagging before sign-in is switched on.
+   *
+   * @generated from field: bool supports_pkce = 9;
+   */
+  supportsPkce: boolean;
+
+  /**
+   * issuer_mismatch is set when the discovery document declares an issuer
+   * different from the URL it was fetched from. go-oidc rejects that at login
+   * time with an error nobody sees, so the probe is the only place it can be
+   * caught while it is still cheap to fix. Empty when they match.
+   *
+   * @generated from field: string issuer_mismatch = 10;
+   */
+  issuerMismatch: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.TestOidcSettingsResponse.
+ * Use `create(TestOidcSettingsResponseSchema)` to create a new message.
+ */
+export const TestOidcSettingsResponseSchema: GenMessage<TestOidcSettingsResponse> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_admin, 29);
+
+/**
+ * @generated from message shepherd.mgmt.v1.DeleteOidcSettingsRequest
+ */
+export type DeleteOidcSettingsRequest = Message<"shepherd.mgmt.v1.DeleteOidcSettingsRequest"> & {
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.DeleteOidcSettingsRequest.
+ * Use `create(DeleteOidcSettingsRequestSchema)` to create a new message.
+ */
+export const DeleteOidcSettingsRequestSchema: GenMessage<DeleteOidcSettingsRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_admin, 30);
+
+/**
+ * @generated from message shepherd.mgmt.v1.DeleteOidcSettingsResponse
+ */
+export type DeleteOidcSettingsResponse = Message<"shepherd.mgmt.v1.DeleteOidcSettingsResponse"> & {
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.DeleteOidcSettingsResponse.
+ * Use `create(DeleteOidcSettingsResponseSchema)` to create a new message.
+ */
+export const DeleteOidcSettingsResponseSchema: GenMessage<DeleteOidcSettingsResponse> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_admin, 31);
+
+/**
+ * @generated from message shepherd.mgmt.v1.ListOidcProviderPresetsRequest
+ */
+export type ListOidcProviderPresetsRequest = Message<"shepherd.mgmt.v1.ListOidcProviderPresetsRequest"> & {
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.ListOidcProviderPresetsRequest.
+ * Use `create(ListOidcProviderPresetsRequestSchema)` to create a new message.
+ */
+export const ListOidcProviderPresetsRequestSchema: GenMessage<ListOidcProviderPresetsRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_admin, 32);
+
+/**
+ * @generated from message shepherd.mgmt.v1.ListOidcProviderPresetsResponse
+ */
+export type ListOidcProviderPresetsResponse = Message<"shepherd.mgmt.v1.ListOidcProviderPresetsResponse"> & {
+  /**
+   * @generated from field: repeated shepherd.mgmt.v1.OidcProviderPreset items = 1;
+   */
+  items: OidcProviderPreset[];
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.ListOidcProviderPresetsResponse.
+ * Use `create(ListOidcProviderPresetsResponseSchema)` to create a new message.
+ */
+export const ListOidcProviderPresetsResponseSchema: GenMessage<ListOidcProviderPresetsResponse> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_admin, 33);
+
+/**
+ * OidcProviderPreset is one entry in the built-in provider catalogue
+ * (internal/auth.Presets): the conventional defaults for a provider plus the
+ * prose an admin needs to find the values in that provider's console.
+ *
+ * @generated from message shepherd.mgmt.v1.OidcProviderPreset
+ */
+export type OidcProviderPreset = Message<"shepherd.mgmt.v1.OidcProviderPreset"> & {
+  /**
+   * @generated from field: string key = 1;
+   */
+  key: string;
+
+  /**
+   * @generated from field: string display_name = 2;
+   */
+  displayName: string;
+
+  /**
+   * issuer_template shows the shape of the issuer URL with {placeholders};
+   * it is documentation, never interpolated by the server.
+   *
+   * @generated from field: string issuer_template = 3;
+   */
+  issuerTemplate: string;
+
+  /**
+   * @generated from field: string issuer_hint = 4;
+   */
+  issuerHint: string;
+
+  /**
+   * @generated from field: repeated string scopes = 5;
+   */
+  scopes: string[];
+
+  /**
+   * @generated from field: string subject_claim = 6;
+   */
+  subjectClaim: string;
+
+  /**
+   * @generated from field: string email_claim = 7;
+   */
+  emailClaim: string;
+
+  /**
+   * @generated from field: string name_claim = 8;
+   */
+  nameClaim: string;
+
+  /**
+   * @generated from field: string groups_claim = 9;
+   */
+  groupsClaim: string;
+
+  /**
+   * supports_graph_groups is true for Entra only — the one provider with a
+   * directory API Shepherd knows how to call when the groups claim is absent.
+   *
+   * @generated from field: bool supports_graph_groups = 10;
+   */
+  supportsGraphGroups: boolean;
+
+  /**
+   * groups_note states what must be configured IN THE IDP for the groups
+   * claim to arrive. Every provider needs some deliberate act, and skipping it
+   * yields an empty group list with no error — the likeliest way to
+   * misconfigure this feature.
+   *
+   * @generated from field: string groups_note = 11;
+   */
+  groupsNote: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.OidcProviderPreset.
+ * Use `create(OidcProviderPresetSchema)` to create a new message.
+ */
+export const OidcProviderPresetSchema: GenMessage<OidcProviderPreset> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_admin, 34);
+
+/**
  * AdminService covers /api/admin/*: org, cluster, and agent-token
  * administration plus group search. All methods require app-admin, except
  * SearchGroups (app admin or org admin).
@@ -729,6 +1256,62 @@ export const AdminService: GenService<{
     methodKind: "unary";
     input: typeof SearchGroupsRequestSchema;
     output: typeof SearchGroupsResponseSchema;
+  },
+  /**
+   * OIDC single sign-on configuration. Available only when the Helm chart did
+   * NOT configure an issuer: chart config always wins, and GetOidcSettings
+   * says so through `source` and `editable` rather than by hiding the values,
+   * so an admin looking at a chart-managed deployment can still see what it is
+   * pointed at.
+   *
+   * @generated from rpc shepherd.mgmt.v1.AdminService.GetOidcSettings
+   */
+  getOidcSettings: {
+    methodKind: "unary";
+    input: typeof GetOidcSettingsRequestSchema;
+    output: typeof OidcSettingsSchema;
+  },
+  /**
+   * @generated from rpc shepherd.mgmt.v1.AdminService.UpdateOidcSettings
+   */
+  updateOidcSettings: {
+    methodKind: "unary";
+    input: typeof UpdateOidcSettingsRequestSchema;
+    output: typeof OidcSettingsSchema;
+  },
+  /**
+   * TestOidcSettings performs OIDC discovery against a candidate
+   * configuration WITHOUT storing it, so an admin can find a wrong issuer
+   * before turning sign-in over to it. A read by the capability
+   * classification's naming rule (it mutates nothing), and deliberately so.
+   *
+   * @generated from rpc shepherd.mgmt.v1.AdminService.TestOidcSettings
+   */
+  testOidcSettings: {
+    methodKind: "unary";
+    input: typeof TestOidcSettingsRequestSchema;
+    output: typeof TestOidcSettingsResponseSchema;
+  },
+  /**
+   * @generated from rpc shepherd.mgmt.v1.AdminService.DeleteOidcSettings
+   */
+  deleteOidcSettings: {
+    methodKind: "unary";
+    input: typeof DeleteOidcSettingsRequestSchema;
+    output: typeof DeleteOidcSettingsResponseSchema;
+  },
+  /**
+   * ListOidcProviderPresets returns the built-in provider catalogue the
+   * settings form prefills from. Served by the backend rather than hardcoded
+   * in the UI so the defaults the server applies on save and the defaults the
+   * form shows cannot drift apart.
+   *
+   * @generated from rpc shepherd.mgmt.v1.AdminService.ListOidcProviderPresets
+   */
+  listOidcProviderPresets: {
+    methodKind: "unary";
+    input: typeof ListOidcProviderPresetsRequestSchema;
+    output: typeof ListOidcProviderPresetsResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_shepherd_mgmt_v1_admin, 0);

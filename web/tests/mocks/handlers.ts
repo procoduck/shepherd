@@ -326,6 +326,82 @@ function simulateRunToWire(run: Obj) {
   };
 }
 
+/**
+ * A trimmed provider catalogue mirroring internal/auth.Presets. Only the two
+ * shapes the specs care about are here — Entra (the one provider with the
+ * Microsoft Graph option) and a generic spec-compliant issuer — because the
+ * full nine-provider list would be a second copy of the Go catalogue to keep
+ * in step for no extra coverage.
+ */
+const OIDC_PRESETS = [
+  {
+    key: 'entra',
+    display_name: 'Microsoft',
+    issuer_template: 'https://login.microsoftonline.com/{tenant-id}/v2.0',
+    issuer_hint: 'Entra admin center → App registrations → Endpoints.',
+    scopes: ['openid', 'profile', 'email', 'GroupMember.Read.All'],
+    subject_claim: 'oid',
+    email_claim: 'email',
+    name_claim: 'name',
+    groups_claim: 'groups',
+    supports_graph_groups: true,
+    groups_note: 'Enable group claims on the app registration.',
+  },
+  {
+    key: 'okta',
+    display_name: 'Okta',
+    issuer_template: 'https://{your-org}.okta.com/oauth2/default',
+    issuer_hint: 'Okta admin → Security → API → Issuer URI.',
+    scopes: ['openid', 'profile', 'email', 'groups'],
+    subject_claim: 'sub',
+    email_claim: 'email',
+    name_claim: 'name',
+    groups_claim: 'groups',
+    supports_graph_groups: false,
+    groups_note: 'Add a groups claim to the ID token on your authorization server.',
+  },
+  {
+    key: 'generic',
+    display_name: 'SSO',
+    issuer_template: 'https://{issuer-host}',
+    issuer_hint: 'Any spec-compliant issuer.',
+    scopes: ['openid', 'profile', 'email'],
+    subject_claim: 'sub',
+    email_claim: 'email',
+    name_claim: 'name',
+    groups_claim: 'groups',
+    supports_graph_groups: false,
+    groups_note: 'Whatever claim your provider puts group membership in.',
+  },
+];
+
+/** The unconfigured-but-editable state a fresh install answers with. */
+function defaultOidcSettings() {
+  return {
+    configured: false,
+    enabled: false,
+    active: false,
+    source: 'database',
+    editable: true,
+    provider: 'generic',
+    display_name: '',
+    issuer: '',
+    client_id: '',
+    client_secret_set: false,
+    redirect_url: '',
+    scopes: ['openid', 'profile', 'email'],
+    subject_claim: 'sub',
+    email_claim: 'email',
+    name_claim: 'name',
+    groups_claim: 'groups',
+    app_admin_groups: [],
+    use_graph_groups: false,
+    graph_base_url: 'https://graph.microsoft.com',
+    status_message: '',
+    updated_by: '',
+  };
+}
+
 // Default handlers for every shepherd.mgmt.v1 procedure, plus the surviving
 // REST surface (/auth/*, /api/schema/*).
 export function installDefaultHandlers(router: Router) {
@@ -444,6 +520,97 @@ export function installDefaultHandlers(router: Router) {
   router.register('POST', '/shepherd.mgmt.v1.AdminService/SearchGroups', (r) =>
     json(r, 200, list(((st.groupSearchResults as Obj[]) ?? []).map(groupSearchResultToWire))),
   );
+
+  // Admin → Single sign-on. The default is an unconfigured, editable
+  // deployment — the state a fresh install is in, and the one the settings
+  // form has to open correctly.
+  // The real server gates all five of these at auth.RoleAppAdmin in
+  // newAuthzInterceptor. The mock enforces it too — without that, every spec
+  // would pass for every persona and the page's own forbidden branch would be
+  // asserted against a 200.
+  const requireAppAdmin = (r: Route) => {
+    const me = st.me as { isAppAdmin?: boolean } | null | undefined;
+    if (!me) return connectError(r, 401, 'unauthenticated', 'not authenticated');
+    if (!me.isAppAdmin) {
+      return connectError(r, 403, 'permission_denied', 'auth: forbidden');
+    }
+    return null;
+  };
+
+  router.register('POST', '/shepherd.mgmt.v1.AdminService/GetOidcSettings', (r) => {
+    const denied = requireAppAdmin(r);
+    if (denied) return denied;
+    return json(r, 200, (st.oidcSettings as Obj) ?? defaultOidcSettings());
+  });
+  router.register('POST', '/shepherd.mgmt.v1.AdminService/UpdateOidcSettings', async (r) => {
+    const denied = requireAppAdmin(r);
+    if (denied) return denied;
+    // Connect-web sends protobuf JSON, so the REQUEST is camelCase while every
+    // mock RESPONSE in this file is snake_case. The mapping is written out
+    // rather than spread, because spreading the request would put both spellings
+    // of each field in the response and protobuf JSON rejects that as a
+    // duplicate.
+    const body = (await r.request().postDataJSON()) as Obj;
+    const prev = (st.oidcSettings as Obj) ?? defaultOidcSettings();
+    const next = {
+      configured: true,
+      enabled: body.enabled === true,
+      active: body.enabled === true,
+      source: 'database',
+      editable: true,
+      provider: body.provider ?? prev.provider,
+      display_name: body.displayName ?? prev.display_name,
+      issuer: body.issuer ?? prev.issuer,
+      client_id: body.clientId ?? prev.client_id,
+      // Write-only: a blank secret means "keep the stored one", which is only
+      // coherent if one was already stored.
+      client_secret_set: !!body.clientSecret || prev.client_secret_set === true,
+      redirect_url: body.redirectUrl ?? prev.redirect_url,
+      scopes: body.scopes ?? prev.scopes,
+      subject_claim: body.subjectClaim ?? prev.subject_claim,
+      email_claim: body.emailClaim ?? prev.email_claim,
+      name_claim: body.nameClaim ?? prev.name_claim,
+      groups_claim: body.groupsClaim ?? prev.groups_claim,
+      app_admin_groups: body.appAdminGroups ?? prev.app_admin_groups,
+      use_graph_groups: body.useGraphGroups === true,
+      graph_base_url: body.graphBaseUrl ?? prev.graph_base_url,
+      status_message: '',
+      updated_by: 'admin@example.com',
+    };
+    st.oidcSettings = next;
+    return json(r, 200, next);
+  });
+  router.register('POST', '/shepherd.mgmt.v1.AdminService/TestOidcSettings', (r) => {
+    const denied = requireAppAdmin(r);
+    if (denied) return denied;
+    return json(
+      r,
+      200,
+      (st.oidcTestResult as Obj) ?? {
+        ok: true,
+        message: 'Discovery succeeded.',
+        issuer: 'https://idp.example/realms/shepherd',
+        authorization_endpoint: 'https://idp.example/realms/shepherd/protocol/openid-connect/auth',
+        token_endpoint: 'https://idp.example/realms/shepherd/protocol/openid-connect/token',
+        jwks_uri: 'https://idp.example/realms/shepherd/protocol/openid-connect/certs',
+        supported_scopes: ['openid', 'profile', 'email', 'groups'],
+        missing_scopes: [],
+        supports_pkce: true,
+        issuer_mismatch: '',
+      },
+    );
+  });
+  router.register('POST', '/shepherd.mgmt.v1.AdminService/DeleteOidcSettings', (r) => {
+    const denied = requireAppAdmin(r);
+    if (denied) return denied;
+    st.oidcSettings = undefined;
+    return json(r, 200, {});
+  });
+  router.register('POST', '/shepherd.mgmt.v1.AdminService/ListOidcProviderPresets', (r) => {
+    const denied = requireAppAdmin(r);
+    if (denied) return denied;
+    return json(r, 200, { items: OIDC_PRESETS });
+  });
 
   // ── FleetService ─────────────────────────────────────────────────────────
   router.register('POST', '/shepherd.mgmt.v1.FleetService/ListCollectors', (r) =>
@@ -1031,6 +1198,8 @@ export function installDefaultHandlers(router: Router) {
       body: JSON.stringify({
         oidc: st.authMethods?.oidc ?? true,
         local_admin: st.authMethods?.local_admin ?? false,
+        oidc_display_name: st.authMethods?.oidc_display_name ?? 'Microsoft',
+        oidc_provider: st.authMethods?.oidc_provider ?? 'entra',
       }),
     }),
   );
@@ -1100,7 +1269,14 @@ export function defaultState(): MockState {
       hash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
     },
     unmatched: [],
-    authMethods: { oidc: true, local_admin: false },
+    authMethods: {
+      oidc: true,
+      local_admin: false,
+      oidc_display_name: 'Microsoft',
+      oidc_provider: 'entra',
+    },
+    oidcSettings: undefined,
+    oidcTestResult: undefined,
     localAdminCreds: undefined,
     localAdminPersona: undefined,
     schema: undefined,

@@ -1,6 +1,7 @@
 import { createRootRoute, createRoute, createRouter, Outlet } from '@tanstack/react-router';
 import { lazy, Suspense } from 'react';
 import { Shell } from '@/components/Shell';
+import { AdminAuthPage } from '@/pages/AdminAuthPage';
 import { AdminClustersPage } from '@/pages/AdminClustersPage';
 import { AdminOrgsPage } from '@/pages/AdminOrgsPage';
 import { AdminTokensPage } from '@/pages/AdminTokensPage';
@@ -167,6 +168,15 @@ const adminTokensRoute = createRoute({
   component: AdminTokensPage,
 });
 
+// Admin → Single sign-on. Not org-scoped: OIDC configuration decides who can
+// hold an app-admin session at all, so it sits beside the other app-admin
+// surfaces rather than under an org.
+const adminAuthRoute = createRoute({
+  getParentRoute: () => contentRoute,
+  path: '/admin/auth',
+  component: AdminAuthPage,
+});
+
 const auditRoute = createRoute({
   getParentRoute: () => contentRoute,
   path: '/audit',
@@ -190,6 +200,7 @@ const routeTree = rootRoute.addChildren([
       adminOrgsRoute,
       adminClustersRoute,
       adminTokensRoute,
+      adminAuthRoute,
       auditRoute,
     ]),
     // Full-bleed canvas routes bypass contentRoute (see contentRoute comment).

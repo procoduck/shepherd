@@ -16,6 +16,7 @@ import (
 
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
+	"shepherd/internal/auth"
 	"shepherd/internal/gateway"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
@@ -27,11 +28,35 @@ import (
 type AdminService struct {
 	store  *store.Store
 	logger *slog.Logger
+
+	// oidc owns the single sign-on configuration (see rpc_admin_oidc.go). It
+	// is the live auth handler rather than a store, because saving settings
+	// and ACTIVATING them are one operation from the admin's point of view —
+	// the whole point of configuring a provider through the UI is not having
+	// to restart to use it. nil in test wirings that mount the RPC surface
+	// without a server; those procedures then answer CodeUnavailable.
+	oidc *auth.Handler
+}
+
+// AdminServiceOption configures optional AdminService dependencies. The
+// options exist so the REST shim (admin.go) and the several tests that
+// construct this service directly keep compiling unchanged as capabilities
+// that need more than a store are added.
+type AdminServiceOption func(*AdminService)
+
+// WithOIDCHandler supplies the auth handler backing the OIDC settings
+// procedures.
+func WithOIDCHandler(h *auth.Handler) AdminServiceOption {
+	return func(s *AdminService) { s.oidc = h }
 }
 
 // NewAdminService constructs an AdminService with the deps AdminHandler uses today.
-func NewAdminService(st *store.Store, logger *slog.Logger) *AdminService {
-	return &AdminService{store: st, logger: logger}
+func NewAdminService(st *store.Store, logger *slog.Logger, opts ...AdminServiceOption) *AdminService {
+	s := &AdminService{store: st, logger: logger}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 var _ mgmtv1connect.AdminServiceHandler = (*AdminService)(nil)

@@ -7,6 +7,7 @@ import {
   ClipboardList,
   GitBranch,
   Key,
+  KeyRound,
   LayoutDashboard,
   Moon,
   Radio,
@@ -55,6 +56,12 @@ const navGroups: Array<{ label?: string; items: NavItem[] }> = [
       { label: 'Orgs', href: '/admin/orgs', icon: <Building2 size={16} />, adminOnly: true },
       { label: 'Clusters', href: '/admin/clusters', icon: <Radio size={16} />, adminOnly: true },
       { label: 'Agent Tokens', href: '/admin/tokens', icon: <Key size={16} />, adminOnly: true },
+      {
+        label: 'Single sign-on',
+        href: '/admin/auth',
+        icon: <KeyRound size={16} />,
+        adminOnly: true,
+      },
     ],
   },
   {

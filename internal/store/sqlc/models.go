@@ -136,6 +136,28 @@ type GroupAssignment struct {
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
 
+type OidcSetting struct {
+	ID              bool               `json:"id"`
+	Enabled         bool               `json:"enabled"`
+	Provider        string             `json:"provider"`
+	DisplayName     string             `json:"display_name"`
+	Issuer          string             `json:"issuer"`
+	ClientID        string             `json:"client_id"`
+	ClientSecretEnc []byte             `json:"client_secret_enc"`
+	RedirectUrl     string             `json:"redirect_url"`
+	Scopes          []string           `json:"scopes"`
+	SubjectClaim    string             `json:"subject_claim"`
+	EmailClaim      string             `json:"email_claim"`
+	NameClaim       string             `json:"name_claim"`
+	GroupsClaim     string             `json:"groups_claim"`
+	AppAdminGroups  []string           `json:"app_admin_groups"`
+	UseGraphGroups  bool               `json:"use_graph_groups"`
+	GraphBaseUrl    string             `json:"graph_base_url"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	UpdatedBy       string             `json:"updated_by"`
+}
+
 type Org struct {
 	ID            pgtype.UUID        `json:"id"`
 	Name          string             `json:"name"`

@@ -45,6 +45,16 @@ var procedureRequirements = map[string]string{ //nolint:gochecknoglobals // stat
 	mgmtv1connect.AdminServiceRevokeAgentTokenProcedure: auth.RoleAppAdmin,
 	mgmtv1connect.AdminServiceSearchGroupsProcedure:     reqAppOrOrgAdmin,
 
+	// AdminService — OIDC single sign-on configuration. App admin only, and
+	// there is no org-scoped variant on purpose: this configuration decides
+	// who can hold an app-admin session in the first place, so delegating any
+	// part of it to an org admin would let them widen their own reach.
+	mgmtv1connect.AdminServiceGetOidcSettingsProcedure:         auth.RoleAppAdmin,
+	mgmtv1connect.AdminServiceUpdateOidcSettingsProcedure:      auth.RoleAppAdmin,
+	mgmtv1connect.AdminServiceTestOidcSettingsProcedure:        auth.RoleAppAdmin,
+	mgmtv1connect.AdminServiceDeleteOidcSettingsProcedure:      auth.RoleAppAdmin,
+	mgmtv1connect.AdminServiceListOidcProviderPresetsProcedure: auth.RoleAppAdmin,
+
 	// FleetService — org reader for reads, org admin for writes.
 	mgmtv1connect.FleetServiceListCollectorsProcedure:   auth.RoleOrgReader,
 	mgmtv1connect.FleetServiceGetCollectorProcedure:     auth.RoleOrgReader,
@@ -168,6 +178,13 @@ var capabilityRequirements = map[string]string{ //nolint:gochecknoglobals // sta
 	mgmtv1connect.AdminServiceUnclaimClusterProcedure:   capabilityApply,
 	mgmtv1connect.AdminServiceCreateAgentTokenProcedure: capabilityApply,
 	mgmtv1connect.AdminServiceRevokeAgentTokenProcedure: capabilityApply,
+
+	// Repointing or removing the identity provider is as apply-only as a write
+	// gets: it decides who can authenticate at all. A service account can
+	// never reach these anyway (a service account is never app-admin), but the
+	// classification is what makes that explicit rather than incidental.
+	mgmtv1connect.AdminServiceUpdateOidcSettingsProcedure: capabilityApply,
+	mgmtv1connect.AdminServiceDeleteOidcSettingsProcedure: capabilityApply,
 
 	mgmtv1connect.FleetServiceCreateAssignmentProcedure: capabilityApply,
 	mgmtv1connect.FleetServiceDeleteAssignmentProcedure: capabilityApply,
