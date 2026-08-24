@@ -334,3 +334,116 @@ func newNonAdminSession(ctx context.Context, st *store.Store) *http.Cookie {
 	Expect(err).NotTo(HaveOccurred())
 	return &http.Cookie{Name: "shepherd_session", Value: id}
 }
+
+// Regression coverage for a defect a manual walkthrough found and neither the
+// unit tests nor the code review did: the OIDC audit rows were being WRITTEN
+// correctly and were unreachable in the product. They carry a NULL org_id
+// (single sign-on belongs to no org), every caller of ListAuditLog passes an
+// org, and `org_id = $1` silently excluded them — so the audit trail for the
+// highest-leverage write in the product could only be read with psql.
+//
+// Asserting "the row exists in audit_log" is what let that ship. These specs
+// assert it comes back through the API a human actually reads.
+var _ = Describe("platform audit visibility", Label("integration"), func() {
+	var (
+		ctx      context.Context
+		cancel   context.CancelFunc
+		st       *store.Store
+		server   *httptest.Server
+		orgIDStr string
+	)
+
+	const procListAudit = "/shepherd.mgmt.v1.AuditService/ListAudit"
+
+	BeforeEach(func() {
+		ctx, cancel = context.WithCancel(context.Background())
+		dbURL := sharedPG.IsolatedDB(ctx, GinkgoTB())
+
+		var err error
+		st, err = store.New(ctx, &config.DatabaseConfig{URL: dbURL, MaxConns: 5}, slog.Default())
+		Expect(err).NotTo(HaveOccurred())
+
+		o, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
+			Name: "audit-vis-org", DisplayName: "Audit Vis Org",
+			AdminGroupID: "audit-vis-admins", ReaderGroupID: pgtype.Text{},
+		})
+		Expect(err).NotTo(HaveOccurred())
+		orgIDStr = o.ID.String()
+
+		cfg := &config.Config{Auth: config.AuthConfig{InsecureCookies: true}}
+		h := auth.NewLocalAdmin(cfg, st, slog.Default())
+		r := chi.NewRouter()
+		r.Group(func(r chi.Router) {
+			r.Use(h.SessionMiddleware)
+			r.Use(auth.CSRFMiddleware)
+			mgmtapi.MountRPC(r, st, cfg, nil, slog.Default())
+		})
+		server = httptest.NewServer(r)
+
+		// A platform event (no org) alongside an ordinary org-scoped one.
+		Expect(st.Queries.InsertAuditLog(ctx, sqlc.InsertAuditLogParams{
+			Actor: "admin@example.com", ActorType: "user", OrgID: pgtype.UUID{},
+			Action: "oidc_settings.update", ResourceType: "oidc_settings", ResourceID: "",
+			Detail: []byte(`{}`),
+		})).To(Succeed())
+		Expect(st.Queries.InsertAuditLog(ctx, sqlc.InsertAuditLogParams{
+			Actor: "admin@example.com", ActorType: "user", OrgID: o.ID,
+			Action: "pipeline.create", ResourceType: "pipeline", ResourceID: "p-1",
+			Detail: []byte(`{}`),
+		})).To(Succeed())
+	})
+
+	AfterEach(func() {
+		server.Close()
+		st.Close()
+		cancel()
+	})
+
+	listFor := func(cookie *http.Cookie) (string, float64) {
+		resp := postJSON(server, procListAudit, map[string]any{"orgId": orgIDStr}, cookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		raw, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.Body.Close()).To(Succeed())
+		var body map[string]any
+		Expect(json.Unmarshal(raw, &body)).To(Succeed())
+		total, ok := body["total"].(float64)
+		Expect(ok).To(BeTrue(), "response carried no numeric total: %s", raw)
+		return string(raw), total
+	}
+
+	It("shows an app admin platform events alongside the org's own", func() {
+		raw, total := listFor(newAppAdminSession(ctx, st))
+		Expect(raw).To(ContainSubstring("oidc_settings.update"),
+			"an app admin viewing an org must still see platform-level events, or the SSO audit trail is unreadable in the product")
+		Expect(raw).To(ContainSubstring("pipeline.create"))
+		// The count labels the same set the page returns.
+		Expect(total).To(BeNumerically("==", 2))
+	})
+
+	It("does not widen an org admin's view to platform events", func() {
+		cookie := newOrgScopedAdminSession(ctx, st, "audit-vis-admins")
+		raw, total := listFor(cookie)
+		Expect(raw).To(ContainSubstring("pipeline.create"))
+		Expect(raw).NotTo(ContainSubstring("oidc_settings.update"),
+			"platform configuration is app-admin business; an org admin's trail must not start showing it")
+		Expect(total).To(BeNumerically("==", 1))
+	})
+})
+
+// newOrgScopedAdminSession creates a non-app-admin session that is an admin of
+// the org whose admin group is groupID.
+func newOrgScopedAdminSession(ctx context.Context, st *store.Store, groupID string) *http.Cookie {
+	id := "org-admin-sess-" + time.Now().Format("150405.000000000")
+	groupsJSON, err := json.Marshal([]string{groupID})
+	Expect(err).NotTo(HaveOccurred())
+	_, err = st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
+		ID: id, UserOid: "user-" + id, Email: id + "@example.com", DisplayName: "Org Admin",
+		GroupIds:   groupsJSON,
+		IsAppAdmin: false,
+		ExpiresAt:  pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
+		Source:     "test",
+	})
+	Expect(err).NotTo(HaveOccurred())
+	return &http.Cookie{Name: "shepherd_session", Value: id}
+}

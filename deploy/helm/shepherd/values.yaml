@@ -84,18 +84,46 @@ config:
     # use_graph_groups: true
   auth:
     session_ttl: "8h"
+    #
+    # app_admin_group_ids: the groups whose members are APPLICATION ADMINS —
+    # full access everywhere, including the Admin -> Single sign-on page. This
+    # is the single most important auth value in the chart and it has no
+    # default: leave it empty and no one who signs in through your identity
+    # provider can administer anything.
+    #
+    # The values are matched against whatever your provider puts in the groups
+    # claim (oidc.groups_claim above), so their FORM depends on the provider:
+    #   - Microsoft Entra ID -> group object GUIDs
+    #   - Okta / Keycloak / Auth0 / authentik / OneLogin -> group names
+    #   - GitLab -> full paths, e.g. "acme/platform"
+    #   - AWS Cognito -> user-pool group names (claim is "cognito:groups")
+    # The same applies to each org's admin/reader group. Nothing here requires
+    # a GUID; only Entra happens to emit one.
+    #
+    # app_admin_group_ids:
+    #   - "11111111-2222-3333-4444-555555555555"   # Entra
+    #   - "platform-admins"                        # everyone else
     # -----------------------------------------------------------------------
     # Local Admin / Break-Glass Account (OPTIONAL — disabled by default)
+    #
+    # This is also the BOOTSTRAP PATH for single sign-on: when oidc.issuer is
+    # unset, an app admin configures the identity provider from the UI, and
+    # this account is how you sign in before one exists. Keep it enabled until
+    # an SSO login has been confirmed to grant app-admin rights.
+    #
     # WARNING: This is a break-glass account for emergency access and local
     # development. Enable deliberately. The password hash MUST come from a
     # Kubernetes Secret (via existingSecret or secrets), never a ConfigMap.
+    # Generate one with:  shepherd hash-password --password-stdin
     #
     # local_admin:
     #   enabled: true
-    #   allow_with_oidc: false       # set true to allow alongside OIDC
+    #   allow_with_oidc: false       # set true to allow alongside a CHART-configured OIDC
+    #                                # (this check reads oidc.issuer only — a provider
+    #                                #  configured through the UI does not trigger it)
     #   username: "admin"
     #   # password_hash: ""          # argon2id string — use SHEPHERD_AUTH_LOCAL_ADMIN_PASSWORD_HASH env
-    #   session_ttl: "1h"
+    #   session_ttl: "1h"            # must be >= 5m, or the server refuses to start
     # -----------------------------------------------------------------------
   graph:
     base_url: "https://graph.microsoft.com"
@@ -119,7 +147,7 @@ existingSecret: ""
 #     SHEPHERD_DATABASE_URL: "postgres://..."
 #     SHEPHERD_SECURITY_ENCRYPTION_KEY: "base64-32-bytes"
 #     SHEPHERD_AUTH_LOCAL_ADMIN_PASSWORD_HASH: "$argon2id$..."
-# NEVER put SHEPHERD_AUTH_LOCAL_ADMIN_PASSWORD_HASH in config.local_admin.password_hash above.
+# NEVER put SHEPHERD_AUTH_LOCAL_ADMIN_PASSWORD_HASH in config.auth.local_admin.password_hash above.
 secrets: {}
 
 migrations:

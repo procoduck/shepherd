@@ -11,6 +11,51 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
+## Unreleased
+
+### Fixed
+
+- **Audit entries for single sign-on were written where nobody could read them.**
+  Platform-level events carry no `org_id` (SSO configuration belongs to no org),
+  every caller of the audit query passes an org, and `org_id = $1` silently
+  excluded them — so the trail for repointing the identity provider, which the
+  code itself calls the highest-leverage write in the product, could only be
+  read with `psql`. App admins now see platform events folded into whichever
+  org they are viewing; an org admin's view is unchanged, because these are
+  platform decisions rather than anything about their org. Found by walking the
+  running app, not by a test: the tests asserted the row reached `audit_log`,
+  which is exactly the assertion that let this ship.
+
+### Documentation
+
+The v0.1.0 release updated `CHANGELOG.md` and the chart's `values.yaml` and left
+the README and the docs site describing the world before it.
+
+- **Single sign-on is now documented for users**, in the README and on the docs
+  site: the `oidc.issuer` rule that decides chart-vs-UI configuration, the
+  setup walkthrough, the break-glass bootstrap path, and — the part that most
+  often fails silently — that group values are matched as whatever the provider
+  emits, which is a GUID only for Entra.
+- **The quick start did not start the server.** `VAR=x ./bin/shepherd migrate up
+  && ./bin/shepherd serve` applies the environment prefix to the first command
+  only, so `serve` started with no configuration and exited on
+  `database.url is required`. It is the first command in the README and it was
+  wrong in all three places it appeared. Now uses `export`, and says why.
+- `shepherd token create` needs the encryption key as well as the database URL;
+  the documented invocation omitted it and could not run.
+- The Helm secret table presented four keys as required when only two are. The
+  two Entra-specific ones are now marked as situational — a deployment that
+  configures SSO from the UI must NOT set `SHEPHERD_OIDC_CLIENT_SECRET`, which
+  the old table told operators was mandatory.
+- `auth.app_admin_group_ids` was absent from `values.yaml` entirely. It is what
+  makes anyone an app admin, and therefore what makes the single sign-on page
+  reachable at all.
+- The encryption key must be persisted across restarts; nothing said so, and the
+  quick start generated a fresh one inline.
+- `site/index.html` still advertised v0.0.3 and installed the 0.0.3 image.
+- Teams are marked "RPC only, no UI" in the README roles table and on the
+  landing page, matching what the changelog already said.
+
 ## v0.1.0
 
 A feature release. Single sign-on can now be configured from the admin UI, and against providers

@@ -39,6 +39,7 @@
         <li><a href="#token">Create an agent token</a></li>
         <li><a href="#alloy">Connect an Alloy collector</a></li>
         <li><a href="#helm">Deploy with Helm</a></li>
+        <li><a href="#sso">Single sign-on</a></li>
         <li><a href="#sandbox">Sandbox simulation</a></li>
         <li><a href="#more">Where to go next</a></li>
       </ul>
@@ -63,11 +64,19 @@ docker run -d --name shepherd-pg \
   -e POSTGRES_DB=shepherd -e POSTGRES_USER=shepherd -e POSTGRES_PASSWORD=shepherd \
   -p 5432:5432 postgres:16-alpine
 
-# 2. Build &amp; run
+# 2. Build
 make build
-SHEPHERD_DATABASE_URL=postgres://shepherd:shepherd@localhost:5432/shepherd \
-SHEPHERD_SECURITY_ENCRYPTION_KEY=$(openssl rand -base64 32) \
-./bin/shepherd migrate up &amp;&amp; ./bin/shepherd serve</code></pre>
+
+# 3. Configure. Export rather than inline: a `VAR=x cmd1 &amp;&amp; cmd2` prefix applies
+#    to cmd1 only, so `serve` would start with no config and exit.
+#    KEEP THE ENCRYPTION KEY. It encrypts git credentials and the OIDC client
+#    secret at rest; a new key cannot decrypt what the old one wrote.
+export SHEPHERD_DATABASE_URL=postgres://shepherd:shepherd@localhost:5432/shepherd
+export SHEPHERD_SECURITY_ENCRYPTION_KEY=$(openssl rand -base64 32)
+
+# 4. Run
+./bin/shepherd migrate up
+./bin/shepherd serve</code></pre>
       </div>
       <p class="note">Prefer a full stack with a mock IdP, a git server, and live Alloy agents already talking to it? <code>make dev</code> boots that in Docker in about 10 seconds.</p>
 
@@ -75,8 +84,12 @@ SHEPHERD_SECURITY_ENCRYPTION_KEY=$(openssl rand -base64 32) \
       <p>Collectors authenticate to the <code>collector.v1</code> protocol with HTTP Basic auth. Mint a token once — the secret is shown exactly once.</p>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-        <pre><code>SHEPHERD_DATABASE_URL=postgres://shepherd:shepherd@localhost:5432/shepherd \
-  ./bin/shepherd token create --name dev</code></pre>
+        <pre><code># Needs BOTH required variables — `token create` loads the same config as
+# `serve` and exits on a missing encryption key.
+export SHEPHERD_DATABASE_URL=postgres://shepherd:shepherd@localhost:5432/shepherd
+export SHEPHERD_SECURITY_ENCRYPTION_KEY=...   # the same key you used above
+
+./bin/shepherd token create --name dev</code></pre>
       </div>
 
       <h2 id="alloy">Connect an Alloy collector</h2>
@@ -113,17 +126,70 @@ SHEPHERD_SECURITY_ENCRYPTION_KEY=$(openssl rand -base64 32) \
   --set "route.enabled=true" \
   --set "route.hostnames[0]=shepherd.internal"</code></pre>
       </div>
-      <p>The chart requires a Kubernetes secret (<code>shepherd-secrets</code> by default, or override <code>existingSecret</code>) with:</p>
+      <p>
+        The chart reads a Kubernetes secret (<code>shepherd-secrets</code> by default, or override
+        <code>existingSecret</code>). Only the first two keys are required &mdash; the server refuses to
+        start without them. The rest are needed only for the setups described.
+      </p>
       <table>
-        <thead><tr><th>Key</th><th>Description</th></tr></thead>
+        <thead><tr><th>Key</th><th>Required?</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td><code>SHEPHERD_DATABASE_URL</code></td><td>PostgreSQL connection string</td></tr>
-          <tr><td><code>SHEPHERD_OIDC_CLIENT_SECRET</code></td><td>OIDC app client secret</td></tr>
-          <tr><td><code>SHEPHERD_GRAPH_CLIENT_SECRET</code></td><td>Microsoft Graph service principal secret (group resolution)</td></tr>
-          <tr><td><code>SHEPHERD_SECURITY_ENCRYPTION_KEY</code></td><td>Base64-encoded 32-byte key for encrypting stored credentials at rest</td></tr>
+          <tr><td><code>SHEPHERD_DATABASE_URL</code></td><td><strong>Yes</strong></td><td>PostgreSQL connection string</td></tr>
+          <tr><td><code>SHEPHERD_SECURITY_ENCRYPTION_KEY</code></td><td><strong>Yes</strong></td><td>Base64-encoded 32-byte key encrypting stored credentials at rest. <strong>Keep it</strong> &mdash; a replacement key cannot decrypt what the old one wrote</td></tr>
+          <tr><td><code>SHEPHERD_AUTH_LOCAL_ADMIN_PASSWORD_HASH</code></td><td>For break-glass</td><td>argon2id hash from <code>shepherd hash-password</code>. This is how you sign in before SSO exists &mdash; see <a href="#sso">Single sign-on</a></td></tr>
+          <tr><td><code>SHEPHERD_OIDC_CLIENT_SECRET</code></td><td>Chart-configured SSO only</td><td>Omit it to configure SSO from the UI instead</td></tr>
+          <tr><td><code>SHEPHERD_GRAPH_CLIENT_SECRET</code></td><td>Entra + Graph lookup only</td><td>Not used by any other provider</td></tr>
         </tbody>
       </table>
       <p>See <a href="https://github.com/procoduck/sheperd/blob/main/deploy/helm/shepherd/values.yaml">deploy/helm/shepherd/values.yaml</a> for the full set of options, including <code>networkPolicy</code>, <code>autoscaling</code>, and the optional break-glass local admin account.</p>
+
+      <h2 id="sso">Single sign-on</h2>
+      <p>
+        Shepherd authenticates humans through OIDC against <strong>any spec-compliant provider</strong>.
+        There are built-in presets for Microsoft Entra ID, Okta, Google, Auth0, Keycloak, AWS Cognito,
+        GitLab, authentik and OneLogin, plus a generic option for anything else.
+      </p>
+      <p>One setting decides where that configuration comes from: <code>oidc.issuer</code>.</p>
+      <table>
+        <thead><tr><th><code>oidc.issuer</code> in your values</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td>Set</td><td>The chart owns SSO. The admin UI shows it read-only and refuses writes &mdash; a cluster whose identity provider is declared in git is not re-pointed from a browser session</td></tr>
+          <tr><td>Not set</td><td>An app admin configures a provider at <strong>Admin &rarr; Single sign-on</strong>. It is stored encrypted in the database and takes effect <strong>without a restart</strong></td></tr>
+        </tbody>
+      </table>
+      <p>To set it up from the UI:</p>
+      <ol>
+        <li>
+          <strong>Get in first.</strong> Before SSO exists there is nobody to sign in as, so enable the
+          break-glass local admin. Its session TTL must be at least <code>5m</code>.
+          <div class="code-block" data-lang="shell">
+            <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+            <pre><code>printf 'choose-a-password' | ./bin/shepherd hash-password --password-stdin
+# put the resulting $argon2id$... string in SHEPHERD_AUTH_LOCAL_ADMIN_PASSWORD_HASH,
+# and set config.auth.local_admin.enabled=true</code></pre>
+          </div>
+        </li>
+        <li>Sign in, then open <strong>Admin &rarr; Single sign-on</strong>.</li>
+        <li>
+          Pick your provider. The preset fills in claim names and scopes, and tells you what you must
+          configure <em>in the IdP</em> for group membership to arrive &mdash; the most common way to get
+          this wrong, because it fails as a silently empty group list rather than an error.
+        </li>
+        <li>Register the shown redirect URL with your provider. Its path must be exactly <code>/auth/callback</code>.</li>
+        <li>
+          <strong>Test connection</strong> before enabling. It runs OIDC discovery and reports the issuer
+          and endpoints it found. It checks the issuer only &mdash; your client ID, secret and redirect URL
+          are not exercised until someone actually signs in.
+        </li>
+        <li>Fill in <strong>App admin groups</strong>, then enable. Leave it empty and nobody can administer Shepherd through SSO.</li>
+      </ol>
+      <p class="note">
+        <strong>Groups decide access.</strong> Whatever your provider puts in the groups claim is matched
+        against <code>auth.app_admin_group_ids</code> and each org's admin/reader group. For Entra those are
+        object GUIDs; for every other provider they are whatever your IdP emits &mdash; usually a group name
+        or a path like <code>acme/platform</code>. Keep the break-glass account enabled until you have
+        confirmed an SSO sign-in lands you with app-admin rights.
+      </p>
 
       <h2 id="sandbox">Sandbox simulation</h2>
       <p>

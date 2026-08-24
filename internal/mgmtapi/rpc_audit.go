@@ -9,6 +9,7 @@ import (
 
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
+	"shepherd/internal/auth"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 )
@@ -45,6 +46,15 @@ const (
 func (s *AuditService) ListAudit(ctx context.Context, req *connect.Request[mgmtv1.ListAuditRequest]) (*connect.Response[mgmtv1.ListAuditResponse], error) {
 	orgID, _ := parseUUID(req.Msg.GetOrgId()) // invalid/empty org id resolves to NULL, matching legacy orgIDFromParam
 
+	// Platform-level entries (NULL org_id) belong to no org, so an org-scoped
+	// query excludes them. Single sign-on configuration is the first such
+	// event, and it was being written where nobody could read it. App admins
+	// get them folded into whichever org they are looking at; an org admin's
+	// view is unchanged, because these are platform decisions rather than
+	// anything about their org.
+	sess := auth.SessionFromCtx(ctx)
+	includeGlobal := sess != nil && sess.IsAppAdmin
+
 	limit := req.Msg.GetLimit()
 	if limit <= 0 || limit > maxAuditLimit {
 		limit = defaultAuditLimit
@@ -63,6 +73,7 @@ func (s *AuditService) ListAudit(ctx context.Context, req *connect.Request[mgmtv
 		Column3: action,
 		Limit:   limit,
 		Offset:  offset,
+		Column6: includeGlobal,
 	})
 	if err != nil {
 		s.logger.Error("list audit log", "err", err)
@@ -73,6 +84,7 @@ func (s *AuditService) ListAudit(ctx context.Context, req *connect.Request[mgmtv
 		Column1: orgID,
 		Column2: actor,
 		Column3: action,
+		Column4: includeGlobal,
 	})
 
 	items := make([]*mgmtv1.AuditEntry, len(rows))
