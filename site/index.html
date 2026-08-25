@@ -33,7 +33,7 @@
 
 <header class="hero" id="top">
   <div class="wrap">
-    <span class="eyebrow"><span class="dot"></span> v0.0.3 · self-hosted · single binary</span>
+    <span class="eyebrow"><span class="dot"></span> v0.1.0 · self-hosted · single binary</span>
     <h1>Run a fleet of Grafana Alloy collectors from one place.</h1>
     <p class="lede">
       Shepherd is a self-hosted fleet manager for Grafana Alloy. Build pipelines visually or in Git,
@@ -150,7 +150,7 @@
         <h3>RBAC, orgs, and an audit log</h3>
         <p>
           Multi-tenant by design: application admins manage orgs and set each one&rsquo;s tenant
-          identity, org admins manage their own collectors and pipelines, teams get scoped write,
+          identity, org admins manage their own collectors and pipelines, teams get scoped write (API only so far),
           and readers get view-only access. Every mutating action is written to the audit log.
         </p>
         <span class="tag">org-scoped roles</span>
@@ -331,7 +331,7 @@
             <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
             <pre><code>helm install shepherd deploy/helm/shepherd \
   --set image.registry=ghcr.io/procoduck \
-  --set image.tag=0.0.3 \
+  --set image.tag=0.1.0 \
   --set existingSecret=shepherd-secrets \
   --set "route.enabled=true" \
   --set "route.hostnames[0]=shepherd.internal"</code></pre>
@@ -374,9 +374,14 @@
   -p 5432:5432 postgres:16-alpine
 
 make build
-SHEPHERD_DATABASE_URL=postgres://shepherd:shepherd@localhost:5432/shepherd \
-SHEPHERD_SECURITY_ENCRYPTION_KEY=$(openssl rand -base64 32) \
-  ./bin/shepherd migrate up && ./bin/shepherd serve</code></pre>
+
+# Export, don't inline: a `VAR=x cmd1 &amp;&amp; cmd2` prefix applies to cmd1 only.
+# Keep the encryption key — a new one cannot decrypt what the old one stored.
+export SHEPHERD_DATABASE_URL=postgres://shepherd:shepherd@localhost:5432/shepherd
+export SHEPHERD_SECURITY_ENCRYPTION_KEY=$(openssl rand -base64 32)
+
+./bin/shepherd migrate up
+./bin/shepherd serve</code></pre>
           </div>
           <p class="note">See <a href="docs/getting-started.html">the full getting-started guide</a> for token creation, the dev stack, and the sandbox off-switch.</p>
         </div>
@@ -405,7 +410,7 @@ SHEPHERD_SECURITY_ENCRYPTION_KEY=$(openssl rand -base64 32) \
         </svg>
         Shepherd
       </span>
-      <span class="pill">v0.0.3</span>
+      <span class="pill">v0.1.0</span>
       <span>self-hosted Grafana Alloy fleet manager</span>
     </div>
     <div class="foot-links">
