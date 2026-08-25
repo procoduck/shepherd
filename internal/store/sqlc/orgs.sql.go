@@ -12,9 +12,9 @@ import (
 )
 
 const createOrg = `-- name: CreateOrg :one
-INSERT INTO orgs (name, display_name, admin_group_id, reader_group_id, tenant_id)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, name, display_name, admin_group_id, reader_group_id, created_at, updated_at, tenant_id
+INSERT INTO orgs (name, display_name, admin_group_id, reader_group_id, editor_group_id, tenant_id)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, name, display_name, admin_group_id, reader_group_id, created_at, updated_at, tenant_id, editor_group_id
 `
 
 type CreateOrgParams struct {
@@ -22,6 +22,7 @@ type CreateOrgParams struct {
 	DisplayName   string      `json:"display_name"`
 	AdminGroupID  string      `json:"admin_group_id"`
 	ReaderGroupID pgtype.Text `json:"reader_group_id"`
+	EditorGroupID pgtype.Text `json:"editor_group_id"`
 	TenantID      pgtype.Text `json:"tenant_id"`
 }
 
@@ -31,6 +32,7 @@ func (q *Queries) CreateOrg(ctx context.Context, arg CreateOrgParams) (Org, erro
 		arg.DisplayName,
 		arg.AdminGroupID,
 		arg.ReaderGroupID,
+		arg.EditorGroupID,
 		arg.TenantID,
 	)
 	var i Org
@@ -43,6 +45,7 @@ func (q *Queries) CreateOrg(ctx context.Context, arg CreateOrgParams) (Org, erro
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.TenantID,
+		&i.EditorGroupID,
 	)
 	return i, err
 }
@@ -57,7 +60,7 @@ func (q *Queries) DeleteOrg(ctx context.Context, id pgtype.UUID) error {
 }
 
 const getOrgByID = `-- name: GetOrgByID :one
-SELECT id, name, display_name, admin_group_id, reader_group_id, created_at, updated_at, tenant_id FROM orgs WHERE id = $1
+SELECT id, name, display_name, admin_group_id, reader_group_id, created_at, updated_at, tenant_id, editor_group_id FROM orgs WHERE id = $1
 `
 
 func (q *Queries) GetOrgByID(ctx context.Context, id pgtype.UUID) (Org, error) {
@@ -72,12 +75,13 @@ func (q *Queries) GetOrgByID(ctx context.Context, id pgtype.UUID) (Org, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.TenantID,
+		&i.EditorGroupID,
 	)
 	return i, err
 }
 
 const listOrgs = `-- name: ListOrgs :many
-SELECT id, name, display_name, admin_group_id, reader_group_id, created_at, updated_at, tenant_id FROM orgs ORDER BY name
+SELECT id, name, display_name, admin_group_id, reader_group_id, created_at, updated_at, tenant_id, editor_group_id FROM orgs ORDER BY name
 `
 
 func (q *Queries) ListOrgs(ctx context.Context) ([]Org, error) {
@@ -98,6 +102,7 @@ func (q *Queries) ListOrgs(ctx context.Context) ([]Org, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.TenantID,
+			&i.EditorGroupID,
 		); err != nil {
 			return nil, err
 		}
@@ -115,7 +120,7 @@ SET tenant_id  = $2,
     updated_at = now()
 WHERE id = $1
   AND tenant_id IS NULL
-RETURNING id, name, display_name, admin_group_id, reader_group_id, created_at, updated_at, tenant_id
+RETURNING id, name, display_name, admin_group_id, reader_group_id, created_at, updated_at, tenant_id, editor_group_id
 `
 
 type SetOrgTenantIDParams struct {
@@ -141,6 +146,7 @@ func (q *Queries) SetOrgTenantID(ctx context.Context, arg SetOrgTenantIDParams) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.TenantID,
+		&i.EditorGroupID,
 	)
 	return i, err
 }
@@ -150,9 +156,10 @@ UPDATE orgs
 SET display_name    = $2,
     admin_group_id  = $3,
     reader_group_id = $4,
+    editor_group_id = $5,
     updated_at      = now()
 WHERE id = $1
-RETURNING id, name, display_name, admin_group_id, reader_group_id, created_at, updated_at, tenant_id
+RETURNING id, name, display_name, admin_group_id, reader_group_id, created_at, updated_at, tenant_id, editor_group_id
 `
 
 type UpdateOrgParams struct {
@@ -160,6 +167,7 @@ type UpdateOrgParams struct {
 	DisplayName   string      `json:"display_name"`
 	AdminGroupID  string      `json:"admin_group_id"`
 	ReaderGroupID pgtype.Text `json:"reader_group_id"`
+	EditorGroupID pgtype.Text `json:"editor_group_id"`
 }
 
 func (q *Queries) UpdateOrg(ctx context.Context, arg UpdateOrgParams) (Org, error) {
@@ -168,6 +176,7 @@ func (q *Queries) UpdateOrg(ctx context.Context, arg UpdateOrgParams) (Org, erro
 		arg.DisplayName,
 		arg.AdminGroupID,
 		arg.ReaderGroupID,
+		arg.EditorGroupID,
 	)
 	var i Org
 	err := row.Scan(
@@ -179,6 +188,7 @@ func (q *Queries) UpdateOrg(ctx context.Context, arg UpdateOrgParams) (Org, erro
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.TenantID,
+		&i.EditorGroupID,
 	)
 	return i, err
 }

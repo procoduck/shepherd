@@ -39,6 +39,15 @@ const (
 	TeamServiceCreateTeamProcedure = "/shepherd.mgmt.v1.TeamService/CreateTeam"
 	// TeamServiceDeleteTeamProcedure is the fully-qualified name of the TeamService's DeleteTeam RPC.
 	TeamServiceDeleteTeamProcedure = "/shepherd.mgmt.v1.TeamService/DeleteTeam"
+	// TeamServiceListTeamMembersProcedure is the fully-qualified name of the TeamService's
+	// ListTeamMembers RPC.
+	TeamServiceListTeamMembersProcedure = "/shepherd.mgmt.v1.TeamService/ListTeamMembers"
+	// TeamServiceAddTeamMemberProcedure is the fully-qualified name of the TeamService's AddTeamMember
+	// RPC.
+	TeamServiceAddTeamMemberProcedure = "/shepherd.mgmt.v1.TeamService/AddTeamMember"
+	// TeamServiceRemoveTeamMemberProcedure is the fully-qualified name of the TeamService's
+	// RemoveTeamMember RPC.
+	TeamServiceRemoveTeamMemberProcedure = "/shepherd.mgmt.v1.TeamService/RemoveTeamMember"
 )
 
 // TeamServiceClient is a client for the shepherd.mgmt.v1.TeamService service.
@@ -46,6 +55,13 @@ type TeamServiceClient interface {
 	ListTeams(context.Context, *connect.Request[v1.ListTeamsRequest]) (*connect.Response[v1.ListTeamsResponse], error)
 	CreateTeam(context.Context, *connect.Request[v1.CreateTeamRequest]) (*connect.Response[v1.Team], error)
 	DeleteTeam(context.Context, *connect.Request[v1.DeleteTeamRequest]) (*connect.Response[v1.DeleteTeamResponse], error)
+	// Explicit members only. Members who belong via idp_group_id are not
+	// listed and cannot be: they exist only as a claim inside a session, so
+	// there is no roster to read — the honest answer is the group's name,
+	// which Team.idp_group_id already carries.
+	ListTeamMembers(context.Context, *connect.Request[v1.ListTeamMembersRequest]) (*connect.Response[v1.ListTeamMembersResponse], error)
+	AddTeamMember(context.Context, *connect.Request[v1.AddTeamMemberRequest]) (*connect.Response[v1.AddTeamMemberResponse], error)
+	RemoveTeamMember(context.Context, *connect.Request[v1.RemoveTeamMemberRequest]) (*connect.Response[v1.RemoveTeamMemberResponse], error)
 }
 
 // NewTeamServiceClient constructs a client for the shepherd.mgmt.v1.TeamService service. By
@@ -77,14 +93,35 @@ func NewTeamServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(teamServiceMethods.ByName("DeleteTeam")),
 			connect.WithClientOptions(opts...),
 		),
+		listTeamMembers: connect.NewClient[v1.ListTeamMembersRequest, v1.ListTeamMembersResponse](
+			httpClient,
+			baseURL+TeamServiceListTeamMembersProcedure,
+			connect.WithSchema(teamServiceMethods.ByName("ListTeamMembers")),
+			connect.WithClientOptions(opts...),
+		),
+		addTeamMember: connect.NewClient[v1.AddTeamMemberRequest, v1.AddTeamMemberResponse](
+			httpClient,
+			baseURL+TeamServiceAddTeamMemberProcedure,
+			connect.WithSchema(teamServiceMethods.ByName("AddTeamMember")),
+			connect.WithClientOptions(opts...),
+		),
+		removeTeamMember: connect.NewClient[v1.RemoveTeamMemberRequest, v1.RemoveTeamMemberResponse](
+			httpClient,
+			baseURL+TeamServiceRemoveTeamMemberProcedure,
+			connect.WithSchema(teamServiceMethods.ByName("RemoveTeamMember")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // teamServiceClient implements TeamServiceClient.
 type teamServiceClient struct {
-	listTeams  *connect.Client[v1.ListTeamsRequest, v1.ListTeamsResponse]
-	createTeam *connect.Client[v1.CreateTeamRequest, v1.Team]
-	deleteTeam *connect.Client[v1.DeleteTeamRequest, v1.DeleteTeamResponse]
+	listTeams        *connect.Client[v1.ListTeamsRequest, v1.ListTeamsResponse]
+	createTeam       *connect.Client[v1.CreateTeamRequest, v1.Team]
+	deleteTeam       *connect.Client[v1.DeleteTeamRequest, v1.DeleteTeamResponse]
+	listTeamMembers  *connect.Client[v1.ListTeamMembersRequest, v1.ListTeamMembersResponse]
+	addTeamMember    *connect.Client[v1.AddTeamMemberRequest, v1.AddTeamMemberResponse]
+	removeTeamMember *connect.Client[v1.RemoveTeamMemberRequest, v1.RemoveTeamMemberResponse]
 }
 
 // ListTeams calls shepherd.mgmt.v1.TeamService.ListTeams.
@@ -102,11 +139,33 @@ func (c *teamServiceClient) DeleteTeam(ctx context.Context, req *connect.Request
 	return c.deleteTeam.CallUnary(ctx, req)
 }
 
+// ListTeamMembers calls shepherd.mgmt.v1.TeamService.ListTeamMembers.
+func (c *teamServiceClient) ListTeamMembers(ctx context.Context, req *connect.Request[v1.ListTeamMembersRequest]) (*connect.Response[v1.ListTeamMembersResponse], error) {
+	return c.listTeamMembers.CallUnary(ctx, req)
+}
+
+// AddTeamMember calls shepherd.mgmt.v1.TeamService.AddTeamMember.
+func (c *teamServiceClient) AddTeamMember(ctx context.Context, req *connect.Request[v1.AddTeamMemberRequest]) (*connect.Response[v1.AddTeamMemberResponse], error) {
+	return c.addTeamMember.CallUnary(ctx, req)
+}
+
+// RemoveTeamMember calls shepherd.mgmt.v1.TeamService.RemoveTeamMember.
+func (c *teamServiceClient) RemoveTeamMember(ctx context.Context, req *connect.Request[v1.RemoveTeamMemberRequest]) (*connect.Response[v1.RemoveTeamMemberResponse], error) {
+	return c.removeTeamMember.CallUnary(ctx, req)
+}
+
 // TeamServiceHandler is an implementation of the shepherd.mgmt.v1.TeamService service.
 type TeamServiceHandler interface {
 	ListTeams(context.Context, *connect.Request[v1.ListTeamsRequest]) (*connect.Response[v1.ListTeamsResponse], error)
 	CreateTeam(context.Context, *connect.Request[v1.CreateTeamRequest]) (*connect.Response[v1.Team], error)
 	DeleteTeam(context.Context, *connect.Request[v1.DeleteTeamRequest]) (*connect.Response[v1.DeleteTeamResponse], error)
+	// Explicit members only. Members who belong via idp_group_id are not
+	// listed and cannot be: they exist only as a claim inside a session, so
+	// there is no roster to read — the honest answer is the group's name,
+	// which Team.idp_group_id already carries.
+	ListTeamMembers(context.Context, *connect.Request[v1.ListTeamMembersRequest]) (*connect.Response[v1.ListTeamMembersResponse], error)
+	AddTeamMember(context.Context, *connect.Request[v1.AddTeamMemberRequest]) (*connect.Response[v1.AddTeamMemberResponse], error)
+	RemoveTeamMember(context.Context, *connect.Request[v1.RemoveTeamMemberRequest]) (*connect.Response[v1.RemoveTeamMemberResponse], error)
 }
 
 // NewTeamServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -134,6 +193,24 @@ func NewTeamServiceHandler(svc TeamServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(teamServiceMethods.ByName("DeleteTeam")),
 		connect.WithHandlerOptions(opts...),
 	)
+	teamServiceListTeamMembersHandler := connect.NewUnaryHandler(
+		TeamServiceListTeamMembersProcedure,
+		svc.ListTeamMembers,
+		connect.WithSchema(teamServiceMethods.ByName("ListTeamMembers")),
+		connect.WithHandlerOptions(opts...),
+	)
+	teamServiceAddTeamMemberHandler := connect.NewUnaryHandler(
+		TeamServiceAddTeamMemberProcedure,
+		svc.AddTeamMember,
+		connect.WithSchema(teamServiceMethods.ByName("AddTeamMember")),
+		connect.WithHandlerOptions(opts...),
+	)
+	teamServiceRemoveTeamMemberHandler := connect.NewUnaryHandler(
+		TeamServiceRemoveTeamMemberProcedure,
+		svc.RemoveTeamMember,
+		connect.WithSchema(teamServiceMethods.ByName("RemoveTeamMember")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/shepherd.mgmt.v1.TeamService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case TeamServiceListTeamsProcedure:
@@ -142,6 +219,12 @@ func NewTeamServiceHandler(svc TeamServiceHandler, opts ...connect.HandlerOption
 			teamServiceCreateTeamHandler.ServeHTTP(w, r)
 		case TeamServiceDeleteTeamProcedure:
 			teamServiceDeleteTeamHandler.ServeHTTP(w, r)
+		case TeamServiceListTeamMembersProcedure:
+			teamServiceListTeamMembersHandler.ServeHTTP(w, r)
+		case TeamServiceAddTeamMemberProcedure:
+			teamServiceAddTeamMemberHandler.ServeHTTP(w, r)
+		case TeamServiceRemoveTeamMemberProcedure:
+			teamServiceRemoveTeamMemberHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -161,4 +244,16 @@ func (UnimplementedTeamServiceHandler) CreateTeam(context.Context, *connect.Requ
 
 func (UnimplementedTeamServiceHandler) DeleteTeam(context.Context, *connect.Request[v1.DeleteTeamRequest]) (*connect.Response[v1.DeleteTeamResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.TeamService.DeleteTeam is not implemented"))
+}
+
+func (UnimplementedTeamServiceHandler) ListTeamMembers(context.Context, *connect.Request[v1.ListTeamMembersRequest]) (*connect.Response[v1.ListTeamMembersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.TeamService.ListTeamMembers is not implemented"))
+}
+
+func (UnimplementedTeamServiceHandler) AddTeamMember(context.Context, *connect.Request[v1.AddTeamMemberRequest]) (*connect.Response[v1.AddTeamMemberResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.TeamService.AddTeamMember is not implemented"))
+}
+
+func (UnimplementedTeamServiceHandler) RemoveTeamMember(context.Context, *connect.Request[v1.RemoveTeamMemberRequest]) (*connect.Response[v1.RemoveTeamMemberResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.TeamService.RemoveTeamMember is not implemented"))
 }

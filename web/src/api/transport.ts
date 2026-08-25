@@ -25,6 +25,8 @@ import { GitOpsService } from '@/gen/shepherd/mgmt/v1/gitops_pb';
 import { MeService } from '@/gen/shepherd/mgmt/v1/me_pb';
 import { PipelineService } from '@/gen/shepherd/mgmt/v1/pipeline_pb';
 import { SimulateService } from '@/gen/shepherd/mgmt/v1/simulate_pb';
+import { TeamService } from '@/gen/shepherd/mgmt/v1/team_pb';
+import { UserService } from '@/gen/shepherd/mgmt/v1/user_pb';
 import { VisualService } from '@/gen/shepherd/mgmt/v1/visual_pb';
 import { WizardService } from '@/gen/shepherd/mgmt/v1/wizard_pb';
 import type { ApiError } from './client';
@@ -61,6 +63,7 @@ function connectCodeName(code: Code): string {
 export const clients = {
   me: createClient(MeService, transport),
   admin: createClient(AdminService, transport),
+  user: createClient(UserService, transport),
   fleet: createClient(FleetService, transport),
   pipeline: createClient(PipelineService, transport),
   destination: createClient(DestinationService, transport),
@@ -68,5 +71,6 @@ export const clients = {
   wizard: createClient(WizardService, transport),
   visual: createClient(VisualService, transport),
   simulate: createClient(SimulateService, transport),
+  team: createClient(TeamService, transport),
   audit: createClient(AuditService, transport),
 } satisfies Record<string, Client<DescService>>;

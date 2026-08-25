@@ -44,6 +44,7 @@
         <li><a href="#roles">Who can do what</a></li>
         <li><a href="#gitops">GitOps from a repository</a></li>
         <li><a href="#sso">Single sign-on</a></li>
+        <li><a href="#people">Users, roles and teams</a></li>
         <li><a href="#sandbox">Sandbox simulation</a></li>
         <li><a href="#more">Where to go next</a></li>
       </ul>
@@ -181,12 +182,12 @@ export SHEPHERD_SECURITY_ENCRYPTION_KEY=...   # the same key you used above
         <tbody>
           <tr><td><code>SHEPHERD_DATABASE_URL</code></td><td><strong>Yes</strong></td><td>PostgreSQL connection string</td></tr>
           <tr><td><code>SHEPHERD_SECURITY_ENCRYPTION_KEY</code></td><td><strong>Yes</strong></td><td>Base64-encoded 32-byte key encrypting stored credentials at rest. <strong>Keep it</strong> &mdash; a replacement key cannot decrypt what the old one wrote</td></tr>
-          <tr><td><code>SHEPHERD_AUTH_LOCAL_ADMIN_PASSWORD_HASH</code></td><td>For break-glass</td><td>argon2id hash from <code>shepherd hash-password</code>. This is how you sign in before SSO exists &mdash; see <a href="#sso">Single sign-on</a></td></tr>
+          <tr><td><code>SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD</code></td><td>Recommended</td><td>Password for the administrator created on first boot. Read only while the users table is empty. Leave it unset and the account is created as <code>admin</code>/<code>admin</code>, which can do nothing until the password is changed</td></tr>
           <tr><td><code>SHEPHERD_OIDC_CLIENT_SECRET</code></td><td>Chart-configured SSO only</td><td>Omit it to configure SSO from the UI instead</td></tr>
           <tr><td><code>SHEPHERD_GRAPH_CLIENT_SECRET</code></td><td>Entra + Graph lookup only</td><td>Not used by any other provider</td></tr>
         </tbody>
       </table>
-      <p>See <a href="https://github.com/procoduck/shepherd/blob/main/deploy/helm/shepherd/values.yaml">deploy/helm/shepherd/values.yaml</a> for the full set of options, including <code>networkPolicy</code>, <code>autoscaling</code>, and the optional break-glass local admin account.</p>
+      <p>See <a href="https://github.com/procoduck/shepherd/blob/main/deploy/helm/shepherd/values.yaml">deploy/helm/shepherd/values.yaml</a> for the full set of options, including <code>networkPolicy</code>, <code>autoscaling</code>, and local user seeding.</p>
 
       <h2 id="pipeline">Build your first pipeline</h2>
       <p>
@@ -338,14 +339,9 @@ export SHEPHERD_SECURITY_ENCRYPTION_KEY=...   # the same key you used above
       <p>To set it up from the UI:</p>
       <ol>
         <li>
-          <strong>Get in first.</strong> Before SSO exists there is nobody to sign in as, so enable the
-          break-glass local admin. Its session TTL must be at least <code>5m</code>.
-          <div class="code-block" data-lang="shell">
-            <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-            <pre><code>printf 'choose-a-password' | ./bin/shepherd hash-password --password-stdin
-# put the resulting $argon2id$... string in SHEPHERD_AUTH_LOCAL_ADMIN_PASSWORD_HASH,
-# and set config.auth.local_admin.enabled=true</code></pre>
-          </div>
+          <strong>Get in first.</strong> Sign in as the administrator created on first boot, or as any
+          local user with app-admin rights. Local accounts and SSO coexist &mdash; configuring an
+          identity provider does not disable them.
         </li>
         <li>Sign in, then open <strong>Admin &rarr; Single sign-on</strong>.</li>
         <li>
@@ -363,10 +359,50 @@ export SHEPHERD_SECURITY_ENCRYPTION_KEY=...   # the same key you used above
       </ol>
       <p class="note">
         <strong>Groups decide access.</strong> Whatever your provider puts in the groups claim is matched
-        against <code>auth.app_admin_group_ids</code> and each org's admin/reader group. For Entra those are
+        against <code>auth.app_admin_group_ids</code> and each org's admin/editor/reader group. For Entra those are
         object GUIDs; for every other provider they are whatever your IdP emits &mdash; usually a group name
-        or a path like <code>acme/platform</code>. Keep the break-glass account enabled until you have
-        confirmed an SSO sign-in lands you with app-admin rights.
+        or a path like <code>acme/platform</code>. Keep at least one local administrator until you have
+        confirmed an SSO sign-in lands you with app-admin rights &mdash; local accounts are not a
+        fallback mode, they are a supported way to run Shepherd alongside SSO or instead of it.
+      </p>
+
+      <h2 id="people">Users, roles and teams</h2>
+      <p>
+        A person&rsquo;s role reaches Shepherd two ways, and they coexist. Either your identity provider
+        puts them in a group Shepherd knows about, or an application administrator gives them a local
+        account at <strong>Admin &rarr; Users</strong> and a role in an organisation. Neither is a
+        fallback for the other: you can run entirely on SSO, entirely on local accounts, or mix them.
+      </p>
+      <table>
+        <thead><tr><th>Role</th><th>Can</th></tr></thead>
+        <tbody>
+          <tr><td>Application administrator</td><td>Everything, everywhere: create organisations and set each one&rsquo;s tenant identity, claim clusters, issue agent tokens, manage local users</td></tr>
+          <tr><td>Organisation administrator</td><td>Everything within one organisation, including what it <em>is</em> &mdash; destinations, tenant routes, git credentials, teams, service accounts</td></tr>
+          <tr><td>Organisation editor</td><td>Authors what the organisation <em>runs</em> &mdash; pipelines, wizards, the visual builder, simulations &mdash; but cannot change where its telemetry ships</td></tr>
+          <tr><td>Team member</td><td>Writes only the pipelines their team owns</td></tr>
+          <tr><td>Viewer</td><td>Read-only</td></tr>
+        </tbody>
+      </table>
+      <p>
+        For SSO, each organisation names an admin, editor and reader group at
+        <strong>Admin &rarr; Orgs</strong>; whatever your provider emits in the groups claim is matched
+        against them. For local accounts, the role is chosen per organisation when you create the user.
+      </p>
+      <h3>Teams and who may edit a pipeline</h3>
+      <p>
+        A pipeline with no owning team can be edited only by an organisation administrator or editor.
+        Give it an owning team and that team&rsquo;s members can edit it too, without any wider access.
+        A team draws its members from an identity provider group, from an explicit list of local users,
+        or from both &mdash; the <strong>Teams</strong> page shows which. A group-backed team shows no
+        roster on purpose: that membership lives in your provider, not in Shepherd, so there is nothing
+        for Shepherd to list.
+      </p>
+      <p class="note">
+        <strong>The first administrator.</strong> On first boot, while the users table is empty,
+        Shepherd creates an administrator from <code>SHEPHERD_BOOTSTRAP_ADMIN_LOGIN</code> and
+        <code>SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD</code>. Leave the password unset and you get
+        <code>admin</code>/<code>admin</code>, which can do nothing at all until the password is
+        changed. Everything else is managed from the UI afterwards.
       </p>
 
       <p><img src="../img/single-sign-on.jpg" alt="Admin, Single sign-on: provider picker, issuer, client ID and secret, and the redirect URL Shepherd serves the callback on" loading="lazy"></p>

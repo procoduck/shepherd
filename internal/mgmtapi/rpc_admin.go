@@ -68,6 +68,7 @@ func toOrgProto(o sqlc.Org) *mgmtv1.Org {
 		DisplayName:   o.DisplayName,
 		AdminGroupId:  o.AdminGroupID,
 		ReaderGroupId: o.ReaderGroupID.String,
+		EditorGroupId: o.EditorGroupID.String,
 		CreatedAt:     protoTimestamp(o.CreatedAt),
 		UpdatedAt:     protoTimestamp(o.UpdatedAt),
 		TenantId:      o.TenantID.String,
@@ -134,6 +135,7 @@ func (s *AdminService) CreateOrg(ctx context.Context, req *connect.Request[mgmtv
 		DisplayName:   msg.GetDisplayName(),
 		AdminGroupID:  msg.GetAdminGroupId(),
 		ReaderGroupID: pgtype.Text{String: msg.GetReaderGroupId(), Valid: msg.GetReaderGroupId() != ""},
+		EditorGroupID: pgtype.Text{String: msg.GetEditorGroupId(), Valid: msg.GetEditorGroupId() != ""},
 		TenantID:      pgtype.Text{String: tenantID, Valid: tenantID != ""},
 	})
 	if err != nil {
@@ -220,6 +222,7 @@ func (s *AdminService) UpdateOrg(ctx context.Context, req *connect.Request[mgmtv
 		DisplayName:   msg.GetDisplayName(),
 		AdminGroupID:  msg.GetAdminGroupId(),
 		ReaderGroupID: pgtype.Text{String: msg.GetReaderGroupId(), Valid: msg.GetReaderGroupId() != ""},
+		EditorGroupID: pgtype.Text{String: msg.GetEditorGroupId(), Valid: msg.GetEditorGroupId() != ""},
 	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to update org"))

@@ -11,6 +11,56 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const addTeamMember = `-- name: AddTeamMember :exec
+INSERT INTO team_members (team_id, user_id)
+VALUES ($1, $2)
+ON CONFLICT (team_id, user_id) DO NOTHING
+`
+
+type AddTeamMemberParams struct {
+	TeamID pgtype.UUID `json:"team_id"`
+	UserID pgtype.UUID `json:"user_id"`
+}
+
+func (q *Queries) AddTeamMember(ctx context.Context, arg AddTeamMemberParams) error {
+	_, err := q.db.Exec(ctx, addTeamMember, arg.TeamID, arg.UserID)
+	return err
+}
+
+const countTeamMembersByTeam = `-- name: CountTeamMembersByTeam :many
+SELECT team_id, count(*)::bigint AS member_count
+FROM team_members
+WHERE team_id = ANY($1::uuid[])
+GROUP BY team_id
+`
+
+type CountTeamMembersByTeamRow struct {
+	TeamID      pgtype.UUID `json:"team_id"`
+	MemberCount int64       `json:"member_count"`
+}
+
+// Member counts for the teams list, so the page can show membership source
+// per team without a query per row.
+func (q *Queries) CountTeamMembersByTeam(ctx context.Context, dollar_1 []pgtype.UUID) ([]CountTeamMembersByTeamRow, error) {
+	rows, err := q.db.Query(ctx, countTeamMembersByTeam, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CountTeamMembersByTeamRow
+	for rows.Next() {
+		var i CountTeamMembersByTeamRow
+		if err := rows.Scan(&i.TeamID, &i.MemberCount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createTeam = `-- name: CreateTeam :one
 INSERT INTO teams (org_id, name, idp_group_id)
 VALUES ($1, $2, $3)
@@ -20,9 +70,12 @@ RETURNING id, org_id, name, idp_group_id, created_at, updated_at
 type CreateTeamParams struct {
 	OrgID      pgtype.UUID `json:"org_id"`
 	Name       string      `json:"name"`
-	IdpGroupID string      `json:"idp_group_id"`
+	IdpGroupID pgtype.Text `json:"idp_group_id"`
 }
 
+// idp_group_id is nullable since 0017: a team whose members are all local
+// users has no group backing it. sqlc.narg keeps ” out of the column, where
+// it would read as a real group ID that no session can match.
 func (q *Queries) CreateTeam(ctx context.Context, arg CreateTeamParams) (Team, error) {
 	row := q.db.QueryRow(ctx, createTeam, arg.OrgID, arg.Name, arg.IdpGroupID)
 	var i Team
@@ -62,6 +115,73 @@ func (q *Queries) GetTeamByID(ctx context.Context, id pgtype.UUID) (Team, error)
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const isTeamMember = `-- name: IsTeamMember :one
+SELECT EXISTS (
+    SELECT 1 FROM team_members WHERE team_id = $1 AND user_id = $2
+)
+`
+
+type IsTeamMemberParams struct {
+	TeamID pgtype.UUID `json:"team_id"`
+	UserID pgtype.UUID `json:"user_id"`
+}
+
+// Used by internal/auth.AuthorizeOwnership for a local session, which has no
+// groups claim to match against teams.idp_group_id.
+func (q *Queries) IsTeamMember(ctx context.Context, arg IsTeamMemberParams) (bool, error) {
+	row := q.db.QueryRow(ctx, isTeamMember, arg.TeamID, arg.UserID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const listTeamMembers = `-- name: ListTeamMembers :many
+SELECT u.id, u.login, u.email, u.display_name, u.disabled, tm.created_at AS added_at
+FROM team_members tm
+JOIN users u ON u.id = tm.user_id
+WHERE tm.team_id = $1
+ORDER BY lower(u.login)
+`
+
+type ListTeamMembersRow struct {
+	ID          pgtype.UUID        `json:"id"`
+	Login       string             `json:"login"`
+	Email       string             `json:"email"`
+	DisplayName string             `json:"display_name"`
+	Disabled    bool               `json:"disabled"`
+	AddedAt     pgtype.Timestamptz `json:"added_at"`
+}
+
+// The explicit (local user) half of a team's membership. The IdP-group half
+// has no rows anywhere -- it is resolved from the session's groups claim at
+// authorization time -- so this returns only what is actually stored.
+func (q *Queries) ListTeamMembers(ctx context.Context, teamID pgtype.UUID) ([]ListTeamMembersRow, error) {
+	rows, err := q.db.Query(ctx, listTeamMembers, teamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTeamMembersRow
+	for rows.Next() {
+		var i ListTeamMembersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Login,
+			&i.Email,
+			&i.DisplayName,
+			&i.Disabled,
+			&i.AddedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listTeamsByOrg = `-- name: ListTeamsByOrg :many
@@ -134,4 +254,21 @@ func (q *Queries) ListTeamsByOrgAndGroups(ctx context.Context, arg ListTeamsByOr
 		return nil, err
 	}
 	return items, nil
+}
+
+const removeTeamMember = `-- name: RemoveTeamMember :execrows
+DELETE FROM team_members WHERE team_id = $1 AND user_id = $2
+`
+
+type RemoveTeamMemberParams struct {
+	TeamID pgtype.UUID `json:"team_id"`
+	UserID pgtype.UUID `json:"user_id"`
+}
+
+func (q *Queries) RemoveTeamMember(ctx context.Context, arg RemoveTeamMemberParams) (int64, error) {
+	result, err := q.db.Exec(ctx, removeTeamMember, arg.TeamID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

@@ -33,11 +33,15 @@ type orgRequest struct {
 	DisplayName   string `json:"display_name"`
 	AdminGroupID  string `json:"admin_group_id"`
 	ReaderGroupID string `json:"reader_group_id"`
+	EditorGroupID string `json:"editor_group_id"`
 }
 
-// orgOmitFields names the Org field(s) the legacy orgResponse struct marked
-// `,omitempty` — every other Org field is always emitted, even when empty.
-var orgOmitFields = []string{"reader_group_id"} //nolint:gochecknoglobals // shared, read-only field list
+// orgOmitFields names the Org field(s) omitted from the legacy JSON when
+// empty — the fields the legacy orgResponse struct marked `,omitempty`, plus
+// editor_group_id, which postdates that struct and is omitted for the same
+// reason: an org with no editor tier should not advertise an empty one.
+// Every other Org field is always emitted, even when empty.
+var orgOmitFields = []string{"reader_group_id", "editor_group_id"} //nolint:gochecknoglobals // shared, read-only field list
 
 // ListOrgs lists organizations.
 func (h *AdminHandler) ListOrgs(w http.ResponseWriter, r *http.Request) {
@@ -58,6 +62,7 @@ func (h *AdminHandler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 	req := &mgmtv1.CreateOrgRequest{
 		Name: body.Name, DisplayName: body.DisplayName,
 		AdminGroupId: body.AdminGroupID, ReaderGroupId: body.ReaderGroupID,
+		EditorGroupId: body.EditorGroupID,
 	}
 	resp, err := h.svc.CreateOrg(r.Context(), connect.NewRequest(req))
 	if err != nil {
@@ -76,6 +81,7 @@ func (h *AdminHandler) UpdateOrg(w http.ResponseWriter, r *http.Request) {
 	req := &mgmtv1.UpdateOrgRequest{
 		OrgId: chi.URLParam(r, "org"), DisplayName: body.DisplayName,
 		AdminGroupId: body.AdminGroupID, ReaderGroupId: body.ReaderGroupID,
+		EditorGroupId: body.EditorGroupID,
 	}
 	resp, err := h.svc.UpdateOrg(r.Context(), connect.NewRequest(req))
 	if err != nil {

@@ -55,6 +55,19 @@ var procedureRequirements = map[string]string{ //nolint:gochecknoglobals // stat
 	mgmtv1connect.AdminServiceDeleteOidcSettingsProcedure:      auth.RoleAppAdmin,
 	mgmtv1connect.AdminServiceListOidcProviderPresetsProcedure: auth.RoleAppAdmin,
 
+	// UserService — app admin only, all of it. Deciding who may sign in, and
+	// with what rights, is the definition of an application-administration act;
+	// there is deliberately no org-scoped variant, because an org admin who
+	// could mint users could mint themselves a second, wider account.
+	mgmtv1connect.UserServiceListUsersProcedure:         auth.RoleAppAdmin,
+	mgmtv1connect.UserServiceCreateUserProcedure:        auth.RoleAppAdmin,
+	mgmtv1connect.UserServiceUpdateUserProcedure:        auth.RoleAppAdmin,
+	mgmtv1connect.UserServiceDeleteUserProcedure:        auth.RoleAppAdmin,
+	mgmtv1connect.UserServiceResetUserPasswordProcedure: auth.RoleAppAdmin,
+	mgmtv1connect.UserServiceListOrgMembersProcedure:    auth.RoleAppAdmin,
+	mgmtv1connect.UserServiceSetOrgMemberProcedure:      auth.RoleAppAdmin,
+	mgmtv1connect.UserServiceRemoveOrgMemberProcedure:   auth.RoleAppAdmin,
+
 	// FleetService — org reader for reads, org admin for writes.
 	mgmtv1connect.FleetServiceListCollectorsProcedure:   auth.RoleOrgReader,
 	mgmtv1connect.FleetServiceGetCollectorProcedure:     auth.RoleOrgReader,
@@ -115,23 +128,28 @@ var procedureRequirements = map[string]string{ //nolint:gochecknoglobals // stat
 	mgmtv1connect.GitOpsServiceCreateRepoLinkProcedure:   auth.RoleOrgAdmin,
 	mgmtv1connect.GitOpsServiceDeleteRepoLinkProcedure:   auth.RoleOrgAdmin,
 
-	// WizardService — org admin.
-	mgmtv1connect.WizardServiceListWizardsProcedure:     auth.RoleOrgAdmin,
-	mgmtv1connect.WizardServiceGetWizardSchemaProcedure: auth.RoleOrgAdmin,
-	mgmtv1connect.WizardServiceRenderWizardProcedure:    auth.RoleOrgAdmin,
-	mgmtv1connect.WizardServiceCommitWizardProcedure:    auth.RoleOrgAdmin,
+	// WizardService, VisualService and SimulateService — org EDITOR.
+	//
+	// These author what the org RUNS. Changing what the org IS —
+	// destinations, tenant routes, git credentials, teams, service accounts —
+	// stays org admin below. Before the editor role existed there was no way to
+	// grant the first without also granting the second.
+	mgmtv1connect.WizardServiceListWizardsProcedure:     auth.RoleOrgEditor,
+	mgmtv1connect.WizardServiceGetWizardSchemaProcedure: auth.RoleOrgEditor,
+	mgmtv1connect.WizardServiceRenderWizardProcedure:    auth.RoleOrgEditor,
+	mgmtv1connect.WizardServiceCommitWizardProcedure:    auth.RoleOrgEditor,
 
-	// VisualService — org admin, except GraphView (org reader).
-	mgmtv1connect.VisualServiceRenderProcedure:       auth.RoleOrgAdmin,
-	mgmtv1connect.VisualServiceValidateProcedure:     auth.RoleOrgAdmin,
-	mgmtv1connect.VisualServiceUpgradeCheckProcedure: auth.RoleOrgAdmin,
+	// VisualService — org editor, except GraphView (org reader).
+	mgmtv1connect.VisualServiceRenderProcedure:       auth.RoleOrgEditor,
+	mgmtv1connect.VisualServiceValidateProcedure:     auth.RoleOrgEditor,
+	mgmtv1connect.VisualServiceUpgradeCheckProcedure: auth.RoleOrgEditor,
 	mgmtv1connect.VisualServiceGraphViewProcedure:    auth.RoleOrgReader,
 
-	// SimulateService — org admin.
-	mgmtv1connect.SimulateServiceSimulateRelabelProcedure: auth.RoleOrgAdmin,
-	mgmtv1connect.SimulateServiceSimulateLogsProcedure:    auth.RoleOrgAdmin,
-	mgmtv1connect.SimulateServiceCreateRunProcedure:       auth.RoleOrgAdmin,
-	mgmtv1connect.SimulateServiceGetRunProcedure:          auth.RoleOrgAdmin,
+	// SimulateService — org editor.
+	mgmtv1connect.SimulateServiceSimulateRelabelProcedure: auth.RoleOrgEditor,
+	mgmtv1connect.SimulateServiceSimulateLogsProcedure:    auth.RoleOrgEditor,
+	mgmtv1connect.SimulateServiceCreateRunProcedure:       auth.RoleOrgEditor,
+	mgmtv1connect.SimulateServiceGetRunProcedure:          auth.RoleOrgEditor,
 
 	// AuditService — org admin.
 	mgmtv1connect.AuditServiceListAuditProcedure: auth.RoleOrgAdmin,
@@ -149,6 +167,12 @@ var procedureRequirements = map[string]string{ //nolint:gochecknoglobals // stat
 	mgmtv1connect.TeamServiceListTeamsProcedure:  auth.RoleOrgReader,
 	mgmtv1connect.TeamServiceCreateTeamProcedure: auth.RoleOrgAdmin,
 	mgmtv1connect.TeamServiceDeleteTeamProcedure: auth.RoleOrgAdmin,
+	// The roster is org admin rather than reader, unlike ListTeams: it
+	// returns logins and email addresses, so it enumerates accounts. Who the
+	// teams ARE is org-wide information; who is IN them is not.
+	mgmtv1connect.TeamServiceListTeamMembersProcedure:  auth.RoleOrgAdmin,
+	mgmtv1connect.TeamServiceAddTeamMemberProcedure:    auth.RoleOrgAdmin,
+	mgmtv1connect.TeamServiceRemoveTeamMemberProcedure: auth.RoleOrgAdmin,
 
 	// ServiceAccountService — org admin (minting/revoking machine
 	// credentials is a platform decision, mirroring AdminService's
@@ -186,6 +210,14 @@ var capabilityRequirements = map[string]string{ //nolint:gochecknoglobals // sta
 	mgmtv1connect.AdminServiceUpdateOidcSettingsProcedure: capabilityApply,
 	mgmtv1connect.AdminServiceDeleteOidcSettingsProcedure: capabilityApply,
 
+	// Creating accounts and granting roles is as apply-only as it gets.
+	mgmtv1connect.UserServiceCreateUserProcedure:        capabilityApply,
+	mgmtv1connect.UserServiceUpdateUserProcedure:        capabilityApply,
+	mgmtv1connect.UserServiceDeleteUserProcedure:        capabilityApply,
+	mgmtv1connect.UserServiceResetUserPasswordProcedure: capabilityApply,
+	mgmtv1connect.UserServiceSetOrgMemberProcedure:      capabilityApply,
+	mgmtv1connect.UserServiceRemoveOrgMemberProcedure:   capabilityApply,
+
 	mgmtv1connect.FleetServiceCreateAssignmentProcedure: capabilityApply,
 	mgmtv1connect.FleetServiceDeleteAssignmentProcedure: capabilityApply,
 
@@ -218,8 +250,10 @@ var capabilityRequirements = map[string]string{ //nolint:gochecknoglobals // sta
 	mgmtv1connect.TenantRouteServiceRotateTenantRouteProcedure: capabilityApply,
 	mgmtv1connect.TenantRouteServiceRevokeTenantRouteProcedure: capabilityApply,
 
-	mgmtv1connect.TeamServiceCreateTeamProcedure: capabilityApply,
-	mgmtv1connect.TeamServiceDeleteTeamProcedure: capabilityApply,
+	mgmtv1connect.TeamServiceCreateTeamProcedure:       capabilityApply,
+	mgmtv1connect.TeamServiceDeleteTeamProcedure:       capabilityApply,
+	mgmtv1connect.TeamServiceAddTeamMemberProcedure:    capabilityApply,
+	mgmtv1connect.TeamServiceRemoveTeamMemberProcedure: capabilityApply,
 
 	mgmtv1connect.ServiceAccountServiceCreateServiceAccountProcedure: capabilityApply,
 	mgmtv1connect.ServiceAccountServiceRevokeServiceAccountProcedure: capabilityApply,

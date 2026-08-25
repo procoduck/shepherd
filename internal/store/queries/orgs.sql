@@ -1,6 +1,6 @@
 -- name: CreateOrg :one
-INSERT INTO orgs (name, display_name, admin_group_id, reader_group_id, tenant_id)
-VALUES ($1, $2, $3, $4, sqlc.narg('tenant_id'))
+INSERT INTO orgs (name, display_name, admin_group_id, reader_group_id, editor_group_id, tenant_id)
+VALUES ($1, $2, $3, $4, sqlc.narg('editor_group_id'), sqlc.narg('tenant_id'))
 RETURNING *;
 
 -- name: GetOrgByID :one
@@ -14,6 +14,7 @@ UPDATE orgs
 SET display_name    = $2,
     admin_group_id  = $3,
     reader_group_id = $4,
+    editor_group_id = sqlc.narg('editor_group_id'),
     updated_at      = now()
 WHERE id = $1
 RETURNING *;

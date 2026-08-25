@@ -54,8 +54,11 @@ make build
 #    rest; a new one on the next boot cannot decrypt what the old one wrote.
 export SHEPHERD_DATABASE_URL=postgres://shepherd:shepherd@localhost:5432/shepherd
 export SHEPHERD_SECURITY_ENCRYPTION_KEY=$(openssl rand -base64 32)
-export SHEPHERD_AUTH_LOCAL_ADMIN_ENABLED=true
-export SHEPHERD_AUTH_LOCAL_ADMIN_PASSWORD_HASH=$(printf 'choose-a-password' | ./bin/shepherd hash-password --password-stdin)
+#    The first administrator is created on first boot when the users table is
+#    empty. Set a password here and it is yours; leave it unset and the account
+#    is created as admin/admin and refuses to do anything until you change it.
+export SHEPHERD_BOOTSTRAP_ADMIN_LOGIN=admin
+export SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD=choose-a-password
 
 # 4. Run
 ./bin/shepherd migrate up
@@ -172,7 +175,7 @@ needed only for the setups described:
 |---|---|---|
 | `SHEPHERD_DATABASE_URL` | **Yes** | PostgreSQL connection string |
 | `SHEPHERD_SECURITY_ENCRYPTION_KEY` | **Yes** | Base64-encoded 32-byte key. Encrypts git credentials and the OIDC client secret at rest — **keep it**; rotating it makes previously stored secrets undecryptable |
-| `SHEPHERD_AUTH_LOCAL_ADMIN_PASSWORD_HASH` | For the break-glass account | argon2id hash from `shepherd hash-password`. Needed to sign in before SSO is configured — see [Single sign-on](#single-sign-on) |
+| `SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD` | Recommended | Password for the administrator created on first boot. Read only while the users table is empty. Unset means `admin`/`admin`, which cannot do anything until it is changed |
 | `SHEPHERD_OIDC_CLIENT_SECRET` | Only when SSO is set in the chart | Omit it to configure SSO from the UI instead |
 | `SHEPHERD_GRAPH_CLIENT_SECRET` | Only for Microsoft Entra with the Graph group lookup | Not used by any other provider |
 
@@ -196,9 +199,10 @@ option for anything else.
 
 ### Configuring it from the UI
 
-1. **Get in first.** Before SSO exists there is nobody to sign in as, so enable
-   the break-glass local admin (`auth.local_admin.enabled=true` plus a
-   `shepherd hash-password` hash). Its session TTL must be at least `5m`.
+1. **Get in first.** Sign in as the administrator created on first boot (see
+   `SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD`), or as any local user with app-admin
+   rights. Local accounts and SSO coexist — configuring SSO does not disable
+   them.
 2. Sign in and open **Admin → Single sign-on**.
 3. Pick your provider. The preset fills in claim names and scopes, and tells you
    what you must configure **in the IdP** for group membership to arrive — the
@@ -226,8 +230,9 @@ groups through the Microsoft Graph directory API instead of the token claim.
 Keep it on for Entra — Entra omits the groups claim entirely once a user is in
 more than ~200 groups.
 
-Keep the break-glass account enabled until you have confirmed an SSO sign-in
-lands you with app-admin rights.
+Keep at least one local administrator until you have confirmed an SSO sign-in
+lands you with app-admin rights. Local users are not a fallback mode — they are
+a supported way to run Shepherd, with or without an identity provider.
 
 ---
 
@@ -254,12 +259,17 @@ Alloy (spoke)  ──remotecfg──▶  Shepherd  ──serves──▶  merged
 
 ### Roles
 
+Every role is reachable two ways — from an identity provider's groups, or
+assigned directly to a local user. The two coexist; local accounts are a
+supported way to run Shepherd, not a fallback.
+
 | Role | Can |
 |---|---|
-| Application administrator | Create orgs and **set their tenant id**, claim clusters, issue agent tokens |
+| Application administrator | Create orgs and **set their tenant id**, claim clusters, issue agent tokens, manage local users |
 | Org administrator | Everything within one org: pipelines, destinations, routes, teams |
-| Team member | Write only what their team owns (scoped write) — *RPC only, no UI yet* |
-| Org reader | Read only |
+| Org editor | Author what the org *runs* — pipelines, wizards, simulations — but not what it *is*: destinations, routes, git credentials and teams stay with the org admin |
+| Team member | Write only what their team owns (scoped write). Membership comes from an IdP group, an explicit list of local users, or both |
+| Org viewer | Read only |
 | Service account (`apply`) | Machine writes within one org, acting for the human it was issued to |
 | Service account (`propose`) | Reads, validation and proposals — never applies |
 

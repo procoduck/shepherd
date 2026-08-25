@@ -36,7 +36,12 @@ type Org struct {
 	// request this org's tenant routes carry. Only an app admin sets it, and
 	// only once — see CreateOrgRequest.tenant_id. Empty means this org cannot
 	// have tenant routes yet.
-	TenantId      string `protobuf:"bytes,8,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	TenantId string `protobuf:"bytes,8,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	// editor_group_id is the group whose members may author what the org RUNS —
+	// pipelines, wizards, simulations — without being able to change what the
+	// org IS (destinations, tenant routes, git credentials, teams). Empty means
+	// the org has no editor tier and only admins can author.
+	EditorGroupId string `protobuf:"bytes,9,opt,name=editor_group_id,json=editorGroupId,proto3" json:"editor_group_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -123,6 +128,13 @@ func (x *Org) GetUpdatedAt() *timestamppb.Timestamp {
 func (x *Org) GetTenantId() string {
 	if x != nil {
 		return x.TenantId
+	}
+	return ""
+}
+
+func (x *Org) GetEditorGroupId() string {
+	if x != nil {
+		return x.EditorGroupId
 	}
 	return ""
 }
@@ -228,7 +240,9 @@ type CreateOrgRequest struct {
 	// one cannot have tenant routes: CreateTenantRoute refuses and names this
 	// field. Must satisfy internal/gateway.ValidateTenantID (Grafana Mimir's
 	// documented rule). Settable exactly once — see SetOrgTenantId.
-	TenantId      string `protobuf:"bytes,5,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	TenantId string `protobuf:"bytes,5,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	// editor_group_id is optional — see Org.editor_group_id.
+	EditorGroupId string `protobuf:"bytes,6,opt,name=editor_group_id,json=editorGroupId,proto3" json:"editor_group_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -298,6 +312,13 @@ func (x *CreateOrgRequest) GetTenantId() string {
 	return ""
 }
 
+func (x *CreateOrgRequest) GetEditorGroupId() string {
+	if x != nil {
+		return x.EditorGroupId
+	}
+	return ""
+}
+
 type UpdateOrgRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// org_id is the {org} path param — the org being updated.
@@ -305,6 +326,7 @@ type UpdateOrgRequest struct {
 	DisplayName   string `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
 	AdminGroupId  string `protobuf:"bytes,3,opt,name=admin_group_id,json=adminGroupId,proto3" json:"admin_group_id,omitempty"`
 	ReaderGroupId string `protobuf:"bytes,4,opt,name=reader_group_id,json=readerGroupId,proto3" json:"reader_group_id,omitempty"`
+	EditorGroupId string `protobuf:"bytes,5,opt,name=editor_group_id,json=editorGroupId,proto3" json:"editor_group_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -363,6 +385,13 @@ func (x *UpdateOrgRequest) GetAdminGroupId() string {
 func (x *UpdateOrgRequest) GetReaderGroupId() string {
 	if x != nil {
 		return x.ReaderGroupId
+	}
+	return ""
+}
+
+func (x *UpdateOrgRequest) GetEditorGroupId() string {
+	if x != nil {
+		return x.EditorGroupId
 	}
 	return ""
 }
@@ -2308,7 +2337,7 @@ var File_shepherd_mgmt_v1_admin_proto protoreflect.FileDescriptor
 
 const file_shepherd_mgmt_v1_admin_proto_rawDesc = "" +
 	"\n" +
-	"\x1cshepherd/mgmt/v1/admin.proto\x12\x10shepherd.mgmt.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xad\x02\n" +
+	"\x1cshepherd/mgmt/v1/admin.proto\x12\x10shepherd.mgmt.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd5\x02\n" +
 	"\x03Org\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12!\n" +
@@ -2319,22 +2348,25 @@ const file_shepherd_mgmt_v1_admin_proto_rawDesc = "" +
 	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
 	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x1b\n" +
-	"\ttenant_id\x18\b \x01(\tR\btenantId\"\x11\n" +
+	"\ttenant_id\x18\b \x01(\tR\btenantId\x12&\n" +
+	"\x0feditor_group_id\x18\t \x01(\tR\reditorGroupId\"\x11\n" +
 	"\x0fListOrgsRequest\"U\n" +
 	"\x10ListOrgsResponse\x12+\n" +
 	"\x05items\x18\x01 \x03(\v2\x15.shepherd.mgmt.v1.OrgR\x05items\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x05R\x05total\"\xb4\x01\n" +
+	"\x05total\x18\x02 \x01(\x05R\x05total\"\xdc\x01\n" +
 	"\x10CreateOrgRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12$\n" +
 	"\x0eadmin_group_id\x18\x03 \x01(\tR\fadminGroupId\x12&\n" +
 	"\x0freader_group_id\x18\x04 \x01(\tR\rreaderGroupId\x12\x1b\n" +
-	"\ttenant_id\x18\x05 \x01(\tR\btenantId\"\x9a\x01\n" +
+	"\ttenant_id\x18\x05 \x01(\tR\btenantId\x12&\n" +
+	"\x0feditor_group_id\x18\x06 \x01(\tR\reditorGroupId\"\xc2\x01\n" +
 	"\x10UpdateOrgRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12$\n" +
 	"\x0eadmin_group_id\x18\x03 \x01(\tR\fadminGroupId\x12&\n" +
-	"\x0freader_group_id\x18\x04 \x01(\tR\rreaderGroupId\"K\n" +
+	"\x0freader_group_id\x18\x04 \x01(\tR\rreaderGroupId\x12&\n" +
+	"\x0feditor_group_id\x18\x05 \x01(\tR\reditorGroupId\"K\n" +
 	"\x15SetOrgTenantIDRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x1b\n" +
 	"\ttenant_id\x18\x02 \x01(\tR\btenantId\")\n" +

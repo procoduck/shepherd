@@ -15,7 +15,8 @@ import {
   Server,
   Shield,
   Sun,
-  TriangleAlert,
+  Users,
+  Users2,
   Wand2,
   Workflow,
 } from 'lucide-react';
@@ -51,11 +52,16 @@ const navGroups: Array<{ label?: string; items: NavItem[] }> = [
     ],
   },
   {
+    label: 'Access',
+    items: [{ label: 'Teams', href: '/teams', icon: <Users2 size={16} /> }],
+  },
+  {
     label: 'Admin',
     items: [
       { label: 'Orgs', href: '/admin/orgs', icon: <Building2 size={16} />, adminOnly: true },
       { label: 'Clusters', href: '/admin/clusters', icon: <Radio size={16} />, adminOnly: true },
       { label: 'Agent Tokens', href: '/admin/tokens', icon: <Key size={16} />, adminOnly: true },
+      { label: 'Users', href: '/admin/users', icon: <Users size={16} />, adminOnly: true },
       {
         label: 'Single sign-on',
         href: '/admin/auth',
@@ -246,19 +252,6 @@ export function Shell() {
 
         {/* Content */}
         <main className='flex flex-1 flex-col min-h-0'>
-          {me.authMethod === 'local' && (
-            <div
-              data-testid='local-admin-banner'
-              role='alert'
-              className='flex shrink-0 items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-6 py-3 text-sm text-amber-300'
-            >
-              <TriangleAlert size={16} />
-              <span>
-                Signed in with the local break-glass account — restore your identity provider access
-                and sign out.
-              </span>
-            </div>
-          )}
           <div className='flex-1 min-h-0'>
             <Outlet />
           </div>

@@ -5,6 +5,7 @@ import { AdminAuthPage } from '@/pages/AdminAuthPage';
 import { AdminClustersPage } from '@/pages/AdminClustersPage';
 import { AdminOrgsPage } from '@/pages/AdminOrgsPage';
 import { AdminTokensPage } from '@/pages/AdminTokensPage';
+import { AdminUsersPage } from '@/pages/AdminUsersPage';
 import { AuditPage } from '@/pages/AuditPage';
 import { CollectorDetailPage } from '@/pages/CollectorDetailPage';
 import { CollectorsPage } from '@/pages/CollectorsPage';
@@ -14,6 +15,7 @@ import { LoginPage } from '@/pages/LoginPage';
 import { OverviewPage } from '@/pages/OverviewPage';
 import { PipelineEditorPage } from '@/pages/PipelineEditorPage';
 import { PipelinesPage } from '@/pages/PipelinesPage';
+import { TeamsPage } from '@/pages/TeamsPage';
 import { WizardsPage } from '@/pages/WizardsPage';
 import { WizardRunnerPage } from '@/wizard/WizardRunnerPage';
 
@@ -171,6 +173,12 @@ const adminTokensRoute = createRoute({
 // Admin → Single sign-on. Not org-scoped: OIDC configuration decides who can
 // hold an app-admin session at all, so it sits beside the other app-admin
 // surfaces rather than under an org.
+const adminUsersRoute = createRoute({
+  getParentRoute: () => contentRoute,
+  path: '/admin/users',
+  component: AdminUsersPage,
+});
+
 const adminAuthRoute = createRoute({
   getParentRoute: () => contentRoute,
   path: '/admin/auth',
@@ -181,6 +189,14 @@ const auditRoute = createRoute({
   getParentRoute: () => contentRoute,
   path: '/audit',
   component: AuditPage,
+});
+
+// Teams are org-scoped, not app-admin: they live beside the other org
+// surfaces and read the selected org, rather than under /admin.
+const teamsRoute = createRoute({
+  getParentRoute: () => contentRoute,
+  path: '/teams',
+  component: TeamsPage,
 });
 
 const routeTree = rootRoute.addChildren([
@@ -195,11 +211,13 @@ const routeTree = rootRoute.addChildren([
       pipelineEditRoute,
       destinationsRoute,
       gitRoute,
+      teamsRoute,
       wizardsRoute,
       wizardRunnerRoute,
       adminOrgsRoute,
       adminClustersRoute,
       adminTokensRoute,
+      adminUsersRoute,
       adminAuthRoute,
       auditRoute,
     ]),

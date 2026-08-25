@@ -62,6 +62,11 @@ message Org {
   // only once — see CreateOrgRequest.tenant_id. Empty means this org cannot
   // have tenant routes yet.
   string tenant_id = 8;
+  // editor_group_id is the group whose members may author what the org RUNS —
+  // pipelines, wizards, simulations — without being able to change what the
+  // org IS (destinations, tenant routes, git credentials, teams). Empty means
+  // the org has no editor tier and only admins can author.
+  string editor_group_id = 9;
 }
 
 message ListOrgsRequest {}
@@ -84,6 +89,8 @@ message CreateOrgRequest {
   // field. Must satisfy internal/gateway.ValidateTenantID (Grafana Mimir's
   // documented rule). Settable exactly once — see SetOrgTenantId.
   string tenant_id = 5;
+  // editor_group_id is optional — see Org.editor_group_id.
+  string editor_group_id = 6;
 }
 
 message UpdateOrgRequest {
@@ -92,6 +99,7 @@ message UpdateOrgRequest {
   string display_name = 2;
   string admin_group_id = 3;
   string reader_group_id = 4;
+  string editor_group_id = 5;
 }
 
 // SetOrgTenantIDRequest assigns an org's tenant identity when it was created

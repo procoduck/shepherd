@@ -30,7 +30,12 @@ import (
 
 // Session is the decoded session stored in context.
 type Session struct {
-	ID          string
+	ID string
+	// UserID is the local users row this session belongs to, set only for
+	// source == "local". An OIDC session has no local user row — its identity
+	// is the token's, described by UserOID/Email/GroupIDs — so this stays zero
+	// and authorization falls through to the group path.
+	UserID      pgtype.UUID
 	UserOID     string
 	Email       string
 	DisplayName string
@@ -126,6 +131,10 @@ type Handler struct {
 	// (NewLocalAdmin) and in tests that never touch OIDC.
 	settings *SettingsStore
 
+	// users is local user management. Independent of settings: a deployment
+	// can have local users and no IdP, an IdP and no local users, or both.
+	users *UserStore
+
 	rt atomic.Pointer[oidcRuntime]
 
 	// reloadMu serializes Reload so concurrent requests cannot both run
@@ -149,6 +158,7 @@ func New(ctx context.Context, cfg *config.Config, st *store.Store, enc *crypto.E
 	h := &Handler{store: st, cfg: cfg, logger: logger}
 	if st != nil {
 		h.settings = NewSettingsStore(st, enc)
+		h.users = NewUserStore(st, logger)
 	}
 	err := h.Reload(ctx)
 	if err == nil {
@@ -165,8 +175,18 @@ func New(ctx context.Context, cfg *config.Config, st *store.Store, enc *crypto.E
 // runtime and no settings store, so Reload is a no-op and the OIDC handlers
 // report "not configured".
 func NewLocalAdmin(cfg *config.Config, st *store.Store, logger *slog.Logger) *Handler {
-	return &Handler{store: st, cfg: cfg, logger: logger}
+	h := &Handler{store: st, cfg: cfg, logger: logger}
+	if st != nil {
+		h.users = NewUserStore(st, logger)
+	}
+	return h
 }
+
+// Users exposes local user management to the API layer.
+func (h *Handler) Users() *UserStore { return h.users }
+
+// LocalUsersEnabled reports whether local sign-in is possible at all.
+func (h *Handler) LocalUsersEnabled() bool { return h.users != nil }
 
 // Reload re-resolves the effective OIDC configuration, runs discovery against
 // it, and swaps the live runtime. It is called at construction, by the admin
@@ -198,7 +218,7 @@ func (h *Handler) Reload(ctx context.Context) error {
 		// sit on the login path at all.
 		return nil
 	}
-	doc, err := fetchDiscovery(ctx, settings.Issuer)
+	doc, err := fetchDiscovery(ctx, settings.Issuer, settings.Source)
 	if err != nil {
 		return err
 	}
@@ -446,7 +466,7 @@ func (h *Handler) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	})
 
 	expires := time.Now().Add(h.cfg.Auth.SessionTTL)
-	if err := h.createSessionAndSetCookie(w, r, sessionParams{userOID: subject, email: email, displayName: displayName, groupIDs: groupIDs, isAppAdmin: isAppAdmin, idTokenExp: &idToken.Expiry, expiresAt: expires, source: "oidc"}); err != nil {
+	if err := h.createSessionAndSetCookie(w, r, sessionParams{userOID: subject, email: email, displayName: displayName, groupIDs: groupIDs, isAppAdmin: isAppAdmin, idTokenExp: &idToken.Expiry, expiresAt: expires, source: SourceOIDC}); err != nil {
 		h.logger.Error("OIDC session creation", "err", err)
 		http.Redirect(w, r, "/?auth_error=1", http.StatusFound)
 		return
@@ -524,6 +544,7 @@ func claimStrings(claims map[string]any, key string) []string {
 }
 
 type sessionParams struct {
+	userID      pgtype.UUID
 	userOID     string
 	email       string
 	displayName string
@@ -547,7 +568,7 @@ func (h *Handler) createSessionAndSetCookie(w http.ResponseWriter, r *http.Reque
 		idTokenExpires = pgtype.Timestamptz{Time: *p.idTokenExp, Valid: true}
 	}
 	sessionID := randomState()
-	if _, err := h.store.Queries.CreateSession(r.Context(), sqlc.CreateSessionParams{ID: sessionID, UserOid: p.userOID, Email: p.email, DisplayName: p.displayName, GroupIds: groupsJSON, IsAppAdmin: p.isAppAdmin, IDTokenExpires: idTokenExpires, ExpiresAt: pgtype.Timestamptz{Time: p.expiresAt, Valid: true}, Source: p.source}); err != nil {
+	if _, err := h.store.Queries.CreateSession(r.Context(), sqlc.CreateSessionParams{ID: sessionID, UserID: p.userID, UserOid: p.userOID, Email: p.email, DisplayName: p.displayName, GroupIds: groupsJSON, IsAppAdmin: p.isAppAdmin, IDTokenExpires: idTokenExpires, ExpiresAt: pgtype.Timestamptz{Time: p.expiresAt, Valid: true}, Source: p.source}); err != nil {
 		return fmt.Errorf("creating session: %w", err)
 	}
 	http.SetCookie(w, sessionCookie(sessionID, int(time.Until(p.expiresAt).Seconds()), h.cfg.Auth.InsecureCookies))
@@ -571,7 +592,7 @@ func (h *Handler) MethodsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	resp := map[string]any{
 		"oidc":              h.OIDCEnabled(),
-		"local_admin":       h.cfg.Auth.LocalAdmin.Enabled,
+		"local_admin":       h.localSignInAvailable(r.Context()),
 		"oidc_display_name": h.OIDCDisplayName(),
 		"oidc_provider":     h.OIDCProvider(),
 	}
@@ -580,8 +601,37 @@ func (h *Handler) MethodsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// LocalLoginHandler handles local admin login.
+// localSignInAvailable reports whether the login page should offer the
+// username/password form: it should when at least one enabled local user
+// exists. Reported from the users table rather than a config flag, because
+// that is now the thing that decides whether a local sign-in can succeed.
+func (h *Handler) localSignInAvailable(ctx context.Context) bool {
+	if h.users == nil {
+		return false
+	}
+	n, err := h.store.Queries.CountUsers(ctx)
+	if err != nil {
+		// Offer the form rather than hide it: a transient database error must
+		// not present "there is no way to sign in", which is a far more
+		// alarming and less actionable message than a failed login attempt.
+		h.logger.Warn("counting users for auth methods", "err", err)
+		return true
+	}
+	return n > 0
+}
+
+// LocalLoginHandler signs a local user in against the users table.
+//
+// This replaced the break-glass account that lived in config: a single identity
+// with unconditional app-admin rights, no way to add a second person, and no
+// way to change a password without a redeploy. Local users are rows now, so a
+// deployment with no identity provider is a normal deployment rather than one
+// running permanently on an emergency account.
 func (h *Handler) LocalLoginHandler(w http.ResponseWriter, r *http.Request) {
+	if h.users == nil {
+		writeAuthError(w, http.StatusServiceUnavailable, "unavailable", "local sign-in is not available on this deployment")
+		return
+	}
 	var req struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -590,22 +640,53 @@ func (h *Handler) LocalLoginHandler(w http.ResponseWriter, r *http.Request) {
 		writeAuthError(w, http.StatusBadRequest, "bad_request", "invalid request body")
 		return
 	}
-	cfg := h.cfg.Auth.LocalAdmin
-	pwdMatch, verifyErr := VerifyPassword(cfg.PasswordHash, req.Password)
-	if verifyErr != nil {
-		pwdMatch = false
-	}
-	if req.Username != cfg.Username || !pwdMatch {
+
+	user, err := h.users.Authenticate(r.Context(), req.Username, req.Password)
+	if err != nil {
+		// One response for every failure mode. The server log distinguishes
+		// them; the caller does not, because "no such user" and "wrong
+		// password" as separate answers is a username oracle for anyone who can
+		// reach the login form.
+		h.logger.Warn("local sign-in rejected", "login", req.Username, "err", err)
 		writeAuthError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
 		return
 	}
-	if err := h.createSessionAndSetCookie(w, r, sessionParams{userOID: "local:" + cfg.Username, displayName: cfg.Username, groupIDs: []string{}, isAppAdmin: true, expiresAt: time.Now().Add(cfg.SessionTTL), source: "local"}); err != nil {
+
+	ttl := h.cfg.Auth.SessionTTL
+	if ttl <= 0 {
+		ttl = 8 * time.Hour
+	}
+	if err := h.createSessionAndSetCookie(w, r, sessionParams{
+		userID:      user.ID,
+		userOID:     "local:" + user.Login,
+		email:       user.Email,
+		displayName: cmpOr(user.DisplayName, user.Login),
+		groupIDs:    []string{},
+		isAppAdmin:  user.IsAppAdmin,
+		expiresAt:   time.Now().Add(ttl),
+		source:      SourceLocal,
+	}); err != nil {
+		h.logger.Error("creating local session", "err", err)
 		writeAuthError(w, http.StatusInternalServerError, "internal", "failed to create session")
 		return
 	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, `{"ok":true}`) //nolint:errcheck
+	// must_change_password is reported so the SPA can route straight to the
+	// change-password screen. The session is real either way; RequirePasswordChange
+	// middleware is what actually blocks everything else until it is done.
+	if err := json.NewEncoder(w).Encode(map[string]any{"ok": true, "must_change_password": user.MustChangePassword}); err != nil {
+		h.logger.Warn("writing local login response", "err", err)
+	}
+}
+
+// cmpOr returns a when non-empty, otherwise b.
+func cmpOr(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 // LogoutHandler deletes the session and clears the cookie.
@@ -633,6 +714,7 @@ func (h *Handler) SessionMiddleware(next http.Handler) http.Handler {
 				}
 				sess := &Session{
 					ID:          row.ID,
+					UserID:      row.UserID,
 					UserOID:     row.UserOid,
 					Email:       row.Email,
 					DisplayName: row.DisplayName,
@@ -680,12 +762,41 @@ func RequireAppAdmin(next http.Handler) http.Handler {
 	})
 }
 
-// RequireOrgAccess verifies the user is an org admin or reader for the org.
-// The org is looked up by the {org} URL param. The caller passes minRole: "reader" or "orgadmin".
+// roleForMinRole maps the middleware's minRole vocabulary onto the Authorize
+// role constants. Unknown values panic — see RequireOrgAccess.
+func roleForMinRole(minRole string) string {
+	switch minRole {
+	case "reader":
+		return RoleOrgReader
+	case "orgeditor":
+		return RoleOrgEditor
+	case "orgadmin":
+		return RoleOrgAdmin
+	default:
+		panic(fmt.Sprintf("RequireOrgAccess: unknown minRole %q (want \"reader\", \"orgeditor\" or \"orgadmin\")", minRole))
+	}
+}
+
+// RequireOrgAccess verifies the session clears minRole for the org, which is
+// looked up by the {org} URL param. minRole is one of "reader", "orgeditor"
+// or "orgadmin" and names the LEAST privileged role that may proceed.
+//
 // The role decision itself lives in Authorize (authz.go) so it can be reused
 // by the Connect authz interceptor; this middleware only translates the
 // decision into the exact HTTP responses this endpoint has always returned.
+//
+// An unrecognised minRole panics at route-registration time rather than
+// defaulting. Defaulting is what a third rung made dangerous: a typo would
+// quietly widen a route to the lowest tier, and it would widen it silently —
+// the route keeps serving, just to more people than intended. Every call site
+// is a compile-time constant evaluated while the router is built, so a panic
+// here fails the process at boot and is caught by any test that constructs
+// the router.
 func RequireOrgAccess(st *store.Store, orgIDParam, minRole string) func(http.Handler) http.Handler {
+	// Resolved here, not per request, so an unrecognised value fails the
+	// process while routes are being registered rather than on the first
+	// request to reach the route.
+	role := roleForMinRole(minRole)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			sess := SessionFromCtx(r.Context())
@@ -699,11 +810,6 @@ func RequireOrgAccess(st *store.Store, orgIDParam, minRole string) func(http.Han
 				orgIDStr = r.URL.Query().Get("org")
 			}
 
-			role := RoleOrgReader
-			if minRole == "orgadmin" {
-				role = RoleOrgAdmin
-			}
-
 			switch err := Authorize(r.Context(), st, sess, orgIDStr, role); {
 			case err == nil:
 				next.ServeHTTP(w, r)
@@ -715,6 +821,8 @@ func RequireOrgAccess(st *store.Store, orgIDParam, minRole string) func(http.Han
 				w.WriteHeader(http.StatusNotFound)
 			case minRole == "orgadmin":
 				writeAuthError(w, http.StatusForbidden, "forbidden", "requires org admin role")
+			case minRole == "orgeditor":
+				writeAuthError(w, http.StatusForbidden, "forbidden", "requires org editor role")
 			default:
 				writeAuthError(w, http.StatusForbidden, "forbidden", "no access to this org")
 			}

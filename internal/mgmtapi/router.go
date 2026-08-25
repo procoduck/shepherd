@@ -293,6 +293,13 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 			return mgmtv1connect.NewAdminServiceHandler(NewAdminService(st, logger, WithOIDCHandler(mc.oidc)), authz)
 		},
 		func() (string, http.Handler) {
+			var users *auth.UserStore
+			if mc.oidc != nil {
+				users = mc.oidc.Users()
+			}
+			return mgmtv1connect.NewUserServiceHandler(NewUserService(st, users, logger), authz)
+		},
+		func() (string, http.Handler) {
 			return mgmtv1connect.NewFleetServiceHandler(NewFleetService(st, logger), authz)
 		},
 		func() (string, http.Handler) {

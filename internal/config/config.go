@@ -103,31 +103,10 @@ func (c OIDCConfig) LogValue() slog.Value {
 
 // AuthConfig holds session and RBAC settings.
 type AuthConfig struct {
-	AppAdminGroupIDs []string         `mapstructure:"app_admin_group_ids"`
-	SessionTTL       time.Duration    `mapstructure:"session_ttl"`
-	LocalAdmin       LocalAdminConfig `mapstructure:"local_admin"`
+	AppAdminGroupIDs []string      `mapstructure:"app_admin_group_ids"`
+	SessionTTL       time.Duration `mapstructure:"session_ttl"`
 	// InsecureCookies disables Secure flag on auth cookies. Only for non-TLS local dev.
 	InsecureCookies bool `mapstructure:"insecure_cookies"`
-}
-
-// LocalAdminConfig holds break-glass local admin account settings.
-type LocalAdminConfig struct {
-	Enabled       bool          `mapstructure:"enabled"`
-	AllowWithOIDC bool          `mapstructure:"allow_with_oidc"`
-	Username      string        `mapstructure:"username"`
-	PasswordHash  string        `mapstructure:"password_hash"`
-	SessionTTL    time.Duration `mapstructure:"session_ttl"`
-}
-
-// LogValue redacts the password hash in structured logs.
-func (c LocalAdminConfig) LogValue() slog.Value {
-	return slog.GroupValue(
-		slog.Bool("enabled", c.Enabled),
-		slog.Bool("allow_with_oidc", c.AllowWithOIDC),
-		slog.String("username", c.Username),
-		slog.String("password_hash", "[REDACTED]"),
-		slog.Duration("session_ttl", c.SessionTTL),
-	)
 }
 
 // GraphConfig holds Microsoft Graph API client settings.
@@ -343,7 +322,6 @@ func Load(file string) (*Config, error) {
 	// since OIDC can be turned on from the UI in a deployment whose chart
 	// never set an auth block. Matches the chart's own default.
 	v.SetDefault("auth.session_ttl", "8h")
-	v.SetDefault("auth.local_admin.username", "admin")
 	// OIDC claim/provider defaults reproduce the Entra-only behaviour this
 	// code had before it could describe any other provider, so an existing
 	// chart values.yaml keeps authenticating exactly as it did.
@@ -362,7 +340,6 @@ func Load(file string) (*Config, error) {
 	v.SetDefault("oidc.email_claim", "email")
 	v.SetDefault("oidc.name_claim", "name")
 	v.SetDefault("oidc.groups_claim", "groups")
-	v.SetDefault("auth.local_admin.session_ttl", "1h")
 	v.SetEnvPrefix("SHEPHERD")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
@@ -390,11 +367,6 @@ func Load(file string) (*Config, error) {
 		{"auth.app_admin_group_ids", "SHEPHERD_AUTH_APP_ADMIN_GROUP_IDS"},
 		{"auth.session_ttl", "SHEPHERD_AUTH_SESSION_TTL"},
 		{"auth.insecure_cookies", "SHEPHERD_AUTH_INSECURE_COOKIES"},
-		{"auth.local_admin.enabled", "SHEPHERD_AUTH_LOCAL_ADMIN_ENABLED"},
-		{"auth.local_admin.allow_with_oidc", "SHEPHERD_AUTH_LOCAL_ADMIN_ALLOW_WITH_OIDC"},
-		{"auth.local_admin.username", "SHEPHERD_AUTH_LOCAL_ADMIN_USERNAME"},
-		{"auth.local_admin.password_hash", "SHEPHERD_AUTH_LOCAL_ADMIN_PASSWORD_HASH"},
-		{"auth.local_admin.session_ttl", "SHEPHERD_AUTH_LOCAL_ADMIN_SESSION_TTL"},
 		{"graph.tenant_id", "SHEPHERD_GRAPH_TENANT_ID"},
 		{"graph.client_id", "SHEPHERD_GRAPH_CLIENT_ID"},
 		{"graph.client_secret", "SHEPHERD_GRAPH_CLIENT_SECRET"},
@@ -477,20 +449,6 @@ func Load(file string) (*Config, error) {
 	// false" from "the operator said nothing".
 	if !v.IsSet("oidc.use_graph_groups") {
 		c.OIDC.UseGraphGroups = c.OIDC.Provider == "entra"
-	}
-	if c.Auth.LocalAdmin.Enabled {
-		if c.Auth.LocalAdmin.PasswordHash == "" {
-			return nil, fmt.Errorf("configuration errors:\n  - auth.local_admin.password_hash is required when local admin is enabled")
-		}
-		if !strings.HasPrefix(c.Auth.LocalAdmin.PasswordHash, "$argon2id$") {
-			return nil, fmt.Errorf("configuration errors:\n  - auth.local_admin.password_hash must be a valid argon2id encoded string")
-		}
-		if c.OIDC.Issuer != "" && !c.Auth.LocalAdmin.AllowWithOIDC {
-			return nil, fmt.Errorf("configuration errors:\n  - local admin is enabled with OIDC configured; set auth.local_admin.allow_with_oidc=true to allow this (break-glass with OIDC active)")
-		}
-		if c.Auth.LocalAdmin.SessionTTL < 5*time.Minute {
-			return nil, fmt.Errorf("configuration errors:\n  - auth.local_admin.session_ttl must be >= 5m")
-		}
 	}
 	return &c, nil
 }

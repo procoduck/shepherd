@@ -1,0 +1,137 @@
+syntax = "proto3";
+
+package shepherd.mgmt.v1;
+
+import "google/protobuf/timestamp.proto";
+// OrgMembership is reused from me.proto rather than redefined: "an org and my
+// role in it" is one concept, and two messages for it would drift.
+import "shepherd/mgmt/v1/me.proto";
+
+option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
+
+// UserService manages LOCAL user accounts — the ones that sign in with a
+// username and password, for deployments with no identity provider.
+//
+// It does not touch federated identities. A user who signs in through OIDC has
+// no row here: their access comes from the groups in their token, matched
+// against orgs.admin_group_id and friends, exactly as it did before local users
+// existed. The two paths coexist and never combine.
+//
+// Every method is app-admin only. Managing who can sign in, and with what
+// rights, is the definition of an application-administration act.
+service UserService {
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse) {}
+  rpc CreateUser(CreateUserRequest) returns (User) {}
+  rpc UpdateUser(UpdateUserRequest) returns (User) {}
+  rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse) {}
+  // ResetUserPassword sets another user's password. The new value always
+  // arrives with must_change_password set, so a temporary password an
+  // administrator communicates cannot quietly become a permanent one.
+  rpc ResetUserPassword(ResetUserPasswordRequest) returns (ResetUserPasswordResponse) {}
+
+  // Org membership. A local user's role in an org lives here; an OIDC user's
+  // comes from their groups and is not settable through this API.
+  rpc ListOrgMembers(ListOrgMembersRequest) returns (ListOrgMembersResponse) {}
+  rpc SetOrgMember(SetOrgMemberRequest) returns (OrgMember) {}
+  rpc RemoveOrgMember(RemoveOrgMemberRequest) returns (RemoveOrgMemberResponse) {}
+}
+
+// User is a local account. The password hash is never present: it is not a
+// field of this message, so it cannot be serialised onto the wire by accident.
+message User {
+  string id = 1;
+  string login = 2;
+  string email = 3;
+  string display_name = 4;
+  // is_app_admin is the global administrator flag — Grafana's "server admin".
+  // Org-scoped roles are OrgMember rows, not this.
+  bool is_app_admin = 5;
+  // must_change_password blocks every request from this user's session except
+  // the password change itself, enforced on the server.
+  bool must_change_password = 6;
+  bool disabled = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+  // last_login_at is unset for an account that has never signed in.
+  google.protobuf.Timestamp last_login_at = 10;
+  // orgs this user belongs to, with their role in each.
+  repeated OrgMembership orgs = 11;
+}
+
+// OrgMember is one member of an org, as seen from the org.
+message OrgMember {
+  string org_id = 1;
+  string user_id = 2;
+  string login = 3;
+  string email = 4;
+  string display_name = 5;
+  string role = 6;
+  bool disabled = 7;
+}
+
+message ListUsersRequest {}
+
+message ListUsersResponse {
+  repeated User items = 1;
+  int32 total = 2;
+}
+
+message CreateUserRequest {
+  string login = 1;
+  string email = 2;
+  string display_name = 3;
+  // password is write-only and never returned. Minimum length is enforced
+  // server-side; leave it empty to have one generated and returned once in
+  // CreateUser's response... which this API deliberately does NOT do, because a
+  // generated password would then exist in a response body, a proxy log and a
+  // browser history. Supply one.
+  string password = 4;
+  bool is_app_admin = 5;
+  // must_change_password defaults to true for an admin-created account: the
+  // password was chosen by someone other than its owner.
+  bool must_change_password = 6;
+}
+
+message UpdateUserRequest {
+  string id = 1;
+  string email = 2;
+  string display_name = 3;
+  bool is_app_admin = 4;
+  bool disabled = 5;
+}
+
+message DeleteUserRequest {
+  string id = 1;
+}
+
+message DeleteUserResponse {}
+
+message ResetUserPasswordRequest {
+  string id = 1;
+  string new_password = 2;
+}
+
+message ResetUserPasswordResponse {}
+
+message ListOrgMembersRequest {
+  string org_id = 1;
+}
+
+message ListOrgMembersResponse {
+  repeated OrgMember items = 1;
+  int32 total = 2;
+}
+
+message SetOrgMemberRequest {
+  string org_id = 1;
+  string user_id = 2;
+  // role is "admin", "editor" or "viewer". Creating or changing, same call.
+  string role = 3;
+}
+
+message RemoveOrgMemberRequest {
+  string org_id = 1;
+  string user_id = 2;
+}
+
+message RemoveOrgMemberResponse {}

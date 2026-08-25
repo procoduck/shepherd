@@ -64,8 +64,11 @@ type OrgMembership struct {
 	Id          string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Name        string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	DisplayName string                 `protobuf:"bytes,3,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
-	// Role is "admin" or "reader" — kept as a string (not an enum) so the
-	// legacy JSON value is unchanged. Validated server-side.
+	// Role is "admin", "editor" or "viewer" — the same three names for a local
+	// user (org_members.role) and an OIDC one (matched against the org's
+	// admin/editor/reader group), so the UI does not have to know which path the
+	// session came from. Kept as a string rather than an enum so the legacy JSON
+	// value is unchanged.
 	Role          string `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

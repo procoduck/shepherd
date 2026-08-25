@@ -167,6 +167,15 @@ type Org struct {
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 	TenantID      pgtype.Text        `json:"tenant_id"`
+	EditorGroupID pgtype.Text        `json:"editor_group_id"`
+}
+
+type OrgMember struct {
+	OrgID     pgtype.UUID        `json:"org_id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+	Role      string             `json:"role"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Pipeline struct {
@@ -250,6 +259,7 @@ type Session struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 	Source         string             `json:"source"`
+	UserID         pgtype.UUID        `json:"user_id"`
 }
 
 type SimulateRun struct {
@@ -276,9 +286,15 @@ type Team struct {
 	ID         pgtype.UUID        `json:"id"`
 	OrgID      pgtype.UUID        `json:"org_id"`
 	Name       string             `json:"name"`
-	IdpGroupID string             `json:"idp_group_id"`
+	IdpGroupID pgtype.Text        `json:"idp_group_id"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
+type TeamMember struct {
+	TeamID    pgtype.UUID        `json:"team_id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
 type TenantRoute struct {
@@ -296,4 +312,18 @@ type TenantRoute struct {
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
+}
+
+type User struct {
+	ID                 pgtype.UUID        `json:"id"`
+	Login              string             `json:"login"`
+	Email              string             `json:"email"`
+	DisplayName        string             `json:"display_name"`
+	PasswordHash       string             `json:"password_hash"`
+	IsAppAdmin         bool               `json:"is_app_admin"`
+	MustChangePassword bool               `json:"must_change_password"`
+	Disabled           bool               `json:"disabled"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	LastLoginAt        pgtype.Timestamptz `json:"last_login_at"`
 }

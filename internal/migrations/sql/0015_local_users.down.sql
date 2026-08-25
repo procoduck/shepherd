@@ -1,0 +1,4 @@
+DROP INDEX IF EXISTS idx_sessions_user_id;
+ALTER TABLE sessions DROP COLUMN IF EXISTS user_id;
+DROP TABLE IF EXISTS org_members;
+DROP TABLE IF EXISTS users;

@@ -790,6 +790,13 @@ seams.
 > **SCIM is an explicit non-goal.** SCIM exists to close the gap where an app holds identities
 > the directory does not control. Shepherd is OIDC-only (plus break-glass local admin), so a
 > terminated user fails at the IdP's front door — there is no local account to linger, and the
-> residual exposure is an active session bounded by `session_ttl`. If revocation latency ever
+> residual exposure is an active session bounded by `session_ttl`.
+>
+> **Correction (2026-08-25, local user management):** the premise above no longer holds.
+> Shepherd now supports full local user management (migration 0015), so identities it holds
+> and the directory does not are exactly what a `users` row is. Deprovisioning one is a
+> deliberate act — disable or delete the account — not something the IdP does on your behalf.
+> That does not make SCIM a goal, but the reason has changed: it is now "an operator manages
+> these accounts directly", not "these accounts do not exist". If revocation latency ever
 > becomes a hard requirement, the cheap fix is re-validating group claims during session checks,
 > not implementing a SCIM server. (Grafana's SCIM is also SAML-only, which we do not speak.)

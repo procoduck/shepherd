@@ -223,8 +223,11 @@ Migration `0001_init` creates (all `id` are `uuid DEFAULT gen_random_uuid()` unl
 
 ```sql
 orgs(id, name text UNIQUE, display_name text,
-     admin_group_id text,          -- Entra group object ID (GUID) whose members are Org Admins
+     admin_group_id text,          -- group whose members are Org Admins
      reader_group_id text NULL)    -- optional org-wide reader group
+-- amended: 0016 adds orgs.editor_group_id text NULL (optional org-wide editor
+-- group); 0015 adds the users / org_members tables and sessions.user_id for
+-- local, non-OIDC identity. See §7.2.
 
 clusters(id, name text UNIQUE, org_id uuid NULL REFERENCES orgs)  -- NULL = unclaimed
 
@@ -352,7 +355,7 @@ hash := hex(sha256(content))
 Which claim carries the subject, the email, the display name, and the group list is per-provider configuration, not a constant. `internal/auth.Presets` holds the built-in catalogue (Entra, Okta, Google, Auth0, Keycloak, Cognito, GitLab, authentik, OneLogin, generic); a preset only supplies **defaults** — every value it prefills is stored explicitly, so the effective configuration is readable without consulting the preset table.
 
 - **Subject** — `oidc.subject_claim`, default `oid` (Entra's immutable object ID, what this code has always read). Every other provider needs `sub`. Falls back to the ID token's spec-mandated `sub` when the configured claim is absent, so a mistyped setting degrades to a working identity rather than an empty `user_oid`.
-- **Groups** — `oidc.groups_claim`, default `groups` (`cognito:groups` for Cognito, `groups_direct` for GitLab, a namespaced URI for Auth0). Values are matched against `auth.app_admin_group_ids` and against each org's `admin_group_id` / `reader_group_id`; for a non-Entra provider those columns therefore hold whatever the IdP emits (usually a group name or path), not a GUID. Nothing in the schema ever assumed a GUID — only the Entra-shaped documentation did. The reader accepts all three shapes providers use: a JSON array, a bare string, or a space-separated list.
+- **Groups** — `oidc.groups_claim`, default `groups` (`cognito:groups` for Cognito, `groups_direct` for GitLab, a namespaced URI for Auth0). Values are matched against `auth.app_admin_group_ids` and against each org's `admin_group_id` / `editor_group_id` / `reader_group_id`; for a non-Entra provider those columns therefore hold whatever the IdP emits (usually a group name or path), not a GUID. Nothing in the schema ever assumed a GUID — only the Entra-shaped documentation did. The reader accepts all three shapes providers use: a JSON array, a bare string, or a space-separated list.
 - **Microsoft Graph** — `oidc.use_graph_groups` (default: true when `oidc.provider` is `entra`, false otherwise) keeps the transitive lookup `GET {graph_base_url}/v1.0/me/transitiveMemberOf/microsoft.graph.group?$select=id,displayName&$top=999` (follow `@odata.nextLink`). It stays the default for Entra because Entra omits the groups claim entirely on >200-group overage. `graph.base_url` is pinned to Microsoft's own Graph hosts (global plus the sovereign clouds) on the UI-managed path: the signing-in user's **delegated access token** is sent to it as a bearer credential, so an unconstrained value would let an app admin redirect every user's token to a collector they control.
   - **Behavioral change, deliberate:** when the Graph call fails, the groups claim is now used as a fallback. Previously a Graph error yielded *no* groups, which silently stripped every administrator of access during a Graph outage or a revoked `GroupMember.Read.All` consent. The claim is signed by the same IdP so it cannot be forged, but it is **not the same set** — claim scope is configured per app registration ("all groups" vs "groups assigned to the application"), and AD-synced groups may emit `sAMAccountName` rather than GUIDs. An Entra deployment that wants the old all-or-nothing behavior must leave the groups claim unmapped in its app registration.
 
@@ -361,7 +364,7 @@ Which claim carries the subject, the email, the display name, and the group list
 OIDC configuration has exactly two sources, and **`oidc.issuer` decides which**:
 
 - **Set in the chart / environment** → chart config wins. The admin UI shows the values read-only and refuses writes (`FailedPrecondition`). A cluster whose identity provider is declared in git must not be silently re-pointed by whoever holds an app-admin session.
-- **Not set** → an app admin configures a provider from the UI (Admin → Single sign-on), persisted to the singleton `oidc_settings` row (migration 0014). The client secret is AES-256-GCM-encrypted at rest via `internal/crypto`, following `git_credentials.client_secret_enc`'s precedent, and is never returned by the API — `GetOidcSettings` answers `client_secret_set` only. The local-admin break-glass account (§7.4) is the bootstrap path.
+- **Not set** → an app admin configures a provider from the UI (Admin → Single sign-on), persisted to the singleton `oidc_settings` row (migration 0014). The client secret is AES-256-GCM-encrypted at rest via `internal/crypto`, following `git_credentials.client_secret_enc`'s precedent, and is never returned by the API — `GetOidcSettings` answers `client_secret_set` only. A local app-admin account is the bootstrap path — the administrator created on first boot, or any local user with app-admin rights (§7.2 as superseded).
 
 Saving takes effect **without a restart**: `auth.Handler` holds the discovered provider and oauth2 client behind an atomic pointer that `Reload` swaps, and `/auth/login` + `/auth/callback` are mounted unconditionally (they redirect to `/login?auth_error=oidc_not_configured` when no provider is live). Other replicas pick the change up within 30s via a staleness check on the auth paths. Discovery runs **before** the write whenever the configuration is being enabled, so a provider that cannot discover is never stored as live — the admin who would have to fix it may be relying on that same login page.
 
@@ -378,11 +381,47 @@ Background refreshes run on a context **detached from the request** (`context.Wi
 
 ### 7.2 Roles
 
-- **App Admin**: user has any group in `auth.app_admin_group_ids` (viper list). Can do everything, everywhere: CRUD orgs, claim/unclaim clusters into orgs, CRUD group assignments, CRUD agent tokens, view all.
-- **Org Admin** of org O: member of `O.admin_group_id`. Full CRUD within O: pipelines, destinations, ADO credentials, repo links, wizards, group assignments *for O's collectors*. Cannot touch other orgs, cannot claim clusters, cannot manage agent tokens.
-- **Reader**: for any collector C, a user can *view* C (and the pipelines/served config affecting C) if they are a member of any group in `group_assignments` for C, or of the org's `reader_group_id`, or hold a higher role. Readers can create nothing.
+A role is reached by either of two independent paths, and the two coexist —
+one is not a fallback for the other:
 
-Implement as chi middleware helpers: `RequireAppAdmin`, `RequireOrgAdmin(orgIDParam)`, `RequireCollectorRead(collectorIDParam)`. Every handler declares exactly one.
+- **Group-derived** (OIDC): the session's groups claim is matched against
+  `auth.app_admin_group_ids` and each org's `admin_group_id` /
+  `editor_group_id` / `reader_group_id`.
+- **Locally assigned** (`0015_local_users`): the session names a row in `users`
+  (`sessions.user_id`), app-admin comes from `users.is_app_admin`, and the org
+  role from `org_members.role`. Shepherd runs fully with no identity provider
+  configured at all.
+
+The resulting roles are the same either way:
+
+- **App Admin**: any group in `auth.app_admin_group_ids`, or a local user with
+  `is_app_admin`. Can do everything, everywhere: CRUD orgs, claim/unclaim
+  clusters into orgs, CRUD group assignments, CRUD agent tokens, CRUD local
+  users, view all.
+- **Org Admin** of org O: member of `O.admin_group_id`, or `org_members.role =
+  'admin'` for O. Full CRUD within O: pipelines, destinations, git
+  credentials, repo links, wizards, teams, tenant routes, group assignments
+  *for O's collectors*. Cannot touch other orgs, cannot claim clusters, cannot
+  manage agent tokens.
+- **Org Editor** of org O: member of `O.editor_group_id`, or
+  `org_members.role = 'editor'`. Authors what the org **runs** — pipelines,
+  wizards, visual builder, simulations — but cannot change what the org **is**:
+  destinations, tenant routes, git credentials, teams and service accounts stay
+  org admin. The tier exists because "can write a pipeline" and "can re-point
+  where telemetry ships" were previously the same permission.
+- **Viewer** (formerly *Reader*): for any collector C, a user can *view* C (and
+  the pipelines/served config affecting C) if they are a member of any group in
+  `group_assignments` for C, or of the org's `reader_group_id`, or
+  `org_members.role = 'viewer'`, or holds a higher role. Viewers create nothing.
+  The column is still `reader_group_id` — renaming it would break every chart
+  and secret already deployed — but the role reports as `viewer`.
+
+Authorization is one function, `authorizeOrgAccess(ctx, org, minRole)`, taking
+a **minimum** role rather than a boolean: ranks are admin > editor > viewer, and
+both paths above resolve into that same rank comparison. Middleware helpers
+`RequireAppAdmin`, `RequireOrgAccess(orgIDParam, minRole)` and
+`RequireCollectorRead(collectorIDParam)` wrap it; every handler declares exactly
+one.
 
 ### 7.3 Agent tokens (machine auth)
 
@@ -516,7 +555,7 @@ Standard envelope: errors as `{"error": {"code": "...", "message": "...", "detai
 ```
 GET    /api/me                                   [any]  profile + roles + orgs visible
 # Admin
-POST   /api/admin/orgs                           [app]  {name, display_name, admin_group_id, reader_group_id?}
+POST   /api/admin/orgs                           [app]  {name, display_name, admin_group_id, reader_group_id?, editor_group_id?}
 GET    /api/admin/orgs                           [app]
 PATCH  /api/admin/orgs/{org}                     [app]
 DELETE /api/admin/orgs/{org}                     [app]  (only if empty)
@@ -1176,42 +1215,57 @@ Token lifecycle Info-logging must never include secret material. Token secret is
 
 ## Amendments from Local Admin Implementation LA-1 (2026-08-17)
 
-### §7.2 Local Admin (optional break-glass account)
+### §7.2 Local Admin (optional break-glass account) — SUPERSEDED
 
-**Purpose:** Single local admin account for local development (no Entra) and emergency break-glass access when OIDC is unavailable.
+**Superseded by local user management (migration 0015).** This section
+described a single hardcoded account, configured through `auth.local_admin.*`
+in the chart and gated behind a double opt-in, whose purpose was emergency
+access when OIDC was unavailable. That whole shape is gone. It is recorded
+here because the constraints it states — the `local:` `user_oid` convention,
+the argon2id parameters, the constant-shaped failure response — either still
+hold or explain why the current code looks the way it does.
 
-**Config block:**
-```yaml
-auth:
-  local_admin:
-    enabled: false            # default
-    allow_with_oidc: false    # must be true to allow alongside OIDC
-    username: "admin"         # default
-    password_hash: ""         # argon2id encoded string — env/Secret only, NEVER ConfigMap
-    session_ttl: "1h"         # default; must be >= 5m
-```
+What replaced it:
 
-**Double opt-in rule:** `enabled=true` + `oidc.issuer != ""` + `allow_with_oidc=false` → **boot failure**. Both keys must be explicitly set.
+- **Many accounts, not one.** The `users` table (0015) holds any number of
+  local accounts, each with its own app-admin flag and per-org role in
+  `org_members`. `auth.local_admin.*` no longer exists in the chart; a
+  deployment that still sets it fails to boot on an unknown key rather than
+  silently ignoring it.
+- **Not a break-glass mode.** Local accounts are a supported way to run
+  Shepherd, with or without an identity provider, and they coexist with OIDC
+  rather than being gated against it. The double opt-in rule and
+  `allow_with_oidc` are gone with it.
+- **No warning banner.** The non-dismissible amber banner shown for
+  `auth_method === "local"` is removed: it warned about an emergency that a
+  supported configuration is not.
+- **Bootstrap instead of configuration.** The first administrator is created
+  on first boot while the users table is empty, from
+  `SHEPHERD_BOOTSTRAP_ADMIN_LOGIN` / `_PASSWORD`. Leaving the password unset
+  creates `admin`/`admin` with `must_change_password`, which blocks every
+  request except the password change itself — see
+  internal/auth.RequirePasswordChange.
 
-**Single account scope:** Only one local admin account is supported. Permanent decision.
+What carried over unchanged:
 
-**`user_oid` convention:** Local sessions store `user_oid = "local:" + username`. This is permanent; no rename will occur.
-
-**Password hashing:** Argon2id via `shepherd hash-password` (interactive no-echo, or `--password-stdin` for scripting). Params: time=1, memory=64MiB, threads=4, salt=16B, key=32B, standard `$argon2id$v=19$...` encoding.
-
-**Endpoints:**
-- `GET /auth/methods` — always registered (no auth, no CSRF), returns `{"oidc":bool,"local_admin":bool}`, `Cache-Control: max-age=60`.
-- `POST /api/auth/local/login` — registered ONLY when `local_admin.enabled` (404 when disabled). Passes through CSRFMiddleware. Constant-shaped failure response on wrong username or password. Success: session with `source="local"`, `is_app_admin=true`, `id_token_expires=NULL`, TTL from `session_ttl`.
-
-**Non-dismissible break-glass banner:** When `me.auth_method === "local"`, amber banner renders between the nav and content on every page, every load. Cannot be dismissed.
-
-**Actor wiring:** `SessionMiddleware` sets the actor context for ALL sessions: OIDC → `sess.Email`, local → `sess.UserOID` (`"local:admin"`). Audit rows are no longer anonymous.
-
-**`/api/me` response:** Gains `auth_method: "oidc"|"local"` field.
-
-**Security:** No rate limiter in v1 — argon2id cost + `subtle.ConstantTimeCompare` + constant-shaped failure response. A `// FUTURE:` comment marks the per-IP rate limiting location.
-
-**Helm:** `auth.local_admin` block fully commented out in values.yaml with break-glass warning header. `SHEPHERD_AUTH_LOCAL_ADMIN_PASSWORD_HASH` documented as a Secret key, never a ConfigMap value.
+- **`user_oid` convention:** local sessions still store
+  `user_oid = "local:" + login`.
+- **Password hashing:** argon2id, time=1, memory=64MiB, threads=4, salt=16B,
+  key=32B, standard `$argon2id$v=19$...` encoding. `shepherd hash-password`
+  remains.
+- **Endpoints:** `GET /auth/methods` (no auth, no CSRF,
+  `{"oidc":bool,"local_admin":bool}`, `Cache-Control: max-age=60`) and
+  `POST /api/auth/local/login` (through CSRFMiddleware, constant-shaped
+  failure on either wrong username or wrong password — separate answers would
+  be a username oracle). `local_admin` in the methods response now means
+  "local sign-in is available", not "the break-glass account is enabled".
+- **Sessions** still carry `source = "local"`, and now also `user_id`
+  referencing the `users` row (0015) — which is what authorization branches on.
+- **Actor wiring** and the `/api/me` `auth_method` field are unchanged.
+- **Security:** still no rate limiter — argon2id cost, constant-time compare,
+  constant-shaped failure. `Authenticate` additionally verifies a dummy hash
+  when no user matches, so a missing account and a wrong password take the
+  same time.
 
 ### §D.9 v1.3 — Sessions schema (amended)
 Sessions table gains `source text NOT NULL DEFAULT 'oidc'`. `id_token_expires` is now nullable (local sessions have no ID token). Migration 0003. Both `GetSessionByID` and `CreateSession` include the `source` column.
@@ -1230,12 +1284,17 @@ Sessions table gains `source text NOT NULL DEFAULT 'oidc'`. `id_token_expires` i
   "display_name": "string",
   "is_app_admin": boolean,
   "auth_method": "oidc"|"local"|"dev",
-  "orgs": [{ "id": "uuid", "name": "string", "display_name": "string", "role": "admin"|"reader" }]
+  "orgs": [{ "id": "uuid", "name": "string", "display_name": "string", "role": "admin"|"editor"|"viewer" }]
 }
 ```
 
 `orgs` lists orgs the session user has access to. For `is_app_admin=true`: all orgs with `role="admin"`.
-For non-app-admin: orgs where session `group_ids` match `admin_group_id` (role="admin") or `reader_group_id` (role="reader"). Always an array, never null.
+For a non-app-admin OIDC session: orgs where `group_ids` match `admin_group_id`
+(`"admin"`), `editor_group_id` (`"editor"`) or `reader_group_id` (`"viewer"`).
+For a local session: the user's `org_members` rows, whose `role` is already one
+of those three. Always an array, never null. The reported value drives what the
+UI offers, so it names the role actually held — reporting `"viewer"` to an
+editor would hide the pipeline editor from someone who can in fact use it.
 
 ### §12 (amended) — GET /api/admin/clusters canonical contract
 

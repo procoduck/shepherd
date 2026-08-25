@@ -20,7 +20,12 @@ import (
 // chooses a URL the SERVER then fetches. That makes it a server-side request
 // forgery primitive unless it is deliberately constrained, and app admin is an
 // application role — not cluster-admin — so "the caller is already privileged"
-// is not an answer. The three constraints below are what make it safe:
+// is not an answer. The three constraints below are what make it safe.
+//
+// Constraints 1 and 4 apply to every issuer. Constraints 2 and 3 apply only to
+// an issuer an app admin supplied through the UI — see discoveryClientFor for
+// why an issuer declared in the deployment's own configuration is a different
+// question, and what it would cost to treat them the same.
 //
 //  1. discoveryTimeout bounds the request. go-oidc uses http.DefaultClient,
 //     which has NO timeout; a host that accepts the connection and never
@@ -31,14 +36,14 @@ import (
 //     runs before ListenAndServe at startup, where a hang means the process
 //     never becomes ready.
 //
-//  2. dialGuard rejects loopback, private, link-local, and other non-public
-//     destinations AFTER DNS resolution. Checking the hostname instead would
+//  2. dialGuard (admin-supplied issuers only) rejects loopback, private,
+//     link-local, and other non-public destinations AFTER DNS resolution. Checking the hostname instead would
 //     be defeated by a name that resolves to 127.0.0.1 or 169.254.169.254 —
 //     the cloud metadata endpoint — and by DNS rebinding, since the name is
 //     resolved again by the dialer. Control sees the address actually being
 //     connected to, which is the only check that cannot be lied to.
 //
-//  3. Redirects are restricted to https. The dial guard already blocks a
+//  3. Redirects are restricted to https (admin-supplied issuers only). The dial guard already blocks a
 //     redirect INTO the private ranges, but an https -> http downgrade would
 //     put the discovery document, and therefore the JWKS location, on a
 //     channel an on-path attacker can rewrite.
@@ -117,8 +122,14 @@ var extraBlockedV4 = func() []*net.IPNet {
 }()
 
 // newDiscoveryClient builds the constrained HTTP client described above.
-func newDiscoveryClient() *http.Client {
-	dialer := &net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second, Control: dialGuard}
+// guardAddresses selects the dial guard: it is on for any issuer an app admin
+// supplied through the UI, and off for one declared in the deployment's own
+// configuration — see discoveryClientFor.
+func newDiscoveryClient(guardAddresses bool) *http.Client {
+	dialer := &net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}
+	if guardAddresses {
+		dialer.Control = dialGuard
+	}
 	return &http.Client{
 		Timeout: discoveryTimeout,
 		Transport: &http.Transport{
@@ -131,7 +142,12 @@ func newDiscoveryClient() *http.Client {
 			if len(via) >= 5 {
 				return errors.New("too many redirects")
 			}
-			if req.URL.Scheme != "https" {
+			// The https requirement follows the same split: a redirect chain
+			// on an admin-supplied issuer must not be downgradable, but an
+			// operator who declared a plain-http in-cluster issuer has already
+			// chosen that, and refusing its redirects would be refusing their
+			// own configuration.
+			if guardAddresses && req.URL.Scheme != "https" {
 				return fmt.Errorf("refusing to follow a redirect to %s: discovery must stay on https", req.URL.Scheme)
 			}
 			return nil
@@ -139,11 +155,40 @@ func newDiscoveryClient() *http.Client {
 	}
 }
 
-// discoveryClient is shared: it holds a connection pool, and building one per
-// probe would discard it. It is stateless and safe for concurrent use.
+// The clients are shared: each holds a connection pool, and building one per
+// probe would discard it. They are stateless and safe for concurrent use.
 //
-//nolint:gochecknoglobals // shared HTTP client with a connection pool, immutable after init
-var discoveryClient = newDiscoveryClient()
+//nolint:gochecknoglobals // shared HTTP clients with connection pools, immutable after init
+var (
+	// discoveryClient is the guarded client, used for every issuer an app
+	// admin can influence.
+	discoveryClient = newDiscoveryClient(true)
+	// declaredIssuerClient keeps the timeouts, the body-size cap and the
+	// no-body-in-errors rule, and drops only the address guard.
+	declaredIssuerClient = newDiscoveryClient(false)
+)
+
+// discoveryClientFor picks the client for an issuer that arrived from source.
+//
+// The address guard exists because an app admin choosing a URL the SERVER
+// fetches is an SSRF primitive: app admin is an application role, not
+// cluster-admin, so "the caller is already privileged" is not an answer. That
+// reasoning applies precisely to SourceDatabase — an issuer typed into
+// Admin -> Single sign-on.
+//
+// It does not apply to SourceHelm. That issuer comes from the deployment's own
+// configuration, written by whoever installs the chart, who by definition
+// already decides what the process does and what it can reach. Guarding it
+// buys nothing and costs a great deal: an in-cluster identity provider — a
+// Keycloak or Dex on a Service address, which is one of the most ordinary
+// self-hosted setups there is — resolves to a private address every time, so
+// the guard made that configuration impossible to boot.
+func discoveryClientFor(source string) *http.Client {
+	if source == SourceHelm {
+		return declaredIssuerClient
+	}
+	return discoveryClient
+}
 
 // discoveryDocument is the subset of OpenID Provider Metadata Shepherd reads.
 type discoveryDocument struct {
@@ -163,8 +208,8 @@ type discoveryDocument struct {
 // code, the URL, or a parse failure, and never the response body. That is the
 // whole reason this exists instead of calling oidc.NewProvider and reporting
 // its error — see the note on discoveryTimeout.
-func fetchDiscovery(ctx context.Context, issuer string) (*discoveryDocument, error) {
-	return fetchDiscoveryWith(ctx, discoveryClient, issuer)
+func fetchDiscovery(ctx context.Context, issuer, source string) (*discoveryDocument, error) {
+	return fetchDiscoveryWith(ctx, discoveryClientFor(source), issuer)
 }
 
 // fetchDiscoveryWith is fetchDiscovery with the client injected, so the

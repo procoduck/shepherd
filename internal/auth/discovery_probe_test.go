@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -23,7 +24,7 @@ func TestDiscoveryRefusesPrivateAddresses(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := fetchDiscovery(context.Background(), srv.URL)
+	_, err := fetchDiscovery(context.Background(), srv.URL, SourceDatabase)
 	if err == nil {
 		t.Fatal("fetchDiscovery reached a loopback address; the dial guard is not working")
 	}
@@ -108,5 +109,37 @@ func TestBlockedIPCoversTheRangesThatMatter(t *testing.T) {
 		if got := blockedIP(ip); got != tc.blocked {
 			t.Errorf("blockedIP(%s) = %v, want %v", tc.ip, got, tc.blocked)
 		}
+	}
+}
+
+// The guard is scoped to issuers an app admin supplied, not to one the
+// operator declared in the chart. An in-cluster identity provider resolves to
+// a private address every time, so guarding SourceHelm made the most ordinary
+// self-hosted setup there is impossible to boot.
+func TestDiscoveryAllowsAPrivateAddressForADeclaredIssuer(t *testing.T) {
+	// issuer is filled in once the server has an address; the document must
+	// name the issuer it was served for or validation rejects it.
+	var issuer string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, //nolint:errcheck // test fixture
+			`{"issuer":%q,"authorization_endpoint":"%s/auth","token_endpoint":"%s/token","jwks_uri":"%s/keys"}`,
+			issuer, issuer, issuer, issuer)
+	}))
+	defer srv.Close()
+	issuer = srv.URL
+
+	doc, err := fetchDiscovery(context.Background(), issuer, SourceHelm)
+	if err != nil {
+		t.Fatalf("a chart-declared issuer on a private address must be reachable, got: %v", err)
+	}
+	if doc.Issuer != issuer {
+		t.Fatalf("issuer mismatch: got %q, want %q", doc.Issuer, issuer)
+	}
+
+	// Same address, same server — refused only because of where the issuer
+	// came from.
+	if _, err := fetchDiscovery(context.Background(), issuer, SourceDatabase); err == nil {
+		t.Fatal("an admin-supplied issuer on a loopback address must still be refused")
 	}
 }
