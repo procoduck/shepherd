@@ -19,17 +19,39 @@ name: CI
 # still not wired into CI; that remains follow-up.
 
 # Actions minutes are a budgeted resource (3000/month on this plan) and GitHub
-# bills EVERY JOB separately, so this workflow's eight parallel jobs cost ~22
-# billed minutes for ~6 minutes of wall clock. Two rules follow from that:
+# bills EVERY JOB separately, ROUNDED UP TO THE MINUTE. Measured over 20 recent
+# runs, a full CI pass is ~26 billed minutes for ~9 minutes of wall clock:
+#
+#   test-fullstack 9.0   generated-drift 4.0   test 3.9   test-ui 3.0
+#   lint 1.6   build 1.2   web 1.0   guards 1.0   changes 1.0
+#
+# Three rules follow from that:
 #
 #   1. A change that cannot affect any job here must not start the workflow —
-#      hence paths-ignore. A docs-only push used to cost the full 22 minutes.
-#   2. The two most expensive jobs (test-fullstack ~7 min, generated-drift ~5
-#      min — together over half the bill) gate on the `changes` job below, so
-#      they run only when their own inputs moved.
+#      hence paths-ignore. A docs-only push used to cost the full run.
+#   2. Every job that costs more than its share gates on the `changes` job
+#      below and runs only when its own inputs moved. Only `guards` (1 min,
+#      cross-cutting, and the thing that catches a broken committed dist) and
+#      `changes` itself are unconditional.
+#   3. When the diff cannot be computed (force-push, first push on a branch),
+#      every gate opens. Running too much is a budget problem; running too
+#      little is a correctness problem, and they are not equally bad.
+#
+# What that buys, per the same measurements:
+#   Go-only PR      skips web + test-ui                  -4.0 min
+#   Web-only PR     skips lint + build + test            -6.7 min
+#                   (+ generated-drift when no proto)    -4.0 min
+#   Chart-only PR   skips web + test-ui + fullstack     -13.0 min
+#   Docs-only PR    does not start the workflow at all  -26.0 min
 #
 # paths-ignore is deliberately narrow: anything not listed still runs
 # everything. A PR touching docs AND code runs in full, which is correct.
+#
+# NOT done, deliberately: this still runs in full on every push to main, which
+# re-tests a tree that just passed as a PR (8 of the last 30 runs, ~200 billed
+# minutes). That duplication is the safety net for semantic conflicts between
+# PRs that merged close together, and cutting it trades budget for the one
+# signal that catches them. Revisit only if the budget actually binds.
 on:
   pull_request:
     paths-ignore:
@@ -58,6 +80,8 @@ jobs:
     name: changes
     runs-on: ubuntu-latest
     outputs:
+      backend: ${{ steps.f.outputs.backend }}
+      frontend: ${{ steps.f.outputs.frontend }}
       generated: ${{ steps.f.outputs.generated }}
       fullstack: ${{ steps.f.outputs.fullstack }}
     steps:
@@ -78,8 +102,9 @@ jobs:
           # A missing/zero base (first push on a branch, force-push) means we
           # cannot diff — run everything rather than skip a gate blindly.
           if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
-            echo "generated=true" >> "$GITHUB_OUTPUT"
-            echo "fullstack=true" >> "$GITHUB_OUTPUT"
+            for k in backend frontend generated fullstack; do
+              echo "$k=true" >> "$GITHUB_OUTPUT"
+            done
             echo "no usable base ($base) — running all gated jobs"
             exit 0
           fi
@@ -102,8 +127,49 @@ jobs:
             echo "fullstack=false" >> "$GITHUB_OUTPUT"
           fi
 
+          # backend gates lint, build and test — together ~7 billed minutes.
+          #
+          # deploy/helm/** is in here and that is not a mistake: deploy/helm's
+          # chart tests shell out to real `helm template` and assert on its
+          # output, so a values.yaml edit genuinely can fail `go test ./...`.
+          #
+          # internal/spa/dist/** is deliberately EXCLUDED (see the -v below).
+          # The built SPA is committed, so every web change carries a dist
+          # rebuild; treating that as a backend change would mean no web PR
+          # ever skips the Go suite and this gate would buy nothing. Nothing in
+          # the Go tests depends on dist CONTENT — only that it exists and its
+          # index references files that are tracked, which is exactly what the
+          # always-on `guards` job checks (check-single-dist,
+          # check-dist-consistency).
+          if echo "$files" | grep -vE '^internal/spa/dist/' \
+             | grep -qE '(\.go$|^go\.(mod|sum)$|^proto/|^gen/|^buf\.(gen\.)?yaml$|^sqlc\.yaml$|^internal/|^cmd/|^tools/|^e2e/|^deploy/helm/|^deploy/Dockerfile|^deploy/versions\.env$|^\.golangci\.yml$|^Makefile$|^\.github/workflows/ci\.yml$)'; then
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "backend=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # frontend gates web and test-ui — ~4 billed minutes. Both run
+          # entirely inside web/ (typecheck, vitest, biome, vite build, and
+          # Playwright against `vite preview` with mocked APIs), so nothing
+          # outside web/ can change their result — except proto/, which
+          # regenerates web/src/gen.
+          if echo "$files" | grep -qE '(^web/|^proto/|^buf\.(gen\.)?yaml$|^Makefile$|^\.github/workflows/ci\.yml$)'; then
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "frontend=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "--- gate decisions ---"
+          cat "$GITHUB_OUTPUT"
+
   lint:
     name: lint
+    needs: changes
+    # Fail-open: if `changes` could not run, its outputs are empty and a plain
+    # equality test would silently skip this job — turning a broken gate into
+    # a green PR that tested nothing. Run whenever the gate says yes OR the
+    # gate itself did not succeed.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -127,6 +193,12 @@ jobs:
 
   build:
     name: build
+    needs: changes
+    # Fail-open: if `changes` could not run, its outputs are empty and a plain
+    # equality test would silently skip this job — turning a broken gate into
+    # a green PR that tested nothing. Run whenever the gate says yes OR the
+    # gate itself did not succeed.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -171,7 +243,11 @@ jobs:
   generated-drift:
     name: generated-drift
     needs: changes
-    if: needs.changes.outputs.generated == 'true'
+    # Fail-open: if `changes` could not run, its outputs are empty and a plain
+    # equality test would silently skip this job — turning a broken gate into
+    # a green PR that tested nothing. Run whenever the gate says yes OR the
+    # gate itself did not succeed.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.generated == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -236,6 +312,12 @@ jobs:
 
   test:
     name: test
+    needs: changes
+    # Fail-open: if `changes` could not run, its outputs are empty and a plain
+    # equality test would silently skip this job — turning a broken gate into
+    # a green PR that tested nothing. Run whenever the gate says yes OR the
+    # gate itself did not succeed.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -270,6 +352,12 @@ jobs:
 
   web:
     name: web
+    needs: changes
+    # Fail-open: if `changes` could not run, its outputs are empty and a plain
+    # equality test would silently skip this job — turning a broken gate into
+    # a green PR that tested nothing. Run whenever the gate says yes OR the
+    # gate itself did not succeed.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.frontend == 'true') }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -323,6 +411,12 @@ jobs:
 
   test-ui:
     name: test-ui
+    needs: changes
+    # Fail-open: if `changes` could not run, its outputs are empty and a plain
+    # equality test would silently skip this job — turning a broken gate into
+    # a green PR that tested nothing. Run whenever the gate says yes OR the
+    # gate itself did not succeed.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.frontend == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -385,7 +479,11 @@ jobs:
   test-fullstack:
     name: test-fullstack
     needs: changes
-    if: needs.changes.outputs.fullstack == 'true'
+    # Fail-open: if `changes` could not run, its outputs are empty and a plain
+    # equality test would silently skip this job — turning a broken gate into
+    # a green PR that tested nothing. Run whenever the gate says yes OR the
+    # gate itself did not succeed.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.fullstack == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
