@@ -1,0 +1,20 @@
+# gitleaks allowlist — fingerprints verified by hand, not silenced blindly.
+#
+# Each entry below was opened and read. They are test fixtures and prose, and
+# every one is deliberately, visibly fake:
+#   - the e2e encryption key base64-decodes to "e2e-test-key-not-a-real-secret!!"
+#   - the "private key" body is the literal word "fake"
+#   - the migration hit is the word "secret" in a comment explaining how
+#     secrets are STORED, which is the opposite of leaking one
+#
+# Anything not listed here is a real finding. Do not add to this file without
+# reading the match and saying why it is safe.
+
+# generic-api-key @ internal/migrations/sql/0011_grafana_connections.up.sql:11
+2550a726d715ee6e26122a22976a1e843179e857:internal/migrations/sql/0011_grafana_connections.up.sql:generic-api-key:11
+# generic-api-key @ e2e/k8s/helm_install_test.go:251
+05294c3e739e816053c1b8be1df0e6045c9d5ee0:e2e/k8s/helm_install_test.go:generic-api-key:251
+# generic-api-key @ e2e/k8s/fixtures_test.go:67
+9089aff7191562340aedf92bb930229b2d29b171:e2e/k8s/fixtures_test.go:generic-api-key:67
+# private-key @ internal/mgmtapi/rpc_gitops_test.go:263
+453a1477d30ae9e61b2de2d20539324f2ac3317d:internal/mgmtapi/rpc_gitops_test.go:private-key:263
