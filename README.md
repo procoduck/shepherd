@@ -213,3 +213,16 @@ Alloy (spoke)  ──remotecfg──▶  Shepherd  ──serves──▶  merged
 | Org reader | Read only |
 | Service account (`apply`) | Machine writes within one org, acting for the human it was issued to |
 | Service account (`propose`) | Reads, validation and proposals — never applies |
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the build/test loop and the two
+things that catch people out (committed generated code, and the committed SPA
+build). Security issues: please follow [SECURITY.md](SECURITY.md) rather than
+opening a public issue.
+
+## Licence
+
+[Apache License 2.0](LICENSE).
