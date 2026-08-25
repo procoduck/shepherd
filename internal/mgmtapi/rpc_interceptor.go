@@ -167,6 +167,12 @@ var procedureRequirements = map[string]string{ //nolint:gochecknoglobals // stat
 	mgmtv1connect.TeamServiceListTeamsProcedure:  auth.RoleOrgReader,
 	mgmtv1connect.TeamServiceCreateTeamProcedure: auth.RoleOrgAdmin,
 	mgmtv1connect.TeamServiceDeleteTeamProcedure: auth.RoleOrgAdmin,
+	// The roster is org admin rather than reader, unlike ListTeams: it
+	// returns logins and email addresses, so it enumerates accounts. Who the
+	// teams ARE is org-wide information; who is IN them is not.
+	mgmtv1connect.TeamServiceListTeamMembersProcedure:  auth.RoleOrgAdmin,
+	mgmtv1connect.TeamServiceAddTeamMemberProcedure:    auth.RoleOrgAdmin,
+	mgmtv1connect.TeamServiceRemoveTeamMemberProcedure: auth.RoleOrgAdmin,
 
 	// ServiceAccountService — org admin (minting/revoking machine
 	// credentials is a platform decision, mirroring AdminService's
@@ -244,8 +250,10 @@ var capabilityRequirements = map[string]string{ //nolint:gochecknoglobals // sta
 	mgmtv1connect.TenantRouteServiceRotateTenantRouteProcedure: capabilityApply,
 	mgmtv1connect.TenantRouteServiceRevokeTenantRouteProcedure: capabilityApply,
 
-	mgmtv1connect.TeamServiceCreateTeamProcedure: capabilityApply,
-	mgmtv1connect.TeamServiceDeleteTeamProcedure: capabilityApply,
+	mgmtv1connect.TeamServiceCreateTeamProcedure:       capabilityApply,
+	mgmtv1connect.TeamServiceDeleteTeamProcedure:       capabilityApply,
+	mgmtv1connect.TeamServiceAddTeamMemberProcedure:    capabilityApply,
+	mgmtv1connect.TeamServiceRemoveTeamMemberProcedure: capabilityApply,
 
 	mgmtv1connect.ServiceAccountServiceCreateServiceAccountProcedure: capabilityApply,
 	mgmtv1connect.ServiceAccountServiceRevokeServiceAccountProcedure: capabilityApply,

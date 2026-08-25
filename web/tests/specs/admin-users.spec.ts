@@ -58,7 +58,11 @@ test('refuses a duplicate login and a short password', async ({ page, api }) => 
   await page.getByTestId('user-login').fill('dave');
   await page.getByTestId('user-password').fill('short');
   await page.getByRole('button', { name: /create user/i }).click();
-  await expect(page.getByText(/at least 8 characters/i)).toBeVisible();
+  // Match the server's message exactly rather than the phrase: the form's own
+  // hint says "At least 8 characters" too, so a loose locator resolves to both
+  // and fails strict mode -- but only once a toast from the assertion above is
+  // still on screen, which is why it survived running this file alone.
+  await expect(page.getByText('auth: password must be at least 8 characters')).toBeVisible();
 });
 
 test('a non-app-admin is refused', async ({ page, api }) => {

@@ -7,7 +7,7 @@ import "google/protobuf/timestamp.proto";
 option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 
 // TeamService covers team definitions: an org-scoped binding of a name to
-// an IdP group (docs/gateway-tier-plan.md W10), extending
+// a membership (docs/gateway-tier-plan.md W10), extending
 // group_assignments' "IdP group grants access" model from the collector
 // level up to the org level. A team can OWN a pipeline
 // (pipeline.owner_team_id); ownership is what PipelineService's scoped
@@ -16,12 +16,25 @@ option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 // Team *definition* (who counts as a team, which IdP group backs it)
 // requires org-admin — the same "org-admin edits everything" ceiling every
 // other admin surface in this API has. What G11 actually adds is that a
-// non-admin member of a team's IdP group can then write the pipelines that
-// team owns, without needing org-admin at all — see PipelineService.
+// non-admin member of a team can then write the pipelines that team owns,
+// without needing org-admin at all — see PipelineService.
+//
+// Membership comes from either or both of two sources and is their union:
+// the IdP group named by idp_group_id, and explicit local users listed by
+// ListTeamMembers. A team may have no group at all, which is how teams work
+// in a deployment with no identity provider configured.
 service TeamService {
   rpc ListTeams(ListTeamsRequest) returns (ListTeamsResponse) {}
   rpc CreateTeam(CreateTeamRequest) returns (Team) {}
   rpc DeleteTeam(DeleteTeamRequest) returns (DeleteTeamResponse) {}
+
+  // Explicit members only. Members who belong via idp_group_id are not
+  // listed and cannot be: they exist only as a claim inside a session, so
+  // there is no roster to read — the honest answer is the group's name,
+  // which Team.idp_group_id already carries.
+  rpc ListTeamMembers(ListTeamMembersRequest) returns (ListTeamMembersResponse) {}
+  rpc AddTeamMember(AddTeamMemberRequest) returns (AddTeamMemberResponse) {}
+  rpc RemoveTeamMember(RemoveTeamMemberRequest) returns (RemoveTeamMemberResponse) {}
 }
 
 // Team mirrors internal/store/sqlc.Team (0012_teams_service_accounts).
@@ -29,10 +42,55 @@ message Team {
   string id = 1;
   string org_id = 2;
   string name = 3;
+  // idp_group_id is empty when no IdP group backs this team — its members
+  // are then exactly the explicit ones. Empty never matches a session's
+  // groups claim, however that claim is shaped.
   string idp_group_id = 4;
   google.protobuf.Timestamp created_at = 5;
   google.protobuf.Timestamp updated_at = 6;
+  // member_count counts explicit members only, for the same reason
+  // ListTeamMembers lists only those. A team with a group and a zero count
+  // is not empty.
+  int32 member_count = 7;
 }
+
+// TeamMember is an explicitly added local user. It carries enough of the
+// user to render a roster without a second lookup per row, and deliberately
+// no password or admin state — this is a membership view, not a user view.
+message TeamMember {
+  string user_id = 1;
+  string login = 2;
+  string email = 3;
+  string display_name = 4;
+  bool disabled = 5;
+  google.protobuf.Timestamp added_at = 6;
+}
+
+message ListTeamMembersRequest {
+  string org_id = 1;
+  string team_id = 2;
+}
+
+message ListTeamMembersResponse {
+  repeated TeamMember items = 1;
+  int32 total = 2;
+}
+
+message AddTeamMemberRequest {
+  string org_id = 1;
+  string team_id = 2;
+  string user_id = 3;
+}
+
+message AddTeamMemberResponse {}
+
+message RemoveTeamMemberRequest {
+  string org_id = 1;
+  string team_id = 2;
+  string user_id = 3;
+}
+
+message RemoveTeamMemberResponse {}
 
 message ListTeamsRequest {
   string org_id = 1;
@@ -46,6 +104,8 @@ message ListTeamsResponse {
 message CreateTeamRequest {
   string org_id = 1;
   string name = 2;
+  // Optional since teams gained explicit members: leave empty for a team
+  // whose membership is a list of local users.
   string idp_group_id = 3;
 }
 

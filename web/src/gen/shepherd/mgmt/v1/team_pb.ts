@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file shepherd/mgmt/v1/team.proto.
  */
 export const file_shepherd_mgmt_v1_team: GenFile = /*@__PURE__*/
-  fileDesc("ChtzaGVwaGVyZC9tZ210L3YxL3RlYW0ucHJvdG8SEHNoZXBoZXJkLm1nbXQudjEipgEKBFRlYW0SCgoCaWQYASABKAkSDgoGb3JnX2lkGAIgASgJEgwKBG5hbWUYAyABKAkSFAoMaWRwX2dyb3VwX2lkGAQgASgJEi4KCmNyZWF0ZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIiIKEExpc3RUZWFtc1JlcXVlc3QSDgoGb3JnX2lkGAEgASgJIkkKEUxpc3RUZWFtc1Jlc3BvbnNlEiUKBWl0ZW1zGAEgAygLMhYuc2hlcGhlcmQubWdtdC52MS5UZWFtEg0KBXRvdGFsGAIgASgFIkcKEUNyZWF0ZVRlYW1SZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIMCgRuYW1lGAIgASgJEhQKDGlkcF9ncm91cF9pZBgDIAEoCSIvChFEZWxldGVUZWFtUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkiFAoSRGVsZXRlVGVhbVJlc3BvbnNlMo0CCgtUZWFtU2VydmljZRJWCglMaXN0VGVhbXMSIi5zaGVwaGVyZC5tZ210LnYxLkxpc3RUZWFtc1JlcXVlc3QaIy5zaGVwaGVyZC5tZ210LnYxLkxpc3RUZWFtc1Jlc3BvbnNlIgASSwoKQ3JlYXRlVGVhbRIjLnNoZXBoZXJkLm1nbXQudjEuQ3JlYXRlVGVhbVJlcXVlc3QaFi5zaGVwaGVyZC5tZ210LnYxLlRlYW0iABJZCgpEZWxldGVUZWFtEiMuc2hlcGhlcmQubWdtdC52MS5EZWxldGVUZWFtUmVxdWVzdBokLnNoZXBoZXJkLm1nbXQudjEuRGVsZXRlVGVhbVJlc3BvbnNlIgBCJlokc2hlcGhlcmQvZ2VuL3NoZXBoZXJkL21nbXQvdjE7bWdtdHYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
+  fileDesc("ChtzaGVwaGVyZC9tZ210L3YxL3RlYW0ucHJvdG8SEHNoZXBoZXJkLm1nbXQudjEivAEKBFRlYW0SCgoCaWQYASABKAkSDgoGb3JnX2lkGAIgASgJEgwKBG5hbWUYAyABKAkSFAoMaWRwX2dyb3VwX2lkGAQgASgJEi4KCmNyZWF0ZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhQKDG1lbWJlcl9jb3VudBgHIAEoBSKRAQoKVGVhbU1lbWJlchIPCgd1c2VyX2lkGAEgASgJEg0KBWxvZ2luGAIgASgJEg0KBWVtYWlsGAMgASgJEhQKDGRpc3BsYXlfbmFtZRgEIAEoCRIQCghkaXNhYmxlZBgFIAEoCBIsCghhZGRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiOQoWTGlzdFRlYW1NZW1iZXJzUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSDwoHdGVhbV9pZBgCIAEoCSJVChdMaXN0VGVhbU1lbWJlcnNSZXNwb25zZRIrCgVpdGVtcxgBIAMoCzIcLnNoZXBoZXJkLm1nbXQudjEuVGVhbU1lbWJlchINCgV0b3RhbBgCIAEoBSJIChRBZGRUZWFtTWVtYmVyUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSDwoHdGVhbV9pZBgCIAEoCRIPCgd1c2VyX2lkGAMgASgJIhcKFUFkZFRlYW1NZW1iZXJSZXNwb25zZSJLChdSZW1vdmVUZWFtTWVtYmVyUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSDwoHdGVhbV9pZBgCIAEoCRIPCgd1c2VyX2lkGAMgASgJIhoKGFJlbW92ZVRlYW1NZW1iZXJSZXNwb25zZSIiChBMaXN0VGVhbXNSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCSJJChFMaXN0VGVhbXNSZXNwb25zZRIlCgVpdGVtcxgBIAMoCzIWLnNoZXBoZXJkLm1nbXQudjEuVGVhbRINCgV0b3RhbBgCIAEoBSJHChFDcmVhdGVUZWFtUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSDAoEbmFtZRgCIAEoCRIUCgxpZHBfZ3JvdXBfaWQYAyABKAkiLwoRRGVsZXRlVGVhbVJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgoKAmlkGAIgASgJIhQKEkRlbGV0ZVRlYW1SZXNwb25zZTLIBAoLVGVhbVNlcnZpY2USVgoJTGlzdFRlYW1zEiIuc2hlcGhlcmQubWdtdC52MS5MaXN0VGVhbXNSZXF1ZXN0GiMuc2hlcGhlcmQubWdtdC52MS5MaXN0VGVhbXNSZXNwb25zZSIAEksKCkNyZWF0ZVRlYW0SIy5zaGVwaGVyZC5tZ210LnYxLkNyZWF0ZVRlYW1SZXF1ZXN0GhYuc2hlcGhlcmQubWdtdC52MS5UZWFtIgASWQoKRGVsZXRlVGVhbRIjLnNoZXBoZXJkLm1nbXQudjEuRGVsZXRlVGVhbVJlcXVlc3QaJC5zaGVwaGVyZC5tZ210LnYxLkRlbGV0ZVRlYW1SZXNwb25zZSIAEmgKD0xpc3RUZWFtTWVtYmVycxIoLnNoZXBoZXJkLm1nbXQudjEuTGlzdFRlYW1NZW1iZXJzUmVxdWVzdBopLnNoZXBoZXJkLm1nbXQudjEuTGlzdFRlYW1NZW1iZXJzUmVzcG9uc2UiABJiCg1BZGRUZWFtTWVtYmVyEiYuc2hlcGhlcmQubWdtdC52MS5BZGRUZWFtTWVtYmVyUmVxdWVzdBonLnNoZXBoZXJkLm1nbXQudjEuQWRkVGVhbU1lbWJlclJlc3BvbnNlIgASawoQUmVtb3ZlVGVhbU1lbWJlchIpLnNoZXBoZXJkLm1nbXQudjEuUmVtb3ZlVGVhbU1lbWJlclJlcXVlc3QaKi5zaGVwaGVyZC5tZ210LnYxLlJlbW92ZVRlYW1NZW1iZXJSZXNwb25zZSIAQiZaJHNoZXBoZXJkL2dlbi9zaGVwaGVyZC9tZ210L3YxO21nbXR2MWIGcHJvdG8z", [file_google_protobuf_timestamp]);
 
 /**
  * Team mirrors internal/store/sqlc.Team (0012_teams_service_accounts).
@@ -36,6 +36,10 @@ export type Team = Message<"shepherd.mgmt.v1.Team"> & {
   name: string;
 
   /**
+   * idp_group_id is empty when no IdP group backs this team — its members
+   * are then exactly the explicit ones. Empty never matches a session's
+   * groups claim, however that claim is shaped.
+   *
    * @generated from field: string idp_group_id = 4;
    */
   idpGroupId: string;
@@ -49,6 +53,15 @@ export type Team = Message<"shepherd.mgmt.v1.Team"> & {
    * @generated from field: google.protobuf.Timestamp updated_at = 6;
    */
   updatedAt?: Timestamp | undefined;
+
+  /**
+   * member_count counts explicit members only, for the same reason
+   * ListTeamMembers lists only those. A team with a group and a zero count
+   * is not empty.
+   *
+   * @generated from field: int32 member_count = 7;
+   */
+  memberCount: number;
 };
 
 /**
@@ -57,6 +70,176 @@ export type Team = Message<"shepherd.mgmt.v1.Team"> & {
  */
 export const TeamSchema: GenMessage<Team> = /*@__PURE__*/
   messageDesc(file_shepherd_mgmt_v1_team, 0);
+
+/**
+ * TeamMember is an explicitly added local user. It carries enough of the
+ * user to render a roster without a second lookup per row, and deliberately
+ * no password or admin state — this is a membership view, not a user view.
+ *
+ * @generated from message shepherd.mgmt.v1.TeamMember
+ */
+export type TeamMember = Message<"shepherd.mgmt.v1.TeamMember"> & {
+  /**
+   * @generated from field: string user_id = 1;
+   */
+  userId: string;
+
+  /**
+   * @generated from field: string login = 2;
+   */
+  login: string;
+
+  /**
+   * @generated from field: string email = 3;
+   */
+  email: string;
+
+  /**
+   * @generated from field: string display_name = 4;
+   */
+  displayName: string;
+
+  /**
+   * @generated from field: bool disabled = 5;
+   */
+  disabled: boolean;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp added_at = 6;
+   */
+  addedAt?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.TeamMember.
+ * Use `create(TeamMemberSchema)` to create a new message.
+ */
+export const TeamMemberSchema: GenMessage<TeamMember> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_team, 1);
+
+/**
+ * @generated from message shepherd.mgmt.v1.ListTeamMembersRequest
+ */
+export type ListTeamMembersRequest = Message<"shepherd.mgmt.v1.ListTeamMembersRequest"> & {
+  /**
+   * @generated from field: string org_id = 1;
+   */
+  orgId: string;
+
+  /**
+   * @generated from field: string team_id = 2;
+   */
+  teamId: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.ListTeamMembersRequest.
+ * Use `create(ListTeamMembersRequestSchema)` to create a new message.
+ */
+export const ListTeamMembersRequestSchema: GenMessage<ListTeamMembersRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_team, 2);
+
+/**
+ * @generated from message shepherd.mgmt.v1.ListTeamMembersResponse
+ */
+export type ListTeamMembersResponse = Message<"shepherd.mgmt.v1.ListTeamMembersResponse"> & {
+  /**
+   * @generated from field: repeated shepherd.mgmt.v1.TeamMember items = 1;
+   */
+  items: TeamMember[];
+
+  /**
+   * @generated from field: int32 total = 2;
+   */
+  total: number;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.ListTeamMembersResponse.
+ * Use `create(ListTeamMembersResponseSchema)` to create a new message.
+ */
+export const ListTeamMembersResponseSchema: GenMessage<ListTeamMembersResponse> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_team, 3);
+
+/**
+ * @generated from message shepherd.mgmt.v1.AddTeamMemberRequest
+ */
+export type AddTeamMemberRequest = Message<"shepherd.mgmt.v1.AddTeamMemberRequest"> & {
+  /**
+   * @generated from field: string org_id = 1;
+   */
+  orgId: string;
+
+  /**
+   * @generated from field: string team_id = 2;
+   */
+  teamId: string;
+
+  /**
+   * @generated from field: string user_id = 3;
+   */
+  userId: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.AddTeamMemberRequest.
+ * Use `create(AddTeamMemberRequestSchema)` to create a new message.
+ */
+export const AddTeamMemberRequestSchema: GenMessage<AddTeamMemberRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_team, 4);
+
+/**
+ * @generated from message shepherd.mgmt.v1.AddTeamMemberResponse
+ */
+export type AddTeamMemberResponse = Message<"shepherd.mgmt.v1.AddTeamMemberResponse"> & {
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.AddTeamMemberResponse.
+ * Use `create(AddTeamMemberResponseSchema)` to create a new message.
+ */
+export const AddTeamMemberResponseSchema: GenMessage<AddTeamMemberResponse> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_team, 5);
+
+/**
+ * @generated from message shepherd.mgmt.v1.RemoveTeamMemberRequest
+ */
+export type RemoveTeamMemberRequest = Message<"shepherd.mgmt.v1.RemoveTeamMemberRequest"> & {
+  /**
+   * @generated from field: string org_id = 1;
+   */
+  orgId: string;
+
+  /**
+   * @generated from field: string team_id = 2;
+   */
+  teamId: string;
+
+  /**
+   * @generated from field: string user_id = 3;
+   */
+  userId: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.RemoveTeamMemberRequest.
+ * Use `create(RemoveTeamMemberRequestSchema)` to create a new message.
+ */
+export const RemoveTeamMemberRequestSchema: GenMessage<RemoveTeamMemberRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_team, 6);
+
+/**
+ * @generated from message shepherd.mgmt.v1.RemoveTeamMemberResponse
+ */
+export type RemoveTeamMemberResponse = Message<"shepherd.mgmt.v1.RemoveTeamMemberResponse"> & {
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.RemoveTeamMemberResponse.
+ * Use `create(RemoveTeamMemberResponseSchema)` to create a new message.
+ */
+export const RemoveTeamMemberResponseSchema: GenMessage<RemoveTeamMemberResponse> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_team, 7);
 
 /**
  * @generated from message shepherd.mgmt.v1.ListTeamsRequest
@@ -73,7 +256,7 @@ export type ListTeamsRequest = Message<"shepherd.mgmt.v1.ListTeamsRequest"> & {
  * Use `create(ListTeamsRequestSchema)` to create a new message.
  */
 export const ListTeamsRequestSchema: GenMessage<ListTeamsRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_team, 1);
+  messageDesc(file_shepherd_mgmt_v1_team, 8);
 
 /**
  * @generated from message shepherd.mgmt.v1.ListTeamsResponse
@@ -95,7 +278,7 @@ export type ListTeamsResponse = Message<"shepherd.mgmt.v1.ListTeamsResponse"> & 
  * Use `create(ListTeamsResponseSchema)` to create a new message.
  */
 export const ListTeamsResponseSchema: GenMessage<ListTeamsResponse> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_team, 2);
+  messageDesc(file_shepherd_mgmt_v1_team, 9);
 
 /**
  * @generated from message shepherd.mgmt.v1.CreateTeamRequest
@@ -112,6 +295,9 @@ export type CreateTeamRequest = Message<"shepherd.mgmt.v1.CreateTeamRequest"> & 
   name: string;
 
   /**
+   * Optional since teams gained explicit members: leave empty for a team
+   * whose membership is a list of local users.
+   *
    * @generated from field: string idp_group_id = 3;
    */
   idpGroupId: string;
@@ -122,7 +308,7 @@ export type CreateTeamRequest = Message<"shepherd.mgmt.v1.CreateTeamRequest"> & 
  * Use `create(CreateTeamRequestSchema)` to create a new message.
  */
 export const CreateTeamRequestSchema: GenMessage<CreateTeamRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_team, 3);
+  messageDesc(file_shepherd_mgmt_v1_team, 10);
 
 /**
  * @generated from message shepherd.mgmt.v1.DeleteTeamRequest
@@ -144,7 +330,7 @@ export type DeleteTeamRequest = Message<"shepherd.mgmt.v1.DeleteTeamRequest"> & 
  * Use `create(DeleteTeamRequestSchema)` to create a new message.
  */
 export const DeleteTeamRequestSchema: GenMessage<DeleteTeamRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_team, 4);
+  messageDesc(file_shepherd_mgmt_v1_team, 11);
 
 /**
  * @generated from message shepherd.mgmt.v1.DeleteTeamResponse
@@ -157,11 +343,11 @@ export type DeleteTeamResponse = Message<"shepherd.mgmt.v1.DeleteTeamResponse"> 
  * Use `create(DeleteTeamResponseSchema)` to create a new message.
  */
 export const DeleteTeamResponseSchema: GenMessage<DeleteTeamResponse> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_team, 5);
+  messageDesc(file_shepherd_mgmt_v1_team, 12);
 
 /**
  * TeamService covers team definitions: an org-scoped binding of a name to
- * an IdP group (docs/gateway-tier-plan.md W10), extending
+ * a membership (docs/gateway-tier-plan.md W10), extending
  * group_assignments' "IdP group grants access" model from the collector
  * level up to the org level. A team can OWN a pipeline
  * (pipeline.owner_team_id); ownership is what PipelineService's scoped
@@ -170,8 +356,13 @@ export const DeleteTeamResponseSchema: GenMessage<DeleteTeamResponse> = /*@__PUR
  * Team *definition* (who counts as a team, which IdP group backs it)
  * requires org-admin — the same "org-admin edits everything" ceiling every
  * other admin surface in this API has. What G11 actually adds is that a
- * non-admin member of a team's IdP group can then write the pipelines that
- * team owns, without needing org-admin at all — see PipelineService.
+ * non-admin member of a team can then write the pipelines that team owns,
+ * without needing org-admin at all — see PipelineService.
+ *
+ * Membership comes from either or both of two sources and is their union:
+ * the IdP group named by idp_group_id, and explicit local users listed by
+ * ListTeamMembers. A team may have no group at all, which is how teams work
+ * in a deployment with no identity provider configured.
  *
  * @generated from service shepherd.mgmt.v1.TeamService
  */
@@ -199,6 +390,35 @@ export const TeamService: GenService<{
     methodKind: "unary";
     input: typeof DeleteTeamRequestSchema;
     output: typeof DeleteTeamResponseSchema;
+  },
+  /**
+   * Explicit members only. Members who belong via idp_group_id are not
+   * listed and cannot be: they exist only as a claim inside a session, so
+   * there is no roster to read — the honest answer is the group's name,
+   * which Team.idp_group_id already carries.
+   *
+   * @generated from rpc shepherd.mgmt.v1.TeamService.ListTeamMembers
+   */
+  listTeamMembers: {
+    methodKind: "unary";
+    input: typeof ListTeamMembersRequestSchema;
+    output: typeof ListTeamMembersResponseSchema;
+  },
+  /**
+   * @generated from rpc shepherd.mgmt.v1.TeamService.AddTeamMember
+   */
+  addTeamMember: {
+    methodKind: "unary";
+    input: typeof AddTeamMemberRequestSchema;
+    output: typeof AddTeamMemberResponseSchema;
+  },
+  /**
+   * @generated from rpc shepherd.mgmt.v1.TeamService.RemoveTeamMember
+   */
+  removeTeamMember: {
+    methodKind: "unary";
+    input: typeof RemoveTeamMemberRequestSchema;
+    output: typeof RemoveTeamMemberResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_shepherd_mgmt_v1_team, 0);

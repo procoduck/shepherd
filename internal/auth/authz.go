@@ -195,20 +195,23 @@ func localToRequirement(role string) string {
 }
 
 // AuthorizeOwnership enforces G11 (docs/gateway-tier-plan.md): a team
-// member may write only the pipelines their team owns. App admins and org
-// admins bypass — this is the same top rung authorizeOrgAccess's
-// requireAdmin path already grants, restated here so PipelineService's
-// write handlers have one call to make instead of two.
+// member may write only the pipelines their team owns. Callers above that
+// rung bypass it — app admins, org admins, and (since the editor role) org
+// editors, whose whole definition is authoring what the org runs. That upper
+// check delegates to authorizeOrgAccess rather than restating it, so both
+// ways of holding a role work here: an org admin who is a local user has no
+// groups claim, and the previous inline slices.Contains against
+// org.AdminGroupID silently refused them.
 //
 // ownerTeamID is the pipeline's current (or, for CreatePipeline, requested)
-// owner_team_id. Empty means unowned: only an org admin may write an
-// unowned pipeline, preserving the exact pre-W10 "org-admin edits
-// everything" behavior for pipelines that predate teams or were
-// deliberately left platform-owned. A non-empty ownerTeamID requires the
-// team to (a) exist, (b) belong to orgID — a team id from another org must
-// never authorize a write here, the same cross-org confusion
-// loadOwnedDestination/loadPipeline guard against for resource ids — and
-// (c) have the caller's session as a member via IdP group.
+// owner_team_id. Empty means unowned: only an org admin or editor may write
+// an unowned pipeline, preserving the pre-W10 "org-admin edits everything"
+// behavior for pipelines that predate teams or were deliberately left
+// platform-owned. A non-empty ownerTeamID requires the team to (a) exist,
+// (b) belong to orgID — a team id from another org must never authorize a
+// write here, the same cross-org confusion loadOwnedDestination/loadPipeline
+// guard against for resource ids — and (c) have the caller as a member, by
+// IdP group or by an explicit team_members row (0017).
 func AuthorizeOwnership(ctx context.Context, st *store.Store, sess *Session, orgID, ownerTeamID string) error {
 	if sess == nil {
 		return ErrUnauthenticated
@@ -221,16 +224,21 @@ func AuthorizeOwnership(ctx context.Context, st *store.Store, sess *Session, org
 	if err := oid.Scan(orgID); err != nil {
 		return ErrInvalidOrgID
 	}
-	org, err := st.Queries.GetOrgByID(ctx, oid)
-	if err != nil {
-		return ErrOrgNotFound
-	}
-	if slices.Contains(sess.GroupIDs, org.AdminGroupID) {
-		return nil // org admin: writes anything in its org, owned or not.
+	// Editor or above writes anything in its org, owned or not. This also
+	// covers the org-exists check: authorizeOrgAccess returns ErrOrgNotFound,
+	// which the default branch passes through unchanged.
+	switch err := authorizeOrgAccess(ctx, st, sess, orgID, RoleOrgEditor); {
+	case err == nil:
+		return nil
+	case errors.Is(err, ErrForbidden):
+		// Not an editor. Fall through to the team-scoped check below, which
+		// is the whole point of the rung beneath.
+	default:
+		return err
 	}
 
 	if ownerTeamID == "" {
-		return ErrForbidden // unowned pipeline: org-admin-only.
+		return ErrForbidden // unowned pipeline: org admin/editor only.
 	}
 	var tid pgtype.UUID
 	if err := tid.Scan(ownerTeamID); err != nil {
@@ -240,7 +248,22 @@ func AuthorizeOwnership(ctx context.Context, st *store.Store, sess *Session, org
 	if err != nil || team.OrgID != oid {
 		return ErrForbidden
 	}
-	if !slices.Contains(sess.GroupIDs, team.IdpGroupID) {
+
+	// A local session has no groups claim, so it can only match the explicit
+	// half; an OIDC session has no users row, so it can only match the group
+	// half. Checking the one that applies keeps the "one session, one source"
+	// rule authorizeOrgAccess states.
+	if sess.Source == SourceLocal && sess.UserID.Valid {
+		member, err := st.Queries.IsTeamMember(ctx, sqlc.IsTeamMemberParams{TeamID: tid, UserID: sess.UserID})
+		if err != nil || !member {
+			return ErrForbidden
+		}
+		return nil
+	}
+
+	// A team with no group (0017) is backed by explicit members only; an
+	// empty/absent group must never match a session, however its claim looks.
+	if !team.IdpGroupID.Valid || !slices.Contains(sess.GroupIDs, team.IdpGroupID.String) {
 		return ErrForbidden
 	}
 	return nil

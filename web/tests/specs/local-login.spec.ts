@@ -34,7 +34,7 @@ test('bad credentials show the inline error message', async ({ page, api }) => {
   );
 });
 
-test('success navigates to / and amber banner is visible', async ({ page, api }) => {
+test('success navigates to / with no break-glass warning', async ({ page, api }) => {
   const s = basicScenario();
   api.seed({
     me: null,
@@ -48,9 +48,12 @@ test('success navigates to / and amber banner is visible', async ({ page, api })
   await page.getByTestId('local-password').fill('correct-pass');
   await page.getByTestId('local-login-submit').click();
   await expect(page).toHaveURL(/\/$/, { timeout: 5000 });
-  await expect(page.getByTestId('local-admin-banner')).toBeVisible();
+  // Local accounts are a supported way to run Shepherd, not an emergency, so
+  // signing in with one warns about nothing. The banner this replaces existed
+  // for a single hardcoded break-glass account that no longer exists.
+  await expect(page.getByTestId('local-admin-banner')).toHaveCount(0);
   await page.reload();
-  await expect(page.getByTestId('local-admin-banner')).toBeVisible();
+  await expect(page.getByTestId('local-admin-banner')).toHaveCount(0);
 });
 
 test('methods:neither shows the no-methods error card', async ({ page, api }) => {

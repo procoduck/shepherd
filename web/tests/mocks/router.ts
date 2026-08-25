@@ -36,6 +36,11 @@ export interface MockState {
   // `oidcTestResult` seeds TestOidcSettings so a spec can drive both the
   // discovery-succeeded and discovery-failed branches without a live IdP.
   users?: Record<string, unknown>[];
+  // Teams and their explicit members. Members are keyed by team id; a team
+  // backed only by an IdP group simply has no entry, which is the state the
+  // Teams page has to render distinctly from "this team is empty".
+  teams?: Record<string, unknown>[];
+  teamMembers?: Record<string, Record<string, unknown>[]>;
   oidcSettings?: Record<string, unknown>;
   oidcTestResult?: Record<string, unknown>;
   localAdminCreds?: { username: string; password: string };

@@ -18,6 +18,7 @@ export const routeManifest: RouteEntry[] = [
   { path: '/pipelines/new', tag: 'protected' },
   { path: '/pipelines/$id', tag: 'protected' },
   { path: '/destinations', tag: 'protected', distinctLocator: 'text=Destinations' },
+  { path: '/teams', tag: 'protected', distinctLocator: 'text=Teams' },
   { path: '/wizards', tag: 'protected', distinctLocator: 'text=Wizards' },
   { path: '/wizards/$kind', tag: 'protected' },
   { path: '/admin/orgs', tag: 'protected', distinctLocator: 'text=Organisations' },

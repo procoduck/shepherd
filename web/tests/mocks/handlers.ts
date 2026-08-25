@@ -377,6 +377,30 @@ const OIDC_PRESETS = [
 
 /** Two local accounts: an admin, and an ordinary user still owing a password
  *  change — the two states the Users page renders differently. */
+// One team of each shape, because the page's whole job is telling them apart:
+// group-backed, explicitly-membered, and neither.
+function defaultTeams() {
+  return [
+    { id: 'team-1', org_id: 'org-0001', name: 'platform', idp_group_id: 'platform-engineers' },
+    { id: 'team-2', org_id: 'org-0001', name: 'local-squad', idp_group_id: '' },
+    { id: 'team-3', org_id: 'org-0001', name: 'empty-team', idp_group_id: '' },
+  ];
+}
+
+function defaultTeamMembers(): Record<string, Record<string, unknown>[]> {
+  return {
+    'team-2': [
+      {
+        user_id: 'user-2',
+        login: 'alice',
+        email: 'alice@example.com',
+        display_name: 'Alice',
+        disabled: false,
+      },
+    ],
+  };
+}
+
 function defaultUsers() {
   return [
     {
@@ -705,6 +729,95 @@ export function installDefaultHandlers(router: Router) {
     if (denied) return denied;
     const body = (await r.request().postDataJSON()) as Obj;
     st.users = ((st.users as Obj[]) ?? defaultUsers()).filter((u) => u.id !== body.id);
+    return json(r, 200, {});
+  });
+
+  // ── TeamService ──────────────────────────────────────────────────────────
+  // Membership has two sources and the page's job is to distinguish them, so
+  // the mock keeps them separate too: idp_group_id on the team, explicit
+  // members in teamMembers. member_count counts only the latter, exactly as
+  // the server does.
+  const teamsOf = () => (st.teams as Obj[]) ?? defaultTeams();
+  const membersOf = (teamId: string) =>
+    ((st.teamMembers as Record<string, Obj[]> | undefined) ?? defaultTeamMembers())[teamId] ?? [];
+
+  router.register('POST', '/shepherd.mgmt.v1.TeamService/ListTeams', (r) =>
+    json(
+      r,
+      200,
+      list(teamsOf().map((t) => ({ ...t, member_count: membersOf(String(t.id)).length }))),
+    ),
+  );
+  router.register('POST', '/shepherd.mgmt.v1.TeamService/CreateTeam', async (r) => {
+    const body = (await r.request().postDataJSON()) as Obj;
+    const teams = teamsOf().slice();
+    const name = String(body.name ?? '');
+    if (teams.some((t) => t.name === name)) {
+      return connectError(r, 409, 'already_exists', 'team name already exists in this org');
+    }
+    const group = String(body.idpGroupId ?? '');
+    if (group && teams.some((t) => t.idp_group_id === group)) {
+      return connectError(
+        r,
+        409,
+        'already_exists',
+        'another team in this org is already bound to that group',
+      );
+    }
+    const created = {
+      id: `team-${teams.length + 1}`,
+      org_id: body.orgId ?? '',
+      name,
+      idp_group_id: group,
+    };
+    teams.push(created);
+    st.teams = teams;
+    return json(r, 200, created);
+  });
+  router.register('POST', '/shepherd.mgmt.v1.TeamService/DeleteTeam', async (r) => {
+    const body = (await r.request().postDataJSON()) as Obj;
+    st.teams = teamsOf().filter((t) => t.id !== body.id);
+    return json(r, 200, {});
+  });
+  router.register('POST', '/shepherd.mgmt.v1.TeamService/ListTeamMembers', async (r) => {
+    const body = (await r.request().postDataJSON()) as Obj;
+    return json(r, 200, list(membersOf(String(body.teamId))));
+  });
+  router.register('POST', '/shepherd.mgmt.v1.TeamService/AddTeamMember', async (r) => {
+    const body = (await r.request().postDataJSON()) as Obj;
+    const teamId = String(body.teamId);
+    const user = ((st.users as Obj[]) ?? defaultUsers()).find((u) => u.id === body.userId);
+    if (!user) return connectError(r, 404, 'not_found', 'user not found');
+    const all = {
+      ...((st.teamMembers as Record<string, Obj[]> | undefined) ?? defaultTeamMembers()),
+    };
+    const current = (all[teamId] ?? []).slice();
+    // Idempotent, like the server's ON CONFLICT DO NOTHING.
+    if (!current.some((m) => m.user_id === user.id)) {
+      current.push({
+        user_id: user.id,
+        login: user.login,
+        email: user.email,
+        display_name: user.display_name,
+        disabled: user.disabled === true,
+      });
+    }
+    all[teamId] = current;
+    st.teamMembers = all;
+    return json(r, 200, {});
+  });
+  router.register('POST', '/shepherd.mgmt.v1.TeamService/RemoveTeamMember', async (r) => {
+    const body = (await r.request().postDataJSON()) as Obj;
+    const teamId = String(body.teamId);
+    const all = {
+      ...((st.teamMembers as Record<string, Obj[]> | undefined) ?? defaultTeamMembers()),
+    };
+    const current = all[teamId] ?? [];
+    if (!current.some((m) => m.user_id === body.userId)) {
+      return connectError(r, 404, 'not_found', 'user is not a member of this team');
+    }
+    all[teamId] = current.filter((m) => m.user_id !== body.userId);
+    st.teamMembers = all;
     return json(r, 200, {});
   });
 

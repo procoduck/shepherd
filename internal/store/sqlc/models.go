@@ -286,9 +286,15 @@ type Team struct {
 	ID         pgtype.UUID        `json:"id"`
 	OrgID      pgtype.UUID        `json:"org_id"`
 	Name       string             `json:"name"`
-	IdpGroupID string             `json:"idp_group_id"`
+	IdpGroupID pgtype.Text        `json:"idp_group_id"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
+type TeamMember struct {
+	TeamID    pgtype.UUID        `json:"team_id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
 type TenantRoute struct {

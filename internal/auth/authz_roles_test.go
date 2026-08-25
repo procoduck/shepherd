@@ -170,4 +170,93 @@ var _ = Describe("Org role ladder", Label("integration"), func() {
 		assertLadder(&auth.Session{IsAppAdmin: true, Source: auth.SourceOIDC},
 			expectation{admin: true, editor: true, reader: true})
 	})
+
+	// AuthorizeOwnership is the scoped-write decision: it gates who may write a
+	// pipeline, given the team that owns it. Everything at editor or above
+	// writes anything in the org; below that, only the owning team's members do.
+	Describe("scoped write (AuthorizeOwnership)", func() {
+		var (
+			groupTeam sqlc.Team // backed by an IdP group
+			localTeam sqlc.Team // backed by explicit members only
+		)
+
+		BeforeEach(func() {
+			var oid pgtype.UUID
+			Expect(oid.Scan(orgID)).To(Succeed())
+			var err error
+			groupTeam, err = st.Queries.CreateTeam(ctx, sqlc.CreateTeamParams{
+				OrgID: oid, Name: "group-team",
+				IdpGroupID: pgtype.Text{String: "grp-team", Valid: true},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			localTeam, err = st.Queries.CreateTeam(ctx, sqlc.CreateTeamParams{
+				OrgID: oid, Name: "local-team",
+			})
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("an org editor writes owned and unowned pipelines alike", func() {
+			sess := oidcSession(editorGroup)
+			Expect(auth.AuthorizeOwnership(ctx, st, sess, orgID, "")).To(Succeed())
+			Expect(auth.AuthorizeOwnership(ctx, st, sess, orgID, groupTeam.ID.String())).To(Succeed())
+		})
+
+		// Regression: the check was an inline slices.Contains against
+		// org.AdminGroupID, so an org admin who is a local user -- and
+		// therefore has no groups claim at all -- was refused every write.
+		It("a local org admin writes owned and unowned pipelines alike", func() {
+			sess := newLocalUser("l-owner-admin", auth.OrgRoleAdmin)
+			Expect(auth.AuthorizeOwnership(ctx, st, sess, orgID, "")).To(Succeed())
+			Expect(auth.AuthorizeOwnership(ctx, st, sess, orgID, groupTeam.ID.String())).To(Succeed())
+		})
+
+		It("a viewer writes nothing, owned or not", func() {
+			sess := oidcSession(readerGroup)
+			Expect(auth.AuthorizeOwnership(ctx, st, sess, orgID, "")).To(MatchError(auth.ErrForbidden))
+			Expect(auth.AuthorizeOwnership(ctx, st, sess, orgID, groupTeam.ID.String())).To(MatchError(auth.ErrForbidden))
+		})
+
+		It("a team's IdP group grants write to what that team owns, and nothing else", func() {
+			sess := oidcSession("grp-team")
+			Expect(auth.AuthorizeOwnership(ctx, st, sess, orgID, groupTeam.ID.String())).To(Succeed())
+			Expect(auth.AuthorizeOwnership(ctx, st, sess, orgID, localTeam.ID.String())).To(MatchError(auth.ErrForbidden))
+			Expect(auth.AuthorizeOwnership(ctx, st, sess, orgID, "")).To(MatchError(auth.ErrForbidden))
+		})
+
+		It("an explicit member writes what their team owns, and nothing else", func() {
+			sess := newLocalUser("l-member", auth.OrgRoleViewer)
+			Expect(st.Queries.AddTeamMember(ctx, sqlc.AddTeamMemberParams{
+				TeamID: localTeam.ID, UserID: sess.UserID,
+			})).To(Succeed())
+			Expect(auth.AuthorizeOwnership(ctx, st, sess, orgID, localTeam.ID.String())).To(Succeed())
+			Expect(auth.AuthorizeOwnership(ctx, st, sess, orgID, groupTeam.ID.String())).To(MatchError(auth.ErrForbidden))
+			Expect(auth.AuthorizeOwnership(ctx, st, sess, orgID, "")).To(MatchError(auth.ErrForbidden))
+		})
+
+		// A group-less team stores NULL, not ''. If it stored '', a session
+		// whose claim contained an empty string would match it and inherit
+		// write access to that team's pipelines.
+		It("a team with no IdP group matches no groups claim", func() {
+			for _, groups := range [][]string{{""}, {"grp-team"}, nil} {
+				Expect(auth.AuthorizeOwnership(ctx, st, oidcSession(groups...), orgID, localTeam.ID.String())).
+					To(MatchError(auth.ErrForbidden))
+			}
+		})
+
+		It("a team from another org never authorizes a write", func() {
+			other, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
+				Name: "other", DisplayName: "Other", AdminGroupID: "grp-other-admin",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			foreign, err := st.Queries.CreateTeam(ctx, sqlc.CreateTeamParams{
+				OrgID: other.ID, Name: "foreign",
+				IdpGroupID: pgtype.Text{String: "grp-team", Valid: true},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			// Same group, so membership itself is satisfied -- only the
+			// cross-org check stands between this session and the write.
+			Expect(auth.AuthorizeOwnership(ctx, st, oidcSession("grp-team"), orgID, foreign.ID.String())).
+				To(MatchError(auth.ErrForbidden))
+		})
+	})
 })

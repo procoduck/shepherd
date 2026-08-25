@@ -61,9 +61,9 @@ var _ = Describe("G11: PipelineService scoped write (team ownership)", Label("in
 		Expect(err).NotTo(HaveOccurred())
 		orgID = o.ID
 
-		teamA, err = st.Queries.CreateTeam(ctx, sqlc.CreateTeamParams{OrgID: orgID, Name: "team-a", IdpGroupID: "g11-team-a"})
+		teamA, err = st.Queries.CreateTeam(ctx, sqlc.CreateTeamParams{OrgID: orgID, Name: "team-a", IdpGroupID: pgtype.Text{String: "g11-team-a", Valid: true}})
 		Expect(err).NotTo(HaveOccurred())
-		teamB, err = st.Queries.CreateTeam(ctx, sqlc.CreateTeamParams{OrgID: orgID, Name: "team-b", IdpGroupID: "g11-team-b"})
+		teamB, err = st.Queries.CreateTeam(ctx, sqlc.CreateTeamParams{OrgID: orgID, Name: "team-b", IdpGroupID: pgtype.Text{String: "g11-team-b", Valid: true}})
 		Expect(err).NotTo(HaveOccurred())
 
 		ownedByA, err = st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{

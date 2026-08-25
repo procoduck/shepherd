@@ -15,6 +15,7 @@ import { LoginPage } from '@/pages/LoginPage';
 import { OverviewPage } from '@/pages/OverviewPage';
 import { PipelineEditorPage } from '@/pages/PipelineEditorPage';
 import { PipelinesPage } from '@/pages/PipelinesPage';
+import { TeamsPage } from '@/pages/TeamsPage';
 import { WizardsPage } from '@/pages/WizardsPage';
 import { WizardRunnerPage } from '@/wizard/WizardRunnerPage';
 
@@ -190,6 +191,14 @@ const auditRoute = createRoute({
   component: AuditPage,
 });
 
+// Teams are org-scoped, not app-admin: they live beside the other org
+// surfaces and read the selected org, rather than under /admin.
+const teamsRoute = createRoute({
+  getParentRoute: () => contentRoute,
+  path: '/teams',
+  component: TeamsPage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   shellRoute.addChildren([
@@ -202,6 +211,7 @@ const routeTree = rootRoute.addChildren([
       pipelineEditRoute,
       destinationsRoute,
       gitRoute,
+      teamsRoute,
       wizardsRoute,
       wizardRunnerRoute,
       adminOrgsRoute,
