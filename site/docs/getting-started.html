@@ -159,19 +159,42 @@ export SHEPHERD_SECURITY_ENCRYPTION_KEY=...   # the same key you used above
 
       <h2 id="helm">Deploy with Helm</h2>
       <p>
-        The chart lives at <code>deploy/helm/shepherd</code>. Images are published to
+        The chart is published as an OCI artifact at
+        <code>oci://ghcr.io/procoduck/charts/shepherd</code> &mdash; nothing to clone, no
+        <code>helm repo add</code>. Images are published alongside it to
         <code>ghcr.io/procoduck/shepherd</code> (and <code>ghcr.io/procoduck/shepherd-simulator</code> for
         the optional sandbox) for <code>linux/amd64</code> and <code>linux/arm64</code>.
       </p>
+      <p class="note">
+        <strong>Bring your own PostgreSQL.</strong> The chart does not ship a database. Point
+        <code>SHEPHERD_DATABASE_URL</code> at one you run.
+      </p>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-        <pre><code>helm install shepherd deploy/helm/shepherd \
-  --set image.registry=ghcr.io/procoduck \
-  --set image.tag=0.2.1 \
+        <pre><code>kubectl create secret generic shepherd-secrets \
+  --from-literal=SHEPHERD_DATABASE_URL='postgres://user:pass@host:5432/shepherd' \
+  --from-literal=SHEPHERD_SECURITY_ENCRYPTION_KEY="$(openssl rand -base64 32)" \
+  --from-literal=SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD='choose-a-password'
+
+helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.7.1 \
   --set existingSecret=shepherd-secrets \
   --set "route.enabled=true" \
   --set "route.hostnames[0]=shepherd.internal"</code></pre>
       </div>
+      <p>
+        The image needs no <code>--set</code>: <code>image.registry</code> defaults to
+        <code>ghcr.io/procoduck</code> and the tag falls back to the chart's
+        <code>appVersion</code>, so each chart version installs the Shepherd release it was
+        published for.
+      </p>
+      <p class="note">
+        <strong>Chart version is not the app version.</strong> <code>--version 0.7.1</code> is the
+        <em>chart's</em>; Shepherd's is <code>0.3.x</code>. They move independently, so a chart-only
+        change bumps only the chart. Run
+        <code>helm show chart oci://ghcr.io/procoduck/charts/shepherd</code> to see which Shepherd
+        release a chart version installs. To modify the chart yourself, clone the repo and install
+        from <code>./deploy/helm/shepherd</code> instead.
+      </p>
       <p>
         The chart reads a Kubernetes secret (<code>shepherd-secrets</code> by default, or override
         <code>existingSecret</code>). Only the first two keys are required &mdash; the server refuses to
@@ -461,7 +484,7 @@ export SHEPHERD_SECURITY_ENCRYPTION_KEY=...   # the same key you used above
       <p>To turn it off for a deployment where you don't want it:</p>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-        <pre><code>helm install shepherd deploy/helm/shepherd \
+        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.7.1 \
   --set simulator.enabled=false \
   --set existingSecret=shepherd-secrets</code></pre>
       </div>
@@ -504,7 +527,7 @@ export SHEPHERD_SECURITY_ENCRYPTION_KEY=...   # the same key you used above
 <footer>
   <div class="wrap">
     <div class="foot-left">
-      <span class="pill">v0.2.1</span>
+      <span class="pill">v0.3.1</span>
       <span>self-hosted Grafana Alloy fleet manager</span>
     </div>
     <div class="foot-links">

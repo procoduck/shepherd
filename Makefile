@@ -480,7 +480,35 @@ chart-verify: check-chartvalues-pin ## Verify the vendored chart schema matches 
 	@go test ./internal/chartvalues/ -count=1
 	@echo "chart-verify: OK (G9 golden/schema/helm-template checks passed)"
 
-lint: check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks check-gateway-pin check-chartvalues-pin ## Repo guards + golangci-lint
+check-docs-version: ## Guard: docs quote the chart's own version and appVersion
+	@# Release prep has to touch several files that all restate the same two
+	@# numbers, and the site was missed twice in a row -- once shipping an
+	@# install command naming an image tag that did not exist. Chart.yaml is
+	@# the source of truth for both; everything else is checked against it.
+	@fail=0; \
+	chart=deploy/helm/shepherd/Chart.yaml; \
+	cver=$$(sed -n 's/^version:[[:space:]]*//p' $$chart | head -1 | tr -d '"'); \
+	aver=$$(sed -n 's/^appVersion:[[:space:]]*//p' $$chart | head -1 | tr -d '"'); \
+	if [ -z "$$cver" ] || [ -z "$$aver" ]; then \
+		echo "ERROR: could not read version/appVersion from $$chart"; exit 1; \
+	fi; \
+	for f in site/index.html site/docs/getting-started.html; do \
+		got=$$(sed -n 's/.*<span class="pill">v\([0-9][^<]*\)<\/span>.*/\1/p' $$f | head -1); \
+		if [ -n "$$got" ] && [ "$$got" != "$$aver" ]; then \
+			echo "ERROR: $$f version pill is 'v$$got' but Chart.yaml appVersion is '$$aver'"; fail=1; \
+		fi; \
+	done; \
+	for f in README.md site/docs/getting-started.html; do \
+		for got in $$(sed -n 's/.*charts\/shepherd --version \([0-9][0-9.]*\).*/\1/p' $$f); do \
+			if [ "$$got" != "$$cver" ]; then \
+				echo "ERROR: $$f installs chart --version $$got but Chart.yaml version is '$$cver'"; fail=1; \
+			fi; \
+		done; \
+	done; \
+	[ "$$fail" = "0" ] || exit 1
+	@echo "check-docs-version: OK"
+
+lint: check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks check-gateway-pin check-chartvalues-pin check-docs-version ## Repo guards + golangci-lint
 	$(call preflight,golangci-lint,Install golangci-lint v2 (https://golangci-lint.run).)
 	@# `golangci-lint run` accepts unknown keys in .golangci.yml without
 	@# complaint, so a misplaced or misspelled setting silently does nothing

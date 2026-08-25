@@ -107,6 +107,11 @@ jobs:
           username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
           password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
 
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
+
       - name: goreleaser release
         uses: goreleaser/goreleaser-action@v6
         with:
@@ -117,3 +122,72 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE_REGISTRY: ${{ vars.IMAGE_REGISTRY || 'ghcr.io/procoduck' }}
           SOURCE_URL: ${{ vars.SOURCE_URL || 'https://github.com/procoduck/shepherd' }}
+
+      # The chart is published as an OCI artifact so an operator can install it
+      # without cloning the repo:
+      #
+      #   helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version X
+      #
+      # It is versioned independently of the application -- Chart.yaml's
+      # `version` is the chart's, `appVersion` is Shepherd's -- so it is pushed
+      # under its own version rather than the git tag. Two things have to hold
+      # for that to be safe, and both are checked rather than assumed:
+      #
+      #   1. appVersion matches the tag being released. The image tag falls
+      #      back to appVersion (see _helpers.tpl), so a chart published with a
+      #      stale one installs the WRONG image -- and does it silently, since
+      #      the rendered manifest is perfectly valid.
+      #   2. This chart version is not already published. An OCI registry will
+      #      happily overwrite a tag, and a chart version whose contents change
+      #      underneath it is the one failure a chart consumer cannot defend
+      #      against. Bump Chart.yaml's `version` for every release that
+      #      changes the chart.
+      - name: Publish the Helm chart to GHCR (OCI)
+        env:
+          IMAGE_REGISTRY: ${{ vars.IMAGE_REGISTRY || 'ghcr.io/procoduck' }}
+          REGISTRY_HOST: ${{ steps.registry.outputs.host }}
+          REGISTRY_USER: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          REGISTRY_PASS: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          chart_dir=deploy/helm/shepherd
+          tag_version="${GITHUB_REF_NAME#v}"
+
+          # awk rather than `sed | head -1`: under `set -o pipefail`, head
+          # closing the pipe early can hand sed a SIGPIPE and fail the step for
+          # no reason at all.
+          read_field() {
+            awk -v k="$1:" '$1 == k { gsub(/"/, "", $2); print $2; exit }' "$chart_dir/Chart.yaml"
+          }
+          chart_version="$(read_field version)"
+          app_version="$(read_field appVersion)"
+
+          if [ -z "$chart_version" ] || [ -z "$app_version" ]; then
+            echo "::error::could not read version/appVersion from $chart_dir/Chart.yaml" >&2
+            exit 1
+          fi
+
+          if [ "$app_version" != "$tag_version" ]; then
+            echo "::error::Chart.yaml appVersion is $app_version but the tag is $tag_version." \
+                 "The image tag falls back to appVersion, so this chart would install the wrong image." >&2
+            exit 1
+          fi
+
+          # ghcr.io/<ns> -> ghcr.io/<ns>/charts, so the chart lands at
+          # oci://ghcr.io/<ns>/charts/shepherd and does not collide with the
+          # image package of the same name.
+          chart_repo="oci://${IMAGE_REGISTRY}/charts"
+
+          echo "$REGISTRY_PASS" | helm registry login "$REGISTRY_HOST" -u "$REGISTRY_USER" --password-stdin
+
+          if helm show chart "${chart_repo}/shepherd" --version "$chart_version" >/dev/null 2>&1; then
+            echo "::error::chart version $chart_version is already published at $chart_repo." \
+                 "Bump the chart version in $chart_dir/Chart.yaml -- republishing a version with different contents breaks every consumer pinned to it." >&2
+            exit 1
+          fi
+
+          helm lint "$chart_dir"
+          helm package "$chart_dir" --destination dist-chart
+          helm push "dist-chart/shepherd-${chart_version}.tgz" "$chart_repo"
+
+          echo "Published ${chart_repo}/shepherd:${chart_version} (appVersion ${app_version})"

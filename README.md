@@ -159,13 +159,35 @@ See `docs/spec.md` for the full specification.
 
 ## Helm deployment
 
+The chart is published as an OCI artifact, so there is nothing to clone and no
+repo to add. **Bring your own PostgreSQL** — the chart does not ship one.
+
 ```bash
-helm install shepherd deploy/helm/shepherd \
-  --set image.tag=0.3.0 \
+# 1. The secret the chart reads. Only the first two keys are required.
+kubectl create secret generic shepherd-secrets \
+  --from-literal=SHEPHERD_DATABASE_URL='postgres://user:pass@host:5432/shepherd' \
+  --from-literal=SHEPHERD_SECURITY_ENCRYPTION_KEY="$(openssl rand -base64 32)" \
+  --from-literal=SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD='choose-a-password'
+
+# 2. Install. The chart version is its own — see the note below.
+helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.7.1 \
   --set existingSecret=shepherd-secrets \
   --set "route.enabled=true" \
   --set "route.hostnames[0]=shepherd.internal"
 ```
+
+The image needs no `--set`: `image.registry` defaults to `ghcr.io/procoduck`
+and the tag falls back to the chart's `appVersion`, so each chart version
+installs the Shepherd release it was published for. Override `image.tag` only
+to pin something else deliberately.
+
+**Chart version vs app version.** `--version` above is the *chart's* version
+(`0.7.x`), not Shepherd's (`0.3.x`). They move independently — a chart-only
+change bumps only the chart. `helm show chart oci://ghcr.io/procoduck/charts/shepherd`
+reports which Shepherd release a given chart version installs.
+
+Installing from a checkout still works if you want to modify the chart:
+`helm install shepherd ./deploy/helm/shepherd`.
 
 The chart reads a Kubernetes secret (`shepherd-secrets`). Only the first two
 keys are required — the server refuses to start without them. The rest are

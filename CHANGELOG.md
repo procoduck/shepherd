@@ -11,6 +11,37 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
+## v0.3.1
+
+### Added
+
+- **The Helm chart is published as an OCI artifact.** Installing it no longer
+  means cloning the repository:
+
+  ```bash
+  helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.7.1 \
+    --set existingSecret=shepherd-secrets
+  ```
+
+  The release workflow pushes it after the images, under the chart's own
+  version rather than the git tag — `Chart.yaml`'s `version` is the chart's and
+  `appVersion` is Shepherd's, and they move independently. Two things are
+  checked rather than assumed before it pushes: that `appVersion` matches the
+  tag being released, because the image tag falls back to it and a stale one
+  would install the wrong image while rendering a perfectly valid manifest; and
+  that the chart version is not already published, because an OCI registry will
+  overwrite a tag and a chart whose contents change under a fixed version is
+  the one failure a consumer cannot defend against.
+
+### Fixed
+
+- **The docs told you to install a chart from a path you did not have.** Both
+  the README and the docs site ran `helm install shepherd deploy/helm/shepherd`
+  without saying to clone the repository first, and the site additionally named
+  image tag `0.2.1`, which was never published. Both now show the OCI install,
+  and a `make lint` guard (`check-docs-version`) fails the build when the
+  versions quoted in the docs drift from `Chart.yaml`.
+
 ## v0.3.0
 
 Local accounts become a first-class way to run Shepherd, a third org role
