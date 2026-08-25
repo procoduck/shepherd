@@ -42,7 +42,7 @@ kubectl -n shepherd create secret generic shepherd-secrets \
       </p>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.8.0 \
+        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.8.1 \
   --namespace shepherd \
   --set existingSecret=shepherd-secrets
 

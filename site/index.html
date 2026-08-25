@@ -33,7 +33,7 @@
 
 <header class="hero" id="top">
   <div class="wrap">
-    <span class="eyebrow"><span class="dot"></span> v0.3.2 · self-hosted · Kubernetes-first</span>
+    <span class="eyebrow"><span class="dot"></span> v0.3.3 · self-hosted · Kubernetes-first</span>
     <h1>Run a fleet of Grafana Alloy collectors from one place.</h1>
     <p class="lede">
       Shepherd is a self-hosted, Kubernetes-first fleet manager for Grafana Alloy. Install it with
@@ -333,7 +333,7 @@
           </p>
           <div class="code-block" data-lang="shell">
             <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-            <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.8.0 \
+            <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.8.1 \
   --set existingSecret=shepherd-secrets \
   --set "route.enabled=true" \
   --set "route.hostnames[0]=shepherd.internal"</code></pre>
@@ -405,7 +405,7 @@ make dev          # http://localhost:8080 — admin / admin</code></pre>
         </svg>
         Shepherd
       </span>
-      <span class="pill">v0.3.2</span>
+      <span class="pill">v0.3.3</span>
       <span>self-hosted Grafana Alloy fleet manager</span>
     </div>
     <div class="foot-links">

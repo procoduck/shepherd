@@ -41,6 +41,11 @@ Setup order matters and each step exists because its absence produced a confusin
 4. **Nodes Ready** — the CNI is serving
 5. **CoreDNS Available** — Ready nodes do *not* imply working DNS
 6. **Images loaded**, **shared Postgres**
+7. **Gateway API CRDs + NGINX Gateway Fabric** — pinned from `deploy/versions.env`
+8. **CloudNativePG + External Secrets operators** — pinned the same way, for the chart's two
+   optional dependencies (`chart_deps_test.go`). Shepherd's chart installs neither and requires
+   neither; they are here so those integrations are proven against real controllers rather than
+   against `helm template`.
 
 Teardown is layered because the framework's own hook does not cover everything:
 
@@ -99,3 +104,7 @@ silently pulling something else from a registry.
   arrived" — see `docs/kind-test-environment-plan.md` §5 Layer C.
 - **Chart upgrade coverage installs the same version twice.** A true previous-version upgrade needs
   a released chart to upgrade *from*.
+- **The dependency operators are pinned exactly, and only the current pin is tested.** A newer
+  CloudNativePG or External Secrets could change a CRD field or a generated secret's key names
+  without this suite noticing until the pin is bumped. That is the trade for testing a fixed,
+  reproducible target; the pins and the reasoning live in `deploy/versions.env`.

@@ -11,6 +11,29 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
+## v0.3.3
+
+Chart 0.8.1. No change to the chart or the application: this release records
+that v0.3.2's two integrations are now verified against the real operators
+rather than against rendered YAML.
+
+### Verified
+
+- **CloudNativePG and External Secrets are exercised in the Kubernetes suite.**
+  Both operators are installed into the throwaway kind cluster (pinned in
+  `deploy/versions.env`), Shepherd is installed supplying *nothing* -- no
+  database, no connection string, no encryption key, no admin password -- and
+  the run asserts the database is provisioned, the migrations reached it, the
+  generated encryption key decodes to exactly the 32 bytes Shepherd requires,
+  and the generated administrator password actually signs in, with a wrong
+  password as the control.
+
+  It found the thing rendering could not: on a first install the migration hook
+  fails several times while CloudNativePG is still running `initdb` and while
+  External Secrets has not yet materialised the Secret holding the encryption
+  key. Nothing sequences that -- it converges only because the Job retries, and
+  now something proves it does.
+
 ## v0.3.2
 
 Chart 0.8.0. No application changes: this release is the chart learning to

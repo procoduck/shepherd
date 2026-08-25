@@ -317,20 +317,28 @@ func execPSQL(t *testing.T, cfg *envconf.Config, db, sql string) {
 
 // --- helm helpers ----------------------------------------------------------
 
-// helmRun runs install or upgrade with the fixture's values and fails with the
-// cluster's own view of the namespace when it does not work.
-func helmRun(t *testing.T, cfg *envconf.Config, f *fixture, verb, release string, extra ...string) {
-	t.Helper()
-	args := []string{
-		// registry is cleared because the chart defaults to the released
-		// ghcr.io images while this suite loads bare local tags into kind.
+// chartImageArgs points the chart at the bare local tags this suite loads into
+// kind, instead of the released ghcr.io images the chart defaults to.
+//
+// Split out of helmRun because not every install wants helmRun's other
+// assumption: the generated-secrets path (chart_deps_test.go) must NOT pass
+// existingSecret, since the chart deliberately refuses to render both that and
+// an ExternalSecret producing the same Secret.
+func chartImageArgs() []string {
+	return []string{
 		"--set image.registry=", "--set image.repository=shepherd", "--set image.tag=local", "--set image.pullPolicy=Never",
 		// The simulator deploys by default since v0.0.1, so every install —
 		// including the pure-defaults one — needs its local image wired.
 		"--set simulator.image.registry=", "--set simulator.image.repository=shepherd-simulator",
 		"--set simulator.image.tag=local", "--set simulator.image.pullPolicy=Never",
-		"--set existingSecret=" + chartSecretName,
 	}
+}
+
+// helmRun runs install or upgrade with the fixture's values and fails with the
+// cluster's own view of the namespace when it does not work.
+func helmRun(t *testing.T, cfg *envconf.Config, f *fixture, verb, release string, extra ...string) {
+	t.Helper()
+	args := append(chartImageArgs(), "--set existingSecret="+chartSecretName)
 	args = append(args, extra...)
 	p := utils.RunCommand(fmt.Sprintf(
 		"helm %s %s %s --kubeconfig %s --namespace %s %s --wait --timeout 5m",

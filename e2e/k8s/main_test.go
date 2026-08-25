@@ -88,6 +88,13 @@ func TestMain(m *testing.M) {
 		// every feature that needs them — see route_conformance_test.go.
 		installGatewayAPI,
 		installGatewayController,
+		// The chart's two OPTIONAL dependencies. Installed once and shared,
+		// like the gateway controller above, because the operators are
+		// cluster-scoped and installing them per feature would dominate the
+		// suite's runtime. Shepherd's chart does not install either one and
+		// does not require them -- see chart_deps_test.go.
+		installCNPGOperator,
+		installExternalSecretsOperator,
 	)
 
 	// Finish runs on success, on failure and on panic. The one case it cannot
