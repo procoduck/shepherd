@@ -158,7 +158,7 @@ See `docs/spec.md` for the full specification.
 
 ```bash
 helm install shepherd deploy/helm/shepherd \
-  --set image.tag=0.2.0 \
+  --set image.tag=0.2.1 \
   --set existingSecret=shepherd-secrets \
   --set "route.enabled=true" \
   --set "route.hostnames[0]=shepherd.internal"

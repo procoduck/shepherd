@@ -166,7 +166,7 @@ export SHEPHERD_SECURITY_ENCRYPTION_KEY=...   # the same key you used above
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
         <pre><code>helm install shepherd deploy/helm/shepherd \
   --set image.registry=ghcr.io/procoduck \
-  --set image.tag=0.2.0 \
+  --set image.tag=0.2.1 \
   --set existingSecret=shepherd-secrets \
   --set "route.enabled=true" \
   --set "route.hostnames[0]=shepherd.internal"</code></pre>
@@ -468,7 +468,7 @@ export SHEPHERD_SECURITY_ENCRYPTION_KEY=...   # the same key you used above
 <footer>
   <div class="wrap">
     <div class="foot-left">
-      <span class="pill">v0.2.0</span>
+      <span class="pill">v0.2.1</span>
       <span>self-hosted Grafana Alloy fleet manager</span>
     </div>
     <div class="foot-links">
