@@ -163,9 +163,16 @@ func deploySharedPostgres(ctx context.Context, cfg *envconf.Config) (context.Con
 					{Name: "POSTGRES_DB", Value: pgBootstrapDB},
 				},
 				Ports: []corev1.ContainerPort{{ContainerPort: 5432}},
+				// -h 127.0.0.1 forces the probe over TCP. Without it pg_isready
+				// uses the unix socket, which the postgres entrypoint's
+				// TEMPORARY init-time server listens on BEFORE any TCP listener
+				// exists — so the pod would report Ready while every client
+				// connecting through the Service still gets connection refused.
+				// Same trap that made test-fullstack flake; see the note in
+				// dev/docker-compose.dev.yaml.
 				ReadinessProbe: &corev1.Probe{
 					ProbeHandler: corev1.ProbeHandler{
-						Exec: &corev1.ExecAction{Command: []string{"pg_isready", "-U", pgSuperUser}},
+						Exec: &corev1.ExecAction{Command: []string{"pg_isready", "-h", "127.0.0.1", "-U", pgSuperUser}},
 					},
 					InitialDelaySeconds: 3,
 					PeriodSeconds:       3,

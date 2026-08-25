@@ -25,7 +25,22 @@ services:
     volumes:
       - shepherd_dev_postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U shepherd -d shepherd_dev"]
+      # -h 127.0.0.1 forces the check over TCP, and that is the whole point.
+      # Without it pg_isready uses the UNIX SOCKET, and on a first-time volume
+      # the postgres entrypoint runs a TEMPORARY server that listens on the
+      # socket only (listen_addresses='') to execute the init scripts. That
+      # temp server logs "database system is ready to accept connections", so a
+      # socket-based check goes green ~550ms before any TCP listener exists —
+      # compose then starts the dependents, and they get "connection refused"
+      # or "FATAL: the database system is shutting down" as the temp server is
+      # torn down and the real one starts.
+      #
+      # This is what made test-fullstack flake: it runs `down -v` first, so it
+      # always initialises a fresh volume and always opens the window. Local
+      # `make dev` reuses the volume, skips initdb, and never sees it.
+      # internal/testutil/postgres.go already avoided the same trap the other
+      # way round, by waiting for the "ready" log to appear TWICE.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U shepherd -d shepherd_dev"]
       interval: 2s
       timeout: 5s
       retries: 20
