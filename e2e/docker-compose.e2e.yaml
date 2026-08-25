@@ -125,10 +125,6 @@ services:
         condition: service_healthy
     environment:
       SHEPHERD_DATABASE_URL: postgres://shepherd:shepherd@postgres:5432/shepherd_e2e?sslmode=disable
-      # Seeded explicitly so the suite is not blocked by the forced password
-      # change, which applies only to a defaulted admin/admin.
-      SHEPHERD_BOOTSTRAP_ADMIN_LOGIN: "admin"
-      SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD: "admin"
       SHEPHERD_SECURITY_ENCRYPTION_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
       SHEPHERD_DEV_ALLOW_STATIC_TOKEN: "true"
     command:
@@ -192,6 +188,12 @@ services:
       # already hit once). Must equal networks.default.ipv4_address below.
       SHEPHERD_SERVER_LISTEN: "172.28.0.10:8080"
       SHEPHERD_SERVER_METRICS_LISTEN: "172.28.0.10:9090"
+      # The first administrator is created by `serve`, not by `migrate up`, so
+      # these belong here and nowhere else. Seeded explicitly so the suite is
+      # not blocked by the forced password change, which applies only to a
+      # defaulted admin/admin. Must match newAdminClient in e2e/e2e_test.go.
+      SHEPHERD_BOOTSTRAP_ADMIN_LOGIN: "admin"
+      SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD: "e2e-local-admin-pass"
       SHEPHERD_SECURITY_ENCRYPTION_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
       SHEPHERD_OIDC_ISSUER: http://oidc:8090/default
       SHEPHERD_OIDC_CLIENT_ID: shepherd-e2e

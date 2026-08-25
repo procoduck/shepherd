@@ -218,7 +218,7 @@ func (h *Handler) Reload(ctx context.Context) error {
 		// sit on the login path at all.
 		return nil
 	}
-	doc, err := fetchDiscovery(ctx, settings.Issuer)
+	doc, err := fetchDiscovery(ctx, settings.Issuer, settings.Source)
 	if err != nil {
 		return err
 	}

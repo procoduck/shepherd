@@ -90,7 +90,7 @@ func (h *Handler) TestSettings(ctx context.Context, in *Settings) (*Discovery, e
 	if err := validateIssuer(candidate.Issuer); err != nil {
 		return nil, err
 	}
-	doc, err := fetchDiscovery(ctx, candidate.Issuer)
+	doc, err := fetchDiscovery(ctx, candidate.Issuer, SourceDatabase)
 	if err != nil {
 		return nil, err
 	}
