@@ -161,3 +161,43 @@ can fetch any org's config by naming a cluster. The mechanics are real, but
 `docs/spec.md:428` states: *"v1 tokens are global-authN only; tenancy comes from
 cluster claiming."* It is a documented v1 limitation. Worth revisiting as a design
 change, not as a bug fix.
+
+---
+
+## Outcome (2026-08-25)
+
+All seven phases landed across four commits. Two findings were proven by
+deleting the fix and watching the failure, rather than by reasoning:
+
+- **F1.1** — with the existence guard removed, `helm upgrade` hung for 916s and
+  failed with `Deployment/shepherd not ready ... Available: 0/1`: the
+  application could not start because its database had been deleted underneath
+  it. With the guard, the same upgrade completes in about five seconds and both
+  a marker row and the encryption key survive. The prediction in this document
+  was that the upgrade would report success; the observed behaviour is that it
+  fails outright, which is recorded in the test.
+- **F5.1** — reverting `useCanWrite` fails exactly the two editor-authoring
+  specs while the viewer control still passes, confirming the widening is
+  correct in both directions.
+
+The cross-org and mock-authz fixes were kill-probed the same way.
+
+### Deliberately not built
+
+- **Team-scoped write in the UI.** A team member may write only the pipelines
+  their team owns, and the client cannot derive ownership from `/api/me`. They
+  are treated as viewers until a per-pipeline capability exists on the wire;
+  widening `useCanWrite` to them would offer actions that fail for most
+  pipelines.
+- **Visual builder draft restore.** `draft.ts` implements IndexedDB save/load
+  and nothing imports it. Restoring a draft well needs a restore-or-discard
+  decision that is a product question, not a defect fix. A `beforeunload`
+  warning now prevents the worst case (refresh or closed tab losing an hour of
+  wiring); the rest is left explicitly unbuilt rather than half-built.
+- **Unbounded list endpoints.** Real but low: every list is already org-scoped,
+  so the blast radius is one tenant's own data. Adding a server-side ceiling
+  touches every list query and every caller, and is better done as one
+  deliberate pagination change than as a scattering of LIMITs.
+- **OIDC nonce.** Defence in depth on top of authorization-code + PKCE + state,
+  all of which are present and correct. Worth adding; not worth folding into a
+  change this size, where it would be the only untested auth-flow edit.
