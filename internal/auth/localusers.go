@@ -131,10 +131,9 @@ func ValidatePassword(pw string) error {
 // every boot: it cannot resurrect an account an operator deliberately deleted,
 // and it cannot reset the password of an existing one.
 //
-// The seeded account is created with must_change_password set. A default
-// credential that stays valid indefinitely is how "admin/admin" ends up in
-// production; forcing the change at first login means the default is only ever
-// good for the one action that removes it.
+// must_change_password is set only when the password was DEFAULTED. See the
+// comment at the assignment: a credential the operator chose is theirs, and one
+// we invented must not survive first contact.
 func (s *UserStore) BootstrapAdmin(ctx context.Context) error {
 	n, err := s.store.Queries.CountUsers(ctx)
 	if err != nil {
@@ -148,11 +147,18 @@ func (s *UserStore) BootstrapAdmin(ctx context.Context) error {
 	if login == "" {
 		login = "admin"
 	}
+	// A password the operator SET is theirs; a password we invented is not.
+	//
+	// Forcing a change on an explicitly configured password would break every
+	// automated first-boot — the dev stack, the e2e suites, any Helm install
+	// that seeds from a Secret — and would teach operators nothing, because
+	// they already chose the value. Forcing it on the default is the whole
+	// point: "admin/admin" must be good for exactly one action, the one that
+	// replaces it.
 	password := os.Getenv("SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD")
-	generated := false
-	if password == "" {
+	defaulted := password == ""
+	if defaulted {
 		password = "admin"
-		generated = true
 	}
 	hash, err := HashPassword(password)
 	if err != nil {
@@ -164,18 +170,17 @@ func (s *UserStore) BootstrapAdmin(ctx context.Context) error {
 		DisplayName:        "Administrator",
 		PasswordHash:       hash,
 		IsAppAdmin:         true,
-		MustChangePassword: true,
+		MustChangePassword: defaulted,
 	})
 	if err != nil {
 		return fmt.Errorf("creating bootstrap admin: %w", err)
 	}
-	if generated {
-		s.logger.Warn("created the first administrator with the DEFAULT password; you must change it at first sign-in",
-			"login", login, "password", "admin",
-			"hint", "set SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD before first start to avoid this")
+	if defaulted {
+		s.logger.Warn("created the first administrator with the DEFAULT password admin/admin; it must be changed at first sign-in and nothing else will work until it is",
+			"login", login,
+			"hint", "set SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD before first start to choose your own")
 	} else {
-		s.logger.Info("created the first administrator from SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD; a password change is required at first sign-in",
-			"login", login)
+		s.logger.Info("created the first administrator from SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD", "login", login)
 	}
 	s.logger.Info("bootstrap admin ready", "user_id", u.ID.String())
 	return nil

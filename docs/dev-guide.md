@@ -108,14 +108,20 @@ To reseed without resetting data: `make dev-seed` (idempotent — inserts use `O
 
 `dev/shepherd.dev.env` is committed and holds only dev-only fixtures. OIDC is deliberately
 left unset there: the `oidc` service sits behind the `oidc` compose profile, so the default
-stack is local-admin only (`docker compose --profile oidc up -d` to exercise the OIDC flow).
+stack uses local users only (`docker compose --profile oidc up -d` to exercise the OIDC flow).
 
-**Change the password:** Generate a new hash and update `dev/shepherd.dev.env`:
+**Change the password:** the first administrator is seeded on first boot from
+`SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD` in `dev/shepherd.dev.env` (currently
+`admin`), and only while the users table is empty. To pick a different one,
+change the value and recreate the volume:
+
 ```bash
-./bin/shepherd hash-password --password-stdin <<< "my-new-password"
-# Paste the output as SHEPHERD_AUTH_LOCAL_ADMIN_PASSWORD_HASH in dev/shepherd.dev.env.
-# Every `$` must be doubled to `$$` — docker compose interpolates the env file.
+make dev-reset && make dev
 ```
+
+On a running stack, change it in the UI instead — the seed is not consulted
+again. No more doubling `$` for compose: the value is a plaintext password the
+server hashes, not an argon2 string full of `$`.
 
 ---
 

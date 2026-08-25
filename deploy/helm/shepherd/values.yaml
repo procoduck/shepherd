@@ -108,26 +108,23 @@ config:
     #   - "11111111-2222-3333-4444-555555555555"   # Entra
     #   - "platform-admins"                        # everyone else
     # -----------------------------------------------------------------------
-    # Local Admin / Break-Glass Account (OPTIONAL — disabled by default)
+    # Local users
     #
-    # This is also the BOOTSTRAP PATH for single sign-on: when oidc.issuer is
-    # unset, an app admin configures the identity provider from the UI, and
-    # this account is how you sign in before one exists. Keep it enabled until
-    # an SSO login has been confirmed to grant app-admin rights.
+    # Shepherd can run with no identity provider at all. On first start, when
+    # the users table is empty, it creates one administrator; after that,
+    # accounts are managed in the UI under Admin -> Users.
     #
-    # WARNING: This is a break-glass account for emergency access and local
-    # development. Enable deliberately. The password hash MUST come from a
-    # Kubernetes Secret (via existingSecret or secrets), never a ConfigMap.
-    # Generate one with:  shepherd hash-password --password-stdin
+    # Set the password through the Secret (SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD),
+    # NEVER here — this block renders into a ConfigMap. If you leave it unset
+    # the account is created as admin/admin and Shepherd refuses to serve
+    # anything to that session until the password is changed, so the default is
+    # only ever good for the one action that replaces it.
     #
-    # local_admin:
-    #   enabled: true
-    #   allow_with_oidc: false       # set true to allow alongside a CHART-configured OIDC
-    #                                # (this check reads oidc.issuer only — a provider
-    #                                #  configured through the UI does not trigger it)
-    #   username: "admin"
-    #   # password_hash: ""          # argon2id string — use SHEPHERD_AUTH_LOCAL_ADMIN_PASSWORD_HASH env
-    #   session_ttl: "1h"            # must be >= 5m, or the server refuses to start
+    #   SHEPHERD_BOOTSTRAP_ADMIN_LOGIN     default "admin"
+    #   SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD  no default; see above
+    #
+    # Both are read only when the users table is empty, so they cannot resurrect
+    # a deleted account or reset an existing password on a later rollout.
     # -----------------------------------------------------------------------
   graph:
     base_url: "https://graph.microsoft.com"
@@ -176,8 +173,9 @@ existingSecret: ""
 #   secrets:
 #     SHEPHERD_DATABASE_URL: "postgres://..."
 #     SHEPHERD_SECURITY_ENCRYPTION_KEY: "base64-32-bytes"
-#     SHEPHERD_AUTH_LOCAL_ADMIN_PASSWORD_HASH: "$argon2id$..."
-# NEVER put SHEPHERD_AUTH_LOCAL_ADMIN_PASSWORD_HASH in config.auth.local_admin.password_hash above.
+#     SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD: "choose-something"
+# NEVER put SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD in the config: block above — that renders
+# into a ConfigMap, which is not a place for a password.
 secrets: {}
 
 migrations:

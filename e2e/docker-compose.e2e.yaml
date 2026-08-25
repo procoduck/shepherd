@@ -125,6 +125,10 @@ services:
         condition: service_healthy
     environment:
       SHEPHERD_DATABASE_URL: postgres://shepherd:shepherd@postgres:5432/shepherd_e2e?sslmode=disable
+      # Seeded explicitly so the suite is not blocked by the forced password
+      # change, which applies only to a defaulted admin/admin.
+      SHEPHERD_BOOTSTRAP_ADMIN_LOGIN: "admin"
+      SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD: "admin"
       SHEPHERD_SECURITY_ENCRYPTION_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
       SHEPHERD_DEV_ALLOW_STATIC_TOKEN: "true"
     command:
@@ -200,9 +204,6 @@ services:
       SHEPHERD_LOG_LEVEL: debug
       # Local admin enabled alongside OIDC for e2e scenario 8 (LA-1).
       # allow_with_oidc=true required when OIDC is also configured.
-      SHEPHERD_AUTH_LOCAL_ADMIN_ENABLED: "true"
-      SHEPHERD_AUTH_LOCAL_ADMIN_ALLOW_WITH_OIDC: "true"
-      SHEPHERD_AUTH_LOCAL_ADMIN_PASSWORD_HASH: "$$argon2id$$v=19$$m=65536,t=1,p=4$$AQIDBAUGBwgJCgsMDQ4PEA$$zFDjjWPd0Ds8NRPzb2AUxQXWmQErkPhDnx9HC2RBPW8"
       # Empty by default so the default stack exercises the "simulator not
       # configured" path; `make dev-sim` / `make e2e-sim` set it to true.
       SHEPHERD_SIMULATOR_ENABLED: ${SHEPHERD_SIM_ENABLED:-false}

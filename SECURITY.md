@@ -25,7 +25,7 @@ Shepherd holds credentials and generates the configuration a fleet of collectors
 runs, so the areas most worth attention are:
 
 - Authentication and session handling (`internal/auth`), including the OIDC
-  flows and the break-glass local admin.
+  flows, local user accounts, and password handling.
 - Authorization — the role decisions in `internal/auth/authz.go` and the Connect
   interceptor tables in `internal/mgmtapi`.
 - Secret handling: git credentials and the OIDC client secret are encrypted at
