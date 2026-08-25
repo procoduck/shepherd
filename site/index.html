@@ -150,8 +150,11 @@
         <h3>RBAC, orgs, and an audit log</h3>
         <p>
           Multi-tenant by design: application admins manage orgs and set each one&rsquo;s tenant
-          identity, org admins manage their own collectors and pipelines, teams get scoped write (API only so far),
-          and readers get view-only access. Every mutating action is written to the audit log.
+          identity, org admins manage their own collectors and pipelines, org editors author what an
+          org runs without being able to change where its telemetry ships, teams get scoped write over
+          the pipelines they own, and viewers get read-only access. Roles come from your identity
+          provider&rsquo;s groups or from local accounts &mdash; Shepherd runs with or without an IdP.
+          Every mutating action is written to the audit log.
         </p>
         <span class="tag">org-scoped roles</span>
       </article>

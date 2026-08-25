@@ -11,6 +11,60 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
+## Unreleased
+
+### Breaking
+
+- **`auth.local_admin.*` is gone.** The single hardcoded break-glass account it
+  configured has been replaced by full local user management, so the config
+  block no longer exists. **Remove it from your values file.** Configuration is
+  decoded leniently, so a block that is left in place is ignored in silence
+  rather than rejected — nothing warns you, and the account it describes will
+  not exist. Replace it with
+  `SHEPHERD_BOOTSTRAP_ADMIN_LOGIN` / `SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD`, which
+  are read only while the users table is empty; from then on accounts are
+  managed at **Admin → Users**. The password hash moves from chart config into
+  the database, so `SHEPHERD_AUTH_LOCAL_ADMIN_PASSWORD_HASH` is no longer read.
+- **`/api/me` reports an org role of `viewer`, not `reader`.** The three org
+  roles now have one vocabulary — `admin`, `editor`, `viewer` — across both the
+  API and the UI. The `reader_group_id` column and chart key keep their names:
+  renaming them would break every chart and secret already deployed. Only the
+  reported role string changed.
+
+### Shipped
+
+- **Local user management.** Shepherd runs with no identity provider at all.
+  Any number of local accounts, each with an app-admin flag and a per-org role,
+  managed at **Admin → Users**. This is *additive*: group-derived identity from
+  OIDC is unchanged, and the two coexist — a deployment can use either or both.
+  A local session is judged on its stored membership alone and an OIDC session
+  on its groups claim alone, so "why does this person have access" always has a
+  single answer.
+- **An org editor role.** Authoring a pipeline and re-pointing where an org's
+  telemetry ships used to be the same permission. An editor may write what the
+  org *runs* — pipelines, wizards, the visual builder, simulations — while what
+  the org *is* (destinations, tenant routes, git credentials, teams, service
+  accounts) stays with the org admin. Reachable from an IdP group
+  (`editor_group_id`, set at **Admin → Orgs**) or from a local user's org role.
+- **Teams have a UI, and can hold explicit members.** A team previously bound
+  to an IdP group and nothing else, which meant a deployment without an IdP
+  could not use team-scoped write at all. Teams now take local users directly,
+  and the **Teams** page shows which source each team draws its members from.
+  A group-backed team shows no roster on purpose: membership lives in a token
+  claim, so there is nothing to list.
+
+### Fixed
+
+- **An org admin who signed in locally could not write any pipeline.** The
+  ownership check matched the org's admin group inline against the session's
+  groups claim; a local session has none, so it was refused both owned and
+  unowned pipelines. It now resolves the role the same way every other
+  authorization decision does.
+- **An unrecognised `minRole` on a route no longer defaults to reader.** With
+  a third role that default became a silent privilege widening — the route
+  keeps serving, just to more people than intended. It now fails while routes
+  are registered.
+
 ## v0.2.1
 
 The first release published from the public repository. A patch: one real fix,
