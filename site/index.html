@@ -137,10 +137,10 @@
         <p>
           Run a candidate pipeline against synthetic sources in a network-contained sandbox and
           inspect the captured series before it ever reaches a collector. Enabled by default as
-          of v0.0.2 — a default-deny NetworkPolicy contains it, proven with in-cluster probes;
+          of v0.0.1 — a default-deny NetworkPolicy contains it, proven with in-cluster probes;
           turn it off per-deployment with <code>simulator.enabled=false</code>.
         </p>
-        <span class="tag">enabled by default · v0.0.2</span>
+        <span class="tag">enabled by default</span>
       </article>
 
       <article class="feature-card">
@@ -291,7 +291,7 @@
         <!-- sandbox -->
         <rect x="590" y="230" width="150" height="60" rx="8" class="dg-box"/>
         <text x="665" y="256" text-anchor="middle" class="dg-text" font-size="12.5" font-weight="600">Sandbox</text>
-        <text x="665" y="273" text-anchor="middle" class="dg-text-sub" font-size="10.5">on by default (v0.0.2)</text>
+        <text x="665" y="273" text-anchor="middle" class="dg-text-sub" font-size="10.5">on by default</text>
         <text x="665" y="286" text-anchor="middle" class="dg-text-sub" font-size="10.5">network-contained</text>
         <path d="M550 260 H 590" class="dg-line" stroke-dasharray="3 3"/>
 
@@ -324,7 +324,7 @@
           <p>
             Requires a Kubernetes secret with the database URL, encryption key, and OIDC secrets — see
             <code>deploy/helm/shepherd/values.yaml</code> for the full option list. Sandbox
-            simulation ships enabled by default as of v0.0.2; add
+            simulation ships enabled by default; add
             <code>--set simulator.enabled=false</code> to turn it off.
           </p>
           <div class="code-block" data-lang="shell">

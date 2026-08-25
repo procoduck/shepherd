@@ -1,5 +1,10 @@
 # Shepherd
 
+[![CI](https://github.com/procoduck/shepherd/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/procoduck/shepherd/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/procoduck/shepherd?sort=semver)](https://github.com/procoduck/shepherd/releases)
+[![Go](https://img.shields.io/github/go-mod/go-version/procoduck/shepherd)](go.mod)
+[![Licence](https://img.shields.io/github/license/procoduck/shepherd)](LICENSE)
+
 **[procoduck.github.io/shepherd](https://procoduck.github.io/shepherd/)** — project site and quick start.
 
 Self-hosted **Grafana Alloy fleet manager**. Shepherd serves centralised pipeline configurations to Alloy instances via the `remotecfg` protocol, providing a UI for managing pipelines, destinations, wizards, and GitOps sync from any git server (ADO and GitHub-App auth supported).
@@ -9,6 +14,28 @@ It also ships a **beacon**: every claimed collector is served a small baseline p
 **Being built, not yet reachable.** A tenant-aware gateway and receiver tier (OTLP ingest with gateway-injected tenancy), three-way reconciliation, onboarding artifacts, a k8s-monitoring chart-values generator, and a read-plus-propose MCP interface for AI agents are implemented and tested but are **not wired to a running surface**, and are gated on review sign-off. `docs/gateway-tier-plan.md` §9 tracks each one and what still stands between it and being usable. Do not plan against them yet.
 
 ---
+
+![The visual pipeline builder: component palette, canvas, live validity and the generated Alloy config](site/img/visual-builder.jpg)
+
+## Requirements
+
+**To run Shepherd** you need PostgreSQL 14+ (16 is what CI and the dev stack use)
+and somewhere to run one container. That is the whole list — Shepherd is a single
+Go binary with the UI embedded in it, and it holds no state outside Postgres.
+
+For Kubernetes, the chart targets a current cluster and needs no CRDs by default.
+Two optional features add requirements: `metrics.serviceMonitor.enabled` needs the
+Prometheus Operator's CRDs, and the (not-yet-wired) gateway tier targets Gateway
+API v1.4.1, standard channel.
+
+**Collectors** run [Grafana Alloy](https://grafana.com/docs/alloy/) v1.18.1 — the
+version whose component schema this build validates against, pinned in
+`deploy/versions.env`. Alloy needs `remotecfg` support, which is anything
+reasonably current.
+
+**To build it** you need Go (version per `go.mod`), Node 24 with pnpm, Docker
+(the test suite starts real Postgres via testcontainers), and Helm for the chart
+tests. `make tools` installs the pinned code generators.
 
 ## Quick start (local dev)
 
@@ -85,6 +112,28 @@ curl -s -X POST http://localhost:8080/shepherd.mgmt.v1.PipelineService/ListPipel
 ```
 
 ---
+
+## Building a pipeline
+
+Three routes into the same merge engine, in increasing order of control:
+
+1. **Wizards** — guided forms for the six common jobs (app observability, pod
+   logs, cluster metrics, database metrics, blackbox probes, self-monitoring).
+   Answer a few questions, preview the generated Alloy, commit.
+2. **Visual builder** — drag components onto a canvas, wire them together, and
+   watch the Alloy config generate as you go. It validates live and refuses to
+   save a graph that would not run.
+3. **Raw Alloy** — paste the config yourself. Same validation gate.
+
+Whichever you use, a pipeline carries **matchers** (`cluster="prod-eu-1"`,
+`role="metrics"`) that decide which collectors receive it, and it passes a
+three-stage validation gate before it is served: syntax, `alloy validate`, and a
+merge dry-run against every affected collector's *full* merged config — so a
+pipeline that is individually valid but conflicts with an existing one is caught
+before any agent sees it.
+
+The [getting-started guide](https://procoduck.github.io/shepherd/docs/getting-started.html#pipeline)
+walks through building one end to end.
 
 ## Development
 
