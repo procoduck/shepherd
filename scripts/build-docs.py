@@ -80,6 +80,29 @@ NAV = [
     ]),
 ]
 
+# URLs that existed before the docs were split, mapped to where their content
+# went. They are still linked from elsewhere on the internet, and GitHub Pages
+# has no server-side redirects, so each one is published as a stub that
+# forwards. Removing an entry here is deliberately a decision to break a link.
+REDIRECTS = {
+    "getting-started": ("index.html", "Documentation"),
+}
+
+REDIRECT_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="refresh" content="0; url={target}">
+<link rel="canonical" href="{target}">
+<meta name="robots" content="noindex">
+<title>Moved &mdash; Shepherd docs</title>
+</head>
+<body>
+<p>This page moved. Continue to <a href="{target}">{label}</a>.</p>
+</body>
+</html>
+"""
+
 HEAD = """<!doctype html>
 <html lang="en">
 <head>
@@ -288,6 +311,12 @@ def main():
             fh.write(render(category, slug, title, desc, fragment,
                             prev_page, next_page, version))
         written.add(out_name)
+
+    for slug, (target, label) in REDIRECTS.items():
+        name = slug + ".html"
+        with open(os.path.join(OUT, name), "w", encoding="utf-8") as fh:
+            fh.write(REDIRECT_PAGE.format(target=target, label=label))
+        written.add(name)
 
     # A page removed from NAV must stop being published, not linger unreachable.
     stale = [f for f in os.listdir(OUT)
