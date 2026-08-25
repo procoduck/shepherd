@@ -70,3 +70,33 @@ test('a non-app-admin is refused', async ({ page, api }) => {
   await page.goto('/admin/users');
   await expect(page.getByTestId('users-forbidden')).toBeVisible();
 });
+
+// An account with no org membership signs in and sees nothing, so assigning
+// one has to be reachable from the same place the account is created.
+test('gives a user a role in an organisation, changes it, and removes it', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(appAdmin);
+  await page.goto('/admin/users');
+
+  await page.getByTestId('user-edit-alice').click();
+  await expect(page.getByTestId('edit-org-role-prod-org')).toHaveValue('editor');
+
+  await page.getByTestId('edit-org-role-prod-org').selectOption('viewer');
+  // The modal shows the live membership, so the change is visible without
+  // closing and reopening it.
+  await expect(page.getByTestId('edit-org-role-prod-org')).toHaveValue('viewer');
+
+  await page.getByTestId('edit-org-remove-prod-org').click();
+  await expect(page.getByTestId('edit-orgs-empty')).toBeVisible();
+});
+
+test('says plainly that an account with no organisation can see nothing', async ({ page, api }) => {
+  await api.loginAs(appAdmin);
+  await page.goto('/admin/users');
+
+  await page.getByTestId('user-edit-admin').click();
+  await page.getByTestId('edit-org-remove-prod-org').click();
+  await expect(page.getByTestId('edit-orgs-empty')).toContainText('sign in but see nothing');
+});

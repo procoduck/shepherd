@@ -732,6 +732,45 @@ export function installDefaultHandlers(router: Router) {
     return json(r, 200, {});
   });
 
+  router.register('POST', '/shepherd.mgmt.v1.UserService/SetOrgMember', async (r) => {
+    const denied = requireAppAdmin(r);
+    if (denied) return denied;
+    const body = (await r.request().postDataJSON()) as Obj;
+    const users = ((st.users as Obj[]) ?? defaultUsers()).slice();
+    const idx = users.findIndex((u) => u.id === body.userId);
+    if (idx < 0) return connectError(r, 404, 'not_found', 'no such user');
+    const orgs = ((users[idx].orgs as Obj[]) ?? []).slice();
+    const existing = orgs.findIndex((o) => o.id === body.orgId);
+    // Prefer the name already on the membership, then the orgs list. Changing
+    // a role must not rename the org, which a bare fallback would do.
+    const known = orgs[existing] ?? ((st.orgs as Obj[]) ?? []).find((o) => o.id === body.orgId);
+    const row = {
+      id: body.orgId,
+      name: known?.name ?? 'org',
+      display_name: known?.display_name ?? known?.name ?? 'Org',
+      role: body.role,
+    };
+    if (existing >= 0) orgs[existing] = row;
+    else orgs.push(row);
+    users[idx] = { ...users[idx], orgs };
+    st.users = users;
+    return json(r, 200, { org_id: body.orgId, user_id: body.userId, role: body.role });
+  });
+  router.register('POST', '/shepherd.mgmt.v1.UserService/RemoveOrgMember', async (r) => {
+    const denied = requireAppAdmin(r);
+    if (denied) return denied;
+    const body = (await r.request().postDataJSON()) as Obj;
+    const users = ((st.users as Obj[]) ?? defaultUsers()).slice();
+    const idx = users.findIndex((u) => u.id === body.userId);
+    if (idx < 0) return connectError(r, 404, 'not_found', 'no such user');
+    users[idx] = {
+      ...users[idx],
+      orgs: ((users[idx].orgs as Obj[]) ?? []).filter((o) => o.id !== body.orgId),
+    };
+    st.users = users;
+    return json(r, 200, {});
+  });
+
   // ── TeamService ──────────────────────────────────────────────────────────
   // Membership has two sources and the page's job is to distinguish them, so
   // the mock keeps them separate too: idp_group_id on the team, explicit
