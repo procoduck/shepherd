@@ -18,6 +18,7 @@ import (
 	"shepherd/internal/config"
 	"shepherd/internal/crypto"
 	"shepherd/internal/gitrepo"
+	"shepherd/internal/metrics"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/validate"
@@ -81,9 +82,15 @@ func (r *Reconciler) reconcileAll(ctx context.Context) {
 		return
 	}
 	for i := range links {
+		// Counted here rather than inside reconcileLink: this is the one place
+		// every reconciliation outcome passes through, and reconcileLink has a
+		// dozen error returns that would each have to remember.
 		if err := r.reconcileLink(ctx, links[i]); err != nil {
+			metrics.SyncTotal.WithLabelValues("error").Inc()
 			r.logger.Error("gitsync: reconciling repo link",
 				"link_id", links[i].ID, "err", err)
+		} else {
+			metrics.SyncTotal.WithLabelValues("ok").Inc()
 		}
 	}
 }

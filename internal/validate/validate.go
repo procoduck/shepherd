@@ -20,6 +20,7 @@ import (
 	"github.com/grafana/alloy/syntax/parser"
 
 	"shepherd/internal/config"
+	"shepherd/internal/metrics"
 )
 
 // Diagnostic is a structured error from any validation stage.
@@ -69,7 +70,12 @@ func (v *Validator) Stage3Timeout() time.Duration { return v.stage3Timeout }
 
 // Stage1 parses the Alloy syntax and returns structured diagnostics.
 // content should be the raw pipeline body (not yet declare-wrapped).
-func Stage1(content string) Result {
+func Stage1(content string) (res Result) {
+	// Recorded on every return path via defer rather than at each `return`:
+	// Stage1 has four of them, and a counter that four call sites have to
+	// remember is a counter that eventually misses one.
+	defer func() { metrics.ObserveValidation("1", res.Valid) }()
+
 	_, err := parser.ParseFile("<pipeline>", []byte(content))
 	if err == nil {
 		return Result{Valid: true}
@@ -96,10 +102,18 @@ func Stage1(content string) Result {
 // Stage2 runs `alloy validate` on the given content (declare-wrapped as it will
 // be served) and returns structured diagnostics.
 // If AlloyBinary is empty, Stage 2 is skipped and returns valid.
-func (v *Validator) Stage2(ctx context.Context, content string) Result {
+func (v *Validator) Stage2(ctx context.Context, content string) (res Result) {
 	if v.alloyBinary == "" {
+		// Counted as "skipped", not "valid". The distinction is the whole
+		// point: v0.0.2 shipped an image where `alloy validate` could not run
+		// at all, and every deployment silently skipped this stage while
+		// reporting success. A dashboard where stage 2 is 100% skipped in
+		// production is that bug, visible.
+		metrics.ValidationTotal.WithLabelValues("2", "skipped").Inc()
 		return Result{Valid: true}
 	}
+	defer func() { metrics.ObserveValidation("2", res.Valid) }()
+
 	tmp, err := os.CreateTemp("", "shepherd-validate-*.alloy")
 	if err != nil {
 		return Result{Diagnostics: []Diagnostic{{Line: 1, Message: fmt.Sprintf("creating temp file: %v", err), Stage: 2}}}

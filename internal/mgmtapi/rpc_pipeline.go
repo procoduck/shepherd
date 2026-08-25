@@ -19,6 +19,7 @@ import (
 	"shepherd/internal/auth"
 	"shepherd/internal/beacon"
 	"shepherd/internal/merge"
+	"shepherd/internal/metrics"
 	"shepherd/internal/schema"
 	"shepherd/internal/signals"
 	"shepherd/internal/store"
@@ -810,7 +811,12 @@ func (s *PipelineService) createRevision(ctx context.Context, p sqlc.Pipeline, n
 // stage3Check runs Stage 3 validation: assembles merged configs for all affected collectors,
 // deduplicates by content hash, then runs Stages 1 and 2 on each unique content
 // with concurrency=4 and a configurable timeout (validate.stage3_timeout).
-func (s *PipelineService) stage3Check(ctx context.Context, p sqlc.Pipeline, orgID pgtype.UUID, includeCandidate bool) error {
+func (s *PipelineService) stage3Check(ctx context.Context, p sqlc.Pipeline, orgID pgtype.UUID, includeCandidate bool) (stage3Err error) {
+	// Stage 3 is the only gate that validates the MERGED config every affected
+	// collector would actually receive, so "did it pass" is the number an
+	// operator wants when a rollout starts failing.
+	defer func() { metrics.ObserveValidation("3", stage3Err == nil) }()
+
 	var matchers []string
 	if err := json.Unmarshal(p.Matchers, &matchers); err != nil {
 		s.logger.Debug("stage3: unmarshal matchers", "err", err)

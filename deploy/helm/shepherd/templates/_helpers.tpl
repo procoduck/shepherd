@@ -104,3 +104,18 @@ out from under a running release on upgrade.
 "helm.sh/hook-weight": "-10"
 {{- end }}
 {{- end }}
+
+{{/*
+The port Shepherd serves /metrics on, derived from config.server.metrics_listen.
+
+Derived rather than configured separately so the container port, the metrics
+Service, and the address the server actually binds cannot drift apart — which
+is how the ServiceMonitor came to scrape a port that had never served metrics.
+Accepts ":9090" and "0.0.0.0:9090" alike by taking the last colon-separated
+field.
+*/}}
+{{- define "shepherd.metricsPort" -}}
+{{- $listen := (((.Values.config).server).metrics_listen) | default ":9090" -}}
+{{- $parts := splitList ":" $listen -}}
+{{- index $parts (sub (len $parts) 1) -}}
+{{- end }}

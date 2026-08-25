@@ -1,0 +1,29 @@
+{{- if .Values.metrics.enabled }}
+{{/*
+A second, always-ClusterIP Service for the metrics listener.
+
+Deliberately not a port on the main Service: service.type is operator-
+configurable, so adding metrics there would publish the metrics listener
+through a LoadBalancer or NodePort the moment someone chose one. Metrics are
+for the cluster's own scraper and nothing else.
+
+The component label is what lets the ServiceMonitor select this Service and not
+the main one — both otherwise carry identical selector labels.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "shepherd.fullname" . }}-metrics
+  labels:
+    {{- include "shepherd.labels" . | nindent 4 }}
+    app.kubernetes.io/component: metrics
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: {{ include "shepherd.metricsPort" . | int }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "shepherd.selectorLabels" . | nindent 4 }}
+{{- end }}

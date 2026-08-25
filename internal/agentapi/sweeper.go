@@ -10,6 +10,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	"shepherd/internal/config"
+	"shepherd/internal/metrics"
 	"shepherd/internal/store"
 )
 
@@ -59,6 +60,16 @@ func (sw *Sweeper) Start(ctx context.Context) {
 }
 
 func (sw *Sweeper) run(ctx context.Context) {
+	// Publish the gauges once before the first tick. The sweep interval
+	// defaults to 5m, so waiting for the ticker would leave
+	// shepherd_active_collectors reading 0 for five minutes after every
+	// rollout — a fresh instance of the same "gauge that lies" problem this
+	// wiring exists to fix, and one that would fire a false alert on every
+	// deploy. Only the read-only gauge refresh runs here; the destructive
+	// sweeps keep waiting for their interval.
+	sw.refreshTableGauges(ctx)
+	sw.refreshActiveCollectors(ctx)
+
 	t := time.NewTicker(sw.tick)
 	defer t.Stop()
 	for {
@@ -102,6 +113,26 @@ func (sw *Sweeper) sweep(ctx context.Context) {
 	}
 
 	sw.refreshTableGauges(ctx)
+	sw.refreshActiveCollectors(ctx)
+}
+
+// refreshActiveCollectors sets the shepherd_active_collectors gauge.
+//
+// The gauge was declared with this exact help text and never set by anything,
+// so /metrics reported a flat 0 while collectors were polling steadily. A
+// gauge that is always zero is worse than a missing one: it cannot be alerted
+// on, and an alert written against it looks like coverage while being
+// incapable of firing. The sweeper owns it because the sweeper is already the
+// thing that decides which instances count as inactive.
+func (sw *Sweeper) refreshActiveCollectors(ctx context.Context) {
+	n, err := sw.store.Queries.CountActiveInstances(ctx)
+	if err != nil {
+		// Left at its previous value rather than zeroed: reporting 0 because a
+		// count failed is the same lie the gauge used to tell.
+		sw.logger.Debug("sweeper: failed to count active instances", "err", err)
+		return
+	}
+	metrics.ActiveCollectors.Set(float64(n))
 }
 
 func (sw *Sweeper) refreshTableGauges(ctx context.Context) {
@@ -112,6 +143,14 @@ func (sw *Sweeper) refreshTableGauges(ctx context.Context) {
 			`SELECT reltuples::bigint FROM pg_class WHERE relname = $1`, table).Scan(&count)
 		if err != nil {
 			sw.logger.Debug("sweeper: failed to read reltuples", "table", table, "err", err)
+			continue
+		}
+		if count < 0 {
+			// Postgres reports reltuples = -1 for a table it has never
+			// analyzed (PG14+). Publishing that verbatim put "-1 rows" on a
+			// dashboard; leaving the series unset says "unknown", which is
+			// what it actually means.
+			sw.logger.Debug("sweeper: table not yet analyzed, row estimate unavailable", "table", table)
 			continue
 		}
 		tableRowsGauge.WithLabelValues(table).Set(count)

@@ -14,6 +14,7 @@ import (
 	"shepherd/internal/crypto"
 	"shepherd/internal/schema"
 	"shepherd/internal/store"
+	"shepherd/internal/telemetry"
 	"shepherd/internal/validate"
 	"shepherd/internal/version"
 )
@@ -280,7 +281,9 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 	// authorizeProcedure's service-account branch (rpc_interceptor.go). A
 	// human-session request (no Basic-auth Authorization header) passes
 	// through the first interceptor unchanged.
-	authz := connect.WithInterceptors(newServiceAccountAuthInterceptor(st), newAuthzInterceptor(st))
+	// telemetry.Interceptor is outermost so RPC latency covers the authz work
+	// and a PermissionDenied is counted rather than invisible.
+	authz := connect.WithInterceptors(telemetry.Interceptor(), newServiceAccountAuthInterceptor(st), newAuthzInterceptor(st))
 
 	mounts := []func() (string, http.Handler){
 		func() (string, http.Handler) {

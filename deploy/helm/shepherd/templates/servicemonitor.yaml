@@ -1,4 +1,12 @@
-{{- if .Values.metrics.serviceMonitor.enabled }}
+{{- if and .Values.metrics.enabled .Values.metrics.serviceMonitor.enabled }}
+{{/*
+Scrapes the METRICS Service, not the main one.
+
+This previously pointed at `port: http` (:8080) with `path: /metrics`, which
+has never worked: internal/server 404-guards /metrics on the main listener
+(V4-4 moved it to its own port), so enabling this gave you a permanently
+failing Prometheus target and no metrics.
+*/}}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -12,7 +20,22 @@ spec:
   selector:
     matchLabels:
       {{- include "shepherd.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: metrics
   endpoints:
-    - port: http
+    - port: metrics
       path: /metrics
+      {{- with .Values.metrics.serviceMonitor.interval }}
+      interval: {{ . }}
+      {{- end }}
+      {{- with .Values.metrics.serviceMonitor.scrapeTimeout }}
+      scrapeTimeout: {{ . }}
+      {{- end }}
+      {{- with .Values.metrics.serviceMonitor.relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.metrics.serviceMonitor.metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
 {{- end }}

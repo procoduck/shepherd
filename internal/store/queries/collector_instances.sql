@@ -87,3 +87,13 @@ SELECT name, alloy_version, os, last_seen, remote_config_status, remote_config_e
 FROM collector_instances
 WHERE collector_id = $1 AND unregistered_at IS NULL
 ORDER BY last_seen DESC NULLS LAST;
+
+-- name: CountActiveInstances :one
+-- Feeds the shepherd_active_collectors gauge. "Active" is the definition the
+-- gauge's help text already claimed: registered, not swept to 'inactive'.
+-- Written as a query rather than derived from a list so the sweeper does not
+-- pull every instance row once a tick just to count them.
+SELECT COUNT(*)::bigint AS total
+FROM collector_instances
+WHERE unregistered_at IS NULL
+  AND (remote_config_status IS NULL OR remote_config_status != 'inactive');

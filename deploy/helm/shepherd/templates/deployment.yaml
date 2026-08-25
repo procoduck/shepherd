@@ -47,6 +47,13 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+            # Metrics are served on their own listener, never on the main one
+            # (internal/server: /metrics on :8080 is explicitly 404-guarded).
+            # Without this port declared there was nothing for a ServiceMonitor
+            # to scrape.
+            - name: metrics
+              containerPort: {{ include "shepherd.metricsPort" . | int }}
+              protocol: TCP
           volumeMounts:
             - name: config
               mountPath: /etc/shepherd

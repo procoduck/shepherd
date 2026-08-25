@@ -25,6 +25,7 @@ type Config struct {
 	GitSync   GitSyncConfig   `mapstructure:"gitsync"`
 	ADO       ADOConfig       `mapstructure:"ado"`
 	Security  SecurityConfig  `mapstructure:"security"`
+	Tracing   TracingConfig   `mapstructure:"tracing"`
 	Log       LogConfig       `mapstructure:"log"`
 }
 
@@ -258,6 +259,39 @@ func (c SecurityConfig) LogValue() slog.Value {
 	return slog.GroupValue(slog.String("encryption_key", "***"))
 }
 
+// TracingConfig holds OpenTelemetry trace export settings.
+//
+// Endpoint is the switch: empty means tracing is off entirely — no provider,
+// no exporter, no cost — which is the default. Shepherd instruments its own
+// serving paths unconditionally, so this being genuinely free when unset is
+// what makes instrumenting the hot agent path defensible.
+type TracingConfig struct {
+	// Enabled is the operator's explicit switch. Off by default.
+	//
+	// Separate from Endpoint being non-empty so that "I turned tracing on and
+	// forgot the endpoint" is a loud misconfiguration rather than a silent
+	// no-op — see InitTracing. It also gives the Helm chart a real field to
+	// gate on, keeping the chart's rule that the values structure IS the
+	// config structure.
+	Enabled bool `mapstructure:"enabled"`
+	// Endpoint is the OTLP collector address, e.g. "otel-collector:4317"
+	// (grpc) or "otel-collector:4318" (http). A scheme is tolerated and
+	// stripped. Required when Enabled.
+	Endpoint string `mapstructure:"endpoint"`
+	// Protocol is "grpc" (default) or "http".
+	Protocol string `mapstructure:"protocol"`
+	// Insecure disables TLS to the collector. Normal for an in-cluster
+	// collector reached over the pod network.
+	Insecure bool `mapstructure:"insecure"`
+	// SampleRatio is the head-sampling ratio for traces this process roots,
+	// 0.0-1.0. A caller's own sampling decision is always honoured
+	// (ParentBased), so this only governs traces that start here.
+	SampleRatio float64 `mapstructure:"sample_ratio"`
+	// ServiceName and ServiceVersion label the resource in the trace backend.
+	ServiceName    string `mapstructure:"service_name"`
+	ServiceVersion string `mapstructure:"service_version"`
+}
+
 // LogConfig holds structured logging settings.
 type LogConfig struct {
 	Level  string `mapstructure:"level"`
@@ -297,6 +331,10 @@ func Load(file string) (*Config, error) {
 	v.SetDefault("gitsync.max_file_bytes", 1*1024*1024)
 	v.SetDefault("gitsync.max_files", 500)
 	v.SetDefault("gitsync.fetch_timeout", "60s")
+	v.SetDefault("tracing.protocol", "grpc")
+	v.SetDefault("tracing.insecure", true)
+	v.SetDefault("tracing.sample_ratio", 0.1)
+	v.SetDefault("tracing.service_name", "shepherd")
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "json")
 	// A zero session TTL makes every session expire the instant it is created
@@ -394,6 +432,13 @@ func Load(file string) (*Config, error) {
 		{"gitsync.fetch_timeout", "SHEPHERD_GITSYNC_FETCH_TIMEOUT"},
 		{"ado.base_url", "SHEPHERD_ADO_BASE_URL"},
 		{"security.encryption_key", "SHEPHERD_SECURITY_ENCRYPTION_KEY"},
+		{"tracing.enabled", "SHEPHERD_TRACING_ENABLED"},
+		{"tracing.endpoint", "SHEPHERD_TRACING_ENDPOINT"},
+		{"tracing.protocol", "SHEPHERD_TRACING_PROTOCOL"},
+		{"tracing.insecure", "SHEPHERD_TRACING_INSECURE"},
+		{"tracing.sample_ratio", "SHEPHERD_TRACING_SAMPLE_RATIO"},
+		{"tracing.service_name", "SHEPHERD_TRACING_SERVICE_NAME"},
+		{"tracing.service_version", "SHEPHERD_TRACING_SERVICE_VERSION"},
 		{"log.level", "SHEPHERD_LOG_LEVEL"},
 		{"log.format", "SHEPHERD_LOG_FORMAT"},
 	} {
