@@ -718,7 +718,18 @@ test-fullstack: docker-build-local docker-build-init ## Playwright fullstack sui
 	docker compose -f dev/docker-compose.dev.yaml down -v
 	@# `--build` only builds services that declare a build: section; shepherd:local
 	@# and shepherd:local-init come from the docker-build-* prerequisites above.
-	docker compose -f dev/docker-compose.dev.yaml up -d --build --wait
+	@#
+	@# Logs are captured when the STACK fails to come up, not only when the specs
+	@# fail below. `compose up --wait` reports "service X didn't complete
+	@# successfully: exit 1" and swallows that container's own output, so a
+	@# start-up failure in CI previously left nothing at all to diagnose from —
+	@# which is exactly the case that happened and cost a debugging round trip.
+	docker compose -f dev/docker-compose.dev.yaml up -d --build --wait \
+		|| { echo "=== stack failed to start; container logs follow ==="; \
+		     docker compose -f dev/docker-compose.dev.yaml ps -a; \
+		     docker compose -f dev/docker-compose.dev.yaml logs --no-color --tail=200; \
+		     docker compose -f dev/docker-compose.dev.yaml down -v; \
+		     exit 1; }
 	@# The cd runs in a SUBSHELL: without it the directory change leaks into the
 	@# teardown below, which then looks for web/dev/docker-compose.dev.yaml, fails,
 	@# and leaves the whole stack running.

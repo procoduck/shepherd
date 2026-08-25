@@ -11,7 +11,12 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
-## Unreleased
+## v0.2.0
+
+Shepherd instruments itself, and several things that looked like they worked did
+not. The minor bump rather than a patch is about the chart: `metrics.enabled`
+defaults on, so an existing `helm upgrade` now renders a Service and a container
+port it did not have before, and operators should know that before they upgrade.
 
 ### Added
 
@@ -92,6 +97,20 @@ Categories used here:
   platform decisions rather than anything about their org. Found by walking the
   running app, not by a test: the tests asserted the row reached `audit_log`,
   which is exactly the assertion that let this ship.
+
+### Upgrading
+
+- **The chart renders two new things.** `metrics.enabled` defaults to `true`, so
+  `helm upgrade` adds a `<release>-metrics` **ClusterIP** Service and a `metrics`
+  container port (`:9090` by default, from `config.server.metrics_listen`). The
+  metrics listener was already running — it simply had nothing in front of it.
+  Neither is externally reachable; set `metrics.enabled: false` to opt out.
+- **Nothing else changes behaviour.** Tracing is off unless you turn it on,
+  the new metrics are observational, and the access-log change only makes
+  failures visible at the default log level.
+- **If you had `metrics.serviceMonitor.enabled: true`, it was scraping a 404**
+  and is now scraping real metrics — expect series to appear where a target had
+  been failing.
 
 ### Documentation
 
