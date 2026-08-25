@@ -146,9 +146,6 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("initializing auth: %w", err)
 	}
-	if cfg.Auth.LocalAdmin.Enabled {
-		logger.Warn("local admin account enabled", "username", cfg.Auth.LocalAdmin.Username, "oidc_also_active", cfg.OIDC.Issuer != "")
-	}
 
 	// Before the router is assembled: the middleware and interceptors capture
 	// the global tracer at request time, but installing the provider first
@@ -158,6 +155,19 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	traceShutdown, traceErr := telemetry.InitTracing(context.Background(), cfg, logger)
 	if traceErr != nil {
 		logger.Error("tracing not enabled", "err", traceErr)
+	}
+
+	// Create the first administrator when the users table is empty, so a fresh
+	// deployment with no identity provider has a way in. Idempotent: it does
+	// nothing once any user exists, so it cannot resurrect a deleted account or
+	// reset an existing password on a later boot.
+	if authHandler.LocalUsersEnabled() {
+		if bootErr := authHandler.Users().BootstrapAdmin(context.Background()); bootErr != nil {
+			// Not fatal. A deployment that authenticates through OIDC does not
+			// need a local admin, and refusing to serve because we could not
+			// seed one would take down a working install.
+			logger.Error("could not create the bootstrap administrator; local sign-in may be unavailable", "err", bootErr)
+		}
 	}
 
 	v := validate.New(&cfg.Validate)
@@ -297,6 +307,12 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 		}
 		r.Use(auth.CSRFMiddleware)
 		if authHandler != nil {
+			// After SessionMiddleware (it needs the session) and before any
+			// API route: a local user owing a password change reaches only the
+			// change endpoint and sign-out until it is done.
+			r.Use(authHandler.RequirePasswordChange)
+		}
+		if authHandler != nil {
 			// Mounted unconditionally. These used to be registered only when
 			// the chart named an issuer, which is no longer a decision that can
 			// be made at startup: an app admin can configure a provider through
@@ -308,9 +324,11 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 			r.Get(auth.CallbackPath, authHandler.CallbackHandler)
 			// Logout always registered when any auth method is active
 			r.Get("/auth/logout", authHandler.LogoutHandler)
-			if cfg.Auth.LocalAdmin.Enabled {
-				r.Post("/api/auth/local/login", authHandler.LocalLoginHandler)
-			}
+			// Always mounted: local sign-in is now a property of the users
+			// table, not a config flag. The handler answers "unavailable" when
+			// there is no store behind it.
+			r.Post("/api/auth/local/login", authHandler.LocalLoginHandler)
+			r.Post(auth.ChangePasswordPath, authHandler.ChangePasswordHandler)
 		}
 		r.Mount("/api", mgmtapi.Router(st, cfg, enc, logger))
 

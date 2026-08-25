@@ -13,13 +13,14 @@ import (
 )
 
 const createSession = `-- name: CreateSession :one
-INSERT INTO sessions (id, user_oid, email, display_name, group_ids, is_app_admin, id_token_expires, expires_at, source)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-RETURNING id, user_oid, email, display_name, group_ids, is_app_admin, id_token_expires, expires_at, created_at, updated_at, source
+INSERT INTO sessions (id, user_id, user_oid, email, display_name, group_ids, is_app_admin, id_token_expires, expires_at, source)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+RETURNING id, user_oid, email, display_name, group_ids, is_app_admin, id_token_expires, expires_at, created_at, updated_at, source, user_id
 `
 
 type CreateSessionParams struct {
 	ID             string             `json:"id"`
+	UserID         pgtype.UUID        `json:"user_id"`
 	UserOid        string             `json:"user_oid"`
 	Email          string             `json:"email"`
 	DisplayName    string             `json:"display_name"`
@@ -30,9 +31,13 @@ type CreateSessionParams struct {
 	Source         string             `json:"source"`
 }
 
+// user_id is set only for local sessions (source = 'local'); an OIDC session
+// has no local users row and leaves it NULL. Authorization branches on it —
+// see internal/auth.authorizeOrgAccess.
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error) {
 	row := q.db.QueryRow(ctx, createSession,
 		arg.ID,
+		arg.UserID,
 		arg.UserOid,
 		arg.Email,
 		arg.DisplayName,
@@ -55,6 +60,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Source,
+		&i.UserID,
 	)
 	return i, err
 }
@@ -81,7 +87,7 @@ func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 }
 
 const getSessionByID = `-- name: GetSessionByID :one
-SELECT id, user_oid, email, display_name, group_ids, is_app_admin, id_token_expires, expires_at, created_at, updated_at, source FROM sessions WHERE id = $1 AND expires_at > now()
+SELECT id, user_oid, email, display_name, group_ids, is_app_admin, id_token_expires, expires_at, created_at, updated_at, source, user_id FROM sessions WHERE id = $1 AND expires_at > now()
 `
 
 func (q *Queries) GetSessionByID(ctx context.Context, id string) (Session, error) {
@@ -99,6 +105,7 @@ func (q *Queries) GetSessionByID(ctx context.Context, id string) (Session, error
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Source,
+		&i.UserID,
 	)
 	return i, err
 }

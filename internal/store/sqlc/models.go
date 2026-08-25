@@ -169,6 +169,14 @@ type Org struct {
 	TenantID      pgtype.Text        `json:"tenant_id"`
 }
 
+type OrgMember struct {
+	OrgID     pgtype.UUID        `json:"org_id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+	Role      string             `json:"role"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Pipeline struct {
 	ID            pgtype.UUID        `json:"id"`
 	OrgID         pgtype.UUID        `json:"org_id"`
@@ -250,6 +258,7 @@ type Session struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 	Source         string             `json:"source"`
+	UserID         pgtype.UUID        `json:"user_id"`
 }
 
 type SimulateRun struct {
@@ -296,4 +305,18 @@ type TenantRoute struct {
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
+}
+
+type User struct {
+	ID                 pgtype.UUID        `json:"id"`
+	Login              string             `json:"login"`
+	Email              string             `json:"email"`
+	DisplayName        string             `json:"display_name"`
+	PasswordHash       string             `json:"password_hash"`
+	IsAppAdmin         bool               `json:"is_app_admin"`
+	MustChangePassword bool               `json:"must_change_password"`
+	Disabled           bool               `json:"disabled"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	LastLoginAt        pgtype.Timestamptz `json:"last_login_at"`
 }

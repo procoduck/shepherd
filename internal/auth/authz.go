@@ -85,6 +85,26 @@ func authorizeOrgAccess(ctx context.Context, st *store.Store, sess *Session, org
 		return ErrOrgNotFound
 	}
 
+	// A LOCAL session resolves its role from org_members and stops here.
+	//
+	// It deliberately does not fall through to the group checks below: a local
+	// user has no IdP groups, so those would all be false anyway, and more
+	// importantly the two mechanisms must not be able to combine. One session
+	// has one source, and "why does this person have access" therefore has one
+	// answer rather than two places to look.
+	if sess.Source == SourceLocal && sess.UserID.Valid {
+		role, roleErr := st.Queries.GetOrgMemberRole(ctx, sqlc.GetOrgMemberRoleParams{OrgID: orgID, UserID: sess.UserID})
+		if roleErr != nil {
+			// No membership row, or the lookup failed. Either way this user has
+			// no role in this org.
+			return ErrForbidden
+		}
+		if requireAdmin && role != OrgRoleAdmin {
+			return ErrForbidden
+		}
+		return nil
+	}
+
 	isOrgAdmin := slices.Contains(sess.GroupIDs, org.AdminGroupID)
 	isOrgReader := org.ReaderGroupID.Valid && slices.Contains(sess.GroupIDs, org.ReaderGroupID.String)
 
