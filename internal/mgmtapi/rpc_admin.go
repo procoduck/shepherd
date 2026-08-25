@@ -217,6 +217,13 @@ func (s *AdminService) UpdateOrg(ctx context.Context, req *connect.Request[mgmtv
 	if err != nil {
 		return nil, err
 	}
+	// CreateOrg refuses an empty admin group; UpdateOrg did not, so an org
+	// could be edited into admin_group_id "". That matters because the admin
+	// check is a plain slices.Contains against the session's group ids, and a
+	// group id of "" would then match any session carrying one.
+	if strings.TrimSpace(msg.GetAdminGroupId()) == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("admin_group_id required"))
+	}
 	o, err := s.store.Queries.UpdateOrg(ctx, sqlc.UpdateOrgParams{
 		ID:            id,
 		DisplayName:   msg.GetDisplayName(),

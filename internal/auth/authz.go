@@ -115,9 +115,16 @@ func authorizeOrgAccess(ctx context.Context, st *store.Store, sess *Session, org
 		return nil
 	}
 
-	isOrgAdmin := slices.Contains(sess.GroupIDs, org.AdminGroupID)
-	isOrgEditor := org.EditorGroupID.Valid && slices.Contains(sess.GroupIDs, org.EditorGroupID.String)
-	isOrgReader := org.ReaderGroupID.Valid && slices.Contains(sess.GroupIDs, org.ReaderGroupID.String)
+	// hasGroup treats an empty candidate as "no group configured" rather than
+	// as a value to match. An org whose admin_group_id is "" would otherwise be
+	// administrable by any session carrying an empty string in its groups
+	// claim, and the Microsoft Graph path does not filter those out.
+	hasGroup := func(candidate string) bool {
+		return candidate != "" && slices.Contains(sess.GroupIDs, candidate)
+	}
+	isOrgAdmin := hasGroup(org.AdminGroupID)
+	isOrgEditor := org.EditorGroupID.Valid && hasGroup(org.EditorGroupID.String)
+	isOrgReader := org.ReaderGroupID.Valid && hasGroup(org.ReaderGroupID.String)
 
 	switch {
 	case isOrgAdmin:
@@ -135,7 +142,11 @@ func authorizeOrgAccess(ctx context.Context, st *store.Store, sess *Session, org
 	}
 
 	if !isOrgReader {
-		collectorIDs, err := st.Queries.ListCollectorIDsByGroupMembership(ctx, sess.GroupIDs)
+		// Scoped to THIS org. An unscoped version of this query granted the
+		// reader floor in every org to anyone holding one assignment in any
+		// org -- see the query's own comment.
+		collectorIDs, err := st.Queries.ListCollectorIDsByGroupMembershipInOrg(ctx,
+			sqlc.ListCollectorIDsByGroupMembershipInOrgParams{Column1: sess.GroupIDs, OrgID: org.ID})
 		if err == nil && len(collectorIDs) > 0 {
 			return nil
 		}

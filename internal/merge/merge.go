@@ -108,6 +108,9 @@ func Assemble(collectorID, collectorDisplayName string, cl CollectorLabels, pipe
 
 	// Select pipelines.
 	var selected []Pipeline
+	// Pipelines whose matchers could not be parsed. Reported like role
+	// exclusions rather than aborting the assembly -- see below.
+	var unmatchable []Exclusion
 	for _, p := range pipelines {
 		if p.Source == "git" {
 			if p.RepoLinkCollectorID == cl.CollectorID {
@@ -117,7 +120,19 @@ func Assemble(collectorID, collectorDisplayName string, cl CollectorLabels, pipe
 		}
 		matched, err := MatchesPipeline(p, cl)
 		if err != nil {
-			return AssembleResult{}, fmt.Errorf("matching pipeline %q: %w", p.Name, err)
+			// One unparsable matcher used to abort the whole assembly, which
+			// meant a single bad pipeline froze config serving for every
+			// collector in the org -- and, for a collector with no cache row
+			// yet, produced an EMPTY served config that wiped what it was
+			// already running. Exclude just the offender and say so in the
+			// header, the same way role enforcement reports its exclusions.
+			// Matchers are also parsed at save now, so reaching this means the
+			// row predates that check or was written outside the API.
+			unmatchable = append(unmatchable, Exclusion{
+				PipelineName: p.Name,
+				Reason:       fmt.Sprintf("unparsable matcher, excluded: %v", err),
+			})
+			continue
 		}
 		if matched {
 			selected = append(selected, p)
@@ -136,7 +151,7 @@ func Assemble(collectorID, collectorDisplayName string, cl CollectorLabels, pipe
 			"merge: role enforcement was requested but the schema registry is nil — " +
 				"refusing to serve unenforced config that would look enforced")
 	}
-	var exclusions []Exclusion
+	exclusions := unmatchable
 	if cfg.registry != nil {
 		selected, exclusions = enforceRoles(selected, cl, cfg.registry)
 	}

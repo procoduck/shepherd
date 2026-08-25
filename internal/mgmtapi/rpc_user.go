@@ -143,6 +143,30 @@ func (s *UserService) CreateUser(ctx context.Context, req *connect.Request[mgmtv
 	return connect.NewResponse(toUserProto(u, nil)), nil
 }
 
+// revokeSessions ends every session a local user currently holds.
+//
+// A session row is a snapshot: is_app_admin is copied in at login and read from
+// there on every request, and `disabled` is only ever checked at login. So
+// demoting or disabling an account changes nothing about the sessions it
+// already has -- the account keeps app-admin, and keeps working, until the
+// cookie expires (8h by default). guardLastAdmin exists to control exactly this
+// removal; without revocation the removal it permits is not enforced.
+//
+// Best-effort by design: the state change has already been committed and is the
+// thing that matters. A failure here is logged and leaves a session that expires
+// on its own, which is strictly better than failing the whole request and
+// leaving the caller unsure whether the demotion applied.
+func (s *UserService) revokeSessions(ctx context.Context, id pgtype.UUID, reason string) {
+	n, err := s.store.Queries.DeleteSessionsForUser(ctx, id)
+	if err != nil {
+		s.logger.Error("revoking sessions", "user_id", id.String(), "reason", reason, "err", err)
+		return
+	}
+	if n > 0 {
+		s.logger.Info("revoked sessions", "user_id", id.String(), "reason", reason, "count", n)
+	}
+}
+
 // UpdateUser changes profile fields and flags. Passwords go through
 // ResetUserPassword so a hash is never carried alongside a general update.
 func (s *UserService) UpdateUser(ctx context.Context, req *connect.Request[mgmtv1.UpdateUserRequest]) (*connect.Response[mgmtv1.User], error) {
@@ -172,6 +196,12 @@ func (s *UserService) UpdateUser(ctx context.Context, req *connect.Request[mgmtv
 		}
 		s.logger.Error("updating user", "err", err)
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to update user"))
+	}
+	// Losing app-admin or being disabled must take effect now, not whenever
+	// the cookie happens to expire. A role change alone does not need this:
+	// org roles are re-read from org_members on every request.
+	if u.Disabled || !u.IsAppAdmin {
+		s.revokeSessions(ctx, u.ID, "privileges reduced")
 	}
 	auditLogDetail(ctx, s.store, auth.ActorFromCtx(ctx), "user", pgtype.UUID{}, "user.update", "user", u.ID.String(),
 		map[string]any{"login": u.Login, "is_app_admin": u.IsAppAdmin, "disabled": u.Disabled})
@@ -261,6 +291,9 @@ func (s *UserService) ResetUserPassword(ctx context.Context, req *connect.Reques
 		s.logger.Error("resetting password", "err", err)
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to reset password"))
 	}
+	// A reset exists to take an account back from whoever had it. Leaving the
+	// old sessions alive would defeat that entirely.
+	s.revokeSessions(ctx, id, "password reset")
 	auditLogDetail(ctx, s.store, auth.ActorFromCtx(ctx), "user", pgtype.UUID{}, "user.password_reset", "user", id.String(), nil)
 	return connect.NewResponse(&mgmtv1.ResetUserPasswordResponse{}), nil
 }

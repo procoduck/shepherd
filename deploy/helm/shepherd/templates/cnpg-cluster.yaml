@@ -1,4 +1,25 @@
-{{- if .Values.cnpg.enabled }}
+{{- if ((.Values.cnpg).enabled) }}
+{{- /*
+  Render ONLY when the Cluster does not already exist.
+
+  This is what stops `helm upgrade` from destroying the database. The Cluster is
+  a pre-install/pre-upgrade hook, and Helm's default hook-delete-policy --
+  applied precisely when the annotation is omitted -- is before-hook-creation:
+  it deletes the previous hook resource before creating the new one. CNPG
+  cascades that deletion to the PVCs, initdb bootstraps an empty database, the
+  migration hook migrates the empty database, and the upgrade reports success.
+
+  A hook that is not in the manifest is not processed at all, so skipping the
+  render leaves the live Cluster untouched. lookup returns empty under
+  `helm template` and `--dry-run=client`, so rendering and the chart tests are
+  unaffected -- only a real upgrade against a real cluster takes this branch.
+
+  The trade: once the Cluster exists, changes to cnpg.* values no longer reach
+  it. That is deliberate. Editing a live database's spec is the operator's job
+  (`kubectl edit cluster`), not a side effect of an application upgrade.
+*/}}
+{{- $existingCluster := lookup "postgresql.cnpg.io/v1" "Cluster" .Release.Namespace (include "shepherd.cnpgClusterName" .) }}
+{{- if not $existingCluster }}
 {{- /*
   No CRD precondition here on purpose. .Capabilities.APIVersions is empty under
   `helm template`, so a guard would break rendering the chart offline -- and the
@@ -34,4 +55,5 @@ spec:
   {{- with .Values.cnpg.extraSpec }}
   {{- toYaml . | nindent 2 }}
   {{- end }}
+{{- end }}
 {{- end }}

@@ -187,10 +187,14 @@ config:
 # cluster already; the chart does not install operators.
 #
 # The Cluster renders as a pre-install/pre-upgrade hook so it exists before the
-# migration Job runs. Two consequences worth knowing:
+# migration Job runs. Three consequences worth knowing:
 #   - `helm uninstall` does NOT delete it. Hook resources are not tracked in
 #     the release, which for the thing holding all your data is the right way
 #     round. Remove it deliberately with `kubectl delete cluster <name>`.
+#   - Once it exists, changes to cnpg.* no longer reach it: the chart skips
+#     rendering a Cluster that is already there, because a hook Helm re-renders
+#     is a hook Helm first DELETES. Edit a live cluster with `kubectl edit
+#     cluster <name>`, which is the operator's own interface for it.
 #   - On a first install the migration Job may fail a few times while Postgres
 #     is still coming up. That is expected and it retries — see
 #     migrations.job.backoffLimit.
@@ -198,8 +202,8 @@ cnpg:
   enabled: false
   # Cluster name. Empty means "<release>-db".
   name: ""
-  # Three gives you a primary and two standbys; CNPG needs at least two for
-  # automated failover.
+  # Two gives you a primary and one standby, which is the minimum CloudNativePG
+  # needs for automated failover. Raise it for more read capacity or headroom.
   instances: 2
   storage:
     size: 10Gi
@@ -233,6 +237,12 @@ cnpg:
 # and OIDC client secret already stored in the database undecryptable, with no
 # error at the moment it happens. deletionPolicy is Retain for the same reason
 # — uninstalling the release must not take the key with it.
+#
+# Both only hold while the ExternalSecret itself survives, so the chart also
+# skips rendering it once it exists. Changing externalSecrets.* after the first
+# install therefore has no effect; delete the ExternalSecret deliberately if you
+# genuinely want it regenerated, understanding that a new key orphans every
+# credential the old one encrypted.
 externalSecrets:
   enabled: false
   # API versions, exposed because ESO has moved them before. These defaults
@@ -243,7 +253,9 @@ externalSecrets:
   refreshInterval: "0"
   encryptionKey:
     # 32 characters, base64-encoded by the ExternalSecret template into the
-    # 32 bytes Shepherd requires.
+    # 32 bytes Shepherd requires. DO NOT CHANGE: Shepherd rejects any other
+    # length outright, so a different value here produces an instance that
+    # cannot start. Exposed only because the generator requires the field.
     length: 32
   bootstrapAdmin:
     # Generate the first administrator's password too. Turn this off if you

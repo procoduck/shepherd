@@ -93,10 +93,14 @@ Each surfaces minutes later as "Job in progress" after the helm --wait timeout.
 `helm template` cannot catch any of them: hook ordering only exists at install
 time. Found by installing the chart into a real cluster (e2e/k8s).
 
-Weight -10 orders these ahead of the Job at -5. hook-delete-policy is
-deliberately NOT set: these resources must SURVIVE the hook phase, because the
-Deployment references them too — a before-hook-creation policy would delete them
-out from under a running release on upgrade.
+Weight -10 orders these ahead of the Job at -5.
+
+On hook-delete-policy: NOT setting it does not mean "never deleted". Helm's
+documented default is before-hook-creation, so each of these IS deleted and
+recreated on every install and upgrade. For a ConfigMap/Secret/ServiceAccount
+that is survivable — they are recreated immediately with the same content, and
+it is what lets a re-install over leftovers succeed. It is NOT survivable for a
+resource that owns data; see shepherd.bootstrapHookDeps.
 */}}
 {{- define "shepherd.migrateHookDeps" -}}
 {{- if .Values.migrations.job.enabled }}
@@ -133,11 +137,22 @@ Hook annotations for the resources the migration Job depends on EXISTING before
 it runs: the CNPG Cluster and the ExternalSecret. Weight -20 puts them ahead of
 the ConfigMap/Secret at -10 and the Job itself at -5.
 
-No hook-delete-policy, deliberately, and it means more here than it does for
-the ConfigMap: these resources hold state. A CNPG Cluster deleted between
-releases takes the database with it, and an ExternalSecret deleted with
-creationPolicy Owner takes the encryption key. Untracked-and-surviving is the
-right failure mode for both.
+These resources own state, so they must never be recreated: deleting a CNPG
+Cluster takes the database with it, and recreating an ExternalSecret makes it
+sync once more against fresh Password generators, replacing an encryption key
+that cannot be rotated.
+
+Omitting hook-delete-policy does NOT achieve that. Helm's default is
+before-hook-creation, so an omitted policy deletes the previous resource on
+every upgrade -- the exact opposite of what an earlier version of this comment
+claimed. Nor can a policy express "never": the three values are
+before-hook-creation, hook-succeeded and hook-failed, and specifying only the
+latter two leaves the create to collide with the existing object.
+
+The protection is therefore not an annotation at all. The templates that use
+this helper render ONLY when the resource does not already exist (see the
+lookup guard in cnpg-cluster.yaml and externalsecret.yaml); a hook absent from
+the manifest is never processed, so the live one is left alone.
 */}}
 {{- define "shepherd.bootstrapHookDeps" -}}
 "helm.sh/hook": pre-install,pre-upgrade

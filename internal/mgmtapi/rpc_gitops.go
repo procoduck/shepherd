@@ -231,7 +231,20 @@ func (s *GitOpsService) DeleteCredential(ctx context.Context, req *connect.Reque
 	if err != nil {
 		return nil, err
 	}
-	_ = s.store.Queries.DeleteGitCredential(ctx, id) //nolint:errcheck // empty list is safe fallback
+	// Ownership recheck, exactly as TestCredential below already does. Without
+	// it this deletes by id alone: the interceptor proves a role in the org the
+	// caller NAMED, never that the id belongs to it, so an org admin could
+	// destroy another tenant's GitOps wiring.
+	cred, err := s.store.Queries.GetGitCredentialByID(ctx, id)
+	if err != nil || cred.OrgID.String() != req.Msg.GetOrgId() {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("credential not found"))
+	}
+	// The error was previously discarded, so a delete that removed nothing
+	// still reported success.
+	if err := s.store.Queries.DeleteGitCredential(ctx, id); err != nil {
+		s.logger.Error("delete git credential", "err", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to delete credential"))
+	}
 	return connect.NewResponse(&mgmtv1.DeleteCredentialResponse{}), nil
 }
 
@@ -453,6 +466,18 @@ func (s *GitOpsService) CreateRepoLink(ctx context.Context, req *connect.Request
 	if err != nil {
 		return nil, err
 	}
+	// Both references must belong to the same org as the link. The foreign keys
+	// enforce existence, not ownership, so without this a link in org A can name
+	// org B's credential -- and the gitsync reconciler would then decrypt and
+	// use B's credential to drive A's sync.
+	collOrg, err := s.store.Queries.GetCollectorOrgID(ctx, collID)
+	if err != nil || !collOrg.Valid || collOrg != orgID {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("collector not found"))
+	}
+	cred, err := s.store.Queries.GetGitCredentialByID(ctx, credID)
+	if err != nil || cred.OrgID != orgID {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("credential not found"))
+	}
 	branch := msg.GetBranch()
 	if branch == "" {
 		branch = "main"
@@ -487,7 +512,14 @@ func (s *GitOpsService) DeleteRepoLink(ctx context.Context, req *connect.Request
 	if err != nil {
 		return nil, err
 	}
-	_ = s.store.Queries.DeleteRepoLink(ctx, id) //nolint:errcheck // empty list is safe fallback
+	link, err := s.store.Queries.GetRepoLinkByID(ctx, id)
+	if err != nil || link.OrgID.String() != req.Msg.GetOrgId() {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("repo link not found"))
+	}
+	if err := s.store.Queries.DeleteRepoLink(ctx, id); err != nil {
+		s.logger.Error("delete repo link", "err", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to delete repo link"))
+	}
 	return connect.NewResponse(&mgmtv1.DeleteRepoLinkResponse{}), nil
 }
 

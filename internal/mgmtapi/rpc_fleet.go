@@ -109,7 +109,7 @@ func (s *FleetService) ListCollectors(ctx context.Context, req *connect.Request[
 
 // GetCollector returns one collector, including its live instances.
 func (s *FleetService) GetCollector(ctx context.Context, req *connect.Request[mgmtv1.GetCollectorRequest]) (*connect.Response[mgmtv1.Collector], error) {
-	resp, _, err := s.getCollector(ctx, req.Msg.GetId())
+	resp, _, err := s.getCollector(ctx, req.Msg.GetOrgId(), req.Msg.GetId())
 	if err != nil {
 		return nil, err
 	}
@@ -132,14 +132,42 @@ type collectorLocalAttrsRaw struct {
 	instances []json.RawMessage // parallel to Collector.Instances; element nil if that instance's attrs failed to decode
 }
 
+// loadOwnedCollector resolves a collector id and enforces that it belongs to
+// orgIDStr, mirroring loadOwnedDestination/loadPipeline.
+//
+// Neither the Connect interceptor nor the REST middleware can do this for us:
+// both authorize against the org NAMED IN THE REQUEST, which proves the caller
+// has a role in that org and nothing about the id they passed alongside it. A
+// by-id handler without this check is a cross-tenant read (or write) for any
+// authenticated member of any org, because a UUID is not an authorization
+// boundary.
+//
+// NotFound rather than PermissionDenied, deliberately: telling a caller that
+// an id they cannot see nevertheless exists is itself a disclosure.
+func (s *FleetService) loadOwnedCollector(ctx context.Context, orgIDStr, idStr string) (pgtype.UUID, error) {
+	id, ok := parseUUID(idStr)
+	if !ok {
+		return pgtype.UUID{}, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid collector id"))
+	}
+	orgID, ok := parseUUID(orgIDStr)
+	if !ok {
+		return pgtype.UUID{}, connect.NewError(connect.CodeInvalidArgument, errOrgIDInvalid)
+	}
+	owner, err := s.store.Queries.GetCollectorOrgID(ctx, id)
+	if err != nil || !owner.Valid || owner != orgID {
+		return pgtype.UUID{}, connect.NewError(connect.CodeNotFound, errors.New("collector not found"))
+	}
+	return id, nil
+}
+
 // getCollector is GetCollector's implementation, additionally returning the
 // untouched local_attributes bytes the REST shim needs for byte-compatible
 // rendering (collectorLocalAttrsRaw) — kept out of the exported Connect
 // method so the wire contract (a bare *mgmtv1.Collector) is unaffected.
-func (s *FleetService) getCollector(ctx context.Context, idStr string) (*mgmtv1.Collector, collectorLocalAttrsRaw, error) {
-	id, ok := parseUUID(idStr)
-	if !ok {
-		return nil, collectorLocalAttrsRaw{}, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid collector id"))
+func (s *FleetService) getCollector(ctx context.Context, orgIDStr, idStr string) (*mgmtv1.Collector, collectorLocalAttrsRaw, error) {
+	id, err := s.loadOwnedCollector(ctx, orgIDStr, idStr)
+	if err != nil {
+		return nil, collectorLocalAttrsRaw{}, err
 	}
 	c, err := s.store.Queries.GetCollectorByID(ctx, id)
 	if err != nil {
@@ -197,9 +225,9 @@ func (s *FleetService) getCollector(ctx context.Context, idStr string) (*mgmtv1.
 // an all-empty response, matching OrgsHandler.ServedConfig's existing
 // behavior of never surfacing the cache-miss as a 404.
 func (s *FleetService) GetServedConfig(ctx context.Context, req *connect.Request[mgmtv1.GetServedConfigRequest]) (*connect.Response[mgmtv1.GetServedConfigResponse], error) {
-	id, ok := parseUUID(req.Msg.GetId())
-	if !ok {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid collector id"))
+	id, err := s.loadOwnedCollector(ctx, req.Msg.GetOrgId(), req.Msg.GetId())
+	if err != nil {
+		return nil, err
 	}
 	cache, err := s.store.Queries.GetServeCache(ctx, id)
 	if err != nil {
@@ -216,9 +244,9 @@ func (s *FleetService) GetServedConfig(ctx context.Context, req *connect.Request
 // collector, newest-display-name first (mirrors
 // ListGroupAssignmentsByCollector's ORDER BY group_display_name).
 func (s *FleetService) ListAssignments(ctx context.Context, req *connect.Request[mgmtv1.ListAssignmentsRequest]) (*connect.Response[mgmtv1.ListAssignmentsResponse], error) {
-	id, ok := parseUUID(req.Msg.GetCollectorId())
-	if !ok {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid collector id"))
+	id, err := s.loadOwnedCollector(ctx, req.Msg.GetOrgId(), req.Msg.GetCollectorId())
+	if err != nil {
+		return nil, err
 	}
 	rows, err := s.store.Queries.ListGroupAssignmentsByCollector(ctx, id)
 	if err != nil {
@@ -242,9 +270,9 @@ func (s *FleetService) CreateAssignment(ctx context.Context, req *connect.Reques
 	if err := requireWriteAuthorized(ctx); err != nil {
 		return nil, err
 	}
-	id, ok := parseUUID(req.Msg.GetCollectorId())
-	if !ok {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid collector id"))
+	id, err := s.loadOwnedCollector(ctx, req.Msg.GetOrgId(), req.Msg.GetCollectorId())
+	if err != nil {
+		return nil, err
 	}
 	a, err := s.store.Queries.CreateGroupAssignment(ctx, sqlc.CreateGroupAssignmentParams{
 		CollectorID:      id,
@@ -262,9 +290,9 @@ func (s *FleetService) DeleteAssignment(ctx context.Context, req *connect.Reques
 	if err := requireWriteAuthorized(ctx); err != nil {
 		return nil, err
 	}
-	collID, ok := parseUUID(req.Msg.GetCollectorId())
-	if !ok {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid collector id"))
+	collID, err := s.loadOwnedCollector(ctx, req.Msg.GetOrgId(), req.Msg.GetCollectorId())
+	if err != nil {
+		return nil, err
 	}
 	if err := s.store.Queries.DeleteGroupAssignment(ctx, sqlc.DeleteGroupAssignmentParams{
 		CollectorID: collID,

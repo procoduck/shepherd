@@ -86,6 +86,26 @@ func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 	return err
 }
 
+const deleteSessionsForUser = `-- name: DeleteSessionsForUser :execrows
+DELETE FROM sessions WHERE user_id = $1
+`
+
+// Revocation for a local user: end every session they currently hold.
+//
+// Needed because a session row is a SNAPSHOT. is_app_admin is copied into it at
+// login and read from there on every request, and `disabled` is checked only at
+// login -- so demoting or disabling an account changes nothing about the
+// sessions it already has, and the account keeps whatever it held until the
+// cookie expires (session_ttl, 8h by default). Org roles are the exception:
+// those are re-read per request from org_members.
+func (q *Queries) DeleteSessionsForUser(ctx context.Context, userID pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteSessionsForUser, userID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getSessionByID = `-- name: GetSessionByID :one
 SELECT id, user_oid, email, display_name, group_ids, is_app_admin, id_token_expires, expires_at, created_at, updated_at, source, user_id FROM sessions WHERE id = $1 AND expires_at > now()
 `

@@ -99,7 +99,7 @@ func (h *OrgsHandler) ListCollectors(w http.ResponseWriter, r *http.Request) {
 // local_attributes bytes it needs for byte-compatible rendering; see
 // collectorLocalAttrsRaw and writeCollectorJSON).
 func (h *OrgsHandler) GetCollector(w http.ResponseWriter, r *http.Request) {
-	msg, raw, err := h.fleet.getCollector(r.Context(), chi.URLParam(r, "id"))
+	msg, raw, err := h.fleet.getCollector(r.Context(), chi.URLParam(r, "org"), chi.URLParam(r, "id"))
 	if err != nil {
 		WriteConnectError(w, err)
 		return

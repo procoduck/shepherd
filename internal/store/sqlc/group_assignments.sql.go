@@ -52,14 +52,30 @@ func (q *Queries) DeleteGroupAssignment(ctx context.Context, arg DeleteGroupAssi
 	return err
 }
 
-const listCollectorIDsByGroupMembership = `-- name: ListCollectorIDsByGroupMembership :many
-SELECT DISTINCT collector_id
-FROM group_assignments
-WHERE group_id = ANY($1::text[])
+const listCollectorIDsByGroupMembershipInOrg = `-- name: ListCollectorIDsByGroupMembershipInOrg :many
+SELECT DISTINCT ga.collector_id
+FROM group_assignments ga
+JOIN collectors c ON c.id = ga.collector_id
+JOIN clusters cl ON cl.id = c.cluster_id
+WHERE ga.group_id = ANY($1::text[])
+  AND cl.org_id = $2
 `
 
-func (q *Queries) ListCollectorIDsByGroupMembership(ctx context.Context, dollar_1 []string) ([]pgtype.UUID, error) {
-	rows, err := q.db.Query(ctx, listCollectorIDsByGroupMembership, dollar_1)
+type ListCollectorIDsByGroupMembershipInOrgParams struct {
+	Column1 []string    `json:"column_1"`
+	OrgID   pgtype.UUID `json:"org_id"`
+}
+
+// Used by internal/auth.authorizeOrgAccess's collector-assignment fallback.
+//
+// The org filter is load-bearing, not decoration. Without it this asks "does
+// this session hold an assignment on ANY collector anywhere", and a viewer with
+// one assignment in one org clears the reader floor for EVERY org -- silently,
+// because GetMe computes its org list from group matches and never shows the
+// extra orgs. The sibling ListTeamsByOrgAndGroups has always been org-scoped;
+// this one was not.
+func (q *Queries) ListCollectorIDsByGroupMembershipInOrg(ctx context.Context, arg ListCollectorIDsByGroupMembershipInOrgParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, listCollectorIDsByGroupMembershipInOrg, arg.Column1, arg.OrgID)
 	if err != nil {
 		return nil, err
 	}

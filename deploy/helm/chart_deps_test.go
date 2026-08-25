@@ -105,8 +105,19 @@ var _ = Describe("Helm chart: optional dependencies", func() {
 			Expect(ann["helm.sh/hook"]).To(Equal("pre-install,pre-upgrade"))
 			// -20 is ahead of the config/secret at -10 and the Job at -5.
 			Expect(ann["helm.sh/hook-weight"]).To(Equal("-20"))
-			// A delete policy here would drop the database between releases.
-			Expect(ann).NotTo(HaveKey("helm.sh/hook-delete-policy"))
+
+			// This assertion used to read "a delete policy here would drop the
+			// database between releases" and check the annotation was ABSENT.
+			// That had it backwards: Helm applies before-hook-creation exactly
+			// when the annotation is omitted, so the absence WAS the data loss.
+			// What protects the database is the lookup guard in the template --
+			// an existing Cluster is never re-rendered, so Helm never deletes
+			// it. Assert the guard is present, because a rendered-output test
+			// cannot observe a branch that only a live cluster takes.
+			body, err := os.ReadFile("shepherd/templates/cnpg-cluster.yaml")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(body)).To(ContainSubstring(`lookup "postgresql.cnpg.io/v1" "Cluster"`),
+				"the existence guard is gone; an upgrade would delete and recreate the database")
 		})
 
 		It("lets the user keep their own database", func() {
@@ -163,6 +174,15 @@ var _ = Describe("Helm chart: optional dependencies", func() {
 			target, ok := spec["target"].(map[string]any)
 			Expect(ok).To(BeTrue())
 			Expect(target["deletionPolicy"]).To(Equal("Retain"))
+
+			// Both fields above only hold while THIS object survives. They are
+			// worth nothing if Helm deletes and recreates it on upgrade, which
+			// the default hook policy does -- so the guard matters as much as
+			// the fields.
+			body, err := os.ReadFile("shepherd/templates/externalsecret.yaml")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(body)).To(ContainSubstring(`lookup .Values.externalSecrets.apiVersion "ExternalSecret"`),
+				"the existence guard is gone; an upgrade would regenerate the unrotatable encryption key")
 		})
 
 		It("refuses to render alongside a hand-written secret rather than fighting over it", func() {

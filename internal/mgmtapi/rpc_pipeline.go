@@ -11,6 +11,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/prometheus/alertmanager/pkg/labels"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/structpb"
 
@@ -387,6 +388,17 @@ func (s *PipelineService) validateSaveInput(ctx context.Context, in pipelineSave
 		}
 	}
 
+	// Parse every matcher before storing it. json.Marshal of a []string can
+	// never fail, so errMatchersInvalid was unreachable and an unparsable
+	// matcher was accepted with a 200 -- surfacing only later, at merge time,
+	// where it used to abort assembly for the whole org.
+	for _, m := range in.Matchers {
+		if _, perr := labels.ParseMatcher(m); perr != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument,
+				fmt.Errorf("matcher %q is not valid: %w", m, perr))
+		}
+	}
+
 	matchersJSON, err := json.Marshal(in.Matchers)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errMatchersInvalid)
@@ -498,6 +510,22 @@ func (s *PipelineService) UpdatePipeline(ctx context.Context, req *connect.Reque
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	// Stage 3 on an edit to an ALREADY-ENABLED pipeline. It used to run only at
+	// the enable transition, so the promise that a pipeline which is
+	// individually valid but conflicts with another enabled one is refused held
+	// only for enabling -- not for the far more common edit-while-enabled. A
+	// conflicting edit was accepted with 200 and surfaced later as a merge
+	// failure that fails soft, leaving the fleet on stale config.
+	if p.Enabled {
+		candidate := p
+		candidate.Name = msg.GetName()
+		candidate.Contents = msg.GetContents()
+		candidate.Matchers = matchersJSON
+		if err := s.stage3Check(ctx, candidate, looseUUID(msg.GetOrgId()), true); err != nil {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		}
 	}
 
 	actor := actorFromCtx(ctx)
@@ -826,7 +854,13 @@ func (s *PipelineService) stage3Check(ctx context.Context, p sqlc.Pipeline, orgI
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	enabledPipelines, err := s.store.Queries.ListEnabledPipelinesByOrg(ctx, orgID)
+	// ForMerge, not ByOrg: only the former joins repo_links to carry
+	// repo_link_collector_id, and merge.MatchesPipeline matches a git pipeline
+	// SOLELY by that field. Loading them without it makes every git pipeline
+	// match nothing -- which in stage 3 validates a merged config the collector
+	// will never actually be served, and in recompute writes a serve cache with
+	// the org's GitOps pipelines silently removed.
+	enabledPipelines, err := s.store.Queries.ListEnabledPipelinesForMerge(ctx, orgID)
 	if err != nil {
 		return fmt.Errorf("loading pipelines: %w", err)
 	}
@@ -839,11 +873,12 @@ func (s *PipelineService) stage3Check(ctx context.Context, p sqlc.Pipeline, orgI
 			continue
 		}
 		mergePipelines = append(mergePipelines, merge.Pipeline{
-			ID:       ep.ID.String(),
-			Name:     ep.Name,
-			Contents: ep.Contents,
-			Matchers: m,
-			Source:   ep.Source,
+			ID:                  ep.ID.String(),
+			Name:                ep.Name,
+			Contents:            ep.Contents,
+			Matchers:            m,
+			Source:              ep.Source,
+			RepoLinkCollectorID: repoLinkCollectorID(ep.RepoLinkCollectorID),
 		})
 	}
 	pID := p.ID.String()
@@ -1012,7 +1047,13 @@ func (s *PipelineService) recomputeOrgCaches(ctx context.Context, orgID pgtype.U
 		s.logger.Warn("recomputeOrgCaches: listing collectors failed", "err", err)
 		return
 	}
-	enabledPipelines, err := s.store.Queries.ListEnabledPipelinesByOrg(ctx, orgID)
+	// ForMerge, not ByOrg: only the former joins repo_links to carry
+	// repo_link_collector_id, and merge.MatchesPipeline matches a git pipeline
+	// SOLELY by that field. Loading them without it makes every git pipeline
+	// match nothing -- which in stage 3 validates a merged config the collector
+	// will never actually be served, and in recompute writes a serve cache with
+	// the org's GitOps pipelines silently removed.
+	enabledPipelines, err := s.store.Queries.ListEnabledPipelinesForMerge(ctx, orgID)
 	if err != nil {
 		s.logger.Warn("recomputeOrgCaches: listing pipelines failed", "err", err)
 		return
@@ -1027,6 +1068,7 @@ func (s *PipelineService) recomputeOrgCaches(ctx context.Context, orgID pgtype.U
 		mergePipelines = append(mergePipelines, merge.Pipeline{
 			ID: ep.ID.String(), Name: ep.Name, Contents: ep.Contents,
 			Matchers: m, Source: ep.Source,
+			RepoLinkCollectorID: repoLinkCollectorID(ep.RepoLinkCollectorID),
 		})
 	}
 	for i := range collectors {
@@ -1078,4 +1120,15 @@ func (s *PipelineService) recomputeOrgCaches(ctx context.Context, orgID pgtype.U
 			s.logger.Warn("recomputeOrgCaches: upsert failed", "collector_id", c.ID.String(), "err", upsertErr)
 		}
 	}
+}
+
+// repoLinkCollectorID renders the nullable join column merge.Pipeline expects.
+// Empty means "matches no collector", which is the correct reading for a
+// non-git pipeline and the fail-safe one for a git pipeline whose repo link has
+// gone away.
+func repoLinkCollectorID(v pgtype.UUID) string {
+	if !v.Valid {
+		return ""
+	}
+	return v.String()
 }

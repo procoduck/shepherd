@@ -14,3 +14,14 @@ DELETE FROM sessions WHERE id = $1;
 
 -- name: DeleteExpiredSessions :execrows
 DELETE FROM sessions WHERE expires_at < now();
+
+-- name: DeleteSessionsForUser :execrows
+-- Revocation for a local user: end every session they currently hold.
+--
+-- Needed because a session row is a SNAPSHOT. is_app_admin is copied into it at
+-- login and read from there on every request, and `disabled` is checked only at
+-- login -- so demoting or disabling an account changes nothing about the
+-- sessions it already has, and the account keeps whatever it held until the
+-- cookie expires (session_ttl, 8h by default). Org roles are the exception:
+-- those are re-read per request from org_members.
+DELETE FROM sessions WHERE user_id = $1;

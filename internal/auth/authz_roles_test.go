@@ -259,4 +259,38 @@ var _ = Describe("Org role ladder", Label("integration"), func() {
 				To(MatchError(auth.ErrForbidden))
 		})
 	})
+
+	// A collector-level group assignment is a reader-equivalent grant, but only
+	// inside the org that owns the collector. The query behind this fallback
+	// once filtered on group id alone, so one assignment anywhere cleared the
+	// reader floor everywhere -- and invisibly, because GetMe builds its org
+	// list from group matches and never showed the extra orgs.
+	It("a collector assignment grants read in its own org and nowhere else", func() {
+		var oid pgtype.UUID
+		Expect(oid.Scan(orgID)).To(Succeed())
+
+		cluster, err := st.Queries.UpsertCluster(ctx, "assigned-cluster")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: oid})).To(Succeed())
+		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{
+			ClusterID: cluster.ID, Role: "metrics",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		_, err = st.Queries.CreateGroupAssignment(ctx, sqlc.CreateGroupAssignmentParams{
+			CollectorID: collector.ID, GroupID: "grp-assigned", GroupDisplayName: "Assigned",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		other, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
+			Name: "other-org", DisplayName: "Other", AdminGroupID: "grp-other-admin",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		sess := oidcSession("grp-assigned")
+		Expect(auth.Authorize(ctx, st, sess, orgID, auth.RoleOrgReader)).To(Succeed(),
+			"the assignment is in this org, so the reader floor should be cleared")
+		Expect(auth.Authorize(ctx, st, sess, other.ID.String(), auth.RoleOrgReader)).
+			To(MatchError(auth.ErrForbidden),
+				"an assignment in another org must not grant any access here")
+	})
 })
