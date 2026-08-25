@@ -11,7 +11,11 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
-## Unreleased
+## v0.3.0
+
+Local accounts become a first-class way to run Shepherd, a third org role
+splits authoring from re-pointing telemetry, and teams stop requiring an
+identity provider.
 
 ### Breaking
 

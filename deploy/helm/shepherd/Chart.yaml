@@ -2,8 +2,8 @@ apiVersion: v2
 name: shepherd
 description: Self-hosted Grafana Alloy fleet manager
 type: application
-version: 0.6.1
-appVersion: "0.2.1"
+version: 0.7.0
+appVersion: "0.3.0"
 keywords:
   - alloy
   - grafana
