@@ -1,0 +1,39 @@
+name: Bug report
+description: Something behaves differently from what the docs or the spec say
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do **not** report security vulnerabilities here — use
+        [Security → Report a vulnerability](../../security/advisories/new).
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`shepherd version`, the image tag, or the chart version"
+      placeholder: "0.2.0 / chart 0.6.0"
+    validations: { required: true }
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: How is it deployed?
+      options: ["Helm / Kubernetes", "make dev (Docker compose)", "binary directly", "other"]
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect, and what happened instead?
+      description: If a doc or `docs/spec.md` says otherwise, quote it — a docs/behaviour mismatch is a bug either way.
+    validations: { required: true }
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+    validations: { required: true }
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: "Server logs (`log.level: debug` helps), and the `/metrics` output if it is a fleet or validation issue. Redact anything sensitive."
+      render: shell
