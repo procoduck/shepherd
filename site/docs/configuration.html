@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Configuration &mdash; Shepherd docs</title>
+<meta name="description" content="Every setting Shepherd reads, which are required, and which must never be rotated.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="../index.html">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 2.5 4 6v6c0 5.2 3.4 9.4 8 10.5 4.6-1.1 8-5.3 8-10.5V6l-8-3.5Z" stroke="var(--accent)" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M8.5 12.2 11 14.7l4.8-5" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Shepherd
+    </a>
+    <div class="nav-links">
+      <a href="../index.html#features">Features</a>
+      <a href="../index.html#architecture">Architecture</a>
+      <a href="index.html">Docs</a>
+      <a class="btn btn-outline" href="https://github.com/procoduck/shepherd">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<div class="docs-body">
+  <div class="wrap docs-shell">
+<aside class="docs-nav" id="docs-nav">
+  <p class="docs-nav-label">Documentation</p>
+  <p class="docs-nav-cat">Get started</p>
+  <ul>
+    <li><a href="quickstart.html">Quickstart</a></li>
+  </ul>
+  <p class="docs-nav-cat">About</p>
+  <ul>
+    <li><a href="overview.html">What Shepherd is</a></li>
+    <li><a href="roles.html">Roles and access</a></li>
+  </ul>
+  <p class="docs-nav-cat">Install</p>
+  <ul>
+    <li><a href="requirements.html">Requirements</a></li>
+    <li><a href="local-development.html">Local development</a></li>
+    <li><a href="kubernetes.html">Kubernetes (Helm)</a></li>
+    <li><a href="configuration.html" class="active" aria-current="page">Configuration</a></li>
+  </ul>
+  <p class="docs-nav-cat">Fleet</p>
+  <ul>
+    <li><a href="agent-tokens.html">Agent tokens</a></li>
+    <li><a href="collectors.html">Connect a collector</a></li>
+  </ul>
+  <p class="docs-nav-cat">Pipelines</p>
+  <ul>
+    <li><a href="authoring.html">Authoring pipelines</a></li>
+    <li><a href="matchers.html">Matchers and validation</a></li>
+    <li><a href="gitops.html">GitOps</a></li>
+  </ul>
+  <p class="docs-nav-cat">Access control</p>
+  <ul>
+    <li><a href="single-sign-on.html">Single sign-on</a></li>
+    <li><a href="users-and-teams.html">Users and teams</a></li>
+  </ul>
+  <p class="docs-nav-cat">Sandbox</p>
+  <ul>
+    <li><a href="simulation.html">Sandbox simulation</a></li>
+  </ul>
+  <p class="docs-nav-cat">Reference</p>
+  <ul>
+    <li><a href="resources.html">Further reading</a></li>
+  </ul>
+</aside>
+
+    <div class="docs-main">
+      <nav class="crumbs" aria-label="Breadcrumb"><a href="index.html">Docs</a><span aria-hidden="true">/</span><span>Install</span><span aria-hidden="true">/</span><span class="crumb-here">Configuration</span></nav>
+      <div class="docs-content">
+<h1>Configuration</h1>
+      <p>
+        Shepherd is configured from environment variables (a Kubernetes Secret in a chart install,
+        your shell in local development). Only two are required &mdash; the server refuses to start
+        without them &mdash; and the rest matter only for the setups they name.
+      </p>
+      <h2 id="the-secret">The secret Shepherd reads</h2>
+      <p>
+        In a chart install these are keys of the Kubernetes Secret the chart reads
+        (<code>shepherd-secrets</code> by default, or override <code>existingSecret</code>).
+        Running locally, they are plain environment variables.
+      </p>
+      <table>
+        <thead><tr><th>Key</th><th>Required?</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>SHEPHERD_DATABASE_URL</code></td><td><strong>Yes</strong></td><td>PostgreSQL connection string</td></tr>
+          <tr><td><code>SHEPHERD_SECURITY_ENCRYPTION_KEY</code></td><td><strong>Yes</strong></td><td>Base64-encoded 32-byte key encrypting stored credentials at rest. <strong>Keep it</strong> &mdash; a replacement key cannot decrypt what the old one wrote</td></tr>
+          <tr><td><code>SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD</code></td><td>Recommended</td><td>Password for the administrator created on first boot. Read only while the users table is empty. Leave it unset and the account is created as <code>admin</code>/<code>admin</code>, which can do nothing until the password is changed</td></tr>
+          <tr><td><code>SHEPHERD_OIDC_CLIENT_SECRET</code></td><td>Chart-configured SSO only</td><td>Omit it to configure SSO from the UI instead</td></tr>
+          <tr><td><code>SHEPHERD_GRAPH_CLIENT_SECRET</code></td><td>Entra + Graph lookup only</td><td>Not used by any other provider</td></tr>
+        </tbody>
+      </table>
+      <p>See <a href="https://github.com/procoduck/shepherd/blob/main/deploy/helm/shepherd/values.yaml">deploy/helm/shepherd/values.yaml</a> for the full set of options, including <code>networkPolicy</code>, <code>autoscaling</code>, and local user seeding.</p>
+
+      <h2 id="the-encryption-key">The encryption key is not rotatable</h2>
+      <p class="note warn">
+        <strong>Keep <code>SHEPHERD_SECURITY_ENCRYPTION_KEY</code>.</strong> It encrypts git
+        credentials and the OIDC client secret at rest. A new key on the next boot cannot decrypt
+        what the old one wrote, and Shepherd has no way to tell you which stored secret it has just
+        lost &mdash; it simply fails to use them. Generate it once, store it where you store your
+        other secrets, and back it up with them.
+      </p>
+      <h2 id="the-first-administrator">The first administrator</h2>
+      <p>
+        <code>SHEPHERD_BOOTSTRAP_ADMIN_LOGIN</code> and <code>SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD</code>
+        are read <em>only while the users table is empty</em>, on first boot. Set the password and the
+        account is yours. Leave it unset and the account is created as <code>admin</code>/<code>admin</code>
+        with a forced password change, which blocks every request except the change itself &mdash; so
+        an unattended install cannot quietly sit on a default credential. After first boot, accounts
+        are managed at <strong>Admin &rarr; Users</strong>; see <a href="users-and-teams.html">Users and teams</a>.
+      </p>
+      <h2 id="single-sign-on-settings">Single sign-on</h2>
+      <p>
+        One setting decides where SSO configuration comes from: <code>oidc.issuer</code>. Set it in
+        your chart values and the chart owns SSO; leave it unset and an app admin configures a
+        provider from the UI instead. <a href="single-sign-on.html">Single sign-on</a> covers both
+        paths and what each one costs you.
+      </p>
+        <nav class="page-nav" aria-label="Pagination">
+          <a class="page-nav-prev" href="kubernetes.html"><span>Previous</span><strong>Kubernetes (Helm)</strong></a>
+          <a class="page-nav-next" href="agent-tokens.html"><span>Next</span><strong>Agent tokens</strong></a>
+        </nav>
+      </div>
+    </div>
+
+    <aside class="docs-toc">
+      <p class="toc-label">On this page</p>
+      <ul>
+        <li><a href="#the-secret">The secret Shepherd reads</a></li>
+        <li><a href="#the-encryption-key">The encryption key is not rotatable</a></li>
+        <li><a href="#the-first-administrator">The first administrator</a></li>
+        <li><a href="#single-sign-on-settings">Single sign-on</a></li>
+      </ul>
+    </aside>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-left">
+      <span class="pill">v0.3.1</span>
+      <span>self-hosted Grafana Alloy fleet manager</span>
+    </div>
+    <div class="foot-links">
+      <a href="https://github.com/procoduck/shepherd">GitHub</a>
+      <a href="index.html">Docs</a>
+      <a href="../index.html">Home</a>
+    </div>
+  </div>
+</footer>
+
+<script src="../docs.js" defer></script>
+</body>
+</html>

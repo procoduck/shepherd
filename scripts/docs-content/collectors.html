@@ -1,0 +1,18 @@
+<h1>Connect a collector</h1>
+      <p>Add a <code>remotecfg</code> block to the collector's <code>config.alloy</code>. Shepherd resolves the collector by its <code>cluster</code> and <code>role</code> attributes — <code>role</code> is one of <code>metrics</code>, <code>logs</code>, <code>singleton</code>, or <code>receiver</code>.</p>
+      <div class="code-block" data-lang="alloy">
+        <div class="code-head"><span>config.alloy</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>remotecfg {
+  url = "http://shepherd:8080"
+  basic_auth {
+    username = "&lt;token-uuid&gt;"
+    password = "&lt;token-secret&gt;"
+  }
+  attributes = {
+    cluster = "&lt;cluster-name&gt;",
+    role    = "metrics",
+  }
+  poll_frequency = "60s"
+}</code></pre>
+      </div>
+      <p>On first poll, an unclaimed cluster gets served an empty config so it keeps running whatever it already has locally — nothing is disrupted until an org admin claims the cluster and enables pipelines that match it.</p>

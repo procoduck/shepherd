@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Single sign-on &mdash; Shepherd docs</title>
+<meta name="description" content="Connect any spec-compliant OIDC provider, from the chart or from the admin UI.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="../index.html">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 2.5 4 6v6c0 5.2 3.4 9.4 8 10.5 4.6-1.1 8-5.3 8-10.5V6l-8-3.5Z" stroke="var(--accent)" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M8.5 12.2 11 14.7l4.8-5" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Shepherd
+    </a>
+    <div class="nav-links">
+      <a href="../index.html#features">Features</a>
+      <a href="../index.html#architecture">Architecture</a>
+      <a href="index.html">Docs</a>
+      <a class="btn btn-outline" href="https://github.com/procoduck/shepherd">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<div class="docs-body">
+  <div class="wrap docs-shell">
+<aside class="docs-nav" id="docs-nav">
+  <p class="docs-nav-label">Documentation</p>
+  <p class="docs-nav-cat">Get started</p>
+  <ul>
+    <li><a href="quickstart.html">Quickstart</a></li>
+  </ul>
+  <p class="docs-nav-cat">About</p>
+  <ul>
+    <li><a href="overview.html">What Shepherd is</a></li>
+    <li><a href="roles.html">Roles and access</a></li>
+  </ul>
+  <p class="docs-nav-cat">Install</p>
+  <ul>
+    <li><a href="requirements.html">Requirements</a></li>
+    <li><a href="local-development.html">Local development</a></li>
+    <li><a href="kubernetes.html">Kubernetes (Helm)</a></li>
+    <li><a href="configuration.html">Configuration</a></li>
+  </ul>
+  <p class="docs-nav-cat">Fleet</p>
+  <ul>
+    <li><a href="agent-tokens.html">Agent tokens</a></li>
+    <li><a href="collectors.html">Connect a collector</a></li>
+  </ul>
+  <p class="docs-nav-cat">Pipelines</p>
+  <ul>
+    <li><a href="authoring.html">Authoring pipelines</a></li>
+    <li><a href="matchers.html">Matchers and validation</a></li>
+    <li><a href="gitops.html">GitOps</a></li>
+  </ul>
+  <p class="docs-nav-cat">Access control</p>
+  <ul>
+    <li><a href="single-sign-on.html" class="active" aria-current="page">Single sign-on</a></li>
+    <li><a href="users-and-teams.html">Users and teams</a></li>
+  </ul>
+  <p class="docs-nav-cat">Sandbox</p>
+  <ul>
+    <li><a href="simulation.html">Sandbox simulation</a></li>
+  </ul>
+  <p class="docs-nav-cat">Reference</p>
+  <ul>
+    <li><a href="resources.html">Further reading</a></li>
+  </ul>
+</aside>
+
+    <div class="docs-main">
+      <nav class="crumbs" aria-label="Breadcrumb"><a href="index.html">Docs</a><span aria-hidden="true">/</span><span>Access control</span><span aria-hidden="true">/</span><span class="crumb-here">Single sign-on</span></nav>
+      <div class="docs-content">
+<h1>Single sign-on</h1>
+      <p>
+        Shepherd authenticates humans through OIDC against <strong>any spec-compliant provider</strong>.
+        There are built-in presets for Microsoft Entra ID, Okta, Google, Auth0, Keycloak, AWS Cognito,
+        GitLab, authentik and OneLogin, plus a generic option for anything else.
+      </p>
+      <p>One setting decides where that configuration comes from: <code>oidc.issuer</code>.</p>
+      <table>
+        <thead><tr><th><code>oidc.issuer</code> in your values</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td>Set</td><td>The chart owns SSO. The admin UI shows it read-only and refuses writes &mdash; a cluster whose identity provider is declared in git is not re-pointed from a browser session</td></tr>
+          <tr><td>Not set</td><td>An app admin configures a provider at <strong>Admin &rarr; Single sign-on</strong>. It is stored encrypted in the database and takes effect <strong>without a restart</strong></td></tr>
+        </tbody>
+      </table>
+      <p>To set it up from the UI:</p>
+      <ol>
+        <li>
+          <strong>Get in first.</strong> Sign in as the administrator created on first boot, or as any
+          local user with app-admin rights. Local accounts and SSO coexist &mdash; configuring an
+          identity provider does not disable them.
+        </li>
+        <li>Sign in, then open <strong>Admin &rarr; Single sign-on</strong>.</li>
+        <li>
+          Pick your provider. The preset fills in claim names and scopes, and tells you what you must
+          configure <em>in the IdP</em> for group membership to arrive &mdash; the most common way to get
+          this wrong, because it fails as a silently empty group list rather than an error.
+        </li>
+        <li>Register the shown redirect URL with your provider. Its path must be exactly <code>/auth/callback</code>.</li>
+        <li>
+          <strong>Test connection</strong> before enabling. It runs OIDC discovery and reports the issuer
+          and endpoints it found. It checks the issuer only &mdash; your client ID, secret and redirect URL
+          are not exercised until someone actually signs in.
+        </li>
+        <li>Fill in <strong>App admin groups</strong>, then enable. Leave it empty and nobody can administer Shepherd through SSO.</li>
+      </ol>
+      <p class="note">
+        <strong>Groups decide access.</strong> Whatever your provider puts in the groups claim is matched
+        against <code>auth.app_admin_group_ids</code> and each org's admin/editor/reader group. For Entra those are
+        object GUIDs; for every other provider they are whatever your IdP emits &mdash; usually a group name
+        or a path like <code>acme/platform</code>. Keep at least one local administrator until you have
+        confirmed an SSO sign-in lands you with app-admin rights &mdash; local accounts are not a
+        fallback mode, they are a supported way to run Shepherd alongside SSO or instead of it.
+      </p>
+      <p><img src="../img/single-sign-on.jpg" alt="Admin, Single sign-on: the provider picker, issuer URL, client ID and secret, and the redirect URL Shepherd serves the callback on" loading="lazy"></p>
+        <nav class="page-nav" aria-label="Pagination">
+          <a class="page-nav-prev" href="gitops.html"><span>Previous</span><strong>GitOps</strong></a>
+          <a class="page-nav-next" href="users-and-teams.html"><span>Next</span><strong>Users and teams</strong></a>
+        </nav>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-left">
+      <span class="pill">v0.3.1</span>
+      <span>self-hosted Grafana Alloy fleet manager</span>
+    </div>
+    <div class="foot-links">
+      <a href="https://github.com/procoduck/shepherd">GitHub</a>
+      <a href="index.html">Docs</a>
+      <a href="../index.html">Home</a>
+    </div>
+  </div>
+</footer>
+
+<script src="../docs.js" defer></script>
+</body>
+</html>

@@ -135,7 +135,7 @@ merge dry-run against every affected collector's *full* merged config — so a
 pipeline that is individually valid but conflicts with an existing one is caught
 before any agent sees it.
 
-The [getting-started guide](https://procoduck.github.io/shepherd/docs/getting-started.html#pipeline)
+[Authoring pipelines](https://procoduck.github.io/shepherd/docs/authoring.html)
 walks through building one end to end.
 
 ## Development

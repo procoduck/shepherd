@@ -1,0 +1,40 @@
+<h1>Requirements</h1>
+      <p>
+        Shepherd is a single Go binary with the UI embedded in it, and it keeps no state outside
+        PostgreSQL. The list is genuinely short.
+      </p>
+      <table>
+        <thead><tr><th>To…</th><th>You need</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Run Shepherd</td>
+            <td><strong>PostgreSQL 14+</strong> (CI and the dev stack use 16) and somewhere to run one
+                container. Nothing else.</td>
+          </tr>
+          <tr>
+            <td>Deploy on Kubernetes</td>
+            <td>A current cluster and Helm 3. No CRDs by default. Two optional extras do add
+                requirements: <code>metrics.serviceMonitor.enabled</code> needs the Prometheus
+                Operator's CRDs, and the gateway tier (built, not yet wired) targets Gateway API
+                v1.4.1 standard channel.</td>
+          </tr>
+          <tr>
+            <td>Run collectors</td>
+            <td><a href="https://grafana.com/docs/alloy/">Grafana Alloy</a> <strong>v1.18.1</strong> —
+                the version whose component schema this build validates against, pinned in
+                <code>deploy/versions.env</code>. Alloy needs <code>remotecfg</code> support.</td>
+          </tr>
+          <tr>
+            <td>Build from source</td>
+            <td>Go (version per <code>go.mod</code>), Node 24 + pnpm, Docker (the Go suite starts real
+                Postgres via testcontainers), and Helm for the chart tests.</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="note">
+        <strong>Two configuration values are mandatory</strong> and the server refuses to start
+        without them: <code>database.url</code> and <code>security.encryption_key</code> (a
+        base64-encoded 32 bytes). The encryption key protects git credentials and the OIDC client
+        secret at rest — <strong>keep it</strong>, because a replacement key cannot decrypt what the
+        old one wrote.
+      </p>

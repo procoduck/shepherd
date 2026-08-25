@@ -1,0 +1,37 @@
+<h1>Matchers and validation</h1>
+      <p>
+        A pipeline is a fragment of Alloy config plus the matchers that decide which collectors
+        receive it. Those two questions &mdash; <em>who gets this</em> and <em>is it safe to serve</em>
+        &mdash; are answered here, and they apply identically to every pipeline no matter which
+        editor produced it.
+      </p>
+<h2 id="matchers">Matchers decide who gets it</h2>
+      <p>
+        Matchers use Alertmanager syntax against the attributes a collector reports —
+        <code>cluster="prod-eu-1"</code>, <code>role="metrics"</code>, <code>role=~"metrics|logs"</code>.
+        A pipeline with no matchers reaches nothing. The editor previews how many collectors currently
+        match before you save, so "this matches nothing" is visible rather than discovered later.
+      </p>
+      <p><img src="../img/pipelines.jpg" alt="The Pipelines list showing name, source, matchers and an enabled toggle for each pipeline" loading="lazy"></p>
+      <p>
+        The <strong>Source</strong> column is worth reading: <code>ui</code>, <code>wizard</code>,
+        <code>visual</code> and <code>git</code> pipelines all merge identically, but a
+        <code>git</code> one is owned by its repository and will be overwritten on the next sync.
+      </p>
+
+      <h2 id="the-validation-gate">The validation gate</h2>
+      <p>Nothing reaches a collector without passing three stages:</p>
+      <ol>
+        <li><strong>Syntax</strong> — the Alloy parser, with errors mapped back to line and column.</li>
+        <li><strong>Semantics</strong> — the real <code>alloy validate</code> binary, against the
+            pinned Alloy version.</li>
+        <li><strong>Merge dry-run</strong> — the whole merged config for every affected collector.
+            This is the stage that earns its keep: a pipeline can be perfectly valid on its own and
+            still collide with one that is already running, and this catches that before any agent
+            sees it.</li>
+      </ol>
+
+      <p>
+        A collector&rsquo;s own page shows the exact merged config it is being served right now, which
+        is the fastest way to confirm a matcher selected what you meant it to.
+      </p>

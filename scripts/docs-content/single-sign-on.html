@@ -1,0 +1,44 @@
+<h1>Single sign-on</h1>
+      <p>
+        Shepherd authenticates humans through OIDC against <strong>any spec-compliant provider</strong>.
+        There are built-in presets for Microsoft Entra ID, Okta, Google, Auth0, Keycloak, AWS Cognito,
+        GitLab, authentik and OneLogin, plus a generic option for anything else.
+      </p>
+      <p>One setting decides where that configuration comes from: <code>oidc.issuer</code>.</p>
+      <table>
+        <thead><tr><th><code>oidc.issuer</code> in your values</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td>Set</td><td>The chart owns SSO. The admin UI shows it read-only and refuses writes &mdash; a cluster whose identity provider is declared in git is not re-pointed from a browser session</td></tr>
+          <tr><td>Not set</td><td>An app admin configures a provider at <strong>Admin &rarr; Single sign-on</strong>. It is stored encrypted in the database and takes effect <strong>without a restart</strong></td></tr>
+        </tbody>
+      </table>
+      <p>To set it up from the UI:</p>
+      <ol>
+        <li>
+          <strong>Get in first.</strong> Sign in as the administrator created on first boot, or as any
+          local user with app-admin rights. Local accounts and SSO coexist &mdash; configuring an
+          identity provider does not disable them.
+        </li>
+        <li>Sign in, then open <strong>Admin &rarr; Single sign-on</strong>.</li>
+        <li>
+          Pick your provider. The preset fills in claim names and scopes, and tells you what you must
+          configure <em>in the IdP</em> for group membership to arrive &mdash; the most common way to get
+          this wrong, because it fails as a silently empty group list rather than an error.
+        </li>
+        <li>Register the shown redirect URL with your provider. Its path must be exactly <code>/auth/callback</code>.</li>
+        <li>
+          <strong>Test connection</strong> before enabling. It runs OIDC discovery and reports the issuer
+          and endpoints it found. It checks the issuer only &mdash; your client ID, secret and redirect URL
+          are not exercised until someone actually signs in.
+        </li>
+        <li>Fill in <strong>App admin groups</strong>, then enable. Leave it empty and nobody can administer Shepherd through SSO.</li>
+      </ol>
+      <p class="note">
+        <strong>Groups decide access.</strong> Whatever your provider puts in the groups claim is matched
+        against <code>auth.app_admin_group_ids</code> and each org's admin/editor/reader group. For Entra those are
+        object GUIDs; for every other provider they are whatever your IdP emits &mdash; usually a group name
+        or a path like <code>acme/platform</code>. Keep at least one local administrator until you have
+        confirmed an SSO sign-in lands you with app-admin rights &mdash; local accounts are not a
+        fallback mode, they are a supported way to run Shepherd alongside SSO or instead of it.
+      </p>
+      <p><img src="../img/single-sign-on.jpg" alt="Admin, Single sign-on: the provider picker, issuer URL, client ID and secret, and the redirect URL Shepherd serves the callback on" loading="lazy"></p>

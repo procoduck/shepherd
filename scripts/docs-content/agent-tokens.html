@@ -1,0 +1,11 @@
+<h1>Agent tokens</h1>
+      <p>Collectors authenticate to the <code>collector.v1</code> protocol with HTTP Basic auth. Mint a token once — the secret is shown exactly once.</p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code># Needs BOTH required variables — `token create` loads the same config as
+# `serve` and exits on a missing encryption key.
+export SHEPHERD_DATABASE_URL=postgres://shepherd:shepherd@localhost:5432/shepherd
+export SHEPHERD_SECURITY_ENCRYPTION_KEY=...   # the same key you used above
+
+./bin/shepherd token create --name dev</code></pre>
+      </div>

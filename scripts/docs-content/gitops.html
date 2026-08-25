@@ -1,0 +1,14 @@
+<h1>GitOps</h1>
+      <p>
+        Instead of authoring in the UI, point Shepherd at a git repository and it will poll for
+        <code>*.alloy</code> files and sync them onto a target collector as pipelines. Any git server
+        works — the credential kinds are personal access token, basic auth, SSH deploy key, an Entra
+        service principal for Azure DevOps, and GitHub App installation tokens.
+      </p>
+      <p><img src="../img/git-sync.jpg" alt="The Git sync page: a credential and a repository link showing branch, target collector, sync status and last-synced time" loading="lazy"></p>
+      <p>
+        Synced pipelines show <code>git</code> in the Source column and are <strong>owned by the
+        repository</strong> — edit one in the UI and the next sync overwrites it. They pass the same
+        three-stage validation gate as everything else, so a bad commit fails the sync and is reported
+        on the repo link rather than being served to a collector.
+      </p>

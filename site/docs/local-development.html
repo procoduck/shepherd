@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Local development &mdash; Shepherd docs</title>
+<meta name="description" content="Run the full stack locally with Docker, seeded and ready to click through.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="../index.html">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 2.5 4 6v6c0 5.2 3.4 9.4 8 10.5 4.6-1.1 8-5.3 8-10.5V6l-8-3.5Z" stroke="var(--accent)" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M8.5 12.2 11 14.7l4.8-5" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Shepherd
+    </a>
+    <div class="nav-links">
+      <a href="../index.html#features">Features</a>
+      <a href="../index.html#architecture">Architecture</a>
+      <a href="index.html">Docs</a>
+      <a class="btn btn-outline" href="https://github.com/procoduck/shepherd">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<div class="docs-body">
+  <div class="wrap docs-shell">
+<aside class="docs-nav" id="docs-nav">
+  <p class="docs-nav-label">Documentation</p>
+  <p class="docs-nav-cat">Get started</p>
+  <ul>
+    <li><a href="quickstart.html">Quickstart</a></li>
+  </ul>
+  <p class="docs-nav-cat">About</p>
+  <ul>
+    <li><a href="overview.html">What Shepherd is</a></li>
+    <li><a href="roles.html">Roles and access</a></li>
+  </ul>
+  <p class="docs-nav-cat">Install</p>
+  <ul>
+    <li><a href="requirements.html">Requirements</a></li>
+    <li><a href="local-development.html" class="active" aria-current="page">Local development</a></li>
+    <li><a href="kubernetes.html">Kubernetes (Helm)</a></li>
+    <li><a href="configuration.html">Configuration</a></li>
+  </ul>
+  <p class="docs-nav-cat">Fleet</p>
+  <ul>
+    <li><a href="agent-tokens.html">Agent tokens</a></li>
+    <li><a href="collectors.html">Connect a collector</a></li>
+  </ul>
+  <p class="docs-nav-cat">Pipelines</p>
+  <ul>
+    <li><a href="authoring.html">Authoring pipelines</a></li>
+    <li><a href="matchers.html">Matchers and validation</a></li>
+    <li><a href="gitops.html">GitOps</a></li>
+  </ul>
+  <p class="docs-nav-cat">Access control</p>
+  <ul>
+    <li><a href="single-sign-on.html">Single sign-on</a></li>
+    <li><a href="users-and-teams.html">Users and teams</a></li>
+  </ul>
+  <p class="docs-nav-cat">Sandbox</p>
+  <ul>
+    <li><a href="simulation.html">Sandbox simulation</a></li>
+  </ul>
+  <p class="docs-nav-cat">Reference</p>
+  <ul>
+    <li><a href="resources.html">Further reading</a></li>
+  </ul>
+</aside>
+
+    <div class="docs-main">
+      <nav class="crumbs" aria-label="Breadcrumb"><a href="index.html">Docs</a><span aria-hidden="true">/</span><span>Install</span><span aria-hidden="true">/</span><span class="crumb-here">Local development</span></nav>
+      <div class="docs-content">
+<h1>Local development</h1>
+      <p>Start Postgres, build the binary, run migrations, and serve.</p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code># 1. Start Postgres
+docker run -d --name shepherd-pg \
+  -e POSTGRES_DB=shepherd -e POSTGRES_USER=shepherd -e POSTGRES_PASSWORD=shepherd \
+  -p 5432:5432 postgres:16-alpine
+
+# 2. Build
+make build
+
+# 3. Configure. Export rather than inline: a `VAR=x cmd1 &amp;&amp; cmd2` prefix applies
+#    to cmd1 only, so `serve` would start with no config and exit.
+#    KEEP THE ENCRYPTION KEY. It encrypts git credentials and the OIDC client
+#    secret at rest; a new key cannot decrypt what the old one wrote.
+export SHEPHERD_DATABASE_URL=postgres://shepherd:shepherd@localhost:5432/shepherd
+export SHEPHERD_SECURITY_ENCRYPTION_KEY=$(openssl rand -base64 32)
+#    The first administrator, created on first boot while the users table is
+#    empty. Leave the password unset and you get admin/admin, which can do
+#    nothing until it is changed.
+export SHEPHERD_BOOTSTRAP_ADMIN_LOGIN=admin
+export SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD=choose-a-password
+
+# 4. Run
+./bin/shepherd migrate up
+./bin/shepherd serve          # http://localhost:8080</code></pre>
+      </div>
+      <p>
+        Sign in at <a href="http://localhost:8080">http://localhost:8080</a> with the login and
+        password you exported. Then mint an <a href="agent-tokens.html">agent token</a> and
+        <a href="collectors.html">point a collector at it</a>.
+      </p>
+      <h2 id="the-full-dev-stack">The full dev stack</h2>
+      <p class="note">
+        Prefer a whole environment with a mock identity provider, a git server, and live Alloy agents
+        already talking to it? <code>make dev</code> boots that in Docker &mdash; see the
+        <a href="quickstart.html">Quickstart</a>. Use this page when you are changing Shepherd itself
+        and want the binary under your own debugger.
+      </p>
+      <h2 id="useful-targets">Useful targets</h2>
+      <table>
+        <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>make help</code></td><td>List every target and env knob</td></tr>
+          <tr><td><code>make build</code></td><td>Build the web SPA and the Go binary</td></tr>
+          <tr><td><code>make test</code></td><td>Go tests (needs Docker &mdash; testcontainers)</td></tr>
+          <tr><td><code>make lint</code></td><td>golangci-lint plus the repo guards</td></tr>
+          <tr><td><code>make dev</code></td><td>The full stack in Docker</td></tr>
+          <tr><td><code>make dev-reset</code></td><td>Stop it and drop the volumes</td></tr>
+        </tbody>
+      </table>
+        <nav class="page-nav" aria-label="Pagination">
+          <a class="page-nav-prev" href="requirements.html"><span>Previous</span><strong>Requirements</strong></a>
+          <a class="page-nav-next" href="kubernetes.html"><span>Next</span><strong>Kubernetes (Helm)</strong></a>
+        </nav>
+      </div>
+    </div>
+
+    <aside class="docs-toc">
+      <p class="toc-label">On this page</p>
+      <ul>
+        <li><a href="#the-full-dev-stack">The full dev stack</a></li>
+        <li><a href="#useful-targets">Useful targets</a></li>
+      </ul>
+    </aside>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-left">
+      <span class="pill">v0.3.1</span>
+      <span>self-hosted Grafana Alloy fleet manager</span>
+    </div>
+    <div class="foot-links">
+      <a href="https://github.com/procoduck/shepherd">GitHub</a>
+      <a href="index.html">Docs</a>
+      <a href="../index.html">Home</a>
+    </div>
+  </div>
+</footer>
+
+<script src="../docs.js" defer></script>
+</body>
+</html>

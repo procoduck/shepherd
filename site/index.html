@@ -25,7 +25,7 @@
       <a href="#features">Features</a>
       <a href="#architecture">Architecture</a>
       <a href="#quickstart">Quick start</a>
-      <a href="docs/getting-started.html">Docs</a>
+      <a href="docs/index.html">Docs</a>
       <a class="btn btn-outline" href="https://github.com/procoduck/shepherd">GitHub</a>
     </div>
   </div>
@@ -33,7 +33,7 @@
 
 <header class="hero" id="top">
   <div class="wrap">
-    <span class="eyebrow"><span class="dot"></span> v0.2.1 · self-hosted · single binary</span>
+    <span class="eyebrow"><span class="dot"></span> v0.3.1 · self-hosted · single binary</span>
     <h1>Run a fleet of Grafana Alloy collectors from one place.</h1>
     <p class="lede">
       Shepherd is a self-hosted fleet manager for Grafana Alloy. Build pipelines visually or in Git,
@@ -325,16 +325,14 @@
         <div>
           <h3>Install the chart</h3>
           <p>
-            Requires a Kubernetes secret with the database URL, encryption key, and OIDC secrets — see
-            <code>deploy/helm/shepherd/values.yaml</code> for the full option list. Sandbox
-            simulation ships enabled by default; add
-            <code>--set simulator.enabled=false</code> to turn it off.
+            Published as an OCI artifact — nothing to clone. Bring your own PostgreSQL and a secret
+            holding the database URL and encryption key; see
+            <a href="docs/configuration.html">Configuration</a>. Sandbox simulation ships enabled by
+            default; add <code>--set simulator.enabled=false</code> to turn it off.
           </p>
           <div class="code-block" data-lang="shell">
             <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-            <pre><code>helm install shepherd deploy/helm/shepherd \
-  --set image.registry=ghcr.io/procoduck \
-  --set image.tag=0.2.1 \
+            <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.7.1 \
   --set existingSecret=shepherd-secrets \
   --set "route.enabled=true" \
   --set "route.hostnames[0]=shepherd.internal"</code></pre>
@@ -386,7 +384,7 @@ export SHEPHERD_SECURITY_ENCRYPTION_KEY=$(openssl rand -base64 32)
 ./bin/shepherd migrate up
 ./bin/shepherd serve</code></pre>
           </div>
-          <p class="note">See <a href="docs/getting-started.html">the full getting-started guide</a> for token creation, the dev stack, and the sandbox off-switch.</p>
+          <p class="note">The <a href="docs/quickstart.html">Quickstart</a> gets the whole stack &mdash; database, collectors and all &mdash; running in Docker instead, and the <a href="docs/index.html">documentation</a> covers installing, authoring pipelines and access control.</p>
         </div>
       </div>
     </div>
@@ -399,7 +397,7 @@ export SHEPHERD_SECURITY_ENCRYPTION_KEY=$(openssl rand -base64 32)
     <p>Shepherd's source lives on GitHub. The full product specification, architecture notes, and a running project ledger live in <code>docs/</code>.</p>
     <div class="cta-ctas">
       <a class="btn btn-primary" href="https://github.com/procoduck/shepherd">github.com/procoduck/shepherd</a>
-      <a class="btn btn-outline" href="docs/getting-started.html">Read the docs</a>
+      <a class="btn btn-outline" href="docs/index.html">Read the docs</a>
     </div>
   </div>
 </section>
@@ -418,7 +416,7 @@ export SHEPHERD_SECURITY_ENCRYPTION_KEY=$(openssl rand -base64 32)
     </div>
     <div class="foot-links">
       <a href="https://github.com/procoduck/shepherd">GitHub</a>
-      <a href="docs/getting-started.html">Docs</a>
+      <a href="docs/index.html">Docs</a>
       <a href="https://github.com/procoduck/shepherd/blob/main/docs/spec.md">Spec</a>
     </div>
   </div>

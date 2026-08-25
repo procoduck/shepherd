@@ -1,0 +1,39 @@
+<h1>Authoring pipelines</h1>
+      <p>
+        A <strong>pipeline</strong> is a fragment of Alloy config plus the <strong>matchers</strong>
+        that decide which collectors receive it. Shepherd merges every enabled pipeline whose matchers
+        select a given collector into the single config that collector is served. There are three ways
+        in, and they all land in the same merge engine.
+      </p>
+
+      <h2 id="1-a-wizard-if-your-job-is-a-common-one">1. A wizard, if your job is a common one</h2>
+      <p>
+        Six guided forms cover the jobs most fleets need. Answer the questions, preview the Alloy it
+        generates, commit it as a pipeline.
+      </p>
+      <p><img src="../img/wizards.jpg" alt="The Wizards page: six cards — App Observability, Blackbox Probes, Cluster Metrics, Database Metrics, Pod Logs, Self Monitoring" loading="lazy"></p>
+
+      <h2 id="2-the-visual-builder-when-you-want-to-see-the-graph">2. The visual builder, when you want to see the graph</h2>
+      <p>
+        Drag components from the palette onto the canvas and wire their ports together. The
+        <strong>Generated config</strong> tab shows the Alloy it produces as you work, and the validity
+        chip in the toolbar goes red the moment the graph would not run — you cannot save a broken one.
+      </p>
+      <p><img src="../img/visual-builder.jpg" alt="The visual pipeline builder: component palette on the left, a three-node graph on the canvas, properties panel on the right" loading="lazy"></p>
+      <p>
+        The graph below generates the config beside it. This is the same Alloy that will be merged and
+        served — there is no separate translation step to be surprised by.
+      </p>
+      <p><img src="../img/generated-config.jpg" alt="The builder's Generated config tab showing the Alloy produced by the graph" loading="lazy"></p>
+
+      <h2 id="3-raw-alloy-when-you-already-know-what-you-want">3. Raw Alloy, when you already know what you want</h2>
+      <p>
+        Paste the config. It goes through exactly the same gate as the other two.
+      </p>
+      <p class="note">
+        <strong>All three land in the same place.</strong> A wizard and the visual builder are
+        editors, not separate systems &mdash; each produces Alloy config that goes through the same
+        <a href="matchers.html#the-validation-gate">validation gate</a> and the same merge engine as
+        config you paste by hand. There is no translation step to be surprised by later.
+      </p>
+      <p>Next: decide <a href="matchers.html">which collectors receive it</a>.</p>

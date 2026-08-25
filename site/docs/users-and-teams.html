@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Users and teams &mdash; Shepherd docs</title>
+<meta name="description" content="Local accounts, org roles and team membership — with or without an identity provider.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="../index.html">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 2.5 4 6v6c0 5.2 3.4 9.4 8 10.5 4.6-1.1 8-5.3 8-10.5V6l-8-3.5Z" stroke="var(--accent)" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M8.5 12.2 11 14.7l4.8-5" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Shepherd
+    </a>
+    <div class="nav-links">
+      <a href="../index.html#features">Features</a>
+      <a href="../index.html#architecture">Architecture</a>
+      <a href="index.html">Docs</a>
+      <a class="btn btn-outline" href="https://github.com/procoduck/shepherd">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<div class="docs-body">
+  <div class="wrap docs-shell">
+<aside class="docs-nav" id="docs-nav">
+  <p class="docs-nav-label">Documentation</p>
+  <p class="docs-nav-cat">Get started</p>
+  <ul>
+    <li><a href="quickstart.html">Quickstart</a></li>
+  </ul>
+  <p class="docs-nav-cat">About</p>
+  <ul>
+    <li><a href="overview.html">What Shepherd is</a></li>
+    <li><a href="roles.html">Roles and access</a></li>
+  </ul>
+  <p class="docs-nav-cat">Install</p>
+  <ul>
+    <li><a href="requirements.html">Requirements</a></li>
+    <li><a href="local-development.html">Local development</a></li>
+    <li><a href="kubernetes.html">Kubernetes (Helm)</a></li>
+    <li><a href="configuration.html">Configuration</a></li>
+  </ul>
+  <p class="docs-nav-cat">Fleet</p>
+  <ul>
+    <li><a href="agent-tokens.html">Agent tokens</a></li>
+    <li><a href="collectors.html">Connect a collector</a></li>
+  </ul>
+  <p class="docs-nav-cat">Pipelines</p>
+  <ul>
+    <li><a href="authoring.html">Authoring pipelines</a></li>
+    <li><a href="matchers.html">Matchers and validation</a></li>
+    <li><a href="gitops.html">GitOps</a></li>
+  </ul>
+  <p class="docs-nav-cat">Access control</p>
+  <ul>
+    <li><a href="single-sign-on.html">Single sign-on</a></li>
+    <li><a href="users-and-teams.html" class="active" aria-current="page">Users and teams</a></li>
+  </ul>
+  <p class="docs-nav-cat">Sandbox</p>
+  <ul>
+    <li><a href="simulation.html">Sandbox simulation</a></li>
+  </ul>
+  <p class="docs-nav-cat">Reference</p>
+  <ul>
+    <li><a href="resources.html">Further reading</a></li>
+  </ul>
+</aside>
+
+    <div class="docs-main">
+      <nav class="crumbs" aria-label="Breadcrumb"><a href="index.html">Docs</a><span aria-hidden="true">/</span><span>Access control</span><span aria-hidden="true">/</span><span class="crumb-here">Users and teams</span></nav>
+      <div class="docs-content">
+<h1>Users and teams</h1>
+      <p>
+        Shepherd runs with no identity provider at all. Local accounts are a supported way to
+        operate it &mdash; not an emergency mode &mdash; and they coexist with single sign-on rather
+        than being an alternative to it. Configuring SSO does not disable them, and having them does
+        not weaken SSO.
+      </p>
+
+      <h2 id="the-first-administrator">The first administrator</h2>
+      <p>
+        On first boot, while the users table is empty, Shepherd creates one administrator from
+        <code>SHEPHERD_BOOTSTRAP_ADMIN_LOGIN</code> and <code>SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD</code>.
+        Set the password and the account is yours. Leave it unset and you get
+        <code>admin</code>/<code>admin</code> with a forced password change &mdash; it can do nothing
+        at all until the password is changed, so an unattended install cannot sit quietly on a default
+        credential. Everything after that is managed from the UI.
+      </p>
+
+      <h2 id="managing-accounts">Managing accounts</h2>
+      <p>
+        <strong>Admin &rarr; Users</strong> lists local accounts, their status, and their role in each
+        organisation. People who sign in through your identity provider do not appear here &mdash;
+        their access comes from their groups, and Shepherd holds no row for them.
+      </p>
+      <p>An account carries three states worth reading at a glance:</p>
+      <ul>
+        <li><strong>App administrator</strong> &mdash; reaches every organisation.</li>
+        <li><strong>Must change password</strong> &mdash; the password was set by somebody other than
+          the account&rsquo;s owner, so it is a handover rather than a credential. This is the default
+          when an admin creates an account or resets a password.</li>
+        <li><strong>Disabled</strong> &mdash; revokes access without deleting the account, so audit
+          entries naming that person keep resolving to something.</li>
+      </ul>
+      <p><img src="../img/users.jpg" alt="Admin, Users: local accounts with their organisations and status badges for app admin and must-change-password" loading="lazy"></p>
+      <p class="note">
+        <strong>The last administrator cannot be removed.</strong> Demoting, disabling or deleting the
+        only remaining enabled app admin is refused rather than allowed and regretted &mdash; there is
+        no way back into an instance that has none.
+      </p>
+
+      <h2 id="org-roles">Giving an account a role</h2>
+      <p>
+        Editing a user offers its organisations: add one, change the role
+        (<code>admin</code>, <code>editor</code>, <code>viewer</code>), or remove the membership. An
+        account with no organisation can sign in and see nothing, so this is part of creating a usable
+        account rather than a later administrative step. What each role may do is in
+        <a href="roles.html">Roles and access</a>.
+      </p>
+
+      <h2 id="teams">Teams and who may edit a pipeline</h2>
+      <p>
+        A pipeline with no owning team can be edited only by an organisation administrator or editor.
+        Give it an owning team and that team&rsquo;s members can edit it too, with no wider access at
+        all &mdash; that is the whole point of a team: a scoped write for people who are otherwise
+        viewers.
+      </p>
+      <p>
+        A team draws its members from an identity provider group, from an explicit list of local
+        users, or from both &mdash; membership is the union, and the <strong>Teams</strong> page shows
+        which sources a team uses. A team may have no group at all, which is how teams work in a
+        deployment with no identity provider.
+      </p>
+      <p><img src="../img/teams.jpg" alt="The Teams page: one team backed by an identity provider group, one with an explicit member count, and one with no members yet" loading="lazy"></p>
+      <p class="note">
+        <strong>A group-backed team shows no roster, on purpose.</strong> That membership exists only
+        as a claim inside a signed token, so there is no list for Shepherd to read &mdash; the honest
+        answer is the group&rsquo;s name, which is what the page shows. Rendering an empty list beside
+        a configured group would read as &ldquo;this group has nobody in it&rdquo;.
+      </p>
+
+      <h2 id="without-an-idp">Running with no identity provider</h2>
+      <p>
+        Nothing has to be turned on. Do not set <code>oidc.issuer</code>, set a bootstrap admin
+        password, and create the accounts you need at <strong>Admin &rarr; Users</strong>. Sign-in is
+        a username and password; sessions, roles, teams, audit and everything else behave exactly as
+        they do with SSO.
+      </p>
+        <nav class="page-nav" aria-label="Pagination">
+          <a class="page-nav-prev" href="single-sign-on.html"><span>Previous</span><strong>Single sign-on</strong></a>
+          <a class="page-nav-next" href="simulation.html"><span>Next</span><strong>Sandbox simulation</strong></a>
+        </nav>
+      </div>
+    </div>
+
+    <aside class="docs-toc">
+      <p class="toc-label">On this page</p>
+      <ul>
+        <li><a href="#the-first-administrator">The first administrator</a></li>
+        <li><a href="#managing-accounts">Managing accounts</a></li>
+        <li><a href="#org-roles">Giving an account a role</a></li>
+        <li><a href="#teams">Teams and who may edit a pipeline</a></li>
+        <li><a href="#without-an-idp">Running with no identity provider</a></li>
+      </ul>
+    </aside>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-left">
+      <span class="pill">v0.3.1</span>
+      <span>self-hosted Grafana Alloy fleet manager</span>
+    </div>
+    <div class="foot-links">
+      <a href="https://github.com/procoduck/shepherd">GitHub</a>
+      <a href="index.html">Docs</a>
+      <a href="../index.html">Home</a>
+    </div>
+  </div>
+</footer>
+
+<script src="../docs.js" defer></script>
+</body>
+</html>

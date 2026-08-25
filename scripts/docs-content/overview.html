@@ -1,0 +1,69 @@
+<h1>What Shepherd is</h1>
+      <p>
+        Shepherd is a self-hosted fleet manager for <strong>Grafana Alloy</strong>. It holds your
+        collectors&rsquo; configuration centrally and serves each one exactly the config it should be
+        running, over Alloy&rsquo;s own <code>remotecfg</code> protocol. Collectors poll it; it never
+        connects to them.
+      </p>
+
+      <h2 id="how-it-fits-together">How it fits together</h2>
+      <div class="code-block" data-lang="text">
+        <div class="code-head"><span>architecture</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>Alloy (spoke)  ──remotecfg──▶  Shepherd  ──serves──▶  merged Alloy config
+                                  │
+                 ┌────────────────┼────────────────────┐
+                 ▼                ▼                    ▼
+           PostgreSQL         Merge engine         Git (GitOps)
+        (sessions, store)  (matcher + declare)      (repo_links)</code></pre>
+      </div>
+      <ul>
+        <li><strong>Collectors</strong> authenticate with an <a href="agent-tokens.html">agent token</a>
+          over HTTP Basic auth and poll for their configuration on an interval you choose.</li>
+        <li><strong>The merge engine</strong> takes every enabled pipeline whose
+          <a href="matchers.html">matchers</a> select a given collector and merges them into the single
+          config that collector is served.</li>
+        <li><strong>PostgreSQL</strong> holds everything: pipelines, orgs, sessions, credentials.
+          Shepherd itself is stateless, so you can run more than one replica.</li>
+        <li><strong>Git</strong> is optional. A repo can be the source of pipelines instead of the UI
+          &mdash; see <a href="gitops.html">GitOps</a>.</li>
+      </ul>
+
+      <h2 id="what-a-collector-gets">What a collector actually gets</h2>
+      <p>
+        One merged config, assembled from the pipelines that match it. A collector that matches
+        nothing is served an empty config rather than an error, so an unclaimed or unmatched collector
+        keeps running whatever it already had locally &mdash; nothing is disrupted until somebody
+        claims its cluster and enables pipelines that select it.
+      </p>
+      <p>
+        Every pipeline passes a <a href="matchers.html#the-validation-gate">three-stage validation
+        gate</a> before it can be served, so a config that would not start is refused at authoring
+        time rather than discovered by a collector at 3am.
+      </p>
+
+      <h2 id="the-beacon">The beacon</h2>
+      <p>
+        Every claimed collector is also served a small baseline pipeline that reports which components
+        it is running and whether they are healthy. It reports <strong>component names and health
+        only</strong> &mdash; never config text, never raw samples. It is on by default; set
+        <code>server.beacon_disabled: true</code> to turn it off.
+      </p>
+
+      <h2 id="what-it-is-not">What it is not</h2>
+      <ul>
+        <li><strong>Not a telemetry backend.</strong> Shepherd never receives your metrics, logs or
+          traces. It configures the collectors that ship them, and the data goes wherever your
+          destinations point.</li>
+        <li><strong>Not a replacement for Alloy.</strong> What Shepherd serves is ordinary Alloy
+          config. Anything Alloy can run, it can serve; anything Alloy cannot, it refuses at the gate.</li>
+        <li><strong>Not an agent installer.</strong> You deploy Alloy however you already do; Shepherd
+          takes over from the point it starts polling.</li>
+      </ul>
+
+      <h2 id="multi-tenancy">Organisations</h2>
+      <p>
+        Everything is scoped to an organisation: collectors are claimed into one, pipelines belong to
+        one, and roles are granted per organisation. An application administrator creates orgs and
+        sets each one&rsquo;s tenant identity; everyone else works inside one. See
+        <a href="roles.html">Roles and access</a>.
+      </p>

@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roles and access &mdash; Shepherd docs</title>
+<meta name="description" content="Who can do what in Shepherd, and the two independent ways a person gets a role.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="../index.html">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 2.5 4 6v6c0 5.2 3.4 9.4 8 10.5 4.6-1.1 8-5.3 8-10.5V6l-8-3.5Z" stroke="var(--accent)" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M8.5 12.2 11 14.7l4.8-5" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Shepherd
+    </a>
+    <div class="nav-links">
+      <a href="../index.html#features">Features</a>
+      <a href="../index.html#architecture">Architecture</a>
+      <a href="index.html">Docs</a>
+      <a class="btn btn-outline" href="https://github.com/procoduck/shepherd">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<div class="docs-body">
+  <div class="wrap docs-shell">
+<aside class="docs-nav" id="docs-nav">
+  <p class="docs-nav-label">Documentation</p>
+  <p class="docs-nav-cat">Get started</p>
+  <ul>
+    <li><a href="quickstart.html">Quickstart</a></li>
+  </ul>
+  <p class="docs-nav-cat">About</p>
+  <ul>
+    <li><a href="overview.html">What Shepherd is</a></li>
+    <li><a href="roles.html" class="active" aria-current="page">Roles and access</a></li>
+  </ul>
+  <p class="docs-nav-cat">Install</p>
+  <ul>
+    <li><a href="requirements.html">Requirements</a></li>
+    <li><a href="local-development.html">Local development</a></li>
+    <li><a href="kubernetes.html">Kubernetes (Helm)</a></li>
+    <li><a href="configuration.html">Configuration</a></li>
+  </ul>
+  <p class="docs-nav-cat">Fleet</p>
+  <ul>
+    <li><a href="agent-tokens.html">Agent tokens</a></li>
+    <li><a href="collectors.html">Connect a collector</a></li>
+  </ul>
+  <p class="docs-nav-cat">Pipelines</p>
+  <ul>
+    <li><a href="authoring.html">Authoring pipelines</a></li>
+    <li><a href="matchers.html">Matchers and validation</a></li>
+    <li><a href="gitops.html">GitOps</a></li>
+  </ul>
+  <p class="docs-nav-cat">Access control</p>
+  <ul>
+    <li><a href="single-sign-on.html">Single sign-on</a></li>
+    <li><a href="users-and-teams.html">Users and teams</a></li>
+  </ul>
+  <p class="docs-nav-cat">Sandbox</p>
+  <ul>
+    <li><a href="simulation.html">Sandbox simulation</a></li>
+  </ul>
+  <p class="docs-nav-cat">Reference</p>
+  <ul>
+    <li><a href="resources.html">Further reading</a></li>
+  </ul>
+</aside>
+
+    <div class="docs-main">
+      <nav class="crumbs" aria-label="Breadcrumb"><a href="index.html">Docs</a><span aria-hidden="true">/</span><span>About</span><span aria-hidden="true">/</span><span class="crumb-here">Roles and access</span></nav>
+      <div class="docs-content">
+<h1>Roles and access</h1>
+      <p>
+        A person&rsquo;s role reaches Shepherd two ways, and the two coexist. Either your identity
+        provider puts them in a group Shepherd knows about, or an application administrator gives
+        them a local account and a role in an organisation. <strong>Neither is a fallback for the
+        other</strong> &mdash; you can run entirely on single sign-on, entirely on local accounts, or
+        mix them, and a session is judged on one source only.
+      </p>
+
+      <h2 id="the-roles">The roles</h2>
+      <table>
+        <thead><tr><th>Actor</th><th>Can</th><th>Cannot</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Application administrator</strong></td>
+            <td>Everything, everywhere: create organisations and set their tenant identity, claim
+                clusters into orgs, issue and revoke agent tokens, configure single sign-on, manage
+                local accounts.</td>
+            <td>&mdash;</td>
+          </tr>
+          <tr>
+            <td><strong>Organisation administrator</strong></td>
+            <td>Everything inside one org, including what the org <em>is</em>: destinations, tenant
+                routes, git credentials and repo links, teams, service accounts, and the group
+                assignments on that org&rsquo;s collectors.</td>
+            <td>Reach another org, claim clusters, or manage agent tokens.</td>
+          </tr>
+          <tr>
+            <td><strong>Organisation editor</strong></td>
+            <td>Author what the org <em>runs</em>: pipelines, wizards, the visual builder,
+                simulations.</td>
+            <td>Change where telemetry ships &mdash; destinations, tenant routes, git credentials
+                and teams stay with the org admin.</td>
+          </tr>
+          <tr>
+            <td><strong>Team member</strong></td>
+            <td>Write the pipelines their team owns &mdash; scoped write, with no wider access.</td>
+            <td>Touch pipelines their team does not own.</td>
+          </tr>
+          <tr>
+            <td><strong>Viewer</strong></td>
+            <td>View collectors they are assigned to, and the pipelines and served config affecting
+                them.</td>
+            <td>Create or change anything.</td>
+          </tr>
+          <tr>
+            <td><strong>Service account (<code>apply</code>)</strong></td>
+            <td>Machine writes within one org, and every write must name the human it acts for
+                &mdash; a claim verified against the credential, not taken on trust.</td>
+            <td>Ever be an app admin. Act without an on-behalf-of.</td>
+          </tr>
+          <tr>
+            <td><strong>Service account (<code>propose</code>)</strong></td>
+            <td>Read, validate and simulate freely.</td>
+            <td>Apply anything.</td>
+          </tr>
+          <tr>
+            <td><strong>Collector (agent token)</strong></td>
+            <td>Fetch its own merged config and report status, over HTTP Basic auth.</td>
+            <td>Read or change anything in the management API.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2 id="why-there-is-an-editor">Why there is an editor tier</h2>
+      <p>
+        Writing a pipeline and re-pointing where an org&rsquo;s telemetry ships used to be the same
+        permission: both needed org admin. They are different risks. An editor can author freely
+        without being able to change a destination, a tenant route, or a git credential &mdash; so the
+        person who tunes a scrape interval does not also hold the ability to redirect the fleet&rsquo;s
+        data somewhere else.
+      </p>
+
+      <h2 id="how-a-role-is-assigned">How a role is assigned</h2>
+      <p>
+        <strong>From your identity provider.</strong> Each organisation names an admin, editor and
+        reader group at <strong>Admin &rarr; Orgs</strong>. Whatever your provider emits in the groups
+        claim is matched against those values &mdash; object GUIDs for Microsoft Entra, and for every
+        other provider whatever it actually emits, usually a group name or a path. App-admin rights
+        come from <code>auth.app_admin_group_ids</code>.
+      </p>
+      <p>
+        <strong>From a local account.</strong> An app admin creates the account at
+        <strong>Admin &rarr; Users</strong> and assigns its role per organisation there. See
+        <a href="users-and-teams.html">Users and teams</a>.
+      </p>
+      <p class="note">
+        <strong>An account with no organisation sees nothing.</strong> It can sign in, and that is
+        all. Assigning at least one org role is part of creating a usable account, not a separate
+        administrative step.
+      </p>
+        <nav class="page-nav" aria-label="Pagination">
+          <a class="page-nav-prev" href="overview.html"><span>Previous</span><strong>What Shepherd is</strong></a>
+          <a class="page-nav-next" href="requirements.html"><span>Next</span><strong>Requirements</strong></a>
+        </nav>
+      </div>
+    </div>
+
+    <aside class="docs-toc">
+      <p class="toc-label">On this page</p>
+      <ul>
+        <li><a href="#the-roles">The roles</a></li>
+        <li><a href="#why-there-is-an-editor">Why there is an editor tier</a></li>
+        <li><a href="#how-a-role-is-assigned">How a role is assigned</a></li>
+      </ul>
+    </aside>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-left">
+      <span class="pill">v0.3.1</span>
+      <span>self-hosted Grafana Alloy fleet manager</span>
+    </div>
+    <div class="foot-links">
+      <a href="https://github.com/procoduck/shepherd">GitHub</a>
+      <a href="index.html">Docs</a>
+      <a href="../index.html">Home</a>
+    </div>
+  </div>
+</footer>
+
+<script src="../docs.js" defer></script>
+</body>
+</html>

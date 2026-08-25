@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quickstart &mdash; Shepherd docs</title>
+<meta name="description" content="Run Shepherd locally and serve a first pipeline to a Grafana Alloy collector in about five minutes.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="../index.html">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 2.5 4 6v6c0 5.2 3.4 9.4 8 10.5 4.6-1.1 8-5.3 8-10.5V6l-8-3.5Z" stroke="var(--accent)" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M8.5 12.2 11 14.7l4.8-5" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Shepherd
+    </a>
+    <div class="nav-links">
+      <a href="../index.html#features">Features</a>
+      <a href="../index.html#architecture">Architecture</a>
+      <a href="index.html">Docs</a>
+      <a class="btn btn-outline" href="https://github.com/procoduck/shepherd">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<div class="docs-body">
+  <div class="wrap docs-shell">
+<aside class="docs-nav" id="docs-nav">
+  <p class="docs-nav-label">Documentation</p>
+  <p class="docs-nav-cat">Get started</p>
+  <ul>
+    <li><a href="quickstart.html" class="active" aria-current="page">Quickstart</a></li>
+  </ul>
+  <p class="docs-nav-cat">About</p>
+  <ul>
+    <li><a href="overview.html">What Shepherd is</a></li>
+    <li><a href="roles.html">Roles and access</a></li>
+  </ul>
+  <p class="docs-nav-cat">Install</p>
+  <ul>
+    <li><a href="requirements.html">Requirements</a></li>
+    <li><a href="local-development.html">Local development</a></li>
+    <li><a href="kubernetes.html">Kubernetes (Helm)</a></li>
+    <li><a href="configuration.html">Configuration</a></li>
+  </ul>
+  <p class="docs-nav-cat">Fleet</p>
+  <ul>
+    <li><a href="agent-tokens.html">Agent tokens</a></li>
+    <li><a href="collectors.html">Connect a collector</a></li>
+  </ul>
+  <p class="docs-nav-cat">Pipelines</p>
+  <ul>
+    <li><a href="authoring.html">Authoring pipelines</a></li>
+    <li><a href="matchers.html">Matchers and validation</a></li>
+    <li><a href="gitops.html">GitOps</a></li>
+  </ul>
+  <p class="docs-nav-cat">Access control</p>
+  <ul>
+    <li><a href="single-sign-on.html">Single sign-on</a></li>
+    <li><a href="users-and-teams.html">Users and teams</a></li>
+  </ul>
+  <p class="docs-nav-cat">Sandbox</p>
+  <ul>
+    <li><a href="simulation.html">Sandbox simulation</a></li>
+  </ul>
+  <p class="docs-nav-cat">Reference</p>
+  <ul>
+    <li><a href="resources.html">Further reading</a></li>
+  </ul>
+</aside>
+
+    <div class="docs-main">
+      <nav class="crumbs" aria-label="Breadcrumb"><a href="index.html">Docs</a><span aria-hidden="true">/</span><span>Get started</span><span aria-hidden="true">/</span><span class="crumb-here">Quickstart</span></nav>
+      <div class="docs-content">
+<h1>Quickstart</h1>
+      <p>
+        The fastest path to a Shepherd you can click through: the whole stack in Docker, seeded, with
+        live Alloy collectors already polling it. Roughly five minutes, most of which is image pulls.
+      </p>
+      <p class="note">
+        <strong>You need</strong> Docker, <code>make</code>, and a checkout of the repository. Nothing
+        else &mdash; the dev stack brings its own PostgreSQL, mock identity provider, git server and
+        collectors. For a production install see <a href="kubernetes.html">Kubernetes (Helm)</a>.
+      </p>
+
+      <h2 id="start-the-stack">1. Start the stack</h2>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>git clone https://github.com/procoduck/shepherd.git
+cd shepherd
+make dev</code></pre>
+      </div>
+      <p>
+        That builds the images and brings up PostgreSQL, a seeded database, Shepherd, and a couple of
+        real Alloy collectors pointed at it. When it finishes it prints the URL and the sign-in.
+      </p>
+
+      <h2 id="sign-in">2. Sign in</h2>
+      <p>
+        Open <a href="http://localhost:8080">http://localhost:8080</a> and sign in as
+        <code>admin</code> / <code>admin</code>. This is a local development credential seeded by
+        <code>make dev</code>; a real install sets its own on first boot &mdash; see
+        <a href="configuration.html#the-first-administrator">Configuration</a>.
+      </p>
+
+      <h2 id="look-at-the-fleet">3. Look at the fleet</h2>
+      <p>
+        <strong>Collectors</strong> lists the agents already talking to Shepherd, the cluster and role
+        attributes each one reports, and when it last polled. Open one and you can see the exact
+        merged config it is being served right now.
+      </p>
+      <p><img src="../img/collectors.jpg" alt="The Collectors list: each collector with its cluster, role, health and last-seen time" loading="lazy"></p>
+
+      <h2 id="change-something">4. Change what they run</h2>
+      <p>
+        Go to <strong>Pipelines</strong> and create one &mdash; from a wizard, in the visual builder,
+        or by pasting Alloy directly. Give it matchers that select a collector you just looked at,
+        enable it, and watch the served config on that collector&rsquo;s page change on its next poll.
+      </p>
+      <p>
+        That loop &mdash; author, match, serve &mdash; is all of Shepherd.
+        <a href="authoring.html">Authoring pipelines</a> covers the three editors and
+        <a href="matchers.html">Matchers and validation</a> covers how a pipeline finds its collectors
+        and what Shepherd refuses to serve.
+      </p>
+
+      <h2 id="tear-it-down">5. Tear it down</h2>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>make dev-reset   # stop everything and drop the volumes</code></pre>
+      </div>
+
+      <h2 id="where-next">Where to go next</h2>
+      <ul>
+        <li><a href="overview.html">What Shepherd is</a> &mdash; how the pieces fit, and what it deliberately is not.</li>
+        <li><a href="kubernetes.html">Kubernetes (Helm)</a> &mdash; a real install, from the published chart.</li>
+        <li><a href="local-development.html">Local development</a> &mdash; running from source instead of Docker.</li>
+        <li><a href="collectors.html">Connect a collector</a> &mdash; point your own Alloy at it.</li>
+      </ul>
+        <nav class="page-nav" aria-label="Pagination">
+          <span></span>
+          <a class="page-nav-next" href="overview.html"><span>Next</span><strong>What Shepherd is</strong></a>
+        </nav>
+      </div>
+    </div>
+
+    <aside class="docs-toc">
+      <p class="toc-label">On this page</p>
+      <ul>
+        <li><a href="#start-the-stack">1. Start the stack</a></li>
+        <li><a href="#sign-in">2. Sign in</a></li>
+        <li><a href="#look-at-the-fleet">3. Look at the fleet</a></li>
+        <li><a href="#change-something">4. Change what they run</a></li>
+        <li><a href="#tear-it-down">5. Tear it down</a></li>
+        <li><a href="#where-next">Where to go next</a></li>
+      </ul>
+    </aside>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-left">
+      <span class="pill">v0.3.1</span>
+      <span>self-hosted Grafana Alloy fleet manager</span>
+    </div>
+    <div class="foot-links">
+      <a href="https://github.com/procoduck/shepherd">GitHub</a>
+      <a href="index.html">Docs</a>
+      <a href="../index.html">Home</a>
+    </div>
+  </div>
+</footer>
+
+<script src="../docs.js" defer></script>
+</body>
+</html>

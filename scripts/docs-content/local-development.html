@@ -1,0 +1,52 @@
+<h1>Local development</h1>
+      <p>Start Postgres, build the binary, run migrations, and serve.</p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code># 1. Start Postgres
+docker run -d --name shepherd-pg \
+  -e POSTGRES_DB=shepherd -e POSTGRES_USER=shepherd -e POSTGRES_PASSWORD=shepherd \
+  -p 5432:5432 postgres:16-alpine
+
+# 2. Build
+make build
+
+# 3. Configure. Export rather than inline: a `VAR=x cmd1 &amp;&amp; cmd2` prefix applies
+#    to cmd1 only, so `serve` would start with no config and exit.
+#    KEEP THE ENCRYPTION KEY. It encrypts git credentials and the OIDC client
+#    secret at rest; a new key cannot decrypt what the old one wrote.
+export SHEPHERD_DATABASE_URL=postgres://shepherd:shepherd@localhost:5432/shepherd
+export SHEPHERD_SECURITY_ENCRYPTION_KEY=$(openssl rand -base64 32)
+#    The first administrator, created on first boot while the users table is
+#    empty. Leave the password unset and you get admin/admin, which can do
+#    nothing until it is changed.
+export SHEPHERD_BOOTSTRAP_ADMIN_LOGIN=admin
+export SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD=choose-a-password
+
+# 4. Run
+./bin/shepherd migrate up
+./bin/shepherd serve          # http://localhost:8080</code></pre>
+      </div>
+      <p>
+        Sign in at <a href="http://localhost:8080">http://localhost:8080</a> with the login and
+        password you exported. Then mint an <a href="agent-tokens.html">agent token</a> and
+        <a href="collectors.html">point a collector at it</a>.
+      </p>
+      <h2 id="the-full-dev-stack">The full dev stack</h2>
+      <p class="note">
+        Prefer a whole environment with a mock identity provider, a git server, and live Alloy agents
+        already talking to it? <code>make dev</code> boots that in Docker &mdash; see the
+        <a href="quickstart.html">Quickstart</a>. Use this page when you are changing Shepherd itself
+        and want the binary under your own debugger.
+      </p>
+      <h2 id="useful-targets">Useful targets</h2>
+      <table>
+        <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>make help</code></td><td>List every target and env knob</td></tr>
+          <tr><td><code>make build</code></td><td>Build the web SPA and the Go binary</td></tr>
+          <tr><td><code>make test</code></td><td>Go tests (needs Docker &mdash; testcontainers)</td></tr>
+          <tr><td><code>make lint</code></td><td>golangci-lint plus the repo guards</td></tr>
+          <tr><td><code>make dev</code></td><td>The full stack in Docker</td></tr>
+          <tr><td><code>make dev-reset</code></td><td>Stop it and drop the volumes</td></tr>
+        </tbody>
+      </table>

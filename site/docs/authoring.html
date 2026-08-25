@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Authoring pipelines &mdash; Shepherd docs</title>
+<meta name="description" content="Three ways to write a pipeline — a wizard, the visual builder, or raw Alloy — all landing in one merge engine.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="../index.html">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 2.5 4 6v6c0 5.2 3.4 9.4 8 10.5 4.6-1.1 8-5.3 8-10.5V6l-8-3.5Z" stroke="var(--accent)" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M8.5 12.2 11 14.7l4.8-5" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Shepherd
+    </a>
+    <div class="nav-links">
+      <a href="../index.html#features">Features</a>
+      <a href="../index.html#architecture">Architecture</a>
+      <a href="index.html">Docs</a>
+      <a class="btn btn-outline" href="https://github.com/procoduck/shepherd">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<div class="docs-body">
+  <div class="wrap docs-shell">
+<aside class="docs-nav" id="docs-nav">
+  <p class="docs-nav-label">Documentation</p>
+  <p class="docs-nav-cat">Get started</p>
+  <ul>
+    <li><a href="quickstart.html">Quickstart</a></li>
+  </ul>
+  <p class="docs-nav-cat">About</p>
+  <ul>
+    <li><a href="overview.html">What Shepherd is</a></li>
+    <li><a href="roles.html">Roles and access</a></li>
+  </ul>
+  <p class="docs-nav-cat">Install</p>
+  <ul>
+    <li><a href="requirements.html">Requirements</a></li>
+    <li><a href="local-development.html">Local development</a></li>
+    <li><a href="kubernetes.html">Kubernetes (Helm)</a></li>
+    <li><a href="configuration.html">Configuration</a></li>
+  </ul>
+  <p class="docs-nav-cat">Fleet</p>
+  <ul>
+    <li><a href="agent-tokens.html">Agent tokens</a></li>
+    <li><a href="collectors.html">Connect a collector</a></li>
+  </ul>
+  <p class="docs-nav-cat">Pipelines</p>
+  <ul>
+    <li><a href="authoring.html" class="active" aria-current="page">Authoring pipelines</a></li>
+    <li><a href="matchers.html">Matchers and validation</a></li>
+    <li><a href="gitops.html">GitOps</a></li>
+  </ul>
+  <p class="docs-nav-cat">Access control</p>
+  <ul>
+    <li><a href="single-sign-on.html">Single sign-on</a></li>
+    <li><a href="users-and-teams.html">Users and teams</a></li>
+  </ul>
+  <p class="docs-nav-cat">Sandbox</p>
+  <ul>
+    <li><a href="simulation.html">Sandbox simulation</a></li>
+  </ul>
+  <p class="docs-nav-cat">Reference</p>
+  <ul>
+    <li><a href="resources.html">Further reading</a></li>
+  </ul>
+</aside>
+
+    <div class="docs-main">
+      <nav class="crumbs" aria-label="Breadcrumb"><a href="index.html">Docs</a><span aria-hidden="true">/</span><span>Pipelines</span><span aria-hidden="true">/</span><span class="crumb-here">Authoring pipelines</span></nav>
+      <div class="docs-content">
+<h1>Authoring pipelines</h1>
+      <p>
+        A <strong>pipeline</strong> is a fragment of Alloy config plus the <strong>matchers</strong>
+        that decide which collectors receive it. Shepherd merges every enabled pipeline whose matchers
+        select a given collector into the single config that collector is served. There are three ways
+        in, and they all land in the same merge engine.
+      </p>
+
+      <h2 id="1-a-wizard-if-your-job-is-a-common-one">1. A wizard, if your job is a common one</h2>
+      <p>
+        Six guided forms cover the jobs most fleets need. Answer the questions, preview the Alloy it
+        generates, commit it as a pipeline.
+      </p>
+      <p><img src="../img/wizards.jpg" alt="The Wizards page: six cards — App Observability, Blackbox Probes, Cluster Metrics, Database Metrics, Pod Logs, Self Monitoring" loading="lazy"></p>
+
+      <h2 id="2-the-visual-builder-when-you-want-to-see-the-graph">2. The visual builder, when you want to see the graph</h2>
+      <p>
+        Drag components from the palette onto the canvas and wire their ports together. The
+        <strong>Generated config</strong> tab shows the Alloy it produces as you work, and the validity
+        chip in the toolbar goes red the moment the graph would not run — you cannot save a broken one.
+      </p>
+      <p><img src="../img/visual-builder.jpg" alt="The visual pipeline builder: component palette on the left, a three-node graph on the canvas, properties panel on the right" loading="lazy"></p>
+      <p>
+        The graph below generates the config beside it. This is the same Alloy that will be merged and
+        served — there is no separate translation step to be surprised by.
+      </p>
+      <p><img src="../img/generated-config.jpg" alt="The builder's Generated config tab showing the Alloy produced by the graph" loading="lazy"></p>
+
+      <h2 id="3-raw-alloy-when-you-already-know-what-you-want">3. Raw Alloy, when you already know what you want</h2>
+      <p>
+        Paste the config. It goes through exactly the same gate as the other two.
+      </p>
+      <p class="note">
+        <strong>All three land in the same place.</strong> A wizard and the visual builder are
+        editors, not separate systems &mdash; each produces Alloy config that goes through the same
+        <a href="matchers.html#the-validation-gate">validation gate</a> and the same merge engine as
+        config you paste by hand. There is no translation step to be surprised by later.
+      </p>
+      <p>Next: decide <a href="matchers.html">which collectors receive it</a>.</p>
+        <nav class="page-nav" aria-label="Pagination">
+          <a class="page-nav-prev" href="collectors.html"><span>Previous</span><strong>Connect a collector</strong></a>
+          <a class="page-nav-next" href="matchers.html"><span>Next</span><strong>Matchers and validation</strong></a>
+        </nav>
+      </div>
+    </div>
+
+    <aside class="docs-toc">
+      <p class="toc-label">On this page</p>
+      <ul>
+        <li><a href="#1-a-wizard-if-your-job-is-a-common-one">1. A wizard, if your job is a common one</a></li>
+        <li><a href="#2-the-visual-builder-when-you-want-to-see-the-graph">2. The visual builder, when you want to see the graph</a></li>
+        <li><a href="#3-raw-alloy-when-you-already-know-what-you-want">3. Raw Alloy, when you already know what you want</a></li>
+      </ul>
+    </aside>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-left">
+      <span class="pill">v0.3.1</span>
+      <span>self-hosted Grafana Alloy fleet manager</span>
+    </div>
+    <div class="foot-links">
+      <a href="https://github.com/procoduck/shepherd">GitHub</a>
+      <a href="index.html">Docs</a>
+      <a href="../index.html">Home</a>
+    </div>
+  </div>
+</footer>
+
+<script src="../docs.js" defer></script>
+</body>
+</html>

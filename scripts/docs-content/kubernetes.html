@@ -1,0 +1,60 @@
+<h1>Kubernetes (Helm)</h1>
+      <p>
+        The chart is published as an OCI artifact at
+        <code>oci://ghcr.io/procoduck/charts/shepherd</code> &mdash; nothing to clone, no
+        <code>helm repo add</code>. Images are published alongside it to
+        <code>ghcr.io/procoduck/shepherd</code> (and <code>ghcr.io/procoduck/shepherd-simulator</code> for
+        the optional sandbox) for <code>linux/amd64</code> and <code>linux/arm64</code>.
+      </p>
+      <p class="note">
+        <strong>Bring your own PostgreSQL.</strong> The chart does not ship a database. Point
+        <code>SHEPHERD_DATABASE_URL</code> at one you run.
+      </p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>kubectl create secret generic shepherd-secrets \
+  --from-literal=SHEPHERD_DATABASE_URL='postgres://user:pass@host:5432/shepherd' \
+  --from-literal=SHEPHERD_SECURITY_ENCRYPTION_KEY="$(openssl rand -base64 32)" \
+  --from-literal=SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD='choose-a-password'
+
+helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.7.1 \
+  --set existingSecret=shepherd-secrets \
+  --set "route.enabled=true" \
+  --set "route.hostnames[0]=shepherd.internal"</code></pre>
+      </div>
+      <p>
+        The image needs no <code>--set</code>: <code>image.registry</code> defaults to
+        <code>ghcr.io/procoduck</code> and the tag falls back to the chart's
+        <code>appVersion</code>, so each chart version installs the Shepherd release it was
+        published for.
+      </p>
+      <p class="note">
+        <strong>Chart version is not the app version.</strong> <code>--version 0.7.1</code> is the
+        <em>chart's</em>; Shepherd's is <code>0.3.x</code>. They move independently, so a chart-only
+        change bumps only the chart. Run
+        <code>helm show chart oci://ghcr.io/procoduck/charts/shepherd</code> to see which Shepherd
+        release a chart version installs. To modify the chart yourself, clone the repo and install
+        from <code>./deploy/helm/shepherd</code> instead.
+      </p>
+      <p>
+        The install above names a secret it expects to already exist. Which keys belong in it, which
+        two are mandatory, and which one must never be rotated are covered in
+        <a href="configuration.html">Configuration</a>.
+      </p>
+      <h2 id="verifying-the-install">Verifying the install</h2>
+      <p>
+        Every workload should reach <code>Available</code>, and the rendered image tag should be the
+        Shepherd release the chart was published for:
+      </p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>kubectl rollout status deploy/shepherd
+kubectl get pods -l app.kubernetes.io/name=shepherd
+
+# what the chart would install, without installing it
+helm show chart oci://ghcr.io/procoduck/charts/shepherd --version 0.7.1</code></pre>
+      </div>
+      <p>
+        Then sign in as the administrator created on first boot and continue with
+        <a href="agent-tokens.html">Agent tokens</a>.
+      </p>

@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sandbox simulation &mdash; Shepherd docs</title>
+<meta name="description" content="Run a candidate pipeline against synthetic telemetry in a contained sandbox before it reaches a collector.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="../index.html">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 2.5 4 6v6c0 5.2 3.4 9.4 8 10.5 4.6-1.1 8-5.3 8-10.5V6l-8-3.5Z" stroke="var(--accent)" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M8.5 12.2 11 14.7l4.8-5" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Shepherd
+    </a>
+    <div class="nav-links">
+      <a href="../index.html#features">Features</a>
+      <a href="../index.html#architecture">Architecture</a>
+      <a href="index.html">Docs</a>
+      <a class="btn btn-outline" href="https://github.com/procoduck/shepherd">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<div class="docs-body">
+  <div class="wrap docs-shell">
+<aside class="docs-nav" id="docs-nav">
+  <p class="docs-nav-label">Documentation</p>
+  <p class="docs-nav-cat">Get started</p>
+  <ul>
+    <li><a href="quickstart.html">Quickstart</a></li>
+  </ul>
+  <p class="docs-nav-cat">About</p>
+  <ul>
+    <li><a href="overview.html">What Shepherd is</a></li>
+    <li><a href="roles.html">Roles and access</a></li>
+  </ul>
+  <p class="docs-nav-cat">Install</p>
+  <ul>
+    <li><a href="requirements.html">Requirements</a></li>
+    <li><a href="local-development.html">Local development</a></li>
+    <li><a href="kubernetes.html">Kubernetes (Helm)</a></li>
+    <li><a href="configuration.html">Configuration</a></li>
+  </ul>
+  <p class="docs-nav-cat">Fleet</p>
+  <ul>
+    <li><a href="agent-tokens.html">Agent tokens</a></li>
+    <li><a href="collectors.html">Connect a collector</a></li>
+  </ul>
+  <p class="docs-nav-cat">Pipelines</p>
+  <ul>
+    <li><a href="authoring.html">Authoring pipelines</a></li>
+    <li><a href="matchers.html">Matchers and validation</a></li>
+    <li><a href="gitops.html">GitOps</a></li>
+  </ul>
+  <p class="docs-nav-cat">Access control</p>
+  <ul>
+    <li><a href="single-sign-on.html">Single sign-on</a></li>
+    <li><a href="users-and-teams.html">Users and teams</a></li>
+  </ul>
+  <p class="docs-nav-cat">Sandbox</p>
+  <ul>
+    <li><a href="simulation.html" class="active" aria-current="page">Sandbox simulation</a></li>
+  </ul>
+  <p class="docs-nav-cat">Reference</p>
+  <ul>
+    <li><a href="resources.html">Further reading</a></li>
+  </ul>
+</aside>
+
+    <div class="docs-main">
+      <nav class="crumbs" aria-label="Breadcrumb"><a href="index.html">Docs</a><span aria-hidden="true">/</span><span>Sandbox</span><span aria-hidden="true">/</span><span class="crumb-here">Sandbox simulation</span></nav>
+      <div class="docs-content">
+<h1>Sandbox simulation</h1>
+      <h2 id="what-it-does">What it does</h2>
+      <p>
+        Validation tells you a pipeline is <em>well formed</em>. Simulation tells you what it
+        <em>produces</em>. Shepherd stubs out every source in your pipeline with a synthetic one,
+        redirects every destination to a capture harness, runs a real Alloy process against that
+        rewritten config for a bounded window, and shows you the series and log lines that arrived.
+      </p>
+      <p>There are three depths, and they answer different questions:</p>
+      <table>
+        <thead><tr><th>Depth</th><th>Answers</th><th>Cost</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Relabel / log preview</strong></td>
+            <td>"What do my <code>discovery.relabel</code> rules or <code>loki.process</code> stages do
+                to this input?" A per-rule, per-stage trace showing which rule dropped or rewrote a
+                label.</td>
+            <td>Instant, in-process.</td>
+          </tr>
+          <tr>
+            <td><strong>Flow check</strong></td>
+            <td>"Is anything actually wired to a destination?" A static reachability pass that catches
+                the component you added but never connected.</td>
+            <td>Instant.</td>
+          </tr>
+          <tr>
+            <td><strong>Sandbox run</strong></td>
+            <td>"If I ship this, what lands downstream?" A real Alloy process, synthetic sources,
+                captured output, per-component health.</td>
+            <td>Bounded run (30s default), queued.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2 id="using-it">Using it</h2>
+      <p>
+        In the visual builder, <strong>Flow check</strong> and <strong>Simulate</strong> sit next to
+        <strong>Save</strong> in the toolbar; results land in the <strong>Simulation</strong> tab of the
+        bottom drawer, beside <strong>Problems</strong> and <strong>Generated config</strong>. A run
+        reports what was captured, which components were healthy, and a <em>fidelity note</em> naming
+        which parts were stubbed rather than really executed — a green run against synthetic sources is
+        a weaker claim than a green run in production, and the UI says so rather than letting you
+        assume otherwise.
+      </p>
+
+      <h2 id="how-it-is-contained">How it is contained</h2>
+      <p>
+        The Helm chart ships it <strong>enabled by default</strong> — the chart auto-wires Shepherd's own config to the
+        chart's <code>shepherd-simulator</code> Service, so a plain <code>helm install</code> gets a
+        working sandbox with no extra flags.
+      </p>
+      <p>To turn it off for a deployment where you don't want it:</p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.7.1 \
+  --set simulator.enabled=false \
+  --set existingSecret=shepherd-secrets</code></pre>
+      </div>
+      <p>
+        The sandbox runs the simulated Alloy as a child process of a dedicated
+        <code>shepherd-simulator</code> pod with a default-deny egress <code>NetworkPolicy</code>, a
+        read-only root filesystem, no service account token mount, and CPU/memory limits — every one
+        of those controls is asserted by the chart's own tests, and the default render is asserted to
+        ship the simulator with its NetworkPolicy, never without. Containment has been verified with
+        in-cluster probes (<code>e2e/k8s/simulator_containment_test.go</code>) that dial from inside
+        the sandbox pod and confirm the rest of the cluster is unreachable. Stated honestly: the
+        sandbox transform bounds what credentials a run can see, and the network policy bounds where
+        it can reach — that combination is what's been proven, not an absolute guarantee against
+        anything a pipeline's own relabeling could do at runtime. If a deployment's threat model
+        needs the sandbox off entirely, use the switch above. The other two simulation tiers (flow
+        check, relabel/log trace) are unaffected either way — they run in-process and work out of the
+        box.
+      </p>
+      <p class="note">
+        Local dev keeps the sandbox opt-in on purpose (<code>make dev-sim</code>) — that's a
+        test-environment choice so the default <code>make dev</code>/<code>make e2e</code> paths
+        exercise Shepherd without the simulator, not a statement about the production default.
+      </p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>local dev</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>make dev-sim   # boots the dev stack with the sandbox tier enabled</code></pre>
+      </div>
+        <nav class="page-nav" aria-label="Pagination">
+          <a class="page-nav-prev" href="users-and-teams.html"><span>Previous</span><strong>Users and teams</strong></a>
+          <a class="page-nav-next" href="resources.html"><span>Next</span><strong>Further reading</strong></a>
+        </nav>
+      </div>
+    </div>
+
+    <aside class="docs-toc">
+      <p class="toc-label">On this page</p>
+      <ul>
+        <li><a href="#what-it-does">What it does</a></li>
+        <li><a href="#using-it">Using it</a></li>
+        <li><a href="#how-it-is-contained">How it is contained</a></li>
+      </ul>
+    </aside>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-left">
+      <span class="pill">v0.3.1</span>
+      <span>self-hosted Grafana Alloy fleet manager</span>
+    </div>
+    <div class="foot-links">
+      <a href="https://github.com/procoduck/shepherd">GitHub</a>
+      <a href="index.html">Docs</a>
+      <a href="../index.html">Home</a>
+    </div>
+  </div>
+</footer>
+
+<script src="../docs.js" defer></script>
+</body>
+</html>

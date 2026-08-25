@@ -830,3 +830,259 @@ footer .foot-links a {
     display: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Docs shell: category sidebar | content | on-this-page.
+   The old docs were a single page, so .docs-layout was two columns and the
+   left one was the page's own TOC. With many pages the left column becomes
+   persistent navigation and the TOC moves right, which is the arrangement a
+   reader can hold: where am I in the whole, then where am I on this page.
+   --------------------------------------------------------------------------- */
+
+/* Wider than the marketing .wrap (1120px): three columns plus a table need
+   more room than a single column of prose does, and squeezing the content
+   well to ~550px made every role and values table wrap badly. */
+.docs-shell {
+  max-width: 1320px;
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr) 190px;
+  gap: 44px;
+  align-items: start;
+}
+
+/* The docs landing has no on-this-page column, so it should not reserve one. */
+.docs-shell.docs-shell-wide {
+  grid-template-columns: 232px minmax(0, 1fr);
+}
+
+.docs-shell > * {
+  min-width: 0;
+}
+
+.docs-nav {
+  position: sticky;
+  top: 84px;
+  max-height: calc(100vh - 110px);
+  overflow-y: auto;
+  font-size: 14px;
+  padding-right: 8px;
+}
+
+.docs-nav-label {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0 0 14px;
+}
+
+.docs-nav-cat {
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--text);
+  letter-spacing: 0.01em;
+  margin: 22px 0 8px;
+}
+
+.docs-nav-cat:first-of-type {
+  margin-top: 0;
+}
+
+.docs-nav ul {
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-left: 1px solid var(--surface-border);
+}
+
+.docs-nav li {
+  margin: 0;
+}
+
+.docs-nav a {
+  display: block;
+  padding: 5px 10px;
+  margin-left: -1px;
+  border-left: 2px solid transparent;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.docs-nav a:hover {
+  color: var(--text);
+  text-decoration: none;
+  background: var(--bg-alt);
+}
+
+.docs-nav a.active {
+  color: var(--accent);
+  font-weight: 550;
+  border-left-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-faint);
+  margin-bottom: 20px;
+}
+
+.crumbs a {
+  color: var(--text-muted);
+}
+
+.crumbs .crumb-here {
+  color: var(--text);
+}
+
+/* Sub-entries are h3s inside a page: indented so the page's own shape is
+   visible, not just a flat list of every heading it happens to contain. */
+.docs-toc li.sub {
+  padding-left: 12px;
+  font-size: 13px;
+}
+
+/* Prev/next. A docs set with categories implies an order; without these the
+   reader has to go back to the sidebar to find out what it is. */
+.page-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 56px;
+  padding-top: 24px;
+  border-top: 1px solid var(--surface-border);
+}
+
+.page-nav a {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 16px;
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  background: var(--surface);
+  max-width: 48%;
+}
+
+.page-nav a:hover {
+  border-color: var(--accent);
+  text-decoration: none;
+}
+
+.page-nav span {
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
+.page-nav strong {
+  font-size: 14.5px;
+  font-weight: 550;
+  color: var(--text);
+}
+
+.page-nav-next {
+  text-align: right;
+  margin-left: auto;
+}
+
+/* Docs landing: one card per category. */
+.docs-index .lede-sm {
+  font-size: 17px;
+  color: var(--text-muted);
+  max-width: 62ch;
+}
+
+.doc-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 18px;
+  margin-top: 36px;
+}
+
+.doc-card {
+  border: 1px solid var(--surface-border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 20px;
+}
+
+.doc-card h2 {
+  font-size: 16px;
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+}
+
+.doc-card h2 a {
+  color: var(--text);
+}
+
+.doc-card ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.doc-card li {
+  margin: 0;
+}
+
+.doc-card a {
+  color: var(--text-muted);
+}
+
+.doc-card a:hover {
+  color: var(--accent);
+}
+
+.docs-content img {
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  display: block;
+}
+
+/* Below ~1100px the on-this-page column is the first thing worth losing: it
+   is a convenience, while the category nav is how you move around at all. */
+@media (max-width: 1100px) {
+  .docs-shell {
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 36px;
+  }
+  .docs-shell .docs-toc {
+    display: none;
+  }
+}
+
+@media (max-width: 820px) {
+  .docs-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .docs-nav {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    border-bottom: 1px solid var(--surface-border);
+    padding-bottom: 20px;
+    margin-bottom: 28px;
+  }
+  .page-nav a {
+    max-width: none;
+  }
+}
