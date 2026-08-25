@@ -29,12 +29,14 @@ export function PipelinesPage() {
         {canWrite && (
           <div className='flex items-center gap-2'>
             <Link
+              data-testid='pipeline-visual-builder'
               to='/pipelines/visual/new'
               className='flex items-center gap-1.5 rounded-md border border-indigo-600 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50'
             >
               <Plus size={14} /> Visual builder
             </Link>
             <Link
+              data-testid='pipeline-new'
               to='/pipelines/new'
               className='flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500'
             >
@@ -70,7 +72,11 @@ export function PipelinesPage() {
             </thead>
             <tbody>
               {(data?.items ?? []).map((p) => (
-                <tr key={p.id} className='border-t border-border hover:bg-card/60 cursor-pointer'>
+                <tr
+                  key={p.id}
+                  data-testid={`pipeline-row-${p.name}`}
+                  className='border-t border-border hover:bg-card/60 cursor-pointer'
+                >
                   <td className='px-4 py-2.5'>
                     <Link
                       to='/pipelines/$id'

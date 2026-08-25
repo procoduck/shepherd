@@ -108,13 +108,38 @@ export function useOrgId(): string {
 }
 
 /**
- * Whether the current user holds write access in the selected org. Mirrors
- * the server's enforcement (internal/mgmtapi/rpc_interceptor.go: write
- * procedures require org admin or app admin), so pages hide — not disable —
- * write affordances for readers instead of offering actions the server
- * would reject.
+ * Whether the current user may author what the org RUNS — pipelines, wizards,
+ * the visual builder, simulations — in the selected org.
+ *
+ * Admin OR editor, because that is what the server enforces: the pipeline write
+ * procedures sit at org-reader in rpc_interceptor.go and defer to
+ * auth.AuthorizeOwnership, whose rule is "editor or above writes anything in
+ * its org". An earlier version of this checked for admin alone and claimed to
+ * mirror the server; it did not, and it made the entire editor role unusable
+ * through the UI — the role exists precisely to author pipelines.
+ *
+ * Team members are deliberately NOT covered here. Their write access is
+ * per-pipeline (they may edit only what their team owns) and the client cannot
+ * know ownership from /api/me, so they see the same affordances as a viewer and
+ * the server has the final say. Widening this to them would offer actions that
+ * fail for most pipelines; narrowing it to admins was worse. Fixing it properly
+ * needs a per-pipeline capability on the wire.
  */
 export function useCanWrite(): boolean {
+  const { data: me } = useMe();
+  const { orgId, orgs } = useOrg();
+  return (
+    !!me?.isAppAdmin ||
+    orgs.some((o) => o.id === orgId && (o.role === 'admin' || o.role === 'editor'))
+  );
+}
+
+/**
+ * Whether the current user may change what the org IS — destinations, tenant
+ * routes, git credentials, teams, service accounts. Org admin only; an editor
+ * authors pipelines but must not be able to re-point where telemetry ships.
+ */
+export function useCanAdminister(): boolean {
   const { data: me } = useMe();
   const { orgId, orgs } = useOrg();
   return !!me?.isAppAdmin || orgs.some((o) => o.id === orgId && o.role === 'admin');

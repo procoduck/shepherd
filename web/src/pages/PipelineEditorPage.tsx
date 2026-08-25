@@ -2,7 +2,7 @@ import { timestampDate } from '@bufbuild/protobuf/wkt';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { CheckCircle2, ChevronDown, Save, XCircle } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { clients, toApiError } from '@/api/transport';
 import { AlloyEditor } from '@/editor/AlloyEditor';
@@ -38,12 +38,20 @@ export function PipelineEditorPage() {
   });
   const revisions = revisionsData?.items ?? [];
 
+  // Seed the form ONCE per pipeline, keyed on its id rather than on the query
+  // object.
+  //
+  // Depending on `pipeline` meant every refetch overwrote the form with the
+  // server copy: staleTime is 30s and refetchOnWindowFocus defaults to true, so
+  // editing for a couple of minutes and alt-tabbing away and back silently
+  // discarded the work. Any cache invalidation elsewhere did the same.
+  const seededFor = useRef<string | null>(null);
   useEffect(() => {
-    if (pipeline) {
-      setName(pipeline.name);
-      setContents(pipeline.contents);
-      setMatchers(pipeline.matchers);
-    }
+    if (!pipeline || seededFor.current === pipeline.id) return;
+    seededFor.current = pipeline.id;
+    setName(pipeline.name);
+    setContents(pipeline.contents);
+    setMatchers(pipeline.matchers);
   }, [pipeline]);
 
   // Debounced validation
@@ -94,7 +102,7 @@ export function PipelineEditorPage() {
   });
 
   const hasErrors = diagnostics.length > 0;
-  // Read-only for org readers (server rejects their writes — see useCanWrite)
+  // Read-only for viewers; admins and editors both author (see useCanWrite)
   // and for git-managed pipelines (git is the source of truth).
   const readOnly = !canWrite || pipeline?.source === 'git';
 

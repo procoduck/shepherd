@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 import { clients } from '@/api/transport';
+import { QueryError } from '@/components/QueryError';
 import { useOrgId } from '@/hooks/useOrg';
 import { formatTimestampRelative } from '@/lib/utils';
 
@@ -19,7 +20,7 @@ export function AuditPage() {
   const [action, setAction] = useState('');
   const [offset, setOffset] = useState(0);
 
-  const { data, isLoading, isFetching } = useQuery({
+  const { data, isLoading, isFetching, isError, error } = useQuery({
     queryKey: ['audit', orgId, actor, action, offset],
     queryFn: () => clients.audit.listAudit({ orgId, actor, action, limit: PAGE_SIZE, offset }),
     enabled: !!orgId,
@@ -92,6 +93,8 @@ export function AuditPage() {
 
       {!orgId ? (
         <p className='text-sm text-muted'>No organisation context.</p>
+      ) : isError ? (
+        <QueryError error={error} noun='the audit log' />
       ) : isLoading ? (
         <p className='text-sm text-muted'>Loading…</p>
       ) : items.length === 0 ? (

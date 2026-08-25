@@ -579,6 +579,31 @@ export function installDefaultHandlers(router: Router) {
   // newAuthzInterceptor. The mock enforces it too — without that, every spec
   // would pass for every persona and the page's own forbidden branch would be
   // asserted against a 200.
+  // Role gating for ORG-scoped procedures.
+  //
+  // The mock used to enforce authz for OIDC and UserService only, so every
+  // persona assertion on Teams, Pipelines, Destinations, GitOps and Audit was
+  // testing UI hiding and nothing else: a persona who wrongly GOT a button
+  // would also have got a mock 200 behind it. That is how a UI/server mismatch
+  // (an editor locked out of pipelines, a viewer shown "Add your first
+  // credential") stayed invisible to a green suite.
+  //
+  // Ranks mirror the server: admin > editor > viewer.
+  const orgRank = (role: string) => (role === 'admin' ? 3 : role === 'editor' ? 2 : 1);
+  const requireOrgRole = (r: Route, orgId: string, minRole: 'admin' | 'editor' | 'viewer') => {
+    const me = st.me as
+      | { isAppAdmin?: boolean; orgs?: { id: string; role: string }[] }
+      | null
+      | undefined;
+    if (!me) return connectError(r, 401, 'unauthenticated', 'not authenticated');
+    if (me.isAppAdmin) return null;
+    const membership = (me.orgs ?? []).find((o) => o.id === orgId);
+    if (!membership || orgRank(membership.role) < orgRank(minRole)) {
+      return connectError(r, 403, 'permission_denied', 'auth: forbidden');
+    }
+    return null;
+  };
+
   const requireAppAdmin = (r: Route) => {
     const me = st.me as { isAppAdmin?: boolean } | null | undefined;
     if (!me) return connectError(r, 401, 'unauthenticated', 'not authenticated');
@@ -920,6 +945,9 @@ export function installDefaultHandlers(router: Router) {
     json(r, 200, list((st.pipelines as Obj[]).map(pipelineToWire))),
   );
   router.register('POST', '/shepherd.mgmt.v1.PipelineService/CreatePipeline', async (r) => {
+    const pBody = (await r.request().postDataJSON()) as Obj;
+    const pDenied = requireOrgRole(r, String(pBody.orgId ?? ''), 'editor');
+    if (pDenied) return pDenied;
     const req = await body(r);
     const p: Obj = {
       id: mockId('pip'),
@@ -946,6 +974,9 @@ export function installDefaultHandlers(router: Router) {
       : connectError(r, 404, 'not_found', 'pipeline not found');
   });
   router.register('POST', '/shepherd.mgmt.v1.PipelineService/UpdatePipeline', async (r) => {
+    const pBody = (await r.request().postDataJSON()) as Obj;
+    const pDenied = requireOrgRole(r, String(pBody.orgId ?? ''), 'editor');
+    if (pDenied) return pDenied;
     const req = await body(r);
     const idx = (st.pipelines as Obj[]).findIndex((x) => x['id'] === req['id']);
     if (idx >= 0) {
@@ -958,17 +989,26 @@ export function installDefaultHandlers(router: Router) {
     return json(r, 200, pipelineToWire((st.pipelines[idx] as Obj) ?? req));
   });
   router.register('POST', '/shepherd.mgmt.v1.PipelineService/DeletePipeline', async (r) => {
+    const pBody = (await r.request().postDataJSON()) as Obj;
+    const pDenied = requireOrgRole(r, String(pBody.orgId ?? ''), 'editor');
+    if (pDenied) return pDenied;
     const req = await body(r);
     st.pipelines = (st.pipelines as Obj[]).filter((x) => x['id'] !== req['id']);
     return json(r, 200, {});
   });
   router.register('POST', '/shepherd.mgmt.v1.PipelineService/EnablePipeline', async (r) => {
+    const pBody = (await r.request().postDataJSON()) as Obj;
+    const pDenied = requireOrgRole(r, String(pBody.orgId ?? ''), 'editor');
+    if (pDenied) return pDenied;
     const req = await body(r);
     const p = (st.pipelines as Obj[]).find((x) => x['id'] === req['id']);
     if (p) p['enabled'] = true;
     return json(r, 200, pipelineToWire(p ?? {}));
   });
   router.register('POST', '/shepherd.mgmt.v1.PipelineService/DisablePipeline', async (r) => {
+    const pBody = (await r.request().postDataJSON()) as Obj;
+    const pDenied = requireOrgRole(r, String(pBody.orgId ?? ''), 'editor');
+    if (pDenied) return pDenied;
     const req = await body(r);
     const p = (st.pipelines as Obj[]).find((x) => x['id'] === req['id']);
     if (p) p['enabled'] = false;
@@ -992,6 +1032,9 @@ export function installDefaultHandlers(router: Router) {
     json(r, 200, list((st.destinations as Obj[]).map(destinationToWire))),
   );
   router.register('POST', '/shepherd.mgmt.v1.DestinationService/CreateDestination', async (r) => {
+    const dBody = (await r.request().postDataJSON()) as Obj;
+    const dDenied = requireOrgRole(r, String(dBody.orgId ?? ''), 'admin');
+    if (dDenied) return dDenied;
     const req = await body(r);
     const d: Obj = {
       id: mockId('dst'),
@@ -1015,6 +1058,9 @@ export function installDefaultHandlers(router: Router) {
     return d ? json(r, 200, destinationToWire(d)) : connectError(r, 404, 'not_found', 'not found');
   });
   router.register('POST', '/shepherd.mgmt.v1.DestinationService/UpdateDestination', async (r) => {
+    const dBody = (await r.request().postDataJSON()) as Obj;
+    const dDenied = requireOrgRole(r, String(dBody.orgId ?? ''), 'admin');
+    if (dDenied) return dDenied;
     const req = await body(r);
     const idx = (st.destinations as Obj[]).findIndex((x) => x['id'] === req['id']);
     if (idx >= 0) {
@@ -1031,6 +1077,9 @@ export function installDefaultHandlers(router: Router) {
     return json(r, 200, destinationToWire((st.destinations[idx] as Obj) ?? req));
   });
   router.register('POST', '/shepherd.mgmt.v1.DestinationService/DeleteDestination', async (r) => {
+    const dBody = (await r.request().postDataJSON()) as Obj;
+    const dDenied = requireOrgRole(r, String(dBody.orgId ?? ''), 'admin');
+    if (dDenied) return dDenied;
     const req = await body(r);
     st.destinations = (st.destinations as Obj[]).filter((x) => x['id'] !== req['id']);
     return json(r, 200, {});
@@ -1416,6 +1465,9 @@ export function installDefaultHandlers(router: Router) {
   // case-insensitive substring match, action is exact, limit defaults to 25
   // (reset, not clamped, outside (0, 200]), offset resets to 0 when negative.
   router.register('POST', '/shepherd.mgmt.v1.AuditService/ListAudit', async (r) => {
+    const auditBody = (await r.request().postDataJSON()) as Obj;
+    const auditDenied = requireOrgRole(r, String(auditBody.orgId ?? ''), 'admin');
+    if (auditDenied) return auditDenied;
     const req = await body(r);
     const orgId = req['orgId'] as string | undefined;
     const actor = ((req['actor'] as string | undefined) ?? '').toLowerCase();

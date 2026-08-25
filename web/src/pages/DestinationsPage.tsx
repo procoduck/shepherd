@@ -3,17 +3,63 @@ import { ExternalLink, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { clients, toApiError } from '@/api/transport';
+import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
+import { QueryError } from '@/components/QueryError';
 import type { Destination } from '@/gen/shepherd/mgmt/v1/destination_pb';
-import { useOrgId } from '@/hooks/useOrg';
+import { useCanAdminister, useOrgId } from '@/hooks/useOrg';
+
+/**
+ * A destination URL, rendered as a link only when it is safe to click.
+ *
+ * Two separate problems, both reachable because the server stores the URL
+ * verbatim and the API can be called without this form: a `javascript:` URL in
+ * an href executes in the app's own origin when clicked, which turns "can
+ * create a destination" into "can run script as whoever views the page"; and
+ * `new URL(...)` throws on anything unparsable, which took down the whole route
+ * rather than one cell.
+ */
+function DestinationUrl({ url }: { url: string }) {
+  let host: string | null = null;
+  try {
+    const parsed = new URL(url);
+    // Allow-list, not deny-list. Anything that is not plain web traffic is
+    // shown as text rather than guessed at.
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      host = parsed.host;
+    }
+  } catch {
+    host = null;
+  }
+
+  if (host === null) {
+    return <span title={url}>{url}</span>;
+  }
+  return (
+    <a
+      href={url}
+      target='_blank'
+      rel='noreferrer'
+      className='flex items-center gap-1 hover:text-indigo-400'
+    >
+      {host}
+      <ExternalLink size={10} />
+    </a>
+  );
+}
 
 export function DestinationsPage() {
   const orgId = useOrgId();
+  // Destinations decide where telemetry ships, so the server requires org
+  // admin. Offering the form to an editor or viewer only produces a rejection
+  // after they have filled it in.
+  const canAdminister = useCanAdminister();
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ name: '', type: 'prometheus', url: '', authMode: 'none' });
   const [urlError, setUrlError] = useState('');
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ['destinations', orgId],
     queryFn: () => clients.destination.listDestinations({ orgId }),
     enabled: !!orgId,
@@ -58,7 +104,13 @@ export function DestinationsPage() {
 
   function validateUrl(url: string): boolean {
     try {
-      new URL(url);
+      const parsed = new URL(url);
+      // new URL() accepts javascript: and data: quite happily, so parsing is
+      // not validation. Only http(s) is a destination Shepherd can ship to.
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        setUrlError('Only http:// and https:// destinations are supported');
+        return false;
+      }
       setUrlError('');
       return true;
     } catch {
@@ -76,7 +128,7 @@ export function DestinationsPage() {
     <div className='space-y-4'>
       <div className='flex items-center justify-between'>
         <h1 className='text-xl font-semibold'>Destinations</h1>
-        {!!orgId && (
+        {!!orgId && canAdminister && (
           <button
             onClick={() => setShowCreate(true)}
             className='flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500'
@@ -86,8 +138,25 @@ export function DestinationsPage() {
         )}
       </div>
 
+      {pendingDelete && (
+        <AdminConfirmDialog
+          title='Delete destination'
+          body={`Delete "${pendingDelete.name}"? Pipelines that ship to it will stop resolving this destination.`}
+          confirmLabel='Delete'
+          pendingLabel='Deleting…'
+          pending={deleteMut.isPending}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={() => {
+            deleteMut.mutate(pendingDelete.id);
+            setPendingDelete(null);
+          }}
+        />
+      )}
+
       {!orgId ? (
         <p className='text-sm text-muted'>No organisation context.</p>
+      ) : isError ? (
+        <QueryError error={error} noun='destinations' />
       ) : isLoading ? (
         <p className='text-sm text-muted'>Loading…</p>
       ) : (data?.items ?? []).length === 0 ? (
@@ -118,25 +187,19 @@ export function DestinationsPage() {
                   <td className='px-4 py-2.5 font-medium'>{d.name}</td>
                   <td className='px-4 py-2.5 text-muted'>{d.type}</td>
                   <td className='px-4 py-2.5 font-mono text-xs text-zinc-300'>
-                    <a
-                      href={d.url}
-                      target='_blank'
-                      rel='noreferrer'
-                      className='flex items-center gap-1 hover:text-indigo-400'
-                    >
-                      {new URL(d.url).host}
-                      <ExternalLink size={10} />
-                    </a>
+                    <DestinationUrl url={d.url} />
                   </td>
                   <td className='px-4 py-2.5 text-xs text-muted'>{d.authMode}</td>
                   <td className='px-4 py-2.5 text-right'>
-                    <button
-                      onClick={() => deleteMut.mutate(d.id)}
-                      className='text-muted-3 transition-colors hover:text-red-400'
-                      aria-label='Delete destination'
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    {canAdminister && (
+                      <button
+                        onClick={() => setPendingDelete({ id: d.id, name: d.name })}
+                        className='text-muted-3 transition-colors hover:text-red-400'
+                        aria-label='Delete destination'
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
