@@ -55,6 +55,19 @@ var procedureRequirements = map[string]string{ //nolint:gochecknoglobals // stat
 	mgmtv1connect.AdminServiceDeleteOidcSettingsProcedure:      auth.RoleAppAdmin,
 	mgmtv1connect.AdminServiceListOidcProviderPresetsProcedure: auth.RoleAppAdmin,
 
+	// UserService — app admin only, all of it. Deciding who may sign in, and
+	// with what rights, is the definition of an application-administration act;
+	// there is deliberately no org-scoped variant, because an org admin who
+	// could mint users could mint themselves a second, wider account.
+	mgmtv1connect.UserServiceListUsersProcedure:         auth.RoleAppAdmin,
+	mgmtv1connect.UserServiceCreateUserProcedure:        auth.RoleAppAdmin,
+	mgmtv1connect.UserServiceUpdateUserProcedure:        auth.RoleAppAdmin,
+	mgmtv1connect.UserServiceDeleteUserProcedure:        auth.RoleAppAdmin,
+	mgmtv1connect.UserServiceResetUserPasswordProcedure: auth.RoleAppAdmin,
+	mgmtv1connect.UserServiceListOrgMembersProcedure:    auth.RoleAppAdmin,
+	mgmtv1connect.UserServiceSetOrgMemberProcedure:      auth.RoleAppAdmin,
+	mgmtv1connect.UserServiceRemoveOrgMemberProcedure:   auth.RoleAppAdmin,
+
 	// FleetService — org reader for reads, org admin for writes.
 	mgmtv1connect.FleetServiceListCollectorsProcedure:   auth.RoleOrgReader,
 	mgmtv1connect.FleetServiceGetCollectorProcedure:     auth.RoleOrgReader,
@@ -185,6 +198,14 @@ var capabilityRequirements = map[string]string{ //nolint:gochecknoglobals // sta
 	// classification is what makes that explicit rather than incidental.
 	mgmtv1connect.AdminServiceUpdateOidcSettingsProcedure: capabilityApply,
 	mgmtv1connect.AdminServiceDeleteOidcSettingsProcedure: capabilityApply,
+
+	// Creating accounts and granting roles is as apply-only as it gets.
+	mgmtv1connect.UserServiceCreateUserProcedure:        capabilityApply,
+	mgmtv1connect.UserServiceUpdateUserProcedure:        capabilityApply,
+	mgmtv1connect.UserServiceDeleteUserProcedure:        capabilityApply,
+	mgmtv1connect.UserServiceResetUserPasswordProcedure: capabilityApply,
+	mgmtv1connect.UserServiceSetOrgMemberProcedure:      capabilityApply,
+	mgmtv1connect.UserServiceRemoveOrgMemberProcedure:   capabilityApply,
 
 	mgmtv1connect.FleetServiceCreateAssignmentProcedure: capabilityApply,
 	mgmtv1connect.FleetServiceDeleteAssignmentProcedure: capabilityApply,

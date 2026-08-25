@@ -5,6 +5,7 @@ import { AdminAuthPage } from '@/pages/AdminAuthPage';
 import { AdminClustersPage } from '@/pages/AdminClustersPage';
 import { AdminOrgsPage } from '@/pages/AdminOrgsPage';
 import { AdminTokensPage } from '@/pages/AdminTokensPage';
+import { AdminUsersPage } from '@/pages/AdminUsersPage';
 import { AuditPage } from '@/pages/AuditPage';
 import { CollectorDetailPage } from '@/pages/CollectorDetailPage';
 import { CollectorsPage } from '@/pages/CollectorsPage';
@@ -171,6 +172,12 @@ const adminTokensRoute = createRoute({
 // Admin → Single sign-on. Not org-scoped: OIDC configuration decides who can
 // hold an app-admin session at all, so it sits beside the other app-admin
 // surfaces rather than under an org.
+const adminUsersRoute = createRoute({
+  getParentRoute: () => contentRoute,
+  path: '/admin/users',
+  component: AdminUsersPage,
+});
+
 const adminAuthRoute = createRoute({
   getParentRoute: () => contentRoute,
   path: '/admin/auth',
@@ -200,6 +207,7 @@ const routeTree = rootRoute.addChildren([
       adminOrgsRoute,
       adminClustersRoute,
       adminTokensRoute,
+      adminUsersRoute,
       adminAuthRoute,
       auditRoute,
     ]),

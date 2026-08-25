@@ -375,6 +375,33 @@ const OIDC_PRESETS = [
   },
 ];
 
+/** Two local accounts: an admin, and an ordinary user still owing a password
+ *  change — the two states the Users page renders differently. */
+function defaultUsers() {
+  return [
+    {
+      id: 'user-1',
+      login: 'admin',
+      email: 'admin@example.com',
+      display_name: 'Administrator',
+      is_app_admin: true,
+      must_change_password: false,
+      disabled: false,
+      orgs: [{ id: 'org-0001', name: 'prod-org', display_name: 'Production Org', role: 'admin' }],
+    },
+    {
+      id: 'user-2',
+      login: 'alice',
+      email: 'alice@example.com',
+      display_name: 'Alice',
+      is_app_admin: false,
+      must_change_password: true,
+      disabled: false,
+      orgs: [{ id: 'org-0001', name: 'prod-org', display_name: 'Production Org', role: 'editor' }],
+    },
+  ];
+}
+
 /** The unconfigured-but-editable state a fresh install answers with. */
 function defaultOidcSettings() {
   return {
@@ -610,6 +637,75 @@ export function installDefaultHandlers(router: Router) {
     const denied = requireAppAdmin(r);
     if (denied) return denied;
     return json(r, 200, { items: OIDC_PRESETS });
+  });
+
+  // ── UserService (local accounts) ─────────────────────────────────────────
+  // App-admin gated like the real authz interceptor, so a spec asserting the
+  // forbidden state is asserting against a 403 rather than a 200.
+  router.register('POST', '/shepherd.mgmt.v1.UserService/ListUsers', (r) => {
+    const denied = requireAppAdmin(r);
+    if (denied) return denied;
+    return json(r, 200, list((st.users as Obj[]) ?? defaultUsers()));
+  });
+  router.register('POST', '/shepherd.mgmt.v1.UserService/CreateUser', async (r) => {
+    const denied = requireAppAdmin(r);
+    if (denied) return denied;
+    const body = (await r.request().postDataJSON()) as Obj;
+    const existing = ((st.users as Obj[]) ?? defaultUsers()).slice();
+    const login = String(body.login ?? '');
+    if (existing.some((u) => String(u.login).toLowerCase() === login.toLowerCase())) {
+      return connectError(r, 409, 'already_exists', 'a user with that login already exists');
+    }
+    if (String(body.password ?? '').length < 8) {
+      return connectError(
+        r,
+        400,
+        'invalid_argument',
+        'auth: password must be at least 8 characters',
+      );
+    }
+    const created = {
+      id: `user-${existing.length + 1}`,
+      login,
+      email: body.email ?? '',
+      display_name: body.displayName ?? '',
+      is_app_admin: body.isAppAdmin === true,
+      must_change_password: body.mustChangePassword === true,
+      disabled: false,
+      orgs: [],
+    };
+    existing.push(created);
+    st.users = existing;
+    return json(r, 200, created);
+  });
+  router.register('POST', '/shepherd.mgmt.v1.UserService/UpdateUser', async (r) => {
+    const denied = requireAppAdmin(r);
+    if (denied) return denied;
+    const body = (await r.request().postDataJSON()) as Obj;
+    const users = ((st.users as Obj[]) ?? defaultUsers()).slice();
+    const idx = users.findIndex((u) => u.id === body.id);
+    if (idx < 0) return connectError(r, 404, 'not_found', 'no such user');
+    users[idx] = {
+      ...users[idx],
+      email: body.email ?? '',
+      display_name: body.displayName ?? '',
+      is_app_admin: body.isAppAdmin === true,
+      disabled: body.disabled === true,
+    };
+    st.users = users;
+    return json(r, 200, users[idx]);
+  });
+  router.register('POST', '/shepherd.mgmt.v1.UserService/ResetUserPassword', (r) => {
+    const denied = requireAppAdmin(r);
+    if (denied) return denied;
+    return json(r, 200, {});
+  });
+  router.register('POST', '/shepherd.mgmt.v1.UserService/DeleteUser', async (r) => {
+    const denied = requireAppAdmin(r);
+    if (denied) return denied;
+    const body = (await r.request().postDataJSON()) as Obj;
+    st.users = ((st.users as Obj[]) ?? defaultUsers()).filter((u) => u.id !== body.id);
+    return json(r, 200, {});
   });
 
   // ── FleetService ─────────────────────────────────────────────────────────
@@ -1275,6 +1371,7 @@ export function defaultState(): MockState {
       oidc_display_name: 'Microsoft',
       oidc_provider: 'entra',
     },
+    users: undefined,
     oidcSettings: undefined,
     oidcTestResult: undefined,
     localAdminCreds: undefined,

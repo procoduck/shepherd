@@ -16,6 +16,7 @@ import {
   Shield,
   Sun,
   TriangleAlert,
+  Users,
   Wand2,
   Workflow,
 } from 'lucide-react';
@@ -56,6 +57,7 @@ const navGroups: Array<{ label?: string; items: NavItem[] }> = [
       { label: 'Orgs', href: '/admin/orgs', icon: <Building2 size={16} />, adminOnly: true },
       { label: 'Clusters', href: '/admin/clusters', icon: <Radio size={16} />, adminOnly: true },
       { label: 'Agent Tokens', href: '/admin/tokens', icon: <Key size={16} />, adminOnly: true },
+      { label: 'Users', href: '/admin/users', icon: <Users size={16} />, adminOnly: true },
       {
         label: 'Single sign-on',
         href: '/admin/auth',

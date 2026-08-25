@@ -35,6 +35,7 @@ export interface MockState {
   // UpdateOidcSettings (wire shape, snake_case like every other mock);
   // `oidcTestResult` seeds TestOidcSettings so a spec can drive both the
   // discovery-succeeded and discovery-failed branches without a live IdP.
+  users?: Record<string, unknown>[];
   oidcSettings?: Record<string, unknown>;
   oidcTestResult?: Record<string, unknown>;
   localAdminCreds?: { username: string; password: string };
