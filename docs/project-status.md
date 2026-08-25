@@ -377,6 +377,17 @@ the contributing set.
       unfixable alerts train everyone to ignore the alert list, and the next one may be real.
       **Re-open and re-check if `golang-migrate`/`dktest` moves to `docker/docker/v29`** — a version
       bump there is the thing that would make this actionable.
+- [ ] **`test-fullstack` flaked once (2026-08-25) with `shepherd-init` exiting 1 during
+      `compose up --wait`, root cause unknown.** Seen on the v0.2.0 release PR — a diff of nothing
+      but version strings, CHANGELOG and the rebuilt SPA dist, none of which a migration container
+      can reach. It passed on `main` with the same code, did not reproduce locally, and passed on
+      re-run with no change to what it tests. One occurrence in ~6 runs. The likeliest candidate is
+      a Postgres readiness race: `--wait` gates on the healthcheck, and init connected ~250ms after
+      Postgres reported healthy, which is a plausible window for a refused connection — **this is a
+      hypothesis, not a diagnosis**, because the container's own output was never captured.
+      That last part is now fixed: `make test-fullstack` dumps `compose ps -a` and 200 lines per
+      service when the STACK fails to start, not only when the specs fail. Next occurrence should be
+      diagnosable; if it recurs, start from init's actual stderr rather than from this guess.
 - [ ] `make e2e-sim` cannot be run as a single invocation locally — the installed ginkgo CLI is
       version-mismatched (2.32.0 vs the module's 2.32.1). Its steps run individually
 - [ ] Helm's Kubernetes containment is asserted at `helm template` text level only. A template
