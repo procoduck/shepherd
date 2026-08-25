@@ -40,6 +40,24 @@ func (q *Queries) ClearStaleFailedStatus(ctx context.Context, id string) error {
 	return err
 }
 
+const countActiveInstances = `-- name: CountActiveInstances :one
+SELECT COUNT(*)::bigint AS total
+FROM collector_instances
+WHERE unregistered_at IS NULL
+  AND (remote_config_status IS NULL OR remote_config_status != 'inactive')
+`
+
+// Feeds the shepherd_active_collectors gauge. "Active" is the definition the
+// gauge's help text already claimed: registered, not swept to 'inactive'.
+// Written as a query rather than derived from a list so the sweeper does not
+// pull every instance row once a tick just to count them.
+func (q *Queries) CountActiveInstances(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveInstances)
+	var total int64
+	err := row.Scan(&total)
+	return total, err
+}
+
 const deleteOldInstances = `-- name: DeleteOldInstances :exec
 DELETE FROM collector_instances WHERE last_seen < $1
 `

@@ -13,7 +13,55 @@ Categories used here:
 
 ## Unreleased
 
+### Added
+
+- **Shepherd instruments itself.** The `/metrics` endpoint previously exposed
+  four series, of which one was wrong. It now covers the serving paths:
+  - `shepherd_http_requests_total` and `shepherd_http_request_duration_seconds`
+    for every HTTP request, labelled by chi ROUTE PATTERN rather than URL — a
+    per-id label would mint a time series per org and per pipeline, which is
+    how a metrics endpoint takes down the Prometheus scraping it. Unmatched
+    paths collapse to one `other` series so an unauthenticated scanner cannot
+    create series at will.
+  - `shepherd_rpc_requests_total` and `shepherd_rpc_duration_seconds` for every
+    Connect RPC on both the agent and management surfaces, labelled by
+    procedure and result code. A failed call is counted under its code, because
+    an auth-failure spike is exactly what a graph is for.
+- **OpenTelemetry tracing**, off unless `tracing.endpoint` is set — and off
+  means no provider, no exporter, and a no-op tracer, which is what makes
+  instrumenting the hot agent path defensible. Server spans for HTTP requests
+  and Connect RPCs, with inbound trace context honoured so a call that crossed
+  from the UI into the API is one trace rather than two. Health probes, the
+  metrics scrape, and static assets are never traced.
+
 ### Fixed
+
+- **Four of the six declared metrics were never observed**, so `/metrics` was
+  reporting on almost nothing:
+  - `shepherd_active_collectors` was declared, never set, and therefore
+    reported **0 while collectors were actively polling**. A gauge that is
+    always zero is worse than a missing one: it cannot be alerted on, and an
+    alert written against it looks like coverage while being incapable of
+    firing. It is now published by the sweeper, including once at startup —
+    waiting for the 5m tick would have left it lying for five minutes after
+    every rollout.
+  - `shepherd_getconfig_duration_seconds`, `shepherd_gitsync_total` and
+    `shepherd_validation_total` never appeared in `/metrics` at all: a labelled
+    metric does not materialise until something observes it. There was no
+    latency histogram, no git-sync outcome counter, and no count of the
+    three-stage validation gate — the product's core safety mechanism.
+  - Stage 2 is counted as `skipped` rather than `valid` when no Alloy binary is
+    configured. That distinction is the v0.0.2 bug made visible: a deployment
+    where `alloy validate` cannot run reports success while validating nothing,
+    and now says so on a dashboard.
+- `shepherd_table_rows` published `-1`, which is Postgres's `reltuples` value
+  for a table it has never analyzed. The series is now omitted instead, since
+  "unknown" is what it means.
+- **The access log was emitted at `Debug`**, so a default `info` deployment
+  produced no per-request record at all — a failing API returned 500s with
+  nothing in the logs. Server errors now log at `Error`, client errors at
+  `Warn`, and the successful bulk stays at `Debug` so continuous collector
+  polling does not drown the log; volume and latency are the metrics' job.
 
 - **Audit entries for single sign-on were written where nobody could read them.**
   Platform-level events carry no `org_id` (SSO configuration belongs to no org),

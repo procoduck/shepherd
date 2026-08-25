@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -110,6 +111,12 @@ func (s *Service) GetConfig(
 	ctx context.Context,
 	req *connect.Request[collectorv1.GetConfigRequest],
 ) (*connect.Response[collectorv1.GetConfigResponse], error) {
+	// Every success path records its outcome through metrics.ObserveGetConfig,
+	// which pairs the counter with the latency histogram. They were separate
+	// before, and the histogram was never observed at any of the four return
+	// points, so shepherd_getconfig_duration_seconds never appeared in
+	// /metrics at all.
+	start := time.Now()
 	attrs := effectiveAttrs(req.Msg.LocalAttributes, req.Msg.Attributes) //nolint:staticcheck // deprecated field used as fallback
 
 	cluster, role, err := requireClusterRole(attrs)
@@ -161,13 +168,13 @@ func (s *Service) GetConfig(
 	if !orgID.Valid {
 		s.maybeClearFailedStatus(ctx, req.Msg.Id, req.Msg.RemoteConfigStatus, req.Msg.Hash, emptyHash)
 		if req.Msg.Hash == emptyHash {
-			metrics.GetConfigTotal.WithLabelValues("not_modified").Inc()
+			metrics.ObserveGetConfig("not_modified", start)
 			return connect.NewResponse(&collectorv1.GetConfigResponse{
 				NotModified: true,
 				Hash:        emptyHash,
 			}), nil
 		}
-		metrics.GetConfigTotal.WithLabelValues("served").Inc()
+		metrics.ObserveGetConfig("served", start)
 		return connect.NewResponse(&collectorv1.GetConfigResponse{
 			Content:     "",
 			Hash:        emptyHash,
@@ -210,14 +217,14 @@ func (s *Service) GetConfig(
 	s.maybeClearFailedStatus(ctx, req.Msg.Id, req.Msg.RemoteConfigStatus, req.Msg.Hash, cache.Hash)
 
 	if req.Msg.Hash == cache.Hash {
-		metrics.GetConfigTotal.WithLabelValues("not_modified").Inc()
+		metrics.ObserveGetConfig("not_modified", start)
 		return connect.NewResponse(&collectorv1.GetConfigResponse{
 			NotModified: true,
 			Hash:        cache.Hash,
 		}), nil
 	}
 
-	metrics.GetConfigTotal.WithLabelValues("served").Inc()
+	metrics.ObserveGetConfig("served", start)
 	return connect.NewResponse(&collectorv1.GetConfigResponse{
 		Content:     cache.Content,
 		Hash:        cache.Hash,

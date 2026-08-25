@@ -136,6 +136,28 @@ config:
     timeout: "10s"
   gitsync:
     tick: "3m"
+  # ---------------------------------------------------------------------------
+  # Tracing (OPTIONAL — off by default)
+  #
+  # `endpoint` is the switch. Unset means tracing is off entirely: no provider
+  # is installed, no exporter runs, and the instrumentation costs nothing, so
+  # leaving this alone is free. Set it and Shepherd exports OTLP spans for
+  # every HTTP request and Connect RPC it serves.
+  #
+  # Health probes (/healthz, /readyz), the metrics scrape, and static SPA
+  # assets are never traced — otherwise a backend fills with Kubernetes
+  # liveness checks.
+  # ---------------------------------------------------------------------------
+  tracing:
+    # endpoint: "opentelemetry-collector.observability.svc:4317"
+    protocol: "grpc"        # "grpc" (port 4317) or "http" (port 4318)
+    insecure: true          # normal for an in-cluster collector over the pod network
+    # sample_ratio applies only to traces Shepherd ROOTS; an incoming sampling
+    # decision is always honoured. Collectors poll continuously, so 1.0 here is
+    # a lot of spans.
+    sample_ratio: 0.1
+    service_name: "shepherd"
+    # service_version: ""   # defaults to unset; set it to correlate with releases
   log:
     level: "info"
     format: "json"

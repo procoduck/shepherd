@@ -33,6 +33,7 @@ import (
 	"shepherd/internal/simulate"
 	"shepherd/internal/spa"
 	"shepherd/internal/store"
+	"shepherd/internal/telemetry"
 	"shepherd/internal/validate"
 	"shepherd/internal/version"
 )
@@ -46,16 +47,48 @@ type Server struct {
 	store       *store.Store
 	enc         *crypto.Encryptor
 	validator   *validate.Validator
+	// traceShutdown flushes buffered spans on exit. Never nil — InitTracing
+	// returns a no-op when tracing is disabled — so Run can call it
+	// unconditionally.
+	traceShutdown telemetry.ShutdownFunc
 }
 
+// requestLogger emits one structured line per request, at a level chosen by the
+// outcome.
+//
+// It used to log everything at Debug, which meant a default `info` deployment
+// produced no per-request record at all — a failing API returned 500s with
+// nothing in the logs to say so. Logging everything at Info instead is not the
+// fix either: collectors poll GetConfig continuously (a live dev stack sits at
+// ~19k calls), and an access log dominated by successful polls is one nobody
+// reads.
+//
+// So: server errors at Error, client errors at Warn, and the successful bulk
+// at Debug. Volume and latency are answered by shepherd_http_requests_total
+// and shepherd_http_request_duration_seconds (internal/telemetry), which is
+// the right tool for the aggregate; the log is for the individual failure you
+// then go looking for.
 func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
 			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
-			reqLogger := logger.With("request_id", middleware.GetReqID(r.Context()))
 			next.ServeHTTP(ww, r)
-			reqLogger.Debug("request", "method", r.Method, "path", r.URL.Path, "status", ww.Status(), "duration_ms", time.Since(start).Milliseconds())
+
+			level := slog.LevelDebug
+			switch {
+			case ww.Status() >= http.StatusInternalServerError:
+				level = slog.LevelError
+			case ww.Status() >= http.StatusBadRequest:
+				level = slog.LevelWarn
+			}
+			logger.LogAttrs(r.Context(), level, "request",
+				slog.String("request_id", middleware.GetReqID(r.Context())),
+				slog.String("method", r.Method),
+				slog.String("path", r.URL.Path),
+				slog.Int("status", ww.Status()),
+				slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+			)
 		})
 	}
 }
@@ -117,11 +150,27 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		logger.Warn("local admin account enabled", "username", cfg.Auth.LocalAdmin.Username, "oidc_also_active", cfg.OIDC.Issuer != "")
 	}
 
+	// Before the router is assembled: the middleware and interceptors capture
+	// the global tracer at request time, but installing the provider first
+	// avoids a window where early requests get the no-op tracer. A failure
+	// here is logged, not fatal — losing traces is not a reason to refuse to
+	// serve traffic.
+	traceShutdown, traceErr := telemetry.InitTracing(context.Background(), cfg, logger)
+	if traceErr != nil {
+		logger.Error("tracing not enabled", "err", traceErr)
+	}
+
 	v := validate.New(&cfg.Validate)
 	r := newRouter(cfg, st, enc, authHandler, v, spaInfo, logger)
 
+	// Tracing wraps the router from outside so a server span exists before
+	// chi routes, which is what lets the metrics middleware rename it once the
+	// route pattern is known. h2c stays outermost — it negotiates the
+	// protocol, and there is nothing to trace until that has happened.
+	tracedRouter := telemetry.TraceHTTP(r)
+
 	// Wrap the entire mux with h2c so agents using HTTP/2 connect without TLS.
-	h2cHandler := h2c.NewHandler(r, &http2.Server{}) //nolint:staticcheck // h2c is still required for Connect/gRPC cleartext
+	h2cHandler := h2c.NewHandler(tracedRouter, &http2.Server{}) //nolint:staticcheck // h2c is still required for Connect/gRPC cleartext
 
 	httpSrv := &http.Server{
 		Addr:              cfg.Server.Listen,
@@ -138,13 +187,14 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	}
 
 	return &Server{
-		cfg:         cfg,
-		logger:      logger,
-		http:        httpSrv,
-		metricsHTTP: metricsSrv,
-		store:       st,
-		enc:         enc,
-		validator:   v,
+		cfg:           cfg,
+		logger:        logger,
+		http:          httpSrv,
+		metricsHTTP:   metricsSrv,
+		store:         st,
+		enc:           enc,
+		validator:     v,
+		traceShutdown: traceShutdown,
 	}, nil
 }
 
@@ -157,6 +207,10 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authHandler *auth.Handler, v *validate.Validator, spaInfo spa.BuildInfo, logger *slog.Logger) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
+	// Ordered outermost-first: RequestID so every log line and span can be
+	// correlated, then metrics so the histogram covers the time the rest of
+	// the chain spends, then the access log.
+	r.Use(telemetry.HTTPMetrics)
 	r.Use(requestLogger(logger))
 	r.Use(middleware.RealIP) //nolint:staticcheck // RealIP deprecated but no safe replacement available yet
 	r.Use(middleware.Recoverer)
@@ -198,9 +252,12 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 	}
 	svc := agentapi.New(st, v, logger, agentReg, agentapi.WithBeaconRemoteWrite(beaconBaseURL))
 	authInterceptor := agentapi.NewAuthInterceptor(st)
+	// telemetry.Interceptor runs outermost so its latency measurement includes
+	// authentication, and so a rejected call is still counted — an auth
+	// failure spike is exactly the thing you want on a graph.
 	connectPath, connectHandler := collectorv1connect.NewCollectorServiceHandler(
 		svc,
-		connect.WithInterceptors(authInterceptor),
+		connect.WithInterceptors(telemetry.Interceptor(), authInterceptor),
 	)
 	r.Mount(connectPath, connectHandler)
 
@@ -342,6 +399,15 @@ func (s *Server) Run(ctx context.Context) error {
 		_ = s.metricsHTTP.Shutdown(shutCtx)              //nolint:contextcheck,errcheck // best-effort
 		if err := s.http.Shutdown(shutCtx); err != nil { //nolint:contextcheck // shutdown needs a fresh context independent of the cancelled run ctx
 			return err
+		}
+		// After the listeners stop, so in-flight requests have finished
+		// producing spans, and before the store closes. Spans are batched:
+		// skipping this drops whatever is still buffered, which is exactly the
+		// tail leading up to a shutdown you most wanted to see.
+		if s.traceShutdown != nil {
+			if err := s.traceShutdown(shutCtx); err != nil { //nolint:contextcheck // as above
+				s.logger.Warn("flushing traces on shutdown", "err", err)
+			}
 		}
 		s.store.Close()
 		return nil
