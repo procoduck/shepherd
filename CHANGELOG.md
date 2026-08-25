@@ -11,6 +11,47 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
+## v0.2.1
+
+The first release published from the public repository. A patch: one real fix,
+plus the licensing and project files that publishing required.
+
+**Older tags carry no release artifacts here.** v0.0.1 through v0.2.0 exist as
+git tags and their history is intact, but they were built and published before
+this repository was public; their binaries and images live with the private
+repository they were cut from. Start from v0.2.1.
+
+### Fixed
+
+- **The dev and e2e stacks raced Postgres on a fresh volume.** `pg_isready` with
+  no `-h` connects over the unix socket, and on first-time initialisation the
+  postgres entrypoint runs a temporary server that listens on the socket *only*
+  while it executes the init scripts — logging "database system is ready to
+  accept connections" the whole time. A socket-based healthcheck therefore went
+  green roughly 550ms before any TCP listener existed, compose started the
+  dependents, and `shepherd-init` got a refused connection. It only reproduced
+  on a fresh volume, which is why it looked like an intermittent CI flake and
+  never appeared locally, where `make dev` reuses the volume and skips initdb.
+  All three healthchecks (dev compose, e2e compose, and the Kubernetes readiness
+  probe in the k8s e2e fixtures) now check over TCP.
+- **`test-fullstack` produced no diagnostics when the stack failed to start.**
+  `compose up --wait` reports only "service X didn't complete successfully" and
+  swallows the container's output, so the failure above left nothing to debug
+  from. Container logs are now dumped on a start-up failure, not only when the
+  Playwright specs fail.
+- The repository name is spelled `shepherd` everywhere, matching the module, the
+  binary and the published images. The load-bearing case was
+  `.github/workflows/release.yml`'s `github.repository ==` guard, which would
+  otherwise have evaluated false and silently skipped every future release.
+
+### Added
+
+- **Apache-2.0 licence**, chosen for the explicit patent grant.
+- `CONTRIBUTING.md`, `SECURITY.md` (private vulnerability reporting, with an
+  explicit in/out-of-scope list), a code of conduct, and issue/PR templates.
+- A `.gitleaksignore` covering four hand-verified test fixtures, so a genuinely
+  new finding stands out rather than arriving in a pile of known ones.
+
 ## v0.2.0
 
 Shepherd instruments itself, and several things that looked like they worked did

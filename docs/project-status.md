@@ -377,17 +377,29 @@ the contributing set.
       unfixable alerts train everyone to ignore the alert list, and the next one may be real.
       **Re-open and re-check if `golang-migrate`/`dktest` moves to `docker/docker/v29`** — a version
       bump there is the thing that would make this actionable.
-- [ ] **`test-fullstack` flaked once (2026-08-25) with `shepherd-init` exiting 1 during
-      `compose up --wait`, root cause unknown.** Seen on the v0.2.0 release PR — a diff of nothing
-      but version strings, CHANGELOG and the rebuilt SPA dist, none of which a migration container
-      can reach. It passed on `main` with the same code, did not reproduce locally, and passed on
-      re-run with no change to what it tests. One occurrence in ~6 runs. The likeliest candidate is
-      a Postgres readiness race: `--wait` gates on the healthcheck, and init connected ~250ms after
-      Postgres reported healthy, which is a plausible window for a refused connection — **this is a
-      hypothesis, not a diagnosis**, because the container's own output was never captured.
-      That last part is now fixed: `make test-fullstack` dumps `compose ps -a` and 200 lines per
-      service when the STACK fails to start, not only when the specs fail. Next occurrence should be
-      diagnosable; if it recurs, start from init's actual stderr rather than from this guess.
+- [x] **RESOLVED (2026-08-25): the `test-fullstack` flake was a false-positive Postgres
+      healthcheck, fixed in v0.2.1.** `pg_isready` with no `-h` connects over the UNIX SOCKET, and on
+      a first-time volume the postgres entrypoint runs a TEMPORARY server that listens on the socket
+      only (`listen_addresses=''`) to execute the init scripts — logging "database system is ready to
+      accept connections" while no TCP listener exists. Measured from a fresh container's log: the
+      socket goes ready at `07.161`, the real IPv4 listener appears at `07.703`, and a client caught
+      in between is recorded in the log as `FATAL: the database system is shutting down`. That ~550ms
+      window is what `shepherd-init` fell into.
+      It only reproduces on a FRESH volume, which is why it looked intermittent and never appeared
+      locally: `test-fullstack` runs `down -v` and always initialises, while `make dev` reuses the
+      volume and skips initdb entirely.
+      Fixed by checking over TCP (`-h 127.0.0.1`) in all three places the pattern appeared — the dev
+      and e2e compose stacks and the Kubernetes readiness probe in the k8s e2e fixtures, where the
+      same false positive would have marked a pod Ready while clients through the Service still got
+      refused. Note `internal/testutil/postgres.go` had already avoided this the other way round, by
+      waiting for the "ready" log to appear TWICE; the knowledge was in the repo and the compose
+      files never got it.
+      **The first recorded guess here was wrong** — it blamed a race between the healthcheck and
+      init's connection, when the healthcheck was measuring a different server altogether. Kept
+      visible rather than quietly overwritten: the lesson is that "plausible mechanism" and "verified
+      mechanism" are different things, and the log that settled it was available the whole time.
+      `make test-fullstack` now dumps `compose ps -a` and 200 lines per service when the STACK fails
+      to start (not only when the specs fail), which is what made the diagnosis possible.
 - [ ] `make e2e-sim` cannot be run as a single invocation locally — the installed ginkgo CLI is
       version-mismatched (2.32.0 vs the module's 2.32.1). Its steps run individually
 - [ ] Helm's Kubernetes containment is asserted at `helm template` text level only. A template
