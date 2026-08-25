@@ -36,9 +36,13 @@
       <p class="toc-label">On this page</p>
       <ul>
         <li><a href="#local">Run it locally</a></li>
+        <li><a href="#requirements">Requirements</a></li>
         <li><a href="#token">Create an agent token</a></li>
         <li><a href="#alloy">Connect an Alloy collector</a></li>
         <li><a href="#helm">Deploy with Helm</a></li>
+        <li><a href="#pipeline">Build your first pipeline</a></li>
+        <li><a href="#roles">Who can do what</a></li>
+        <li><a href="#gitops">GitOps from a repository</a></li>
         <li><a href="#sso">Single sign-on</a></li>
         <li><a href="#sandbox">Sandbox simulation</a></li>
         <li><a href="#more">Where to go next</a></li>
@@ -53,6 +57,47 @@
         backed by PostgreSQL. These are the same commands used in local development — see
         <a href="https://github.com/procoduck/shepherd/blob/main/docs/dev-guide.md">docs/dev-guide.md</a>
         in the repo for the full dev-stack walkthrough (mock OIDC, Gitea, seeded Alloy agents).
+      </p>
+
+      <h2 id="requirements">Requirements</h2>
+      <p>
+        Shepherd is a single Go binary with the UI embedded in it, and it keeps no state outside
+        PostgreSQL. The list is genuinely short.
+      </p>
+      <table>
+        <thead><tr><th>To…</th><th>You need</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Run Shepherd</td>
+            <td><strong>PostgreSQL 14+</strong> (CI and the dev stack use 16) and somewhere to run one
+                container. Nothing else.</td>
+          </tr>
+          <tr>
+            <td>Deploy on Kubernetes</td>
+            <td>A current cluster and Helm 3. No CRDs by default. Two optional extras do add
+                requirements: <code>metrics.serviceMonitor.enabled</code> needs the Prometheus
+                Operator's CRDs, and the gateway tier (built, not yet wired) targets Gateway API
+                v1.4.1 standard channel.</td>
+          </tr>
+          <tr>
+            <td>Run collectors</td>
+            <td><a href="https://grafana.com/docs/alloy/">Grafana Alloy</a> <strong>v1.18.1</strong> —
+                the version whose component schema this build validates against, pinned in
+                <code>deploy/versions.env</code>. Alloy needs <code>remotecfg</code> support.</td>
+          </tr>
+          <tr>
+            <td>Build from source</td>
+            <td>Go (version per <code>go.mod</code>), Node 24 + pnpm, Docker (the Go suite starts real
+                Postgres via testcontainers), and Helm for the chart tests.</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="note">
+        <strong>Two configuration values are mandatory</strong> and the server refuses to start
+        without them: <code>database.url</code> and <code>security.encryption_key</code> (a
+        base64-encoded 32 bytes). The encryption key protects git credentials and the OIDC client
+        secret at rest — <strong>keep it</strong>, because a replacement key cannot decrypt what the
+        old one wrote.
       </p>
 
       <h2 id="local">Run it locally</h2>
@@ -143,6 +188,139 @@ export SHEPHERD_SECURITY_ENCRYPTION_KEY=...   # the same key you used above
       </table>
       <p>See <a href="https://github.com/procoduck/shepherd/blob/main/deploy/helm/shepherd/values.yaml">deploy/helm/shepherd/values.yaml</a> for the full set of options, including <code>networkPolicy</code>, <code>autoscaling</code>, and the optional break-glass local admin account.</p>
 
+      <h2 id="pipeline">Build your first pipeline</h2>
+      <p>
+        A <strong>pipeline</strong> is a fragment of Alloy config plus the <strong>matchers</strong>
+        that decide which collectors receive it. Shepherd merges every enabled pipeline whose matchers
+        select a given collector into the single config that collector is served. There are three ways
+        in, and they all land in the same merge engine.
+      </p>
+
+      <h3>1. A wizard, if your job is a common one</h3>
+      <p>
+        Six guided forms cover the jobs most fleets need. Answer the questions, preview the Alloy it
+        generates, commit it as a pipeline.
+      </p>
+      <p><img src="../img/wizards.jpg" alt="The Wizards page: six cards — App Observability, Blackbox Probes, Cluster Metrics, Database Metrics, Pod Logs, Self Monitoring" loading="lazy"></p>
+
+      <h3>2. The visual builder, when you want to see the graph</h3>
+      <p>
+        Drag components from the palette onto the canvas and wire their ports together. The
+        <strong>Generated config</strong> tab shows the Alloy it produces as you work, and the validity
+        chip in the toolbar goes red the moment the graph would not run — you cannot save a broken one.
+      </p>
+      <p><img src="../img/visual-builder.jpg" alt="The visual pipeline builder: component palette on the left, a three-node graph on the canvas, properties panel on the right" loading="lazy"></p>
+      <p>
+        The graph below generates the config beside it. This is the same Alloy that will be merged and
+        served — there is no separate translation step to be surprised by.
+      </p>
+      <p><img src="../img/generated-config.jpg" alt="The builder's Generated config tab showing the Alloy produced by the graph" loading="lazy"></p>
+
+      <h3>3. Raw Alloy, when you already know what you want</h3>
+      <p>
+        Paste the config. It goes through exactly the same gate as the other two.
+      </p>
+
+      <h3>Matchers decide who gets it</h3>
+      <p>
+        Matchers use Alertmanager syntax against the attributes a collector reports —
+        <code>cluster="prod-eu-1"</code>, <code>role="metrics"</code>, <code>role=~"metrics|logs"</code>.
+        A pipeline with no matchers reaches nothing. The editor previews how many collectors currently
+        match before you save, so "this matches nothing" is visible rather than discovered later.
+      </p>
+      <p><img src="../img/pipelines.jpg" alt="The Pipelines list showing name, source, matchers and an enabled toggle for each pipeline" loading="lazy"></p>
+      <p>
+        The <strong>Source</strong> column is worth reading: <code>ui</code>, <code>wizard</code>,
+        <code>visual</code> and <code>git</code> pipelines all merge identically, but a
+        <code>git</code> one is owned by its repository and will be overwritten on the next sync.
+      </p>
+
+      <h3>The validation gate</h3>
+      <p>Nothing reaches a collector without passing three stages:</p>
+      <ol>
+        <li><strong>Syntax</strong> — the Alloy parser, with errors mapped back to line and column.</li>
+        <li><strong>Semantics</strong> — the real <code>alloy validate</code> binary, against the
+            pinned Alloy version.</li>
+        <li><strong>Merge dry-run</strong> — the whole merged config for every affected collector.
+            This is the stage that earns its keep: a pipeline can be perfectly valid on its own and
+            still collide with one that is already running, and this catches that before any agent
+            sees it.</li>
+      </ol>
+
+      <p><img src="../img/collectors.jpg" alt="The Collectors page listing each collector by cluster and role, with applied status, last-seen time and Alloy version" loading="lazy"></p>
+
+      <h2 id="roles">Who can do what</h2>
+      <p>
+        Access is decided by the groups your identity provider puts in the token (see
+        <a href="#sso">Single sign-on</a>). Shepherd never stores its own user list.
+      </p>
+      <table>
+        <thead><tr><th>Actor</th><th>Can</th><th>Cannot</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Application administrator</strong></td>
+            <td>Everything, everywhere: create organisations and set their tenant identity, claim
+                clusters into orgs, issue and revoke agent tokens, configure single sign-on.</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td><strong>Organisation administrator</strong></td>
+            <td>Everything inside one org: pipelines, destinations, tenant routes, git credentials and
+                repo links, wizards, teams, and the group assignments on that org's collectors.</td>
+            <td>Reach another org, claim clusters, or manage agent tokens.</td>
+          </tr>
+          <tr>
+            <td><strong>Team member</strong></td>
+            <td>Write the pipelines their team owns — scoped write without org-admin rights.
+                <em>API only so far; there is no teams UI yet.</em></td>
+            <td>Touch pipelines their team does not own.</td>
+          </tr>
+          <tr>
+            <td><strong>Organisation reader</strong></td>
+            <td>View collectors they are assigned to, and the pipelines and served config affecting
+                them.</td>
+            <td>Create or change anything.</td>
+          </tr>
+          <tr>
+            <td><strong>Service account (<code>apply</code>)</strong></td>
+            <td>Machine writes within one org, and every write must name the human it acts for — a
+                claim verified against the credential, not taken on trust.</td>
+            <td>Ever be an app admin. Act without an on-behalf-of.</td>
+          </tr>
+          <tr>
+            <td><strong>Service account (<code>propose</code>)</strong></td>
+            <td>Read, validate and simulate freely.</td>
+            <td>Apply anything.</td>
+          </tr>
+          <tr>
+            <td><strong>Collector (agent token)</strong></td>
+            <td>Fetch its own merged config and report status, over HTTP Basic auth.</td>
+            <td>Read or change anything in the management API.</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="note">
+        <strong>The break-glass local admin</strong> is a seventh actor and deliberately outside this
+        model: a username and argon2id password hash in config, app-admin rights, disabled by default.
+        It exists so you can get in when single sign-on is not configured yet or has broken. Every page
+        shows a banner while you are signed in with it.
+      </p>
+
+      <h2 id="gitops">GitOps: pipelines from a repository</h2>
+      <p>
+        Instead of authoring in the UI, point Shepherd at a git repository and it will poll for
+        <code>*.alloy</code> files and sync them onto a target collector as pipelines. Any git server
+        works — the credential kinds are personal access token, basic auth, SSH deploy key, an Entra
+        service principal for Azure DevOps, and GitHub App installation tokens.
+      </p>
+      <p><img src="../img/git-sync.jpg" alt="The Git sync page: a credential and a repository link showing branch, target collector, sync status and last-synced time" loading="lazy"></p>
+      <p>
+        Synced pipelines show <code>git</code> in the Source column and are <strong>owned by the
+        repository</strong> — edit one in the UI and the next sync overwrites it. They pass the same
+        three-stage validation gate as everything else, so a bad commit fails the sync and is reported
+        on the repo link rather than being served to a collector.
+      </p>
+
       <h2 id="sso">Single sign-on</h2>
       <p>
         Shepherd authenticates humans through OIDC against <strong>any spec-compliant provider</strong>.
@@ -191,11 +369,56 @@ export SHEPHERD_SECURITY_ENCRYPTION_KEY=...   # the same key you used above
         confirmed an SSO sign-in lands you with app-admin rights.
       </p>
 
+      <p><img src="../img/single-sign-on.jpg" alt="Admin, Single sign-on: provider picker, issuer, client ID and secret, and the redirect URL Shepherd serves the callback on" loading="lazy"></p>
+
       <h2 id="sandbox">Sandbox simulation</h2>
+      <h3>What it does</h3>
       <p>
-        Shepherd can run a candidate pipeline against synthetic sources in an isolated sandbox and show
-        the captured series before the pipeline reaches a real collector. As of v0.0.2, the Helm chart
-        ships it <strong>enabled by default</strong> — the chart auto-wires Shepherd's own config to the
+        Validation tells you a pipeline is <em>well formed</em>. Simulation tells you what it
+        <em>produces</em>. Shepherd stubs out every source in your pipeline with a synthetic one,
+        redirects every destination to a capture harness, runs a real Alloy process against that
+        rewritten config for a bounded window, and shows you the series and log lines that arrived.
+      </p>
+      <p>There are three depths, and they answer different questions:</p>
+      <table>
+        <thead><tr><th>Depth</th><th>Answers</th><th>Cost</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Relabel / log preview</strong></td>
+            <td>"What do my <code>discovery.relabel</code> rules or <code>loki.process</code> stages do
+                to this input?" A per-rule, per-stage trace showing which rule dropped or rewrote a
+                label.</td>
+            <td>Instant, in-process.</td>
+          </tr>
+          <tr>
+            <td><strong>Flow check</strong></td>
+            <td>"Is anything actually wired to a destination?" A static reachability pass that catches
+                the component you added but never connected.</td>
+            <td>Instant.</td>
+          </tr>
+          <tr>
+            <td><strong>Sandbox run</strong></td>
+            <td>"If I ship this, what lands downstream?" A real Alloy process, synthetic sources,
+                captured output, per-component health.</td>
+            <td>Bounded run (30s default), queued.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Using it</h3>
+      <p>
+        In the visual builder, <strong>Flow check</strong> and <strong>Simulate</strong> sit next to
+        <strong>Save</strong> in the toolbar; results land in the <strong>Simulation</strong> tab of the
+        bottom drawer, beside <strong>Problems</strong> and <strong>Generated config</strong>. A run
+        reports what was captured, which components were healthy, and a <em>fidelity note</em> naming
+        which parts were stubbed rather than really executed — a green run against synthetic sources is
+        a weaker claim than a green run in production, and the UI says so rather than letting you
+        assume otherwise.
+      </p>
+
+      <h3>How it is contained</h3>
+      <p>
+        The Helm chart ships it <strong>enabled by default</strong> — the chart auto-wires Shepherd's own config to the
         chart's <code>shepherd-simulator</code> Service, so a plain <code>helm install</code> gets a
         working sandbox with no extra flags.
       </p>
