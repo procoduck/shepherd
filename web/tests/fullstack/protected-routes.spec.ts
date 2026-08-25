@@ -3,13 +3,29 @@
  * Every protected route redirects unauthenticated users to /login.
  * The completeness guard fails if any route lacks a tag.
  */
+import { readFileSync } from 'node:fs';
 import { routeManifest } from '../../src/routes/routeManifest';
 import { expect, test } from './fixtures';
 
-for (const entry of routeManifest) {
-  if (!entry.tag) {
-    throw new Error(`Route ${entry.path} is missing a tag in routeManifest.ts`);
-  }
+// Completeness, properly.
+//
+// This used to check only that every listed route had a `tag` -- which the
+// RouteEntry type already guarantees, so it could never fail. Meanwhile /git
+// and the three canvas routes were absent from the manifest entirely and were
+// therefore never tested for the login redirect. A guard that cannot fail is
+// worse than none: it reads as coverage.
+//
+// Parsing router.tsx for `path:` literals is crude, but it is the only source
+// that cannot drift from the routes the app actually serves.
+const routerSource = readFileSync(new URL('../../src/routes/router.tsx', import.meta.url), 'utf8');
+const declaredPaths = [...routerSource.matchAll(/path:\s*'([^']+)'/g)].map((m) => m[1]);
+const manifestPaths = new Set(routeManifest.map((r) => r.path));
+const missing = declaredPaths.filter((p) => !manifestPaths.has(p));
+if (missing.length > 0) {
+  throw new Error(
+    `routeManifest.ts is missing ${missing.length} route(s) the router declares: ${missing.join(', ')}. ` +
+      'Untagged routes are never checked for the login redirect.',
+  );
 }
 
 const protectedRoutes = routeManifest.filter((route) => route.tag === 'protected');

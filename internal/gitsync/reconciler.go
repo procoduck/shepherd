@@ -279,6 +279,21 @@ func (r *Reconciler) syncFile(ctx context.Context, link sqlc.RepoLink, file gitr
 		OrgID: orgID,
 		Name:  name,
 	})
+	// A name collision with a pipeline this repo does not own is an error, not
+	// an update.
+	//
+	// The lookup is by (org, name) alone, so a repo file named the same as a
+	// UI or wizard pipeline used to take it over: contents replaced, matchers
+	// KEPT. That deploys repo content to every collector the UI pipeline's
+	// matchers select -- escaping the "a git pipeline targets only its linked
+	// collector" rule entirely -- on a Stage-1-only check, and attributes it to
+	// "gitsync". The API blocks the reverse direction explicitly
+	// (errGitSourceReadOnly), so this direction being open was an oversight.
+	if err == nil && (existing.Source != "git" || existing.RepoLinkID != link.ID) {
+		return fmt.Errorf(
+			"pipeline %q already exists in this org from a different source (%s); "+
+				"rename the file or the existing pipeline", name, existing.Source)
+	}
 	if err != nil {
 		// Create new.
 		// repo_link_id is what ties a git pipeline to the collector it serves: the merge

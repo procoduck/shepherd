@@ -19,6 +19,14 @@ export const routeManifest: RouteEntry[] = [
   { path: '/pipelines/$id', tag: 'protected' },
   { path: '/destinations', tag: 'protected', distinctLocator: 'text=Destinations' },
   { path: '/teams', tag: 'protected', distinctLocator: 'text=Teams' },
+  { path: '/git', tag: 'protected', distinctLocator: 'text=Git sync' },
+  // Full-bleed canvas routes. They bypass contentRoute (see router.tsx) but are
+  // still protected, and were missing here entirely -- which the completeness
+  // guard could not notice, because it only checked that listed routes had a
+  // tag rather than that every real route was listed.
+  { path: '/pipelines/visual/new', tag: 'protected' },
+  { path: '/pipelines/$id/visual', tag: 'protected' },
+  { path: '/pipelines/$id/graph', tag: 'protected' },
   { path: '/wizards', tag: 'protected', distinctLocator: 'text=Wizards' },
   { path: '/wizards/$kind', tag: 'protected' },
   { path: '/admin/orgs', tag: 'protected', distinctLocator: 'text=Organisations' },

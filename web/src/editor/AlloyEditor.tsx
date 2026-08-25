@@ -1,7 +1,12 @@
 import { autocompletion, closeBrackets } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { bracketMatching, foldGutter, indentOnInput } from '@codemirror/language';
-import { type Diagnostic as CmDiagnostic, linter, lintGutter } from '@codemirror/lint';
+import {
+  type Diagnostic as CmDiagnostic,
+  forceLinting,
+  linter,
+  lintGutter,
+} from '@codemirror/lint';
 import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
 import { EditorState } from '@codemirror/state';
 import { EditorView, highlightActiveLine, keymap, lineNumbers, ViewUpdate } from '@codemirror/view';
@@ -54,10 +59,21 @@ export function AlloyEditor({
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
 
+  // The linter closes over a REF, not over the prop.
+  //
+  // It is installed once, in an effect keyed on [readOnly], so a closure over
+  // `diagnostics` captured whatever the array was at mount -- usually empty --
+  // and kept returning that forever. The squiggles and the lint gutter
+  // therefore never showed server validation results at all; only the separate
+  // Problems panel did. Dispatching an empty transaction could not fix that:
+  // it re-runs the linter, but the linter still sees the stale closure.
+  const diagnosticsRef = useRef(diagnostics);
+  diagnosticsRef.current = diagnostics;
+
   // Convert server diagnostics to CodeMirror diagnostics
   const cmLinter = linter((view) => {
     const cmDiags: CmDiagnostic[] = [];
-    for (const d of diagnostics) {
+    for (const d of diagnosticsRef.current) {
       const line = view.state.doc.line(Math.max(1, Math.min(d.line, view.state.doc.lines)));
       const from = line.from + Math.max(0, d.col - 1);
       const to = Math.min(from + 1, line.to);
@@ -121,9 +137,13 @@ export function AlloyEditor({
     }
   }, [value]);
 
-  // Sync diagnostics
+  // Sync diagnostics. forceLinting re-runs the linter immediately; the empty
+  // dispatch keeps the view in step for the gutter.
   useEffect(() => {
-    viewRef.current?.dispatch({});
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({});
+    forceLinting(view);
   }, [diagnostics]);
 
   return <div ref={containerRef} style={{ height }} className='overflow-auto' />;

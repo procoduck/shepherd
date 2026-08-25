@@ -51,6 +51,25 @@ export function VisualBuilderPage() {
   // (Zustand action references are stable but the selector creates new refs each render)
   const setSchemaRef = useRef(useVisualStore.getState().setSchema);
 
+  // Warn before the browser discards an unsaved graph.
+  //
+  // The builder holds the entire graph in memory with no persistence: a
+  // refresh, a closed tab or a crash silently loses however long you spent
+  // wiring it. draft.ts implements IndexedDB save/load for exactly this and
+  // nothing imports it -- restoring a draft well needs a restore-or-discard
+  // decision this does not attempt. Until then, at least make the browser ask.
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      const { doc } = useVisualStore.getState();
+      if (doc.nodes.length === 0 && doc.edges.length === 0) return;
+      e.preventDefault();
+      // Chrome requires returnValue to be set; the string is never displayed.
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
+
   const [loadState, setLoadState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [loadError, setLoadError] = useState<string | null>(null);
 
