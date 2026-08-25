@@ -138,7 +138,7 @@ var _ = Describe("Helm chart: optional dependencies", func() {
 		})
 
 		It("generates the bootstrap secret into the name the workloads already read", func() {
-			objects := renderWith("externalSecrets:\n  enabled: true\n")
+			objects := renderWith("externalSecrets:\n  enabled: true\ncnpg:\n  enabled: true\n")
 
 			es, ok := objects["ExternalSecret/shepherd-bootstrap"]
 			Expect(ok).To(BeTrue())
@@ -162,7 +162,7 @@ var _ = Describe("Helm chart: optional dependencies", func() {
 		})
 
 		It("never regenerates, and survives deletion", func() {
-			objects := renderWith("externalSecrets:\n  enabled: true\n")
+			objects := renderWith("externalSecrets:\n  enabled: true\ncnpg:\n  enabled: true\n")
 			spec, ok := objects["ExternalSecret/shepherd-bootstrap"]["spec"].(map[string]any)
 			Expect(ok).To(BeTrue())
 
@@ -185,11 +185,20 @@ var _ = Describe("Helm chart: optional dependencies", func() {
 				"the existence guard is gone; an upgrade would regenerate the unrotatable encryption key")
 		})
 
+		It("refuses to generate secrets with no database URL from anywhere", func() {
+			// The generated Secret holds the encryption key and the bootstrap
+			// password, never a database URL. Enabled on its own, the migration
+			// Job would start with SHEPHERD_DATABASE_URL simply absent and die
+			// on connect several minutes later, with nothing naming the cause.
+			out := renderFailure("externalSecrets:\n  enabled: true\n")
+			Expect(out).To(ContainSubstring("needs a database URL from somewhere"))
+		})
+
 		It("refuses to render alongside a hand-written secret rather than fighting over it", func() {
-			out := renderFailure("externalSecrets:\n  enabled: true\nsecrets:\n  SHEPHERD_DATABASE_URL: postgres://x\n")
+			out := renderFailure("externalSecrets:\n  enabled: true\ncnpg:\n  enabled: true\nsecrets:\n  SHEPHERD_DATABASE_URL: postgres://x\n")
 			Expect(out).To(ContainSubstring("Pick one"))
 
-			out = renderFailure("externalSecrets:\n  enabled: true\nexistingSecret: mine\n")
+			out = renderFailure("externalSecrets:\n  enabled: true\ncnpg:\n  enabled: true\nexistingSecret: mine\n")
 			Expect(out).To(ContainSubstring("Pick one"))
 		})
 	})

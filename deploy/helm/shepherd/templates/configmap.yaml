@@ -4,7 +4,7 @@ metadata:
   name: {{ include "shepherd.fullname" . }}
   labels:
     {{- include "shepherd.labels" . | nindent 4 }}
-  {{- if .Values.migrations.job.enabled }}
+  {{- if ((.Values.migrations).job).enabled }}
   annotations:
     {{- include "shepherd.migrateHookDeps" . | nindent 4 }}
   {{- end }}
@@ -16,7 +16,7 @@ data:
          "shepherd"; templating the Service DNS makes any release name work.
          An explicit .Values.config.simulator always wins verbatim. */}}
     {{- $cfg := deepCopy .Values.config }}
-    {{- if and .Values.simulator.enabled (not (hasKey $cfg "simulator")) }}
+    {{- if and ((.Values.simulator).enabled) (not (hasKey $cfg "simulator")) }}
     {{- $sim := include "shepherd.simulatorFullname" . }}
     {{- $_ := set $cfg "simulator" (dict
           "enabled" true

@@ -1,4 +1,4 @@
-{{- if .Values.migrations.job.enabled }}
+{{- if ((.Values.migrations).job).enabled }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -16,7 +16,7 @@ spec:
   # attempts, which covers a CNPG cluster reaching readiness without anyone
   # having to sequence it by hand. A genuinely broken migration still fails the
   # release, just later.
-  backoffLimit: {{ .Values.migrations.job.backoffLimit }}
+  backoffLimit: {{ (((.Values.migrations).job).backoffLimit | default 6) }}
   template:
     spec:
       serviceAccountName: {{ include "shepherd.fullname" . }}

@@ -28,6 +28,13 @@ on:
     tags:
       - "v*"
 
+# One release at a time. Two tags pushed in quick succession would otherwise
+# race the "is this chart version already published" check below, and both
+# could conclude it is free.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 permissions:
   contents: write
   packages: write
@@ -79,6 +86,26 @@ jobs:
 
       # goreleaser's sboms section shells out to syft, which ubuntu-latest
       # does not preinstall — the first v0.0.1 run died on exactly this.
+      # Before goreleaser, not after. This used to live in the chart step at the
+      # end, so a mismatch failed the run only once the images and the GitHub
+      # release were already public -- a half-published release that could not
+      # be corrected without cutting a new tag. It reads one file; there is no
+      # reason for it to run late.
+      - name: Verify Chart.yaml appVersion matches the tag
+        run: |
+          set -euo pipefail
+          chart_dir=deploy/helm/shepherd
+          read_field() {
+            awk -v k="$1:" '$1 == k { gsub(/"/, "", $2); print $2; exit }' "$chart_dir/Chart.yaml"
+          }
+          app_version="$(read_field appVersion)"
+          tag_version="${GITHUB_REF_NAME#v}"
+          if [ "$app_version" != "$tag_version" ]; then
+            echo "::error::Chart.yaml appVersion is $app_version but the tag is $tag_version." \
+                 "The image tag falls back to appVersion, so this release would install the wrong image." >&2
+            exit 1
+          fi
+
       - name: Set up syft (SBOM generation)
         uses: anchore/sbom-action/download-syft@v0
 
@@ -180,7 +207,16 @@ jobs:
 
           echo "$REGISTRY_PASS" | helm registry login "$REGISTRY_HOST" -u "$REGISTRY_USER" --password-stdin
 
-          if helm show chart "${chart_repo}/shepherd" --version "$chart_version" >/dev/null 2>&1; then
+          # Distinguish "absent" from "could not tell". A transient network or
+          # auth failure previously looked identical to "not published", and the
+          # workflow went on to push -- overwriting a released chart version,
+          # the exact thing this check exists to prevent.
+          probe_out="$(helm show chart "${chart_repo}/shepherd" --version "$chart_version" 2>&1)" && probe_rc=0 || probe_rc=$?
+          if [ "$probe_rc" -ne 0 ] && ! grep -qiE "not found|manifest unknown|no such|does not exist" <<<"$probe_out"; then
+            echo "::error::could not determine whether chart $chart_version is already published: $probe_out" >&2
+            exit 1
+          fi
+          if [ "$probe_rc" -eq 0 ]; then
             echo "::error::chart version $chart_version is already published at $chart_repo." \
                  "Bump the chart version in $chart_dir/Chart.yaml -- republishing a version with different contents breaks every consumer pinned to it." >&2
             exit 1

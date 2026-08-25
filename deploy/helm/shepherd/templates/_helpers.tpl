@@ -103,7 +103,7 @@ it is what lets a re-install over leftovers succeed. It is NOT survivable for a
 resource that owns data; see shepherd.bootstrapHookDeps.
 */}}
 {{- define "shepherd.migrateHookDeps" -}}
-{{- if .Values.migrations.job.enabled }}
+{{- if ((.Values.migrations).job).enabled }}
 "helm.sh/hook": pre-install,pre-upgrade
 "helm.sh/hook-weight": "-10"
 {{- end }}
@@ -177,7 +177,7 @@ database, and silently connecting somewhere else would be worse than loud.
   last line of one onto the first line of the other.
 */ -}}
 {{- $chunks := list -}}
-{{- if .Values.cnpg.enabled -}}
+{{- if ((.Values.cnpg).enabled) -}}
 {{- $chunks = append $chunks (printf "- name: SHEPHERD_DATABASE_URL\n  valueFrom:\n    secretKeyRef:\n      name: %s-app\n      key: uri" (include "shepherd.cnpgClusterName" .)) -}}
 {{- end -}}
 {{- with .Values.extraEnv -}}

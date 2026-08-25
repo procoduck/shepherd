@@ -5,7 +5,12 @@ metadata:
   labels:
     {{- include "shepherd.labels" . | nindent 4 }}
 spec:
+  {{- if not ((.Values.autoscaling).enabled) }}
+  # Omitted when an HPA owns the replica count. Setting both means every
+  # `helm upgrade` snaps the Deployment back to this number, undoing whatever
+  # the autoscaler had decided -- a downscale from 10 to 2 in one step.
   replicas: {{ .Values.replicas }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "shepherd.selectorLabels" . | nindent 6 }}
@@ -32,6 +37,12 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
+        # Matching the simulator's pod hardening, which had these and the main
+        # workload did not.
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       volumes:
         - name: config
           configMap:
