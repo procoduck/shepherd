@@ -7,16 +7,18 @@
         <thead><tr><th>To…</th><th>You need</th></tr></thead>
         <tbody>
           <tr>
-            <td>Run Shepherd</td>
-            <td><strong>PostgreSQL 14+</strong> (CI and the dev stack use 16) and somewhere to run one
-                container. Nothing else.</td>
+            <td><strong>Deploy on Kubernetes</strong><br><span class="req-note">the intended way</span></td>
+            <td>A current cluster and Helm 3, plus a <strong>PostgreSQL 14+</strong> the cluster can
+                reach (CI and the dev stack use 16). The chart needs <strong>no CRDs</strong> by
+                default. Two optional extras do add requirements:
+                <code>metrics.serviceMonitor.enabled</code> needs the Prometheus Operator's CRDs, and
+                <code>route.enabled</code> needs the Gateway API CRDs.</td>
           </tr>
           <tr>
-            <td>Deploy on Kubernetes</td>
-            <td>A current cluster and Helm 3. No CRDs by default. Two optional extras do add
-                requirements: <code>metrics.serviceMonitor.enabled</code> needs the Prometheus
-                Operator's CRDs, and the gateway tier (built, not yet wired) targets Gateway API
-                v1.4.1 standard channel.</td>
+            <td>Run Shepherd anywhere else</td>
+            <td>The same PostgreSQL and somewhere to run one container. Shepherd is stateless, so
+                nothing else is needed — but the fleet it manages is a Kubernetes concern, so this is
+                mainly useful for development.</td>
           </tr>
           <tr>
             <td>Run collectors</td>

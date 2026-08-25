@@ -2,10 +2,16 @@ image:
   # Default to the released images; set registry: "" to use a bare/local name.
   registry: "ghcr.io/procoduck"
   repository: shepherd
+  # Empty means the chart's own appVersion, so a given chart version installs
+  # the Shepherd release it was published and tested with. Override only to
+  # pin something else deliberately.
   tag: ""
   pullPolicy: IfNotPresent
   pullSecrets: []
 
+# Shepherd keeps no state outside PostgreSQL, so replicas are free to add and
+# safe to lose. Two by default so a node drain is not an outage; the
+# PodDisruptionBudget below assumes at least two.
 replicas: 2
 
 # The Service in front of Shepherd. ClusterIP by default: an Ingress or

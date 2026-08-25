@@ -3,58 +3,115 @@
         The chart is published as an OCI artifact at
         <code>oci://ghcr.io/procoduck/charts/shepherd</code> &mdash; nothing to clone, no
         <code>helm repo add</code>. Images are published alongside it to
-        <code>ghcr.io/procoduck/shepherd</code> (and <code>ghcr.io/procoduck/shepherd-simulator</code> for
-        the optional sandbox) for <code>linux/amd64</code> and <code>linux/arm64</code>.
+        <code>ghcr.io/procoduck/shepherd</code> (and <code>ghcr.io/procoduck/shepherd-simulator</code>
+        for the sandbox) for <code>linux/amd64</code> and <code>linux/arm64</code>.
       </p>
       <p class="note">
-        <strong>Bring your own PostgreSQL.</strong> The chart does not ship a database. Point
-        <code>SHEPHERD_DATABASE_URL</code> at one you run.
+        <strong>Bring your own PostgreSQL.</strong> The chart does not ship a database. Shepherd keeps
+        every pipeline, organisation, credential and session there, so it is the thing worth backing
+        up &mdash; Shepherd itself holds no state and can be deleted and reinstalled freely.
       </p>
+
+      <h2 id="installing">Installing</h2>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-        <pre><code>kubectl create secret generic shepherd-secrets \
-  --from-literal=SHEPHERD_DATABASE_URL='postgres://user:pass@host:5432/shepherd' \
-  --from-literal=SHEPHERD_SECURITY_ENCRYPTION_KEY="$(openssl rand -base64 32)" \
-  --from-literal=SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD='choose-a-password'
-
-helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.7.1 \
-  --set existingSecret=shepherd-secrets \
-  --set "route.enabled=true" \
-  --set "route.hostnames[0]=shepherd.internal"</code></pre>
+        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.7.1 \
+  --namespace shepherd --create-namespace \
+  --set existingSecret=shepherd-secrets</code></pre>
       </div>
       <p>
-        The image needs no <code>--set</code>: <code>image.registry</code> defaults to
-        <code>ghcr.io/procoduck</code> and the tag falls back to the chart's
-        <code>appVersion</code>, so each chart version installs the Shepherd release it was
-        published for.
+        The secret it names must exist first &mdash; which keys, and which two are mandatory, is in
+        <a href="configuration.html">Configuration</a>. The image needs no <code>--set</code>:
+        <code>image.registry</code> defaults to <code>ghcr.io/procoduck</code> and the tag falls back
+        to the chart&rsquo;s <code>appVersion</code>, so each chart version installs the Shepherd
+        release it was published for.
       </p>
       <p class="note">
         <strong>Chart version is not the app version.</strong> <code>--version 0.7.1</code> is the
-        <em>chart's</em>; Shepherd's is <code>0.3.x</code>. They move independently, so a chart-only
-        change bumps only the chart. Run
+        <em>chart&rsquo;s</em>; Shepherd&rsquo;s is <code>0.3.x</code>. They move independently, so a
+        chart-only change bumps only the chart. Run
         <code>helm show chart oci://ghcr.io/procoduck/charts/shepherd</code> to see which Shepherd
-        release a chart version installs. To modify the chart yourself, clone the repo and install
-        from <code>./deploy/helm/shepherd</code> instead.
+        release a chart version installs.
       </p>
+
+      <h2 id="what-it-renders">What the chart renders</h2>
+      <table>
+        <thead><tr><th>Object</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>Deployment/shepherd</code></td><td>The server. Two replicas by default; it is stateless, so scale it freely.</td></tr>
+          <tr><td><code>Service/shepherd</code></td><td>ClusterIP on port 8080. What collectors and browsers reach.</td></tr>
+          <tr><td><code>Service/shepherd-metrics</code></td><td>Port 9090. <code>/metrics</code> is <em>never</em> served on the main port.</td></tr>
+          <tr><td><code>Job/shepherd-migrate</code></td><td>Database migrations, as a <code>pre-install</code>/<code>pre-upgrade</code> hook.</td></tr>
+          <tr><td><code>ConfigMap/shepherd</code></td><td>Everything under <code>config:</code> in your values.</td></tr>
+          <tr><td><code>PodDisruptionBudget/shepherd</code></td><td>Keeps a replica during voluntary disruption.</td></tr>
+          <tr><td><code>Deployment/shepherd-simulator</code> + <code>NetworkPolicy</code></td><td>The sandbox, on by default. See <a href="simulation.html">Sandbox simulation</a>.</td></tr>
+        </tbody>
+      </table>
       <p>
-        The install above names a secret it expects to already exist. Which keys belong in it, which
-        two are mandatory, and which one must never be rotated are covered in
-        <a href="configuration.html">Configuration</a>.
+        Nothing is exposed outside the cluster unless you ask for it. To see exactly what an install
+        would create before creating it, render it locally:
+        <code>helm template shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.7.1</code>.
       </p>
-      <h2 id="verifying-the-install">Verifying the install</h2>
+
+      <h2 id="migrations">Migrations run before the new code</h2>
       <p>
-        Every workload should reach <code>Available</code>, and the rendered image tag should be the
-        Shepherd release the chart was published for:
+        The migration Job is a Helm hook with <code>hook-weight: -5</code>, so on both install and
+        upgrade the schema is brought current <em>before</em> the Deployment is touched. That ordering
+        is the point: a rolling update that started new pods against an old schema would fail in a way
+        that looks like an application bug. If the Job fails, the release fails and the running
+        Deployment is left alone.
       </p>
+
+      <h2 id="exposing-shepherd">Exposing Shepherd</h2>
+      <p>
+        Both ingress paths are <strong>off by default</strong>, and deliberately: an
+        <code>HTTPRoute</code> needs the Gateway API CRDs, which a vanilla cluster does not have, so
+        defaulting it on made a plain <code>helm install</code> fail with
+        <em>no matches for kind HTTPRoute</em>.
+      </p>
+      <p>Pick the one your cluster actually runs:</p>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-        <pre><code>kubectl rollout status deploy/shepherd
-kubectl get pods -l app.kubernetes.io/name=shepherd
+        <pre><code># Gateway API
+--set route.enabled=true \
+--set "route.hostnames[0]=shepherd.example.internal" \
+--set "route.parentRefs[0].name=my-gateway"
 
-# what the chart would install, without installing it
-helm show chart oci://ghcr.io/procoduck/charts/shepherd --version 0.7.1</code></pre>
+# or a classic Ingress
+--set ingress.enabled=true \
+--set ingress.className=nginx \
+--set "ingress.hosts[0]=shepherd.example.internal"
+
+# or neither, for a look before you commit
+kubectl -n shepherd port-forward svc/shepherd 8080:8080</code></pre>
+      </div>
+      <p class="note">
+        <strong>Set <code>config.server.base_url</code> to the URL people actually reach.</strong> It
+        is what the OIDC redirect URL is built from, so leaving it at the default means single
+        sign-on redirects somewhere that does not exist.
+      </p>
+
+      <h2 id="upgrading">Upgrading</h2>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>helm upgrade shepherd oci://ghcr.io/procoduck/charts/shepherd --version &lt;new&gt; \
+  --namespace shepherd --reuse-values</code></pre>
+      </div>
+      <p>
+        Read the <a href="https://github.com/procoduck/shepherd/blob/main/CHANGELOG.md">changelog</a>
+        first: entries are marked <em>Breaking</em> when a values key changes or is removed. Migrations
+        run ahead of the new pods automatically.
+      </p>
+
+      <h2 id="verifying">Verifying the install</h2>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>kubectl -n shepherd rollout status deploy/shepherd
+kubectl -n shepherd get pods -l app.kubernetes.io/name=shepherd
+kubectl -n shepherd logs job/shepherd-migrate     # if the release failed</code></pre>
       </div>
       <p>
         Then sign in as the administrator created on first boot and continue with
-        <a href="agent-tokens.html">Agent tokens</a>.
+        <a href="agent-tokens.html">Agent tokens</a>. Every value the chart accepts is listed in
+        <a href="helm-values.html">Helm values</a>.
       </p>

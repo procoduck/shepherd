@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Local development &mdash; Shepherd docs</title>
-<meta name="description" content="Run the full stack locally with Docker, seeded and ready to click through.">
+<title>Running from source &mdash; Shepherd docs</title>
+<meta name="description" content="Run Shepherd outside Kubernetes when you are developing Shepherd itself.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
@@ -46,9 +46,9 @@
   <p class="docs-nav-cat">Install</p>
   <ul>
     <li><a href="requirements.html">Requirements</a></li>
-    <li><a href="local-development.html" class="active" aria-current="page">Local development</a></li>
     <li><a href="kubernetes.html">Kubernetes (Helm)</a></li>
     <li><a href="configuration.html">Configuration</a></li>
+    <li><a href="local-development.html" class="active" aria-current="page">Running from source</a></li>
   </ul>
   <p class="docs-nav-cat">Fleet</p>
   <ul>
@@ -72,14 +72,20 @@
   </ul>
   <p class="docs-nav-cat">Reference</p>
   <ul>
+    <li><a href="helm-values.html">Helm values</a></li>
     <li><a href="resources.html">Further reading</a></li>
   </ul>
 </aside>
 
     <div class="docs-main">
-      <nav class="crumbs" aria-label="Breadcrumb"><a href="index.html">Docs</a><span aria-hidden="true">/</span><span>Install</span><span aria-hidden="true">/</span><span class="crumb-here">Local development</span></nav>
+      <nav class="crumbs" aria-label="Breadcrumb"><a href="index.html">Docs</a><span aria-hidden="true">/</span><span>Install</span><span aria-hidden="true">/</span><span class="crumb-here">Running from source</span></nav>
       <div class="docs-content">
-<h1>Local development</h1>
+<h1>Running from source</h1>
+      <p class="note">
+        <strong>This is not how you deploy Shepherd.</strong> It manages Alloy collectors in a
+        Kubernetes cluster and belongs in one &mdash; see the <a href="quickstart.html">Quickstart</a>.
+        This page is for changing Shepherd itself, when you want the binary under your own debugger.
+      </p>
       <p>Start Postgres, build the binary, run migrations, and serve.</p>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
@@ -113,11 +119,24 @@ export SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD=choose-a-password
         <a href="collectors.html">point a collector at it</a>.
       </p>
       <h2 id="the-full-dev-stack">The full dev stack</h2>
-      <p class="note">
-        Prefer a whole environment with a mock identity provider, a git server, and live Alloy agents
-        already talking to it? <code>make dev</code> boots that in Docker &mdash; see the
-        <a href="quickstart.html">Quickstart</a>. Use this page when you are changing Shepherd itself
-        and want the binary under your own debugger.
+      <p>
+        <code>make dev</code> boots a whole environment in Docker &mdash; PostgreSQL, a seeded
+        database, a mock identity provider, a git server, and live Alloy collectors already polling
+        Shepherd at <a href="http://localhost:8080">localhost:8080</a> with
+        <code>admin</code>/<code>admin</code>. It is the fastest way to see the product working
+        without a cluster, and the environment the end-to-end suites run against.
+      </p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>make dev         # bring it all up
+make dev-reset   # stop it and drop the volumes</code></pre>
+      </div>
+      <h2 id="against-a-cluster">Testing against a real cluster</h2>
+      <p>
+        <code>make e2e-k8s</code> creates a kind cluster, installs the chart into it, and asserts the
+        rendered objects and the simulator&rsquo;s containment from inside a running cluster. That is
+        the suite to run when you have changed anything under
+        <code>deploy/helm/shepherd/</code>.
       </p>
       <h2 id="useful-targets">Useful targets</h2>
       <table>
@@ -132,8 +151,8 @@ export SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD=choose-a-password
         </tbody>
       </table>
         <nav class="page-nav" aria-label="Pagination">
-          <a class="page-nav-prev" href="requirements.html"><span>Previous</span><strong>Requirements</strong></a>
-          <a class="page-nav-next" href="kubernetes.html"><span>Next</span><strong>Kubernetes (Helm)</strong></a>
+          <a class="page-nav-prev" href="configuration.html"><span>Previous</span><strong>Configuration</strong></a>
+          <a class="page-nav-next" href="agent-tokens.html"><span>Next</span><strong>Agent tokens</strong></a>
         </nav>
       </div>
     </div>
@@ -142,6 +161,7 @@ export SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD=choose-a-password
       <p class="toc-label">On this page</p>
       <ul>
         <li><a href="#the-full-dev-stack">The full dev stack</a></li>
+        <li><a href="#against-a-cluster">Testing against a real cluster</a></li>
         <li><a href="#useful-targets">Useful targets</a></li>
       </ul>
     </aside>

@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Helm values &mdash; Shepherd docs</title>
+<meta name="description" content="Every value the chart accepts, generated from the chart&#x27;s own values.yaml.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="../index.html">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 2.5 4 6v6c0 5.2 3.4 9.4 8 10.5 4.6-1.1 8-5.3 8-10.5V6l-8-3.5Z" stroke="var(--accent)" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M8.5 12.2 11 14.7l4.8-5" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Shepherd
+    </a>
+    <div class="nav-links">
+      <a href="../index.html#features">Features</a>
+      <a href="../index.html#architecture">Architecture</a>
+      <a href="index.html">Docs</a>
+      <a class="btn btn-outline" href="https://github.com/procoduck/shepherd">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<div class="docs-body">
+  <div class="wrap docs-shell">
+<aside class="docs-nav" id="docs-nav">
+  <p class="docs-nav-label">Documentation</p>
+  <p class="docs-nav-cat">Get started</p>
+  <ul>
+    <li><a href="quickstart.html">Quickstart</a></li>
+  </ul>
+  <p class="docs-nav-cat">About</p>
+  <ul>
+    <li><a href="overview.html">What Shepherd is</a></li>
+    <li><a href="roles.html">Roles and access</a></li>
+  </ul>
+  <p class="docs-nav-cat">Install</p>
+  <ul>
+    <li><a href="requirements.html">Requirements</a></li>
+    <li><a href="kubernetes.html">Kubernetes (Helm)</a></li>
+    <li><a href="configuration.html">Configuration</a></li>
+    <li><a href="local-development.html">Running from source</a></li>
+  </ul>
+  <p class="docs-nav-cat">Fleet</p>
+  <ul>
+    <li><a href="agent-tokens.html">Agent tokens</a></li>
+    <li><a href="collectors.html">Connect a collector</a></li>
+  </ul>
+  <p class="docs-nav-cat">Pipelines</p>
+  <ul>
+    <li><a href="authoring.html">Authoring pipelines</a></li>
+    <li><a href="matchers.html">Matchers and validation</a></li>
+    <li><a href="gitops.html">GitOps</a></li>
+  </ul>
+  <p class="docs-nav-cat">Access control</p>
+  <ul>
+    <li><a href="single-sign-on.html">Single sign-on</a></li>
+    <li><a href="users-and-teams.html">Users and teams</a></li>
+  </ul>
+  <p class="docs-nav-cat">Sandbox</p>
+  <ul>
+    <li><a href="simulation.html">Sandbox simulation</a></li>
+  </ul>
+  <p class="docs-nav-cat">Reference</p>
+  <ul>
+    <li><a href="helm-values.html" class="active" aria-current="page">Helm values</a></li>
+    <li><a href="resources.html">Further reading</a></li>
+  </ul>
+</aside>
+
+    <div class="docs-main">
+      <nav class="crumbs" aria-label="Breadcrumb"><a href="index.html">Docs</a><span aria-hidden="true">/</span><span>Reference</span><span aria-hidden="true">/</span><span class="crumb-here">Helm values</span></nav>
+      <div class="docs-content">
+<h1>Helm values</h1>
+      <p>
+        Every value the chart accepts, generated from
+        <a href="https://github.com/procoduck/shepherd/blob/main/deploy/helm/shepherd/values.yaml"><code>values.yaml</code></a>
+        in chart <strong>0.7.1</strong>. The descriptions are the chart&rsquo;s own comments, so this
+        page cannot describe a value the chart does not have, or miss one it gained.
+      </p>
+      <p class="note">
+        This page is generated from the chart on <code>main</code>, which can be slightly
+        ahead of the newest published chart. If a value here is missing from the version you
+        installed, check
+        <a href="https://github.com/procoduck/shepherd/releases">the releases</a> &mdash; or run
+        <code>helm show values oci://ghcr.io/procoduck/charts/shepherd --version &lt;yours&gt;</code>,
+        which answers for the exact chart you have.
+      </p>
+      <p class="note">
+        <strong>Only two values are ever required</strong>, and neither is here: the database URL
+        and the encryption key live in a Secret, not in values. See
+        <a href="configuration.html">Configuration</a>.
+      </p>
+      <h2 id="image"><code>image</code></h2>
+      <table>
+        <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>image.registry</code></td><td><code>&quot;ghcr.io/procoduck&quot;</code></td><td>Default to the released images; set registry: &quot;&quot; to use a bare/local name.</td></tr>
+          <tr><td><code>image.repository</code></td><td><code>shepherd</code></td><td>&mdash;</td></tr>
+          <tr><td><code>image.tag</code></td><td><code>&quot;&quot;</code></td><td>Empty means the chart&#x27;s own appVersion, so a given chart version installs the Shepherd release it was published and tested with. Override only to pin something else deliberately.</td></tr>
+          <tr><td><code>image.pullPolicy</code></td><td><code>IfNotPresent</code></td><td>&mdash;</td></tr>
+          <tr><td><code>image.pullSecrets</code></td><td><code>[]</code></td><td>&mdash;</td></tr>
+        </tbody>
+      </table>
+      <h2 id="replicas"><code>replicas</code></h2>
+      <table>
+        <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>replicas</code></td><td><code>2</code></td><td>Shepherd keeps no state outside PostgreSQL, so replicas are free to add and safe to lose. Two by default so a node drain is not an outage; the PodDisruptionBudget below assumes at least two.</td></tr>
+        </tbody>
+      </table>
+      <h2 id="service"><code>service</code></h2>
+      <p>The Service in front of Shepherd. ClusterIP by default: an Ingress or HTTPRoute (both below) is the intended way in for a real deployment.<br>type is exposed because the template hardcoded ClusterIP, which left no way to reach Shepherd on a bare cluster without editing the rendered object by hand — kind and other local clusters have no ingress controller, and that is exactly where someone is trying the chart for the first time.</p>
+      <table>
+        <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>service.type</code></td><td><code>ClusterIP</code></td><td>&mdash;</td></tr>
+          <tr><td><code>service.port</code></td><td><code>8080</code></td><td>&mdash;</td></tr>
+          <tr><td><code>service.nodePort</code></td><td><code>&quot;&quot;</code></td><td>Only used when type is NodePort. Leave empty to let Kubernetes pick one from the node port range.</td></tr>
+        </tbody>
+      </table>
+      <h2 id="config"><code>config</code></h2>
+      <table>
+        <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>config.server.listen</code></td><td><code>&quot;:8080&quot;</code></td><td>&mdash;</td></tr>
+          <tr><td><code>config.server.metrics_listen</code></td><td><code>&quot;:9090&quot;</code></td><td>Metrics listen on their own port; /metrics is never served on <code>listen</code>. The container port, the metrics Service, and the ServiceMonitor are all derived from this value, so changing it here is enough.</td></tr>
+          <tr><td><code>config.server.base_url</code></td><td><code>&quot;https://shepherd.example.internal&quot;</code></td><td>&mdash;</td></tr>
+          <tr><td><code>config.server.beacon_disabled</code></td><td><code>false</code></td><td>The beacon (docs/gateway-tier-plan.md D6) serves every claimed collector a small baseline pipeline that reports which components it is running and whether they are healthy — component names only, never config text and never raw samples — and mounts an ingest endpoint at /beacon/v1/write authenticated by the same agent token everything else uses.<br>It is ON by default and that is deliberate: the collector nobody knows about is exactly the one that would never opt in. Set this to true to turn it off entirely — no endpoint is mounted and no baseline is served. Opting out is offered because the beacon stores inventory and accepts writes, and an operator who cannot answer for that yet should be able to say no without downgrading.</td></tr>
+          <tr><td><code>config.database.max_conns</code></td><td><code>20</code></td><td>&mdash;</td></tr>
+          <tr><td><code>config.oidc.scopes</code></td><td><code>[&quot;openid&quot;, &quot;profile&quot;, &quot;email&quot;]</code></td><td>&mdash;</td></tr>
+          <tr><td><code>config.auth.session_ttl</code></td><td><code>&quot;8h&quot;</code></td><td>&mdash;</td></tr>
+          <tr><td><code>config.graph.base_url</code></td><td><code>&quot;https://graph.microsoft.com&quot;</code></td><td>&mdash;</td></tr>
+          <tr><td><code>config.agent.inactive_after</code></td><td><code>&quot;5m&quot;</code></td><td>&mdash;</td></tr>
+          <tr><td><code>config.agent.delete_after</code></td><td><code>&quot;24h&quot;</code></td><td>&mdash;</td></tr>
+          <tr><td><code>config.validate.alloy_binary</code></td><td><code>&quot;/usr/local/bin/alloy&quot;</code></td><td>&mdash;</td></tr>
+          <tr><td><code>config.validate.stability_level</code></td><td><code>&quot;experimental&quot;</code></td><td>&mdash;</td></tr>
+          <tr><td><code>config.validate.timeout</code></td><td><code>&quot;10s&quot;</code></td><td>&mdash;</td></tr>
+          <tr><td><code>config.gitsync.tick</code></td><td><code>&quot;3m&quot;</code></td><td>&mdash;</td></tr>
+          <tr><td><code>config.tracing.enabled</code></td><td><code>false</code></td><td>Set enabled: true AND an endpoint. Enabled with no endpoint is reported as a misconfiguration in the logs rather than silently doing nothing — an empty trace backend with no explanation is the worst way to find out.</td></tr>
+          <tr><td><code>config.tracing.endpoint</code></td><td><code>&quot;&quot;            # e.g. &quot;opentelemetry-collector.observability.svc:4317&quot;</code></td><td>&mdash;</td></tr>
+          <tr><td><code>config.tracing.protocol</code></td><td><code>&quot;grpc&quot;        # &quot;grpc&quot; (port 4317) or &quot;http&quot; (port 4318)</code></td><td>&mdash;</td></tr>
+          <tr><td><code>config.tracing.insecure</code></td><td><code>true          # normal for an in-cluster collector over the pod network</code></td><td>&mdash;</td></tr>
+          <tr><td><code>config.tracing.sample_ratio</code></td><td><code>0.1</code></td><td>sample_ratio applies only to traces Shepherd ROOTS; an incoming sampling decision is always honoured. Collectors poll continuously, so 1.0 here is a lot of spans.</td></tr>
+          <tr><td><code>config.tracing.service_name</code></td><td><code>&quot;shepherd&quot;</code></td><td>&mdash;</td></tr>
+          <tr><td><code>config.log.level</code></td><td><code>&quot;info&quot;</code></td><td>&mdash;</td></tr>
+          <tr><td><code>config.log.format</code></td><td><code>&quot;json&quot;</code></td><td>&mdash;</td></tr>
+        </tbody>
+      </table>
+      <h2 id="existingsecret"><code>existingSecret</code></h2>
+      <table>
+        <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>existingSecret</code></td><td><code>&quot;&quot;</code></td><td>&mdash;</td></tr>
+        </tbody>
+      </table>
+      <h2 id="secrets"><code>secrets</code></h2>
+      <table>
+        <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>secrets</code></td><td><code>{}</code></td><td>secrets: key-value pairs rendered into a Kubernetes Secret and injected as environment variables. Keys must match the SHEPHERD_* env var names. Example for local admin password hash: secrets: SHEPHERD_DATABASE_URL: &quot;postgres://...&quot; SHEPHERD_SECURITY_ENCRYPTION_KEY: &quot;base64-32-bytes&quot; SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD: &quot;choose-something&quot; NEVER put SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD in the config: block above — that renders into a ConfigMap, which is not a place for a password.</td></tr>
+        </tbody>
+      </table>
+      <h2 id="migrations"><code>migrations</code></h2>
+      <table>
+        <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>migrations.job.enabled</code></td><td><code>true</code></td><td>&mdash;</td></tr>
+        </tbody>
+      </table>
+      <h2 id="route"><code>route</code></h2>
+      <p>Gateway API HTTPRoute. OFF by default, like <code>ingress</code> below: it needs the Gateway API CRDs, which are not present on a vanilla cluster, so defaulting it on made a plain <code>helm install</code> fail with &quot;no matches for kind HTTPRoute&quot;. Templating could never catch that — <code>helm template</code> does not check whether a Kind exists — and every values file in the repo already set it to false, which is how the broken default survived. Enable it deliberately, and set parentRefs/hostnames when you do: an HTTPRoute with neither routes nothing.</p>
+      <table>
+        <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>route.enabled</code></td><td><code>false</code></td><td>&mdash;</td></tr>
+          <tr><td><code>route.hostnames</code></td><td><code>[]</code></td><td>&mdash;</td></tr>
+          <tr><td><code>route.parentRefs</code></td><td><code>[]</code></td><td>&mdash;</td></tr>
+        </tbody>
+      </table>
+      <h2 id="ingress"><code>ingress</code></h2>
+      <table>
+        <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>ingress.enabled</code></td><td><code>false</code></td><td>&mdash;</td></tr>
+          <tr><td><code>ingress.className</code></td><td><code>&quot;&quot;</code></td><td>&mdash;</td></tr>
+          <tr><td><code>ingress.hosts</code></td><td><code>[]</code></td><td>&mdash;</td></tr>
+          <tr><td><code>ingress.tls</code></td><td><code>[]</code></td><td>&mdash;</td></tr>
+        </tbody>
+      </table>
+      <h2 id="metrics"><code>metrics</code></h2>
+      <p>--------------------------------------------------------------------------- Metrics<br>Shepherd serves Prometheus metrics on a SEPARATE listener from the API (config.server.metrics_listen, default :9090). /metrics on the main port is deliberately 404-guarded, so anything scraping :8080/metrics gets nothing — which is what the ServiceMonitor here used to do.<br><code>enabled</code> controls the metrics Service and its container port. It is on by default: the listener runs regardless, and a ClusterIP Service in front of it exposes nothing outside the cluster. Turn it off only if you have a policy against unscraped Services existing. ---------------------------------------------------------------------------</p>
+      <table>
+        <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>metrics.enabled</code></td><td><code>true</code></td><td>&mdash;</td></tr>
+          <tr><td><code>metrics.serviceMonitor.enabled</code></td><td><code>false</code></td><td>Requires the Prometheus Operator&#x27;s CRDs. Off by default because a ServiceMonitor on a cluster without them fails the install.</td></tr>
+          <tr><td><code>metrics.serviceMonitor.labels</code></td><td><code>{}</code></td><td>labels the Prometheus Operator selects ServiceMonitors by — commonly something like <code>release: kube-prometheus-stack</code>. Check your Prometheus resource&#x27;s serviceMonitorSelector; without a matching label the ServiceMonitor is created and quietly ignored.</td></tr>
+          <tr><td><code>metrics.serviceMonitor.interval</code></td><td><code>&quot;30s&quot;</code></td><td>&mdash;</td></tr>
+          <tr><td><code>metrics.serviceMonitor.scrapeTimeout</code></td><td><code>&quot;10s&quot;</code></td><td>&mdash;</td></tr>
+          <tr><td><code>metrics.serviceMonitor.relabelings</code></td><td><code>[]</code></td><td>&mdash;</td></tr>
+          <tr><td><code>metrics.serviceMonitor.metricRelabelings</code></td><td><code>[]</code></td><td>&mdash;</td></tr>
+        </tbody>
+      </table>
+      <h2 id="resources"><code>resources</code></h2>
+      <table>
+        <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>resources</code></td><td><code>{}</code></td><td>&mdash;</td></tr>
+        </tbody>
+      </table>
+      <h2 id="nodeselector"><code>nodeSelector</code></h2>
+      <table>
+        <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>nodeSelector</code></td><td><code>{}</code></td><td>&mdash;</td></tr>
+        </tbody>
+      </table>
+      <h2 id="tolerations"><code>tolerations</code></h2>
+      <table>
+        <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>tolerations</code></td><td><code>[]</code></td><td>&mdash;</td></tr>
+        </tbody>
+      </table>
+      <h2 id="affinity"><code>affinity</code></h2>
+      <table>
+        <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>affinity</code></td><td><code>{}</code></td><td>&mdash;</td></tr>
+        </tbody>
+      </table>
+      <h2 id="priorityclassname"><code>priorityClassName</code></h2>
+      <table>
+        <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>priorityClassName</code></td><td><code>&quot;&quot;</code></td><td>&mdash;</td></tr>
+        </tbody>
+      </table>
+      <h2 id="podannotations"><code>podAnnotations</code></h2>
+      <table>
+        <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>podAnnotations</code></td><td><code>{}</code></td><td>&mdash;</td></tr>
+        </tbody>
+      </table>
+      <h2 id="extraenv"><code>extraEnv</code></h2>
+      <table>
+        <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>extraEnv</code></td><td><code>[]</code></td><td>&mdash;</td></tr>
+        </tbody>
+      </table>
+      <h2 id="autoscaling"><code>autoscaling</code></h2>
+      <table>
+        <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>autoscaling.enabled</code></td><td><code>false</code></td><td>&mdash;</td></tr>
+          <tr><td><code>autoscaling.minReplicas</code></td><td><code>2</code></td><td>&mdash;</td></tr>
+          <tr><td><code>autoscaling.maxReplicas</code></td><td><code>10</code></td><td>&mdash;</td></tr>
+          <tr><td><code>autoscaling.targetCPUUtilizationPercentage</code></td><td><code>80</code></td><td>&mdash;</td></tr>
+        </tbody>
+      </table>
+      <h2 id="networkpolicy"><code>networkPolicy</code></h2>
+      <table>
+        <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>networkPolicy.enabled</code></td><td><code>false</code></td><td>&mdash;</td></tr>
+        </tbody>
+      </table>
+      <h2 id="simulator"><code>simulator</code></h2>
+      <p>----------------------------------------------------------------------------- S3 sandbox simulator (VB-1 §6.4) — ENABLED BY DEFAULT since v0.0.1, after both containment gates closed (docs/project-status.md F5: B-CONTAIN-1 fixed and red/green-proven; NetworkPolicy enforcement verified in a real cluster by e2e/k8s/simulator_containment_test.go&#x27;s probes and kill probe).<br>TO DISABLE: set <code>simulator.enabled: false</code> below (or --set on install) — nothing simulator-related renders, and shepherd&#x27;s config is not wired to it. The compose stacks keep their opt-in <code>sim</code> profile: that is test-environment design (the default <code>make e2e</code> deliberately exercises the simulator-absent path), not the product default.<br>When enabled, shepherd&#x27;s config is wired to this chart&#x27;s simulator Service automatically unless you set <code>config.simulator</code> yourself — an explicit config.simulator block always wins verbatim (see templates/configmap.yaml).<br>It runs USER-AUTHORED Alloy configuration. Every control below is load-bearing, not decoration, and every one is asserted by deploy/helm/chart_test.go so it cannot regress silently: - automountServiceAccountToken: false on its ServiceAccount. Defense in depth, not the only gate — internal/simsvc.Config.SATokenPath makes the binary itself refuse to start if a token is mounted anyway. - a default-deny egress NetworkPolicy. The sandboxed Alloy is a CHILD PROCESS of shepherd-simulator (internal/simsvc/runner.go), not a sibling container, so this Pod&#x27;s own network boundary IS the sandbox&#x27;s boundary. Egress is allowed only to this Pod&#x27;s own harness ports (the capture receivers shepherd-simulator itself serves) and to cluster DNS; nothing else, including the rest of the cluster and the internet. - non-root securityContext, every capability dropped, no privilege escalation, a read-only root filesystem (the run scratch directory is an emptyDir mounted over /tmp). - CPU/memory limits, so one runaway sandboxed config cannot starve the node.<br>See docs/visual-builder-design-VB1.md §6.4 and docs/archive/reviews/s3-sandbox-security-findings.md (finding H5) for why each of these exists.</p>
+      <table>
+        <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>simulator.enabled</code></td><td><code>true</code></td><td>&mdash;</td></tr>
+          <tr><td><code>simulator.image.registry</code></td><td><code>&quot;ghcr.io/procoduck&quot;</code></td><td>&mdash;</td></tr>
+          <tr><td><code>simulator.image.repository</code></td><td><code>shepherd-simulator</code></td><td>&mdash;</td></tr>
+          <tr><td><code>simulator.image.tag</code></td><td><code>&quot;&quot;</code></td><td>&mdash;</td></tr>
+          <tr><td><code>simulator.image.pullPolicy</code></td><td><code>IfNotPresent</code></td><td>&mdash;</td></tr>
+          <tr><td><code>simulator.replicas</code></td><td><code>1</code></td><td>&mdash;</td></tr>
+          <tr><td><code>simulator.resources.requests.cpu</code></td><td><code>250m</code></td><td>&mdash;</td></tr>
+          <tr><td><code>simulator.resources.requests.memory</code></td><td><code>256Mi</code></td><td>&mdash;</td></tr>
+          <tr><td><code>simulator.resources.limits.cpu</code></td><td><code>&quot;1&quot;</code></td><td>&mdash;</td></tr>
+          <tr><td><code>simulator.resources.limits.memory</code></td><td><code>512Mi</code></td><td>&mdash;</td></tr>
+          <tr><td><code>simulator.allowedHosts</code></td><td><code>[]</code></td><td>allowedHosts overrides SIM_ALLOWED_HOSTS, the endpoint allowlist that is §6.4&#x27;s defense-in-depth check ON TOP OF the NetworkPolicy. Empty uses the service&#x27;s own built-in default (its own hostname plus localhost).</td></tr>
+          <tr><td><code>simulator.podAnnotations</code></td><td><code>{}</code></td><td>&mdash;</td></tr>
+          <tr><td><code>simulator.nodeSelector</code></td><td><code>{}</code></td><td>&mdash;</td></tr>
+          <tr><td><code>simulator.tolerations</code></td><td><code>[]</code></td><td>&mdash;</td></tr>
+          <tr><td><code>simulator.affinity</code></td><td><code>{}</code></td><td>&mdash;</td></tr>
+          <tr><td><code>simulator.networkPolicy.extraEgress</code></td><td><code>[]</code></td><td>extraEgress lets an operator open one additional narrow hole (e.g. a split-horizon internal DNS server that is not kube-dns) without editing the template. Empty by default: the harness is everything the sandbox needs, by design.</td></tr>
+        </tbody>
+      </table>
+        <nav class="page-nav" aria-label="Pagination">
+          <a class="page-nav-prev" href="simulation.html"><span>Previous</span><strong>Sandbox simulation</strong></a>
+          <a class="page-nav-next" href="resources.html"><span>Next</span><strong>Further reading</strong></a>
+        </nav>
+      </div>
+    </div>
+
+    <aside class="docs-toc">
+      <p class="toc-label">On this page</p>
+      <ul>
+        <li><a href="#image">image</a></li>
+        <li><a href="#replicas">replicas</a></li>
+        <li><a href="#service">service</a></li>
+        <li><a href="#config">config</a></li>
+        <li><a href="#existingsecret">existingSecret</a></li>
+        <li><a href="#secrets">secrets</a></li>
+        <li><a href="#migrations">migrations</a></li>
+        <li><a href="#route">route</a></li>
+        <li><a href="#ingress">ingress</a></li>
+        <li><a href="#metrics">metrics</a></li>
+        <li><a href="#resources">resources</a></li>
+        <li><a href="#nodeselector">nodeSelector</a></li>
+        <li><a href="#tolerations">tolerations</a></li>
+        <li><a href="#affinity">affinity</a></li>
+        <li><a href="#priorityclassname">priorityClassName</a></li>
+        <li><a href="#podannotations">podAnnotations</a></li>
+        <li><a href="#extraenv">extraEnv</a></li>
+        <li><a href="#autoscaling">autoscaling</a></li>
+        <li><a href="#networkpolicy">networkPolicy</a></li>
+        <li><a href="#simulator">simulator</a></li>
+      </ul>
+    </aside>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-left">
+      <span class="pill">v0.3.1</span>
+      <span>self-hosted Grafana Alloy fleet manager</span>
+    </div>
+    <div class="foot-links">
+      <a href="https://github.com/procoduck/shepherd">GitHub</a>
+      <a href="index.html">Docs</a>
+      <a href="../index.html">Home</a>
+    </div>
+  </div>
+</footer>
+
+<script src="../docs.js" defer></script>
+</body>
+</html>

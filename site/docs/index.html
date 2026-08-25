@@ -46,9 +46,9 @@
   <p class="docs-nav-cat">Install</p>
   <ul>
     <li><a href="requirements.html">Requirements</a></li>
-    <li><a href="local-development.html">Local development</a></li>
     <li><a href="kubernetes.html">Kubernetes (Helm)</a></li>
     <li><a href="configuration.html">Configuration</a></li>
+    <li><a href="local-development.html">Running from source</a></li>
   </ul>
   <p class="docs-nav-cat">Fleet</p>
   <ul>
@@ -72,6 +72,7 @@
   </ul>
   <p class="docs-nav-cat">Reference</p>
   <ul>
+    <li><a href="helm-values.html">Helm values</a></li>
     <li><a href="resources.html">Further reading</a></li>
   </ul>
 </aside>
@@ -79,12 +80,13 @@
     <div class="docs-main">
       <div class="docs-content docs-index">
         <h1>Shepherd documentation</h1>
-        <p class="lede-sm">Shepherd serves centralised pipeline configuration to a fleet of
-        Grafana Alloy collectors over <code>remotecfg</code>. These pages cover installing it,
-        connecting collectors, authoring pipelines, and deciding who may change what.</p>
+        <p class="lede-sm">Shepherd runs in your Kubernetes cluster and serves centralised
+        pipeline configuration to a fleet of Grafana Alloy collectors over <code>remotecfg</code>.
+        These pages cover installing it, connecting collectors, authoring pipelines, and deciding
+        who may change what.</p>
         <p class="note"><strong>New here?</strong> Start with the
-        <a href="quickstart.html">Quickstart</a> &mdash; a working instance serving a pipeline
-        to a collector, on your own machine, in about five minutes.</p>
+        <a href="quickstart.html">Quickstart</a> &mdash; install the chart, point a collector at
+        it, and serve that collector a pipeline.</p>
         <div class="doc-cards">
         <article class="doc-card">
           <h2><a href="quickstart.html">Get started</a></h2>
@@ -96,7 +98,7 @@
         </article>
         <article class="doc-card">
           <h2><a href="requirements.html">Install</a></h2>
-          <ul><li><a href="requirements.html">Requirements</a></li><li><a href="local-development.html">Local development</a></li><li><a href="kubernetes.html">Kubernetes (Helm)</a></li><li><a href="configuration.html">Configuration</a></li></ul>
+          <ul><li><a href="requirements.html">Requirements</a></li><li><a href="kubernetes.html">Kubernetes (Helm)</a></li><li><a href="configuration.html">Configuration</a></li><li><a href="local-development.html">Running from source</a></li></ul>
         </article>
         <article class="doc-card">
           <h2><a href="agent-tokens.html">Fleet</a></h2>
@@ -115,8 +117,8 @@
           <ul><li><a href="simulation.html">Sandbox simulation</a></li></ul>
         </article>
         <article class="doc-card">
-          <h2><a href="resources.html">Reference</a></h2>
-          <ul><li><a href="resources.html">Further reading</a></li></ul>
+          <h2><a href="helm-values.html">Reference</a></h2>
+          <ul><li><a href="helm-values.html">Helm values</a></li><li><a href="resources.html">Further reading</a></li></ul>
         </article>
         </div>
       </div>

@@ -1086,3 +1086,22 @@ footer .foot-links a {
     max-width: none;
   }
 }
+
+.req-note {
+  display: block;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--accent);
+  margin-top: 2px;
+}
+
+/* Section headings in the generated values reference are key names, so they
+   are marked up as code. Inline-code chrome at h2 size reads as a button. */
+.docs-content h2 code,
+.docs-content h3 code {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: inherit;
+  color: var(--accent-ink);
+}

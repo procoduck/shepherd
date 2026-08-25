@@ -33,12 +33,13 @@
 
 <header class="hero" id="top">
   <div class="wrap">
-    <span class="eyebrow"><span class="dot"></span> v0.3.1 · self-hosted · single binary</span>
+    <span class="eyebrow"><span class="dot"></span> v0.3.1 · self-hosted · Kubernetes-first</span>
     <h1>Run a fleet of Grafana Alloy collectors from one place.</h1>
     <p class="lede">
-      Shepherd is a self-hosted fleet manager for Grafana Alloy. Build pipelines visually or in Git,
-      merge and validate them against a real Alloy binary, and serve them to every collector over
-      Alloy's native <code>remotecfg</code> protocol — before anything reaches production.
+      Shepherd is a self-hosted, Kubernetes-first fleet manager for Grafana Alloy. Install it with
+      Helm, build pipelines visually or in Git, merge and validate them against a real Alloy binary,
+      and serve them to every collector over Alloy's native <code>remotecfg</code> protocol — before
+      anything reaches production.
     </p>
     <div class="hero-ctas">
       <a class="btn btn-primary" href="#quickstart">Get started</a>
@@ -314,8 +315,8 @@
       <p class="kicker">// quick start</p>
       <h2>Deploy with Helm, point Alloy at it.</h2>
       <p class="section-sub">
-        Images are published to GitHub Container Registry for linux/amd64 and linux/arm64. The chart
-        lives at <code>deploy/helm/shepherd</code> in the repo.
+        The chart and images are published to GitHub Container Registry for linux/amd64 and
+        linux/arm64 — nothing to clone. Bring your own PostgreSQL.
       </p>
     </div>
 
@@ -366,25 +367,18 @@
       <div class="qs-step">
         <div class="qs-num">3</div>
         <div>
-          <h3>Or run it locally first</h3>
-          <p>A single binary against Postgres — no Kubernetes required to try it out.</p>
+          <h3>Just want to look at it?</h3>
+          <p>
+            The dev stack boots the whole thing in Docker — database, seeded data, and live Alloy
+            collectors already polling it. For trying Shepherd or working on it, not for running it.
+          </p>
           <div class="code-block" data-lang="shell">
             <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-            <pre><code>docker run -d --name shepherd-pg \
-  -e POSTGRES_DB=shepherd -e POSTGRES_USER=shepherd -e POSTGRES_PASSWORD=shepherd \
-  -p 5432:5432 postgres:16-alpine
-
-make build
-
-# Export, don't inline: a `VAR=x cmd1 &amp;&amp; cmd2` prefix applies to cmd1 only.
-# Keep the encryption key — a new one cannot decrypt what the old one stored.
-export SHEPHERD_DATABASE_URL=postgres://shepherd:shepherd@localhost:5432/shepherd
-export SHEPHERD_SECURITY_ENCRYPTION_KEY=$(openssl rand -base64 32)
-
-./bin/shepherd migrate up
-./bin/shepherd serve</code></pre>
+            <pre><code>git clone https://github.com/procoduck/shepherd.git
+cd shepherd
+make dev          # http://localhost:8080 — admin / admin</code></pre>
           </div>
-          <p class="note">The <a href="docs/quickstart.html">Quickstart</a> gets the whole stack &mdash; database, collectors and all &mdash; running in Docker instead, and the <a href="docs/index.html">documentation</a> covers installing, authoring pipelines and access control.</p>
+          <p class="note">The <a href="docs/quickstart.html">Quickstart</a> installs it properly on a cluster, and the <a href="docs/index.html">documentation</a> covers the chart values, authoring pipelines and access control.</p>
         </div>
       </div>
     </div>

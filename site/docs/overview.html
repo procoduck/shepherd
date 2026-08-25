@@ -46,9 +46,9 @@
   <p class="docs-nav-cat">Install</p>
   <ul>
     <li><a href="requirements.html">Requirements</a></li>
-    <li><a href="local-development.html">Local development</a></li>
     <li><a href="kubernetes.html">Kubernetes (Helm)</a></li>
     <li><a href="configuration.html">Configuration</a></li>
+    <li><a href="local-development.html">Running from source</a></li>
   </ul>
   <p class="docs-nav-cat">Fleet</p>
   <ul>
@@ -72,6 +72,7 @@
   </ul>
   <p class="docs-nav-cat">Reference</p>
   <ul>
+    <li><a href="helm-values.html">Helm values</a></li>
     <li><a href="resources.html">Further reading</a></li>
   </ul>
 </aside>
@@ -81,10 +82,11 @@
       <div class="docs-content">
 <h1>What Shepherd is</h1>
       <p>
-        Shepherd is a self-hosted fleet manager for <strong>Grafana Alloy</strong>. It holds your
-        collectors&rsquo; configuration centrally and serves each one exactly the config it should be
-        running, over Alloy&rsquo;s own <code>remotecfg</code> protocol. Collectors poll it; it never
-        connects to them.
+        Shepherd is a self-hosted, <strong>Kubernetes-first</strong> fleet manager for
+        <strong>Grafana Alloy</strong>. It runs in your cluster, holds your collectors&rsquo;
+        configuration centrally, and serves each one exactly the config it should be running over
+        Alloy&rsquo;s own <code>remotecfg</code> protocol. Collectors poll it; it never connects to
+        them, so it needs no access into the clusters it manages and no inbound path to a collector.
       </p>
 
       <h2 id="how-it-fits-together">How it fits together</h2>
@@ -104,7 +106,8 @@
           <a href="matchers.html">matchers</a> select a given collector and merges them into the single
           config that collector is served.</li>
         <li><strong>PostgreSQL</strong> holds everything: pipelines, orgs, sessions, credentials.
-          Shepherd itself is stateless, so you can run more than one replica.</li>
+          Shepherd itself is stateless, so the chart runs two replicas by default and you can scale
+          it like any other Deployment. The database is the only thing to back up.</li>
         <li><strong>Git</strong> is optional. A repo can be the source of pipelines instead of the UI
           &mdash; see <a href="gitops.html">GitOps</a>.</li>
       </ul>

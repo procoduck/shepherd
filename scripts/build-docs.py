@@ -22,6 +22,9 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import values_reference  # noqa: E402  (needs the path set above)
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONTENT = os.path.join(ROOT, "scripts", "docs-content")
 OUT = os.path.join(ROOT, "site", "docs")
@@ -32,7 +35,7 @@ OUT = os.path.join(ROOT, "site", "docs")
 NAV = [
     ("Get started", [
         ("quickstart", "Quickstart", "Quickstart",
-         "Run Shepherd locally and serve a first pipeline to a Grafana Alloy collector in about five minutes."),
+         "Install Shepherd on Kubernetes with Helm and serve a first pipeline to a Grafana Alloy collector."),
     ]),
     ("About", [
         ("overview", "What Shepherd is", "What Shepherd is",
@@ -42,13 +45,13 @@ NAV = [
     ]),
     ("Install", [
         ("requirements", "Requirements", "Requirements",
-         "What Shepherd needs to run: PostgreSQL, an Alloy version, and the ports it listens on."),
-        ("local-development", "Local development", "Local development",
-         "Run the full stack locally with Docker, seeded and ready to click through."),
+         "What Shepherd needs to run: a cluster, PostgreSQL, an Alloy version, and the ports it listens on."),
         ("kubernetes", "Kubernetes (Helm)", "Kubernetes (Helm)",
          "Install the published Helm chart from its OCI registry, with no clone and no repo to add."),
         ("configuration", "Configuration", "Configuration",
          "Every setting Shepherd reads, which are required, and which must never be rotated."),
+        ("local-development", "Running from source", "Running from source",
+         "Run Shepherd outside Kubernetes when you are developing Shepherd itself."),
     ]),
     ("Fleet", [
         ("agent-tokens", "Agent tokens", "Agent tokens",
@@ -58,7 +61,7 @@ NAV = [
     ]),
     ("Pipelines", [
         ("authoring", "Authoring pipelines", "Authoring pipelines",
-         "Three ways to write a pipeline — a wizard, the visual builder, or raw Alloy — all landing in one merge engine."),
+         "Three ways to write a pipeline \u2014 a wizard, the visual builder, or raw Alloy \u2014 all landing in one merge engine."),
         ("matchers", "Matchers and validation", "Matchers and validation",
          "How Shepherd decides which collectors receive a pipeline, and what it refuses to serve."),
         ("gitops", "GitOps", "GitOps",
@@ -68,13 +71,15 @@ NAV = [
         ("single-sign-on", "Single sign-on", "Single sign-on",
          "Connect any spec-compliant OIDC provider, from the chart or from the admin UI."),
         ("users-and-teams", "Users and teams", "Users and teams",
-         "Local accounts, org roles and team membership — with or without an identity provider."),
+         "Local accounts, org roles and team membership \u2014 with or without an identity provider."),
     ]),
     ("Sandbox", [
         ("simulation", "Sandbox simulation", "Sandbox simulation",
          "Run a candidate pipeline against synthetic telemetry in a contained sandbox before it reaches a collector."),
     ]),
     ("Reference", [
+        ("helm-values", "Helm values", "Helm values",
+         "Every value the chart accepts, generated from the chart's own values.yaml."),
         ("resources", "Further reading", "Further reading",
          "The specification, chart values, changelog and source."),
     ]),
@@ -155,6 +160,27 @@ FOOT = """
 </body>
 </html>
 """
+
+
+# Pages whose body is generated rather than written. The values reference is
+# the chart's own comments, so writing it by hand would mean transcribing a
+# file that is already in the repository -- and letting the two drift.
+def generated_pages():
+    return {
+        "helm-values": lambda: values_reference.render(
+            os.path.join(ROOT, "deploy", "helm", "shepherd", "values.yaml"),
+            chart_version()),
+    }
+
+
+def chart_version():
+    """The chart's own version, which is not the app version."""
+    path = os.path.join(ROOT, "deploy", "helm", "shepherd", "Chart.yaml")
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            if line.startswith("version:"):
+                return line.split(":", 1)[1].strip().strip('"')
+    raise SystemExit("build-docs: could not read version from Chart.yaml")
 
 
 def app_version():
@@ -266,12 +292,13 @@ def render_index(version):
     body = (
         '      <div class="docs-content docs-index">\n'
         '        <h1>Shepherd documentation</h1>\n'
-        '        <p class="lede-sm">Shepherd serves centralised pipeline configuration to a fleet of\n'
-        '        Grafana Alloy collectors over <code>remotecfg</code>. These pages cover installing it,\n'
-        '        connecting collectors, authoring pipelines, and deciding who may change what.</p>\n'
+        '        <p class="lede-sm">Shepherd runs in your Kubernetes cluster and serves centralised\n'
+        '        pipeline configuration to a fleet of Grafana Alloy collectors over <code>remotecfg</code>.\n'
+        '        These pages cover installing it, connecting collectors, authoring pipelines, and deciding\n'
+        '        who may change what.</p>\n'
         '        <p class="note"><strong>New here?</strong> Start with the\n'
-        '        <a href="quickstart.html">Quickstart</a> &mdash; a working instance serving a pipeline\n'
-        '        to a collector, on your own machine, in about five minutes.</p>\n'
+        '        <a href="quickstart.html">Quickstart</a> &mdash; install the chart, point a collector at\n'
+        '        it, and serve that collector a pipeline.</p>\n'
         '        <div class="doc-cards">\n' + "\n".join(cards) + "\n"
         '        </div>\n'
         '      </div>\n')
@@ -299,11 +326,15 @@ def main():
         fh.write(render_index(version))
 
     for i, (category, slug, nav_title, title, desc) in enumerate(pages):
-        src = os.path.join(CONTENT, slug + ".html")
-        if not os.path.exists(src):
-            raise SystemExit("build-docs: missing content fragment %s" % src)
-        with open(src, encoding="utf-8") as fh:
-            fragment = fh.read()
+        gen = generated_pages().get(slug)
+        if gen is not None:
+            fragment = gen()
+        else:
+            src = os.path.join(CONTENT, slug + ".html")
+            if not os.path.exists(src):
+                raise SystemExit("build-docs: missing content fragment %s" % src)
+            with open(src, encoding="utf-8") as fh:
+                fragment = fh.read()
         prev_page = (pages[i - 1][1], pages[i - 1][2]) if i > 0 else None
         next_page = (pages[i + 1][1], pages[i + 1][2]) if i + 1 < len(pages) else None
         out_name = slug + ".html"

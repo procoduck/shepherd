@@ -1,65 +1,119 @@
 <h1>Quickstart</h1>
       <p>
-        The fastest path to a Shepherd you can click through: the whole stack in Docker, seeded, with
-        live Alloy collectors already polling it. Roughly five minutes, most of which is image pulls.
+        Shepherd runs in your cluster and manages the Grafana Alloy collectors already there. This
+        page installs it with Helm, points a collector at it, and serves that collector a pipeline
+        &mdash; the whole loop, on a real cluster.
       </p>
       <p class="note">
-        <strong>You need</strong> Docker, <code>make</code>, and a checkout of the repository. Nothing
-        else &mdash; the dev stack brings its own PostgreSQL, mock identity provider, git server and
-        collectors. For a production install see <a href="kubernetes.html">Kubernetes (Helm)</a>.
+        <strong>You need</strong> a Kubernetes cluster and <code>helm</code>, plus a PostgreSQL
+        database Shepherd can reach. The chart does not ship a database: Shepherd keeps every
+        pipeline, org and session there, so it should be one you are willing to back up. Any managed
+        Postgres or an in-cluster operator is fine.
       </p>
 
-      <h2 id="start-the-stack">1. Start the stack</h2>
+      <h2 id="create-the-secret">1. Create the secret</h2>
+      <p>
+        Two values are required and the server refuses to start without them. Generate the encryption
+        key <strong>once</strong> and keep it &mdash; it encrypts git credentials and the OIDC client
+        secret at rest, and a replacement key cannot decrypt what the old one wrote.
+      </p>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-        <pre><code>git clone https://github.com/procoduck/shepherd.git
-cd shepherd
-make dev</code></pre>
+        <pre><code>kubectl create namespace shepherd
+
+kubectl -n shepherd create secret generic shepherd-secrets \
+  --from-literal=SHEPHERD_DATABASE_URL='postgres://user:pass@host:5432/shepherd' \
+  --from-literal=SHEPHERD_SECURITY_ENCRYPTION_KEY="$(openssl rand -base64 32)" \
+  --from-literal=SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD='choose-a-password'</code></pre>
+      </div>
+
+      <h2 id="install-the-chart">2. Install the chart</h2>
+      <p>
+        The chart is published as an OCI artifact, so there is nothing to clone and no repository to
+        add.
+      </p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.7.1 \
+  --namespace shepherd \
+  --set existingSecret=shepherd-secrets
+
+kubectl -n shepherd rollout status deploy/shepherd</code></pre>
       </div>
       <p>
-        That builds the images and brings up PostgreSQL, a seeded database, Shepherd, and a couple of
-        real Alloy collectors pointed at it. When it finishes it prints the URL and the sign-in.
+        Database migrations run as a Helm <code>pre-install</code>/<code>pre-upgrade</code> hook, so
+        <code>helm install</code> waits for the schema to be current before it creates the
+        Deployment at all. The install above deliberately exposes nothing: <code>route</code> and <code>ingress</code> are both off by
+        default, because an HTTPRoute needs Gateway API CRDs that a vanilla cluster does not have.
+        Reach it with a port-forward first and decide how to expose it afterwards &mdash; see
+        <a href="kubernetes.html#exposing-shepherd">Exposing Shepherd</a>.
       </p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>kubectl -n shepherd port-forward svc/shepherd 8080:8080</code></pre>
+      </div>
 
-      <h2 id="sign-in">2. Sign in</h2>
+      <h2 id="sign-in">3. Sign in</h2>
       <p>
         Open <a href="http://localhost:8080">http://localhost:8080</a> and sign in as
-        <code>admin</code> / <code>admin</code>. This is a local development credential seeded by
-        <code>make dev</code>; a real install sets its own on first boot &mdash; see
-        <a href="configuration.html#the-first-administrator">Configuration</a>.
+        <code>admin</code> with the bootstrap password from step 1. That account is created on first
+        boot, only while the users table is empty. If you left the password out, it is
+        <code>admin</code>/<code>admin</code> and can do nothing at all until you change it.
       </p>
 
-      <h2 id="look-at-the-fleet">3. Look at the fleet</h2>
+      <h2 id="claim-a-cluster">4. Mint a token and claim the cluster</h2>
       <p>
-        <strong>Collectors</strong> lists the agents already talking to Shepherd, the cluster and role
-        attributes each one reports, and when it last polled. Open one and you can see the exact
-        merged config it is being served right now.
+        Collectors authenticate with an agent token. Create one at <strong>Admin &rarr; Agent
+        Tokens</strong>; the secret is shown exactly once. Then, once a collector has polled,
+        <strong>Admin &rarr; Clusters</strong> shows the cluster it reported &mdash; claim it into an
+        organisation, which is what makes its collectors manageable.
+      </p>
+      <p class="note">
+        An unclaimed collector is served an <strong>empty config</strong>, not an error, so it keeps
+        running whatever it already had. Nothing you do here disrupts a running fleet until you
+        deliberately enable a pipeline that matches it.
+      </p>
+
+      <h2 id="point-alloy-at-it">5. Point Alloy at it</h2>
+      <p>
+        Add a <code>remotecfg</code> block to the Alloy instances you want managed. In-cluster, the
+        URL is the chart&rsquo;s Service:
+      </p>
+      <div class="code-block" data-lang="alloy">
+        <div class="code-head"><span>config.alloy</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>remotecfg {
+  url = "http://shepherd.shepherd.svc.cluster.local:8080"
+  basic_auth {
+    username = "&lt;token-uuid&gt;"
+    password = "&lt;token-secret&gt;"
+  }
+  attributes = {
+    cluster = "prod-eu-1",
+    role    = "metrics",
+  }
+  poll_frequency = "60s"
+}</code></pre>
+      </div>
+      <p>
+        The <code>attributes</code> are what pipelines select on, so they are worth choosing
+        deliberately &mdash; see <a href="matchers.html">Matchers and validation</a>. Within one poll
+        interval the collector appears under <strong>Collectors</strong>.
       </p>
       <p><img src="../img/collectors.jpg" alt="The Collectors list: each collector with its cluster, role, health and last-seen time" loading="lazy"></p>
 
-      <h2 id="change-something">4. Change what they run</h2>
+      <h2 id="serve-a-pipeline">6. Serve it a pipeline</h2>
       <p>
         Go to <strong>Pipelines</strong> and create one &mdash; from a wizard, in the visual builder,
-        or by pasting Alloy directly. Give it matchers that select a collector you just looked at,
-        enable it, and watch the served config on that collector&rsquo;s page change on its next poll.
+        or by pasting Alloy. Give it matchers that select the collector you just connected, enable it,
+        and watch the served config on that collector&rsquo;s page change on its next poll.
       </p>
-      <p>
-        That loop &mdash; author, match, serve &mdash; is all of Shepherd.
-        <a href="authoring.html">Authoring pipelines</a> covers the three editors and
-        <a href="matchers.html">Matchers and validation</a> covers how a pipeline finds its collectors
-        and what Shepherd refuses to serve.
-      </p>
-
-      <h2 id="tear-it-down">5. Tear it down</h2>
-      <div class="code-block" data-lang="shell">
-        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-        <pre><code>make dev-reset   # stop everything and drop the volumes</code></pre>
-      </div>
+      <p>That loop &mdash; author, match, serve &mdash; is all of Shepherd.</p>
 
       <h2 id="where-next">Where to go next</h2>
       <ul>
-        <li><a href="overview.html">What Shepherd is</a> &mdash; how the pieces fit, and what it deliberately is not.</li>
-        <li><a href="kubernetes.html">Kubernetes (Helm)</a> &mdash; a real install, from the published chart.</li>
-        <li><a href="local-development.html">Local development</a> &mdash; running from source instead of Docker.</li>
-        <li><a href="collectors.html">Connect a collector</a> &mdash; point your own Alloy at it.</li>
+        <li><a href="kubernetes.html">Kubernetes (Helm)</a> &mdash; exposing it, high availability, and what the chart renders.</li>
+        <li><a href="helm-values.html">Helm values</a> &mdash; every value the chart accepts.</li>
+        <li><a href="configuration.html">Configuration</a> &mdash; the settings behind the secret.</li>
+        <li><a href="roles.html">Roles and access</a> &mdash; before you let anyone else in.</li>
+        <li><a href="local-development.html">Running from source</a> &mdash; only if you are developing Shepherd itself.</li>
       </ul>

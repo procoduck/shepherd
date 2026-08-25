@@ -1,4 +1,9 @@
-<h1>Local development</h1>
+<h1>Running from source</h1>
+      <p class="note">
+        <strong>This is not how you deploy Shepherd.</strong> It manages Alloy collectors in a
+        Kubernetes cluster and belongs in one &mdash; see the <a href="quickstart.html">Quickstart</a>.
+        This page is for changing Shepherd itself, when you want the binary under your own debugger.
+      </p>
       <p>Start Postgres, build the binary, run migrations, and serve.</p>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
@@ -32,11 +37,24 @@ export SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD=choose-a-password
         <a href="collectors.html">point a collector at it</a>.
       </p>
       <h2 id="the-full-dev-stack">The full dev stack</h2>
-      <p class="note">
-        Prefer a whole environment with a mock identity provider, a git server, and live Alloy agents
-        already talking to it? <code>make dev</code> boots that in Docker &mdash; see the
-        <a href="quickstart.html">Quickstart</a>. Use this page when you are changing Shepherd itself
-        and want the binary under your own debugger.
+      <p>
+        <code>make dev</code> boots a whole environment in Docker &mdash; PostgreSQL, a seeded
+        database, a mock identity provider, a git server, and live Alloy collectors already polling
+        Shepherd at <a href="http://localhost:8080">localhost:8080</a> with
+        <code>admin</code>/<code>admin</code>. It is the fastest way to see the product working
+        without a cluster, and the environment the end-to-end suites run against.
+      </p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>make dev         # bring it all up
+make dev-reset   # stop it and drop the volumes</code></pre>
+      </div>
+      <h2 id="against-a-cluster">Testing against a real cluster</h2>
+      <p>
+        <code>make e2e-k8s</code> creates a kind cluster, installs the chart into it, and asserts the
+        rendered objects and the simulator&rsquo;s containment from inside a running cluster. That is
+        the suite to run when you have changed anything under
+        <code>deploy/helm/shepherd/</code>.
       </p>
       <h2 id="useful-targets">Useful targets</h2>
       <table>
