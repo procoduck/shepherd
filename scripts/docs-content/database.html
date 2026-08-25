@@ -17,7 +17,7 @@
   --from-literal=SHEPHERD_DATABASE_URL='postgres://user:pass@my-rds.eu-west-1.rds.amazonaws.com:5432/shepherd?sslmode=require' \
   --from-literal=SHEPHERD_SECURITY_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 
-helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.8.1 \
+helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.8.2 \
   --namespace shepherd --set existingSecret=shepherd-secrets</code></pre>
       </div>
       <p>
@@ -34,7 +34,7 @@ helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.8.1 \
       </p>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.8.1 \
+        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.8.2 \
   --namespace shepherd \
   --set cnpg.enabled=true \
   --set existingSecret=shepherd-secrets   # still holds the encryption key</code></pre>

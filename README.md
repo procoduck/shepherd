@@ -170,7 +170,7 @@ kubectl create secret generic shepherd-secrets \
   --from-literal=SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD='choose-a-password'
 
 # 2. Install. The chart version is its own — see the note below.
-helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.8.1 \
+helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.8.2 \
   --set existingSecret=shepherd-secrets \
   --set "route.enabled=true" \
   --set "route.hostnames[0]=shepherd.internal"

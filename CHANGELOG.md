@@ -11,6 +11,115 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
+## v0.3.4
+
+Chart 0.8.2. A full-application review, fixed. **If you enabled
+`cnpg.enabled` on chart 0.8.0 or 0.8.1, upgrade before your next
+`helm upgrade`** — see the first entry.
+
+### Fixed — data loss
+
+- **`helm upgrade` destroyed the database when `cnpg.enabled` was set**
+  (charts 0.8.0 and 0.8.1). The CloudNativePG `Cluster` renders as a Helm hook,
+  and Helm's documented default hook-delete-policy — applied precisely when the
+  annotation is *omitted* — is `before-hook-creation`. The chart's comments
+  claimed the opposite, so every upgrade deleted the live Cluster and
+  CloudNativePG cascaded that to the PVCs. Measured by removing the fix and
+  running the Kubernetes suite: the upgrade hung for 916 seconds and failed with
+  `Deployment/shepherd not ready ... Available: 0/1`, the application unable to
+  start because its database had been removed underneath it.
+
+  The same shape applied to the `ExternalSecret`, which regenerated the
+  encryption key that **cannot** be rotated — silently orphaning every git
+  credential and OIDC client secret already stored.
+
+  The chart now renders both only when they do not already exist, so an upgrade
+  leaves them untouched. A hook absent from the manifest is never processed.
+  There is no annotation that expresses "never delete", which is why this is a
+  render guard rather than a policy.
+
+  **If you are on 0.8.0 or 0.8.1 with `cnpg.enabled`:** upgrade to 0.8.2 *before*
+  running any other `helm upgrade`. Back up your database first. Charts 0.8.0
+  and 0.8.1 should be treated as withdrawn for that configuration.
+
+### Fixed — cross-org access
+
+- **Four by-id handlers acted on ids without checking they belonged to the
+  requesting org.** Neither the Connect interceptor nor the REST middleware can
+  do that for them: both authorize the org *named in the request*, which proves
+  the caller holds a role there and says nothing about the id passed alongside
+  it. A reader in one org could read another org's collectors and their full
+  served config — destination URLs, tenant ids, and any credentials embedded in
+  pipeline contents. An admin could grant their own group standing access to
+  another org's collector, or delete another org's git credentials and repo
+  links.
+- **The reader-floor fallback in `authorizeOrgAccess` was not org-scoped.** It
+  asked "does this session hold a collector assignment *anywhere*", so one
+  assignment in one org cleared the reader floor in *every* org — invisibly,
+  because `/api/me` builds its org list from group matches and never showed the
+  extra orgs.
+
+### Fixed — revocation
+
+- **Disabling or demoting an account did not end its sessions.** `is_app_admin`
+  is copied into the session row at login and `disabled` was only checked at
+  login, so a revoked administrator kept full app-admin until the cookie expired
+  — up to 8 hours. The last-admin guard exists to control exactly that removal;
+  it now takes effect immediately.
+
+### Fixed — served configuration
+
+- **GitOps pipelines were silently dropped from served config.** Both management
+  API merge paths used the query that omits `repo_link_collector_id`, and a git
+  pipeline matches *solely* by that field. Stage 3 therefore validated a merged
+  config no collector would receive, and the eager recompute wrote serve caches
+  without the org's GitOps pipelines and marked them clean, so the correct path
+  never ran again.
+- **One unparsable matcher froze configuration serving for a whole
+  organisation**, and a newly-claimed collector was served an *empty* config,
+  wiping what it was already running. Matchers are now parsed when saved
+  (the previous check was unreachable), and an unparsable one excludes only
+  itself.
+- **`UpdatePipeline` skipped stage 3**, so the merged dry-run ran only when
+  enabling a pipeline, not when editing one that was already enabled.
+- **GitOps could take over a same-named UI pipeline** — replacing its contents
+  while keeping its matchers, deploying repo content to every collector those
+  matchers selected.
+
+### Fixed — chart and release
+
+- `helm upgrade --reuse-values` from a release older than the `cnpg` /
+  `externalSecrets` / `simulator` keys failed to render at all.
+- `networkPolicy.enabled` silently blocked every metrics scrape, including the
+  ServiceMonitor the same values file recommends.
+- The HPA and `spec.replicas` fought: every upgrade snapped scale back.
+- `externalSecrets.enabled` without a database URL now fails at render with an
+  explanation, instead of a migration Job that dies on connect minutes later.
+- Release consistency guards run *before* anything is published, rather than
+  after images and the GitHub release are already public.
+
+### Fixed — UI
+
+- **Org editors could not author anything.** The role shipped server-side in
+  v0.3.0 and the UI still checked for `admin` alone, so the role that exists to
+  author pipelines got a read-only page and a locked editor.
+- **`javascript:` destination URLs reached an `href`**, and an unparsable one
+  crashed the whole route during render.
+- The pipeline editor discarded unsaved edits whenever a background refetch
+  landed — including on window focus.
+- Failed list loads rendered as empty states, so a viewer denied the audit log
+  was told nothing had happened.
+- Deleting a destination now asks first; modals close on Escape and trap focus;
+  editor diagnostics are no longer frozen at mount.
+
+### Known limitations, unchanged
+
+Team-scoped write is still not reflected in the UI (it needs a per-pipeline
+capability on the wire), the visual builder still has no draft persistence
+beyond a leave-page warning, list endpoints are unpaginated, and the OIDC flow
+sets no nonce. Each is recorded with its reasoning in
+`docs/reviews/2026-08-25-full-review-fixes.md`.
+
 ## v0.3.3
 
 Chart 0.8.1. No change to the chart or the application: this release records
