@@ -25,7 +25,7 @@ type ShutdownFunc func(context.Context) error
 
 // InitTracing configures the global OpenTelemetry tracer provider.
 //
-// Tracing is OFF unless tracing.endpoint is set, and off means off: no
+// Tracing is OFF unless tracing.enabled is true, and off means off: no
 // provider is installed, no exporter goroutine starts, and otel's own no-op
 // tracer makes every Start call in this package free. A deployment that does
 // not want traces pays nothing for the instrumentation being present, which is
@@ -36,8 +36,16 @@ type ShutdownFunc func(context.Context) error
 // crash you most wanted to see.
 func InitTracing(ctx context.Context, cfg *config.Config, logger *slog.Logger) (ShutdownFunc, error) {
 	noop := func(context.Context) error { return nil }
-	if cfg.Tracing.Endpoint == "" {
+	if !cfg.Tracing.Enabled {
 		return noop, nil
+	}
+	if cfg.Tracing.Endpoint == "" {
+		// Loud, not silent. An operator who set tracing.enabled=true is
+		// expecting spans; returning a no-op here would leave them looking at
+		// an empty trace backend with nothing anywhere saying why. The caller
+		// logs this at Error and keeps serving — no traces is not a reason to
+		// refuse traffic.
+		return noop, fmt.Errorf("tracing.enabled is true but tracing.endpoint is empty; set the OTLP collector address (e.g. \"otel-collector:4317\")")
 	}
 
 	exporter, err := newExporter(ctx, cfg.Tracing)

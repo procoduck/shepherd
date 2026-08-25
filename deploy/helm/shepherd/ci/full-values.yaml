@@ -2,6 +2,10 @@ image:
   tag: "0.0.1"
 replicas: 2
 config:
+  tracing:
+    enabled: true
+    endpoint: "otel-collector.observability.svc:4317"
+    sample_ratio: 0.25
   server:
     listen: ":8080"
     base_url: "https://shepherd.internal"
@@ -36,7 +40,10 @@ route:
   parentRefs:
     - name: prod-gateway
       namespace: gateway
+# Observability rendered here so `make helm-lint` catches a broken
+# ServiceMonitor or tracing block at template time rather than in a cluster.
 metrics:
+  enabled: true
   serviceMonitor:
     enabled: true
     labels:

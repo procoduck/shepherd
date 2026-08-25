@@ -27,7 +27,13 @@ Categories used here:
     Connect RPC on both the agent and management surfaces, labelled by
     procedure and result code. A failed call is counted under its code, because
     an auth-failure spike is exactly what a graph is for.
-- **OpenTelemetry tracing**, off unless `tracing.endpoint` is set — and off
+- **Chart support for both.** `metrics.serviceMonitor.*` gained `interval`,
+  `scrapeTimeout`, `relabelings` and `metricRelabelings`; `config.tracing`
+  carries an explicit `enabled` switch plus the OTLP endpoint, protocol, TLS
+  and sampling settings. Enabling tracing without an endpoint is reported as a
+  misconfiguration in the logs rather than silently doing nothing — an empty
+  trace backend with no explanation is the worst way to discover a typo.
+- **OpenTelemetry tracing**, off unless `tracing.enabled` is set — and off
   means no provider, no exporter, and a no-op tracer, which is what makes
   instrumenting the hot agent path defensible. Server spans for HTTP requests
   and Connect RPCs, with inbound trace context honoured so a call that crossed
@@ -57,6 +63,19 @@ Categories used here:
 - `shepherd_table_rows` published `-1`, which is Postgres's `reltuples` value
   for a table it has never analyzed. The series is now omitted instead, since
   "unknown" is what it means.
+- **The chart's ServiceMonitor scraped a port that has never served metrics.**
+  It pointed at `port: http` (`:8080`) with `path: /metrics`, but metrics live
+  on their own listener and `/metrics` on the main port is explicitly
+  404-guarded — so `metrics.serviceMonitor.enabled=true` produced a permanently
+  failing Prometheus target and no metrics at all. There was also no container
+  port and no Service for the metrics listener, so there had never been
+  anything to scrape. The Deployment now declares a `metrics` port, a
+  dedicated **ClusterIP** Service fronts it (deliberately not a port on the
+  main Service, which becomes externally reachable the moment an operator
+  chooses `LoadBalancer` or `NodePort`), and the ServiceMonitor selects that
+  Service by component label. All three derive the port number from
+  `config.server.metrics_listen`, so they cannot drift apart again. Chart
+  render tests assert each of these against real `helm template` output.
 - **The access log was emitted at `Debug`**, so a default `info` deployment
   produced no per-request record at all — a failing API returned 500s with
   nothing in the logs. Server errors now log at `Error`, client errors at

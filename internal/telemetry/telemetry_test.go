@@ -139,6 +139,7 @@ var errBoom = errors.New("boom")
 // would have passed.
 func TestInitTracingInstallsAProvider(t *testing.T) {
 	cfg := &config.Config{Tracing: config.TracingConfig{
+		Enabled: true,
 		// Not dialled at Init: the OTLP gRPC exporter connects lazily, so no
 		// collector needs to exist for this to exercise provider construction.
 		Endpoint:    "127.0.0.1:4317",
@@ -164,7 +165,21 @@ func TestInitTracingInstallsAProvider(t *testing.T) {
 	}
 }
 
-// With no endpoint, tracing must be genuinely free — a no-op tracer, not a
+// Enabled without an endpoint must be reported, not silently ignored: an
+// operator who switched tracing on is expecting spans, and an empty trace
+// backend with nothing in the logs is the worst way to learn otherwise.
+func TestInitTracingEnabledWithoutEndpointIsAnError(t *testing.T) {
+	cfg := &config.Config{Tracing: config.TracingConfig{Enabled: true}}
+	shutdown, err := telemetry.InitTracing(context.Background(), cfg, slog.New(slog.DiscardHandler))
+	if err == nil {
+		t.Fatal("enabled tracing with no endpoint must report a misconfiguration")
+	}
+	if shutdown == nil {
+		t.Fatal("shutdown must stay non-nil even on error so callers can defer it")
+	}
+}
+
+// With tracing disabled, it must be genuinely free — a no-op tracer, not a
 // provider quietly buffering spans nobody collects.
 func TestInitTracingDisabledByDefault(t *testing.T) {
 	shutdown, err := telemetry.InitTracing(context.Background(), &config.Config{}, slog.New(slog.DiscardHandler))

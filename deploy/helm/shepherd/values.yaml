@@ -25,6 +25,10 @@ service:
 config:
   server:
     listen: ":8080"
+    # Metrics listen on their own port; /metrics is never served on `listen`.
+    # The container port, the metrics Service, and the ServiceMonitor are all
+    # derived from this value, so changing it here is enough.
+    metrics_listen: ":9090"
     base_url: "https://shepherd.example.internal"
     # The beacon (docs/gateway-tier-plan.md D6) serves every claimed collector
     # a small baseline pipeline that reports which components it is running
@@ -149,7 +153,11 @@ config:
   # liveness checks.
   # ---------------------------------------------------------------------------
   tracing:
-    # endpoint: "opentelemetry-collector.observability.svc:4317"
+    # Set enabled: true AND an endpoint. Enabled with no endpoint is reported
+    # as a misconfiguration in the logs rather than silently doing nothing —
+    # an empty trace backend with no explanation is the worst way to find out.
+    enabled: false
+    endpoint: ""            # e.g. "opentelemetry-collector.observability.svc:4317"
     protocol: "grpc"        # "grpc" (port 4317) or "http" (port 4318)
     insecure: true          # normal for an in-cluster collector over the pod network
     # sample_ratio applies only to traces Shepherd ROOTS; an incoming sampling
@@ -157,7 +165,7 @@ config:
     # a lot of spans.
     sample_ratio: 0.1
     service_name: "shepherd"
-    # service_version: ""   # defaults to unset; set it to correlate with releases
+    # service_version: ""   # set it to correlate traces with releases
   log:
     level: "info"
     format: "json"
@@ -194,10 +202,34 @@ ingress:
   hosts: []
   tls: []
 
+# ---------------------------------------------------------------------------
+# Metrics
+#
+# Shepherd serves Prometheus metrics on a SEPARATE listener from the API
+# (config.server.metrics_listen, default :9090). /metrics on the main port is
+# deliberately 404-guarded, so anything scraping :8080/metrics gets nothing —
+# which is what the ServiceMonitor here used to do.
+#
+# `enabled` controls the metrics Service and its container port. It is on by
+# default: the listener runs regardless, and a ClusterIP Service in front of it
+# exposes nothing outside the cluster. Turn it off only if you have a policy
+# against unscraped Services existing.
+# ---------------------------------------------------------------------------
 metrics:
+  enabled: true
   serviceMonitor:
+    # Requires the Prometheus Operator's CRDs. Off by default because a
+    # ServiceMonitor on a cluster without them fails the install.
     enabled: false
+    # labels the Prometheus Operator selects ServiceMonitors by — commonly
+    # something like `release: kube-prometheus-stack`. Check your Prometheus
+    # resource's serviceMonitorSelector; without a matching label the
+    # ServiceMonitor is created and quietly ignored.
     labels: {}
+    interval: "30s"
+    scrapeTimeout: "10s"
+    relabelings: []
+    metricRelabelings: []
 
 resources: {}
 nodeSelector: {}

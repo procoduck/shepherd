@@ -266,9 +266,17 @@ func (c SecurityConfig) LogValue() slog.Value {
 // serving paths unconditionally, so this being genuinely free when unset is
 // what makes instrumenting the hot agent path defensible.
 type TracingConfig struct {
+	// Enabled is the operator's explicit switch. Off by default.
+	//
+	// Separate from Endpoint being non-empty so that "I turned tracing on and
+	// forgot the endpoint" is a loud misconfiguration rather than a silent
+	// no-op — see InitTracing. It also gives the Helm chart a real field to
+	// gate on, keeping the chart's rule that the values structure IS the
+	// config structure.
+	Enabled bool `mapstructure:"enabled"`
 	// Endpoint is the OTLP collector address, e.g. "otel-collector:4317"
 	// (grpc) or "otel-collector:4318" (http). A scheme is tolerated and
-	// stripped.
+	// stripped. Required when Enabled.
 	Endpoint string `mapstructure:"endpoint"`
 	// Protocol is "grpc" (default) or "http".
 	Protocol string `mapstructure:"protocol"`
@@ -424,6 +432,7 @@ func Load(file string) (*Config, error) {
 		{"gitsync.fetch_timeout", "SHEPHERD_GITSYNC_FETCH_TIMEOUT"},
 		{"ado.base_url", "SHEPHERD_ADO_BASE_URL"},
 		{"security.encryption_key", "SHEPHERD_SECURITY_ENCRYPTION_KEY"},
+		{"tracing.enabled", "SHEPHERD_TRACING_ENABLED"},
 		{"tracing.endpoint", "SHEPHERD_TRACING_ENDPOINT"},
 		{"tracing.protocol", "SHEPHERD_TRACING_PROTOCOL"},
 		{"tracing.insecure", "SHEPHERD_TRACING_INSECURE"},
