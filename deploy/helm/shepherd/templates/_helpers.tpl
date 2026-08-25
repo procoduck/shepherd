@@ -119,3 +119,54 @@ field.
 {{- $parts := splitList ":" $listen -}}
 {{- index $parts (sub (len $parts) 1) -}}
 {{- end }}
+
+{{/*
+The CNPG Cluster's name. Defaults to "<fullname>-db" rather than reusing the
+release name, so the Cluster and the Deployment cannot collide.
+*/}}
+{{- define "shepherd.cnpgClusterName" -}}
+{{- .Values.cnpg.name | default (printf "%s-db" (include "shepherd.fullname" .)) -}}
+{{- end }}
+
+{{/*
+Hook annotations for the resources the migration Job depends on EXISTING before
+it runs: the CNPG Cluster and the ExternalSecret. Weight -20 puts them ahead of
+the ConfigMap/Secret at -10 and the Job itself at -5.
+
+No hook-delete-policy, deliberately, and it means more here than it does for
+the ConfigMap: these resources hold state. A CNPG Cluster deleted between
+releases takes the database with it, and an ExternalSecret deleted with
+creationPolicy Owner takes the encryption key. Untracked-and-surviving is the
+right failure mode for both.
+*/}}
+{{- define "shepherd.bootstrapHookDeps" -}}
+"helm.sh/hook": pre-install,pre-upgrade
+"helm.sh/hook-weight": "-20"
+{{- end }}
+
+{{/*
+The container env every Shepherd process needs, shared by the Deployment and
+the migration Job so the two cannot disagree about where the database is.
+
+When CNPG provisions the database, SHEPHERD_DATABASE_URL comes from the `uri`
+key of the Secret the operator generates. An explicit `env` entry beats
+`envFrom`, so this deliberately overrides a SHEPHERD_DATABASE_URL that happens
+to be in the user's own secret -- with cnpg.enabled the chart owns the
+database, and silently connecting somewhere else would be worse than loud.
+*/}}
+{{- define "shepherd.podEnv" -}}
+{{- /*
+  Built as a list of chunks joined with newlines rather than by emitting YAML
+  inline. Whitespace control across two optional blocks is the kind of thing
+  that renders perfectly until both are set at once and then silently welds the
+  last line of one onto the first line of the other.
+*/ -}}
+{{- $chunks := list -}}
+{{- if .Values.cnpg.enabled -}}
+{{- $chunks = append $chunks (printf "- name: SHEPHERD_DATABASE_URL\n  valueFrom:\n    secretKeyRef:\n      name: %s-app\n      key: uri" (include "shepherd.cnpgClusterName" .)) -}}
+{{- end -}}
+{{- with .Values.extraEnv -}}
+{{- $chunks = append $chunks (trimSuffix "\n" (toYaml .)) -}}
+{{- end -}}
+{{- join "\n" $chunks -}}
+{{- end }}

@@ -47,6 +47,8 @@
   <ul>
     <li><a href="requirements.html">Requirements</a></li>
     <li><a href="kubernetes.html">Kubernetes (Helm)</a></li>
+    <li><a href="database.html">Database</a></li>
+    <li><a href="secrets.html">Secrets</a></li>
     <li><a href="configuration.html">Configuration</a></li>
     <li><a href="local-development.html">Running from source</a></li>
   </ul>
@@ -87,10 +89,18 @@
         &mdash; the whole loop, on a real cluster.
       </p>
       <p class="note">
-        <strong>You need</strong> a Kubernetes cluster and <code>helm</code>, plus a PostgreSQL
-        database Shepherd can reach. The chart does not ship a database: Shepherd keeps every
-        pipeline, org and session there, so it should be one you are willing to back up. Any managed
-        Postgres or an in-cluster operator is fine.
+        <strong>You need</strong> a Kubernetes cluster, <code>helm</code>, and a PostgreSQL database
+        Shepherd can reach. Any managed Postgres works &mdash; or let the chart provision one, see
+        <a href="database.html">Database</a>.
+      </p>
+      <p class="note">
+        <strong>Nothing to supply at all?</strong> With
+        <a href="https://cloudnative-pg.io/">CloudNativePG</a> and the
+        <a href="https://external-secrets.io/">External Secrets Operator</a> already in the cluster,
+        one command does the whole of steps 1 and 2 &mdash; the database is provisioned and the
+        encryption key and admin password are generated in-cluster:
+        <code>--set cnpg.enabled=true --set externalSecrets.enabled=true</code>. See
+        <a href="secrets.html#external-secrets">Secrets</a>.
       </p>
 
       <h2 id="create-the-secret">1. Create the secret</h2>
@@ -116,7 +126,7 @@ kubectl -n shepherd create secret generic shepherd-secrets \
       </p>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.7.1 \
+        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.8.0 \
   --namespace shepherd \
   --set existingSecret=shepherd-secrets
 
@@ -224,7 +234,7 @@ kubectl -n shepherd rollout status deploy/shepherd</code></pre>
 <footer>
   <div class="wrap">
     <div class="foot-left">
-      <span class="pill">v0.3.1</span>
+      <span class="pill">v0.3.2</span>
       <span>self-hosted Grafana Alloy fleet manager</span>
     </div>
     <div class="foot-links">

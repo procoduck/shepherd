@@ -1,0 +1,96 @@
+<h1>Database</h1>
+      <p>
+        Shepherd keeps everything in PostgreSQL &mdash; pipelines, organisations, credentials,
+        sessions &mdash; and holds no state of its own. That makes the database the one thing worth
+        backing up, and Shepherd itself something you can delete and reinstall freely.
+      </p>
+      <p>You have two ways to give it one, and both are fully supported.</p>
+
+      <h2 id="bring-your-own">Bring your own</h2>
+      <p>
+        The default. Point <code>SHEPHERD_DATABASE_URL</code> at an RDS, a Cloud SQL, an Azure
+        Database, or a Postgres you already run, and put it in the secret the chart reads:
+      </p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>kubectl -n shepherd create secret generic shepherd-secrets \
+  --from-literal=SHEPHERD_DATABASE_URL='postgres://user:pass@my-rds.eu-west-1.rds.amazonaws.com:5432/shepherd?sslmode=require' \
+  --from-literal=SHEPHERD_SECURITY_ENCRYPTION_KEY="$(openssl rand -base64 32)"
+
+helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.8.0 \
+  --namespace shepherd --set existingSecret=shepherd-secrets</code></pre>
+      </div>
+      <p>
+        Shepherd needs an ordinary database and an ordinary role that owns it. No superuser, no
+        extensions beyond what a stock PostgreSQL 14+ ships, and no manual schema step &mdash;
+        migrations run themselves on install and upgrade.
+      </p>
+
+      <h2 id="cloudnativepg">Let the chart provision one</h2>
+      <p>
+        If you would rather not run a database by hand,
+        <a href="https://cloudnative-pg.io/">CloudNativePG</a> can run it in the same cluster. Install
+        the operator once, then:
+      </p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.8.0 \
+  --namespace shepherd \
+  --set cnpg.enabled=true \
+  --set existingSecret=shepherd-secrets   # still holds the encryption key</code></pre>
+      </div>
+      <p>
+        The chart renders a <code>postgresql.cnpg.io/v1</code> <strong>Cluster</strong> and wires
+        Shepherd&rsquo;s database URL to the <code>uri</code> key of the <code>&lt;cluster&gt;-app</code>
+        Secret the operator generates. <strong>You never write a connection string</strong>, and
+        <code>SHEPHERD_DATABASE_URL</code> is not needed in your secret at all.
+      </p>
+      <p class="note">
+        <strong>The chart does not install the operator.</strong> CloudNativePG and its CRDs must
+        already be in the cluster, exactly as with the Gateway API for <code>route.enabled</code>.
+        Without them the install fails with <em>no matches for kind Cluster</em>.
+      </p>
+
+      <h3 id="cnpg-details">Three things worth knowing</h3>
+      <ul>
+        <li>
+          <strong>The Cluster is created before the migration Job</strong>, as a Helm
+          <code>pre-install</code> hook, because the migration has nothing to talk to otherwise.
+        </li>
+        <li>
+          <strong>First install takes a few minutes and the migration Job may fail a few times
+          first.</strong> Postgres is still initialising while the Job is already running; the Job
+          retries with backoff (<code>migrations.job.backoffLimit</code>) until it connects. Failed
+          attempts in the log during a first install are expected, not a fault.
+        </li>
+        <li>
+          <strong><code>helm uninstall</code> does not delete the database.</strong> Hook resources
+          are not tracked in the release, which for the thing holding all your data is the right way
+          round. Remove it deliberately:
+          <code>kubectl -n shepherd delete cluster shepherd-db</code>.
+        </li>
+      </ul>
+
+      <h3 id="cnpg-tuning">Sizing it</h3>
+      <div class="code-block" data-lang="yaml">
+        <div class="code-head"><span>values.yaml</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>cnpg:
+  enabled: true
+  instances: 3                 # a primary and two standbys
+  storage:
+    size: 20Gi
+    storageClass: fast-ssd
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+  # Anything the chart does not surface goes here verbatim: backups,
+  # monitoring, affinity, postgresql.parameters.
+  extraSpec:
+    backup:
+      barmanObjectStore:
+        destinationPath: s3://my-backups/shepherd</code></pre>
+      </div>
+      <p>
+        Every key is listed in <a href="helm-values.html#cnpg">Helm values</a>. Backup, restore and
+        failover are the operator&rsquo;s job, not Shepherd&rsquo;s &mdash; see the
+        <a href="https://cloudnative-pg.io/documentation/">CloudNativePG documentation</a>.
+      </p>

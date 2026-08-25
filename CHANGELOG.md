@@ -11,6 +11,48 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
+## v0.3.2
+
+Chart 0.8.0. No application changes: this release is the chart learning to
+provision the two things every install previously had to arrange by hand.
+
+### Added
+
+- **`cnpg.enabled`: let the chart provision the database.** With the
+  [CloudNativePG](https://cloudnative-pg.io/) operator installed, the chart
+  renders a `postgresql.cnpg.io/v1` Cluster and wires Shepherd's database URL to
+  the `uri` key of the `<cluster>-app` Secret the operator generates &mdash; so
+  no connection string is written anywhere. Off by default, and bringing your
+  own RDS or Postgres remains the default path, unchanged.
+
+  The Cluster renders as a `pre-install` hook so it exists before migrations
+  run, and therefore is not deleted by `helm uninstall`: hook resources are not
+  tracked in the release, which for the thing holding all the data is the right
+  way round. `migrations.job.backoffLimit` is now explicit, because on a first
+  install the migration Job races a database that is still initialising and has
+  to retry until it does not.
+
+- **`externalSecrets.enabled`: let the cluster generate the bootstrap secrets.**
+  With the [External Secrets Operator](https://external-secrets.io/) installed,
+  the chart renders two `Password` generators and an `ExternalSecret` producing
+  the encryption key and the first administrator's password, so neither ever
+  passes through a shell, a values file, or terminal history. No `SecretStore`
+  is needed; a generator is the source.
+
+  `refreshInterval` is `"0"` and `deletionPolicy` is `Retain`, and both are
+  asserted by the chart tests rather than left as comments. Regenerating the
+  encryption key would leave every git credential and OIDC client secret
+  already in the database undecryptable, and nothing would report it at the
+  moment it happened &mdash; the failure looks exactly like Shepherd forgetting
+  your credentials.
+
+  It refuses to render alongside `existingSecret` or an inline `secrets:` block
+  rather than producing two competing definitions of the same Secret.
+
+- **Docs: Database and Secrets pages**, covering both choices for each, and a
+  generated [Helm values](https://procoduck.github.io/shepherd/docs/helm-values.html)
+  reference that cannot fall behind the chart.
+
 ## v0.3.1
 
 ### Added

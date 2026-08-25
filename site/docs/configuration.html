@@ -47,6 +47,8 @@
   <ul>
     <li><a href="requirements.html">Requirements</a></li>
     <li><a href="kubernetes.html">Kubernetes (Helm)</a></li>
+    <li><a href="database.html">Database</a></li>
+    <li><a href="secrets.html">Secrets</a></li>
     <li><a href="configuration.html" class="active" aria-current="page">Configuration</a></li>
     <li><a href="local-development.html">Running from source</a></li>
   </ul>
@@ -104,6 +106,11 @@
       </table>
       <p>See <a href="https://github.com/procoduck/shepherd/blob/main/deploy/helm/shepherd/values.yaml">deploy/helm/shepherd/values.yaml</a> for the full set of options, including <code>networkPolicy</code>, <code>autoscaling</code>, and local user seeding.</p>
 
+      <p>
+        Where these values come from is a separate decision: see <a href="secrets.html">Secrets</a>
+        for supplying them yourself or having them generated, and
+        <a href="database.html">Database</a> for the connection string.
+      </p>
       <h2 id="the-encryption-key">The encryption key is not rotatable</h2>
       <p class="note warn">
         <strong>Keep <code>SHEPHERD_SECURITY_ENCRYPTION_KEY</code>.</strong> It encrypts git
@@ -129,7 +136,7 @@
         paths and what each one costs you.
       </p>
         <nav class="page-nav" aria-label="Pagination">
-          <a class="page-nav-prev" href="kubernetes.html"><span>Previous</span><strong>Kubernetes (Helm)</strong></a>
+          <a class="page-nav-prev" href="secrets.html"><span>Previous</span><strong>Secrets</strong></a>
           <a class="page-nav-next" href="local-development.html"><span>Next</span><strong>Running from source</strong></a>
         </nav>
       </div>
@@ -150,7 +157,7 @@
 <footer>
   <div class="wrap">
     <div class="foot-left">
-      <span class="pill">v0.3.1</span>
+      <span class="pill">v0.3.2</span>
       <span>self-hosted Grafana Alloy fleet manager</span>
     </div>
     <div class="foot-links">

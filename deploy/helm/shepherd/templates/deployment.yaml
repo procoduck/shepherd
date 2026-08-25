@@ -63,9 +63,10 @@ spec:
             - secretRef:
                 name: {{ if .Values.existingSecret }}{{ .Values.existingSecret }}{{ else }}{{ include "shepherd.fullname" . }}-secrets{{ end }}
                 optional: true
-          {{- with .Values.extraEnv }}
+          {{- $env := include "shepherd.podEnv" . }}
+          {{- if trim $env }}
           env:
-            {{- toYaml . | nindent 12 }}
+            {{- $env | nindent 12 }}
           {{- end }}
           securityContext:
             readOnlyRootFilesystem: true

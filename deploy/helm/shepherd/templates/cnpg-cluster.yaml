@@ -1,0 +1,37 @@
+{{- if .Values.cnpg.enabled }}
+{{- /*
+  No CRD precondition here on purpose. .Capabilities.APIVersions is empty under
+  `helm template`, so a guard would break rendering the chart offline -- and the
+  API server's own "no matches for kind Cluster" is already a clear answer. The
+  same reasoning `route.enabled` follows.
+*/}}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ include "shepherd.cnpgClusterName" . }}
+  labels:
+    {{- include "shepherd.labels" . | nindent 4 }}
+  annotations:
+    {{- include "shepherd.bootstrapHookDeps" . | nindent 4 }}
+spec:
+  instances: {{ .Values.cnpg.instances }}
+  {{- with .Values.cnpg.imageName }}
+  imageName: {{ . | quote }}
+  {{- end }}
+  storage:
+    size: {{ .Values.cnpg.storage.size | quote }}
+    {{- with .Values.cnpg.storage.storageClass }}
+    storageClass: {{ . | quote }}
+    {{- end }}
+  bootstrap:
+    initdb:
+      database: {{ .Values.cnpg.database | quote }}
+      owner: {{ .Values.cnpg.owner | quote }}
+  {{- with .Values.cnpg.resources }}
+  resources:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.cnpg.extraSpec }}
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+{{- end }}

@@ -60,3 +60,14 @@ resources:
 # disabled-by-default no-op path the default-values.yaml render covers.
 simulator:
   enabled: true
+
+# Same reasoning as the simulator above: without this, `make helm-lint` never
+# renders the CloudNativePG Cluster at all, so a template error in it would
+# only surface on somebody's cluster.
+#
+# Set alongside existingSecret on purpose, because that combination is a real
+# one: let the operator run the database, keep managing your own secrets. The
+# generated-secrets path cannot be covered here -- it is mutually exclusive
+# with existingSecret by design -- so it has its own values file.
+cnpg:
+  enabled: true

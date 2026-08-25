@@ -10,6 +10,13 @@ metadata:
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
     "helm.sh/hook-weight": "-5"
 spec:
+  # Retries matter when the chart provisions the database: on a first install
+  # Postgres is still coming up while this Job is already running, so the first
+  # attempts fail on connect. Kubernetes backs off exponentially between
+  # attempts, which covers a CNPG cluster reaching readiness without anyone
+  # having to sequence it by hand. A genuinely broken migration still fails the
+  # release, just later.
+  backoffLimit: {{ .Values.migrations.job.backoffLimit }}
   template:
     spec:
       serviceAccountName: {{ include "shepherd.fullname" . }}
@@ -34,6 +41,11 @@ spec:
             - secretRef:
                 name: {{ if .Values.existingSecret }}{{ .Values.existingSecret }}{{ else }}{{ include "shepherd.fullname" . }}-secrets{{ end }}
                 optional: true
+          {{- $env := include "shepherd.podEnv" . }}
+          {{- if trim $env }}
+          env:
+            {{- $env | nindent 12 }}
+          {{- end }}
           securityContext:
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false

@@ -47,6 +47,8 @@
   <ul>
     <li><a href="requirements.html">Requirements</a></li>
     <li><a href="kubernetes.html" class="active" aria-current="page">Kubernetes (Helm)</a></li>
+    <li><a href="database.html">Database</a></li>
+    <li><a href="secrets.html">Secrets</a></li>
     <li><a href="configuration.html">Configuration</a></li>
     <li><a href="local-development.html">Running from source</a></li>
   </ul>
@@ -89,27 +91,30 @@
         for the sandbox) for <code>linux/amd64</code> and <code>linux/arm64</code>.
       </p>
       <p class="note">
-        <strong>Bring your own PostgreSQL.</strong> The chart does not ship a database. Shepherd keeps
-        every pipeline, organisation, credential and session there, so it is the thing worth backing
-        up &mdash; Shepherd itself holds no state and can be deleted and reinstalled freely.
+        <strong>Shepherd needs a PostgreSQL and two secret values.</strong> Either can be yours or the
+        cluster&rsquo;s: point it at an existing database, or let
+        <a href="database.html#cloudnativepg">CloudNativePG provision one</a>; supply the encryption
+        key and bootstrap password, or let
+        <a href="secrets.html#external-secrets">External Secrets generate them</a>. The database is
+        the only thing worth backing up &mdash; Shepherd itself holds no state.
       </p>
 
       <h2 id="installing">Installing</h2>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.7.1 \
+        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.8.0 \
   --namespace shepherd --create-namespace \
   --set existingSecret=shepherd-secrets</code></pre>
       </div>
       <p>
-        The secret it names must exist first &mdash; which keys, and which two are mandatory, is in
-        <a href="configuration.html">Configuration</a>. The image needs no <code>--set</code>:
+        The secret it names must exist first &mdash; see <a href="secrets.html">Secrets</a> for what
+        goes in it, or how to have it generated for you. The image needs no <code>--set</code>:
         <code>image.registry</code> defaults to <code>ghcr.io/procoduck</code> and the tag falls back
         to the chart&rsquo;s <code>appVersion</code>, so each chart version installs the Shepherd
         release it was published for.
       </p>
       <p class="note">
-        <strong>Chart version is not the app version.</strong> <code>--version 0.7.1</code> is the
+        <strong>Chart version is not the app version.</strong> <code>--version 0.8.0</code> is the
         <em>chart&rsquo;s</em>; Shepherd&rsquo;s is <code>0.3.x</code>. They move independently, so a
         chart-only change bumps only the chart. Run
         <code>helm show chart oci://ghcr.io/procoduck/charts/shepherd</code> to see which Shepherd
@@ -132,7 +137,7 @@
       <p>
         Nothing is exposed outside the cluster unless you ask for it. To see exactly what an install
         would create before creating it, render it locally:
-        <code>helm template shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.7.1</code>.
+        <code>helm template shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.8.0</code>.
       </p>
 
       <h2 id="migrations">Migrations run before the new code</h2>
@@ -199,7 +204,7 @@ kubectl -n shepherd logs job/shepherd-migrate     # if the release failed</code>
       </p>
         <nav class="page-nav" aria-label="Pagination">
           <a class="page-nav-prev" href="requirements.html"><span>Previous</span><strong>Requirements</strong></a>
-          <a class="page-nav-next" href="configuration.html"><span>Next</span><strong>Configuration</strong></a>
+          <a class="page-nav-next" href="database.html"><span>Next</span><strong>Database</strong></a>
         </nav>
       </div>
     </div>
@@ -221,7 +226,7 @@ kubectl -n shepherd logs job/shepherd-migrate     # if the release failed</code>
 <footer>
   <div class="wrap">
     <div class="foot-left">
-      <span class="pill">v0.3.1</span>
+      <span class="pill">v0.3.2</span>
       <span>self-hosted Grafana Alloy fleet manager</span>
     </div>
     <div class="foot-links">
