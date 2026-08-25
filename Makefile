@@ -621,7 +621,7 @@ helm-lint: ## Lint + template the Helm chart against both ci value files
 
 # Local defaults for the docker image templates; CI overrides both.
 IMAGE_REGISTRY ?= ghcr.io/procoduck
-SOURCE_URL ?= https://github.com/procoduck/sheperd
+SOURCE_URL ?= https://github.com/procoduck/shepherd
 release-snapshot: ## GoReleaser dry run
 	IMAGE_REGISTRY=$(IMAGE_REGISTRY) SOURCE_URL=$(SOURCE_URL) goreleaser release --snapshot --clean --skip=publish
 

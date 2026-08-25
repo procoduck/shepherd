@@ -4,7 +4,7 @@
 #
 #   Variables (optional — fall back to the same defaults as `make release-snapshot`):
 #     IMAGE_REGISTRY   e.g. "ghcr.io/procoduck"      (default: ghcr.io/procoduck)
-#     SOURCE_URL       e.g. "https://github.com/procoduck/sheperd" (default: that URL)
+#     SOURCE_URL       e.g. "https://github.com/procoduck/shepherd" (default: that URL)
 #
 #   Secrets (only needed if pushing to a registry other than ghcr.io under this
 #   repo's own GITHUB_TOKEN permissions — e.g. Docker Hub, a private registry):
@@ -36,7 +36,7 @@ jobs:
   release:
     name: release
     runs-on: ubuntu-latest
-    if: github.repository == 'procoduck/sheperd'
+    if: github.repository == 'procoduck/shepherd'
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -116,4 +116,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE_REGISTRY: ${{ vars.IMAGE_REGISTRY || 'ghcr.io/procoduck' }}
-          SOURCE_URL: ${{ vars.SOURCE_URL || 'https://github.com/procoduck/sheperd' }}
+          SOURCE_URL: ${{ vars.SOURCE_URL || 'https://github.com/procoduck/shepherd' }}

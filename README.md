@@ -1,6 +1,6 @@
 # Shepherd
 
-**[procoduck.github.io/sheperd](https://procoduck.github.io/sheperd/)** — project site and quick start.
+**[procoduck.github.io/shepherd](https://procoduck.github.io/shepherd/)** — project site and quick start.
 
 Self-hosted **Grafana Alloy fleet manager**. Shepherd serves centralised pipeline configurations to Alloy instances via the `remotecfg` protocol, providing a UI for managing pipelines, destinations, wizards, and GitOps sync from any git server (ADO and GitHub-App auth supported).
 
