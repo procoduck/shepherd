@@ -12,6 +12,7 @@ const emptyCreateForm = {
   name: '',
   displayName: '',
   adminGroupId: '',
+  editorGroupId: '',
   readerGroupId: '',
   tenantId: '',
 };
@@ -27,6 +28,7 @@ export function AdminOrgsPage() {
   const [editForm, setEditForm] = useState({
     displayName: '',
     adminGroupId: '',
+    editorGroupId: '',
     readerGroupId: '',
   });
   const [deleteOrg, setDeleteOrg] = useState<Org | null>(null);
@@ -82,6 +84,7 @@ export function AdminOrgsPage() {
     setEditForm({
       displayName: o.displayName,
       adminGroupId: o.adminGroupId,
+      editorGroupId: o.editorGroupId,
       readerGroupId: o.readerGroupId,
     });
   }
@@ -209,6 +212,20 @@ export function AdminOrgsPage() {
               />
             </label>
             <label className='block text-xs font-medium text-muted'>
+              Editor group ID <span className='text-muted-3'>(optional)</span>
+              <input
+                value={createForm.editorGroupId}
+                onChange={(e) => setCreateForm((f) => ({ ...f, editorGroupId: e.target.value }))}
+                className='mt-1 w-full rounded-md border border-border-strong bg-card px-3 py-1.5 text-sm font-mono'
+                placeholder='33333333-3333-3333-3333-333333333333'
+              />
+              <span className='mt-1 block text-2xs font-normal text-muted-3'>
+                Members may author pipelines, wizards and simulations, but cannot change
+                destinations, tenant routes, git credentials or teams. Leave empty for no editor
+                tier.
+              </span>
+            </label>
+            <label className='block text-xs font-medium text-muted'>
               Reader group ID <span className='text-muted-3'>(optional)</span>
               <input
                 value={createForm.readerGroupId}
@@ -268,6 +285,18 @@ export function AdminOrgsPage() {
                 required
                 className='mt-1 w-full rounded-md border border-border-strong bg-card px-3 py-1.5 text-sm font-mono'
               />
+            </label>
+            <label className='block text-xs font-medium text-muted'>
+              Editor group ID <span className='text-muted-3'>(optional)</span>
+              <input
+                value={editForm.editorGroupId}
+                onChange={(e) => setEditForm((f) => ({ ...f, editorGroupId: e.target.value }))}
+                className='mt-1 w-full rounded-md border border-border-strong bg-card px-3 py-1.5 text-sm font-mono'
+              />
+              <span className='mt-1 block text-2xs font-normal text-muted-3'>
+                Members may author pipelines, wizards and simulations, but cannot change
+                destinations, tenant routes, git credentials or teams.
+              </span>
             </label>
             <label className='block text-xs font-medium text-muted'>
               Reader group ID <span className='text-muted-3'>(optional)</span>

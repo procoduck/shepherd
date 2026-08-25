@@ -223,8 +223,11 @@ Migration `0001_init` creates (all `id` are `uuid DEFAULT gen_random_uuid()` unl
 
 ```sql
 orgs(id, name text UNIQUE, display_name text,
-     admin_group_id text,          -- Entra group object ID (GUID) whose members are Org Admins
+     admin_group_id text,          -- group whose members are Org Admins
      reader_group_id text NULL)    -- optional org-wide reader group
+-- amended: 0016 adds orgs.editor_group_id text NULL (optional org-wide editor
+-- group); 0015 adds the users / org_members tables and sessions.user_id for
+-- local, non-OIDC identity. See §7.2.
 
 clusters(id, name text UNIQUE, org_id uuid NULL REFERENCES orgs)  -- NULL = unclaimed
 
@@ -352,7 +355,7 @@ hash := hex(sha256(content))
 Which claim carries the subject, the email, the display name, and the group list is per-provider configuration, not a constant. `internal/auth.Presets` holds the built-in catalogue (Entra, Okta, Google, Auth0, Keycloak, Cognito, GitLab, authentik, OneLogin, generic); a preset only supplies **defaults** — every value it prefills is stored explicitly, so the effective configuration is readable without consulting the preset table.
 
 - **Subject** — `oidc.subject_claim`, default `oid` (Entra's immutable object ID, what this code has always read). Every other provider needs `sub`. Falls back to the ID token's spec-mandated `sub` when the configured claim is absent, so a mistyped setting degrades to a working identity rather than an empty `user_oid`.
-- **Groups** — `oidc.groups_claim`, default `groups` (`cognito:groups` for Cognito, `groups_direct` for GitLab, a namespaced URI for Auth0). Values are matched against `auth.app_admin_group_ids` and against each org's `admin_group_id` / `reader_group_id`; for a non-Entra provider those columns therefore hold whatever the IdP emits (usually a group name or path), not a GUID. Nothing in the schema ever assumed a GUID — only the Entra-shaped documentation did. The reader accepts all three shapes providers use: a JSON array, a bare string, or a space-separated list.
+- **Groups** — `oidc.groups_claim`, default `groups` (`cognito:groups` for Cognito, `groups_direct` for GitLab, a namespaced URI for Auth0). Values are matched against `auth.app_admin_group_ids` and against each org's `admin_group_id` / `editor_group_id` / `reader_group_id`; for a non-Entra provider those columns therefore hold whatever the IdP emits (usually a group name or path), not a GUID. Nothing in the schema ever assumed a GUID — only the Entra-shaped documentation did. The reader accepts all three shapes providers use: a JSON array, a bare string, or a space-separated list.
 - **Microsoft Graph** — `oidc.use_graph_groups` (default: true when `oidc.provider` is `entra`, false otherwise) keeps the transitive lookup `GET {graph_base_url}/v1.0/me/transitiveMemberOf/microsoft.graph.group?$select=id,displayName&$top=999` (follow `@odata.nextLink`). It stays the default for Entra because Entra omits the groups claim entirely on >200-group overage. `graph.base_url` is pinned to Microsoft's own Graph hosts (global plus the sovereign clouds) on the UI-managed path: the signing-in user's **delegated access token** is sent to it as a bearer credential, so an unconstrained value would let an app admin redirect every user's token to a collector they control.
   - **Behavioral change, deliberate:** when the Graph call fails, the groups claim is now used as a fallback. Previously a Graph error yielded *no* groups, which silently stripped every administrator of access during a Graph outage or a revoked `GroupMember.Read.All` consent. The claim is signed by the same IdP so it cannot be forged, but it is **not the same set** — claim scope is configured per app registration ("all groups" vs "groups assigned to the application"), and AD-synced groups may emit `sAMAccountName` rather than GUIDs. An Entra deployment that wants the old all-or-nothing behavior must leave the groups claim unmapped in its app registration.
 
@@ -378,11 +381,47 @@ Background refreshes run on a context **detached from the request** (`context.Wi
 
 ### 7.2 Roles
 
-- **App Admin**: user has any group in `auth.app_admin_group_ids` (viper list). Can do everything, everywhere: CRUD orgs, claim/unclaim clusters into orgs, CRUD group assignments, CRUD agent tokens, view all.
-- **Org Admin** of org O: member of `O.admin_group_id`. Full CRUD within O: pipelines, destinations, ADO credentials, repo links, wizards, group assignments *for O's collectors*. Cannot touch other orgs, cannot claim clusters, cannot manage agent tokens.
-- **Reader**: for any collector C, a user can *view* C (and the pipelines/served config affecting C) if they are a member of any group in `group_assignments` for C, or of the org's `reader_group_id`, or hold a higher role. Readers can create nothing.
+A role is reached by either of two independent paths, and the two coexist —
+one is not a fallback for the other:
 
-Implement as chi middleware helpers: `RequireAppAdmin`, `RequireOrgAdmin(orgIDParam)`, `RequireCollectorRead(collectorIDParam)`. Every handler declares exactly one.
+- **Group-derived** (OIDC): the session's groups claim is matched against
+  `auth.app_admin_group_ids` and each org's `admin_group_id` /
+  `editor_group_id` / `reader_group_id`.
+- **Locally assigned** (`0015_local_users`): the session names a row in `users`
+  (`sessions.user_id`), app-admin comes from `users.is_app_admin`, and the org
+  role from `org_members.role`. Shepherd runs fully with no identity provider
+  configured at all.
+
+The resulting roles are the same either way:
+
+- **App Admin**: any group in `auth.app_admin_group_ids`, or a local user with
+  `is_app_admin`. Can do everything, everywhere: CRUD orgs, claim/unclaim
+  clusters into orgs, CRUD group assignments, CRUD agent tokens, CRUD local
+  users, view all.
+- **Org Admin** of org O: member of `O.admin_group_id`, or `org_members.role =
+  'admin'` for O. Full CRUD within O: pipelines, destinations, git
+  credentials, repo links, wizards, teams, tenant routes, group assignments
+  *for O's collectors*. Cannot touch other orgs, cannot claim clusters, cannot
+  manage agent tokens.
+- **Org Editor** of org O: member of `O.editor_group_id`, or
+  `org_members.role = 'editor'`. Authors what the org **runs** — pipelines,
+  wizards, visual builder, simulations — but cannot change what the org **is**:
+  destinations, tenant routes, git credentials, teams and service accounts stay
+  org admin. The tier exists because "can write a pipeline" and "can re-point
+  where telemetry ships" were previously the same permission.
+- **Viewer** (formerly *Reader*): for any collector C, a user can *view* C (and
+  the pipelines/served config affecting C) if they are a member of any group in
+  `group_assignments` for C, or of the org's `reader_group_id`, or
+  `org_members.role = 'viewer'`, or holds a higher role. Viewers create nothing.
+  The column is still `reader_group_id` — renaming it would break every chart
+  and secret already deployed — but the role reports as `viewer`.
+
+Authorization is one function, `authorizeOrgAccess(ctx, org, minRole)`, taking
+a **minimum** role rather than a boolean: ranks are admin > editor > viewer, and
+both paths above resolve into that same rank comparison. Middleware helpers
+`RequireAppAdmin`, `RequireOrgAccess(orgIDParam, minRole)` and
+`RequireCollectorRead(collectorIDParam)` wrap it; every handler declares exactly
+one.
 
 ### 7.3 Agent tokens (machine auth)
 
@@ -516,7 +555,7 @@ Standard envelope: errors as `{"error": {"code": "...", "message": "...", "detai
 ```
 GET    /api/me                                   [any]  profile + roles + orgs visible
 # Admin
-POST   /api/admin/orgs                           [app]  {name, display_name, admin_group_id, reader_group_id?}
+POST   /api/admin/orgs                           [app]  {name, display_name, admin_group_id, reader_group_id?, editor_group_id?}
 GET    /api/admin/orgs                           [app]
 PATCH  /api/admin/orgs/{org}                     [app]
 DELETE /api/admin/orgs/{org}                     [app]  (only if empty)
@@ -1230,12 +1269,17 @@ Sessions table gains `source text NOT NULL DEFAULT 'oidc'`. `id_token_expires` i
   "display_name": "string",
   "is_app_admin": boolean,
   "auth_method": "oidc"|"local"|"dev",
-  "orgs": [{ "id": "uuid", "name": "string", "display_name": "string", "role": "admin"|"reader" }]
+  "orgs": [{ "id": "uuid", "name": "string", "display_name": "string", "role": "admin"|"editor"|"viewer" }]
 }
 ```
 
 `orgs` lists orgs the session user has access to. For `is_app_admin=true`: all orgs with `role="admin"`.
-For non-app-admin: orgs where session `group_ids` match `admin_group_id` (role="admin") or `reader_group_id` (role="reader"). Always an array, never null.
+For a non-app-admin OIDC session: orgs where `group_ids` match `admin_group_id`
+(`"admin"`), `editor_group_id` (`"editor"`) or `reader_group_id` (`"viewer"`).
+For a local session: the user's `org_members` rows, whose `role` is already one
+of those three. Always an array, never null. The reported value drives what the
+UI offers, so it names the role actually held — reporting `"viewer"` to an
+editor would hide the pipeline editor from someone who can in fact use it.
 
 ### §12 (amended) — GET /api/admin/clusters canonical contract
 

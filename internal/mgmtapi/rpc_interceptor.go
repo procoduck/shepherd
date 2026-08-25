@@ -128,23 +128,28 @@ var procedureRequirements = map[string]string{ //nolint:gochecknoglobals // stat
 	mgmtv1connect.GitOpsServiceCreateRepoLinkProcedure:   auth.RoleOrgAdmin,
 	mgmtv1connect.GitOpsServiceDeleteRepoLinkProcedure:   auth.RoleOrgAdmin,
 
-	// WizardService — org admin.
-	mgmtv1connect.WizardServiceListWizardsProcedure:     auth.RoleOrgAdmin,
-	mgmtv1connect.WizardServiceGetWizardSchemaProcedure: auth.RoleOrgAdmin,
-	mgmtv1connect.WizardServiceRenderWizardProcedure:    auth.RoleOrgAdmin,
-	mgmtv1connect.WizardServiceCommitWizardProcedure:    auth.RoleOrgAdmin,
+	// WizardService, VisualService and SimulateService — org EDITOR.
+	//
+	// These author what the org RUNS. Changing what the org IS —
+	// destinations, tenant routes, git credentials, teams, service accounts —
+	// stays org admin below. Before the editor role existed there was no way to
+	// grant the first without also granting the second.
+	mgmtv1connect.WizardServiceListWizardsProcedure:     auth.RoleOrgEditor,
+	mgmtv1connect.WizardServiceGetWizardSchemaProcedure: auth.RoleOrgEditor,
+	mgmtv1connect.WizardServiceRenderWizardProcedure:    auth.RoleOrgEditor,
+	mgmtv1connect.WizardServiceCommitWizardProcedure:    auth.RoleOrgEditor,
 
-	// VisualService — org admin, except GraphView (org reader).
-	mgmtv1connect.VisualServiceRenderProcedure:       auth.RoleOrgAdmin,
-	mgmtv1connect.VisualServiceValidateProcedure:     auth.RoleOrgAdmin,
-	mgmtv1connect.VisualServiceUpgradeCheckProcedure: auth.RoleOrgAdmin,
+	// VisualService — org editor, except GraphView (org reader).
+	mgmtv1connect.VisualServiceRenderProcedure:       auth.RoleOrgEditor,
+	mgmtv1connect.VisualServiceValidateProcedure:     auth.RoleOrgEditor,
+	mgmtv1connect.VisualServiceUpgradeCheckProcedure: auth.RoleOrgEditor,
 	mgmtv1connect.VisualServiceGraphViewProcedure:    auth.RoleOrgReader,
 
-	// SimulateService — org admin.
-	mgmtv1connect.SimulateServiceSimulateRelabelProcedure: auth.RoleOrgAdmin,
-	mgmtv1connect.SimulateServiceSimulateLogsProcedure:    auth.RoleOrgAdmin,
-	mgmtv1connect.SimulateServiceCreateRunProcedure:       auth.RoleOrgAdmin,
-	mgmtv1connect.SimulateServiceGetRunProcedure:          auth.RoleOrgAdmin,
+	// SimulateService — org editor.
+	mgmtv1connect.SimulateServiceSimulateRelabelProcedure: auth.RoleOrgEditor,
+	mgmtv1connect.SimulateServiceSimulateLogsProcedure:    auth.RoleOrgEditor,
+	mgmtv1connect.SimulateServiceCreateRunProcedure:       auth.RoleOrgEditor,
+	mgmtv1connect.SimulateServiceGetRunProcedure:          auth.RoleOrgEditor,
 
 	// AuditService — org admin.
 	mgmtv1connect.AuditServiceListAuditProcedure: auth.RoleOrgAdmin,

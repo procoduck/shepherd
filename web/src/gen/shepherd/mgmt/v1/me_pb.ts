@@ -48,8 +48,11 @@ export type OrgMembership = Message<"shepherd.mgmt.v1.OrgMembership"> & {
   displayName: string;
 
   /**
-   * Role is "admin" or "reader" — kept as a string (not an enum) so the
-   * legacy JSON value is unchanged. Validated server-side.
+   * Role is "admin", "editor" or "viewer" — the same three names for a local
+   * user (org_members.role) and an OIDC one (matched against the org's
+   * admin/editor/reader group), so the UI does not have to know which path the
+   * session came from. Kept as a string rather than an enum so the legacy JSON
+   * value is unchanged.
    *
    * @generated from field: string role = 4;
    */

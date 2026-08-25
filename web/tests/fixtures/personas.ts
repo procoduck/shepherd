@@ -36,7 +36,7 @@ export const reader: MeResponse = {
   displayName: 'Reader',
   isAppAdmin: false,
   authMethod: 'oidc',
-  orgs: [{ id: 'org-0001', name: 'prod-org', displayName: 'Production Org', role: 'reader' }],
+  orgs: [{ id: 'org-0001', name: 'prod-org', displayName: 'Production Org', role: 'viewer' }],
 };
 
 export const nobody: MeResponse = {
@@ -55,4 +55,16 @@ export const localAdmin: MeResponse = {
   isAppAdmin: true,
   orgs: [],
   authMethod: 'local',
+};
+
+/** An org editor: can author pipelines, wizards and simulations, but cannot
+ *  change what the org IS (destinations, tenant routes, git credentials). The
+ *  role that did not exist before local users did. */
+export const orgEditor: MeResponse = {
+  userOid: 'u-orgeditor',
+  email: 'orgeditor@example.com',
+  displayName: 'Org Editor',
+  isAppAdmin: false,
+  authMethod: 'local',
+  orgs: [{ id: 'org-0001', name: 'prod-org', displayName: 'Production Org', role: 'editor' }],
 };

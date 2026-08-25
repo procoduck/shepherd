@@ -2,11 +2,13 @@ package store_test
 
 import (
 	"context"
+	"io/fs"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"shepherd/internal/migrations"
 	"shepherd/internal/store"
 )
 
@@ -31,9 +33,16 @@ var _ = Describe("Migration: 0006_git_providers", Label("integration"), func() {
 		// keeps the spec correct regardless of how many migrations now sit above it,
 		// rather than hardcoding a step count that silently goes stale.
 		Expect(store.MigrateUp(ctx, url)).To(Succeed())
-		const maxStepsAbove0006 = 10 // generous headroom for migrations added after 0006
+		// Bound the loop by the number of migrations that actually exist rather
+		// than by a hardcoded headroom. A fixed count goes stale the moment
+		// enough migrations land above 0006 — which is precisely how this spec
+		// broke — and it fails as "could not reach the pre-0006 shape", which
+		// reads like a migration bug rather than a stale constant.
+		upFiles, err := fs.Glob(migrations.FS, "sql/*.up.sql")
+		Expect(err).NotTo(HaveOccurred())
+		maxSteps := len(upFiles)
 		foundPre0006Shape := false
-		for i := 0; i < maxStepsAbove0006; i++ {
+		for i := 0; i < maxSteps; i++ {
 			Expect(store.MigrateDown(ctx, url)).To(Succeed())
 			probe, err := pgxpool.New(ctx, url)
 			Expect(err).NotTo(HaveOccurred())
@@ -135,7 +144,7 @@ var _ = Describe("Migration: 0006_git_providers", Label("integration"), func() {
 		// single MigrateDown now only reverts whatever is above 0006, not 0006
 		// itself.
 		foundPre0006Shape = false
-		for i := 0; i < maxStepsAbove0006; i++ {
+		for i := 0; i < maxSteps; i++ {
 			Expect(store.MigrateDown(ctx, url)).To(Succeed())
 			probe, err := pgxpool.New(ctx, url)
 			Expect(err).NotTo(HaveOccurred())

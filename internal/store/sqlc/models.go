@@ -167,6 +167,7 @@ type Org struct {
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 	TenantID      pgtype.Text        `json:"tenant_id"`
+	EditorGroupID pgtype.Text        `json:"editor_group_id"`
 }
 
 type OrgMember struct {

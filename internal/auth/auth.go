@@ -762,12 +762,41 @@ func RequireAppAdmin(next http.Handler) http.Handler {
 	})
 }
 
-// RequireOrgAccess verifies the user is an org admin or reader for the org.
-// The org is looked up by the {org} URL param. The caller passes minRole: "reader" or "orgadmin".
+// roleForMinRole maps the middleware's minRole vocabulary onto the Authorize
+// role constants. Unknown values panic — see RequireOrgAccess.
+func roleForMinRole(minRole string) string {
+	switch minRole {
+	case "reader":
+		return RoleOrgReader
+	case "orgeditor":
+		return RoleOrgEditor
+	case "orgadmin":
+		return RoleOrgAdmin
+	default:
+		panic(fmt.Sprintf("RequireOrgAccess: unknown minRole %q (want \"reader\", \"orgeditor\" or \"orgadmin\")", minRole))
+	}
+}
+
+// RequireOrgAccess verifies the session clears minRole for the org, which is
+// looked up by the {org} URL param. minRole is one of "reader", "orgeditor"
+// or "orgadmin" and names the LEAST privileged role that may proceed.
+//
 // The role decision itself lives in Authorize (authz.go) so it can be reused
 // by the Connect authz interceptor; this middleware only translates the
 // decision into the exact HTTP responses this endpoint has always returned.
+//
+// An unrecognised minRole panics at route-registration time rather than
+// defaulting. Defaulting is what a third rung made dangerous: a typo would
+// quietly widen a route to the lowest tier, and it would widen it silently —
+// the route keeps serving, just to more people than intended. Every call site
+// is a compile-time constant evaluated while the router is built, so a panic
+// here fails the process at boot and is caught by any test that constructs
+// the router.
 func RequireOrgAccess(st *store.Store, orgIDParam, minRole string) func(http.Handler) http.Handler {
+	// Resolved here, not per request, so an unrecognised value fails the
+	// process while routes are being registered rather than on the first
+	// request to reach the route.
+	role := roleForMinRole(minRole)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			sess := SessionFromCtx(r.Context())
@@ -781,11 +810,6 @@ func RequireOrgAccess(st *store.Store, orgIDParam, minRole string) func(http.Han
 				orgIDStr = r.URL.Query().Get("org")
 			}
 
-			role := RoleOrgReader
-			if minRole == "orgadmin" {
-				role = RoleOrgAdmin
-			}
-
 			switch err := Authorize(r.Context(), st, sess, orgIDStr, role); {
 			case err == nil:
 				next.ServeHTTP(w, r)
@@ -797,6 +821,8 @@ func RequireOrgAccess(st *store.Store, orgIDParam, minRole string) func(http.Han
 				w.WriteHeader(http.StatusNotFound)
 			case minRole == "orgadmin":
 				writeAuthError(w, http.StatusForbidden, "forbidden", "requires org admin role")
+			case minRole == "orgeditor":
+				writeAuthError(w, http.StatusForbidden, "forbidden", "requires org editor role")
 			default:
 				writeAuthError(w, http.StatusForbidden, "forbidden", "no access to this org")
 			}

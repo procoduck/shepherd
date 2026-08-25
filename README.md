@@ -210,12 +210,17 @@ Alloy (spoke)  ──remotecfg──▶  Shepherd  ──serves──▶  merged
 
 ### Roles
 
+Every role is reachable two ways — from an identity provider's groups, or
+assigned directly to a local user. The two coexist; local accounts are a
+supported way to run Shepherd, not a fallback.
+
 | Role | Can |
 |---|---|
-| Application administrator | Create orgs and **set their tenant id**, claim clusters, issue agent tokens |
+| Application administrator | Create orgs and **set their tenant id**, claim clusters, issue agent tokens, manage local users |
 | Org administrator | Everything within one org: pipelines, destinations, routes, teams |
+| Org editor | Author what the org *runs* — pipelines, wizards, simulations — but not what it *is*: destinations, routes, git credentials and teams stay with the org admin |
 | Team member | Write only what their team owns (scoped write) — *RPC only, no UI yet* |
-| Org reader | Read only |
+| Org viewer | Read only |
 | Service account (`apply`) | Machine writes within one org, acting for the human it was issued to |
 | Service account (`propose`) | Reads, validation and proposals — never applies |
 
