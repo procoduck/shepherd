@@ -102,7 +102,7 @@
       <h2 id="installing">Installing</h2>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.8.2 \
+        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.9.0 \
   --namespace shepherd --create-namespace \
   --set existingSecret=shepherd-secrets</code></pre>
       </div>
@@ -114,7 +114,7 @@
         release it was published for.
       </p>
       <p class="note">
-        <strong>Chart version is not the app version.</strong> <code>--version 0.8.2</code> is the
+        <strong>Chart version is not the app version.</strong> <code>--version 0.9.0</code> is the
         <em>chart&rsquo;s</em>; Shepherd&rsquo;s is <code>0.3.x</code>. They move independently, so a
         chart-only change bumps only the chart. Run
         <code>helm show chart oci://ghcr.io/procoduck/charts/shepherd</code> to see which Shepherd
@@ -137,7 +137,7 @@
       <p>
         Nothing is exposed outside the cluster unless you ask for it. To see exactly what an install
         would create before creating it, render it locally:
-        <code>helm template shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.8.2</code>.
+        <code>helm template shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.9.0</code>.
       </p>
 
       <h2 id="migrations">Migrations run before the new code</h2>

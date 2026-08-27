@@ -1,32 +1,430 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
   "type": "object",
+  "additionalProperties": false,
+  "definitions": {
+    "renderMode": {
+      "description": "When to emit a bootstrap resource: auto (only if lookup says it is absent), always, or never. See cnpg.render in values.yaml.",
+      "type": "string",
+      "enum": ["auto", "always", "never"]
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": { "name": { "type": "string" } },
+        "required": ["name"]
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requests": { "type": "object" },
+        "limits": { "type": "object" }
+      }
+    },
+    "labelMap": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  },
   "properties": {
+    "global": { "type": "object" },
+    "nameOverride": { "type": "string" },
+    "fullnameOverride": { "type": "string" },
+
     "image": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "registry": { "type": "string" },
-        "repository": { "type": "string" },
+        "repository": { "type": "string", "minLength": 1 },
         "tag": { "type": "string" },
-        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] },
+        "pullSecrets": { "$ref": "#/definitions/imagePullSecrets" }
       }
     },
     "replicas": { "type": "integer", "minimum": 1 },
+
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer", "ExternalName"] },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "nodePort": { "type": ["integer", "string"] }
+      }
+    },
+
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": { "type": "boolean" },
+        "name": { "type": "string" },
+        "annotations": { "$ref": "#/definitions/labelMap" }
+      }
+    },
+
+    "config": {
+      "description": "Passed through verbatim into Shepherd's own shepherd.yaml, so these keys are the APP's (snake_case), not the chart's. Each section below mirrors a struct in internal/config/config.go and is closed, because the failure it prevents is silent: `config.tracing.endpont` is accepted by YAML, ignored by viper, and leaves you with tracing that never exports and nothing to grep for. A new app config SECTION still needs no chart change -- only new keys inside an existing section do.",
+      "type": "object",
+      "properties": {
+        "server": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "listen": { "type": "string" },
+            "base_url": { "type": "string" },
+            "metrics_listen": { "type": "string" },
+            "beacon_disabled": { "type": "boolean" }
+          }
+        },
+        "database": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "url": { "type": "string" },
+            "max_conns": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "oidc": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "issuer": { "type": "string" },
+            "client_id": { "type": "string" },
+            "client_secret": { "type": "string" },
+            "redirect_url": { "type": "string" },
+            "scopes": { "type": "array", "items": { "type": "string" } },
+            "provider": {
+              "type": "string",
+              "enum": ["entra", "okta", "google", "auth0", "keycloak", "cognito", "gitlab", "authentik", "onelogin", "generic"]
+            },
+            "display_name": { "type": "string" },
+            "subject_claim": { "type": "string" },
+            "email_claim": { "type": "string" },
+            "name_claim": { "type": "string" },
+            "groups_claim": { "type": "string" },
+            "use_graph_groups": { "type": "boolean" }
+          }
+        },
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "app_admin_group_ids": { "type": "array", "items": { "type": "string" } },
+            "session_ttl": { "type": "string" },
+            "insecure_cookies": { "type": "boolean" }
+          }
+        },
+        "graph": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "tenant_id": { "type": "string" },
+            "client_id": { "type": "string" },
+            "client_secret": { "type": "string" },
+            "base_url": { "type": "string" }
+          }
+        },
+        "agent": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "inactive_after": { "type": "string" },
+            "delete_after": { "type": "string" },
+            "sweep_interval": { "type": "string" }
+          }
+        },
+        "validate": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "alloy_binary": { "type": "string" },
+            "stability_level": {
+              "description": "Passed verbatim to `alloy --stability.level=`; a typo here fails every config validation in-cluster and nothing catches it at install time.",
+              "type": "string",
+              "enum": ["stable", "public-preview", "experimental"]
+            },
+            "timeout": { "type": "string" },
+            "stage3_timeout": { "type": "string" }
+          }
+        },
+        "simulator": {
+          "description": "Set explicitly only to point Shepherd at a simulator this chart did not deploy; otherwise leave it out and simulator.enabled wires it up.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "control_url": { "type": "string" },
+            "capture_base_url": { "type": "string" },
+            "otlp_grpc_address": { "type": "string" },
+            "syslog_host": { "type": "string" },
+            "syslog_port": { "type": "integer" },
+            "capture_dir": { "type": "string" },
+            "target_address": { "type": "string" },
+            "log_dir": { "type": "string" },
+            "duration": { "type": "string" },
+            "max_duration": { "type": "string" },
+            "token": { "type": "string" },
+            "max_concurrent_runs": { "type": "integer", "minimum": 1 },
+            "max_non_terminal_per_org": { "type": "integer", "minimum": 1 },
+            "run_ttl": { "type": "string" },
+            "retention_ttl": { "type": "string" },
+            "poll_interval": { "type": "string" },
+            "janitor_interval": { "type": "string" }
+          }
+        },
+        "gitsync": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "tick": { "type": "string" },
+            "default_poll_interval": { "type": "string" },
+            "max_repo_bytes": { "type": "integer", "minimum": 1 },
+            "max_file_bytes": { "type": "integer", "minimum": 1 },
+            "max_files": { "type": "integer", "minimum": 1 },
+            "fetch_timeout": { "type": "string" }
+          }
+        },
+        "ado": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "base_url": { "type": "string" } }
+        },
+        "security": {
+          "description": "encryption_key belongs in a Secret (SHEPHERD_SECURITY_ENCRYPTION_KEY), never here -- this block renders into a ConfigMap.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "encryption_key": { "type": "string" } }
+        },
+        "tracing": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "endpoint": { "type": "string" },
+            "protocol": { "type": "string", "enum": ["grpc", "http"] },
+            "insecure": { "type": "boolean" },
+            "sample_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+            "service_name": { "type": "string" },
+            "service_version": { "type": "string" }
+          }
+        },
+        "log": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "level": { "type": "string", "enum": ["debug", "info", "warn", "error"] },
+            "format": { "type": "string", "enum": ["json", "text"] }
+          }
+        }
+      }
+    },
+
+    "cnpg": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "render": { "$ref": "#/definitions/renderMode" },
+        "name": { "type": "string" },
+        "instances": { "type": "integer", "minimum": 1 },
+        "storage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "size": { "type": "string" },
+            "storageClass": { "type": "string" }
+          }
+        },
+        "database": { "type": "string", "minLength": 1 },
+        "owner": { "type": "string", "minLength": 1 },
+        "imageName": { "type": "string" },
+        "resources": { "$ref": "#/definitions/resources" },
+        "extraSpec": { "type": "object" }
+      }
+    },
+
+    "externalSecrets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "render": { "$ref": "#/definitions/renderMode" },
+        "apiVersion": { "type": "string", "minLength": 1 },
+        "generatorApiVersion": { "type": "string", "minLength": 1 },
+        "refreshInterval": {
+          "description": "Must stay \"0\": regenerating the encryption key orphans every credential already stored under the old one.",
+          "type": "string",
+          "const": "0"
+        },
+        "encryptionKey": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "length": {
+              "description": "Shepherd rejects any key that is not 32 bytes, so a different length produces an instance that cannot start.",
+              "type": "integer",
+              "const": 32
+            }
+          }
+        },
+        "bootstrapAdmin": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "length": { "type": "integer", "minimum": 12 },
+            "login": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+
+    "existingSecret": { "type": "string" },
+    "secrets": {
+      "description": "SHEPHERD_* environment variables rendered into a Secret. Keys are the env var names, so they are not constrained here.",
+      "type": "object",
+      "additionalProperties": { "type": ["string", "number", "boolean"] }
+    },
+
+    "migrations": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "job": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "backoffLimit": { "type": "integer", "minimum": 0 },
+            "resources": { "$ref": "#/definitions/resources" }
+          }
+        }
+      }
+    },
+
     "route": {
       "type": "object",
-      "properties": { "enabled": { "type": "boolean" } }
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "hostnames": { "type": "array", "items": { "type": "string" } },
+        "parentRefs": { "type": "array", "items": { "type": "object" } }
+      }
     },
+
     "ingress": {
       "type": "object",
-      "properties": { "enabled": { "type": "boolean" } }
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "className": { "type": "string" },
+        "hosts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["host"],
+            "properties": {
+              "host": { "type": "string", "minLength": 1 },
+              "paths": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["path"],
+                  "properties": {
+                    "path": { "type": "string", "minLength": 1 },
+                    "pathType": { "type": "string", "enum": ["Prefix", "Exact", "ImplementationSpecific"] }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tls": { "type": "array", "items": { "type": "object" } }
+      }
     },
+
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "serviceMonitor": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "labels": { "$ref": "#/definitions/labelMap" },
+            "interval": { "type": "string" },
+            "scrapeTimeout": { "type": "string" },
+            "relabelings": { "type": "array", "items": { "type": "object" } },
+            "metricRelabelings": { "type": "array", "items": { "type": "object" } }
+          }
+        }
+      }
+    },
+
+    "resources": { "$ref": "#/definitions/resources" },
+    "nodeSelector": { "$ref": "#/definitions/labelMap" },
+    "tolerations": { "type": "array", "items": { "type": "object" } },
+    "affinity": { "type": "object" },
+    "priorityClassName": { "type": "string" },
+    "podAnnotations": { "$ref": "#/definitions/labelMap" },
+    "extraEnv": { "type": "array", "items": { "type": "object" } },
+
+    "autoscaling": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "minReplicas": { "type": "integer", "minimum": 1 },
+        "maxReplicas": { "type": "integer", "minimum": 1 },
+        "targetCPUUtilizationPercentage": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }
+    },
+
     "networkPolicy": {
       "type": "object",
+      "additionalProperties": false,
       "properties": { "enabled": { "type": "boolean" } }
     },
+
     "simulator": {
       "type": "object",
-      "properties": { "enabled": { "type": "boolean" } }
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "registry": { "type": "string" },
+            "repository": { "type": "string", "minLength": 1 },
+            "tag": { "type": "string" },
+            "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] },
+            "pullSecrets": { "$ref": "#/definitions/imagePullSecrets" }
+          }
+        },
+        "replicas": { "type": "integer", "minimum": 1 },
+        "resources": { "$ref": "#/definitions/resources" },
+        "allowedHosts": { "type": "array", "items": { "type": "string" } },
+        "podAnnotations": { "$ref": "#/definitions/labelMap" },
+        "nodeSelector": { "$ref": "#/definitions/labelMap" },
+        "tolerations": { "type": "array", "items": { "type": "object" } },
+        "affinity": { "type": "object" },
+        "networkPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "extraEgress": { "type": "array", "items": { "type": "object" } } }
+        }
+      }
     }
   },
   "if": {

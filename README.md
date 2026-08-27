@@ -72,7 +72,7 @@ kubectl -n shepherd create secret generic shepherd-secrets \
   --from-literal=SHEPHERD_SECURITY_ENCRYPTION_KEY="$(openssl rand -base64 32)" \
   --from-literal=SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD='choose-a-password'
 
-helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.8.2 \
+helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.9.0 \
   --namespace shepherd --set existingSecret=shepherd-secrets
 
 kubectl -n shepherd port-forward svc/shepherd 8080:8080

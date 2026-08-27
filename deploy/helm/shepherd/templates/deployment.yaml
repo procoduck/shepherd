@@ -23,6 +23,13 @@ spec:
     metadata:
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if and (not .Values.existingSecret) .Values.secrets }}
+        # Rotating a value in `secrets` updates the Secret object but env vars
+        # are read once, at container start -- so without this the pods kept
+        # serving with the old database URL or OIDC client secret until some
+        # unrelated rollout happened to restart them. A hash, never the values.
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -33,16 +40,15 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "shepherd.fullname" . }}
+      serviceAccountName: {{ include "shepherd.serviceAccountName" . }}
+      # false at the POD level too, not only on the ServiceAccount. An
+      # omitted field inherits the namespace default, and pointing the workload
+      # at someone else's ServiceAccount (serviceAccount.create: false) would
+      # otherwise mount whatever token that account carries. Shepherd never
+      # calls the Kubernetes API.
+      automountServiceAccountToken: false
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 65532
-        # Matching the simulator's pod hardening, which had these and the main
-        # workload did not.
-        runAsGroup: 65532
-        fsGroup: 65532
-        seccompProfile:
-          type: RuntimeDefault
+        {{- include "shepherd.podSecurityContext" . | nindent 8 }}
       volumes:
         - name: config
           configMap:
@@ -72,7 +78,7 @@ spec:
               mountPath: /tmp
           envFrom:
             - secretRef:
-                name: {{ if .Values.existingSecret }}{{ .Values.existingSecret }}{{ else }}{{ include "shepherd.fullname" . }}-secrets{{ end }}
+                name: {{ include "shepherd.secretName" . }}
                 optional: true
           {{- $env := include "shepherd.podEnv" . }}
           {{- if trim $env }}
@@ -80,10 +86,7 @@ spec:
             {{- $env | nindent 12 }}
           {{- end }}
           securityContext:
-            readOnlyRootFilesystem: true
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
+            {{- include "shepherd.containerSecurityContext" . | nindent 12 }}
           livenessProbe:
             httpGet:
               path: /healthz

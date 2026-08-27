@@ -1,0 +1,19 @@
+{{- if ((.Values.migrations).job).enabled }}
+{{- /*
+  The migration Job's own copy of shepherd.yaml, because the runtime ConfigMap
+  is a tracked resource that Helm creates only after every hook has run. Same
+  body, via shepherd.configYaml, so the two cannot drift.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "shepherd.migrateFullname" . }}
+  labels:
+    {{- include "shepherd.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    {{- include "shepherd.migrateHookDeps" . | nindent 4 }}
+data:
+  shepherd.yaml: |
+    {{- include "shepherd.configYaml" . | nindent 4 }}
+{{- end }}

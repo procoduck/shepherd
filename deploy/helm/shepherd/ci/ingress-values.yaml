@@ -1,0 +1,63 @@
+# The three templates nothing else renders: ingress.yaml, hpa.yaml and the main
+# chart's networkpolicy.yaml.
+#
+# full-values.yaml cannot cover them. It enables `route`, and the schema refuses
+# route and ingress together on purpose -- so an Ingress has never once been
+# rendered by `make helm-lint` or by any chart test, and neither has an HPA or
+# Shepherd's own NetworkPolicy. A template error in any of the three passed CI
+# and would have surfaced on somebody's cluster. That is the exact failure mode
+# full-values.yaml's own comments say the ci/ files exist to prevent.
+image:
+  tag: "0.0.1"
+
+existingSecret: "shepherd-secrets"
+
+ingress:
+  enabled: true
+  className: "nginx"
+  hosts:
+    # A wildcard on purpose: unquoted, this is the YAML alias character, and it
+    # used to fail the render with a parse error that named a line number and
+    # not the host.
+    - host: "*.shepherd.internal"
+      paths:
+        - path: /
+          pathType: Prefix
+    - host: shepherd.internal
+      paths:
+        - path: /
+  tls:
+    - secretName: shepherd-tls
+      hosts:
+        - shepherd.internal
+
+# autoscaling REQUIRES resources.requests.cpu -- an HPA targeting CPU
+# utilization computes a percentage of the request, so without one it can never
+# scale. The chart refuses to render rather than leave a silently dead
+# autoscaler, which is itself worth exercising here.
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+networkPolicy:
+  enabled: true
+
+migrations:
+  job:
+    enabled: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        memory: 256Mi

@@ -662,10 +662,15 @@ e2e-k8s-clean: ## Delete kind clusters a SIGKILLed e2e-k8s run left behind
 
 helm-lint: ## Lint + template the Helm chart against every ci value file
 	$(call preflight,helm,Install helm (e.g. brew install helm).)
-	helm lint deploy/helm/shepherd
+	helm lint --strict deploy/helm/shepherd
+	@# The pristine defaults, which no ci file covers: every one of them
+	@# overrides something, so without this render the shipped out-of-box
+	@# values are the only combination never checked.
+	helm template shepherd deploy/helm/shepherd > /dev/null
 	helm template shepherd deploy/helm/shepherd -f deploy/helm/shepherd/ci/default-values.yaml > /dev/null
 	helm template shepherd deploy/helm/shepherd -f deploy/helm/shepherd/ci/full-values.yaml > /dev/null
 	helm template shepherd deploy/helm/shepherd -f deploy/helm/shepherd/ci/generated-secrets-values.yaml > /dev/null
+	helm template shepherd deploy/helm/shepherd -f deploy/helm/shepherd/ci/ingress-values.yaml > /dev/null
 
 # Local defaults for the docker image templates; CI overrides both.
 IMAGE_REGISTRY ?= ghcr.io/procoduck

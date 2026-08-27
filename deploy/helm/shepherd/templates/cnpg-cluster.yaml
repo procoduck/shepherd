@@ -18,8 +18,36 @@
   it. That is deliberate. Editing a live database's spec is the operator's job
   (`kubectl edit cluster`), not a side effect of an application upgrade.
 */}}
-{{- $existingCluster := lookup "postgresql.cnpg.io/v1" "Cluster" .Release.Namespace (include "shepherd.cnpgClusterName" .) }}
-{{- if not $existingCluster }}
+{{- /*
+  cnpg.render is the honest version of the same decision, for the pipelines
+  where lookup cannot work.
+
+  lookup returns empty whenever there is no cluster connection -- which is not
+  only `helm template` and `--dry-run`, but every deployment tool that renders
+  the chart and applies the output itself: Argo CD's default Helm integration,
+  Flux post-render flows, `helm template | kubectl apply`. There the guard
+  above fails OPEN: the Cluster renders on every single sync, and Argo CD maps
+  `helm.sh/hook: pre-install,pre-upgrade` onto a PreSync hook whose default
+  deletion policy is BeforeHookCreation -- the delete-and-recreate this whole
+  comment exists to prevent, run every time anyone syncs.
+
+    auto    (default) render only when lookup says it is not there. Correct
+            under the helm CLI, unsafe under anything that renders offline.
+    never   never render it. What a GitOps user sets once the database exists,
+            so no sync can touch it again.
+    always  render unconditionally. For bootstrapping a GitOps deployment, or
+            for a pipeline that diffs the full desired state. Understand that
+            an apply-based tool may then delete and recreate it.
+*/}}
+{{- $render := (.Values.cnpg).render | default "auto" }}
+{{- if not (has $render (list "auto" "always" "never")) }}
+{{- fail (printf "cnpg.render must be one of auto, always, never (got %q)" $render) }}
+{{- end }}
+{{- $existingCluster := "" }}
+{{- if eq $render "auto" }}
+{{- $existingCluster = lookup "postgresql.cnpg.io/v1" "Cluster" .Release.Namespace (include "shepherd.cnpgClusterName" .) }}
+{{- end }}
+{{- if and (ne $render "never") (not $existingCluster) }}
 {{- /*
   No CRD precondition here on purpose. .Capabilities.APIVersions is empty under
   `helm template`, so a guard would break rendering the chart offline -- and the

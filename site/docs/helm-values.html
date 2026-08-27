@@ -86,7 +86,7 @@
       <p>
         Every value the chart accepts, generated from
         <a href="https://github.com/procoduck/shepherd/blob/main/deploy/helm/shepherd/values.yaml"><code>values.yaml</code></a>
-        in chart <strong>0.8.2</strong>. The descriptions are the chart&rsquo;s own comments, so this
+        in chart <strong>0.9.0</strong>. The descriptions are the chart&rsquo;s own comments, so this
         page cannot describe a value the chart does not have, or miss one it gained.
       </p>
       <p class="note">
@@ -102,6 +102,20 @@
         and the encryption key live in a Secret, not in values. See
         <a href="configuration.html">Configuration</a>.
       </p>
+      <h2 id="nameoverride"><code>nameOverride</code></h2>
+      <table>
+        <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>nameOverride</code></td><td><code>&quot;&quot;</code></td><td>nameOverride: replaces the chart name in every generated object name and in the app.kubernetes.io/name label. Empty means &quot;shepherd&quot;.</td></tr>
+        </tbody>
+      </table>
+      <h2 id="fullnameoverride"><code>fullnameOverride</code></h2>
+      <table>
+        <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>fullnameOverride</code></td><td><code>&quot;&quot;</code></td><td>fullnameOverride: replaces the whole &quot;&lt;release&gt;-&lt;chart&gt;&quot; prefix, so objects are named exactly this. Empty means the usual release-derived name.</td></tr>
+        </tbody>
+      </table>
       <h2 id="image"><code>image</code></h2>
       <table>
         <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
@@ -159,11 +173,12 @@
         </tbody>
       </table>
       <h2 id="cnpg"><code>cnpg</code></h2>
-      <p>----------------------------------------------------------------------------- CloudNativePG: let the chart provision the database.<br>OFF by default, and Shepherd is happy either way — point SHEPHERD_DATABASE_URL at an RDS, a Cloud SQL, or any Postgres you already run and leave this alone. Turn it on and the chart renders a postgresql.cnpg.io/v1 Cluster, and wires Shepherd&#x27;s database URL to the <code>uri</code> key of the <code>&lt;cluster&gt;-app</code> Secret that CNPG generates. You never write a connection string.<br>Requires the CloudNativePG operator and its CRDs to be installed in the cluster already; the chart does not install operators.<br>The Cluster renders as a pre-install/pre-upgrade hook so it exists before the migration Job runs. Three consequences worth knowing: - <code>helm uninstall</code> does NOT delete it. Hook resources are not tracked in the release, which for the thing holding all your data is the right way round. Remove it deliberately with <code>kubectl delete cluster &lt;name&gt;</code>. - Once it exists, changes to cnpg.* no longer reach it: the chart skips rendering a Cluster that is already there, because a hook Helm re-renders is a hook Helm first DELETES. Edit a live cluster with <code>kubectl edit cluster &lt;name&gt;</code>, which is the operator&#x27;s own interface for it. - On a first install the migration Job may fail a few times while Postgres is still coming up. That is expected and it retries — see migrations.job.backoffLimit.</p>
+      <p>----------------------------------------------------------------------------- CloudNativePG: let the chart provision the database.<br>OFF by default, and Shepherd is happy either way — point SHEPHERD_DATABASE_URL at an RDS, a Cloud SQL, or any Postgres you already run and leave this alone. Turn it on and the chart renders a postgresql.cnpg.io/v1 Cluster, and wires Shepherd&#x27;s database URL to the <code>uri</code> key of the <code>&lt;cluster&gt;-app</code> Secret that CNPG generates. You never write a connection string.<br>Requires the CloudNativePG operator and its CRDs to be installed in the cluster already; the chart does not install operators.<br>The Cluster renders as a pre-install/pre-upgrade hook so it exists before the migration Job runs. Three consequences worth knowing: - <code>helm uninstall</code> does NOT delete it. Hook resources are not tracked in the release, which for the thing holding all your data is the right way round. Remove it deliberately with <code>kubectl delete cluster &lt;name&gt;</code>. - Once it exists, changes to cnpg.* no longer reach it: the chart skips rendering a Cluster that is already there, because a hook Helm re-renders is a hook Helm first DELETES. Edit a live cluster with <code>kubectl edit cluster &lt;name&gt;</code>, which is the operator&#x27;s own interface for it. - On a first install the migration Job may fail a few times while Postgres is still coming up. That is expected and it retries — see migrations.job.backoffLimit.<br>GITOPS WARNING. The &quot;skips rendering a Cluster that is already there&quot; trick above uses <code>lookup</code>, which needs a live cluster connection. Argo CD, Flux and <code>helm template | kubectl apply</code> render the chart with no connection, so the guard fails OPEN there: the Cluster is emitted on every sync, and Argo CD in particular treats a pre-install/pre-upgrade hook as a PreSync hook it DELETES before recreating -- which takes the PVCs and the database with it. If you deploy this chart through any such tool, set <code>render: never</code> below once the database exists.</p>
       <table>
         <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
         <tbody>
           <tr><td><code>cnpg.enabled</code></td><td><code>false</code></td><td>&mdash;</td></tr>
+          <tr><td><code>cnpg.render</code></td><td><code>auto</code></td><td>render: auto | always | never -- when to emit the Cluster object. auto    (default) only when <code>lookup</code> says it is not already there. Correct under the helm CLI; unsafe under GitOps, see above. never   never emit it. What a GitOps deployment sets after bootstrap. always  emit it unconditionally, for bootstrapping or for a pipeline that wants the full desired state.</td></tr>
           <tr><td><code>cnpg.name</code></td><td><code>&quot;&quot;</code></td><td>Cluster name. Empty means &quot;&lt;release&gt;-db&quot;.</td></tr>
           <tr><td><code>cnpg.instances</code></td><td><code>2</code></td><td>Two gives you a primary and one standby, which is the minimum CloudNativePG needs for automated failover. Raise it for more read capacity or headroom.</td></tr>
           <tr><td><code>cnpg.storage.size</code></td><td><code>10Gi</code></td><td>&mdash;</td></tr>
@@ -176,11 +191,12 @@
         </tbody>
       </table>
       <h2 id="externalsecrets"><code>externalSecrets</code></h2>
-      <p>----------------------------------------------------------------------------- External Secrets Operator: let the cluster generate the bootstrap secrets.<br>OFF by default. Enabled, the chart renders two Password generators and an ExternalSecret that produces the Secret Shepherd reads — so the encryption key and the first administrator&#x27;s password are generated in-cluster and never pass through your shell, your values file, or your terminal history.<br>Requires the External Secrets Operator and its CRDs; the chart does not install operators. No SecretStore is needed: a generator is the source.<br>refresh_interval is &quot;0&quot; and MUST stay &quot;0&quot;. These are not rotatable credentials: regenerating the encryption key would leave every git credential and OIDC client secret already stored in the database undecryptable, with no error at the moment it happens. deletionPolicy is Retain for the same reason — uninstalling the release must not take the key with it.<br>Both only hold while the ExternalSecret itself survives, so the chart also skips rendering it once it exists. Changing externalSecrets.* after the first install therefore has no effect; delete the ExternalSecret deliberately if you genuinely want it regenerated, understanding that a new key orphans every credential the old one encrypted.</p>
+      <p>----------------------------------------------------------------------------- External Secrets Operator: let the cluster generate the bootstrap secrets.<br>OFF by default. Enabled, the chart renders two Password generators and an ExternalSecret that produces the Secret Shepherd reads — so the encryption key and the first administrator&#x27;s password are generated in-cluster and never pass through your shell, your values file, or your terminal history.<br>Requires the External Secrets Operator and its CRDs; the chart does not install operators. No SecretStore is needed: a generator is the source.<br>refreshInterval is &quot;0&quot; and MUST stay &quot;0&quot;. These are not rotatable credentials: regenerating the encryption key would leave every git credential and OIDC client secret already stored in the database undecryptable, with no error at the moment it happens. deletionPolicy is Retain for the same reason — uninstalling the release must not take the key with it.<br>Both only hold while the ExternalSecret itself survives, so the chart also skips rendering it once it exists. Changing externalSecrets.* after the first install therefore has no effect; delete the ExternalSecret deliberately if you genuinely want it regenerated, understanding that a new key orphans every credential the old one encrypted.<br>The same GITOPS WARNING as cnpg above applies, and here the loss is quieter: under Argo CD or Flux the ExternalSecret is recreated on every sync, syncs once against fresh Password generators, and replaces an encryption key that cannot be rotated -- with no error at the moment it happens. Set <code>render: never</code> below once the secret exists.</p>
       <table>
         <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
         <tbody>
           <tr><td><code>externalSecrets.enabled</code></td><td><code>false</code></td><td>&mdash;</td></tr>
+          <tr><td><code>externalSecrets.render</code></td><td><code>auto</code></td><td>render: auto | always | never. Identical meaning to cnpg.render above.</td></tr>
           <tr><td><code>externalSecrets.apiVersion</code></td><td><code>external-secrets.io/v1</code></td><td>API versions, exposed because ESO has moved them before. These defaults match ESO v1.x.</td></tr>
           <tr><td><code>externalSecrets.generatorApiVersion</code></td><td><code>generators.external-secrets.io/v1alpha1</code></td><td>&mdash;</td></tr>
           <tr><td><code>externalSecrets.refreshInterval</code></td><td><code>&quot;0&quot;</code></td><td>Do not change. See the note above.</td></tr>
@@ -194,22 +210,23 @@
       <table>
         <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td><code>existingSecret</code></td><td><code>&quot;&quot;</code></td><td>&mdash;</td></tr>
+          <tr><td><code>existingSecret</code></td><td><code>&quot;&quot;</code></td><td>existingSecret: the name of a Secret you already manage, holding the SHEPHERD_* environment variables. Empty means the chart renders its own from <code>secrets</code> below. Set this and <code>secrets</code> is ignored entirely; it is also mutually exclusive with externalSecrets.enabled, which the chart refuses rather than silently picking a winner.</td></tr>
         </tbody>
       </table>
       <h2 id="secrets"><code>secrets</code></h2>
       <table>
         <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td><code>secrets</code></td><td><code>{}</code></td><td>secrets: key-value pairs rendered into a Kubernetes Secret and injected as environment variables. Keys must match the SHEPHERD_* env var names. Example for local admin password hash: secrets: SHEPHERD_DATABASE_URL: &quot;postgres://...&quot; SHEPHERD_SECURITY_ENCRYPTION_KEY: &quot;base64-32-bytes&quot; SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD: &quot;choose-something&quot; NEVER put SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD in the config: block above — that renders into a ConfigMap, which is not a place for a password.</td></tr>
+          <tr><td><code>secrets</code></td><td><code>{}</code></td><td>secrets: key-value pairs rendered into a Kubernetes Secret and injected as environment variables.<br>Convenient, and the least private of the three options: whatever you put here is stored verbatim in the Helm release and stays readable through <code>helm get values &lt;release&gt;</code> for the life of the release history. For production prefer <code>existingSecret</code> (you manage the object) or <code>externalSecrets.enabled</code> (the cluster generates it and it never passes through your shell at all). Keys must match the SHEPHERD_* env var names. Example for local admin password hash: secrets: SHEPHERD_DATABASE_URL: &quot;postgres://...&quot; SHEPHERD_SECURITY_ENCRYPTION_KEY: &quot;base64-32-bytes&quot; SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD: &quot;choose-something&quot; NEVER put SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD in the config: block above — that renders into a ConfigMap, which is not a place for a password.</td></tr>
         </tbody>
       </table>
       <h2 id="migrations"><code>migrations</code></h2>
       <table>
         <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td><code>migrations.job.enabled</code></td><td><code>true</code></td><td>&mdash;</td></tr>
+          <tr><td><code>migrations.job.enabled</code></td><td><code>true</code></td><td>enabled: run <code>shepherd migrate up</code> as a pre-install/pre-upgrade hook, so the schema is always current before the new pods start. Turn it off only if you run migrations yourself (<code>shepherd migrate up</code> against the same database) BEFORE every upgrade -- Shepherd will not start against a schema older than its binary.</td></tr>
           <tr><td><code>migrations.job.backoffLimit</code></td><td><code>6</code></td><td>How many times the migration Job may fail before the release does. The default covers a database that is still being provisioned -- see the Job template. Lower it if you would rather fail fast against a database that is always already there.</td></tr>
+          <tr><td><code>migrations.job.resources</code></td><td><code>{}</code></td><td>resources for the migration pod. Empty means unbounded, which is fine on most clusters; set it if a ResourceQuota or a LimitRange in this namespace requires every pod to declare one, since the Job is a pre-install hook and a rejected hook pod fails the whole install.</td></tr>
         </tbody>
       </table>
       <h2 id="route"><code>route</code></h2>
@@ -246,56 +263,67 @@
           <tr><td><code>metrics.serviceMonitor.metricRelabelings</code></td><td><code>[]</code></td><td>&mdash;</td></tr>
         </tbody>
       </table>
+      <h2 id="serviceaccount"><code>serviceAccount</code></h2>
+      <p>serviceAccount: the identity Shepherd&#x27;s pods run as.<br>The chart grants no RBAC — Shepherd never calls the Kubernetes API — so the account exists to be annotated. That is how a pod reaches a managed database without a static credential: an EKS IRSA role ARN or a GKE Workload Identity binding goes in <code>annotations</code> below, and the token it produces is what authenticates to RDS or Cloud SQL.</p>
+      <table>
+        <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>serviceAccount.create</code></td><td><code>true</code></td><td>create: false to use an account your platform team already manages, in which case <code>name</code> is required and must already exist — the migration Job runs as a pre-install hook and a pod naming a missing ServiceAccount is refused.</td></tr>
+          <tr><td><code>serviceAccount.name</code></td><td><code>&quot;&quot;</code></td><td>name: empty means the release&#x27;s fullname.</td></tr>
+          <tr><td><code>serviceAccount.annotations</code></td><td><code>{}</code></td><td>annotations: e.g. eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/shepherd iam.gke.io/gcp-service-account: shepherd@project.iam.gserviceaccount.com</td></tr>
+        </tbody>
+      </table>
       <h2 id="resources"><code>resources</code></h2>
       <table>
         <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td><code>resources</code></td><td><code>{}</code></td><td>&mdash;</td></tr>
+          <tr><td><code>resources</code></td><td><code>{}</code></td><td>resources: CPU/memory requests and limits for the Shepherd container. Empty means unbounded, which is deliberate for a first install — but set it before you rely on the deployment: requests are what the scheduler places on, and <code>autoscaling</code> below REQUIRES resources.requests.cpu (a CPU-utilization HPA is a percentage of the request, so with no request it can never scale). The chart refuses to render an HPA without one rather than leaving you a silently broken autoscaler.</td></tr>
         </tbody>
       </table>
       <h2 id="nodeselector"><code>nodeSelector</code></h2>
       <table>
         <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td><code>nodeSelector</code></td><td><code>{}</code></td><td>&mdash;</td></tr>
+          <tr><td><code>nodeSelector</code></td><td><code>{}</code></td><td>nodeSelector: constrain Shepherd&#x27;s pods to nodes carrying these labels.</td></tr>
         </tbody>
       </table>
       <h2 id="tolerations"><code>tolerations</code></h2>
       <table>
         <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td><code>tolerations</code></td><td><code>[]</code></td><td>&mdash;</td></tr>
+          <tr><td><code>tolerations</code></td><td><code>[]</code></td><td>tolerations: let Shepherd&#x27;s pods schedule onto tainted nodes.</td></tr>
         </tbody>
       </table>
       <h2 id="affinity"><code>affinity</code></h2>
       <table>
         <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td><code>affinity</code></td><td><code>{}</code></td><td>&mdash;</td></tr>
+          <tr><td><code>affinity</code></td><td><code>{}</code></td><td>affinity: pod/node affinity rules, verbatim. Use this to spread replicas across zones — nothing here does that for you.</td></tr>
         </tbody>
       </table>
       <h2 id="priorityclassname"><code>priorityClassName</code></h2>
       <table>
         <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td><code>priorityClassName</code></td><td><code>&quot;&quot;</code></td><td>&mdash;</td></tr>
+          <tr><td><code>priorityClassName</code></td><td><code>&quot;&quot;</code></td><td>priorityClassName: the PriorityClass Shepherd&#x27;s pods run at, deciding what gets evicted first under node pressure.</td></tr>
         </tbody>
       </table>
       <h2 id="podannotations"><code>podAnnotations</code></h2>
       <table>
         <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td><code>podAnnotations</code></td><td><code>{}</code></td><td>&mdash;</td></tr>
+          <tr><td><code>podAnnotations</code></td><td><code>{}</code></td><td>podAnnotations: extra annotations on the Shepherd pod template. Merged with the chart&#x27;s own checksum/config and checksum/secret annotations.</td></tr>
         </tbody>
       </table>
       <h2 id="extraenv"><code>extraEnv</code></h2>
       <table>
         <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td><code>extraEnv</code></td><td><code>[]</code></td><td>&mdash;</td></tr>
+          <tr><td><code>extraEnv</code></td><td><code>[]</code></td><td>extraEnv: additional container env vars, verbatim (a list of Kubernetes EnvVar). This is where SHEPHERD_DATABASE_URL goes when you point Shepherd at a database you already run and are not using <code>secrets</code>/<code>existingSecret</code>.</td></tr>
         </tbody>
       </table>
       <h2 id="autoscaling"><code>autoscaling</code></h2>
+      <p>autoscaling: hand the replica count to a HorizontalPodAutoscaler.<br>When enabled, <code>replicas</code> above is no longer rendered at all — otherwise every <code>helm upgrade</code> would snap the Deployment back to it, undoing whatever the autoscaler had decided. The PodDisruptionBudget follows minReplicas rather than <code>replicas</code> for the same reason.<br>REQUIRES resources.requests.cpu; see the note there.</p>
       <table>
         <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
         <tbody>
@@ -306,6 +334,7 @@
         </tbody>
       </table>
       <h2 id="networkpolicy"><code>networkPolicy</code></h2>
+      <p>networkPolicy: a NetworkPolicy for SHEPHERD&#x27;s own pods (the simulator has its own, far stricter one under <code>simulator.networkPolicy</code>).<br>Enabled, it allows ingress from any namespace in the cluster to the API port and the metrics port, and allows all egress — Shepherd has to reach your database, your identity provider and your git remotes, and the set of those is not something the chart can know. Restrict egress at the CNI level if you need FQDN policies. Off by default because a policy is only meaningful on a CNI that enforces them.</p>
       <table>
         <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
         <tbody>
@@ -322,6 +351,7 @@
           <tr><td><code>simulator.image.repository</code></td><td><code>shepherd-simulator</code></td><td>&mdash;</td></tr>
           <tr><td><code>simulator.image.tag</code></td><td><code>&quot;&quot;</code></td><td>&mdash;</td></tr>
           <tr><td><code>simulator.image.pullPolicy</code></td><td><code>IfNotPresent</code></td><td>&mdash;</td></tr>
+          <tr><td><code>simulator.image.pullSecrets</code></td><td><code>[]</code></td><td>pullSecrets for the simulator image specifically. Separate from image.pullSecrets because the two images can come from different registries; set both if they come from the same private one.</td></tr>
           <tr><td><code>simulator.replicas</code></td><td><code>1</code></td><td>&mdash;</td></tr>
           <tr><td><code>simulator.resources.requests.cpu</code></td><td><code>250m</code></td><td>&mdash;</td></tr>
           <tr><td><code>simulator.resources.requests.memory</code></td><td><code>256Mi</code></td><td>&mdash;</td></tr>
@@ -345,6 +375,8 @@
     <aside class="docs-toc">
       <p class="toc-label">On this page</p>
       <ul>
+        <li><a href="#nameoverride">nameOverride</a></li>
+        <li><a href="#fullnameoverride">fullnameOverride</a></li>
         <li><a href="#image">image</a></li>
         <li><a href="#replicas">replicas</a></li>
         <li><a href="#service">service</a></li>
@@ -357,6 +389,7 @@
         <li><a href="#route">route</a></li>
         <li><a href="#ingress">ingress</a></li>
         <li><a href="#metrics">metrics</a></li>
+        <li><a href="#serviceaccount">serviceAccount</a></li>
         <li><a href="#resources">resources</a></li>
         <li><a href="#nodeselector">nodeSelector</a></li>
         <li><a href="#tolerations">tolerations</a></li>

@@ -2,11 +2,24 @@ apiVersion: v2
 name: shepherd
 description: Self-hosted Grafana Alloy fleet manager
 type: application
-version: 0.8.2
+version: 0.9.0
 appVersion: "0.3.4"
+# The chart renders autoscaling/v2 (HPA), policy/v1 (PodDisruptionBudget) and
+# batch/v1 Jobs with a pod-level seccompProfile. 1.25 is where all of those are
+# stable together; without this an older cluster accepts `helm install` and then
+# fails on a kind it does not have.
+kubeVersion: ">=1.25.0-0"
 keywords:
   - alloy
   - grafana
   - observability
   - fleet
 home: https://github.com/procoduck/shepherd
+sources:
+  - https://github.com/procoduck/shepherd
+# icon: deliberately absent. `helm lint` recommends one and Artifact Hub shows
+# it, but the repo has no icon asset yet -- and a URL that 404s renders worse in
+# a chart listing than no icon at all. Add the file, then add the line.
+maintainers:
+  - name: procoduck
+    url: https://github.com/procoduck

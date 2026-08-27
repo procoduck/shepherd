@@ -7,7 +7,7 @@ metadata:
     {{- include "shepherd.labels" . | nindent 4 }}
 spec:
   {{- if .Values.ingress.className }}
-  ingressClassName: {{ .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className | quote }}
   {{- end }}
   {{- with .Values.ingress.tls }}
   tls:
@@ -15,12 +15,18 @@ spec:
   {{- end }}
   rules:
     {{- range .Values.ingress.hosts }}
-    - host: {{ .host }}
+    {{- /*
+      Quoted because a wildcard host -- "*.example.com", the commonest
+      non-trivial one -- starts with the YAML alias character, and unquoted it
+      failed the whole render with "did not find expected alphabetic or numeric
+      character" rather than anything naming the host.
+    */}}
+    - host: {{ .host | quote }}
       http:
         paths:
           {{- range .paths }}
-          - path: {{ .path }}
-            pathType: Prefix
+          - path: {{ .path | quote }}
+            pathType: {{ .pathType | default "Prefix" | quote }}
             backend:
               service:
                 name: {{ include "shepherd.fullname" $ }}
