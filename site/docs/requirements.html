@@ -92,9 +92,14 @@
         <tbody>
           <tr>
             <td><strong>Deploy on Kubernetes</strong><br><span class="req-note">the intended way</span></td>
-            <td>A current cluster and Helm 3, plus a <strong>PostgreSQL 14+</strong> the cluster can
-                reach (CI and the dev stack use 16). The chart needs <strong>no CRDs</strong> by
-                default. Two optional extras do add requirements:
+            <td><strong>Kubernetes 1.25+</strong> and Helm 3, plus a <strong>PostgreSQL 14+</strong>
+                the cluster can reach (CI and the dev stack use 16). The chart declares that floor in
+                <code>kubeVersion</code>, so an older cluster is refused at install rather than
+                failing later on a kind it does not have &mdash; and because <code>helm template</code>
+                takes its Kubernetes version from the <code>helm</code> binary's own defaults, a
+                sufficiently old <code>helm</code> will refuse to render the chart offline too. The
+                chart needs <strong>no CRDs</strong> by default. Two optional extras do add
+                requirements:
                 <code>metrics.serviceMonitor.enabled</code> needs the Prometheus Operator's CRDs, and
                 <code>route.enabled</code> needs the Gateway API CRDs.</td>
           </tr>

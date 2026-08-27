@@ -89,6 +89,13 @@
         works — the credential kinds are personal access token, basic auth, SSH deploy key, an Entra
         service principal for Azure DevOps, and GitHub App installation tokens.
       </p>
+      <p class="note">
+        <strong>This page is about Shepherd&rsquo;s own git sync, not about deploying Shepherd with
+        Argo CD or Flux.</strong> If you are looking for the latter, two values matter and both have
+        a default that is unsafe under a tool that renders the chart offline: see
+        <a href="database.html#cnpg-gitops"><code>cnpg.render</code></a> and
+        <a href="secrets.html#eso-gitops"><code>externalSecrets.render</code></a>.
+      </p>
       <p><img src="../img/git-sync.jpg" alt="The Git sync page: a credential and a repository link showing branch, target collector, sync status and last-synced time" loading="lazy"></p>
       <p>
         Synced pipelines show <code>git</code> in the Source column and are <strong>owned by the

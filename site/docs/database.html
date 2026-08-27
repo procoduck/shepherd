@@ -110,6 +110,29 @@ helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.9.0 \
         migrations run themselves on install and upgrade.
       </p>
 
+      <h3 id="managed-identity">Without a static password (IRSA, Workload Identity)</h3>
+      <p>
+        On EKS or GKE the connection string above does not have to carry a password at all. Both
+        clouds authenticate a pod to a managed database by annotating the
+        <strong>ServiceAccount</strong> it runs as, and the chart exposes that:
+      </p>
+      <div class="code-block" data-lang="yaml">
+        <div class="code-head"><span>values.yaml</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>serviceAccount:
+  annotations:
+    # EKS, for IAM authentication to RDS
+    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/shepherd
+    # or GKE, for Cloud SQL
+    # iam.gke.io/gcp-service-account: shepherd@project.iam.gserviceaccount.com</code></pre>
+      </div>
+      <p>
+        The chart grants no RBAC and mounts no API token &mdash; Shepherd never calls the Kubernetes
+        API &mdash; so this account exists precisely to be annotated. Set
+        <code>serviceAccount.create: false</code> and <code>serviceAccount.name</code> instead to use
+        an account your platform team already manages; it must exist before you install, because the
+        migration Job runs as a pre-install hook and a pod naming a missing ServiceAccount is refused.
+      </p>
+
       <h2 id="cloudnativepg">Let the chart provision one</h2>
       <p>
         If you would rather not run a database by hand,
@@ -153,7 +176,32 @@ helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.9.0 \
           round. Remove it deliberately:
           <code>kubectl -n shepherd delete cluster shepherd-db</code>.
         </li>
+        <li>
+          <strong>Changing <code>cnpg.*</code> after the first install does nothing.</strong> The
+          chart skips rendering a Cluster that already exists, because a hook Helm re-renders is a
+          hook Helm first <em>deletes</em>. Edit a live cluster with
+          <code>kubectl -n shepherd edit cluster shepherd-db</code>, which is the operator&rsquo;s own
+          interface for it.
+        </li>
       </ul>
+      <p class="note" id="cnpg-gitops">
+        <strong>Deploying the chart with Argo CD, Flux, or
+        <code>helm template | kubectl apply</code>? Set <code>cnpg.render: never</code> once the
+        database exists.</strong> The skip described above uses Helm&rsquo;s <code>lookup</code>,
+        which needs a live cluster connection. Tools that render the chart offline and apply the
+        output have none, so the guard fails <em>open</em>: the Cluster is emitted on every sync, and
+        Argo CD maps <code>helm.sh/hook: pre-install,pre-upgrade</code> onto a PreSync hook whose
+        default policy is <code>BeforeHookCreation</code> &mdash; delete, then recreate. CloudNativePG
+        cascades that deletion to the PVCs, the migration Job migrates a fresh empty database, and the
+        sync reports success. Nothing about the outcome looks like an error.
+      </p>
+      <p>
+        <code>cnpg.render</code> takes three values. <code>auto</code> (the default) renders only when
+        <code>lookup</code> says the Cluster is absent &mdash; correct under the <code>helm</code> CLI,
+        unsafe under anything that renders offline. <code>never</code> never emits it, which is what a
+        GitOps deployment sets after bootstrapping. <code>always</code> emits it unconditionally, for
+        bootstrapping or for a pipeline that wants the full desired state.
+      </p>
 
       <h3 id="cnpg-tuning">Sizing it</h3>
       <div class="code-block" data-lang="yaml">
@@ -195,6 +243,7 @@ helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.9.0 \
       <p class="toc-label">On this page</p>
       <ul>
         <li><a href="#bring-your-own">Bring your own</a></li>
+        <li class="sub"><a href="#managed-identity">Without a static password (IRSA, Workload Identity)</a></li>
         <li><a href="#cloudnativepg">Let the chart provision one</a></li>
         <li class="sub"><a href="#cnpg-details">Three things worth knowing</a></li>
         <li class="sub"><a href="#cnpg-tuning">Sizing it</a></li>
