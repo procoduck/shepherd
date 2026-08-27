@@ -496,6 +496,11 @@ check-docs-drift: ## Guard: site/docs/ matches what build-docs.py produces
 	fi
 	@echo "check-docs-drift: OK"
 
+# site/index.html is checked for the CHART version too, not just the app
+# version. It was not, and it carries the single most-read install command on
+# the site: the landing page sat at `--version 0.8.2` through a chart bump
+# because the app-version loop covered that file and the chart-version loop
+# did not.
 check-docs-version: ## Guard: docs quote the chart's own version and appVersion
 	@# Release prep has to touch several files that all restate the same two
 	@# numbers, and the site was missed twice in a row -- once shipping an
@@ -517,7 +522,7 @@ check-docs-version: ## Guard: docs quote the chart's own version and appVersion
 			fi; \
 		done; \
 	done; \
-	for f in README.md $$(ls site/docs/*.html); do \
+	for f in README.md site/index.html $$(ls site/docs/*.html); do \
 		for got in $$(sed -n 's/.*charts\/shepherd --version \([0-9][0-9.]*\).*/\1/p' $$f); do \
 			if [ "$$got" != "$$cver" ]; then \
 				echo "ERROR: $$f installs chart --version $$got but Chart.yaml version is '$$cver'"; fail=1; \
