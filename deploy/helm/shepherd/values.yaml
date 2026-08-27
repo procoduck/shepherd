@@ -1,3 +1,10 @@
+# nameOverride: replaces the chart name in every generated object name and in
+# the app.kubernetes.io/name label. Empty means "shepherd".
+nameOverride: ""
+# fullnameOverride: replaces the whole "<release>-<chart>" prefix, so objects are
+# named exactly this. Empty means the usual release-derived name.
+fullnameOverride: ""
+
 image:
   # Default to the released images; set registry: "" to use a bare/local name.
   registry: "ghcr.io/procoduck"
@@ -198,8 +205,24 @@ config:
 #   - On a first install the migration Job may fail a few times while Postgres
 #     is still coming up. That is expected and it retries — see
 #     migrations.job.backoffLimit.
+#
+# GITOPS WARNING. The "skips rendering a Cluster that is already there" trick
+# above uses `lookup`, which needs a live cluster connection. Argo CD, Flux and
+# `helm template | kubectl apply` render the chart with no connection, so the
+# guard fails OPEN there: the Cluster is emitted on every sync, and Argo CD in
+# particular treats a pre-install/pre-upgrade hook as a PreSync hook it DELETES
+# before recreating -- which takes the PVCs and the database with it. If you
+# deploy this chart through any such tool, set `render: never` below once the
+# database exists.
 cnpg:
   enabled: false
+  # render: auto | always | never -- when to emit the Cluster object.
+  #   auto    (default) only when `lookup` says it is not already there.
+  #           Correct under the helm CLI; unsafe under GitOps, see above.
+  #   never   never emit it. What a GitOps deployment sets after bootstrap.
+  #   always  emit it unconditionally, for bootstrapping or for a pipeline that
+  #           wants the full desired state.
+  render: auto
   # Cluster name. Empty means "<release>-db".
   name: ""
   # Two gives you a primary and one standby, which is the minimum CloudNativePG
@@ -232,7 +255,7 @@ cnpg:
 # Requires the External Secrets Operator and its CRDs; the chart does not
 # install operators. No SecretStore is needed: a generator is the source.
 #
-# refresh_interval is "0" and MUST stay "0". These are not rotatable
+# refreshInterval is "0" and MUST stay "0". These are not rotatable
 # credentials: regenerating the encryption key would leave every git credential
 # and OIDC client secret already stored in the database undecryptable, with no
 # error at the moment it happens. deletionPolicy is Retain for the same reason
@@ -243,8 +266,16 @@ cnpg:
 # install therefore has no effect; delete the ExternalSecret deliberately if you
 # genuinely want it regenerated, understanding that a new key orphans every
 # credential the old one encrypted.
+#
+# The same GITOPS WARNING as cnpg above applies, and here the loss is quieter:
+# under Argo CD or Flux the ExternalSecret is recreated on every sync, syncs
+# once against fresh Password generators, and replaces an encryption key that
+# cannot be rotated -- with no error at the moment it happens. Set
+# `render: never` below once the secret exists.
 externalSecrets:
   enabled: false
+  # render: auto | always | never. Identical meaning to cnpg.render above.
+  render: auto
   # API versions, exposed because ESO has moved them before. These defaults
   # match ESO v1.x.
   apiVersion: external-secrets.io/v1
@@ -267,8 +298,20 @@ externalSecrets:
     #     -o jsonpath='{.data.SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD}' | base64 -d
     login: admin
 
+# existingSecret: the name of a Secret you already manage, holding the SHEPHERD_*
+# environment variables. Empty means the chart renders its own from `secrets`
+# below. Set this and `secrets` is ignored entirely; it is also mutually
+# exclusive with externalSecrets.enabled, which the chart refuses rather than
+# silently picking a winner.
 existingSecret: ""
 # secrets: key-value pairs rendered into a Kubernetes Secret and injected as environment variables.
+#
+# Convenient, and the least private of the three options: whatever you put here
+# is stored verbatim in the Helm release and stays readable through
+# `helm get values <release>` for the life of the release history. For
+# production prefer `existingSecret` (you manage the object) or
+# `externalSecrets.enabled` (the cluster generates it and it never passes
+# through your shell at all).
 # Keys must match the SHEPHERD_* env var names. Example for local admin password hash:
 #   secrets:
 #     SHEPHERD_DATABASE_URL: "postgres://..."
@@ -280,12 +323,22 @@ secrets: {}
 
 migrations:
   job:
+    # enabled: run `shepherd migrate up` as a pre-install/pre-upgrade hook, so
+    # the schema is always current before the new pods start. Turn it off only
+    # if you run migrations yourself (`shepherd migrate up` against the same
+    # database) BEFORE every upgrade -- Shepherd will not start against a schema
+    # older than its binary.
     enabled: true
     # How many times the migration Job may fail before the release does. The
     # default covers a database that is still being provisioned -- see the Job
     # template. Lower it if you would rather fail fast against a database that
     # is always already there.
     backoffLimit: 6
+    # resources for the migration pod. Empty means unbounded, which is fine on
+    # most clusters; set it if a ResourceQuota or a LimitRange in this namespace
+    # requires every pod to declare one, since the Job is a pre-install hook and
+    # a rejected hook pod fails the whole install.
+    resources: {}
 
 # Gateway API HTTPRoute. OFF by default, like `ingress` below: it needs the
 # Gateway API CRDs, which are not present on a vanilla cluster, so defaulting it
@@ -334,20 +387,74 @@ metrics:
     relabelings: []
     metricRelabelings: []
 
+# serviceAccount: the identity Shepherd's pods run as.
+#
+# The chart grants no RBAC — Shepherd never calls the Kubernetes API — so the
+# account exists to be annotated. That is how a pod reaches a managed database
+# without a static credential: an EKS IRSA role ARN or a GKE Workload Identity
+# binding goes in `annotations` below, and the token it produces is what
+# authenticates to RDS or Cloud SQL.
+serviceAccount:
+  # create: false to use an account your platform team already manages, in which
+  # case `name` is required and must already exist — the migration Job runs as a
+  # pre-install hook and a pod naming a missing ServiceAccount is refused.
+  create: true
+  # name: empty means the release's fullname.
+  name: ""
+  # annotations: e.g.
+  #   eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/shepherd
+  #   iam.gke.io/gcp-service-account: shepherd@project.iam.gserviceaccount.com
+  annotations: {}
+
+# resources: CPU/memory requests and limits for the Shepherd container. Empty
+# means unbounded, which is deliberate for a first install — but set it before
+# you rely on the deployment: requests are what the scheduler places on, and
+# `autoscaling` below REQUIRES resources.requests.cpu (a CPU-utilization HPA is
+# a percentage of the request, so with no request it can never scale). The chart
+# refuses to render an HPA without one rather than leaving you a silently
+# broken autoscaler.
 resources: {}
+# nodeSelector: constrain Shepherd's pods to nodes carrying these labels.
 nodeSelector: {}
+# tolerations: let Shepherd's pods schedule onto tainted nodes.
 tolerations: []
+# affinity: pod/node affinity rules, verbatim. Use this to spread replicas
+# across zones — nothing here does that for you.
 affinity: {}
+# priorityClassName: the PriorityClass Shepherd's pods run at, deciding what
+# gets evicted first under node pressure.
 priorityClassName: ""
+# podAnnotations: extra annotations on the Shepherd pod template. Merged with
+# the chart's own checksum/config and checksum/secret annotations.
 podAnnotations: {}
+# extraEnv: additional container env vars, verbatim (a list of Kubernetes
+# EnvVar). This is where SHEPHERD_DATABASE_URL goes when you point Shepherd at
+# a database you already run and are not using `secrets`/`existingSecret`.
 extraEnv: []
 
+# autoscaling: hand the replica count to a HorizontalPodAutoscaler.
+#
+# When enabled, `replicas` above is no longer rendered at all — otherwise every
+# `helm upgrade` would snap the Deployment back to it, undoing whatever the
+# autoscaler had decided. The PodDisruptionBudget follows minReplicas rather
+# than `replicas` for the same reason.
+#
+# REQUIRES resources.requests.cpu; see the note there.
 autoscaling:
   enabled: false
   minReplicas: 2
   maxReplicas: 10
   targetCPUUtilizationPercentage: 80
 
+# networkPolicy: a NetworkPolicy for SHEPHERD's own pods (the simulator has its
+# own, far stricter one under `simulator.networkPolicy`).
+#
+# Enabled, it allows ingress from any namespace in the cluster to the API port
+# and the metrics port, and allows all egress — Shepherd has to reach your
+# database, your identity provider and your git remotes, and the set of those is
+# not something the chart can know. Restrict egress at the CNI level if you need
+# FQDN policies. Off by default because a policy is only meaningful on a CNI
+# that enforces them.
 networkPolicy:
   enabled: false
 
@@ -393,6 +500,10 @@ simulator:
     repository: shepherd-simulator
     tag: ""
     pullPolicy: IfNotPresent
+    # pullSecrets for the simulator image specifically. Separate from
+    # image.pullSecrets because the two images can come from different
+    # registries; set both if they come from the same private one.
+    pullSecrets: []
   replicas: 1
   resources:
     requests:

@@ -496,6 +496,11 @@ check-docs-drift: ## Guard: site/docs/ matches what build-docs.py produces
 	fi
 	@echo "check-docs-drift: OK"
 
+# site/index.html is checked for the CHART version too, not just the app
+# version. It was not, and it carries the single most-read install command on
+# the site: the landing page sat at `--version 0.8.2` through a chart bump
+# because the app-version loop covered that file and the chart-version loop
+# did not.
 check-docs-version: ## Guard: docs quote the chart's own version and appVersion
 	@# Release prep has to touch several files that all restate the same two
 	@# numbers, and the site was missed twice in a row -- once shipping an
@@ -517,7 +522,7 @@ check-docs-version: ## Guard: docs quote the chart's own version and appVersion
 			fi; \
 		done; \
 	done; \
-	for f in README.md $$(ls site/docs/*.html); do \
+	for f in README.md site/index.html $$(ls site/docs/*.html); do \
 		for got in $$(sed -n 's/.*charts\/shepherd --version \([0-9][0-9.]*\).*/\1/p' $$f); do \
 			if [ "$$got" != "$$cver" ]; then \
 				echo "ERROR: $$f installs chart --version $$got but Chart.yaml version is '$$cver'"; fail=1; \
@@ -662,10 +667,15 @@ e2e-k8s-clean: ## Delete kind clusters a SIGKILLed e2e-k8s run left behind
 
 helm-lint: ## Lint + template the Helm chart against every ci value file
 	$(call preflight,helm,Install helm (e.g. brew install helm).)
-	helm lint deploy/helm/shepherd
+	helm lint --strict deploy/helm/shepherd
+	@# The pristine defaults, which no ci file covers: every one of them
+	@# overrides something, so without this render the shipped out-of-box
+	@# values are the only combination never checked.
+	helm template shepherd deploy/helm/shepherd > /dev/null
 	helm template shepherd deploy/helm/shepherd -f deploy/helm/shepherd/ci/default-values.yaml > /dev/null
 	helm template shepherd deploy/helm/shepherd -f deploy/helm/shepherd/ci/full-values.yaml > /dev/null
 	helm template shepherd deploy/helm/shepherd -f deploy/helm/shepherd/ci/generated-secrets-values.yaml > /dev/null
+	helm template shepherd deploy/helm/shepherd -f deploy/helm/shepherd/ci/ingress-values.yaml > /dev/null
 
 # Local defaults for the docker image templates; CI overrides both.
 IMAGE_REGISTRY ?= ghcr.io/procoduck

@@ -11,6 +11,166 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
+## v0.3.5
+
+Chart 0.9.0. **A chart-only release — the application is byte-for-byte v0.3.4.**
+It carries a version of its own solely because the chart is published under a
+git tag and the release refuses to ship a chart whose `appVersion` does not
+match that tag. Nothing in Shepherd itself changed; if you do not deploy with
+Helm there is no reason to upgrade.
+
+**Upgrading the chart from 0.8.x needs one manual step.** See below, or
+[UPGRADING.md](deploy/helm/shepherd/UPGRADING.md).
+
+### Breaking — one adoption step on the first upgrade
+
+- **The runtime `ConfigMap`, `Secret` and `ServiceAccount` are no longer Helm
+  hooks.** They were, to solve an ordering problem: Helm runs every hook before
+  any normal resource, so the pre-install migration Job could not otherwise see
+  them. That fixed the ordering and cost three things, because Helm does not
+  track hook resources in a release:
+
+  - `helm rollback` did not revert them. Rollback runs `pre-rollback` hooks,
+    never `pre-upgrade` ones, so the ConfigMap stayed at the *new* content while
+    the Deployment went back to the *old* image — a config/code mismatch after
+    the exact operation people run when an upgrade has gone wrong.
+  - `helm uninstall` left them in the namespace, including — when `secrets:` was
+    used — a Secret holding the database URL and the encryption key.
+  - Setting `migrations.job.enabled: false` made the release unupgradable: the
+    same objects became tracked resources Helm could not adopt.
+
+  The migration Job now gets its own short-lived `<release>-migrate` copies,
+  deleted when the migration succeeds, and the runtime objects are ordinary
+  tracked resources.
+
+  **What you must do:** hook-created objects carry no Helm ownership metadata,
+  so the first upgrade cannot adopt them and stops. The chart detects this and
+  prints the exact commands rather than letting Helm fail one object at a time
+  with `invalid ownership metadata`. Running them changes no data, restarts
+  nothing, and is safe while Shepherd is serving.
+
+  Note the consequence of the fix: `helm uninstall` now **does** remove the
+  chart-rendered `<release>-secrets`. If you relied on the old leave-behind to
+  preserve the encryption key across an uninstall/reinstall, copy it out first.
+
+### Fixed — data loss under GitOps
+
+- **The guards protecting the database and the encryption key fail open under
+  Argo CD, Flux and `helm template | kubectl apply`.** v0.3.4 stopped `helm
+  upgrade` destroying the CloudNativePG `Cluster` by rendering it only when it
+  does not already exist. That guard uses `lookup`, which needs a live cluster
+  connection — and a tool that renders the chart offline and applies the output
+  has none. There the check silently passes, the `Cluster` is emitted on every
+  sync, and Argo CD maps `helm.sh/hook: pre-install,pre-upgrade` onto a PreSync
+  hook whose default policy is `BeforeHookCreation`: delete, then recreate.
+  CloudNativePG cascades that to the PVCs, the migration Job migrates a fresh
+  empty database, and the sync reports success.
+
+  The same shape applies to the `ExternalSecret`, which regenerates the
+  encryption key that **cannot** be rotated.
+
+  New `cnpg.render` and `externalSecrets.render` (`auto` | `always` | `never`)
+  make the decision explicit where `lookup` cannot. **If you deploy this chart
+  with Argo CD or Flux, set both to `never` once the database and secret
+  exist.** `auto` remains the default and is correct under the `helm` CLI.
+
+### Fixed — installs that could never succeed
+
+- **The migration Job was rejected outright by any namespace enforcing the
+  `restricted` Pod Security Standard.** It carried only a container-level
+  `securityContext`; `runAsNonRoot`, `runAsUser` and `seccompProfile` appeared
+  nowhere. Because the Job is a pre-install hook, that is not a failed migration
+  but a failed *install* — while the Deployment it was migrating for would have
+  been admitted. Verified against a real cluster: `pods "shepherd-migrate-…" is
+  forbidden: violates PodSecurity "restricted:latest": runAsNonRoot != true,
+  seccompProfile …`, a `FailedCreate` loop that never produces a pod.
+- **The migration Job ignored `image.pullSecrets`.** Any private-registry
+  install with migrations enabled — the default — died in `ImagePullBackOff` at
+  the pre-install hook, surfacing minutes later as a `--wait` timeout before a
+  single tracked resource existed.
+- **`autoscaling.enabled` rendered an HPA that could never scale.** A CPU
+  utilization target is a percentage *of the request*, and `resources` is `{}`
+  by default, so the two defaults together produced an autoscaler stuck in
+  `FailedGetResourceMetric` — indistinguishable from one that had decided not to
+  scale. The chart now refuses to install without `resources.requests.cpu`.
+- **A wildcard ingress host failed the whole render.** `*.example.com` starts
+  with the YAML alias character and the host was unquoted, so the error named a
+  line number rather than the host.
+
+### Fixed — values that did the opposite of what they said
+
+- **`cnpg.enabled: "false"` provisioned a database.** Go templates read any
+  non-empty string as true, so quoting a boolean turned the feature *on*. The
+  same applied to `metrics.enabled`, `migrations.job.enabled` and
+  `externalSecrets.enabled`; `values.schema.json` caught it only for `route` and
+  `ingress`. The schema now covers every value block and rejects a quoted
+  boolean with the offending path named.
+- **Misspelt keys were silently ignored.** `simulater:`, `replicaCount:`,
+  `config.tracing.endpont:` — all accepted, all doing nothing, with no
+  indication the value you set went nowhere. Unknown keys are now rejected.
+  Closed sets are enforced too, including `config.validate.stability_level`,
+  which is passed verbatim to `alloy --stability.level=` and whose typo failed
+  every config validation in-cluster with nothing catching it at install.
+
+### Fixed — chart correctness
+
+- **The `PodDisruptionBudget` keyed off `.Values.replicas`**, which is not the
+  replica count once an HPA owns it — the Deployment stops rendering it. With
+  `autoscaling.minReplicas: 1` and the default `replicas: 2` that produced a
+  `minAvailable: 1` budget which deadlocks every node drain the moment the
+  autoscaler scales to one pod. It now follows the effective minimum.
+- **Rotating a value in `secrets:` did not restart anything.** Environment
+  variables are read once at container start, so pods kept the old credential
+  until an unrelated rollout. A `checksum/secret` annotation (a hash, never the
+  value) now rolls them.
+- **`NOTES.txt` printed commands that do not work**: a collector URL hardcoded
+  to `http://shepherd:8080`, wrong for any release not named `shepherd` and
+  ignoring `service.port`; an ingress the URL branch never consulted; a
+  `port-forward` instruction given even for `service.type: NodePort`; and
+  multiple route hostnames concatenated into one unusable string.
+
+### Added
+
+- **`serviceAccount.create` / `.name` / `.annotations`** — the ServiceAccount
+  name was hardcoded, so there was nowhere to put an EKS IRSA role ARN or a GKE
+  Workload Identity binding, which is how a pod reaches RDS or Cloud SQL without
+  a static credential.
+- **`migrations.job.resources`** — a namespace with a `ResourceQuota` or
+  `LimitRange` requiring declared resources refuses the migration pod, and a
+  refused hook pod fails the whole install.
+- **`kubeVersion: ">=1.25.0-0"`** in `Chart.yaml`. Note this also affects
+  offline rendering: `helm template` takes its Kubernetes version from the
+  `helm` binary's own defaults, so a sufficiently old `helm` will refuse to
+  render the chart with no cluster involved.
+- Pod-level `automountServiceAccountToken: false` on both workloads.
+
+### Fixed — test coverage that was never there
+
+- **`ingress.yaml`, `hpa.yaml` and the main chart's `networkpolicy.yaml` had
+  never been rendered by anything** — no `ci/` values file and no test. The
+  full-values profile enables `route`, and the schema forbids `route` and
+  `ingress` together, so a template error in any of the three passed CI and
+  would have surfaced on somebody's cluster. `ci/ingress-values.yaml` now covers
+  them, and `make helm-lint` renders the pristine defaults too, which every
+  other `ci/` file overrides.
+
+### Documentation
+
+- The pages explaining why the database and the encryption key are safe credited
+  the protection to hook status and to `refreshInterval: "0"` /
+  `deletionPolicy: Retain`. Under a GitOps tool, hook status is how the database
+  gets deleted, and the chart's own comment notes those two settings "do nothing
+  if Helm DELETES and RECREATES it". Both pages now describe the real guard and
+  its GitOps failure mode.
+- Nothing on the site covered deploying the chart with Argo CD or Flux, and the
+  reader looking for it landed on the GitOps page — which is about Shepherd's
+  git *pipeline* sync. That page now disambiguates and links to both `render`
+  values.
+- The documented upgrade command had no mention of the adoption step above. Adds
+  a high-availability section that the quickstart had been advertising all along
+  and which did not exist, and corrects the ingress example, which took a bare
+  string where the chart wants `hosts[].host` with a list of paths.
+
 ## v0.3.4
 
 Chart 0.8.2. A full-application review, fixed. **If you enabled

@@ -1,0 +1,44 @@
+{{- /*
+  Renders no object. This file exists only to turn one upgrade failure into a
+  message that says what to do about it.
+
+  Chart 0.9.0 stopped rendering the runtime ConfigMap, Secret and ServiceAccount
+  as Helm hooks (see shepherd.migrateHookDeps for why). Hook resources are
+  created WITHOUT Helm's ownership metadata, so on the first upgrade from 0.8.x
+  or earlier the same objects are still sitting in the namespace unowned, and
+  Helm refuses to adopt them:
+
+    Error: UPGRADE FAILED: unable to continue with update: ConfigMap "shepherd"
+    in namespace "default" exists and cannot be imported into the current
+    release: invalid ownership metadata; label validation error: missing key
+    "app.kubernetes.io/managed-by" ...
+
+  That message names one object at a time, does not say why, and does not say
+  that stamping the metadata by hand is the whole fix. Catch it first.
+
+  lookup is empty without a cluster connection, so this never fires under
+  `helm template`, `--dry-run`, or a fresh install -- only on the real upgrade
+  that would otherwise hit the error above.
+*/}}
+{{- $fullName := include "shepherd.fullname" . }}
+{{- $stale := list }}
+{{- range $kind := (list "ConfigMap" "Secret" "ServiceAccount") }}
+{{- $name := $fullName }}
+{{- if eq $kind "Secret" }}{{ $name = printf "%s-secrets" $fullName }}{{ end }}
+{{- $live := lookup "v1" $kind $.Release.Namespace $name }}
+{{- if $live }}
+{{- $ann := (($live.metadata).annotations) | default dict }}
+{{- if and (hasKey $ann "helm.sh/hook") (not (hasKey $ann "meta.helm.sh/release-name")) }}
+{{- $stale = append $stale (printf "%s/%s" (lower $kind) $name) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if $stale }}
+{{- $ns := .Release.Namespace }}
+{{- $rel := .Release.Name }}
+{{- $cmds := list }}
+{{- range $ref := $stale }}
+{{- $cmds = append $cmds (printf "  kubectl label %s -n %s app.kubernetes.io/managed-by=Helm --overwrite\n  kubectl annotate %s -n %s meta.helm.sh/release-name=%s meta.helm.sh/release-namespace=%s --overwrite" $ref $ns $ref $ns $rel $ns) }}
+{{- end }}
+{{- fail (printf "\n\nShepherd chart 0.9.0 makes the runtime ConfigMap, Secret and ServiceAccount ordinary tracked resources instead of Helm hooks, so that `helm rollback` reverts your config and `helm uninstall` stops leaving credentials behind.\n\nThe objects below were created as hooks by an earlier chart and carry no Helm ownership metadata, so this upgrade cannot adopt them. Hand them to Helm once -- this changes no data and causes no restart -- then run the upgrade again:\n\n%s\n\nSee UPGRADING.md in the chart for the full note.\n" (join "\n" $cmds)) }}
+{{- end }}

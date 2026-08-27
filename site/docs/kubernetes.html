@@ -102,7 +102,7 @@
       <h2 id="installing">Installing</h2>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.8.2 \
+        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.9.0 \
   --namespace shepherd --create-namespace \
   --set existingSecret=shepherd-secrets</code></pre>
       </div>
@@ -114,7 +114,7 @@
         release it was published for.
       </p>
       <p class="note">
-        <strong>Chart version is not the app version.</strong> <code>--version 0.8.2</code> is the
+        <strong>Chart version is not the app version.</strong> <code>--version 0.9.0</code> is the
         <em>chart&rsquo;s</em>; Shepherd&rsquo;s is <code>0.3.x</code>. They move independently, so a
         chart-only change bumps only the chart. Run
         <code>helm show chart oci://ghcr.io/procoduck/charts/shepherd</code> to see which Shepherd
@@ -130,14 +130,31 @@
           <tr><td><code>Service/shepherd-metrics</code></td><td>Port 9090. <code>/metrics</code> is <em>never</em> served on the main port.</td></tr>
           <tr><td><code>Job/shepherd-migrate</code></td><td>Database migrations, as a <code>pre-install</code>/<code>pre-upgrade</code> hook.</td></tr>
           <tr><td><code>ConfigMap/shepherd</code></td><td>Everything under <code>config:</code> in your values.</td></tr>
-          <tr><td><code>PodDisruptionBudget/shepherd</code></td><td>Keeps a replica during voluntary disruption.</td></tr>
-          <tr><td><code>Deployment/shepherd-simulator</code> + <code>NetworkPolicy</code></td><td>The sandbox, on by default. See <a href="simulation.html">Sandbox simulation</a>.</td></tr>
+          <tr><td><code>ServiceAccount/shepherd</code></td><td>The identity the pods run as. No RBAC is granted and no token is mounted &mdash; annotate it for <a href="database.html#managed-identity">IRSA or Workload Identity</a>.</td></tr>
+          <tr><td><code>Secret/shepherd-secrets</code></td><td>Only when you supply an inline <code>secrets:</code> block. Not rendered for <code>existingSecret</code> or the generated path.</td></tr>
+          <tr><td><code>PodDisruptionBudget/shepherd</code></td><td>Keeps a replica during voluntary disruption. Rendered only when more than one pod will ever run &mdash; see <a href="#high-availability">High availability</a>.</td></tr>
+          <tr><td><code>Deployment/shepherd-simulator</code> + <code>Service</code>, <code>ServiceAccount</code>, <code>NetworkPolicy</code></td><td>The sandbox, on by default. See <a href="simulation.html">Sandbox simulation</a>.</td></tr>
         </tbody>
       </table>
       <p>
+        Conditional on values: <code>Ingress/shepherd</code> or <code>HTTPRoute/shepherd</code>,
+        <code>HorizontalPodAutoscaler/shepherd</code>, <code>NetworkPolicy/shepherd</code>,
+        <code>ServiceMonitor/shepherd</code>, <code>Cluster/shepherd-db</code>, and the
+        <code>ExternalSecret</code> with its two <code>Password</code> generators.
+      </p>
+      <p>
+        Three more objects appear only <em>during</em> an install or upgrade and delete themselves when
+        the migration succeeds: <code>ConfigMap/shepherd-migrate</code>,
+        <code>ServiceAccount/shepherd-migrate</code> and, if you use an inline <code>secrets:</code>
+        block, <code>Secret/shepherd-migrate-secrets</code>. They exist because Helm runs every hook
+        before any normal resource, so the migration Job cannot see the runtime ConfigMap yet. If a
+        migration fails you will find them sitting in the namespace next to the failed Job; that is
+        expected, and the next attempt clears them.
+      </p>
+      <p>
         Nothing is exposed outside the cluster unless you ask for it. To see exactly what an install
         would create before creating it, render it locally:
-        <code>helm template shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.8.2</code>.
+        <code>helm template shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.9.0</code>.
       </p>
 
       <h2 id="migrations">Migrations run before the new code</h2>
@@ -147,6 +164,13 @@
         is the point: a rolling update that started new pods against an old schema would fail in a way
         that looks like an application bug. If the Job fails, the release fails and the running
         Deployment is left alone.
+      </p>
+      <p class="note">
+        <strong>If this namespace has a <code>ResourceQuota</code> or <code>LimitRange</code> requiring
+        every pod to declare resources, set <code>migrations.job.resources</code>.</strong> The Job is
+        a pre-install hook, so a pod the namespace refuses to admit fails the <em>whole install</em>
+        &mdash; before a single tracked resource exists, and surfacing minutes later as a
+        <code>--wait</code> timeout rather than as the admission error it is.
       </p>
 
       <h2 id="exposing-shepherd">Exposing Shepherd</h2>
@@ -164,13 +188,34 @@
 --set "route.hostnames[0]=shepherd.example.internal" \
 --set "route.parentRefs[0].name=my-gateway"
 
-# or a classic Ingress
+# or a classic Ingress. Each host takes a list of paths -- a bare
+# string is rejected, with the offending path named.
 --set ingress.enabled=true \
 --set ingress.className=nginx \
---set "ingress.hosts[0]=shepherd.example.internal"
+--set "ingress.hosts[0].host=shepherd.example.internal" \
+--set "ingress.hosts[0].paths[0].path=/"
 
 # or neither, for a look before you commit
 kubectl -n shepherd port-forward svc/shepherd 8080:8080</code></pre>
+      </div>
+      <p>
+        In a values file the same Ingress is easier to read, and this is where TLS and a non-default
+        <code>pathType</code> (<code>Prefix</code>, <code>Exact</code> or
+        <code>ImplementationSpecific</code>) go. Wildcard hosts are fine:
+      </p>
+      <div class="code-block" data-lang="yaml">
+        <div class="code-head"><span>values.yaml</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: "*.shepherd.example.internal"
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: shepherd-tls
+      hosts: [shepherd.example.internal]</code></pre>
       </div>
       <p class="note">
         <strong>Set <code>config.server.base_url</code> to the URL people actually reach.</strong> It
@@ -188,6 +233,96 @@ kubectl -n shepherd port-forward svc/shepherd 8080:8080</code></pre>
         Read the <a href="https://github.com/procoduck/shepherd/blob/main/CHANGELOG.md">changelog</a>
         first: entries are marked <em>Breaking</em> when a values key changes or is removed. Migrations
         run ahead of the new pods automatically.
+      </p>
+
+      <h3 id="upgrading-to-0-9">Upgrading to chart 0.9.0 needs one manual step</h3>
+      <p>
+        Up to 0.8.x the runtime <code>ConfigMap</code>, <code>Secret</code> and
+        <code>ServiceAccount</code> were rendered as Helm <em>hooks</em>, to solve an ordering problem:
+        Helm runs every hook before any normal resource, so the migration Job could not otherwise see
+        them. In 0.9.0 the Job gets its own short-lived copies and those three go back to being
+        ordinary tracked resources.
+      </p>
+      <p>
+        Helm creates hook resources <strong>without</strong> ownership metadata, so your existing
+        objects cannot be adopted and the upgrade stops. Hand them to Helm once &mdash; this changes no
+        data, restarts nothing, and is safe to run while Shepherd is serving:
+      </p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>REL=shepherd; NS=shepherd
+
+for obj in configmap/$REL secret/$REL-secrets serviceaccount/$REL; do
+  kubectl get $obj -n $NS &gt;/dev/null 2&gt;&amp;1 || continue
+  kubectl label   $obj -n $NS app.kubernetes.io/managed-by=Helm --overwrite
+  kubectl annotate $obj -n $NS \
+    meta.helm.sh/release-name=$REL \
+    meta.helm.sh/release-namespace=$NS --overwrite
+done</code></pre>
+      </div>
+      <p>
+        The <code>secret/</code> line applies only if you used an inline <code>secrets:</code> block;
+        the loop skips whatever is not there. If you forget, the chart stops with a message naming the
+        exact objects and repeating these commands rather than letting Helm fail one object at a time.
+        The full note is in
+        <a href="https://github.com/procoduck/shepherd/blob/main/deploy/helm/shepherd/UPGRADING.md">UPGRADING.md</a>.
+      </p>
+      <p>Three consequences of that change are worth knowing, two of them improvements:</p>
+      <ul>
+        <li>
+          <strong><code>helm rollback</code> now reverts your config.</strong> It did not before:
+          rollback runs <code>pre-rollback</code> hooks, never <code>pre-upgrade</code> ones, so the
+          ConfigMap stayed at the new content while the Deployment went back to the old image.
+        </li>
+        <li>
+          <strong><code>helm uninstall</code> now removes them</strong> &mdash; including the
+          chart-rendered <code>shepherd-secrets</code>, which used to be left behind. If you relied on
+          uninstall/reinstall preserving the encryption key, copy it out first.
+        </li>
+        <li>
+          <strong>Values files are now validated strictly.</strong> Unknown keys and quoted booleans
+          are rejected with the offending path named, so a file carrying an old typo &mdash;
+          <code>simulater:</code>, <code>replicaCount:</code>, <code>config.tracing.endpont:</code>
+          &mdash; that installed silently before will now fail. That is the point: quoting
+          <code>"false"</code> used to turn a feature <em>on</em>.
+        </li>
+      </ul>
+
+      <h2 id="high-availability">High availability</h2>
+      <p>
+        The Deployment runs two replicas by default and holds no state, so replicas are free to add
+        and safe to lose. A <code>PodDisruptionBudget</code> keeps one pod up through voluntary
+        disruption such as a node drain &mdash; it is rendered only when more than one pod will ever be
+        running, since a budget over a single pod deadlocks the drain it was meant to survive.
+      </p>
+      <p>To hand the replica count to an autoscaler instead:</p>
+      <div class="code-block" data-lang="yaml">
+        <div class="code-head"><span>values.yaml</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+
+# Required. Not optional.
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits:   { memory: 512Mi }</code></pre>
+      </div>
+      <p class="note">
+        <strong><code>autoscaling.enabled</code> requires <code>resources.requests.cpu</code>, and the
+        chart refuses to install without it.</strong> A CPU-utilization HPA targets a percentage
+        <em>of the request</em>; with no request there is nothing to take a percentage of, so the
+        autoscaler sits in <code>FailedGetResourceMetric</code> forever and never scales &mdash;
+        indistinguishable from one that has simply decided not to. Since <code>resources</code> is
+        empty by default, the two defaults together produced exactly that. With autoscaling on,
+        <code>replicas</code> is no longer rendered at all (otherwise every upgrade would snap the
+        count back), and the PodDisruptionBudget follows <code>minReplicas</code> instead.
+      </p>
+      <p>
+        <code>nodeSelector</code>, <code>tolerations</code>, <code>affinity</code> and
+        <code>priorityClassName</code> are all exposed. Nothing spreads replicas across zones for you
+        &mdash; use <code>affinity</code> for that.
       </p>
 
       <h2 id="verifying">Verifying the install</h2>
@@ -217,6 +352,8 @@ kubectl -n shepherd logs job/shepherd-migrate     # if the release failed</code>
         <li><a href="#migrations">Migrations run before the new code</a></li>
         <li><a href="#exposing-shepherd">Exposing Shepherd</a></li>
         <li><a href="#upgrading">Upgrading</a></li>
+        <li class="sub"><a href="#upgrading-to-0-9">Upgrading to chart 0.9.0 needs one manual step</a></li>
+        <li><a href="#high-availability">High availability</a></li>
         <li><a href="#verifying">Verifying the install</a></li>
       </ul>
     </aside>
@@ -226,7 +363,7 @@ kubectl -n shepherd logs job/shepherd-migrate     # if the release failed</code>
 <footer>
   <div class="wrap">
     <div class="foot-left">
-      <span class="pill">v0.3.4</span>
+      <span class="pill">v0.3.5</span>
       <span>self-hosted Grafana Alloy fleet manager</span>
     </div>
     <div class="foot-links">

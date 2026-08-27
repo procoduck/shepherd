@@ -2,9 +2,10 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "shepherd.fullname" . }}-migrate
+  name: {{ include "shepherd.migrateFullname" . }}
   labels:
     {{- include "shepherd.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
   annotations:
     "helm.sh/hook": pre-install,pre-upgrade
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
@@ -18,13 +19,37 @@ spec:
   # release, just later.
   backoffLimit: {{ (((.Values.migrations).job).backoffLimit | default 6) }}
   template:
+    metadata:
+      # Without these the migration pods carry only the controller-generated
+      # batch.kubernetes.io labels, so they are invisible to
+      # `kubectl get pods -l app.kubernetes.io/instance=<release>` and to any
+      # label-scoped policy or cost tooling -- precisely when a failed migration
+      # is the thing you are trying to find.
+      labels:
+        {{- include "shepherd.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
     spec:
-      serviceAccountName: {{ include "shepherd.fullname" . }}
+      {{- with .Values.image.pullSecrets }}
+      # The Job pulls the same private image as the Deployment. Without this it
+      # sat in ImagePullBackOff as a pre-install hook, failing the install
+      # before a single tracked resource existed.
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ if include "shepherd.serviceAccountCreate" . }}{{ include "shepherd.migrateFullname" . }}{{ else }}{{ include "shepherd.serviceAccountName" . }}{{ end }}
       restartPolicy: Never
+      # false at the POD level too, not only on the ServiceAccount. An
+      # omitted field inherits the namespace default, and pointing the workload
+      # at someone else's ServiceAccount (serviceAccount.create: false) would
+      # otherwise mount whatever token that account carries. Shepherd never
+      # calls the Kubernetes API.
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "shepherd.podSecurityContext" . | nindent 8 }}
       volumes:
         - name: config
           configMap:
-            name: {{ include "shepherd.fullname" . }}
+            name: {{ include "shepherd.migrateFullname" . }}
         - name: tmp
           emptyDir: {}
       containers:
@@ -39,7 +64,7 @@ spec:
               mountPath: /tmp
           envFrom:
             - secretRef:
-                name: {{ if .Values.existingSecret }}{{ .Values.existingSecret }}{{ else }}{{ include "shepherd.fullname" . }}-secrets{{ end }}
+                name: {{ include "shepherd.migrateSecretName" . }}
                 optional: true
           {{- $env := include "shepherd.podEnv" . }}
           {{- if trim $env }}
@@ -47,8 +72,9 @@ spec:
             {{- $env | nindent 12 }}
           {{- end }}
           securityContext:
-            readOnlyRootFilesystem: true
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
+            {{- include "shepherd.containerSecurityContext" . | nindent 12 }}
+          {{- with (((.Values.migrations).job).resources) }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
 {{- end }}

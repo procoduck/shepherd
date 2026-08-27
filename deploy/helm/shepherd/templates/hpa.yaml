@@ -1,4 +1,15 @@
 {{- if ((.Values.autoscaling).enabled) }}
+{{- /*
+  A CPU-utilisation HPA is a percentage OF THE REQUEST, so with no CPU request
+  on the target Deployment there is nothing to take a percentage of: the HPA
+  reports FailedGetResourceMetric forever and never scales, which looks exactly
+  like an autoscaler that has decided not to. `resources` is {} by default, so
+  the two chart defaults combined produced precisely that. Refuse at install
+  time instead.
+*/}}
+{{- if not (((.Values.resources).requests).cpu) }}
+{{- fail "autoscaling.enabled needs resources.requests.cpu: an HPA targeting CPU utilization computes a percentage of the request, and with no request it can never scale. Set resources.requests.cpu (and a matching limit), or leave autoscaling off and set replicas." }}
+{{- end }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:

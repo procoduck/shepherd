@@ -31,6 +31,53 @@ app.kubernetes.io/name: {{ include "shepherd.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
+{{/*
+The ServiceAccount the Shepherd workloads run as.
+
+Exposed rather than hardcoded to fullname because the two ways of running
+Shepherd against a managed database -- EKS with IRSA, GKE with Workload
+Identity -- both work by annotating a ServiceAccount, and both are the database
+path this chart's own values documentation recommends. With the name hardcoded
+there was nowhere to put the annotation and no way to point at an account the
+cluster's platform team had already created.
+*/}}
+{{/*
+Whether the chart creates the ServiceAccount. Returns "true" or "".
+
+Not `.create | default true`: Go's `default` fires on any EMPTY value, and
+`false` is empty -- so `create: false` would have been read as "unset, so
+default to true", silently creating the account the operator explicitly asked
+the chart not to manage. Checked with hasKey instead, which distinguishes
+"absent" from "set to false".
+*/}}
+{{- define "shepherd.serviceAccountCreate" -}}
+{{- $sa := .Values.serviceAccount | default dict -}}
+{{- if hasKey $sa "create" -}}
+{{- if $sa.create }}true{{ end -}}
+{{- else -}}
+true
+{{- end -}}
+{{- end }}
+
+{{- define "shepherd.serviceAccountName" -}}
+{{- if include "shepherd.serviceAccountCreate" . -}}
+{{- (.Values.serviceAccount).name | default (include "shepherd.fullname" .) -}}
+{{- else -}}
+{{- (.Values.serviceAccount).name | default "default" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+The Secret the RUNTIME workload reads its environment from.
+
+existingSecret wins; otherwise the chart's own <fullname>-secrets, which is
+also the name the ExternalSecret targets so the generated-secrets path needs no
+special case here.
+*/}}
+{{- define "shepherd.secretName" -}}
+{{- .Values.existingSecret | default (printf "%s-secrets" (include "shepherd.fullname" .)) -}}
+{{- end }}
+
 {{- define "shepherd.image" -}}
 {{- $reg := .Values.image.registry }}
 {{- $repo := .Values.image.repository }}
@@ -73,14 +120,13 @@ app.kubernetes.io/component: simulator
 {{- end }}
 
 {{/*
-shepherd.migrateHookDeps renders the hook annotations that a resource needs when
-the migrate Job is enabled.
+The migrate Job's own resources: <fullname>-migrate.
 
-The migrate Job is a pre-install/pre-upgrade hook at weight -5, and it depends on
-three ordinary resources: the ServiceAccount it runs as, the ConfigMap it mounts
-at /etc/shepherd, and the Secret it takes its env from. Helm applies ALL hooks
-before ANY normal resource, so without this those three do not exist yet and the
-install fails in a different way for each one:
+The Job is a pre-install/pre-upgrade hook at weight -5, and it needs three
+things to exist before it runs: the ServiceAccount it runs as, the ConfigMap it
+mounts at /etc/shepherd, and the Secret it takes its env from. Helm applies ALL
+hooks before ANY normal resource, so an ordinary ConfigMap does not exist yet
+and the install fails in a different way for each one:
 
   ServiceAccount  pods "shepherd-migrate-" is forbidden: error looking up
                   service account ...: serviceaccount "shepherd" not found
@@ -93,20 +139,56 @@ Each surfaces minutes later as "Job in progress" after the helm --wait timeout.
 `helm template` cannot catch any of them: hook ordering only exists at install
 time. Found by installing the chart into a real cluster (e2e/k8s).
 
-Weight -10 orders these ahead of the Job at -5.
+The fix used to be to hook-ize the RUNTIME ConfigMap, Secret and ServiceAccount
+-- the same objects the Deployment mounts. That solved the ordering and created
+three worse problems, because Helm does not track hook resources in the release:
 
-On hook-delete-policy: NOT setting it does not mean "never deleted". Helm's
-documented default is before-hook-creation, so each of these IS deleted and
-recreated on every install and upgrade. For a ConfigMap/Secret/ServiceAccount
-that is survivable — they are recreated immediately with the same content, and
-it is what lets a re-install over leftovers succeed. It is NOT survivable for a
-resource that owns data; see shepherd.bootstrapHookDeps.
+  - `helm rollback` runs pre-rollback hooks, never pre-upgrade ones. The
+    ConfigMap was therefore never reverted: the Deployment rolled back to the
+    old image while its pods mounted the NEW config, after the exact operation
+    people run when an upgrade has gone wrong.
+  - `helm uninstall` left all three behind -- including, when `secrets` was set,
+    a Secret holding the database URL and the encryption key.
+  - Flipping migrations.job.enabled to false turned them into tracked resources
+    Helm could not adopt, failing the upgrade with "invalid ownership metadata".
+
+So the Job gets its own copies instead, under its own name, and the runtime
+objects go back to being ordinary tracked resources. These copies are pure
+scratch: hook-succeeded cleans them up when the migration works, and
+before-hook-creation clears a failed one out of the way of the next attempt.
 */}}
+{{- define "shepherd.migrateFullname" -}}
+{{- printf "%s-migrate" (include "shepherd.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end }}
+
 {{- define "shepherd.migrateHookDeps" -}}
-{{- if ((.Values.migrations).job).enabled }}
 "helm.sh/hook": pre-install,pre-upgrade
+"helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 "helm.sh/hook-weight": "-10"
 {{- end }}
+
+{{/*
+The Secret the migrate Job reads, which is not always the runtime one.
+
+  existingSecret       the user's own object; it already exists in the cluster,
+                       so a hook can read it directly.
+  externalSecrets      <fullname>-secrets, created by ESO from the -20
+                       ExternalSecret hook, i.e. before this Job at -5.
+  secrets              the chart's own values, which now render into a TRACKED
+                       Secret created after all hooks -- so the Job needs the
+                       -migrate hook copy.
+  none of the above    <fullname>-secrets, which simply does not exist;
+                       envFrom is optional: true, and the Job gets its database
+                       URL from cnpg's operator-generated secret instead.
+*/}}
+{{- define "shepherd.migrateSecretName" -}}
+{{- if .Values.existingSecret -}}
+{{- .Values.existingSecret -}}
+{{- else if and .Values.secrets (not ((.Values.externalSecrets).enabled)) -}}
+{{- printf "%s-secrets" (include "shepherd.migrateFullname" .) -}}
+{{- else -}}
+{{- printf "%s-secrets" (include "shepherd.fullname" .) -}}
+{{- end -}}
 {{- end }}
 
 {{/*
@@ -184,4 +266,76 @@ database, and silently connecting somewhere else would be worse than loud.
 {{- $chunks = append $chunks (trimSuffix "\n" (toYaml .)) -}}
 {{- end -}}
 {{- join "\n" $chunks -}}
+{{- end }}
+
+{{/*
+The pod-level securityContext every Shepherd pod runs with.
+
+Shared so the migration Job cannot drift from the Deployment. It did: the Job
+carried only the container-level trio (read-only root, no privilege escalation,
+all capabilities dropped) and none of the pod-level fields. On a namespace
+enforcing the `restricted` Pod Security Standard that is a rejected pod -- and
+because the Job is a pre-install hook, a rejected pod fails the whole install,
+while the Deployment it was migrating for would have been admitted fine.
+*/}}
+{{- define "shepherd.podSecurityContext" -}}
+runAsNonRoot: true
+runAsUser: 65532
+runAsGroup: 65532
+fsGroup: 65532
+seccompProfile:
+  type: RuntimeDefault
+{{- end }}
+
+{{/*
+The container-level securityContext, shared for the same reason.
+*/}}
+{{- define "shepherd.containerSecurityContext" -}}
+readOnlyRootFilesystem: true
+allowPrivilegeEscalation: false
+capabilities:
+  drop: ["ALL"]
+{{- end }}
+
+{{/*
+The shepherd.yaml body, shared by the runtime ConfigMap and the migration Job's
+hook copy so the two cannot disagree about the database or the simulator.
+
+With the simulator enabled and no operator-supplied config.simulator block, wire
+shepherd to this chart's own simulator Service. The viper defaults happen to
+match only when the release is literally named "shepherd"; templating the
+Service DNS makes any release name work. An explicit .Values.config.simulator
+always wins verbatim.
+*/}}
+{{- define "shepherd.configYaml" -}}
+{{- $cfg := deepCopy .Values.config }}
+{{- if and ((.Values.simulator).enabled) (not (hasKey $cfg "simulator")) }}
+{{- $sim := include "shepherd.simulatorFullname" . }}
+{{- $_ := set $cfg "simulator" (dict
+      "enabled" true
+      "control_url" (printf "http://%s:8099" $sim)
+      "capture_base_url" (printf "http://%s:9110" $sim)
+      "otlp_grpc_address" (printf "%s:4317" $sim)
+      "syslog_host" $sim
+      "target_address" (printf "%s:9111" $sim)) }}
+{{- end }}
+{{- toYaml $cfg }}
+{{- end }}
+
+{{/*
+The smallest number of Shepherd pods that will ever be running.
+
+The PodDisruptionBudget has to key off this rather than .Values.replicas, which
+is not the replica count at all once an HPA owns it: with autoscaling on,
+minReplicas: 1 and the default replicas: 2, the old gate rendered a
+minAvailable: 1 budget that deadlocks every node drain the moment the
+autoscaler scales to one pod -- and the reverse, replicas: 1 with autoscaling
+up to 10, left a multi-pod deployment with no budget at all.
+*/}}
+{{- define "shepherd.effectiveMinReplicas" -}}
+{{- if ((.Values.autoscaling).enabled) -}}
+{{- .Values.autoscaling.minReplicas | default 2 -}}
+{{- else -}}
+{{- .Values.replicas -}}
+{{- end -}}
 {{- end }}

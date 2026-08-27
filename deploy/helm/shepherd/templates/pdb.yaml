@@ -1,4 +1,9 @@
-{{- if gt (int .Values.replicas) 1 }}
+{{- /*
+  Gated on the EFFECTIVE minimum, not .Values.replicas -- see
+  shepherd.effectiveMinReplicas for why keying off replicas rendered a budget
+  that deadlocks node drains as soon as an HPA scales to one pod.
+*/}}
+{{- if gt (int (include "shepherd.effectiveMinReplicas" .)) 1 }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:

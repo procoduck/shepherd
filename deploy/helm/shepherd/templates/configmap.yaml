@@ -4,26 +4,6 @@ metadata:
   name: {{ include "shepherd.fullname" . }}
   labels:
     {{- include "shepherd.labels" . | nindent 4 }}
-  {{- if ((.Values.migrations).job).enabled }}
-  annotations:
-    {{- include "shepherd.migrateHookDeps" . | nindent 4 }}
-  {{- end }}
 data:
   shepherd.yaml: |
-    {{- /* With the simulator enabled and no operator-supplied config.simulator
-         block, wire shepherd to this chart's own simulator Service. The viper
-         defaults happen to match only when the release is literally named
-         "shepherd"; templating the Service DNS makes any release name work.
-         An explicit .Values.config.simulator always wins verbatim. */}}
-    {{- $cfg := deepCopy .Values.config }}
-    {{- if and ((.Values.simulator).enabled) (not (hasKey $cfg "simulator")) }}
-    {{- $sim := include "shepherd.simulatorFullname" . }}
-    {{- $_ := set $cfg "simulator" (dict
-          "enabled" true
-          "control_url" (printf "http://%s:8099" $sim)
-          "capture_base_url" (printf "http://%s:9110" $sim)
-          "otlp_grpc_address" (printf "%s:4317" $sim)
-          "syslog_host" $sim
-          "target_address" (printf "%s:9111" $sim)) }}
-    {{- end }}
-    {{- toYaml $cfg | nindent 4 }}
+    {{- include "shepherd.configYaml" . | nindent 4 }}

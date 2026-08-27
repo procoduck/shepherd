@@ -1,10 +1,53 @@
+{{- $fullName := include "shepherd.fullname" . -}}
+{{- $port := .Values.service.port -}}
+{{- /*
+  The external URL, if there is one. Both branches take the FIRST hostname:
+  ranging over them concatenated the lot into one unusable string
+  ("https://a.example.comhttps://b.example.com").
+*/ -}}
+{{- $externalURL := "" -}}
+{{- if and .Values.route.enabled .Values.route.hostnames -}}
+{{- $externalURL = printf "https://%s" (first .Values.route.hostnames) -}}
+{{- else if and .Values.ingress.enabled .Values.ingress.hosts -}}
+{{- $externalURL = printf "https://%s" (first .Values.ingress.hosts).host -}}
+{{- end -}}
+{{- /*
+  The in-cluster URL. Templated from the release name, the namespace and the
+  configured port: this was hardcoded "http://shepherd:8080", which resolves to
+  nothing for any release not literally named "shepherd" and ignored a changed
+  service.port.
+*/ -}}
+{{- $clusterURL := printf "http://%s.%s.svc:%v" $fullName .Release.Namespace $port -}}
+{{- $spokeURL := $externalURL | default $clusterURL -}}
 Shepherd has been deployed!
+{{ if $externalURL }}
+Access URL: {{ $externalURL }}
+{{- else if eq .Values.service.type "NodePort" }}
+Access it on any node's address, at the NodePort Kubernetes assigned:
 
-Access URL: {{ if .Values.route.enabled }}{{ range .Values.route.hostnames }}https://{{ . }}{{ end }}{{ else if .Values.ingress.enabled }}{{ range .Values.ingress.hosts }}https://{{ .host }}{{ end }}{{ else }}Use kubectl port-forward svc/{{ include "shepherd.fullname" . }} 8080:8080{{ end }}
+  kubectl get svc {{ $fullName }} -n {{ .Release.Namespace }} -o jsonpath='{.spec.ports[0].nodePort}'
+{{- else if eq .Values.service.type "LoadBalancer" }}
+Access it at the load balancer's address, once the cloud provider assigns one:
 
+  kubectl get svc {{ $fullName }} -n {{ .Release.Namespace }} -w
+{{- else }}
+No Ingress or HTTPRoute is enabled, so reach it by forwarding a local port:
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ $fullName }} {{ $port }}:{{ $port }}
+
+Then open http://127.0.0.1:{{ $port }}
+{{- end }}
+{{ if and .Values.externalSecrets.enabled .Values.externalSecrets.bootstrapAdmin.enabled }}
+The first administrator's password was generated in the cluster and never
+passed through your shell. Read it once, then sign in as
+{{ .Values.externalSecrets.bootstrapAdmin.login | quote }} and change it:
+
+  kubectl get secret {{ $fullName }}-secrets -n {{ .Release.Namespace }} \
+    -o jsonpath='{.data.SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD}' | base64 -d
+{{ end }}
 Add a collector spoke (Alloy remotecfg block):
   remotecfg {
-    url = "{{ if .Values.route.enabled }}{{ range .Values.route.hostnames }}https://{{ . }}{{ end }}{{ else }}http://shepherd:8080{{ end }}"
+    url = "{{ $spokeURL }}"
     basic_auth {
       username = "<token-uuid>"
       password = "<token-secret>"
@@ -15,6 +58,9 @@ Add a collector spoke (Alloy remotecfg block):
     }
     poll_frequency = "60s"
   }
-
+{{ if not $externalURL }}
+That url only resolves from inside the cluster. Collectors outside it need an
+Ingress or an HTTPRoute -- see `ingress` and `route` in values.yaml.
+{{ end }}
 Create a token:
-  kubectl exec -it deploy/{{ include "shepherd.fullname" . }} -- shepherd token create --name my-cluster
+  kubectl exec -it -n {{ .Release.Namespace }} deploy/{{ $fullName }} -- shepherd token create --name my-cluster
