@@ -1,6 +1,7 @@
 package helm_test
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -8,34 +9,70 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"gopkg.in/yaml.v3"
 )
 
 // renderNotes returns the NOTES.txt output for a release name and values.
 //
-// `helm template` does not render NOTES at all, which is exactly why nobody
-// noticed that the collector URL it prints was hardcoded to a release named
-// "shepherd" on port 8080. --dry-run=client does render them, and takes a real
-// release name, so the templating can actually be checked.
+// NOTES is the one part of a chart `helm template` does not emit, which is how
+// it went so long printing a collector URL hardcoded to a release named
+// "shepherd" on port 8080. The obvious way to get at it is `helm install
+// --dry-run=client`, and that is a trap: despite the flag's promise to avoid
+// cluster connections it reaches for the API server's version, so it passes on
+// a workstation with a kubeconfig and fails in CI with
+//
+//	Error: INSTALLATION FAILED: Kubernetes cluster unreachable:
+//	Get "http://localhost:8080/version": dial tcp [::1]:8080: connection refused
+//
+// So render it offline instead: copy the chart, turn NOTES.txt into a named
+// template, and emit it as a ConfigMap that `helm template` will happily
+// produce. No cluster, and the same rendering path the real NOTES takes.
 func renderNotes(release, values string) string {
 	GinkgoHelper()
 	dir := GinkgoT().TempDir()
-	path := filepath.Join(dir, "values.yaml")
-	Expect(os.WriteFile(path, []byte(values), 0o600)).To(Succeed())
+	chart := filepath.Join(dir, "shepherd")
+	Expect(exec.Command("cp", "-R", "shepherd", chart).Run()).To(Succeed())
 
-	cmd := exec.Command("helm", "install", release, "shepherd", "--dry-run=client",
-		"-f", "shepherd/ci/default-values.yaml", "-f", path)
+	notesPath := filepath.Join(chart, "templates", "NOTES.txt")
+	body, err := os.ReadFile(notesPath)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(os.Remove(notesPath)).To(Succeed())
+
+	Expect(os.WriteFile(filepath.Join(chart, "templates", "_notesprobe.tpl"),
+		[]byte("{{- define \"notesprobe\" -}}\n"+string(body)+"\n{{- end -}}\n"), 0o600)).To(Succeed())
+	Expect(os.WriteFile(filepath.Join(chart, "templates", "notesprobe.yaml"),
+		[]byte("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: notesprobe\ndata:\n  notes: |\n    {{- include \"notesprobe\" . | nindent 4 }}\n"), 0o600)).To(Succeed())
+
+	valuesPath := filepath.Join(dir, "values.yaml")
+	Expect(os.WriteFile(valuesPath, []byte(values), 0o600)).To(Succeed())
+
+	cmd := exec.Command("helm", "template", release, chart,
+		"-f", "shepherd/ci/default-values.yaml", "-f", valuesPath)
 	out, err := cmd.CombinedOutput()
-	Expect(err).NotTo(HaveOccurred(), "helm install --dry-run failed:\n%s", out)
+	Expect(err).NotTo(HaveOccurred(), "helm template failed:\n%s", out)
 
-	_, notes, found := strings.Cut(string(out), "NOTES:")
-	Expect(found).To(BeTrue(), "no NOTES section in:\n%s", out)
+	var notes string
+	dec := yaml.NewDecoder(bytes.NewReader(out))
+	for {
+		var doc map[string]any
+		if decErr := dec.Decode(&doc); decErr != nil {
+			break
+		}
+		meta, _ := doc["metadata"].(map[string]any)                 //nolint:errcheck // a document without these is not the probe, which the emptiness check below catches
+		if name, _ := meta["name"].(string); name != "notesprobe" { //nolint:errcheck // same
+			continue
+		}
+		data, _ := doc["data"].(map[string]any) //nolint:errcheck // same
+		notes, _ = data["notes"].(string)       //nolint:errcheck // same
+	}
+	Expect(notes).NotTo(BeEmpty(), "the NOTES probe rendered nothing; helm output was:\n%s", out)
 	return notes
 }
 
 // annotationsOf returns an object's metadata.annotations, or an empty map.
 func annotationsOf(obj map[string]any) map[string]any {
-	meta, _ := obj["metadata"].(map[string]any) //nolint:errcheck // absent metadata yields an empty map, which every caller reads as "no annotations"
-	ann, _ := meta["annotations"].(map[string]any)
+	meta, _ := obj["metadata"].(map[string]any)    //nolint:errcheck // absent metadata yields an empty map, which every caller reads as "no annotations"
+	ann, _ := meta["annotations"].(map[string]any) //nolint:errcheck // same
 	if ann == nil {
 		return map[string]any{}
 	}
@@ -52,6 +89,18 @@ func podTemplateLabelsOf(obj map[string]any) map[string]any {
 		return map[string]any{}
 	}
 	return labels
+}
+
+// podTemplateAnnotationsOf returns spec.template.metadata.annotations.
+func podTemplateAnnotationsOf(obj map[string]any) map[string]any {
+	spec, _ := obj["spec"].(map[string]any)          //nolint:errcheck // same
+	template, _ := spec["template"].(map[string]any) //nolint:errcheck // same
+	meta, _ := template["metadata"].(map[string]any) //nolint:errcheck // same
+	ann, _ := meta["annotations"].(map[string]any)   //nolint:errcheck // same
+	if ann == nil {
+		return map[string]any{}
+	}
+	return ann
 }
 
 // Every assertion here replaces a defect that `helm lint` reported nothing
@@ -156,9 +205,9 @@ var _ = Describe("chart hardening", func() {
 
 			// And the Job must read the hook copy, not the tracked Secret it
 			// cannot see yet.
-			envFrom, _ := containerOf(objects["Job/shepherd-migrate"], "migrate")["envFrom"].([]any)
+			envFrom, _ := containerOf(objects["Job/shepherd-migrate"], "migrate")["envFrom"].([]any) //nolint:errcheck // asserted immediately below
 			Expect(envFrom).To(HaveLen(1))
-			ref, _ := envFrom[0].(map[string]any)["secretRef"].(map[string]any)
+			ref, _ := envFrom[0].(map[string]any)["secretRef"].(map[string]any) //nolint:errcheck // same
 			Expect(ref["name"]).To(Equal("shepherd-migrate-secrets"))
 		})
 
@@ -167,8 +216,8 @@ var _ = Describe("chart hardening", func() {
 			// Job at -5, so no copy is needed -- and copying would mean
 			// rendering a Secret whose values the chart does not have.
 			objects := renderWith("externalSecrets:\n  enabled: true\ncnpg:\n  enabled: true\n")
-			envFrom, _ := containerOf(objects["Job/shepherd-migrate"], "migrate")["envFrom"].([]any)
-			ref, _ := envFrom[0].(map[string]any)["secretRef"].(map[string]any)
+			envFrom, _ := containerOf(objects["Job/shepherd-migrate"], "migrate")["envFrom"].([]any) //nolint:errcheck // asserted immediately below
+			ref, _ := envFrom[0].(map[string]any)["secretRef"].(map[string]any)                      //nolint:errcheck // same
 			Expect(ref["name"]).To(Equal("shepherd-secrets"))
 			Expect(objects).NotTo(HaveKey("Secret/shepherd-migrate-secrets"))
 		})
@@ -182,14 +231,8 @@ var _ = Describe("chart hardening", func() {
 			first := renderWith("secrets:\n  SHEPHERD_DATABASE_URL: postgres://one\n")
 			second := renderWith("secrets:\n  SHEPHERD_DATABASE_URL: postgres://two\n")
 
-			annOf := func(objects map[string]map[string]any) map[string]any {
-				spec, _ := objects["Deployment/shepherd"]["spec"].(map[string]any)
-				template, _ := spec["template"].(map[string]any)
-				meta, _ := template["metadata"].(map[string]any)
-				ann, _ := meta["annotations"].(map[string]any)
-				return ann
-			}
-			a, b := annOf(first), annOf(second)
+			a := podTemplateAnnotationsOf(first["Deployment/shepherd"])
+			b := podTemplateAnnotationsOf(second["Deployment/shepherd"])
 			Expect(a).To(HaveKey("checksum/secret"))
 			Expect(a["checksum/secret"]).NotTo(Equal(b["checksum/secret"]),
 				"the same checksum for two different secrets: changing one will not restart the pods")
@@ -300,9 +343,9 @@ var _ = Describe("chart hardening", func() {
 			objects := renderWith("ingress:\n  enabled: true\n  hosts:\n    - host: \"*.example.com\"\n      paths:\n        - path: /\n")
 			ing, found := objects["Ingress/shepherd"]
 			Expect(found).To(BeTrue())
-			spec, _ := ing["spec"].(map[string]any)
-			rules, _ := spec["rules"].([]any)
-			rule, _ := rules[0].(map[string]any)
+			spec, _ := ing["spec"].(map[string]any) //nolint:errcheck // the host assertion below is what fails if any of these is not the shape expected
+			rules, _ := spec["rules"].([]any)       //nolint:errcheck // same
+			rule, _ := rules[0].(map[string]any)    //nolint:errcheck // same
 			Expect(rule["host"]).To(Equal("*.example.com"))
 		})
 	})
