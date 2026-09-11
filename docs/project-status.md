@@ -474,6 +474,12 @@ the contributing set.
 
 ## 4. Smaller follow-ups
 
+- [ ] **TypeScript 7 migration (deferred 2026-09-11).** Dependabot #25 (typescript 7.0.2) fails
+  typecheck: `tsconfig.json` `baseUrl` is removed (TS5102), and without it the test files lose the
+  Node globals (`node:fs`, `node:path`, `__dirname`: TS2591) and `tests/fixtures/schema-fixture.ts`
+  gains an implicit-any error. Needs explicit `types` and module settings in tsconfig; Dependabot
+  ignores TypeScript majors until then. `@types/node` is pinned to the Node 24 runtime line and its
+  majors are ignored too (Dependabot #21 wanted 26 against a Node 24 image).
 - [ ] **React 19 migration (deferred 2026-09-11).** Dependabot #19 (react/react-dom 19.2.8,
   @types/react 19.2.18) breaks this app: `tests/specs/states.spec.ts` (route chunk failure
   fallback) throws React error #306, and `@xyflow/react` wire drags no longer produce edges
