@@ -1,6 +1,6 @@
 # Shepherd Web
 
-React 18 + TypeScript + Vite SPA, embedded into the Go binary via `go:embed`.
+React 19 + TypeScript + Vite SPA, embedded into the Go binary via `go:embed`.
 
 ## Commands (run from `web/`)
 - `pnpm dev` — Vite dev server (proxy `/api` to `:8080`)

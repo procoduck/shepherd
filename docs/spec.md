@@ -71,7 +71,7 @@ Spoke clusters already run local chart-generated config (clusterMetrics, podLogs
 | Alloy syntax validation | `github.com/grafana/alloy/syntax` + bundled `alloy` binary (`alloy validate`) |
 | Proto codegen | `buf` v2, plugins `protocolbuffers/go` + `connectrpc/go` |
 | Backend tests | Ginkgo v2 + Gomega; `testcontainers-go` (Postgres module) for integration |
-| Frontend | React 18 + TypeScript + Vite |
+| Frontend | React 19 + TypeScript + Vite |
 | Frontend routing/data | TanStack Router + TanStack Query |
 | UI kit | shadcn/ui + Tailwind CSS |
 | Code editor | CodeMirror 6 with a custom Alloy language mode (§12.6) |
@@ -1191,7 +1191,7 @@ Create THREE files. Root `AGENTS.md`, verbatim (substitute the real module path)
 # Shepherd
 
 Self-hosted Grafana Alloy fleet manager. Go 1.26 backend (Connect RPC agent API + chi REST),
-React 18/TS/Vite SPA embedded via go:embed, PostgreSQL 16. Spec: docs/spec.md (authoritative).
+React 19/TS/Vite SPA embedded via go:embed, PostgreSQL 16. Spec: docs/spec.md (authoritative).
 
 ## Commands
 - Build: `make build` (builds web first — required for go:embed)

@@ -1,5 +1,5 @@
 import { createRootRoute, createRoute, createRouter, Outlet } from '@tanstack/react-router';
-import { lazy, Suspense } from 'react';
+import { type ComponentType, type JSX, lazy, Suspense } from 'react';
 import { RequireRole } from '@/components/RequireRole';
 import { RouteErrorFallback } from '@/components/RouteErrorFallback';
 import { Shell } from '@/components/Shell';
@@ -111,11 +111,32 @@ const pipelineEditRoute = createRoute({
   component: PipelineEditorPage,
 });
 
-const VisualBuilderPageLazy = lazy(() =>
-  import('@/visual/components/VisualBuilderPage').then((m) => ({ default: m.VisualBuilderPage })),
+// React.lazy takes a chunk's `default`; these pages are named exports, so the
+// loader re-shapes the module. A chunk that evaluates but lacks the export (a
+// stale deploy, a proxy answering with the wrong body) must reject here, with
+// a message RouteErrorFallback can show, rather than resolve to `undefined`
+// and surface as React's opaque error #306 ("Element type is invalid.
+// Received a promise that resolves to: undefined. Lazy element type must
+// resolve to a class or function"). Checked against null, not `typeof
+// 'function'`: a memo() or forwardRef() component is an object.
+function lazyNamed<M extends object, K extends keyof M & string>(load: () => Promise<M>, name: K) {
+  return lazy(async () => {
+    const mod = await load();
+    const Component = mod[name];
+    if (Component == null) {
+      throw new Error(`Failed to load this page: its code loaded without a "${name}" export.`);
+    }
+    return { default: Component as unknown as ComponentType };
+  });
+}
+
+const VisualBuilderPageLazy = lazyNamed(
+  () => import('@/visual/components/VisualBuilderPage'),
+  'VisualBuilderPage',
 );
-const GraphViewPageLazy = lazy(() =>
-  import('@/visual/components/GraphViewPage').then((m) => ({ default: m.GraphViewPage })),
+const GraphViewPageLazy = lazyNamed(
+  () => import('@/visual/components/GraphViewPage'),
+  'GraphViewPage',
 );
 const visualNewRoute = createRoute({
   getParentRoute: () => shellRoute,

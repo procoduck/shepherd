@@ -72,6 +72,7 @@ export function VisualBuilderPage() {
   const [loadState, setLoadState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draftToRestore, setDraftToRestore] = useState<GraphDocument | null>(null);
+  const [discardingDraft, setDiscardingDraft] = useState(false);
 
   useEffect(() => {
     fetchSchema()
@@ -278,10 +279,22 @@ export function VisualBuilderPage() {
           </button>
           <button
             data-testid='draft-discard'
-            className='underline font-medium'
+            className='underline font-medium disabled:opacity-60'
+            disabled={discardingDraft}
             onClick={() => {
-              void clearDraft(pipelineId);
-              setDraftToRestore(null);
+              // The banner comes down only once the delete has committed.
+              // Dismissing first and deleting in the background looked
+              // instantaneous but lied: a reload within the next few tens of
+              // milliseconds (a user's reflex, or the drafts spec) aborts the
+              // still-open IndexedDB transaction and the "discarded" draft
+              // offers itself again on the next visit.
+              setDiscardingDraft(true);
+              clearDraft(pipelineId)
+                .catch(console.error)
+                .finally(() => {
+                  setDiscardingDraft(false);
+                  setDraftToRestore(null);
+                });
             }}
           >
             Discard draft

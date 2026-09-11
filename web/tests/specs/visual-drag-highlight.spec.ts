@@ -63,7 +63,12 @@ test.describe('visual drag highlight (A2/A3)', () => {
     await page.mouse.down();
     await page.waitForTimeout(100);
     // Move a little, away from any handle, so we're not accidentally "snapped".
-    await page.mouse.move(from.x + 40, from.y + 10);
+    // Downward, not rightward: the compatible node is placed one grid column
+    // to the right (CanvasPane's placement grid), which puts its target handle
+    // ~64px from this source handle — inside connectionRadius (30px) of a
+    // 40px rightward nudge. A rightward nudge only read "valid" while the old
+    // animated re-fit was still panning the canvas under the pointer.
+    await page.mouse.move(from.x + 10, from.y + 40);
     await page.waitForTimeout(100);
 
     await expect(relabelNode).toHaveAttribute('data-drop-state', 'valid', { timeout: 3_000 });

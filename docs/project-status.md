@@ -487,12 +487,18 @@ the contributing set.
   (`noUncheckedSideEffectImports` defaults on), which `vite/client` declares. The Dependabot ignore
   for TypeScript majors is gone. `@types/node` stays pinned to the Node 24 runtime line and its
   majors stay ignored (Dependabot #21 wanted 26 against a Node 24 image).
-- [ ] **React 19 migration (deferred 2026-09-11).** Dependabot #19 (react/react-dom 19.2.8,
-  @types/react 19.2.18) breaks this app: `tests/specs/states.spec.ts` (route chunk failure
-  fallback) throws React error #306, and `@xyflow/react` wire drags no longer produce edges
-  (`visual-linking`, `visual-inspector` fan-in reorder, `visual-drafts` discard). Typecheck also
-  needs `React.JSX.Element` in `web/src/routes/router.tsx`. `.github/dependabot.yml` ignores React
-  majors until a planned migration; 18.x minors and patches still flow.
+- [x] **React 19 migration (done 2026-09-11, react/react-dom 19.3.0).** The 2026-09-11 attempt
+  (Dependabot #19) failed six mocked specs; none was a React Flow incompatibility. Root causes:
+  React 19 reports boundary-caught errors through `createRoot`'s `onCaughtError` (default
+  `console.error`), so the route-chunk-failure spec tripped the console guard — now routed to
+  `console.warn` in `web/src/main.tsx`, and the lazy route loaders reject with a readable message
+  when a chunk lacks its export instead of surfacing React #306; the wire-drag specs were a
+  pre-existing race the new scheduling lost every time — `FitOnFirstNodes`' deferred, animated
+  re-fit after a click-placed node started moving the canvas mid-drag (now an instant fit in the
+  same commit that first paints the node, with the placement grid anchored once instead of to a
+  viewport the fit keeps moving); and the draft "Discard" dismissed its banner before the
+  IndexedDB delete had committed, so the spec's immediate reload aborted it (now awaited).
+  `.github/dependabot.yml` no longer ignores React majors.
 - [ ] Overlay entries scaffolded by `make schema` carry `needs_review: true` and need an editorial
       pass on the next Alloy bump
 - [ ] `go.mod` carries a vestigial `github.com/lib/pq` line via testcontainers' own test dependency.

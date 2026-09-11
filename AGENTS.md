@@ -1,7 +1,7 @@
 # Shepherd
 
 Self-hosted Grafana Alloy fleet manager. Go 1.26 backend (Connect RPC agent API + chi REST),
-React 18/TS/Vite SPA embedded via go:embed, PostgreSQL 16. Spec: docs/spec.md (authoritative).
+React 19/TS/Vite SPA embedded via go:embed, PostgreSQL 16. Spec: docs/spec.md (authoritative).
 
 ## Commands
 - Discover targets: `make help` (lists all targets + env knobs E2E_KEEP/E2E_K8S_KEEP/E2E_K8S_NODE_IMAGE)

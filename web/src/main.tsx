@@ -20,7 +20,19 @@ if (typeof window !== 'undefined') {
   }
 }
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
+ReactDOM.createRoot(document.getElementById('root')!, {
+  // React 19 reports every error an error boundary catches through this hook,
+  // and its default is console.error — the same channel as an unhandled
+  // error (React 18 logged nothing on this path). A boundary-caught error is a
+  // handled one here: the router's RouteErrorFallback (routes/router.tsx) has
+  // already rendered it for the user, so it is logged as a warning for
+  // diagnostics rather than as a second, unhandled-looking error. The mocked
+  // Playwright suite's console-error guard (tests/fixtures/test.ts) enforces
+  // exactly that split for the route-chunk-failure case in states.spec.ts.
+  onCaughtError: (error, errorInfo) => {
+    console.warn('Error handled by an error boundary:', error, errorInfo.componentStack);
+  },
+}).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />

@@ -7,16 +7,27 @@ import {
   type Edge,
   type EdgeChange,
   type FinalConnectionState,
+  getViewportForBounds,
   MiniMap,
   type NodeChange,
   type NodeTypes,
   type OnSelectionChangeParams,
   ReactFlow,
-  useNodesInitialized,
+  type ReactFlowState,
   useReactFlow,
+  useStore,
+  useStoreApi,
   type XYPosition,
 } from '@xyflow/react';
-import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import '@xyflow/react/dist/base.css';
 import deepEqual from 'fast-deep-equal';
 import { nanoid } from 'nanoid';
@@ -48,7 +59,8 @@ const PLACE_ROW_H = 150;
 // FitOnFirstNodes fits the graph once per loaded document. It re-fits when
 // importSeq changes, because a pipeline's graph arrives asynchronously after mount:
 // without that the stored viewport wins and the nodes render clipped under the
-// toolbar until the user presses the fit control.
+// toolbar until the user presses the fit control. (A click-placed node bumps
+// importSeq too — `refitView` in store.ts — so it lands inside the viewport.)
 //
 // `maxZoom: 1` (here and on `<ReactFlow>`'s own `fitViewOptions` below) is
 // task item 7's fix for the OTHER half of what the review measured: fitting
@@ -60,35 +72,70 @@ const PLACE_ROW_H = 150;
 // what the canvas's own "fit view" control (`.react-flow__controls-fitview`,
 // part of the `<Controls>` below) is for — one click, not the three the
 // review had to resort to with the old, uncapped zoom.
+//
+// The fit is synchronous and instant, from a layout effect, in the very
+// commit in which React Flow has measured every node the document holds. An
+// earlier version deferred it (a requestAnimationFrame, then React Flow's
+// `fitView()` — which is itself queued behind another render and frame) and
+// animated it over 200ms. That left a window of several frames in which a
+// freshly placed node was already visible, its ports already draggable, but
+// the viewport had not yet started moving under it: a wire drag begun right
+// after placing a node had its target handle pan away from the pointer
+// mid-drag, the drop landed on the pane, and no edge was made. React 18
+// mostly won that race by luck of effect timing; React 19 loses it every
+// time. Fitting in the same commit that first paints the node closes the
+// window — nothing can see, or drag to, a measured node at the old viewport.
 function FitOnFirstNodes() {
-  const { fitView } = useReactFlow();
-  const initialized = useNodesInitialized();
-  const nodeCount = useVisualStore((s) => s.doc.nodes.length);
+  const store = useStoreApi();
+  const { getNodesBounds, setViewport } = useReactFlow();
+  const docNodes = useVisualStore((s) => s.doc.nodes);
   const importSeq = useVisualStore((s) => s.importSeq);
+  // Readiness is asked of React Flow's node lookup for the DOCUMENT's nodes,
+  // not of `useNodesInitialized`: right after an import or a placement that
+  // hook still answers for the nodes React Flow held before the change, and
+  // a fit taken on that answer frames the previous document.
+  const measured = useStore(
+    useCallback(
+      (s: ReactFlowState) => {
+        if (docNodes.length === 0 || s.width === 0 || s.height === 0) return false;
+        for (const n of docNodes) {
+          const internal = s.nodeLookup.get(n.id);
+          if (
+            !internal?.measured.width ||
+            !internal.measured.height ||
+            !internal.internals.handleBounds
+          ) {
+            return false;
+          }
+        }
+        return true;
+      },
+      [docNodes],
+    ),
+  );
   const fittedForRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    if (nodeCount === 0) {
+  useLayoutEffect(() => {
+    if (docNodes.length === 0) {
       fittedForRef.current = null;
       return;
     }
-    if (initialized && fittedForRef.current !== importSeq) {
-      // Defer a frame: on a freshly imported document React Flow reports the nodes
-      // as initialized before their measured sizes land, and fitting against
-      // unmeasured nodes leaves the stored viewport in place.
-      const seq = importSeq;
-      const raf = requestAnimationFrame(() => {
-        fitView({ padding: 0.15, duration: 200, maxZoom: 1 });
-        // Marked done only once the fit has actually run. Marking it before the
-        // frame meant a re-render (nodes finishing measurement, say) cancelled the
-        // pending rAF via this effect's cleanup while the guard already read as
-        // "fitted" — so the view silently never fitted at all.
-        fittedForRef.current = seq;
-      });
-      return () => cancelAnimationFrame(raf);
-    }
-    return undefined;
-  }, [initialized, nodeCount, importSeq, fitView]);
+    if (!measured || fittedForRef.current === importSeq) return;
+    fittedForRef.current = importSeq;
+    const { width, height, minZoom } = store.getState();
+    // Same framing as `fitViewOptions` on <ReactFlow> below. A viewport set
+    // without a duration is applied synchronously; the promise only reports.
+    void setViewport(
+      getViewportForBounds(
+        getNodesBounds(docNodes.map((n) => n.id)),
+        width,
+        height,
+        minZoom,
+        1,
+        0.15,
+      ),
+    );
+  }, [measured, docNodes, importSeq, store, getNodesBounds, setViewport]);
 
   return null;
 }
@@ -113,25 +160,43 @@ function FlowApiBridge({
   // Screen-space offsets were also unstable — they are read through the live
   // viewport, so a fit landing between two placements moved where the next node
   // went.
+  //
+  // The grid is anchored ONCE, at the visible area as of the first placement
+  // this provider serves; every later cell is laid out from that anchor.
+  // Re-reading the visible area on every click looked more adaptive but was
+  // not: each placement also re-fits the view (`refitView` in store.ts →
+  // FitOnFirstNodes), so a grid re-anchored to the post-fit view walked the
+  // next node diagonally away from the last — and whether a click saw the
+  // pre- or post-fit view depended on whether that fit had landed yet, so
+  // the same three clicks produced different layouts, one of them with the
+  // third node dropped on top of the first. Keeping the whole set in view is
+  // the refit's job, not the grid's.
   const setPlacementProvider = useVisualStore((s) => s.setPlacementProvider);
   useEffect(() => {
+    let anchor: { topLeft: XYPosition; columns: number; rows: number } | null = null;
     setPlacementProvider((index: number) => {
-      const pane = document.querySelector('.react-flow__pane');
-      const r = pane?.getBoundingClientRect();
-      if (!r || r.width === 0) return { x: 80 + index * PLACE_COL_W, y: 80 };
-      const inset = 32;
-      // Both corners through the same transform, so the available area is in
-      // flow units and the grid stays correct at any zoom.
-      const topLeft = screenToFlowPosition({ x: r.x + inset, y: r.y + inset });
-      const bottomRight = screenToFlowPosition({
-        x: r.x + r.width - inset,
-        y: r.y + r.height - inset,
-      });
-      const columns = Math.max(1, Math.floor((bottomRight.x - topLeft.x) / PLACE_COL_W));
-      const rows = Math.max(1, Math.floor((bottomRight.y - topLeft.y) / PLACE_ROW_H));
-      // Wrap within the visible area rather than marching off the bottom; past
-      // capacity, nudge each cycle so nodes stay distinguishable instead of
-      // landing exactly on top of an earlier one.
+      if (anchor === null) {
+        const pane = document.querySelector('.react-flow__pane');
+        const r = pane?.getBoundingClientRect();
+        if (!r || r.width === 0) return { x: 80 + index * PLACE_COL_W, y: 80 };
+        const inset = 32;
+        // Both corners through the same transform, so the available area is in
+        // flow units and the grid stays correct at any zoom.
+        const topLeft = screenToFlowPosition({ x: r.x + inset, y: r.y + inset });
+        const bottomRight = screenToFlowPosition({
+          x: r.x + r.width - inset,
+          y: r.y + r.height - inset,
+        });
+        anchor = {
+          topLeft,
+          columns: Math.max(1, Math.floor((bottomRight.x - topLeft.x) / PLACE_COL_W)),
+          rows: Math.max(1, Math.floor((bottomRight.y - topLeft.y) / PLACE_ROW_H)),
+        };
+      }
+      const { topLeft, columns, rows } = anchor;
+      // Wrap within the anchored area rather than marching off the bottom;
+      // past capacity, nudge each cycle so nodes stay distinguishable instead
+      // of landing exactly on top of an earlier one.
       const cell = index % (columns * rows);
       const cycle = Math.floor(index / (columns * rows));
       return {
