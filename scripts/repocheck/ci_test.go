@@ -36,6 +36,18 @@ func guardNamesFromMakefile() []string {
 // misplaced or misspelled .golangci.yml key (the exact failure mode the lint
 // target's own comment warns about, 2026-08-22) could reach main undetected in
 // any PR the `lint` job's if-gate happened to skip.
+// Red run, 2026-09-11: the build job ran `go vet ./...`, which skips the
+// e2ek8s-tagged kind suite, so a k8s.io module skew from a grouped
+// Dependabot bump compiled nowhere in CI until the weekly kind run.
+var _ = Describe("the build job", func() {
+	It("vets the e2ek8s-tagged kind suite so a k8s.io module skew fails every PR", func() {
+		ci := loadWorkflow("ci.yml")
+		build, ok := ci.Jobs["build"]
+		Expect(ok).To(BeTrue(), "ci.yml has no build job")
+		Expect(joinedRuns(build.Steps)).To(ContainSubstring("go vet -tags e2ek8s ./e2e/k8s/"))
+	})
+})
+
 var _ = Describe("ci.yml's guards job", func() {
 	It("runs every guard the Makefile's guards target gathers, via `make guards`", func() {
 		names := guardNamesFromMakefile()

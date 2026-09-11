@@ -232,6 +232,13 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      # The kind suite lives behind the e2ek8s build tag, so plain `go vet
+      # ./...` never compiles it. A grouped Dependabot bump (#9) moved
+      # k8s.io/apimachinery without k8s.io/api and only the weekly kind run
+      # would have noticed (Dependabot #23 did, by touching its workflow).
+      - name: go vet (e2ek8s-tagged kind suite)
+        run: go vet -tags e2ek8s ./e2e/k8s/
+
       # SECURITY.md names govulncheck "the arbiter" for which reachable
       # vulnerabilities are in scope: only ones on a call path this code
       # actually exercises, not every CVE in the module graph. `go run
