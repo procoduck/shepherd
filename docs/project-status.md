@@ -480,12 +480,13 @@ the contributing set.
   it, and the build reports new chunk-size and native-config warnings. Reproduced locally on 8.3.0.
   Decide how lazy-route load failures should be surfaced under rolldown, then migrate; Dependabot
   ignores vite majors until then.
-- [ ] **TypeScript 7 migration (deferred 2026-09-11).** Dependabot #25 (typescript 7.0.2) fails
-  typecheck: `tsconfig.json` `baseUrl` is removed (TS5102), and without it the test files lose the
-  Node globals (`node:fs`, `node:path`, `__dirname`: TS2591) and `tests/fixtures/schema-fixture.ts`
-  gains an implicit-any error. Needs explicit `types` and module settings in tsconfig; Dependabot
-  ignores TypeScript majors until then. `@types/node` is pinned to the Node 24 runtime line and its
-  majors are ignored too (Dependabot #21 wanted 26 against a Node 24 image).
+- [x] **TypeScript 7 migration (deferred 2026-09-11, done 2026-09-11).** `web/tsconfig.json` drops
+  the removed `baseUrl` (the `@/*` path is tsconfig-relative) and names
+  `"types": ["node", "vite/client"]` explicitly — TS 7 no longer auto-includes `@types/*`, which is
+  what the TS2591/`__dirname`/implicit-any errors were, and now checks side-effect `*.css` imports
+  (`noUncheckedSideEffectImports` defaults on), which `vite/client` declares. The Dependabot ignore
+  for TypeScript majors is gone. `@types/node` stays pinned to the Node 24 runtime line and its
+  majors stay ignored (Dependabot #21 wanted 26 against a Node 24 image).
 - [ ] **React 19 migration (deferred 2026-09-11).** Dependabot #19 (react/react-dom 19.2.8,
   @types/react 19.2.18) breaks this app: `tests/specs/states.spec.ts` (route chunk failure
   fallback) throws React error #306, and `@xyflow/react` wire drags no longer produce edges

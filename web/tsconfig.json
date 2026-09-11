@@ -15,7 +15,13 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "baseUrl": ".",
+    // TypeScript 7 no longer auto-includes every @types/* package: `node` is what the
+    // filesystem-reading unit tests (and tests/fixtures/schema-fixture.ts) need, and
+    // `vite/client` declares the side-effect `*.css` imports that TS 7 now checks
+    // (noUncheckedSideEffectImports defaults to true).
+    "types": ["node", "vite/client"],
+    // Relative to this file (baseUrl was removed in TypeScript 7); Vite resolves the
+    // same alias on its own in vite.config.ts.
     "paths": {
       "@/*": ["./src/*"]
     }
