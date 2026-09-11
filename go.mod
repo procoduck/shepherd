@@ -3,7 +3,7 @@ module shepherd
 go 1.26.7
 
 require (
-	connectrpc.com/connect v1.20.0
+	connectrpc.com/connect v1.21.0
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/go-chi/chi/v5 v5.3.2
 	github.com/go-git/go-billy/v6 v6.0.0-alpha.2
