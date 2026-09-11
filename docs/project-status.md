@@ -474,6 +474,12 @@ the contributing set.
 
 ## 4. Smaller follow-ups
 
+- [ ] **React 19 migration (deferred 2026-09-11).** Dependabot #19 (react/react-dom 19.2.8,
+  @types/react 19.2.18) breaks this app: `tests/specs/states.spec.ts` (route chunk failure
+  fallback) throws React error #306, and `@xyflow/react` wire drags no longer produce edges
+  (`visual-linking`, `visual-inspector` fan-in reorder, `visual-drafts` discard). Typecheck also
+  needs `React.JSX.Element` in `web/src/routes/router.tsx`. `.github/dependabot.yml` ignores React
+  majors until a planned migration; 18.x minors and patches still flow.
 - [ ] Overlay entries scaffolded by `make schema` carry `needs_review: true` and need an editorial
       pass on the next Alloy bump
 - [ ] `go.mod` carries a vestigial `github.com/lib/pq` line via testcontainers' own test dependency.

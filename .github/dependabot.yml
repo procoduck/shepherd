@@ -50,6 +50,21 @@ updates:
           - "minor"
           - "patch"
 
+    ignore:
+      # React 19 is not a drop-in for this app: on the 2026-09-11 attempt
+      # (Dependabot #19) the lazy-route error fallback threw React error #306
+      # and @xyflow/react wire drags stopped producing edges (visual-linking,
+      # visual-inspector, visual-drafts specs). It needs a planned migration;
+      # docs/project-status.md tracks it. 18.x minors and patches still flow.
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react-dom"
+        update-types: ["version-update:semver-major"]
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
