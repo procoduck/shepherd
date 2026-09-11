@@ -24,7 +24,7 @@ export interface AlloyEditorProps {
 }
 
 // Zinc dark theme matching spec §13.1
-const alloyTheme = EditorView.theme(
+export const alloyTheme = EditorView.theme(
   {
     '&': {
       backgroundColor: '#09090b',
@@ -148,3 +148,9 @@ export function AlloyEditor({
 
   return <div ref={containerRef} style={{ height }} className='overflow-auto' />;
 }
+
+// Re-exported so RevisionDiff lives in the same module graph as the rest of
+// the CodeMirror setup — LazyAlloyEditor.tsx's `import('./AlloyEditor')`
+// chunk boundary is what actually keeps @codemirror/merge out of the entry
+// bundle (W-2 / S7); this file never imports @codemirror/merge itself.
+export { RevisionDiff } from './RevisionDiff';
