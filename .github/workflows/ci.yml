@@ -545,7 +545,7 @@ jobs:
       # Warm cache makes the target's `playwright install` a no-op instead of
       # a ~120MB browser download.
       - name: Cache Playwright browsers
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('web/pnpm-lock.yaml') }}
@@ -619,7 +619,7 @@ jobs:
       # Restored before the install so playwright's postinstall skips the
       # ~120MB browser download on a warm cache (and fills it on a cold one).
       - name: Cache Playwright browsers
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('web/pnpm-lock.yaml') }}
@@ -646,7 +646,7 @@ jobs:
       # gets a warm prefix match against the most recent save for the SAME
       # job.
       - name: Cache Docker layers
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/.buildx-cache
           key: buildx-${{ runner.os }}-${{ github.workflow }}-${{ github.job }}-${{ hashFiles('go.sum', 'web/pnpm-lock.yaml', 'deploy/versions.env', 'deploy/Dockerfile.local', 'deploy/Dockerfile.init', 'deploy/Dockerfile.simulator') }}-${{ github.run_id }}

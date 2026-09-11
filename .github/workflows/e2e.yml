@@ -95,7 +95,7 @@ jobs:
       # gets a warm prefix match against the most recent save for the SAME
       # job.
       - name: Cache Docker layers
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/.buildx-cache
           key: buildx-${{ runner.os }}-${{ github.workflow }}-${{ github.job }}-${{ hashFiles('go.sum', 'web/pnpm-lock.yaml', 'deploy/versions.env', 'deploy/Dockerfile.local', 'deploy/Dockerfile.init', 'deploy/Dockerfile.simulator') }}-${{ github.run_id }}
@@ -183,7 +183,7 @@ jobs:
       # gets a warm prefix match against the most recent save for the SAME
       # job.
       - name: Cache Docker layers
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/.buildx-cache
           key: buildx-${{ runner.os }}-${{ github.workflow }}-${{ github.job }}-${{ hashFiles('go.sum', 'web/pnpm-lock.yaml', 'deploy/versions.env', 'deploy/Dockerfile.local', 'deploy/Dockerfile.init', 'deploy/Dockerfile.simulator') }}-${{ github.run_id }}
