@@ -160,17 +160,30 @@ test.describe
       await expect(diff).toBeVisible();
       await expect(page.getByText(/revision #2/i)).toBeVisible();
 
-      // Restore this revision -> confirm dialog -> Restore.
+      // Restore this revision -> confirm dialog -> Restore. Pin the index to
+      // revision #2 by count (so a control added/removed elsewhere shifts
+      // this assertion instead of silently restoring the wrong revision) and
+      // by the dialog's own wording, not by position alone.
       const restoreButtons = page.getByTestId('restore-btn');
+      await expect(restoreButtons).toHaveCount(3);
       await restoreButtons.nth(1).click();
       const dialog = page.getByTestId('restore-dialog');
       await expect(dialog).toBeVisible();
+      await expect(dialog).toContainText('Restore revision #2');
       await dialog.getByRole('button', { name: 'Restore', exact: true }).click();
 
-      // The editor now shows revision 2's contents (the new revision 4), and
-      // the diff pane is gone.
-      await expect(page.locator('.cm-content')).toContainText(MARKER_B);
+      // Wait for the diff pane to close (the mutation's onSuccess clears the
+      // selected revision) BEFORE asserting on `.cm-content`.
+      // @codemirror/merge's MergeView renders two EditorViews of its own, so
+      // while the diff is still mounted `.cm-content` matches more than one
+      // element — a strict-mode violation — and its left pane holds the old
+      // revision's MARKER_B text regardless of whether the restore actually
+      // reseeded the editor. Confirming the diff is gone first makes
+      // `.cm-content` resolve to exactly the real editor pane, so the
+      // following assertion is both non-flaky and actually proves the
+      // editor was reseeded.
       await expect(diff).toBeHidden();
+      await expect(page.locator('.cm-content')).toContainText(MARKER_B);
       await expect(page.getByRole('button', { name: /revision history \(4\)/i })).toBeVisible();
     });
 
