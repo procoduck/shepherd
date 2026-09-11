@@ -102,14 +102,6 @@ Fixed bugs (B-CONTAIN-1, B-CONCAT, B-STAGEORDER, F9-a) are in
 
 ## 3. Unbuilt / gated features
 
-### F-REVISIONS — revision diff and restore are not buildable yet · **medium**
-
-`shepherd.mgmt.v1.PipelineRevision` carries only `revision`/`changed_by`/`changed_at`/`change_note`
-— **not** the revision's contents. So a diff is impossible and restore cannot repopulate the editor;
-the Restore button raises "Revision contents are not exposed by the API yet" and there is no
-`RestoreRevision` RPC. The revision *list* works and is covered. Needs `contents` on the proto plus
-a `RestoreRevision` procedure before any UI work.
-
 ### F-CONTRIB — collector detail does not show contributing pipelines · **low**
 
 Served config is shown, but nothing links back to the pipelines that produced it, so there is no way
@@ -125,6 +117,7 @@ artifacts (W7), the chart-values UI + G10 (W9), teams UI (W10), and the two R6 c
 MCP interface (W11). Each is a §4 item below.
 
 Closed features (F5 sandbox simulation, F-SIGNAL-SERVE) are in `docs/archive/completed-2026-09-11.md`.
+F-REVISIONS closed — see `CHANGELOG.md` Unreleased "Pipelines — Shipped".
 
 ---
 
@@ -152,8 +145,9 @@ answer and the ledger item it produced is below.
 
 ### Scheduled work (from the decisions above)
 
-- [ ] **F-REVISIONS**: `contents` on `PipelineRevision`, `RestoreRevision` RPC, then the text
-      diff view and Restore in the pipeline editor; graph diff for visual pipelines afterwards.
+- [x] **F-REVISIONS**: `contents` on `PipelineRevision`, `RestoreRevision` RPC, the text diff
+      view and Restore in the pipeline editor — shipped, see `CHANGELOG.md` Unreleased. Graph
+      diff for visual pipelines is the remaining follow-up (below).
 - [ ] **Editor Format + Validate buttons**: `FormatPipeline` RPC over `alloy fmt`, wired to a
       Format button; an explicit Validate button beside the idle-debounced validation.
 - [ ] **Experimental components as an org setting**: migration + proto field + server-side
@@ -178,6 +172,11 @@ answer and the ledger item it produced is below.
 
 Open, in rough priority order:
 
+- [ ] **Graph diff for visual pipelines.** The pipeline editor's revision diff is text-only
+      (`RevisionDiff`, CodeMirror merge view); the visual builder page has no revision UI, so a
+      visual pipeline's graph-level change is not diffable, only its rendered text. Restoring a
+      visual pipeline from the text editor still restores the graph (`wizard_state` travels with
+      the revision) — only the *diff view* is text-only.
 - [ ] **Typed `Role`/`Source` enums.** `internal/auth`'s role constants (`RoleOrgAdmin` etc.,
       `internal/auth/authz.go`) and `pipelines.source` are plain `string`-typed constants, not a
       distinct Go type — the `exhaustive` linter cannot check a switch over either for
