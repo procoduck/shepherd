@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"net/http"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -18,19 +19,22 @@ type contextKey int
 
 const tokenIDKey contextKey = iota
 
-// NewAuthInterceptor returns a Connect interceptor that validates agent token
-// Basic auth credentials: username = token UUID, password = 32-byte base64url secret.
-func NewAuthInterceptor(st *store.Store) connect.Interceptor {
-	return connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
-		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-			tokenID, err := verifyBasicAuth(ctx, req.Header().Get("Authorization"), st)
-			if err != nil {
-				return nil, connect.NewError(connect.CodeUnauthenticated, err)
-			}
-			ctx = context.WithValue(ctx, tokenIDKey, tokenID)
-			return next(ctx, req)
+// NewAuthGate returns a Connect request gate that validates agent token
+// Basic auth credentials: username = token UUID, password = 32-byte base64url
+// secret. Mount it with connect.WithRequestGate.
+//
+// A gate rather than an interceptor because the decision needs only the
+// headers: it runs before the request body is decompressed or decoded, so a
+// caller with a bad token never makes the server unmarshal its payload. The
+// authenticated token id is placed in the returned context for the handler.
+func NewAuthGate(st *store.Store) connect.RequestGateFunc {
+	return func(ctx context.Context, _ connect.Spec, _ connect.Peer, header http.Header) (context.Context, error) {
+		tokenID, err := verifyBasicAuth(ctx, header.Get("Authorization"), st)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeUnauthenticated, err)
 		}
-	})
+		return context.WithValue(ctx, tokenIDKey, tokenID), nil
+	}
 }
 
 // verifyBasicAuth parses Authorization: Basic <base64(uuid:secret)> and

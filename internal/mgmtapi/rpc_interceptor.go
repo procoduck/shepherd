@@ -298,7 +298,7 @@ func newAuthzInterceptor(st *store.Store) connect.UnaryInterceptorFunc {
 // the app-admin check first and falls back to the org-admin check scoped to
 // orgID.
 //
-// A service-account caller (ctx set by newServiceAccountAuthInterceptor,
+// A service-account caller (ctx set by newServiceAccountAuthGate,
 // machine_auth.go) takes a separate branch: this coarse table only decides
 // org REACH for a machine caller ("is this the org its token was minted
 // for"), never RoleAppAdmin (a service account is never app-admin, by

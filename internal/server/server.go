@@ -261,13 +261,15 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 		beaconBaseURL = ""
 	}
 	svc := agentapi.New(st, v, logger, agentReg, agentapi.WithBeaconRemoteWrite(beaconBaseURL))
-	authInterceptor := agentapi.NewAuthInterceptor(st)
-	// telemetry.Interceptor runs outermost so its latency measurement includes
-	// authentication, and so a rejected call is still counted — an auth
-	// failure spike is exactly the thing you want on a graph.
+	// Authentication is a request gate: it runs on the headers alone, before
+	// the body is decompressed or decoded and before any interceptor. A
+	// refused call never reaches telemetry.Interceptor, so the gate is wrapped
+	// by telemetry.RequestGate to keep it counted — an auth failure spike is
+	// exactly the thing you want on a graph.
 	connectPath, connectHandler := collectorv1connect.NewCollectorServiceHandler(
 		svc,
-		connect.WithInterceptors(telemetry.Interceptor(), authInterceptor),
+		connect.WithRequestGate(telemetry.RequestGate(agentapi.NewAuthGate(st))),
+		connect.WithInterceptors(telemetry.Interceptor()),
 	)
 	r.Mount(connectPath, connectHandler)
 

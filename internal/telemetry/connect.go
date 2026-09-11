@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"net/http"
 	"time"
 
 	"connectrpc.com/connect"
@@ -17,6 +18,26 @@ import (
 
 // tracerName identifies spans this package produces.
 const tracerName = "shepherd/internal/telemetry"
+
+// RequestGate wraps a connect.RequestGateFunc so a call the gate refuses is
+// still counted in RPCRequestsTotal under its Connect code.
+//
+// A gate runs before the request body is read and before the interceptor
+// chain, which is the point of using one for authentication — an
+// unauthenticated caller costs a header check, not a decompress and a
+// decode. The price is that Interceptor never sees the refused call, and an
+// authentication-failure spike is exactly the thing you want on a graph.
+// Counting here keeps the metric complete; no duration is observed for a
+// refused call, because there is no handler work to time.
+func RequestGate(gate connect.RequestGateFunc) connect.RequestGateFunc {
+	return func(ctx context.Context, spec connect.Spec, peer connect.Peer, header http.Header) (context.Context, error) {
+		ctx, err := gate(ctx, spec, peer, header)
+		if err != nil {
+			metrics.RPCRequestsTotal.WithLabelValues(spec.Procedure, connect.CodeOf(err).String()).Inc()
+		}
+		return ctx, err
+	}
+}
 
 // Interceptor returns a Connect interceptor that records RPC metrics and, when
 // tracing is enabled, a server span per call.

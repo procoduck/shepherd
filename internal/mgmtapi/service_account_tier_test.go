@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	. "github.com/onsi/ginkgo/v2"
@@ -77,6 +78,29 @@ var _ = Describe("W3-1: service-account role tier", Label("integration"), func()
 		server.Close()
 		st.Close()
 		cancel()
+	})
+
+	// The service-account gate decides on the headers before the body is
+	// read. A request with a bad credential AND a body that is not valid
+	// JSON must therefore be answered "unauthenticated" (401), not "invalid
+	// argument" (400): the decode that would have produced the 400 never
+	// runs for a caller that could not authenticate. Under the previous
+	// interceptor wiring the body was decoded first, so this exact request
+	// answered 400 — and a credential-guessing caller got the server to
+	// unmarshal every payload it sent.
+	It("refuses a bad service-account credential before reading the request body", func() {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+			server.URL+"/shepherd.mgmt.v1.TenantRouteService/CreateTenantRoute",
+			strings.NewReader("this is not json"))
+		Expect(err).NotTo(HaveOccurred())
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Requested-With", "XMLHttpRequest")
+		req.SetBasicAuth(orgID.String(), "not-the-secret")
+		resp, err := http.DefaultClient.Do(req)
+		Expect(err).NotTo(HaveOccurred())
+		defer resp.Body.Close() //nolint:errcheck // test cleanup
+		Expect(resp.StatusCode).To(Equal(http.StatusUnauthorized))
+		Expect(g11DecodeBody(resp)["code"]).To(Equal("unauthenticated"))
 	})
 
 	createTenantRouteBody := func(org string) map[string]any {

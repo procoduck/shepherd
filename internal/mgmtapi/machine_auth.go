@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -23,7 +24,7 @@ import (
 const onBehalfOfHeader = "Shepherd-On-Behalf-Of"
 
 // serviceAccountIdentity is a machine caller's identity, populated by
-// newServiceAccountAuthInterceptor and consulted by
+// newServiceAccountAuthGate and consulted by
 // requireWriteAuthorized/auditLog (helpers.go). Role (W3-1) is what makes a
 // machine caller's coarse org access decided the same WAY a human
 // session's is — both are checked against procedureRequirements with
@@ -76,54 +77,55 @@ func serviceAccountFromCtx(ctx context.Context) (serviceAccountIdentity, bool) {
 // nothing from which failure mode it hit.
 var errBadServiceAccountAuth = errors.New("mgmtapi: invalid service account credentials")
 
-// newServiceAccountAuthInterceptor authenticates an
+// newServiceAccountAuthGate authenticates an
 // `Authorization: Basic <base64(id:secret)>` request as a service account
 // (0012_teams_service_accounts), mirroring
-// internal/agentapi.NewAuthInterceptor's collector-token shape exactly —
-// same id:secret Basic layout, same sha256(secret)+constant-time-compare
-// verification.
+// internal/agentapi.NewAuthGate's collector-token shape exactly — same
+// id:secret Basic layout, same sha256(secret)+constant-time-compare
+// verification. Mounted with connect.WithRequestGate: it decides on the
+// headers alone, before the body is decompressed or decoded and before any
+// interceptor runs, so a bad credential never makes the server unmarshal
+// the payload, and the identity is in ctx before newAuthzInterceptor's
+// role/org decision.
 //
 // A request with no Authorization header (or a non-Basic scheme) passes
 // through unchanged: that is the human-session path, decided by cookie +
-// auth.SessionMiddleware upstream of this interceptor, not here. A request
+// auth.SessionMiddleware upstream of this gate, not here. A request
 // that DOES present Basic credentials but they do not verify is rejected
 // outright — it never falls through to be treated as an anonymous session,
 // which would silently downgrade a bad credential into "no access" instead
 // of "who are you" (fail loud, not fail open).
-func newServiceAccountAuthInterceptor(st *store.Store) connect.UnaryInterceptorFunc {
-	return func(next connect.UnaryFunc) connect.UnaryFunc {
-		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-			authHeader := req.Header().Get("Authorization")
-			if !strings.HasPrefix(authHeader, "Basic ") {
-				return next(ctx, req) // no Basic credentials presented: human-session path.
-			}
-
-			sa, err := verifyServiceAccountBasicAuth(ctx, authHeader, st)
-			if err != nil {
-				return nil, connect.NewError(connect.CodeUnauthenticated, errBadServiceAccountAuth)
-			}
-			// Verify the on-behalf-of claim HERE, where it enters, rather
-			// than only in requireWriteAuthorized. That guard runs on
-			// apply-gated writes; propose-safe procedures never call it, and
-			// some of them still stamp the claim into an audit row through
-			// auditLogDetail. Verifying only at the write gate therefore left
-			// exactly one path — SimulateService.CreateRun — able to record an
-			// unverified human as the principal, which is the same
-			// impersonation this check exists to stop, just on a quieter
-			// procedure.
-			//
-			// A claim that does not match the credential's delegating human is
-			// refused outright, on reads as well as writes: there is no benign
-			// reading of a caller naming someone it was not issued to.
-			if claim := req.Header().Get(onBehalfOfHeader); claim != "" {
-				if err := verifyOnBehalfOf(sa, claim); err != nil {
-					return nil, err
-				}
-				sa.OnBehalfOf = claim
-			}
-			ctx = withServiceAccount(ctx, sa)
-			return next(ctx, req)
+func newServiceAccountAuthGate(st *store.Store) connect.RequestGateFunc {
+	return func(ctx context.Context, _ connect.Spec, _ connect.Peer, header http.Header) (context.Context, error) {
+		authHeader := header.Get("Authorization")
+		if !strings.HasPrefix(authHeader, "Basic ") {
+			return ctx, nil // no Basic credentials presented: human-session path.
 		}
+
+		sa, err := verifyServiceAccountBasicAuth(ctx, authHeader, st)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeUnauthenticated, errBadServiceAccountAuth)
+		}
+		// Verify the on-behalf-of claim HERE, where it enters, rather
+		// than only in requireWriteAuthorized. That guard runs on
+		// apply-gated writes; propose-safe procedures never call it, and
+		// some of them still stamp the claim into an audit row through
+		// auditLogDetail. Verifying only at the write gate therefore left
+		// exactly one path — SimulateService.CreateRun — able to record an
+		// unverified human as the principal, which is the same
+		// impersonation this check exists to stop, just on a quieter
+		// procedure.
+		//
+		// A claim that does not match the credential's delegating human is
+		// refused outright, on reads as well as writes: there is no benign
+		// reading of a caller naming someone it was not issued to.
+		if claim := header.Get(onBehalfOfHeader); claim != "" {
+			if err := verifyOnBehalfOf(sa, claim); err != nil {
+				return nil, err
+			}
+			sa.OnBehalfOf = claim
+		}
+		return withServiceAccount(ctx, sa), nil
 	}
 }
 

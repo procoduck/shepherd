@@ -245,3 +245,41 @@ func TestTraceHTTPNamesSpansByRouteAndFiltersNoise(t *testing.T) {
 		t.Error("span carries no http.route attribute")
 	}
 }
+
+// A request gate runs before the interceptor chain, so a call it refuses is
+// invisible to Interceptor. RequestGate exists so that refusal is still
+// counted under its code — the authentication-failure spike the metric is
+// for — while a call the gate admits is left for Interceptor to count once
+// the handler answers (counting it here too would double every success).
+func TestRequestGateCountsRefusals(t *testing.T) {
+	const procedure = "/shepherd.test.v1.GateService/Call"
+	spec := connect.Spec{Procedure: procedure}
+	refusing := telemetry.RequestGate(func(ctx context.Context, _ connect.Spec, _ connect.Peer, _ http.Header) (context.Context, error) {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errBoom)
+	})
+	type key struct{}
+	admitting := telemetry.RequestGate(func(ctx context.Context, _ connect.Spec, _ connect.Peer, _ http.Header) (context.Context, error) {
+		return context.WithValue(ctx, key{}, "admitted"), nil
+	})
+
+	refusedBefore := testutil.ToFloat64(metrics.RPCRequestsTotal.WithLabelValues(procedure, "unauthenticated"))
+	okBefore := testutil.ToFloat64(metrics.RPCRequestsTotal.WithLabelValues(procedure, "ok"))
+
+	if _, err := refusing(context.Background(), spec, connect.Peer{}, http.Header{}); connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Fatalf("refusal must propagate unchanged, got %v", err)
+	}
+	ctx, err := admitting(context.Background(), spec, connect.Peer{}, http.Header{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ctx.Value(key{}) != "admitted" {
+		t.Error("the gate's derived context must be returned, not the original")
+	}
+
+	if got := testutil.ToFloat64(metrics.RPCRequestsTotal.WithLabelValues(procedure, "unauthenticated")); got-refusedBefore != 1 {
+		t.Errorf("refused call not counted under its code (delta %v)", got-refusedBefore)
+	}
+	if got := testutil.ToFloat64(metrics.RPCRequestsTotal.WithLabelValues(procedure, "ok")); got != okBefore {
+		t.Errorf("an admitted call must not be counted by the gate (delta %v)", got-okBefore)
+	}
+}

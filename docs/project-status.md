@@ -481,6 +481,17 @@ the contributing set.
   language sources are a 383 kB chunk fetched on first editor mount. A failed editor chunk lands
   in the same `RouteErrorFallback` as a failed page chunk (`tests/specs/states.spec.ts`).
   `chunkSizeWarningLimit` lowered to 750 so a static re-import of the editor trips the warning.
+- [x] **Authentication as a Connect request gate (done 2026-09-11).** connect-go 1.21's
+  `WithRequestGate` runs on the headers alone, before the body is decompressed or decoded and
+  before any interceptor. Both header-only authenticators moved there: `agentapi.NewAuthGate`
+  (collector tokens, was `NewAuthInterceptor`) and `mgmtapi`'s service-account gate (was
+  `newServiceAccountAuthInterceptor`). A caller with a bad credential no longer makes the server
+  unmarshal its payload; the session-cookie path and `newAuthzInterceptor` (which needs the decoded
+  `org_id`) are unchanged. Because a refused call never reaches `telemetry.Interceptor`,
+  `telemetry.RequestGate` wraps each gate so `shepherd_rpc_requests_total{code="unauthenticated"}`
+  keeps counting them. Red-run proven on both surfaces: a request with a bad credential and a
+  non-JSON body answers 401 under the gate and 400 under the old interceptor order
+  (`internal/agentapi/service_test.go`, `internal/mgmtapi/service_account_tier_test.go`).
 - [x] **Vite 8 migration (deferred 2026-09-11, done 2026-09-11).** vite 8.3.0 (rolldown): the
   React 19 branch's `lazyNamed()` route loader and `onCaughtError` hook already turn the
   route-chunk failure (`tests/specs/states.spec.ts:59`) into the shared error fallback with no
