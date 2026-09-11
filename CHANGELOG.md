@@ -11,6 +11,36 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
+## Unreleased
+
+### Pipelines — Shipped
+
+- **Revision contents on the API.** `PipelineRevision` gains `contents`,
+  `matchers`, `enabled`, and `wizard_state`, but only on the new
+  `GetRevision` RPC — `ListRevisions` (and the revision list embedded in
+  `GetPipeline`) stays metadata-only, so listing a pipeline's history is no
+  heavier than before.
+- **`RestoreRevision`.** Restoring an old revision writes a **new** revision
+  from its contents (never rewrites history), goes through the same
+  validation gate and org-editor authorization as `UpdatePipeline`, and
+  records a `pipeline.restore` audit row. Restore is allowed on
+  git-sourced pipelines — it writes a new revision like any other — but the
+  next git sync overwrites it, and the editor warns about that before you
+  confirm.
+- **Diff and restore in the pipeline editor.** Pick an old revision to see a
+  read-only diff against the current text (CodeMirror's merge view, loaded
+  inside the existing lazy editor chunk); Restore opens a confirm dialog and
+  applies the same gate as Save.
+- **New REST shim routes**: `GET
+  /api/orgs/{org}/pipelines/{id}/revisions/{rev}` [reader] and `POST
+  /api/orgs/{org}/pipelines/{id}/revisions/{rev}/restore` [org editor].
+- **Migration 0019** adds `pipeline_revisions.wizard_state` (nullable
+  `jsonb`). Additive, no operator action required. Revisions written before
+  this release carry no graph in that column — restoring one restores text
+  only and leaves the pipeline's stored graph as-is.
+- Graph diff for visual pipelines is not built — the diff view is
+  text-only; that stays a follow-up.
+
 ## v0.5.0
 
 Chart 0.10.1. No chart template changed since 0.10.0 — the chart moves only
