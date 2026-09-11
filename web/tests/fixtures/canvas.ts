@@ -52,3 +52,24 @@ export async function settledBox(locator: Locator, timeout = 5_000): Promise<Box
 export async function viewportTransform(page: Page): Promise<string> {
   return page.locator('.react-flow__viewport').evaluate((el) => el.style.transform);
 }
+
+/** Waits out a fitView pan/zoom (or any viewport transition) by polling
+ * `.react-flow__viewport`'s inline style until two consecutive reads agree.
+ * For specs that click with `{ force: true }` — which skips Playwright's own
+ * "stable target" check — this is the only thing standing between the click
+ * and a moving target (W7-13). */
+export async function waitForViewportSettled(page: Page, timeout = 2_000): Promise<void> {
+  const viewport = page.locator('.react-flow__viewport');
+  let last: string | null = null;
+  await expect
+    .poll(
+      async () => {
+        const current = await viewport.getAttribute('style');
+        const settled = last !== null && current === last;
+        last = current;
+        return settled;
+      },
+      { timeout, message: 'React Flow viewport did not settle' },
+    )
+    .toBe(true);
+}
