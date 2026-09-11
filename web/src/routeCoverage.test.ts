@@ -136,6 +136,14 @@ const SPEC_TO_PROCEDURE: Record<string, string> = {
   'POST /api/orgs/{org}/pipelines/validate': '/shepherd.mgmt.v1.PipelineService/ValidatePipeline',
   'GET /api/orgs/{org}/pipelines/{id}/preview-matches':
     '/shepherd.mgmt.v1.PipelineService/PreviewMatches',
+  // These two live in spec.md §D.3, not the §12 fence this test parses
+  // (docs-tests owns that placement) — harmless to map pre-emptively, and
+  // correct the day someone moves them into §12 (see the plan's "routeCoverage
+  // drift" risk note).
+  'GET /api/orgs/{org}/pipelines/{id}/revisions/{rev}':
+    '/shepherd.mgmt.v1.PipelineService/GetRevision',
+  'POST /api/orgs/{org}/pipelines/{id}/revisions/{rev}/restore':
+    '/shepherd.mgmt.v1.PipelineService/RestoreRevision',
 
   'LIST /api/orgs/{org}/destinations': '/shepherd.mgmt.v1.DestinationService/ListDestinations',
   'CREATE /api/orgs/{org}/destinations': '/shepherd.mgmt.v1.DestinationService/CreateDestination',

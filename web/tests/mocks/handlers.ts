@@ -92,16 +92,15 @@ function collectorToWire(c: Obj) {
 }
 
 function pipelineRevisionToWire(r: Obj) {
-  // NOTE: shepherd.mgmt.v1.PipelineRevision only carries
-  // revision/changed_by/changed_at/change_note — the legacy REST shape's
-  // id/pipeline_id/contents/matchers/enabled were dropped when the proto
-  // was authored. Mirrored here rather than "fixed", since the fixture
-  // surface must match the real wire contract.
   return {
     revision: n(r, 'revision'),
     changedBy: s(r, 'changed_by'),
     changedAt: r['changed_at'],
     changeNote: s(r, 'change_note'),
+    contents: s(r, 'contents'),
+    matchers: arr<string>(r, 'matchers'),
+    enabled: b(r, 'enabled'),
+    wizardState: r['wizard_state'] ?? undefined,
   };
 }
 
@@ -1025,6 +1024,52 @@ export function installDefaultHandlers(router: Router) {
     const p = (st.pipelines as Obj[]).find((x) => x['id'] === req['id']);
     const revisions = arr<Obj>(p ?? {}, 'revisions');
     return json(r, 200, list(revisions.map(pipelineRevisionToWire)));
+  });
+  router.register('POST', '/shepherd.mgmt.v1.PipelineService/GetRevision', async (r) => {
+    // Org-reader on the real server (S2) — no requireOrgRole gate here, same
+    // as GetPipeline above.
+    const req = await body(r);
+    const p = (st.pipelines as Obj[]).find((x) => x['id'] === req['id']);
+    const revisions = arr<Obj>(p ?? {}, 'revisions');
+    const rev = revisions.find((x) => n(x, 'revision') === Number(req['revision']));
+    return rev
+      ? json(r, 200, pipelineRevisionToWire(rev))
+      : connectError(r, 404, 'not_found', 'revision not found');
+  });
+  router.register('POST', '/shepherd.mgmt.v1.PipelineService/RestoreRevision', async (r) => {
+    const pBody = (await r.request().postDataJSON()) as Obj;
+    const pDenied = requireOrgRole(r, String(pBody.orgId ?? ''), 'editor');
+    if (pDenied) return pDenied;
+    const req = await body(r);
+    const p = (st.pipelines as Obj[]).find((x) => x['id'] === req['id']);
+    if (!p) return connectError(r, 404, 'not_found', 'pipeline not found');
+    const revisions = arr<Obj>(p, 'revisions');
+    const rev = revisions.find((x) => n(x, 'revision') === Number(req['revision']));
+    if (!rev) return connectError(r, 404, 'not_found', 'revision not found');
+
+    // Restore creates a NEW revision from the old one's contents (S3): it
+    // never mutates the row it restores from, and it never rewrites `rev`.
+    Object.assign(p, {
+      contents: rev['contents'],
+      matchers: arr<string>(rev, 'matchers'),
+      enabled: b(rev, 'enabled'),
+      wizard_state: rev['wizard_state'],
+    });
+    const me = st.me as { email?: string } | null | undefined;
+    const nextRevision = revisions.reduce((max, x) => Math.max(max, n(x, 'revision')), 0) + 1;
+    revisions.unshift({
+      revision: nextRevision,
+      changed_by: me?.email ?? '',
+      changed_at: '2026-08-17T09:00:00Z',
+      change_note:
+        (req['changeNote'] as string) || `Restored from revision ${req['revision'] as number}`,
+      contents: rev['contents'],
+      matchers: rev['matchers'],
+      enabled: rev['enabled'],
+      wizard_state: rev['wizard_state'],
+    });
+    p['revisions'] = revisions;
+    return json(r, 200, pipelineToWire(p));
   });
 
   // ── DestinationService ───────────────────────────────────────────────────
