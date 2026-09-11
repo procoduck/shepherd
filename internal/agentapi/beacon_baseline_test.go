@@ -76,7 +76,7 @@ var _ = Describe("D6 baseline on the lazy serve path", Label("integration"), fun
 		svc := agentapi.New(st, nil, slog.Default(), testSchemaRegistry(),
 			agentapi.WithBeaconRemoteWrite(baseURL))
 		path, handler := collectorv1connect.NewCollectorServiceHandler(
-			svc, connect.WithInterceptors(agentapi.NewAuthInterceptor(st)),
+			svc, connect.WithRequestGate(agentapi.NewAuthGate(st)),
 		)
 		mux := http.NewServeMux()
 		mux.Handle(path, handler)

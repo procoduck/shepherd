@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -95,10 +96,10 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 
 		logger := slog.Default()
 		svc := agentapi.New(st, nil, logger, testSchemaRegistry())
-		authInterceptor := agentapi.NewAuthInterceptor(st)
+		authGate := agentapi.NewAuthGate(st)
 		path, handler := collectorv1connect.NewCollectorServiceHandler(
 			svc,
-			connect.WithInterceptors(authInterceptor),
+			connect.WithRequestGate(authGate),
 		)
 		mux := http.NewServeMux()
 		mux.Handle(path, handler)
@@ -348,8 +349,8 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 			hdr := "Basic " + base64.StdEncoding.EncodeToString([]byte(tok.ID.String()+":"+secret))
 
 			svc2 := agentapi.New(st2, nil, slog.Default(), nil)
-			authInterceptor2 := agentapi.NewAuthInterceptor(st2)
-			path2, handler2 := collectorv1connect.NewCollectorServiceHandler(svc2, connect.WithInterceptors(authInterceptor2))
+			authGate2 := agentapi.NewAuthGate(st2)
+			path2, handler2 := collectorv1connect.NewCollectorServiceHandler(svc2, connect.WithRequestGate(authGate2))
 			mux2 := http.NewServeMux()
 			mux2.Handle(path2, handler2)
 			server2 := httptest.NewUnstartedServer(h2c.NewHandler(mux2, &http2.Server{}))
@@ -715,6 +716,25 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 	})
 
 	Describe("Auth", func() {
+		// The gate decides on the headers before the body is read. A request
+		// whose body is not even valid JSON must therefore still be answered
+		// "unauthenticated" (401), not "invalid argument" (400): the decode
+		// that would have produced the 400 never runs for a caller that
+		// could not authenticate. Under the previous interceptor wiring the
+		// body was decoded first, and this exact request answered 400.
+		It("refuses a bad token before reading the request body", func() {
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+				server.URL+collectorv1connect.CollectorServiceRegisterCollectorProcedure,
+				strings.NewReader("this is not json"))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("bad:bad")))
+			resp, err := server.Client().Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close() //nolint:errcheck // test cleanup
+			Expect(resp.StatusCode).To(Equal(http.StatusUnauthorized))
+		})
+
 		It("rejects requests with a bad token", func() {
 			badClient := collectorv1connect.NewCollectorServiceClient(
 				server.Client(),

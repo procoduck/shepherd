@@ -293,62 +293,68 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 		logger.Error("schema registry unavailable; schema-dependent RPCs will answer unavailable", "err", schemaErr)
 	}
 
-	// Interceptor order matters: the service-account auth interceptor runs
-	// first so a machine caller's identity (if any) is in ctx before
+	// Order matters: the service-account auth gate runs before any
+	// interceptor — on the headers alone, before the body is decoded — so a
+	// machine caller's identity (if any) is in ctx before
 	// newAuthzInterceptor's role/org decision runs — see
 	// authorizeProcedure's service-account branch (rpc_interceptor.go). A
 	// human-session request (no Basic-auth Authorization header) passes
-	// through the first interceptor unchanged.
-	// telemetry.Interceptor is outermost so RPC latency covers the authz work
-	// and a PermissionDenied is counted rather than invisible.
-	authz := connect.WithInterceptors(telemetry.Interceptor(), newServiceAccountAuthInterceptor(st), newAuthzInterceptor(st))
+	// through the gate unchanged.
+	// telemetry.Interceptor is the outermost interceptor so RPC latency
+	// covers the authz work and a PermissionDenied is counted rather than
+	// invisible; a call the gate refuses never reaches it, which is why the
+	// gate is wrapped by telemetry.RequestGate.
+	authz := []connect.HandlerOption{
+		connect.WithRequestGate(telemetry.RequestGate(newServiceAccountAuthGate(st))),
+		connect.WithInterceptors(telemetry.Interceptor(), newAuthzInterceptor(st)),
+	}
 
 	mounts := []func() (string, http.Handler){
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewMeServiceHandler(NewMeService(st, logger), authz)
+			return mgmtv1connect.NewMeServiceHandler(NewMeService(st, logger), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewAdminServiceHandler(NewAdminService(st, logger, WithOIDCHandler(mc.oidc)), authz)
+			return mgmtv1connect.NewAdminServiceHandler(NewAdminService(st, logger, WithOIDCHandler(mc.oidc)), authz...)
 		},
 		func() (string, http.Handler) {
 			var users *auth.UserStore
 			if mc.oidc != nil {
 				users = mc.oidc.Users()
 			}
-			return mgmtv1connect.NewUserServiceHandler(NewUserService(st, users, logger), authz)
+			return mgmtv1connect.NewUserServiceHandler(NewUserService(st, users, logger), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewFleetServiceHandler(NewFleetService(st, logger), authz)
+			return mgmtv1connect.NewFleetServiceHandler(NewFleetService(st, logger), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewPipelineServiceHandler(NewPipelineService(st, v, schemaReg, logger, WithBeaconRemoteWrite(cfg.Server.BaseURL)), authz)
+			return mgmtv1connect.NewPipelineServiceHandler(NewPipelineService(st, v, schemaReg, logger, WithBeaconRemoteWrite(cfg.Server.BaseURL)), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewDestinationServiceHandler(NewDestinationService(st, logger), authz)
+			return mgmtv1connect.NewDestinationServiceHandler(NewDestinationService(st, logger), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewGitOpsServiceHandler(NewGitOpsService(st, enc, logger), authz)
+			return mgmtv1connect.NewGitOpsServiceHandler(NewGitOpsService(st, enc, logger), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewWizardServiceHandler(NewWizardService(st, v, logger), authz)
+			return mgmtv1connect.NewWizardServiceHandler(NewWizardService(st, v, logger), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewVisualServiceHandler(NewVisualService(st, v, schemaReg, logger), authz)
+			return mgmtv1connect.NewVisualServiceHandler(NewVisualService(st, v, schemaReg, logger), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewSimulateServiceHandler(NewSimulateService(st, cfg.Simulator, logger), authz)
+			return mgmtv1connect.NewSimulateServiceHandler(NewSimulateService(st, cfg.Simulator, logger), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewAuditServiceHandler(NewAuditService(st, logger), authz)
+			return mgmtv1connect.NewAuditServiceHandler(NewAuditService(st, logger), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewTenantRouteServiceHandler(NewTenantRouteService(st, logger), authz)
+			return mgmtv1connect.NewTenantRouteServiceHandler(NewTenantRouteService(st, logger), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewTeamServiceHandler(NewTeamService(st, logger), authz)
+			return mgmtv1connect.NewTeamServiceHandler(NewTeamService(st, logger), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewServiceAccountServiceHandler(NewServiceAccountService(st, logger), authz)
+			return mgmtv1connect.NewServiceAccountServiceHandler(NewServiceAccountService(st, logger), authz...)
 		},
 	}
 	for _, mount := range mounts {
