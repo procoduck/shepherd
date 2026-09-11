@@ -91,12 +91,20 @@ function collectorToWire(c: Obj) {
   };
 }
 
-function pipelineRevisionToWire(r: Obj) {
+// The metadata half, which is all the real ListRevisions and
+// GetPipeline.revisions ever carry (S1); the full shape below is GetRevision's.
+function pipelineRevisionMetaToWire(r: Obj) {
   return {
     revision: n(r, 'revision'),
     changedBy: s(r, 'changed_by'),
     changedAt: r['changed_at'],
     changeNote: s(r, 'change_note'),
+  };
+}
+
+function pipelineRevisionToWire(r: Obj) {
+  return {
+    ...pipelineRevisionMetaToWire(r),
     contents: s(r, 'contents'),
     matchers: arr<string>(r, 'matchers'),
     enabled: b(r, 'enabled'),
@@ -118,7 +126,7 @@ function pipelineToWire(p: Obj) {
     updatedBy: s(p, 'updated_by'),
     createdAt: p['created_at'],
     updatedAt: p['updated_at'],
-    revisions: arr<Obj>(p, 'revisions').map(pipelineRevisionToWire),
+    revisions: arr<Obj>(p, 'revisions').map(pipelineRevisionMetaToWire),
   };
 }
 
@@ -1023,7 +1031,7 @@ export function installDefaultHandlers(router: Router) {
     const req = await body(r);
     const p = (st.pipelines as Obj[]).find((x) => x['id'] === req['id']);
     const revisions = arr<Obj>(p ?? {}, 'revisions');
-    return json(r, 200, list(revisions.map(pipelineRevisionToWire)));
+    return json(r, 200, list(revisions.map(pipelineRevisionMetaToWire)));
   });
   router.register('POST', '/shepherd.mgmt.v1.PipelineService/GetRevision', async (r) => {
     // Org-reader on the real server (S2) — no requireOrgRole gate here, same

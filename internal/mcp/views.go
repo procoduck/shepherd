@@ -90,20 +90,18 @@ type PipelineView struct {
 	Revisions   []PipelineRevisionView `json:"revisions,omitempty"`
 }
 
-// PipelineRevisionView mirrors mgmtv1.PipelineRevision. Contents/Matchers/
-// Enabled/WizardState are only ever non-zero when this view wraps a
-// GetRevision response (ListRevisions/GetPipeline.revisions populate the
-// metadata fields only — S1) — omitempty keeps that call's JSON
-// byte-identical to before these fields existed.
+// PipelineRevisionView mirrors the METADATA half of mgmtv1.PipelineRevision.
+// The full-detail fields (contents, matchers, enabled, wizard_state) are
+// populated only by GetRevision, which no MCP tool calls; this view is only
+// ever built from GetPipeline responses, whose revisions list is
+// metadata-only (S1). Carrying the detail fields here would be dead code
+// that reads as a capability (backend re-check finding) — add them when a
+// get_revision tool exists, together with a test that exercises them.
 type PipelineRevisionView struct {
-	Revision    int32          `json:"revision"`
-	ChangedBy   string         `json:"changed_by"`
-	ChangedAt   string         `json:"changed_at,omitempty"`
-	ChangeNote  string         `json:"change_note,omitempty"`
-	Contents    string         `json:"contents,omitempty"`
-	Matchers    []string       `json:"matchers,omitempty"`
-	Enabled     bool           `json:"enabled,omitempty"`
-	WizardState map[string]any `json:"wizard_state,omitempty"`
+	Revision   int32  `json:"revision"`
+	ChangedBy  string `json:"changed_by"`
+	ChangedAt  string `json:"changed_at,omitempty"`
+	ChangeNote string `json:"change_note,omitempty"`
 }
 
 func toPipelineView(p *mgmtv1.Pipeline) PipelineView {
@@ -118,15 +116,10 @@ func toPipelineView(p *mgmtv1.Pipeline) PipelineView {
 		OwnerTeamID: p.GetOwnerTeamId(),
 	}
 	for _, r := range p.GetRevisions() {
-		rv := PipelineRevisionView{
+		v.Revisions = append(v.Revisions, PipelineRevisionView{
 			Revision: r.GetRevision(), ChangedBy: r.GetChangedBy(),
 			ChangedAt: ts(r.GetChangedAt()), ChangeNote: r.GetChangeNote(),
-			Contents: r.GetContents(), Matchers: r.GetMatchers(), Enabled: r.GetEnabled(),
-		}
-		if ws := r.GetWizardState(); ws != nil {
-			rv.WizardState = ws.AsMap()
-		}
-		v.Revisions = append(v.Revisions, rv)
+		})
 	}
 	return v
 }

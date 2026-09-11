@@ -187,6 +187,26 @@ cd web && pnpm exec biome check tests/fullstack/revisions.spec.ts && pnpm typech
 make test-fullstack            # only if Docker is available; otherwise report "written, unrun"
 ```
 
+## 5a. Amendments recorded at integration (2026-09-11)
+
+The backend review changed B-3's sequence, and the code is the authority over the prose above:
+
+- `validateSaveInput` is called **without** `WizardState`: the render-equality gate exists for
+  client-submitted content and would refuse a legitimate restore of server-stored content.
+- **One** `stage3Check`, gated on the state the pipeline is in *after* the restore
+  (`p.Enabled || rev.Enabled`, with `includeCandidate = rev.Enabled`), runs **before** any write —
+  not "when `p.Enabled`" and not a second check after `UpdatePipeline`. A failing transition check
+  therefore leaves the row, revision history and audit log untouched.
+- Dirty + recompute runs when the pipeline is enabled now **or was enabled before** the restore,
+  so an enabled→disabled restore drops the pipeline from what collectors are served.
+- Known residual, accepted: the restore is not one transaction. `UpdatePipeline` and
+  `SetPipelineEnabled` are separate writes; a database failure between them (not a validation
+  failure — those all run first) can leave contents restored with the enabled bit unchanged.
+  `createRevision` failing is log-only, per the repo's existing convention for every save path.
+- The web package ships a single Restore control in the diff pane header (not one per row);
+  the fullstack spec targets that. The MCP `PipelineRevisionView` stays metadata-only until a
+  `get_revision` tool exists.
+
 ## 6. Integration order and the final gate on `feat/revisions`
 
 1. foundation → `feat/revisions` (verify §2).

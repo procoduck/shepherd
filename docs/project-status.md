@@ -176,7 +176,8 @@ Open, in rough priority order:
       (`RevisionDiff`, CodeMirror merge view); the visual builder page has no revision UI, so a
       visual pipeline's graph-level change is not diffable, only its rendered text. Restoring a
       visual pipeline from the text editor still restores the graph (`wizard_state` travels with
-      the revision) — only the *diff view* is text-only.
+      the revision) for revisions written after migration 0019 — older rows carry no graph, so
+      restoring one restores text only — only the *diff view* is text-only.
 - [ ] **Typed `Role`/`Source` enums.** `internal/auth`'s role constants (`RoleOrgAdmin` etc.,
       `internal/auth/authz.go`) and `pipelines.source` are plain `string`-typed constants, not a
       distinct Go type — the `exhaustive` linter cannot check a switch over either for

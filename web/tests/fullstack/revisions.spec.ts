@@ -59,7 +59,7 @@ test.describe
         headers: { 'X-Requested-With': 'XMLHttpRequest' },
       });
       const me = (await meResp.json()) as Me;
-      const org = me.orgs.find((o) => o.name === 'platform-org') ?? me.orgs[0];
+      const org = me.orgs.find((o) => o.name === 'platform-org');
       if (!org) throw new Error('dev seed must provide at least one org');
       orgId = org.id;
 
@@ -164,12 +164,16 @@ test.describe
       // revision #2 by count (so a control added/removed elsewhere shifts
       // this assertion instead of silently restoring the wrong revision) and
       // by the dialog's own wording, not by position alone.
+      // The web package ships ONE restore control, in the diff pane's
+      // header, for the revision currently being viewed — not one per row.
+      // The row's "View diff" click above is what pins this to revision #2;
+      // the dialog wording below re-asserts it.
       const restoreButtons = page.getByTestId('restore-btn');
-      await expect(restoreButtons).toHaveCount(3);
-      await restoreButtons.nth(1).click();
+      await expect(restoreButtons).toHaveCount(1);
+      await restoreButtons.first().click();
       const dialog = page.getByTestId('restore-dialog');
       await expect(dialog).toBeVisible();
-      await expect(dialog).toContainText('Restore revision #2');
+      await expect(dialog).toContainText(/restore revision #2/i);
       await dialog.getByRole('button', { name: 'Restore', exact: true }).click();
 
       // Wait for the diff pane to close (the mutation's onSuccess clears the

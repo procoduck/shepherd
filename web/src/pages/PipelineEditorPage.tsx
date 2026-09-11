@@ -47,8 +47,13 @@ export function PipelineEditorPage() {
   // only Restore is gated on canWrite below.
   const { data: revisionDetail } = useQuery({
     queryKey: ['revision', orgId, id, selectedRevision],
-    queryFn: () => clients.pipeline.getRevision({ orgId, id: id!, revision: selectedRevision! }),
-    enabled: !!id && !!orgId && selectedRevision != null,
+    queryFn: () =>
+      clients.pipeline.getRevision({
+        orgId: pipeline?.orgId ?? orgId,
+        id: id!,
+        revision: selectedRevision!,
+      }),
+    enabled: !!id && !!(pipeline?.orgId ?? orgId) && selectedRevision != null,
   });
 
   // Seed the form ONCE per pipeline, keyed on its id rather than on the query
@@ -116,15 +121,17 @@ export function PipelineEditorPage() {
 
   const restoreMutation = useMutation({
     mutationFn: (revision: number) =>
-      clients.pipeline.restoreRevision({ orgId, id: id!, revision }),
+      clients.pipeline.restoreRevision({ orgId: pipeline?.orgId ?? orgId, id: id!, revision }),
     onSuccess: (p, revision) => {
       toast.success(`Restored revision #${revision}`);
-      // The editor otherwise keeps showing pre-restore text: seededFor
-      // guards against a routine refetch overwriting in-progress edits (see
-      // the comment above it), and a restore is exactly the case where the
-      // server copy SHOULD win — it just became the pipeline's new saved
-      // state, and there is no local edit worth protecting from it.
-      seededFor.current = null;
+      // The form is seeded from the restore response right here, so the
+      // guard is re-armed for THIS pipeline id rather than cleared: the
+      // server copy has already won, and a later routine refetch (window
+      // focus, a cache invalidation) must go back to protecting in-progress
+      // edits. Nulling it would leave the guard disarmed whenever the
+      // refetch returned a structurally identical pipeline and the seed
+      // effect never re-ran.
+      seededFor.current = p.id;
       setName(p.name);
       setContents(p.contents);
       setMatchers(p.matchers);

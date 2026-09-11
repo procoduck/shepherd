@@ -199,6 +199,16 @@ func (h *PipelinesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 // these same fields, populated there, still ship in full.
 var revisionOmitFields = []string{"contents", "matchers", "enabled", "wizard_state"}
 
+// revisionDropSet is revisionOmitFields as the lookup shape stripZeroEntries
+// takes, for the nested Pipeline.revisions list (see shim.go).
+var revisionDropSet = func() map[string]bool {
+	m := make(map[string]bool, len(revisionOmitFields))
+	for _, k := range revisionOmitFields {
+		m[k] = true
+	}
+	return m
+}()
+
 // ListRevisions GET /api/orgs/{org}/pipelines/{id}/revisions
 func (h *PipelinesHandler) ListRevisions(w http.ResponseWriter, r *http.Request) {
 	req := &mgmtv1.ListRevisionsRequest{OrgId: chi.URLParam(r, "org"), Id: chi.URLParam(r, "id")}

@@ -59,7 +59,6 @@ export function RevisionDiff({ oldText, newText, height = '100%' }: RevisionDiff
     // (PipelineEditorPage swaps it in/out via selectedRevision rather than
     // updating props in place), so a fresh MergeView per mount is correct —
     // no separate "sync value" effect like AlloyEditor's is needed here.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [oldText, newText]);
 
   return (

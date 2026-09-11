@@ -465,6 +465,83 @@ var _ = Describe("PipelineService GetRevision / RestoreRevision", Label("integra
 				"the collector stops being served its config")
 	})
 
+	// 10b. Re-check follow-up: the other direction of the enabled flip. A
+	// successful restore of an enabled=true revision onto a currently
+	// DISABLED pipeline must flip pipelines.enabled back on AND dirty +
+	// recompute the serve cache so the collector is served the restored
+	// content — spec 11 only exercises this transition on its forced-failure
+	// path. Red run: skipping the SetPipelineEnabled write (or the dirty +
+	// recompute block) in RestoreRevision fails the Enabled assertion (or
+	// the Eventually on the serve cache) below.
+	It("flips a disabled pipeline back to enabled and serves the restored content when the revision was enabled", func() {
+		cluster, err := st.Queries.UpsertCluster(ctx, "restore-reenable-cluster")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgUUID(orgID)})).To(Succeed())
+		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+		Expect(err).NotTo(HaveOccurred())
+
+		createResp := postConnectJSON(server, "/shepherd.mgmt.v1.PipelineService/CreatePipeline", editorCookie, map[string]any{
+			"orgId": orgID, "name": "restore-reenable-pipe", "contents": "// REENABLE-MARKER-A\n",
+			"matchers": []string{`role="metrics"`},
+		})
+		Expect(createResp.StatusCode).To(Equal(http.StatusOK))
+		var p map[string]any
+		Expect(json.NewDecoder(createResp.Body).Decode(&p)).To(Succeed())
+		Expect(createResp.Body.Close()).To(Succeed())
+		id := pipelineID(p)
+
+		// Enable (no new revision), then save new contents so revision 2 is
+		// written with enabled=true, then disable again (no new revision):
+		// the pipeline is now disabled while revision 2 says enabled.
+		enableResp := postConnectJSON(server, "/shepherd.mgmt.v1.PipelineService/EnablePipeline", editorCookie, map[string]any{
+			"orgId": orgID, "id": id,
+		})
+		Expect(enableResp.StatusCode).To(Equal(http.StatusOK))
+		Expect(enableResp.Body.Close()).To(Succeed())
+		updateResp := postConnectJSON(server, "/shepherd.mgmt.v1.PipelineService/UpdatePipeline", editorCookie, map[string]any{
+			"orgId": orgID, "id": id, "name": "restore-reenable-pipe", "contents": "// REENABLE-MARKER-B\n",
+			"matchers": []string{`role="metrics"`},
+		})
+		Expect(updateResp.StatusCode).To(Equal(http.StatusOK))
+		Expect(updateResp.Body.Close()).To(Succeed())
+		disableResp := postConnectJSON(server, "/shepherd.mgmt.v1.PipelineService/DisablePipeline", editorCookie, map[string]any{
+			"orgId": orgID, "id": id,
+		})
+		Expect(disableResp.StatusCode).To(Equal(http.StatusOK))
+		Expect(disableResp.Body.Close()).To(Succeed())
+		Eventually(func() string {
+			cache, cacheErr := st.Queries.GetServeCache(ctx, collector.ID)
+			if cacheErr != nil {
+				return "sentinel: no serve_cache row"
+			}
+			return cache.Content
+		}, "5s", "20ms").ShouldNot(ContainSubstring("REENABLE-MARKER"),
+			"the disabled pipeline must be absent from the served config before the restore under test")
+
+		// Restore revision 2 (contents B, enabled=true): a disabled -> enabled
+		// transition through the restore path.
+		resp := restoreRevision(editorCookie, id, 2, "")
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		Expect(resp.Body.Close()).To(Succeed())
+
+		var pid pgtype.UUID
+		Expect(pid.Scan(id)).To(Succeed())
+		reloaded, err := st.Queries.GetPipelineByID(ctx, pid)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(reloaded.Enabled).To(BeTrue(), "restoring an enabled=true revision must flip the pipeline back to enabled")
+		Expect(reloaded.Contents).To(Equal("// REENABLE-MARKER-B\n"))
+
+		Eventually(func() string {
+			cache, cacheErr := st.Queries.GetServeCache(ctx, collector.ID)
+			if cacheErr != nil {
+				return ""
+			}
+			return cache.Content
+		}, "5s", "20ms").Should(ContainSubstring("REENABLE-MARKER-B"),
+			"restoring a pipeline from disabled to enabled must dirty+recompute the serve cache so "+
+				"the collector is served the restored content")
+	})
+
 	// 11. Fix-up (backend review, F-REVISIONS): when the enabled-transition
 	// Stage 3 check fails, the restore must leave the pipeline row, its
 	// revision history, and the audit log completely untouched — no
@@ -723,5 +800,25 @@ var _ = Describe("REST shim: pipeline revisions", Label("integration"), func() {
 		matchers, hasMatchers := rev["matchers"].([]any)
 		Expect(hasMatchers).To(BeTrue(), "GetRevision must carry matchers")
 		Expect(matchers).To(ConsistOf(`cluster="prod"`))
+
+		// The pipeline-detail route the SPA loads attaches the revision list
+		// as a NESTED object array ("revisions", not "items"), which the
+		// zero-value stripper used to walk past — every nested revision then
+		// shipped enabled:false and contents:"" to the client (backend
+		// re-check finding). Red run: dropping the "revisions" case from
+		// stripZeroEntries fails this with `has "contents"` = true.
+		detailResp := getRequest(server, "/orgs/"+orgID+"/pipelines/"+id, editorCookie)
+		Expect(detailResp.StatusCode).To(Equal(http.StatusOK))
+		var detail struct {
+			Revisions []map[string]any `json:"revisions"`
+		}
+		Expect(json.NewDecoder(detailResp.Body).Decode(&detail)).To(Succeed())
+		Expect(detailResp.Body.Close()).To(Succeed())
+		Expect(detail.Revisions).To(HaveLen(1))
+		Expect(detail.Revisions[0]["revision"]).To(BeEquivalentTo(1))
+		for _, key := range []string{"contents", "matchers", "enabled", "wizard_state"} {
+			_, has := detail.Revisions[0][key]
+			Expect(has).To(BeFalse(), "GET .../pipelines/{id} must not carry zero-valued %q on nested revisions", key)
+		}
 	})
 })

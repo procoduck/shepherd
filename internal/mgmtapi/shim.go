@@ -173,6 +173,30 @@ func stripZeroEntries(obj []byte, drop map[string]bool) ([]byte, error) {
 				}
 			}
 			e.raw = encodeJSONArray(items)
+		case e.key == "revisions" && drop[e.key] && isZeroJSONLiteral(e.raw):
+			// An empty list is this field's zero value: List/Create never
+			// attach revision history, and the legacy shape omitted the key.
+			continue
+		case e.key == "revisions":
+			// Pipeline.revisions is the one nested object list the legacy
+			// shape carries (GetPipeline attaches it). Its elements are
+			// PipelineRevision messages whose full-detail fields are
+			// populated only by GetRevision (S1: ListRevisions and
+			// GetPipeline stay metadata-only), so on this path they are
+			// always zero-valued and must be stripped with the REVISION
+			// drop set, not the pipeline's — a pipeline's own "contents"
+			// is always emitted, a nested revision's never.
+			revs, err := decodeJSONArray(e.raw)
+			if err != nil {
+				return nil, err
+			}
+			for i := range revs {
+				revs[i], err = stripZeroEntries(revs[i], revisionDropSet)
+				if err != nil {
+					return nil, err
+				}
+			}
+			e.raw = encodeJSONArray(revs)
 		case drop[e.key] && isZeroJSONLiteral(e.raw):
 			continue
 		}
