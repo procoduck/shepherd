@@ -3,6 +3,7 @@
 // actually removing the selection, including a node's cascaded edges, atomically
 // and undoably.
 import { expect } from '@playwright/test';
+import { settledBox } from '../fixtures/canvas';
 import { basicScenario } from '../fixtures/factories';
 import { appAdmin } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
@@ -39,9 +40,9 @@ async function dragNodeBy(
   dx: number,
   dy: number,
 ) {
-  const box = await nodeLocator.boundingBox();
-  const fx = box!.x + box!.width / 2;
-  const fy = box!.y + 8; // header strip — clear of ports and handles
+  const box = await settledBox(nodeLocator);
+  const fx = box.x + box.width / 2;
+  const fy = box.y + 8; // header strip — clear of ports and handles
   await page.mouse.move(fx, fy);
   await page.mouse.down();
   await page.waitForTimeout(50);
@@ -81,7 +82,7 @@ async function placeWiredPair(page: import('@playwright/test').Page) {
     .first();
   await sourceHandle.waitFor({ timeout: 5_000 });
   await targetHandle.waitFor({ timeout: 5_000 });
-  await dragWire(page, (await sourceHandle.boundingBox())!, (await targetHandle.boundingBox())!);
+  await dragWire(page, await settledBox(sourceHandle), await settledBox(targetHandle));
   await expect(page.locator('.react-flow__edge')).toHaveCount(1);
 }
 

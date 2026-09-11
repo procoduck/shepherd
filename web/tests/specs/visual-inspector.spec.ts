@@ -1,5 +1,6 @@
 // visual-inspector.spec.ts — 7.6.3 (partial, no Code tab yet)
 import { expect } from '@playwright/test';
+import { settledBox } from '../fixtures/canvas';
 import { basicScenario } from '../fixtures/factories';
 import { appAdmin } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
@@ -102,14 +103,14 @@ test.describe('visual inspector', () => {
       await page.mouse.up();
       await page.waitForTimeout(400);
     };
-    await drag((await source1.boundingBox())!, (await target.boundingBox())!);
+    await drag(await settledBox(source1), await settledBox(target));
     await expect(page.locator('.react-flow__edge')).toHaveCount(1);
     const target2 = page
       .locator('.react-flow__node')
       .nth(2)
       .locator('.react-flow__handle.target')
       .first();
-    await drag((await source2.boundingBox())!, (await target2.boundingBox())!);
+    await drag(await settledBox(source2), await settledBox(target2));
     await expect(page.locator('.react-flow__edge')).toHaveCount(2);
 
     // Select the relabel node to see its inspector, with the fan-in list.
