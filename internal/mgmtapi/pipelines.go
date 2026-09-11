@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 
 	"connectrpc.com/connect"
 	"github.com/go-chi/chi/v5"
@@ -198,6 +199,61 @@ func (h *PipelinesHandler) ListRevisions(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeProtoJSON(w, http.StatusOK, resp.Msg)
+}
+
+// pipelineRestoreRequest is the (optional) legacy wire shape for the
+// restore body: an absent/empty body is allowed, in which case the new
+// revision's change_note defaults server-side ("Restored from revision N").
+type pipelineRestoreRequest struct {
+	ChangeNote string `json:"change_note,omitempty"`
+}
+
+// GetRevision GET /api/orgs/{org}/pipelines/{id}/revisions/{rev}
+func (h *PipelinesHandler) GetRevision(w http.ResponseWriter, r *http.Request) {
+	rev, err := strconv.Atoi(chi.URLParam(r, "rev"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "bad_request", "revision must be a number")
+		return
+	}
+	req := &mgmtv1.GetRevisionRequest{
+		OrgId: chi.URLParam(r, "org"), Id: chi.URLParam(r, "id"),
+		Revision: int32(rev), //nolint:gosec // parsed from the URL path, bounded by strconv.Atoi and re-validated by the service (<=0 -> invalid_argument)
+	}
+	resp, err := h.svc.GetRevision(r.Context(), connect.NewRequest(req))
+	if err != nil {
+		WriteConnectError(w, err)
+		return
+	}
+	writeProtoJSON(w, http.StatusOK, resp.Msg)
+}
+
+// RestoreRevision POST /api/orgs/{org}/pipelines/{id}/revisions/{rev}/restore
+func (h *PipelinesHandler) RestoreRevision(w http.ResponseWriter, r *http.Request) {
+	rev, err := strconv.Atoi(chi.URLParam(r, "rev"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "bad_request", "revision must be a number")
+		return
+	}
+	// An empty body is allowed (change_note is optional), unlike Create/Update's
+	// decodeJSON which always expects a JSON object — an empty POST body would
+	// otherwise 400 before ever reaching the service.
+	var body pipelineRestoreRequest
+	if r.ContentLength != 0 {
+		if !decodeJSON(w, r, &body) {
+			return
+		}
+	}
+	req := &mgmtv1.RestoreRevisionRequest{
+		OrgId: chi.URLParam(r, "org"), Id: chi.URLParam(r, "id"),
+		Revision:   int32(rev), //nolint:gosec // parsed from the URL path, bounded by strconv.Atoi and re-validated by the service (<=0 -> invalid_argument)
+		ChangeNote: body.ChangeNote,
+	}
+	resp, err := h.svc.RestoreRevision(r.Context(), connect.NewRequest(req))
+	if err != nil {
+		writePipelineSaveError(w, err)
+		return
+	}
+	writeProtoJSONOmit(w, http.StatusOK, resp.Msg, pipelineOmitFields...)
 }
 
 // Validate POST /api/orgs/{org}/pipelines/validate

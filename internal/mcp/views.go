@@ -90,12 +90,20 @@ type PipelineView struct {
 	Revisions   []PipelineRevisionView `json:"revisions,omitempty"`
 }
 
-// PipelineRevisionView mirrors mgmtv1.PipelineRevision.
+// PipelineRevisionView mirrors mgmtv1.PipelineRevision. Contents/Matchers/
+// Enabled/WizardState are only ever non-zero when this view wraps a
+// GetRevision response (ListRevisions/GetPipeline.revisions populate the
+// metadata fields only — S1) — omitempty keeps that call's JSON
+// byte-identical to before these fields existed.
 type PipelineRevisionView struct {
-	Revision   int32  `json:"revision"`
-	ChangedBy  string `json:"changed_by"`
-	ChangedAt  string `json:"changed_at,omitempty"`
-	ChangeNote string `json:"change_note,omitempty"`
+	Revision    int32          `json:"revision"`
+	ChangedBy   string         `json:"changed_by"`
+	ChangedAt   string         `json:"changed_at,omitempty"`
+	ChangeNote  string         `json:"change_note,omitempty"`
+	Contents    string         `json:"contents,omitempty"`
+	Matchers    []string       `json:"matchers,omitempty"`
+	Enabled     bool           `json:"enabled,omitempty"`
+	WizardState map[string]any `json:"wizard_state,omitempty"`
 }
 
 func toPipelineView(p *mgmtv1.Pipeline) PipelineView {
@@ -110,10 +118,15 @@ func toPipelineView(p *mgmtv1.Pipeline) PipelineView {
 		OwnerTeamID: p.GetOwnerTeamId(),
 	}
 	for _, r := range p.GetRevisions() {
-		v.Revisions = append(v.Revisions, PipelineRevisionView{
+		rv := PipelineRevisionView{
 			Revision: r.GetRevision(), ChangedBy: r.GetChangedBy(),
 			ChangedAt: ts(r.GetChangedAt()), ChangeNote: r.GetChangeNote(),
-		})
+			Contents: r.GetContents(), Matchers: r.GetMatchers(), Enabled: r.GetEnabled(),
+		}
+		if ws := r.GetWizardState(); ws != nil {
+			rv.WizardState = ws.AsMap()
+		}
+		v.Revisions = append(v.Revisions, rv)
 	}
 	return v
 }

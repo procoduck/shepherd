@@ -145,6 +145,7 @@ func Router(st *store.Store, cfg *config.Config, enc *crypto.Encryptor, logger *
 			r.Get("/pipelines/{id}", pipelines.Get)
 			r.Get("/pipelines/{id}/preview-matches", pipelines.PreviewMatches)
 			r.Get("/pipelines/{id}/revisions", pipelines.ListRevisions)
+			r.Get("/pipelines/{id}/revisions/{rev}", pipelines.GetRevision)
 
 			r.Get("/destinations", orgs.ListDestinations)
 			r.Get("/destinations/{id}", orgs.GetDestination)
@@ -163,6 +164,7 @@ func Router(st *store.Store, cfg *config.Config, enc *crypto.Encryptor, logger *
 			r.Delete("/pipelines/{id}", pipelines.Delete)
 			r.Post("/pipelines/{id}/enable", pipelines.Enable)
 			r.Post("/pipelines/{id}/disable", pipelines.Disable)
+			r.Post("/pipelines/{id}/revisions/{rev}/restore", pipelines.RestoreRevision)
 
 			r.Get("/wizards", wizards.ListWizards)
 			r.Get("/wizards/{kind}", wizards.GetWizardSchema)
