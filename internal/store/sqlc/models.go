@@ -199,15 +199,16 @@ type Pipeline struct {
 }
 
 type PipelineRevision struct {
-	ID         pgtype.UUID        `json:"id"`
-	PipelineID pgtype.UUID        `json:"pipeline_id"`
-	Revision   int32              `json:"revision"`
-	Contents   string             `json:"contents"`
-	Matchers   json.RawMessage    `json:"matchers"`
-	Enabled    bool               `json:"enabled"`
-	ChangedBy  string             `json:"changed_by"`
-	ChangedAt  pgtype.Timestamptz `json:"changed_at"`
-	ChangeNote string             `json:"change_note"`
+	ID          pgtype.UUID        `json:"id"`
+	PipelineID  pgtype.UUID        `json:"pipeline_id"`
+	Revision    int32              `json:"revision"`
+	Contents    string             `json:"contents"`
+	Matchers    json.RawMessage    `json:"matchers"`
+	Enabled     bool               `json:"enabled"`
+	ChangedBy   string             `json:"changed_by"`
+	ChangedAt   pgtype.Timestamptz `json:"changed_at"`
+	ChangeNote  string             `json:"change_note"`
+	WizardState json.RawMessage    `json:"wizard_state"`
 }
 
 type RepoLink struct {

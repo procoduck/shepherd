@@ -471,6 +471,7 @@ func (r *Reconciler) recordPipelineChange(
 		Enabled:    p.Enabled,
 		ChangedBy:  "gitsync",
 		ChangeNote: changeNote,
+		// WizardState left nil (-> NULL): git-sourced pipelines have no wizard_state to carry.
 	}); revErr != nil {
 		r.logger.Error("gitsync: creating pipeline revision", "pipeline_id", p.ID, "err", revErr)
 	}

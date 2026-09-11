@@ -27,6 +27,18 @@ service PipelineService {
   rpc ValidatePipeline(ValidatePipelineRequest) returns (ValidatePipelineResponse) {}
   rpc PreviewMatches(PreviewMatchesRequest) returns (PreviewMatchesResponse) {}
   rpc ListRevisions(ListRevisionsRequest) returns (ListRevisionsResponse) {}
+  // GetRevision returns one revision in full, including the heavy fields
+  // ListRevisions deliberately omits (contents/matchers/enabled/
+  // wizard_state) — org-reader, same as GetPipeline.
+  rpc GetRevision(GetRevisionRequest) returns (PipelineRevision) {}
+  // RestoreRevision creates a NEW revision from an old one's
+  // contents/matchers/enabled(/wizard_state) and returns the updated
+  // pipeline. Same authorization as UpdatePipeline (org-editor tier via
+  // authorizeOwnership, requireWriteAuthorized for machine callers) and the
+  // same validation gate (Stage 1-3). Allowed for git-sourced pipelines
+  // (unlike UpdatePipeline) — the next git sync overwrites it; it never
+  // mutates the old revision.
+  rpc RestoreRevision(RestoreRevisionRequest) returns (Pipeline) {}
   // SetPipelineOwner reassigns (or, with an empty owner_team_id, clears) a
   // pipeline's owning team. Deliberately org-admin-only regardless of
   // current ownership — a team can write what it owns, but granting or
@@ -35,11 +47,17 @@ service PipelineService {
 }
 
 // PipelineRevision mirrors internal/mgmtapi/pipelines.go: revisionResponse.
+// contents/matchers/enabled/wizard_state (5-8) are populated only by
+// GetRevision — ListRevisions and Pipeline.revisions stay metadata-only.
 message PipelineRevision {
   int32 revision = 1;
   string changed_by = 2;
   google.protobuf.Timestamp changed_at = 3;
   string change_note = 4;
+  string contents = 5;
+  repeated string matchers = 6;
+  bool enabled = 7;
+  google.protobuf.Struct wizard_state = 8;
 }
 
 // Pipeline mirrors internal/mgmtapi/pipelines.go: pipelineResponse. revision
@@ -201,6 +219,21 @@ message ListRevisionsRequest {
 message ListRevisionsResponse {
   repeated PipelineRevision items = 1;
   int32 total = 2;
+}
+
+message GetRevisionRequest {
+  string org_id = 1;
+  string id = 2;
+  int32 revision = 3;
+}
+
+message RestoreRevisionRequest {
+  string org_id = 1;
+  string id = 2;
+  int32 revision = 3;
+  // change_note, when set, replaces the default "Restored from revision N"
+  // change note on the new revision this creates.
+  string change_note = 4;
 }
 
 message SetPipelineOwnerRequest {

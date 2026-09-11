@@ -92,10 +92,14 @@ var _ = Describe("Migration: 0018_service_account_role", Label("integration"), f
 	})
 
 	It("drops the role column on the down migration", func(ctx context.Context) {
-		// 0018 is head at the time this spec is written: a single MigrateDown
-		// reverts exactly it.
+		// 0018 is no longer head (0019_pipeline_revision_wizard_state
+		// followed it), so a bare MigrateDown would revert 0019, not 0018.
+		// MigrateTo names the target version explicitly: land on 17
+		// (immediately before 0018) so this spec keeps proving what it has
+		// always proven — the 0018 down migration drops role — regardless
+		// of how many migrations are added after it.
 		db.Close()
-		Expect(store.MigrateDown(ctx, url)).To(Succeed())
+		Expect(store.MigrateTo(ctx, url, 17)).To(Succeed())
 
 		probe, err := pgxpool.New(ctx, url)
 		Expect(err).NotTo(HaveOccurred())

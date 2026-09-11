@@ -835,6 +835,29 @@ func (s *PipelineService) ListRevisions(ctx context.Context, req *connect.Reques
 	}), nil
 }
 
+// GetRevision returns one revision in full (contents/matchers/enabled/
+// wizard_state) — ListRevisions deliberately stays metadata-only (S1).
+// Compile-green stub: the full implementation lands with the F-REVISIONS
+// backend package.
+func (s *PipelineService) GetRevision(_ context.Context, _ *connect.Request[mgmtv1.GetRevisionRequest]) (*connect.Response[mgmtv1.PipelineRevision], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("GetRevision lands with the F-REVISIONS backend package"))
+}
+
+// RestoreRevision creates a new revision from an old one's contents and
+// returns the updated pipeline (S2/S3). Compile-green stub: the full
+// implementation lands with the F-REVISIONS backend package. It is a
+// mutating procedure (classified via writeVerbPrefixes/capabilityRequirements
+// above), so requireWriteAuthorized runs first, exactly as every other
+// write handler in this file does — G14 requires that guard live on the
+// procedure from the moment it is capability-classified, not only once the
+// business logic behind it exists.
+func (s *PipelineService) RestoreRevision(ctx context.Context, _ *connect.Request[mgmtv1.RestoreRevisionRequest]) (*connect.Response[mgmtv1.Pipeline], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("RestoreRevision lands with the F-REVISIONS backend package"))
+}
+
 // --- helpers moved verbatim from PipelinesHandler (pipelines.go) ---
 
 func (s *PipelineService) createRevision(ctx context.Context, p sqlc.Pipeline, note, actor string) error {
@@ -847,6 +870,10 @@ func (s *PipelineService) createRevision(ctx context.Context, p sqlc.Pipeline, n
 		Enabled:    p.Enabled,
 		ChangedBy:  actor,
 		ChangeNote: note,
+		// WizardState: the pipeline row's current graph (S4) — every
+		// revision from 0019 forward carries the graph as it stood when
+		// that revision was made.
+		WizardState: p.WizardState,
 	})
 	return err
 }

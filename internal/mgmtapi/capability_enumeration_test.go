@@ -60,7 +60,7 @@ func TestEveryProcedureHasAnAuthzRequirement(t *testing.T) {
 // writeVerbPrefixes are the method-name verbs this API uses, consistently,
 // for every RPC that mutates stored state — read off the actual set of
 // procedures in procedureRequirements (rpc_interceptor.go): every
-// Create/Update/Delete/Enable/Disable/Revoke/Claim/Unclaim/Rotate/Set/Commit
+// Create/Update/Delete/Enable/Disable/Revoke/Claim/Unclaim/Rotate/Set/Commit/Restore
 // writes; every List/Get/Preview/Validate/Render/Simulate/GraphView/Search/
 // Test/UpgradeCheck does not. Deriving "is a write" from the METHOD NAME
 // (read straight off the descriptor) rather than from procedureRequirements'
@@ -70,7 +70,7 @@ func TestEveryProcedureHasAnAuthzRequirement(t *testing.T) {
 // SimulateService's whole surface) — role level alone cannot distinguish
 // "admin-only read" from "write", so this test does not try to.
 var writeVerbPrefixes = []string{
-	"Create", "Update", "Delete", "Enable", "Disable", "Revoke", "Claim", "Unclaim", "Rotate", "Set", "Commit",
+	"Create", "Update", "Delete", "Enable", "Disable", "Revoke", "Claim", "Unclaim", "Rotate", "Set", "Commit", "Restore",
 }
 
 // nonMutatingNameExceptions are procedures whose method name matches a

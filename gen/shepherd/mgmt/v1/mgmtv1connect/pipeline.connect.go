@@ -63,6 +63,12 @@ const (
 	// PipelineServiceListRevisionsProcedure is the fully-qualified name of the PipelineService's
 	// ListRevisions RPC.
 	PipelineServiceListRevisionsProcedure = "/shepherd.mgmt.v1.PipelineService/ListRevisions"
+	// PipelineServiceGetRevisionProcedure is the fully-qualified name of the PipelineService's
+	// GetRevision RPC.
+	PipelineServiceGetRevisionProcedure = "/shepherd.mgmt.v1.PipelineService/GetRevision"
+	// PipelineServiceRestoreRevisionProcedure is the fully-qualified name of the PipelineService's
+	// RestoreRevision RPC.
+	PipelineServiceRestoreRevisionProcedure = "/shepherd.mgmt.v1.PipelineService/RestoreRevision"
 	// PipelineServiceSetPipelineOwnerProcedure is the fully-qualified name of the PipelineService's
 	// SetPipelineOwner RPC.
 	PipelineServiceSetPipelineOwnerProcedure = "/shepherd.mgmt.v1.PipelineService/SetPipelineOwner"
@@ -80,6 +86,18 @@ type PipelineServiceClient interface {
 	ValidatePipeline(context.Context, *connect.Request[v1.ValidatePipelineRequest]) (*connect.Response[v1.ValidatePipelineResponse], error)
 	PreviewMatches(context.Context, *connect.Request[v1.PreviewMatchesRequest]) (*connect.Response[v1.PreviewMatchesResponse], error)
 	ListRevisions(context.Context, *connect.Request[v1.ListRevisionsRequest]) (*connect.Response[v1.ListRevisionsResponse], error)
+	// GetRevision returns one revision in full, including the heavy fields
+	// ListRevisions deliberately omits (contents/matchers/enabled/
+	// wizard_state) — org-reader, same as GetPipeline.
+	GetRevision(context.Context, *connect.Request[v1.GetRevisionRequest]) (*connect.Response[v1.PipelineRevision], error)
+	// RestoreRevision creates a NEW revision from an old one's
+	// contents/matchers/enabled(/wizard_state) and returns the updated
+	// pipeline. Same authorization as UpdatePipeline (org-editor tier via
+	// authorizeOwnership, requireWriteAuthorized for machine callers) and the
+	// same validation gate (Stage 1-3). Allowed for git-sourced pipelines
+	// (unlike UpdatePipeline) — the next git sync overwrites it; it never
+	// mutates the old revision.
+	RestoreRevision(context.Context, *connect.Request[v1.RestoreRevisionRequest]) (*connect.Response[v1.Pipeline], error)
 	// SetPipelineOwner reassigns (or, with an empty owner_team_id, clears) a
 	// pipeline's owning team. Deliberately org-admin-only regardless of
 	// current ownership — a team can write what it owns, but granting or
@@ -158,6 +176,18 @@ func NewPipelineServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(pipelineServiceMethods.ByName("ListRevisions")),
 			connect.WithClientOptions(opts...),
 		),
+		getRevision: connect.NewClient[v1.GetRevisionRequest, v1.PipelineRevision](
+			httpClient,
+			baseURL+PipelineServiceGetRevisionProcedure,
+			connect.WithSchema(pipelineServiceMethods.ByName("GetRevision")),
+			connect.WithClientOptions(opts...),
+		),
+		restoreRevision: connect.NewClient[v1.RestoreRevisionRequest, v1.Pipeline](
+			httpClient,
+			baseURL+PipelineServiceRestoreRevisionProcedure,
+			connect.WithSchema(pipelineServiceMethods.ByName("RestoreRevision")),
+			connect.WithClientOptions(opts...),
+		),
 		setPipelineOwner: connect.NewClient[v1.SetPipelineOwnerRequest, v1.Pipeline](
 			httpClient,
 			baseURL+PipelineServiceSetPipelineOwnerProcedure,
@@ -179,6 +209,8 @@ type pipelineServiceClient struct {
 	validatePipeline *connect.Client[v1.ValidatePipelineRequest, v1.ValidatePipelineResponse]
 	previewMatches   *connect.Client[v1.PreviewMatchesRequest, v1.PreviewMatchesResponse]
 	listRevisions    *connect.Client[v1.ListRevisionsRequest, v1.ListRevisionsResponse]
+	getRevision      *connect.Client[v1.GetRevisionRequest, v1.PipelineRevision]
+	restoreRevision  *connect.Client[v1.RestoreRevisionRequest, v1.Pipeline]
 	setPipelineOwner *connect.Client[v1.SetPipelineOwnerRequest, v1.Pipeline]
 }
 
@@ -232,6 +264,16 @@ func (c *pipelineServiceClient) ListRevisions(ctx context.Context, req *connect.
 	return c.listRevisions.CallUnary(ctx, req)
 }
 
+// GetRevision calls shepherd.mgmt.v1.PipelineService.GetRevision.
+func (c *pipelineServiceClient) GetRevision(ctx context.Context, req *connect.Request[v1.GetRevisionRequest]) (*connect.Response[v1.PipelineRevision], error) {
+	return c.getRevision.CallUnary(ctx, req)
+}
+
+// RestoreRevision calls shepherd.mgmt.v1.PipelineService.RestoreRevision.
+func (c *pipelineServiceClient) RestoreRevision(ctx context.Context, req *connect.Request[v1.RestoreRevisionRequest]) (*connect.Response[v1.Pipeline], error) {
+	return c.restoreRevision.CallUnary(ctx, req)
+}
+
 // SetPipelineOwner calls shepherd.mgmt.v1.PipelineService.SetPipelineOwner.
 func (c *pipelineServiceClient) SetPipelineOwner(ctx context.Context, req *connect.Request[v1.SetPipelineOwnerRequest]) (*connect.Response[v1.Pipeline], error) {
 	return c.setPipelineOwner.CallUnary(ctx, req)
@@ -249,6 +291,18 @@ type PipelineServiceHandler interface {
 	ValidatePipeline(context.Context, *connect.Request[v1.ValidatePipelineRequest]) (*connect.Response[v1.ValidatePipelineResponse], error)
 	PreviewMatches(context.Context, *connect.Request[v1.PreviewMatchesRequest]) (*connect.Response[v1.PreviewMatchesResponse], error)
 	ListRevisions(context.Context, *connect.Request[v1.ListRevisionsRequest]) (*connect.Response[v1.ListRevisionsResponse], error)
+	// GetRevision returns one revision in full, including the heavy fields
+	// ListRevisions deliberately omits (contents/matchers/enabled/
+	// wizard_state) — org-reader, same as GetPipeline.
+	GetRevision(context.Context, *connect.Request[v1.GetRevisionRequest]) (*connect.Response[v1.PipelineRevision], error)
+	// RestoreRevision creates a NEW revision from an old one's
+	// contents/matchers/enabled(/wizard_state) and returns the updated
+	// pipeline. Same authorization as UpdatePipeline (org-editor tier via
+	// authorizeOwnership, requireWriteAuthorized for machine callers) and the
+	// same validation gate (Stage 1-3). Allowed for git-sourced pipelines
+	// (unlike UpdatePipeline) — the next git sync overwrites it; it never
+	// mutates the old revision.
+	RestoreRevision(context.Context, *connect.Request[v1.RestoreRevisionRequest]) (*connect.Response[v1.Pipeline], error)
 	// SetPipelineOwner reassigns (or, with an empty owner_team_id, clears) a
 	// pipeline's owning team. Deliberately org-admin-only regardless of
 	// current ownership — a team can write what it owns, but granting or
@@ -323,6 +377,18 @@ func NewPipelineServiceHandler(svc PipelineServiceHandler, opts ...connect.Handl
 		connect.WithSchema(pipelineServiceMethods.ByName("ListRevisions")),
 		connect.WithHandlerOptions(opts...),
 	)
+	pipelineServiceGetRevisionHandler := connect.NewUnaryHandler(
+		PipelineServiceGetRevisionProcedure,
+		svc.GetRevision,
+		connect.WithSchema(pipelineServiceMethods.ByName("GetRevision")),
+		connect.WithHandlerOptions(opts...),
+	)
+	pipelineServiceRestoreRevisionHandler := connect.NewUnaryHandler(
+		PipelineServiceRestoreRevisionProcedure,
+		svc.RestoreRevision,
+		connect.WithSchema(pipelineServiceMethods.ByName("RestoreRevision")),
+		connect.WithHandlerOptions(opts...),
+	)
 	pipelineServiceSetPipelineOwnerHandler := connect.NewUnaryHandler(
 		PipelineServiceSetPipelineOwnerProcedure,
 		svc.SetPipelineOwner,
@@ -351,6 +417,10 @@ func NewPipelineServiceHandler(svc PipelineServiceHandler, opts ...connect.Handl
 			pipelineServicePreviewMatchesHandler.ServeHTTP(w, r)
 		case PipelineServiceListRevisionsProcedure:
 			pipelineServiceListRevisionsHandler.ServeHTTP(w, r)
+		case PipelineServiceGetRevisionProcedure:
+			pipelineServiceGetRevisionHandler.ServeHTTP(w, r)
+		case PipelineServiceRestoreRevisionProcedure:
+			pipelineServiceRestoreRevisionHandler.ServeHTTP(w, r)
 		case PipelineServiceSetPipelineOwnerProcedure:
 			pipelineServiceSetPipelineOwnerHandler.ServeHTTP(w, r)
 		default:
@@ -400,6 +470,14 @@ func (UnimplementedPipelineServiceHandler) PreviewMatches(context.Context, *conn
 
 func (UnimplementedPipelineServiceHandler) ListRevisions(context.Context, *connect.Request[v1.ListRevisionsRequest]) (*connect.Response[v1.ListRevisionsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.PipelineService.ListRevisions is not implemented"))
+}
+
+func (UnimplementedPipelineServiceHandler) GetRevision(context.Context, *connect.Request[v1.GetRevisionRequest]) (*connect.Response[v1.PipelineRevision], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.PipelineService.GetRevision is not implemented"))
+}
+
+func (UnimplementedPipelineServiceHandler) RestoreRevision(context.Context, *connect.Request[v1.RestoreRevisionRequest]) (*connect.Response[v1.Pipeline], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.PipelineService.RestoreRevision is not implemented"))
 }
 
 func (UnimplementedPipelineServiceHandler) SetPipelineOwner(context.Context, *connect.Request[v1.SetPipelineOwnerRequest]) (*connect.Response[v1.Pipeline], error) {
