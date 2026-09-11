@@ -54,25 +54,24 @@ export default defineConfig({
     outDir: '../internal/spa/dist',
     emptyOutDir: true,
     // Measured 2026-09-11 on vite 8.3.0 / rolldown 1.2.8 (minified, kB = 1000 B):
-    // the entry chunk index-*.js is 894 kB (gzip 274 kB); the lazy visual-builder
-    // route chunks are PipelineNode 206 kB, VisualBuilderPage 72 kB and
-    // GraphViewPage 4 kB, plus a 177 kB shared chunk (@bufbuild/protobuf + the
-    // Connect codegen) that rolldown's default splitting carves out on its own.
-    // Under vite 6 / rollup the same entry was 1,020 kB, so the migration already
-    // shrank it; the entry is the only chunk over the 500 kB default.
+    // the entry chunk index-*.js is 688 kB (gzip 200 kB). The lazy chunks are
+    // AlloyEditor 383 kB (CodeMirror + the Lezer grammar + the Alloy language
+    // and completion sources, behind src/editor/LazyAlloyEditor — fetched when
+    // an editor first mounts), PipelineNode 206 kB, VisualBuilderPage 72 kB and
+    // GraphViewPage 4 kB. Before the editor was split out the entry was 894 kB
+    // (gzip 274 kB); under vite 6 / rollup, 1,020 kB.
     //
     // The entry is what every page needs on first paint — react-dom (~250 kB),
-    // the pipeline editor's CodeMirror (~250 kB), TanStack router + query and
-    // the statically imported pages. Regrouping it into vendor chunks through
+    // TanStack router + query, the Connect/protobuf codegen and the statically
+    // imported pages. Regrouping it into vendor chunks through
     // build.rolldownOptions.output.codeSplitting would not reduce first-load
     // bytes, and the SPA ships content-hashed inside the Go binary per release
     // (deps bump alongside app code), so cross-release cache reuse of a vendor
     // chunk is worth little. The limit therefore sits just above the measured
     // entry: the one regression this warning can still catch here — a new
-    // dependency landing statically in the shell — trips it. Moving CodeMirror
-    // behind a lazy route would cut the entry by about a quarter; that is a
-    // source-level change, not a bundler setting.
-    chunkSizeWarningLimit: 1000,
+    // dependency landing statically in the shell, or CodeMirror finding its
+    // way back in through a static import — trips it.
+    chunkSizeWarningLimit: 750,
   },
   test: {
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],

@@ -15,7 +15,7 @@ import type { Diagnostic } from '@/gen/shepherd/mgmt/v1/common_pb';
 import { alloyCompletionSource } from './alloyCompletion';
 import { alloyLanguage } from './alloyLanguage';
 
-interface AlloyEditorProps {
+export interface AlloyEditorProps {
   value: string;
   onChange?: (value: string) => void;
   readOnly?: boolean;

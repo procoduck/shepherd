@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { clients, toApiError } from '@/api/transport';
 import { Input } from '@/components/ui/Field';
-import { AlloyEditor } from '@/editor/AlloyEditor';
+import { AlloyEditor } from '@/editor/LazyAlloyEditor';
 import type { Diagnostic } from '@/gen/shepherd/mgmt/v1/common_pb';
 import { useCanWrite, useOrgId } from '@/hooks/useOrg';
 

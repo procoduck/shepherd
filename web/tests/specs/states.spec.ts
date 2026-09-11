@@ -92,6 +92,36 @@ test('a route chunk load failure shows the shared error fallback and keeps the s
   await expect(page.getByRole('button', { name: /sign out/i })).toBeVisible();
 });
 
+test('an editor chunk load failure shows the shared error fallback and keeps the shell mounted', async ({
+  page,
+  api,
+}) => {
+  // CodeMirror is behind its own lazy boundary (src/editor/LazyAlloyEditor),
+  // not a route's. A failed editor chunk still has to land in the SAME
+  // fallback as a failed page chunk: the Suspense boundary has no error
+  // handling of its own, so the rejection must propagate up to the route's
+  // RouteErrorFallback rather than crash the shell or hang on the
+  // placeholder. Same fulfilled-not-aborted technique as the route spec
+  // above, for the same console-guard reason.
+  await api.loginAs(appAdmin);
+  const s = basicScenario();
+  api.seed({ orgs: [s.org] });
+  await page.route('**/AlloyEditor-*.js', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/javascript',
+      body: 'export const AlloyEditor = undefined;',
+    }),
+  );
+  await page.goto('/pipelines/new');
+
+  const errorFallback = page.getByTestId('route-error');
+  await expect(errorFallback).toBeVisible();
+  await expect(errorFallback).toHaveAttribute('role', 'alert');
+  await expect(page.getByTestId('editor-loading')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /sign out/i })).toBeVisible();
+});
+
 test('logout clears cached persona data before navigating to login', async ({ page, api }) => {
   await api.loginAs(appAdmin);
   api.override('GET', '/auth/logout', async (route, _params, state) => {

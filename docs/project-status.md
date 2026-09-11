@@ -474,6 +474,13 @@ the contributing set.
 
 ## 4. Smaller follow-ups
 
+- [x] **CodeMirror behind a lazy boundary (done 2026-09-11).** `src/editor/LazyAlloyEditor`
+  wraps `AlloyEditor` in `lazyNamed` (now shared from `src/lib/lazyNamed`, typed by the target
+  component's props) + Suspense; the two consumers (pipeline editor, wizard preview) import the
+  wrapper. Entry chunk 894 kB → 688 kB (gzip 274 → 200 kB); CodeMirror + Lezer + the Alloy
+  language sources are a 383 kB chunk fetched on first editor mount. A failed editor chunk lands
+  in the same `RouteErrorFallback` as a failed page chunk (`tests/specs/states.spec.ts`).
+  `chunkSizeWarningLimit` lowered to 750 so a static re-import of the editor trips the warning.
 - [x] **Vite 8 migration (deferred 2026-09-11, done 2026-09-11).** vite 8.3.0 (rolldown): the
   React 19 branch's `lazyNamed()` route loader and `onCaughtError` hook already turn the
   route-chunk failure (`tests/specs/states.spec.ts:59`) into the shared error fallback with no
