@@ -901,19 +901,32 @@ func (s *PipelineService) GetRevision(ctx context.Context, req *connect.Request[
 // other and the UI warns that the next git sync will overwrite it, so
 // errGitSourceReadOnly deliberately does not apply here.
 //
-// The candidate goes through the same validation gate UpdatePipeline uses:
-// validateSaveInput (name/matchers/Stage 1+2, plus the visual render-match
-// check when source=="visual" and the restored wizard_state is non-nil —
-// see the package doc-comment risk note: a revision written before 0019 has
-// NULL wizard_state, so restoring it restores text only and leaves the
-// stored graph, which can then disagree with the restored text for a
-// visual pipeline; that is a data-vintage limitation, not a bug), and
-// stage3Check when the pipeline is already enabled. If the restored
-// revision's enabled bit differs from the pipeline's current one, that
-// transition is validated through stage3Check exactly the way
-// EnablePipeline/DisablePipeline validate it — restoring `enabled` is a
-// state restore that still goes THROUGH the transition's own gate, never
-// around it, so "never serve unvalidated config" keeps holding.
+// The candidate goes through the same Stage1+2 gate UpdatePipeline uses
+// (validateSaveInput, name/matchers/content) — WizardState is deliberately
+// NOT passed to validateSaveInput here, unlike Create/UpdatePipeline: that
+// gate's visual render-equality check exists to catch a CLIENT submitting
+// hand-edited content that disagrees with the graph it claims to render
+// from, and restore submits neither — both contents and wizard_state come
+// from a revision this server itself already stored. Running that check
+// against server-stored content means a renderer/schema change made after
+// the revision was written can refuse a legitimate restore with
+// already_exists/409 and a message inviting the caller to POST
+// /visual/render for a request that submitted no content at all. (A
+// revision written before migration 0019 has NULL wizard_state regardless,
+// so restoring it restores text only and leaves the stored graph, which can
+// then disagree with the restored text for a visual pipeline; that is a
+// data-vintage limitation, not something this check would catch either.)
+//
+// Stage 3 runs exactly once, gated on the pipeline's state AFTER this
+// restore completes (targetEnabled), before any write — covering both a
+// content change on an already-(and-still)-enabled pipeline and an
+// enabled-bit TRANSITION in either direction with the one check
+// EnablePipeline/DisablePipeline/UpdatePipeline would each run for that
+// same resulting state, run BEFORE UpdatePipeline persists anything so a
+// failure here leaves the stored pipeline row, and the revision history,
+// completely untouched — no half-restore. It is skipped only when the
+// pipeline is disabled both before and after (nothing is, or becomes,
+// served), mirroring UpdatePipeline's own `if p.Enabled` gate.
 func (s *PipelineService) RestoreRevision(ctx context.Context, req *connect.Request[mgmtv1.RestoreRevisionRequest]) (*connect.Response[mgmtv1.Pipeline], error) {
 	if err := requireWriteAuthorized(ctx); err != nil {
 		return nil, err
@@ -950,15 +963,23 @@ func (s *PipelineService) RestoreRevision(ctx context.Context, req *connect.Requ
 	candidate.Matchers = rv.Matchers
 	candidate.WizardState = rv.WizardState
 
+	// See the doc comment above: WizardState is intentionally omitted here
+	// so the client-submission render-equality gate never engages for
+	// server-stored content.
 	if _, err := s.validateSaveInput(ctx, pipelineSaveInput{
 		Name: p.Name, Contents: rv.Contents, Matchers: matchers,
-		Source: p.Source, WizardState: rv.WizardState,
+		Source: p.Source,
 	}); err != nil {
 		return nil, err
 	}
 
-	if p.Enabled {
-		if err := s.stage3Check(ctx, candidate, looseUUID(msg.GetOrgId()), true); err != nil {
+	targetEnabled := rv.Enabled
+	orgID := looseUUID(msg.GetOrgId())
+	// One Stage3 check, gated on the state the pipeline is IN after this
+	// restore, run before any write — see the doc comment above for why
+	// this replaced the previous two-check, write-in-the-middle sequence.
+	if p.Enabled || targetEnabled {
+		if err := s.stage3Check(ctx, candidate, orgID, targetEnabled); err != nil {
 			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 		}
 	}
@@ -981,18 +1002,13 @@ func (s *PipelineService) RestoreRevision(ctx context.Context, req *connect.Requ
 		return nil, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
 	}
 
-	// Restoring an old enabled=true onto a currently-disabled pipeline (or
-	// vice versa) is an enable/disable TRANSITION and must go through the
-	// same stage3Check setEnabled runs — restoring state is not a way
-	// around the "never serve unvalidated config" gate. UpdatePipeline's
-	// query never touches the enabled column, so updated.Enabled == p.Enabled
-	// here; compared against p.Enabled directly to mirror the plan's wording.
-	if rv.Enabled != p.Enabled {
-		if err := s.stage3Check(ctx, candidate, looseUUID(msg.GetOrgId()), rv.Enabled); err != nil {
-			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
-		}
+	// The enabled bit itself is never touched by UpdatePipeline's query, so
+	// it still needs its own write when the restore changes it. The
+	// validating check for this transition already ran above, before
+	// UpdatePipeline; this is persistence only.
+	if targetEnabled != p.Enabled {
 		updated, err = s.store.Queries.SetPipelineEnabled(ctx, sqlc.SetPipelineEnabledParams{
-			ID: p.ID, Enabled: rv.Enabled, UpdatedBy: actor,
+			ID: p.ID, Enabled: targetEnabled, UpdatedBy: actor,
 		})
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
@@ -1007,12 +1023,14 @@ func (s *PipelineService) RestoreRevision(ctx context.Context, req *connect.Requ
 		s.logger.Error("restore revision: create revision", "err", revErr, "pipeline_id", updated.ID.String())
 	}
 
-	orgID := looseUUID(msg.GetOrgId())
-	// Same eager recompute UpdatePipeline runs — see its identical block for
-	// the //nolint rationale (G118+contextcheck: intentional detached
-	// context); not repeating a new nolint directive here per the ≤20 budget
-	// make lint checks.
-	if updated.Enabled {
+	// Dirty/recompute whenever the pipeline is enabled now OR was enabled
+	// before the restore: a restore that flips enabled -> disabled still
+	// has to drop the pipeline from what collectors are served, exactly
+	// like setEnabled's and DeletePipeline's unconditional dirty+recompute
+	// — checking only updated.Enabled would leave the serve cache clean
+	// (and still containing this pipeline's merged config) whenever a
+	// restore turns an enabled pipeline off.
+	if updated.Enabled || p.Enabled {
 		if dirtyErr := s.store.Queries.MarkServeCacheDirtyByOrg(ctx, orgID); dirtyErr != nil {
 			s.logger.Error("restore revision: mark serve cache dirty", "err", dirtyErr, "org_id", orgID.String())
 		}

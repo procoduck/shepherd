@@ -26,6 +26,10 @@ import (
 // GetServedConfigResponse.computed_at on a cache miss) — those responses
 // must render through writeProtoJSONOmit (below), naming the fields that
 // need `,omitempty` semantics restored, not through MarshalOpts directly.
+// ListRevisions is the same story one level down: PipelineRevision.items
+// carries fields (contents/matchers/enabled/wizard_state) that only
+// GetRevision populates, so ListRevisions strips them per item — see
+// revisionOmitFields in pipelines.go.
 var MarshalOpts = protojson.MarshalOptions{
 	UseProtoNames:   true,
 	EmitUnpopulated: true,
@@ -132,11 +136,11 @@ func encodeJSONArray(items []json.RawMessage) []byte {
 
 // isZeroJSONLiteral reports whether v is the JSON literal MarshalOpts
 // (EmitUnpopulated) emits for an unpopulated field of some proto kind: ""
-// for a string, 0 for a number, [] for a repeated field, or null for an
-// unset singular message (e.g. google.protobuf.Timestamp).
+// for a string, 0 for a number, [] for a repeated field, false for a bool,
+// or null for an unset singular message (e.g. google.protobuf.Timestamp).
 func isZeroJSONLiteral(v json.RawMessage) bool {
 	switch string(bytes.TrimSpace(v)) {
-	case `""`, `0`, `[]`, `null`:
+	case `""`, `0`, `[]`, `false`, `null`:
 		return true
 	default:
 		return false

@@ -15,6 +15,7 @@ import (
 	"shepherd/internal/config"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
+	"shepherd/internal/version"
 )
 
 // pipelineID extracts "id" from a decoded Connect JSON response body,
@@ -395,6 +396,195 @@ var _ = Describe("PipelineService GetRevision / RestoreRevision", Label("integra
 		Expect(applyResp.StatusCode).To(Equal(http.StatusBadRequest))
 		Expect(g11DecodeBody(applyResp)["code"]).To(Equal("invalid_argument"))
 	})
+
+	// 10. Fix-up (backend review, F-REVISIONS): a restore that flips an
+	// ENABLED pipeline back to disabled must dirty and recompute the serve
+	// cache exactly as EnablePipeline/DisablePipeline/DeletePipeline do —
+	// otherwise every collector the pipeline matched keeps being served its
+	// config indefinitely, since nothing else would ever mark the cache
+	// dirty again. Only the enabled bit changes across the restore here (the
+	// matcher and content are identical before and after), isolating the
+	// assertion to the dirty/recompute wiring rather than any content
+	// difference.
+	It("dirties and recomputes the serve cache when a restore flips an enabled pipeline back to disabled", func() {
+		cluster, err := st.Queries.UpsertCluster(ctx, "restore-dirty-cluster")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgUUID(orgID)})).To(Succeed())
+		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+		Expect(err).NotTo(HaveOccurred())
+
+		createResp := postConnectJSON(server, "/shepherd.mgmt.v1.PipelineService/CreatePipeline", editorCookie, map[string]any{
+			"orgId": orgID, "name": "restore-dirty-pipe", "contents": "// RESTORE-DIRTY-MARKER\n",
+			"matchers": []string{`role="metrics"`},
+		})
+		Expect(createResp.StatusCode).To(Equal(http.StatusOK))
+		var p map[string]any
+		Expect(json.NewDecoder(createResp.Body).Decode(&p)).To(Succeed())
+		Expect(createResp.Body.Close()).To(Succeed())
+		id := pipelineID(p)
+
+		// Enable it (still rev1's content — EnablePipeline never writes a
+		// new revision) and wait for the resulting eager recompute to
+		// actually serve this collector the marker, proving the setup is
+		// live before the restore under test.
+		enableResp := postConnectJSON(server, "/shepherd.mgmt.v1.PipelineService/EnablePipeline", editorCookie, map[string]any{
+			"orgId": orgID, "id": id,
+		})
+		Expect(enableResp.StatusCode).To(Equal(http.StatusOK))
+		Expect(enableResp.Body.Close()).To(Succeed())
+
+		Eventually(func() string {
+			cache, cacheErr := st.Queries.GetServeCache(ctx, collector.ID)
+			if cacheErr != nil {
+				return ""
+			}
+			return cache.Content
+		}, "5s", "20ms").Should(ContainSubstring("RESTORE-DIRTY-MARKER"),
+			"collector must be served the enabled pipeline's content before the restore under test")
+
+		// Restore revision 1 — created disabled, so this is an
+		// enabled(true) -> disabled(false) TRANSITION.
+		resp := restoreRevision(editorCookie, id, 1, "")
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		Expect(resp.Body.Close()).To(Succeed())
+
+		var pid pgtype.UUID
+		Expect(pid.Scan(id)).To(Succeed())
+		reloaded, err := st.Queries.GetPipelineByID(ctx, pid)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(reloaded.Enabled).To(BeFalse(), "restoring revision 1 must flip the pipeline back to disabled")
+
+		Eventually(func() string {
+			cache, cacheErr := st.Queries.GetServeCache(ctx, collector.ID)
+			if cacheErr != nil {
+				return "sentinel: no serve_cache row"
+			}
+			return cache.Content
+		}, "5s", "20ms").ShouldNot(ContainSubstring("RESTORE-DIRTY-MARKER"),
+			"restoring a pipeline from enabled to disabled must dirty+recompute the serve cache so "+
+				"the collector stops being served its config")
+	})
+
+	// 11. Fix-up (backend review, F-REVISIONS): when the enabled-transition
+	// Stage 3 check fails, the restore must leave the pipeline row, its
+	// revision history, and the audit log completely untouched — no
+	// half-restore where contents/matchers/wizard_state were already
+	// committed before the transition gate ran. Stage 3 is forced to fail
+	// deterministically via an effectively-zero Stage3Timeout on a
+	// dedicated server for this spec, rather than a genuine merge content
+	// conflict: this harness runs with no alloy binary (Stage 2 is always
+	// skipped, matching every other spec in this file) and Stage 1's bare
+	// syntax parser does not detect duplicate/colliding component labels
+	// across pipelines (that only surfaces once Alloy actually evaluates
+	// the merged component graph); a two-pipeline NAME collision, which
+	// would trip merge.Assemble's own declare-name-collision check without
+	// needing Stage 2 at all, is independently blocked by the
+	// pipelines_org_sanitized_name_key DB constraint. What matters for this
+	// fix is the WRITE ORDERING — Stage 3 must run, and be allowed to fail,
+	// strictly before UpdatePipeline touches the row — and a timeout
+	// reaches that same stage3Check failure branch exactly as a real merge
+	// conflict would, deterministically and content-independently.
+	It("leaves the pipeline row, revision history and audit log untouched when the Stage 3 transition check fails", func() {
+		tinyStage3Cfg := &config.Config{
+			Auth: config.AuthConfig{InsecureCookies: true},
+			Validate: config.ValidateConfig{
+				AlloyBinary: "", StabilityLevel: "experimental", Timeout: 10e9,
+				Stage3Timeout: 1, // effectively zero: context.WithTimeout's deadline is already past at creation, so every Stage3Check call fails deterministically.
+			},
+		}
+		tinyAuthHandler := auth.NewLocalAdmin(tinyStage3Cfg, st, slog.Default())
+		tinyServer := httptest.NewServer(newRPCWiringRouter(st, tinyAuthHandler, tinyStage3Cfg))
+		defer tinyServer.Close()
+
+		createResp := postConnectJSON(tinyServer, "/shepherd.mgmt.v1.PipelineService/CreatePipeline", editorCookie, map[string]any{
+			"orgId": orgID, "name": "restore-stage3-timeout", "contents": "// v1\n", "matchers": []string{},
+		})
+		Expect(createResp.StatusCode).To(Equal(http.StatusOK))
+		var p map[string]any
+		Expect(json.NewDecoder(createResp.Body).Decode(&p)).To(Succeed())
+		Expect(createResp.Body.Close()).To(Succeed())
+		id := pipelineID(p)
+		var pid pgtype.UUID
+		Expect(pid.Scan(id)).To(Succeed())
+
+		// Seed rev2 directly with enabled=true so restoring it is a
+		// disabled(false) -> enabled(true) TRANSITION — the path the fix
+		// gates on `p.Enabled || targetEnabled`, exercised here via
+		// targetEnabled alone (the pipeline itself stays disabled).
+		_, err := st.Queries.CreatePipelineRevision(ctx, sqlc.CreatePipelineRevisionParams{
+			PipelineID: pid, Revision: 2, Contents: "// v2 would-be-restored\n",
+			Matchers: json.RawMessage(`[]`), Enabled: true, ChangedBy: "test", ChangeNote: "seeded enabled",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		resp := postConnectJSON(tinyServer, "/shepherd.mgmt.v1.PipelineService/RestoreRevision", editorCookie, map[string]any{
+			"orgId": orgID, "id": id, "revision": 2,
+		})
+		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+		Expect(connectErrorCode(resp)).To(Equal("failed_precondition"))
+		Expect(resp.Body.Close()).To(Succeed())
+
+		reloaded, err := st.Queries.GetPipelineByID(ctx, pid)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(reloaded.Contents).To(Equal("// v1\n"), "a failed Stage 3 transition check must not touch the pipeline's stored contents")
+		Expect(reloaded.Enabled).To(BeFalse(), "a failed Stage 3 transition check must not flip the enabled bit")
+
+		revs, err := st.Queries.ListPipelineRevisions(ctx, pid)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(revs).To(HaveLen(2), "a failed restore must not write a new revision")
+
+		rows, err := st.Queries.ListAuditLog(ctx, sqlc.ListAuditLogParams{Column1: orgUUID(orgID), Limit: 100})
+		Expect(err).NotTo(HaveOccurred())
+		for i := range rows {
+			if rows[i].Action == "pipeline.restore" {
+				Expect(rows[i].ResourceID).NotTo(Equal(id), "a failed restore must not write a pipeline.restore audit row")
+			}
+		}
+	})
+
+	// 12. Fix-up (backend review, F-REVISIONS): RestoreRevision must not run
+	// the client-submission visual render-equality gate against
+	// server-stored content. Unlike rpc_revisions_test.go's existing visual
+	// spec (whose graph's schema_version "v1" does not resolve, so
+	// checkVisualRenderMatch errors and the comparison never actually
+	// runs), this graph uses the real embedded schema version so the
+	// render-match check genuinely engages — and the stored contents are
+	// deliberately NOT what re-rendering the graph produces, simulating a
+	// renderer/schema change since the revision was written. Before the
+	// fix this restore is refused already_exists/409; after it, restoring
+	// server-stored content is never subject to that gate at all.
+	It("restores a visual pipeline even when its stored contents no longer match re-rendering its graph", func() {
+		graph := map[string]any{
+			"kind": "alloy-graph/v1", "schema_version": version.AlloySchemaVersion,
+			"nodes": []map[string]any{
+				{
+					"id": "n1", "component": "prometheus.exporter.unix", "label": "unix",
+					"position": map[string]any{"x": 0, "y": 0}, "props": map[string]any{},
+				},
+			},
+			"edges": []any{}, "bindings": []any{},
+		}
+		graphJSON, err := json.Marshal(graph)
+		Expect(err).NotTo(HaveOccurred())
+
+		p, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: orgUUID(orgID), Name: "restore-visual-render-mismatch", Contents: "// stale content predating a renderer change\n",
+			Matchers: json.RawMessage(`[]`), Enabled: false, Source: "visual",
+			WizardState: graphJSON, CreatedBy: "test", UpdatedBy: "test",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		_, err = st.Queries.CreatePipelineRevision(ctx, sqlc.CreatePipelineRevisionParams{
+			PipelineID: p.ID, Revision: 1, Contents: "// stale content predating a renderer change\n",
+			Matchers: json.RawMessage(`[]`), Enabled: false, ChangedBy: "test", ChangeNote: "created",
+			WizardState: graphJSON,
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		resp := restoreRevision(editorCookie, p.ID.String(), 1, "")
+		defer resp.Body.Close() //nolint:errcheck // test cleanup
+		Expect(resp.StatusCode).To(Equal(http.StatusOK),
+			"restoring server-stored content must not be refused by the client-submission render-equality gate")
+	})
 })
 
 // REST shim coverage for GetRevision/RestoreRevision (B-6.8): separate
@@ -493,5 +683,45 @@ var _ = Describe("REST shim: pipeline revisions", Label("integration"), func() {
 		Expect(json.NewDecoder(afterResp.Body).Decode(&after)).To(Succeed())
 		Expect(afterResp.Body.Close()).To(Succeed())
 		Expect(after.Items).To(HaveLen(len(before.Items) + 1))
+	})
+
+	// Fix-up (backend review, F-REVISIONS): S1 ("ListRevisions stays
+	// metadata-only") must hold on the REST shim too, not just the Connect
+	// endpoint — writeProtoJSON's EmitUnpopulated marshals every list item's
+	// contents/matchers/enabled/wizard_state as its zero value unless the
+	// shim strips them the same way pipelineOmitFields already does for
+	// Pipeline. GetRevision (singular) must still carry them in full.
+	It("keeps REST ListRevisions metadata-only while GET .../revisions/{rev} stays full", func() {
+		createResp := postJSON(server, "/orgs/"+orgID+"/pipelines", map[string]any{
+			"name": "rest-revisions-omit", "contents": "// v1\n", "matchers": []string{`cluster="prod"`},
+		}, editorCookie)
+		Expect(createResp.StatusCode).To(Equal(http.StatusCreated))
+		var created map[string]any
+		Expect(json.NewDecoder(createResp.Body).Decode(&created)).To(Succeed())
+		Expect(createResp.Body.Close()).To(Succeed())
+		id := pipelineID(created)
+
+		listResp := getRequest(server, "/orgs/"+orgID+"/pipelines/"+id+"/revisions", editorCookie)
+		Expect(listResp.StatusCode).To(Equal(http.StatusOK))
+		var list struct {
+			Items []map[string]any `json:"items"`
+		}
+		Expect(json.NewDecoder(listResp.Body).Decode(&list)).To(Succeed())
+		Expect(listResp.Body.Close()).To(Succeed())
+		Expect(list.Items).To(HaveLen(1))
+		for _, key := range []string{"contents", "matchers", "enabled", "wizard_state"} {
+			_, has := list.Items[0][key]
+			Expect(has).To(BeFalse(), "REST ListRevisions must stay metadata-only and never carry %q", key)
+		}
+
+		revResp := getRequest(server, "/orgs/"+orgID+"/pipelines/"+id+"/revisions/1", editorCookie)
+		Expect(revResp.StatusCode).To(Equal(http.StatusOK))
+		var rev map[string]any
+		Expect(json.NewDecoder(revResp.Body).Decode(&rev)).To(Succeed())
+		Expect(revResp.Body.Close()).To(Succeed())
+		Expect(rev["contents"]).To(Equal("// v1\n"))
+		matchers, hasMatchers := rev["matchers"].([]any)
+		Expect(hasMatchers).To(BeTrue(), "GetRevision must carry matchers")
+		Expect(matchers).To(ConsistOf(`cluster="prod"`))
 	})
 })

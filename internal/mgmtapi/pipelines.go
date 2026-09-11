@@ -190,6 +190,15 @@ func (h *PipelinesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// revisionOmitFields names the PipelineRevision fields ListRevisions must
+// keep metadata-only on the REST surface (S1). revisionToProto never
+// populates them for a list item, but MarshalOpts' EmitUnpopulated still
+// serializes their zero values (contents:"", matchers:[], enabled:false,
+// wizard_state:null) unless stripped here — see writeProtoJSONOmit's doc
+// comment. GetRevision (below) renders through plain writeProtoJSON so
+// these same fields, populated there, still ship in full.
+var revisionOmitFields = []string{"contents", "matchers", "enabled", "wizard_state"}
+
 // ListRevisions GET /api/orgs/{org}/pipelines/{id}/revisions
 func (h *PipelinesHandler) ListRevisions(w http.ResponseWriter, r *http.Request) {
 	req := &mgmtv1.ListRevisionsRequest{OrgId: chi.URLParam(r, "org"), Id: chi.URLParam(r, "id")}
@@ -198,7 +207,7 @@ func (h *PipelinesHandler) ListRevisions(w http.ResponseWriter, r *http.Request)
 		WriteConnectError(w, err)
 		return
 	}
-	writeProtoJSON(w, http.StatusOK, resp.Msg)
+	writeProtoJSONOmit(w, http.StatusOK, resp.Msg, revisionOmitFields...)
 }
 
 // pipelineRestoreRequest is the (optional) legacy wire shape for the
