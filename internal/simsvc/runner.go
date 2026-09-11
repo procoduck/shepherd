@@ -1,7 +1,7 @@
 package simsvc
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -124,28 +125,26 @@ func runAlloy(ctx context.Context, opts runnerOptions, logger *slog.Logger) runO
 	cmd.WaitDelay = grace
 	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
 
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return runOutcome{Err: fmt.Errorf("stderr pipe: %w", err)}
-	}
 	// Alloy writes its own logs to stderr; stdout carries nothing we need, and
 	// discarding it keeps a chatty component from filling a pipe nobody reads.
+	//
+	// stderr goes through a writer installed on cmd rather than a
+	// cmd.StderrPipe drained by a goroutine: os/exec copies a non-*os.File
+	// writer itself and Wait does not return until that copy is complete,
+	// whereas Wait closes a StderrPipe as soon as the child exits, racing the
+	// reader and dropping the tail of a fast exit (os/exec documents that
+	// calling Wait before all pipe reads complete is incorrect). That race
+	// made the "invokes Alloy with the exact run flags" spec fail under CI
+	// load, and in production it could lose the last lines a crashing Alloy
+	// wrote, which are exactly the lines a user needs to see.
+	tail := newRingBuffer(MaxStderrTail)
+	stderrLines := &lineWriter{tail: tail}
 	cmd.Stdout = io.Discard
+	cmd.Stderr = stderrLines
 
 	if err := cmd.Start(); err != nil {
 		return runOutcome{Err: fmt.Errorf("%w: %w", errAlloyStartFailed, err)}
 	}
-
-	tail := newRingBuffer(MaxStderrTail)
-	stderrDone := make(chan struct{})
-	go func() {
-		defer close(stderrDone)
-		scanner := bufio.NewScanner(stderr)
-		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-		for scanner.Scan() {
-			tail.add(scanner.Text())
-		}
-	}()
 
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
@@ -170,7 +169,7 @@ func runAlloy(ctx context.Context, opts runnerOptions, logger *slog.Logger) runO
 	// context ends, and reading it while it runs is a race.
 	cancel()
 	<-pollDone
-	<-stderrDone
+	stderrLines.flush()
 
 	lines, cut := tail.lines()
 	return runOutcome{
@@ -275,4 +274,40 @@ func fetchComponents(ctx context.Context, client *http.Client, url string) ([]al
 		return nil, fmt.Errorf("components api: decode: %w", err)
 	}
 	return components, nil
+}
+
+// lineWriter splits a stderr stream into lines for the ring buffer. It is
+// written only by os/exec's single copying goroutine and flushed after Wait
+// has returned, so it needs no lock. A line longer than maxLineBytes is
+// emitted in chunks rather than buffered without bound.
+type lineWriter struct {
+	tail *ringBuffer
+	buf  []byte
+}
+
+const maxLineBytes = 1024 * 1024
+
+func (w *lineWriter) Write(p []byte) (int, error) {
+	w.buf = append(w.buf, p...)
+	for {
+		i := bytes.IndexByte(w.buf, '\n')
+		if i < 0 {
+			break
+		}
+		w.tail.add(strings.TrimSuffix(string(w.buf[:i]), "\r"))
+		w.buf = w.buf[i+1:]
+	}
+	if len(w.buf) > maxLineBytes {
+		w.tail.add(string(w.buf))
+		w.buf = w.buf[:0]
+	}
+	return len(p), nil
+}
+
+// flush emits a trailing partial line (output with no final newline).
+func (w *lineWriter) flush() {
+	if len(w.buf) > 0 {
+		w.tail.add(string(w.buf))
+		w.buf = w.buf[:0]
+	}
 }
