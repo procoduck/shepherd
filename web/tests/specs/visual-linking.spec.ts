@@ -1,5 +1,6 @@
 // visual-linking.spec.ts — 7.6.2
 import { expect } from '@playwright/test';
+import { settledBox } from '../fixtures/canvas';
 import { basicScenario } from '../fixtures/factories';
 import { appAdmin } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
@@ -56,13 +57,13 @@ test.describe('visual linking', () => {
     await sourceHandle.waitFor({ timeout: 5_000 });
     await targetHandle.waitFor({ timeout: 5_000 });
 
-    const fromBox = await sourceHandle.boundingBox();
-    const toBox = await targetHandle.boundingBox();
+    const fromBox = await settledBox(sourceHandle);
+    const toBox = await settledBox(targetHandle);
     expect(fromBox).not.toBeNull();
     expect(toBox).not.toBeNull();
 
     const edgesBefore = await page.locator('.react-flow__edge').count();
-    await dragWire(page, fromBox!, toBox!);
+    await dragWire(page, fromBox, toBox);
     await expect(page.locator('.react-flow__edge')).toHaveCount(edgesBefore + 1);
   });
 
@@ -91,13 +92,13 @@ test.describe('visual linking', () => {
     await sourceHandle.waitFor({ timeout: 5_000 });
     await targetHandle.waitFor({ timeout: 5_000 });
 
-    const fromBox = await sourceHandle.boundingBox();
-    const toBox = await targetHandle.boundingBox();
+    const fromBox = await settledBox(sourceHandle);
+    const toBox = await settledBox(targetHandle);
     expect(fromBox).not.toBeNull();
     expect(toBox).not.toBeNull();
 
     const edgesBefore = await page.locator('.react-flow__edge').count();
-    await dragWire(page, fromBox!, toBox!);
+    await dragWire(page, fromBox, toBox);
     await expect(page.locator('.react-flow__edge')).toHaveCount(edgesBefore);
   });
 
@@ -124,7 +125,7 @@ test.describe('visual linking', () => {
 
     await sourceA.waitFor({ timeout: 5_000 });
     await targetB.waitFor({ timeout: 5_000 });
-    await dragWire(page, (await sourceA.boundingBox())!, (await targetB.boundingBox())!);
+    await dragWire(page, await settledBox(sourceA), await settledBox(targetB));
     await expect(page.locator('.react-flow__edge')).toHaveCount(1);
 
     const targetB2 = page
@@ -132,7 +133,7 @@ test.describe('visual linking', () => {
       .nth(1)
       .locator('.react-flow__handle.target')
       .first();
-    await dragWire(page, (await sourceB.boundingBox())!, (await targetB2.boundingBox())!);
+    await dragWire(page, await settledBox(sourceB), await settledBox(targetB2));
     await expect(page.locator('.react-flow__edge')).toHaveCount(1);
   });
 
@@ -166,10 +167,10 @@ test.describe('visual linking', () => {
     await target2.waitFor({ timeout: 5_000 });
 
     // Wire to first relabel
-    await dragWire(page, (await source1.boundingBox())!, (await target1.boundingBox())!);
+    await dragWire(page, await settledBox(source1), await settledBox(target1));
     await expect(page.locator('.react-flow__edge')).toHaveCount(1);
     // Wire to second relabel
-    await dragWire(page, (await source1.boundingBox())!, (await target2.boundingBox())!);
+    await dragWire(page, await settledBox(source1), await settledBox(target2));
     await expect(page.locator('.react-flow__edge')).toHaveCount(2);
   });
 });

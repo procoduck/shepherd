@@ -8,6 +8,7 @@
  * draw.io's shape and Format panels) and remember the choice.
  */
 import { expect } from '@playwright/test';
+import { settledBox, viewportTransform } from '../fixtures/canvas';
 import { basicScenario } from '../fixtures/factories';
 import { appAdmin } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
@@ -116,7 +117,11 @@ test.describe('visual builder layout', () => {
     const node = page.locator('.react-flow__node').first();
     await expect(node).toHaveCount(1);
 
-    const start = (await node.boundingBox())!;
+    // Placement re-fits the view; a box read before that lands starts the
+    // drag on empty pane (see fixtures/canvas.ts). `viewport` proves the
+    // gesture moved the node, not the canvas under it.
+    const start = await settledBox(node);
+    const viewport = await viewportTransform(page);
     await page.mouse.move(start.x + start.width / 2, start.y + 10);
     await page.mouse.down();
     for (let i = 1; i <= 10; i++) {
@@ -126,6 +131,10 @@ test.describe('visual builder layout', () => {
     await page.mouse.up();
     await page.waitForTimeout(200);
 
+    expect(
+      await viewportTransform(page),
+      'the drag panned the canvas instead of moving the node',
+    ).toBe(viewport);
     const moved = (await node.boundingBox())!;
     expect(Math.abs(moved.x - start.x)).toBeGreaterThan(40);
 

@@ -3,14 +3,14 @@
 // (not raw classes, per D2) that PipelineNode's root exposes for exactly
 // this purpose.
 import { expect, type Locator, type Page } from '@playwright/test';
+import { settledBox } from '../fixtures/canvas';
 import { basicScenario } from '../fixtures/factories';
 import { appAdmin } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
 import { test } from '../fixtures/test';
 
 async function center(locator: Locator) {
-  const box = await locator.boundingBox();
-  if (!box) throw new Error('locator has no bounding box');
+  const box = await settledBox(locator);
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
 
