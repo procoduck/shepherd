@@ -73,6 +73,12 @@ updates:
       # (NODE_IMAGE) and ci.yml (node-version), not the newest Node.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # vite 8 switches to the rolldown bundler; on 2026-09-11 (Dependabot
+      # #36) the route-chunk-failure spec started surfacing React error #306
+      # on the console instead of the error boundary handling it. Needs a
+      # planned bundler migration tracked in docs/project-status.md.
+      - dependency-name: "vite"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"

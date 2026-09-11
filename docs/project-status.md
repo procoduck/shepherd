@@ -474,6 +474,12 @@ the contributing set.
 
 ## 4. Smaller follow-ups
 
+- [ ] **Vite 8 migration (deferred 2026-09-11).** Dependabot #36 (vite 8.2, rolldown bundler): the
+  route-chunk-failure spec (`tests/specs/states.spec.ts:59`, a chunk fulfilled with an undefined
+  export) surfaces React error #306 on the console instead of the shared error fallback handling
+  it, and the build reports new chunk-size and native-config warnings. Reproduced locally on 8.3.0.
+  Decide how lazy-route load failures should be surfaced under rolldown, then migrate; Dependabot
+  ignores vite majors until then.
 - [ ] **TypeScript 7 migration (deferred 2026-09-11).** Dependabot #25 (typescript 7.0.2) fails
   typecheck: `tsconfig.json` `baseUrl` is removed (TS5102), and without it the test files lose the
   Node globals (`node:fs`, `node:path`, `__dirname`: TS2591) and `tests/fixtures/schema-fixture.ts`
