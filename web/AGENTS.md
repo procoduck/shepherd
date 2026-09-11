@@ -22,7 +22,7 @@ React 19 + TypeScript + Vite SPA, embedded into the Go binary via `go:embed`.
   ```
   If your registry doesn't have v11, use the brew install (`brew install pnpm`) and add `~/bin/pnpm` wrapper pointing to `/opt/homebrew/bin/pnpm`.
 - **Linter/formatter**: Biome (`biome.json`) — replaces ESLint + Prettier entirely
-- **Build**: Vite 6 with `@tailwindcss/vite` plugin
+- **Build**: Vite 8 (rolldown bundler) with `@tailwindcss/vite` plugin
 - **Registry**: public npm by default; configure a mirror in `web/.npmrc` if your organisation uses one
 
 ## Conventions

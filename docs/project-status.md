@@ -474,12 +474,13 @@ the contributing set.
 
 ## 4. Smaller follow-ups
 
-- [ ] **Vite 8 migration (deferred 2026-09-11).** Dependabot #36 (vite 8.2, rolldown bundler): the
-  route-chunk-failure spec (`tests/specs/states.spec.ts:59`, a chunk fulfilled with an undefined
-  export) surfaces React error #306 on the console instead of the shared error fallback handling
-  it, and the build reports new chunk-size and native-config warnings. Reproduced locally on 8.3.0.
-  Decide how lazy-route load failures should be surfaced under rolldown, then migrate; Dependabot
-  ignores vite majors until then.
+- [x] **Vite 8 migration (deferred 2026-09-11, done 2026-09-11).** vite 8.3.0 (rolldown): the
+  React 19 branch's `lazyNamed()` route loader and `onCaughtError` hook already turn the
+  route-chunk failure (`tests/specs/states.spec.ts:59`) into the shared error fallback with no
+  console error; `web/vite.config.ts` reads `import.meta.dirname` instead of `__dirname` (the
+  native-config-loader warning) and sets `chunkSizeWarningLimit` from measured sizes (entry
+  894 kB, down from 1,020 kB under rollup; every lazy chunk under 210 kB). The Dependabot ignore
+  for vite majors is gone.
 - [x] **TypeScript 7 migration (deferred 2026-09-11, done 2026-09-11).** `web/tsconfig.json` drops
   the removed `baseUrl` (the `@/*` path is tsconfig-relative) and names
   `"types": ["node", "vite/client"]` explicitly — TS 7 no longer auto-includes `@types/*`, which is
