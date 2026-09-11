@@ -11,6 +11,76 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
+## v0.5.0
+
+Chart 0.10.1. No chart template changed since 0.10.0 — the chart moves only
+because its `appVersion` does — so the upgrade is `helm upgrade` with no new
+values and no `UPGRADING.md` section. Every pod rolls once for the new image.
+The release is the dependency and toolchain catch-up after v0.4.0, one
+authentication-path change, and a smaller first paint.
+
+### Authentication — Shipped
+
+- **Connect calls are authenticated before the request body is read.**
+  Collector-token auth (`collector.v1`) and service-account auth
+  (`shepherd.mgmt.v1`) moved from interceptors to connect-go 1.21 request
+  gates, which run on the headers alone — before the body is decompressed or
+  decoded and before any interceptor. A caller with a bad credential no longer
+  makes the server unmarshal its payload. Observable change: a request with a
+  bad credential *and* a malformed body now answers `401 unauthenticated`
+  where it answered `400 invalid_argument` before. Session-cookie auth and the
+  authorization interceptor (which needs the decoded `org_id`) are unchanged.
+- `shepherd_rpc_requests_total{code="unauthenticated"}` keeps counting refused
+  calls: a gate runs outside the interceptor chain, so `telemetry.RequestGate`
+  wraps each one to record the refusal.
+
+### UI — Shipped
+
+- **CodeMirror loads on first editor mount, not on first paint.** The editor
+  (CodeMirror, the Lezer grammar, the Alloy language and completion sources)
+  is its own 383 kB chunk fetched when the pipeline editor or the wizard
+  preview first renders it. Entry chunk 894 kB → 688 kB (gzip 274 → 200 kB).
+  A failed editor chunk lands in the same route error fallback as a failed
+  page chunk.
+- React 19, TypeScript 7, Vite 8 (rolldown), `@vitejs/plugin-react` 6. Three
+  races React 19's scheduling exposed are fixed rather than worked around: the
+  animated re-fit after a click-placed node (now an instant fit in the commit
+  that first paints the node), a lazy route resolving to `undefined` on a
+  stale chunk (now a readable error in the fallback), and the draft "Discard"
+  dismissing its banner before IndexedDB had deleted the draft.
+
+### Fixes
+
+- `simsvc`: Alloy's stderr is captured through a writer that `exec` drains,
+  not a pipe that `Wait` could close early — the last lines of a failing run
+  were sometimes lost.
+- `k8s.io/api` and `client-go` aligned with `apimachinery` 0.37.0; CI now
+  vets the kind suite (`-tags e2ek8s`) so a grouped bump cannot split the
+  siblings again.
+- The stray `web/package-lock.json` is gone; `scripts/repocheck` guards that
+  only `pnpm-lock.yaml` is tracked (the two Dependabot alerts filed against it
+  were real, not stale).
+
+### Build & CI
+
+- Every GitHub Action major from the Dependabot backlog is in (checkout 7,
+  setup-go 7, setup-node 7, cache 6, upload-artifact 7, Pages actions,
+  buildx/qemu/login 4, setup-helm 5, goreleaser-action 7, golangci-lint-action
+  9, pnpm/action-setup 6); `@types/node` stays pinned to the Node 24 line and
+  is the only remaining Dependabot ignore.
+- connect-go 1.21, grpc 1.83, vitest 5, jsdom 30, nanoid 6, lucide-react 1.x
+  and the grouped minors.
+
+### Tests
+
+- The canvas drag specs start from a settled layout
+  (`tests/fixtures/canvas.ts`): the post-placement re-fit could land after a
+  bounding box was read, so under CI load a drag started on empty pane and
+  panned the canvas instead of moving the node. 64/64 under load after;
+  1–2 failures per 40 before, on `main` as well as on the branches that hit
+  it.
+- Red-run-proven specs for the request gates on both RPC surfaces.
+
 ## v0.4.0
 
 Chart 0.10.0. A repo-wide remediation pass across CI, the Go core, RBAC,
