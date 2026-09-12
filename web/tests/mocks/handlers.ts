@@ -88,6 +88,7 @@ function collectorToWire(c: Obj) {
     alloyVersion: s(c, 'alloy_version'),
     localAttributes: c['local_attributes'] ?? {},
     instances: arr<Obj>(c, 'instances').map(collectorInstanceToWire),
+    labels: c['labels'] ?? {},
   };
 }
 
@@ -886,6 +887,18 @@ export function installDefaultHandlers(router: Router) {
   });
 
   // ── FleetService ─────────────────────────────────────────────────────────
+  for (const method of ['SetCollectorLabel', 'DeleteCollectorLabel']) {
+    router.register('POST', `/shepherd.mgmt.v1.FleetService/${method}`, async (r) => {
+      const req = await body(r);
+      const c = (st.collectors as Obj[]).find((x) => x['id'] === req['collectorId']);
+      if (!c) return connectError(r, 404, 'not_found', 'collector not found');
+      const labels = { ...((c['labels'] as Record<string, string>) ?? {}) };
+      if (method === 'SetCollectorLabel') labels[String(req['key'])] = String(req['value'] ?? '');
+      else delete labels[String(req['key'])];
+      c['labels'] = labels;
+      return json(r, 200, { labels });
+    });
+  }
   router.register('POST', '/shepherd.mgmt.v1.FleetService/ListCollectors', (r) =>
     json(r, 200, list((st.collectors as Obj[]).map(collectorToWire))),
   );

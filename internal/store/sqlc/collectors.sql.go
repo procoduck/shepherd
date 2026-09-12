@@ -7,12 +7,32 @@ package sqlc
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const deleteCollectorLabel = `-- name: DeleteCollectorLabel :one
+UPDATE collectors
+SET labels = labels - $1::text, updated_at = now()
+WHERE id = $2
+RETURNING labels
+`
+
+type DeleteCollectorLabelParams struct {
+	LabelKey string      `json:"label_key"`
+	ID       pgtype.UUID `json:"id"`
+}
+
+func (q *Queries) DeleteCollectorLabel(ctx context.Context, arg DeleteCollectorLabelParams) (json.RawMessage, error) {
+	row := q.db.QueryRow(ctx, deleteCollectorLabel, arg.LabelKey, arg.ID)
+	var labels json.RawMessage
+	err := row.Scan(&labels)
+	return labels, err
+}
+
 const getCollectorByClusterAndRole = `-- name: GetCollectorByClusterAndRole :one
-SELECT c.id, c.cluster_id, c.role, c.created_at, c.updated_at FROM collectors c
+SELECT c.id, c.cluster_id, c.role, c.created_at, c.updated_at, c.labels FROM collectors c
 JOIN clusters cl ON c.cluster_id = cl.id
 WHERE cl.name = $1 AND c.role = $2
 `
@@ -31,12 +51,13 @@ func (q *Queries) GetCollectorByClusterAndRole(ctx context.Context, arg GetColle
 		&i.Role,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Labels,
 	)
 	return i, err
 }
 
 const getCollectorByID = `-- name: GetCollectorByID :one
-SELECT id, cluster_id, role, created_at, updated_at FROM collectors WHERE id = $1
+SELECT id, cluster_id, role, created_at, updated_at, labels FROM collectors WHERE id = $1
 `
 
 func (q *Queries) GetCollectorByID(ctx context.Context, id pgtype.UUID) (Collector, error) {
@@ -48,6 +69,7 @@ func (q *Queries) GetCollectorByID(ctx context.Context, id pgtype.UUID) (Collect
 		&i.Role,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Labels,
 	)
 	return i, err
 }
@@ -66,7 +88,7 @@ func (q *Queries) GetCollectorOrgID(ctx context.Context, id pgtype.UUID) (pgtype
 }
 
 const listCollectorsByOrg = `-- name: ListCollectorsByOrg :many
-SELECT c.id, c.cluster_id, c.role, c.created_at, c.updated_at FROM collectors c
+SELECT c.id, c.cluster_id, c.role, c.created_at, c.updated_at, c.labels FROM collectors c
 JOIN clusters cl ON c.cluster_id = cl.id
 WHERE cl.org_id = $1
 ORDER BY cl.name, c.role
@@ -87,6 +109,7 @@ func (q *Queries) ListCollectorsByOrg(ctx context.Context, orgID pgtype.UUID) ([
 			&i.Role,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Labels,
 		); err != nil {
 			return nil, err
 		}
@@ -142,11 +165,32 @@ func (q *Queries) ListCollectorsWithClusterByOrg(ctx context.Context, orgID pgty
 	return items, nil
 }
 
+const setCollectorLabel = `-- name: SetCollectorLabel :one
+UPDATE collectors
+SET labels = labels || jsonb_build_object($1::text, $2::text),
+    updated_at = now()
+WHERE id = $3
+RETURNING labels
+`
+
+type SetCollectorLabelParams struct {
+	LabelKey   string      `json:"label_key"`
+	LabelValue string      `json:"label_value"`
+	ID         pgtype.UUID `json:"id"`
+}
+
+func (q *Queries) SetCollectorLabel(ctx context.Context, arg SetCollectorLabelParams) (json.RawMessage, error) {
+	row := q.db.QueryRow(ctx, setCollectorLabel, arg.LabelKey, arg.LabelValue, arg.ID)
+	var labels json.RawMessage
+	err := row.Scan(&labels)
+	return labels, err
+}
+
 const upsertCollector = `-- name: UpsertCollector :one
 INSERT INTO collectors (cluster_id, role)
 VALUES ($1, $2)
 ON CONFLICT (cluster_id, role) DO UPDATE SET updated_at = now()
-RETURNING id, cluster_id, role, created_at, updated_at
+RETURNING id, cluster_id, role, created_at, updated_at, labels
 `
 
 type UpsertCollectorParams struct {
@@ -163,6 +207,7 @@ func (q *Queries) UpsertCollector(ctx context.Context, arg UpsertCollectorParams
 		&i.Role,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Labels,
 	)
 	return i, err
 }

@@ -17,6 +17,8 @@ service FleetService {
   rpc CreateAssignment(CreateAssignmentRequest) returns (CreateAssignmentResponse) {}
   rpc DeleteAssignment(DeleteAssignmentRequest) returns (DeleteAssignmentResponse) {}
   rpc ListAttributes(ListAttributesRequest) returns (ListAttributesResponse) {}
+  rpc SetCollectorLabel(SetCollectorLabelRequest) returns (CollectorLabelsResponse) {}
+  rpc DeleteCollectorLabel(DeleteCollectorLabelRequest) returns (CollectorLabelsResponse) {}
 }
 
 // CollectorInstance mirrors internal/mgmtapi/orgs.go: collectorInstanceResponse.
@@ -48,6 +50,25 @@ message Collector {
   string alloy_version = 9;
   google.protobuf.Struct local_attributes = 10;
   repeated CollectorInstance instances = 11;
+  // UI-managed grouping labels, independent of Alloy attributes and pipeline matching.
+  map<string, string> labels = 12;
+}
+
+message SetCollectorLabelRequest {
+  string org_id = 1;
+  string collector_id = 2;
+  string key = 3;
+  string value = 4;
+}
+
+message DeleteCollectorLabelRequest {
+  string org_id = 1;
+  string collector_id = 2;
+  string key = 3;
+}
+
+message CollectorLabelsResponse {
+  map<string, string> labels = 1;
 }
 
 message ListCollectorsRequest {

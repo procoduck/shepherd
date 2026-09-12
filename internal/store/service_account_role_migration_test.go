@@ -92,10 +92,16 @@ var _ = Describe("Migration: 0018_service_account_role", Label("integration"), f
 	})
 
 	It("drops the role column on the down migration", func(ctx context.Context) {
-		// 0018 is head at the time this spec is written: a single MigrateDown
-		// reverts exactly it.
+		// Roll back through 0018 even when later migrations have been added.
+		for {
+			var version int
+			Expect(db.QueryRow(ctx, `SELECT version FROM schema_migrations`).Scan(&version)).To(Succeed())
+			if version < 18 {
+				break
+			}
+			Expect(store.MigrateDown(ctx, url)).To(Succeed())
+		}
 		db.Close()
-		Expect(store.MigrateDown(ctx, url)).To(Succeed())
 
 		probe, err := pgxpool.New(ctx, url)
 		Expect(err).NotTo(HaveOccurred())
