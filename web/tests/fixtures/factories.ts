@@ -28,6 +28,7 @@ interface Collector {
   last_seen?: string;
   alloy_version?: string;
   local_attributes?: Record<string, string>;
+  labels?: Record<string, string>;
   instances?: unknown[];
 }
 interface Pipeline {

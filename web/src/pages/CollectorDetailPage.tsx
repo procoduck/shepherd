@@ -4,6 +4,7 @@ import { CheckCircle, Copy, Plus, Search, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { clients, toApiError } from '@/api/transport';
+import { CollectorAttributes, CollectorLabelsButton } from '@/components/CollectorLabels';
 import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Field, Input } from '@/components/ui/Field';
@@ -115,7 +116,7 @@ function assignmentColumns(
   ];
 }
 
-type Tab = 'config' | 'info' | 'access';
+type Tab = 'config' | 'info' | 'attributes' | 'access';
 
 export function CollectorDetailPage() {
   const { id } = useParams({ from: '/shell/content/collectors/$id' });
@@ -245,10 +246,13 @@ export function CollectorDetailPage() {
   const statusColor = STATUS_COLORS[status] ?? 'text-muted bg-border border-border-strong';
   const instances = detail?.instances ?? [];
   const latestOs = instances[0]?.os;
-  const tabs: Tab[] = isOrgAdmin ? ['config', 'info', 'access'] : ['config', 'info'];
+  const tabs: Tab[] = isOrgAdmin
+    ? ['config', 'info', 'attributes', 'access']
+    : ['config', 'info', 'attributes'];
   const tabLabels: Record<Tab, string> = {
     config: 'Served Config',
     info: 'Info',
+    attributes: 'Attributes & Labels',
     access: 'Access',
   };
 
@@ -265,12 +269,15 @@ export function CollectorDetailPage() {
             <span>Last seen {formatTimestampRelative(detail?.lastSeen)}</span>
           </div>
         </div>
-        <span
-          data-testid='collector-status'
-          className={`text-xs font-medium px-2 py-0.5 rounded border ${statusColor}`}
-        >
-          {status || 'UNKNOWN'}
-        </span>
+        <div className='flex items-center gap-3'>
+          <CollectorLabelsButton canEdit={isOrgAdmin} onClick={() => setTab('attributes')} />
+          <span
+            data-testid='collector-status'
+            className={`text-xs font-medium px-2 py-0.5 rounded border ${statusColor}`}
+          >
+            {status || 'UNKNOWN'}
+          </span>
+        </div>
       </div>
 
       {detail?.remoteConfigError && (
@@ -339,6 +346,15 @@ export function CollectorDetailPage() {
             </div>
           )}
         </div>
+      )}
+
+      {tab === 'attributes' && detail && (
+        <CollectorAttributes
+          key={`${orgId}:${id}`}
+          orgId={orgId}
+          collector={detail}
+          canEdit={isOrgAdmin}
+        />
       )}
 
       {tab === 'info' && (

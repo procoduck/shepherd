@@ -29,3 +29,17 @@ ORDER BY cl.name, c.role;
 SELECT cl.org_id FROM collectors c
 JOIN clusters cl ON c.cluster_id = cl.id
 WHERE c.id = $1;
+
+-- name: SetCollectorLabel :one
+UPDATE collectors
+SET labels = labels || jsonb_build_object(sqlc.arg(label_key)::text, sqlc.arg(label_value)::text),
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+  AND (labels ? sqlc.arg(label_key)::text OR jsonb_array_length(jsonb_path_query_array(labels, '$.keyvalue()')) < 64)
+RETURNING labels;
+
+-- name: DeleteCollectorLabel :one
+UPDATE collectors
+SET labels = labels - sqlc.arg(label_key)::text, updated_at = now()
+WHERE id = sqlc.arg(id)
+RETURNING labels;

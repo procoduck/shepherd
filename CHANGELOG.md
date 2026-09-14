@@ -13,6 +13,11 @@ Categories used here:
 
 ## Unreleased
 
+### Added
+
+- Add UI-managed collector inventory labels for filtering and grouping collectors without changing Alloy-reported attributes or pipeline matching.
+- Confirm inventory label replacement and deletion; validate UTF-8 byte limits and invisible characters before saving.
+
 ### Fixed — walkthrough findings
 
 Closes the v0.6.0 manual UI walkthrough (chart 0.10.2, kind, three live Alloy v1.19.2 agents).
