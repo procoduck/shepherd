@@ -159,6 +159,15 @@ helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.10.2 \
         already be in the cluster, exactly as with the Gateway API for <code>route.enabled</code>.
         Without them the install fails with <em>no matches for kind Cluster</em>.
       </p>
+      <p class="note">
+        <strong>This path needs Kubernetes 1.29+, not the chart's usual 1.25+.</strong> The pinned
+        CloudNativePG operator chart (<code>0.29.0</code>, see <code>deploy/versions.env</code>)
+        refuses older nodes; <code>kubeVersion</code> cannot express a floor that only applies when
+        <code>cnpg.enabled=true</code>, so raising it globally would refuse plain installs that work
+        fine today &mdash; see <a href="requirements.html">Requirements</a>. A cluster running
+        <code>kindest/node:v1.31.4</code>, the version the chart's own CI pins for this exact path, is
+        known good.
+      </p>
 
       <h3 id="cnpg-details">Three things worth knowing</h3>
       <ul>
