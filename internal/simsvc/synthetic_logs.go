@@ -71,12 +71,16 @@ func (e *LogEmitter) Prepare() error {
 // is refused rather than resolved, whatever the library says.
 func fixturePath(dir, fixture string) (string, error) {
 	name := simulate.StubLogFileName(fixture)
-	if name != filepath.Base(name) || fixture == "." || fixture == ".." {
+	// filepath.Base is the sanitizer: whatever the name was, only its last
+	// element is ever joined — and a name that HAD more than one element
+	// (or was "." / "..") is refused outright rather than silently reduced.
+	base := filepath.Base(name)
+	if base != name || base == "." || base == ".." || strings.Contains(base, "..") {
 		return "", fmt.Errorf("simsvc: fixture name %q is not a bare file name", fixture)
 	}
-	path := filepath.Join(dir, name)
-	rel, err := filepath.Rel(dir, path)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	root := filepath.Clean(dir)
+	path := filepath.Clean(filepath.Join(root, base))
+	if !strings.HasPrefix(path, root+string(filepath.Separator)) {
 		return "", fmt.Errorf("simsvc: fixture %q resolves outside the log dir", fixture)
 	}
 	return path, nil
