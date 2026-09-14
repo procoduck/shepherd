@@ -126,6 +126,21 @@ var _ = Describe("shepherd.mgmt.v1.DestinationService RPC", Label("integration")
 		Expect(listed["total"]).To(Equal(1.0))
 	})
 
+	// The schema only admits prometheus, loki and otlp (0001_init.up.sql). Before
+	// this spec an unknown type reached the INSERT and surfaced as a 500 "failed
+	// to create destination"; the UI's own "Tempo" option sent "tempo" and hit it.
+	It("refuses an unknown destination type with invalid_argument, not an internal error", func() {
+		admin := createSession(false, []string{"destination-admin-group"})
+		resp := postConnect("/shepherd.mgmt.v1.DestinationService/CreateDestination", map[string]any{
+			"orgId": orgID.String(), "name": "traces", "type": "tempo", "url": "http://tempo:4318",
+			"authMode": "none",
+		}, admin)
+		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+		body := decodeBody(resp)
+		Expect(body["message"]).To(ContainSubstring("tempo"))
+		Expect(body["message"]).To(ContainSubstring("otlp"))
+	})
+
 	It("denies ListDestinations for an authenticated session with no access to the org", func() {
 		outsider := createSession(false, []string{"some-other-group"})
 		resp := postConnect("/shepherd.mgmt.v1.DestinationService/ListDestinations", map[string]any{"orgId": orgID.String()}, outsider)

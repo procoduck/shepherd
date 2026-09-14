@@ -47,6 +47,14 @@ Root causes, the full finding list, and the slice plan are in
   editor's Save no longer leaves the revision list and "Updated by" stale until a reload. The agent
   token ID, needed as the `remotecfg` username, is now shown next to the token's name and in the
   creation dialog.
+- **Creating a destination from the "Tempo" option always failed with an internal error.** The
+  option submitted the type `tempo`, which the schema does not admit (it takes `prometheus`, `loki`
+  and `otlp`), and the constraint violation surfaced as a 500. The option is now "Tempo (OTLP)" and
+  submits `otlp`; the server refuses any unknown type with `invalid_argument` naming the accepted
+  values instead of failing on the insert.
+- **The visual builder asked "Leave site?" for any graph on screen, edited or not.** The guard now
+  fires only when the graph differs from what was loaded or last saved; panning and zooming do not
+  count.
 - **The upgrade review flagged an attribute as newly required even when an edge already supplied
   it**, and mis-classified an attribute that was already required before the upgrade as newly
   added. A live Alloy agent that never sent its own name kept an empty fleet row name forever

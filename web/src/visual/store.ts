@@ -21,6 +21,16 @@ import { scalarConflicts } from './wireOrient';
  * `rfNodes` useMemo (CanvasPane) to recompute and hand every node a new data
  * object; see `selectConnectionState` for how PipelineNode reads it back out
  * via a narrow, per-node selector instead. */
+/**
+ * Stable serialisation of a graph for "has it changed since load/save"
+ * checks. The viewport is left out: the canvas writes it back on every pan,
+ * zoom and post-import refit, and none of those is an edit worth a prompt.
+ */
+export function docFingerprint(doc: GraphDocument): string {
+  const { viewport: _viewport, ...rest } = doc;
+  return JSON.stringify(rest);
+}
+
 export interface ConnectingFrom {
   nodeId: string;
   handleId: string;
@@ -178,6 +188,14 @@ interface VisualStore {
   setPlacementProvider: (fn: ((index: number) => { x: number; y: number }) | null) => void;
   importGraph: (doc: GraphDocument) => void;
   resetDoc: () => void;
+  /**
+   * Fingerprint of the graph as it was last loaded or saved. `isDirty()`
+   * compares the live doc against it, so the unsaved-changes guard fires
+   * only for edits, not for merely having a non-empty graph on screen.
+   */
+  savedFingerprint: string;
+  markSaved: () => void;
+  isDirty: () => boolean;
   removeEdge: (id: string) => void;
   updateViewport: (vp: { x: number; y: number; zoom: number }) => void;
   /** Idempotent — no-op when ids array is deeply equal to current. */
@@ -249,6 +267,7 @@ export const useVisualStore = create<VisualStore>()(
     (set, get) => ({
       doc: makeDefaultDoc(),
       importSeq: 0,
+      savedFingerprint: docFingerprint(makeDefaultDoc()),
       getPlacement: null,
       setPlacementProvider: (fn) => set({ getPlacement: fn }),
       selected: [],
@@ -452,11 +471,18 @@ export const useVisualStore = create<VisualStore>()(
           doc,
           importSeq: state.importSeq + 1,
           diagnostics: revalidate({ ...state, doc }),
+          savedFingerprint: docFingerprint(doc),
         })),
+
+      markSaved: () => set({ savedFingerprint: docFingerprint(get().doc) }),
+      isDirty: () => docFingerprint(get().doc) !== get().savedFingerprint,
 
       resetDoc: () =>
         set({
           doc: makeDefaultDoc(currentSchemaVersion(get().schema) ?? ''),
+          savedFingerprint: docFingerprint(
+            makeDefaultDoc(currentSchemaVersion(get().schema) ?? ''),
+          ),
           selected: [],
           diagnostics: [],
           pipelineName: '',

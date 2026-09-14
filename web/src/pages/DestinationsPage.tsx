@@ -246,7 +246,7 @@ export function DestinationsPage() {
               >
                 <option value='prometheus'>Prometheus</option>
                 <option value='loki'>Loki</option>
-                <option value='tempo'>Tempo</option>
+                <option value='otlp'>Tempo (OTLP)</option>
               </Select>
             </Field>
             <Field label='URL' error={urlError}>

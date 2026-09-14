@@ -84,6 +84,7 @@ export function Toolbar({ pipelineId }: { pipelineId: string }) {
     },
     onSuccess: (p) => {
       toast.success(pipelineId === 'new' ? 'Pipeline created' : 'Pipeline saved');
+      useVisualStore.getState().markSaved();
       qc.invalidateQueries({ queryKey: ['pipelines', orgId] });
       // The graph just saved is now durable on the server — the local draft
       // (keyed by the id this save was made under, 'new' for a create) no
