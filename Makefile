@@ -708,6 +708,9 @@ helm-lint: ## Lint + template the Helm chart against every ci value file
 	helm template shepherd deploy/helm/shepherd -f deploy/helm/shepherd/ci/full-values.yaml > /dev/null
 	helm template shepherd deploy/helm/shepherd -f deploy/helm/shepherd/ci/generated-secrets-values.yaml > /dev/null
 	helm template shepherd deploy/helm/shepherd -f deploy/helm/shepherd/ci/ingress-values.yaml > /dev/null
+	@# The kind dev stack's values (dev/kind/values.yaml) are not a ci file but
+	@# are the one combination a developer actually installs; render them too.
+	helm template shepherd deploy/helm/shepherd -f dev/kind/values.yaml --namespace shepherd-dev > /dev/null
 
 # Local defaults for the docker image templates; CI overrides both.
 IMAGE_REGISTRY ?= ghcr.io/procoduck
