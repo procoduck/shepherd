@@ -10,7 +10,8 @@
 #
 # deploy/helm/shepherd/values.schema.json is strict (`additionalProperties:
 # false`) at the top level and inside most sections, so this file uses only
-# keys the schema already knows about — no chart change ships with it.
+# keys the schema knows about; the one chart change made for it is the
+# `service.appProtocol` value (see the route block below).
 #
 # One thing this file deliberately does NOT set: podAnnotations. The script
 # adds `podAnnotations.dev-build` itself on every `helm upgrade --install`
@@ -72,6 +73,15 @@ route:
     - shepherd.localtest.me
   parentRefs:
     - name: dev
+
+# NGINX Gateway Fabric refuses to proxy an HTTP route to a Service port whose
+# appProtocol is kubernetes.io/h2c (the chart's default hint for gateways that
+# honour it) — the HTTPRoute sits at ResolvedRefs=False / UnsupportedProtocol
+# and every request answers 500 from nginx. Found live on the first
+# `make dev-kind` (2026-09-14). Clearing the hint omits the field; Shepherd
+# serves HTTP/1.1 equally well.
+service:
+  appProtocol: ""
 
 config:
   server:

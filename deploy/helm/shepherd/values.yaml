@@ -47,6 +47,14 @@ service:
   # Only used when type is NodePort. Leave empty to let Kubernetes pick one
   # from the node port range.
   nodePort: ""
+  # appProtocol: the application-protocol hint on the Service port. Shepherd
+  # serves Connect over both HTTP/1.1 and cleartext HTTP/2 (h2c); the default
+  # tells gateways that honour the hint (Envoy-based ones, Istio) to speak h2c
+  # to it. NGINX Gateway Fabric refuses to proxy an HTTP route to an h2c
+  # upstream ("UnsupportedProtocol"), so with route.enabled on NGF set this to
+  # "" -- the field is then omitted and the gateway uses HTTP/1.1, which
+  # Shepherd serves equally well.
+  appProtocol: kubernetes.io/h2c
 
 config:
   server:

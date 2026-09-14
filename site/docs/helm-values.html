@@ -142,6 +142,7 @@
           <tr><td><code>service.type</code></td><td><code>ClusterIP</code></td><td>type: the Service&#x27;s kind (ClusterIP, NodePort, LoadBalancer -- standard Kubernetes values). See above for why this is exposed rather than hardcoded to ClusterIP.</td></tr>
           <tr><td><code>service.port</code></td><td><code>8080</code></td><td>port: the container&#x27;s HTTP port and the port the Service listens on. config.server.listen below must agree with it -- the Deployment&#x27;s containerPort is hardcoded to 8080, not derived from either value.</td></tr>
           <tr><td><code>service.nodePort</code></td><td><code>&quot;&quot;</code></td><td>Only used when type is NodePort. Leave empty to let Kubernetes pick one from the node port range.</td></tr>
+          <tr><td><code>service.appProtocol</code></td><td><code>kubernetes.io/h2c</code></td><td>appProtocol: the application-protocol hint on the Service port. Shepherd serves Connect over both HTTP/1.1 and cleartext HTTP/2 (h2c); the default tells gateways that honour the hint (Envoy-based ones, Istio) to speak h2c to it. NGINX Gateway Fabric refuses to proxy an HTTP route to an h2c upstream (&quot;UnsupportedProtocol&quot;), so with route.enabled on NGF set this to &quot;&quot; -- the field is then omitted and the gateway uses HTTP/1.1, which Shepherd serves equally well.</td></tr>
         </tbody>
       </table>
       <h2 id="config"><code>config</code></h2>

@@ -230,10 +230,20 @@ apply_workload_manifests() {
 		-f "${REPO_ROOT}/dev/kind/gitea.yaml" \
 		-f "${REPO_ROOT}/dev/kind/oidc.yaml" \
 		-f "${REPO_ROOT}/dev/kind/routes.yaml"
-	sed "s|__ALLOY_IMAGE__|${ALLOY_IMAGE}|g" "${REPO_ROOT}/dev/kind/alloy.yaml" \
-		| kc -n "$NAMESPACE" apply -f -
 
 	kc -n "$NAMESPACE" wait --for=condition=Available deploy/oidc deploy/gitea --timeout=3m
+}
+
+# apply_alloy_agents runs AFTER install_shepherd on purpose: Alloy's remotecfg
+# block resolves the `shepherd` Service on its initial load and exits when the
+# lookup fails, so agents applied before the chart crash-loop until Kubernetes'
+# restart backoff happens to line up with the Service appearing (seen live on
+# the first `make dev-kind`, 2026-09-14: five restarts each).
+apply_alloy_agents() {
+	sed "s|__ALLOY_IMAGE__|${ALLOY_IMAGE}|g" "${REPO_ROOT}/dev/kind/alloy.yaml" \
+		| kc -n "$NAMESPACE" apply -f -
+	kc -n "$NAMESPACE" wait --for=condition=Available \
+		deploy/alloy-metrics deploy/alloy-logs deploy/alloy-staging --timeout=3m
 }
 
 # bootstrap_gitea_admin creates the Gitea admin user the seed's gitops push
@@ -288,6 +298,7 @@ cmd_up() {
 	apply_workload_manifests
 	bootstrap_gitea_admin
 	install_shepherd
+	apply_alloy_agents
 	cmd_seed
 	print_banner
 }

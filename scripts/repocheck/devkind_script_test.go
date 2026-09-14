@@ -203,6 +203,30 @@ var _ = Describe("scripts/dev-kind.sh", func() {
 		}
 	})
 
+	It("applies the Alloy agents only after the chart is installed", func() {
+		// Alloy's remotecfg block resolves the `shepherd` Service on its
+		// initial load and exits when the lookup fails; agents applied before
+		// install_shepherd crash-loop until the restart backoff happens to
+		// line up with the Service appearing. Seen live on the first cold
+		// `make dev-kind` (2026-09-14): five restarts per agent. The up
+		// sequence must therefore reach install_shepherd before it applies
+		// dev/kind/alloy.yaml.
+		//
+		// Red run against the pre-fix script (alloy applied inside
+		// apply_workload_manifests, before install_shepherd):
+		//   Expected <string>: (cmd_up's body: ensure_cluster, install_calico, ...)
+		//   to contain substring <string>: "apply_alloy_agents"
+		content := readRepoFile(devKindScriptRel)
+		up := funcBody(content, "cmd_up")
+		Expect(up).To(ContainSubstring("install_shepherd"))
+		Expect(up).To(ContainSubstring("apply_alloy_agents"))
+		Expect(strings.Index(up, "apply_alloy_agents")).To(BeNumerically(">", strings.Index(up, "install_shepherd")),
+			"cmd_up must install the chart before applying the Alloy agents")
+		Expect(funcBody(content, "apply_alloy_agents")).To(ContainSubstring("dev/kind/alloy.yaml"))
+		Expect(funcBody(content, "apply_workload_manifests")).NotTo(ContainSubstring("alloy.yaml"),
+			"the pre-chart workload apply must not include the Alloy agents")
+	})
+
 	It("find_ngf_service polls for the Service instead of checking once", func() {
 		// The label-selected Service can briefly lag Gateway Programmed=True —
 		// e2e/k8s/route_conformance_test.go's waitProvisionedServiceName
