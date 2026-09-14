@@ -121,6 +121,42 @@ var _ = Describe("UpgradeCheck", func() {
 		Expect(items[0].Detail).To(ContainSubstring("test.migrate_component"))
 	})
 
+	It("7.4.5.8 — attr_added_required: a required attribute satisfied by an edge is not reported", func() {
+		doc := visual.GraphDocument{
+			Kind:          "alloy-graph/v1",
+			SchemaVersion: "test-v1.0.0",
+			Nodes: []visual.GraphNode{
+				{ID: "src", Component: "test.wired_source", Label: "src"},
+				{ID: "n1", Component: "test.wired_target", Label: "target"},
+			},
+			Edges: []visual.GraphEdge{
+				{
+					ID:   "e1",
+					From: visual.PortRef{Node: "src", Port: "output"},
+					To:   visual.PortRef{Node: "n1", Port: "forward_to"},
+				},
+			},
+		}
+		result := visual.UpgradeCheck(doc, oldSchema, newSchema, "test-v1.0.0", "test-v2.0.0")
+		Expect(result.Items).NotTo(ContainElement(
+			HaveField("Class", visual.DiffAttrAddedRequired),
+		))
+		// Red run: without wiring awareness, "forward_to" is required and absent
+		// from n1's Props, so this reported attr_added_required.
+	})
+
+	It("7.4.5.9 — attr_added_required: an attribute required in both schemas and absent is not reported (pre-existing, not added)", func() {
+		doc := makeDoc("test.keep_component", "keep", map[string]any{"new_required_attr": "x"})
+		result := visual.UpgradeCheck(doc, oldSchema, newSchema, "test-v1.0.0", "test-v2.0.0")
+		items := itemsByClass(result.Items, visual.DiffAttrAddedRequired)
+		for _, it := range items {
+			Expect(it.Detail).NotTo(Equal("url"))
+		}
+		// Red run: "url" is required in both v_old and v_new and missing here,
+		// so today it is reported as attr_added_required even though the
+		// upgrade did not add the requirement.
+	})
+
 	It("disabled nodes are skipped", func() {
 		doc := visual.GraphDocument{
 			Kind:          "alloy-graph/v1",

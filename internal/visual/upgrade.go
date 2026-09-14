@@ -90,6 +90,23 @@ type MigrationEntry struct {
 func UpgradeCheck(doc GraphDocument, oldSchema, newSchema UpgradeSchemaPayload, oldVersion, newVersion string) UpgradeCheckResponse {
 	var items []UpgradeItem
 
+	// wired[nodeID] is the set of port names an edge attaches to that node
+	// on — to.port when the node is the edge's target, from.port when it is
+	// the source. An edge's port name is the attribute it feeds (e.g.
+	// "targets", "forward_to"), so an attribute satisfied by a wire never
+	// shows up in node.Props but is not actually missing.
+	wired := make(map[string]map[string]bool)
+	addWired := func(nodeID, port string) {
+		if wired[nodeID] == nil {
+			wired[nodeID] = make(map[string]bool)
+		}
+		wired[nodeID][port] = true
+	}
+	for _, e := range doc.Edges {
+		addWired(e.To.Node, e.To.Port)
+		addWired(e.From.Node, e.From.Port)
+	}
+
 	for _, node := range doc.Nodes {
 		if node.Disabled {
 			continue
@@ -135,12 +152,28 @@ func UpgradeCheck(doc GraphDocument, oldSchema, newSchema UpgradeSchemaPayload, 
 			}
 		}
 
+		// oldRequired reports whether attrName was already required in
+		// oldDef — such an attribute isn't "added" by this upgrade, so a
+		// missing value is a pre-existing problem the L1 builder already
+		// reports, not an upgrade finding.
+		oldRequired := func(attrName string) bool {
+			for _, oa := range oldDef.Attributes {
+				if oa.Name == attrName {
+					return oa.Required
+				}
+			}
+			return false
+		}
+
 		// attr_added_required / enum_value_removed: scan new attributes.
 		for _, attr := range newDef.Attributes {
 			propVal, hasProp := node.Props[attr.Name]
+			missing := !hasProp || propVal == nil
 
-			// attr_added_required: required attr missing or nil in node props.
-			if attr.Required && (!hasProp || propVal == nil) {
+			// attr_added_required: a newly-required attr missing from node
+			// props, not satisfied by an edge wired to it, and not already
+			// required before the upgrade.
+			if attr.Required && missing && !wired[node.ID][attr.Name] && (!hadOld || !oldRequired(attr.Name)) {
 				items = append(items, UpgradeItem{
 					NodeID:    node.ID,
 					NodeLabel: node.Label,
