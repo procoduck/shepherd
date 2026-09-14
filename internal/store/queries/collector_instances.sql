@@ -2,6 +2,9 @@
 -- On conflict, an incoming name that is empty or equal to the wire id (both
 -- signal "caller has no real display name to report, e.g. a bare poll with
 -- no collector.name attribute") never clobbers a previously-known display
+-- name — but only when a real display name is actually stored. Otherwise
+-- (first insert, or a row still carrying an empty name from before this
+-- fallback existed) fall back to the wire id rather than persist an empty
 -- name. A successful upsert also counts as liveness recovery: it clears a
 -- stale 'inactive' status marker left by the lifecycle sweeper so a
 -- reconnecting instance shows live again.
@@ -10,8 +13,9 @@ VALUES ($1, $2, $3, $4, $5, $6, now())
 ON CONFLICT (id) DO UPDATE SET
     collector_id = EXCLUDED.collector_id,
     name         = CASE
-                        WHEN EXCLUDED.name = '' OR EXCLUDED.name = collector_instances.id THEN collector_instances.name
-                        ELSE EXCLUDED.name
+                        WHEN (EXCLUDED.name = '' OR EXCLUDED.name = collector_instances.id)
+                             AND collector_instances.name <> '' THEN collector_instances.name
+                        ELSE COALESCE(NULLIF(EXCLUDED.name, ''), collector_instances.id)
                     END,
     local_attributes = EXCLUDED.local_attributes,
     alloy_version = EXCLUDED.alloy_version,

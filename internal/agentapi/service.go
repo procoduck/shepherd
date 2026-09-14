@@ -102,7 +102,14 @@ func (s *Service) RegisterCollector(
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	if err := s.upsertCollectorInstance(ctx, req.Msg.Id, req.Msg.Name, cluster, role, attrs); err != nil {
+	// Alloy's collector.register RPC sends no name field, so fall back to
+	// the wire id — matching GetConfig's fallback (§4.1) — rather than
+	// storing an empty string that nothing else ever heals.
+	name := req.Msg.Name
+	if name == "" {
+		name = req.Msg.Id
+	}
+	if err := s.upsertCollectorInstance(ctx, req.Msg.Id, name, cluster, role, attrs); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
