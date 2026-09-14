@@ -259,9 +259,6 @@ const (
 	// needing time to program in the containment probes).
 	gatewayProbeDeadline = 90 * time.Second
 
-	// ngfChartVersion is the NGINX Gateway Fabric release this suite installs
-	// as the Gateway API controller under test.
-	//
 	// NGINX Gateway Fabric (NGF), not Envoy Gateway (the plan's stated
 	// default), for three reasons found while building this suite:
 	//
@@ -279,8 +276,8 @@ const (
 	//     "I believe this would work" this repo's rule 2 rejects without a
 	//     red run to prove it.
 	//  2. Chart version compatibility: NGF's chart pins
-	//     `kubeVersion: ">= 1.31.0-0"` at v2.6.0, matching this suite's
-	//     kindest/node:v1.31.4 exactly (verified against the chart's own
+	//     `kubeVersion: ">= 1.31.0-0"` at v2.6.0, matching the
+	//     KIND_NODE_IMAGE pin exactly (verified against the chart's own
 	//     Chart.yaml at each tag, not recalled). v2.6.7 (latest at the time
 	//     of writing) already requires >= 1.32.0-0 and would refuse to
 	//     install here.
@@ -295,10 +292,14 @@ const (
 	// If NGF ever proves too heavy or flaky here, Contour is the next
 	// candidate for the same reason (2): check its chart's Gateway API CRD
 	// management story before Envoy Gateway's.
-	ngfChartVersion = "2.6.0"
-	ngfChartRef     = "oci://ghcr.io/nginx/charts/nginx-gateway-fabric"
-	ngfNamespace    = "nginx-gateway-system"
-	ngfRelease      = "ngf"
+	//
+	// The version itself is NOT a constant here: it is NGF_CHART_VERSION in
+	// deploy/versions.env, read by installGatewayController below, so
+	// scripts/dev-kind.sh installs the exact same chart release this suite
+	// proves conformance against instead of copying or grepping this file.
+	ngfChartRef  = "oci://ghcr.io/nginx/charts/nginx-gateway-fabric"
+	ngfNamespace = "nginx-gateway-system"
+	ngfRelease   = "ngf"
 	// ngfGatewayClassName is the chart's own default
 	// (values.yaml nginxGateway.gatewayClassName) — left un-overridden, so
 	// this constant documents what the chart actually creates rather than
@@ -367,13 +368,18 @@ func readInstalledGatewayAPIAnnotations(cfg *envconf.Config) (version, channel s
 	return ann[gateway.BundleVersionAnnotation], ann[gateway.ChannelAnnotation], nil
 }
 
-// installGatewayController installs NGINX Gateway Fabric — see ngfChartVersion
-// for why this controller. `helm install --wait` blocks until its Deployment
+// installGatewayController installs NGINX Gateway Fabric, pinned by
+// NGF_CHART_VERSION in deploy/versions.env — see the const block above for
+// why this controller. `helm install --wait` blocks until its Deployment
 // is Available, but not until the GatewayClass it creates is Accepted or any
 // per-Gateway data plane exists (there is none yet at cluster setup time,
 // before any feature creates a Gateway) — those are checked per-feature by
 // waitGatewayProgrammed/waitProvisionedServiceName.
 func installGatewayController(ctx context.Context, cfg *envconf.Config) (context.Context, error) {
+	ngfChartVersion, err := readVersionsEnvValue("NGF_CHART_VERSION")
+	if err != nil {
+		return ctx, err
+	}
 	log.Printf("installing NGINX Gateway Fabric %s (Gateway API controller under test)", ngfChartVersion)
 	cmd := fmt.Sprintf(
 		"helm install %s %s --version %s --kubeconfig %s -n %s --create-namespace --wait --timeout %s",
