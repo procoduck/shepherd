@@ -201,9 +201,13 @@ func parseAlloyOutput(output string) []Diagnostic {
 			continue
 		}
 		seen[key] = true
-		line, _ := strconv.Atoi(m[1]) //nolint:errcheck // 0 is safe fallback
-		col, _ := strconv.Atoi(m[2])  //nolint:errcheck // 0 is safe fallback
-		out = append(out, Diagnostic{Line: line, Col: col, Message: strings.TrimSpace(m[3]), Stage: 2})
+		// Parsed with bitSize 32 so the int32 the proto carries can never be
+		// narrowed from a wider value (CodeQL go/incorrect-integer-conversion);
+		// 0 is the safe fallback for a number the regex matched but that does
+		// not fit.
+		line, _ := strconv.ParseInt(m[1], 10, 32) //nolint:errcheck // 0 is safe fallback
+		col, _ := strconv.ParseInt(m[2], 10, 32)  //nolint:errcheck // 0 is safe fallback
+		out = append(out, Diagnostic{Line: int(line), Col: int(col), Message: strings.TrimSpace(m[3]), Stage: 2})
 	}
 	return out
 }

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -107,6 +108,14 @@ func (r *Reconciler) reconcileLink(ctx context.Context, link sqlc.RepoLink) erro
 	if err != nil {
 		return r.markError(ctx, link.ID, fmt.Errorf("building auth for credential %q: %w", cred.Name, err))
 	}
+	// Everything below runs with the decrypted credential in hand, and its
+	// errors end up in a log line AND in repo_links.sync_error, which the UI
+	// shows to every org reader. A transport or URL error that echoes what
+	// it was given would carry the secret with it, so every error from here
+	// on is scrubbed of the credential's values before it is recorded
+	// (CodeQL go/clear-text-logging). markError still receives a plain
+	// error; only the text changes.
+	scrub := newSecretScrubber(auth)
 
 	repo := gitrepo.Repo{
 		URL:    link.RepoUrl,
@@ -123,7 +132,7 @@ func (r *Reconciler) reconcileLink(ctx context.Context, link sqlc.RepoLink) erro
 	// Check latest commit — skip if unchanged.
 	latestCommit, err := repo.LatestCommit(ctx)
 	if err != nil {
-		return r.markError(ctx, link.ID, fmt.Errorf("getting latest commit: %w", err))
+		return r.markError(ctx, link.ID, scrub(fmt.Errorf("getting latest commit: %w", err)))
 	}
 	if link.LastCommit.Valid && link.LastCommit.String == latestCommit {
 		if syncErr := r.store.Queries.UpdateRepoLinkSync(ctx, sqlc.UpdateRepoLinkSyncParams{
@@ -138,12 +147,13 @@ func (r *Reconciler) reconcileLink(ctx context.Context, link sqlc.RepoLink) erro
 	// Fetch .alloy files.
 	files, err := repo.Files(ctx)
 	if err != nil {
-		return r.markError(ctx, link.ID, fmt.Errorf("fetching files: %w", err))
+		return r.markError(ctx, link.ID, scrub(fmt.Errorf("fetching files: %w", err)))
 	}
 
 	var syncErrs []error
 	for _, file := range files {
 		if err := r.syncFile(ctx, link, file, latestCommit); err != nil {
+			err = scrub(err)
 			r.logger.Warn("gitsync: syncing file", "path", file.Path, "err", err)
 			syncErrs = append(syncErrs, fmt.Errorf("%s: %w", file.Path, err))
 		}
@@ -162,6 +172,50 @@ func (r *Reconciler) reconcileLink(ctx context.Context, link sqlc.RepoLink) erro
 		r.logger.Error("gitsync: recording sync status", "link_id", link.ID, "err", syncErr)
 	}
 	return nil
+}
+
+// newSecretScrubber returns a function that rewrites an error so none of
+// auth's secret values appear in its text. Empty values are skipped (a
+// blank passphrase would otherwise match everywhere). The result is a plain
+// error — wrapping is deliberately dropped, because the whole point is that
+// the original text never reaches a sink.
+func newSecretScrubber(auth gitrepo.Auth) func(error) error {
+	var secrets []string
+	switch a := auth.(type) {
+	case gitrepo.BasicAuth:
+		secrets = append(secrets, a.Password)
+	case gitrepo.PATAuth:
+		secrets = append(secrets, a.Token)
+	case gitrepo.SSHAuth:
+		secrets = append(secrets, a.Passphrase, string(a.PrivateKeyPEM))
+	case gitrepo.AdoSPAuth:
+		secrets = append(secrets, a.ClientSecret)
+	case gitrepo.GitHubAppAuth:
+		secrets = append(secrets, string(a.PrivateKeyPEM))
+	}
+	return func(err error) error { return redactSecrets(err, secrets) }
+}
+
+// redactSecrets replaces every non-empty secret in err's text with
+// "[REDACTED]". A nil error stays nil; an error containing none of the
+// secrets is returned unchanged, wrapping intact.
+func redactSecrets(err error, secrets []string) error {
+	if err == nil {
+		return nil
+	}
+	text := err.Error()
+	changed := false
+	for _, s := range secrets {
+		if s == "" || !strings.Contains(text, s) {
+			continue
+		}
+		text = strings.ReplaceAll(text, s, "[REDACTED]")
+		changed = true
+	}
+	if !changed {
+		return err
+	}
+	return errors.New(text)
 }
 
 // buildAuth decrypts cred's secret(s) and builds the gitrepo.Auth strategy

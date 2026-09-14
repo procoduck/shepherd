@@ -112,7 +112,9 @@ func UpgradeCheck(doc GraphDocument, oldSchema, newSchema UpgradeSchemaPayload, 
 		// Build new attribute/block name set for removal checks.
 		// Block-typed props (arrays/objects keyed by block name) are excluded
 		// from attr_removed — they are not flat attributes.
-		newAttrSet := make(map[string]bool, len(newDef.Attributes)+len(newDef.Blocks))
+		// No capacity hint: the len+len sum is what CodeQL
+		// go/allocation-size-overflow flags, and the map is tiny.
+		newAttrSet := make(map[string]bool)
 		for _, a := range newDef.Attributes {
 			newAttrSet[a.Name] = true
 		}

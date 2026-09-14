@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1980,10 +1981,9 @@ func describeValue(v interface{}) string {
 }
 
 func appendPath(prefix []string, more ...string) []string {
-	out := make([]string, 0, len(prefix)+len(more))
-	out = append(out, prefix...)
-	out = append(out, more...)
-	return out
+	// slices.Concat rather than a make(len+len) — the sum is what CodeQL
+	// go/allocation-size-overflow flags, and Concat sizes the result itself.
+	return slices.Concat(prefix, more)
 }
 
 func sortedKeys(m map[string]interface{}) []string {
