@@ -13,6 +13,62 @@ Categories used here:
 
 ## Unreleased
 
+### Fixed — walkthrough findings
+
+Closes the v0.6.0 manual UI walkthrough (chart 0.10.2, kind, three live Alloy v1.19.2 agents).
+Root causes, the full finding list, and the slice plan are in
+`docs/plans/2026-09-14-walkthrough-fixes.md`.
+
+- **Page-owned dialogs (Destinations, Git, Teams, Admin Tokens/Orgs/Clusters) kept only the first
+  typed character.** The shared `Modal` focus-trap effect re-ran on every render because it was
+  keyed on the page's inline `onClose` arrow, which is a new function every render; it now runs
+  once per mount and reads the latest `onClose` through a ref.
+- **The visual builder was unreadable in light mode.** The app's only base foreground
+  (`text-zinc-100/200/300`) had no light-mode redefinition, so palette names, node titles, toolbar
+  fields and dialog text stayed near-white on a white surface; the three tokens now flip with the
+  theme, and three dark-only literals in the palette compat banner, the wired-node fill and the
+  minimap follow the theme too.
+- **Graph view, Verify render and the relabel/log simulations used the first org on the account,
+  not the selected one**, because they read `me.orgs[0]` (or a production-empty
+  `window.__initialMe`) instead of the org switcher's selection. Verify render now also reports its
+  outcome as text, the drawer's problem counter agrees with the toolbar's error count, palette
+  search ranks an exact match above a fuzzy one, and Flow check reports a textual outcome.
+- **Wizard-committed pipelines got no revision and no audit row, and skipped the validation gate
+  every other save runs.** `CommitWizard` inserted the pipeline directly instead of going through
+  the same revision/audit/Stage-1-2-gate path `PipelineService.CreatePipeline` uses. The
+  self-monitoring wizard no longer silently drops its log-collection step when the log path field
+  is left blank — it falls back to a documented default path instead.
+- **The wizard runner's destination fields were free text**, so a typo produced a pipeline pointing
+  at a destination that does not exist; they now offer a picker of the org's actual destinations of
+  the matching type. The review step now labels a matcher the wizard added on its own (such as
+  self-monitoring's `role="singleton"`) so it doesn't read as something the user typed.
+- **Pipelines rendered under an older component schema were not flagged anywhere in the list.**
+  The pipelines list now badges them with a link to the builder to re-render and save. The text
+  editor's Save no longer leaves the revision list and "Updated by" stale until a reload. The agent
+  token ID, needed as the `remotecfg` username, is now shown next to the token's name and in the
+  creation dialog.
+- **The upgrade review flagged an attribute as newly required even when an edge already supplied
+  it**, and mis-classified an attribute that was already required before the upgrade as newly
+  added. A live Alloy agent that never sent its own name kept an empty fleet row name forever
+  instead of falling back to its id.
+- **The text editor now declares spell-check/autocorrect/autocapitalize off explicitly** instead
+  of relying on CodeMirror's default (a no-op against the pinned `@codemirror/view` 6.43.11; the
+  underline the walkthrough saw did not reproduce and is not the native spell-checker — see the
+  plan). The chart's Kubernetes floor is now documented for both install paths: 1.25+ for the plain
+  chart (unchanged — what `kubeVersion` enforces) and 1.29+ once `cnpg.enabled=true`, because the
+  pinned CloudNativePG operator chart (`0.29.0`) refuses older nodes and Helm has no way to make
+  `kubeVersion` conditional on a value.
+
+### Known
+
+- **A collector's `remote_config_status` of `APPLIED` means "polled with the served config's
+  hash", not "loaded it successfully."** Nothing in the protocol Shepherd reads today
+  distinguishes an agent that received a config from one that loaded it and then rejected it; Alloy
+  v1.19.2's exact report sequence for that case was not captured during the walkthrough, and
+  choosing the option that fixes it needs a reproduction against a live agent first. See
+  `docs/plans/2026-09-14-walkthrough-fixes.md` §3 (B1) for the options and the reproduction it
+  takes to choose between them.
+
 ### Build & CI
 
 - **The post-publish image scan now scans the images the release pushed.** v0.6.0's

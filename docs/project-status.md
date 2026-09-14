@@ -170,8 +170,24 @@ answer and the ledger item it produced is below.
 
 ### Smaller follow-ups
 
+Two items below (marked with the plan link) come from the v0.6.0 manual UI walkthrough
+(`docs/plans/2026-09-14-walkthrough-fixes.md`, §3 "Blocked"); every other finding from that
+walkthrough was closed in the same batch — see `CHANGELOG.md` Unreleased.
+
 Open, in rough priority order:
 
+- [ ] **A collector's `APPLIED` status can mean "polled with the served hash", not "loaded it
+      successfully."** `ClearStaleFailedStatus` promotes NULL/FAILED to `APPLIED` on a status-less
+      poll carrying the served hash, and nothing Shepherd reads today (`effective_config` is
+      unread; beacon rows are not keyed by collector instance) can tell a fresh load from a
+      rejected one served from cache. Needs a reproduction against a live Alloy v1.19.2 agent
+      before picking one of three options — see `docs/plans/2026-09-14-walkthrough-fixes.md` §3
+      (B1).
+- [ ] **Wizards have no channel to say when they silently drop or add something** (`B2` in the
+      same plan). `wizard.CommitResult`/`RenderWizardResponse` carry no `warnings` field, so the
+      self-monitoring log-step default and the wizard-added-matcher badge (both shipped in the
+      same batch) work around the gap client-side rather than closing it; a first-class warnings
+      field is a `proto/` change, deferred.
 - [ ] **Graph diff for visual pipelines.** The pipeline editor's revision diff is text-only
       (`RevisionDiff`, CodeMirror merge view); the visual builder page has no revision UI, so a
       visual pipeline's graph-level change is not diffable, only its rendered text. Restoring a
