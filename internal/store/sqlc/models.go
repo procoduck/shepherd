@@ -234,6 +234,7 @@ type ServeCache struct {
 	Hash        string             `json:"hash"`
 	ComputedAt  pgtype.Timestamptz `json:"computed_at"`
 	Dirty       bool               `json:"dirty"`
+	DirtySeq    int64              `json:"dirty_seq"`
 }
 
 type ServiceAccount struct {

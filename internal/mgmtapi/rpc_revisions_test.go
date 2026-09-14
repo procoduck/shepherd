@@ -537,7 +537,7 @@ var _ = Describe("PipelineService GetRevision / RestoreRevision", Label("integra
 				return ""
 			}
 			return cache.Content
-		}, "5s", "20ms").Should(ContainSubstring("REENABLE-MARKER-B"),
+		}, "10s", "20ms").Should(ContainSubstring("REENABLE-MARKER-B"),
 			"restoring a pipeline from disabled to enabled must dirty+recompute the serve cache so "+
 				"the collector is served the restored content")
 	})

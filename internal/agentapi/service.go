@@ -3,6 +3,7 @@ package agentapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/sync/singleflight"
 
@@ -186,6 +188,16 @@ func (s *Service) GetConfig(
 	// Claimed: read from serve cache; recompute if dirty.
 	cache, err := s.store.Queries.GetServeCache(ctx, coll.ID)
 	if err != nil || cache.Dirty {
+		// The generation this poll observed, captured BEFORE the pipelines
+		// are loaded inside recomputeServeCache: the upsert below is a
+		// compare-and-swap on it, so a mark that lands mid-recompute (an
+		// enable, a restore, a git sync) makes this write a no-op instead of
+		// letting stale content clear the newer dirty flag. No row yet means
+		// generation 0.
+		var expectedSeq int64
+		if err == nil {
+			expectedSeq = cache.DirtySeq
+		}
 		// Cache missing or dirty — recompute now, once per collector at a time.
 		result, recomputeErr, _ := s.sf.Do(coll.ID.String(), func() (any, error) {
 			newContent, newHash, err := s.recomputeServeCache(ctx, coll, orgID)
@@ -196,7 +208,15 @@ func (s *Service) GetConfig(
 				CollectorID: coll.ID,
 				Content:     newContent,
 				Hash:        newHash,
+				DirtySeq:    expectedSeq,
 			})
+			if errors.Is(err, pgx.ErrNoRows) {
+				// Superseded: a newer mark arrived while this recompute ran,
+				// or the eager recompute already served this generation.
+				// Serve whatever the row holds now — if it is still dirty,
+				// the next poll recomputes against the newer generation.
+				return s.store.Queries.GetServeCache(ctx, coll.ID)
+			}
 			if err != nil {
 				return nil, err
 			}

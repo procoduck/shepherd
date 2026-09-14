@@ -1272,6 +1272,22 @@ func (s *PipelineService) recomputeOrgCaches(ctx context.Context, orgID pgtype.U
 		s.logger.Warn("recomputeOrgCaches: listing collectors failed", "err", err)
 		return
 	}
+	// The dirty generation of every cache row, read BEFORE the pipelines are
+	// loaded: UpsertServeCacheConditional is a compare-and-swap on it, so a
+	// mark that lands after this read (a newer enable/disable/restore/delete)
+	// makes this recompute's write a no-op for that collector and the
+	// recompute that observed the newer mark writes instead. Reading it after
+	// the pipelines would let stale content pass as current. A collector with
+	// no row yet has generation 0.
+	seqRows, err := s.store.Queries.ListServeCacheSeqByOrg(ctx, orgID)
+	if err != nil {
+		s.logger.Warn("recomputeOrgCaches: reading cache generations failed", "err", err)
+		return
+	}
+	expectedSeq := make(map[pgtype.UUID]int64, len(seqRows))
+	for _, r := range seqRows {
+		expectedSeq[r.CollectorID] = r.DirtySeq
+	}
 	// ForMerge, not ByOrg: only the former joins repo_links to carry
 	// repo_link_collector_id, and merge.MatchesPipeline matches a git pipeline
 	// SOLELY by that field. Loading them without it makes every git pipeline
@@ -1333,7 +1349,15 @@ func (s *PipelineService) recomputeOrgCaches(ctx context.Context, orgID pgtype.U
 			CollectorID: c.ID,
 			Content:     served.Content,
 			Hash:        served.Hash,
+			DirtySeq:    expectedSeq[c.ID],
 		}); upsertErr != nil {
+			if errors.Is(upsertErr, pgx.ErrNoRows) {
+				// Superseded: the row was re-marked after this recompute read
+				// its generation, or another recompute already served this
+				// generation. The recompute that saw the newer mark writes.
+				s.logger.Debug("recomputeOrgCaches: write superseded by a newer mark", "collector_id", c.ID.String())
+				continue
+			}
 			s.logger.Warn("recomputeOrgCaches: upsert failed", "collector_id", c.ID.String(), "err", upsertErr)
 		}
 	}
