@@ -1,0 +1,146 @@
+# DEV ONLY — kind dev stack (make dev-kind, scripts/dev-kind.sh). Not for production.
+#
+# Three Alloy agents, one Deployment each, mirroring dev/docker-compose.dev.yaml's
+# alloy-metrics / alloy-logs / alloy-staging services (cluster=prod-eu-1 role=metrics,
+# cluster=prod-eu-1 role=logs, cluster=staging-eu-1 role=metrics) — now separate pods
+# instead of separate compose services, so all three listen on the same in-pod port
+# 12345 and use the same /tmp/alloy storage path; nothing collides because each has its
+# own pod network namespace and filesystem.
+#
+# Image: the literal __ALLOY_IMAGE__ below is a placeholder, never a real reference.
+# scripts/dev-kind.sh substitutes it from ALLOY_IMAGE (deploy/versions.env) with sed at
+# apply time, so the pin is restated in exactly one place (AGENTS.md's image table).
+#
+# Config: each Deployment mounts a ConfigMap named after itself (alloy-metrics,
+# alloy-logs, alloy-staging — created by the script from dev/alloy-<name>.alloy, key
+# config.alloy) read-only at /etc/alloy, matching compose's read-only bind mount of the
+# same file. An emptyDir at /tmp gives Alloy's WAL/cache a writable, ephemeral home.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alloy-metrics
+  labels:
+    app: alloy-metrics
+    shepherd.dev/component: alloy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alloy-metrics
+  template:
+    metadata:
+      labels:
+        app: alloy-metrics
+        shepherd.dev/component: alloy
+    spec:
+      containers:
+        - name: alloy
+          image: __ALLOY_IMAGE__
+          args:
+            - run
+            - /etc/alloy/config.alloy
+            - --storage.path=/tmp/alloy
+            - --server.http.listen-addr=0.0.0.0:12345
+            - --disable-reporting
+          ports:
+            - name: http
+              containerPort: 12345
+          volumeMounts:
+            - name: alloy-metrics
+              mountPath: /etc/alloy
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: alloy-metrics
+          configMap:
+            name: alloy-metrics
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alloy-logs
+  labels:
+    app: alloy-logs
+    shepherd.dev/component: alloy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alloy-logs
+  template:
+    metadata:
+      labels:
+        app: alloy-logs
+        shepherd.dev/component: alloy
+    spec:
+      containers:
+        - name: alloy
+          image: __ALLOY_IMAGE__
+          args:
+            - run
+            - /etc/alloy/config.alloy
+            - --storage.path=/tmp/alloy
+            - --server.http.listen-addr=0.0.0.0:12345
+            - --disable-reporting
+          ports:
+            - name: http
+              containerPort: 12345
+          volumeMounts:
+            - name: alloy-logs
+              mountPath: /etc/alloy
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: alloy-logs
+          configMap:
+            name: alloy-logs
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alloy-staging
+  labels:
+    app: alloy-staging
+    shepherd.dev/component: alloy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alloy-staging
+  template:
+    metadata:
+      labels:
+        app: alloy-staging
+        shepherd.dev/component: alloy
+    spec:
+      containers:
+        - name: alloy
+          image: __ALLOY_IMAGE__
+          args:
+            - run
+            - /etc/alloy/config.alloy
+            - --storage.path=/tmp/alloy
+            - --server.http.listen-addr=0.0.0.0:12345
+            - --disable-reporting
+          ports:
+            - name: http
+              containerPort: 12345
+          volumeMounts:
+            - name: alloy-staging
+              mountPath: /etc/alloy
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: alloy-staging
+          configMap:
+            name: alloy-staging
+        - name: tmp
+          emptyDir: {}

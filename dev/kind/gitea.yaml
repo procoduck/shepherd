@@ -1,0 +1,109 @@
+# DEV ONLY — kind dev stack (make dev-kind, scripts/dev-kind.sh). Not for production.
+#
+# Real git server backing GitOps in the kind stack, mirroring dev/docker-compose.dev.yaml's
+# gitea service (env, image and ports copied verbatim — see that file for why each var is
+# set). A PVC is required here (C5 of the kind dev-stack plan): the dev seed is
+# check-then-skip on the gitea-demo credential row, so a restart onto an emptyDir would
+# leave that row pointing at a repository that no longer exists. The PVC and the CNPG PV
+# share the same lifecycle — both die together on `make dev-kind-down` (kind delete).
+#
+# The Gitea image pin (gitea/gitea:1-rootless) stays in this manifest, not in
+# deploy/versions.env (D2 of the plan) — it never bills e2e-k8s.
+#
+# Admin bootstrap is NOT done here: the script execs `gitea admin user create` after this
+# Deployment is Available, tolerating "already exists" the same way compose's gitea-init
+# one-shot does.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gitea-data
+  labels:
+    app: gitea
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitea
+  labels:
+    app: gitea
+spec:
+  replicas: 1
+  # RWO PVC: a rolling update could briefly schedule two pods trying to mount the same
+  # volume. Recreate tears the old pod down first.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: gitea
+  template:
+    metadata:
+      labels:
+        app: gitea
+    spec:
+      containers:
+        - name: gitea
+          image: gitea/gitea:1-rootless
+          env:
+            - name: INSTALL_LOCK
+              value: "true"
+            - name: HTTP_PORT
+              value: "3000"
+            # The rootless image can't bind the privileged port 22, so its built-in SSH
+            # server listens on 2222 instead — set explicitly so a change to the image
+            # default doesn't silently break the `ssh` auth kind.
+            - name: DISABLE_SSH
+              value: "false"
+            - name: SSH_LISTEN_PORT
+              value: "2222"
+            - name: SSH_PORT
+              value: "2222"
+            # Anonymous read of public repos — Gitea's default, set explicitly.
+            - name: GITEA__service__REQUIRE_SIGNIN_VIEW
+              value: "false"
+          ports:
+            - name: http
+              containerPort: 3000
+            - name: ssh
+              containerPort: 2222
+          readinessProbe:
+            httpGet:
+              path: /api/healthz
+              port: 3000
+            initialDelaySeconds: 2
+            periodSeconds: 2
+            failureThreshold: 30
+          volumeMounts:
+            - name: gitea-data
+              mountPath: /var/lib/gitea
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: gitea-data
+          persistentVolumeClaim:
+            claimName: gitea-data
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitea
+  labels:
+    app: gitea
+spec:
+  selector:
+    app: gitea
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+    - name: ssh
+      port: 2222
+      targetPort: 2222
