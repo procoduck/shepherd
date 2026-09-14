@@ -333,10 +333,25 @@ export const PipelineNode = memo(function PipelineNode({
         errors ? 'border-l-red-500' : '',
         node.disabled ? 'opacity-50 border-dashed' : '',
         dropState === 'dimmed' ? 'opacity-40' : '',
-        dropState === 'snapped' ? 'bg-emerald-500/10' : '',
         dropShadowClass,
       ].join(' ')}
-      style={errors ? undefined : { borderLeftColor: categoryColor }}
+      // The snapped tint is applied via inline style, not a `bg-*` utility:
+      // Tailwind's compiled sheet orders `.bg-card` (an always-present class
+      // here) after any `bg-[...]` arbitrary-value utility regardless of
+      // which one is conditionally added, so a class-based tint either loses
+      // to bg-card outright or replaces it and drops opacity depending on
+      // which arbitrary syntax is used. An inline style always wins on
+      // specificity, and color-mix over var(--color-card) stays opaque and
+      // theme-aware since --color-card itself is redefined per theme.
+      style={{
+        ...(errors ? {} : { borderLeftColor: categoryColor }),
+        ...(dropState === 'snapped'
+          ? {
+              backgroundColor:
+                'color-mix(in oklab, var(--color-emerald-500) 12%, var(--color-card))',
+            }
+          : {}),
+      }}
       data-node-id={node.id}
       data-testid='pipeline-node'
       data-drop-state={dropState}

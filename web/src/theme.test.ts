@@ -177,7 +177,12 @@ describe('design token layer (index.css light overrides)', () => {
   });
 
   describe('html.light (explicit toggle override)', () => {
-    const block = extractBlockAfter(css, 'html.light', 'the html.light override rule');
+    // Anchored at the rule itself (start-of-line 'html.light {'), not a bare
+    // 'html.light' substring: the file's own explanatory comment above this
+    // rule mentions `html.light` in prose first, and css.indexOf would land
+    // there, walk forward to the @media block's opening brace, and silently
+    // check that block twice instead of this one.
+    const block = extractBlockAfter(css, '\nhtml.light {', 'the html.light override rule');
     it.each(Object.entries(EXPECTED_TOKENS_LIGHT))('defines %s as %s', (name, hex) => {
       const re = new RegExp(`${name}\\s*:\\s*${hex}\\b`, 'i');
       expect(block).toMatch(re);
