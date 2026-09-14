@@ -50,17 +50,9 @@ var (
 	clusterName string
 )
 
-const (
-	// calicoManifest is applied after cluster creation because kind is
-	// configured with disableDefaultCNI. Pinned rather than "latest": a CNI
-	// upgrade changing enforcement behaviour must be a deliberate commit, not
-	// something that arrives silently on a Tuesday.
-	calicoManifest = "https://raw.githubusercontent.com/projectcalico/calico/v3.28.2/manifests/calico.yaml"
-
-	// cniReadyTimeout is generous: on a cold machine Calico pulls several
-	// images before a single node reports Ready.
-	cniReadyTimeout = 5 * time.Minute
-)
+// cniReadyTimeout is generous: on a cold machine Calico pulls several
+// images before a single node reports Ready.
+const cniReadyTimeout = 5 * time.Minute
 
 func TestMain(m *testing.M) {
 	testenv = env.New()
@@ -128,12 +120,20 @@ func sweepCluster(name string) {
 	}
 }
 
-// kindNodeImage lets CI pin the Kubernetes version without editing the config.
+// kindNodeImage lets CI pin the Kubernetes version without editing the
+// config; absent that override it reads KIND_NODE_IMAGE from
+// deploy/versions.env, the same pin scripts/dev-kind.sh uses. This runs in
+// TestMain before any cluster exists, so a missing/unreadable pin is a
+// log.Fatalf, not an error return nothing downstream could act on.
 func kindNodeImage() string {
 	if v := os.Getenv("E2E_K8S_NODE_IMAGE"); v != "" {
 		return v
 	}
-	return "kindest/node:v1.31.4"
+	image, err := readVersionsEnvValue("KIND_NODE_IMAGE")
+	if err != nil {
+		log.Fatalf("resolving kind node image: %v", err)
+	}
+	return image
 }
 
 // podCIDR must match testdata/kind-cluster.yaml's networking.podSubnet.
@@ -178,10 +178,18 @@ func assertPodCIDRDoesNotOverlapNodes(ctx context.Context, cfg *envconf.Config) 
 	return ctx, nil
 }
 
-// installCNI applies Calico. kind was told not to install kindnetd, so until
-// this succeeds no pod can schedule — which is why a failure here fails the
-// whole run loudly rather than leaving specs to time out mysteriously.
+// installCNI applies Calico, pinned by CALICO_VERSION in deploy/versions.env
+// (not "latest": a CNI upgrade changing enforcement behaviour must be a
+// deliberate commit, not something that arrives silently on a Tuesday). kind
+// was told not to install kindnetd, so until this succeeds no pod can
+// schedule — which is why a failure here fails the whole run loudly rather
+// than leaving specs to time out mysteriously.
 func installCNI(ctx context.Context, cfg *envconf.Config) (context.Context, error) {
+	version, err := readVersionsEnvValue("CALICO_VERSION")
+	if err != nil {
+		return ctx, err
+	}
+	calicoManifest := fmt.Sprintf("https://raw.githubusercontent.com/projectcalico/calico/%s/manifests/calico.yaml", version)
 	log.Printf("installing Calico (%s)", calicoManifest)
 	if p := utils.RunCommand(
 		fmt.Sprintf("kubectl --kubeconfig %s apply -f %s", cfg.KubeconfigFile(), calicoManifest),

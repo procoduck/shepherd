@@ -28,6 +28,12 @@
       "matchPackageNames": ["golang", "node"],
       "matchUpdateTypes": ["major"],
       "enabled": false
+    },
+    {
+      "description": "The kind node image is tag-pinned by hand: a bump must stay inside kind v0.33 / helm/kind-action support, above NGF and CNPG's kubeVersion floors (same reasons as the deploy/versions.env comment) — a reviewed decision, not a Monday PR. No matchUpdateTypes, so digest pinning is off too.",
+      "matchManagers": ["custom.regex"],
+      "matchPackageNames": ["kindest/node"],
+      "enabled": false
     }
   ],
   "customManagers": [
