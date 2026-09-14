@@ -151,6 +151,34 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 			Expect(instance.Name).To(Equal("test-instance"))
 		})
 
+		It("falls back to the wire id when the collector sends no name", func() {
+			_, err := client.RegisterCollector(ctx, connect.NewRequest(&collectorv1.RegisterCollectorRequest{
+				Id:   "noname-instance",
+				Name: "",
+				LocalAttributes: map[string]string{
+					"cluster": "noname-cluster",
+					"role":    "metrics",
+				},
+			}))
+			Expect(err).NotTo(HaveOccurred())
+
+			instance, err := st.Queries.GetCollectorInstanceByID(ctx, "noname-instance")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(instance.Name).To(Equal("noname-instance"), "RegisterCollector must fall back to the wire id like GetConfig does, never store an empty name")
+
+			// A subsequent poll with no collector.name attribute must not
+			// wipe the fallback name back to empty either.
+			_, err = client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+				Id:              "noname-instance",
+				LocalAttributes: map[string]string{"cluster": "noname-cluster", "role": "metrics"},
+			}))
+			Expect(err).NotTo(HaveOccurred())
+
+			instance, err = st.Queries.GetCollectorInstanceByID(ctx, "noname-instance")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(instance.Name).To(Equal("noname-instance"))
+		})
+
 		It("rejects missing cluster attribute", func() {
 			_, err := client.RegisterCollector(ctx, connect.NewRequest(&collectorv1.RegisterCollectorRequest{
 				Id:              "instance-bad",

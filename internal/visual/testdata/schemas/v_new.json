@@ -29,6 +29,18 @@
       "attributes": [{ "name": "new_url", "type": "string", "required": false }],
       "inputs":  [],
       "outputs": []
+    },
+    "test.wired_source": {
+      "stability": "ga",
+      "attributes": [],
+      "inputs":  [],
+      "outputs": [{ "type": "loki.logs", "cardinality": "list", "export": "output" }]
+    },
+    "test.wired_target": {
+      "stability": "ga",
+      "attributes": [{ "name": "forward_to", "type": "list(LokiReceiver)", "required": true }],
+      "inputs":  [{ "type": "loki.logs", "cardinality": "list", "prop": "forward_to" }],
+      "outputs": []
     }
   },
   "migrations": {
