@@ -224,7 +224,7 @@ export function WizardRunnerPage() {
                             {isWizardAddedMatcher(m, form) && (
                               <span
                                 data-testid='wizard-added-matcher'
-                                className='rounded bg-indigo-950/60 px-1.5 py-0.5 text-2xs text-indigo-300'
+                                className='rounded bg-accent/10 px-1.5 py-0.5 text-xs text-accent'
                               >
                                 added by the wizard
                               </span>
