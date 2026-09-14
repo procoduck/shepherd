@@ -102,7 +102,10 @@ export function PipelinesPage() {
   const { data: staleData } = useQuery({
     queryKey: ['pipelines', orgId, 'needs-upgrade'],
     queryFn: () => clients.pipeline.listPipelines({ orgId, needsUpgrade: true }),
-    enabled: !!orgId,
+    // Dependent on the primary list: the badge is secondary information, and
+    // sequencing keeps one ListPipelines in flight so a failure of the list
+    // itself is what the page reports (states.spec / query-errors.spec).
+    enabled: !!orgId && !!data,
   });
   const staleVersions = new Map<string, string>(
     (staleData?.items ?? []).map((p) => [

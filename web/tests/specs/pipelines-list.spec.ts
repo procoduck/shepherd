@@ -1,5 +1,5 @@
 import { basicScenario, pipeline } from '../fixtures/factories';
-import { appAdmin } from '../fixtures/personas';
+import { appAdmin, orgEditor } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
 import { expect, test } from '../fixtures/test';
 
@@ -23,7 +23,7 @@ test('New pipeline button is visible for orgAdmin', async ({ page, api }) => {
 });
 
 test('a visual pipeline rendered under an older schema is badged', async ({ page, api }) => {
-  await api.loginAs(appAdmin);
+  await api.loginAs(orgEditor);
   const s = basicScenario();
   // schemaFixture's artifact is alloy-v1.19.2 (currentSchemaVersion normalises
   // its _meta.alloy_version "v1.19.2" to this form) — see schema-fixture.ts

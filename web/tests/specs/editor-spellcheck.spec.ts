@@ -1,5 +1,5 @@
 import { basicScenario } from '../fixtures/factories';
-import { appAdmin } from '../fixtures/personas';
+import { orgEditor } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
 
 // F14: pin that the editor's .cm-content carries spellcheck="false",
@@ -11,7 +11,7 @@ import { expect, test } from '../fixtures/test';
 // v0.6.0. (The walkthrough's underline was most likely CodeMirror's own lint
 // decoration on a diagnosed identifier, not the browser's native spell-checker.)
 test('editor turns off the browser spell-check underline', async ({ page, api }) => {
-  await api.loginAs(appAdmin);
+  await api.loginAs(orgEditor);
   api.seed({ orgs: [basicScenario().org] });
   await page.goto('/pipelines/new');
   await page.waitForSelector('.cm-editor', { timeout: 5000 });

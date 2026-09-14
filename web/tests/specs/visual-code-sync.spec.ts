@@ -189,14 +189,15 @@ test.describe('visual code sync — org selection and outcome', () => {
     const fy = box.y + box.height / 2;
     await page.mouse.move(fx, fy);
     await page.mouse.down();
-    await page.waitForTimeout(50);
-    const steps = 10;
-    for (let i = 1; i <= steps; i++) {
-      await page.mouse.move(fx + (120 * i) / steps, fy);
-      await page.waitForTimeout(15);
-    }
+    await page.mouse.move(fx + 120, fy, { steps: 10 });
     await page.mouse.up();
-    await page.waitForTimeout(300);
+    // The pane's transform is the observable effect of the pan; waiting on it
+    // replaces a timed pause (wait-budget.spec.ts).
+    await expect
+      .poll(async () =>
+        page.locator('.react-flow__viewport').evaluate((el) => getComputedStyle(el).transform),
+      )
+      .not.toBe('none');
 
     await expect(page.getByTestId('verify-render-result')).toHaveText(/matches/, {
       timeout: 5_000,

@@ -1,9 +1,9 @@
 import { basicScenario, pipeline } from '../fixtures/factories';
-import { appAdmin } from '../fixtures/personas';
+import { appAdmin, orgEditor } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
 
 test('Save refreshes the revision list and Updated by', async ({ page, api }) => {
-  await api.loginAs(appAdmin);
+  await api.loginAs(orgEditor);
   const s = basicScenario();
   const p = pipeline({
     id: 'pip-refresh',
@@ -32,7 +32,7 @@ test('Save refreshes the revision list and Updated by', async ({ page, api }) =>
   // Both must update WITHOUT a reload: the mock UpdatePipeline additively
   // unshifts a revision and sets updated_by, same as RestoreRevision does.
   await expect(page.getByRole('button', { name: /revision history \(2\)/i })).toBeVisible();
-  await expect(page.getByText('appadmin@example.com')).toBeVisible();
+  await expect(page.getByText('orgeditor@example.com')).toBeVisible();
   expect(api.calls('/shepherd.mgmt.v1.PipelineService/ListRevisions')).toHaveLength(2);
 });
 

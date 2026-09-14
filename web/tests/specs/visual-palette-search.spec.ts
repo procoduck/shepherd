@@ -5,7 +5,7 @@
 // pure-function unit coverage this spec proves end to end.
 import { expect } from '@playwright/test';
 import { basicScenario } from '../fixtures/factories';
-import { appAdmin } from '../fixtures/personas';
+import { orgEditor } from '../fixtures/personas';
 import { schemaFixture, shippedSchema } from '../fixtures/schema-fixture';
 import { test } from '../fixtures/test';
 
@@ -24,7 +24,7 @@ const schemaWithReceiveHttp = {
 
 test.describe('visual palette search', () => {
   test.beforeEach(async ({ page, api }) => {
-    await api.loginAs(appAdmin);
+    await api.loginAs(orgEditor);
     const s = basicScenario();
     api.seed({ orgs: [s.org], schema: schemaWithReceiveHttp });
     await page.goto('/pipelines/visual/new');
