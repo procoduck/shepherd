@@ -64,6 +64,24 @@
     --color-muted-2: #52525b;
     --color-muted-3: #71717a;
     --color-accent: #4f46e5;
+    /*
+     * F2 (2026-09-14 walkthrough fixes). --color-zinc-100/200/300 are
+     * Tailwind's own @theme tokens (not ours), used raw by <body>
+     * (index.html) and the Shell root as the app's only base foreground —
+     * theme.test.ts's RAW_ZINC_ALLOWLIST documents text-zinc-100/200/300 as
+     * the deliberately un-tokenized "foreground" shades. Tailwind's default
+     * value for these is a near-white oklch(), which stayed near-white in
+     * light mode because nothing here redefined it — leaving every label
+     * that inherits colour (palette names, node titles, toolbar inputs,
+     * dialog titles) unreadable on #fafafa/#ffffff. These rules are
+     * unlayered CSS, so they win over Tailwind's `@layer theme` definition
+     * regardless of specificity: redefining the three here flips the base
+     * foreground (and everything that inherits it) at once, no
+     * per-component change needed. Contrast on #fafafa/#ffffff: all ≥ 10:1.
+     */
+    --color-zinc-100: #18181b;
+    --color-zinc-200: #27272a;
+    --color-zinc-300: #3f3f46;
   }
 }
 
@@ -77,6 +95,10 @@ html.light {
   --color-muted-2: #52525b;
   --color-muted-3: #71717a;
   --color-accent: #4f46e5;
+  /* F2: see the matching comment in the media-query block above. */
+  --color-zinc-100: #18181b;
+  --color-zinc-200: #27272a;
+  --color-zinc-300: #3f3f46;
 }
 
 :root {

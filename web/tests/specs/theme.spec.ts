@@ -1,3 +1,5 @@
+import type { Locator } from '@playwright/test';
+import { settledBox } from '../fixtures/canvas';
 import { basicScenario } from '../fixtures/factories';
 import { appAdmin } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
@@ -117,5 +119,213 @@ test.describe('visual canvas colours follow the theme', () => {
     await expect
       .poll(async () => handle.evaluate((el) => getComputedStyle(el).backgroundColor))
       .not.toBe(darkHandle);
+  });
+});
+
+// WCAG relative luminance (sRGB -> linear -> the standard 0.2126/0.7152/0.0722
+// weights), applied to a `getComputedStyle(...).color`-style "rgb(r, g, b)"
+// string. Used below to assert that light-mode text is actually DARK, not
+// merely "a different shade of near-white" — a color could change and still
+// fail contrast.
+function relativeLuminance(rgb: string): number {
+  const m = rgb.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  if (!m) throw new Error(`unparseable color: "${rgb}"`);
+  const [r, g, b] = [m[1], m[2], m[3]].map((c) => {
+    const s = Number(c) / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+// F2 (2026-09-14 walkthrough): the app's only base foreground is the raw
+// `text-zinc-100` utility on <body> (index.html) and the Shell root, and
+// index.css's light overrides redefined only surface/muted tokens — so
+// every label that inherits colour (palette names, node titles, the
+// toolbar name field, dialog titles) stayed near-white on the light
+// background. This spec proves the builder's inherited text actually
+// flips, not just that *some* colour value differs.
+test.describe('visual builder text follows the theme', () => {
+  test('palette, node title, toolbar and sandbox dialog text are dark in light mode', async ({
+    page,
+    api,
+  }) => {
+    await api.loginAs(appAdmin);
+    const s = basicScenario();
+    api.seed({ orgs: [s.org], schema: schemaFixture });
+
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.goto('/pipelines/visual/new');
+    await page.waitForSelector('[data-testid="visual-builder"]', { timeout: 10_000 });
+    await page.waitForSelector('[data-testid="palette-search"]', { timeout: 8_000 });
+
+    await page.click('[data-component="prometheus.scrape"]');
+    const node = page.locator('[data-testid="pipeline-node"]').first();
+    await expect(node).toBeVisible();
+
+    const paletteName = page.locator(
+      '[data-testid="palette-item-prometheus.scrape"] span.font-mono',
+    );
+    const nodeTitle = node.locator('.font-mono span');
+    const toolbarName = page.getByTestId('toolbar-name');
+
+    await page.getByTestId('simulate-menu-trigger').click();
+    await page.getByTestId('simulate-menu-sandbox-run').click();
+    const dialogTitle = page.locator('[data-testid="sandbox-run-dialog"] h2');
+    await expect(dialogTitle).toBeVisible();
+
+    const darkPalette = await paletteName.evaluate((el) => getComputedStyle(el).color);
+    const darkNodeTitle = await nodeTitle.evaluate((el) => getComputedStyle(el).color);
+    const darkToolbarName = await toolbarName.evaluate((el) => getComputedStyle(el).color);
+    const darkDialogTitle = await dialogTitle.evaluate((el) => getComputedStyle(el).color);
+
+    // Close the dialog before toggling — the Modal traps focus/keydown and
+    // a stray Escape after the toggle would be ambiguous about which state
+    // it landed in.
+    await page.getByRole('button', { name: 'Close' }).click();
+    await expect(dialogTitle).not.toBeVisible();
+
+    const themeBtn = page.getByRole('button', { name: /toggle theme/i });
+    await themeBtn.click();
+    await expect(page.locator('html')).toHaveClass(/light/);
+
+    await expect
+      .poll(async () => paletteName.evaluate((el) => getComputedStyle(el).color))
+      .not.toBe(darkPalette);
+    await expect
+      .poll(async () => nodeTitle.evaluate((el) => getComputedStyle(el).color))
+      .not.toBe(darkNodeTitle);
+    await expect
+      .poll(async () => toolbarName.evaluate((el) => getComputedStyle(el).color))
+      .not.toBe(darkToolbarName);
+
+    const lightPalette = await paletteName.evaluate((el) => getComputedStyle(el).color);
+    const lightNodeTitle = await nodeTitle.evaluate((el) => getComputedStyle(el).color);
+    const lightToolbarName = await toolbarName.evaluate((el) => getComputedStyle(el).color);
+
+    expect(relativeLuminance(lightPalette)).toBeLessThan(0.3);
+    expect(relativeLuminance(lightNodeTitle)).toBeLessThan(0.3);
+    expect(relativeLuminance(lightToolbarName)).toBeLessThan(0.3);
+
+    // Re-open the sandbox dialog in light mode for the same check — its
+    // title inherits colour too and never got its own light-mode assertion
+    // above (it was closed before the toggle).
+    await page.getByTestId('simulate-menu-trigger').click();
+    await page.getByTestId('simulate-menu-sandbox-run').click();
+    await expect(dialogTitle).toBeVisible();
+    const lightDialogTitle = await dialogTitle.evaluate((el) => getComputedStyle(el).color);
+    expect(lightDialogTitle).not.toBe(darkDialogTitle);
+    expect(relativeLuminance(lightDialogTitle)).toBeLessThan(0.3);
+  });
+});
+
+// F2 review finding: bg-[#131f17] -> bg-emerald-500/10 made the snapped-drop
+// tint a 10%-alpha colour that REPLACES bg-card (both are background-color;
+// bg-emerald-500/10 sorts after bg-card in the compiled CSS) instead of
+// layering over it, so a snapped node's body — including its title and port
+// rows — is ~90% transparent and the canvas dot grid shows through, in BOTH
+// themes. data-drop-state alone (visual-drag-highlight.spec.ts) can't catch
+// this since it never reads a computed style. This proves the snapped node's
+// background stays fully opaque (alpha 1) while still visibly tinted, in
+// dark mode and in light mode.
+// Handles both the legacy `rgba(r, g, b, a)` comma syntax and the modern
+// slash syntax any color function (oklab, oklch, color-mix's own output, …)
+// serializes to — `bg-emerald-500/10` computes as
+// "oklab(0.696 -0.162114 0.0511765 / 0.1)", not an rgb string. A function
+// with no alpha component (fully opaque) is alpha 1.
+function backgroundAlpha(color: string): number {
+  const slash = color.match(/\/\s*([\d.]+)\s*\)\s*$/);
+  if (slash) return Number(slash[1]);
+  const legacyRgba = color.match(/^rgba\(\s*[\d.]+%?,\s*[\d.]+%?,\s*[\d.]+%?,\s*([\d.]+)\s*\)$/);
+  if (legacyRgba) return Number(legacyRgba[1]);
+  return 1;
+}
+
+async function center(locator: Locator) {
+  const box = await settledBox(locator);
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
+test.describe('snapped-drop tint stays opaque', () => {
+  test("a snapped node's background is opaque, tinted, in both dark and light mode", async ({
+    page,
+    api,
+  }) => {
+    await api.loginAs(appAdmin);
+    const s = basicScenario();
+    api.seed({ orgs: [s.org], schema: schemaFixture });
+
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.goto('/pipelines/visual/new');
+    await page.waitForSelector('[data-testid="visual-builder"]', { timeout: 10_000 });
+    await page.waitForSelector('[data-testid="palette-search"]', { timeout: 8_000 });
+
+    // discovery.kubernetes: source, output type `targets`.
+    // discovery.relabel: compatible target, input type `targets`.
+    await page.click('[data-component="discovery.kubernetes"]');
+    await page.click('[data-component="discovery.relabel"]');
+    await expect(page.locator('[data-testid="pipeline-node"]')).toHaveCount(2);
+
+    const sourceHandle = page
+      .locator('.react-flow__node')
+      .first()
+      .locator('.react-flow__handle.source')
+      .first();
+    const targetHandle = page
+      .locator('.react-flow__node')
+      .nth(1)
+      .locator('.react-flow__handle.target')
+      .first();
+    const relabelNode = page.locator('[data-testid="pipeline-node"]').nth(1);
+    await sourceHandle.waitFor({ timeout: 5_000 });
+    await targetHandle.waitFor({ timeout: 5_000 });
+
+    const idleBg = await relabelNode.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(backgroundAlpha(idleBg)).toBe(1);
+
+    async function snapAndReadBackground(): Promise<string> {
+      const from = await center(sourceHandle);
+      const to = await center(targetHandle);
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      await page.waitForTimeout(100);
+      const steps = 10;
+      for (let i = 1; i <= steps; i++) {
+        await page.mouse.move(
+          from.x + ((to.x - from.x) * i) / steps,
+          from.y + ((to.y - from.y) * i) / steps,
+        );
+        await page.waitForTimeout(20);
+      }
+      await expect(relabelNode).toHaveAttribute('data-drop-state', 'snapped', { timeout: 3_000 });
+      const bg = await relabelNode.evaluate((el) => getComputedStyle(el).backgroundColor);
+      // Move away from the handle before releasing so no edge is actually
+      // created — this same node pair is reused for the light-mode pass.
+      await page.mouse.move(from.x + 10, from.y - 60);
+      await page.waitForTimeout(100);
+      await page.mouse.up();
+      await page.waitForTimeout(300);
+      await expect(relabelNode).toHaveAttribute('data-drop-state', 'idle');
+      await expect(page.locator('.react-flow__edge')).toHaveCount(0);
+      return bg;
+    }
+
+    const darkSnappedBg = await snapAndReadBackground();
+    expect(backgroundAlpha(darkSnappedBg)).toBe(1);
+    expect(darkSnappedBg).not.toBe(idleBg);
+
+    const themeBtn = page.getByRole('button', { name: /toggle theme/i });
+    await themeBtn.click();
+    await expect(page.locator('html')).toHaveClass(/light/);
+    // bg-card itself is theme-flipped (index.css), so the idle background
+    // changes on toggle even though this node received no new props.
+    await expect
+      .poll(async () => relabelNode.evaluate((el) => getComputedStyle(el).backgroundColor))
+      .not.toBe(idleBg);
+    const lightIdleBg = await relabelNode.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(backgroundAlpha(lightIdleBg)).toBe(1);
+
+    const lightSnappedBg = await snapAndReadBackground();
+    expect(backgroundAlpha(lightSnappedBg)).toBe(1);
+    expect(lightSnappedBg).not.toBe(lightIdleBg);
   });
 });
