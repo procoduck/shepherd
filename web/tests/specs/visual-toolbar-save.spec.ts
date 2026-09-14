@@ -77,6 +77,37 @@ test.describe('visual builder toolbar — new pipeline', () => {
     await expect(page.locator('[data-testid="bottom-drawer"]')).toHaveClass(/h-64/);
   });
 
+  // F10: the drawer tab used to show diagnostics.length (errors + warnings)
+  // while the toolbar chip counted only blocking errors — a graph with any
+  // warning showed two different "problem" counts on screen at once. A lone
+  // discovery.kubernetes node (required `role` unset, its `targets` output
+  // unwired, and no destination node present) yields both an error and a
+  // warning against schemaFixture.
+  test('the drawer problems tab counts what the toolbar chip counts', async ({ page }) => {
+    await page.click('[data-component="discovery.kubernetes"]');
+
+    const chipText = (await page.locator('[data-testid="toolbar-validity"]').textContent()) ?? '';
+    const chipCount = chipText.match(/\d+/)?.[0];
+    expect(chipCount).toBeTruthy();
+
+    await page.click('[data-testid="drawer-toggle"]');
+    const tabText = (await page.locator('[data-testid="drawer-tab-problems"]').textContent()) ?? '';
+    expect(tabText.startsWith(`Problems ${chipCount}`)).toBe(true);
+    // Without this, the assertion above passes vacuously the moment the
+    // placed node stops yielding a warning too (chip and tab would already
+    // agree on the error-only count before the F10 fix) — pin down that the
+    // scenario actually exercises a chip/tab disagreement over a warning.
+    expect(tabText).toMatch(/warning/);
+  });
+
+  // F15: toggling flow check used to change only the canvas's edge
+  // animation, with no textual outcome anywhere on screen.
+  test('flow check shows a textual outcome', async ({ page }) => {
+    await page.click('[data-testid="flow-check-toggle"]');
+    await expect(page.getByTestId('flow-check-result')).toBeVisible();
+    await expect(page.getByTestId('flow-check-result')).toHaveText(/Flow OK/);
+  });
+
   test('fills name, adds a matcher, saves, and navigates to the new pipeline', async ({
     page,
     api,

@@ -216,6 +216,18 @@ export function Toolbar({ pipelineId }: { pipelineId: string }) {
       >
         Flow check
       </button>
+      {flowCheckActive && (
+        // F15: toggling flow check used to change only the canvas's edge
+        // animation (CanvasPane.tsx), with no textual outcome anywhere.
+        <span
+          data-testid='flow-check-result'
+          className={`text-xs shrink-0 ${errors === 0 ? 'text-emerald-400' : 'text-red-400'}`}
+        >
+          {errors === 0
+            ? `Flow OK · ${doc.nodes.filter((n) => !n.disabled).length} nodes, ${doc.edges.length} wires`
+            : `Flow broken · ${errors} problem${errors !== 1 ? 's' : ''}`}
+        </span>
+      )}
       <SandboxRunPanel orgId={orgId} />
       <button
         data-testid='toolbar-save'
