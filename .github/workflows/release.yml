@@ -455,6 +455,7 @@ jobs:
         with:
           image-ref: ${{ env.IMAGE_REGISTRY }}/${{ matrix.image }}:${{ github.ref_name }}
           scanners: vuln
+          ignore-unfixed: true
           format: sarif
           output: trivy-${{ matrix.image }}.sarif
           exit-code: "0"

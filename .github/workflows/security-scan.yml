@@ -15,7 +15,10 @@ name: security-scan
 #                  REPORT over the whole image including the vendored Alloy
 #                  binary (uploaded to the Security tab, never fails — an
 #                  upstream Alloy CVE is fixed by bumping ALLOY_IMAGE, which is
-#                  a schema bump, not something a PR can absorb).
+#                  a schema bump, not something a PR can absorb). Reports, like
+#                  the gate, exclude CVEs with no fix available: an alert nobody
+#                  can act on trains everyone to ignore the tab, and a fix that
+#                  appears later surfaces on the next scan by itself.
 #   config-scan  — Trivy misconfiguration checks over deploy/: every
 #                  Dockerfile and the Helm chart as rendered. Fails on
 #                  critical/high; accepted findings live in .trivyignore with
@@ -134,6 +137,7 @@ jobs:
         with:
           image-ref: shepherd:local
           scanners: vuln
+          ignore-unfixed: true
           format: sarif
           output: trivy-shepherd.sarif
           exit-code: "0"
@@ -143,6 +147,7 @@ jobs:
         with:
           image-ref: shepherd-simulator:local
           scanners: vuln
+          ignore-unfixed: true
           format: sarif
           output: trivy-simulator.sarif
           exit-code: "0"
@@ -227,6 +232,7 @@ jobs:
         with:
           image-ref: ${{ env.IMAGE_REGISTRY }}/shepherd:${{ steps.v.outputs.version }}
           scanners: vuln
+          ignore-unfixed: true
           format: sarif
           output: trivy-published.sarif
           exit-code: "0"
