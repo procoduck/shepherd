@@ -30,12 +30,27 @@ export function Modal({
   const [titleId] = useState(() => `modal-title-${++modalSeq}`);
   const panelRef = useRef<HTMLDivElement>(null);
 
+  // Read the latest onClose at Escape time without making it an effect
+  // dependency — see the effect below (the same pattern UpgradeReview.tsx
+  // uses for docRef).
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   // Escape to close, and keep focus inside the dialog.
   //
   // aria-modal="true" tells assistive technology the rest of the page is inert.
   // It was not: focus tabbed straight out into the visually obscured page
   // behind, which is the worst combination -- a screen reader is told one thing
   // while the keyboard does another.
+  //
+  // Keyed on [] — deliberately NOT [onClose]: every page-owned dialog whose
+  // form state lives in the page (not the dialog itself) passes a fresh
+  // inline `onClose` arrow on every keystroke's re-render. Keying this
+  // effect on `onClose` reran it, including the panelRef.current?.focus()
+  // call, on every keystroke — which yanked focus out of the input back to
+  // the panel, so only the first typed character ever landed. The panel
+  // must be focused once per mount and the keydown listener installed once;
+  // onCloseRef above keeps Escape calling the current onClose regardless.
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
     panelRef.current?.focus();
@@ -43,7 +58,7 @@ export function Modal({
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key !== 'Tab') return;
@@ -69,7 +84,8 @@ export function Modal({
       // caret lands back at the top of the document after every dialog.
       previouslyFocused?.focus?.();
     };
-  }, [onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/60'>
