@@ -358,14 +358,15 @@ than a shortcut:
 - **A new `*.localtest.me` route needs no DNS change** — the regex already covers it, because
   every hostname under the zone resolves to the same Gateway Service; only the `HTTPRoute`'s
   hostname list decides what actually answers.
-- **The mock OIDC issuer is derived from the request's `Host` header** (`oidc.yaml`'s readiness
-  and §5 step 7's live check both confirm `http://oidc.localtest.me/default` is the issuer a pod
-  sees and the issuer a browser sees). If pods and the browser resolved `oidc.localtest.me`
-  differently — say, a pod using a Service DNS name and the browser using the public
-  `localtest.me` wildcard to `127.0.0.1` — the issuer string returned to each would still be
-  `oidc.localtest.me`-shaped either way *only because* both paths cross the same one rewrite before
-  reaching the same Service. A per-hostname rewrite set would risk the two paths disagreeing if one
-  were ever edited and the other forgotten; a single zone-wide rule cannot drift internally.
+- **The rewrite exists so in-cluster clients can resolve the zone at all**, not to keep two paths
+  in sync. `oidc.localtest.me`'s public wildcard answers `127.0.0.1` — inside a pod that is the
+  pod's own loopback, not the Gateway — so without the CoreDNS rewrite, Shepherd's own OIDC
+  discovery of the chart-declared issuer (D4) would fail to resolve it. With the rewrite, a pod
+  resolves `oidc.localtest.me` to the data-plane Service and reaches the same Gateway a browser
+  reaches by the host's public-DNS-then-hostPort path — both arrive with `Host:
+  oidc.localtest.me` on port 80, and the mock OIDC provider derives its issuer from that `Host`
+  header, so the pod-seen and browser-seen issuer strings match. (§5 step 7's live curl from a pod
+  is what actually proves the pod-seen string.)
 
 Offline (no public DNS to `localtest.me`'s wildcard `127.0.0.1` A record): add
 `shepherd.localtest.me`, `oidc.localtest.me` and `gitea.localtest.me` to `/etc/hosts` pointing at
@@ -382,17 +383,28 @@ against this stack by design: `config.go`'s non-empty `oidc.issuer` makes `HelmM
 disables the form, Save and Test connection accordingly.
 
 This is not an oversight to route around — it is `internal/auth/discovery.go`'s `dialGuard`
-working as intended. `dialGuard` is a `net.Dialer.Control` hook that runs on every hop of every
-redirect chain and refuses to connect anywhere that resolves to a loopback, private, link-local, or
-carrier-grade-NAT address (`blockedIP`, `discovery.go`) — because a real identity provider is never
-reachable only from inside the network making the request. The mock OIDC provider resolves to the
-NGF Gateway's in-cluster ClusterIP, which is exactly such an address. So: an admin who pasted
-`http://oidc.localtest.me/default` into the SSO settings page (were the chart issuer not already
-set) and pressed **Test connection** — which always probes with `SourceDatabase`, the guarded
-client (`settings_admin.go`) — would get *"refusing to fetch
-http://oidc.localtest.me/default/.well-known/openid-configuration: it resolves to a private or
-loopback address, which an identity provider never does"* (`discovery.go`). That refusal is the
-product working correctly, not a dev-stack limitation to fix.
+working as intended, behind a first barrier that fires earlier. Were the chart issuer not already
+set, an admin using the SSO settings page (`/admin/auth`) and pressing **Test connection** —
+`Handler.TestSettings` (`settings_admin.go`) — hits `validateIssuer` (`settings.go`) before any
+network call is made: it rejects every non-https issuer with *"issuer URL must use https — the
+discovery document names the JWKS endpoint Shepherd fetches signing keys from, and over http
+anyone on the path can substitute their own"*. So pasting `http://oidc.localtest.me/default`
+never reaches the network — it is refused right there.
+
+Paste `https://oidc.localtest.me/default` instead (the scheme this stack does not actually serve,
+but the one that clears `validateIssuer`) and the probe reaches `fetchDiscovery`, which runs with
+the guarded client (`SourceDatabase`) and dials out. `dialGuard` is a `net.Dialer.Control` hook
+that runs on every hop of every redirect chain and refuses to connect anywhere that resolves to a
+loopback, private, link-local, or carrier-grade-NAT address (`blockedIP`, `discovery.go`) —
+because a real identity provider is never reachable only from inside the network making the
+request. The mock OIDC provider resolves to the NGF Gateway's in-cluster ClusterIP, which is
+exactly such an address, so the admin gets *"refusing to fetch
+https://oidc.localtest.me/default/.well-known/openid-configuration: it resolves to a private or
+loopback address, which an identity provider never does"* (`discovery.go`). Both refusals are the
+product working correctly, not a dev-stack limitation to fix — https first, then the dial guard.
+
+(Plan §5 step 10 walks the same scenario live; correct it there too before the walk, so the live
+run confirms the same two-step refusal instead of the wrong one.)
 
 The walk itself (full detail and the exact claims JSON for each persona in
 `docs/plans/2026-09-14-kind-dev-stack.md` §5 step 10): the login page offers both the local form
@@ -406,16 +418,17 @@ no Microsoft Graph call.
 
 ### `reload` mechanics: a build annotation, not a bare rollout restart
 
-`make dev-kind-reload` rebuilds `shepherd:local`, `kind load`s it, and runs `helm upgrade
---install` again with a fresh `--set-string podAnnotations.dev-build=<short-sha>-<unix-ts>` (C3).
+`make dev-kind-reload` rebuilds `shepherd:local`, `kind load`s both `shepherd:local` and
+`shepherd-simulator:local` into the cluster, and runs `helm upgrade --install` again with a fresh
+`--set-string podAnnotations.dev-build=<short-sha>-<unix-ts>` (C3).
 A bare `kubectl rollout restart` was considered and rejected: the image tag never changes
-(`pullPolicy: Never`, tag `local`), so the pod template hash Kubernetes uses to decide whether to
-roll pods is otherwise identical between reloads, and the chart's migrate Job runs as a
-pre-install/pre-upgrade Helm hook — a `rollout restart` bypasses Helm entirely and would replace
-pods with a new binary that never ran a pending migration against them. Setting a value that
-changes every reload forces the Deployment's template annotations (and their `checksum/config`) to
-differ, which both makes Helm roll the pods *and* keeps the migrate hook — which only runs on
-`helm upgrade`, not on a raw `kubectl` restart — in the path every time.
+(`pullPolicy: Never`, tag `local`), so Helm's rendered manifest is otherwise identical between
+reloads — an unchanged render means no Deployment update and no rollout — and the chart's migrate
+Job runs as a pre-install/pre-upgrade Helm hook — a `rollout restart` bypasses Helm entirely and
+would replace pods with a new binary that never ran a pending migration against them. Setting a
+value that changes every reload forces the Deployment's `dev-build` template annotation to differ
+on every render, which both makes Helm roll the pods *and* keeps the migrate hook — which only
+runs on `helm upgrade`, not on a raw `kubectl` restart — in the path every time.
 
 ### Where the manifests live, and why
 
@@ -444,10 +457,13 @@ verify.
 ### Agents do not run kind
 
 **No coding agent creates, uses or deletes a `shepherd-dev` (or any) kind cluster, and none runs
-`make dev-kind*` or `make e2e-k8s`, as part of an automated slice of work.** Only one such cluster
-can exist at a time and only one process can bind host port 80; several people and several agent
-sessions share these laptops. Every change to the manifests, the script or the Makefile targets is
-verified statically instead — `helm template`/`helm lint` against the new values, `kubectl create
+`make dev-kind*` or `make e2e-k8s`, as part of an automated slice of work.** Only one
+`shepherd-dev` cluster can exist at a time (its fixed name and host-port mapping make it exclusive;
+kind itself supports many clusters, and this suite's own `shepherd-e2e-*` clusters coexist with it
+for exactly that reason, per the section above) and only one process can bind host port 80;
+several people and several agent sessions share these laptops. Every change to the manifests, the
+script or the Makefile targets is verified statically instead — `helm template`/`helm lint`
+against the new values, `kubectl create
 --dry-run=client --validate=false` against the manifests, `bash -n`/`shellcheck` against the
 script, and repocheck specs parsing everything with `yaml.v3` rather than applying it. A human, or
 an orchestrating session acting on a human's explicit instruction, performs the one live bring-up
