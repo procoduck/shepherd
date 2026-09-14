@@ -1,4 +1,4 @@
-.PHONY: docs check-docs-drift check-docs-version web-ci check-gateway-pin check-chartvalues-pin chart-verify preflight-docker help build build-web build-all test e2e e2e-k8s e2e-k8s-clean e2e-sim e2e-egress smoke test-cover test-ui check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks guards vulncheck lint fmt generate gen-alloy-version generate-corpus schema schema-verify helm-lint release-snapshot docker-build docker-build-local docker-build-init docker-build-simulator dev dev-sim dev-frontend dev-restart dev-seed dev-reset test-fullstack test-fullstack-sim clean clean-docker tools preflight-ginkgo preflight-k8s
+.PHONY: docs check-docs-drift check-docs-version web-ci check-gateway-pin check-chartvalues-pin chart-verify preflight-docker help build build-web build-all test e2e e2e-k8s e2e-k8s-clean e2e-sim e2e-egress smoke test-cover test-ui check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks guards vulncheck lint fmt generate gen-alloy-version generate-corpus schema schema-verify helm-lint release-snapshot docker-build docker-build-local docker-build-init docker-build-simulator dev dev-sim dev-frontend dev-restart dev-seed dev-reset test-fullstack test-fullstack-sim clean clean-docker tools preflight-ginkgo preflight-k8s secrets-scan image-scan config-scan
 
 # Several recipes are bash-idiomatic (the smoke here-string, trap chains);
 # /bin/sh is dash on Debian/Ubuntu and rejects them.
@@ -552,6 +552,30 @@ lint: guards ## Repo guards + golangci-lint
 # `go run pkg@version` does not touch go.mod/go.sum, so this needs no
 # ask-first dependency bump to run. SECURITY.md names govulncheck the arbiter
 # for which vulnerabilities are in scope: only ones on a reachable call path.
+# Security scanners — the same images and flags .github/workflows/security-scan.yml
+# uses, so a laptop run and a CI run disagree only when the code did.
+secrets-scan: preflight-docker ## Security: gitleaks over the full git history (fails on any finding)
+	@. deploy/versions.env && docker run --rm -v "$$PWD:/repo:ro" "$$GITLEAKS_IMAGE" \
+		detect --source /repo --no-banner --redact --exit-code 1 && echo "secrets-scan: OK (no findings)"
+
+# Two passes per image: the GATE covers Shepherd's own binary and the base
+# image; the REPORT covers the whole image including the vendored Alloy
+# binary, whose CVEs are fixed by bumping ALLOY_IMAGE (a schema bump), not by
+# a code change — so they are shown, not failed on.
+image-scan: docker-build-local docker-build-simulator ## Security: Trivy over shepherd:local + shepherd-simulator:local (gate excludes the vendored Alloy binary)
+	@. deploy/versions.env; for img in shepherd:local shepherd-simulator:local; do \
+		echo "==> $$img: gate (own binary + base; CRITICAL,HIGH; unfixed excluded)"; \
+		docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$$TRIVY_IMAGE" image --skip-version-check \
+			--scanners vuln --severity CRITICAL,HIGH --ignore-unfixed --skip-files usr/local/bin/alloy --exit-code 1 "$$img" || exit 1; \
+		echo "==> $$img: report (whole image incl. usr/local/bin/alloy)"; \
+		docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$$TRIVY_IMAGE" image --skip-version-check \
+			--scanners vuln --severity CRITICAL,HIGH --ignore-unfixed --format table "$$img" || true; \
+	done
+
+config-scan: preflight-docker ## Security: Trivy misconfiguration checks over deploy/ (Dockerfiles + Helm chart); .trivyignore holds accepted findings
+	@. deploy/versions.env && docker run --rm -v "$$PWD/deploy:/deploy:ro" -v "$$PWD/.trivyignore:/.trivyignore:ro" "$$TRIVY_IMAGE" \
+		config --skip-version-check --severity CRITICAL,HIGH --ignorefile /.trivyignore --exit-code 1 /deploy && echo "config-scan: OK"
+
 vulncheck: ## Guard: no known-reachable vulnerabilities (govulncheck)
 	go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
 

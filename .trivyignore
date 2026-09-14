@@ -1,0 +1,11 @@
+# Accepted Trivy misconfiguration findings, one reason each. `make config-scan`
+# and .github/workflows/security-scan.yml read this file; a new finding that is
+# not listed here fails the gate.
+
+# KSV-0125 "Restrict container images to trusted registries" — a policy check
+# that wants an allow-list of registries baked into the template. The chart's
+# images come from ghcr.io/procoduck (the only registry the release publishes
+# to) and every tag is pinned by the chart's appVersion; operators who mirror
+# set image.registry explicitly. Enforcing a registry list inside the template
+# would break exactly that mirror case.
+KSV-0125

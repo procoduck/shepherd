@@ -37,6 +37,31 @@ runs, so the areas most worth attention are:
   (`internal/agentapi/auth.go`, a Connect request gate that runs before the body is decoded;
   the service-account gate in `internal/mgmtapi/machine_auth.go` is the same shape).
 
+## How the code is scanned
+
+Automated, in the repository and on GitHub, so a reporter can see what is already covered:
+
+- **Reachable Go vulnerabilities** — `govulncheck` in CI on every backend change and weekly
+  (`govulncheck.yml`); SECURITY.md's arbiter for what counts as reachable.
+- **Static analysis** — CodeQL (default setup, security-extended suite) on every PR and weekly;
+  `gosec` inside `golangci-lint` on every lint run.
+- **Container images** — Trivy over the built `shepherd` and `shepherd-simulator` images
+  (`security-scan.yml`, and as a gate in `release.yml` before anything is published), plus a
+  weekly scan of the images the last release shipped. The gate covers Shepherd's own binary and
+  the distroless base; the bundled Grafana Alloy binary is reported but not gated, because its
+  fixes arrive as an upstream Alloy version bump.
+- **Infrastructure configuration** — Trivy misconfiguration checks over every Dockerfile and the
+  rendered Helm chart; accepted findings are listed in `.trivyignore` with a reason each.
+- **Secrets** — GitHub secret scanning with push protection, and `gitleaks` over the full git
+  history on every PR (`make secrets-scan` locally).
+- **Dependencies** — Dependabot version and security updates for Go, npm, GitHub Actions and
+  Docker, weekly.
+- **Supply chain** — every GitHub Action is pinned to a commit SHA (enforced by
+  `scripts/repocheck`), release archives carry SBOMs, and release archives and images carry
+  Sigstore provenance attestations (`gh attestation verify`). OpenSSF Scorecard runs weekly.
+- **Branch protection** — `main` requires a pull request and the CI checks (guards, lint, build,
+  test, web, test-ui, test-fullstack, CodeQL) for everyone, admins included.
+
 ## Not in scope
 
 - Findings that require an already-compromised app-admin session, unless they
