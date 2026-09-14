@@ -33,6 +33,13 @@ Categories used here:
   under CI load. Migration `0020_serve_cache_dirty_seq`.
 ### Build & CI
 
+- **Every base image is pinned by digest, and Renovate keeps the pins current.** `deploy/versions.env`,
+  the Dockerfile ARG defaults and the compose fallbacks now carry `tag@sha256:digest` for the Go,
+  Node, Alloy and distroless images (and the mock Graph server's), so a base image republished
+  under the same tag cannot change what a release ships without a reviewed PR. `renovate.json`'s
+  regex manager refreshes digests and proposes tag bumps as one grouped PR; Alloy tag bumps stay
+  manual because they are schema bumps. Dependabot's docker ecosystem is gone — it could never read
+  ARG-driven FROMs.
 - **Security scanning that covers what govulncheck cannot.** A `security-scan` workflow runs
   gitleaks over the full history on every PR, Trivy over the built `shepherd` and
   `shepherd-simulator` images (a gate on Shepherd's own binary and the distroless base, a

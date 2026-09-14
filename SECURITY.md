@@ -54,8 +54,9 @@ Automated, in the repository and on GitHub, so a reporter can see what is alread
   rendered Helm chart; accepted findings are listed in `.trivyignore` with a reason each.
 - **Secrets** — GitHub secret scanning with push protection, and `gitleaks` over the full git
   history on every PR (`make secrets-scan` locally).
-- **Dependencies** — Dependabot version and security updates for Go, npm, GitHub Actions and
-  Docker, weekly.
+- **Dependencies** — Dependabot version and security updates for Go, npm and GitHub Actions,
+  weekly; Renovate for container images, which are pinned by digest as well as tag in
+  `deploy/versions.env` and every file that restates them.
 - **Supply chain** — every GitHub Action is pinned to a commit SHA (enforced by
   `scripts/repocheck`), release archives carry SBOMs, and release archives and images carry
   Sigstore provenance attestations (`gh attestation verify`). OpenSSF Scorecard runs weekly.

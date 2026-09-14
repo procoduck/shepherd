@@ -1,0 +1,51 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Digest pins for the container images this repo builds on and scans with. Dependabot keeps Go, npm and GitHub Actions; it cannot update the ARG-driven FROM lines and the KEY=image pins in deploy/versions.env, which is what this file is for. Every image string appears in several files (versions.env is the source of truth; the Dockerfile ARG defaults and compose fallbacks restate it and `make check-docker` fails when they drift), so one update touches all of them in one PR.",
+  "extends": ["config:recommended", ":pinDigests"],
+  "enabledManagers": ["custom.regex"],
+  "schedule": ["before 6am on monday"],
+  "timezone": "UTC",
+  "labels": ["dependencies", "docker"],
+  "commitMessagePrefix": "build(images):",
+  "prConcurrentLimit": 3,
+  "packageRules": [
+    {
+      "description": "Base and tooling images move as one PR so versions.env, the Dockerfiles and the compose files never disagree.",
+      "matchManagers": ["custom.regex"],
+      "groupName": "container image pins",
+      "pinDigests": true
+    },
+    {
+      "description": "Alloy is a schema bump, not a pin bump: a new tag needs `make schema`, an overlay review and the fleet revalidation sweep (tools/alloy-schema-gen/README.md). Renovate may refresh the DIGEST behind the pinned tag; it must not propose a new tag.",
+      "matchManagers": ["custom.regex"],
+      "matchPackageNames": ["grafana/alloy"],
+      "matchUpdateTypes": ["major", "minor", "patch"],
+      "enabled": false
+    },
+    {
+      "description": "Go and Node majors are toolchain decisions (go.mod, deploy/versions.env, ci.yml move together); minors and digests are routine.",
+      "matchManagers": ["custom.regex"],
+      "matchPackageNames": ["golang", "node"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "KEY=image:tag@sha256:digest lines in deploy/versions.env, ARG defaults in the Dockerfiles, and ${VAR:-image:tag} fallbacks in the compose files.",
+      "managerFilePatterns": [
+        "/^deploy/versions\\.env$/",
+        "/^deploy/Dockerfile\\./",
+        "/^e2e/mockmsft/Dockerfile$/",
+        "/^dev/docker-compose\\.dev\\.yaml$/",
+        "/^e2e/docker-compose\\.e2e\\.yaml$/"
+      ],
+      "matchStrings": [
+        "(?:^|[=:\\-{ ])(?<depName>(?:[a-z0-9.-]+\\.[a-z]{2,}/)?[a-z0-9._/-]+):(?<currentValue>v?[0-9][A-Za-z0-9._-]*)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?(?=[\\s}\"']|$)"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    }
+  ]
+}

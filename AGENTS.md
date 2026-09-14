@@ -92,7 +92,10 @@ Replace the examples below with your internal registry prefix if needed.
 | `aquasec/trivy:0.74.0` (by digest) | `deploy/versions.env` (TRIVY_IMAGE) — `make image-scan` / `make config-scan`; the workflows use `aquasecurity/trivy-action` SHA-pinned instead |
 
 `deploy/versions.env` is the source of truth for the rows that name it; the rest are
-hardcoded where the table says. Update pins there first.
+hardcoded where the table says. Every image there is pinned `tag@sha256:digest`; `renovate.json`
+refreshes digests and proposes tag bumps as one grouped PR across versions.env, the Dockerfile
+ARG defaults and the compose fallbacks (`make check-docker` fails when they disagree). Alloy
+tag bumps stay manual — a schema bump. Dependabot does not manage images.
 
 This applies to: `deploy/Dockerfile.{local,init,simulator,goreleaser,goreleaser-simulator}`,
 `e2e/docker-compose.e2e.yaml`, `dev/docker-compose.dev.yaml`, and any `testcontainers-go` image
