@@ -32,9 +32,12 @@ func devKindScriptPath() string {
 // function definition, the only place a bare `kubectl`/`helm` call may live.
 var kcHmDefRE = regexp.MustCompile(`(?m)^\s*(kc|hm)\(\)\s*\{.*\}\s*$`)
 
-// bareKubectlHelmRE matches a line invoking kubectl or helm directly
-// (anything but through the kc()/hm() wrappers).
-var bareKubectlHelmRE = regexp.MustCompile(`(?m)^\s*(kubectl|helm)\s`)
+// bareKubectlHelmRE matches kubectl or helm invoked directly (anything but
+// through the kc()/hm() wrappers) — at the start of a line, or after a
+// pipe/semicolon/&/subshell-or-substitution paren, so `... | kubectl apply
+// -f -` and `svc=$(kubectl get ...)` are caught too, not just a call that
+// begins its own line.
+var bareKubectlHelmRE = regexp.MustCompile(`(?m)(^|[|;&(])\s*(kubectl|helm)\s`)
 
 var _ = Describe("scripts/dev-kind.sh", func() {
 	It("exists, is executable, and passes bash -n", func() {
@@ -131,6 +134,51 @@ var _ = Describe("scripts/dev-kind.sh", func() {
 		Expect(content).To(ContainSubstring(`--set-string "podAnnotations.dev-build=$(build_id)"`))
 	})
 
+	It("never combines --from-env-file with --from-literal in one kubectl create secret command", func() {
+		// kubectl v1.36.4 rejects this combination deterministically:
+		// "error: from-env-file cannot be combined with from-file or
+		// from-literal" (reproduced offline, client-side dry-run, no
+		// cluster). Every `create secret` statement in the script must
+		// stick to a single env source.
+		content := readRepoFile(devKindScriptRel)
+		stmt := createSecretStatement(content)
+		Expect(stmt).To(ContainSubstring("--from-env-file"),
+			"expected the secret to be built from an env-file source: %s", stmt)
+		Expect(stmt).NotTo(ContainSubstring("--from-literal"),
+			"kubectl rejects --from-env-file combined with --from-literal in the same "+
+				"create secret command — fold the literal into the env-file source instead "+
+				"(e.g. a process substitution): %s", stmt)
+	})
+
+	It("writes the CoreDNS rewrite line without awk -v mangling its backslash escapes", func() {
+		// awk -v processes escape sequences in the value it assigns, so
+		// `\.` silently becomes `.` (verified with macOS awk; gawk does
+		// the same and warns). That turns the contract line's anchored
+		// `\.localtest\.me` into an unintended any-char regex, and
+		// doubles as the reason the idempotency guard below must match
+		// the escaped rule text, not the dotted literal.
+		content := readRepoFile(devKindScriptRel)
+		Expect(content).NotTo(ContainSubstring("awk -v line="),
+			"awk -v unescapes backslashes in its value — pass the rewrite line through "+
+				"the environment (ENVIRON) instead")
+		Expect(content).To(ContainSubstring(`(.*)\.localtest\.me`),
+			"the CoreDNS rewrite regex must keep its literal backslash escapes per §1")
+	})
+
+	It("CoreDNS idempotency guard matches the escaped rewrite rule, not the dotted hostname", func() {
+		// The guard must recognize the rule apply_coredns_rewrite actually
+		// writes (containing a literal backslash before "localtest"), not
+		// merely the substring "localtest.me" — a pattern that also
+		// happens to match the *target* hostname text once the backslash
+		// bug above is fixed, which would make every re-run of `up`
+		// append a duplicate rewrite line.
+		content := readRepoFile(devKindScriptRel)
+		Expect(content).NotTo(ContainSubstring(`grep -q 'localtest\.me'`),
+			"the idempotency guard must match the rewrite rule, not the plain hostname text")
+		Expect(content).To(MatchRegexp(`grep -q 'rewrite name regex`),
+			"expected the guard to search for the rewrite rule itself")
+	})
+
 	It("up references every manifest the plan names and dev/kind/values.yaml", func() {
 		content := readRepoFile(devKindScriptRel)
 		// cmd_up() delegates to helper functions (ensure_cluster,
@@ -166,6 +214,33 @@ func verbBody(content, verb string) string {
 	m := re.FindStringSubmatch(content)
 	Expect(m).NotTo(BeNil(), "could not find cmd_%s() in scripts/dev-kind.sh", verb)
 	return m[1]
+}
+
+// createSecretStatement returns the full `create secret ... shepherd-dev-env`
+// statement, joining every backslash-continued line so a spec can inspect
+// the whole kubectl invocation (flags included) rather than one physical
+// line at a time.
+func createSecretStatement(content string) string {
+	GinkgoHelper()
+	lines := strings.Split(content, "\n")
+	start := -1
+	for i, l := range lines {
+		if strings.Contains(l, "create secret generic shepherd-dev-env") {
+			start = i
+			break
+		}
+	}
+	Expect(start).To(BeNumerically(">=", 0), "could not find the shepherd-dev-env create secret statement")
+
+	var stmt []string
+	for i := start; i < len(lines); i++ {
+		trimmed := strings.TrimRight(lines[i], " \t")
+		stmt = append(stmt, lines[i])
+		if !strings.HasSuffix(trimmed, `\`) {
+			break
+		}
+	}
+	return strings.Join(stmt, "\n")
 }
 
 var _ = Describe("dev/kind/cluster.yaml", func() {

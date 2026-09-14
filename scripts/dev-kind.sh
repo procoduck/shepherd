@@ -153,28 +153,42 @@ verify_nodeport() {
 apply_coredns_rewrite() {
 	local svc="$1" target corefile rewrite_line new_corefile
 	target="${svc}.${NAMESPACE}.svc.cluster.local"
-	rewrite_line="    rewrite name regex (.*)\\.localtest\\.me ${target} answer auto"
+	# Single-quoted so bash leaves the backslash escapes alone; passed to
+	# awk via ENVIRON (below), never -v, because awk -v processes escape
+	# sequences in its value and would silently turn `\.` into `.`,
+	# widening the anchored §1 regex into an unintended any-char match.
+	rewrite_line='    rewrite name regex (.*)\.localtest\.me '"${target}"' answer auto'
 
 	corefile=$(kc -n kube-system get cm coredns -o jsonpath='{.data.Corefile}')
-	if grep -q 'localtest\.me' <<<"$corefile"; then
+	# Match the rewrite rule itself, not the dotted "localtest.me" text —
+	# that text also appears (unescaped) in the target hostname, so a
+	# looser guard would either miss the escaped rule or false-match on
+	# the hostname and skip inserting it in the first place.
+	if grep -q 'rewrite name regex .*localtest' <<<"$corefile"; then
 		echo "dev-kind.sh: CoreDNS rewrite already present, leaving it"
 		return
 	fi
 
-	new_corefile=$(awk -v line="$rewrite_line" '{print} /^\.:53 \{/{print line}' <<<"$corefile")
+	new_corefile=$(REWRITE_LINE="$rewrite_line" awk '{print} /^\.:53 \{/{print ENVIRON["REWRITE_LINE"]}' <<<"$corefile")
 	kc -n kube-system create configmap coredns --from-literal="Corefile=${new_corefile}" \
 		--dry-run=client -o yaml | kc apply -f -
 	kc -n kube-system rollout restart deploy/coredns
+	kc -n kube-system rollout status deploy/coredns --timeout=2m
 }
 
 # apply_secret_and_configmaps creates the shared Secret from the existing
 # dev/shepherd.dev.env (plus the OIDC client secret it deliberately omits —
 # see dev/shepherd.dev.env's own OIDC comment) and one ConfigMap per
 # dev/*.alloy file. Nothing under dev/ is copied or edited (plan C2).
+#
+# kubectl rejects --from-env-file combined with --from-literal/--from-file
+# in one `create secret` call ("from-env-file cannot be combined with
+# from-file or from-literal"), so the client secret is appended to the
+# env-file's own lines via process substitution instead of a second flag —
+# one env source, not two.
 apply_secret_and_configmaps() {
 	kc create secret generic shepherd-dev-env \
-		--from-env-file="${REPO_ROOT}/dev/shepherd.dev.env" \
-		--from-literal=SHEPHERD_OIDC_CLIENT_SECRET=dev-oidc-client-secret \
+		--from-env-file=<(cat "${REPO_ROOT}/dev/shepherd.dev.env"; echo "SHEPHERD_OIDC_CLIENT_SECRET=dev-oidc-client-secret") \
 		-n "$NAMESPACE" --dry-run=client -o yaml | kc apply -f -
 
 	local name
@@ -282,9 +296,9 @@ cmd_status() {
 	hm -n "$NAMESPACE" status "$RELEASE"
 	kc -n kube-system get cm coredns -o jsonpath='{.data.Corefile}' | grep -i localtest \
 		|| echo "dev-kind.sh: no CoreDNS rewrite found — run '$0 up'"
-	curl -sf http://shepherd.localtest.me/healthz && echo
-	curl -sf http://oidc.localtest.me/default/.well-known/openid-configuration >/dev/null && echo "oidc: ok"
-	curl -sf http://gitea.localtest.me/api/healthz >/dev/null && echo "gitea: ok"
+	curl -sf http://shepherd.localtest.me/healthz >/dev/null && echo "shepherd: ok" || echo "shepherd: unreachable"
+	curl -sf http://oidc.localtest.me/default/.well-known/openid-configuration >/dev/null && echo "oidc: ok" || echo "oidc: unreachable"
+	curl -sf http://gitea.localtest.me/api/healthz >/dev/null && echo "gitea: ok" || echo "gitea: unreachable"
 }
 
 cmd_down() {
