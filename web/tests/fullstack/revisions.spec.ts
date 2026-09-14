@@ -142,6 +142,12 @@ test.describe
 
     test('UI restore', async ({ page }) => {
       await loginAsAdmin(page);
+      // The admin's ambient org is whichever the switcher last stored (the
+      // dev seed's first org is Data Engineering); the pipeline lives in
+      // Platform Engineering, and the editor page loads it under the ambient
+      // org, so select it first — same as matcher-edit and rollout do.
+      await page.goto('/pipelines');
+      await page.getByTestId('org-switcher').selectOption({ label: 'Platform Engineering' });
       await page.goto(`/pipelines/${pipelineId}`);
       await page.waitForLoadState('networkidle');
 

@@ -731,10 +731,15 @@ var _ = Describe("REST shim: pipeline revisions", Label("integration"), func() {
 		Expect(getResp.Body.Close()).To(Succeed())
 		Expect(rev["contents"]).To(Equal("// v1\n"))
 
-		// non-numeric {rev} -> 400 bad_request.
-		badResp := getRequest(server, "/orgs/"+orgID+"/pipelines/"+id+"/revisions/not-a-number", editorCookie)
-		defer badResp.Body.Close() //nolint:errcheck // test cleanup
-		Expect(badResp.StatusCode).To(Equal(http.StatusBadRequest))
+		// Malformed {rev} -> 400 bad_request, for every shape the bounded
+		// parser refuses: non-numeric, zero/negative, and a value that does
+		// not fit int32 (CodeQL go/incorrect-integer-conversion — the shim
+		// parses with ParseInt bitSize 32, never Atoi + narrowing).
+		for _, bad := range []string{"not-a-number", "0", "-1", "99999999999"} {
+			badResp := getRequest(server, "/orgs/"+orgID+"/pipelines/"+id+"/revisions/"+bad, editorCookie)
+			Expect(badResp.Body.Close()).To(Succeed())
+			Expect(badResp.StatusCode).To(Equal(http.StatusBadRequest), "rev=%q must be refused as 400", bad)
+		}
 
 		// reader -> 403 on restore.
 		readerResp := postJSON(server, "/orgs/"+orgID+"/pipelines/"+id+"/revisions/1/restore", nil, readerCookie)

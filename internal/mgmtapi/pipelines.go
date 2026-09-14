@@ -227,16 +227,31 @@ type pipelineRestoreRequest struct {
 	ChangeNote string `json:"change_note,omitempty"`
 }
 
+// parseRevisionParam reads the {rev} path segment as the int32 the proto
+// carries. ParseInt with bitSize 32 refuses anything that would not fit
+// (CodeQL go/incorrect-integer-conversion: an int -> int32 narrowing after
+// strconv.Atoi has no upper bound on 64-bit builds), and a revision is
+// never zero or negative, so those are rejected here too rather than by the
+// service's own <=0 check — one 400 shape for every malformed value. On
+// failure the 400 has already been written; the caller just returns.
+func parseRevisionParam(w http.ResponseWriter, r *http.Request) (int32, bool) {
+	rev, err := strconv.ParseInt(chi.URLParam(r, "rev"), 10, 32)
+	if err != nil || rev <= 0 {
+		respondError(w, http.StatusBadRequest, "bad_request", "revision must be a positive number")
+		return 0, false
+	}
+	return int32(rev), true
+}
+
 // GetRevision GET /api/orgs/{org}/pipelines/{id}/revisions/{rev}
 func (h *PipelinesHandler) GetRevision(w http.ResponseWriter, r *http.Request) {
-	rev, err := strconv.Atoi(chi.URLParam(r, "rev"))
-	if err != nil {
-		respondError(w, http.StatusBadRequest, "bad_request", "revision must be a number")
+	rev, ok := parseRevisionParam(w, r)
+	if !ok {
 		return
 	}
 	req := &mgmtv1.GetRevisionRequest{
 		OrgId: chi.URLParam(r, "org"), Id: chi.URLParam(r, "id"),
-		Revision: int32(rev), //nolint:gosec // parsed from the URL path, bounded by strconv.Atoi and re-validated by the service (<=0 -> invalid_argument)
+		Revision: rev,
 	}
 	resp, err := h.svc.GetRevision(r.Context(), connect.NewRequest(req))
 	if err != nil {
@@ -248,9 +263,8 @@ func (h *PipelinesHandler) GetRevision(w http.ResponseWriter, r *http.Request) {
 
 // RestoreRevision POST /api/orgs/{org}/pipelines/{id}/revisions/{rev}/restore
 func (h *PipelinesHandler) RestoreRevision(w http.ResponseWriter, r *http.Request) {
-	rev, err := strconv.Atoi(chi.URLParam(r, "rev"))
-	if err != nil {
-		respondError(w, http.StatusBadRequest, "bad_request", "revision must be a number")
+	rev, ok := parseRevisionParam(w, r)
+	if !ok {
 		return
 	}
 	// An empty body is allowed (change_note is optional), unlike Create/Update's
@@ -264,7 +278,7 @@ func (h *PipelinesHandler) RestoreRevision(w http.ResponseWriter, r *http.Reques
 	}
 	req := &mgmtv1.RestoreRevisionRequest{
 		OrgId: chi.URLParam(r, "org"), Id: chi.URLParam(r, "id"),
-		Revision:   int32(rev), //nolint:gosec // parsed from the URL path, bounded by strconv.Atoi and re-validated by the service (<=0 -> invalid_argument)
+		Revision:   rev,
 		ChangeNote: body.ChangeNote,
 	}
 	resp, err := h.svc.RestoreRevision(r.Context(), connect.NewRequest(req))
