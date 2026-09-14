@@ -205,6 +205,7 @@ make help       # every target, and the env knobs the suites honour
 |---|---|
 | `make e2e` | Compose end-to-end suite (~10 min, Docker) |
 | `make e2e-k8s` | Kubernetes suite: a kind cluster, Gateway API, NGINX Gateway Fabric, CloudNativePG and External Secrets, then the chart — 9 features (`e2e/k8s/README.md`); last full-cycle timing on record is ~500s for 6, not re-measured since |
+| `make dev-kind` | Kubernetes flavour of `make dev`: a persistent kind cluster (`shepherd-dev`) running the real chart, Gitea and mock OIDC at `http://shepherd.localtest.me` (`docs/kind-test-environment-plan.md` §11) |
 | `make test-ui` | Mocked Playwright suite, no backend required |
 | `make generate` | buf + sqlc + version codegen |
 | `make docs` | Regenerate `site/docs/` from `scripts/docs-content/` |

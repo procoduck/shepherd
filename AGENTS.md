@@ -17,7 +17,7 @@ React 19 / TypeScript 7 / Vite 8 SPA embedded via go:embed, PostgreSQL 16. Spec:
 - CI cadence (D11): `e2e` (agent-protocol suite) runs on push to main path-filtered to what it exercises, plus `merge_group` and manual dispatch — not on every PR; the `e2e-egress` job (displayed as `e2e-sim (sandbox egress containment)`) runs `make e2e-sim` — containment probes *and* run lifecycle — on any PR touching the sandbox surface (`internal/simsvc`, `internal/simulate`, `internal/netshape`, `cmd/shepherd-simulator`, `deploy/Dockerfile.simulator`, `deploy/versions.env`, both compose files, `e2e/sandbox_egress_test.go`, the workflow itself) and never on push. `e2e-k8s` is its own workflow, path-filtered to `deploy/helm/**`, `e2e/k8s/**`, itself, `deploy/Dockerfile*`, `deploy/versions.env`, plus a weekly Tuesday cron and manual dispatch. `scripts/repocheck` (Ginkgo specs over the Makefile and workflow files) runs inside CI's `guards` job and is NOT part of `make lint` — run `go test ./scripts/repocheck/` after touching the Makefile, a workflow, `dependabot.yml`, or a lockfile.
 - Mocked UI suite: `make test-ui` · fullstack Playwright (needs Docker dev stack): `make test-fullstack`
 - Reproduce CI's web job exactly (typecheck + tests + biome CHECK + build): `make web-ci` — `pnpm lint` alone (== `check:ci`, Biome's read-only check — it does catch formatting now) skips typecheck, tests and the build, so a type error or a failing test can pass `pnpm lint` and still fail CI
-- Local dev stack: `make dev` (boots at :8080, login admin/admin) · `make dev-reset` (wipe data) · `make dev-sim` (adds the sandbox simulator) · `make dev-frontend` / `make dev-restart` · `make dev-seed` (dev-only: also creates local editor/viewer users)
+- Local dev stack: `make dev` (boots at :8080, login admin/admin) · `make dev-reset` (wipe data) · `make dev-sim` (adds the sandbox simulator) · `make dev-frontend` / `make dev-restart` · `make dev-seed` (dev-only: also creates local editor/viewer users) · Kubernetes flavour: `make dev-kind` (persistent kind cluster `shepherd-dev`, the real chart + Calico + Gateway API/NGF + Gitea + mock OIDC at `http://shepherd.localtest.me`, `docs/kind-test-environment-plan.md` §11) / `make dev-kind-reload` / `make dev-kind-down` — agents never run these (or `make e2e-k8s`) as part of automated work
 - Lint: `make lint` (golangci-lint v2 + the ten repo-shape guards, see `make guards`) · format: `make fmt` (golangci-lint's gofumpt formatter only) · Helm chart: `make helm-lint` / `make chart-verify`
 - Codegen after proto/SQL changes: `make generate` · visual-builder test corpus: `make generate-corpus`
 - Tool bootstrap: `make tools` (ginkgo, sqlc, buf, protoc-gen-go, protoc-gen-connect-go, govulncheck; `protoc-gen-es` comes from `web/node_modules`, so `make generate` also needs a `pnpm install` in `web/`) · cleanup: `make clean` / `make clean-docker`
@@ -85,9 +85,11 @@ Replace the examples below with your internal registry prefix if needed.
 | `golang:1.26-alpine` | `deploy/versions.env` (GO_IMAGE); `e2e/mockmsft/Dockerfile:1` hardcodes it and is NOT guarded |
 | `node:24-slim` | `deploy/versions.env` (NODE_IMAGE) |
 | `postgres:16-alpine` | compose files, `Makefile` (smoke), `internal/testutil/postgres.go` — NOT versions.env |
-| `ghcr.io/navikt/mock-oauth2-server:6.0.1` | compose files — NOT versions.env |
-| `gitea/gitea:1-rootless` | compose files (e2e + dev) — NOT versions.env |
+| `ghcr.io/navikt/mock-oauth2-server:6.0.1` | compose files and `dev/kind/oidc.yaml` — NOT versions.env |
+| `gitea/gitea:1-rootless` | compose files (e2e + dev) and `dev/kind/gitea.yaml` — NOT versions.env |
 | `alpine:3.22` | `e2e/docker-compose.e2e.yaml` (probe helper) — NOT versions.env |
+| `kindest/node:v1.31.4` | `deploy/versions.env` (KIND_NODE_IMAGE) — tag only, no digest, Renovate-excluded (`renovate.json`); shared by `e2e/k8s` (`E2E_K8S_NODE_IMAGE` overrides it there only) and `scripts/dev-kind.sh` |
+| `projectcalico/calico` manifest `v3.28.2` | `deploy/versions.env` (CALICO_VERSION) — applied after cluster creation by both `e2e/k8s` and `scripts/dev-kind.sh` |
 | `ghcr.io/gitleaks/gitleaks:v8.30.0` (by digest) | `deploy/versions.env` (GITLEAKS_IMAGE) — `make secrets-scan`, `security-scan.yml` |
 | `aquasec/trivy:0.74.0` (by digest) | `deploy/versions.env` (TRIVY_IMAGE) — `make image-scan` / `make config-scan`; the workflows use `aquasecurity/trivy-action` SHA-pinned instead |
 
