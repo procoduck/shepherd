@@ -51,19 +51,21 @@ Root causes, the full finding list, and the slice plan are in
   it**, and mis-classified an attribute that was already required before the upgrade as newly
   added. A live Alloy agent that never sent its own name kept an empty fleet row name forever
   instead of falling back to its id.
-- **The text editor showed the browser's native spell-check underline** on Alloy config
-  identifiers, which are not English prose. The chart's Kubernetes floor is now documented for both
-  install paths: 1.25+ for the plain chart (unchanged — what `kubeVersion` enforces) and 1.29+ once
-  `cnpg.enabled=true`, because the pinned CloudNativePG operator chart (`0.29.0`) refuses older
-  nodes and Helm has no way to make `kubeVersion` conditional on a value.
+- **The text editor now declares spell-check/autocorrect/autocapitalize off explicitly** instead
+  of relying on CodeMirror's default (a no-op against the pinned `@codemirror/view` 6.43.11; the
+  underline the walkthrough saw did not reproduce and is not the native spell-checker — see the
+  plan). The chart's Kubernetes floor is now documented for both install paths: 1.25+ for the plain
+  chart (unchanged — what `kubeVersion` enforces) and 1.29+ once `cnpg.enabled=true`, because the
+  pinned CloudNativePG operator chart (`0.29.0`) refuses older nodes and Helm has no way to make
+  `kubeVersion` conditional on a value.
 
 ### Known
 
 - **A collector's `remote_config_status` of `APPLIED` means "polled with the served config's
   hash", not "loaded it successfully."** Nothing in the protocol Shepherd reads today
   distinguishes an agent that received a config from one that loaded it and then rejected it; Alloy
-  v1.19.2's exact report sequence for that case was not captured during the walkthrough and staying
-  with the option that fixes it needs a reproduction against a live agent first. See
+  v1.19.2's exact report sequence for that case was not captured during the walkthrough, and
+  choosing the option that fixes it needs a reproduction against a live agent first. See
   `docs/plans/2026-09-14-walkthrough-fixes.md` §3 (B1) for the options and the reproduction it
   takes to choose between them.
 
