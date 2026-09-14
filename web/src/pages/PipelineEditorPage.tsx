@@ -110,7 +110,17 @@ export function PipelineEditorPage() {
     },
     onSuccess: (p) => {
       toast.success(isNew ? 'Pipeline created' : 'Pipeline saved');
+      // Re-arm the seed guard for THIS pipeline id before the refetches
+      // land, exactly like restoreMutation below — the form already holds
+      // what was just submitted, so a refetch must not overwrite it.
+      seededFor.current = p.id;
       qc.invalidateQueries({ queryKey: ['pipelines', orgId] });
+      if (!isNew) {
+        // Mirror restoreMutation's invalidation set below so the new
+        // revision and "Updated by" show up right away.
+        qc.invalidateQueries({ queryKey: ['pipeline', orgId, id] });
+        qc.invalidateQueries({ queryKey: ['revisions', orgId, id] });
+      }
       if (isNew) navigate({ to: '/pipelines/$id', params: { id: p.id } });
     },
     onError: (e) => {

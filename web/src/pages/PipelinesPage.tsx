@@ -10,6 +10,7 @@ import { useCanWrite, useOrgId } from '@/hooks/useOrg';
 function pipelineColumns(
   canWrite: boolean,
   onToggle: (p: Pipeline) => void,
+  staleVersions: Map<string, string>,
 ): DataTableColumn<Pipeline>[] {
   return [
     {
@@ -25,18 +26,31 @@ function pipelineColumns(
       key: 'source',
       header: 'Source',
       cellClassName: 'px-4 py-2.5 text-muted',
-      render: (p) =>
-        p.source === 'visual' ? (
-          <Link
-            to='/pipelines/$id/visual'
-            params={{ id: p.id }}
-            className='text-indigo-400 hover:text-indigo-300'
-          >
-            visual ↗
-          </Link>
-        ) : (
-          p.source
-        ),
+      render: (p) => (
+        <div className='flex flex-col items-start gap-1'>
+          {p.source === 'visual' ? (
+            <Link
+              to='/pipelines/$id/visual'
+              params={{ id: p.id }}
+              className='text-indigo-400 hover:text-indigo-300'
+            >
+              visual ↗
+            </Link>
+          ) : (
+            p.source
+          )}
+          {staleVersions.has(p.id) && (
+            <Link
+              data-testid='pipeline-stale-render'
+              to='/pipelines/$id/visual'
+              params={{ id: p.id }}
+              className='text-[11px] leading-tight text-amber-400 hover:text-amber-300'
+            >
+              rendered under {staleVersions.get(p.id)} — open the builder and Save to re-render
+            </Link>
+          )}
+        </div>
+      ),
     },
     {
       key: 'matchers',
@@ -82,6 +96,21 @@ export function PipelinesPage() {
     enabled: !!orgId,
   });
 
+  // The server already knows which visual pipelines were rendered under an
+  // older schema (needs_upgrade, rpc_pipeline.go) — this is UI-only: it never
+  // re-renders anything, it just tells a viewer to open the builder and Save.
+  const { data: staleData } = useQuery({
+    queryKey: ['pipelines', orgId, 'needs-upgrade'],
+    queryFn: () => clients.pipeline.listPipelines({ orgId, needsUpgrade: true }),
+    enabled: !!orgId,
+  });
+  const staleVersions = new Map<string, string>(
+    (staleData?.items ?? []).map((p) => [
+      p.id,
+      (p.wizardState as { schema_version?: string } | undefined)?.schema_version ?? '',
+    ]),
+  );
+
   const toggle = useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
       enabled
@@ -124,8 +153,10 @@ export function PipelinesPage() {
         </div>
       ) : (
         <DataTable
-          columns={pipelineColumns(canWrite, (p) =>
-            toggle.mutate({ id: p.id, enabled: p.enabled }),
+          columns={pipelineColumns(
+            canWrite,
+            (p) => toggle.mutate({ id: p.id, enabled: p.enabled }),
+            staleVersions,
           )}
           rows={data?.items ?? []}
           rowKey={(p) => p.id}

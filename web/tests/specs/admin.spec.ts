@@ -176,3 +176,34 @@ test('creating a token shows the one-time secret and does not log it', async ({ 
 
   expect(logs.some((l) => l.includes('one-time-secret-value'))).toBe(false);
 });
+
+test('token list and created dialog show the token id', async ({ page, api }) => {
+  await api.loginAs(appAdmin);
+  api.seed({
+    agentTokens: [
+      {
+        id: 'tok-existing',
+        name: 'e2e',
+        status: 'active',
+        created_by: 'admin',
+        created_at: '2026-08-17T09:00:00Z',
+      },
+    ],
+  });
+  await page.goto('/admin/tokens');
+  // Seeded tokens show their id in the list — the id an agent's
+  // remotecfg.polling.username has to match, otherwise invisible anywhere
+  // in the UI.
+  await expect(page.getByText('tok-existing')).toBeVisible();
+
+  await page.getByRole('button', { name: /new token/i }).click();
+  const createDialog = page.getByRole('dialog');
+  await createDialog.getByLabel('Name').fill('prod-eu-1-agent');
+  await createDialog.getByRole('button', { name: 'Create', exact: true }).click();
+
+  // The created-token dialog shows the mock's freshly minted id (the first
+  // token created in this test, hence tok-0001) alongside the secret — scoped
+  // to the dialog since the list row behind it also renders the id now.
+  await expect(page.getByText(/only time/i)).toBeVisible();
+  await expect(createDialog.getByText('tok-0001')).toBeVisible();
+});
