@@ -333,7 +333,7 @@ export const PipelineNode = memo(function PipelineNode({
         errors ? 'border-l-red-500' : '',
         node.disabled ? 'opacity-50 border-dashed' : '',
         dropState === 'dimmed' ? 'opacity-40' : '',
-        dropState === 'snapped' ? 'bg-[#131f17]' : '',
+        dropState === 'snapped' ? 'bg-emerald-500/10' : '',
         dropShadowClass,
       ].join(' ')}
       style={errors ? undefined : { borderLeftColor: categoryColor }}

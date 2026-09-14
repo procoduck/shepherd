@@ -119,3 +119,99 @@ test.describe('visual canvas colours follow the theme', () => {
       .not.toBe(darkHandle);
   });
 });
+
+// WCAG relative luminance (sRGB -> linear -> the standard 0.2126/0.7152/0.0722
+// weights), applied to a `getComputedStyle(...).color`-style "rgb(r, g, b)"
+// string. Used below to assert that light-mode text is actually DARK, not
+// merely "a different shade of near-white" — a color could change and still
+// fail contrast.
+function relativeLuminance(rgb: string): number {
+  const m = rgb.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  if (!m) throw new Error(`unparseable color: "${rgb}"`);
+  const [r, g, b] = [m[1], m[2], m[3]].map((c) => {
+    const s = Number(c) / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+// F2 (2026-09-14 walkthrough): the app's only base foreground is the raw
+// `text-zinc-100` utility on <body> (index.html) and the Shell root, and
+// index.css's light overrides redefined only surface/muted tokens — so
+// every label that inherits colour (palette names, node titles, the
+// toolbar name field, dialog titles) stayed near-white on the light
+// background. This spec proves the builder's inherited text actually
+// flips, not just that *some* colour value differs.
+test.describe('visual builder text follows the theme', () => {
+  test('palette, node title, toolbar and sandbox dialog text are dark in light mode', async ({
+    page,
+    api,
+  }) => {
+    await api.loginAs(appAdmin);
+    const s = basicScenario();
+    api.seed({ orgs: [s.org], schema: schemaFixture });
+
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.goto('/pipelines/visual/new');
+    await page.waitForSelector('[data-testid="visual-builder"]', { timeout: 10_000 });
+    await page.waitForSelector('[data-testid="palette-search"]', { timeout: 8_000 });
+
+    await page.click('[data-component="prometheus.scrape"]');
+    const node = page.locator('[data-testid="pipeline-node"]').first();
+    await expect(node).toBeVisible();
+
+    const paletteName = page.locator(
+      '[data-testid="palette-item-prometheus.scrape"] span.font-mono',
+    );
+    const nodeTitle = node.locator('.font-mono span');
+    const toolbarName = page.getByTestId('toolbar-name');
+
+    await page.getByTestId('simulate-menu-trigger').click();
+    await page.getByTestId('simulate-menu-sandbox-run').click();
+    const dialogTitle = page.locator('[data-testid="sandbox-run-dialog"] h2');
+    await expect(dialogTitle).toBeVisible();
+
+    const darkPalette = await paletteName.evaluate((el) => getComputedStyle(el).color);
+    const darkNodeTitle = await nodeTitle.evaluate((el) => getComputedStyle(el).color);
+    const darkToolbarName = await toolbarName.evaluate((el) => getComputedStyle(el).color);
+    const darkDialogTitle = await dialogTitle.evaluate((el) => getComputedStyle(el).color);
+
+    // Close the dialog before toggling — the Modal traps focus/keydown and
+    // a stray Escape after the toggle would be ambiguous about which state
+    // it landed in.
+    await page.getByRole('button', { name: 'Close' }).click();
+    await expect(dialogTitle).not.toBeVisible();
+
+    const themeBtn = page.getByRole('button', { name: /toggle theme/i });
+    await themeBtn.click();
+    await expect(page.locator('html')).toHaveClass(/light/);
+
+    await expect
+      .poll(async () => paletteName.evaluate((el) => getComputedStyle(el).color))
+      .not.toBe(darkPalette);
+    await expect
+      .poll(async () => nodeTitle.evaluate((el) => getComputedStyle(el).color))
+      .not.toBe(darkNodeTitle);
+    await expect
+      .poll(async () => toolbarName.evaluate((el) => getComputedStyle(el).color))
+      .not.toBe(darkToolbarName);
+
+    const lightPalette = await paletteName.evaluate((el) => getComputedStyle(el).color);
+    const lightNodeTitle = await nodeTitle.evaluate((el) => getComputedStyle(el).color);
+    const lightToolbarName = await toolbarName.evaluate((el) => getComputedStyle(el).color);
+
+    expect(relativeLuminance(lightPalette)).toBeLessThan(0.3);
+    expect(relativeLuminance(lightNodeTitle)).toBeLessThan(0.3);
+    expect(relativeLuminance(lightToolbarName)).toBeLessThan(0.3);
+
+    // Re-open the sandbox dialog in light mode for the same check — its
+    // title inherits colour too and never got its own light-mode assertion
+    // above (it was closed before the toggle).
+    await page.getByTestId('simulate-menu-trigger').click();
+    await page.getByTestId('simulate-menu-sandbox-run').click();
+    await expect(dialogTitle).toBeVisible();
+    const lightDialogTitle = await dialogTitle.evaluate((el) => getComputedStyle(el).color);
+    expect(lightDialogTitle).not.toBe(darkDialogTitle);
+    expect(relativeLuminance(lightDialogTitle)).toBeLessThan(0.3);
+  });
+});
