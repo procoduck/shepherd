@@ -1,4 +1,4 @@
-.PHONY: docs check-docs-drift check-docs-version web-ci check-gateway-pin check-chartvalues-pin chart-verify preflight-docker help build build-web build-all test e2e e2e-k8s e2e-k8s-clean e2e-sim e2e-egress smoke test-cover test-ui check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks guards vulncheck lint fmt generate gen-alloy-version generate-corpus schema schema-verify helm-lint release-snapshot docker-build docker-build-local docker-build-init docker-build-simulator dev dev-sim dev-frontend dev-restart dev-seed dev-reset test-fullstack test-fullstack-sim clean clean-docker tools preflight-ginkgo preflight-k8s secrets-scan image-scan config-scan
+.PHONY: docs check-docs-drift check-docs-version web-ci check-gateway-pin check-chartvalues-pin chart-verify preflight-docker help build build-web build-all test e2e e2e-k8s e2e-k8s-clean e2e-sim e2e-egress smoke test-cover test-ui check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks guards vulncheck lint fmt generate gen-alloy-version generate-corpus schema schema-verify helm-lint release-snapshot docker-build docker-build-local docker-build-init docker-build-simulator dev dev-sim dev-frontend dev-restart dev-seed dev-reset dev-kind dev-kind-reload dev-kind-seed dev-kind-status dev-kind-down test-fullstack test-fullstack-sim clean clean-docker tools preflight-ginkgo preflight-k8s secrets-scan image-scan config-scan
 
 # Several recipes are bash-idiomatic (the smoke here-string, trap chains);
 # /bin/sh is dash on Debian/Ubuntu and rejects them.
@@ -798,6 +798,36 @@ dev-reset: ## Stop the dev stack and wipe all data (named volumes)
 # off, which is what every ordinary `make dev` exercises.
 dev-sim: docker-build-simulator ## Start the dev stack with the S3 sandbox simulator
 	SHEPHERD_SIM_ENABLED=true docker compose -f dev/docker-compose.dev.yaml --profile sim up -d --build --wait
+
+# The Kubernetes flavour of `make dev`: a single-node kind cluster (shepherd-dev)
+# running the real Helm chart instead of compose — Calico, CNPG, Gateway API +
+# NGINX Gateway Fabric, Gitea and the mock OIDC provider alongside it. It shares
+# the dev seed, the dev/*.alloy configs and dev/shepherd.dev.env with the compose
+# stack above (mounted, not copied — see dev/kind/), but the cluster, its
+# manifests and its pins are independent: `dev`/`dev-reset` and `dev-kind`/
+# `dev-kind-down` do not interact, and nothing here changes compose behavior.
+# `dev-kind-down` is the `dev-reset` equivalent for this stack (kind delete
+# takes the local-path PVs, and so CNPG's and Gitea's data, with it).
+# config-scan's Trivy misconfig pass covers deploy/ only (make config-scan,
+# security-scan.yml); dev/kind/ manifests are dev-only fixtures for services
+# that are not production workloads (Gitea, mock-oauth2) and are deliberately
+# out of that scan's scope (plan docs/plans/2026-09-14-kind-dev-stack.md C9).
+# All five targets go through scripts/dev-kind.sh; no target here calls
+# kubectl/helm/kind directly.
+dev-kind: preflight-k8s docker-build-local docker-build-simulator ## Kind dev stack: cluster shepherd-dev with Calico, CNPG, Gateway API + NGF, the chart, Gitea, mock OIDC and three Alloy agents (http://shepherd.localtest.me)
+	./scripts/dev-kind.sh up
+
+dev-kind-reload: docker-build-local ## Rebuild shepherd:local, load it into shepherd-dev and roll the pods (migrations run first)
+	./scripts/dev-kind.sh reload
+
+dev-kind-seed: ## Re-run the dev seed inside shepherd-dev (idempotent)
+	./scripts/dev-kind.sh seed
+
+dev-kind-status: ## Show shepherd-dev's workloads, routes, DNS rewrite and URLs
+	./scripts/dev-kind.sh status
+
+dev-kind-down: ## Delete the shepherd-dev cluster and all its data (the dev-reset equivalent)
+	./scripts/dev-kind.sh down
 
 # Run the fullstack Playwright suite against the dev stack.
 # Boots the dev stack, runs tests, captures logs on failure, tears down.
