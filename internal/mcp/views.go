@@ -90,7 +90,13 @@ type PipelineView struct {
 	Revisions   []PipelineRevisionView `json:"revisions,omitempty"`
 }
 
-// PipelineRevisionView mirrors mgmtv1.PipelineRevision.
+// PipelineRevisionView mirrors the METADATA half of mgmtv1.PipelineRevision.
+// The full-detail fields (contents, matchers, enabled, wizard_state) are
+// populated only by GetRevision, which no MCP tool calls; this view is only
+// ever built from GetPipeline responses, whose revisions list is
+// metadata-only (S1). Carrying the detail fields here would be dead code
+// that reads as a capability (backend re-check finding) — add them when a
+// get_revision tool exists, together with a test that exercises them.
 type PipelineRevisionView struct {
 	Revision   int32  `json:"revision"`
 	ChangedBy  string `json:"changed_by"`

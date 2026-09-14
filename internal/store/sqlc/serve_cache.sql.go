@@ -12,7 +12,7 @@ import (
 )
 
 const getServeCache = `-- name: GetServeCache :one
-SELECT collector_id, content, hash, computed_at, dirty FROM serve_cache WHERE collector_id = $1
+SELECT collector_id, content, hash, computed_at, dirty, dirty_seq FROM serve_cache WHERE collector_id = $1
 `
 
 func (q *Queries) GetServeCache(ctx context.Context, collectorID pgtype.UUID) (ServeCache, error) {
@@ -24,12 +24,53 @@ func (q *Queries) GetServeCache(ctx context.Context, collectorID pgtype.UUID) (S
 		&i.Hash,
 		&i.ComputedAt,
 		&i.Dirty,
+		&i.DirtySeq,
 	)
 	return i, err
 }
 
+const listServeCacheSeqByOrg = `-- name: ListServeCacheSeqByOrg :many
+SELECT sc.collector_id, sc.dirty_seq
+FROM serve_cache sc
+JOIN collectors c ON sc.collector_id = c.id
+JOIN clusters cl ON c.cluster_id = cl.id
+WHERE cl.org_id = $1
+`
+
+type ListServeCacheSeqByOrgRow struct {
+	CollectorID pgtype.UUID `json:"collector_id"`
+	DirtySeq    int64       `json:"dirty_seq"`
+}
+
+// The generation of every collector's cache row in an org, read by the eager
+// recompute BEFORE it loads pipelines. Collectors with no row yet are absent
+// (their expected generation is 0).
+func (q *Queries) ListServeCacheSeqByOrg(ctx context.Context, orgID pgtype.UUID) ([]ListServeCacheSeqByOrgRow, error) {
+	rows, err := q.db.Query(ctx, listServeCacheSeqByOrg, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListServeCacheSeqByOrgRow
+	for rows.Next() {
+		var i ListServeCacheSeqByOrgRow
+		if err := rows.Scan(&i.CollectorID, &i.DirtySeq); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markServeCacheDirty = `-- name: MarkServeCacheDirty :exec
-UPDATE serve_cache SET dirty = true WHERE collector_id = $1
+INSERT INTO serve_cache (collector_id, content, hash, dirty, dirty_seq)
+VALUES ($1, '', '', true, 1)
+ON CONFLICT (collector_id) DO UPDATE SET
+    dirty = true,
+    dirty_seq = serve_cache.dirty_seq + 1
 `
 
 // KEEP: single-collector dirty marking; used in agentapi tests and available for
@@ -40,10 +81,13 @@ func (q *Queries) MarkServeCacheDirty(ctx context.Context, collectorID pgtype.UU
 }
 
 const markServeCacheDirtyByCluster = `-- name: MarkServeCacheDirtyByCluster :exec
-UPDATE serve_cache sc
-SET dirty = true
+INSERT INTO serve_cache (collector_id, content, hash, dirty, dirty_seq)
+SELECT c.id, '', '', true, 1
 FROM collectors c
-WHERE sc.collector_id = c.id AND c.cluster_id = $1
+WHERE c.cluster_id = $1
+ON CONFLICT (collector_id) DO UPDATE SET
+    dirty = true,
+    dirty_seq = serve_cache.dirty_seq + 1
 `
 
 func (q *Queries) MarkServeCacheDirtyByCluster(ctx context.Context, clusterID pgtype.UUID) error {
@@ -52,40 +96,59 @@ func (q *Queries) MarkServeCacheDirtyByCluster(ctx context.Context, clusterID pg
 }
 
 const markServeCacheDirtyByOrg = `-- name: MarkServeCacheDirtyByOrg :exec
-UPDATE serve_cache sc
-SET dirty = true
+INSERT INTO serve_cache (collector_id, content, hash, dirty, dirty_seq)
+SELECT c.id, '', '', true, 1
 FROM collectors c
 JOIN clusters cl ON c.cluster_id = cl.id
-WHERE sc.collector_id = c.id AND cl.org_id = $1
+WHERE cl.org_id = $1
+ON CONFLICT (collector_id) DO UPDATE SET
+    dirty = true,
+    dirty_seq = serve_cache.dirty_seq + 1
 `
 
+// A mark must never be lost: a collector with no cache row yet (never polled,
+// or its first recompute still in flight) gets a dirty placeholder row so the
+// generation bump lands and a recompute that read "no row" (generation 0)
+// cannot insert over it. Every mark bumps dirty_seq: see
+// UpsertServeCacheConditional.
 func (q *Queries) MarkServeCacheDirtyByOrg(ctx context.Context, orgID pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, markServeCacheDirtyByOrg, orgID)
 	return err
 }
 
 const upsertServeCacheConditional = `-- name: UpsertServeCacheConditional :one
-INSERT INTO serve_cache (collector_id, content, hash, computed_at, dirty)
-VALUES ($1, $2, $3, now(), false)
+INSERT INTO serve_cache (collector_id, content, hash, computed_at, dirty, dirty_seq)
+VALUES ($1, $2, $3, now(), false, 0)
 ON CONFLICT (collector_id) DO UPDATE SET
     content     = EXCLUDED.content,
     hash        = EXCLUDED.hash,
     computed_at = now(),
     dirty       = false
-WHERE serve_cache.dirty = true
-RETURNING collector_id, content, hash, computed_at, dirty
+WHERE serve_cache.dirty = true AND serve_cache.dirty_seq = $4
+RETURNING collector_id, content, hash, computed_at, dirty, dirty_seq
 `
 
 type UpsertServeCacheConditionalParams struct {
 	CollectorID pgtype.UUID `json:"collector_id"`
 	Content     string      `json:"content"`
 	Hash        string      `json:"hash"`
+	DirtySeq    int64       `json:"dirty_seq"`
 }
 
-// Only clears the dirty flag if it is still true at write time (conditional update).
-// This prevents a newer dirty-mark from being overwritten by a stale recompute.
+// Compare-and-swap on the dirty generation. The caller passes the dirty_seq it
+// read BEFORE loading pipelines (0 when no row existed yet); the write lands
+// only if the row is still dirty AND no newer mark has bumped the generation
+// since. A recompute that raced a newer mark therefore writes nothing — the
+// recompute that observed the newer generation writes instead — so stale
+// content can never consume a newer dirty flag. Returns no row when skipped;
+// callers treat that as "superseded", not as a failure.
 func (q *Queries) UpsertServeCacheConditional(ctx context.Context, arg UpsertServeCacheConditionalParams) (ServeCache, error) {
-	row := q.db.QueryRow(ctx, upsertServeCacheConditional, arg.CollectorID, arg.Content, arg.Hash)
+	row := q.db.QueryRow(ctx, upsertServeCacheConditional,
+		arg.CollectorID,
+		arg.Content,
+		arg.Hash,
+		arg.DirtySeq,
+	)
 	var i ServeCache
 	err := row.Scan(
 		&i.CollectorID,
@@ -93,6 +156,7 @@ func (q *Queries) UpsertServeCacheConditional(ctx context.Context, arg UpsertSer
 		&i.Hash,
 		&i.ComputedAt,
 		&i.Dirty,
+		&i.DirtySeq,
 	)
 	return i, err
 }

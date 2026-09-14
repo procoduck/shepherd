@@ -63,6 +63,35 @@ describe('Modal', () => {
     );
     expect(screen.getByRole('dialog').className).toMatch(/max-w-xl/);
   });
+
+  // F1/S1: a page that keeps its form state in the page passes a brand-new
+  // `onClose` arrow on every re-render (one per keystroke, since the state
+  // setter that updates the input also redefines the closure). Before the
+  // fix, the focus-trap effect was keyed on [onClose], so every one of those
+  // re-renders re-ran panelRef.current?.focus() and yanked focus back to the
+  // dialog panel, out of the input the user was typing into — only the
+  // first character ever landed. The effect must run once per mount, not
+  // once per onClose identity.
+  it('keeps focus in an input across a re-render that passes a new onClose', () => {
+    const { rerender } = render(
+      <Modal title='X' onClose={() => undefined}>
+        <input aria-label='Name' />
+      </Modal>,
+    );
+    const input = screen.getByLabelText('Name');
+    input.focus();
+    expect(document.activeElement).toBe(input);
+
+    // Re-render with a brand new arrow function identity for onClose, the
+    // same shape a page-owned dialog produces on every keystroke.
+    rerender(
+      <Modal title='X' onClose={() => undefined}>
+        <input aria-label='Name' />
+      </Modal>,
+    );
+
+    expect(document.activeElement).toBe(input);
+  });
 });
 
 describe('ModalActions', () => {

@@ -1,7 +1,7 @@
 {
   "_meta": {
-    "alloy_version": "v1.18.1",
-    "description": "Overlay for alloy-v1.18.1. Deep-merged server-side over the artifact before serving via GET /api/schema/{version}. Keys must exist in the artifact (CI-enforced). Components absent from this overlay land in the 'advanced' category.",
+    "alloy_version": "v1.19.2",
+    "description": "Overlay for alloy-v1.19.2. Deep-merged server-side over the artifact before serving via GET /api/schema/{version}. Keys must exist in the artifact (CI-enforced). Components absent from this overlay land in the 'advanced' category.",
     "version": "5"
   },
   "categories": {
@@ -34,7 +34,7 @@
   "components": {
     "beyla.ebpf": {
       "category": "sources",
-      "doc": "Auto-instruments HTTP/gRPC services via eBPF \u2014 no code changes required.",
+      "doc": "Auto-instruments HTTP/gRPC services via eBPF — no code changes required.",
       "icon": "beyla",
       "port_display_order": [
         "targets",
@@ -1581,11 +1581,47 @@
       },
       "terminal_ok": false
     },
+    "otelcol.processor.redaction": {
+      "category": "transform",
+      "doc": "Redacts span, metric and log attribute values that match blocked patterns or are not on an allow-list; can hash instead of drop.",
+      "icon": "transform",
+      "port_display_order": [
+        "input",
+        "output.metrics",
+        "output.logs",
+        "output.traces"
+      ],
+      "sim_keep": {
+        "paths": [
+          "allow_all_keys",
+          "allowed_keys",
+          "ignored_keys",
+          "blocked_key_patterns",
+          "ignored_key_patterns",
+          "allowed_values",
+          "blocked_values",
+          "hash_function",
+          "redact_all_types",
+          "summary",
+          "url_sanitizer.enabled",
+          "url_sanitizer.attributes",
+          "url_sanitizer.sanitize_span_name",
+          "db_sanitizer.sanitize_span_name",
+          "output.metrics",
+          "output.logs",
+          "output.traces",
+          "debug_metrics.disable_high_cardinality_metrics",
+          "debug_metrics.level"
+        ],
+        "reason": "redaction policy is what the user must still see in a sandbox render; hmac_key is the one secret-typed attribute and is left off the list (rule K drops it regardless). Added with the v1.19.2 bump, 2026-09-14."
+      },
+      "terminal_ok": false
+    },
     "otelcol.processor.resourcedetection": {
       "category": "transform",
       "doc": "Auto-detects and attaches resource attributes (cloud, k8s, host, etc.).",
       "icon": "transform",
-      "sim_unsupported": "detects the SANDBOX host, cloud and Kubernetes environment, so every resource attribute it adds would describe the simulator instead of the user's fleet (VB-1 \u00a76.5 refuses that fidelity lie); it also reaches consul.address and openshift.address and carries an openshift.token",
+      "sim_unsupported": "detects the SANDBOX host, cloud and Kubernetes environment, so every resource attribute it adds would describe the simulator instead of the user's fleet (VB-1 §6.5 refuses that fidelity lie); it also reaches consul.address and openshift.address and carries an openshift.token",
       "terminal_ok": false
     },
     "otelcol.processor.span": {
@@ -2568,48 +2604,6 @@
         }
       ],
       "terminal_ok": false
-    },
-    "prometheus.write.queue": {
-      "category": "destinations",
-      "doc": "Sends metrics to a remote_write endpoint with a persistent queue (experimental).",
-      "icon": "upload",
-      "sim_destination": {
-        "endpoint_paths": [
-          [
-            "endpoint",
-            "*",
-            "url"
-          ]
-        ],
-        "ensure": {},
-        "receiver": "prometheus"
-      },
-      "sim_keep": {
-        "paths": [
-          "ttl",
-          "persistence.max_signals_to_batch",
-          "persistence.batch_interval",
-          "endpoint.*.write_timeout",
-          "endpoint.*.retry_backoff",
-          "endpoint.*.max_retry_attempts",
-          "endpoint.*.batch_count",
-          "endpoint.*.flush_interval",
-          "endpoint.*.external_labels",
-          "endpoint.*.enable_round_robin",
-          "endpoint.*.protobuf_message",
-          "endpoint.*.metadata_cache_enabled",
-          "endpoint.*.metadata_cache_size",
-          "endpoint.*.parallelism.drift_scale_up",
-          "endpoint.*.parallelism.drift_scale_down",
-          "endpoint.*.parallelism.max_connections",
-          "endpoint.*.parallelism.min_connections",
-          "endpoint.*.parallelism.network_flush_interval",
-          "endpoint.*.parallelism.desired_connections_lookback",
-          "endpoint.*.parallelism.desired_check_interval",
-          "endpoint.*.parallelism.allowed_network_error_fraction"
-        ]
-      },
-      "terminal_ok": true
     },
     "pyroscope.ebpf": {
       "category": "sources",

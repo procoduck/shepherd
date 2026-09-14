@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -148,6 +149,34 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 			instance, err := st.Queries.GetCollectorInstanceByID(ctx, "instance-1")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(instance.Name).To(Equal("test-instance"))
+		})
+
+		It("falls back to the wire id when the collector sends no name", func() {
+			_, err := client.RegisterCollector(ctx, connect.NewRequest(&collectorv1.RegisterCollectorRequest{
+				Id:   "noname-instance",
+				Name: "",
+				LocalAttributes: map[string]string{
+					"cluster": "noname-cluster",
+					"role":    "metrics",
+				},
+			}))
+			Expect(err).NotTo(HaveOccurred())
+
+			instance, err := st.Queries.GetCollectorInstanceByID(ctx, "noname-instance")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(instance.Name).To(Equal("noname-instance"), "RegisterCollector must fall back to the wire id like GetConfig does, never store an empty name")
+
+			// A subsequent poll with no collector.name attribute must not
+			// wipe the fallback name back to empty either.
+			_, err = client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+				Id:              "noname-instance",
+				LocalAttributes: map[string]string{"cluster": "noname-cluster", "role": "metrics"},
+			}))
+			Expect(err).NotTo(HaveOccurred())
+
+			instance, err = st.Queries.GetCollectorInstanceByID(ctx, "noname-instance")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(instance.Name).To(Equal("noname-instance"))
 		})
 
 		It("rejects missing cluster attribute", func() {
@@ -487,17 +516,34 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 		})
 
 		It("conditional upsert refuses to clear newer dirty flag", func() {
+			// The write is a compare-and-swap on the dirty generation: a
+			// recompute that read generation N before a newer mark bumped it
+			// must not land, or its stale content would clear the newer flag.
+			// (This spec used to assert the OPPOSITE — that a write made after
+			// the mark, without knowing about it, still cleared the flag.)
 			collector, _ := setupClaimedPipeline()
 			_, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{Id: "recompute-instance", LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"}}))
 			Expect(err).NotTo(HaveOccurred())
-			_, err = st.Queries.GetServeCache(ctx, collector.ID)
+			before, err := st.Queries.GetServeCache(ctx, collector.ID)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(st.Queries.MarkServeCacheDirty(ctx, collector.ID)).To(Succeed())
-			_, err = st.Queries.UpsertServeCacheConditional(ctx, sqlc.UpsertServeCacheConditionalParams{CollectorID: collector.ID, Content: "new", Hash: "hash"})
+
+			// A write against the generation read BEFORE the mark is refused
+			// and leaves the row dirty.
+			_, err = st.Queries.UpsertServeCacheConditional(ctx, sqlc.UpsertServeCacheConditionalParams{CollectorID: collector.ID, Content: "stale", Hash: "hash-stale", DirtySeq: before.DirtySeq})
+			Expect(err).To(MatchError(pgx.ErrNoRows))
+			still, err := st.Queries.GetServeCache(ctx, collector.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(still.Dirty).To(BeTrue())
+			Expect(still.Content).To(Equal(before.Content))
+
+			// A write that observed the mark's generation lands and clears it.
+			_, err = st.Queries.UpsertServeCacheConditional(ctx, sqlc.UpsertServeCacheConditionalParams{CollectorID: collector.ID, Content: "new", Hash: "hash", DirtySeq: still.DirtySeq})
 			Expect(err).NotTo(HaveOccurred())
 			updated, err := st.Queries.GetServeCache(ctx, collector.ID)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(updated.Dirty).To(BeFalse())
+			Expect(updated.Content).To(Equal("new"))
 		})
 
 		It("prewarm and lazy recompute race safely", func() {

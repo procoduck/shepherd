@@ -71,15 +71,8 @@ updates:
 
   # See the header comment above: these PRs fail check-docker by design and
   # are finished by hand (updating deploy/versions.env to match).
-  - package-ecosystem: "docker"
-    directory: "/deploy"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "06:00"
-      timezone: "UTC"
-    groups:
-      minor-and-patch:
-        update-types:
-          - "minor"
-          - "patch"
+  # Container images are NOT here on purpose. Every FROM in deploy/ is ARG-driven
+  # from deploy/versions.env, which Dependabot's docker ecosystem cannot read (it
+  # watched this directory for months and never opened a PR). renovate.json's
+  # regex manager owns the image pins — tag and digest — across versions.env,
+  # the Dockerfile ARG defaults and the compose fallbacks, as one grouped PR.

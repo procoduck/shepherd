@@ -22,6 +22,7 @@ React 19 / TypeScript 7 / Vite 8 SPA embedded via go:embed, PostgreSQL 16. Spec:
 - Codegen after proto/SQL changes: `make generate` · visual-builder test corpus: `make generate-corpus`
 - Tool bootstrap: `make tools` (ginkgo, sqlc, buf, protoc-gen-go, protoc-gen-connect-go, govulncheck; `protoc-gen-es` comes from `web/node_modules`, so `make generate` also needs a `pnpm install` in `web/`) · cleanup: `make clean` / `make clean-docker`
 - Schema artifact drift check: `make schema-verify` · container smoke test: `make smoke` · supply-chain scan: `make vulncheck` · coverage: `make test-cover`
+- Security scanners (same pinned images CI uses, `deploy/versions.env`): `make secrets-scan` (gitleaks, full history) · `make image-scan` (Trivy over the two local images; the gate excludes the vendored Alloy binary, the report includes it) · `make config-scan` (Trivy misconfig over `deploy/`; accepted findings in `.trivyignore` with a reason each). CI: `security-scan.yml` runs them on every PR/push plus a weekly scan of the last released images and OpenSSF Scorecard; `release.yml`'s verify job runs the image gate before anything is published
 - Docs site (generated, do not hand-edit `site/docs/`): edit `scripts/docs-content/`, then `make docs` to regenerate — `make check-docs-drift` (part of `make lint`) fails if the committed `site/docs/` disagrees with the generator, `make check-docs-version` fails if the docs' quoted chart/app version disagrees with `deploy/helm/shepherd/Chart.yaml`
 - Release dry-run: `make release-snapshot`. Real releases: bump `deploy/helm/shepherd/Chart.yaml` (`version` is the chart's, `appVersion` is Shepherd's — the tag must equal `appVersion`), update the docs pins (`make check-docs-version` lists them; `site/index.html`'s eyebrow and pill are hand-edited), add the `CHANGELOG.md` entry, rebuild `internal/spa/dist` via `scripts/build-web.sh`, `make docs`, merge, then push an annotated `v*` tag — `release.yml`'s verify job refuses an appVersion/tag mismatch or an already-published chart version, and publishes the chart to `oci://ghcr.io/procoduck/charts/shepherd`
 
@@ -80,16 +81,21 @@ Replace the examples below with your internal registry prefix if needed.
 | Upstream image | Pin lives in |
 |---|---|
 | `gcr.io/distroless/base-nossl-debian12:nonroot` | `deploy/versions.env` (DISTROLESS_BASE_IMAGE) — app, init and simulator images (`make check-docker` guards `deploy/Dockerfile.*`); `e2e/mockmsft/Dockerfile:6` hardcodes `static-debian12:nonroot` and is NOT guarded |
-| `grafana/alloy:v1.18.1` | `deploy/versions.env` (ALLOY_IMAGE) |
+| `grafana/alloy:v1.19.2` | `deploy/versions.env` (ALLOY_IMAGE) |
 | `golang:1.26-alpine` | `deploy/versions.env` (GO_IMAGE); `e2e/mockmsft/Dockerfile:1` hardcodes it and is NOT guarded |
 | `node:24-slim` | `deploy/versions.env` (NODE_IMAGE) |
 | `postgres:16-alpine` | compose files, `Makefile` (smoke), `internal/testutil/postgres.go` — NOT versions.env |
 | `ghcr.io/navikt/mock-oauth2-server:6.0.1` | compose files — NOT versions.env |
 | `gitea/gitea:1-rootless` | compose files (e2e + dev) — NOT versions.env |
 | `alpine:3.22` | `e2e/docker-compose.e2e.yaml` (probe helper) — NOT versions.env |
+| `ghcr.io/gitleaks/gitleaks:v8.30.0` (by digest) | `deploy/versions.env` (GITLEAKS_IMAGE) — `make secrets-scan`, `security-scan.yml` |
+| `aquasec/trivy:0.74.0` (by digest) | `deploy/versions.env` (TRIVY_IMAGE) — `make image-scan` / `make config-scan`; the workflows use `aquasecurity/trivy-action` SHA-pinned instead |
 
 `deploy/versions.env` is the source of truth for the rows that name it; the rest are
-hardcoded where the table says. Update pins there first.
+hardcoded where the table says. Every image there is pinned `tag@sha256:digest`; `renovate.json`
+refreshes digests and proposes tag bumps as one grouped PR across versions.env, the Dockerfile
+ARG defaults and the compose fallbacks (`make check-docker` fails when they disagree). Alloy
+tag bumps stay manual — a schema bump. Dependabot does not manage images.
 
 This applies to: `deploy/Dockerfile.{local,init,simulator,goreleaser,goreleaser-simulator}`,
 `e2e/docker-compose.e2e.yaml`, `dev/docker-compose.dev.yaml`, and any `testcontainers-go` image

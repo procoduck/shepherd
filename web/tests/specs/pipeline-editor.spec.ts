@@ -1,6 +1,40 @@
 import { basicScenario, pipeline } from '../fixtures/factories';
-import { appAdmin } from '../fixtures/personas';
+import { appAdmin, orgEditor } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
+
+test('Save refreshes the revision list and Updated by', async ({ page, api }) => {
+  await api.loginAs(orgEditor);
+  const s = basicScenario();
+  const p = pipeline({
+    id: 'pip-refresh',
+    org_id: s.org.id,
+    name: 'refresh-me',
+    contents: '// v1',
+    updated_by: 'first@example.com',
+    revisions: [
+      {
+        revision: 1,
+        changed_by: 'first@example.com',
+        changed_at: '2026-08-17T09:00:00Z',
+        change_note: 'created',
+      },
+    ],
+  });
+  api.seed({ orgs: [s.org], pipelines: [p] });
+  await page.goto('/pipelines/pip-refresh');
+
+  await expect(page.getByRole('button', { name: /revision history \(1\)/i })).toBeVisible();
+  await expect(page.getByText('Updated by:')).toBeVisible();
+  await expect(page.getByText('first@example.com')).toBeVisible();
+
+  await page.getByRole('button', { name: /Save/i }).click();
+
+  // Both must update WITHOUT a reload: the mock UpdatePipeline additively
+  // unshifts a revision and sets updated_by, same as RestoreRevision does.
+  await expect(page.getByRole('button', { name: /revision history \(2\)/i })).toBeVisible();
+  await expect(page.getByText('orgeditor@example.com')).toBeVisible();
+  expect(api.calls('/shepherd.mgmt.v1.PipelineService/ListRevisions')).toHaveLength(2);
+});
 
 test('new pipeline editor is accessible', async ({ page, api }) => {
   await api.loginAs(appAdmin);

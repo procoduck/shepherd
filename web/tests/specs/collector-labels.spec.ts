@@ -11,19 +11,20 @@ test('labels persist across navigation and support editing, grouping and deletio
   api.seed({ orgs: [s.org], collectors: s.collectors });
   await page.goto(`/collectors/${s.collectors[0].id}`);
   await page.getByRole('button', { name: 'Manage labels' }).click();
-  await page.getByLabel('Label key', { exact: true }).fill('environment');
-  await page.getByLabel('Label value', { exact: true }).fill('production');
+  await page.getByLabel('Key', { exact: true }).fill('environment');
+  await page.getByLabel('Value', { exact: true }).fill('production');
   await page.getByRole('button', { name: 'Add label', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Edit label environment' })).toBeVisible();
   await page.reload();
   await page.getByRole('button', { name: 'Attributes & Labels' }).click();
   await page.getByRole('button', { name: 'Edit label environment' }).click();
-  await page.getByLabel('Label value', { exact: true }).fill('staging');
+  await page.getByLabel('Value', { exact: true }).fill('staging');
   await page.getByRole('button', { name: 'Save label', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Collector labels' })).toContainText('staging');
   await page.goto('/collectors');
-  await page.getByLabel('Group collectors by label').selectOption('environment');
+  await page.getByLabel('Group by').selectOption('environment');
   await expect(page.getByRole('heading', { name: 'environment=staging (1)' })).toBeVisible();
+  await expect(page.getByRole('table', { name: 'environment=staging (1)' })).toBeVisible();
   await page.getByLabel('Search collectors').fill('environment=staging');
   await expect(page.getByRole('link', { name: s.collectors[0].cluster, exact: true })).toHaveCount(
     1,
@@ -32,6 +33,53 @@ test('labels persist across navigation and support editing, grouping and deletio
   await page.getByRole('button', { name: 'Attributes & Labels' }).click();
   await page.getByRole('button', { name: 'Delete label environment' }).click();
   await expect(page.getByText('No labels', { exact: true })).toBeVisible();
+});
+
+test('a reader cannot write labels through either RPC', async ({ page, api }) => {
+  await api.loginAs(reader);
+  const s = basicScenario();
+  s.collectors[0].labels = { team: 'payments' };
+  api.seed({ orgs: [s.org], collectors: s.collectors });
+  await page.goto('/collectors');
+
+  for (const method of ['SetCollectorLabel', 'DeleteCollectorLabel']) {
+    const status = await page.evaluate(
+      async ({ method, body }) => {
+        const response = await fetch(`/shepherd.mgmt.v1.FleetService/${method}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+          body: JSON.stringify(body),
+        });
+        return response.status;
+      },
+      {
+        method,
+        body: {
+          orgId: s.org.id,
+          collectorId: s.collectors[0].id,
+          key: 'team',
+          value: 'platform',
+        },
+      },
+    );
+    expect(status).toBe(403);
+  }
+
+  await page.goto(`/collectors/${s.collectors[0].id}`);
+  await page.getByRole('button', { name: 'View labels' }).click();
+  await expect(page.getByRole('region', { name: 'Collector labels' })).toContainText('payments');
+});
+
+test('collector search includes remote configuration status', async ({ page, api }) => {
+  await api.loginAs(orgAdmin);
+  const s = basicScenario();
+  s.collectors[0].remote_config_status = 'APPLIED';
+  api.seed({ orgs: [s.org], collectors: s.collectors });
+  await page.goto('/collectors');
+  await page.getByLabel('Search collectors').fill('applied');
+  await expect(
+    page.getByRole('link', { name: s.collectors[0].cluster, exact: true }),
+  ).toBeVisible();
 });
 
 test('all reported attributes remain visible per instance to a reader', async ({ page, api }) => {
@@ -61,11 +109,11 @@ test('a failed label save preserves the draft', async ({ page, api }) => {
   api.seed({ orgs: [s.org], collectors: s.collectors });
   await page.goto(`/collectors/${s.collectors[0].id}`);
   await page.getByRole('button', { name: 'Attributes & Labels' }).click();
-  await page.getByLabel('Label key', { exact: true }).fill('team');
-  await page.getByLabel('Label value', { exact: true }).fill('payments');
+  await page.getByLabel('Key', { exact: true }).fill('team');
+  await page.getByLabel('Value', { exact: true }).fill('payments');
   api.failNext('POST', '/shepherd.mgmt.v1.FleetService/SetCollectorLabel', 500, 'Save failed');
   await page.getByRole('button', { name: 'Add label', exact: true }).click();
-  await expect(page.getByLabel('Label value', { exact: true })).toHaveValue('payments');
+  await expect(page.getByLabel('Value', { exact: true })).toHaveValue('payments');
   await expect(page.getByText('No labels', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Add label', exact: true })).toBeEnabled();
 });

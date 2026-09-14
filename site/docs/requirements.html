@@ -103,7 +103,14 @@
                 chart needs <strong>no CRDs</strong> by default. Two optional extras do add
                 requirements:
                 <code>metrics.serviceMonitor.enabled</code> needs the Prometheus Operator's CRDs, and
-                <code>route.enabled</code> needs the Gateway API CRDs.</td>
+                <code>route.enabled</code> needs the Gateway API CRDs. Letting the chart provision
+                Postgres itself (<code>cnpg.enabled=true</code>, see
+                <a href="database.html#cloudnativepg">Database</a>) raises this floor to
+                <strong>Kubernetes 1.29+</strong> &mdash; the pinned CloudNativePG operator chart
+                (<code>0.29.0</code>) refuses older nodes. <code>kubeVersion</code> still declares only
+                1.25+: that is what the plain install needs, and Helm has no way to make the floor
+                conditional on a value, so the operator path's higher floor is documented here rather
+                than enforced at install.</td>
           </tr>
           <tr>
             <td>Run Shepherd anywhere else</td>
@@ -113,7 +120,7 @@
           </tr>
           <tr>
             <td>Run collectors</td>
-            <td><a href="https://grafana.com/docs/alloy/">Grafana Alloy</a> <strong>v1.18.1</strong> —
+            <td><a href="https://grafana.com/docs/alloy/">Grafana Alloy</a> <strong>v1.19.2</strong> —
                 the version whose component schema this build validates against, pinned in
                 <code>deploy/versions.env</code>. Alloy needs <code>remotecfg</code> support.</td>
           </tr>
@@ -144,7 +151,7 @@
 <footer>
   <div class="wrap">
     <div class="foot-left">
-      <span class="pill">v0.5.0</span>
+      <span class="pill">v0.6.0</span>
       <span>self-hosted Grafana Alloy fleet manager</span>
     </div>
     <div class="foot-links">

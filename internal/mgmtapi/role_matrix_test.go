@@ -2,6 +2,7 @@ package mgmtapi_test
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -41,6 +42,9 @@ var _ = Describe("Connect role matrix: org-editor rung, CSRF", Label("integratio
 		orgID        string
 		editorCookie *http.Cookie
 		readerCookie *http.Cookie
+		// roleMatrixPipelineID backs the PipelineService/RestoreRevision
+		// Entry below — see pipelineIDPlaceholder's comment.
+		roleMatrixPipelineID string
 	)
 
 	BeforeEach(func() {
@@ -62,6 +66,17 @@ var _ = Describe("Connect role matrix: org-editor rung, CSRF", Label("integratio
 
 		editorCookie = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "role-matrix-editor-grp")}
 		readerCookie = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "role-matrix-reader-grp")}
+
+		// Unowned pipeline for the PipelineService/RestoreRevision Entry
+		// below — created directly (not over HTTP) since no revision history
+		// is needed: authorizeOwnership refuses the reader before
+		// RestoreRevision ever looks one up.
+		rmp, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: orgUUID(orgID), Name: "role-matrix-restore-target", Contents: "// x\n",
+			Matchers: json.RawMessage(`[]`), Enabled: false, Source: "ui", CreatedBy: "test", UpdatedBy: "test",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		roleMatrixPipelineID = rmp.ID.String()
 
 		cfg := &config.Config{Auth: config.AuthConfig{InsecureCookies: true}}
 		authHandler := auth.NewLocalAdmin(cfg, st, slog.Default())
@@ -107,6 +122,13 @@ var _ = Describe("Connect role matrix: org-editor rung, CSRF", Label("integratio
 			map[string]any{"name": "team", "idp_group_id": "grp"}),
 	)
 
+	// pipelineIDPlaceholder in an Entry's extraFields is substituted with a
+	// pipeline created fresh in THIS Describe's BeforeEach (see below) —
+	// Entry() arguments are evaluated once, at spec-tree construction, long
+	// before BeforeEach ever runs, so the real (DB-generated) id cannot be
+	// embedded in the table literal directly.
+	const pipelineIDPlaceholder = "$ROLE_MATRIX_PIPELINE_ID$"
+
 	// A viewer (org-reader) is denied every org-editor-gated authoring
 	// procedure — WizardService, VisualService, SimulateService all sit at
 	// auth.RoleOrgEditor, strictly above reader. These are pinning
@@ -118,6 +140,9 @@ var _ = Describe("Connect role matrix: org-editor rung, CSRF", Label("integratio
 		func(procedure string, extraFields map[string]any) {
 			body := map[string]any{"org_id": orgID}
 			for k, v := range extraFields {
+				if v == pipelineIDPlaceholder {
+					v = roleMatrixPipelineID
+				}
 				body[k] = v
 			}
 			resp := postConnectJSON(server, procedure, readerCookie, body)
@@ -130,6 +155,17 @@ var _ = Describe("Connect role matrix: org-editor rung, CSRF", Label("integratio
 		Entry("VisualService/Validate", "/shepherd.mgmt.v1.VisualService/Validate", map[string]any{"graph": map[string]any{}}),
 		Entry("SimulateService/SimulateRelabel", "/shepherd.mgmt.v1.SimulateService/SimulateRelabel",
 			map[string]any{"rules": []any{}, "sample_targets": []any{}}),
+		// F-REVISIONS backend: RestoreRevision's interceptor row is the same
+		// auth.RoleOrgReader gate UpdatePipeline uses, with authorizeOwnership
+		// (org-editor-or-above for an unowned pipeline) doing the fine-grained
+		// refusal — see rpc_revisions_test.go for the full editor-succeeds /
+		// reader-refused pair this mirrors. authorizeOwnership runs before the
+		// revision is even looked up, so a real pipeline id with no revision
+		// history still proves the refusal. Mutation run: replacing
+		// authorizeOwnership's body with `return nil` in rpc_pipeline.go made
+		// this Entry fail (200 instead of 403); reverted before commit.
+		Entry("PipelineService/RestoreRevision", "/shepherd.mgmt.v1.PipelineService/RestoreRevision",
+			map[string]any{"id": pipelineIDPlaceholder, "revision": 1}),
 	)
 
 	It("refuses a mutating Connect request that omits the CSRF header", func() {

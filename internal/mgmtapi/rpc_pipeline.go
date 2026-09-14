@@ -101,6 +101,8 @@ var (
 	errListPipelinesFailed  = errors.New("failed to list pipelines")
 	errListRevisionsFailed  = errors.New("failed to load revisions")
 	errWizardStateInvalid   = errors.New("invalid wizard_state")
+	errRevisionNotFound     = errors.New("revision not found")
+	errRevisionInvalid      = errors.New("revision must be a positive integer")
 )
 
 // pipelineValidationError carries Stage1/2 diagnostics for a CreatePipeline
@@ -178,6 +180,37 @@ func revisionToProto(rv sqlc.PipelineRevision) *mgmtv1.PipelineRevision {
 		ChangedAt:  protoTimestamp(rv.ChangedAt),
 		ChangeNote: rv.ChangeNote,
 	}
+}
+
+// revisionToProtoFull is revisionToProto plus the heavy fields (S1):
+// contents, matchers, enabled, wizard_state. Only GetRevision calls this —
+// ListRevisions and GetPipeline.revisions stay on the metadata-only
+// revisionToProto above so a pipeline with a long history does not ship its
+// entire content history on every list/get.
+func revisionToProtoFull(rv sqlc.PipelineRevision) *mgmtv1.PipelineRevision {
+	pb := revisionToProto(rv)
+	pb.Contents = rv.Contents
+	pb.Enabled = rv.Enabled
+
+	var matchers []string
+	if err := json.Unmarshal(rv.Matchers, &matchers); err != nil {
+		matchers = []string{}
+	}
+	if matchers == nil {
+		matchers = []string{}
+	}
+	pb.Matchers = matchers
+
+	// Best-effort, same rule as pipelineToProto: a malformed stored blob
+	// (only ever written by this same server) is dropped rather than
+	// failing the whole response.
+	if len(rv.WizardState) > 0 {
+		ws := &structpb.Struct{}
+		if err := protojson.Unmarshal(rv.WizardState, ws); err == nil {
+			pb.WizardState = ws
+		}
+	}
+	return pb
 }
 
 // visualNeedsUpgrade reports whether the wizard_state JSON contains a schema_version
@@ -835,11 +868,193 @@ func (s *PipelineService) ListRevisions(ctx context.Context, req *connect.Reques
 	}), nil
 }
 
+// GetRevision returns one revision in full (contents/matchers/enabled/
+// wizard_state) — ListRevisions deliberately stays metadata-only (S1).
+func (s *PipelineService) GetRevision(ctx context.Context, req *connect.Request[mgmtv1.GetRevisionRequest]) (*connect.Response[mgmtv1.PipelineRevision], error) {
+	p, err := s.loadPipeline(ctx, req.Msg.GetOrgId(), req.Msg.GetId())
+	if err != nil {
+		return nil, err
+	}
+	if req.Msg.GetRevision() <= 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errRevisionInvalid)
+	}
+	rv, err := s.store.Queries.GetPipelineRevision(ctx, sqlc.GetPipelineRevisionParams{
+		PipelineID: p.ID, Revision: req.Msg.GetRevision(),
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, errRevisionNotFound)
+		}
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(revisionToProtoFull(rv)), nil
+}
+
+// RestoreRevision creates a NEW revision (N+1) from an old revision's
+// contents/matchers/enabled(+wizard_state) and returns the updated pipeline
+// (S2/S3). It never mutates the old revision row.
+//
+// Authorization mirrors UpdatePipeline exactly (S2): requireWriteAuthorized
+// for machine callers, then authorizeOwnership (org admin, or a member of
+// the pipeline's owner team). Unlike UpdatePipeline, restoring a
+// git-sourced pipeline is ALLOWED (S5) — it writes a new revision like any
+// other and the UI warns that the next git sync will overwrite it, so
+// errGitSourceReadOnly deliberately does not apply here.
+//
+// The candidate goes through the same Stage1+2 gate UpdatePipeline uses
+// (validateSaveInput, name/matchers/content) — WizardState is deliberately
+// NOT passed to validateSaveInput here, unlike Create/UpdatePipeline: that
+// gate's visual render-equality check exists to catch a CLIENT submitting
+// hand-edited content that disagrees with the graph it claims to render
+// from, and restore submits neither — both contents and wizard_state come
+// from a revision this server itself already stored. Running that check
+// against server-stored content means a renderer/schema change made after
+// the revision was written can refuse a legitimate restore with
+// already_exists/409 and a message inviting the caller to POST
+// /visual/render for a request that submitted no content at all. (A
+// revision written before migration 0019 has NULL wizard_state regardless,
+// so restoring it restores text only and leaves the stored graph, which can
+// then disagree with the restored text for a visual pipeline; that is a
+// data-vintage limitation, not something this check would catch either.)
+//
+// Stage 3 runs exactly once, gated on the pipeline's state AFTER this
+// restore completes (targetEnabled), before any write — covering both a
+// content change on an already-(and-still)-enabled pipeline and an
+// enabled-bit TRANSITION in either direction with the one check
+// EnablePipeline/DisablePipeline/UpdatePipeline would each run for that
+// same resulting state, run BEFORE UpdatePipeline persists anything so a
+// failure here leaves the stored pipeline row, and the revision history,
+// completely untouched — no half-restore. It is skipped only when the
+// pipeline is disabled both before and after (nothing is, or becomes,
+// served), mirroring UpdatePipeline's own `if p.Enabled` gate.
+func (s *PipelineService) RestoreRevision(ctx context.Context, req *connect.Request[mgmtv1.RestoreRevisionRequest]) (*connect.Response[mgmtv1.Pipeline], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
+	msg := req.Msg
+	p, err := s.loadPipeline(ctx, msg.GetOrgId(), msg.GetId())
+	if err != nil {
+		return nil, err
+	}
+	if err := s.authorizeOwnership(ctx, msg.GetOrgId(), pipelineOwnerTeamID(p)); err != nil {
+		return nil, err
+	}
+	if msg.GetRevision() <= 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errRevisionInvalid)
+	}
+	rv, err := s.store.Queries.GetPipelineRevision(ctx, sqlc.GetPipelineRevisionParams{
+		PipelineID: p.ID, Revision: msg.GetRevision(),
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, errRevisionNotFound)
+		}
+		return nil, mapError(err)
+	}
+
+	var matchers []string
+	if jsonErr := json.Unmarshal(rv.Matchers, &matchers); jsonErr != nil {
+		matchers = []string{}
+	}
+
+	candidate := p
+	candidate.Name = p.Name
+	candidate.Contents = rv.Contents
+	candidate.Matchers = rv.Matchers
+	candidate.WizardState = rv.WizardState
+
+	// See the doc comment above: WizardState is intentionally omitted here
+	// so the client-submission render-equality gate never engages for
+	// server-stored content.
+	if _, err := s.validateSaveInput(ctx, pipelineSaveInput{
+		Name: p.Name, Contents: rv.Contents, Matchers: matchers,
+		Source: p.Source,
+	}); err != nil {
+		return nil, err
+	}
+
+	targetEnabled := rv.Enabled
+	orgID := looseUUID(msg.GetOrgId())
+	// One Stage3 check, gated on the state the pipeline is IN after this
+	// restore, run before any write — see the doc comment above for why
+	// this replaced the previous two-check, write-in-the-middle sequence.
+	if p.Enabled || targetEnabled {
+		if err := s.stage3Check(ctx, candidate, orgID, targetEnabled); err != nil {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		}
+	}
+
+	actor := actorFromCtx(ctx)
+	// WizardState: rv.WizardState (nil when the revision predates 0019 or
+	// carries no graph) — the same COALESCE rule UpdatePipeline relies on:
+	// nil preserves whatever graph is currently stored, a non-nil payload
+	// (even "{}") replaces it (S4).
+	updated, err := s.store.Queries.UpdatePipeline(ctx, sqlc.UpdatePipelineParams{
+		ID:          p.ID,
+		Name:        p.Name,
+		Contents:    rv.Contents,
+		Matchers:    rv.Matchers,
+		WizardState: rv.WizardState,
+		UpdatedBy:   actor,
+	})
+	if err != nil {
+		s.logger.Error("restore revision: update pipeline", "err", err)
+		return nil, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
+	}
+
+	// The enabled bit itself is never touched by UpdatePipeline's query, so
+	// it still needs its own write when the restore changes it. The
+	// validating check for this transition already ran above, before
+	// UpdatePipeline; this is persistence only.
+	if targetEnabled != p.Enabled {
+		updated, err = s.store.Queries.SetPipelineEnabled(ctx, sqlc.SetPipelineEnabledParams{
+			ID: p.ID, Enabled: targetEnabled, UpdatedBy: actor,
+		})
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
+		}
+	}
+
+	note := msg.GetChangeNote()
+	if note == "" {
+		note = fmt.Sprintf("Restored from revision %d", rv.Revision)
+	}
+	if revErr := s.createRevision(ctx, updated, note, actor); revErr != nil {
+		s.logger.Error("restore revision: create revision", "err", revErr, "pipeline_id", updated.ID.String())
+	}
+
+	// Dirty/recompute whenever the pipeline is enabled now OR was enabled
+	// before the restore: a restore that flips enabled -> disabled still
+	// has to drop the pipeline from what collectors are served, exactly
+	// like setEnabled's and DeletePipeline's unconditional dirty+recompute
+	// — checking only updated.Enabled would leave the serve cache clean
+	// (and still containing this pipeline's merged config) whenever a
+	// restore turns an enabled pipeline off.
+	if updated.Enabled || p.Enabled {
+		if dirtyErr := s.store.Queries.MarkServeCacheDirtyByOrg(ctx, orgID); dirtyErr != nil {
+			s.logger.Error("restore revision: mark serve cache dirty", "err", dirtyErr, "org_id", orgID.String())
+		}
+		go s.recomputeOrgCaches(context.Background(), orgID) //nolint:contextcheck,gosec // G118+contextcheck: intentional detached context
+	}
+
+	auditLog(ctx, s.store, actor, orgID, "pipeline.restore", "pipeline", p.ID.String())
+	return connect.NewResponse(pipelineToProto(updated)), nil
+}
+
 // --- helpers moved verbatim from PipelinesHandler (pipelines.go) ---
 
 func (s *PipelineService) createRevision(ctx context.Context, p sqlc.Pipeline, note, actor string) error {
-	maxRev, _ := s.store.Queries.GetMaxPipelineRevision(ctx, p.ID) //nolint:errcheck // returns 0 on err, which is the safe default
-	_, err := s.store.Queries.CreatePipelineRevision(ctx, sqlc.CreatePipelineRevisionParams{
+	return createPipelineRevision(ctx, s.store, p, note, actor)
+}
+
+// createPipelineRevision is createRevision's package-level body, callable
+// without a *PipelineService — WizardService.CommitWizard (rpc_wizard.go)
+// uses it directly so a wizard-created pipeline gets the same revision-1
+// "created" row an editor-created one does, through the identical store
+// path (S4: wizard commits skipped this entirely before).
+func createPipelineRevision(ctx context.Context, st *store.Store, p sqlc.Pipeline, note, actor string) error {
+	maxRev, _ := st.Queries.GetMaxPipelineRevision(ctx, p.ID) //nolint:errcheck // returns 0 on err, which is the safe default
+	_, err := st.Queries.CreatePipelineRevision(ctx, sqlc.CreatePipelineRevisionParams{
 		PipelineID: p.ID,
 		Revision:   maxRev + 1,
 		Contents:   p.Contents,
@@ -847,6 +1062,10 @@ func (s *PipelineService) createRevision(ctx context.Context, p sqlc.Pipeline, n
 		Enabled:    p.Enabled,
 		ChangedBy:  actor,
 		ChangeNote: note,
+		// WizardState: the pipeline row's current graph (S4) — every
+		// revision from 0019 forward carries the graph as it stood when
+		// that revision was made.
+		WizardState: p.WizardState,
 	})
 	return err
 }
@@ -1062,6 +1281,22 @@ func (s *PipelineService) recomputeOrgCaches(ctx context.Context, orgID pgtype.U
 		s.logger.Warn("recomputeOrgCaches: listing collectors failed", "err", err)
 		return
 	}
+	// The dirty generation of every cache row, read BEFORE the pipelines are
+	// loaded: UpsertServeCacheConditional is a compare-and-swap on it, so a
+	// mark that lands after this read (a newer enable/disable/restore/delete)
+	// makes this recompute's write a no-op for that collector and the
+	// recompute that observed the newer mark writes instead. Reading it after
+	// the pipelines would let stale content pass as current. A collector with
+	// no row yet has generation 0.
+	seqRows, err := s.store.Queries.ListServeCacheSeqByOrg(ctx, orgID)
+	if err != nil {
+		s.logger.Warn("recomputeOrgCaches: reading cache generations failed", "err", err)
+		return
+	}
+	expectedSeq := make(map[pgtype.UUID]int64, len(seqRows))
+	for _, r := range seqRows {
+		expectedSeq[r.CollectorID] = r.DirtySeq
+	}
 	// ForMerge, not ByOrg: only the former joins repo_links to carry
 	// repo_link_collector_id, and merge.MatchesPipeline matches a git pipeline
 	// SOLELY by that field. Loading them without it makes every git pipeline
@@ -1123,7 +1358,15 @@ func (s *PipelineService) recomputeOrgCaches(ctx context.Context, orgID pgtype.U
 			CollectorID: c.ID,
 			Content:     served.Content,
 			Hash:        served.Hash,
+			DirtySeq:    expectedSeq[c.ID],
 		}); upsertErr != nil {
+			if errors.Is(upsertErr, pgx.ErrNoRows) {
+				// Superseded: the row was re-marked after this recompute read
+				// its generation, or another recompute already served this
+				// generation. The recompute that saw the newer mark writes.
+				s.logger.Debug("recomputeOrgCaches: write superseded by a newer mark", "collector_id", c.ID.String())
+				continue
+			}
 			s.logger.Warn("recomputeOrgCaches: upsert failed", "collector_id", c.ID.String(), "err", upsertErr)
 		}
 	}

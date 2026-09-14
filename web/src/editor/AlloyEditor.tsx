@@ -24,7 +24,7 @@ export interface AlloyEditorProps {
 }
 
 // Zinc dark theme matching spec §13.1
-const alloyTheme = EditorView.theme(
+export const alloyTheme = EditorView.theme(
   {
     '&': {
       backgroundColor: '#09090b',
@@ -87,6 +87,18 @@ export function AlloyEditor({
 
     const extensions = [
       alloyTheme,
+      // Alloy config identifiers (component names, labels, attribute names)
+      // are not English prose, so the browser's native spell-checker just
+      // underlines every one of them. @codemirror/view's own contentAttrs
+      // defaults happen to already turn this off, but that is an
+      // implementation detail of the library we should not depend on —
+      // declare the editor's own intent explicitly so it stays off even if
+      // an upstream default ever changes.
+      EditorView.contentAttributes.of({
+        spellcheck: 'false',
+        autocorrect: 'off',
+        autocapitalize: 'off',
+      }),
       alloyLanguage(),
       lineNumbers(),
       foldGutter(),
@@ -148,3 +160,9 @@ export function AlloyEditor({
 
   return <div ref={containerRef} style={{ height }} className='overflow-auto' />;
 }
+
+// Re-exported so RevisionDiff lives in the same module graph as the rest of
+// the CodeMirror setup — LazyAlloyEditor.tsx's `import('./AlloyEditor')`
+// chunk boundary is what actually keeps @codemirror/merge out of the entry
+// bundle (W-2 / S7); this file never imports @codemirror/merge itself.
+export { RevisionDiff } from './RevisionDiff';

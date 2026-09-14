@@ -76,6 +76,28 @@ func MigrateDown(_ context.Context, databaseURL string) error {
 	return nil
 }
 
+// MigrateTo migrates (up or down) to exactly the given schema version and
+// closes the migrator connection. Unlike MigrateDown (always exactly one
+// step back from wherever the schema currently is), this lets a caller name
+// an absolute target — needed by tests pinned to a specific migration
+// (e.g. "the schema as it stood right before 0019") that would otherwise
+// silently start asserting on the wrong version the moment a later
+// migration is added ahead of them.
+func MigrateTo(_ context.Context, databaseURL string, version uint) error {
+	m, err := newMigrate(databaseURL)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		srcErr, dbErr := m.Close()
+		_, _ = srcErr, dbErr
+	}()
+	if err := m.Migrate(version); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return fmt.Errorf("migrating to version %d: %w", version, err)
+	}
+	return nil
+}
+
 // MigrateStatus prints migration status to stdout and closes the migrator.
 // A thin wrapper over MigrateStatusTo so the CLI's existing
 // func(context.Context, string) error call shape keeps compiling unchanged.

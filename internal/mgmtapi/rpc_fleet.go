@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"connectrpc.com/connect"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -97,13 +98,10 @@ func (s *FleetService) ListCollectors(ctx context.Context, req *connect.Request[
 		c := &collectors[i]
 		cluster, _ := s.store.Queries.GetClusterByID(ctx, c.ClusterID)             //nolint:errcheck // empty name is safe
 		summary, _ := s.store.Queries.GetLatestCollectorInstanceSummary(ctx, c.ID) //nolint:errcheck // zero value is safe default
-		attrs, attrErr := structFromJSON(summary.LocalAttributes)
-		if attrErr != nil {
-			return nil, connect.NewError(connect.CodeInternal, errors.New("failed to read collector attributes"))
-		}
 		labels, labelErr := decodeCollectorLabels(c.Labels)
 		if labelErr != nil {
-			return nil, labelErr
+			s.logger.Warn("list collectors: decoding inventory labels", "collector_id", c.ID.String(), "err", labelErr)
+			labels = map[string]string{}
 		}
 		items[i] = &mgmtv1.Collector{
 			Id:                 c.ID.String(),
@@ -113,7 +111,6 @@ func (s *FleetService) ListCollectors(ctx context.Context, req *connect.Request[
 			RemoteConfigStatus: summary.RemoteConfigStatus.String,
 			LastSeen:           timestampFromPg(summary.LastSeen),
 			AlloyVersion:       summary.AlloyVersion.String,
-			LocalAttributes:    attrs,
 			Labels:             labels,
 		}
 	}
@@ -246,8 +243,20 @@ func decodeCollectorLabels(raw []byte) (map[string]string, error) {
 }
 
 func validCollectorLabelKey(key string) bool {
-	return key != "" && len(key) <= 128 && strings.IndexFunc(key, func(r rune) bool {
-		return unicode.IsSpace(r) || unicode.IsControl(r)
+	if key == "" || len(key) > 128 {
+		return false
+	}
+	for _, r := range key {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && !strings.ContainsRune("._-/", r) {
+			return false
+		}
+	}
+	return true
+}
+
+func validCollectorLabelValue(value string) bool {
+	return value != "" && len(value) <= 512 && strings.IndexFunc(value, func(r rune) bool {
+		return unicode.IsControl(r) || unicode.Is(unicode.Cf, r)
 	}) == -1
 }
 
@@ -260,25 +269,31 @@ func (s *FleetService) SetCollectorLabel(ctx context.Context, req *connect.Reque
 	if err != nil {
 		return nil, err
 	}
-	key, value := req.Msg.GetKey(), req.Msg.GetValue()
+	key, value := strings.ToLower(req.Msg.GetKey()), req.Msg.GetValue()
 	if !validCollectorLabelKey(key) {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("label key must be 1-128 bytes with no whitespace or control characters"))
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("label key must be 1-128 bytes using lowercase letters, numbers, '.', '_', '-', or '/'"))
 	}
-	if len(value) > 512 || strings.IndexFunc(value, unicode.IsControl) != -1 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("label value must be at most 512 bytes with no control characters"))
+	if !validCollectorLabelValue(value) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("label value must be 1-512 bytes with no control or format characters"))
 	}
 	raw, err := s.store.Queries.SetCollectorLabel(ctx, sqlc.SetCollectorLabelParams{
 		ID: id, LabelKey: key, LabelValue: value,
 	})
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to save collector label"))
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, mapError(err)
+		}
+		if _, lookupErr := s.store.Queries.GetCollectorByID(ctx, id); lookupErr != nil {
+			return nil, mapError(lookupErr)
+		}
+		return nil, connect.NewError(connect.CodeResourceExhausted, errors.New("collector may have at most 64 labels"))
 	}
 	labels, err := decodeCollectorLabels(raw)
 	if err != nil {
 		return nil, err
 	}
 	orgID, _ := parseUUID(req.Msg.GetOrgId())
-	auditLog(ctx, s.store, actorFromCtx(ctx), orgID, "collector.label.set", "collector", id.String())
+	auditLogDetail(ctx, s.store, actorFromCtx(ctx), "user", orgID, "collector.label.set", "collector", id.String(), map[string]string{"key": key})
 	return connect.NewResponse(&mgmtv1.CollectorLabelsResponse{Labels: labels}), nil
 }
 
@@ -291,21 +306,30 @@ func (s *FleetService) DeleteCollectorLabel(ctx context.Context, req *connect.Re
 	if err != nil {
 		return nil, err
 	}
-	if !validCollectorLabelKey(req.Msg.GetKey()) {
+	key := strings.ToLower(req.Msg.GetKey())
+	if !validCollectorLabelKey(key) {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid label key"))
 	}
+	before, err := s.store.Queries.GetCollectorByID(ctx, id)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	previous := ""
+	if current, decodeErr := decodeCollectorLabels(before.Labels); decodeErr == nil {
+		previous = current[key]
+	}
 	raw, err := s.store.Queries.DeleteCollectorLabel(ctx, sqlc.DeleteCollectorLabelParams{
-		ID: id, LabelKey: req.Msg.GetKey(),
+		ID: id, LabelKey: key,
 	})
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to delete collector label"))
+		return nil, mapError(err)
 	}
 	labels, err := decodeCollectorLabels(raw)
 	if err != nil {
 		return nil, err
 	}
 	orgID, _ := parseUUID(req.Msg.GetOrgId())
-	auditLog(ctx, s.store, actorFromCtx(ctx), orgID, "collector.label.delete", "collector", id.String())
+	auditLogDetail(ctx, s.store, actorFromCtx(ctx), "user", orgID, "collector.label.delete", "collector", id.String(), map[string]string{"key": key, "previous_value": previous})
 	return connect.NewResponse(&mgmtv1.CollectorLabelsResponse{Labels: labels}), nil
 }
 

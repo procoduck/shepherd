@@ -1,7 +1,7 @@
 // visual-graph-view.spec.ts — §7.7.3 equivalent (mocked suite)
 // Read-only graph view for text pipelines: no palette, no save, recreate button.
 import { expect } from '@playwright/test';
-import { basicScenario } from '../fixtures/factories';
+import { basicScenario, org, pipeline } from '../fixtures/factories';
 import { appAdmin } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
 import { test } from '../fixtures/test';
@@ -100,5 +100,45 @@ test.describe('visual graph view', () => {
     await page.goto(`/pipelines/${s.pipelines[0].id}/graph`);
     await page.waitForSelector('[data-testid="graph-view"]', { timeout: 10_000 });
     await expect(page.getByText(/Partial/i)).toBeVisible({ timeout: 3_000 });
+  });
+});
+
+// F3: GraphViewPage used to infer the org from getMe().orgs[0] — always the
+// user's FIRST org — instead of the org selected in the switcher, so a
+// second org's graph view silently fetched the wrong org's data.
+test.describe('visual graph view — org selection', () => {
+  const orgA = org({ id: 'org-0001', name: 'prod-org', display_name: 'Production Org' });
+  const orgB = org({ id: 'org-0002', name: 'data-eng', display_name: 'Data Eng' });
+  const twoOrgAdmin = {
+    userOid: 'u-two-org-admin',
+    email: 'twoorg@example.com',
+    displayName: 'Two-Org Admin',
+    isAppAdmin: true,
+    authMethod: 'oidc',
+    orgs: [
+      { id: orgA.id, name: orgA.name, displayName: orgA.display_name, role: 'admin' },
+      { id: orgB.id, name: orgB.name, displayName: orgB.display_name, role: 'admin' },
+    ],
+  };
+
+  test('graph view is fetched for the selected org, not the first', async ({ page, api }) => {
+    await api.loginAs(twoOrgAdmin);
+    await page.addInitScript(() => {
+      window.localStorage.setItem('shepherd.orgId', 'org-0002');
+    });
+    const pipe = pipeline({ id: 'pip-graph-1', org_id: orgB.id, name: 'graph-pipe' });
+    api.seed({
+      orgs: [orgA, orgB],
+      schema: schemaFixture,
+      pipelines: [pipe],
+      graphViewResult: { graph: mockGraph, opaque: false, warning: '' },
+    });
+
+    await page.goto(`/pipelines/${pipe.id}/graph`);
+    await page.waitForSelector('[data-testid="graph-view"]', { timeout: 10_000 });
+
+    const calls = api.calls('VisualService/GraphView');
+    expect(calls.length).toBeGreaterThan(0);
+    expect((calls[0].body as Record<string, unknown>).orgId).toBe('org-0002');
   });
 });

@@ -60,7 +60,7 @@ func allShepherdMgmtV1Procedures(tb testing.TB) []string {
 // would show up as this test flagging (or missing) a procedure the mgmtapi
 // suite already classified differently, so drift cannot hide silently.
 var writeVerbPrefixes = []string{
-	"Create", "Update", "Delete", "Enable", "Disable", "Revoke", "Claim", "Unclaim", "Rotate", "Set", "Commit",
+	"Create", "Update", "Delete", "Enable", "Disable", "Revoke", "Claim", "Unclaim", "Rotate", "Set", "Commit", "Restore",
 }
 
 // nonMutatingNameExceptions mirrors

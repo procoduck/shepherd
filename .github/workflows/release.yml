@@ -118,6 +118,34 @@ jobs:
       - name: Helm lint
         run: make helm-lint
 
+      # Image vulnerability gate, BEFORE anything is published: build the
+      # same two images `make dev` builds and refuse the release if
+      # Shepherd's own binary or the distroless base carries a fixed
+      # critical/high CVE. The vendored Alloy binary is excluded from the
+      # gate on purpose — its CVEs are fixed by bumping ALLOY_IMAGE (a schema
+      # bump, docs/project-status.md §4), and the weekly security-scan
+      # workflow keeps reporting them to the Security tab meanwhile.
+      - name: Build images for the vulnerability gate
+        run: make docker-build-local docker-build-simulator
+      - name: Image vulnerability gate — shepherd
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: shepherd:local
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          skip-files: usr/local/bin/alloy
+          exit-code: "1"
+      - name: Image vulnerability gate — shepherd-simulator
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: shepherd-simulator:local
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          skip-files: usr/local/bin/alloy
+          exit-code: "1"
+
   release:
     name: release
     needs: verify
@@ -401,3 +429,46 @@ jobs:
         with:
           subject-name: ${{ matrix.image.name }}
           subject-digest: ${{ matrix.image.digest }}
+
+  # Report-only scan of the images this release actually published, so the
+  # Security tab shows the shipped artifact rather than the local build the
+  # verify gate scanned. Never fails the run: by now the release is public,
+  # and a half-failed release is worse than a reported CVE (see the chart
+  # probe's comment above for the same reasoning).
+  scan-published:
+    name: scan-published
+    needs: [release, attest-images]
+    if: always() && needs.release.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    env:
+      IMAGE_REGISTRY: ${{ vars.IMAGE_REGISTRY || 'ghcr.io/procoduck' }}
+    strategy:
+      matrix:
+        image: [shepherd, shepherd-simulator]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # goreleaser tags images with the bare version ({{ .Version }} strips the
+      # leading v), so the tag name itself is not an image tag. v0.6.0's scan
+      # looked for ":v0.6.0" and found nothing.
+      - name: Resolve the published image tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Trivy report — ${{ matrix.image }}:${{ steps.version.outputs.version }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE_REGISTRY }}/${{ matrix.image }}:${{ steps.version.outputs.version }}
+          scanners: vuln
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-${{ matrix.image }}.sarif
+          exit-code: "0"
+      - name: Upload to the Security tab
+        uses: github/codeql-action/upload-sarif@c20e34f438d671fc35777cc9820dd7adf8252874 # v3
+        with:
+          sarif_file: trivy-${{ matrix.image }}.sarif
+          category: trivy-release-${{ matrix.image }}

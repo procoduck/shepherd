@@ -11,12 +11,42 @@ import { Field, Input } from '@/components/ui/Field';
 import type { AgentToken } from '@/gen/shepherd/mgmt/v1/admin_pb';
 import { useMe } from '@/hooks/useMe';
 
+// Shared by the ID column's copy button and the created-token dialog's ID
+// copy button below — neither carries the "just copied" checkmark the
+// secret's own copy button does, since a mis-typed ID is easy to notice and
+// re-copy (unlike the secret, which is never shown again).
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    toast.error('Copy failed — select and copy the value manually');
+  }
+}
+
 function tokenColumns(
   isAppAdmin: boolean,
   setRevokeToken: (t: AgentToken) => void,
 ): DataTableColumn<AgentToken>[] {
   const cols: DataTableColumn<AgentToken>[] = [
     { key: 'name', header: 'Name', render: (t) => t.name },
+    {
+      key: 'id',
+      header: 'ID',
+      cellClassName: 'px-4 py-2.5 font-mono text-xs',
+      render: (t) => (
+        <span className='inline-flex items-center gap-1.5'>
+          <span className='select-all'>{t.id}</span>
+          <button
+            type='button'
+            onClick={() => copyText(t.id)}
+            aria-label='Copy token ID'
+            className='shrink-0 text-muted-3 hover:text-indigo-400'
+          >
+            <Copy size={12} />
+          </button>
+        </span>
+      ),
+    },
     {
       key: 'status',
       header: 'Status',
@@ -64,8 +94,13 @@ export function AdminTokensPage() {
   // The plaintext secret is held only in this component's own state, set
   // once from the CreateAgentToken response and never re-derived from any
   // query/cache — the server never returns it again, so this is the only
-  // place it can ever live. Cleared on dialog close; never logged.
-  const [newSecret, setNewSecret] = useState<{ name: string; secret: string } | null>(null);
+  // place it can ever live. Cleared on dialog close; never logged. `id` is
+  // not secret (it's also shown in the table below) — it rides along so the
+  // dialog can show it as the "remotecfg username" the agent authenticates
+  // with, right above the secret it pairs with.
+  const [newSecret, setNewSecret] = useState<{ id: string; name: string; secret: string } | null>(
+    null,
+  );
   const [copied, setCopied] = useState(false);
   const [revokeToken, setRevokeToken] = useState<AgentToken | null>(null);
 
@@ -82,7 +117,7 @@ export function AdminTokensPage() {
       invalidate();
       setShowCreate(false);
       setName('');
-      setNewSecret({ name: resp.name, secret: resp.secret });
+      setNewSecret({ id: resp.id, name: resp.name, secret: resp.secret });
       setCopied(false);
     },
     onError: (e) => toast.error(toApiError(e).message || 'Failed to create token'),
@@ -179,6 +214,22 @@ export function AdminTokensPage() {
               <span className='font-medium text-zinc-200'>{newSecret.name}</span>'s secret will be
               shown. Copy it now — it cannot be retrieved again.
             </p>
+            <div className='space-y-1'>
+              <p className='text-xs text-muted-2'>remotecfg username</p>
+              <div className='flex items-center gap-2 rounded-md border border-border-strong bg-card px-3 py-2'>
+                <code className='flex-1 overflow-x-auto whitespace-nowrap font-mono text-xs select-all'>
+                  {newSecret.id}
+                </code>
+                <button
+                  type='button'
+                  onClick={() => copyText(newSecret.id)}
+                  aria-label='Copy token ID'
+                  className='shrink-0 text-muted-3 hover:text-indigo-400'
+                >
+                  <Copy size={14} />
+                </button>
+              </div>
+            </div>
             <div className='flex items-center gap-2 rounded-md border border-border-strong bg-card px-3 py-2'>
               <code className='flex-1 overflow-x-auto whitespace-nowrap font-mono text-xs select-all'>
                 {newSecret.secret}

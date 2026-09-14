@@ -5,6 +5,7 @@ import { create } from 'zustand';
 import { deleteAtPath, EXPR_KEY, setAtPath } from './bindings';
 import { portsCompatible, validateGraph } from './l1';
 import { portHandleId } from './schemaAdapter';
+import { currentSchemaVersion } from './schemaVersion';
 import type {
   ComponentDef,
   GraphDocument,
@@ -20,6 +21,16 @@ import { scalarConflicts } from './wireOrient';
  * `rfNodes` useMemo (CanvasPane) to recompute and hand every node a new data
  * object; see `selectConnectionState` for how PipelineNode reads it back out
  * via a narrow, per-node selector instead. */
+/**
+ * Stable serialisation of a graph for "has it changed since load/save"
+ * checks. The viewport is left out: the canvas writes it back on every pan,
+ * zoom and post-import refit, and none of those is an edit worth a prompt.
+ */
+export function docFingerprint(doc: GraphDocument): string {
+  const { viewport: _viewport, ...rest } = doc;
+  return JSON.stringify(rest);
+}
+
 export interface ConnectingFrom {
   nodeId: string;
   handleId: string;
@@ -177,6 +188,14 @@ interface VisualStore {
   setPlacementProvider: (fn: ((index: number) => { x: number; y: number }) | null) => void;
   importGraph: (doc: GraphDocument) => void;
   resetDoc: () => void;
+  /**
+   * Fingerprint of the graph as it was last loaded or saved. `isDirty()`
+   * compares the live doc against it, so the unsaved-changes guard fires
+   * only for edits, not for merely having a non-empty graph on screen.
+   */
+  savedFingerprint: string;
+  markSaved: () => void;
+  isDirty: () => boolean;
   removeEdge: (id: string) => void;
   updateViewport: (vp: { x: number; y: number; zoom: number }) => void;
   /** Idempotent — no-op when ids array is deeply equal to current. */
@@ -201,7 +220,12 @@ interface VisualStore {
   setSimHealthByNode: (health: Record<string, SimHealthEntry> | null) => void;
 }
 
-function makeDefaultDoc(schemaVersion = 'alloy-v1.18.1'): GraphDocument {
+// A fresh document carries the SERVED schema's version, stamped by setSchema
+// once the schema has loaded; before that it is empty — never a literal
+// version, which would go stale at the next fleet bump and make every new
+// pipeline read as one that needs upgrading (see schemaVersion.ts). The
+// server treats an empty schema_version as "current" for the same reason.
+function makeDefaultDoc(schemaVersion = ''): GraphDocument {
   return {
     kind: 'alloy-graph/v1',
     schema_version: schemaVersion,
@@ -243,6 +267,7 @@ export const useVisualStore = create<VisualStore>()(
     (set, get) => ({
       doc: makeDefaultDoc(),
       importSeq: 0,
+      savedFingerprint: docFingerprint(makeDefaultDoc()),
       getPlacement: null,
       setPlacementProvider: (fn) => set({ getPlacement: fn }),
       selected: [],
@@ -255,7 +280,20 @@ export const useVisualStore = create<VisualStore>()(
       matchers: [],
       simHealthByNode: null,
 
-      setSchema: (schema) => set({ schema, diagnostics: revalidate({ ...get(), schema }) }),
+      setSchema: (schema) =>
+        set((state) => {
+          // Stamp a document whose version is still UNKNOWN (a fresh one,
+          // never saved or imported) with the served version. A document
+          // that carries any version — even an empty graph imported or
+          // loaded from a save — keeps it, so the upgrade review can still
+          // tell what it was authored against.
+          const version = currentSchemaVersion(schema);
+          const doc =
+            version && state.doc.schema_version === ''
+              ? { ...state.doc, schema_version: version }
+              : state.doc;
+          return { schema, doc, diagnostics: revalidate({ ...state, schema, doc }) };
+        }),
 
       addNode: (component, position, opts) =>
         set((state) => {
@@ -433,11 +471,18 @@ export const useVisualStore = create<VisualStore>()(
           doc,
           importSeq: state.importSeq + 1,
           diagnostics: revalidate({ ...state, doc }),
+          savedFingerprint: docFingerprint(doc),
         })),
+
+      markSaved: () => set({ savedFingerprint: docFingerprint(get().doc) }),
+      isDirty: () => docFingerprint(get().doc) !== get().savedFingerprint,
 
       resetDoc: () =>
         set({
-          doc: makeDefaultDoc(),
+          doc: makeDefaultDoc(currentSchemaVersion(get().schema) ?? ''),
+          savedFingerprint: docFingerprint(
+            makeDefaultDoc(currentSchemaVersion(get().schema) ?? ''),
+          ),
           selected: [],
           diagnostics: [],
           pipelineName: '',

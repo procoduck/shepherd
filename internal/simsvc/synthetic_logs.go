@@ -53,12 +53,37 @@ func (e *LogEmitter) Prepare() error {
 		return fmt.Errorf("simsvc: create log dir: %w", err)
 	}
 	for _, f := range e.fixtures {
-		path := filepath.Join(e.dir, simulate.StubLogFileName(f))
+		path, err := fixturePath(e.dir, f)
+		if err != nil {
+			return err
+		}
 		if err := os.WriteFile(path, nil, 0o600); err != nil {
 			return fmt.Errorf("simsvc: truncate %s: %w", path, err)
 		}
 	}
 	return nil
+}
+
+// fixturePath is the one place a fixture name becomes a file path. The name
+// has already been checked against the fixture library by NewLogEmitter, so
+// this is defence in depth (CodeQL go/path-injection): the joined, cleaned
+// path must stay inside dir — a name carrying a separator or a ".." segment
+// is refused rather than resolved, whatever the library says.
+func fixturePath(dir, fixture string) (string, error) {
+	name := simulate.StubLogFileName(fixture)
+	// filepath.Base is the sanitizer: whatever the name was, only its last
+	// element is ever joined — and a name that HAD more than one element
+	// (or was "." / "..") is refused outright rather than silently reduced.
+	base := filepath.Base(name)
+	if base != name || base == "." || base == ".." || strings.Contains(base, "..") {
+		return "", fmt.Errorf("simsvc: fixture name %q is not a bare file name", fixture)
+	}
+	root := filepath.Clean(dir)
+	path := filepath.Clean(filepath.Join(root, base))
+	if !strings.HasPrefix(path, root+string(filepath.Separator)) {
+		return "", fmt.Errorf("simsvc: fixture %q resolves outside the log dir", fixture)
+	}
+	return path, nil
 }
 
 // Run appends one round of every fixture's lines per interval until ctx ends.
@@ -86,8 +111,11 @@ func (e *LogEmitter) emit() {
 		if !ok {
 			continue
 		}
-		path := filepath.Join(e.dir, simulate.StubLogFileName(fixture))
-		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600) //nolint:gosec // path is built from a validated fixture name under the run's own dir
+		path, err := fixturePath(e.dir, fixture)
+		if err != nil {
+			continue
+		}
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600) //nolint:gosec // fixturePath confines the name to the run's own dir
 		if err != nil {
 			return
 		}

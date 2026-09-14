@@ -26,6 +26,10 @@ import (
 // GetServedConfigResponse.computed_at on a cache miss) — those responses
 // must render through writeProtoJSONOmit (below), naming the fields that
 // need `,omitempty` semantics restored, not through MarshalOpts directly.
+// ListRevisions is the same story one level down: PipelineRevision.items
+// carries fields (contents/matchers/enabled/wizard_state) that only
+// GetRevision populates, so ListRevisions strips them per item — see
+// revisionOmitFields in pipelines.go.
 var MarshalOpts = protojson.MarshalOptions{
 	UseProtoNames:   true,
 	EmitUnpopulated: true,
@@ -132,11 +136,11 @@ func encodeJSONArray(items []json.RawMessage) []byte {
 
 // isZeroJSONLiteral reports whether v is the JSON literal MarshalOpts
 // (EmitUnpopulated) emits for an unpopulated field of some proto kind: ""
-// for a string, 0 for a number, [] for a repeated field, or null for an
-// unset singular message (e.g. google.protobuf.Timestamp).
+// for a string, 0 for a number, [] for a repeated field, false for a bool,
+// or null for an unset singular message (e.g. google.protobuf.Timestamp).
 func isZeroJSONLiteral(v json.RawMessage) bool {
 	switch string(bytes.TrimSpace(v)) {
-	case `""`, `0`, `[]`, `null`:
+	case `""`, `0`, `[]`, `false`, `null`:
 		return true
 	default:
 		return false
@@ -169,6 +173,30 @@ func stripZeroEntries(obj []byte, drop map[string]bool) ([]byte, error) {
 				}
 			}
 			e.raw = encodeJSONArray(items)
+		case e.key == "revisions" && drop[e.key] && isZeroJSONLiteral(e.raw):
+			// An empty list is this field's zero value: List/Create never
+			// attach revision history, and the legacy shape omitted the key.
+			continue
+		case e.key == "revisions":
+			// Pipeline.revisions is the one nested object list the legacy
+			// shape carries (GetPipeline attaches it). Its elements are
+			// PipelineRevision messages whose full-detail fields are
+			// populated only by GetRevision (S1: ListRevisions and
+			// GetPipeline stay metadata-only), so on this path they are
+			// always zero-valued and must be stripped with the REVISION
+			// drop set, not the pipeline's — a pipeline's own "contents"
+			// is always emitted, a nested revision's never.
+			revs, err := decodeJSONArray(e.raw)
+			if err != nil {
+				return nil, err
+			}
+			for i := range revs {
+				revs[i], err = stripZeroEntries(revs[i], revisionDropSet)
+				if err != nil {
+					return nil, err
+				}
+			}
+			e.raw = encodeJSONArray(revs)
 		case drop[e.key] && isZeroJSONLiteral(e.raw):
 			continue
 		}

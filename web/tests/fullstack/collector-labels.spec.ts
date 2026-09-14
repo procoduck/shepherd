@@ -36,11 +36,12 @@ test('collector labels persist through agent polling and group inventory without
   const before = await served();
   await page.goto('/collectors');
   await page.evaluate((id: string) => localStorage.setItem('shepherd.orgId', id), org.id);
+  let cleanupOK = false;
   try {
     await page.goto(`/collectors/${collector.id}`);
     await page.getByRole('button', { name: 'Manage labels' }).click();
-    await page.getByLabel('Label key', { exact: true }).fill(key);
-    await page.getByLabel('Label value', { exact: true }).fill('payments');
+    await page.getByLabel('Key', { exact: true }).fill(key);
+    await page.getByLabel('Value', { exact: true }).fill('payments');
     await page.getByRole('button', { name: 'Add label', exact: true }).click();
     await expect(page.getByRole('button', { name: `Edit label ${key}` })).toBeVisible();
     await forceRecompute(page, 'prod-eu-1', 'metrics');
@@ -49,11 +50,15 @@ test('collector labels persist through agent polling and group inventory without
     await expect(page.getByRole('region', { name: 'Collector labels' })).toContainText('payments');
     await expect(page.getByRole('region', { name: 'Alloy attributes' })).toContainText('prod-eu-1');
     await page.getByRole('button', { name: `Edit label ${key}` }).click();
-    await page.getByLabel('Label value', { exact: true }).fill('platform');
+    await page.getByLabel('Value', { exact: true }).fill('platform');
     await page.getByRole('button', { name: 'Save label', exact: true }).click();
     await expect(page.getByRole('region', { name: 'Collector labels' })).toContainText('platform');
+    await forceRecompute(page, 'prod-eu-1', 'metrics');
+    const whileLabelPresent = await served();
+    expect(whileLabelPresent.hash).toBe(before.hash);
+    expect(whileLabelPresent.content).toBe(before.content);
     await page.goto('/collectors');
-    await page.getByLabel('Group collectors by label').selectOption(key);
+    await page.getByLabel('Group by').selectOption(key);
     await expect(page.getByRole('heading', { name: `${key}=platform (1)` })).toBeVisible();
     await page.getByLabel('Search collectors').fill(`${key}=platform`);
     await expect(page.locator('main a[href^="/collectors/"]')).toHaveCount(1);
@@ -61,14 +66,12 @@ test('collector labels persist through agent polling and group inventory without
     await page.getByRole('button', { name: 'Manage labels' }).click();
     await page.getByRole('button', { name: `Delete label ${key}` }).click();
     await expect(page.getByRole('button', { name: `Edit label ${key}` })).toHaveCount(0);
-    const after = await served();
-    expect(after.hash).toBe(before.hash);
-    expect(after.content).toBe(before.content);
   } finally {
     const cleanup = await page.request.post('/shepherd.mgmt.v1.FleetService/DeleteCollectorLabel', {
       headers,
       data: { orgId: org.id, collectorId: collector.id, key },
     });
-    expect(cleanup.ok()).toBeTruthy();
+    cleanupOK = cleanup.ok();
   }
+  expect(cleanupOK).toBeTruthy();
 });

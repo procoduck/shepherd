@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import { lazyNamed } from '@/lib/lazyNamed';
 import type { AlloyEditorProps } from './AlloyEditor';
+import type { RevisionDiffProps } from './RevisionDiff';
 
 /**
  * AlloyEditor, loaded on first use.
@@ -20,6 +21,14 @@ import type { AlloyEditorProps } from './AlloyEditor';
  */
 const AlloyEditorChunk = lazyNamed(() => import('./AlloyEditor'), 'AlloyEditor');
 
+// RevisionDiff pulls in @codemirror/merge. AlloyEditor.tsx re-exports it
+// purely so this `import('./AlloyEditor')` is the one and only dynamic
+// import that has to resolve — the same chunk as the plain editor, loaded
+// the first time either is used. A page importing RevisionDiff straight
+// from './RevisionDiff' instead of here would put @codemirror/merge back in
+// the entry chunk (W-7's chunk-boundary proof).
+const RevisionDiffChunk = lazyNamed(() => import('./AlloyEditor'), 'RevisionDiff');
+
 export function AlloyEditor(props: AlloyEditorProps) {
   return (
     <Suspense
@@ -33,6 +42,23 @@ export function AlloyEditor(props: AlloyEditorProps) {
       }
     >
       <AlloyEditorChunk {...props} />
+    </Suspense>
+  );
+}
+
+export function RevisionDiff(props: RevisionDiffProps) {
+  return (
+    <Suspense
+      fallback={
+        <div
+          style={{ height: props.height ?? '100%' }}
+          className='overflow-auto'
+          data-testid='editor-loading'
+          aria-busy='true'
+        />
+      }
+    >
+      <RevisionDiffChunk {...props} />
     </Suspense>
   );
 }

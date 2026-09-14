@@ -143,6 +143,27 @@ var _ = Describe("W3-1: service-account role tier", Label("integration"), func()
 				"org-admin procedure an editor-tier one is refused on")
 	})
 
+	It("enforces the admin tier independently on both collector label RPCs", func() {
+		cluster, err := st.Queries.UpsertCluster(ctx, "satier-labels")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgID})).To(Succeed())
+		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+		Expect(err).NotTo(HaveOccurred())
+
+		editorSecret, editorID := satierMakeServiceAccount(ctx, st, orgID, "satier-label-editor", "apply")
+		adminSecret, adminID := satierMakeServiceAccountWithRole(ctx, st, orgID, "satier-label-admin", "apply", "admin")
+		for _, method := range []string{"SetCollectorLabel", "DeleteCollectorLabel"} {
+			body := map[string]any{"orgId": orgID.String(), "collectorId": collector.ID.String(), "key": "team", "value": "platform"}
+			resp := g12PostConnect(server, "/shepherd.mgmt.v1.FleetService/"+method, body, editorID, editorSecret, satierDelegatedPrincipal)
+			Expect(resp.StatusCode).To(Equal(http.StatusForbidden), method)
+			Expect(g11DecodeBody(resp)["code"]).To(Equal("permission_denied"))
+
+			resp = g12PostConnect(server, "/shepherd.mgmt.v1.FleetService/"+method, body, adminID, adminSecret, satierDelegatedPrincipal)
+			Expect(resp.StatusCode).To(Equal(http.StatusOK), method)
+			g11DecodeBody(resp)
+		}
+	})
+
 	// Coverage case, already holding before this workstream (a mutation
 	// revert proved it — see the workstream report): no service account,
 	// at any tier, is ever app-admin.

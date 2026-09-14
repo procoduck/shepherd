@@ -7,11 +7,16 @@ import type { GraphDocument, SchemaPayload } from '../types';
 import { InspectorPanel } from './InspectorPanel';
 
 // UpgradeReview (rendered by InspectorPanel when no node is selected and an
-// upgrade banner is showing) reads the current user via useMe (react-query)
-// purely to get an org id for the UpgradeCheck call -- stub it out so the
-// test doesn't need a QueryClientProvider or a real network round-trip.
+// upgrade banner is showing) reads the selected org via useOrgId (F3),
+// which itself calls useOrg() -> useQueryClient() -- stub useOrgId directly
+// so the test doesn't need a QueryClientProvider or a real network
+// round-trip. (useMe is mocked too since other InspectorPanel paths may
+// still read it; harmless to keep alongside the useOrgId mock.)
 vi.mock('@/hooks/useMe', () => ({
   useMe: () => ({ data: { orgs: [{ id: 'org-1' }] } }),
+}));
+vi.mock('@/hooks/useOrg', () => ({
+  useOrgId: () => 'org-1',
 }));
 
 // upgradeCheck is UpgradeReview's only network call; stub it so Accept has a

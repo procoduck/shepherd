@@ -652,3 +652,45 @@ describe('selectSelectedNode (W5-10 narrow selector)', () => {
     expect(after?.label).toBe('renamed');
   });
 });
+
+describe('schema_version follows the served schema, never a literal', () => {
+  // A fleet bump used to leave every NEW pipeline stamped with the previous
+  // version (makeDefaultDoc hardcoded it), so each one immediately read as
+  // "needs upgrading" against the schema it was authored on. Red run: put a
+  // literal back into makeDefaultDoc's default and drop the stamping from
+  // setSchema — the first two cases fail on the literal.
+  const schemaAt = (alloyVersion: string): SchemaPayload =>
+    ({
+      _meta: { alloy_version: alloyVersion, components_total: 0 },
+      components: {},
+    }) as SchemaPayload;
+  const emptyGraphAt = (schemaVersion: string) => ({
+    kind: 'alloy-graph/v1' as const,
+    schema_version: schemaVersion,
+    nodes: [],
+    edges: [],
+    bindings: [],
+    viewport: { x: 0, y: 0, zoom: 1 },
+    meta: { created_with: 'test' },
+  });
+
+  it('a document with no version yet is stamped with the served version once the schema loads', () => {
+    useVisualStore.getState().importGraph(emptyGraphAt(''));
+    useVisualStore.getState().setSchema(schemaAt('1.19.2'));
+    expect(useVisualStore.getState().doc.schema_version).toBe('alloy-v1.19.2');
+  });
+
+  it('a reset after the schema loaded starts on the served version, normalised', () => {
+    for (const spelling of ['1.19.2', 'v1.19.2', 'alloy-v1.19.2']) {
+      useVisualStore.getState().setSchema(schemaAt(spelling));
+      useVisualStore.getState().resetDoc();
+      expect(useVisualStore.getState().doc.schema_version).toBe('alloy-v1.19.2');
+    }
+  });
+
+  it('a loaded graph keeps the version it was authored against, even when empty', () => {
+    useVisualStore.getState().importGraph(emptyGraphAt('alloy-v1.12.0'));
+    useVisualStore.getState().setSchema(schemaAt('1.19.2'));
+    expect(useVisualStore.getState().doc.schema_version).toBe('alloy-v1.12.0');
+  });
+});

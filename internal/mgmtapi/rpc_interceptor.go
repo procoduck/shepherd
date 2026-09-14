@@ -94,12 +94,17 @@ var procedureRequirements = map[string]string{
 	// org-scoping check. SetPipelineOwner stays org-admin-only:
 	// granting/revoking ownership itself is a platform decision, not a
 	// delegated one.
-	mgmtv1connect.PipelineServiceListPipelinesProcedure:    auth.RoleOrgReader,
-	mgmtv1connect.PipelineServiceGetPipelineProcedure:      auth.RoleOrgReader,
-	mgmtv1connect.PipelineServicePreviewMatchesProcedure:   auth.RoleOrgReader,
-	mgmtv1connect.PipelineServiceListRevisionsProcedure:    auth.RoleOrgReader,
-	mgmtv1connect.PipelineServiceCreatePipelineProcedure:   auth.RoleOrgReader,
-	mgmtv1connect.PipelineServiceUpdatePipelineProcedure:   auth.RoleOrgReader,
+	mgmtv1connect.PipelineServiceListPipelinesProcedure:  auth.RoleOrgReader,
+	mgmtv1connect.PipelineServiceGetPipelineProcedure:    auth.RoleOrgReader,
+	mgmtv1connect.PipelineServicePreviewMatchesProcedure: auth.RoleOrgReader,
+	mgmtv1connect.PipelineServiceListRevisionsProcedure:  auth.RoleOrgReader,
+	mgmtv1connect.PipelineServiceGetRevisionProcedure:    auth.RoleOrgReader,
+	mgmtv1connect.PipelineServiceCreatePipelineProcedure: auth.RoleOrgReader,
+	mgmtv1connect.PipelineServiceUpdatePipelineProcedure: auth.RoleOrgReader,
+	// RestoreRevision: same row as UpdatePipeline above — this table only
+	// proves "has some access to this org"; the fine-grained org-admin-OR-
+	// owns-it decision is authorizeOwnership inside the handler.
+	mgmtv1connect.PipelineServiceRestoreRevisionProcedure:  auth.RoleOrgReader,
 	mgmtv1connect.PipelineServiceDeletePipelineProcedure:   auth.RoleOrgReader,
 	mgmtv1connect.PipelineServiceEnablePipelineProcedure:   auth.RoleOrgReader,
 	mgmtv1connect.PipelineServiceDisablePipelineProcedure:  auth.RoleOrgReader,
@@ -231,6 +236,7 @@ var capabilityRequirements = map[string]string{
 	mgmtv1connect.PipelineServiceDeletePipelineProcedure:   capabilityApply,
 	mgmtv1connect.PipelineServiceEnablePipelineProcedure:   capabilityApply,
 	mgmtv1connect.PipelineServiceDisablePipelineProcedure:  capabilityApply,
+	mgmtv1connect.PipelineServiceRestoreRevisionProcedure:  capabilityApply,
 	mgmtv1connect.PipelineServiceSetPipelineOwnerProcedure: capabilityApply,
 
 	mgmtv1connect.DestinationServiceCreateDestinationProcedure: capabilityApply,

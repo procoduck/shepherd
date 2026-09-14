@@ -162,7 +162,7 @@ var _ = Describe("shepherd.mgmt.v1.FleetService RPC", Label("integration"), func
 		items, ok := decodeBody(resp)["items"].([]any)
 		Expect(ok).To(BeTrue())
 		Expect(items).To(HaveLen(1))
-		Expect(items[0]).To(HaveKeyWithValue("localAttributes", HaveKeyWithValue("custom.attribute", "visible")))
+		Expect(items[0]).NotTo(HaveKey("localAttributes"), "list responses omit lossy dynamic attributes; detail retains them")
 		Expect(items[0]).To(HaveKeyWithValue("labels", HaveKeyWithValue("team", "payments")))
 		resp = postConnect("/shepherd.mgmt.v1.FleetService/SetCollectorLabel", map[string]any{
 			"orgId": orgID.String(), "collectorId": collector.ID.String(), "key": "team", "value": "platform",
@@ -195,16 +195,49 @@ var _ = Describe("shepherd.mgmt.v1.FleetService RPC", Label("integration"), func
 			Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
 			decodeBody(resp)
 		}
-		for _, key := range []string{"", "bad key", strings.Repeat("k", 129)} {
+		for _, key := range []string{"", "bad key", "bad:key", strings.Repeat("k", 129)} {
 			request["key"] = key
 			resp := postConnect("/shepherd.mgmt.v1.FleetService/SetCollectorLabel", request, createSession(true, nil))
 			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
 			decodeBody(resp)
+			resp = postConnect("/shepherd.mgmt.v1.FleetService/DeleteCollectorLabel", map[string]any{
+				"orgId": orgID.String(), "collectorId": collector.ID.String(), "key": key,
+			}, createSession(true, nil))
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+			decodeBody(resp)
 		}
 		request["key"] = "team"
-		request["value"] = strings.Repeat("v", 513)
-		resp := postConnect("/shepherd.mgmt.v1.FleetService/SetCollectorLabel", request, createSession(true, nil))
-		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+		for _, value := range []string{"", strings.Repeat("v", 513), "hidden\u200bvalue"} {
+			request["value"] = value
+			resp := postConnect("/shepherd.mgmt.v1.FleetService/SetCollectorLabel", request, createSession(true, nil))
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+			decodeBody(resp)
+		}
+	})
+
+	It("normalizes label keys and enforces the per-collector label cap", func() {
+		cluster, err := st.Queries.UpsertCluster(ctx, "labels-cap")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgID})).To(Succeed())
+		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+		Expect(err).NotTo(HaveOccurred())
+		cookie := createSession(false, []string{"fleet-admin-group"})
+		for i := range 64 {
+			resp := postConnect("/shepherd.mgmt.v1.FleetService/SetCollectorLabel", map[string]any{
+				"orgId": orgID.String(), "collectorId": collector.ID.String(), "key": fmt.Sprintf("key-%02d", i), "value": "set",
+			}, cookie)
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			decodeBody(resp)
+		}
+		resp := postConnect("/shepherd.mgmt.v1.FleetService/SetCollectorLabel", map[string]any{
+			"orgId": orgID.String(), "collectorId": collector.ID.String(), "key": "KEY-00", "value": "updated",
+		}, cookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		Expect(decodeBody(resp)["labels"]).To(HaveKeyWithValue("key-00", "updated"))
+		resp = postConnect("/shepherd.mgmt.v1.FleetService/SetCollectorLabel", map[string]any{
+			"orgId": orgID.String(), "collectorId": collector.ID.String(), "key": "overflow", "value": "refused",
+		}, cookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusTooManyRequests))
 		decodeBody(resp)
 	})
 

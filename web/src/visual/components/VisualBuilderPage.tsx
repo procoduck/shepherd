@@ -59,8 +59,9 @@ export function VisualBuilderPage() {
   // close.
   useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      const { doc } = useVisualStore.getState();
-      if (doc.nodes.length === 0 && doc.edges.length === 0) return;
+      // Only a graph that differs from what was loaded or last saved is worth
+      // a prompt; an untouched pipeline on screen is not.
+      if (!useVisualStore.getState().isDirty()) return;
       e.preventDefault();
       // Chrome requires returnValue to be set; the string is never displayed.
       e.returnValue = '';

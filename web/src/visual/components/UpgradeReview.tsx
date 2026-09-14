@@ -6,7 +6,7 @@ import {
   upgradeCheck,
 } from '../../api/client';
 import { Modal } from '../../components/ui/Modal';
-import { useMe } from '../../hooks/useMe';
+import { useOrgId } from '../../hooks/useOrg';
 import { useVisualStore } from '../store';
 import { hasBlockingItems, pruneRemovedAttrs } from '../upgradeOps';
 
@@ -46,7 +46,7 @@ function renderItemUI(item: UpgradeItem) {
 export function UpgradeReview({ open, onClose, onAccept }: UpgradeReviewProps) {
   const doc = useVisualStore((s) => s.doc);
   const importGraph = useVisualStore((s) => s.importGraph);
-  const { data: me } = useMe();
+  const orgId = useOrgId();
   const [result, setResult] = useState<UpgradeCheckResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -56,10 +56,10 @@ export function UpgradeReview({ open, onClose, onAccept }: UpgradeReviewProps) {
   docRef.current = doc;
 
   useEffect(() => {
-    if (!open || !me?.orgs[0]?.id) return;
+    if (!open || !orgId) return;
     setResult(null);
     setError(null);
-    upgradeCheck(me.orgs[0].id, docRef.current)
+    upgradeCheck(orgId, docRef.current)
       .then(setResult)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to check upgrade'));
     // Deliberately NOT `doc`: the review is checked against whichever
@@ -67,7 +67,7 @@ export function UpgradeReview({ open, onClose, onAccept }: UpgradeReviewProps) {
     // in the inspector. Depending on the whole doc re-fired UpgradeCheck on
     // every mutation made while the review panel happened to be open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc.schema_version, me, open]);
+  }, [doc.schema_version, orgId, open]);
 
   const blocked = result ? hasBlockingItems(result.items) : false;
 

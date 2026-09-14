@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { clients } from '@/api/transport';
 import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
@@ -76,30 +76,38 @@ export function CollectorsPage() {
     queryKey: ['collectors', orgId],
     queryFn: () => clients.fleet.listCollectors({ orgId }),
     enabled: !!orgId,
-    refetchInterval: 15000,
   });
   const collectors = data?.items ?? [];
-  const labelKeys = [...new Set(collectors.flatMap((c) => Object.keys(c.labels)))].sort();
+  const labelKeys = useMemo(
+    () => [...new Set(collectors.flatMap((c) => Object.keys(c.labels)))].sort(),
+    [collectors],
+  );
   const activeGroup = labelKeys.includes(groupBy) ? groupBy : '';
   const query = search.trim().toLowerCase();
-  const filtered = collectors.filter((c) =>
-    [
-      c.cluster,
-      c.role,
-      c.alloyVersion,
-      ...Object.entries(c.labels).map(([key, value]) => `${key}=${value}`),
-      ...Object.entries(c.localAttributes ?? {}).map(
-        ([key, value]) => `${key}=${typeof value === 'string' ? value : JSON.stringify(value)}`,
+  const filtered = useMemo(
+    () =>
+      collectors.filter((c) =>
+        [
+          c.cluster,
+          c.role,
+          c.alloyVersion,
+          c.remoteConfigStatus || 'unknown',
+          ...Object.entries(c.labels).map(([key, value]) => `${key}=${value}`),
+        ].some((value) => value.toLowerCase().includes(query)),
       ),
-    ].some((value) => value.toLowerCase().includes(query)),
+    [collectors, query],
   );
-  const groups = new Map<string | undefined, Collector[]>();
-  for (const collector of filtered) {
-    const value = activeGroup ? collector.labels[activeGroup] : '';
-    const group = groups.get(value) ?? [];
-    group.push(collector);
-    groups.set(value, group);
-  }
+  const groups = useMemo(() => {
+    const result = new Map<string | undefined, Collector[]>();
+    for (const collector of filtered) {
+      const value = activeGroup ? collector.labels[activeGroup] : '';
+      const groupKey = activeGroup && value === undefined ? undefined : value;
+      const group = result.get(groupKey) ?? [];
+      group.push(collector);
+      result.set(groupKey, group);
+    }
+    return result;
+  }, [activeGroup, filtered]);
 
   return (
     <div className='space-y-4'>
@@ -108,18 +116,10 @@ export function CollectorsPage() {
       </div>
       <div className='flex items-end gap-3'>
         <Field label='Search collectors' className='flex-1'>
-          <Input
-            aria-label='Search collectors'
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} />
         </Field>
         <Field label='Group by'>
-          <Select
-            aria-label='Group collectors by label'
-            value={activeGroup}
-            onChange={(e) => setGroupBy(e.target.value)}
-          >
+          <Select value={activeGroup} onChange={(e) => setGroupBy(e.target.value)}>
             <option value=''>None</option>
             {labelKeys.map((key) => (
               <option key={key} value={key}>
@@ -134,24 +134,25 @@ export function CollectorsPage() {
       </div>
       {isError ? (
         <QueryError error={error} noun='collectors' />
-      ) : isLoading ? (
+      ) : isLoading || !orgId ? (
         <p className='text-sm text-muted'>Loading…</p>
       ) : filtered.length === 0 ? (
         <p className='text-sm text-muted'>No collectors found.</p>
       ) : (
         [...groups.entries()]
           .sort(([a], [b]) => (a ?? '').localeCompare(b ?? ''))
-          .map(([value, rows]) => (
+          .map(([value, rows], groupIndex) => (
             <section
               key={value === undefined ? 'unlabeled' : `value:${value}`}
               className='space-y-2'
             >
               {activeGroup && (
-                <h2 className='text-sm font-medium'>
+                <h2 id={`collector-group-${groupIndex}`} className='text-sm font-medium'>
                   {value === undefined ? 'Unlabeled' : `${activeGroup}=${value}`} ({rows.length})
                 </h2>
               )}
               <DataTable
+                ariaLabelledBy={activeGroup ? `collector-group-${groupIndex}` : undefined}
                 columns={collectorColumns}
                 rows={rows}
                 rowKey={(c) => c.id}

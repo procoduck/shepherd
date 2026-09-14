@@ -150,12 +150,11 @@ export function CollectorLabels({
           className='flex flex-wrap items-end gap-2'
           onSubmit={(e) => {
             e.preventDefault();
-            change.mutate({ key: key.trim(), value });
+            change.mutate({ key: key.trim().toLowerCase(), value });
           }}
         >
           <Field label='Key' className='min-w-0 flex-1 basis-40'>
             <Input
-              aria-label='Label key'
               value={key}
               required
               maxLength={128}
@@ -165,8 +164,8 @@ export function CollectorLabels({
           </Field>
           <Field label='Value' className='min-w-0 flex-1 basis-40'>
             <Input
-              aria-label='Label value'
               value={value}
+              required
               maxLength={512}
               disabled={change.isPending}
               onChange={(e) => setValue(e.target.value)}
@@ -176,7 +175,12 @@ export function CollectorLabels({
             type='submit'
             title={editing ? 'Save label' : 'Add label'}
             aria-label={editing ? 'Save label' : 'Add label'}
-            disabled={!key.trim() || change.isPending}
+            disabled={
+              !key.trim() ||
+              !value ||
+              change.isPending ||
+              (!editing && Object.keys(labels).length >= 64)
+            }
             className='inline-flex items-center gap-2 rounded-md bg-indigo-600 p-2.5 text-sm text-white disabled:opacity-50'
           >
             {editing ? <Save size={16} /> : <Plus size={16} />}

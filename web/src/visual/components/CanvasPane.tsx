@@ -743,15 +743,21 @@ export function CanvasPane() {
           className='[&>button]:bg-card [&>button]:border-border [&>button]:fill-zinc-300 [&>button:hover]:bg-accent/20'
         />
         {/* bottom-left avoids overlap with default node placement area (center/right) */}
-        {/* React Flow's minimap defaults to a light palette; pin it to the dark token layer. */}
+        {/* React Flow's minimap defaults to a light palette; pin it to the
+            current token layer explicitly (F2, 2026-09-14 walkthrough fixes:
+            these were dark-only literals, unreadable once light mode
+            existed) — bgColor/nodeColor/nodeStrokeColor mirror --color-panel/
+            --color-border-strong/--color-accent for each theme, and
+            maskColor (the non-viewport overlay) mirrors bgColor so it
+            doesn't render as a heavy near-black slab over a light panel. */}
         <MiniMap
           position='bottom-left'
           pannable
           zoomable
-          bgColor='#0e0e11'
-          maskColor='rgba(9,9,11,0.75)'
-          nodeColor='#3f3f46'
-          nodeStrokeColor='#6366f1'
+          bgColor={theme === 'light' ? '#f4f4f5' : '#0e0e11'}
+          maskColor={theme === 'light' ? 'rgba(244,244,245,0.75)' : 'rgba(9,9,11,0.75)'}
+          nodeColor={theme === 'light' ? '#d4d4d8' : '#3f3f46'}
+          nodeStrokeColor={theme === 'light' ? '#4f46e5' : '#6366f1'}
           className='!border !border-border !rounded-md'
         />
       </ReactFlow>

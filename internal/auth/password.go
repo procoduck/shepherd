@@ -42,17 +42,25 @@ func VerifyPassword(encodedHash, pw string) (bool, error) {
 		if len(kv2) != 2 {
 			continue
 		}
-		v, err := strconv.ParseUint(kv2[1], 10, 32)
+		// argon2.IDKey takes parallelism as a uint8, so "p" is parsed with
+		// that bit size rather than narrowed afterwards (CodeQL
+		// go/incorrect-integer-conversion): an encoded hash claiming p=300
+		// is malformed, not "p=44".
+		bits := 32
+		if kv2[0] == "p" {
+			bits = 8
+		}
+		v, err := strconv.ParseUint(kv2[1], 10, bits)
 		if err != nil {
 			return false, fmt.Errorf("parsing argon2id params: %w", err)
 		}
 		switch kv2[0] {
 		case "m":
-			memory = uint32(v)
+			memory = uint32(v) //nolint:gosec // G115: parsed with bitSize 32 above
 		case "t":
-			itime = uint32(v)
+			itime = uint32(v) //nolint:gosec // G115: parsed with bitSize 32 above
 		case "p":
-			threads = uint32(v)
+			threads = uint32(v) //nolint:gosec // G115: parsed with bitSize 8 above
 		}
 	}
 	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
@@ -63,6 +71,6 @@ func VerifyPassword(encodedHash, pw string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("decoding hash: %w", err)
 	}
-	computed := argon2.IDKey([]byte(pw), salt, itime, memory, uint8(threads), uint32(len(storedHash))) //nolint:gosec // encoded hash controls a bounded output length
+	computed := argon2.IDKey([]byte(pw), salt, itime, memory, uint8(threads), uint32(len(storedHash))) //nolint:gosec // threads parsed with bitSize 8 above; hash length bounded by the encoded value
 	return subtle.ConstantTimeCompare(computed, storedHash) == 1, nil
 }

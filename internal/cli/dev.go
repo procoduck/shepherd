@@ -464,6 +464,7 @@ func seedPipelines(ctx context.Context, st *store.Store, orgID pgtype.UUID, item
 		if _, err := st.Queries.CreatePipelineRevision(ctx, sqlc.CreatePipelineRevisionParams{
 			PipelineID: p.ID, Revision: 1, Contents: p.Contents, Matchers: p.Matchers,
 			Enabled: p.Enabled, ChangedBy: "seed", ChangeNote: "seed",
+			// WizardState left nil (-> NULL): seed pipelines carry no wizard_state.
 		}); err != nil {
 			return fmt.Errorf("creating revision 1 for %s: %w", item.name, err)
 		}

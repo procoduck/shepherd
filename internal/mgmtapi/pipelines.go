@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 
 	"connectrpc.com/connect"
 	"github.com/go-chi/chi/v5"
@@ -189,6 +190,25 @@ func (h *PipelinesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// revisionOmitFields names the PipelineRevision fields ListRevisions must
+// keep metadata-only on the REST surface (S1). revisionToProto never
+// populates them for a list item, but MarshalOpts' EmitUnpopulated still
+// serializes their zero values (contents:"", matchers:[], enabled:false,
+// wizard_state:null) unless stripped here — see writeProtoJSONOmit's doc
+// comment. GetRevision (below) renders through plain writeProtoJSON so
+// these same fields, populated there, still ship in full.
+var revisionOmitFields = []string{"contents", "matchers", "enabled", "wizard_state"}
+
+// revisionDropSet is revisionOmitFields as the lookup shape stripZeroEntries
+// takes, for the nested Pipeline.revisions list (see shim.go).
+var revisionDropSet = func() map[string]bool {
+	m := make(map[string]bool, len(revisionOmitFields))
+	for _, k := range revisionOmitFields {
+		m[k] = true
+	}
+	return m
+}()
+
 // ListRevisions GET /api/orgs/{org}/pipelines/{id}/revisions
 func (h *PipelinesHandler) ListRevisions(w http.ResponseWriter, r *http.Request) {
 	req := &mgmtv1.ListRevisionsRequest{OrgId: chi.URLParam(r, "org"), Id: chi.URLParam(r, "id")}
@@ -197,7 +217,76 @@ func (h *PipelinesHandler) ListRevisions(w http.ResponseWriter, r *http.Request)
 		WriteConnectError(w, err)
 		return
 	}
+	writeProtoJSONOmit(w, http.StatusOK, resp.Msg, revisionOmitFields...)
+}
+
+// pipelineRestoreRequest is the (optional) legacy wire shape for the
+// restore body: an absent/empty body is allowed, in which case the new
+// revision's change_note defaults server-side ("Restored from revision N").
+type pipelineRestoreRequest struct {
+	ChangeNote string `json:"change_note,omitempty"`
+}
+
+// parseRevisionParam reads the {rev} path segment as the int32 the proto
+// carries. ParseInt with bitSize 32 refuses anything that would not fit
+// (CodeQL go/incorrect-integer-conversion: an int -> int32 narrowing after
+// strconv.Atoi has no upper bound on 64-bit builds), and a revision is
+// never zero or negative, so those are rejected here too rather than by the
+// service's own <=0 check — one 400 shape for every malformed value. On
+// failure the 400 has already been written; the caller just returns.
+func parseRevisionParam(w http.ResponseWriter, r *http.Request) (int32, bool) {
+	rev, err := strconv.ParseInt(chi.URLParam(r, "rev"), 10, 32)
+	if err != nil || rev <= 0 {
+		respondError(w, http.StatusBadRequest, "bad_request", "revision must be a positive number")
+		return 0, false
+	}
+	return int32(rev), true
+}
+
+// GetRevision GET /api/orgs/{org}/pipelines/{id}/revisions/{rev}
+func (h *PipelinesHandler) GetRevision(w http.ResponseWriter, r *http.Request) {
+	rev, ok := parseRevisionParam(w, r)
+	if !ok {
+		return
+	}
+	req := &mgmtv1.GetRevisionRequest{
+		OrgId: chi.URLParam(r, "org"), Id: chi.URLParam(r, "id"),
+		Revision: rev,
+	}
+	resp, err := h.svc.GetRevision(r.Context(), connect.NewRequest(req))
+	if err != nil {
+		WriteConnectError(w, err)
+		return
+	}
 	writeProtoJSON(w, http.StatusOK, resp.Msg)
+}
+
+// RestoreRevision POST /api/orgs/{org}/pipelines/{id}/revisions/{rev}/restore
+func (h *PipelinesHandler) RestoreRevision(w http.ResponseWriter, r *http.Request) {
+	rev, ok := parseRevisionParam(w, r)
+	if !ok {
+		return
+	}
+	// An empty body is allowed (change_note is optional), unlike Create/Update's
+	// decodeJSON which always expects a JSON object — an empty POST body would
+	// otherwise 400 before ever reaching the service.
+	var body pipelineRestoreRequest
+	if r.ContentLength != 0 {
+		if !decodeJSON(w, r, &body) {
+			return
+		}
+	}
+	req := &mgmtv1.RestoreRevisionRequest{
+		OrgId: chi.URLParam(r, "org"), Id: chi.URLParam(r, "id"),
+		Revision:   rev,
+		ChangeNote: body.ChangeNote,
+	}
+	resp, err := h.svc.RestoreRevision(r.Context(), connect.NewRequest(req))
+	if err != nil {
+		writePipelineSaveError(w, err)
+		return
+	}
+	writeProtoJSONOmit(w, http.StatusOK, resp.Msg, pipelineOmitFields...)
 }
 
 // Validate POST /api/orgs/{org}/pipelines/validate

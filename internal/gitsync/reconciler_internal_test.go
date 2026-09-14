@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -364,5 +365,49 @@ var _ = Describe("Reconciler.reconcileLink", Label("integration"), func() {
 		updatedLink, linkErr := st.Queries.GetRepoLinkByID(ctx, link.ID)
 		Expect(linkErr).NotTo(HaveOccurred())
 		Expect(updatedLink.SyncStatus.String).To(Equal("error"))
+	})
+})
+
+// A credential value must never reach repo_links.sync_error (shown to every
+// org reader) or a log line, whatever a transport error chooses to echo
+// (CodeQL go/clear-text-logging). Red run: making redactSecrets return err
+// unchanged fails the first two specs.
+var _ = Describe("secret scrubbing of recorded sync errors", func() {
+	It("replaces every occurrence of a secret and drops the original wrapping", func() {
+		err := fmt.Errorf("fetching files: %w", errors.New("https://svc:hunter2@git.example.com: 401 (hunter2)"))
+		got := redactSecrets(err, []string{"hunter2"})
+		Expect(got.Error()).To(Equal("fetching files: https://svc:[REDACTED]@git.example.com: 401 ([REDACTED])"))
+		Expect(errors.Unwrap(got)).To(BeNil(), "a scrubbed error must not still wrap the unscrubbed one")
+	})
+
+	It("scrubs the values of every auth kind the reconciler builds", func() {
+		for _, tc := range []struct {
+			auth   gitrepo.Auth
+			secret string
+		}{
+			{gitrepo.BasicAuth{Username: "u", Password: "pw-basic"}, "pw-basic"},
+			{gitrepo.PATAuth{Username: "u", Token: "tok-pat"}, "tok-pat"},
+			{gitrepo.SSHAuth{PrivateKeyPEM: []byte("KEYMATERIAL"), Passphrase: "pp-ssh"}, "pp-ssh"},
+			{gitrepo.SSHAuth{PrivateKeyPEM: []byte("KEYMATERIAL"), Passphrase: "pp-ssh"}, "KEYMATERIAL"},
+			{gitrepo.AdoSPAuth{ClientSecret: "cs-ado"}, "cs-ado"},
+		} {
+			scrub := newSecretScrubber(tc.auth)
+			got := scrub(errors.New("boom " + tc.secret + " end"))
+			Expect(got.Error()).To(Equal("boom [REDACTED] end"), "%T must scrub %q", tc.auth, tc.secret)
+		}
+	})
+
+	It("leaves an error alone when no secret appears in it, wrapping intact", func() {
+		inner := errors.New("dial tcp: connection refused")
+		err := fmt.Errorf("getting latest commit: %w", inner)
+		got := redactSecrets(err, []string{"hunter2", ""})
+		Expect(got).To(BeIdenticalTo(err))
+		Expect(errors.Is(got, inner)).To(BeTrue())
+	})
+
+	It("never treats an empty secret as a match", func() {
+		err := errors.New("plain text")
+		Expect(redactSecrets(err, []string{""}).Error()).To(Equal("plain text"))
+		Expect(redactSecrets(nil, []string{"x"})).To(BeNil())
 	})
 })

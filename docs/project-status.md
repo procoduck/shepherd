@@ -1,7 +1,7 @@
 # Shepherd — project ledger
 
-> **The single live status document.** Baseline re-verified 2026-09-11 at the v0.5.0 release
-> (`e75234f`, chart 0.10.1) from the CI and release runs on that commit, not from a summary.
+> **The single live status document.** Baseline re-verified 2026-09-14 at the v0.6.0 release
+> (`e4e45b8`, chart 0.10.2) from the CI and release runs on that commit, not from a summary.
 > Completed rounds live in `docs/archive/` — the history this ledger used to carry inline is
 > `docs/archive/completed-2026-09-11.md`. Do not start a second ledger.
 
@@ -24,23 +24,23 @@
 
 ---
 
-## 1. Verified baseline (2026-09-11, v0.5.0)
+## 1. Verified baseline (2026-09-14, v0.6.0)
 
-Every row is a CI or release run on `e75234f` (or the PR that produced it), so the claim is
+Every row is a CI or release run on `e4e45b8` (or the PR that produced it), so the claim is
 checkable by run id rather than by trusting this table.
 
 | Check | Where it ran | Result |
 |---|---|---|
-| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 34615485569 | clean |
+| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 34829976236 (PR #65) | clean |
 | `golangci-lint` + config verify, all ten `make guards`, `helm lint`, `scripts/repocheck` | CI `lint` + `guards` jobs, same run | 0 issues |
 | `go test ./...` with coverage (testcontainers Postgres) | CI `test` job, same run | green |
-| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job (PR #51, run on `1593fcc`) | clean; **566/566** |
-| Mocked Playwright (`make test-ui`) | CI `test-ui` job (PR #51) | **255 tests in 46 files, green** |
-| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 34615485569 | green |
-| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml` on push to main, run 34612982328 (`bec9c35`) | green |
-| Kubernetes e2e, kind (`make e2e-k8s`) | `e2e-k8s.yml` on PR #52, run 34614691090 | green |
-| Sandbox e2e (`make e2e-sim`) | local-only by design (D13); last green 2026-09-11 in the remediation session's wave-3 gate | green |
-| Release: verify job, goreleaser, image attestations, chart OCI push | `release.yml`, run 34615496614 | success — chart 0.10.1 / appVersion 0.5.0 published, images `0.5.0` present, provenance verifies |
+| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job (PR #60, run 34826217159) | clean; **577/577** |
+| Mocked Playwright (`make test-ui`) | CI `test-ui` job (PR #60, same run) | **259 tests in 46 files, green** |
+| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 34829976236 | green |
+| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml` on push to main, run 34829225428 (`7b82428`) | green |
+| Kubernetes e2e, kind (`make e2e-k8s`) | `e2e-k8s.yml` on PR #65, run 34829976482 | green |
+| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job on every PR (not on push), run 34828420060 (PR #62) | green |
+| Release: verify job, goreleaser, image attestations, chart OCI push | `release.yml`, run 34831444506 | success — chart 0.10.2 / appVersion 0.6.0 published, images `0.6.0` present, provenance verifies. The report-only `scan-published` job failed on a wrong image name (fixed in the Unreleased changelog entry); the release itself was unaffected |
 
 ### What demonstrably works end to end
 
@@ -102,14 +102,6 @@ Fixed bugs (B-CONTAIN-1, B-CONCAT, B-STAGEORDER, F9-a) are in
 
 ## 3. Unbuilt / gated features
 
-### F-REVISIONS — revision diff and restore are not buildable yet · **medium**
-
-`shepherd.mgmt.v1.PipelineRevision` carries only `revision`/`changed_by`/`changed_at`/`change_note`
-— **not** the revision's contents. So a diff is impossible and restore cannot repopulate the editor;
-the Restore button raises "Revision contents are not exposed by the API yet" and there is no
-`RestoreRevision` RPC. The revision *list* works and is covered. Needs `contents` on the proto plus
-a `RestoreRevision` procedure before any UI work.
-
 ### F-CONTRIB — collector detail does not show contributing pipelines · **low**
 
 Served config is shown, but nothing links back to the pipelines that produced it, so there is no way
@@ -125,6 +117,7 @@ artifacts (W7), the chart-values UI + G10 (W9), teams UI (W10), and the two R6 c
 MCP interface (W11). Each is a §4 item below.
 
 Closed features (F5 sandbox simulation, F-SIGNAL-SERVE) are in `docs/archive/completed-2026-09-11.md`.
+F-REVISIONS closed — see `CHANGELOG.md` Unreleased "Pipelines — Shipped".
 
 ---
 
@@ -152,8 +145,9 @@ answer and the ledger item it produced is below.
 
 ### Scheduled work (from the decisions above)
 
-- [ ] **F-REVISIONS**: `contents` on `PipelineRevision`, `RestoreRevision` RPC, then the text
-      diff view and Restore in the pipeline editor; graph diff for visual pipelines afterwards.
+- [x] **F-REVISIONS**: `contents` on `PipelineRevision`, `RestoreRevision` RPC, the text diff
+      view and Restore in the pipeline editor — shipped, see `CHANGELOG.md` Unreleased. Graph
+      diff for visual pipelines is the remaining follow-up (below).
 - [ ] **Editor Format + Validate buttons**: `FormatPipeline` RPC over `alloy fmt`, wired to a
       Format button; an explicit Validate button beside the idle-debounced validation.
 - [ ] **Experimental components as an org setting**: migration + proto field + server-side
@@ -176,8 +170,35 @@ answer and the ledger item it produced is below.
 
 ### Smaller follow-ups
 
+Two items below (marked with the plan link) come from the v0.6.0 manual UI walkthrough
+(`docs/plans/2026-09-14-walkthrough-fixes.md`, §3 "Blocked"); every other finding from that
+walkthrough was closed in the same batch — see `CHANGELOG.md` Unreleased.
+
 Open, in rough priority order:
 
+- [ ] **A collector's `APPLIED` status can mean "polled with the served hash", not "loaded it
+      successfully."** `ClearStaleFailedStatus` promotes NULL/FAILED to `APPLIED` on a status-less
+      poll carrying the served hash, and nothing Shepherd reads today (`effective_config` is
+      unread; beacon rows are not keyed by collector instance) can tell a fresh load from a
+      rejected one served from cache. Needs a reproduction against a live Alloy v1.19.2 agent
+      before picking one of three options — see `docs/plans/2026-09-14-walkthrough-fixes.md` §3
+      (B1).
+- [ ] **Wizards have no channel to say when they silently drop or add something** (`B2` in the
+      same plan). `wizard.CommitResult`/`RenderWizardResponse` carry no `warnings` field, so the
+      self-monitoring log-step default and the wizard-added-matcher badge (both shipped in the
+      same batch) work around the gap client-side rather than closing it; a first-class warnings
+      field is a `proto/` change, deferred.
+- [ ] **Graph diff for visual pipelines.** The pipeline editor's revision diff is text-only
+      (`RevisionDiff`, CodeMirror merge view); the visual builder page has no revision UI, so a
+      visual pipeline's graph-level change is not diffable, only its rendered text. Restoring a
+      visual pipeline from the text editor still restores the graph (`wizard_state` travels with
+      the revision) for revisions written after migration 0019 — older rows carry no graph, so
+      restoring one restores text only — only the *diff view* is text-only.
+- [x] **Bump Alloy for the 15 high CVEs in the bundled binary (done 2026-09-14, v1.19.2).**
+      Trivy found 15 HIGH, unfixed-excluded CVEs in the v1.18.1 binary bundled into both images
+      (built upstream with Go 1.26.5). v1.19.2 is built on a patched Go and carries 2, both in
+      grpc (upstream). Bumped as a schema bump: `ALLOY_IMAGE`/`ALLOY_VERSION`, `make schema`,
+      overlay reconciliation, the v1.18.1 artifact kept embedded for upgrade-review diffs.
 - [ ] **Typed `Role`/`Source` enums.** `internal/auth`'s role constants (`RoleOrgAdmin` etc.,
       `internal/auth/authz.go`) and `pipelines.source` are plain `string`-typed constants, not a
       distinct Go type — the `exhaustive` linter cannot check a switch over either for
@@ -240,8 +261,12 @@ logout; horizontal-scale coordination beyond stateless replicas + Postgres.
   repocheck), `generated-drift`, `test` (`make test-cover`, coverage artifact), `web`, `test-ui`,
   `test-fullstack` (incl. `make smoke`). `e2e.yml` runs on push to main, path-filtered.
   `e2e-k8s.yml` weekly and on qualifying PRs. Scheduled: `schema-verify` and `govulncheck` weekly.
-  `release.yml` on `v*` tags: verify job, goreleaser, provenance attestations, chart OCI push
-  (refuses an appVersion/tag mismatch and an already-published chart version).
+  `release.yml` on `v*` tags: verify job (incl. the Trivy image gate), goreleaser, provenance
+  attestations, chart OCI push (refuses an appVersion/tag mismatch and an already-published
+  chart version), then a report-only scan of the published images. `security-scan.yml` on every
+  PR/push: gitleaks over the full history, Trivy over the two built images (gate on Shepherd's
+  binary + base, report on the vendored Alloy binary) and Trivy misconfig over `deploy/`; weekly:
+  the last released images and OpenSSF Scorecard. `main` requires the CI checks for everyone.
 - **The repository is public, so standard-runner Actions minutes are not billed; GitHub still
   runs every job separately**, so a slow, noisy CI costs signal even when it costs no money.
   Three controls keep it in range — `paths-ignore` so a docs-only change never starts CI, the

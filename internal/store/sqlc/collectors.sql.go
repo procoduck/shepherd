@@ -170,6 +170,7 @@ UPDATE collectors
 SET labels = labels || jsonb_build_object($1::text, $2::text),
     updated_at = now()
 WHERE id = $3
+  AND (labels ? $1::text OR jsonb_array_length(jsonb_path_query_array(labels, '$.keyvalue()')) < 64)
 RETURNING labels
 `
 

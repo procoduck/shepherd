@@ -7,9 +7,9 @@
 # There is no web build stage: this image serves no SPA, holds no database
 # credentials and links no Microsoft Graph client. Everything the container can
 # reach is everything a user's graph can reach.
-ARG GO_IMAGE=golang:1.26-alpine
-ARG ALLOY_IMAGE=grafana/alloy:v1.18.1
-ARG DISTROLESS_BASE_IMAGE=gcr.io/distroless/base-nossl-debian12:nonroot
+ARG GO_IMAGE=golang:1.26-alpine@sha256:ce864e7223ac17b1775e6fd0b4c0db580c2eb50e7953a427916379e4b92a1628
+ARG ALLOY_IMAGE=grafana/alloy:v1.19.2@sha256:b8ec653c44235fbe910879145dac3597d66b0aaecf60bcbbe82580767771a839
+ARG DISTROLESS_BASE_IMAGE=gcr.io/distroless/base-nossl-debian12:nonroot@sha256:be40c00dfabd86576d92666e87e406714d5618342de1a0c213ad232de255172e
 
 # Stage 1: build the simulator binary
 FROM ${GO_IMAGE} AS builder
@@ -25,7 +25,7 @@ FROM ${ALLOY_IMAGE} AS alloy
 # Stage 3: final image.
 #
 # distroless/BASE, not distroless/static: this container
-# execs the Alloy binary, and Alloy v1.18.1 is dynamically linked against glibc.
+# execs the Alloy binary, and Alloy v1.19.2 is dynamically linked against glibc.
 # On static it fails with "fork/exec /usr/local/bin/alloy: no such file or
 # directory" — the missing dynamic loader, not a missing file. base adds glibc
 # and nothing else; it is still shell-less and non-root.

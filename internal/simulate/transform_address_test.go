@@ -159,7 +159,7 @@ var _ = Describe("Transform: no authored address reaches the sandbox", func() {
 				"if that is intended, update relabelDestinationPaths and docs/proofs/simulator-containment.md together")
 		// Stated so the sweep cannot pass by probing nothing: a filter bug or a
 		// schema payload that failed to load would otherwise look like success.
-		Expect(probed).To(Equal(679), "address-named attribute paths probed")
+		Expect(probed).To(Equal(674), "address-named attribute paths probed")
 		// And most of them must actually REACH a render. A sweep whose probes
 		// all failed closed for some unrelated reason would report the same
 		// leak list while testing nothing about rule K.
@@ -172,7 +172,7 @@ var _ = Describe("Transform: no authored address reaches the sandbox", func() {
 		// so every address-named probe on any of those 19 now fails the run
 		// closed instead of rendering, the same as blackbox and snmp already
 		// did.
-		Expect(rendered).To(Equal(539), "probes that produced a sandbox config rather than failing the run closed")
+		Expect(rendered).To(Equal(530), "probes that produced a sandbox config rather than failing the run closed")
 	})
 
 	// HIGH-3's own list, named one per entry. The sweep above already covers
@@ -209,7 +209,6 @@ var _ = Describe("Transform: no authored address reaches the sandbox", func() {
 		Entry("loki.write endpoint.oauth2.proxy_url", "loki.write", "endpoint", "*", "oauth2", "proxy_url"),
 		Entry("prometheus.remote_write endpoint.proxy_url", "prometheus.remote_write", "endpoint", "*", "proxy_url"),
 		Entry("pyroscope.write endpoint.proxy_url", "pyroscope.write", "endpoint", "*", "proxy_url"),
-		Entry("prometheus.write.queue endpoint.proxy_url", "prometheus.write.queue", "endpoint", "*", "proxy_url"),
 	)
 
 	// oauth2.token_url is HIGH-3's third shape and gets its own entry because

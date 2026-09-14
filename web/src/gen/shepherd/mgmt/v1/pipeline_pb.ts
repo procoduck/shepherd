@@ -14,10 +14,12 @@ import type { JsonObject, Message } from "@bufbuild/protobuf";
  * Describes the file shepherd/mgmt/v1/pipeline.proto.
  */
 export const file_shepherd_mgmt_v1_pipeline: GenFile = /*@__PURE__*/
-  fileDesc("Ch9zaGVwaGVyZC9tZ210L3YxL3BpcGVsaW5lLnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIn0KEFBpcGVsaW5lUmV2aXNpb24SEAoIcmV2aXNpb24YASABKAUSEgoKY2hhbmdlZF9ieRgCIAEoCRIuCgpjaGFuZ2VkX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBITCgtjaGFuZ2Vfbm90ZRgEIAEoCSKQAwoIUGlwZWxpbmUSCgoCaWQYASABKAkSDgoGb3JnX2lkGAIgASgJEgwKBG5hbWUYAyABKAkSEAoIY29udGVudHMYBCABKAkSEAoIbWF0Y2hlcnMYBSADKAkSDwoHZW5hYmxlZBgGIAEoCBIOCgZzb3VyY2UYByABKAkSEAoIcmV2aXNpb24YCCABKAUSEgoKY3JlYXRlZF9ieRgJIAEoCRISCgp1cGRhdGVkX2J5GAogASgJEi4KCmNyZWF0ZWRfYXQYCyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYDCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjUKCXJldmlzaW9ucxgNIAMoCzIiLnNoZXBoZXJkLm1nbXQudjEuUGlwZWxpbmVSZXZpc2lvbhItCgx3aXphcmRfc3RhdGUYDiABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0EhUKDW93bmVyX3RlYW1faWQYDyABKAkiPQoUTGlzdFBpcGVsaW5lc1JlcXVlc3QSDgoGb3JnX2lkGAEgASgJEhUKDW5lZWRzX3VwZ3JhZGUYAiABKAgiUQoVTGlzdFBpcGVsaW5lc1Jlc3BvbnNlEikKBWl0ZW1zGAEgAygLMhouc2hlcGhlcmQubWdtdC52MS5QaXBlbGluZRINCgV0b3RhbBgCIAEoBSIwChJHZXRQaXBlbGluZVJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgoKAmlkGAIgASgJIq8BChVDcmVhdGVQaXBlbGluZVJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgwKBG5hbWUYAiABKAkSEAoIY29udGVudHMYAyABKAkSEAoIbWF0Y2hlcnMYBCADKAkSDgoGc291cmNlGAUgASgJEi0KDHdpemFyZF9zdGF0ZRgGIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QSFQoNb3duZXJfdGVhbV9pZBgHIAEoCSKkAQoVVXBkYXRlUGlwZWxpbmVSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIKCgJpZBgCIAEoCRIMCgRuYW1lGAMgASgJEhAKCGNvbnRlbnRzGAQgASgJEhAKCG1hdGNoZXJzGAUgAygJEg4KBnNvdXJjZRgGIAEoCRItCgx3aXphcmRfc3RhdGUYByABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0IjMKFURlbGV0ZVBpcGVsaW5lUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkiGAoWRGVsZXRlUGlwZWxpbmVSZXNwb25zZSIzChVFbmFibGVQaXBlbGluZVJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgoKAmlkGAIgASgJIjQKFkRpc2FibGVQaXBlbGluZVJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgoKAmlkGAIgASgJIkkKF1ZhbGlkYXRlUGlwZWxpbmVSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIMCgRuYW1lGAIgASgJEhAKCGNvbnRlbnRzGAMgASgJIqEBChhWYWxpZGF0ZVBpcGVsaW5lUmVzcG9uc2USDQoFdmFsaWQYASABKAgSMQoLZGlhZ25vc3RpY3MYAiADKAsyHC5zaGVwaGVyZC5tZ210LnYxLkRpYWdub3N0aWMSDwoHc2lnbmFscxgDIAMoCRIWCg5zaWduYWxzX3Byb3ZlbhgEIAEoCBIaChJ1bmtub3duX2NvbXBvbmVudHMYBSADKAkiMwoVUHJldmlld01hdGNoZXNSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIKCgJpZBgCIAEoCSI9ChBNYXRjaGVkQ29sbGVjdG9yEg8KB2NsdXN0ZXIYASABKAkSDAoEcm9sZRgCIAEoCRIKCgJpZBgDIAEoCSJQChZQcmV2aWV3TWF0Y2hlc1Jlc3BvbnNlEjYKCmNvbGxlY3RvcnMYASADKAsyIi5zaGVwaGVyZC5tZ210LnYxLk1hdGNoZWRDb2xsZWN0b3IiMgoUTGlzdFJldmlzaW9uc1JlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgoKAmlkGAIgASgJIlkKFUxpc3RSZXZpc2lvbnNSZXNwb25zZRIxCgVpdGVtcxgBIAMoCzIiLnNoZXBoZXJkLm1nbXQudjEuUGlwZWxpbmVSZXZpc2lvbhINCgV0b3RhbBgCIAEoBSJMChdTZXRQaXBlbGluZU93bmVyUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkSFQoNb3duZXJfdGVhbV9pZBgDIAEoCTKqCAoPUGlwZWxpbmVTZXJ2aWNlEmIKDUxpc3RQaXBlbGluZXMSJi5zaGVwaGVyZC5tZ210LnYxLkxpc3RQaXBlbGluZXNSZXF1ZXN0Gicuc2hlcGhlcmQubWdtdC52MS5MaXN0UGlwZWxpbmVzUmVzcG9uc2UiABJRCgtHZXRQaXBlbGluZRIkLnNoZXBoZXJkLm1nbXQudjEuR2V0UGlwZWxpbmVSZXF1ZXN0Ghouc2hlcGhlcmQubWdtdC52MS5QaXBlbGluZSIAElcKDkNyZWF0ZVBpcGVsaW5lEicuc2hlcGhlcmQubWdtdC52MS5DcmVhdGVQaXBlbGluZVJlcXVlc3QaGi5zaGVwaGVyZC5tZ210LnYxLlBpcGVsaW5lIgASVwoOVXBkYXRlUGlwZWxpbmUSJy5zaGVwaGVyZC5tZ210LnYxLlVwZGF0ZVBpcGVsaW5lUmVxdWVzdBoaLnNoZXBoZXJkLm1nbXQudjEuUGlwZWxpbmUiABJlCg5EZWxldGVQaXBlbGluZRInLnNoZXBoZXJkLm1nbXQudjEuRGVsZXRlUGlwZWxpbmVSZXF1ZXN0Giguc2hlcGhlcmQubWdtdC52MS5EZWxldGVQaXBlbGluZVJlc3BvbnNlIgASVwoORW5hYmxlUGlwZWxpbmUSJy5zaGVwaGVyZC5tZ210LnYxLkVuYWJsZVBpcGVsaW5lUmVxdWVzdBoaLnNoZXBoZXJkLm1nbXQudjEuUGlwZWxpbmUiABJZCg9EaXNhYmxlUGlwZWxpbmUSKC5zaGVwaGVyZC5tZ210LnYxLkRpc2FibGVQaXBlbGluZVJlcXVlc3QaGi5zaGVwaGVyZC5tZ210LnYxLlBpcGVsaW5lIgASawoQVmFsaWRhdGVQaXBlbGluZRIpLnNoZXBoZXJkLm1nbXQudjEuVmFsaWRhdGVQaXBlbGluZVJlcXVlc3QaKi5zaGVwaGVyZC5tZ210LnYxLlZhbGlkYXRlUGlwZWxpbmVSZXNwb25zZSIAEmUKDlByZXZpZXdNYXRjaGVzEicuc2hlcGhlcmQubWdtdC52MS5QcmV2aWV3TWF0Y2hlc1JlcXVlc3QaKC5zaGVwaGVyZC5tZ210LnYxLlByZXZpZXdNYXRjaGVzUmVzcG9uc2UiABJiCg1MaXN0UmV2aXNpb25zEiYuc2hlcGhlcmQubWdtdC52MS5MaXN0UmV2aXNpb25zUmVxdWVzdBonLnNoZXBoZXJkLm1nbXQudjEuTGlzdFJldmlzaW9uc1Jlc3BvbnNlIgASWwoQU2V0UGlwZWxpbmVPd25lchIpLnNoZXBoZXJkLm1nbXQudjEuU2V0UGlwZWxpbmVPd25lclJlcXVlc3QaGi5zaGVwaGVyZC5tZ210LnYxLlBpcGVsaW5lIgBCJlokc2hlcGhlcmQvZ2VuL3NoZXBoZXJkL21nbXQvdjE7bWdtdHYxYgZwcm90bzM", [file_google_protobuf_struct, file_google_protobuf_timestamp, file_shepherd_mgmt_v1_common]);
+  fileDesc("Ch9zaGVwaGVyZC9tZ210L3YxL3BpcGVsaW5lLnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIuEBChBQaXBlbGluZVJldmlzaW9uEhAKCHJldmlzaW9uGAEgASgFEhIKCmNoYW5nZWRfYnkYAiABKAkSLgoKY2hhbmdlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEwoLY2hhbmdlX25vdGUYBCABKAkSEAoIY29udGVudHMYBSABKAkSEAoIbWF0Y2hlcnMYBiADKAkSDwoHZW5hYmxlZBgHIAEoCBItCgx3aXphcmRfc3RhdGUYCCABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0IpADCghQaXBlbGluZRIKCgJpZBgBIAEoCRIOCgZvcmdfaWQYAiABKAkSDAoEbmFtZRgDIAEoCRIQCghjb250ZW50cxgEIAEoCRIQCghtYXRjaGVycxgFIAMoCRIPCgdlbmFibGVkGAYgASgIEg4KBnNvdXJjZRgHIAEoCRIQCghyZXZpc2lvbhgIIAEoBRISCgpjcmVhdGVkX2J5GAkgASgJEhIKCnVwZGF0ZWRfYnkYCiABKAkSLgoKY3JlYXRlZF9hdBgLIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgMIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASNQoJcmV2aXNpb25zGA0gAygLMiIuc2hlcGhlcmQubWdtdC52MS5QaXBlbGluZVJldmlzaW9uEi0KDHdpemFyZF9zdGF0ZRgOIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QSFQoNb3duZXJfdGVhbV9pZBgPIAEoCSI9ChRMaXN0UGlwZWxpbmVzUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSFQoNbmVlZHNfdXBncmFkZRgCIAEoCCJRChVMaXN0UGlwZWxpbmVzUmVzcG9uc2USKQoFaXRlbXMYASADKAsyGi5zaGVwaGVyZC5tZ210LnYxLlBpcGVsaW5lEg0KBXRvdGFsGAIgASgFIjAKEkdldFBpcGVsaW5lUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkirwEKFUNyZWF0ZVBpcGVsaW5lUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSDAoEbmFtZRgCIAEoCRIQCghjb250ZW50cxgDIAEoCRIQCghtYXRjaGVycxgEIAMoCRIOCgZzb3VyY2UYBSABKAkSLQoMd2l6YXJkX3N0YXRlGAYgASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdBIVCg1vd25lcl90ZWFtX2lkGAcgASgJIqQBChVVcGRhdGVQaXBlbGluZVJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgoKAmlkGAIgASgJEgwKBG5hbWUYAyABKAkSEAoIY29udGVudHMYBCABKAkSEAoIbWF0Y2hlcnMYBSADKAkSDgoGc291cmNlGAYgASgJEi0KDHdpemFyZF9zdGF0ZRgHIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QiMwoVRGVsZXRlUGlwZWxpbmVSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIKCgJpZBgCIAEoCSIYChZEZWxldGVQaXBlbGluZVJlc3BvbnNlIjMKFUVuYWJsZVBpcGVsaW5lUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkiNAoWRGlzYWJsZVBpcGVsaW5lUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkiSQoXVmFsaWRhdGVQaXBlbGluZVJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgwKBG5hbWUYAiABKAkSEAoIY29udGVudHMYAyABKAkioQEKGFZhbGlkYXRlUGlwZWxpbmVSZXNwb25zZRINCgV2YWxpZBgBIAEoCBIxCgtkaWFnbm9zdGljcxgCIAMoCzIcLnNoZXBoZXJkLm1nbXQudjEuRGlhZ25vc3RpYxIPCgdzaWduYWxzGAMgAygJEhYKDnNpZ25hbHNfcHJvdmVuGAQgASgIEhoKEnVua25vd25fY29tcG9uZW50cxgFIAMoCSIzChVQcmV2aWV3TWF0Y2hlc1JlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgoKAmlkGAIgASgJIj0KEE1hdGNoZWRDb2xsZWN0b3ISDwoHY2x1c3RlchgBIAEoCRIMCgRyb2xlGAIgASgJEgoKAmlkGAMgASgJIlAKFlByZXZpZXdNYXRjaGVzUmVzcG9uc2USNgoKY29sbGVjdG9ycxgBIAMoCzIiLnNoZXBoZXJkLm1nbXQudjEuTWF0Y2hlZENvbGxlY3RvciIyChRMaXN0UmV2aXNpb25zUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkiWQoVTGlzdFJldmlzaW9uc1Jlc3BvbnNlEjEKBWl0ZW1zGAEgAygLMiIuc2hlcGhlcmQubWdtdC52MS5QaXBlbGluZVJldmlzaW9uEg0KBXRvdGFsGAIgASgFIkIKEkdldFJldmlzaW9uUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkSEAoIcmV2aXNpb24YAyABKAUiWwoWUmVzdG9yZVJldmlzaW9uUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkSEAoIcmV2aXNpb24YAyABKAUSEwoLY2hhbmdlX25vdGUYBCABKAkiTAoXU2V0UGlwZWxpbmVPd25lclJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgoKAmlkGAIgASgJEhUKDW93bmVyX3RlYW1faWQYAyABKAky4AkKD1BpcGVsaW5lU2VydmljZRJiCg1MaXN0UGlwZWxpbmVzEiYuc2hlcGhlcmQubWdtdC52MS5MaXN0UGlwZWxpbmVzUmVxdWVzdBonLnNoZXBoZXJkLm1nbXQudjEuTGlzdFBpcGVsaW5lc1Jlc3BvbnNlIgASUQoLR2V0UGlwZWxpbmUSJC5zaGVwaGVyZC5tZ210LnYxLkdldFBpcGVsaW5lUmVxdWVzdBoaLnNoZXBoZXJkLm1nbXQudjEuUGlwZWxpbmUiABJXCg5DcmVhdGVQaXBlbGluZRInLnNoZXBoZXJkLm1nbXQudjEuQ3JlYXRlUGlwZWxpbmVSZXF1ZXN0Ghouc2hlcGhlcmQubWdtdC52MS5QaXBlbGluZSIAElcKDlVwZGF0ZVBpcGVsaW5lEicuc2hlcGhlcmQubWdtdC52MS5VcGRhdGVQaXBlbGluZVJlcXVlc3QaGi5zaGVwaGVyZC5tZ210LnYxLlBpcGVsaW5lIgASZQoORGVsZXRlUGlwZWxpbmUSJy5zaGVwaGVyZC5tZ210LnYxLkRlbGV0ZVBpcGVsaW5lUmVxdWVzdBooLnNoZXBoZXJkLm1nbXQudjEuRGVsZXRlUGlwZWxpbmVSZXNwb25zZSIAElcKDkVuYWJsZVBpcGVsaW5lEicuc2hlcGhlcmQubWdtdC52MS5FbmFibGVQaXBlbGluZVJlcXVlc3QaGi5zaGVwaGVyZC5tZ210LnYxLlBpcGVsaW5lIgASWQoPRGlzYWJsZVBpcGVsaW5lEiguc2hlcGhlcmQubWdtdC52MS5EaXNhYmxlUGlwZWxpbmVSZXF1ZXN0Ghouc2hlcGhlcmQubWdtdC52MS5QaXBlbGluZSIAEmsKEFZhbGlkYXRlUGlwZWxpbmUSKS5zaGVwaGVyZC5tZ210LnYxLlZhbGlkYXRlUGlwZWxpbmVSZXF1ZXN0Giouc2hlcGhlcmQubWdtdC52MS5WYWxpZGF0ZVBpcGVsaW5lUmVzcG9uc2UiABJlCg5QcmV2aWV3TWF0Y2hlcxInLnNoZXBoZXJkLm1nbXQudjEuUHJldmlld01hdGNoZXNSZXF1ZXN0Giguc2hlcGhlcmQubWdtdC52MS5QcmV2aWV3TWF0Y2hlc1Jlc3BvbnNlIgASYgoNTGlzdFJldmlzaW9ucxImLnNoZXBoZXJkLm1nbXQudjEuTGlzdFJldmlzaW9uc1JlcXVlc3QaJy5zaGVwaGVyZC5tZ210LnYxLkxpc3RSZXZpc2lvbnNSZXNwb25zZSIAElkKC0dldFJldmlzaW9uEiQuc2hlcGhlcmQubWdtdC52MS5HZXRSZXZpc2lvblJlcXVlc3QaIi5zaGVwaGVyZC5tZ210LnYxLlBpcGVsaW5lUmV2aXNpb24iABJZCg9SZXN0b3JlUmV2aXNpb24SKC5zaGVwaGVyZC5tZ210LnYxLlJlc3RvcmVSZXZpc2lvblJlcXVlc3QaGi5zaGVwaGVyZC5tZ210LnYxLlBpcGVsaW5lIgASWwoQU2V0UGlwZWxpbmVPd25lchIpLnNoZXBoZXJkLm1nbXQudjEuU2V0UGlwZWxpbmVPd25lclJlcXVlc3QaGi5zaGVwaGVyZC5tZ210LnYxLlBpcGVsaW5lIgBCJlokc2hlcGhlcmQvZ2VuL3NoZXBoZXJkL21nbXQvdjE7bWdtdHYxYgZwcm90bzM", [file_google_protobuf_struct, file_google_protobuf_timestamp, file_shepherd_mgmt_v1_common]);
 
 /**
  * PipelineRevision mirrors internal/mgmtapi/pipelines.go: revisionResponse.
+ * contents/matchers/enabled/wizard_state (5-8) are populated only by
+ * GetRevision — ListRevisions and Pipeline.revisions stay metadata-only.
  *
  * @generated from message shepherd.mgmt.v1.PipelineRevision
  */
@@ -41,6 +43,26 @@ export type PipelineRevision = Message<"shepherd.mgmt.v1.PipelineRevision"> & {
    * @generated from field: string change_note = 4;
    */
   changeNote: string;
+
+  /**
+   * @generated from field: string contents = 5;
+   */
+  contents: string;
+
+  /**
+   * @generated from field: repeated string matchers = 6;
+   */
+  matchers: string[];
+
+  /**
+   * @generated from field: bool enabled = 7;
+   */
+  enabled: boolean;
+
+  /**
+   * @generated from field: google.protobuf.Struct wizard_state = 8;
+   */
+  wizardState?: JsonObject | undefined;
 };
 
 /**
@@ -618,6 +640,68 @@ export const ListRevisionsResponseSchema: GenMessage<ListRevisionsResponse> = /*
   messageDesc(file_shepherd_mgmt_v1_pipeline, 17);
 
 /**
+ * @generated from message shepherd.mgmt.v1.GetRevisionRequest
+ */
+export type GetRevisionRequest = Message<"shepherd.mgmt.v1.GetRevisionRequest"> & {
+  /**
+   * @generated from field: string org_id = 1;
+   */
+  orgId: string;
+
+  /**
+   * @generated from field: string id = 2;
+   */
+  id: string;
+
+  /**
+   * @generated from field: int32 revision = 3;
+   */
+  revision: number;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.GetRevisionRequest.
+ * Use `create(GetRevisionRequestSchema)` to create a new message.
+ */
+export const GetRevisionRequestSchema: GenMessage<GetRevisionRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_pipeline, 18);
+
+/**
+ * @generated from message shepherd.mgmt.v1.RestoreRevisionRequest
+ */
+export type RestoreRevisionRequest = Message<"shepherd.mgmt.v1.RestoreRevisionRequest"> & {
+  /**
+   * @generated from field: string org_id = 1;
+   */
+  orgId: string;
+
+  /**
+   * @generated from field: string id = 2;
+   */
+  id: string;
+
+  /**
+   * @generated from field: int32 revision = 3;
+   */
+  revision: number;
+
+  /**
+   * change_note, when set, replaces the default "Restored from revision N"
+   * change note on the new revision this creates.
+   *
+   * @generated from field: string change_note = 4;
+   */
+  changeNote: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.RestoreRevisionRequest.
+ * Use `create(RestoreRevisionRequestSchema)` to create a new message.
+ */
+export const RestoreRevisionRequestSchema: GenMessage<RestoreRevisionRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_pipeline, 19);
+
+/**
  * @generated from message shepherd.mgmt.v1.SetPipelineOwnerRequest
  */
 export type SetPipelineOwnerRequest = Message<"shepherd.mgmt.v1.SetPipelineOwnerRequest"> & {
@@ -644,7 +728,7 @@ export type SetPipelineOwnerRequest = Message<"shepherd.mgmt.v1.SetPipelineOwner
  * Use `create(SetPipelineOwnerRequestSchema)` to create a new message.
  */
 export const SetPipelineOwnerRequestSchema: GenMessage<SetPipelineOwnerRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_pipeline, 18);
+  messageDesc(file_shepherd_mgmt_v1_pipeline, 20);
 
 /**
  * PipelineService covers /api/orgs/{org}/pipelines/*. Reads require
@@ -738,6 +822,34 @@ export const PipelineService: GenService<{
     methodKind: "unary";
     input: typeof ListRevisionsRequestSchema;
     output: typeof ListRevisionsResponseSchema;
+  },
+  /**
+   * GetRevision returns one revision in full, including the heavy fields
+   * ListRevisions deliberately omits (contents/matchers/enabled/
+   * wizard_state) — org-reader, same as GetPipeline.
+   *
+   * @generated from rpc shepherd.mgmt.v1.PipelineService.GetRevision
+   */
+  getRevision: {
+    methodKind: "unary";
+    input: typeof GetRevisionRequestSchema;
+    output: typeof PipelineRevisionSchema;
+  },
+  /**
+   * RestoreRevision creates a NEW revision from an old one's
+   * contents/matchers/enabled(/wizard_state) and returns the updated
+   * pipeline. Same authorization as UpdatePipeline (org-editor tier via
+   * authorizeOwnership, requireWriteAuthorized for machine callers) and the
+   * same validation gate (Stage 1-3). Allowed for git-sourced pipelines
+   * (unlike UpdatePipeline) — the next git sync overwrites it; it never
+   * mutates the old revision.
+   *
+   * @generated from rpc shepherd.mgmt.v1.PipelineService.RestoreRevision
+   */
+  restoreRevision: {
+    methodKind: "unary";
+    input: typeof RestoreRevisionRequestSchema;
+    output: typeof PipelineSchema;
   },
   /**
    * SetPipelineOwner reassigns (or, with an empty owner_team_id, clears) a

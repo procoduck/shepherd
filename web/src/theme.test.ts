@@ -53,6 +53,12 @@ const EXPECTED_TOKENS_DARK: Record<string, string> = {
 // all clear 4.5:1 (the AA text floor); the palette mirrors the dark table's
 // token semantics (background is the extreme shade, card the raised
 // surface) rather than being a literal hue-preserving invert.
+// F2 (2026-09-14 walkthrough fixes) adds --color-zinc-100/200/300: these
+// are Tailwind's own tokens, redefined here (not renamed to a project token)
+// because text-zinc-100/200/300 are the deliberately un-tokenized
+// "foreground" shades used raw by <body>/Shell — see RAW_ZINC_ALLOWLIST
+// below. Redefining them in both light blocks is what flips the base
+// foreground (and everything that inherits it) in light mode.
 const EXPECTED_TOKENS_LIGHT: Record<string, string> = {
   '--color-background': '#fafafa',
   '--color-panel': '#f4f4f5',
@@ -63,6 +69,9 @@ const EXPECTED_TOKENS_LIGHT: Record<string, string> = {
   '--color-muted-2': '#52525b',
   '--color-muted-3': '#71717a',
   '--color-accent': '#4f46e5',
+  '--color-zinc-100': '#18181b',
+  '--color-zinc-200': '#27272a',
+  '--color-zinc-300': '#3f3f46',
 };
 
 // Utility-class fragments that resolve to a real Tailwind zinc-scale color
@@ -75,16 +84,21 @@ const EXPECTED_TOKENS_LIGHT: Record<string, string> = {
 const RAW_ZINC_PATTERN =
   /\b(?:bg|text|border|ring|from|to|via|placeholder|divide|outline|shadow|decoration|fill|stroke)-zinc-\d{2,3}(?:\/\d{1,3})?\b/g;
 
-// text-zinc-100/200/300 are deliberately NOT tokenized: they are near-white
-// "full brightness" text used for headings and hover/active emphasis. The
-// design system has no generic foreground/emphasis token by design (see the
-// PHANTOM_CLASS_PATTERN ban on `-foreground` names below — this project
-// never introduced a shadcn-style `text-foreground`), and the app's base
-// text color is set on <body> in index.html (outside this token layer) as
-// `text-zinc-100`, so introducing a differently-named token for the same
-// role here would just fragment one convention into two. Any other raw
-// zinc-* class is a real regression and must be mapped to a token instead
-// of added here.
+// text-zinc-100/200/300 are deliberately NOT tokenized under a new name:
+// they are the "full brightness" foreground text used for headings,
+// hover/active emphasis, and (via inheritance) the base body/Shell text
+// colour. The design system has no generic foreground/emphasis token by
+// design (see the PHANTOM_CLASS_PATTERN ban on `-foreground` names below —
+// this project never introduced a shadcn-style `text-foreground`), and the
+// app's base text color is set on <body> in index.html (outside this token
+// layer) as `text-zinc-100`, so introducing a differently-named token for
+// the same role here would just fragment one convention into two. Instead
+// (F2, 2026-09-14 walkthrough fixes) index.css redefines Tailwind's own
+// --color-zinc-100/200/300 custom properties directly inside both light
+// blocks (html.light and :root:not(.dark) under prefers-color-scheme:
+// light) — see EXPECTED_TOKENS_LIGHT above — so these three utilities are
+// theme-flipped in place without a rename. Any other raw zinc-* class is a
+// real regression and must be mapped to a token instead of added here.
 const RAW_ZINC_ALLOWLIST = new Set(['text-zinc-100', 'text-zinc-200', 'text-zinc-300']);
 
 // Utility-class name fragments that must never appear in src/visual/ because
@@ -163,7 +177,12 @@ describe('design token layer (index.css light overrides)', () => {
   });
 
   describe('html.light (explicit toggle override)', () => {
-    const block = extractBlockAfter(css, 'html.light', 'the html.light override rule');
+    // Anchored at the rule itself (start-of-line 'html.light {'), not a bare
+    // 'html.light' substring: the file's own explanatory comment above this
+    // rule mentions `html.light` in prose first, and css.indexOf would land
+    // there, walk forward to the @media block's opening brace, and silently
+    // check that block twice instead of this one.
+    const block = extractBlockAfter(css, '\nhtml.light {', 'the html.light override rule');
     it.each(Object.entries(EXPECTED_TOKENS_LIGHT))('defines %s as %s', (name, hex) => {
       const re = new RegExp(`${name}\\s*:\\s*${hex}\\b`, 'i');
       expect(block).toMatch(re);

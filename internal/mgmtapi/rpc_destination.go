@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -154,6 +155,20 @@ func (s *DestinationService) GetDestination(ctx context.Context, req *connect.Re
 	return connect.NewResponse(item), nil
 }
 
+// validDestinationTypes mirrors the destinations.type CHECK constraint in
+// 0001_init.up.sql. Validating here turns a wrong type into invalid_argument
+// with the accepted values named, instead of letting the INSERT fail and
+// surfacing as an internal error.
+var validDestinationTypes = []string{"prometheus", "loki", "otlp"}
+
+func validateDestinationType(t string) error {
+	if slices.Contains(validDestinationTypes, t) {
+		return nil
+	}
+	return connect.NewError(connect.CodeInvalidArgument,
+		fmt.Errorf("invalid destination type %q: expected one of %s", t, strings.Join(validDestinationTypes, ", ")))
+}
+
 // CreateDestination creates a destination.
 func (s *DestinationService) CreateDestination(ctx context.Context, req *connect.Request[mgmtv1.CreateDestinationRequest]) (*connect.Response[mgmtv1.Destination], error) {
 	if err := requireWriteAuthorized(ctx); err != nil {
@@ -161,6 +176,9 @@ func (s *DestinationService) CreateDestination(ctx context.Context, req *connect
 	}
 	orgID, err := scanUUID(req.Msg.GetOrgId())
 	if err != nil {
+		return nil, err
+	}
+	if err := validateDestinationType(req.Msg.GetType()); err != nil {
 		return nil, err
 	}
 	extraJSON, err := destinationExtraJSON(req.Msg.GetExtra())
@@ -210,6 +228,9 @@ func (s *DestinationService) UpdateDestination(ctx context.Context, req *connect
 		return nil, err
 	}
 	id := owned.ID
+	if err := validateDestinationType(req.Msg.GetType()); err != nil {
+		return nil, err
+	}
 	extraJSON, err := destinationExtraJSON(req.Msg.GetExtra())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid extra"))

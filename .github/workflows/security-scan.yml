@@ -1,0 +1,270 @@
+name: security-scan
+
+# Supply-chain and configuration scanning that the other workflows do not
+# cover. What each job answers, and why it exists next to govulncheck/CodeQL:
+#
+#   secrets      — gitleaks over the full history, every PR and push. GitHub's
+#                  push protection is the first line; this is the one that
+#                  runs on forks' PRs and on a local `make secrets-scan`.
+#   image-scan   — builds shepherd:local and shepherd-simulator:local exactly
+#                  as `make dev` does and runs Trivy over the RESULT, not the
+#                  source: the distroless base and the bundled Alloy binary are
+#                  not Go modules, so govulncheck never sees them. Two passes:
+#                  a GATE over Shepherd's own binary and the base image
+#                  (critical/high, unfixed excluded, fails the job) and a
+#                  REPORT over the whole image including the vendored Alloy
+#                  binary (uploaded to the Security tab, never fails — an
+#                  upstream Alloy CVE is fixed by bumping ALLOY_IMAGE, which is
+#                  a schema bump, not something a PR can absorb). Reports, like
+#                  the gate, exclude CVEs with no fix available: an alert nobody
+#                  can act on trains everyone to ignore the tab, and a fix that
+#                  appears later surfaces on the next scan by itself.
+#   config-scan  — Trivy misconfiguration checks over deploy/: every
+#                  Dockerfile and the Helm chart as rendered. Fails on
+#                  critical/high; accepted findings live in .trivyignore with
+#                  a reason each.
+#   published    — weekly, the images the LAST RELEASE actually shipped
+#                  (ghcr.io at Chart.yaml's appVersion), same gate/report
+#                  split, so a CVE disclosed after a release is caught
+#                  without waiting for the next one.
+#   scorecard    — OpenSSF Scorecard on main, weekly; results in the
+#                  Security tab and published for the badge.
+#
+# Every Action is SHA-pinned (scripts/repocheck enforces it). Trivy and
+# gitleaks run at the versions pinned in deploy/versions.env so a local
+# `make image-scan` / `make secrets-scan` sees what CI sees.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "27 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-scan-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  IMAGE_REGISTRY: ghcr.io/procoduck
+
+jobs:
+  secrets:
+    name: secrets
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout (full history — gitleaks scans every commit, not just the tree)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        run: |
+          set -euo pipefail
+          . deploy/versions.env
+          docker run --rm -v "$PWD:/repo:ro" "$GITLEAKS_IMAGE" \
+            detect --source /repo --no-banner --redact --exit-code 1
+
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      images: ${{ steps.f.outputs.images }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Classify changed paths
+        id: f
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "images=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          base="${{ github.event.pull_request.base.sha }}"
+          if ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "images=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if git diff --name-only "$base" HEAD | grep -qE '^(deploy/|go\.mod|go\.sum|web/pnpm-lock\.yaml|web/package\.json|\.goreleaser\.yaml|\.trivyignore|\.github/workflows/security-scan\.yml)'; then
+            echo "images=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "images=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  image-scan:
+    name: image-scan
+    needs: changes
+    if: needs.changes.outputs.images == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - name: Build the images the scan is about
+        run: make docker-build-local docker-build-simulator
+      - name: Gate — shepherd:local (own binary + base image; the vendored Alloy binary is reported below, not gated)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: shepherd:local
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          skip-files: usr/local/bin/alloy
+          exit-code: "1"
+      - name: Gate — shepherd-simulator:local
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: shepherd-simulator:local
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          skip-files: usr/local/bin/alloy
+          exit-code: "1"
+      - name: Report — shepherd:local, whole image (SARIF)
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: shepherd:local
+          scanners: vuln
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-shepherd.sarif
+          exit-code: "0"
+      - name: Report — shepherd-simulator:local, whole image (SARIF)
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: shepherd-simulator:local
+          scanners: vuln
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-simulator.sarif
+          exit-code: "0"
+      - name: Upload image results to the Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@c20e34f438d671fc35777cc9820dd7adf8252874 # v3
+        with:
+          sarif_file: trivy-shepherd.sarif
+          category: trivy-image-shepherd
+      - name: Upload simulator image results to the Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@c20e34f438d671fc35777cc9820dd7adf8252874 # v3
+        with:
+          sarif_file: trivy-simulator.sarif
+          category: trivy-image-simulator
+
+  config-scan:
+    name: config-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Trivy misconfiguration gate over deploy/ (Dockerfiles + Helm chart)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: deploy
+          severity: CRITICAL,HIGH
+          trivyignores: .trivyignore
+          exit-code: "1"
+      - name: Trivy misconfiguration report (SARIF)
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: deploy
+          trivyignores: .trivyignore
+          format: sarif
+          output: trivy-config.sarif
+          exit-code: "0"
+      - name: Upload to the Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@c20e34f438d671fc35777cc9820dd7adf8252874 # v3
+        with:
+          sarif_file: trivy-config.sarif
+          category: trivy-config
+
+  published:
+    name: published-images
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Resolve the released app version
+        id: v
+        run: |
+          set -euo pipefail
+          v="$(awk '/^appVersion:/ {gsub(/"/, "", $2); print $2}' deploy/helm/shepherd/Chart.yaml)"
+          test -n "$v"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - name: Gate — released shepherd (own binary + base)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE_REGISTRY }}/shepherd:${{ steps.v.outputs.version }}
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          skip-files: usr/local/bin/alloy
+          exit-code: "1"
+      - name: Report — released shepherd, whole image (SARIF)
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE_REGISTRY }}/shepherd:${{ steps.v.outputs.version }}
+          scanners: vuln
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-published.sarif
+          exit-code: "0"
+      - name: Upload to the Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@c20e34f438d671fc35777cc9820dd7adf8252874 # v3
+        with:
+          sarif_file: trivy-published.sarif
+          category: trivy-published-shepherd
+
+  scorecard:
+    name: scorecard
+    if: github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: OpenSSF Scorecard
+        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+        with:
+          results_file: scorecard.sarif
+          results_format: sarif
+          publish_results: true
+      - name: Upload to the Security tab
+        uses: github/codeql-action/upload-sarif@c20e34f438d671fc35777cc9820dd7adf8252874 # v3
+        with:
+          sarif_file: scorecard.sarif
+          category: scorecard

@@ -1,6 +1,7 @@
 import { SlidersHorizontal } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { L1DiagnosticEx } from '../l1';
+import { currentSchemaVersion } from '../schemaVersion';
 import { selectSelectedNode, useVisualStore } from '../store';
 import type { ComponentDef } from '../types';
 import { CollapsiblePanel } from './CollapsiblePanel';
@@ -65,12 +66,7 @@ export function InspectorPanel() {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [showOptional, setShowOptional] = useState(false);
   const def: ComponentDef | undefined = node && schema?.components[node.component];
-  const schemaVersion = schema?._meta.alloy_version;
-  const currentVersion = schemaVersion
-    ? schemaVersion.startsWith('alloy-')
-      ? schemaVersion
-      : `alloy-${schemaVersion.startsWith('v') ? '' : 'v'}${schemaVersion}`
-    : null;
+  const currentVersion = currentSchemaVersion(schema);
   const upgradeNeeded = currentVersion != null && docSchemaVersion !== currentVersion;
 
   const diagnostics = rawDiagnostics as L1DiagnosticEx[];

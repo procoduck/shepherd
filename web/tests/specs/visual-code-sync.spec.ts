@@ -1,7 +1,8 @@
 // visual-code-sync.spec.ts — 7.6.4
 // Code tab shows the live client-side TS render.
 import { expect } from '@playwright/test';
-import { basicScenario } from '../fixtures/factories';
+import { settledBox } from '../fixtures/canvas';
+import { basicScenario, org } from '../fixtures/factories';
 import { appAdmin } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
 import { test } from '../fixtures/test';
@@ -62,5 +63,144 @@ test.describe('visual code sync', () => {
   test('Verify render button is present in Code tab', async ({ page }) => {
     await page.click('[data-testid="drawer-tab-code"]');
     await expect(page.locator('button:has-text("Verify render")')).toBeVisible({ timeout: 3_000 });
+  });
+});
+
+// F3: Verify render used to read window.__initialMe (never set in
+// production, so this was silently dead) and rendered no outcome at all on
+// a match — the click did something with no visible result. It also used
+// the wrong org when useMe *was* available.
+test.describe('visual code sync — org selection and outcome', () => {
+  const orgA = org({ id: 'org-0001', name: 'prod-org', display_name: 'Production Org' });
+  const orgB = org({ id: 'org-0002', name: 'data-eng', display_name: 'Data Eng' });
+  const twoOrgAdmin = {
+    userOid: 'u-two-org-admin',
+    email: 'twoorg@example.com',
+    displayName: 'Two-Org Admin',
+    isAppAdmin: true,
+    authMethod: 'oidc',
+    orgs: [
+      { id: orgA.id, name: orgA.name, displayName: orgA.display_name, role: 'admin' },
+      { id: orgB.id, name: orgB.name, displayName: orgB.display_name, role: 'admin' },
+    ],
+  };
+
+  test('Verify render reports a match for the selected org', async ({ page, api }) => {
+    await api.loginAs(twoOrgAdmin);
+    await page.addInitScript(() => {
+      window.localStorage.setItem('shepherd.orgId', 'org-0002');
+    });
+    api.seed({ orgs: [orgA, orgB], schema: schemaFixture });
+
+    await page.goto('/pipelines/visual/new');
+    await page.waitForSelector('[data-testid="visual-builder"]', { timeout: 10_000 });
+    await page.waitForSelector('[data-testid="palette-search"]', { timeout: 8_000 });
+    await page.click('[data-testid="drawer-toggle"]');
+    await page.click('[data-testid="drawer-tab-code"]');
+
+    // Capture exactly what the client renders for the current (empty) doc,
+    // then have the mocked server echo it back — this proves the tri-state
+    // outcome logic itself rather than duplicating renderTS's algorithm.
+    const clientContent = await page.locator('[data-testid="code-tab-content"] pre').textContent();
+    api.seed({
+      visualRenderResult: { content: clientContent ?? '', node_map: {}, diagnostics: [] },
+    });
+
+    await page.click('button:has-text("Verify render")');
+
+    await expect(page.getByTestId('verify-render-result')).toHaveText(/matches/, {
+      timeout: 5_000,
+    });
+    const calls = api.calls('VisualService/Render');
+    expect(calls.length).toBeGreaterThan(0);
+    expect((calls[0].body as Record<string, unknown>).orgId).toBe('org-0002');
+  });
+
+  test('editing the graph after a Verify clears the stale outcome', async ({ page, api }) => {
+    // A "Server render matches" (or "differ") banner is a claim about the
+    // CURRENT doc. Leaving it on screen after the user edits the graph makes
+    // it a stale, misleading claim rather than the harmless dead state it
+    // was before F3 — most visibly when it stays green ("matches") for a doc
+    // the user has since changed and never re-verified.
+    await api.loginAs(twoOrgAdmin);
+    await page.addInitScript(() => {
+      window.localStorage.setItem('shepherd.orgId', 'org-0002');
+    });
+    api.seed({ orgs: [orgA, orgB], schema: schemaFixture });
+
+    await page.goto('/pipelines/visual/new');
+    await page.waitForSelector('[data-testid="visual-builder"]', { timeout: 10_000 });
+    await page.waitForSelector('[data-testid="palette-search"]', { timeout: 8_000 });
+    await page.click('[data-testid="drawer-toggle"]');
+    await page.click('[data-testid="drawer-tab-code"]');
+
+    const clientContent = await page.locator('[data-testid="code-tab-content"] pre').textContent();
+    api.seed({
+      visualRenderResult: { content: clientContent ?? '', node_map: {}, diagnostics: [] },
+    });
+
+    await page.click('button:has-text("Verify render")');
+    await expect(page.getByTestId('verify-render-result')).toHaveText(/matches/, {
+      timeout: 5_000,
+    });
+
+    // Edit the doc — place a node, which the mocked server render was never
+    // told about, so the old "matches" outcome no longer reflects reality.
+    await page.click('[data-component="prometheus.scrape"]');
+
+    await expect(page.getByTestId('verify-render-result')).not.toBeVisible({ timeout: 5_000 });
+  });
+
+  // The doc-identity effect this replaced cleared the outcome on ANY doc
+  // change, including view-only mutations renderTS never reads: panning the
+  // canvas (updateViewport, wired to ReactFlow's onMoveEnd) and dragging a
+  // node to a new position both replace `doc` without touching what gets
+  // rendered. A Verify outcome must survive those gestures — only an edit
+  // that actually changes the rendered content should clear it (covered by
+  // 'editing the graph after a Verify clears the stale outcome', above).
+  test('panning the canvas after a Verify does not clear the outcome', async ({ page, api }) => {
+    await api.loginAs(twoOrgAdmin);
+    await page.addInitScript(() => {
+      window.localStorage.setItem('shepherd.orgId', 'org-0002');
+    });
+    api.seed({ orgs: [orgA, orgB], schema: schemaFixture });
+
+    await page.goto('/pipelines/visual/new');
+    await page.waitForSelector('[data-testid="visual-builder"]', { timeout: 10_000 });
+    await page.waitForSelector('[data-testid="palette-search"]', { timeout: 8_000 });
+    await page.click('[data-testid="drawer-toggle"]');
+    await page.click('[data-testid="drawer-tab-code"]');
+
+    const clientContent = await page.locator('[data-testid="code-tab-content"] pre').textContent();
+    api.seed({
+      visualRenderResult: { content: clientContent ?? '', node_map: {}, diagnostics: [] },
+    });
+
+    await page.click('button:has-text("Verify render")');
+    await expect(page.getByTestId('verify-render-result')).toHaveText(/matches/, {
+      timeout: 5_000,
+    });
+
+    // Pan the empty pane 120px — a pure view mutation, no node under the
+    // pointer, nothing renderTS reads.
+    const pane = page.locator('.react-flow__pane');
+    const box = await settledBox(pane);
+    const fx = box.x + box.width / 2;
+    const fy = box.y + box.height / 2;
+    await page.mouse.move(fx, fy);
+    await page.mouse.down();
+    await page.mouse.move(fx + 120, fy, { steps: 10 });
+    await page.mouse.up();
+    // The pane's transform is the observable effect of the pan; waiting on it
+    // replaces a timed pause (wait-budget.spec.ts).
+    await expect
+      .poll(async () =>
+        page.locator('.react-flow__viewport').evaluate((el) => getComputedStyle(el).transform),
+      )
+      .not.toBe('none');
+
+    await expect(page.getByTestId('verify-render-result')).toHaveText(/matches/, {
+      timeout: 5_000,
+    });
   });
 });

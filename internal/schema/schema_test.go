@@ -1123,7 +1123,7 @@ var _ = Describe("Overlay S3 disposition exhaustiveness", func() {
 		}
 		Expect(counts).To(Equal(map[string]int{
 			"discovery_stub":  35,
-			"sim_destination": 14,
+			"sim_destination": 13,
 			// The availability fix moved 19 sim_keep components to
 			// sim_unsupported (108 -> 89): each had an unconditionally required
 			// attribute or block sim_keep did not cover, so rule K's own output
@@ -1132,7 +1132,7 @@ var _ = Describe("Overlay S3 disposition exhaustiveness", func() {
 			// removed. otelcol.exporter.splunkhec moved from sim_destination to
 			// unmappable_destination for the same reason: its splunk.token is
 			// required AND secret, which no keep list can ever satisfy.
-			"sim_keep":          89,
+			"sim_keep":          90,
 			"sim_secret_source": 14,
 			// Twenty-five, not six: the four from the round-2 address review
 			// (prometheus.exporter.blackbox/snmp, whose `targets` is not a
@@ -1368,12 +1368,12 @@ var _ = Describe("Overlay S3 disposition exhaustiveness", func() {
 		for _, n := range byType {
 			total += n
 		}
-		Expect(total).To(Equal(6482), "declared attribute paths in the shipped artifact")
+		Expect(total).To(Equal(6624), "declared attribute paths in the shipped artifact")
 		Expect(byType).To(Equal(map[string]int{
-			"string": 2881, "bool": 1295, "list": 664, "number": 509,
-			"duration": 492, "secret": 338, "map": 242, "capsule": 61,
+			"string": 2916, "bool": 1363, "list": 685, "number": 525,
+			"duration": 496, "secret": 337, "map": 241, "capsule": 61,
 		}))
-		Expect(credentialNamed).To(Equal(716))
+		Expect(credentialNamed).To(Equal(715))
 		Expect(credentialNamedNotSecret).To(Equal(516),
 			"516 of 716 credential-named attribute paths are NOT typed secret; a type-driven sweep misses every one")
 	})

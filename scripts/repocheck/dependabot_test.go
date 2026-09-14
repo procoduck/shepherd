@@ -4,6 +4,9 @@
 package repocheck_test
 
 import (
+	"encoding/json"
+	"strings"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -30,8 +33,11 @@ type dependabotGrp struct {
 }
 
 // Red run, 2026-09-10: .github/dependabot.yml does not exist -- the repo has
-// no automated dependency-update coverage for gomod, npm, github-actions or
-// docker, so every one of them can drift silently between manual bumps.
+// no automated dependency-update coverage for gomod, npm or github-actions,
+// so every one of them can drift silently between manual bumps. Container
+// images are Renovate's (renovate.json, spec below): Dependabot's docker
+// ecosystem cannot read the ARG-driven FROMs this repo uses and never opened
+// a PR in the months it watched deploy/.
 var _ = Describe(".github/dependabot.yml", func() {
 	It("declares weekly grouped updates for every ecosystem the repo ships", func() {
 		var cfg dependabotConfig
@@ -44,7 +50,6 @@ var _ = Describe(".github/dependabot.yml", func() {
 			{"gomod", "/"},
 			{"npm", "/web"},
 			{"github-actions", "/"},
-			{"docker", "/deploy"},
 		}
 
 		got := map[key]dependabotUpdate{}
@@ -73,6 +78,54 @@ var _ = Describe(".github/dependabot.yml", func() {
 			Expect(sawPatch).To(BeTrue(), "%s %s must group patch updates", k.eco, k.dir)
 		}
 
-		Expect(got).To(HaveLen(4), "expected exactly the four ecosystems, got %d entries", len(got))
+		Expect(got).To(HaveLen(3), "expected exactly the three ecosystems (images are Renovate's), got %d entries", len(got))
+	})
+})
+
+// renovate.json owns the container-image pins. The regex manager must keep
+// covering every file that restates an image string (versions.env is the
+// source of truth; the Dockerfile ARG defaults and compose fallbacks restate
+// it and `make check-docker` fails when they drift), and an Alloy TAG bump
+// must stay disabled: it is a schema bump (`make schema`, overlay review),
+// never a pin refresh. Red run: deleting the grafana/alloy package rule, or
+// dropping deploy/versions.env from the file patterns, fails this spec.
+var _ = Describe("renovate.json", func() {
+	It("pins image digests across every file that restates a pin, and never proposes an Alloy tag bump", func() {
+		var cfg struct {
+			Extends        []string `json:"extends"`
+			CustomManagers []struct {
+				CustomType          string   `json:"customType"`
+				ManagerFilePatterns []string `json:"managerFilePatterns"`
+				MatchStrings        []string `json:"matchStrings"`
+				DatasourceTemplate  string   `json:"datasourceTemplate"`
+			} `json:"customManagers"`
+			PackageRules []struct {
+				MatchPackageNames []string `json:"matchPackageNames"`
+				MatchUpdateTypes  []string `json:"matchUpdateTypes"`
+				Enabled           *bool    `json:"enabled"`
+			} `json:"packageRules"`
+		}
+		Expect(json.Unmarshal([]byte(readRepoFile("renovate.json")), &cfg)).To(Succeed())
+		Expect(cfg.Extends).To(ContainElement(":pinDigests"))
+		Expect(cfg.CustomManagers).To(HaveLen(1))
+		m := cfg.CustomManagers[0]
+		Expect(m.CustomType).To(Equal("regex"))
+		Expect(m.DatasourceTemplate).To(Equal("docker"))
+		joined := strings.Join(m.ManagerFilePatterns, "\n")
+		for _, must := range []string{"deploy/versions", "deploy/Dockerfile", "docker-compose", "mockmsft/Dockerfile"} {
+			Expect(joined).To(ContainSubstring(must), "renovate must manage the files that restate an image pin")
+		}
+		Expect(m.MatchStrings[0]).To(ContainSubstring("currentDigest"))
+
+		var alloyFrozen bool
+		for _, r := range cfg.PackageRules {
+			for _, n := range r.MatchPackageNames {
+				if n == "grafana/alloy" && r.Enabled != nil && !*r.Enabled {
+					Expect(r.MatchUpdateTypes).To(ConsistOf("major", "minor", "patch"))
+					alloyFrozen = true
+				}
+			}
+		}
+		Expect(alloyFrozen).To(BeTrue(), "an Alloy tag bump is a schema bump and must not come from Renovate")
 	})
 })

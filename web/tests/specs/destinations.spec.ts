@@ -56,6 +56,31 @@ test('created destination appears in the list', async ({ page, api }) => {
   await expect(page.getByText('new-destination')).toBeVisible();
 });
 
+// The schema admits prometheus, loki and otlp. The third option in the type
+// picker is labelled for Tempo but must submit "otlp"; before this spec it
+// submitted "tempo", which the server refuses.
+test('the traces destination option submits the otlp type the schema admits', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(orgAdmin);
+  const s = basicScenario();
+  api.seed({ orgs: [s.org], destinations: [] });
+  await page.goto('/destinations');
+
+  await page.getByRole('button', { name: /new|create|add destination/i }).click();
+  const dialog = page.getByRole('dialog', { name: 'New destination' });
+  await dialog.getByLabel('Name', { exact: true }).fill('traces');
+  await dialog.locator('select').first().selectOption({ label: 'Tempo (OTLP)' });
+  await dialog.getByLabel('URL', { exact: true }).fill('http://tempo:4318');
+  await dialog.getByRole('button', { name: /create/i }).click();
+
+  await expect(page.getByText('traces')).toBeVisible();
+  const creates = api.calls('DestinationService/CreateDestination');
+  expect(creates).toHaveLength(1);
+  expect((creates[0].body as Record<string, unknown>).type).toBe('otlp');
+});
+
 // /destinations carries no requiredRole (routeManifest.ts) — any
 // authenticated org member reaches it — but write access is gated by
 // useCanAdminister (appAdmin or org role "admin"), so an org admin sees
