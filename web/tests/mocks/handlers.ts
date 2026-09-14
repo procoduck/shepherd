@@ -127,7 +127,22 @@ function pipelineToWire(p: Obj) {
     createdAt: p['created_at'],
     updatedAt: p['updated_at'],
     revisions: arr<Obj>(p, 'revisions').map(pipelineRevisionMetaToWire),
+    wizardState: p['wizard_state'] ?? undefined,
   };
+}
+
+// Mirrors src/visual/schemaVersion.ts's currentSchemaVersion: normalises
+// whatever form _meta.alloy_version was written in ("1.19.2", "v1.19.2",
+// "alloy-v1.19.2") to the form a GraphDocument's schema_version carries.
+// Falls back to 'alloy-v1.18.1' — the version every other mock in this file
+// names — when no schema has been seeded, so ListPipelines?needs_upgrade
+// still behaves without every spec having to seed one.
+function mockCurrentSchemaVersion(st: MockState): string {
+  const raw = (st.schema as { _meta?: { alloy_version?: string } } | undefined)?._meta
+    ?.alloy_version;
+  if (!raw) return 'alloy-v1.18.1';
+  if (raw.startsWith('alloy-')) return raw;
+  return `alloy-${raw.startsWith('v') ? '' : 'v'}${raw}`;
 }
 
 function destinationToWire(d: Obj) {
@@ -948,9 +963,18 @@ export function installDefaultHandlers(router: Router) {
   );
 
   // ── PipelineService ──────────────────────────────────────────────────────
-  router.register('POST', '/shepherd.mgmt.v1.PipelineService/ListPipelines', (r) =>
-    json(r, 200, list((st.pipelines as Obj[]).map(pipelineToWire))),
-  );
+  router.register('POST', '/shepherd.mgmt.v1.PipelineService/ListPipelines', async (r) => {
+    const req = await body(r);
+    const items = req['needsUpgrade']
+      ? (st.pipelines as Obj[]).filter((p) => {
+          if (p['source'] !== 'visual') return false;
+          const version = (p['wizard_state'] as { schema_version?: string } | undefined)
+            ?.schema_version;
+          return !!version && version !== mockCurrentSchemaVersion(st);
+        })
+      : (st.pipelines as Obj[]);
+    return json(r, 200, list(items.map(pipelineToWire)));
+  });
   router.register('POST', '/shepherd.mgmt.v1.PipelineService/CreatePipeline', async (r) => {
     const pBody = (await r.request().postDataJSON()) as Obj;
     const pDenied = requireOrgRole(r, String(pBody.orgId ?? ''), 'editor');
@@ -987,10 +1011,29 @@ export function installDefaultHandlers(router: Router) {
     const req = await body(r);
     const idx = (st.pipelines as Obj[]).findIndex((x) => x['id'] === req['id']);
     if (idx >= 0) {
-      Object.assign(st.pipelines[idx] as Obj, {
+      const p = st.pipelines[idx] as Obj;
+      const me = st.me as { email?: string } | null | undefined;
+      // Mirrors the real server (S3/S6): every save records a new revision
+      // and stamps who made it, the same way RestoreRevision does above —
+      // additive, never mutating an existing revision row.
+      const revisions = arr<Obj>(p, 'revisions');
+      const nextRevision = revisions.reduce((max, x) => Math.max(max, n(x, 'revision')), 0) + 1;
+      revisions.unshift({
+        revision: nextRevision,
+        changed_by: me?.email ?? '',
+        changed_at: '2026-08-17T09:00:00Z',
+        change_note: '',
+        contents: req['contents'],
+        matchers: req['matchers'] ?? [],
+        enabled: b(p, 'enabled'),
+        wizard_state: req['wizardState'],
+      });
+      Object.assign(p, {
         name: req['name'],
         contents: req['contents'],
         matchers: req['matchers'] ?? [],
+        updated_by: me?.email ?? '',
+        revisions,
       });
     }
     return json(r, 200, pipelineToWire((st.pipelines[idx] as Obj) ?? req));

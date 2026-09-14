@@ -30,13 +30,13 @@ export function PipelineEditorPage() {
   const [selectedRevision, setSelectedRevision] = useState<number | null>(null);
   const [confirmingRestore, setConfirmingRestore] = useState(false);
 
-  const { data: pipeline } = useQuery({
+  const { data: pipeline, refetch: refetchPipeline } = useQuery({
     queryKey: ['pipeline', orgId, id],
     queryFn: () => clients.pipeline.getPipeline({ orgId, id: id! }),
     enabled: !!id && !!orgId,
   });
 
-  const { data: revisionsData } = useQuery({
+  const { data: revisionsData, refetch: refetchRevisions } = useQuery({
     queryKey: ['revisions', orgId, id],
     queryFn: () => clients.pipeline.listRevisions({ orgId: pipeline?.orgId ?? orgId, id: id! }),
     enabled: !!id && !!(pipeline?.orgId ?? orgId),
@@ -110,7 +110,21 @@ export function PipelineEditorPage() {
     },
     onSuccess: (p) => {
       toast.success(isNew ? 'Pipeline created' : 'Pipeline saved');
+      // Re-arm the seed guard for THIS pipeline id before the refetches
+      // land, exactly like restoreMutation below — the form already holds
+      // what was just submitted, so a refetch must not overwrite it.
+      seededFor.current = p.id;
       qc.invalidateQueries({ queryKey: ['pipelines', orgId] });
+      if (!isNew) {
+        // Calling each query's own refetch (rather than
+        // qc.invalidateQueries on their keys) so the new revision and
+        // "Updated by" show up right away regardless of which render's
+        // `enabled` these two mutually-dependent queries last computed —
+        // an explicit refetch runs unconditionally, an invalidation only
+        // refetches a query considered active at that exact instant.
+        refetchPipeline();
+        refetchRevisions();
+      }
       if (isNew) navigate({ to: '/pipelines/$id', params: { id: p.id } });
     },
     onError: (e) => {
