@@ -62,6 +62,37 @@ var _ = Describe("SelfMonitoringWizard golden files", func() {
 		_, err := wiz.Commit(map[string]any{})
 		Expect(err).To(HaveOccurred())
 	})
+
+	// S4 (docs/plans/2026-09-14-walkthrough-fixes.md, F7): the runner UI
+	// only seeds a field's Default into wizard state (WizardRunnerPage.tsx),
+	// never its Placeholder — log_path had a Placeholder but no Default, so
+	// a state that left it blank silently dropped the whole log-collection
+	// block even with logs_enabled true and a Loki destination named.
+	It("tails logs at the default path when log_path is blank", func() {
+		result, err := wiz.Commit(map[string]any{
+			"metrics_dest_name": "prom-prod",
+			"logs_enabled":      true,
+			"logs_dest_name":    "loki-prod",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.Role).To(Equal("singleton"))
+		Expect(result.Contents).To(ContainSubstring("loki.source.file"))
+		Expect(result.Contents).To(ContainSubstring("/var/log/alloy/*.log"))
+	})
+
+	It("declares a default log path in the schema", func() {
+		sc := wiz.Schema()
+		var logPathField *wizard.StepField
+		for si := range sc.Steps {
+			for fi := range sc.Steps[si].Fields {
+				if sc.Steps[si].Fields[fi].Name == "log_path" {
+					logPathField = &sc.Steps[si].Fields[fi]
+				}
+			}
+		}
+		Expect(logPathField).NotTo(BeNil(), "expected a log_path field in the schema")
+		Expect(logPathField.Default).To(Equal("/var/log/alloy/*.log"))
+	})
 })
 
 // TestMixedSignalOutputRequiresSingleton is the concrete demonstration this

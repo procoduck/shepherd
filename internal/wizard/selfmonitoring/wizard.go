@@ -75,7 +75,8 @@ func (w *Wizard) Schema() wizard.Schema {
 					{Name: "logs_enabled", Label: "Also tail Alloy's own log output", Type: "toggle", Default: true},
 					{
 						Name: "log_path", Label: "Alloy log file path", Type: "text",
-						Placeholder: "/var/log/alloy/*.log", Description: "Glob pattern for Alloy's own log file(s).",
+						Default: "/var/log/alloy/*.log", Placeholder: "/var/log/alloy/*.log",
+						Description: "Glob pattern for Alloy's own log file(s).",
 					},
 					{
 						Name: "logs_dest_name", Label: "Logs destination (Loki)", Type: "text",
@@ -89,7 +90,9 @@ func (w *Wizard) Schema() wizard.Schema {
 				Fields: []wizard.StepField{
 					{
 						Name: "cluster_pattern", Label: "Cluster pattern (regex)", Type: "text",
-						Placeholder: "prod-.*", Description: "Applies this pipeline to clusters matching the regex.",
+						Placeholder: "prod-.*",
+						Description: "Applies this pipeline to clusters matching the regex. " +
+							`The wizard also adds role="singleton" so only singleton collectors receive this pipeline.`,
 					},
 				},
 			},
@@ -125,7 +128,17 @@ func (w *Wizard) Commit(state map[string]any) (wizard.CommitResult, error) {
 
 	logsDest := get("logs_dest_name")
 	logPath := get("log_path")
-	logsEnabled := getBool("logs_enabled", true) && logsDest != "" && logPath != ""
+	// The runner UI only seeds a field's Default into wizard state
+	// (WizardRunnerPage.tsx), never its Placeholder, so a client that
+	// leaves log_path untouched sends no log_path key at all — get("log_path")
+	// then returns "". Falling back to the schema's own default here (rather
+	// than requiring logPath != "" to enable the block) is what keeps a
+	// blank path from silently dropping log collection for an operator who
+	// toggled it on and named a Loki destination.
+	if logPath == "" {
+		logPath = "/var/log/alloy/*.log"
+	}
+	logsEnabled := getBool("logs_enabled", true) && logsDest != ""
 
 	var sb strings.Builder
 
