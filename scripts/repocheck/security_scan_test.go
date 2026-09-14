@@ -117,7 +117,8 @@ var _ = Describe("security scanning workflows", func() {
 				if !strings.HasPrefix(s.Uses, "aquasecurity/trivy-action@") {
 					continue
 				}
-				ref, _ := s.With["image-ref"].(string)
+				ref, ok := s.With["image-ref"].(string)
+				Expect(ok).To(BeTrue(), "image-ref is a string")
 				Expect(ref).NotTo(ContainSubstring("github.ref_name"), "the git ref is not the image tag")
 				Expect(ref).To(ContainSubstring("steps.version.outputs.version"))
 				Expect(s.With["exit-code"]).To(Equal("0"), "post-publish scans report, never fail the release")
