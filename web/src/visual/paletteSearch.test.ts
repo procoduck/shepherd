@@ -33,6 +33,20 @@ describe('rankPaletteItems', () => {
     expect(ranked[0].name).toBe('prometheus.scrape');
   });
 
+  it('ranks a name-segment match ahead of a mere prefix match', () => {
+    // Regression for a bug where nameSegments() split on `_` as well as `.`,
+    // so a query containing `_` (like `remote_write`) could never equal a
+    // whole segment and this tier never fired. `remote_writer.x` only
+    // *starts with* the query (prefix, tier 2); `prometheus.remote_write`
+    // has `remote_write` as a whole `.`-delimited segment (tier 1) and must
+    // rank first.
+    const ranked = rankPaletteItems('remote_write', [
+      { name: 'remote_writer.x', doc: '' },
+      { name: 'prometheus.remote_write', doc: '' },
+    ]);
+    expect(ranked.map((i) => i.name)).toEqual(['prometheus.remote_write', 'remote_writer.x']);
+  });
+
   it('sorts ties within a tier alphabetically by name', () => {
     const ranked = rankPaletteItems('loki', [
       { name: 'loki.write', doc: '' },

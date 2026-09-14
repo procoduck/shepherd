@@ -93,6 +93,11 @@ test.describe('visual builder toolbar — new pipeline', () => {
     await page.click('[data-testid="drawer-toggle"]');
     const tabText = (await page.locator('[data-testid="drawer-tab-problems"]').textContent()) ?? '';
     expect(tabText.startsWith(`Problems ${chipCount}`)).toBe(true);
+    // Without this, the assertion above passes vacuously the moment the
+    // placed node stops yielding a warning too (chip and tab would already
+    // agree on the error-only count before the F10 fix) — pin down that the
+    // scenario actually exercises a chip/tab disagreement over a warning.
+    expect(tabText).toMatch(/warning/);
   });
 
   // F15: toggling flow check used to change only the canvas's edge

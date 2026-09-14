@@ -114,4 +114,39 @@ test.describe('visual code sync — org selection and outcome', () => {
     expect(calls.length).toBeGreaterThan(0);
     expect((calls[0].body as Record<string, unknown>).orgId).toBe('org-0002');
   });
+
+  test('editing the graph after a Verify clears the stale outcome', async ({ page, api }) => {
+    // A "Server render matches" (or "differ") banner is a claim about the
+    // CURRENT doc. Leaving it on screen after the user edits the graph makes
+    // it a stale, misleading claim rather than the harmless dead state it
+    // was before F3 — most visibly when it stays green ("matches") for a doc
+    // the user has since changed and never re-verified.
+    await api.loginAs(twoOrgAdmin);
+    await page.addInitScript(() => {
+      window.localStorage.setItem('shepherd.orgId', 'org-0002');
+    });
+    api.seed({ orgs: [orgA, orgB], schema: schemaFixture });
+
+    await page.goto('/pipelines/visual/new');
+    await page.waitForSelector('[data-testid="visual-builder"]', { timeout: 10_000 });
+    await page.waitForSelector('[data-testid="palette-search"]', { timeout: 8_000 });
+    await page.click('[data-testid="drawer-toggle"]');
+    await page.click('[data-testid="drawer-tab-code"]');
+
+    const clientContent = await page.locator('[data-testid="code-tab-content"] pre').textContent();
+    api.seed({
+      visualRenderResult: { content: clientContent ?? '', node_map: {}, diagnostics: [] },
+    });
+
+    await page.click('button:has-text("Verify render")');
+    await expect(page.getByTestId('verify-render-result')).toHaveText(/matches/, {
+      timeout: 5_000,
+    });
+
+    // Edit the doc — place a node, which the mocked server render was never
+    // told about, so the old "matches" outcome no longer reflects reality.
+    await page.click('[data-component="prometheus.scrape"]');
+
+    await expect(page.getByTestId('verify-render-result')).not.toBeVisible({ timeout: 5_000 });
+  });
 });

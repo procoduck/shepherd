@@ -34,10 +34,16 @@ export function Palette() {
   const [showAllOverride, setShowAllOverride] = useState(false);
   const clickCountRef = useRef(0);
 
+  // Trimmed once and reused everywhere `search` gates behavior: a
+  // whitespace-only value is truthy but should behave like "no search" (stay
+  // in the selected-node compatibility filter, keep the fixed category
+  // order), not switch into ranked-search mode against an empty query.
+  const trimmedSearch = search.trim();
+
   const selectedNode =
     selected.length === 1 ? doc.nodes.find((n) => n.id === selected[0]) : undefined;
   const selectedDef = selectedNode && schema?.components[selectedNode.component];
-  const filterBySelected = !!selectedDef && !showAllOverride && !search;
+  const filterBySelected = !!selectedDef && !showAllOverride && !trimmedSearch;
 
   useEffect(() => {
     setShowAllOverride(false);
@@ -57,10 +63,10 @@ export function Palette() {
 
   const filtered = useMemo(() => {
     let base = items;
-    if (search) {
+    if (trimmedSearch) {
       // F12: rank, don't just filter — an exact name match must outrank a
       // component that only matched by a substring of its doc text.
-      return rankPaletteItems(search, base);
+      return rankPaletteItems(trimmedSearch, base);
     }
     if (filterBySelected && selectedDef) {
       // D1: compatibility is a ROLE match (one port produces, the other
@@ -80,7 +86,7 @@ export function Palette() {
       });
     }
     return base;
-  }, [items, search, filterBySelected, selectedDef]);
+  }, [items, trimmedSearch, filterBySelected, selectedDef]);
 
   // While searching, a category is worth opening in the order its best hit
   // ranks, not the panel's fixed sources→…→advanced order — otherwise an
@@ -88,11 +94,11 @@ export function Palette() {
   // "Sources". `filtered` is already ranked best-first (rankPaletteItems),
   // so the first appearance of each category IS that category's best rank.
   const categoryOrder = useMemo(() => {
-    if (!search) return CATEGORIES;
+    if (!trimmedSearch) return CATEGORIES;
     const seen: string[] = [];
     for (const c of filtered) if (!seen.includes(c.category)) seen.push(c.category);
     return seen;
-  }, [filtered, search]);
+  }, [filtered, trimmedSearch]);
 
   // Grid the stagger so successive click-placed nodes never overlap (task
   // item 7): a PipelineNode is 240 flow-px wide (`w-60`), and since zoom

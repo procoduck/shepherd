@@ -8,7 +8,7 @@
  * without a `SchemaPayload` fixture and reusable anywhere a searchable list
  * of named, documented items needs ranking.
  *
- * Tiers, best first: exact name match; a `.`/`_`-delimited segment of the
+ * Tiers, best first: exact name match; a `.`-delimited segment of the
  * name equals the query (`remote_write` for `prometheus.remote_write`);
  * name starts with the query; name contains the query; doc text contains
  * the query. Items that match no tier are dropped. Ties within a tier sort
@@ -26,10 +26,7 @@ const TIER_SUBSTRING = 3;
 const TIER_DOC = 4;
 
 function nameSegments(name: string): string[] {
-  return name
-    .toLowerCase()
-    .split(/[^a-z0-9]+/i)
-    .filter(Boolean);
+  return name.toLowerCase().split('.').filter(Boolean);
 }
 
 function tierFor(query: string, item: PaletteSearchItem): number | null {

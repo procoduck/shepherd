@@ -28,6 +28,13 @@ export function BottomDrawer() {
   // harness injects but production never sets, and rendered nothing on a
   // match — silently dead outside the mocked test suite).
   const [serverMismatch, setServerMismatch] = useState<null | 'match' | 'mismatch'>(null);
+  // The outcome is a claim about the doc AS OF THE LAST VERIFY CLICK. Once
+  // the user edits the graph it's stale — most visibly when it's a green
+  // "Server render matches" that no longer matches anything — so clear it
+  // on every doc change and require a fresh Verify click to re-earn it.
+  useEffect(() => {
+    setServerMismatch(null);
+  }, [doc]);
   // W5-10: `renderTS` re-walks the whole graph, and `doc` changes on every
   // store mutation — including one per keystroke anywhere in the inspector,
   // whether or not the Code tab is even the one showing. Rendering from a
