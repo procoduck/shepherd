@@ -1044,8 +1044,17 @@ func (s *PipelineService) RestoreRevision(ctx context.Context, req *connect.Requ
 // --- helpers moved verbatim from PipelinesHandler (pipelines.go) ---
 
 func (s *PipelineService) createRevision(ctx context.Context, p sqlc.Pipeline, note, actor string) error {
-	maxRev, _ := s.store.Queries.GetMaxPipelineRevision(ctx, p.ID) //nolint:errcheck // returns 0 on err, which is the safe default
-	_, err := s.store.Queries.CreatePipelineRevision(ctx, sqlc.CreatePipelineRevisionParams{
+	return createPipelineRevision(ctx, s.store, p, note, actor)
+}
+
+// createPipelineRevision is createRevision's package-level body, callable
+// without a *PipelineService — WizardService.CommitWizard (rpc_wizard.go)
+// uses it directly so a wizard-created pipeline gets the same revision-1
+// "created" row an editor-created one does, through the identical store
+// path (S4: wizard commits skipped this entirely before).
+func createPipelineRevision(ctx context.Context, st *store.Store, p sqlc.Pipeline, note, actor string) error {
+	maxRev, _ := st.Queries.GetMaxPipelineRevision(ctx, p.ID) //nolint:errcheck // returns 0 on err, which is the safe default
+	_, err := st.Queries.CreatePipelineRevision(ctx, sqlc.CreatePipelineRevisionParams{
 		PipelineID: p.ID,
 		Revision:   maxRev + 1,
 		Contents:   p.Contents,

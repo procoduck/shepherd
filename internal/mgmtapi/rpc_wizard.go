@@ -187,6 +187,18 @@ func (s *WizardService) CommitWizard(ctx context.Context, req *connect.Request[m
 		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 	}
 
+	// Same Stage 1/2 gate PipelineService.CreatePipeline runs
+	// (validateSaveInput, rpc_pipeline.go) before it ever writes a row — a
+	// wizard's generated contents were previously never checked outside the
+	// preview-only RenderWizard call, so an unvalidated pipeline (e.g. a
+	// field value that breaks Alloy syntax, like a quote in a scrape URL)
+	// could be committed straight through. The wizard stays disabled-on-create
+	// (Enabled: false below), so Stage 3 is EnablePipeline's job, same as today.
+	wrapped := validate.WrapForValidation(req.Msg.GetName(), result.Contents)
+	if valResult := s.validator.Stages12(ctx, wrapped); !valResult.Valid {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, &pipelineValidationError{Diagnostics: valResult.Diagnostics})
+	}
+
 	stateJSON, err := wizard.MarshalState(state)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -216,6 +228,16 @@ func (s *WizardService) CommitWizard(ctx context.Context, req *connect.Request[m
 		}
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create pipeline"))
 	}
+
+	// Same two side effects PipelineService.CreatePipeline performs after
+	// its insert (rpc_pipeline.go) — a revision-1 "created" row and a
+	// pipeline.create audit row — so a wizard-created pipeline has the same
+	// history and audit trail an editor-created one does. Log-only on
+	// revision failure, matching CreatePipeline's own handling.
+	if revErr := createPipelineRevision(ctx, s.store, p, "created", actor); revErr != nil {
+		s.logger.Error("commit wizard: create revision", "err", revErr, "pipeline_id", p.ID.String())
+	}
+	auditLog(ctx, s.store, actor, orgID, "pipeline.create", "pipeline", p.ID.String())
 
 	return connect.NewResponse(wizardPipelineToProto(p)), nil
 }
