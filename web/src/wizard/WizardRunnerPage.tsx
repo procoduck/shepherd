@@ -1,5 +1,5 @@
 import type { JsonObject } from '@bufbuild/protobuf';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { CheckCircle2, XCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -26,6 +26,24 @@ function slugify(s: string): string {
   );
 }
 
+/** Pulls the quoted value out of a Prometheus-style label matcher, e.g.
+ * `cluster=~"prod-.*"` -> "prod-.*", `role="singleton"` -> "singleton". */
+function matcherValue(matcher: string): string | undefined {
+  return /=~?"([^"]*)"/.exec(matcher)?.[1];
+}
+
+/** A matcher chip is flagged as wizard-added when its quoted value isn't
+ * anything the user typed or picked on the form -- e.g. self-monitoring's
+ * `role="singleton"` appended after the user's own cluster_pattern
+ * (wizard.go:180-184). A value the user *did* enter (job_name feeding a
+ * matcher, or a select they chose) matches one of the form's own string
+ * values and stays unlabelled. */
+function isWizardAddedMatcher(matcher: string, form: WizardFormState): boolean {
+  const value = matcherValue(matcher);
+  if (value === undefined) return false;
+  return !Object.values(form).some((v) => typeof v === 'string' && v === value);
+}
+
 // One page for every wizard. The backend already returns a full schema —
 // steps, fields, types, options — so a wizard needs no bespoke page; it needs
 // this page pointed at its kind. It was written against a hardcoded
@@ -34,6 +52,7 @@ function slugify(s: string): string {
 export function WizardRunnerPage() {
   const orgId = useOrgId();
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const { kind } = useParams({ from: '/shell/content/wizards/$kind' });
   const KIND = kind;
 
@@ -50,6 +69,15 @@ export function WizardRunnerPage() {
     // cycle and the page shows "Loading…" for a kind that does not exist.
     retry: false,
   });
+
+  // Lets a *_dest_name field render as a picker of the org's real
+  // destinations (F11) instead of free text.
+  const { data: destinationsData } = useQuery({
+    queryKey: ['destinations', orgId],
+    queryFn: () => clients.destination.listDestinations({ orgId }),
+    enabled: !!orgId,
+  });
+  const destinations = destinationsData?.items ?? [];
 
   const dataSteps = schema?.steps ?? [];
   const reviewIndex = dataSteps.length;
@@ -100,6 +128,7 @@ export function WizardRunnerPage() {
       clients.wizard.commitWizard({ orgId, kind: KIND, name, state: form as JsonObject }),
     onSuccess: (pipeline) => {
       toast.success('Pipeline created from wizard');
+      qc.invalidateQueries({ queryKey: ['pipelines', orgId] });
       navigate({ to: '/pipelines/$id', params: { id: pipeline.id } });
     },
     onError: (e) => {
@@ -162,6 +191,7 @@ export function WizardRunnerPage() {
                   fields={currentFields}
                   state={form}
                   onChange={(fieldName, value) => setForm((f) => ({ ...f, [fieldName]: value }))}
+                  destinations={destinations}
                 />
               </>
             ) : (
@@ -185,13 +215,20 @@ export function WizardRunnerPage() {
                   <>
                     <div className='space-y-1'>
                       <p className='text-xs font-medium text-muted'>Matchers</p>
-                      <div className='flex flex-wrap gap-1.5'>
+                      <div className='flex flex-wrap items-center gap-1.5'>
                         {(renderQuery.data.matchers ?? []).map((m) => (
-                          <span
-                            key={m}
-                            className='rounded bg-border px-2 py-0.5 font-mono text-xs text-zinc-200'
-                          >
-                            {m}
+                          <span key={m} className='inline-flex items-center gap-1'>
+                            <span className='rounded bg-border px-2 py-0.5 font-mono text-xs text-zinc-200'>
+                              {m}
+                            </span>
+                            {isWizardAddedMatcher(m, form) && (
+                              <span
+                                data-testid='wizard-added-matcher'
+                                className='rounded bg-indigo-950/60 px-1.5 py-0.5 text-2xs text-indigo-300'
+                              >
+                                added by the wizard
+                              </span>
+                            )}
                           </span>
                         ))}
                       </div>
