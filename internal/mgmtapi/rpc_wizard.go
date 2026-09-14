@@ -14,7 +14,6 @@ import (
 
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
-	"shepherd/internal/auth"
 	"shepherd/internal/merge"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
@@ -209,7 +208,7 @@ func (s *WizardService) CommitWizard(ctx context.Context, req *connect.Request[m
 		return nil, connect.NewError(connect.CodeInternal, errors.New("marshal error"))
 	}
 
-	actor := auth.ActorFromCtx(ctx)
+	actor := actorFromCtx(ctx)
 	p, err := s.store.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
 		OrgID:       orgID,
 		Name:        req.Msg.GetName(),
