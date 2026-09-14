@@ -85,9 +85,10 @@ type workflow struct {
 }
 
 type workflowJob struct {
-	Needs any            `yaml:"needs"`
-	If    string         `yaml:"if"`
-	Steps []workflowStep `yaml:"steps"`
+	Needs any               `yaml:"needs"`
+	If    string            `yaml:"if"`
+	Env   map[string]string `yaml:"env"`
+	Steps []workflowStep    `yaml:"steps"`
 }
 
 type workflowStep struct {

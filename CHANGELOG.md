@@ -11,6 +11,17 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
+## Unreleased
+
+### Build & CI
+
+- **The post-publish image scan now scans the images the release pushed.** v0.6.0's
+  `scan-published` job looked for `/shepherd:v0.6.0`: it had no registry of its own and used
+  the git tag as the image tag, while goreleaser tags images with the bare version. The job now
+  carries the same registry fallback as the release job and derives the tag from the ref, and a
+  repocheck guard fails if either regresses. The v0.6.0 images were scanned by hand afterwards
+  through the weekly published-image job.
+
 ## v0.6.0
 
 Chart 0.10.2. No chart template changed since 0.10.1 — the chart moves only

@@ -1,7 +1,7 @@
 # Shepherd — project ledger
 
-> **The single live status document.** Baseline re-verified 2026-09-11 at the v0.5.0 release
-> (`e75234f`, chart 0.10.1) from the CI and release runs on that commit, not from a summary.
+> **The single live status document.** Baseline re-verified 2026-09-14 at the v0.6.0 release
+> (`e4e45b8`, chart 0.10.2) from the CI and release runs on that commit, not from a summary.
 > Completed rounds live in `docs/archive/` — the history this ledger used to carry inline is
 > `docs/archive/completed-2026-09-11.md`. Do not start a second ledger.
 
@@ -24,23 +24,23 @@
 
 ---
 
-## 1. Verified baseline (2026-09-11, v0.5.0)
+## 1. Verified baseline (2026-09-14, v0.6.0)
 
-Every row is a CI or release run on `e75234f` (or the PR that produced it), so the claim is
+Every row is a CI or release run on `e4e45b8` (or the PR that produced it), so the claim is
 checkable by run id rather than by trusting this table.
 
 | Check | Where it ran | Result |
 |---|---|---|
-| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 34615485569 | clean |
+| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 34829976236 (PR #65) | clean |
 | `golangci-lint` + config verify, all ten `make guards`, `helm lint`, `scripts/repocheck` | CI `lint` + `guards` jobs, same run | 0 issues |
 | `go test ./...` with coverage (testcontainers Postgres) | CI `test` job, same run | green |
-| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job (PR #51, run on `1593fcc`) | clean; **566/566** |
-| Mocked Playwright (`make test-ui`) | CI `test-ui` job (PR #51) | **255 tests in 46 files, green** |
-| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 34615485569 | green |
-| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml` on push to main, run 34612982328 (`bec9c35`) | green |
-| Kubernetes e2e, kind (`make e2e-k8s`) | `e2e-k8s.yml` on PR #52, run 34614691090 | green |
-| Sandbox e2e (`make e2e-sim`) | local-only by design (D13); last green 2026-09-11 in the remediation session's wave-3 gate | green |
-| Release: verify job, goreleaser, image attestations, chart OCI push | `release.yml`, run 34615496614 | success — chart 0.10.1 / appVersion 0.5.0 published, images `0.5.0` present, provenance verifies |
+| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job (PR #60, run 34826217159) | clean; **577/577** |
+| Mocked Playwright (`make test-ui`) | CI `test-ui` job (PR #60, same run) | **259 tests in 46 files, green** |
+| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 34829976236 | green |
+| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml` on push to main, run 34829225428 (`7b82428`) | green |
+| Kubernetes e2e, kind (`make e2e-k8s`) | `e2e-k8s.yml` on PR #65, run 34829976482 | green |
+| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job on every PR (not on push), run 34828420060 (PR #62) | green |
+| Release: verify job, goreleaser, image attestations, chart OCI push | `release.yml`, run 34831444506 | success — chart 0.10.2 / appVersion 0.6.0 published, images `0.6.0` present, provenance verifies. The report-only `scan-published` job failed on a wrong image name (fixed in the Unreleased changelog entry); the release itself was unaffected |
 
 ### What demonstrably works end to end
 

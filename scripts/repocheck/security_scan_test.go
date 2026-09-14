@@ -102,5 +102,28 @@ var _ = Describe("security scanning workflows", func() {
 			Expect(w.Jobs).To(HaveKey("scan-published"))
 			Expect(w.Jobs["scan-published"].If).To(ContainSubstring("needs.release.result == 'success'"))
 		})
+
+		// v0.6.0's post-publish scan looked for "/shepherd:v0.6.0": the job had no
+		// IMAGE_REGISTRY of its own and used the git ref as the image tag, but
+		// goreleaser tags images with the bare version. The report scanned nothing.
+		It("scans the published images under the name goreleaser actually pushed", func() {
+			job := w.Jobs["scan-published"]
+			Expect(job.Env["IMAGE_REGISTRY"]).To(ContainSubstring("vars.IMAGE_REGISTRY || 'ghcr.io/procoduck'"),
+				"the scan job needs the same registry fallback as the release job")
+			Expect(joinedRuns(job.Steps)).To(ContainSubstring("GITHUB_REF_NAME#v"),
+				"the image tag is the tag name without its leading v")
+			scans := 0
+			for _, s := range job.Steps {
+				if !strings.HasPrefix(s.Uses, "aquasecurity/trivy-action@") {
+					continue
+				}
+				ref, _ := s.With["image-ref"].(string)
+				Expect(ref).NotTo(ContainSubstring("github.ref_name"), "the git ref is not the image tag")
+				Expect(ref).To(ContainSubstring("steps.version.outputs.version"))
+				Expect(s.With["exit-code"]).To(Equal("0"), "post-publish scans report, never fail the release")
+				scans++
+			}
+			Expect(scans).To(Equal(1))
+		})
 	})
 })
