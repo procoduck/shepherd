@@ -7,6 +7,7 @@ test('Save refreshes the revision list and Updated by', async ({ page, api }) =>
   const s = basicScenario();
   const p = pipeline({
     id: 'pip-refresh',
+    org_id: s.org.id,
     name: 'refresh-me',
     contents: '// v1',
     updated_by: 'first@example.com',
