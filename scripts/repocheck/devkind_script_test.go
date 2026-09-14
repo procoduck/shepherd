@@ -202,6 +202,26 @@ var _ = Describe("scripts/dev-kind.sh", func() {
 			Expect(upSection).To(ContainSubstring(manifest), "up's code path does not reference %s", manifest)
 		}
 	})
+
+	It("find_ngf_service polls for the Service instead of checking once", func() {
+		// The label-selected Service can briefly lag Gateway Programmed=True —
+		// e2e/k8s/route_conformance_test.go's waitProvisionedServiceName
+		// documents exactly this race and retries every 2s for up to
+		// gatewayReadyDeadline rather than checking once. A one-shot check
+		// here (the pre-fix shape) makes a cold `up` die non-deterministically
+		// right after Calico/NGF/CNPG are already installed.
+		//
+		// Red run, 2026-09-15, against the pre-fix one-shot find_ngf_service:
+		//
+		//	find_ngf_service must retry (sleep) instead of checking the
+		//	Service count once: ... to match regular expression \bsleep\b
+		//
+		// (66 Passed | 1 Failed overall).
+		content := readRepoFile(devKindScriptRel)
+		body := funcBody(content, "find_ngf_service")
+		Expect(body).To(MatchRegexp(`\bsleep\b`),
+			"find_ngf_service must retry (sleep) instead of checking the Service count once: %s", body)
+	})
 })
 
 // verbBody returns the body of one of the script's cmd_<verb> functions
@@ -213,6 +233,17 @@ func verbBody(content, verb string) string {
 	re := regexp.MustCompile(`(?s)cmd_` + verb + `\s*\(\)\s*\{(.*?)\n\}`)
 	m := re.FindStringSubmatch(content)
 	Expect(m).NotTo(BeNil(), "could not find cmd_%s() in scripts/dev-kind.sh", verb)
+	return m[1]
+}
+
+// funcBody returns the body of a plain shell function `<name>() { ... }`
+// (anything other than one of the cmd_<verb> functions verbBody handles),
+// for specs that need to assert on one helper's own text in isolation.
+func funcBody(content, name string) string {
+	GinkgoHelper()
+	re := regexp.MustCompile(`(?s)` + regexp.QuoteMeta(name) + `\s*\(\)\s*\{(.*?)\n\}`)
+	m := re.FindStringSubmatch(content)
+	Expect(m).NotTo(BeNil(), "could not find %s() in scripts/dev-kind.sh", name)
 	return m[1]
 }
 

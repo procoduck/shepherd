@@ -117,19 +117,30 @@ ensure_namespace() {
 }
 
 # find_ngf_service returns the single Service NGF provisioned for the `dev`
-# Gateway, found by the label NGF stamps on it — failing loudly (rather than
-# silently picking [0]) if the count is ever not exactly one.
+# Gateway, found by the label NGF stamps on it. The Service can briefly lag
+# Gateway condition=Programmed=True — e2e/k8s/route_conformance_test.go's
+# waitProvisionedServiceName documents and retries the same race — so this
+# polls for up to ~2m rather than sampling once, and only fails loudly
+# (rather than silently picking [0]) once that deadline passes with the
+# count still not exactly one.
 find_ngf_service() {
-	local svc count
-	svc=$(kc -n "$NAMESPACE" get svc -l gateway.networking.k8s.io/gateway-name=dev \
-		-o jsonpath='{.items[*].metadata.name}')
-	count=$(wc -w <<<"$svc" | tr -d '[:space:]')
-	if [ "$count" != "1" ]; then
-		echo "dev-kind.sh: expected exactly one Service labelled" \
-			"gateway.networking.k8s.io/gateway-name=dev in ${NAMESPACE}, found ${count} (${svc:-none})" >&2
-		exit 1
-	fi
-	echo "$svc"
+	local svc count deadline
+	deadline=$((SECONDS + 120))
+	while true; do
+		svc=$(kc -n "$NAMESPACE" get svc -l gateway.networking.k8s.io/gateway-name=dev \
+			-o jsonpath='{.items[*].metadata.name}')
+		count=$(wc -w <<<"$svc" | tr -d '[:space:]')
+		if [ "$count" == "1" ]; then
+			echo "$svc"
+			return 0
+		fi
+		if [ "$SECONDS" -ge "$deadline" ]; then
+			echo "dev-kind.sh: expected exactly one Service labelled" \
+				"gateway.networking.k8s.io/gateway-name=dev in ${NAMESPACE}, found ${count} (${svc:-none})" >&2
+			exit 1
+		fi
+		sleep 2
+	done
 }
 
 # verify_nodeport is the "verify at the consumed layer" check for D3: NGF's
