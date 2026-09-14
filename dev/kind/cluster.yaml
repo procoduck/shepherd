@@ -1,0 +1,36 @@
+# dev/kind/cluster.yaml — topology for the reusable kind dev stack
+# (scripts/dev-kind.sh), the Kubernetes flavour of `make dev`.
+#
+# One control-plane node, not e2e/k8s/testdata/kind-cluster.yaml's three:
+# that file needs a node boundary to prove Calico enforces NetworkPolicy
+# across one (see its own header). The dev stack does not test the CNI, it
+# just needs it real (docs/plans/2026-09-14-kind-dev-stack.md D1) so the
+# simulator's default-deny policy behaves the same as in production — a
+# single node is enough for that and starts faster.
+#
+# disableDefaultCNI + podSubnet: condensed from the e2e file's own comment.
+# kind ships kindnetd by default; the script installs Calico instead
+# (scripts/dev-kind.sh, CALICO_VERSION from deploy/versions.env). The pod
+# subnet is kind's own default, chosen explicitly rather than left to
+# Calico's documented 192.168.0.0/16 guidance, which assumes Docker's usual
+# 172.17.x bridge — on OrbStack (and some Docker setups) the kind network
+# itself lands in 192.168.x, so that pool would contain the NODE IPs and
+# calico-kube-controllers would crash-loop while CoreDNS never reaches
+# Ready. 10.244.0.0/16 does not collide with the 172.x/192.168.x ranges
+# container runtimes use.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  disableDefaultCNI: true
+  podSubnet: "10.244.0.0/16"
+nodes:
+  - role: control-plane
+    # NGF's data-plane Service is pinned to NodePort 30080 (scripts/dev-kind.sh
+    # install_ngf); this maps it to host port 80 so every hostname in the dev
+    # stack is a plain http://*.localtest.me URL. listenAddress 127.0.0.1
+    # keeps the stack off the LAN.
+    extraPortMappings:
+      - containerPort: 30080
+        hostPort: 80
+        listenAddress: "127.0.0.1"
+        protocol: TCP
