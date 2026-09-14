@@ -15,8 +15,8 @@ import {
 import { useCallback, useEffect, useState } from 'react';
 import '@xyflow/react/dist/base.css';
 import { type GraphViewResult, graphView } from '../../api/client';
-import { clients } from '../../api/transport';
 import { Modal } from '../../components/ui/Modal';
+import { useOrg } from '../../hooks/useOrg';
 import { useVisualStore } from '../store';
 import type { PipelineNodeData } from './PipelineNode';
 import { PipelineNode } from './PipelineNode';
@@ -28,6 +28,7 @@ export function GraphViewPage() {
   const navigate = useNavigate();
   const schema = useVisualStore((s) => s.schema);
   const setSchema = useVisualStore((s) => s.setSchema);
+  const { orgId, orgs, setOrgId } = useOrg();
 
   const [graphData, setGraphData] = useState<GraphViewResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -45,26 +46,44 @@ export function GraphViewPage() {
     }
   }, [schema, setSchema]);
 
-  // Load graph view
+  // Load graph view for the selected org. A /graph URL is shareable, so it
+  // may name a pipeline that lives in an org other than the one currently
+  // selected — try the selected org first, then the user's other orgs, and
+  // move the selection to whichever one answers (same fallback
+  // VisualBuilderPage uses for the same reason).
   useEffect(() => {
-    if (!id) return;
-    // Infer org from the first org the actor belongs to.
-    clients.me
-      .getMe({})
-      .then((me) => {
-        const orgId = me.orgs?.[0]?.id;
-        if (!orgId) throw new Error('no org');
-        return graphView(orgId, id);
-      })
-      .then((data) => {
-        setGraphData(data);
+    if (!id || !orgId) return;
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    (async () => {
+      let effectiveOrgId = orgId;
+      let data: GraphViewResult | null = await graphView(orgId, id).catch(() => null);
+      if (!data) {
+        for (const candidate of orgs) {
+          if (candidate.id === orgId) continue;
+          const found = await graphView(candidate.id, id).catch(() => null);
+          if (found) {
+            data = found;
+            effectiveOrgId = candidate.id;
+            break;
+          }
+        }
+      }
+      if (cancelled) return;
+      if (!data) {
+        setError('Graph not found in any organisation you can access.');
         setLoading(false);
-      })
-      .catch((e: Error) => {
-        setError(e.message);
-        setLoading(false);
-      });
-  }, [id]);
+        return;
+      }
+      if (effectiveOrgId !== orgId) setOrgId(effectiveOrgId);
+      setGraphData(data);
+      setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, orgId, orgs, setOrgId]);
 
   const handleRecreate = () => {
     if (!graphData) return;

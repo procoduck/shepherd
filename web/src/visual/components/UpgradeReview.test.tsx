@@ -6,9 +6,10 @@ import { useVisualStore } from '../store';
 import { UpgradeReview } from './UpgradeReview';
 
 // W7-06: UpgradeReview calls upgradeCheck (a Connect RPC, via api/client.ts)
-// and useMe (a react-query hook) directly. Mocking both here — rather than
-// wrapping the tree in a QueryClientProvider and a transport mock — keeps
-// this a plain render test, same reasoning the plan draft gives.
+// and useOrgId (F3: the selected org, not useMe directly) directly. Mocking
+// both here — rather than wrapping the tree in a QueryClientProvider and a
+// transport mock — keeps this a plain render test, same reasoning the plan
+// draft gives.
 const upgradeCheckMock = vi.fn<(orgId: string, doc: unknown) => Promise<UpgradeCheckResult>>();
 
 vi.mock('../../api/client', async (importOriginal) => {
@@ -19,16 +20,14 @@ vi.mock('../../api/client', async (importOriginal) => {
   };
 });
 
-// A stable `data` reference matters here, not just its shape: the real
-// react-query useMe() only produces a new `data` object when the query
-// actually refetches. UpgradeReview's effect depends on `me` directly (see
-// its own comment on why — re-checking only when schema_version/me/open
-// change, not on every doc mutation); a mock that returns a fresh object
-// literal on every call would make that dependency "change" on every
-// render and re-fire upgradeCheck in a loop.
-const MOCK_ME = { orgs: [{ id: 'org-1' }] };
-vi.mock('../../hooks/useMe', () => ({
-  useMe: () => ({ data: MOCK_ME }),
+// A stable return value matters here, not just its shape: UpgradeReview's
+// effect depends on `orgId` directly (see its own comment on why —
+// re-checking only when schema_version/orgId/open change, not on every doc
+// mutation); a mock that returned a fresh value on every call would still be
+// `'org-1' === 'org-1'` (a primitive), so this stays safe without needing
+// the reference-stability care the old useMe mock's comment called out.
+vi.mock('../../hooks/useOrg', () => ({
+  useOrgId: () => 'org-1',
 }));
 
 afterEach(() => {

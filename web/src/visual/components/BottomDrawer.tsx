@@ -7,7 +7,7 @@ import {
   simulateRelabel,
   type TargetTrace,
 } from '../../api/client';
-import { useMe } from '../../hooks/useMe';
+import { useOrgId } from '../../hooks/useOrg';
 import { renderTS } from '../renderTS';
 import { useVisualStore } from '../store';
 import { useDebouncedValue } from '../useDebouncedValue';
@@ -19,11 +19,15 @@ export function BottomDrawer() {
   const schema = useVisualStore((s) => s.schema);
   const selected = useVisualStore((s) => s.selected);
   const setSelected = useVisualStore((s) => s.setSelected);
-  const { data: me } = useMe();
+  const orgId = useOrgId();
   const [simulateTab, setSimulateTab] = useState<'relabel' | 'logs'>('relabel');
   const [relabelResult, setRelabelResult] = useState<{ traces: TargetTrace[] }>();
   const [logsResult, setLogsResult] = useState<{ traces: LineTrace[] }>();
-  const [serverMismatch, setServerMismatch] = useState(false);
+  // Tri-state: null before the first Verify click, then whichever the last
+  // server render reported (F3: this used to read a window-global the test
+  // harness injects but production never sets, and rendered nothing on a
+  // match — silently dead outside the mocked test suite).
+  const [serverMismatch, setServerMismatch] = useState<null | 'match' | 'mismatch'>(null);
   // W5-10: `renderTS` re-walks the whole graph, and `doc` changes on every
   // store mutation — including one per keystroke anywhere in the inspector,
   // whether or not the Code tab is even the one showing. Rendering from a
@@ -52,29 +56,27 @@ export function BottomDrawer() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
   const verify = async () => {
-    const org = (window as unknown as { __initialMe?: { orgs?: Array<{ id: string }> } })
-      .__initialMe?.orgs?.[0]?.id;
-    if (!org || !rendered) return;
-    const server = await renderVisual(org, doc);
-    setServerMismatch(server.content !== rendered.content);
+    if (!orgId || !rendered) return;
+    const server = await renderVisual(orgId, doc);
+    setServerMismatch(server.content === rendered.content ? 'match' : 'mismatch');
   };
   const selectedNode =
     selected.length === 1 ? doc.nodes.find((n) => n.id === selected[0]) : undefined;
   const runRelabel = async () => {
-    if (!me?.orgs[0]?.id) return;
+    if (!orgId) return;
     const rules =
       selectedNode && Array.isArray(selectedNode.props.rules) ? selectedNode.props.rules : [];
-    setRelabelResult(await simulateRelabel(me.orgs[0].id, { rules, sample_targets: [] }));
+    setRelabelResult(await simulateRelabel(orgId, { rules, sample_targets: [] }));
   };
   const runLogs = async () => {
-    if (!me?.orgs[0]?.id) return;
+    if (!orgId) return;
     const stages =
       selectedNode && Array.isArray(selectedNode.props.stage)
         ? selectedNode.props.stage
         : selectedNode && Array.isArray(selectedNode.props.stages)
           ? selectedNode.props.stages
           : [];
-    setLogsResult(await simulateLogs(me.orgs[0].id, { stages, sample_lines: [] }));
+    setLogsResult(await simulateLogs(orgId, { stages, sample_lines: [] }));
   };
   const labels = (value: Record<string, string> | undefined) => JSON.stringify(value ?? {});
   const relabelPanel =
@@ -167,6 +169,11 @@ export function BottomDrawer() {
     ) : (
       <p className='text-xs text-muted'>Select a loki.process node to trace</p>
     );
+  // F10: this used to show diagnostics.length (errors + warnings) while the
+  // toolbar's chip counted only blocking `error`s — the two disagreed
+  // whenever a graph had any warning. Both now count the same thing.
+  const errorCount = diagnostics.filter((d) => d.severity === 'error').length;
+  const warningCount = diagnostics.length - errorCount;
   return (
     <div
       className={`bg-panel border-t border-border flex flex-col shrink-0 ${open ? 'h-64' : 'h-8'}`}
@@ -176,9 +183,10 @@ export function BottomDrawer() {
         <button
           data-testid='drawer-tab-problems'
           onClick={() => selectTab('problems')}
-          className={`font-medium ${diagnostics.length ? 'text-red-400' : 'text-emerald-400'}`}
+          className={`font-medium ${errorCount ? 'text-red-400' : 'text-emerald-400'}`}
         >
-          Problems {diagnostics.length}
+          Problems {errorCount}
+          {warningCount > 0 && ` · ${warningCount} warning${warningCount !== 1 ? 's' : ''}`}
         </button>
         <button
           data-testid='drawer-tab-code'
@@ -227,7 +235,14 @@ export function BottomDrawer() {
                 Verify render
               </button>
               {serverMismatch && (
-                <div className='text-xs text-red-500'>Server and client render differ.</div>
+                <div
+                  data-testid='verify-render-result'
+                  className={`text-xs ${serverMismatch === 'mismatch' ? 'text-red-500' : 'text-emerald-500'}`}
+                >
+                  {serverMismatch === 'mismatch'
+                    ? 'Server and client render differ'
+                    : 'Server render matches'}
+                </div>
               )}
               <pre className='font-mono text-xs whitespace-pre-wrap'>{rendered?.content ?? ''}</pre>
             </div>

@@ -1,6 +1,7 @@
 import { Boxes } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { canConnectPorts, resolvePorts } from '../l1';
+import { rankPaletteItems } from '../paletteSearch';
 import { useVisualStore } from '../store';
 import { CollapsiblePanel } from './CollapsiblePanel';
 
@@ -44,19 +45,24 @@ export function Palette() {
 
   const items = useMemo(() => {
     if (!schema) return [];
-    return Object.entries(schema.components)
-      .filter(([, def]) => allowExperimental || def.stability !== 'experimental')
-      .map(([name, def]) => ({ name, def, category: def.category ?? 'advanced' }));
+    return (
+      Object.entries(schema.components)
+        .filter(([, def]) => allowExperimental || def.stability !== 'experimental')
+        // `doc` is hoisted to the top level (duplicating def.doc) so
+        // rankPaletteItems — schema-agnostic, reads only name/doc — can rank
+        // these without knowing about ComponentDef.
+        .map(([name, def]) => ({ name, def, doc: def.doc, category: def.category ?? 'advanced' }))
+    );
   }, [schema, allowExperimental]);
 
   const filtered = useMemo(() => {
     let base = items;
     if (search) {
-      const q = search.toLowerCase();
-      base = base.filter(
-        (c) => c.name.toLowerCase().includes(q) || c.def.doc?.toLowerCase().includes(q),
-      );
-    } else if (filterBySelected && selectedDef) {
+      // F12: rank, don't just filter — an exact name match must outrank a
+      // component that only matched by a substring of its doc text.
+      return rankPaletteItems(search, base);
+    }
+    if (filterBySelected && selectedDef) {
       // D1: compatibility is a ROLE match (one port produces, the other
       // accepts), not a raw input/output match — a receiver-kind export
       // (e.g. prometheus.remote_write.receiver) accepts, and the argument
@@ -75,6 +81,18 @@ export function Palette() {
     }
     return base;
   }, [items, search, filterBySelected, selectedDef]);
+
+  // While searching, a category is worth opening in the order its best hit
+  // ranks, not the panel's fixed sources→…→advanced order — otherwise an
+  // exact match buried in "Advanced" still renders below a fuzzy match in
+  // "Sources". `filtered` is already ranked best-first (rankPaletteItems),
+  // so the first appearance of each category IS that category's best rank.
+  const categoryOrder = useMemo(() => {
+    if (!search) return CATEGORIES;
+    const seen: string[] = [];
+    for (const c of filtered) if (!seen.includes(c.category)) seen.push(c.category);
+    return seen;
+  }, [filtered, search]);
 
   // Grid the stagger so successive click-placed nodes never overlap (task
   // item 7): a PipelineNode is 240 flow-px wide (`w-60`), and since zoom
@@ -124,13 +142,13 @@ export function Palette() {
           />
         </div>
         {filterBySelected && selectedNode && (
-          <div className='px-3 py-1.5 bg-indigo-950/50 border-b border-border flex items-center justify-between gap-2 text-xs'>
-            <span className='text-indigo-300 truncate'>
+          <div className='px-3 py-1.5 bg-accent/10 border-b border-border flex items-center justify-between gap-2 text-xs'>
+            <span className='text-accent truncate'>
               Compatible with <span className='font-mono'>{selectedNode.component}</span>
             </span>
             <button
               onClick={() => setShowAllOverride(true)}
-              className='text-indigo-400 hover:text-white shrink-0'
+              className='text-accent hover:text-zinc-100 shrink-0'
               aria-label='Show all components'
             >
               ✕
@@ -138,7 +156,7 @@ export function Palette() {
           </div>
         )}
         <div className='flex-1 overflow-y-auto'>
-          {CATEGORIES.map((cat) => {
+          {categoryOrder.map((cat) => {
             const catItems = filtered.filter((c) => c.category === cat);
             if (catItems.length === 0) return null;
             return (

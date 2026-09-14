@@ -1,0 +1,53 @@
+import { describe, expect, it } from 'vitest';
+import { rankPaletteItems } from './paletteSearch';
+
+// F12: Palette.tsx used to filter with `includes()` and keep schema object
+// order, so a fuzzy doc-text match could out-rank the component whose name
+// the query names exactly. These two items mirror the real shipped schema
+// (internal/schema/artifacts/overlay.json): `prometheus.receive_http`'s doc
+// is "Receives Prometheus metrics via HTTP remote_write." (a fuzzy, doc-only
+// match on the query below) while `prometheus.remote_write` matches by name.
+const receiveHttp = {
+  name: 'prometheus.receive_http',
+  doc: 'Receives Prometheus metrics via HTTP remote_write.',
+};
+const remoteWrite = {
+  name: 'prometheus.remote_write',
+  doc: 'Sends metrics to a Prometheus remote_write endpoint.',
+};
+
+describe('rankPaletteItems', () => {
+  it('ranks a name-segment match above a doc-only fuzzy match', () => {
+    const ranked = rankPaletteItems('remote_write', [receiveHttp, remoteWrite]);
+    expect(ranked.map((i) => i.name)).toEqual([
+      'prometheus.remote_write',
+      'prometheus.receive_http',
+    ]);
+  });
+
+  it('ranks an exact name match first, ahead of a segment or prefix match', () => {
+    const ranked = rankPaletteItems('prometheus.scrape', [
+      { name: 'prometheus.scrape.something', doc: '' },
+      { name: 'prometheus.scrape', doc: '' },
+    ]);
+    expect(ranked[0].name).toBe('prometheus.scrape');
+  });
+
+  it('sorts ties within a tier alphabetically by name', () => {
+    const ranked = rankPaletteItems('loki', [
+      { name: 'loki.write', doc: '' },
+      { name: 'loki.process', doc: '' },
+    ]);
+    expect(ranked.map((i) => i.name)).toEqual(['loki.process', 'loki.write']);
+  });
+
+  it('drops items that match neither name nor doc', () => {
+    const ranked = rankPaletteItems('remote_write', [{ name: 'discovery.kubernetes', doc: '' }]);
+    expect(ranked).toEqual([]);
+  });
+
+  it('returns items unchanged for an empty query', () => {
+    const items = [receiveHttp, remoteWrite];
+    expect(rankPaletteItems('', items)).toBe(items);
+  });
+});
