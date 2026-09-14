@@ -1,0 +1,26 @@
+# The one Gateway the whole dev stack routes through (docs/plans/2026-09-14-kind-dev-stack.md
+# §1, D3). NGF (release `ngf`, GatewayClass `nginx`) provisions a per-Gateway nginx Deployment +
+# Service in THIS namespace for every Gateway object it manages — there is no separate NGF
+# "ingress" Service to point at. scripts/dev-kind.sh pins that Service's NodePort to 30080 via
+# the NGF chart values (`nginx.service.nodePorts[0]`, port 80 -> nodePort 30080), and kind's
+# cluster config maps hostPort 80 -> that NodePort. The single CoreDNS rewrite the script installs
+# (`*.localtest.me` -> this Gateway's data-plane Service) is what makes a pod and the host browser
+# resolve every *.localtest.me hostname to the same place on the same port, so the mock OIDC
+# issuer string a pod computes from its request Host matches the one a browser computes.
+#
+# HTTPRoutes attach here by `parentRefs: [{name: dev}]`: the chart's own `shepherd` route (K3,
+# dev/kind/values.yaml `route.parentRefs`) and the two hand-written ones in routes.yaml.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: dev
+  namespace: shepherd-dev
+spec:
+  gatewayClassName: nginx
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same

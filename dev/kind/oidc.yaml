@@ -1,0 +1,72 @@
+# Mock OIDC provider (navikt mock-oauth2-server) for the OIDC login walk (docs/plans/
+# 2026-09-14-kind-dev-stack.md §1, D2, C7). The image tag is a deliberate pin kept HERE, not in
+# deploy/versions.env: it is a dev-only fixture, not part of the production image set, and a bump
+# should not bill e2e-k8s (see the versions.env decision, D2). It must track
+# dev/docker-compose.dev.yaml's `services.oidc` exactly -- same image, same JSON_CONFIG -- so the
+# Kubernetes flavour of `make dev` exercises the identical mock as the compose one.
+#
+# The server derives its issuer string from the inbound request's Host header, which is why the
+# single CoreDNS rewrite in gateway.yaml's header comment matters: a pod and the host browser must
+# both reach this Service through oidc.localtest.me on port 80 to compute the same issuer
+# (http://oidc.localtest.me/default, dev/kind/values.yaml's `config.oidc.issuer`).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oidc
+  namespace: shepherd-dev
+  labels:
+    app: oidc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oidc
+  template:
+    metadata:
+      labels:
+        app: oidc
+    spec:
+      # No runAsNonRoot here: this dev-only fixture is not verified to run as a non-root user by
+      # default, and a wrong guess would fail the pod's startup live where nothing here can catch
+      # it (C9 -- hygiene, not a gate). allowPrivilegeEscalation/capabilities below are safe
+      # regardless of which user the image runs as.
+      containers:
+        - name: oidc
+          image: ghcr.io/navikt/mock-oauth2-server:6.0.1
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: 8090
+          env:
+            - name: SERVER_PORT
+              value: "8090"
+            # Verbatim copy of dev/docker-compose.dev.yaml's services.oidc.environment.JSON_CONFIG.
+            - name: JSON_CONFIG
+              value: |
+                {
+                  "interactiveLogin": true,
+                  "httpServer": "NettyWrapper",
+                  "tokenCallbacks": []
+                }
+          readinessProbe:
+            httpGet:
+              path: /default/.well-known/openid-configuration
+              port: 8090
+            initialDelaySeconds: 2
+            periodSeconds: 2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oidc
+  namespace: shepherd-dev
+spec:
+  selector:
+    app: oidc
+  ports:
+    - name: http
+      port: 8090
+      targetPort: 8090
