@@ -26,4 +26,7 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /shepherd ./cmd/shepherd
 
 FROM ${GO_IMAGE}
 COPY --from=builder /shepherd /usr/local/bin/shepherd
+# Not root: the init image only runs `migrate` and `dev seed` against Postgres over
+# the network; nothing it does needs to write to its own filesystem (Trivy DS-0002).
+USER nobody:nobody
 ENTRYPOINT ["/usr/local/bin/shepherd"]

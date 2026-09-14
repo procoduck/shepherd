@@ -13,6 +13,20 @@ Categories used here:
 
 ## Unreleased
 
+### Build & CI
+
+- **Security scanning that covers what govulncheck cannot.** A `security-scan` workflow runs
+  gitleaks over the full history on every PR, Trivy over the built `shepherd` and
+  `shepherd-simulator` images (a gate on Shepherd's own binary and the distroless base, a
+  report on the bundled Alloy binary) and Trivy misconfiguration checks over every Dockerfile and
+  the rendered chart, with a weekly scan of the last released images and OpenSSF Scorecard.
+  `release.yml` runs the image gate before anything is published and reports on the published
+  images afterwards. `make secrets-scan` / `image-scan` / `config-scan` run the same pinned
+  scanners locally. The init image (`deploy/Dockerfile.init`) no longer runs as root. On GitHub:
+  CodeQL moves to the security-extended suite, and `main` now requires the CI checks for
+  everyone, admins included.
+
+
 ### Pipelines — Shipped
 
 - **Revision contents on the API.** `PipelineRevision` gains `contents`,

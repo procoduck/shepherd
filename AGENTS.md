@@ -22,6 +22,7 @@ React 19 / TypeScript 7 / Vite 8 SPA embedded via go:embed, PostgreSQL 16. Spec:
 - Codegen after proto/SQL changes: `make generate` · visual-builder test corpus: `make generate-corpus`
 - Tool bootstrap: `make tools` (ginkgo, sqlc, buf, protoc-gen-go, protoc-gen-connect-go, govulncheck; `protoc-gen-es` comes from `web/node_modules`, so `make generate` also needs a `pnpm install` in `web/`) · cleanup: `make clean` / `make clean-docker`
 - Schema artifact drift check: `make schema-verify` · container smoke test: `make smoke` · supply-chain scan: `make vulncheck` · coverage: `make test-cover`
+- Security scanners (same pinned images CI uses, `deploy/versions.env`): `make secrets-scan` (gitleaks, full history) · `make image-scan` (Trivy over the two local images; the gate excludes the vendored Alloy binary, the report includes it) · `make config-scan` (Trivy misconfig over `deploy/`; accepted findings in `.trivyignore` with a reason each). CI: `security-scan.yml` runs them on every PR/push plus a weekly scan of the last released images and OpenSSF Scorecard; `release.yml`'s verify job runs the image gate before anything is published
 - Docs site (generated, do not hand-edit `site/docs/`): edit `scripts/docs-content/`, then `make docs` to regenerate — `make check-docs-drift` (part of `make lint`) fails if the committed `site/docs/` disagrees with the generator, `make check-docs-version` fails if the docs' quoted chart/app version disagrees with `deploy/helm/shepherd/Chart.yaml`
 - Release dry-run: `make release-snapshot`. Real releases: bump `deploy/helm/shepherd/Chart.yaml` (`version` is the chart's, `appVersion` is Shepherd's — the tag must equal `appVersion`), update the docs pins (`make check-docs-version` lists them; `site/index.html`'s eyebrow and pill are hand-edited), add the `CHANGELOG.md` entry, rebuild `internal/spa/dist` via `scripts/build-web.sh`, `make docs`, merge, then push an annotated `v*` tag — `release.yml`'s verify job refuses an appVersion/tag mismatch or an already-published chart version, and publishes the chart to `oci://ghcr.io/procoduck/charts/shepherd`
 
@@ -87,6 +88,8 @@ Replace the examples below with your internal registry prefix if needed.
 | `ghcr.io/navikt/mock-oauth2-server:6.0.1` | compose files — NOT versions.env |
 | `gitea/gitea:1-rootless` | compose files (e2e + dev) — NOT versions.env |
 | `alpine:3.22` | `e2e/docker-compose.e2e.yaml` (probe helper) — NOT versions.env |
+| `ghcr.io/gitleaks/gitleaks:v8.30.0` (by digest) | `deploy/versions.env` (GITLEAKS_IMAGE) — `make secrets-scan`, `security-scan.yml` |
+| `aquasec/trivy:0.74.0` (by digest) | `deploy/versions.env` (TRIVY_IMAGE) — `make image-scan` / `make config-scan`; the workflows use `aquasecurity/trivy-action` SHA-pinned instead |
 
 `deploy/versions.env` is the source of truth for the rows that name it; the rest are
 hardcoded where the table says. Update pins there first.

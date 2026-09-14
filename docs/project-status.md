@@ -178,6 +178,14 @@ Open, in rough priority order:
       visual pipeline from the text editor still restores the graph (`wizard_state` travels with
       the revision) for revisions written after migration 0019 — older rows carry no graph, so
       restoring one restores text only — only the *diff view* is text-only.
+- [ ] **Bump Alloy for the 15 high CVEs in the bundled binary.** Trivy (2026-09-14) finds 15
+      HIGH, unfixed-excluded CVEs in `ghcr.io/procoduck/shepherd:0.5.0` and the simulator image —
+      every one inside `/usr/local/bin/alloy` (Alloy v1.18.1, built upstream with Go 1.26.5: 8 in
+      the Go stdlib, plus x/mod, grpc, thrift, go-git, x/crypto). None is in Shepherd's own
+      binary, which is why the release gate excludes that path. Closes with the next Alloy
+      release that rebuilds on a patched Go — an `ALLOY_IMAGE` bump, i.e. a schema bump
+      (`make schema`, overlay review). Until then the weekly `published-images` scan keeps
+      reporting them to the Security tab.
 - [ ] **Typed `Role`/`Source` enums.** `internal/auth`'s role constants (`RoleOrgAdmin` etc.,
       `internal/auth/authz.go`) and `pipelines.source` are plain `string`-typed constants, not a
       distinct Go type — the `exhaustive` linter cannot check a switch over either for
@@ -240,8 +248,12 @@ logout; horizontal-scale coordination beyond stateless replicas + Postgres.
   repocheck), `generated-drift`, `test` (`make test-cover`, coverage artifact), `web`, `test-ui`,
   `test-fullstack` (incl. `make smoke`). `e2e.yml` runs on push to main, path-filtered.
   `e2e-k8s.yml` weekly and on qualifying PRs. Scheduled: `schema-verify` and `govulncheck` weekly.
-  `release.yml` on `v*` tags: verify job, goreleaser, provenance attestations, chart OCI push
-  (refuses an appVersion/tag mismatch and an already-published chart version).
+  `release.yml` on `v*` tags: verify job (incl. the Trivy image gate), goreleaser, provenance
+  attestations, chart OCI push (refuses an appVersion/tag mismatch and an already-published
+  chart version), then a report-only scan of the published images. `security-scan.yml` on every
+  PR/push: gitleaks over the full history, Trivy over the two built images (gate on Shepherd's
+  binary + base, report on the vendored Alloy binary) and Trivy misconfig over `deploy/`; weekly:
+  the last released images and OpenSSF Scorecard. `main` requires the CI checks for everyone.
 - **The repository is public, so standard-runner Actions minutes are not billed; GitHub still
   runs every job separately**, so a slow, noisy CI costs signal even when it costs no money.
   Three controls keep it in range — `paths-ignore` so a docs-only change never starts CI, the
