@@ -49,6 +49,26 @@ test('collector labels persist through agent polling and group inventory without
     await page.getByRole('button', { name: 'Manage labels' }).click();
     await expect(page.getByRole('region', { name: 'Collector labels' })).toContainText('payments');
     await expect(page.getByRole('region', { name: 'Alloy attributes' })).toContainText('prod-eu-1');
+    await page.getByLabel('Key', { exact: true }).fill(key.toUpperCase());
+    await page.getByLabel('Value', { exact: true }).fill('replacement');
+    await page.getByRole('button', { name: 'Add label', exact: true }).click();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(page.getByRole('region', { name: 'Collector labels' })).toContainText('payments');
+    await page.getByRole('button', { name: 'Add label', exact: true }).click();
+    await page.getByRole('button', { name: 'Replace label', exact: true }).click();
+    await expect(page.getByRole('region', { name: 'Collector labels' })).toContainText(
+      'replacement',
+    );
+    await page.getByRole('button', { name: `Edit label ${key}` }).click();
+    await page.getByLabel('Value', { exact: true }).fill('\u00e9'.repeat(257));
+    await expect(page.getByRole('button', { name: 'Save label', exact: true })).toBeDisabled();
+    await page.getByLabel('Value', { exact: true }).fill('\u00e9'.repeat(256));
+    await page.getByRole('button', { name: 'Save label', exact: true }).click();
+    await page.reload();
+    await page.getByRole('button', { name: 'Manage labels' }).click();
+    await expect(page.getByRole('region', { name: 'Collector labels' })).toContainText(
+      '\u00e9'.repeat(256),
+    );
     await page.getByRole('button', { name: `Edit label ${key}` }).click();
     await page.getByLabel('Value', { exact: true }).fill('platform');
     await page.getByRole('button', { name: 'Save label', exact: true }).click();
@@ -65,6 +85,10 @@ test('collector labels persist through agent polling and group inventory without
     await page.goto(`/collectors/${collector.id}`);
     await page.getByRole('button', { name: 'Manage labels' }).click();
     await page.getByRole('button', { name: `Delete label ${key}` }).click();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(page.getByRole('button', { name: `Edit label ${key}` })).toBeVisible();
+    await page.getByRole('button', { name: `Delete label ${key}` }).click();
+    await page.getByRole('button', { name: 'Delete label', exact: true }).click();
     await expect(page.getByRole('button', { name: `Edit label ${key}` })).toHaveCount(0);
   } finally {
     const cleanup = await page.request.post('/shepherd.mgmt.v1.FleetService/DeleteCollectorLabel', {

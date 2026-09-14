@@ -32,7 +32,68 @@ test('labels persist across navigation and support editing, grouping and deletio
   await page.goto(`/collectors/${s.collectors[0].id}`);
   await page.getByRole('button', { name: 'Attributes & Labels' }).click();
   await page.getByRole('button', { name: 'Delete label environment' }).click();
+  await page.getByRole('button', { name: 'Delete label', exact: true }).click();
   await expect(page.getByText('No labels', { exact: true })).toBeVisible();
+});
+
+test('duplicate normalized keys and deletion require confirmation', async ({ page, api }) => {
+  await api.loginAs(orgAdmin);
+  const s = basicScenario();
+  s.collectors[0].labels = { team: 'payments' };
+  api.seed({ orgs: [s.org], collectors: s.collectors });
+  await page.goto(`/collectors/${s.collectors[0].id}`);
+  await page.getByRole('button', { name: 'Manage labels' }).click();
+  await page.getByLabel('Key', { exact: true }).fill(' TEAM ');
+  await page.getByLabel('Value', { exact: true }).fill('platform');
+  await page.getByRole('button', { name: 'Add label', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  const labels = page.getByRole('region', { name: 'Collector labels' });
+  await expect(labels).toContainText('payments');
+  await page.reload();
+  await page.getByRole('button', { name: 'Manage labels' }).click();
+  await expect(labels).toContainText('payments');
+  await page.getByLabel('Key', { exact: true }).fill('TEAM');
+  await page.getByLabel('Value', { exact: true }).fill('platform');
+  await page.getByRole('button', { name: 'Add label', exact: true }).click();
+  await page.getByRole('button', { name: 'Replace label', exact: true }).click();
+  await expect(labels).toContainText('platform');
+  await page.getByRole('button', { name: 'Delete label team' }).click();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(labels).toContainText('platform');
+  await page.getByRole('button', { name: 'Delete label team' }).click();
+  await page.getByRole('button', { name: 'Delete label', exact: true }).click();
+  await expect(page.getByText('No labels', { exact: true })).toBeVisible();
+});
+
+test('label validation enforces UTF-8 bytes and rejects invisible characters', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(orgAdmin);
+  const s = basicScenario();
+  api.seed({ orgs: [s.org], collectors: s.collectors });
+  await page.goto(`/collectors/${s.collectors[0].id}`);
+  await page.getByRole('button', { name: 'Manage labels' }).click();
+  const key = page.getByLabel('Key', { exact: true });
+  const value = page.getByLabel('Value', { exact: true });
+  const add = page.getByRole('button', { name: 'Add label', exact: true });
+  await key.fill('team');
+  await value.fill('\u00e9'.repeat(257));
+  await expect(page.getByRole('alert')).toContainText('514 bytes');
+  await expect(add).toBeDisabled();
+  await value.fill('hidden\u200bvalue');
+  await expect(add).toBeDisabled();
+  await value.fill('\u00e9'.repeat(256));
+  await key.fill('bad key');
+  await expect(add).toBeDisabled();
+  await key.fill('team');
+  await expect(add).toBeEnabled();
+  await add.click();
+  await page.reload();
+  await page.getByRole('button', { name: 'Manage labels' }).click();
+  await expect(page.getByRole('region', { name: 'Collector labels' })).toContainText(
+    '\u00e9'.repeat(256),
+  );
 });
 
 test('a reader cannot write labels through either RPC', async ({ page, api }) => {

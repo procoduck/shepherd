@@ -3,6 +3,7 @@ import { Pencil, Plus, Save, Tags, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { clients, toApiError } from '@/api/transport';
+import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
 import { Field, Input } from '@/components/ui/Field';
 import type { Collector } from '@/gen/shepherd/mgmt/v1/fleet_pb';
 
@@ -74,6 +75,11 @@ export function CollectorLabels({
   const [key, setKey] = useState('');
   const [value, setValue] = useState('');
   const [editing, setEditing] = useState(false);
+  const [confirmation, setConfirmation] = useState<{ key: string; value?: string } | null>(null);
+  const normalizedKey = key.trim().toLowerCase();
+  const keyInvalid = !!key && !/^[a-z0-9._/-]{1,128}$/.test(normalizedKey);
+  const valueBytes = new TextEncoder().encode(value).length;
+  const valueInvalid = valueBytes > 512 || /[\p{Cc}\p{Cf}]/u.test(value);
   const reset = () => {
     setKey('');
     setValue('');
@@ -90,6 +96,7 @@ export function CollectorLabels({
             value: input.value,
           }),
     onSuccess: async () => {
+      setConfirmation(null);
       reset();
       await Promise.all([
         qc.invalidateQueries({ queryKey: ['collector', orgId, collectorId] }),
@@ -135,7 +142,7 @@ export function CollectorLabels({
                       aria-label={`Delete label ${labelKey}`}
                       disabled={change.isPending}
                       className='p-2 text-muted hover:text-red-400 disabled:opacity-50'
-                      onClick={() => change.mutate({ key: labelKey })}
+                      onClick={() => setConfirmation({ key: labelKey })}
                     >
                       <Trash2 size={14} />
                     </button>
@@ -150,13 +157,20 @@ export function CollectorLabels({
           className='flex flex-wrap items-end gap-2'
           onSubmit={(e) => {
             e.preventDefault();
-            change.mutate({ key: key.trim().toLowerCase(), value });
+            if (!normalizedKey || !value || keyInvalid || valueInvalid || change.isPending) return;
+            const input = { key: normalizedKey, value };
+            if (!editing && Object.hasOwn(labels, normalizedKey)) {
+              setConfirmation(input);
+            } else {
+              change.mutate(input);
+            }
           }}
         >
           <Field label='Key' className='min-w-0 flex-1 basis-40'>
             <Input
               value={key}
               required
+              aria-invalid={keyInvalid}
               maxLength={128}
               disabled={editing || change.isPending}
               onChange={(e) => setKey(e.target.value)}
@@ -166,6 +180,7 @@ export function CollectorLabels({
             <Input
               value={value}
               required
+              aria-invalid={valueInvalid}
               maxLength={512}
               disabled={change.isPending}
               onChange={(e) => setValue(e.target.value)}
@@ -178,6 +193,8 @@ export function CollectorLabels({
             disabled={
               !key.trim() ||
               !value ||
+              keyInvalid ||
+              valueInvalid ||
               change.isPending ||
               (!editing && Object.keys(labels).length >= 64)
             }
@@ -199,6 +216,37 @@ export function CollectorLabels({
             </button>
           )}
         </form>
+      )}
+      {canEdit && keyInvalid && (
+        <p role='alert' className='text-xs text-red-400'>
+          Key must contain 1-128 ASCII letters, digits, dots, underscores, slashes or hyphens.
+        </p>
+      )}
+      {canEdit && valueInvalid && (
+        <p role='alert' className='text-xs text-red-400'>
+          {valueBytes > 512
+            ? `Value exceeds 512 UTF-8 bytes (${valueBytes} bytes).`
+            : 'Value must not contain control or invisible format characters.'}
+        </p>
+      )}
+      {canEdit && confirmation && (
+        <AdminConfirmDialog
+          title={
+            confirmation.value === undefined ? 'Delete inventory label' : 'Replace inventory label'
+          }
+          body={
+            confirmation.value === undefined
+              ? `Delete label "${confirmation.key}"?`
+              : `Replace the existing value of label "${confirmation.key}"?`
+          }
+          confirmLabel={confirmation.value === undefined ? 'Delete label' : 'Replace label'}
+          pendingLabel='Saving...'
+          pending={change.isPending}
+          onConfirm={() => change.mutate(confirmation)}
+          onCancel={() => {
+            if (!change.isPending) setConfirmation(null);
+          }}
+        />
       )}
     </section>
   );
