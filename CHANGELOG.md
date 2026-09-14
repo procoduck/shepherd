@@ -11,7 +11,16 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
-## Unreleased
+## v0.6.0
+
+Chart 0.10.2. No chart template changed since 0.10.1 — the chart moves only
+because its `appVersion` does — so the upgrade is `helm upgrade` with no new
+values and no `UPGRADING.md` section. The migrate hook applies two additive
+migrations (`0019_pipeline_revision_wizard_state`, `0020_serve_cache_dirty_seq`);
+neither needs operator action. Every pod rolls once for the new image and the
+new Alloy. The release brings pipeline revision diff and restore, the Alloy
+v1.19.2 schema, and a security-scanning baseline that gates every future
+release.
 
 ### Collectors — Shipped
 
@@ -31,6 +40,16 @@ Categories used here:
   before a newer mark could land its stale content after the mark and clear the flag, leaving
   collectors on the old config until the next change. Caught by the restore-flips-enabled spec
   under CI load. Migration `0020_serve_cache_dirty_seq`.
+- **Secrets can no longer leak through git sync errors.** A transport or auth error raised while
+  a decrypted credential is in hand used to reach both the log and `repo_links.sync_error`, which
+  every org reader sees; those errors are now rewritten so the password, token, passphrase,
+  private key or client secret cannot appear in either. Alongside it, the twelve CodeQL findings
+  were closed with real controls rather than suppressions: Alloy diagnostic positions and the
+  argon2 parallelism parameter are parsed at the width they are stored at (an encoded hash
+  claiming `p=300` is an error, not `p=44`), and a synthetic-log fixture name can only ever
+  resolve inside the run's own log directory. Each control has a spec that fails when it is
+  removed.
+
 ### Build & CI
 
 - **Every base image is pinned by digest, and Renovate keeps the pins current.** `deploy/versions.env`,
