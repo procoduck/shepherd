@@ -1,6 +1,7 @@
 // visual-code-sync.spec.ts — 7.6.4
 // Code tab shows the live client-side TS render.
 import { expect } from '@playwright/test';
+import { settledBox } from '../fixtures/canvas';
 import { basicScenario, org } from '../fixtures/factories';
 import { appAdmin } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
@@ -148,5 +149,57 @@ test.describe('visual code sync — org selection and outcome', () => {
     await page.click('[data-component="prometheus.scrape"]');
 
     await expect(page.getByTestId('verify-render-result')).not.toBeVisible({ timeout: 5_000 });
+  });
+
+  // The doc-identity effect this replaced cleared the outcome on ANY doc
+  // change, including view-only mutations renderTS never reads: panning the
+  // canvas (updateViewport, wired to ReactFlow's onMoveEnd) and dragging a
+  // node to a new position both replace `doc` without touching what gets
+  // rendered. A Verify outcome must survive those gestures — only an edit
+  // that actually changes the rendered content should clear it (covered by
+  // 'editing the graph after a Verify clears the stale outcome', above).
+  test('panning the canvas after a Verify does not clear the outcome', async ({ page, api }) => {
+    await api.loginAs(twoOrgAdmin);
+    await page.addInitScript(() => {
+      window.localStorage.setItem('shepherd.orgId', 'org-0002');
+    });
+    api.seed({ orgs: [orgA, orgB], schema: schemaFixture });
+
+    await page.goto('/pipelines/visual/new');
+    await page.waitForSelector('[data-testid="visual-builder"]', { timeout: 10_000 });
+    await page.waitForSelector('[data-testid="palette-search"]', { timeout: 8_000 });
+    await page.click('[data-testid="drawer-toggle"]');
+    await page.click('[data-testid="drawer-tab-code"]');
+
+    const clientContent = await page.locator('[data-testid="code-tab-content"] pre').textContent();
+    api.seed({
+      visualRenderResult: { content: clientContent ?? '', node_map: {}, diagnostics: [] },
+    });
+
+    await page.click('button:has-text("Verify render")');
+    await expect(page.getByTestId('verify-render-result')).toHaveText(/matches/, {
+      timeout: 5_000,
+    });
+
+    // Pan the empty pane 120px — a pure view mutation, no node under the
+    // pointer, nothing renderTS reads.
+    const pane = page.locator('.react-flow__pane');
+    const box = await settledBox(pane);
+    const fx = box.x + box.width / 2;
+    const fy = box.y + box.height / 2;
+    await page.mouse.move(fx, fy);
+    await page.mouse.down();
+    await page.waitForTimeout(50);
+    const steps = 10;
+    for (let i = 1; i <= steps; i++) {
+      await page.mouse.move(fx + (120 * i) / steps, fy);
+      await page.waitForTimeout(15);
+    }
+    await page.mouse.up();
+    await page.waitForTimeout(300);
+
+    await expect(page.getByTestId('verify-render-result')).toHaveText(/matches/, {
+      timeout: 5_000,
+    });
   });
 });

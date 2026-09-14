@@ -55,6 +55,20 @@ describe('rankPaletteItems', () => {
     expect(ranked.map((i) => i.name)).toEqual(['loki.process', 'loki.write']);
   });
 
+  it('ranks a `.`-segment match ahead of a substring match inside a `_`-joined segment', () => {
+    // `.`-only splitting means `write` is a whole segment of `loki.write`
+    // (tier 1) but only a substring of `remote_write`, the sole segment of
+    // `prometheus.remote_write` (tier 3, since `_` no longer splits — see
+    // the test above). This is deliberate: `loki.write` is the better match
+    // for `write`, but it's a ranking change beyond the bug the `_`-split
+    // removal fixed, so pin it explicitly.
+    const ranked = rankPaletteItems('write', [
+      { name: 'prometheus.remote_write', doc: '' },
+      { name: 'loki.write', doc: '' },
+    ]);
+    expect(ranked.map((i) => i.name)).toEqual(['loki.write', 'prometheus.remote_write']);
+  });
+
   it('drops items that match neither name nor doc', () => {
     const ranked = rankPaletteItems('remote_write', [{ name: 'discovery.kubernetes', doc: '' }]);
     expect(ranked).toEqual([]);

@@ -27,14 +27,21 @@ export function BottomDrawer() {
   // server render reported (F3: this used to read a window-global the test
   // harness injects but production never sets, and rendered nothing on a
   // match — silently dead outside the mocked test suite).
-  const [serverMismatch, setServerMismatch] = useState<null | 'match' | 'mismatch'>(null);
-  // The outcome is a claim about the doc AS OF THE LAST VERIFY CLICK. Once
-  // the user edits the graph it's stale — most visibly when it's a green
-  // "Server render matches" that no longer matches anything — so clear it
-  // on every doc change and require a fresh Verify click to re-earn it.
-  useEffect(() => {
-    setServerMismatch(null);
-  }, [doc]);
+  //
+  // The outcome is a claim about a SPECIFIC client render, captured here as
+  // `content` alongside it. Staleness is derived by comparing that snapshot
+  // to the current `rendered.content` at display time (below) rather than by
+  // keying an effect on `doc` identity: `doc` also changes on view-only
+  // mutations renderTS never reads (viewport pan/zoom via updateViewport,
+  // node-drag position via updateNode), which used to blank the banner on a
+  // canvas pan even though the outcome was still accurate. Snapshotting the
+  // content also closes the async race where an edit made while `verify`'s
+  // request is in flight would otherwise let a late response resurrect a
+  // stale outcome for a doc the user has since changed.
+  const [verified, setVerified] = useState<null | {
+    outcome: 'match' | 'mismatch';
+    content: string;
+  }>(null);
   // W5-10: `renderTS` re-walks the whole graph, and `doc` changes on every
   // store mutation — including one per keystroke anywhere in the inspector,
   // whether or not the Code tab is even the one showing. Rendering from a
@@ -64,8 +71,9 @@ export function BottomDrawer() {
   }, []);
   const verify = async () => {
     if (!orgId || !rendered) return;
+    const content = rendered.content;
     const server = await renderVisual(orgId, doc);
-    setServerMismatch(server.content === rendered.content ? 'match' : 'mismatch');
+    setVerified({ outcome: server.content === content ? 'match' : 'mismatch', content });
   };
   const selectedNode =
     selected.length === 1 ? doc.nodes.find((n) => n.id === selected[0]) : undefined;
@@ -241,12 +249,12 @@ export function BottomDrawer() {
               <button className='border rounded px-2 py-1 text-xs mb-2' onClick={verify}>
                 Verify render
               </button>
-              {serverMismatch && (
+              {verified && rendered?.content === verified.content && (
                 <div
                   data-testid='verify-render-result'
-                  className={`text-xs ${serverMismatch === 'mismatch' ? 'text-red-500' : 'text-emerald-500'}`}
+                  className={`text-xs ${verified.outcome === 'mismatch' ? 'text-red-500' : 'text-emerald-500'}`}
                 >
-                  {serverMismatch === 'mismatch'
+                  {verified.outcome === 'mismatch'
                     ? 'Server and client render differ'
                     : 'Server render matches'}
                 </div>
