@@ -17,7 +17,7 @@
 | `docs/frontend-testing.md` | three-layer frontend test strategy |
 | `docs/git-provider-design.md` | GitOps provider-auth design; live at top level because Go source cites its § numbers |
 | `docs/platform-monitoring-architecture.md` | target-fleet reference notes |
-| `docs/kind-test-environment-plan.md` | kind-based Kubernetes test environment (`make e2e-k8s`, weekly + path-filtered on qualifying PRs). Steps 1, 2, 4, 6 done; step 3 (full-values install, true previous-version upgrade spec) and step 5 (`NOTES.txt` CNI warning) still open — see its status header |
+| `docs/kind-test-environment-plan.md` | kind-based Kubernetes test environment (`make e2e-k8s`, weekly + path-filtered on qualifying PRs) plus §11 the reusable dev stack it shares pins with (`make dev-kind`, the Kubernetes flavour of `make dev`). Steps 1, 2, 4, 6 done; step 3 (full-values install, true previous-version upgrade spec) and step 5 (`NOTES.txt` CNI warning) still open — see its status header |
 | `docs/gateway-tier-plan.md` | **in progress**: all 11 workstreams built (2026-08-22); W1, W2, W3, W5, W8 done; R1, R2 signed and R6 signed conditionally on 2026-09-11, R3 open with the receiver-tier build scheduled; the product surfaces for W4/W6/W7/W9/W10 are §4 items here. Its §9 is the step ledger; §7 the review gates and sign-offs |
 | `docs/proofs/` | red–green proofs for shipped controls. Not archived: Go source and CI workflows cite these paths |
 | `docs/archive/` | finished work, kept as the record of why things are the way they are |

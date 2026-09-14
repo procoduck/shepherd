@@ -42,13 +42,17 @@ cards.
 
 Setup order matters and each step exists because its absence produced a confusing failure:
 
-1. **kind cluster** — `disableDefaultCNI`, pod CIDR `10.244.0.0/16`, 2 workers
+1. **kind cluster** — `disableDefaultCNI`, pod CIDR `10.244.0.0/16`, 2 workers, node image pinned
+   by `KIND_NODE_IMAGE` in `deploy/versions.env` (`E2E_K8S_NODE_IMAGE` overrides it for this suite
+   only — the reusable dev stack, `make dev-kind`, reads the same pin with no override)
 2. **Pod-CIDR guard** — fails in ~40s if the pod CIDR contains the node IPs
-3. **Calico** — pinned version, applied after creation
+3. **Calico** — version pinned by `CALICO_VERSION` in `deploy/versions.env`, applied after creation
 4. **Nodes Ready** — the CNI is serving
 5. **CoreDNS Available** — Ready nodes do *not* imply working DNS
 6. **Images loaded**, **shared Postgres**
-7. **Gateway API CRDs + NGINX Gateway Fabric** — CRD version/channel pinned in `deploy/versions.env`; the NGF chart version is a constant in `route_conformance_test.go` (`ngfChartVersion`)
+7. **Gateway API CRDs + NGINX Gateway Fabric** — CRD version/channel and the NGF chart version
+   (`NGF_CHART_VERSION`) are all pinned in `deploy/versions.env`, shared with the reusable dev
+   stack (`make dev-kind`)
 8. **CloudNativePG + External Secrets operators** — pinned the same way, for the chart's two
    optional dependencies (`chart_deps_test.go`). Shepherd's chart installs neither and requires
    neither; they are here so those integrations are proven against real controllers rather than
@@ -106,7 +110,9 @@ silently pulling something else from a registry.
 ## Known limits
 
 - **Calico is pinned and assumed.** Testing a deliberately non-enforcing CNI (to prove the negative
-  control from the other side) is not wired up; the CNI is currently a constant, not a parameter.
+  control from the other side) is not wired up. The CNI *version* is a `deploy/versions.env` pin
+  (`CALICO_VERSION`, shared with `make dev-kind`) rather than a Go constant, but the CNI *choice*
+  itself is still not a runtime parameter.
 - **No LGTM layer yet.** Until it exists, "the pipeline is correct" still does not mean "the data
   arrived" — see `docs/kind-test-environment-plan.md` §5 Layer C.
 - **Chart upgrade coverage installs the same version twice.** A true previous-version upgrade needs

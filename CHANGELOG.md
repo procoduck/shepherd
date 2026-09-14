@@ -79,6 +79,13 @@ Root causes, the full finding list, and the slice plan are in
 
 ### Build & CI
 
+- **`make dev-kind` brings up a reusable, persistent kind cluster (`shepherd-dev`) running the
+  real chart** — Calico, Gateway API + NGINX Gateway Fabric, CloudNativePG, the existing dev seed,
+  three live Alloy agents, Gitea and the mock OIDC provider, all reachable at
+  `http://shepherd.localtest.me`. It is the Kubernetes flavour of `make dev`, not a second e2e
+  suite (`make e2e-k8s` still owns that); see `docs/kind-test-environment-plan.md` §11 and
+  `docs/dev-guide.md`. `KIND_NODE_IMAGE`, `CALICO_VERSION` and `NGF_CHART_VERSION` moved from Go
+  constants into `deploy/versions.env`, shared with `e2e/k8s`.
 - **The post-publish image scan now scans the images the release pushed.** v0.6.0's
   `scan-published` job looked for `/shepherd:v0.6.0`: it had no registry of its own and used
   the git tag as the image tag, while goreleaser tags images with the bare version. The job now

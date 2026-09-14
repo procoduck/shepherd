@@ -45,6 +45,43 @@ make dev-frontend  # in another terminal: starts Vite with /api and /auth proxie
 cookies are shared — no special configuration needed. `SHEPHERD_AUTH_INSECURE_COOKIES=true`
 is set in the dev env file to disable the `Secure` flag for non-TLS local dev.
 
+### Kubernetes flavour (`make dev-kind`)
+
+```bash
+make dev-kind   # ~6-10 min cold; safe to re-run on an existing cluster
+```
+
+Brings up a single-node kind cluster (`shepherd-dev`) running the real Helm chart — Calico,
+Gateway API + NGINX Gateway Fabric, CloudNativePG, the same dev seed, three real Alloy agents,
+Gitea, and the navikt mock OIDC provider — reachable at `http://shepherd.localtest.me`,
+`http://gitea.localtest.me` and `http://oidc.localtest.me` (port 80, no `:8080`). It's the
+Kubernetes counterpart to `make dev` above, not a test suite — see
+`docs/kind-test-environment-plan.md` §11 for the full design (routing/DNS, the OIDC boundary,
+`reload` mechanics, where the manifests live).
+
+- **URLs and login:** `http://shepherd.localtest.me`, `admin` / `admin` — the same seed contents
+  and credentials as compose (below), plus an SSO button ("Mock SSO") the compose stack only
+  offers behind the `oidc` profile: here the mock issuer is declared in the chart values, so it's
+  on by default.
+- **Seed parity:** `make dev-kind` runs the identical `shepherd dev seed` as `make dev`
+  (`kubectl exec deploy/shepherd -- /usr/local/bin/shepherd dev seed`) — same orgs, users, Gitea
+  repo and agent token as the Seed contents table below.
+- **The OIDC walk, briefly:** sign in with the "Mock SSO" button, enter a username and a JSON
+  `groups` claim on mock-oauth2-server's login page. A group matching the seeded app-admin group
+  id signs in as an app admin; a group matching a seeded org's admin/reader group id signs in with
+  that org role. `/admin/auth` is **read-only** against this stack — the chart's `oidc.issuer`
+  value means the SSO settings page cannot be used to add or test a different provider (a
+  deliberate `internal/auth` boundary, not a dev-stack gap; §11 of the plan above has the exact
+  refusal text).
+- **Offline:** `*.localtest.me` needs public DNS (it resolves every subdomain to `127.0.0.1`); with
+  none, add `shepherd.localtest.me`, `oidc.localtest.me` and `gitea.localtest.me` to `/etc/hosts`.
+- **`make dev-kind-down` deletes the cluster and all its data** — CNPG's and Gitea's storage are
+  both local-path PVs that die with it, the same as `make dev-reset` wiping compose's named
+  volumes.
+- **Agents do not run this.** No coding agent creates, uses or deletes the `shepherd-dev` cluster,
+  or runs any `make dev-kind*` / `make e2e-k8s` target, as part of automated work — only one such
+  cluster can exist and only one process can bind host port 80 on a shared machine.
+
 ---
 
 ## Optional profiles
@@ -125,7 +162,11 @@ To reseed without resetting data: `make dev-seed` (idempotent — inserts use `O
 
 `dev/shepherd.dev.env` is committed and holds only dev-only fixtures. OIDC is deliberately
 left unset there: the `oidc` service sits behind the `oidc` compose profile, so the default
-stack uses local users only (`docker compose --profile oidc up -d` to exercise the OIDC flow).
+compose stack uses local users only (`docker compose --profile oidc up -d` to exercise the OIDC
+flow). The Kubernetes flavour (`make dev-kind`, above) does it differently: the mock issuer is
+declared directly in `dev/kind/values.yaml`'s chart values, so SSO is available there with no
+extra profile step — and, because it's chart-declared, the SSO settings page is read-only against
+it.
 
 **Change the password:** the first administrator is seeded on first boot from
 `SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD` in `dev/shepherd.dev.env` (currently
@@ -174,6 +215,11 @@ Full list (`make help` prints the same, plus the `E2E_*` env knobs each test tar
 | `make dev-seed` | Re-run the dev seed (idempotent — safe on a running stack) |
 | `make dev-reset` | Stop the dev stack and wipe all data (named volumes) |
 | `make dev-sim` | Start the dev stack with the S3 sandbox simulator (builds the simulator image; opt-in — see Optional profiles above) |
+| `make dev-kind` | Kubernetes flavour: kind cluster `shepherd-dev` with Calico, CNPG, Gateway API + NGF, the chart, Gitea and mock OIDC (`http://shepherd.localtest.me`) — see Kubernetes flavour above |
+| `make dev-kind-reload` | Rebuild `shepherd:local`, load it into `shepherd-dev` and roll the pods (migrations run first) |
+| `make dev-kind-seed` | Re-run the dev seed inside `shepherd-dev` (idempotent) |
+| `make dev-kind-status` | Show `shepherd-dev`'s workloads, routes, DNS rewrite and URLs |
+| `make dev-kind-down` | Delete the `shepherd-dev` cluster and all its data — the `dev-reset` equivalent |
 
 **Build**
 

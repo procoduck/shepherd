@@ -24,6 +24,11 @@
 > `deploy/Dockerfile*` and `deploy/versions.env`, because the suite builds and installs
 > `shepherd:local` — a base-image change that broke `alloy validate` in the shipped image reached a
 > release without ever triggering this job.
+> **Pins, as of 2026-09-14**: `KIND_NODE_IMAGE`, `CALICO_VERSION` and `NGF_CHART_VERSION` now live
+> in `deploy/versions.env`, not as Go constants in this package — this suite reads them the same
+> way it always read the other operator pins (`E2E_K8S_NODE_IMAGE` still overrides the node image
+> for this suite alone), and they are shared with the new §11 reusable dev stack (`make dev-kind`),
+> so a version bump is one commit reviewed once instead of two drifting copies.
 > Goal: a repeatable, self-tearing-down Kubernetes environment that verifies the things
 > `docker compose` structurally cannot — NetworkPolicy enforcement, the Helm chart as deployed,
 > and Shepherd's behaviour against a realistic LGTM stack.
@@ -272,7 +277,9 @@ fails for reasons unrelated to policy.
    default to. Cilium would additionally let us assert on flow logs. Proposal: Calico, and treat
    the CNI as a variable the harness can be pointed at rather than a hardcode — a second CNI is
    then a config change, and testing a *non*-enforcing CNI to prove the §4 control works becomes
-   possible.
+   possible. **Partly realized (2026-09-14)**: `CALICO_VERSION` is now a `deploy/versions.env`
+   variable instead of a Go constant, so the *version* the harness installs is a config change
+   already — swapping the CNI *family* (Calico → Cilium) is still a code change, not a value one.
 2. **LGTM distribution.** Individual upstream charts, or the `grafana/lgtm-distributed` /
    `docker.io/grafana/otel-lgtm` all-in-one. The all-in-one is far quicker to stand up but less
    representative. Proposal: start with the all-in-one for Layer C, revisit if it hides anything.
@@ -293,3 +300,171 @@ local-development environments where `internal: true` does not deny the host, an
 documented as a limitation rather than fixed. It does not test at scale — no load, no soak, no
 multi-node failover. And it does not replace the compose e2e suite, which is faster and still the
 right place for agent-protocol and GitOps coverage.
+
+## 11. Reusable dev stack (`make dev-kind`)
+
+`make dev-kind` brings up a single-node kind cluster named `shepherd-dev` running the real Helm
+chart — CloudNativePG, Gateway API + NGINX Gateway Fabric, Calico, the existing dev seed, three
+Alloy agents (`dev/*.alloy`), Gitea, and the navikt mock OIDC provider — everything reachable on
+host port 80 under `*.localtest.me`. It is the **Kubernetes flavour of `make dev`**, not a second
+copy of this suite: it exists so a developer or reviewer can see the chart, the routing and the
+containment policy behave the way they will in production, without standing up the isolation and
+teardown machinery a test suite needs. `scripts/dev-kind.sh` (verbs `up`, `reload`, `seed`,
+`status`, `down`) is driven through five Makefile targets, `dev-kind[-reload|-seed|-status|-down]`
+— see `docs/dev-guide.md`'s "Kubernetes flavour" section for the day-to-day walkthrough. The
+lettered/numbered decisions cited below (D1-D4, C1-C10) are this feature's design record,
+`docs/plans/2026-09-14-kind-dev-stack.md`.
+
+### What it shares with this suite, and what it deliberately does not
+
+**Shared:** the CNI, the router and the operator, at the exact pinned versions — `KIND_NODE_IMAGE`,
+`CALICO_VERSION` and `NGF_CHART_VERSION` moved into `deploy/versions.env` for this reason (D2,
+the status header above). The dev cluster's Calico is the same enforcing CNI §4 proves, so the
+chart's default-deny simulator NetworkPolicy is real there too, matching how it behaves in
+production and in this suite — not a compose approximation.
+
+**Deliberately not shared:**
+
+- **One node, not this suite's multi-node topology (§3).** Dev gains nothing from proving policy
+  crosses a node boundary; it only needs Calico's NetworkPolicy engine live.
+- **No per-feature namespaces.** This suite gives every feature its own scratch namespace and
+  database so features never interfere (`e2e/k8s/README.md`'s isolation model). The dev cluster has
+  exactly one namespace, `shepherd-dev`, for the life of the cluster — there is only one "feature"
+  running, the whole stack, for as long as a developer wants it up.
+- **No teardown on failure.** `testenv.Finish` tears this suite's cluster down on every path,
+  including panic, because a leaked e2e cluster is pure waste. The dev cluster is meant to persist
+  across a working session; `down` is a separate, explicit verb (`make dev-kind-down` = `kind
+  delete cluster --name shepherd-dev`) — the `dev-reset` equivalent for the Kubernetes flavour, and
+  local-path PVs (CNPG's data, Gitea's PVC) die with it, same as compose's named volumes.
+- **Fixed cluster name.** `shepherd-dev`, not this suite's `envconf.RandomName`-generated
+  `shepherd-e2e-*` names, so `make e2e-k8s-clean` (which only sweeps `shepherd-e2e-*`) never
+  touches it and the two stacks can coexist on one laptop.
+
+### Routing and DNS: one Gateway, one CoreDNS rewrite
+
+The dev stack routes everything through Gateway API + NGINX Gateway Fabric (D3), the same
+controller this suite proves conformance against (`route_conformance_test.go`) — on port 80, under
+`*.localtest.me`, with an `HTTPRoute` per service: `shepherd.localtest.me` (the chart's own route),
+`oidc.localtest.me` and `gitea.localtest.me` (hand-written, `dev/kind/routes.yaml`). NGF is
+installed with `nginx.service.type=NodePort` and a single NodePort (`30080` → listener port `80`);
+kind's `cluster.yaml` maps host port 80 to that NodePort, so a browser on the host and a pod inside
+the cluster both land on the same Gateway.
+
+DNS is **one rewrite for the whole zone**, not a line per hostname: the script inserts
+`rewrite name regex (.*)\.localtest\.me <data-plane-svc>.shepherd-dev.svc.cluster.local answer
+auto` into CoreDNS's Corefile and restarts it. Two things make one rewrite the right shape rather
+than a shortcut:
+
+- **A new `*.localtest.me` route needs no DNS change** — the regex already covers it, because
+  every hostname under the zone resolves to the same Gateway Service; only the `HTTPRoute`'s
+  hostname list decides what actually answers.
+- **The rewrite exists so in-cluster clients can resolve the zone at all**, not to keep two paths
+  in sync. `oidc.localtest.me`'s public wildcard answers `127.0.0.1` — inside a pod that is the
+  pod's own loopback, not the Gateway — so without the CoreDNS rewrite, Shepherd's own OIDC
+  discovery of the chart-declared issuer (D4) would fail to resolve it. With the rewrite, a pod
+  resolves `oidc.localtest.me` to the data-plane Service and reaches the same Gateway a browser
+  reaches by the host's public-DNS-then-hostPort path — both arrive with `Host:
+  oidc.localtest.me` on port 80, and the mock OIDC provider derives its issuer from that `Host`
+  header, so the pod-seen and browser-seen issuer strings match. (§5 step 7's live curl from a pod
+  is what actually proves the pod-seen string.)
+
+Offline (no public DNS to `localtest.me`'s wildcard `127.0.0.1` A record): add
+`shepherd.localtest.me`, `oidc.localtest.me` and `gitea.localtest.me` to `/etc/hosts` pointing at
+`127.0.0.1` — CoreDNS's rewrite only affects resolution *inside* the cluster; the host still needs
+its own path to `127.0.0.1:80`.
+
+### The OIDC walk, and the `dialGuard` boundary
+
+The chart declares the OIDC provider directly in `dev/kind/values.yaml` (`config.oidc.*`) —
+D4's **values-declared issuer only**. That makes the SSO settings page (`/admin/auth`) read-only
+against this stack by design: `config.go`'s non-empty `oidc.issuer` makes `HelmManaged()` true,
+`settings_admin.go`'s `StatusMessage` returns *"This provider is configured by the Helm chart
+(oidc.issuer). Change it in your chart values; it cannot be edited here."*, and the admin UI
+disables the form, Save and Test connection accordingly.
+
+This is not an oversight to route around — it is `internal/auth/discovery.go`'s `dialGuard`
+working as intended, behind a first barrier that fires earlier. Were the chart issuer not already
+set, an admin using the SSO settings page (`/admin/auth`) and pressing **Test connection** —
+`Handler.TestSettings` (`settings_admin.go`) — hits `validateIssuer` (`settings.go`) before any
+network call is made: it rejects every non-https issuer with *"issuer URL must use https — the
+discovery document names the JWKS endpoint Shepherd fetches signing keys from, and over http
+anyone on the path can substitute their own"*. So pasting `http://oidc.localtest.me/default`
+never reaches the network — it is refused right there.
+
+Paste `https://oidc.localtest.me/default` instead (the scheme this stack does not actually serve,
+but the one that clears `validateIssuer`) and the probe reaches `fetchDiscovery`, which runs with
+the guarded client (`SourceDatabase`) and dials out. `dialGuard` is a `net.Dialer.Control` hook
+that runs on every hop of every redirect chain and refuses to connect anywhere that resolves to a
+loopback, private, link-local, or carrier-grade-NAT address (`blockedIP`, `discovery.go`) —
+because a real identity provider is never reachable only from inside the network making the
+request. The mock OIDC provider resolves to the NGF Gateway's in-cluster ClusterIP, which is
+exactly such an address, so the admin gets *"refusing to fetch
+https://oidc.localtest.me/default/.well-known/openid-configuration: it resolves to a private or
+loopback address, which an identity provider never does"* (`discovery.go`). Both refusals are the
+product working correctly, not a dev-stack limitation to fix — https first, then the dial guard.
+
+(Plan §5 step 10 walks the same scenario live; correct it there too before the walk, so the live
+run confirms the same two-step refusal instead of the wrong one.)
+
+The walk itself (full detail and the exact claims JSON for each persona in
+`docs/plans/2026-09-14-kind-dev-stack.md` §5 step 10): the login page offers both the local form
+and an SSO button labelled "Mock SSO". Signing in through it lands on
+`http://oidc.localtest.me/default/authorize?…`, mock-oauth2-server's interactive login page (a
+**Username** field and a **Claims** JSON textarea — `interactiveLogin: true`). A `groups` claim
+naming the seed's app-admin group id produces an app admin with the Admin menu; a `groups` claim
+naming one of the seed's org groups produces the matching org role with no Admin menu — the
+`generic` provider preset (C7) uses `sub` as the subject and reads groups from the claim directly,
+no Microsoft Graph call.
+
+### `reload` mechanics: a build annotation, not a bare rollout restart
+
+`make dev-kind-reload` rebuilds `shepherd:local`, `kind load`s both `shepherd:local` and
+`shepherd-simulator:local` into the cluster, and runs `helm upgrade --install` again with a fresh
+`--set-string podAnnotations.dev-build=<short-sha>-<unix-ts>` (C3).
+A bare `kubectl rollout restart` was considered and rejected: the image tag never changes
+(`pullPolicy: Never`, tag `local`), so Helm's rendered manifest is otherwise identical between
+reloads — an unchanged render means no Deployment update and no rollout — and the chart's migrate
+Job runs as a pre-install/pre-upgrade Helm hook — a `rollout restart` bypasses Helm entirely and
+would replace pods with a new binary that never ran a pending migration against them. Setting a
+value that changes every reload forces the Deployment's `dev-build` template annotation to differ
+on every render, which both makes Helm roll the pods *and* keeps the migrate hook — which only
+runs on `helm upgrade`, not on a raw `kubectl` restart — in the path every time.
+
+### Where the manifests live, and why
+
+The manifests live in **`dev/kind/`**, beside `dev/docker-compose.dev.yaml` and
+`dev/shepherd.dev.env` — the files they mount as ConfigMaps and a Secret — not under `deploy/`,
+which stays production-only artefacts (C9). `deploy/` is what `make config-scan`'s Trivy
+misconfiguration scan covers at CRITICAL/HIGH (`scan-ref: deploy`); Gitea and mock-oauth2-server
+are not designed for a read-only root filesystem the way the chart's own workloads are, and adding
+their findings to `.trivyignore` would silence those checks for the chart too. Keeping the dev-only
+manifests out of `deploy/` keeps that gate meaningful rather than widening it. For the same reason
+the Gitea and mock-oauth2-server image pins live in `dev/kind/gitea.yaml` and `dev/kind/oidc.yaml`
+themselves, not `deploy/versions.env` — every `versions.env` change bills this suite, `e2e-sim` and
+`schema-verify` on the PR that makes it (D2), and neither image is part of what those suites
+verify.
+
+| File | Contents |
+|---|---|
+| `dev/kind/cluster.yaml` | kind cluster config: one node, `disableDefaultCNI`, the host-port mapping |
+| `dev/kind/values.yaml` | Helm values for the `shepherd` release |
+| `dev/kind/gateway.yaml` | the `dev` Gateway |
+| `dev/kind/routes.yaml` | the `oidc` and `gitea` `HTTPRoute`s |
+| `dev/kind/oidc.yaml` | the mock OIDC Deployment/Service |
+| `dev/kind/gitea.yaml` | the Gitea Deployment/Service/PVC |
+| `dev/kind/alloy.yaml` | the three Alloy agent Deployments |
+
+### Agents do not run kind
+
+**No coding agent creates, uses or deletes a `shepherd-dev` (or any) kind cluster, and none runs
+`make dev-kind*` or `make e2e-k8s`, as part of an automated slice of work.** Only one
+`shepherd-dev` cluster can exist at a time (its fixed name and host-port mapping make it exclusive;
+kind itself supports many clusters, and this suite's own `shepherd-e2e-*` clusters coexist with it
+for exactly that reason, per the section above) and only one process can bind host port 80;
+several people and several agent sessions share these laptops. Every change to the manifests, the
+script or the Makefile targets is verified statically instead — `helm template`/`helm lint`
+against the new values, `kubectl create
+--dry-run=client --validate=false` against the manifests, `bash -n`/`shellcheck` against the
+script, and repocheck specs parsing everything with `yaml.v3` rather than applying it. A human, or
+an orchestrating session acting on a human's explicit instruction, performs the one live bring-up
+that exercises the whole stack together.
