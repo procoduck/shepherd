@@ -116,7 +116,7 @@ var _ = Describe("Transform: a credential at a user-chosen key does not reach th
 		// the rest of its keep list when it moved to the deliberately-
 		// unmappable list — its required, secret splunk.token could never be
 		// kept either way (availability fix, VB-1 §6.4).
-		Expect(probed).To(Equal(10), "kept map paths probed")
+		Expect(probed).To(Equal(9), "kept map paths probed")
 	})
 
 	// The same question of the target_set class, which is a second open key

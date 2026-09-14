@@ -13,6 +13,15 @@ Categories used here:
 
 ## Unreleased
 
+### Collectors — Shipped
+
+- **Grafana Alloy v1.19.2** is the pinned fleet version (was v1.18.1): the component schema the
+  visual builder, wizards and validation gate run against, the Alloy bundled into the `shepherd`
+  and `shepherd-simulator` images, and the agents in the dev and e2e stacks. Trivy found 15 high
+  CVEs in the v1.18.1 binary (built upstream on Go 1.26.5); v1.19.2 is built on a patched Go and
+  carries 2, both in grpc, tracked upstream. Graphs saved under v1.18.1 still open — the previous
+  artifact stays embedded so the upgrade review can diff against it.
+
 ### Fixes
 
 - **A stale serve-cache recompute can no longer clear a newer dirty flag.** Every write that

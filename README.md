@@ -48,7 +48,7 @@ traces; it configures the collectors that ship them.
 | To | You need |
 |---|---|
 | Run Shepherd | A Kubernetes cluster, Helm 3, and a **PostgreSQL 16** it can reach — the only major every test, testcontainers run, and the compose stacks pin (`postgres:16-alpine`); older majors are untested. The chart needs no CRDs by default. |
-| Run collectors | [Grafana Alloy](https://grafana.com/docs/alloy/) **v1.18.1** — the version whose component schema this build validates against, pinned in `deploy/versions.env`. |
+| Run collectors | [Grafana Alloy](https://grafana.com/docs/alloy/) **v1.19.2** — the version whose component schema this build validates against, pinned in `deploy/versions.env`. |
 | Build from source | Go (see `go.mod`), Node 24 with pnpm, Docker (tests start real PostgreSQL via testcontainers), and Helm. |
 
 Two optional integrations need their operators installed first:

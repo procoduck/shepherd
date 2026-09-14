@@ -2,23 +2,37 @@
 SELECT * FROM serve_cache WHERE collector_id = $1;
 
 -- name: MarkServeCacheDirtyByOrg :exec
--- Every mark bumps dirty_seq: see UpsertServeCacheConditional.
-UPDATE serve_cache sc
-SET dirty = true, dirty_seq = sc.dirty_seq + 1
+-- A mark must never be lost: a collector with no cache row yet (never polled,
+-- or its first recompute still in flight) gets a dirty placeholder row so the
+-- generation bump lands and a recompute that read "no row" (generation 0)
+-- cannot insert over it. Every mark bumps dirty_seq: see
+-- UpsertServeCacheConditional.
+INSERT INTO serve_cache (collector_id, content, hash, dirty, dirty_seq)
+SELECT c.id, '', '', true, 1
 FROM collectors c
 JOIN clusters cl ON c.cluster_id = cl.id
-WHERE sc.collector_id = c.id AND cl.org_id = $1;
+WHERE cl.org_id = $1
+ON CONFLICT (collector_id) DO UPDATE SET
+    dirty = true,
+    dirty_seq = serve_cache.dirty_seq + 1;
 
 -- name: MarkServeCacheDirtyByCluster :exec
-UPDATE serve_cache sc
-SET dirty = true, dirty_seq = sc.dirty_seq + 1
+INSERT INTO serve_cache (collector_id, content, hash, dirty, dirty_seq)
+SELECT c.id, '', '', true, 1
 FROM collectors c
-WHERE sc.collector_id = c.id AND c.cluster_id = $1;
+WHERE c.cluster_id = $1
+ON CONFLICT (collector_id) DO UPDATE SET
+    dirty = true,
+    dirty_seq = serve_cache.dirty_seq + 1;
 
 -- name: MarkServeCacheDirty :exec
 -- KEEP: single-collector dirty marking; used in agentapi tests and available for
 -- targeted per-collector invalidation. Do not remove.
-UPDATE serve_cache SET dirty = true, dirty_seq = dirty_seq + 1 WHERE collector_id = $1;
+INSERT INTO serve_cache (collector_id, content, hash, dirty, dirty_seq)
+VALUES ($1, '', '', true, 1)
+ON CONFLICT (collector_id) DO UPDATE SET
+    dirty = true,
+    dirty_seq = serve_cache.dirty_seq + 1;
 
 -- name: UpsertServeCacheConditional :one
 -- Compare-and-swap on the dirty generation. The caller passes the dirty_seq it

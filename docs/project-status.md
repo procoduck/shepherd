@@ -178,14 +178,11 @@ Open, in rough priority order:
       visual pipeline from the text editor still restores the graph (`wizard_state` travels with
       the revision) for revisions written after migration 0019 — older rows carry no graph, so
       restoring one restores text only — only the *diff view* is text-only.
-- [ ] **Bump Alloy for the 15 high CVEs in the bundled binary.** Trivy (2026-09-14) finds 15
-      HIGH, unfixed-excluded CVEs in `ghcr.io/procoduck/shepherd:0.5.0` and the simulator image —
-      every one inside `/usr/local/bin/alloy` (Alloy v1.18.1, built upstream with Go 1.26.5: 8 in
-      the Go stdlib, plus x/mod, grpc, thrift, go-git, x/crypto). None is in Shepherd's own
-      binary, which is why the release gate excludes that path. Closes with the next Alloy
-      release that rebuilds on a patched Go — an `ALLOY_IMAGE` bump, i.e. a schema bump
-      (`make schema`, overlay review). Until then the weekly `published-images` scan keeps
-      reporting them to the Security tab.
+- [x] **Bump Alloy for the 15 high CVEs in the bundled binary (done 2026-09-14, v1.19.2).**
+      Trivy found 15 HIGH, unfixed-excluded CVEs in the v1.18.1 binary bundled into both images
+      (built upstream with Go 1.26.5). v1.19.2 is built on a patched Go and carries 2, both in
+      grpc (upstream). Bumped as a schema bump: `ALLOY_IMAGE`/`ALLOY_VERSION`, `make schema`,
+      overlay reconciliation, the v1.18.1 artifact kept embedded for upgrade-review diffs.
 - [ ] **Typed `Role`/`Source` enums.** `internal/auth`'s role constants (`RoleOrgAdmin` etc.,
       `internal/auth/authz.go`) and `pipelines.source` are plain `string`-typed constants, not a
       distinct Go type — the `exhaustive` linter cannot check a switch over either for

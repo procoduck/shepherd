@@ -81,7 +81,7 @@ Replace the examples below with your internal registry prefix if needed.
 | Upstream image | Pin lives in |
 |---|---|
 | `gcr.io/distroless/base-nossl-debian12:nonroot` | `deploy/versions.env` (DISTROLESS_BASE_IMAGE) — app, init and simulator images (`make check-docker` guards `deploy/Dockerfile.*`); `e2e/mockmsft/Dockerfile:6` hardcodes `static-debian12:nonroot` and is NOT guarded |
-| `grafana/alloy:v1.18.1` | `deploy/versions.env` (ALLOY_IMAGE) |
+| `grafana/alloy:v1.19.2` | `deploy/versions.env` (ALLOY_IMAGE) |
 | `golang:1.26-alpine` | `deploy/versions.env` (GO_IMAGE); `e2e/mockmsft/Dockerfile:1` hardcodes it and is NOT guarded |
 | `node:24-slim` | `deploy/versions.env` (NODE_IMAGE) |
 | `postgres:16-alpine` | compose files, `Makefile` (smoke), `internal/testutil/postgres.go` — NOT versions.env |

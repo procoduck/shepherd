@@ -5,6 +5,7 @@ import { create } from 'zustand';
 import { deleteAtPath, EXPR_KEY, setAtPath } from './bindings';
 import { portsCompatible, validateGraph } from './l1';
 import { portHandleId } from './schemaAdapter';
+import { currentSchemaVersion } from './schemaVersion';
 import type {
   ComponentDef,
   GraphDocument,
@@ -201,7 +202,12 @@ interface VisualStore {
   setSimHealthByNode: (health: Record<string, SimHealthEntry> | null) => void;
 }
 
-function makeDefaultDoc(schemaVersion = 'alloy-v1.18.1'): GraphDocument {
+// A fresh document carries the SERVED schema's version, stamped by setSchema
+// once the schema has loaded; before that it is empty — never a literal
+// version, which would go stale at the next fleet bump and make every new
+// pipeline read as one that needs upgrading (see schemaVersion.ts). The
+// server treats an empty schema_version as "current" for the same reason.
+function makeDefaultDoc(schemaVersion = ''): GraphDocument {
   return {
     kind: 'alloy-graph/v1',
     schema_version: schemaVersion,
@@ -255,7 +261,20 @@ export const useVisualStore = create<VisualStore>()(
       matchers: [],
       simHealthByNode: null,
 
-      setSchema: (schema) => set({ schema, diagnostics: revalidate({ ...get(), schema }) }),
+      setSchema: (schema) =>
+        set((state) => {
+          // Stamp a document whose version is still UNKNOWN (a fresh one,
+          // never saved or imported) with the served version. A document
+          // that carries any version — even an empty graph imported or
+          // loaded from a save — keeps it, so the upgrade review can still
+          // tell what it was authored against.
+          const version = currentSchemaVersion(schema);
+          const doc =
+            version && state.doc.schema_version === ''
+              ? { ...state.doc, schema_version: version }
+              : state.doc;
+          return { schema, doc, diagnostics: revalidate({ ...state, schema, doc }) };
+        }),
 
       addNode: (component, position, opts) =>
         set((state) => {
@@ -437,7 +456,7 @@ export const useVisualStore = create<VisualStore>()(
 
       resetDoc: () =>
         set({
-          doc: makeDefaultDoc(),
+          doc: makeDefaultDoc(currentSchemaVersion(get().schema) ?? ''),
           selected: [],
           diagnostics: [],
           pipelineName: '',

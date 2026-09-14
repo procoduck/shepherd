@@ -70,7 +70,7 @@ var _ = Describe("Transform: rule D — destination endpoints", func() {
 		// mapped destination could never render it and would always be
 		// missing a required attribute, the same reason datadog was already
 		// unmappable.
-		Expect(mapped).To(Equal(14), "the overlay must map exactly the 14 destinations §6.4 lists")
+		Expect(mapped).To(Equal(13), "the overlay must map exactly the 13 destinations §6.4 lists")
 		Expect(failed).To(Equal(7), "the 7 deliberately-unmappable destinations must still fail closed")
 	})
 

@@ -149,7 +149,7 @@ var _ = Describe("Transform: rule K keeps exactly what the overlay allowlists", 
 
 	It("plants a canary at every string-carrying attribute path in the artifact and finds it in the render if and only if the path is allowlisted", func() {
 		paths := canaryPaths(payload)
-		Expect(len(paths)).To(Equal(4678),
+		Expect(len(paths)).To(Equal(4736),
 			"the probe must cover every string-carrying attribute path the shipped artifact declares")
 
 		var leaked, missing, refused []string
@@ -229,8 +229,13 @@ var _ = Describe("Transform: rule K keeps exactly what the overlay allowlists", 
 		// 4077, up from 4063 by the same 14: present and absent are a
 		// partition of the fixed 4678-path probe, so one falls exactly as far
 		// as the other rises.
-		Expect(present).To(Equal(601), "string-carrying paths that reach the sandbox")
-		Expect(absent).To(Equal(4077), "string-carrying paths that do not")
+		// Alloy v1.19.2 (2026-09-14): the probe grew to 4736 paths (the
+		// artifact declares 6624 attribute paths, up from 6482; +otelcol.
+		// processor.redaction, -prometheus.write.queue). 608 reach the sandbox
+		// (redaction's 19 kept paths minus its non-string ones, less
+		// write.queue's kept strings) and 4128 do not; 608 + 4128 = 4736.
+		Expect(present).To(Equal(608), "string-carrying paths that reach the sandbox")
+		Expect(absent).To(Equal(4128), "string-carrying paths that do not")
 	})
 
 	// The three leaks finding 1 proved, named individually so a regression says

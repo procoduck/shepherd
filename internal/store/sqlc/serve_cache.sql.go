@@ -66,7 +66,11 @@ func (q *Queries) ListServeCacheSeqByOrg(ctx context.Context, orgID pgtype.UUID)
 }
 
 const markServeCacheDirty = `-- name: MarkServeCacheDirty :exec
-UPDATE serve_cache SET dirty = true, dirty_seq = dirty_seq + 1 WHERE collector_id = $1
+INSERT INTO serve_cache (collector_id, content, hash, dirty, dirty_seq)
+VALUES ($1, '', '', true, 1)
+ON CONFLICT (collector_id) DO UPDATE SET
+    dirty = true,
+    dirty_seq = serve_cache.dirty_seq + 1
 `
 
 // KEEP: single-collector dirty marking; used in agentapi tests and available for
@@ -77,10 +81,13 @@ func (q *Queries) MarkServeCacheDirty(ctx context.Context, collectorID pgtype.UU
 }
 
 const markServeCacheDirtyByCluster = `-- name: MarkServeCacheDirtyByCluster :exec
-UPDATE serve_cache sc
-SET dirty = true, dirty_seq = sc.dirty_seq + 1
+INSERT INTO serve_cache (collector_id, content, hash, dirty, dirty_seq)
+SELECT c.id, '', '', true, 1
 FROM collectors c
-WHERE sc.collector_id = c.id AND c.cluster_id = $1
+WHERE c.cluster_id = $1
+ON CONFLICT (collector_id) DO UPDATE SET
+    dirty = true,
+    dirty_seq = serve_cache.dirty_seq + 1
 `
 
 func (q *Queries) MarkServeCacheDirtyByCluster(ctx context.Context, clusterID pgtype.UUID) error {
@@ -89,14 +96,21 @@ func (q *Queries) MarkServeCacheDirtyByCluster(ctx context.Context, clusterID pg
 }
 
 const markServeCacheDirtyByOrg = `-- name: MarkServeCacheDirtyByOrg :exec
-UPDATE serve_cache sc
-SET dirty = true, dirty_seq = sc.dirty_seq + 1
+INSERT INTO serve_cache (collector_id, content, hash, dirty, dirty_seq)
+SELECT c.id, '', '', true, 1
 FROM collectors c
 JOIN clusters cl ON c.cluster_id = cl.id
-WHERE sc.collector_id = c.id AND cl.org_id = $1
+WHERE cl.org_id = $1
+ON CONFLICT (collector_id) DO UPDATE SET
+    dirty = true,
+    dirty_seq = serve_cache.dirty_seq + 1
 `
 
-// Every mark bumps dirty_seq: see UpsertServeCacheConditional.
+// A mark must never be lost: a collector with no cache row yet (never polled,
+// or its first recompute still in flight) gets a dirty placeholder row so the
+// generation bump lands and a recompute that read "no row" (generation 0)
+// cannot insert over it. Every mark bumps dirty_seq: see
+// UpsertServeCacheConditional.
 func (q *Queries) MarkServeCacheDirtyByOrg(ctx context.Context, orgID pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, markServeCacheDirtyByOrg, orgID)
 	return err

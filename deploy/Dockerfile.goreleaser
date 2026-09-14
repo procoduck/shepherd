@@ -1,4 +1,4 @@
-ARG ALLOY_IMAGE=grafana/alloy:v1.18.1
+ARG ALLOY_IMAGE=grafana/alloy:v1.19.2
 ARG DISTROLESS_BASE_IMAGE=gcr.io/distroless/base-nossl-debian12:nonroot
 
 # Stage 1: Get alloy binary from the pinned fleet version
