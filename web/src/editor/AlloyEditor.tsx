@@ -87,6 +87,18 @@ export function AlloyEditor({
 
     const extensions = [
       alloyTheme,
+      // Alloy config identifiers (component names, labels, attribute names)
+      // are not English prose, so the browser's native spell-checker just
+      // underlines every one of them. @codemirror/view's own contentAttrs
+      // defaults happen to already turn this off, but that is an
+      // implementation detail of the library we should not depend on —
+      // declare the editor's own intent explicitly so it stays off even if
+      // an upstream default ever changes.
+      EditorView.contentAttributes.of({
+        spellcheck: 'false',
+        autocorrect: 'off',
+        autocapitalize: 'off',
+      }),
       alloyLanguage(),
       lineNumbers(),
       foldGutter(),
