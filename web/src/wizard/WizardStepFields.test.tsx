@@ -193,4 +193,48 @@ describe('WizardStepFields', () => {
     );
     expect(screen.getByText('Used to match collectors.')).toBeTruthy();
   });
+
+  it('renders a *_dest_name text field as a select of the org’s matching-type destinations', () => {
+    const onChange = vi.fn();
+    render(
+      <WizardStepFields
+        fields={[
+          field({
+            name: 'metrics_dest_name',
+            label: 'Metrics destination',
+            type: 'text',
+            required: true,
+          }),
+        ]}
+        state={{}}
+        onChange={onChange}
+        destinations={[
+          { name: 'prom-prod', type: 'prometheus' },
+          { name: 'loki-prod', type: 'loki' },
+        ]}
+      />,
+    );
+    const select = screen.getByRole('combobox') as HTMLSelectElement;
+    const optionValues = Array.from(select.options).map((o) => o.value);
+    // metrics_ -> prometheus only: loki-prod must not appear.
+    expect(optionValues).toEqual(['', 'prom-prod']);
+    fireEvent.change(select, { target: { value: 'prom-prod' } });
+    expect(onChange).toHaveBeenCalledWith('metrics_dest_name', 'prom-prod');
+  });
+
+  it('falls back to a text input plus a hint when the org has no destination of the matching type', () => {
+    render(
+      <WizardStepFields
+        fields={[field({ name: 'metrics_dest_name', label: 'Metrics destination', type: 'text' })]}
+        state={{}}
+        onChange={vi.fn()}
+        destinations={[{ name: 'loki-prod', type: 'loki' }]}
+      />,
+    );
+    expect(screen.queryByRole('combobox')).toBeNull();
+    expect(screen.getByRole('textbox')).toBeTruthy();
+    expect(screen.getByRole('link', { name: /destinations/i }).getAttribute('href')).toBe(
+      '/destinations',
+    );
+  });
 });
