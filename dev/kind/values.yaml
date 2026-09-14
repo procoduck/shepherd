@@ -1,0 +1,102 @@
+# dev/kind/values.yaml — the Helm values layer scripts/dev-kind.sh installs
+# the `shepherd` release with, on top of deploy/helm/shepherd's own defaults
+# (`helm upgrade --install shepherd deploy/helm/shepherd -f dev/kind/values.yaml`).
+#
+# Names, hostnames and secret names here are fixed by
+# docs/plans/2026-09-14-kind-dev-stack.md §1 (the contract every slice reads
+# from) — do not rename anything without updating that table and the other
+# slices that reference it (the script applies the manifests this file's
+# route.parentRefs and existingSecret point at).
+#
+# deploy/helm/shepherd/values.schema.json is strict (`additionalProperties:
+# false`) at the top level and inside most sections, so this file uses only
+# keys the schema already knows about — no chart change ships with it.
+#
+# One thing this file deliberately does NOT set: podAnnotations. The script
+# adds `podAnnotations.dev-build` itself on every `helm upgrade --install`
+# (`--set-string`), which is what makes Helm roll the pods after the
+# pre-upgrade migrate hook runs — see deployment.yaml's checksum/config
+# comment and the chart's own C3 note. A value here would only be
+# overwritten by that flag, so it would document a lie.
+
+# replicas: one pod is plenty for a dev box, and it also suppresses the app
+# PodDisruptionBudget (shepherd.effectiveMinReplicas tracks replicas when no
+# autoscaler is enabled, and a PDB requiring 1-of-1 available blocks a node
+# drain — moot on a single-node kind cluster, but there is no reason to
+# render one).
+replicas: 1
+
+# image / simulator.image: pullPolicy Never + tag local means the pods can
+# only ever start from what `kind load docker-image` put on the node — no
+# accidental pull of a registry image after a rebuild. registry: "" so the
+# repository name is used bare, matching what `kind load` loaded it as.
+image:
+  registry: ""
+  repository: shepherd
+  tag: local
+  pullPolicy: Never
+
+# simulator stays ON (the chart's own default since v0.0.1): the S3 sandbox's
+# default-deny NetworkPolicy is only exercised for real once Calico is the
+# CNI, which is exactly what this dev cluster runs it for (plan D1).
+simulator:
+  image:
+    registry: ""
+    repository: shepherd-simulator
+    tag: local
+    pullPolicy: Never
+
+# existingSecret: the Secret the script creates from dev/shepherd.dev.env
+# plus a literal SHEPHERD_OIDC_CLIENT_SECRET (plan §1) — zero copies of the
+# compose env file, and the chart renders no Secret of its own (`secrets` is
+# ignored whenever existingSecret is set).
+existingSecret: shepherd-dev-env
+
+# cnpg: let the chart provision Postgres instead of pointing at one that
+# already exists. One instance (no standby — nothing here needs failover),
+# and 1Gi is generous for the dev seed's data.
+cnpg:
+  enabled: true
+  instances: 1
+  storage:
+    size: 1Gi
+
+# route: the chart's own HTTPRoute, attached to the `dev` Gateway that
+# dev/kind/gateway.yaml declares in this same namespace (parentRefs omits
+# `namespace` on purpose — same-namespace attachment needs only a name).
+# service.type is left at its ClusterIP default: the Gateway is the only
+# intended way in, matching the compose stack's own single entry point.
+route:
+  enabled: true
+  hostnames:
+    - shepherd.localtest.me
+  parentRefs:
+    - name: dev
+
+config:
+  server:
+    # base_url: the browser-reachable address every redirect and callback
+    # URL is built against (SSO's redirect_url below, remotecfg's own
+    # client). It is NOT the in-cluster Service DNS name — nothing the
+    # browser or the mock OIDC provider dials from outside the pod network
+    # can use that.
+    base_url: http://shepherd.localtest.me
+  oidc:
+    # provider: generic — subject claim "sub", groups from the "groups"
+    # claim, no Microsoft Graph lookup. mock-oauth2-server has no Graph API
+    # to call, and its `generic` preset is the one the compose stack's own
+    # walkthrough already exercises (plan C7).
+    provider: generic
+    # display_name: the sign-in button label on the login page, shown
+    # alongside the local-admin form (both stay available — plan §5 step 9).
+    display_name: Mock SSO
+    # issuer: mock-oauth2-server derives its issuer from the request Host,
+    # so this must be the same hostname the CoreDNS rewrite and the `oidc`
+    # HTTPRoute agree on (dev/kind/gateway.yaml, dev/kind/routes.yaml) — pod
+    # and browser then see identical issuer strings (plan D3).
+    issuer: http://oidc.localtest.me/default
+    # client_id: paired with SHEPHERD_OIDC_CLIENT_SECRET, which rides in the
+    # existingSecret above (dev-oidc-client-secret, plan §1) — never here;
+    # this block renders into a ConfigMap.
+    client_id: shepherd-dev
+    redirect_url: http://shepherd.localtest.me/auth/callback
