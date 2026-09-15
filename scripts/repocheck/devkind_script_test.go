@@ -203,7 +203,7 @@ var _ = Describe("scripts/dev-kind.sh", func() {
 		}
 	})
 
-	It("applies the Alloy agents only after the chart is installed", func() {
+	It("applies the Alloy agents only after the chart is installed and seeded", func() {
 		// Alloy's remotecfg block resolves the `shepherd` Service on its
 		// initial load and exits when the lookup fails; agents applied before
 		// install_shepherd crash-loop until the restart backoff happens to
@@ -222,6 +222,12 @@ var _ = Describe("scripts/dev-kind.sh", func() {
 		Expect(up).To(ContainSubstring("apply_alloy_agents"))
 		Expect(strings.Index(up, "apply_alloy_agents")).To(BeNumerically(">", strings.Index(up, "install_shepherd")),
 			"cmd_up must install the chart before applying the Alloy agents")
+		// ...and seed before them too: the seed creates the static agent token
+		// the dev/*.alloy configs authenticate with, and an agent that polls
+		// before it exists exits on "unauthenticated" (second cold bring-up).
+		Expect(up).To(ContainSubstring("cmd_seed"))
+		Expect(strings.Index(up, "apply_alloy_agents")).To(BeNumerically(">", strings.Index(up, "cmd_seed")),
+			"cmd_up must run the seed before applying the Alloy agents")
 		Expect(funcBody(content, "apply_alloy_agents")).To(ContainSubstring("dev/kind/alloy.yaml"))
 		Expect(funcBody(content, "apply_workload_manifests")).NotTo(ContainSubstring("alloy.yaml"),
 			"the pre-chart workload apply must not include the Alloy agents")
