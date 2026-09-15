@@ -97,6 +97,11 @@ type oidcRuntime struct {
 	settings Settings
 	provider *oidc.Provider
 	oauth2   *oauth2.Config
+	// client is the HTTP client the issuer's source is allowed: the address-
+	// guarded one for an admin-supplied issuer, the plain one for a
+	// chart-declared issuer. The provider's JWKS fetches and the code exchange
+	// both go through it.
+	client *http.Client
 }
 
 // settingsRefreshInterval bounds how stale a replica's view of the
@@ -233,13 +238,15 @@ func (h *Handler) Reload(ctx context.Context) error {
 	// HTTP client, never for cancellation, and the provider it returns outlives
 	// this request — binding it to a request context would tie the JWKS client
 	// to a scope that has already ended.
-	provider, err := newProviderFromDiscovery(settings.Issuer, doc) //nolint:contextcheck // provider outlives the request; ctx would only supply the client
+	client := discoveryClientFor(settings.Source)
+	provider, err := newProviderFromDiscovery(settings.Issuer, doc, client) //nolint:contextcheck // provider outlives the request; ctx would only supply the client
 	if err != nil {
 		return err
 	}
 	h.rt.Store(&oidcRuntime{
 		settings: *settings,
 		provider: provider,
+		client:   client,
 		oauth2: &oauth2.Config{
 			ClientID:     settings.ClientID,
 			ClientSecret: settings.ClientSecret,
@@ -412,7 +419,12 @@ func (h *Handler) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 
 	http.SetCookie(w, &http.Cookie{Name: "oidc_state", MaxAge: -1, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: !h.cfg.Auth.InsecureCookies}) //nolint:gosec // G124: all attributes set
 
-	token, err := rt.oauth2.Exchange(r.Context(), r.URL.Query().Get("code"), oauth2.VerifierOption(verifierStr))
+	// The code exchange posts to the token endpoint the discovery document
+	// named, so it goes through the issuer source's client like the JWKS
+	// fetch does: guarded for an admin-supplied issuer, plain for a
+	// chart-declared one.
+	exchangeCtx := context.WithValue(r.Context(), oauth2.HTTPClient, rt.client)
+	token, err := rt.oauth2.Exchange(exchangeCtx, r.URL.Query().Get("code"), oauth2.VerifierOption(verifierStr))
 	if err != nil {
 		h.logger.Error("OIDC token exchange", "err", err)
 		http.Redirect(w, r, "/?auth_error=1", http.StatusFound)

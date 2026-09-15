@@ -263,15 +263,19 @@ func fetchDiscoveryWith(ctx context.Context, client *http.Client, issuer string)
 // document, rather than letting go-oidc fetch it a second time.
 //
 // Two things come with doing it this way, and both matter. The provider is
-// built against the CONSTRAINED client (ProviderConfig.NewProvider takes it
-// from the context), so the JWKS fetches it performs for the rest of its life
-// are subject to the same address guard — a hostile discovery document cannot
-// point jwks_uri at an internal host. And the issuer-match check that
-// oidc.NewProvider performs has to be done here explicitly, because
-// ProviderConfig.NewProvider does not do it; skipping it would accept a
-// document whose declared issuer differs from the URL it came from, which is
-// exactly what go-oidc rejects at verification time with an error nobody sees.
-func newProviderFromDiscovery(issuer string, doc *discoveryDocument) (*oidc.Provider, error) {
+// built against the SAME client that fetched the document (ProviderConfig.
+// NewProvider takes it from the context), so the JWKS fetches it performs for
+// the rest of its life follow the issuer's source: guarded for an
+// admin-supplied issuer, so a hostile discovery document cannot point jwks_uri
+// at an internal host; unguarded for a chart-declared one, which may itself be
+// an in-cluster Service address — the first OIDC login on the kind dev stack
+// failed exactly here when the provider was built against the guarded client
+// regardless of source. And the issuer-match check that oidc.NewProvider
+// performs has to be done here explicitly, because ProviderConfig.NewProvider
+// does not do it; skipping it would accept a document whose declared issuer
+// differs from the URL it came from, which is exactly what go-oidc rejects at
+// verification time with an error nobody sees.
+func newProviderFromDiscovery(issuer string, doc *discoveryDocument, client *http.Client) (*oidc.Provider, error) {
 	if doc.Issuer != issuer {
 		return nil, fmt.Errorf("the discovery document at %s declares its issuer as %q; these must match exactly (a trailing slash is the usual cause). Use %q as the issuer URL", issuer, doc.Issuer, doc.Issuer)
 	}
@@ -286,5 +290,5 @@ func newProviderFromDiscovery(issuer string, doc *discoveryDocument) (*oidc.Prov
 	// context.Background, not a request context: ProviderConfig.NewProvider
 	// uses the context only to pick up the HTTP client, and the provider it
 	// returns outlives any one request.
-	return cfg.NewProvider(oidc.ClientContext(context.Background(), discoveryClient)), nil
+	return cfg.NewProvider(oidc.ClientContext(context.Background(), client)), nil
 }
