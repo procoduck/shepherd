@@ -324,27 +324,33 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 		})
 
 		It("recompute failure serves previous content", func() {
-			collector, pipeline := setupClaimedPipeline()
+			collector, _ := setupClaimedPipeline()
 			first, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{Id: "recompute-instance", LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"}}))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(first.Msg.Content).NotTo(BeEmpty())
 
-			// Make the next recompute actually FAIL: an enabled pipeline with a
-			// malformed matcher (invalid regex, inserted directly so the API
-			// validation is bypassed) makes merge.Assemble return an error.
+			// Make the next recompute actually FAIL, the way it does in
+			// production: the database goes away under it. Neither a malformed
+			// matcher nor unparsable contents does that any more — merge.Assemble
+			// excludes the former and role enforcement (a schema registry is
+			// wired here, as in production) excludes the latter fail-safe — so
+			// the old version of this spec recomputed SUCCESSFULLY and only
+			// passed while both computes landed in the same second (CI run
+			// 34968998790 caught the flake). Renaming the pipelines table in
+			// this spec's isolated database makes ListEnabledPipelinesForMerge
+			// fail while every other query GetConfig runs still works.
 			// (Deleting the pipeline instead would be a SUCCESSFUL recompute of
 			// the empty set, which serves the header-only config — a different
 			// contract.)
-			_, err = st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
-				OrgID: pipeline.OrgID, Name: "broken-matcher", Contents: "// broken",
-				Matchers: json.RawMessage(`["cluster=~\"[\""]`), Enabled: true, Source: "ui",
-				WizardState: json.RawMessage(`{}`), CreatedBy: "test", UpdatedBy: "test",
-			})
+			_, err = st.Pool().Exec(ctx, `ALTER TABLE pipelines RENAME TO pipelines_unavailable`)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(st.Queries.MarkServeCacheDirty(ctx, collector.ID)).To(Succeed())
 
+			failuresBefore := counterValue(metrics.ServeRecomputeFailuresTotal)
 			second, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{Id: "recompute-instance", LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"}}))
 			Expect(err).NotTo(HaveOccurred())
+			Expect(counterValue(metrics.ServeRecomputeFailuresTotal)).To(Equal(failuresBefore+1),
+				"the recompute must have actually failed — otherwise this spec proves nothing")
 			Expect(second.Msg.Content).To(Equal(first.Msg.Content),
 				"the previously cached content must be served verbatim when recompute fails")
 			Expect(second.Msg.Hash).To(Equal(first.Msg.Hash))
