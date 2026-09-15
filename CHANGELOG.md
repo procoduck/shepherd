@@ -19,7 +19,9 @@ Chart 0.11.0. One template changed since 0.10.2: the Service's `appProtocol` is 
 image; no migration in this release. The release closes the two review batches after v0.6.0: the
 sixteen findings of the manual walkthrough of the published 0.6.0, and the three product faults the
 first live bring-up of the new kind dev stack exposed — including that an OIDC provider on a
-private address, declared in the chart, could not complete a login.
+private address, declared in the chart, could not complete a login. Two served-config header
+fixes found while cutting the release ride along: broken matchers are reported again under role
+enforcement, and a line break in a pipeline name can no longer take its collectors offline.
 
 ### Fixed — walkthrough findings
 
