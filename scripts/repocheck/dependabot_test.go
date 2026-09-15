@@ -5,6 +5,7 @@ package repocheck_test
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -127,5 +128,68 @@ var _ = Describe("renovate.json", func() {
 			}
 		}
 		Expect(alloyFrozen).To(BeTrue(), "an Alloy tag bump is a schema bump and must not come from Renovate")
+	})
+
+	// Renovate evaluates matchStrings with RE2 semantics, and so does Go's
+	// regexp package: a pattern Go refuses to compile is one Renovate refuses
+	// too, and Renovate's answer is issue #68 "Action Required: Fix Renovate
+	// Configuration" plus a silent stop of every PR. The original pattern ended
+	// in a lookahead, which RE2 does not have. Compiling here catches that class
+	// of mistake before it reaches the app; the extraction assertions catch a
+	// pattern that compiles but no longer matches the lines it exists for.
+	It("uses matchStrings RE2 can compile, and they extract the pins from every file shape", func() {
+		var cfg struct {
+			CustomManagers []struct {
+				MatchStrings []string `json:"matchStrings"`
+			} `json:"customManagers"`
+		}
+		Expect(json.Unmarshal([]byte(readRepoFile("renovate.json")), &cfg)).To(Succeed())
+		Expect(cfg.CustomManagers).To(HaveLen(1))
+		var res []*regexp.Regexp
+		for _, pattern := range cfg.CustomManagers[0].MatchStrings {
+			re, err := regexp.Compile(pattern)
+			Expect(err).NotTo(HaveOccurred(), "Renovate (RE2) cannot compile this matchString: %s", pattern)
+			Expect(re.SubexpNames()).To(ContainElements("depName", "currentValue", "currentDigest"))
+			res = append(res, re)
+		}
+		// extract returns the named groups of the first pattern that matches
+		// line, the way Renovate's default matchStringsStrategy ("any") does.
+		extract := func(line string) map[string]string {
+			for _, re := range res {
+				m := re.FindStringSubmatch(line)
+				if m == nil {
+					continue
+				}
+				got := map[string]string{}
+				for i, n := range re.SubexpNames() {
+					if n != "" {
+						got[n] = m[i]
+					}
+				}
+				return got
+			}
+			return nil
+		}
+
+		digest := strings.Repeat("ab", 32)
+		for _, tc := range []struct{ line, dep, value, digest string }{
+			{"GO_IMAGE=golang:1.26-alpine@sha256:" + digest, "golang", "1.26-alpine", "sha256:" + digest},
+			{"ARG NODE_IMAGE=node:24-slim@sha256:" + digest, "node", "24-slim", "sha256:" + digest},
+			{"    image: ${ALLOY_IMAGE:-grafana/alloy:v1.19.2@sha256:" + digest + "}", "grafana/alloy", "v1.19.2", "sha256:" + digest},
+			{"DISTROLESS_BASE_IMAGE=gcr.io/distroless/base-nossl-debian12:nonroot@sha256:" + digest, "gcr.io/distroless/base-nossl-debian12", "nonroot", "sha256:" + digest},
+			{"FROM gcr.io/distroless/static-debian12:nonroot@sha256:" + digest, "gcr.io/distroless/static-debian12", "nonroot", "sha256:" + digest},
+			{"KIND_NODE_IMAGE=kindest/node:v1.31.4", "kindest/node", "v1.31.4", ""},
+		} {
+			got := extract(tc.line)
+			Expect(got).NotTo(BeNil(), "no matchString matches %q", tc.line)
+			Expect(got["depName"]).To(Equal(tc.dep), tc.line)
+			Expect(got["currentValue"]).To(Equal(tc.value), tc.line)
+			Expect(got["currentDigest"]).To(Equal(tc.digest), tc.line)
+		}
+		// Lines that look like image:tag but are not must stay unmatched, or
+		// Renovate would look them up in the docker datasource and fail.
+		for _, line := range []string{"    restart: unless-stopped", "    condition: service_healthy", "  url: http://gitea:3000", `      - "18090:9090"`, "      - --server.http.listen-addr=0.0.0.0:12345", "      SHEPHERD_SIMULATOR_TARGET_ADDRESS: simulator:9111"} {
+			Expect(extract(line)).To(BeNil(), "matchString must not match the non-image line %q", line)
+		}
 	})
 })

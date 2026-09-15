@@ -39,7 +39,7 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "KEY=image:tag@sha256:digest lines in deploy/versions.env, ARG defaults in the Dockerfiles, and ${VAR:-image:tag} fallbacks in the compose files.",
+      "description": "KEY=image:tag@sha256:digest lines in deploy/versions.env, ARG defaults in the Dockerfiles, FROM lines in e2e/mockmsft/Dockerfile, and ${VAR:-image:tag} fallbacks in the compose files. Two RE2 patterns (no lookahead — Renovate refuses it): numeric tags with an optional digest, and word tags such as distroless nonroot only when a digest follows. Names start with a letter and numeric tags carry a dot or dash, so YAML key: value pairs, host:port mappings and 0.0.0.0:port listens never match (a bare-integer tag such as postgres:16 would not either — this repo uses none).",
       "managerFilePatterns": [
         "/^deploy/versions\\.env$/",
         "/^deploy/Dockerfile\\./",
@@ -48,7 +48,8 @@
         "/^e2e/docker-compose\\.e2e\\.yaml$/"
       ],
       "matchStrings": [
-        "(?:^|[=:\\-{ ])(?<depName>(?:[a-z0-9.-]+\\.[a-z]{2,}/)?[a-z0-9._/-]+):(?<currentValue>v?[0-9][A-Za-z0-9._-]*)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?(?=[\\s}\"']|$)"
+        "(?:^|:-|[=:{ ])(?<depName>(?:[a-z0-9.-]+\\.[a-z]{2,}/)?[a-z][a-z0-9._/-]*):(?<currentValue>v?[0-9]+[.-][A-Za-z0-9._-]+)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?(?:[\\s}\"']|$)",
+        "(?:^|:-|[=:{ ])(?<depName>(?:[a-z0-9.-]+\\.[a-z]{2,}/)?[a-z][a-z0-9._/-]*):(?<currentValue>[A-Za-z][A-Za-z0-9._-]*)@(?<currentDigest>sha256:[a-f0-9]{64})(?:[\\s}\"']|$)"
       ],
       "datasourceTemplate": "docker",
       "versioningTemplate": "docker"
