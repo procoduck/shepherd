@@ -141,7 +141,7 @@ var _ = Describe("ci.yml housekeeping", func() {
 		ci := readRepoFile(".github/workflows/ci.yml")
 		// Only the trigger block matters; the header comment is allowed to
 		// explain why paths-ignore is gone.
-		on := regexp.MustCompile(`(?ms)^on:\n(.*?)^[a-z]`).FindStringSubmatch(ci)
+		on := regexp.MustCompile(`(?s)\non:\n(.*?)\n[a-z]`).FindStringSubmatch(ci)
 		Expect(on).NotTo(BeNil(), "could not isolate ci.yml's on: block")
 		Expect(on[1]).NotTo(ContainSubstring("paths-ignore"),
 			"a paths-ignore on ci.yml makes docs-only PRs unmergeable: the required contexts never report")
@@ -153,8 +153,10 @@ var _ = Describe("ci.yml housekeeping", func() {
 	It("opens no gate for a docs-only diff, so such a PR costs only changes + guards", func() {
 		// Join shell line continuations so a gate split across lines still parses.
 		ci := regexp.MustCompile(`\\\n\s*`).ReplaceAllString(readRepoFile(".github/workflows/ci.yml"), " ")
-		docsOnly := []string{"README.md", "docs/dev-guide.md", "site/index.html", "site/docs/roles.html",
-			"scripts/docs-content/roles.html", "internal/spa/AGENTS.md", "web/AGENTS.md", "CHANGELOG.md"}
+		docsOnly := []string{
+			"README.md", "docs/dev-guide.md", "site/index.html", "site/docs/roles.html",
+			"scripts/docs-content/roles.html", "internal/spa/AGENTS.md", "web/AGENTS.md", "CHANGELOG.md",
+		}
 		for _, gate := range []string{"backend", "frontend", "generated"} {
 			re := regexp.MustCompile(`(?m)^\s*if echo "\$files"(?: \| grep -vE '([^']+)')?\s*\| grep -qE '([^']+)'; then\n\s*echo "` + gate + `=true"`)
 			m := re.FindStringSubmatch(ci)
