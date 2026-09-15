@@ -80,7 +80,7 @@ var _ = Describe("the dev-restart target", func() {
 
 	It("is a real gap in compose, not a stale spec: the shepherd service has image: and no build:", func() {
 		compose := readRepoFile("dev/docker-compose.dev.yaml")
-		svc := regexp.MustCompile(`(?ms)^  shepherd:\n(.*?)^  [a-z]`).FindStringSubmatch(compose)
+		svc := regexp.MustCompile(`(?s)\n  shepherd:\n(.*?)\n  [a-z]`).FindStringSubmatch(compose)
 		Expect(svc).NotTo(BeNil())
 		Expect(svc[1]).To(ContainSubstring("image: shepherd:local"))
 		Expect(svc[1]).NotTo(MatchRegexp(`(?m)^    build:`))
