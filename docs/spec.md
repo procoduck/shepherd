@@ -1183,7 +1183,7 @@ Supporting rules:
 
 ## 22. AGENTS.md — agent instruction files (create exactly these)
 
-The repo ships instruction files for AI coding agents that will maintain it after v1. These are **always-on context** injected into every future agent turn, so they are deliberately terse: they carry only what an agent cannot cheaply discover from the code, and they reference this spec by path instead of duplicating it. Do NOT expand them with content generated from the codebase, restate linter-enforced style, or add narrative — every extra line taxes future agents' instruction budget. Ceiling (aspirational, not enforced — the root file is ~95 lines and `web/AGENTS.md` ~45 as of v0.5.0): root file ≤ 100 lines; subtree files ≤ 50.
+The repo ships instruction files for AI coding agents that will maintain it after v1. These are **always-on context** injected into every future agent turn, so they are deliberately terse: they carry only what an agent cannot cheaply discover from the code, and they reference this spec by path instead of duplicating it. Do NOT expand them with content generated from the codebase, restate linter-enforced style, or add narrative — every extra line taxes future agents' instruction budget. Ceiling (aspirational, not enforced — the root file is 100 lines, `web/AGENTS.md` 43 and `e2e/AGENTS.md` 50 after the 2026-09-15 housekeeping): root file ≤ 100 lines; subtree files ≤ 50.
 
 Create THREE files. Root `AGENTS.md`, verbatim (substitute the real module path):
 
@@ -1231,9 +1231,9 @@ React 19/TS/Vite SPA embedded via go:embed, PostgreSQL 16. Spec: docs/spec.md (a
 - Weaken the validation gate or serve unvalidated config, even in tests of other features
 ```
 
-`web/AGENTS.md` (≤ 25 lines): commands (`npm run dev|build|lint|typecheck|test`), the pointers an agent needs — design tokens and screen specs live in `docs/spec.md` §13 and are non-negotiable; the shared editor is `src/editor/AlloyEditor.tsx`; API client types in `src/api/`; state via TanStack Query only (no other stores) — and rules: never introduce new color tokens or component libraries; never call `fetch` outside `src/api/`; autocomplete schema changes go in `src/editor/alloySchema.ts` with a matching test.
+`web/AGENTS.md` (≤ 50 lines): commands (`pnpm dev|build|check|typecheck|test|test:ui`), the pointers an agent needs — design tokens and screen specs live in `docs/spec.md` §13 and are non-negotiable; the shared editor is `src/editor/AlloyEditor.tsx` behind `LazyAlloyEditor.tsx`; API client types in `src/api/`; server state via TanStack Query, and the visual builder's document in its one zustand+zundo store (`src/visual/store.ts`) — and rules: never introduce new color tokens or component libraries; never call `fetch` outside `src/api/`; autocomplete schema changes go in `src/editor/alloySchema.ts` with a matching test.
 
-`e2e/AGENTS.md` (≤ 25 lines): how to run one scenario (`ginkgo --tags=e2e --focus "GitOps" ./e2e`), `E2E_KEEP=1` to keep the stack for debugging, mockmsft fixture endpoint usage, and the rule that scenarios must stay independent of each other except the documented ordered flow.
+`e2e/AGENTS.md` (≤ 50 lines): how to run one scenario (`ginkgo --tags=e2e --focus "GitOps" ./e2e`), `E2E_KEEP=1` to keep the stack for debugging, mockmsft fixture endpoint usage, and the rule that scenarios must stay independent of each other except the documented ordered flow.
 
 Finally: copy this specification into the repo as `docs/spec.md` so the references above resolve, and add a one-line pointer to it from the README.
 
