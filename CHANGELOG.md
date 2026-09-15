@@ -67,6 +67,18 @@ Root causes, the full finding list, and the slice plan are in
   pinned CloudNativePG operator chart (`0.29.0`) refuses older nodes and Helm has no way to make
   `kubeVersion` conditional on a value.
 
+### Fixed — found by the first `make dev-kind` bring-up
+
+- **A chart-declared OIDC issuer on a private address could not complete a login.** Discovery
+  accepted it (a chart-declared issuer is allowed to be in-cluster), but the provider built from
+  the discovery document fetched its signing keys through the address-guarded client, so every
+  login failed after the code exchange with "fetching keys: address is not a public internet
+  address". The provider and the code exchange now use the same client the issuer's source is
+  allowed; an issuer typed into the admin UI stays guarded at every hop.
+- **`route.enabled` could not resolve through NGINX Gateway Fabric.** The Service hardcoded
+  `appProtocol: kubernetes.io/h2c`, which NGF refuses to proxy an HTTP route to. New chart value
+  `service.appProtocol` (default unchanged, `kubernetes.io/h2c`); set it to `""` for NGF.
+
 ### Known
 
 - **A collector's `remote_config_status` of `APPLIED` means "polled with the served config's

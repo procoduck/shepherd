@@ -406,6 +406,33 @@ product working correctly, not a dev-stack limitation to fix — https first, th
 (Plan §5 step 10 walks the same scenario live; correct it there too before the walk, so the live
 run confirms the same two-step refusal instead of the wrong one.)
 
+### What the first live bring-up found (2026-09-15)
+
+Three things no static check could show, each fixed on the same branch with a red run:
+
+- **The chart's own HTTPRoute never resolved through NGINX Gateway Fabric.** The Service hardcoded
+  `appProtocol: kubernetes.io/h2c`, and NGF refuses to proxy an HTTP route to an h2c upstream
+  (`ResolvedRefs=False / UnsupportedProtocol`; every request answered 500 from nginx). The
+  conformance suite routes to the receiver tier, not to Shepherd's Service, which is why it had
+  never been seen. `service.appProtocol` is now a chart value; the h2c default is unchanged and
+  `dev/kind/values.yaml` clears it.
+- **A chart-declared private issuer was blocked at the key fetch.** Discovery used the per-source
+  client, but the go-oidc Provider built from the document — and its JWKS fetches — used the
+  guarded client regardless of source, so the first SSO login failed after the code exchange with
+  *"fetching keys ... address is not a public internet address"*. The provider and the code exchange
+  now follow the issuer's source (`internal/auth/discovery.go`, `auth.go`). The `dialGuard`
+  boundary above still holds for admin-supplied issuers.
+- **The Alloy agents were applied before the chart.** Alloy's `remotecfg` exits when the `shepherd`
+  Service does not resolve on its initial load, so the three agents crash-looped through five
+  restarts each until the backoff lined up with the Service appearing. `cmd_up` now applies them
+  after `install_shepherd`.
+
+One observation, not a dev-stack bug: a 30-second sandbox run against a pipeline with a
+30-second scrape interval captures either one scrape or none, depending on where the scrape
+jitter lands — the first run showed 0 series and the next two showed 21. The simulator's
+containment and capture work under Calico; the run window versus the scrape interval is a product
+question for the ledger.
+
 The walk itself (full detail and the exact claims JSON for each persona in
 `docs/plans/2026-09-14-kind-dev-stack.md` §5 step 10): the login page offers both the local form
 and an SSO button labelled "Mock SSO". Signing in through it lands on
