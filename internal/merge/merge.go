@@ -151,9 +151,15 @@ func Assemble(collectorID, collectorDisplayName string, cl CollectorLabels, pipe
 			"merge: role enforcement was requested but the schema registry is nil — " +
 				"refusing to serve unenforced config that would look enforced")
 	}
+	// Both exclusion sources reach the header: unparsable matchers were
+	// collected above, role mismatches come from enforceRoles. Append, never
+	// replace — a broken matcher must stay visible in the served header even
+	// when role enforcement is on (which is every production deployment).
 	exclusions := unmatchable
 	if cfg.registry != nil {
-		selected, exclusions = enforceRoles(selected, cl, cfg.registry)
+		var roleExclusions []Exclusion
+		selected, roleExclusions = enforceRoles(selected, cl, cfg.registry)
+		exclusions = append(exclusions, roleExclusions...)
 	}
 
 	if len(selected) == 0 {

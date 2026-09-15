@@ -263,6 +263,31 @@ var _ = Describe("role enforcement (WithRoleEnforcement, gate G6)", func() {
 		Expect(r.Exclusions[0].PipelineName).To(Equal("metrics-pipe"))
 	})
 
+	It("keeps an unparsable-matcher exclusion in the header when role enforcement also runs", func() {
+		// Two exclusion sources feed the same header: matchers that fail to
+		// parse (collected before selection) and role mismatches (found by
+		// enforceRoles). The second used to REPLACE the first, so a broken
+		// matcher vanished from the served header whenever a schema registry
+		// was wired — which is every production deployment.
+		cl := merge.CollectorLabels{
+			CollectorID: "coll-uuid-1",
+			Labels:      map[string]string{"cluster": "test", "role": "logs"},
+		}
+		pipelines := []merge.Pipeline{
+			{Name: "broken-matcher", Contents: logsOnlyPipeline, Matchers: []string{`cluster=~"["`}, Source: "ui"},
+			{Name: "metrics-pipe", Contents: metricsOnlyPipeline, Matchers: []string{`cluster="test"`}, Source: "ui"},
+			{Name: "logs-pipe", Contents: logsOnlyPipeline, Matchers: []string{`cluster="test"`}, Source: "ui"},
+		}
+		r, err := merge.Assemble("coll-uuid-1", "test/logs", cl, pipelines, "dev", "2024-01-01T00:00:00Z", merge.WithRoleEnforcement(reg))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(r.Content).To(ContainSubstring("pipe_logs_pipe"))
+		Expect(r.Exclusions).To(HaveLen(2))
+		names := []string{r.Exclusions[0].PipelineName, r.Exclusions[1].PipelineName}
+		Expect(names).To(ConsistOf("broken-matcher", "metrics-pipe"))
+		Expect(r.Content).To(ContainSubstring("// Excluded (2)"))
+		Expect(r.Content).To(ContainSubstring("broken-matcher: unparsable matcher"))
+	})
+
 	It("is unrestricted for role=singleton: a pipeline mixing metrics and logs is kept", func() {
 		cl := merge.CollectorLabels{
 			CollectorID: "coll-uuid-1",

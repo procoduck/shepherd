@@ -90,6 +90,19 @@ Root causes, the full finding list, and the slice plan are in
   exits when its first load fails, and an agent started before the seed has no token to poll with.
   Dev-stack only; no product change.
 
+### Fixed — served-config header
+
+- **An unparsable matcher vanished from the served header whenever role enforcement ran.** Two
+  exclusion lists feed the `// Excluded (n)` header block: pipelines whose matcher does not parse
+  and pipelines the role gate removed. The second replaced the first, so on every production
+  deployment (a schema registry is always wired) a broken matcher was excluded silently. The lists
+  are now appended. Header only; which pipelines are served does not change.
+- **The "recompute failure serves previous content" spec had stopped failing the recompute.**
+  It relied on a malformed matcher aborting assembly, which the exclusion above turned into a
+  successful recompute, so it only passed while both computes landed in the same second (CI run
+  34968998790). It now breaks the pipelines table under the recompute and asserts the failure
+  counter moved, so a same-second pass cannot hide a non-failure again.
+
 ### Known
 
 - **A collector's `remote_config_status` of `APPLIED` means "polled with the served config's
