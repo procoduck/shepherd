@@ -56,7 +56,9 @@ Automated, in the repository and on GitHub, so a reporter can see what is alread
   history on every PR (`make secrets-scan` locally).
 - **Dependencies** — Dependabot version and security updates for Go, npm and GitHub Actions,
   weekly; Renovate for container images, which are pinned by digest as well as tag in
-  `deploy/versions.env` and every file that restates them.
+  `deploy/versions.env` and every file that restates them — except the kind node image, which
+  is deliberately tag-only and excluded from Renovate (a bump must stay inside kind's and the
+  gateway controller's supported range).
 - **Supply chain** — every GitHub Action is pinned to a commit SHA (enforced by
   `scripts/repocheck`), release archives carry SBOMs, and release archives and images carry
   Sigstore provenance attestations (`gh attestation verify`). OpenSSF Scorecard runs weekly.

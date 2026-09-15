@@ -10,7 +10,7 @@ import (
 	"shepherd/internal/store"
 )
 
-// Migration 0019_pipeline_revision_wizard_state (docs/plans/2026-09-11-f-revisions.md,
+// Migration 0019_pipeline_revision_wizard_state (docs/archive/plans/2026-09-11-f-revisions.md,
 // F-REVISIONS): gives each pipeline_revisions row its own copy of the
 // visual-builder graph document, nullable with no default. Pin that the
 // column exists and stays nullable after MigrateUp, that a row inserted

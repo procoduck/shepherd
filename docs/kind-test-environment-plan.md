@@ -1,7 +1,7 @@
 # Kubernetes test environment — plan
 
-> Status (2026-08-22, re-checked 2026-09-11 — no code change to this suite this session; the suite
-> ran green on the v0.5.0 release PR, #52, `e2e-k8s.yml` run 34614691090): **steps
+> Status (2026-08-22, re-checked 2026-09-15 — PR #69 moved the suite's node-image, Calico and NGF pins
+> to `deploy/versions.env` and the suite ran green on it, `e2e-k8s.yml` run 34945312764): **steps
 > 1–2 implemented** (`e2e/k8s/`, `make e2e-k8s`); **step 3 partially done** (default-values Helm
 > install, `chart_deps_test.go`'s own-dependencies check, and repeatability specs in
 > `e2e/k8s/helm_install_test.go` and `helm_repeatable_test.go`; full-values install and true
@@ -289,15 +289,16 @@ fails for reasons unrelated to policy.
    universal guarantee.
 4. **Chart upgrade coverage** needs a previous version to upgrade from. **No longer blocked**:
    `v0.3.5` (tagged 2026-08-27) is a released chart version 0.9.0
-   (`git show v0.3.5:deploy/helm/shepherd/Chart.yaml`), ahead of the unreleased 0.10.0 on this
-   branch — step 3's true previous-version upgrade spec has something to install first now. Still
+   (`git show v0.3.5:deploy/helm/shepherd/Chart.yaml`); 0.10.0, 0.10.1 and 0.10.2 are all
+   published since — step 3's true previous-version upgrade spec has plenty to install first. Still
    not written (see the status header and §8 step 3); this only removes the reason it was deferred.
 
 ## 10. What this does not do
 
-It does not make S3 containment provable on Docker Desktop or OrbStack; those remain
-local-development environments where `internal: true` does not deny the host, and that stays
-documented as a limitation rather than fixed. It does not test at scale — no load, no soak, no
+It does not make S3 containment provable on Docker Desktop or OrbStack; the compose stack remains
+a local-development environment where `internal: true` does not deny the host, and that stays
+documented as a limitation rather than fixed — §11's `make dev-kind` is the local stack where the
+policy is real. It does not test at scale — no load, no soak, no
 multi-node failover. And it does not replace the compose e2e suite, which is faster and still the
 right place for agent-protocol and GitOps coverage.
 
@@ -403,8 +404,8 @@ https://oidc.localtest.me/default/.well-known/openid-configuration: it resolves 
 loopback address, which an identity provider never does"* (`discovery.go`). Both refusals are the
 product working correctly, not a dev-stack limitation to fix — https first, then the dial guard.
 
-(Plan §5 step 10 walks the same scenario live; correct it there too before the walk, so the live
-run confirms the same two-step refusal instead of the wrong one.)
+(The implementation plan's §5 step 10 describes only the second refusal; the plan is archived
+as written and this section is the corrected account.)
 
 ### What the first live bring-up found (2026-09-15)
 
@@ -425,7 +426,8 @@ Three things no static check could show, each fixed on the same branch with a re
 - **The Alloy agents were applied before the chart.** Alloy's `remotecfg` exits when the `shepherd`
   Service does not resolve on its initial load, so the three agents crash-looped through five
   restarts each until the backoff lined up with the Service appearing. `cmd_up` now applies them
-  after `install_shepherd`.
+  after `install_shepherd` and after `cmd_seed` — the second cold run showed that an agent started
+  before the seed exits on "unauthenticated", because the seed creates the static token it polls with.
 
 One observation, not a dev-stack bug: a 30-second sandbox run against a pipeline with a
 30-second scrape interval captures either one scrape or none, depending on where the scrape

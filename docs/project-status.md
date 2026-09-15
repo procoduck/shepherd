@@ -11,6 +11,7 @@
 |---|---|
 | `docs/project-status.md` | this ledger — verified baseline, open bugs, unbuilt features, open follow-ups |
 | `docs/spec.md` | authoritative product/build specification (§ numbers referenced below) |
+| `docs/plans/` | dated per-PR implementation plans; a plan moves to `docs/archive/plans/` once its work has shipped in a tag (`2026-09-14-walkthrough-fixes.md`, `2026-09-14-kind-dev-stack.md` are merged but unreleased) |
 | `docs/visual-builder-design-VB1.md` | visual builder design — M1–M8 built; §6.4 (S3) is the live spec for the sandbox feature (enabled by default in the Helm chart since v0.0.1) |
 | `docs/reviews/` | **live decision records only**: `canvas-framework-evaluation.md` (the React Flow decision and the controlled-mode contract `CanvasPane` depends on). Closed reviews move to `docs/archive/reviews/` |
 | `docs/dev-guide.md` | running the dev stack |
@@ -39,14 +40,14 @@ checkable by run id rather than by trusting this table.
 | `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 34829976236 | green |
 | Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml` on push to main, run 34829225428 (`7b82428`) | green |
 | Kubernetes e2e, kind (`make e2e-k8s`) | `e2e-k8s.yml` on PR #65, run 34829976482 | green |
-| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job on every PR (not on push), run 34828420060 (PR #62) | green |
+| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job on PRs touching the sandbox surface (path-filtered, never on push), run 34828420060 (PR #62) | green |
 | Release: verify job, goreleaser, image attestations, chart OCI push | `release.yml`, run 34831444506 | success — chart 0.10.2 / appVersion 0.6.0 published, images `0.6.0` present, provenance verifies. The report-only `scan-published` job failed on a wrong image name (fixed in the Unreleased changelog entry); the release itself was unaffected |
 
 ### What demonstrably works end to end
 
 Verified on the running stack and in the browser, not inferred:
 
-- **Agent protocol** — real Alloy v1.18.1 agents register, poll and apply served config; status,
+- **Agent protocol** — real Alloy v1.19.2 agents register, poll and apply served config; status,
   hash and not-modified round-trip. Collector-token auth is a Connect request gate (v0.5.0): a
   bad credential is refused before the body is read.
 - **Merge engine + validation gate** — served config carries both seeded pipelines, declare-wrapped,
@@ -93,7 +94,10 @@ production target. The Helm chart ships a default-deny NetworkPolicy on both Ing
 (plus `automountServiceAccountToken: false`, non-root, read-only rootfs, dropped capabilities), the
 sandboxed Alloy is a child process of the simulator pod, and NetworkPolicy enforcement is verified
 in a real cluster by the kind suite's Layer B probes (`e2e/k8s/simulator_containment_test.go`).
-Compose stays a local-development convenience and this stays documented rather than fixed.
+Compose stays a local-development convenience and this stays documented rather than fixed; a
+developer who needs containment to be real locally uses `make dev-kind`, which installs Calico so
+the chart's NetworkPolicy is enforced (`docs/kind-test-environment-plan.md` §11). B-CONTAIN-2 is
+compose-only.
 
 Fixed bugs (B-CONTAIN-1, B-CONCAT, B-STAGEORDER, F9-a) are in
 `docs/archive/completed-2026-09-11.md` with their red-run evidence.
@@ -117,7 +121,8 @@ artifacts (W7), the chart-values UI + G10 (W9), teams UI (W10), and the two R6 c
 MCP interface (W11). Each is a §4 item below.
 
 Closed features (F5 sandbox simulation, F-SIGNAL-SERVE) are in `docs/archive/completed-2026-09-11.md`.
-F-REVISIONS closed — see `CHANGELOG.md` Unreleased "Pipelines — Shipped".
+F-REVISIONS closed — see `CHANGELOG.md` v0.6.0 "Pipelines — Shipped"; its plan is archived at
+`docs/archive/plans/2026-09-11-f-revisions.md`.
 
 ---
 
@@ -146,7 +151,7 @@ answer and the ledger item it produced is below.
 ### Scheduled work (from the decisions above)
 
 - [x] **F-REVISIONS**: `contents` on `PipelineRevision`, `RestoreRevision` RPC, the text diff
-      view and Restore in the pipeline editor — shipped, see `CHANGELOG.md` Unreleased. Graph
+      view and Restore in the pipeline editor — shipped in v0.6.0, see `CHANGELOG.md`. Graph
       diff for visual pipelines is the remaining follow-up (below).
 - [ ] **Editor Format + Validate buttons**: `FormatPipeline` RPC over `alloy fmt`, wired to a
       Format button; an explicit Validate button beside the idle-debounced validation.
@@ -159,20 +164,26 @@ answer and the ledger item it produced is below.
 - [ ] **Receiver tier build (R3)**: chart Deployment + Service + NetworkPolicy (gateway the only
       ingress), tested off-switch, real-Alloy pass-through tenancy e2e; then R3 sign-off.
 - [ ] **R6 conditions**: per-service-account request rate limit (server-side, keyed on the
-      service-account id) and a `pipeline.propose` audit row from `propose_pipeline_revision`.
-      MCP binary joins the release archives only after both land.
+      service-account id) — still open (nothing in `internal/mgmtapi/machine_auth.go`). The
+      `pipeline.propose` audit row already exists: `ValidatePipeline` writes it for every
+      service-account caller (`internal/mgmtapi/rpc_pipeline.go`, red-run in
+      `attribution_test.go`, since 2026-08-22), and `propose_pipeline_revision` composes that RPC.
+      MCP binary joins the release archives only after the rate limit lands.
 - [ ] **Tenant routes UI** (W4, cleared by R1): create/list/rotate/revoke, with the
       identifier-not-authorizer caveat and edge-control guidance on the docs site.
-- [ ] **Teams UI** (W10): teams, members, service accounts and their role tier.
+- [ ] **Service-accounts UI** (W10 remainder): create/list/revoke with the role tier — no client
+      in `web/src/api/transport.ts` and no page. Teams and explicit members shipped in v0.3.0
+      (`web/src/pages/TeamsPage.tsx`).
 - [ ] **Reconciliation surface** (W6): per-collector declared vs served vs observed drift.
 - [ ] **Onboarding artifacts page** (W7): "connect an app" snippets for a tenant route.
 - [ ] **Chart-values generator UI** (W9) + gate G10 in the kind suite.
 
 ### Smaller follow-ups
 
-Two items below (marked with the plan link) come from the v0.6.0 manual UI walkthrough
-(`docs/plans/2026-09-14-walkthrough-fixes.md`, §3 "Blocked"); every other finding from that
-walkthrough was closed in the same batch — see `CHANGELOG.md` Unreleased.
+Three items below (marked with the plan link) come from the v0.6.0 manual UI walkthrough
+(`docs/plans/2026-09-14-walkthrough-fixes.md`, §3 "Blocked") and two from the kind dev stack's
+first live bring-up (`docs/plans/2026-09-14-kind-dev-stack.md`); every other finding from both
+was closed in the same batches — see `CHANGELOG.md` Unreleased.
 
 Open, in rough priority order:
 
@@ -188,6 +199,20 @@ Open, in rough priority order:
       self-monitoring log-step default and the wizard-added-matcher badge (both shipped in the
       same batch) work around the gap client-side rather than closing it; a first-class warnings
       field is a `proto/` change, deferred.
+- [ ] **`Chart.yaml` `kubeVersion` says `>=1.25.0-0`, but `cnpg.enabled` needs `>=1.29.0-0`**
+      (`B3` in the same plan). Helm cannot express a conditional floor; raising the global one
+      refuses plain installs that work today. The database docs state the operator-path floor;
+      raising the chart floor is a chart minor — decide separately.
+- [ ] **`NOTES.txt` prints `https://` for every `route.hostnames` entry** although a route may be
+      plain http (the kind dev stack's is). Cosmetic; fix with the next chart release.
+- [ ] **A 30 s sandbox run against a 30 s scrape interval captures one scrape or none**, depending
+      on where the scrape jitter lands — the first `make dev-kind` run showed 0 series and the next
+      two 21. Containment and capture are fine; the run window versus the pipeline's own interval
+      is the product question (a minimum window, or a first-scrape trigger).
+- [ ] **A chart version bump is pending**: `main` changes `templates/service.yaml`,
+      `values.yaml` and `values.schema.json` (`service.appProtocol`, #69) under the published
+      `0.10.2`; the next release must bump the chart, and the v0.6.0 "no template changed"
+      preamble pattern does not apply.
 - [ ] **Graph diff for visual pipelines.** The pipeline editor's revision diff is text-only
       (`RevisionDiff`, CodeMirror merge view); the visual builder page has no revision UI, so a
       visual pipeline's graph-level change is not diffable, only its rendered text. Restoring a
@@ -212,7 +237,7 @@ Open, in rough priority order:
       stays flat-top-level-prop-only by design, not yet extended.
 - [ ] **Kind suite, plan steps 3 and 5** (`docs/kind-test-environment-plan.md`): the full-values
       install and the true previous-version Helm upgrade spec (no longer blocked — chart 0.9.0,
-      0.10.0 and 0.10.1 are all published), and the `NOTES.txt` CNI/NetworkPolicy warning (G10 is
+      0.10.0, 0.10.1 and 0.10.2 are all published), and the `NOTES.txt` CNI/NetworkPolicy warning (G10 is
       scheduled with the chart-values UI above).
 - [ ] Overlay entries scaffolded by `make schema` carry `needs_review: true` and need an editorial
       pass on the next Alloy bump.
@@ -246,7 +271,9 @@ logout; horizontal-scale coordination beyond stateless replicas + Postgres.
 - **Backend**: Ginkgo v2 + Gomega; testcontainers Postgres (Docker required for `make test`);
   `make test` / `make e2e` (compose: postgres, mock-oauth2, mockmsft Graph+ADO mock with
   `/__fixture` injection, Gitea, shepherd, real Alloy); `make e2e-sim` (sandbox containment + run
-  lifecycle, local-only per D13); `make e2e-k8s` (kind + Calico, `-tags e2ek8s`)
+  lifecycle; in CI as `e2e.yml`'s path-filtered `e2e-egress` job on PRs); `make e2e-k8s` (kind +
+  Calico, `-tags e2ek8s`). `make dev-kind` is a dev stack, not a test target — `scripts/repocheck`
+  verifies its script, manifests and values statically
 - **Frontend**: Vitest units + jsdom component tests (`// @vitest-environment jsdom` per file);
   Playwright mocked suite (`web/tests/specs`, route interception, no MSW; canvas drags start from a
   settled layout via `web/tests/fixtures/canvas.ts`); Playwright fullstack suite against the real
@@ -255,7 +282,8 @@ logout; horizontal-scale coordination beyond stateless replicas + Postgres.
 - **Cross-cutting**: shared Go↔TS golden corpus, read directly from `internal/visual/testdata/corpus/`
   by both sides (`web/src/visual/renderTS.test.ts` resolves the Go directory by relative path, so
   the two cannot drift by construction); the ten Makefile `guards`; `scripts/repocheck` (Ginkgo
-  specs over the Makefile and workflow files themselves)
+  specs over the Makefile, workflows, `versions.env` pins, `renovate.json`, the chart's
+  `values.yaml`, `scripts/dev-kind.sh` and `dev/kind/*`, `.goreleaser.yaml`)
 - **CI** (`ci.yml`, SHA-pinned actions): `changes` gates the expensive jobs on their inputs; `lint`,
   `build` (incl. `govulncheck` and the `e2ek8s`-tagged vet), `guards` (incl. `helm lint` and
   repocheck), `generated-drift`, `test` (`make test-cover`, coverage artifact), `web`, `test-ui`,

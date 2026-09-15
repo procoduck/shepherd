@@ -30,7 +30,7 @@ func pipelineID(p map[string]any) string {
 // F-REVISIONS backend package: GetRevision (full-field read of one
 // revision) and RestoreRevision (create a new revision from an old one's
 // contents/matchers/enabled/wizard_state, through the same validation gate
-// and authorization as UpdatePipeline). See docs/plans/2026-09-11-f-revisions.md
+// and authorization as UpdatePipeline). See docs/archive/plans/2026-09-11-f-revisions.md
 // §3 for the settled shape; this file is B-6's Ginkgo coverage.
 var _ = Describe("PipelineService GetRevision / RestoreRevision", Label("integration"), func() {
 	var (

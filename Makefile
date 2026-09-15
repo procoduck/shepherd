@@ -697,7 +697,7 @@ e2e-k8s-clean: ## Delete kind clusters a SIGKILLed e2e-k8s run left behind
 		echo "deleting leftover cluster $$c"; kind delete cluster --name "$$c"; \
 	done; echo "e2e-k8s-clean: done"
 
-helm-lint: ## Lint + template the Helm chart against every ci value file
+helm-lint: ## Lint + template the Helm chart against every ci value file and dev/kind/values.yaml
 	$(call preflight,helm,Install helm (e.g. brew install helm).)
 	helm lint --strict deploy/helm/shepherd
 	@# The pristine defaults, which no ci file covers: every one of them

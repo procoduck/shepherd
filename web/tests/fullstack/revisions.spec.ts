@@ -18,7 +18,7 @@
  *      (still present, contents A, untouched by either restore above).
  *
  * Red run (recorded here, not re-run by CI — see the note at D-6 in
- * docs/plans/2026-09-11-f-revisions.md): temporarily change the asserted
+ * docs/archive/plans/2026-09-11-f-revisions.md): temporarily change the asserted
  * change_note in scenario 1 from 'Restored from revision 1' to 'Restored
  * from revision 2' — the round-trip test fails on the real note the server
  * wrote. Revert immediately after capturing the failure text.

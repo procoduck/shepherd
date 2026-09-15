@@ -115,8 +115,8 @@ silently pulling something else from a registry.
   itself is still not a runtime parameter.
 - **No LGTM layer yet.** Until it exists, "the pipeline is correct" still does not mean "the data
   arrived" — see `docs/kind-test-environment-plan.md` §5 Layer C.
-- **Chart upgrade coverage installs the same version twice.** A true previous-version upgrade needs
-  a released chart to upgrade *from*.
+- **Chart upgrade coverage installs the same version twice.** A true previous-version upgrade spec
+  is still unwritten, although released charts to upgrade *from* now exist (0.9.0 through 0.10.2).
 - **The dependency operators are pinned exactly, and only the current pin is tested.** A newer
   CloudNativePG or External Secrets could change a CRD field or a generated secret's key names
   without this suite noticing until the pin is bumped. That is the trade for testing a fixed,

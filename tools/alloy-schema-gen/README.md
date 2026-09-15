@@ -199,7 +199,7 @@ Consumers of the schema must treat `otel.any` as compatible with every `otel.*`.
 - `maxDepth` is 8, and recursion is additionally cut by a per-path type stack so
   a self-referential config type terminates on the cycle rather than the budget.
   A cut block is marked `"truncated": true` instead of silently ending. Exactly
-  one site is truncated in v1.18.1: `loki.process` → `stage.match` → `stage`,
+  one site is truncated in v1.19.2: `loki.process` → `stage.match` → `stage`,
   whose `StageConfig` contains itself.
 - Attribute types mirror Alloy's own `AlloyType`
   (`syntax/internal/value/type.go`): capsule, then `TextMarshaler` → string, then
@@ -215,7 +215,7 @@ Consumers of the schema must treat `otel.any` as compatible with every `otel.*`.
   `on_positions_file_error`. **Nothing is invented.** An attribute typed as a
   plain `string` whose valid values live only in prose or in a `Validate()`
   method carries no `values` at all, and none is fabricated for it. That is why
-  the count is modest (34 attributes in v1.18.1) rather than universal; the
+  the count is modest (34 attributes in v1.19.2) rather than universal; the
   remainder belongs in the overlay if it is ever wanted.
 - `input_type` is set on an attribute that is also a port, carrying its wire type
   (`targets`, `prom.metrics`, ...). The L1 validator uses it to skip the

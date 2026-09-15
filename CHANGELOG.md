@@ -13,6 +13,10 @@ Categories used here:
 
 ## Unreleased
 
+Chart bump pending: `templates/service.yaml`, `values.yaml` and `values.schema.json` change (the
+`service.appProtocol` value below), so the next release moves the chart version, not only
+`appVersion`. No `UPGRADING.md` section is needed — the default renders exactly what 0.10.2 did.
+
 ### Fixed — walkthrough findings
 
 Closes the v0.6.0 manual UI walkthrough (chart 0.10.2, kind, three live Alloy v1.19.2 agents).
@@ -78,6 +82,9 @@ Root causes, the full finding list, and the slice plan are in
 - **`route.enabled` could not resolve through NGINX Gateway Fabric.** The Service hardcoded
   `appProtocol: kubernetes.io/h2c`, which NGF refuses to proxy an HTTP route to. New chart value
   `service.appProtocol` (default unchanged, `kubernetes.io/h2c`); set it to `""` for NGF.
+- **The dev stack's Alloy agents start only after the chart and the seed.** Alloy's `remotecfg`
+  exits when its first load fails, and an agent started before the seed has no token to poll with.
+  Dev-stack only; no product change.
 
 ### Known
 

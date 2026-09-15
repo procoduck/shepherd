@@ -1,3 +1,10 @@
+> **Archived 2026-09-15.** Shipped in v0.6.0 (PR #53, merged 9461761): `contents`, `matchers`,
+> `enabled` and `wizard_state` on `PipelineRevision` through the new `GetRevision` RPC,
+> `RestoreRevision`, the read-only diff and Restore in the pipeline editor, the two REST shim routes,
+> migration 0019. Still open, and tracked in `docs/project-status.md` rather than here: graph diff
+> for visual pipelines (the diff view is text-only). Kept as the record of the §5a amendments; it
+> is not maintained.
+
 # F-REVISIONS — implementation plan (2026-09-11)
 
 Closes the `docs/project-status.md` §3 item **F-REVISIONS** and the §4 scheduled item

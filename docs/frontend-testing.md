@@ -70,17 +70,18 @@ web/
 │   └── specs/               # the mocked suite
 ```
 
-`tests/specs/` holds 47 spec files (`ls web/tests/specs/*.spec.ts | wc -l`); `tests/fullstack/`
+`tests/specs/` holds 50 spec files (`ls web/tests/specs/*.spec.ts | wc -l`); `tests/fullstack/`
 holds 16 (the newest, `revisions.spec.ts`, round-trips GetRevision/RestoreRevision and the
 diff-and-restore UI). By group rather than exhaustively:
 
 - **Screens** — auth, local-login, overview, collectors, collector-access, pipelines-list,
   pipeline-editor, editor-autocomplete, editor-role, revisions, served-config, wizard,
   destinations, git, git-page, admin, admin-users, sso-settings, teams, audit, org-switcher,
-  rbac, states (loading/empty/error/toasts), theme, shell-breadcrumb, dialogs, query-errors
+  rbac, states (loading/empty/error/toasts), theme, shell-breadcrumb, dialogs (typed with
+  `pressSequentially`, since `fill()` hides focus-steal bugs), query-errors, editor-spellcheck
 - **Visual builder** — `visual-*.spec.ts`: canvas, linking, bindings, inspector, code-sync,
   drafts, layout, selection-delete, drag-highlight, disable, graph-view, toolbar-save, upgrade,
-  simulate-s2, simulate-s3
+  simulate-s2, simulate-s3, palette-search, theme-snap, unsaved-guard
 - **Cross-cutting** — a11y, and three source-scanning guards that assert on the suite itself
   rather than the app: `route-guard.spec.ts` (direct-nav denial matrix, W6-S7's red run),
   `persona-floor.spec.ts` (minimum per-persona coverage floors so appAdmin cannot dominate the

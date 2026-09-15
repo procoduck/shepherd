@@ -119,7 +119,9 @@ var both on — this is the one path in the table above that still requires an e
 on OrbStack/Docker Desktop, `internal: true` does not deny the bridge gateway, so every
 host-published port is reachable from the sandbox network. This is a Docker-bridge artifact with
 no Kubernetes equivalent (the chart's NetworkPolicy is enforced by the CNI, not by compose), so it
-stays documented rather than fixed. Turning `dev-sim` on locally to develop against is fine.
+stays documented rather than fixed. Turning `dev-sim` on locally to develop against is fine. If
+you need the policy to be real locally, use `make dev-kind`: it installs Calico, so the chart's
+NetworkPolicy is enforced exactly as in a real cluster.
 
 Without the profile, `Simulate ▾ → Sandbox run` reports that sandbox simulation is not enabled on
 this server, which is the intended degradation. The other two tiers (S1 flow check, S2
@@ -252,7 +254,7 @@ Full list (`make help` prints the same, plus the `E2E_*` env knobs each test tar
 | `make e2e-k8s` | Kubernetes e2e suite on a fresh kind cluster (~3-5 min; 45m timeout budget) |
 | `make e2e-k8s-clean` | Delete kind clusters a SIGKILLed `e2e-k8s` run left behind |
 | `make schema-verify` | Verify the committed Alloy schema artifact matches the pinned version |
-| `make helm-lint` | Lint + template the Helm chart against every `ci/` value file |
+| `make helm-lint` | Lint + template the Helm chart against every `ci/` value file and `dev/kind/values.yaml` |
 | `make chart-verify` | Verify the vendored chart schema matches upstream (network; occasional) |
 
 **Lint, guards, codegen**
@@ -263,7 +265,11 @@ Full list (`make help` prints the same, plus the `E2E_*` env knobs each test tar
 | `make guards` | Run all ten repo-shape guards |
 | `make fmt` | Format Go code |
 | `make vulncheck` | Guard: no known-reachable vulnerabilities (govulncheck) |
+| `make secrets-scan` | gitleaks over the full git history (same pinned image CI uses) |
+| `make image-scan` | Trivy over `shepherd:local` and `shepherd-simulator:local` (gate + report) |
+| `make config-scan` | Trivy misconfiguration checks over `deploy/` (accepted findings in `.trivyignore`) |
 | `make generate` | Regenerate buf + sqlc code (and the Alloy version constant) |
+| `make gen-alloy-version` | Regenerate only `internal/version/alloy_gen.go` from `versions.env` |
 | `make generate-corpus` | Regenerate visual-builder goldens |
 | `make schema` | Regenerate the Alloy schema artifact (network + docker; occasional) |
 | `make docs` | Regenerate `site/docs/` from `scripts/docs-content/` |
