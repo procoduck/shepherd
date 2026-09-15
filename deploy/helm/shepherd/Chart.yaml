@@ -2,8 +2,8 @@ apiVersion: v2
 name: shepherd
 description: Self-hosted Grafana Alloy fleet manager
 type: application
-version: 0.10.2
-appVersion: "0.6.0"
+version: 0.11.0
+appVersion: "0.7.0"
 # The chart renders autoscaling/v2 (HPA), policy/v1 (PodDisruptionBudget) and
 # batch/v1 Jobs with a pod-level seccompProfile. 1.25 is where all of those are
 # stable together; without this an older cluster accepts `helm install` and then

@@ -11,11 +11,15 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
-## Unreleased
+## v0.7.0
 
-Chart bump pending: `templates/service.yaml`, `values.yaml` and `values.schema.json` change (the
-`service.appProtocol` value below), so the next release moves the chart version, not only
-`appVersion`. No `UPGRADING.md` section is needed — the default renders exactly what 0.10.2 did.
+Chart 0.11.0. One template changed since 0.10.2: the Service's `appProtocol` is now the
+`service.appProtocol` value, whose default renders exactly what 0.10.2 did, so the upgrade is
+`helm upgrade` with no new values and no `UPGRADING.md` section. Every pod rolls once for the new
+image; no migration in this release. The release closes the two review batches after v0.6.0: the
+sixteen findings of the manual walkthrough of the published 0.6.0, and the three product faults the
+first live bring-up of the new kind dev stack exposed — including that an OIDC provider on a
+private address, declared in the chart, could not complete a login.
 
 ### Fixed — walkthrough findings
 
