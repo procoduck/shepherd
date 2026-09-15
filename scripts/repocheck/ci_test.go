@@ -120,12 +120,66 @@ var _ = Describe("govulncheck", func() {
 var _ = Describe("ci.yml housekeeping", func() {
 	It("routes a scripts/build-web.sh change to the frontend gate", func() {
 		ci := readRepoFile(".github/workflows/ci.yml")
-		re := regexp.MustCompile(`(?m)^\s*if echo "\$files" \| grep -qE '([^']+)'; then\n\s*echo "frontend=true"`)
+		re := regexp.MustCompile(`(?m)^\s*if echo "\$files"(?: \| grep -vE '[^']+')? \| grep -qE '([^']+)'; then\n\s*echo "frontend=true"`)
 		m := re.FindStringSubmatch(ci)
 		Expect(m).NotTo(BeNil(), "could not find the frontend gate's grep pattern in ci.yml")
 		pattern := regexp.MustCompile(m[1])
 		Expect(pattern.MatchString("scripts/build-web.sh")).To(BeTrue(),
 			"frontend gate pattern %q must match scripts/build-web.sh", m[1])
+	})
+
+	// Red run, 2026-09-15: ci.yml carried `paths-ignore: **.md, docs/**,
+	// site/**` on both triggers, while branch protection (enforced for
+	// admins since 2026-09-14) requires guards, lint, build, test, web,
+	// test-ui and test-fullstack. A docs-only PR never started the
+	// workflow, so those contexts never reported and the PR sat on
+	// "Expected — waiting" forever. The gates below are the right tool: the
+	// workflow always starts, `guards` (which owns check-docs-drift and
+	// check-docs-version) always runs, and a job whose `if:` is false
+	// reports skipped, which branch protection accepts.
+	It("starts on every pull request and push to main — no paths-ignore, so every required context reports", func() {
+		ci := readRepoFile(".github/workflows/ci.yml")
+		// Only the trigger block matters; the header comment is allowed to
+		// explain why paths-ignore is gone.
+		on := regexp.MustCompile(`(?ms)^on:\n(.*?)^[a-z]`).FindStringSubmatch(ci)
+		Expect(on).NotTo(BeNil(), "could not isolate ci.yml's on: block")
+		Expect(on[1]).NotTo(ContainSubstring("paths-ignore"),
+			"a paths-ignore on ci.yml makes docs-only PRs unmergeable: the required contexts never report")
+		Expect(on[1]).NotTo(MatchRegexp(`(?m)^\s+paths:`),
+			"a paths: filter has the same effect as paths-ignore")
+		Expect(on[1]).To(MatchRegexp(`(?m)^\s+pull_request:`))
+	})
+
+	It("opens no gate for a docs-only diff, so such a PR costs only changes + guards", func() {
+		// Join shell line continuations so a gate split across lines still parses.
+		ci := regexp.MustCompile(`\\\n\s*`).ReplaceAllString(readRepoFile(".github/workflows/ci.yml"), " ")
+		docsOnly := []string{"README.md", "docs/dev-guide.md", "site/index.html", "site/docs/roles.html",
+			"scripts/docs-content/roles.html", "internal/spa/AGENTS.md", "web/AGENTS.md", "CHANGELOG.md"}
+		for _, gate := range []string{"backend", "frontend", "generated"} {
+			re := regexp.MustCompile(`(?m)^\s*if echo "\$files"(?: \| grep -vE '([^']+)')?\s*\| grep -qE '([^']+)'; then\n\s*echo "` + gate + `=true"`)
+			m := re.FindStringSubmatch(ci)
+			Expect(m).NotTo(BeNil(), "could not find the %s gate's grep pattern in ci.yml", gate)
+			var exclude *regexp.Regexp
+			if m[1] != "" {
+				exclude = regexp.MustCompile(m[1])
+			}
+			include := regexp.MustCompile(m[2])
+			for _, f := range docsOnly {
+				if exclude != nil && exclude.MatchString(f) {
+					continue
+				}
+				Expect(include.MatchString(f)).To(BeFalse(), "%s gate must not open for %s", gate, f)
+			}
+		}
+		// fullstack is the inverse shape: anything NOT matching the -v pattern opens it.
+		re := regexp.MustCompile(`(?m)^\s*if echo "\$files" \| grep -vE '([^']+)' \| grep -q \.; then\n\s*echo "fullstack=true"`)
+		m := re.FindStringSubmatch(ci)
+		Expect(m).NotTo(BeNil(), "could not find the fullstack gate's -v pattern in ci.yml")
+		notFullstack := regexp.MustCompile(m[1])
+		for _, f := range docsOnly {
+			Expect(notFullstack.MatchString(f)).To(BeTrue(), "fullstack gate must not open for %s", f)
+		}
+		Expect(notFullstack.MatchString("internal/auth/auth.go")).To(BeFalse(), "a Go change must still open the fullstack gate")
 	})
 
 	It("does not cancel an in-progress run of a push to main", func() {

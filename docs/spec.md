@@ -1427,7 +1427,7 @@ proves the sandbox DELIVERS (a run reaching `completed` with captured series) an
 contains. See VB-1 §6.4, `docs/proofs/simulator-containment.md` §P0 and
 `docs/proofs/sandbox-sim-e2e.md`.
 
-`test-fullstack` runs on every PR, parallel with `test-ui`. Path-filter: skip for docs-only changes. Compose logs artifact on failure to `/tmp/fullstack-stack.log`.
+`test-fullstack` runs on every PR, parallel with `test-ui`, gated by the `changes` job: skipped when the diff is confined to `e2e/k8s/`, `deploy/helm/` or documentation (Markdown, `docs/`, `site/`, `scripts/docs-content/`). Compose logs artifact on failure to `/tmp/fullstack-stack.log`.
 
 ### §15 (amended) — Fullstack "no mock" rule
 

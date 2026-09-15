@@ -55,8 +55,9 @@ the real stack).
 - **Say why, not just what.** The commit log is the main design record for this
   project; a message explaining the reasoning behind a non-obvious choice is
   worth more than one restating the diff.
-- One logical change per PR where you can manage it. CI runs only the jobs your
-  paths can affect, so a focused PR is also a faster one.
+- One logical change per PR where you can manage it. CI always starts, but
+  runs only the jobs your paths can affect (a docs-only PR runs just the
+  guards), so a focused PR is also a faster one.
 
 ## Security
 

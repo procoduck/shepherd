@@ -29,8 +29,15 @@ name: CI
 #
 # Three rules follow from that:
 #
-#   1. A change that cannot affect any job here must not start the workflow —
-#      hence paths-ignore. A docs-only push used to cost the full run.
+#   1. The workflow ALWAYS starts. It used to carry a paths-ignore for docs,
+#      which saved the full run on a docs-only push — until branch protection
+#      (enforced for admins since 2026-09-14) started requiring this
+#      workflow's jobs: a PR that never starts the workflow never reports
+#      them and sits on "Expected — waiting" forever. A job skipped by its
+#      `if:` reports "skipped", which branch protection accepts, so the
+#      gates below do the saving instead: a docs-only PR runs `changes` and
+#      `guards` (the latter owns check-docs-drift and check-docs-version,
+#      which a paths-ignore also silently bypassed) and skips the rest.
 #   2. Every job that costs more than its share gates on the `changes` job
 #      below and runs only when its own inputs moved. Only `guards` (1 min,
 #      cross-cutting, and the thing that catches a broken committed dist) and
@@ -44,10 +51,11 @@ name: CI
 #   Web-only PR     skips lint + build + test            -6.7 min
 #                   (+ generated-drift when no proto)    -4.0 min
 #   Chart-only PR   skips web + test-ui + fullstack     -13.0 min
-#   Docs-only PR    does not start the workflow at all  -26.0 min
+#   Docs-only PR    runs only changes + guards          -24.0 min
 #
-# paths-ignore is deliberately narrow: anything not listed still runs
-# everything. A PR touching docs AND code runs in full, which is correct.
+# The docs classification is deliberately narrow: Markdown anywhere, docs/,
+# site/ and the site's sources. Anything else opens the gate it belongs to,
+# and a PR touching docs AND code runs the code's jobs, which is correct.
 #
 # NOT done, deliberately: this still runs in full on every push to main, which
 # re-tests a tree that just passed as a PR (8 of the last 30 runs, ~200 billed
@@ -56,16 +64,8 @@ name: CI
 # signal that catches them. Revisit only if the budget actually binds.
 on:
   pull_request:
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - "site/**"
   push:
     branches: [main]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - "site/**"
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -130,8 +130,10 @@ jobs:
           fi
 
           # test-fullstack drives the real server + SPA. Changes confined to the
-          # k8s e2e suite or the chart cannot affect it; everything else can.
-          if echo "$files" | grep -vE '^(e2e/k8s/|deploy/helm/)' | grep -q .; then
+          # k8s e2e suite, the chart, or documentation (Markdown anywhere,
+          # docs/, site/ and its sources under scripts/docs-content/) cannot
+          # affect it; everything else can.
+          if echo "$files" | grep -vE '^(e2e/k8s/|deploy/helm/|docs/|site/|scripts/docs-content/)|\.md$' | grep -q .; then
             echo "fullstack=true" >> "$GITHUB_OUTPUT"
           else
             echo "fullstack=false" >> "$GITHUB_OUTPUT"
@@ -143,7 +145,9 @@ jobs:
           # chart tests shell out to real `helm template` and assert on its
           # output, so a values.yaml edit genuinely can fail `go test ./...`.
           #
-          # internal/spa/dist/** is deliberately EXCLUDED (see the -v below).
+          # internal/spa/dist/** and Markdown are deliberately EXCLUDED (see
+          # the -v below). Markdown: an AGENTS.md under internal/ or web/ is
+          # documentation, and nothing compiled or tested reads it.
           # The built SPA is committed, so every web change carries a dist
           # rebuild; treating that as a backend change would mean no web PR
           # ever skips the Go suite and this gate would buy nothing. Nothing in
@@ -151,7 +155,7 @@ jobs:
           # index references files that are tracked, which is exactly what the
           # always-on `guards` job checks (check-single-dist,
           # check-dist-consistency).
-          if echo "$files" | grep -vE '^internal/spa/dist/' \
+          if echo "$files" | grep -vE '^internal/spa/dist/|\.md$' \
              | grep -qE '(\.go$|^go\.(mod|sum)$|^proto/|^gen/|^buf\.(gen\.)?yaml$|^sqlc\.yaml$|^internal/|^cmd/|^tools/|^e2e/|^deploy/helm/|^deploy/Dockerfile|^deploy/versions\.env$|^\.golangci\.yml$|^Makefile$|^\.github/workflows/ci\.yml$)'; then
             echo "backend=true" >> "$GITHUB_OUTPUT"
           else
@@ -166,7 +170,7 @@ jobs:
           # jobs' builds run through (the canonical `pnpm install`/`pnpm
           # build` path per the check-build-script guard) but which lives
           # outside web/ and so was previously invisible to this gate.
-          if echo "$files" | grep -qE '(^web/|^proto/|^scripts/build-web\.sh$|^buf\.(gen\.)?yaml$|^Makefile$|^\.github/workflows/ci\.yml$)'; then
+          if echo "$files" | grep -vE '\.md$' | grep -qE '(^web/|^proto/|^scripts/build-web\.sh$|^buf\.(gen\.)?yaml$|^Makefile$|^\.github/workflows/ci\.yml$)'; then
             echo "frontend=true" >> "$GITHUB_OUTPUT"
           else
             echo "frontend=false" >> "$GITHUB_OUTPUT"

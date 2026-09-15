@@ -13,9 +13,9 @@ on:
   merge_group: {}
   # Post-merge signal for the agent-protocol suite (D11): nothing else runs it
   # in practice -- there is no merge queue configured on this repo (branch
-  # protection has no required_status_checks/rulesets), so merge_group never
-  # fires, and gh api confirmed workflow run 32844383559's `e2e` job was
-  # "skipped" on an ordinary PR. Path-filtered to what the suite actually
+  # protection requires status checks since 2026-09-14 but no queue), so
+  # merge_group never fires, and gh api confirmed workflow run 32844383559's
+  # `e2e` job was "skipped" on an ordinary PR. Path-filtered to what the suite actually
   # exercises (registration, pipelines, GitOps, RBAC, agent protocol) rather
   # than every push, at ~11 billed minutes per qualifying push (~90/month at
   # an estimated 8 qualifying pushes) -- see the `e2e` job's own `if` below,

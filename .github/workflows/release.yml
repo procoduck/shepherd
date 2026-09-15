@@ -49,9 +49,9 @@ permissions:
 
 jobs:
   # Gates the tagged commit exactly as hard as a PR to main: nothing here
-  # assumes the tag's commit ever passed ci.yml (there is no merge queue and
-  # branch protection requires no status checks), so `release` needs this job
-  # rather than trusting the tag alone.
+  # assumes the tag's commit ever passed ci.yml (a tag can be pushed onto any
+  # commit, and branch protection only guards main), so `release` needs this
+  # job rather than trusting the tag alone.
   verify:
     name: verify
     runs-on: ubuntu-latest
