@@ -1,3 +1,9 @@
+> **Archived 2026-09-15.** Shipped in v0.7.0 (PR #67, merged b43d284): all sixteen findings plus
+> two found on the re-walk. Still open, and tracked in `docs/project-status.md` §4 rather than
+> here: the three §3 "Blocked" decisions — what `APPLIED` should mean (B1), wizard warnings on the
+> proto, chart `kubeVersion` with CNPG. Kept as the record of the root causes; it is not
+> maintained.
+
 # Walkthrough fixes — implementation plan (2026-09-14)
 
 Closes the findings of the v0.6.0 manual UI walkthrough (chart 0.10.2, kind, three live Alloy

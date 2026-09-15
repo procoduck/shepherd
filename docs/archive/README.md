@@ -14,6 +14,8 @@ live ledger.
 | `proofs/` | 17 red–green proofs, one per fix, written while the work was done | 2026-08-17 → 2026-08-18 |
 | [`../git-provider-design.md`](../git-provider-design.md) (live, not archived — kept at top level because source files cite its § numbers) | Standard-git GitOps with pluggable provider auth (basic/pat/ssh/ado_sp/github_app), tested against a real Gitea. Shipped as F9; the compose-stack `ssh` scenario (F9-a) was fixed 2026-09-10 and runs green in `make e2e` | 2026-08-19; F9-a 2026-09-11 |
 | `plans/2026-09-11-f-revisions.md` | F-REVISIONS implementation plan: revision contents on the API, `RestoreRevision`, diff + Restore in the editor, migration 0019, with its §5a amendments | v0.6.0 (PR #53), archived 2026-09-15 |
+| `plans/2026-09-14-walkthrough-fixes.md` | The sixteen findings of the v0.6.0 manual UI walkthrough, eight slices with disjoint file sets, and the §3 "Blocked" decisions (APPLIED semantics, wizard warnings on the proto, chart `kubeVersion` with CNPG) that the ledger still carries | v0.7.0 (PR #67), archived 2026-09-15 |
+| `plans/2026-09-14-kind-dev-stack.md` | `make dev-kind`: the reusable single-node kind stack (Calico, CNPG, Gateway API + NGF, Gitea, mock OIDC), its K1–K6 slices and the section 1 contract the repocheck specs cite | v0.7.0 (PR #69), archived 2026-09-15 |
 | `completed-2026-08-19.md` | The 2026-08-19 baseline round verbatim: seven bugs (B1–B7) and the features F1–F9 that closed with it | 2026-08-19 |
 | `reviews/` | The three fresh-context deep reviews of the visual builder and schema pipeline. All ten priority items implemented; see `docs/reviews/README.md` for what closed each | 2026-08-19 → 2026-08-22 |
 | `reviews/s3-sandbox-security-findings.md` | The 2026-08-20 adversarial review of S3 sandbox containment. All findings closed. **Archived 2026-08-22 because its conclusion is now false** — it says the feature must stay disabled, and the sandbox ships enabled by default since v0.0.1 | gates closed 2026-08-21; enabled in v0.0.1 |
@@ -40,9 +42,8 @@ live ledger.
 - `docs/kind-test-environment-plan.md` — the kind suite plan (steps 3 and 5 still open) and, in §11,
   the reusable dev stack `make dev-kind` that shares its pins
 - `docs/plans/` — dated per-PR implementation plans. A plan moves to `docs/archive/plans/` once its
-  work has shipped in a tag, with the closing note carrying anything still open into the ledger;
-  merged-but-unreleased plans (`2026-09-14-walkthrough-fixes.md`, `2026-09-14-kind-dev-stack.md`)
-  stay until the next release
+  work has shipped in a tag, with the closing note carrying anything still open into the ledger.
+  Empty since v0.7.0; Go test comments and the changelog cite the archived paths
 - `docs/git-provider-design.md` — live because Go source cites its § numbers (see the table above)
 - `docs/proofs/` — red–green proofs for shipped controls. **Not archived**, because Go source and
   CI workflows cite these paths directly (the same reason `git-provider-design.md` stayed live)

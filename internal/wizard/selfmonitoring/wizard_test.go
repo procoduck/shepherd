@@ -63,7 +63,7 @@ var _ = Describe("SelfMonitoringWizard golden files", func() {
 		Expect(err).To(HaveOccurred())
 	})
 
-	// S4 (docs/plans/2026-09-14-walkthrough-fixes.md, F7): the runner UI
+	// S4 (docs/archive/plans/2026-09-14-walkthrough-fixes.md, F7): the runner UI
 	// only seeds a field's Default into wizard state (WizardRunnerPage.tsx),
 	// never its Placeholder — log_path had a Placeholder but no Default, so
 	// a state that left it blank silently dropped the whole log-collection

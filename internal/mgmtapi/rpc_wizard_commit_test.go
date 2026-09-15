@@ -16,7 +16,7 @@ import (
 	"shepherd/internal/store/sqlc"
 )
 
-// S4 (docs/plans/2026-09-14-walkthrough-fixes.md): CommitWizard skipped both
+// S4 (docs/archive/plans/2026-09-14-walkthrough-fixes.md): CommitWizard skipped both
 // of PipelineService.CreatePipeline's side effects (a revision-1 row, a
 // pipeline.create audit row) and its Stage 1/2 validation gate — a wizard
 // commit went straight to the CreatePipeline store query with none of the

@@ -1,5 +1,5 @@
 // Specs over scripts/dev-kind.sh and dev/kind/cluster.yaml — the K1 slice of
-// docs/plans/2026-09-14-kind-dev-stack.md.
+// docs/archive/plans/2026-09-14-kind-dev-stack.md.
 //
 // Red run, 2026-09-14, before scripts/dev-kind.sh existed:
 //

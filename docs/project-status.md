@@ -1,7 +1,7 @@
 # Shepherd — project ledger
 
-> **The single live status document.** Baseline re-verified 2026-09-14 at the v0.6.0 release
-> (`e4e45b8`, chart 0.10.2) from the CI and release runs on that commit, not from a summary.
+> **The single live status document.** Baseline re-verified 2026-09-15 at the v0.7.0 release
+> (`185309e`, chart 0.11.0) from the CI and release runs on that commit, not from a summary.
 > Completed rounds live in `docs/archive/` — the history this ledger used to carry inline is
 > `docs/archive/completed-2026-09-11.md`. Do not start a second ledger.
 
@@ -11,7 +11,7 @@
 |---|---|
 | `docs/project-status.md` | this ledger — verified baseline, open bugs, unbuilt features, open follow-ups |
 | `docs/spec.md` | authoritative product/build specification (§ numbers referenced below) |
-| `docs/plans/` | dated per-PR implementation plans; a plan moves to `docs/archive/plans/` once its work has shipped in a tag (`2026-09-14-walkthrough-fixes.md`, `2026-09-14-kind-dev-stack.md` are merged but unreleased) |
+| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag (empty since v0.7.0 — all three plans are archived) |
 | `docs/visual-builder-design-VB1.md` | visual builder design — M1–M8 built; §6.4 (S3) is the live spec for the sandbox feature (enabled by default in the Helm chart since v0.0.1) |
 | `docs/reviews/` | **live decision records only**: `canvas-framework-evaluation.md` (the React Flow decision and the controlled-mode contract `CanvasPane` depends on). Closed reviews move to `docs/archive/reviews/` |
 | `docs/dev-guide.md` | running the dev stack |
@@ -25,23 +25,23 @@
 
 ---
 
-## 1. Verified baseline (2026-09-14, v0.6.0)
+## 1. Verified baseline (2026-09-15, v0.7.0)
 
-Every row is a CI or release run on `e4e45b8` (or the PR that produced it), so the claim is
+Every row is a CI or release run on `185309e` (or the PR that produced it), so the claim is
 checkable by run id rather than by trusting this table.
 
 | Check | Where it ran | Result |
 |---|---|---|
-| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 34829976236 (PR #65) | clean |
-| `golangci-lint` + config verify, all ten `make guards`, `helm lint`, `scripts/repocheck` | CI `lint` + `guards` jobs, same run | 0 issues |
-| `go test ./...` with coverage (testcontainers Postgres) | CI `test` job, same run | green |
-| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job (PR #60, run 34826217159) | clean; **577/577** |
-| Mocked Playwright (`make test-ui`) | CI `test-ui` job (PR #60, same run) | **259 tests in 46 files, green** |
-| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 34829976236 | green |
-| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml` on push to main, run 34829225428 (`7b82428`) | green |
-| Kubernetes e2e, kind (`make e2e-k8s`) | `e2e-k8s.yml` on PR #65, run 34829976482 | green |
-| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job on PRs touching the sandbox surface (path-filtered, never on push), run 34828420060 (PR #62) | green |
-| Release: verify job, goreleaser, image attestations, chart OCI push | `release.yml`, run 34831444506 | success — chart 0.10.2 / appVersion 0.6.0 published, images `0.6.0` present, provenance verifies. The report-only `scan-published` job failed on a wrong image name (fixed in the Unreleased changelog entry); the release itself was unaffected |
+| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 34973037472 (PR #73, `fe53afe`) | clean |
+| `golangci-lint` + config verify, all ten `make guards`, `helm lint` (incl. the dev-kind values), `scripts/repocheck` | CI `lint` + `guards` jobs, same run | 0 issues |
+| `go test ./...` with coverage (testcontainers Postgres) | CI `test` job, same run | green — after PR #74 made the serve-cache failure spec fail its recompute for real (the first run on the release branch, 34968998790, caught it flaking) |
+| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job (PR #69, run 34945312703) | clean; **594/594** in 37 files |
+| Mocked Playwright (`make test-ui`) | CI `test-ui` job (PR #69, same run) | **279 tests in 50 files, green** |
+| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 34973037472 | green |
+| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml` on push to main, run 34971974892 (`b405ff7`) | green |
+| Kubernetes e2e, kind (`make e2e-k8s`) | `e2e-k8s.yml` on PR #73, run 34973037471 | green |
+| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job on PRs touching the sandbox surface (path-filtered, never on push), run 34828420060 (PR #62) — nothing since has touched that surface | green |
+| Release: verify job, goreleaser, image attestations, chart OCI push, `scan-published` | `release.yml`, run 34974782542 | success — chart 0.11.0 / appVersion 0.7.0 pullable, images `0.7.0` + `latest` present, provenance attested for both images, and `scan-published` green for both (the v0.6.0 image-name bug is fixed) |
 
 ### What demonstrably works end to end
 
@@ -181,8 +181,8 @@ answer and the ledger item it produced is below.
 ### Smaller follow-ups
 
 Three items below (marked with the plan link) come from the v0.6.0 manual UI walkthrough
-(`docs/plans/2026-09-14-walkthrough-fixes.md`, §3 "Blocked") and two from the kind dev stack's
-first live bring-up (`docs/plans/2026-09-14-kind-dev-stack.md`); every other finding from both
+(`docs/archive/plans/2026-09-14-walkthrough-fixes.md`, §3 "Blocked") and two from the kind dev stack's
+first live bring-up (`docs/archive/plans/2026-09-14-kind-dev-stack.md`); every other finding from both
 was closed in the same batches — see `CHANGELOG.md` Unreleased.
 
 Open, in rough priority order:
@@ -192,7 +192,7 @@ Open, in rough priority order:
       poll carrying the served hash, and nothing Shepherd reads today (`effective_config` is
       unread; beacon rows are not keyed by collector instance) can tell a fresh load from a
       rejected one served from cache. Needs a reproduction against a live Alloy v1.19.2 agent
-      before picking one of three options — see `docs/plans/2026-09-14-walkthrough-fixes.md` §3
+      before picking one of three options — see `docs/archive/plans/2026-09-14-walkthrough-fixes.md` §3
       (B1).
 - [ ] **Wizards have no channel to say when they silently drop or add something** (`B2` in the
       same plan). `wizard.CommitResult`/`RenderWizardResponse` carry no `warnings` field, so the
@@ -209,10 +209,6 @@ Open, in rough priority order:
       on where the scrape jitter lands — the first `make dev-kind` run showed 0 series and the next
       two 21. Containment and capture are fine; the run window versus the pipeline's own interval
       is the product question (a minimum window, or a first-scrape trigger).
-- [ ] **A chart version bump is pending**: `main` changes `templates/service.yaml`,
-      `values.yaml` and `values.schema.json` (`service.appProtocol`, #69) under the published
-      `0.10.2`; the next release must bump the chart, and the v0.6.0 "no template changed"
-      preamble pattern does not apply.
 - [ ] **Graph diff for visual pipelines.** The pipeline editor's revision diff is text-only
       (`RevisionDiff`, CodeMirror merge view); the visual builder page has no revision UI, so a
       visual pipeline's graph-level change is not diffable, only its rendered text. Restoring a
@@ -237,7 +233,7 @@ Open, in rough priority order:
       stays flat-top-level-prop-only by design, not yet extended.
 - [ ] **Kind suite, plan steps 3 and 5** (`docs/kind-test-environment-plan.md`): the full-values
       install and the true previous-version Helm upgrade spec (no longer blocked — chart 0.9.0,
-      0.10.0, 0.10.1 and 0.10.2 are all published), and the `NOTES.txt` CNI/NetworkPolicy warning (G10 is
+      0.10.0, 0.10.1, 0.10.2 and 0.11.0 are all published), and the `NOTES.txt` CNI/NetworkPolicy warning (G10 is
       scheduled with the chart-values UI above).
 - [ ] Overlay entries scaffolded by `make schema` carry `needs_review: true` and need an editorial
       pass on the next Alloy bump.

@@ -1,3 +1,10 @@
+> **Archived 2026-09-15.** Shipped in v0.7.0 (PR #69, merged 0a1a34b), proven live three times and
+> by the `e2e-k8s` job. The three product faults the first bring-up found (NGF refusing the h2c
+> upstream, the chart-declared OIDC issuer's key fetch, Alloy agents applied before the seed) are
+> fixed in the same release. Still open, tracked in `docs/project-status.md`: `NOTES.txt` https
+> wording, the sandbox window vs scrape interval. The repocheck specs cite this file's section 1
+> contract and slices K5/K6 by path; it is not maintained.
+
 # Reusable kind dev stack — implementation plan (2026-09-14)
 
 Builds `make dev-kind`: a single-node kind cluster named `shepherd-dev` running the real chart

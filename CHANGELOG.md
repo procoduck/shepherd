@@ -27,7 +27,7 @@ enforcement, and a line break in a pipeline name can no longer take its collecto
 
 Closes the v0.6.0 manual UI walkthrough (chart 0.10.2, kind, three live Alloy v1.19.2 agents).
 Root causes, the full finding list, and the slice plan are in
-`docs/plans/2026-09-14-walkthrough-fixes.md`.
+`docs/archive/plans/2026-09-14-walkthrough-fixes.md`.
 
 - **Page-owned dialogs (Destinations, Git, Teams, Admin Tokens/Orgs/Clusters) kept only the first
   typed character.** The shared `Modal` focus-trap effect re-ran on every render because it was
@@ -125,7 +125,7 @@ Root causes, the full finding list, and the slice plan are in
   distinguishes an agent that received a config from one that loaded it and then rejected it; Alloy
   v1.19.2's exact report sequence for that case was not captured during the walkthrough, and
   choosing the option that fixes it needs a reproduction against a live agent first. See
-  `docs/plans/2026-09-14-walkthrough-fixes.md` §3 (B1) for the options and the reproduction it
+  `docs/archive/plans/2026-09-14-walkthrough-fixes.md` §3 (B1) for the options and the reproduction it
   takes to choose between them.
 
 ### Build & CI

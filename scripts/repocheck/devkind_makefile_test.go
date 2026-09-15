@@ -8,7 +8,7 @@ import (
 // Red run, 2026-09-14: none of the five dev-kind targets exist yet.
 // `mkTargetLine("dev-kind")` fails with `target "dev-kind" not found in
 // Makefile` (scripts/repocheck/helpers_test.go's mkTargetLine Expect).
-// docs/plans/2026-09-14-kind-dev-stack.md §K6 is the contract: dev-kind
+// docs/archive/plans/2026-09-14-kind-dev-stack.md §K6 is the contract: dev-kind
 // depends on preflight-k8s, docker-build-local and docker-build-simulator
 // and calls `./scripts/dev-kind.sh up`; dev-kind-reload depends on
 // docker-build-local and calls `reload`; dev-kind-seed/status/down call

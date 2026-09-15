@@ -314,7 +314,7 @@ teardown machinery a test suite needs. `scripts/dev-kind.sh` (verbs `up`, `reloa
 `status`, `down`) is driven through five Makefile targets, `dev-kind[-reload|-seed|-status|-down]`
 — see `docs/dev-guide.md`'s "Kubernetes flavour" section for the day-to-day walkthrough. The
 lettered/numbered decisions cited below (D1-D4, C1-C10) are this feature's design record,
-`docs/plans/2026-09-14-kind-dev-stack.md`.
+`docs/archive/plans/2026-09-14-kind-dev-stack.md`.
 
 ### What it shares with this suite, and what it deliberately does not
 
@@ -436,7 +436,7 @@ containment and capture work under Calico; the run window versus the scrape inte
 question for the ledger.
 
 The walk itself (full detail and the exact claims JSON for each persona in
-`docs/plans/2026-09-14-kind-dev-stack.md` §5 step 10): the login page offers both the local form
+`docs/archive/plans/2026-09-14-kind-dev-stack.md` §5 step 10): the login page offers both the local form
 and an SSO button labelled "Mock SSO". Signing in through it lands on
 `http://oidc.localtest.me/default/authorize?…`, mock-oauth2-server's interactive login page (a
 **Username** field and a **Claims** JSON textarea — `interactiveLogin: true`). A `groups` claim

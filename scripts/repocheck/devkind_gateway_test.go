@@ -15,7 +15,7 @@ import (
 // gatewayDocs decodes a repo-relative multi-document YAML file (documents
 // separated by "---") into a slice of generic maps, one per document. These
 // specs assert manifest shape as plain maps rather than typed Gateway API /
-// core/v1 structs -- see docs/plans/2026-09-14-kind-dev-stack.md §1: "parse
+// core/v1 structs -- see docs/archive/plans/2026-09-14-kind-dev-stack.md §1: "parse
 // manifests with yaml.v3 ... instead of kubectl apply --dry-run", the same
 // approach scripts/repocheck/helpers_test.go's loadYAML takes for one-document
 // files.
@@ -54,7 +54,7 @@ func gwSlice(v any, what string) []any {
 	return s
 }
 
-// Red run, 2026-09-14 (docs/plans/2026-09-14-kind-dev-stack.md, slice K5 "gateway-oidc"):
+// Red run, 2026-09-14 (docs/archive/plans/2026-09-14-kind-dev-stack.md, slice K5 "gateway-oidc"):
 // dev/kind/gateway.yaml, dev/kind/oidc.yaml and dev/kind/routes.yaml did not exist. Every
 // assertion below failed with:
 //
