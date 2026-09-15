@@ -489,10 +489,93 @@ export function installDefaultHandlers(router: Router) {
 
   // ── MeService ────────────────────────────────────────────────────────────
   router.register('POST', '/shepherd.mgmt.v1.MeService/GetMe', (r) => {
+    if (st.passwordChangeRequired) {
+      // The real RequirePasswordChange middleware sits in front of every API
+      // route, so GetMe is refused too — but with the auth handler's JSON
+      // shape, which connect-web cannot decode: the SPA sees a bare
+      // PermissionDenied and asks /api/me (below) for the code.
+      return r.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: {
+            code: 'password_change_required',
+            message: 'set a new password before continuing',
+          },
+        }),
+      });
+    }
     if (st.me === null || st.me === undefined) {
       return connectError(r, 401, 'unauthenticated', 'not authenticated');
     }
     return json(r, 200, st.me);
+  });
+
+  // REST /api/me sits behind the same password-change middleware and answers
+  // with the auth JSON, so the SPA can recover the code the Connect error
+  // dropped (src/api/localAuth.ts).
+  router.register('GET', '/api/me', (r) => {
+    if (st.passwordChangeRequired) {
+      return r.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: {
+            code: 'password_change_required',
+            message: 'set a new password before continuing',
+          },
+        }),
+      });
+    }
+    if (st.me === null || st.me === undefined) {
+      return r.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: { code: 'unauthenticated', message: 'not authenticated' } }),
+      });
+    }
+    return json(r, 200, st.me);
+  });
+
+  // POST /api/auth/local/password: the change endpoint, exempt from the
+  // middleware. Enforces the same refusals the server does so a spec can
+  // drive each branch, then clears the owes-a-change flag.
+  router.register('POST', '/api/auth/local/password', async (r) => {
+    const body = (await r.request().postDataJSON()) as {
+      current_password?: string;
+      new_password?: string;
+    };
+    const expected = st.localAdminCreds;
+    if (expected && body.current_password !== expected.password) {
+      return r.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: { code: 'invalid_credentials', message: 'current password is incorrect' },
+        }),
+      });
+    }
+    if ((body.new_password ?? '').length < 8) {
+      return r.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: {
+            code: 'password_too_short',
+            message: 'auth: password must be at least 8 characters',
+          },
+        }),
+      });
+    }
+    st.passwordChangeRequired = false;
+    st.localAdminMustChange = false;
+    if (expected)
+      st.localAdminCreds = { username: expected.username, password: body.new_password as string };
+    return r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true }),
+    });
   });
 
   // ── AdminService ─────────────────────────────────────────────────────────
@@ -1604,7 +1687,12 @@ export function installDefaultHandlers(router: Router) {
     const expected = st.localAdminCreds;
     if (expected && req.username === expected.username && req.password === expected.password) {
       if (st.localAdminPersona !== undefined) st.me = st.localAdminPersona;
-      return r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
+      if (st.localAdminMustChange) st.passwordChangeRequired = true;
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, must_change_password: st.localAdminMustChange === true }),
+      });
     }
     return r.fulfill({
       status: 401,

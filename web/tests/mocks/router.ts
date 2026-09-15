@@ -45,6 +45,11 @@ export interface MockState {
   oidcTestResult?: Record<string, unknown>;
   localAdminCreds?: { username: string; password: string };
   localAdminPersona?: import('../fixtures/personas').MeResponse | null;
+  // A defaulted local password: login reports must_change_password and every
+  // other request is refused with 403 password_change_required until the
+  // change endpoint is hit, mirroring internal/auth/password_change.go.
+  localAdminMustChange?: boolean;
+  passwordChangeRequired?: boolean;
   schema?: unknown; // schema payload for GET /api/schema/:version
   visualRenderResult?: unknown;
   graphViewResult?: unknown;

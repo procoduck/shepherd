@@ -111,7 +111,10 @@
         <li><strong>App administrator</strong> &mdash; reaches every organisation.</li>
         <li><strong>Must change password</strong> &mdash; the password was set by somebody other than
           the account&rsquo;s owner, so it is a handover rather than a credential. This is the default
-          when an admin creates an account or resets a password.</li>
+          when an admin creates an account or resets a password; that person is sent to a
+          <strong>Change password</strong> screen at their next sign-in and cannot reach anything else
+          until they set their own. Any local user can also change their own password any time from
+          <strong>Admin &rarr; Users</strong>.</li>
         <li><strong>Disabled</strong> &mdash; revokes access without deleting the account, so audit
           entries naming that person keep resolving to something.</li>
       </ul>

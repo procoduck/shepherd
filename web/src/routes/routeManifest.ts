@@ -30,6 +30,9 @@ export interface RouteEntry {
 
 export const routeManifest: RouteEntry[] = [
   { path: '/login', tag: 'public' },
+  // Reachable while signed in but blocked on a password change, so it cannot
+  // sit behind the session guard; public like /login.
+  { path: '/change-password', tag: 'public' },
   { path: '/', tag: 'protected', distinctLocator: 'text=Overview', label: 'Overview' },
   {
     path: '/collectors',

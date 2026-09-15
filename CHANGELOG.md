@@ -13,6 +13,14 @@ Categories used here:
 
 ## Unreleased
 
+### Added
+
+- **A Change password screen.** A local user whose password was defaulted or reset (bootstrap
+  `admin`/`admin`, or any admin-created account) is sent to it at sign-in and cannot reach anything
+  else until they set their own — the server has always enforced this, but the SPA had no screen for
+  it, so the only way through was a raw API call. Any local user can also change their own password
+  from **Admin &rarr; Users**. Identity-provider sessions are unaffected.
+
 ### Build & CI
 
 - **`make dev-restart` now ships a Go change.** It ran `docker compose build shepherd`, but

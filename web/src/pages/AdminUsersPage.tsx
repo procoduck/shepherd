@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { KeyRound, Plus, ShieldCheck, Trash2, UserCog } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -246,13 +247,29 @@ export function AdminUsersPage() {
             your identity provider do not appear here — their access comes from their groups.
           </p>
         </div>
-        <button
-          data-testid='user-new'
-          onClick={() => setShowCreate(true)}
-          className='flex shrink-0 items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500'
-        >
-          <Plus size={14} /> New user
-        </button>
+        <div className='flex shrink-0 items-center gap-2'>
+          {me?.authMethod === 'local' && (
+            // The shell has no user menu (struck 2026-09-11), so the one
+            // self-service action a local account has lives beside the
+            // accounts it administers. Hidden for identity-provider sessions:
+            // their password is not Shepherd's to change.
+            <Link
+              to='/change-password'
+              search={{ required: false }}
+              data-testid='change-my-password'
+              className='flex items-center gap-1.5 rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium hover:bg-border'
+            >
+              <KeyRound size={14} /> Change my password
+            </Link>
+          )}
+          <button
+            data-testid='user-new'
+            onClick={() => setShowCreate(true)}
+            className='flex shrink-0 items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500'
+          >
+            <Plus size={14} /> New user
+          </button>
+        </div>
       </div>
 
       <DataTable

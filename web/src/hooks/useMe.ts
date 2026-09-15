@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { passwordChangeRequired, redirectToChangePassword } from '@/api/localAuth';
 import { clients } from '@/api/transport';
 import type { GetMeResponse } from '@/gen/shepherd/mgmt/v1/me_pb';
 
@@ -8,9 +9,18 @@ async function fetchMe(): Promise<MeData | null> {
   // Mirrors the legacy fetcher: any failure (401/403 unauthenticated, or any
   // other transport error) resolves to "not signed in" rather than an error
   // state, matching the app's login-redirect behaviour.
+  //
+  // One failure is not "not signed in": a local user who still owes a
+  // password change is refused everywhere with 403 password_change_required
+  // (internal/auth/password_change.go). Treating that as signed-out bounced
+  // them to /login, where signing in again produced the same refusal — a
+  // loop with no way out. The screen is where they belong.
   try {
     return await clients.me.getMe({});
   } catch {
+    if (await passwordChangeRequired()) {
+      redirectToChangePassword();
+    }
     return null;
   }
 }

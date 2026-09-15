@@ -10,6 +10,7 @@ import { AdminOrgsPage } from '@/pages/AdminOrgsPage';
 import { AdminTokensPage } from '@/pages/AdminTokensPage';
 import { AdminUsersPage } from '@/pages/AdminUsersPage';
 import { AuditPage } from '@/pages/AuditPage';
+import { ChangePasswordPage } from '@/pages/ChangePasswordPage';
 import { CollectorDetailPage } from '@/pages/CollectorDetailPage';
 import { CollectorsPage } from '@/pages/CollectorsPage';
 import { DestinationsPage } from '@/pages/DestinationsPage';
@@ -52,6 +53,26 @@ const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/login',
   component: LoginPage,
+});
+
+// Outside the shell: a user owing a password change is refused by every
+// shell route, so the screen has to live where no session guard runs. Both
+// the forced flow (login / a 403 anywhere) and the voluntary one (Admin →
+// Users) land here; `required` distinguishes them.
+const changePasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/change-password',
+  validateSearch: (search: Record<string, unknown>): { required: boolean } => ({
+    // TanStack's default parser JSON-decodes the value, so ?required=1 arrives
+    // as the number 1 and ?required=true as the boolean — accept every shape a
+    // link or a hard redirect can produce.
+    required:
+      search.required === true ||
+      search.required === 1 ||
+      search.required === '1' ||
+      search.required === 'true',
+  }),
+  component: ChangePasswordPage,
 });
 
 const shellRoute = createRoute({
@@ -227,6 +248,7 @@ const teamsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   loginRoute,
+  changePasswordRoute,
   shellRoute.addChildren([
     contentRoute.addChildren([
       overviewRoute,

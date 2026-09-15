@@ -36,6 +36,14 @@ export function LoginPage() {
       return;
     }
     queryClient.clear();
+    // The server flags a defaulted password on login and refuses every other
+    // request until it is changed; route straight to the screen rather than
+    // letting the overview discover the 403.
+    const body = (await response.json().catch(() => ({}))) as { must_change_password?: boolean };
+    if (body.must_change_password === true) {
+      navigate({ to: '/change-password', search: { required: true } });
+      return;
+    }
     navigate({ to: '/' });
   }
 

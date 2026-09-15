@@ -150,7 +150,9 @@ kubectl -n shepherd rollout status deploy/shepherd</code></pre>
         Open <a href="http://localhost:8080">http://localhost:8080</a> and sign in as
         <code>admin</code> with the bootstrap password from step 1. That account is created on first
         boot, only while the users table is empty. If you left the password out, it is
-        <code>admin</code>/<code>admin</code> and can do nothing at all until you change it.
+        <code>admin</code>/<code>admin</code> and can do nothing at all until you change it &mdash;
+        signing in takes you straight to a <strong>Change password</strong> screen, and the rest of
+        the app stays locked until you set a new one.
       </p>
 
       <h2 id="claim-a-cluster">4. Mint a token and claim the cluster</h2>
