@@ -93,9 +93,9 @@ for every setting.
 
 `make dev` boots the whole thing in Docker — PostgreSQL, seeded data, a git
 server, a mock Microsoft Graph for group search, and live Alloy collectors
-already polling Shepherd at <http://localhost:8080> with `admin` / `admin` (a
-mock OIDC provider sits behind the `oidc` compose profile). For trying Shepherd
-or working on it, not for running it.
+already polling Shepherd at <http://localhost:8080> with `admin` / `admin`. For
+an OIDC login locally use `make dev-kind`, whose mock provider is declared in the
+chart values. For trying Shepherd or working on it, not for running it.
 
 ## Connect a collector
 

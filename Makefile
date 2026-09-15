@@ -786,9 +786,14 @@ dev-frontend: ## Start the Vite dev server (HMR) against the running dev backend
 	@curl -sf http://localhost:8080/healthz > /dev/null || (echo "ERROR: shepherd is not running. Run 'make dev' first."; exit 1)
 	cd web && $(PNPM) dev
 
-dev-restart: build-web ## Rebuild the shepherd image and restart its container (5-10s with layer cache)
-	docker compose -f dev/docker-compose.dev.yaml build shepherd
-	docker compose -f dev/docker-compose.dev.yaml up -d shepherd
+# The shepherd service has no `build:` section (it runs the shepherd:local
+# image that docker-build-local produces), so `docker compose build shepherd`
+# is a no-op — the target used to run exactly that and never shipped a Go
+# change into the container. Rebuild the image the same way `make dev` does
+# and recreate the container on it. No build-web prerequisite, for the reason
+# given above docker-build-local: the Dockerfile rebuilds the SPA in-stage.
+dev-restart: docker-build-local ## Rebuild the shepherd image and restart its container
+	docker compose -f dev/docker-compose.dev.yaml up -d --no-deps --force-recreate shepherd
 
 dev-seed: ## Re-run the dev seed (idempotent — safe on a running stack)
 	docker compose -f dev/docker-compose.dev.yaml run --rm shepherd-seed

@@ -3,6 +3,7 @@ package repocheck_test
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -55,6 +56,34 @@ var _ = Describe("the smoke target", func() {
 			ContainSubstring("docker-build-local"),
 			ContainSubstring("docker-build-init"),
 		), "smoke should depend on the docker-build-local/docker-build-init targets to build its images")
+	})
+})
+
+// Red run, 2026-09-15 (docs audit): `make dev-restart` ran
+// `docker compose build shepherd` — but the shepherd service has no `build:`
+// section (`image: shepherd:local`), so compose reported nothing to build and
+// a Go change never reached the container. Its only side effect was the
+// `build-web` prerequisite rewriting the tracked internal/spa/dist on the
+// host, which deploy/Dockerfile.local discards anyway.
+var _ = Describe("the dev-restart target", func() {
+	It("rebuilds shepherd:local the way make dev does, instead of a compose build that has nothing to build", func() {
+		Expect(mkTargetLine("dev-restart")).To(ContainSubstring("docker-build-local"),
+			"dev-restart must depend on docker-build-local; the compose service has no build: section")
+		Expect(mkTargetLine("dev-restart")).NotTo(ContainSubstring("build-web"),
+			"a host build-web is discarded by Dockerfile.local and dirties the tracked dist")
+		recipe := makeRecipe("dev-restart")
+		Expect(recipe).NotTo(MatchRegexp(`docker compose .*\bbuild\b`),
+			"compose build is a no-op for a service without build:")
+		Expect(recipe).To(MatchRegexp(`docker compose .* up -d .*--force-recreate .*shepherd`),
+			"the container must be recreated on the new image")
+	})
+
+	It("is a real gap in compose, not a stale spec: the shepherd service has image: and no build:", func() {
+		compose := readRepoFile("dev/docker-compose.dev.yaml")
+		svc := regexp.MustCompile(`(?ms)^  shepherd:\n(.*?)^  [a-z]`).FindStringSubmatch(compose)
+		Expect(svc).NotTo(BeNil())
+		Expect(svc[1]).To(ContainSubstring("image: shepherd:local"))
+		Expect(svc[1]).NotTo(MatchRegexp(`(?m)^    build:`))
 	})
 })
 

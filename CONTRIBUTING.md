@@ -12,8 +12,10 @@ make dev          # Postgres, a seeded database, Shepherd, Gitea and three Alloy
 make dev-reset    # stop everything and wipe the volumes
 ```
 
-`make dev` is the fastest way to see a change running. If you would rather run
-the SPA with hot reload against that backend, `make dev-frontend`.
+`make dev` is the fastest way to see a change running; `make dev-restart`
+rebuilds the image and recreates the container after a Go change. If you would
+rather run the SPA with hot reload against that backend, `make dev-frontend`
+(Vite proxies `/api`, `/auth` and the Connect procedures to `:8080`).
 
 Building by hand needs Go (version per `go.mod`), Node 24 with pnpm, Docker, and
 Helm. `make tools` installs the Go-side generators at their pinned versions.

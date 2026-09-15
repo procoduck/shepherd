@@ -7,6 +7,10 @@ import { defineConfig } from 'vite';
 
 const buildInfoPlugin = {
   name: 'build-info',
+  // Build only: under Vite 8 closeBundle also fires when the dev server shuts
+  // down, which rewrote the tracked internal/spa/dist/BUILD_INFO.json at the
+  // end of every `make dev-frontend` session. src/api/devServer.test.ts pins it.
+  apply: 'build' as const,
   closeBundle() {
     const sha = (() => {
       try {
@@ -45,9 +49,15 @@ export default defineConfig({
     alias: { '@': path.resolve(import.meta.dirname, './src') },
   },
   server: {
+    // `make dev-frontend`: everything the SPA sends to its own origin that the
+    // backend must answer. The Connect API is the one people forget — the
+    // transport posts to /shepherd.mgmt.v1.<Service>/<Method> with baseUrl
+    // '/', so without the third entry login works and every screen after it
+    // fails. src/api/devServer.test.ts pins all three.
     proxy: {
       '/api': 'http://localhost:8080',
       '/auth': 'http://localhost:8080',
+      '^/shepherd\\.mgmt\\.v1\\.': 'http://localhost:8080',
     },
   },
   build: {

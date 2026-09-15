@@ -11,6 +11,22 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
+## Unreleased
+
+### Build & CI
+
+- **`make dev-restart` now ships a Go change.** It ran `docker compose build shepherd`, but
+  the compose service has no `build:` section, so nothing was rebuilt and the only effect was
+  rewriting the tracked SPA bundle on the host. It now rebuilds `shepherd:local` the way
+  `make dev` does and recreates the container.
+- **`make dev-frontend` proxies the Connect API.** Vite forwarded only `/api` and `/auth`; the
+  SPA posts its procedures to `/shepherd.mgmt.v1.*` on its own origin, so login worked and every
+  screen after it failed. The build-info plugin is also build-only now: under Vite 8 it fired on
+  dev-server shutdown and dirtied `internal/spa/dist/BUILD_INFO.json` after every session.
+- **CI always starts.** The docs `paths-ignore` meant a docs-only PR never reported the required
+  checks and could not merge; documentation is classified in the `changes` gates instead, so such
+  a PR runs only `changes` + `guards`.
+
 ## v0.7.0
 
 Chart 0.11.0. One template changed since 0.10.2: the Service's `appProtocol` is now the

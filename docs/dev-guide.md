@@ -28,8 +28,11 @@ a reproducible state.
 
 **Go code changes:** Requires image rebuild.
 ```bash
-make dev-restart   # rebuilds shepherd image (~5s cached) + restarts container
+make dev-restart   # rebuilds shepherd:local (docker-build-local, ~1 min cached) + recreates the container
 ```
+The compose `shepherd` service runs the `shepherd:local` image and has no `build:`
+section, so the rebuild is the same `docker-build-local` step `make dev` uses; a
+`docker compose build` would find nothing to build.
 
 ### Mode B — Frontend dev server (`make dev-frontend`)
 
@@ -38,7 +41,8 @@ Changes to React components are reflected immediately without rebuilding.
 
 ```bash
 make dev           # start backend stack
-make dev-frontend  # in another terminal: starts Vite with /api and /auth proxied to :8080
+make dev-frontend  # in another terminal: Vite, with /api, /auth and the Connect
+                   # procedures (/shepherd.mgmt.v1.*) proxied to :8080
 ```
 
 **Port note:** The backend sets `SameSite=Lax` cookies. Because both ports are `localhost`,
@@ -90,9 +94,17 @@ Add `--profile` flags to include extra services (the Alloy agents and Gitea need
 they start by default):
 
 ```bash
-# With mock-OAuth2 server (for OIDC login flow testing)
+# Starts the mock-OAuth2 server container on :8090 — and only that
 docker compose -f dev/docker-compose.dev.yaml --profile oidc up -d --build --wait
 ```
+
+The `oidc` profile only starts the provider. Nothing wires Shepherd to it:
+`dev/shepherd.dev.env` sets no `SHEPHERD_OIDC_*` variables (its comment says to
+add issuer, client id, secret and redirect URL by hand and recreate the container),
+and the admin UI refuses a `http://` or private-address issuer, so it cannot be
+entered there either. **To exercise an OIDC login locally, use `make dev-kind`**:
+its mock issuer is declared in the chart values, which is the one path that
+allows an in-cluster address.
 
 ### The `sim` profile — S3 sandbox simulation
 
@@ -163,9 +175,8 @@ To reseed without resetting data: `make dev-seed` (idempotent — inserts use `O
 | Agent token | See seed contents above |
 
 `dev/shepherd.dev.env` is committed and holds only dev-only fixtures. OIDC is deliberately
-left unset there: the `oidc` service sits behind the `oidc` compose profile, so the default
-compose stack uses local users only (`docker compose --profile oidc up -d` to exercise the OIDC
-flow). The Kubernetes flavour (`make dev-kind`, above) does it differently: the mock issuer is
+left unset there, so the compose stack uses local users only (the `oidc` compose profile starts a
+provider container but does not configure Shepherd against it — see above). The Kubernetes flavour (`make dev-kind`, above) does it differently: the mock issuer is
 declared directly in `dev/kind/values.yaml`'s chart values, so SSO is available there with no
 extra profile step — and, because it's chart-declared, the SSO settings page is read-only against
 it.
@@ -213,7 +224,7 @@ Full list (`make help` prints the same, plus the `E2E_*` env knobs each test tar
 |---|---|
 | `make dev` | Start the local dev stack (idempotent, builds images if needed) — login `admin`/`admin` at `:8080` |
 | `make dev-frontend` | Start the Vite dev server (HMR) against the running dev backend |
-| `make dev-restart` | Rebuild the shepherd image + restart its container (5-10s with layer cache) |
+| `make dev-restart` | Rebuild `shepherd:local` and recreate its container |
 | `make dev-seed` | Re-run the dev seed (idempotent — safe on a running stack) |
 | `make dev-reset` | Stop the dev stack and wipe all data (named volumes) |
 | `make dev-sim` | Start the dev stack with the S3 sandbox simulator (builds the simulator image; opt-in — see Optional profiles above) |
