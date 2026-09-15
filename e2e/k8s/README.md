@@ -12,12 +12,11 @@ The suite is nine `func Test*` entries today (`grep -h '^func Test' e2e/k8s/*_te
 CNI negative control, Helm install with defaults, Helm install with the simulator on, repeatable
 install, chart-provisioned CNPG/ESO dependencies, simulator containment probes, simulator
 containment kill probe, Gateway operator-owned attachment, Gateway route conformance/tenant
-isolation). The last full-cycle timing on record is ~500s including cluster create and destroy, for six
-features counted by capability group rather than by `func Test` (it was ~200s for four before the
-Gateway API route-conformance and operator-owned-attachment features landed). The suite has grown
-since that measurement and it has not been redone — treat ~500s as a stale floor, not this suite's
-current runtime. If you add a feature or re-time a run, update this paragraph rather than leaving
-a stale number to mislead.
+isolation). Measured 2026-09-15 on CI run 34973037471 (the v0.7.0 release PR): the `make e2e-k8s`
+step took 14 min including both image builds, cluster create and destroy; the whole job 16 min.
+Earlier figures (~200s for four features, ~500s for six) predate the Gateway API and containment
+features. If you add a feature or re-time a run, update this paragraph rather than leaving a stale
+number to mislead.
 
 ## Isolation model
 
@@ -116,7 +115,7 @@ silently pulling something else from a registry.
 - **No LGTM layer yet.** Until it exists, "the pipeline is correct" still does not mean "the data
   arrived" — see `docs/kind-test-environment-plan.md` §5 Layer C.
 - **Chart upgrade coverage installs the same version twice.** A true previous-version upgrade spec
-  is still unwritten, although released charts to upgrade *from* now exist (0.9.0 through 0.10.2).
+  is still unwritten, although released charts to upgrade *from* now exist (0.9.0 through 0.11.0).
 - **The dependency operators are pinned exactly, and only the current pin is tested.** A newer
   CloudNativePG or External Secrets could change a CRD field or a generated secret's key names
   without this suite noticing until the pin is bumped. That is the trade for testing a fixed,

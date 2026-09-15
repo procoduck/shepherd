@@ -251,7 +251,7 @@ Full list (`make help` prints the same, plus the `E2E_*` env knobs each test tar
 | `make e2e` | Compose e2e suite, real Alloy agent (~10 min) |
 | `make e2e-sim` | S3 sandbox e2e: containment probes + run lifecycle |
 | `make e2e-egress` | Sandbox egress containment probes only (fast local check) |
-| `make e2e-k8s` | Kubernetes e2e suite on a fresh kind cluster (~3-5 min; 45m timeout budget) |
+| `make e2e-k8s` | Kubernetes e2e suite on a fresh kind cluster (~14 min for the `make` step in CI including both image builds, run 34973037471 on 2026-09-15; 45m timeout budget) |
 | `make e2e-k8s-clean` | Delete kind clusters a SIGKILLed `e2e-k8s` run left behind |
 | `make schema-verify` | Verify the committed Alloy schema artifact matches the pinned version |
 | `make helm-lint` | Lint + template the Helm chart against every `ci/` value file and `dev/kind/values.yaml` |

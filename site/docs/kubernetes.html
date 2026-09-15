@@ -127,11 +127,12 @@
         <tbody>
           <tr><td><code>Deployment/shepherd</code></td><td>The server. Two replicas by default; it is stateless, so scale it freely.</td></tr>
           <tr><td><code>Service/shepherd</code></td><td>ClusterIP on port 8080. What collectors and browsers reach.</td></tr>
-          <tr><td><code>Service/shepherd-metrics</code></td><td>Port 9090. <code>/metrics</code> is <em>never</em> served on the main port.</td></tr>
+          <tr><td><code>Service/shepherd-metrics</code></td><td>Port 9090, while <code>metrics.enabled</code> is on (the default). <code>/metrics</code> is <em>never</em> served on the main port.</td></tr>
           <tr><td><code>Job/shepherd-migrate</code></td><td>Database migrations, as a <code>pre-install</code>/<code>pre-upgrade</code> hook.</td></tr>
           <tr><td><code>ConfigMap/shepherd</code></td><td>Everything under <code>config:</code> in your values.</td></tr>
           <tr><td><code>ServiceAccount/shepherd</code></td><td>The identity the pods run as. No RBAC is granted and no token is mounted &mdash; annotate it for <a href="database.html#managed-identity">IRSA or Workload Identity</a>.</td></tr>
           <tr><td><code>Secret/shepherd-secrets</code></td><td>Only when you supply an inline <code>secrets:</code> block. Not rendered for <code>existingSecret</code> or the generated path.</td></tr>
+          <tr><td><code>Secret/shepherd-simulator-token</code></td><td>The token the server presents to the sandbox, generated at install while <code>simulator.enabled</code> is on. Under a GitOps controller supply it yourself &mdash; see <a href="gitops.html">GitOps</a>.</td></tr>
           <tr><td><code>PodDisruptionBudget/shepherd</code></td><td>Keeps a replica during voluntary disruption. Rendered only when more than one pod will ever run &mdash; see <a href="#high-availability">High availability</a>.</td></tr>
           <tr><td><code>Deployment/shepherd-simulator</code> + <code>Service</code>, <code>ServiceAccount</code>, <code>NetworkPolicy</code></td><td>The sandbox, on by default. See <a href="simulation.html">Sandbox simulation</a>.</td></tr>
         </tbody>
@@ -140,7 +141,8 @@
         Conditional on values: <code>Ingress/shepherd</code> or <code>HTTPRoute/shepherd</code>,
         <code>HorizontalPodAutoscaler/shepherd</code>, <code>NetworkPolicy/shepherd</code>,
         <code>ServiceMonitor/shepherd</code>, <code>Cluster/shepherd-db</code>, and the
-        <code>ExternalSecret</code> with its two <code>Password</code> generators.
+        <code>ExternalSecret</code>s with their <code>Password</code> generators (two for Shepherd's
+        secret, one more for the sandbox token).
       </p>
       <p>
         Three more objects appear only <em>during</em> an install or upgrade and delete themselves when
@@ -218,9 +220,12 @@ kubectl -n shepherd port-forward svc/shepherd 8080:8080</code></pre>
       hosts: [shepherd.example.internal]</code></pre>
       </div>
       <p class="note">
-        <strong>Set <code>config.server.base_url</code> to the URL people actually reach.</strong> It
-        is what the OIDC redirect URL is built from, so leaving it at the default means single
-        sign-on redirects somewhere that does not exist.
+        <strong>Set <code>config.server.base_url</code> to the URL collectors can reach.</strong> It
+        is the address every claimed collector's beacon pipeline writes its self-monitoring
+        metrics to, so leaving it at the placeholder means every collector reports to an address
+        that does not exist. It plays no part in single sign-on: the OIDC redirect URL comes from
+        <code>config.oidc.redirect_url</code> when the provider is declared in the chart, and from
+        the browser's own origin when it is set up in the admin UI.
       </p>
 
       <h2 id="upgrading">Upgrading</h2>

@@ -1084,10 +1084,11 @@ project_name: shepherd
 
 before:
   hooks:
-    - go mod tidy
-    - buf generate
-    - sqlc generate
-    - sh -c "cd web && npm ci && npm run build"   # SPA must exist before go build (go:embed)
+    # Generated code (gen/, sqlc, alloy_gen.go) is committed and CI's
+    # generated-drift job fails any PR where it no longer matches its sources,
+    # so nothing is regenerated here. The SPA is the one build-time input:
+    # go:embed needs internal/spa/dist populated before go build.
+    - ./scripts/build-web.sh   # canonical build script per the check-build-script guard
 
 builds:
   - id: shepherd
@@ -1176,7 +1177,7 @@ Supporting rules:
 - **`deploy/Dockerfile.goreleaser`** (separate from the dev Dockerfile): does NOT compile Go — it copies the GoReleaser-built binary. Two stages: `FROM grafana/alloy:<pinned> AS alloy` (the exact fleet version, from `deploy/versions.env`) to source `/bin/alloy`, then `FROM gcr.io/distroless/base-nossl-debian12:nonroot` — **base, not static**: alloy is dynamically linked and distroless/static carries no dynamic loader, so on `static` the binary lands in the image unrunnable and `alloy validate` (Stage 2) dies silently. `nossl` because alloy links glibc only. `make check-alloy-runnable` guards this, `COPY --from=alloy /bin/alloy /usr/local/bin/alloy`, `COPY shepherd /usr/local/bin/shepherd`, `USER nonroot`, `ENTRYPOINT ["/usr/local/bin/shepherd"]`. Because `alloy validate` needs `/tmp`, the chart's emptyDir (§17.1) covers it — no shell, no package manager in the final image.
 - **`internal/version`**: tiny package with `Version`, `Commit`, `Date` string vars (defaults `"dev"`), printed by `shepherd version` and returned by `GET /api/version` (binary and SPA build SHAs). A `shepherd_build_info` gauge mirroring `alloy_build_info` is specified here and **scheduled** (decision 2026-09-11) — as of v0.5.0 `internal/metrics` registers no such metric.
 - **Commit convention**: Conventional Commits (`feat:`, `fix:`, `chore:`, …) — required, since the changelog groups depend on it.
-- **Make targets**: `make release-snapshot` = `goreleaser release --snapshot --clean --skip=publish` (must succeed locally and in CI on every milestone from milestone 1 onward — this keeps the embed/codegen hooks honest); `make release` = `goreleaser release --clean`, run only on tags by the pipeline, with `IMAGE_REGISTRY`, `SOURCE_URL`, and registry credentials provided by CI (Azure DevOps: a service connection performing `docker login` before the GoReleaser step).
+- **Make targets**: `make release-snapshot` = `goreleaser release --snapshot --clean --skip=publish` (must succeed locally and in CI on every milestone from milestone 1 onward — this keeps the embed/codegen hooks honest); there is no `make release` — `.github/workflows/release.yml` runs `goreleaser release --clean` on a `v*` tag push after its own `verify` job (lint, guards, tests, helm lint, image scans), refuses a tag whose version differs from `Chart.yaml`'s `appVersion` or whose chart version is already published, then attests and scans the published images (amended 2026-09-15; the original text named an Azure DevOps service connection that never existed).
 - **Helm chart versioning**: the chart is NOT released by GoReleaser. Chart `version` is bumped manually per chart change; `appVersion` is set to the app tag. CI packages and pushes the chart as OCI (`helm push` to `{{ IMAGE_REGISTRY }}/charts`) in a separate pipeline step triggered by the same tag.
 
 ---

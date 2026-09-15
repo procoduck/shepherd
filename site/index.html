@@ -336,7 +336,8 @@
             <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.11.0 \
   --set existingSecret=shepherd-secrets \
   --set "route.enabled=true" \
-  --set "route.hostnames[0]=shepherd.internal"</code></pre>
+  --set "route.hostnames[0]=shepherd.internal" \
+  --set "route.parentRefs[0].name=my-gateway"</code></pre>
           </div>
         </div>
       </div>

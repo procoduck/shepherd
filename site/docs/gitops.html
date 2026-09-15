@@ -91,10 +91,14 @@
       </p>
       <p class="note">
         <strong>This page is about Shepherd&rsquo;s own git sync, not about deploying Shepherd with
-        Argo CD or Flux.</strong> If you are looking for the latter, two values matter and both have
-        a default that is unsafe under a tool that renders the chart offline: see
-        <a href="database.html#cnpg-gitops"><code>cnpg.render</code></a> and
-        <a href="secrets.html#eso-gitops"><code>externalSecrets.render</code></a>.
+        Argo CD or Flux.</strong> If you are looking for the latter, three values matter and each
+        has a default that is unsafe under a tool that renders the chart offline: see
+        <a href="database.html#cnpg-gitops"><code>cnpg.render</code></a>,
+        <a href="secrets.html#eso-gitops"><code>externalSecrets.render</code></a>, and the sandbox
+        token &mdash; the chart generates it at install and looks it up on upgrade, which an offline
+        render cannot do, so every sync would mint a new token and roll both Deployments. Set
+        <code>simulator.token.value</code> or <code>simulator.token.existingSecret</code> (or
+        <code>simulator.enabled=false</code>).
       </p>
       <p><img src="../img/git-sync.jpg" alt="The Git sync page: a credential and a repository link showing branch, target collector, sync status and last-synced time" loading="lazy"></p>
       <p>

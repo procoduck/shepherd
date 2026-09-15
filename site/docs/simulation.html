@@ -96,7 +96,7 @@
         <tbody>
           <tr>
             <td><strong>Relabel / log preview</strong></td>
-            <td>"What do my <code>discovery.relabel</code> rules or <code>loki.process</code> stages do
+            <td>"What do my <code>prometheus.relabel</code> rules or <code>loki.process</code> stages do
                 to this input?" A per-rule, per-stage trace showing which rule dropped or rewrote a
                 label.</td>
             <td>Instant, in-process.</td>
@@ -119,9 +119,11 @@
       <h2 id="using-it">Using it</h2>
       <p>
         In the visual builder, <strong>Flow check</strong> and <strong>Simulate</strong> sit next to
-        <strong>Save</strong> in the toolbar; results land in the <strong>Simulation</strong> tab of the
-        bottom drawer, beside <strong>Problems</strong> and <strong>Generated config</strong>. A run
-        reports what was captured, which components were healthy, and a <em>fidelity note</em> naming
+        <strong>Save</strong> in the toolbar. The relabel and log-preview traces land in the
+        <strong>Simulation</strong> tab of the bottom drawer, beside <strong>Problems</strong> and
+        <strong>Generated config</strong>; a sandbox run (<strong>Simulate &rsaquo; Sandbox
+        run</strong>) opens in its own dialog, because it takes thirty seconds and you will want to
+        keep editing while it goes. A run reports what was captured, which components were healthy, and a <em>fidelity note</em> naming
         which parts were stubbed rather than really executed — a green run against synthetic sources is
         a weaker claim than a green run in production, and the UI says so rather than letting you
         assume otherwise.

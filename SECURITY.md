@@ -47,7 +47,8 @@ Automated, in the repository and on GitHub, so a reporter can see what is alread
   `gosec` inside `golangci-lint` on every lint run.
 - **Container images** — Trivy over the built `shepherd` and `shepherd-simulator` images
   (`security-scan.yml`, and as a gate in `release.yml` before anything is published), plus a
-  weekly scan of the images the last release shipped. The gate covers Shepherd's own binary and
+  weekly scan of the `shepherd` image the last release shipped (the simulator image is scanned at
+  release time only). The gate covers Shepherd's own binary and
   the distroless base; the bundled Grafana Alloy binary is reported but not gated, because its
   fixes arrive as an upstream Alloy version bump.
 - **Infrastructure configuration** — Trivy misconfiguration checks over every Dockerfile and the
@@ -63,7 +64,7 @@ Automated, in the repository and on GitHub, so a reporter can see what is alread
   `scripts/repocheck`), release archives carry SBOMs, and release archives and images carry
   Sigstore provenance attestations (`gh attestation verify`). OpenSSF Scorecard runs weekly.
 - **Branch protection** — `main` requires a pull request and the CI checks (guards, lint, build,
-  test, web, test-ui, test-fullstack, CodeQL) for everyone, admins included.
+  test, web, test-ui, test-fullstack, CodeQL, secrets, config-scan) for everyone, admins included.
 
 ## Not in scope
 
