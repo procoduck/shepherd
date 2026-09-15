@@ -102,6 +102,19 @@ Root causes, the full finding list, and the slice plan are in
   successful recompute, so it only passed while both computes landed in the same second (CI run
   34968998790). It now breaks the pipelines table under the recompute and asserts the failure
   counter moved, so a same-second pass cannot hide a non-failure again.
+### Fixed — pipeline names in the served header
+
+- **A line break in a pipeline name could take every collector it matched offline.** The served
+  config's header writes the pipeline name and the collector display name into `//` comment
+  lines; exclusion reasons were already collapsed to one line, names were not. A name with a
+  newline ended the comment, the rest became syntax, Stage 1 rejected the assembled output, and
+  every matched collector stayed on its previous config. Every string the header interpolates is
+  now collapsed to one line, so rows that predate the API check below, Git-sourced pipelines and
+  direct writes are covered too.
+- **`CreatePipeline` and `UpdatePipeline` refuse names with control or format characters**
+  (`InvalidArgument`, "name must not contain control or format characters"). Ordinary Unicode
+  letters stay allowed. A name is a label, not a text field; it lands in the served header and in
+  audit rows.
 
 ### Known
 

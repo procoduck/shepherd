@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"unicode"
 
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5"
@@ -90,6 +91,7 @@ var (
 	errPipelineIDInvalid    = errors.New("invalid pipeline id")
 	errPipelineNotFound     = errors.New("pipeline not found")
 	errPipelineNameRequired = errors.New("name is required")
+	errPipelineNameControl  = errors.New("name must not contain control or format characters")
 	errMatchersInvalid      = errors.New("invalid matchers")
 	errRenderMismatch       = errors.New("submitted content does not match server render of the graph; use POST /visual/render to get the canonical content")
 	errGitSourceReadOnly    = errors.New("git-sourced pipelines are read-only")
@@ -421,6 +423,13 @@ type pipelineSaveInput struct {
 func (s *PipelineService) validateSaveInput(ctx context.Context, in pipelineSaveInput) (json.RawMessage, error) {
 	if in.Name == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errPipelineNameRequired)
+	}
+	// A name is a label: it lands in the served config's "// " header
+	// comment and in audit rows. Line breaks and other control characters
+	// are refused here; merge.buildHeader neutralises them as well for rows
+	// that predate this check or arrive outside the API.
+	if strings.ContainsFunc(in.Name, func(r rune) bool { return unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cf, r) }) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errPipelineNameControl)
 	}
 	if in.Source == "visual" && len(in.WizardState) > 0 {
 		mismatch, checkErr := s.checkVisualRenderMatch(ctx, in.Contents, in.WizardState)

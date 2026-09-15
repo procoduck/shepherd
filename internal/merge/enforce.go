@@ -102,7 +102,7 @@ func enforceRoles(selected []Pipeline, cl CollectorLabels, reg *schema.Registry)
 		if err != nil {
 			exclusions = append(exclusions, Exclusion{
 				PipelineName: p.Name,
-				Reason:       sanitizeReason(fmt.Sprintf("signal derivation failed, excluded fail-safe: %v", err)),
+				Reason:       commentSafe(fmt.Sprintf("signal derivation failed, excluded fail-safe: %v", err)),
 			})
 			continue
 		}
@@ -118,7 +118,7 @@ func enforceRoles(selected []Pipeline, cl CollectorLabels, reg *schema.Registry)
 		if enforceErr := signals.Enforce(role, checkSet); enforceErr != nil {
 			exclusions = append(exclusions, Exclusion{
 				PipelineName: p.Name,
-				Reason:       sanitizeReason(enforceErr.Error() + unprovenNote),
+				Reason:       commentSafe(enforceErr.Error() + unprovenNote),
 			})
 			continue
 		}
@@ -137,10 +137,13 @@ func unknownComponentNames(u []signals.UnknownComponent) []string {
 	return names
 }
 
-// sanitizeReason collapses any embedded newline to a space. Reasons are
-// written verbatim into a "// " comment line in the generated Alloy header;
-// a raw newline would break out of the comment and could corrupt the
-// generated syntax.
-func sanitizeReason(s string) string {
-	return strings.ReplaceAll(strings.ReplaceAll(s, "\r\n", " "), "\n", " ")
+// commentSafe collapses any embedded line break to a space. Everything the
+// header interpolates — exclusion reasons, pipeline names, the collector
+// display name — is written verbatim into a "// " comment line of the
+// generated Alloy config; a raw newline would end the comment and turn the
+// remainder into syntax, which Stage 1 then rejects for the whole assembled
+// output. Names come from the database and the API only requires them to be
+// non-empty, so the header is the last line of defence.
+func commentSafe(s string) string {
+	return strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ").Replace(s)
 }

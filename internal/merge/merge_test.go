@@ -9,6 +9,7 @@ import (
 
 	"shepherd/internal/merge"
 	"shepherd/internal/schema"
+	"shepherd/internal/validate"
 	"shepherd/internal/version"
 )
 
@@ -350,6 +351,39 @@ totally.bogus.component "x" {
 		Expect(r.Content).To(ContainSubstring("// No pipelines matched"))
 		Expect(r.Content).To(ContainSubstring("// Excluded (1)"))
 		Expect(r.Content).To(ContainSubstring("metrics-pipe:"))
+	})
+})
+
+var _ = Describe("header comment hardening", func() {
+	// Every string the header interpolates is written into a "// " comment
+	// line. Pipeline names, the collector display name (the cluster name)
+	// and exclusion reasons all come from the database, and a raw newline in
+	// any of them breaks out of the comment: the remainder becomes Alloy
+	// syntax, Stage 1 rejects the assembled output, and every collector the
+	// pipeline matches is left on its previous config. Reasons were already
+	// collapsed; names were not.
+	It("keeps a newline in a pipeline name or the display name inside the comment", func() {
+		cl := merge.CollectorLabels{
+			CollectorID: "coll-uuid-1",
+			Labels:      map[string]string{"cluster": "test\nrole = 1", "role": "metrics"},
+		}
+		pipelines := []merge.Pipeline{
+			{Name: "good\nprometheus.scrape \"x\" {", Contents: "// fine", Matchers: []string{`role="metrics"`}, Source: "ui"},
+			{Name: "matcher\r\nbroken", Contents: "// fine", Matchers: []string{`cluster=~"["`}, Source: "ui"},
+		}
+		r, err := merge.Assemble("coll-uuid-1", "test\nrole = 1/metrics", cl, pipelines, "dev", "2024-01-01T00:00:00Z")
+		Expect(err).NotTo(HaveOccurred())
+		for _, line := range strings.Split(r.Content, "\n") {
+			if line == "" {
+				continue
+			}
+			Expect(line).To(SatisfyAny(HavePrefix("//"), HavePrefix("declare "), HavePrefix("}"), HavePrefix("  "), HavePrefix("pipe_")),
+				"every header-derived line must stay a comment: %q", line)
+		}
+		Expect(validate.Stage1(r.Content).Valid).To(BeTrue(), "assembled output must parse:\n%s", r.Content)
+		Expect(r.Content).To(ContainSubstring("//   - good prometheus.scrape \"x\" { (rev 0)"))
+		Expect(r.Content).To(ContainSubstring("// Collector: test role = 1/metrics (coll-uuid-1)"))
+		Expect(r.Content).To(ContainSubstring("//   - matcher broken: unparsable matcher"))
 	})
 })
 

@@ -141,6 +141,47 @@ var _ = Describe("PipelineService Connect RPC", Label("integration"), func() {
 		Expect(result["source"]).To(Equal("ui"))
 	})
 
+	It("rejects a pipeline name that carries a control character, on create and on update", func() {
+		// The served config's header writes the name into a "// " comment
+		// line; merge.buildHeader now neutralises line breaks, but the API
+		// should not accept them in the first place — a name is a label, not
+		// a text field. Cc (control) and Cf (format, e.g. zero-width joiners)
+		// are refused; ordinary Unicode letters stay allowed.
+		cookie := sessionCookie(true)
+		for _, bad := range []string{"line\nbreak", "cr\rbreak", "tab\there", "zero\u200bwidth", "bell\x07"} {
+			resp := postConnect("/shepherd.mgmt.v1.PipelineService/CreatePipeline", map[string]any{
+				"org_id": orgID, "name": bad, "contents": `// valid alloy comment`, "matchers": []string{},
+			}, cookie)
+			var payload struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			}
+			decodeBody(resp, &payload)
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest), "name %q must be refused", bad)
+			Expect(payload.Code).To(Equal("invalid_argument"), "name %q", bad)
+			Expect(payload.Message).To(ContainSubstring("control"), "name %q", bad)
+		}
+
+		// Unicode letters are fine.
+		resp := postConnect("/shepherd.mgmt.v1.PipelineService/CreatePipeline", map[string]any{
+			"org_id": orgID, "name": "métriques-ñ", "contents": `// valid alloy comment`, "matchers": []string{},
+		}, cookie)
+		var created map[string]any
+		decodeBody(resp, &created)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		// The same rule guards UpdatePipeline: the name cannot be renamed into a bad one.
+		resp = postConnect("/shepherd.mgmt.v1.PipelineService/UpdatePipeline", map[string]any{
+			"org_id": orgID, "id": created["id"], "name": "renamed\nbad", "contents": `// valid alloy comment`, "matchers": []string{},
+		}, cookie)
+		var payload struct {
+			Code string `json:"code"`
+		}
+		decodeBody(resp, &payload)
+		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+		Expect(payload.Code).To(Equal("invalid_argument"))
+	})
+
 	It("denies CreatePipeline for a session without org-admin access", func() {
 		cookie := sessionCookie(false) // no group memberships: fails the org-admin requirement
 		resp := postConnect("/shepherd.mgmt.v1.PipelineService/CreatePipeline", map[string]any{
