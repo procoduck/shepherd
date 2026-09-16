@@ -1,6 +1,13 @@
 # Shepherd — project ledger
 
-> **The single live status document.** Baseline re-verified 2026-09-15 at the v0.7.0 release
+> **Active work is tracked on the GitHub Project board, not here:**
+> **https://github.com/users/procoduck/projects/1** ("Shepherd Implementation"). The board is the
+> working tracker — status, assignment, and what's next. This document stays the human-readable
+> **verified-baseline snapshot** (what demonstrably works, at which release/run), refreshed at each
+> release; day-to-day item status moves to the board. The outstanding-work sequence that seeded the
+> board is `docs/plans/2026-09-16-outstanding-work.md`.
+>
+> Baseline re-verified 2026-09-15 at the v0.7.0 release
 > (`185309e`, chart 0.11.0) from the CI and release runs on that commit, not from a summary.
 > Completed rounds live in `docs/archive/` — the history this ledger used to carry inline is
 > `docs/archive/completed-2026-09-11.md`. Do not start a second ledger.
@@ -11,7 +18,7 @@
 |---|---|
 | `docs/project-status.md` | this ledger — verified baseline, open bugs, unbuilt features, open follow-ups |
 | `docs/spec.md` | authoritative product/build specification (§ numbers referenced below) |
-| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag (empty since v0.7.0 — all three plans are archived) |
+| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. Current: `2026-09-16-outstanding-work.md` (the code-confirmed sequence that seeded the board) |
 | `docs/visual-builder-design-VB1.md` | visual builder design — M1–M8 built; §6.4 (S3) is the live spec for the sandbox feature (enabled by default in the Helm chart since v0.0.1) |
 | `docs/reviews/` | **live decision records only**: `canvas-framework-evaluation.md` (the React Flow decision and the controlled-mode contract `CanvasPane` depends on). Closed reviews move to `docs/archive/reviews/` |
 | `docs/dev-guide.md` | running the dev stack |
