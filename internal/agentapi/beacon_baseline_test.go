@@ -74,7 +74,7 @@ var _ = Describe("D6 baseline on the lazy serve path", Label("integration"), fun
 		// (internal/server/server.go). Without it the baseline is a documented
 		// no-op, so a spec omitting it would pass regardless.
 		svc := agentapi.New(st, nil, slog.Default(), testSchemaRegistry(),
-			agentapi.WithBeaconRemoteWrite(baseURL))
+			agentapi.WithBeaconRemoteWrite(baseURL, nil))
 		path, handler := collectorv1connect.NewCollectorServiceHandler(
 			svc, connect.WithRequestGate(agentapi.NewAuthGate(st, nil)),
 		)

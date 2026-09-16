@@ -68,13 +68,17 @@ type ServiceOption func(*Service)
 // beacon.RenderBaselinePipeline appended, pointed at baseURL+BeaconWritePath.
 // baseURL is config.ServerConfig.BaseURL; passing "" is equivalent to not
 // applying this option at all (beacon.AppendBaseline's documented no-op).
-func WithBeaconRemoteWrite(baseURL string) ServiceOption {
+func WithBeaconRemoteWrite(baseURL string, oauth2 *beacon.OAuth2Auth) ServiceOption {
 	return func(s *Service) {
 		remoteWriteURL := ""
 		if baseURL != "" {
 			remoteWriteURL = strings.TrimSuffix(baseURL, "/") + beacon.WritePath
 		}
-		s.beaconBaseline = beacon.NewBaselineConfig(remoteWriteURL)
+		cfg := beacon.NewBaselineConfig(remoteWriteURL)
+		if oauth2 != nil && remoteWriteURL != "" {
+			cfg.OAuth2 = oauth2
+		}
+		s.beaconBaseline = cfg
 	}
 }
 

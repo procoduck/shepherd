@@ -103,3 +103,59 @@ func TestAppendBaseline_ReachesServedContent(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderBaselinePipeline_OAuth2AuthBlock(t *testing.T) {
+	cfg := NewBaselineConfigOAuth2(
+		"https://shepherd.example.com/beacon/v1/write",
+		"https://idp.example.com/oauth2/token",
+		[]string{"api://shepherd-collectors/.default"},
+	)
+	out, err := RenderBaselinePipeline(cfg)
+	if err != nil {
+		t.Fatalf("RenderBaselinePipeline: %v", err)
+	}
+	if r := validate.Stage1(out); !r.Valid {
+		t.Fatalf("oauth2 baseline is not valid Alloy syntax: %+v\n---\n%s", r.Diagnostics, out)
+	}
+	for _, want := range []string{
+		"oauth2 {",
+		`client_id     = sys.env("SHEPHERD_OIDC_CLIENT_ID")`,
+		`client_secret = sys.env("SHEPHERD_OIDC_CLIENT_SECRET")`,
+		`token_url     = "https://idp.example.com/oauth2/token"`,
+		`scopes        = ["api://shepherd-collectors/.default"]`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("oauth2 pipeline missing %q\n---\n%s", want, out)
+		}
+	}
+	// The oauth2 block replaces basic_auth entirely.
+	if strings.Contains(out, "basic_auth") {
+		t.Errorf("oauth2 pipeline must not also render basic_auth\n---\n%s", out)
+	}
+	if strings.Contains(out, "SHEPHERD_AGENT_TOKEN") {
+		t.Errorf("oauth2 pipeline must not reference the agent-token env vars\n---\n%s", out)
+	}
+}
+
+func TestRenderBaselinePipeline_OAuth2RequiresTokenURL(t *testing.T) {
+	cfg := NewBaselineConfigOAuth2("https://s/beacon/v1/write", "", nil)
+	if _, err := RenderBaselinePipeline(cfg); err == nil {
+		t.Fatal("an oauth2 baseline with no token_url must be rejected")
+	}
+}
+
+func TestOAuth2ForBeacon(t *testing.T) {
+	if OAuth2ForBeacon("basic", "https://idp/token", nil) != nil {
+		t.Error("basic mode must yield no oauth2 descriptor")
+	}
+	if OAuth2ForBeacon("", "https://idp/token", nil) != nil {
+		t.Error("empty mode must yield no oauth2 descriptor")
+	}
+	got := OAuth2ForBeacon("oauth2", "https://idp/token", []string{"s1"})
+	if got == nil {
+		t.Fatal("oauth2 mode must yield a descriptor")
+	}
+	if got.TokenURL != "https://idp/token" || got.ClientIDEnv != DefaultClientIDEnv || got.ClientSecretEnv != DefaultClientSecretEnv {
+		t.Errorf("descriptor not built from defaults + args: %+v", got)
+	}
+}

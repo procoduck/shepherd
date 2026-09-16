@@ -119,6 +119,17 @@ type OIDCConfig struct {
 	// AgentClustersClaim, when set, names a claim listing the clusters this
 	// token may act for; empty means "any within the resolved org".
 	AgentClustersClaim string `mapstructure:"agent_clusters_claim"`
+
+	// Beacon self-monitoring auth (Phase 2). BeaconAuth selects how the
+	// rendered beacon remote_write authenticates: "basic" (the agent token,
+	// the default) or "oauth2" (the collector's own OIDC client credentials
+	// against AgentTokenURL). It is a whole-fleet choice — the served config
+	// is shared across a collector's instances. AgentTokenURL is the IdP token
+	// endpoint the collector fetches its access token from; AgentScopes the
+	// scopes it requests. Required when BeaconAuth is "oauth2".
+	BeaconAuth    string   `mapstructure:"beacon_auth"`
+	AgentTokenURL string   `mapstructure:"agent_token_url"`
+	AgentScopes   []string `mapstructure:"agent_scopes"`
 }
 
 // LogValue redacts the OIDC client secret in structured logs.

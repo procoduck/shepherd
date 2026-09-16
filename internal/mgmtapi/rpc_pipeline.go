@@ -59,13 +59,17 @@ type PipelineServiceOption func(*PipelineService)
 // recompute path — see internal/agentapi.WithBeaconRemoteWrite, which does
 // the identical thing for the lazy path. baseURL is
 // config.ServerConfig.BaseURL; "" is equivalent to omitting this option.
-func WithBeaconRemoteWrite(baseURL string) PipelineServiceOption {
+func WithBeaconRemoteWrite(baseURL string, oauth2 *beacon.OAuth2Auth) PipelineServiceOption {
 	return func(s *PipelineService) {
 		remoteWriteURL := ""
 		if baseURL != "" {
 			remoteWriteURL = strings.TrimSuffix(baseURL, "/") + beacon.WritePath
 		}
-		s.beaconBaseline = beacon.NewBaselineConfig(remoteWriteURL)
+		cfg := beacon.NewBaselineConfig(remoteWriteURL)
+		if oauth2 != nil && remoteWriteURL != "" {
+			cfg.OAuth2 = oauth2
+		}
+		s.beaconBaseline = cfg
 	}
 }
 

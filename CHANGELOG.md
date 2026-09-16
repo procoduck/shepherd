@@ -32,6 +32,12 @@ Categories used here:
   else until they set their own — the server has always enforced this, but the SPA had no screen for
   it, so the only way through was a raw API call. Any local user can also change their own password
   from **Admin &rarr; Users**. Identity-provider sessions are unaffected.
+- **Collector OIDC now covers self-monitoring.** An OIDC collector's beacon write-back
+  authenticates with the same identity: the ingest endpoint accepts a `Bearer` token (keyed by
+  the OIDC principal, not an agent token), and when `config.oidc.beacon_auth` is `oauth2` the
+  served beacon pipeline renders an `oauth2` block (the collector's own client credentials against
+  `config.oidc.agent_token_url`) instead of `basic_auth`. Whole-fleet: the served config is shared
+  across a collector's instances, so beacon auth is one mode per deployment.
 
 ### Build & CI
 

@@ -30,6 +30,13 @@ import (
 const (
 	DefaultTokenIDEnv     = "SHEPHERD_AGENT_TOKEN_ID"
 	DefaultTokenSecretEnv = "SHEPHERD_AGENT_TOKEN_SECRET"
+
+	// DefaultClientIDEnv and DefaultClientSecretEnv name the env vars the
+	// rendered oauth2 block reads the collector's own OIDC client credentials
+	// from, when beacon auth is OAuth2 (Phase 2). Same app the collector uses
+	// for its remotecfg poll.
+	DefaultClientIDEnv     = "SHEPHERD_OIDC_CLIENT_ID"
+	DefaultClientSecretEnv = "SHEPHERD_OIDC_CLIENT_SECRET" //nolint:gosec // G101: the NAME of an env var, not a credential
 )
 
 // WritePath is where every rendered baseline pipeline's prometheus.remote_write
@@ -65,9 +72,35 @@ type BaselineConfig struct {
 	// TokenIDEnv and TokenSecretEnv name the environment variables the
 	// rendered remote_write's basic_auth block reads via sys.env(...). Use
 	// DefaultTokenIDEnv/DefaultTokenSecretEnv unless a caller has a specific
-	// reason to diverge (both required non-empty either way).
+	// reason to diverge (both required non-empty either way). Ignored when
+	// OAuth2 is set.
 	TokenIDEnv     string
 	TokenSecretEnv string
+
+	// OAuth2, when non-nil, makes the rendered remote_write authenticate with
+	// an OAuth2 client-credentials `oauth2` block instead of basic_auth — the
+	// beacon half of collector OIDC (docs/plans/2026-09-16-agent-oidc-auth.md,
+	// Phase 2). The collector fetches its own access token from the IdP and
+	// presents it to Shepherd's beacon endpoint, exactly as its remotecfg poll
+	// already does. Whole-fleet: the served config is shared across a
+	// collector's instances, so this is a deployment-wide choice, not
+	// per-collector.
+	OAuth2 *OAuth2Auth
+}
+
+// OAuth2Auth configures the rendered remote_write's `oauth2` block. The client
+// credentials are read from the collector's own environment (the same app it
+// uses for its remotecfg poll), never baked into the shared served config.
+type OAuth2Auth struct {
+	// ClientIDEnv / ClientSecretEnv name the env vars the rendered oauth2 block
+	// reads via sys.env(...).
+	ClientIDEnv     string
+	ClientSecretEnv string
+	// TokenURL is the IdP's token endpoint the collector fetches its access
+	// token from (the OIDC token_endpoint).
+	TokenURL string
+	// Scopes is the OAuth2 scopes requested; may be empty.
+	Scopes []string
 }
 
 // identRe and the checks in Validate mirror internal/merge.SanitizeName's
@@ -108,11 +141,23 @@ func Validate(cfg BaselineConfig) error {
 	if cfg.ScrapeInterval == "" {
 		missing = append(missing, "ScrapeInterval")
 	}
-	if cfg.TokenIDEnv == "" {
-		missing = append(missing, "TokenIDEnv")
-	}
-	if cfg.TokenSecretEnv == "" {
-		missing = append(missing, "TokenSecretEnv")
+	if cfg.OAuth2 != nil {
+		if cfg.OAuth2.ClientIDEnv == "" {
+			missing = append(missing, "OAuth2.ClientIDEnv")
+		}
+		if cfg.OAuth2.ClientSecretEnv == "" {
+			missing = append(missing, "OAuth2.ClientSecretEnv")
+		}
+		if cfg.OAuth2.TokenURL == "" {
+			missing = append(missing, "OAuth2.TokenURL")
+		}
+	} else {
+		if cfg.TokenIDEnv == "" {
+			missing = append(missing, "TokenIDEnv")
+		}
+		if cfg.TokenSecretEnv == "" {
+			missing = append(missing, "TokenSecretEnv")
+		}
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("beacon: BaselineConfig missing required field(s): %s", strings.Join(missing, ", "))
@@ -168,10 +213,25 @@ func RenderBaselinePipeline(cfg BaselineConfig) (string, error) {
 	fmt.Fprintf(&sb, "prometheus.remote_write %q {\n", cfg.Label)
 	sb.WriteString("  endpoint {\n")
 	fmt.Fprintf(&sb, "    url = %q\n\n", cfg.RemoteWriteURL)
-	sb.WriteString("    basic_auth {\n")
-	fmt.Fprintf(&sb, "      username = sys.env(%q)\n", cfg.TokenIDEnv)
-	fmt.Fprintf(&sb, "      password = sys.env(%q)\n", cfg.TokenSecretEnv)
-	sb.WriteString("    }\n")
+	if cfg.OAuth2 != nil {
+		sb.WriteString("    oauth2 {\n")
+		fmt.Fprintf(&sb, "      client_id     = sys.env(%q)\n", cfg.OAuth2.ClientIDEnv)
+		fmt.Fprintf(&sb, "      client_secret = sys.env(%q)\n", cfg.OAuth2.ClientSecretEnv)
+		fmt.Fprintf(&sb, "      token_url     = %q\n", cfg.OAuth2.TokenURL)
+		if len(cfg.OAuth2.Scopes) > 0 {
+			quoted := make([]string, len(cfg.OAuth2.Scopes))
+			for i, sc := range cfg.OAuth2.Scopes {
+				quoted[i] = fmt.Sprintf("%q", sc)
+			}
+			fmt.Fprintf(&sb, "      scopes        = [%s]\n", strings.Join(quoted, ", "))
+		}
+		sb.WriteString("    }\n")
+	} else {
+		sb.WriteString("    basic_auth {\n")
+		fmt.Fprintf(&sb, "      username = sys.env(%q)\n", cfg.TokenIDEnv)
+		fmt.Fprintf(&sb, "      password = sys.env(%q)\n", cfg.TokenSecretEnv)
+		sb.WriteString("    }\n")
+	}
 	sb.WriteString("  }\n")
 	sb.WriteString("}\n")
 
@@ -191,6 +251,39 @@ func NewBaselineConfig(remoteWriteURL string) BaselineConfig {
 		TokenIDEnv:     DefaultTokenIDEnv,
 		TokenSecretEnv: DefaultTokenSecretEnv,
 	}
+}
+
+// OAuth2ForBeacon returns the beacon remote_write OAuth2 descriptor when the
+// beacon auth mode is "oauth2", or nil for the default agent-token basic_auth.
+// Config-free (takes primitives) so config need not import this package. The
+// client credentials come from the standard env vars; tokenURL and scopes are
+// the caller's.
+func OAuth2ForBeacon(mode, tokenURL string, scopes []string) *OAuth2Auth {
+	if mode != "oauth2" {
+		return nil
+	}
+	return &OAuth2Auth{
+		ClientIDEnv:     DefaultClientIDEnv,
+		ClientSecretEnv: DefaultClientSecretEnv,
+		TokenURL:        tokenURL,
+		Scopes:          scopes,
+	}
+}
+
+// NewBaselineConfigOAuth2 is NewBaselineConfig with an OAuth2 auth block: the
+// rendered remote_write authenticates with the collector's own OIDC client
+// credentials (from the default env vars) against tokenURL, instead of the
+// agent-token basic_auth. Used when a deployment runs collector OIDC and wants
+// the beacon on the same credential (Phase 2, whole-fleet).
+func NewBaselineConfigOAuth2(remoteWriteURL, tokenURL string, scopes []string) BaselineConfig {
+	cfg := NewBaselineConfig(remoteWriteURL)
+	cfg.OAuth2 = &OAuth2Auth{
+		ClientIDEnv:     DefaultClientIDEnv,
+		ClientSecretEnv: DefaultClientSecretEnv,
+		TokenURL:        tokenURL,
+		Scopes:          scopes,
+	}
+	return cfg
 }
 
 // AppendBaseline is the single call both of Shepherd's serve paths use to

@@ -260,7 +260,7 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 	if cfg.Server.BeaconDisabled {
 		beaconBaseURL = ""
 	}
-	svc := agentapi.New(st, v, logger, agentReg, agentapi.WithBeaconRemoteWrite(beaconBaseURL))
+	svc := agentapi.New(st, v, logger, agentReg, agentapi.WithBeaconRemoteWrite(beaconBaseURL, beacon.OAuth2ForBeacon(cfg.OIDC.BeaconAuth, cfg.OIDC.AgentTokenURL, cfg.OIDC.AgentScopes)))
 	// The Bearer branch of the collector gate: a collector's OIDC access token
 	// is verified with the same provider as user login. nil when authHandler
 	// is absent (the route-tree unit test) or OIDC is unconfigured, which
