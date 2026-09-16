@@ -34,29 +34,45 @@ demonstrates a one-gate-two-credential-shapes pattern to mirror.
 
 ## 1. Section-1 contract (names other slices depend on)
 
-- **`auth.AgentClaims`** — `{ Subject, Org string; Clusters, Roles []string }`,
-  the validated result of an agent token. `Clusters` / `Roles` empty means
-  "any within the org".
+- **`auth.AgentClaims`** — `{ Issuer, Subject, AppID, Org string; Clusters,
+  Roles []string }`, the validated token. `AppID` is the value of the
+  configured app-identity claim (default `sub`; may be `azp`/`client_id`),
+  `Org`/`Clusters`/`Roles` the optional scope claims (empty = unset).
 - **`auth.Handler.VerifyAgentToken(ctx, rawJWT) (AgentClaims, error)`** — the
   new exported verifier. Returns a typed error for: not-a-JWT, bad signature,
-  wrong issuer, `aud` not the agent audience, expired, org claim missing.
+  wrong issuer, `aud` not the agent audience, expired. It does **not** require
+  an org claim — org is resolved separately (§3.3), because a shared OIDC app
+  cannot carry a per-instance org.
 - **`agentapi.Principal`** — carried in the request context after the gate:
   `{ Kind AuthKind; TokenID string; Claims *auth.AgentClaims }`, `AuthKind ∈
   {agentToken, agentOIDC}`. Replaces the bare `tokenIDKey` value
   (`auth.go:36`), which nothing reads today anyway.
-- **Config keys** (chart + UI): `oidc.agent_audience`, `oidc.agent_org_claim`
-  (default `shepherd_org`), `oidc.agent_clusters_claim` (default
-  `shepherd_clusters`), `oidc.agent_roles_claim` (default `shepherd_roles`).
-  Agent OIDC is **on** iff `agent_audience != ""`.
+- **`agent_identities` table** — the admin-configured binding for the
+  registration path: `(issuer, app_id) → org_id` plus optional `clusters` /
+  `roles` allowlists, `created_by`, timestamps. The local counterpart to a
+  token claim.
+- **Config keys** (chart + UI): `oidc.agent_audience`, `oidc.agent_app_claim`
+  (default `sub`), `oidc.agent_org_claim` (default `shepherd_org`),
+  `oidc.agent_clusters_claim` (default `shepherd_clusters`),
+  `oidc.agent_roles_claim` (default `shepherd_roles`), and
+  `oidc.agent_trust_org_claim` (bool, default false — see §3.3). Agent OIDC is
+  **on** iff `agent_audience != ""`.
 - **`beacon` env names** for the OAuth2 write-back:
   `SHEPHERD_OIDC_CLIENT_ID`, `SHEPHERD_OIDC_CLIENT_SECRET`,
   `SHEPHERD_OIDC_TOKEN_URL` (alongside the existing `SHEPHERD_AGENT_TOKEN_*`).
 
 ## 2. Signed decisions
 
-- **D1 — Claim-scoped.** The token carries the org; Shepherd resolves the org
-  from the claim, not from an admin cluster-claim, and enforces `cluster ∈
-  Clusters` (when non-empty) and `role ∈ Roles` (when non-empty).
+- **D1 — Scoped identity, resolved by a chain, not by a single mechanism.**
+  An authenticated OIDC collector's org is resolved in order (§3.3): (1) an
+  admin-configured `agent_identities` binding keyed on the token's `(issuer,
+  app_id)`; (2) the token's own `shepherd_org` claim, but only when
+  `agent_trust_org_claim` is on (the IdP is then authoritative for org
+  assignment); (3) otherwise the existing admin cluster-claim, with the OIDC
+  token proving only liveness. This chain — rather than "org claim, always" —
+  is what lets one design cover both a per-instance-app fleet and a
+  shared-app fleet (see §2.1). Where org is resolved by (1) or (2), Shepherd
+  also enforces `cluster ∈ Clusters` and `role ∈ Roles` when those are set.
 - **D1a — Auto-claim (consequence of D1, called out because it changes a
   served-config invariant).** Today an unclaimed cluster is served empty until
   an app-admin runs `ClaimCluster` (`internal/agentapi/service.go:178`). For a
@@ -79,6 +95,29 @@ demonstrates a one-gate-two-credential-shapes pattern to mirror.
   `Bearer` branch. One credential end to end.
 - **D4 — Additive.** Basic agent tokens keep working unchanged; the gate
   branches on the `Authorization` scheme. Nothing forces a migration.
+
+## 2.1 Deployment scenarios this must cover
+
+The governing rule: **an instance can be auto-assigned to an org only if it
+presents something distinct-per-org that Shepherd can trust** — a token claim,
+or the token's own identity (`sub` / `azp` / `client_id`). A credential that is
+identical across instances carries no per-org signal, so those instances
+cannot self-assign; an admin must assign them, or they must be given distinct
+credentials.
+
+| Scenario | How org is resolved | Chain step |
+|---|---|---|
+| **One OIDC app for the whole fleet, admin assigns each Alloy's cluster to an org** | The shared app proves liveness; the admin runs the existing cluster-claim per cluster. Supported. | (3) |
+| **One OIDC app, instances "self-assign" from token metadata** | **Not securely supported.** A shared client-credentials app issues an identical token to every instance, so there is no trustworthy per-instance org signal — the only per-instance data is the request-body `attributes`, which are spoofable and must not decide org. To self-assign, give each instance a distinct credential (which is the next scenario). | — |
+| **A distinct OIDC app per org (or per instance), IdP emits a `shepherd_org` claim** | Shepherd reads the org from the claim, with `agent_trust_org_claim` on. Fully auto; no Shepherd-side mapping. | (2) |
+| **A distinct OIDC app per org (or per instance), admin maps app → org in Shepherd** | Admin creates an `agent_identities` binding `(issuer, client_id) → org`; the claim can stay off. Fully auto; the mapping lives in Shepherd, not the IdP. | (1) |
+
+So your first scenario is supported through the admin cluster-claim (step 3);
+its "self-assign from a shared app" variant is the one thing that cannot be
+done securely, and the plan says so rather than pretending otherwise. Your
+second scenario — unique app per instance, auto-assigned — is supported two
+ways: by an IdP-emitted claim (step 2) or by an admin-configured mapping (step
+1), and a deployment may mix all three across different fleets.
 
 ## 3. The seam, in code
 
@@ -121,17 +160,22 @@ Branch on scheme:
 ### 3.3 Enforcement (`internal/agentapi/service.go`)
 
 `requireClusterRole` still reads `cluster`/`role` from the body
-(`service.go:351`). After it, when the principal is `agentOIDC`:
-- resolve org from `claims.Org` (look up the org id by its external
-  identifier — a new `GetOrgByExternalID`/slug query), not from
-  `GetCollectorOrgID`;
-- if `claims.Clusters` non-empty, require `cluster ∈ claims.Clusters`, else
-  `PermissionDenied`;
-- if `claims.Roles` non-empty, require `role ∈ claims.Roles`;
+(`service.go:351`). After it, when the principal is `agentOIDC`, resolve the
+org through the D1 chain:
+1. `GetAgentIdentity(issuer, app_id)` → if a binding exists, its org (and its
+   optional cluster/role allowlists) win;
+2. else, if `agent_trust_org_claim` and `claims.Org != ""`, resolve that org
+   by its external id (a new `GetOrgByExternalID` query);
+3. else, no OIDC-derived org — fall through to today's `GetCollectorOrgID`
+   (admin cluster-claim); an unclaimed cluster still serves empty.
+
+When org came from (1) or (2):
+- if the resolved binding/claim carries a cluster allowlist, require `cluster
+  ∈ allowlist`, else `PermissionDenied`; likewise `role`;
 - **auto-claim (D1a):** if the cluster row is unclaimed, `ClaimCluster` to the
-  resolved org; if claimed by another org, refuse. This is a write on the
-  poll path guarded by the token's proof of org — acceptable, and it reuses
-  the existing `ClaimCluster` query (`clusters.sql:19`).
+  resolved org; if claimed by another org, refuse. A write on the poll path,
+  guarded by a trusted per-instance identity — reuses `ClaimCluster`
+  (`clusters.sql:19`). Not reached in mode (3), where the admin claims.
 
 The rest of `GetConfig` (serve cache, recompute) is unchanged: once org is
 resolved the served config is computed exactly as for a Basic-auth collector.
@@ -153,18 +197,24 @@ resolved the served config is computed exactly as for a Basic-auth collector.
 ### 3.5 Config, proto, chart, UI
 
 - `internal/config/config.go OIDCConfig` (`config.go:69`): add
-  `AgentAudience`, `AgentOrgClaim`, `AgentClustersClaim`, `AgentRolesClaim`.
+  `AgentAudience`, `AgentAppClaim`, `AgentOrgClaim`, `AgentClustersClaim`,
+  `AgentRolesClaim`, `AgentTrustOrgClaim bool`.
 - `proto/shepherd/mgmt/v1/admin.proto OidcSettings` (`admin.proto:219`, next
-  free field 23): add `agent_audience = 23`, `agent_org_claim = 24`,
-  `agent_clusters_claim = 25`, `agent_roles_claim = 26`, and a read-only
-  `agent_auth_enabled = 27`. **Proto change — ask-first; this plan is the
-  record.** `buf generate` regenerates Go + TS.
-- `deploy/helm/shepherd/values.yaml` oidc block (`values.yaml:107`): the four
-  keys, defaults for the claim names, `agentAudience` empty (feature off by
-  default). **Chart template change → chart version bump → release.**
-- Admin UI `AdminAuthPage`: show the agent-audience and claim fields,
-  read-only when the provider is chart-owned (same rule as the rest of the
-  SSO form).
+  free field 23): add `agent_audience = 23`, `agent_app_claim = 24`,
+  `agent_org_claim = 25`, `agent_clusters_claim = 26`, `agent_roles_claim =
+  27`, `agent_trust_org_claim = 28`, read-only `agent_auth_enabled = 29`.
+  Plus a small `AgentIdentityService` (or additions to `AdminService`) for the
+  `agent_identities` bindings: `List/Create/DeleteAgentIdentity`, app-admin
+  only. **Proto change — ask-first; this plan is the record.** `buf generate`
+  regenerates Go + TS.
+- `deploy/helm/shepherd/values.yaml` oidc block (`values.yaml:107`): the new
+  keys, claim-name defaults, `agentAudience` empty and `agentTrustOrgClaim`
+  false (feature off by default). **Chart template change → chart version bump
+  → release.**
+- Admin UI: agent-audience and claim fields on `AdminAuthPage` (read-only when
+  chart-owned, as the rest of the SSO form); a small bindings table (app id →
+  org, cluster/role allowlists) for the registration path — the local
+  counterpart to `/admin/tokens`.
 
 ## 4. Onboarding and docs
 
@@ -187,10 +237,14 @@ resolved the served config is computed exactly as for a Basic-auth collector.
   signature, missing org claim. Red first.
 - **Gate unit** (`internal/agentapi`): `Bearer` valid → principal in ctx;
   `Bearer` when disabled → 401; `Basic` still works; malformed → 401.
-- **Enforcement unit** (`internal/agentapi`, integration with the testcontainer
-  Postgres): cluster ∈ claim served; cluster ∉ claim refused; unclaimed
-  cluster auto-claimed to the token's org; cluster claimed by another org
-  refused; role constraint enforced.
+- **Resolution-chain unit** (`internal/agentapi`, integration with the
+  testcontainer Postgres), one per D1 mode: (1) an `agent_identities` binding
+  resolves org and its allowlists; (2) with `agent_trust_org_claim` on, the
+  `shepherd_org` claim resolves org, and with it **off** the claim is ignored
+  and mode (3) applies; (3) no binding/claim → today's admin cluster-claim,
+  unclaimed serves empty. Plus: cluster ∉ allowlist refused, unclaimed cluster
+  auto-claimed, cluster claimed by another org refused, role constraint
+  enforced. Binding wins over claim when both are present.
 - **Beacon unit**: `Bearer` write authenticated, keyed by `sub`.
 - **Chart**: `helm template` renders the four values; `config-scan` /
   repocheck cover the NOTES.txt stanza.
@@ -223,10 +277,17 @@ resolved the served config is computed exactly as for a Basic-auth collector.
   non-JWT access tokens the verifier cannot parse. Documented as a
   prerequisite: the IdP must issue JWT access tokens with the configured
   audience. Out of scope to support introspection endpoints in v1.
-- **Auto-claim trust (D1a).** Only a validly-signed token with an org claim can
-  bind a cluster, and only within its own org; cross-org naming is refused.
-  Reviewed as acceptable, but it is the central new authority and the reason
-  this plan is the ask-first record.
+- **Auto-claim trust (D1a).** Only a validly-signed token resolved to an org by
+  a binding or a trusted claim can bind a cluster, and only within that org;
+  cross-org naming is refused. The central new authority and the reason this
+  plan is the ask-first record.
+- **Trusting the org claim (mode 2) hands org assignment to the IdP.** Off by
+  default (`agent_trust_org_claim`): a compromised or loose IdP could then mint
+  a token for any org. The registration path (mode 1) keeps assignment in
+  Shepherd for operators who do not want the IdP to be authoritative.
+- **A single shared OIDC app cannot self-assign instances to different orgs.**
+  Documented as a topology constraint (§2.1), not a bug: such fleets use the
+  admin cluster-claim, or move to a per-instance credential.
 - **Not** replacing agent tokens, **not** adding a machine-identity provider
   (D2 reuses the SSO issuer), **not** supporting token introspection.
 
