@@ -22,6 +22,9 @@ Categories used here:
   or format characters; a collector is capped at 64 labels — enforced both in the handler and by a
   database CHECK, so a direct-SQL path cannot bypass it. Every set and delete is audited with the
   key and the prior value. App-admin with apply capability. Migration `0023_collector_labels`.
+- **`shepherd_build_info` metric — Shipped.** A constant gauge on `/metrics` whose `version` and
+  `commit` labels carry the running build, so a dashboard can join the version onto any other series
+  and an operator can confirm what a pod actually rolled to.
 
 ## v0.8.0
 

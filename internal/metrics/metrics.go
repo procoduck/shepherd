@@ -6,9 +6,22 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+
+	"shepherd/internal/version"
 )
 
 var (
+	// BuildInfo exposes the running build's version and commit as label values
+	// with a constant value of 1 — the conventional `*_build_info` pattern, so
+	// a dashboard can join the version onto any other Shepherd series and an
+	// operator can confirm what a pod actually rolled to. Set once in init from
+	// the ldflags-stamped internal/version vars.
+	BuildInfo = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "shepherd",
+		Name:      "build_info",
+		Help:      "Build information; constant 1, the version and commit labels carry the values.",
+	}, []string{"version", "commit"})
+
 	// GetConfigTotal counts GetConfig RPCs by result label.
 	GetConfigTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "shepherd",
@@ -89,6 +102,13 @@ var (
 		Buckets:   prometheus.DefBuckets,
 	}, []string{"procedure"})
 )
+
+// init publishes the build-info series as soon as the package loads, so
+// `shepherd_build_info` is present on the very first scrape without any
+// startup wiring having to remember to set it.
+func init() {
+	BuildInfo.WithLabelValues(version.Version, version.Commit).Set(1)
+}
 
 // ObserveGetConfig records one GetConfig outcome: the counter and the latency
 // histogram together.
