@@ -10,6 +10,18 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AgentIdentity struct {
+	ID        pgtype.UUID        `json:"id"`
+	Issuer    string             `json:"issuer"`
+	AppID     string             `json:"app_id"`
+	OrgID     pgtype.UUID        `json:"org_id"`
+	Clusters  json.RawMessage    `json:"clusters"`
+	Roles     json.RawMessage    `json:"roles"`
+	CreatedBy string             `json:"created_by"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
 type AgentToken struct {
 	ID        pgtype.UUID        `json:"id"`
 	Name      string             `json:"name"`

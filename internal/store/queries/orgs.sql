@@ -44,3 +44,8 @@ RETURNING *;
 
 -- name: DeleteOrg :exec
 DELETE FROM orgs WHERE id = $1;
+
+-- name: GetOrgByName :one
+-- Resolve an org by its unique slug (orgs.name), the external identifier an
+-- operator uses when creating an agent-identity binding.
+SELECT * FROM orgs WHERE name = $1;

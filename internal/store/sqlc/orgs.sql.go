@@ -102,6 +102,29 @@ func (q *Queries) GetOrgByID(ctx context.Context, id pgtype.UUID) (Org, error) {
 	return i, err
 }
 
+const getOrgByName = `-- name: GetOrgByName :one
+SELECT id, name, display_name, admin_group_id, reader_group_id, created_at, updated_at, tenant_id, editor_group_id FROM orgs WHERE name = $1
+`
+
+// Resolve an org by its unique slug (orgs.name), the external identifier an
+// operator uses when creating an agent-identity binding.
+func (q *Queries) GetOrgByName(ctx context.Context, name string) (Org, error) {
+	row := q.db.QueryRow(ctx, getOrgByName, name)
+	var i Org
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.DisplayName,
+		&i.AdminGroupID,
+		&i.ReaderGroupID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.TenantID,
+		&i.EditorGroupID,
+	)
+	return i, err
+}
+
 const listOrgs = `-- name: ListOrgs :many
 SELECT id, name, display_name, admin_group_id, reader_group_id, created_at, updated_at, tenant_id, editor_group_id FROM orgs ORDER BY name
 `
