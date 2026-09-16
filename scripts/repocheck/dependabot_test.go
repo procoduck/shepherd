@@ -6,6 +6,7 @@ package repocheck_test
 import (
 	"encoding/json"
 	"regexp"
+	"slices"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -101,13 +102,29 @@ var _ = Describe("renovate.json", func() {
 				DatasourceTemplate  string   `json:"datasourceTemplate"`
 			} `json:"customManagers"`
 			PackageRules []struct {
+				MatchManagers     []string `json:"matchManagers"`
 				MatchPackageNames []string `json:"matchPackageNames"`
 				MatchUpdateTypes  []string `json:"matchUpdateTypes"`
 				Enabled           *bool    `json:"enabled"`
+				PinDigests        *bool    `json:"pinDigests"`
 			} `json:"packageRules"`
 		}
 		Expect(json.Unmarshal([]byte(readRepoFile("renovate.json")), &cfg)).To(Succeed())
-		Expect(cfg.Extends).To(ContainElement(":pinDigests"))
+		// Digest pinning must NOT come from the `:pinDigests` shorthand preset:
+		// Renovate removed it, and extending a preset it cannot resolve aborts
+		// every run with "Cannot find preset's package" (issues #72, #82). It
+		// comes from an explicit pinDigests:true packageRule on the regex
+		// manager instead, which survives preset churn.
+		Expect(cfg.Extends).NotTo(ContainElement(":pinDigests"),
+			"the :pinDigests preset was removed from Renovate; extending it stops every run")
+		var pinsDigests bool
+		for _, r := range cfg.PackageRules {
+			if r.PinDigests != nil && *r.PinDigests && slices.Contains(r.MatchManagers, "custom.regex") {
+				pinsDigests = true
+			}
+		}
+		Expect(pinsDigests).To(BeTrue(),
+			"a pinDigests:true packageRule on the custom.regex manager must keep pinning image digests without the preset")
 		Expect(cfg.CustomManagers).To(HaveLen(1))
 		m := cfg.CustomManagers[0]
 		Expect(m.CustomType).To(Equal("regex"))

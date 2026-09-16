@@ -1,7 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": "Digest pins for the container images this repo builds on and scans with. Dependabot keeps Go, npm and GitHub Actions; it cannot update the ARG-driven FROM lines and the KEY=image pins in deploy/versions.env, which is what this file is for. Every image string appears in several files (versions.env is the source of truth; the Dockerfile ARG defaults and compose fallbacks restate it and `make check-docker` fails when they drift), so one update touches all of them in one PR.",
-  "extends": ["config:recommended", ":pinDigests"],
+  "extends": ["config:recommended"],
   "enabledManagers": ["custom.regex"],
   "schedule": ["before 6am on monday"],
   "timezone": "UTC",
