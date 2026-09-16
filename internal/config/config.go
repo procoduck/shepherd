@@ -94,6 +94,31 @@ type OIDCConfig struct {
 	// true when Provider is "entra" (preserving the pre-existing behaviour,
 	// which had no other option) and false otherwise.
 	UseGraphGroups bool `mapstructure:"use_graph_groups"`
+
+	// Collector (agent) OIDC — an Alloy collector authenticates by presenting
+	// an OAuth2 access token from this same issuer instead of the shared agent
+	// token. See docs/plans/2026-09-16-agent-oidc-auth.md.
+	//
+	// AgentAudience is the resource identifier a collector's access token must
+	// carry in `aud`. It is what separates a machine token from a user login
+	// ID token (whose aud is ClientID), and it is the master switch: agent
+	// OIDC is off entirely while this is empty.
+	AgentAudience string `mapstructure:"agent_audience"`
+	// AgentRequiredRole / AgentRequiredScope are the D0 grant gate: when set,
+	// the token must carry this app role (in AgentRolesClaim) or this scope
+	// (in scp/scope) or it is refused — the analog of an IdP "app role bound
+	// to the exposed API". Optional but recommended.
+	AgentRequiredRole  string `mapstructure:"agent_required_role"`
+	AgentRequiredScope string `mapstructure:"agent_required_scope"`
+	// AgentAppClaim names the claim identifying the calling client (default
+	// "sub"; commonly "azp" or "client_id" for a client-credentials token).
+	AgentAppClaim string `mapstructure:"agent_app_claim"`
+	// AgentRolesClaim names the roles claim ("roles" on Entra, "permissions"
+	// on Auth0, ...). Defaults to "roles".
+	AgentRolesClaim string `mapstructure:"agent_roles_claim"`
+	// AgentClustersClaim, when set, names a claim listing the clusters this
+	// token may act for; empty means "any within the resolved org".
+	AgentClustersClaim string `mapstructure:"agent_clusters_claim"`
 }
 
 // LogValue redacts the OIDC client secret in structured logs.

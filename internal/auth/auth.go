@@ -102,6 +102,18 @@ type oidcRuntime struct {
 	// chart-declared issuer. The provider's JWKS fetches and the code exchange
 	// both go through it.
 	client *http.Client
+
+	// agentVerifier verifies a collector's OAuth2 access token against the
+	// agent audience (a resource identifier distinct from ClientID). It is nil
+	// unless settings.AgentAudience is set, which is the master switch for
+	// collector OIDC. The agent-scope fields below are copied from settings so
+	// VerifyAgentToken need not re-read them.
+	agentVerifier      *oidc.IDTokenVerifier
+	agentRequiredRole  string
+	agentRequiredScope string
+	agentAppClaim      string
+	agentRolesClaim    string
+	agentClustersClaim string
 }
 
 // settingsRefreshInterval bounds how stale a replica's view of the
@@ -243,7 +255,7 @@ func (h *Handler) Reload(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	h.rt.Store(&oidcRuntime{
+	rt := &oidcRuntime{
 		settings: *settings,
 		provider: provider,
 		client:   client,
@@ -254,7 +266,20 @@ func (h *Handler) Reload(ctx context.Context) error {
 			RedirectURL:  settings.RedirectURL,
 			Scopes:       settings.Scopes,
 		},
-	})
+	}
+	// Collector OIDC is a second verifier on the same provider (same issuer,
+	// same JWKS) with a different expected audience, so an agent access token
+	// and a user login ID token can never be mistaken for each other. Nil
+	// until an audience is configured.
+	if settings.AgentAudience != "" {
+		rt.agentVerifier = provider.Verifier(&oidc.Config{ClientID: settings.AgentAudience})
+		rt.agentRequiredRole = settings.AgentRequiredRole
+		rt.agentRequiredScope = settings.AgentRequiredScope
+		rt.agentAppClaim = settings.AgentAppClaim
+		rt.agentRolesClaim = settings.AgentRolesClaim
+		rt.agentClustersClaim = settings.AgentClustersClaim
+	}
+	h.rt.Store(rt)
 	h.logger.Info("OIDC provider active", "settings", settings)
 	return nil
 }
@@ -349,7 +374,13 @@ func (s Settings) equivalentTo(other Settings) bool {
 		s.GroupsClaim == other.GroupsClaim &&
 		slices.Equal(s.AppAdminGroups, other.AppAdminGroups) &&
 		s.UseGraphGroups == other.UseGraphGroups &&
-		s.GraphBaseURL == other.GraphBaseURL
+		s.GraphBaseURL == other.GraphBaseURL &&
+		s.AgentAudience == other.AgentAudience &&
+		s.AgentRequiredRole == other.AgentRequiredRole &&
+		s.AgentRequiredScope == other.AgentRequiredScope &&
+		s.AgentAppClaim == other.AgentAppClaim &&
+		s.AgentRolesClaim == other.AgentRolesClaim &&
+		s.AgentClustersClaim == other.AgentClustersClaim
 }
 
 // oidcUnavailable answers a request that reached an OIDC route while no

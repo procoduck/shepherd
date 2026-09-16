@@ -54,3 +54,12 @@ func NewOIDCTestHandler(cfg *config.Config, o *oauth2.Config) *Handler {
 	})
 	return h
 }
+
+// NewChartOIDCTestHandler builds a Handler configured for OIDC entirely from
+// chart config (SourceHelm). Reload against it runs real discovery through the
+// unguarded client, so a loopback test issuer is reachable — enough to
+// exercise the live provider, JWKS fetch and the agent verifier without a
+// store.
+func NewChartOIDCTestHandler(cfg *config.Config) *Handler {
+	return &Handler{cfg: cfg, logger: slog.New(slog.DiscardHandler)}
+}

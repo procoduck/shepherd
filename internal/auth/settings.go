@@ -67,6 +67,16 @@ type Settings struct {
 	UseGraphGroups bool
 	GraphBaseURL   string
 
+	// Collector (agent) OIDC. AgentAudience is the master switch (empty = off);
+	// the rest describe how a collector's access token is verified and read.
+	// See config.OIDCConfig and docs/plans/2026-09-16-agent-oidc-auth.md.
+	AgentAudience      string
+	AgentRequiredRole  string
+	AgentRequiredScope string
+	AgentAppClaim      string
+	AgentRolesClaim    string
+	AgentClustersClaim string
+
 	Source    string
 	UpdatedAt time.Time
 	UpdatedBy string
@@ -462,7 +472,15 @@ func settingsFromConfig(cfg *config.Config) *Settings {
 		AppAdminGroups: cfg.Auth.AppAdminGroupIDs,
 		UseGraphGroups: cfg.OIDC.UseGraphGroups,
 		GraphBaseURL:   cfg.Graph.BaseURL,
-		Source:         SourceHelm,
+
+		AgentAudience:      cfg.OIDC.AgentAudience,
+		AgentRequiredRole:  cfg.OIDC.AgentRequiredRole,
+		AgentRequiredScope: cfg.OIDC.AgentRequiredScope,
+		AgentAppClaim:      defaultString(cfg.OIDC.AgentAppClaim, "sub"),
+		AgentRolesClaim:    defaultString(cfg.OIDC.AgentRolesClaim, "roles"),
+		AgentClustersClaim: cfg.OIDC.AgentClustersClaim,
+
+		Source: SourceHelm,
 	}
 	// Normalize is applied for the claim/scope defaults, but the issuer is
 	// restored verbatim afterwards. Its rewrites (trailing-slash and
