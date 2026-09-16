@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { clients, toApiError } from '@/api/transport';
 import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
+import { CollectorBindingsSection } from '@/components/admin/CollectorBindingsSection';
 import { SsoBanner } from '@/components/admin/SsoBanner';
 import { SsoClaimsSection } from '@/components/admin/SsoClaimsSection';
 import { SsoGroupsSection } from '@/components/admin/SsoGroupsSection';
@@ -282,6 +283,9 @@ export function AdminAuthPage() {
       {settings?.updatedBy && (
         <p className='text-xs text-muted-2'>Last changed by {settings.updatedBy}.</p>
       )}
+
+      <hr className='border-border' />
+      <CollectorBindingsSection isAppAdmin={isAppAdmin} />
 
       {confirmRemove && (
         <AdminConfirmDialog

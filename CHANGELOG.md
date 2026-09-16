@@ -32,6 +32,10 @@ Categories used here:
   else until they set their own — the server has always enforced this, but the SPA had no screen for
   it, so the only way through was a raw API call. Any local user can also change their own password
   from **Admin &rarr; Users**. Identity-provider sessions are unaffected.
+- **Collector OIDC identity bindings in the admin UI.** Admin &rarr; Single sign-on now has a
+  Collector identity bindings section: map a collector&rsquo;s OIDC identity (issuer + app id) to
+  an organisation without the CLI, with cluster and role allowlists. App-admin only; the same
+  bindings `shepherd agent-identity` manages.
 - **Collector OIDC now covers self-monitoring.** An OIDC collector's beacon write-back
   authenticates with the same identity: the ingest endpoint accepts a `Bearer` token (keyed by
   the OIDC principal, not an agent token), and when `config.oidc.beacon_auth` is `oauth2` the

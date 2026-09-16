@@ -17,6 +17,7 @@ export interface MockState {
   gitCredentials: unknown[];
   repoLinks: unknown[];
   agentTokens: unknown[];
+  agentIdentities: unknown[];
   assignments: unknown[];
   groupSearchResults: unknown[];
   auditRows: unknown[];

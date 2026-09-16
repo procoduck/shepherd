@@ -669,6 +669,42 @@ export function installDefaultHandlers(router: Router) {
     t['status'] = 'revoked';
     return json(r, 200, {});
   });
+
+  // Collector OIDC identity bindings (agent_identities). Mirrors the real
+  // AdminService: create resolves the org by slug from st.orgs, list joins the
+  // org name, delete is keyed by (issuer, app_id).
+  router.register('POST', '/shepherd.mgmt.v1.AdminService/ListAgentIdentities', (r) =>
+    json(r, 200, list(st.agentIdentities as Obj[])),
+  );
+  router.register('POST', '/shepherd.mgmt.v1.AdminService/CreateAgentIdentity', async (r) => {
+    const req = await body(r);
+    const org = (st.orgs as Obj[]).find((o) => o['name'] === req['org']);
+    if (!org)
+      return connectError(r, 400, 'invalid_argument', `unknown organisation "${req['org']}"`);
+    const binding: Obj = {
+      issuer: req['issuer'],
+      app_id: req['appId'],
+      org_id: org['id'],
+      org_name: org['name'],
+      clusters: (req['clusters'] as string[]) ?? [],
+      roles: (req['roles'] as string[]) ?? [],
+      created_by: 'admin',
+      created_at: '2026-09-16T09:00:00Z',
+    };
+    st.agentIdentities.push(binding);
+    return json(r, 200, binding);
+  });
+  router.register('POST', '/shepherd.mgmt.v1.AdminService/DeleteAgentIdentity', async (r) => {
+    const req = await body(r);
+    const before = (st.agentIdentities as Obj[]).length;
+    st.agentIdentities = (st.agentIdentities as Obj[]).filter(
+      (b) => !(b['issuer'] === req['issuer'] && b['app_id'] === req['appId']),
+    );
+    if ((st.agentIdentities as Obj[]).length === before) {
+      return connectError(r, 404, 'not_found', 'no such binding');
+    }
+    return json(r, 200, {});
+  });
   // Real server: SearchGroups is a stub returning an empty list (no Graph
   // integration yet). st.groupSearchResults lets a spec seed hits to prove
   // the search box itself is wired correctly; the default (empty) exercises
@@ -1742,6 +1778,7 @@ export function defaultState(): MockState {
     gitCredentials: [],
     repoLinks: [],
     agentTokens: [],
+    agentIdentities: [],
     assignments: [],
     groupSearchResults: [],
     auditRows: [],
