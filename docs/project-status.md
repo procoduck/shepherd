@@ -32,23 +32,23 @@
 
 ---
 
-## 1. Verified baseline (2026-09-15, v0.7.0)
+## 1. Verified baseline (2026-09-16, v0.8.0)
 
-Every row is a CI or release run on `185309e` (or the PR that produced it), so the claim is
-checkable by run id rather than by trusting this table.
+Every row is a CI or release run on `230d3d5` (the v0.8.0 release commit, PR #96) or the PR that
+produced the surface, so the claim is checkable by run id rather than by trusting this table.
 
 | Check | Where it ran | Result |
 |---|---|---|
-| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 34973037472 (PR #73, `fe53afe`) | clean |
+| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 35110928613 (PR #96, `230d3d5`) | clean |
 | `golangci-lint` + config verify, all ten `make guards`, `helm lint` (incl. the dev-kind values), `scripts/repocheck` | CI `lint` + `guards` jobs, same run | 0 issues |
-| `go test ./...` with coverage (testcontainers Postgres) | CI `test` job, same run | green — after PR #74 made the serve-cache failure spec fail its recompute for real (the first run on the release branch, 34968998790, caught it flaking) |
-| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job (PR #69, run 34945312703) | clean; **594/594** in 37 files |
-| Mocked Playwright (`make test-ui`) | CI `test-ui` job (PR #69, same run) | **279 tests in 50 files, green** |
-| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 34973037472 | green |
-| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml` on push to main, run 34971974892 (`b405ff7`) | green |
-| Kubernetes e2e, kind (`make e2e-k8s`) | `e2e-k8s.yml` on PR #73, run 34973037471 | green |
+| `go test ./...` with coverage (testcontainers Postgres) | CI `test` job, same run (35110928613) | green |
+| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job, run 35107501553 (PR #94, `afcf6cf` — last web change: the collector-bindings admin UI; the release commit changed no web sources) | clean |
+| Mocked Playwright (`make test-ui`) | CI `test-ui` job, same run (35107501553, PR #94) | green (incl. the `collector-bindings.spec.ts` added there) |
+| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 35110928613 (PR #96) | green |
+| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml` on push to main, run 35110454575 | green |
+| Kubernetes e2e, kind (`make e2e-k8s`) | `e2e-k8s.yml` on PR #96, run 35110928576 | green |
 | Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job on PRs touching the sandbox surface (path-filtered, never on push), run 34828420060 (PR #62) — nothing since has touched that surface | green |
-| Release: verify job, goreleaser, image attestations, chart OCI push, `scan-published` | `release.yml`, run 34974782542 | success — chart 0.11.0 / appVersion 0.7.0 pullable, images `0.7.0` + `latest` present, provenance attested for both images, and `scan-published` green for both (the v0.6.0 image-name bug is fixed) |
+| Release: verify job, goreleaser, image attestations, chart OCI push, `scan-published` | `release.yml`, run 35112915878 | success — chart 0.12.0 / appVersion 0.8.0 pullable, images `0.8.0` + `latest` present, provenance attested for both images, `scan-published` green for both |
 
 ### What demonstrably works end to end
 
@@ -78,6 +78,11 @@ Verified on the running stack and in the browser, not inferred:
 - **S3 sandbox run** — a live run completes in ~20s with 21 captured series and 3/3 healthy
   components. Enabled by default in the Helm chart since v0.0.1 (both containment gates closed
   2026-08-21); the compose stacks keep their own opt-in `sim` profile.
+- **Collector OIDC authentication (v0.8.0)** — a collector fetching a client-credentials access
+  token is verified, grant-gated, and served its bound org's config, with the cluster auto-claimed;
+  the whole path is proven end to end against a real token (`internal/agentapi/agent_oidc_e2e_test.go`,
+  PR #95). Off by default; agent tokens keep working. Beacon write-back can use the same identity.
+  Deferred mode 2 (IdP-authoritative org) is board issue #113.
 
 ### History
 
