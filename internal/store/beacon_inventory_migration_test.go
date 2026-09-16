@@ -30,7 +30,10 @@ var _ = Describe("Migration: 0010_beacon_inventory", Label("integration"), func(
 
 	BeforeEach(func(ctx context.Context) {
 		url := sharedPG.IsolatedDB(ctx, GinkgoTB())
-		Expect(store.MigrateUp(ctx, url)).To(Succeed())
+		// Pin to version 10: 0022_beacon_principal later replaces token_id with a
+		// generic principal (dropping the agent_tokens FK), so this spec migrates
+		// only up to 0010 to keep proving what 0010 itself established.
+		Expect(store.MigrateTo(ctx, url, 10)).To(Succeed())
 
 		var err error
 		db, err = pgxpool.New(ctx, url)

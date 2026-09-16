@@ -27,12 +27,12 @@ func (q *Queries) DeleteExpiredBeaconInventory(ctx context.Context, lastSeen pgt
 	return result.RowsAffected(), nil
 }
 
-const listBeaconInventoryByToken = `-- name: ListBeaconInventoryByToken :many
-SELECT id, token_id, instance_label, component_name, healthy, last_seen, created_at FROM beacon_inventory WHERE token_id = $1 ORDER BY instance_label, component_name
+const listBeaconInventoryByPrincipal = `-- name: ListBeaconInventoryByPrincipal :many
+SELECT id, instance_label, component_name, healthy, last_seen, created_at, principal FROM beacon_inventory WHERE principal = $1 ORDER BY instance_label, component_name
 `
 
-func (q *Queries) ListBeaconInventoryByToken(ctx context.Context, tokenID pgtype.UUID) ([]BeaconInventory, error) {
-	rows, err := q.db.Query(ctx, listBeaconInventoryByToken, tokenID)
+func (q *Queries) ListBeaconInventoryByPrincipal(ctx context.Context, principal string) ([]BeaconInventory, error) {
+	rows, err := q.db.Query(ctx, listBeaconInventoryByPrincipal, principal)
 	if err != nil {
 		return nil, err
 	}
@@ -42,12 +42,12 @@ func (q *Queries) ListBeaconInventoryByToken(ctx context.Context, tokenID pgtype
 		var i BeaconInventory
 		if err := rows.Scan(
 			&i.ID,
-			&i.TokenID,
 			&i.InstanceLabel,
 			&i.ComponentName,
 			&i.Healthy,
 			&i.LastSeen,
 			&i.CreatedAt,
+			&i.Principal,
 		); err != nil {
 			return nil, err
 		}
@@ -60,28 +60,30 @@ func (q *Queries) ListBeaconInventoryByToken(ctx context.Context, tokenID pgtype
 }
 
 const upsertBeaconComponent = `-- name: UpsertBeaconComponent :one
-INSERT INTO beacon_inventory (token_id, instance_label, component_name, healthy, last_seen)
+INSERT INTO beacon_inventory (principal, instance_label, component_name, healthy, last_seen)
 VALUES ($1, $2, $3, $4, now())
-ON CONFLICT (token_id, instance_label, component_name) DO UPDATE SET
+ON CONFLICT (principal, instance_label, component_name) DO UPDATE SET
     healthy   = EXCLUDED.healthy,
     last_seen = now()
-RETURNING id, token_id, instance_label, component_name, healthy, last_seen, created_at
+RETURNING id, instance_label, component_name, healthy, last_seen, created_at, principal
 `
 
 type UpsertBeaconComponentParams struct {
-	TokenID       pgtype.UUID `json:"token_id"`
-	InstanceLabel string      `json:"instance_label"`
-	ComponentName string      `json:"component_name"`
-	Healthy       bool        `json:"healthy"`
+	Principal     string `json:"principal"`
+	InstanceLabel string `json:"instance_label"`
+	ComponentName string `json:"component_name"`
+	Healthy       bool   `json:"healthy"`
 }
 
-// token_id + instance_label + component_name is this table's identity (see
-// 0010_beacon_inventory.up.sql). Re-reporting the same component just
-// refreshes healthy/last_seen -- a collector polling every scrape interval
-// does not grow this table, it only keeps rows alive.
+// principal + instance_label + component_name is this table's identity (see
+// 0010_beacon_inventory.up.sql and 0022_beacon_principal.up.sql). principal is
+// the credential that reported: an agent token's UUID, or "oidc:<issuer>|<sub>"
+// for an OIDC collector. Re-reporting the same component just refreshes
+// healthy/last_seen -- a collector polling every scrape interval does not grow
+// this table, it only keeps rows alive.
 func (q *Queries) UpsertBeaconComponent(ctx context.Context, arg UpsertBeaconComponentParams) (BeaconInventory, error) {
 	row := q.db.QueryRow(ctx, upsertBeaconComponent,
-		arg.TokenID,
+		arg.Principal,
 		arg.InstanceLabel,
 		arg.ComponentName,
 		arg.Healthy,
@@ -89,12 +91,12 @@ func (q *Queries) UpsertBeaconComponent(ctx context.Context, arg UpsertBeaconCom
 	var i BeaconInventory
 	err := row.Scan(
 		&i.ID,
-		&i.TokenID,
 		&i.InstanceLabel,
 		&i.ComponentName,
 		&i.Healthy,
 		&i.LastSeen,
 		&i.CreatedAt,
+		&i.Principal,
 	)
 	return i, err
 }

@@ -47,12 +47,12 @@ type AuditLog struct {
 
 type BeaconInventory struct {
 	ID            pgtype.UUID        `json:"id"`
-	TokenID       pgtype.UUID        `json:"token_id"`
 	InstanceLabel string             `json:"instance_label"`
 	ComponentName string             `json:"component_name"`
 	Healthy       bool               `json:"healthy"`
 	LastSeen      pgtype.Timestamptz `json:"last_seen"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	Principal     string             `json:"principal"`
 }
 
 type Cluster struct {

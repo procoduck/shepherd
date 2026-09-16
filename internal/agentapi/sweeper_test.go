@@ -90,7 +90,7 @@ var _ = Describe("Sweeper", Label("integration"), func() {
 			// query exposes an explicit timestamp (UpsertBeaconComponent
 			// always writes now()), and this is a _test.go file anyway.
 			_, err := st.Pool().Exec(ctx,
-				`INSERT INTO beacon_inventory (token_id, instance_label, component_name, healthy, last_seen)
+				`INSERT INTO beacon_inventory (principal, instance_label, component_name, healthy, last_seen)
 				 VALUES ($1, $2, 'pipe_x', true, $3)`, tok.ID, instance, ts)
 			Expect(err).NotTo(HaveOccurred())
 		}
@@ -101,7 +101,7 @@ var _ = Describe("Sweeper", Label("integration"), func() {
 		sw := NewSweeper(st, &config.AgentConfig{InactiveAfter: time.Hour, DeleteAfter: 24 * time.Hour, SweepInterval: time.Minute}, slog.Default())
 		sw.sweep(ctx)
 
-		rows, err := st.Queries.ListBeaconInventoryByToken(ctx, tok.ID)
+		rows, err := st.Queries.ListBeaconInventoryByPrincipal(ctx, tok.ID.String())
 		Expect(err).NotTo(HaveOccurred())
 		Expect(rows).To(HaveLen(1))
 		Expect(rows[0].InstanceLabel).To(Equal("fresh-instance"))

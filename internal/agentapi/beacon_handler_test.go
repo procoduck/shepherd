@@ -6,31 +6,23 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 
 	"github.com/golang/snappy"
-	"github.com/jackc/pgx/v5/pgtype"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/prometheus/prompb"
 
 	"shepherd/internal/agentapi"
+	"shepherd/internal/auth"
 	"shepherd/internal/beacon"
 	"shepherd/internal/config"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 )
-
-// mustUUID parses a UUID string into pgtype.UUID for query params, failing
-// the spec immediately on a malformed input rather than silently querying
-// with a zero UUID.
-func mustUUID(s string) pgtype.UUID {
-	var u pgtype.UUID
-	Expect(u.Scan(s)).To(Succeed())
-	return u
-}
 
 // This is the G5 gate (docs/gateway-tier-plan.md §6): "Beacon ingest rejects
 // unauthenticated writes, enforces the rate/size caps, and stores no raw
@@ -73,7 +65,15 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 	}
 
 	startServer := func(limits beacon.Limits) {
-		h := agentapi.NewBeaconHandler(st, slog.Default(), limits)
+		h := agentapi.NewBeaconHandler(st, slog.Default(), limits, nil)
+		mux := http.NewServeMux()
+		mux.Handle(agentapi.BeaconWritePath, h)
+		server = httptest.NewServer(mux)
+	}
+
+	startServerWithVerifier := func(limits beacon.Limits, verify agentapi.AgentVerifier) {
+		server.Close()
+		h := agentapi.NewBeaconHandler(st, slog.Default(), limits, verify)
 		mux := http.NewServeMux()
 		mux.Handle(agentapi.BeaconWritePath, h)
 		server = httptest.NewServer(mux)
@@ -132,7 +132,7 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 		resp := postRaw(body, "")
 		Expect(resp.StatusCode).To(Equal(http.StatusUnauthorized))
 
-		rows, err := st.Queries.ListBeaconInventoryByToken(ctx, mustUUID(tokenID))
+		rows, err := st.Queries.ListBeaconInventoryByPrincipal(ctx, tokenID)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(rows).To(BeEmpty(), "an unauthenticated write must not reach storage")
 	})
@@ -142,6 +142,43 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 		body := encodeWrite([][]prompb.Label{healthySeries("10.0.0.1:12345", "pipe_x")}, 1)
 		resp := postRaw(body, badAuth)
 		Expect(resp.StatusCode).To(Equal(http.StatusUnauthorized))
+	})
+
+	It("authenticates an OIDC Bearer write and keys inventory by the oidc principal", func() {
+		verify := func(_ context.Context, raw string) (auth.AgentClaims, error) {
+			if raw == "good-agent-token" {
+				return auth.AgentClaims{Issuer: "https://idp/", Subject: "alloy-prod"}, nil
+			}
+			return auth.AgentClaims{}, errors.New("bad token")
+		}
+		startServerWithVerifier(beacon.DefaultLimits, verify)
+
+		body := encodeWrite([][]prompb.Label{healthySeries("10.0.0.1:12345", "pipe_x")}, 1)
+		resp := postRaw(body, "Bearer good-agent-token")
+		Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+
+		// Stored under the OIDC principal, not the seeded agent token.
+		rows, err := st.Queries.ListBeaconInventoryByPrincipal(ctx, "oidc:https://idp/|alloy-prod")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(rows).To(HaveLen(1))
+		Expect(rows[0].ComponentName).To(Equal("pipe_x"))
+
+		byToken, err := st.Queries.ListBeaconInventoryByPrincipal(ctx, tokenID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(byToken).To(BeEmpty(), "an OIDC write must not land under the agent-token principal")
+	})
+
+	It("rejects a Bearer write the verifier refuses, and one when OIDC is off", func() {
+		verify := func(_ context.Context, raw string) (auth.AgentClaims, error) {
+			return auth.AgentClaims{}, errors.New("bad token")
+		}
+		startServerWithVerifier(beacon.DefaultLimits, verify)
+		body := encodeWrite([][]prompb.Label{healthySeries("10.0.0.1:12345", "pipe_x")}, 1)
+		Expect(postRaw(body, "Bearer nope").StatusCode).To(Equal(http.StatusUnauthorized))
+
+		// nil verifier = OIDC off: a Bearer header is unauthenticated.
+		startServerWithVerifier(beacon.DefaultLimits, nil)
+		Expect(postRaw(body, "Bearer good-agent-token").StatusCode).To(Equal(http.StatusUnauthorized))
 	})
 
 	// Red run: in internal/agentapi/beacon_handler.go, delete the
@@ -197,7 +234,7 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 		resp := postRaw(body, authHeader)
 		Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
 
-		rows, err := st.Queries.ListBeaconInventoryByToken(ctx, mustUUID(tokenID))
+		rows, err := st.Queries.ListBeaconInventoryByPrincipal(ctx, tokenID)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(rows).To(HaveLen(1), "the decoy alloy_build_info series must not create a second row")
 		Expect(rows[0].InstanceLabel).To(Equal("10.0.0.9:12345"))
@@ -219,7 +256,7 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 		resp := postRaw(body, authHeader)
 		Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
 
-		rows, err := st.Queries.ListBeaconInventoryByToken(ctx, mustUUID(tokenID))
+		rows, err := st.Queries.ListBeaconInventoryByPrincipal(ctx, tokenID)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(rows).To(HaveLen(1))
 		Expect(rows[0].Healthy).To(BeFalse())

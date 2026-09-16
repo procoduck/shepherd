@@ -1,11 +1,11 @@
 package agentapi
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
-
-	"github.com/jackc/pgx/v5/pgtype"
+	"strings"
 
 	"shepherd/internal/beacon"
 	"shepherd/internal/store"
@@ -32,24 +32,52 @@ const BeaconWritePath = beacon.WritePath
 // exists so its dependencies (store, limits, limiter) are visible at
 // construction rather than captured invisibly.
 type BeaconHandler struct {
-	store   *store.Store
-	logger  *slog.Logger
-	limits  beacon.Limits
-	limiter *beacon.RateLimiter
+	store       *store.Store
+	logger      *slog.Logger
+	limits      beacon.Limits
+	limiter     *beacon.RateLimiter
+	verifyAgent AgentVerifier
 }
 
 // NewBeaconHandler constructs a BeaconHandler. limits must be non-zero (see
 // beacon.NewRateLimiter, which panics on a zero Limits rather than silently
 // disabling the rate cap) — pass beacon.DefaultLimits unless a caller has a
-// specific reason to diverge.
-func NewBeaconHandler(st *store.Store, logger *slog.Logger, limits beacon.Limits) *BeaconHandler {
+// specific reason to diverge. verifyAgent enables the OIDC Bearer branch (the
+// same verifier the Connect gate uses); nil leaves the endpoint accepting only
+// agent-token Basic auth.
+func NewBeaconHandler(st *store.Store, logger *slog.Logger, limits beacon.Limits, verifyAgent AgentVerifier) *BeaconHandler {
 	return &BeaconHandler{
-		store:   st,
-		logger:  logger.With("component", "beacon"),
-		limits:  limits,
-		limiter: beacon.NewRateLimiter(limits),
+		store:       st,
+		logger:      logger.With("component", "beacon"),
+		limits:      limits,
+		limiter:     beacon.NewRateLimiter(limits),
+		verifyAgent: verifyAgent,
 	}
 }
+
+// authenticate resolves the reporting principal from the Authorization header,
+// mirroring the Connect gate: a `Bearer` OIDC access token yields
+// "oidc:<issuer>|<sub>", a `Basic` agent token yields the token UUID. The
+// returned string is the beacon inventory identity and the rate-limit key.
+func (h *BeaconHandler) authenticate(ctx context.Context, authz string) (string, error) {
+	if raw, ok := strings.CutPrefix(authz, "Bearer "); ok {
+		if h.verifyAgent == nil {
+			return "", errUnauthenticated
+		}
+		claims, err := h.verifyAgent(ctx, raw)
+		if err != nil {
+			return "", errUnauthenticated
+		}
+		return "oidc:" + claims.Issuer + "|" + claims.Subject, nil
+	}
+	tokenID, err := verifyBasicAuth(ctx, authz, h.store)
+	if err != nil {
+		return "", errUnauthenticated
+	}
+	return tokenID, nil
+}
+
+var errUnauthenticated = errors.New("beacon: unauthenticated")
 
 // ServeHTTP implements the G5 gate in one call path:
 //  1. reject an unauthenticated write (401) — half of G5, using the SAME
@@ -70,18 +98,18 @@ func (h *BeaconHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokenIDStr, err := verifyBasicAuth(r.Context(), r.Header.Get("Authorization"), h.store)
+	principal, err := h.authenticate(r.Context(), r.Header.Get("Authorization"))
 	if err != nil {
-		// Same response shape agent Basic Auth failures already use
-		// elsewhere (auth.go): WWW-Authenticate so a client can tell this is
-		// a credentials problem, not a routing one.
-		w.Header().Set("WWW-Authenticate", `Basic realm="shepherd-agent"`)
+		// Same response shape agent auth failures already use elsewhere
+		// (auth.go): WWW-Authenticate so a client can tell this is a
+		// credentials problem, not a routing one. Both schemes are advertised.
+		w.Header().Set("WWW-Authenticate", `Bearer realm="shepherd-agent", Basic realm="shepherd-agent"`)
 		http.Error(w, "beacon: unauthenticated", http.StatusUnauthorized)
 		return
 	}
 
-	if !h.limiter.Allow(tokenIDStr) {
-		http.Error(w, "beacon: rate limit exceeded for this agent token", http.StatusTooManyRequests)
+	if !h.limiter.Allow(principal) {
+		http.Error(w, "beacon: rate limit exceeded for this collector", http.StatusTooManyRequests)
 		return
 	}
 
@@ -104,38 +132,27 @@ func (h *BeaconHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, beacon.ErrBodyTooLarge) || isMaxBytesError(err) {
 			status = http.StatusRequestEntityTooLarge
 		}
-		h.logger.Warn("beacon: decode failed", "err", err, "token_id", tokenIDStr)
+		h.logger.Warn("beacon: decode failed", "err", err, "principal", principal)
 		http.Error(w, "beacon: "+err.Error(), status)
 		return
 	}
 
 	instanceLabel, observations, err := beacon.Project(wr)
 	if err != nil {
-		h.logger.Warn("beacon: project failed", "err", err, "token_id", tokenIDStr)
+		h.logger.Warn("beacon: project failed", "err", err, "principal", principal)
 		http.Error(w, "beacon: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	var tokenID pgtype.UUID
-	if err := tokenID.Scan(tokenIDStr); err != nil {
-		// verifyBasicAuth already parsed and looked up this exact string as a
-		// UUID to authenticate the request, so a re-parse failure here would
-		// mean this handler's own logic diverged from auth.go's — an
-		// internal bug, not a client error.
-		h.logger.Error("beacon: authenticated token id did not re-parse as a UUID", "token_id", tokenIDStr, "err", err)
-		http.Error(w, "beacon: internal error", http.StatusInternalServerError)
 		return
 	}
 
 	for _, obs := range observations {
 		if _, err := h.store.Queries.UpsertBeaconComponent(r.Context(), sqlc.UpsertBeaconComponentParams{
-			TokenID:       tokenID,
+			Principal:     principal,
 			InstanceLabel: instanceLabel,
 			ComponentName: obs.ComponentName,
 			Healthy:       obs.Healthy,
 		}); err != nil {
 			h.logger.Error("beacon: storing component observation failed", "err", err,
-				"token_id", tokenIDStr, "instance", instanceLabel, "component", obs.ComponentName)
+				"principal", principal, "instance", instanceLabel, "component", obs.ComponentName)
 			http.Error(w, "beacon: storing observation failed", http.StatusInternalServerError)
 			return
 		}

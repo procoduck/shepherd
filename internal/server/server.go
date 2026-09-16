@@ -294,7 +294,7 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 	// because it still advertises the surface and still has to be reasoned
 	// about in a security review.
 	if !cfg.Server.BeaconDisabled {
-		r.Post(agentapi.BeaconWritePath, agentapi.NewBeaconHandler(st, logger, beacon.DefaultLimits).ServeHTTP)
+		r.Post(agentapi.BeaconWritePath, agentapi.NewBeaconHandler(st, logger, beacon.DefaultLimits, verifyAgentToken).ServeHTTP)
 	} else {
 		logger.Warn("beacon disabled by configuration: no ingest endpoint is mounted and no baseline " +
 			"pipeline will be served; fleet inventory and health will be unavailable (D6)")
