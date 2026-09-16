@@ -79,18 +79,22 @@ demonstrates a one-gate-two-credential-shapes pattern to mirror.
   exposed API" (or a Keycloak client role, Auth0 permission, Okta scope)
   expresses. Both are verified before any org resolution. Holding a valid
   token for the audience is not enough; the grant must be present.
-- **D1 — Org identity is a separate axis, resolved by a chain.** The role/
-  scope grant above says "may be a collector", not "belongs to org X". Org is
-  resolved in order (§3.3): (1) — **recommended** — an admin-configured
-  `agent_identities` binding on `(issuer, app_id)`, which keeps org assignment
-  in Shepherd (matches "unique client per org, Shepherd maps it"); (2) a role
-  that encodes the org (`agent_org_role_prefix`, e.g. `org:platform-eng`) or a
-  bespoke `agent_org_claim`, honoured only when `agent_trust_org_claim` is on,
-  which makes the IdP authoritative for org membership; (3) otherwise the
-  existing admin cluster-claim, the OIDC token proving only liveness. This
-  chain is what lets one design cover both a per-instance-app fleet and a
-  shared-app fleet (§2.1). Where org came from (1) or (2), Shepherd also
-  enforces `cluster ∈ Clusters` and `role ∈ Roles` when those are set.
+- **D1 — Org identity is a separate axis; Shepherd holds it by default.** The
+  role/scope grant above says "may be a collector", not "belongs to org X".
+  Org is resolved in order (§3.3): (1) **the default and the only org path in
+  the first cut** — an admin-configured `agent_identities` binding on
+  `(issuer, app_id)`, so org assignment stays in Shepherd (matches "unique
+  client per org, Shepherd maps it"); (2) **opt-in, off by default, deferred to
+  a later phase** — a role that encodes the org (`agent_org_role_prefix`, e.g.
+  `org:platform-eng`) or a bespoke `agent_org_claim`, honoured only when
+  `agent_trust_org_claim` is on, which makes the IdP authoritative for org
+  membership; (3) otherwise the existing admin cluster-claim, the OIDC token
+  proving only liveness. **Settled 2026-09-16: ship (1) and (3) first and keep
+  org assignment local; (2) is a documented extension we add only if an
+  operator asks to let the IdP own org membership, never on by default.**
+  This chain still covers both a per-instance-app fleet and a shared-app fleet
+  (§2.1). Where org came from (1) or (2), Shepherd also enforces `cluster ∈
+  Clusters` and `role ∈ Roles` when those are set.
 - **D1a — Auto-claim (consequence of D1, called out because it changes a
   served-config invariant).** Today an unclaimed cluster is served empty until
   an app-admin runs `ClaimCluster` (`internal/agentapi/service.go:178`). For a
@@ -127,8 +131,8 @@ credentials.
 |---|---|---|
 | **One OIDC app for the whole fleet, admin assigns each Alloy's cluster to an org** | The shared app proves liveness; the admin runs the existing cluster-claim per cluster. Supported. | (3) |
 | **One OIDC app, instances "self-assign" from token metadata** | **Not securely supported.** A shared client-credentials app issues an identical token to every instance, so there is no trustworthy per-instance org signal — the only per-instance data is the request-body `attributes`, which are spoofable and must not decide org. To self-assign, give each instance a distinct credential (which is the next scenario). | — |
-| **A distinct OIDC app per org (or per instance), IdP emits a `shepherd_org` claim** | Shepherd reads the org from the claim, with `agent_trust_org_claim` on. Fully auto; no Shepherd-side mapping. | (2) |
-| **A distinct OIDC app per org (or per instance), admin maps app → org in Shepherd** | Admin creates an `agent_identities` binding `(issuer, client_id) → org`; the claim can stay off. Fully auto; the mapping lives in Shepherd, not the IdP. | (1) |
+| **A distinct OIDC app per org (or per instance), admin maps app → org in Shepherd** | Admin creates an `agent_identities` binding `(issuer, client_id) → org`. Fully auto; the mapping lives in Shepherd, not the IdP. **The default, and the org path shipped first.** | (1) |
+| **A distinct OIDC app per org, IdP emits an org role/claim** | Shepherd reads the org from the role/claim, with `agent_trust_org_claim` on. Fully auto, no Shepherd mapping — but the IdP is authoritative for org membership. **Opt-in, off by default, a later phase (§6.5).** | (2) |
 
 So your first scenario is supported through the admin cluster-claim (step 3);
 its "self-assign from a shared app" variant is the one thing that cannot be
@@ -153,11 +157,13 @@ default — or a per-org role read from the same roles claim.
 | **Okta** | custom auth-server audience | granted scope | `scp` |
 | **Google** | ID-token `target_audience` | — (no role model) | map on `sub`/`azp` via a binding |
 
-The Entra flow you have used maps exactly: expose the API and define one app
-role (`Collector.Poll`) → `agent_audience` + `agent_required_role`; give each
-org's client its own app registration and add an `agent_identities` binding
-`azp → org`. If you would rather the IdP own org membership, define one app
-role per org and set `agent_org_role_prefix` with `agent_trust_org_claim` on.
+The Entra flow you have used maps exactly, and is the shipped-first path:
+expose the API and define one app role (`Collector.Poll`) → `agent_audience` +
+`agent_required_role`; give each org's client its own app registration and add
+an `agent_identities` binding `azp → org`. The alternative — one app role per
+org, read via `agent_org_role_prefix` with `agent_trust_org_claim` on — makes
+the IdP authoritative for org membership and is the opt-in later phase (§6.5),
+never on by default.
 
 ## 3. The seam, in code
 
@@ -310,15 +316,22 @@ resolved the served config is computed exactly as for a Basic-auth collector.
 
 ## 6. Phasing (one PR per phase, each green before the next)
 
-1. **Verify + gate + enforce + config/proto**, config polling only; beacon
-   left on Basic. Unit + integration tests. No chart change yet (config via
-   `extraEnv`), so no release pressure.
+1. **Verify + D0 grant gate + gate + enforce (modes 1 and 3) + config/proto +
+   `agent_identities` table & admin RPCs**, config polling only; beacon left on
+   Basic. Unit + integration tests. No chart change yet (config via
+   `extraEnv`), so no release pressure. **Org resolution is the Shepherd
+   binding (mode 1) or the admin cluster-claim (mode 3) only** — mode 2 is not
+   built here.
 2. **Beacon OIDC** — ingest `Bearer` branch, `principal` key migration,
    `render.go` `oauth2` stanza.
-3. **Chart values + UI + onboarding stanzas + docs**, then the e2e/k8s live
-   proof. Chart bump.
+3. **Chart values + UI (audience/grant fields + bindings table) + onboarding
+   stanzas + docs**, then the e2e/k8s live proof. Chart bump.
 4. **Release** (chart minor, appVersion bump) per
    `docs/../shepherd-release-conventions`.
+5. **(Later, only on request) Mode 2 — IdP-authoritative org.**
+   `agent_org_role_prefix` / `agent_org_claim` + `agent_trust_org_claim`, off
+   by default, with its own tests and a security note. Not part of the initial
+   delivery.
 
 ## 7. Risks and non-goals
 
@@ -336,10 +349,11 @@ resolved the served config is computed exactly as for a Basic-auth collector.
   a binding or a trusted claim can bind a cluster, and only within that org;
   cross-org naming is refused. The central new authority and the reason this
   plan is the ask-first record.
-- **Trusting the org claim (mode 2) hands org assignment to the IdP.** Off by
-  default (`agent_trust_org_claim`): a compromised or loose IdP could then mint
-  a token for any org. The registration path (mode 1) keeps assignment in
-  Shepherd for operators who do not want the IdP to be authoritative.
+- **Trusting the org claim (mode 2) hands org assignment to the IdP** — which is
+  why it is deferred and off by default. A compromised or loose IdP could mint
+  a token for any org. The shipped-first path is the Shepherd binding (mode 1),
+  so org membership is never the IdP's to assert unless an operator explicitly
+  turns mode 2 on.
 - **A single shared OIDC app cannot self-assign instances to different orgs.**
   Documented as a topology constraint (§2.1), not a bug: such fleets use the
   admin cluster-claim, or move to a per-instance credential.
