@@ -25,6 +25,9 @@ service PipelineService {
   rpc EnablePipeline(EnablePipelineRequest) returns (Pipeline) {}
   rpc DisablePipeline(DisablePipelineRequest) returns (Pipeline) {}
   rpc ValidatePipeline(ValidatePipelineRequest) returns (ValidatePipelineResponse) {}
+  // FormatPipeline canonicalises Alloy source (what `alloy fmt` does),
+  // in-process. Pure text transform; org-reader, like ValidatePipeline.
+  rpc FormatPipeline(FormatPipelineRequest) returns (FormatPipelineResponse) {}
   rpc PreviewMatches(PreviewMatchesRequest) returns (PreviewMatchesResponse) {}
   rpc ListRevisions(ListRevisionsRequest) returns (ListRevisionsResponse) {}
   // GetRevision returns one revision in full, including the heavy fields
@@ -166,6 +169,22 @@ message ValidatePipelineRequest {
   string org_id = 1;
   string name = 2;
   string contents = 3;
+}
+
+// FormatPipelineRequest carries the raw pipeline body to canonicalise. org_id
+// scopes the call for authorization; contents is formatted as-is (not
+// declare-wrapped), so what comes back is exactly what belongs in the editor.
+message FormatPipelineRequest {
+  string org_id = 1;
+  string contents = 2;
+}
+
+// FormatPipelineResponse returns the canonicalised source. Unlike
+// ValidatePipeline, unparseable input is an InvalidArgument error rather than a
+// 200 with diagnostics: formatting can only act on valid syntax, and the
+// editor's live validation already reports the parse failure inline.
+message FormatPipelineResponse {
+  string formatted = 1;
 }
 
 // ValidatePipelineResponse mirrors internal/validate.Result. The endpoint

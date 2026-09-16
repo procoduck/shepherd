@@ -1,7 +1,15 @@
 import { timestampDate } from '@bufbuild/protobuf/wkt';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from '@tanstack/react-router';
-import { ArrowLeft, CheckCircle2, ChevronDown, Save, XCircle } from 'lucide-react';
+import {
+  ArrowLeft,
+  CheckCircle2,
+  ChevronDown,
+  PlayCircle,
+  Save,
+  Wand2,
+  XCircle,
+} from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { clients, toApiError } from '@/api/transport';
@@ -100,6 +108,20 @@ export function PipelineEditorPage() {
     const t = setTimeout(() => validate(contents), 800);
     return () => clearTimeout(t);
   }, [contents, validate, canWrite]);
+
+  // Format runs the server-side `alloy fmt` equivalent and replaces the buffer
+  // with the canonical form, then re-validates it. Unparseable input comes back
+  // as an error (the editor's live diagnostics already show why), so the buffer
+  // is left untouched.
+  const formatMutation = useMutation({
+    mutationFn: () => clients.pipeline.formatPipeline({ orgId, contents }),
+    onSuccess: (result) => {
+      setContents(result.formatted);
+      validate(result.formatted);
+    },
+    onError: (e) =>
+      toast.error(toApiError(e).message || 'Cannot format — fix the syntax errors first'),
+  });
 
   const saveMutation = useMutation({
     mutationFn: () => {
@@ -340,13 +362,33 @@ export function PipelineEditorPage() {
                   ))}
               </div>
               {!readOnly && (
-                <button
-                  onClick={() => saveMutation.mutate()}
-                  disabled={saveMutation.isPending || hasErrors}
-                  className='flex items-center gap-1.5 rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50'
-                >
-                  <Save size={13} /> Save
-                </button>
+                <div className='flex items-center gap-2'>
+                  <button
+                    type='button'
+                    onClick={() => validate(contents)}
+                    disabled={validating || !contents.trim()}
+                    className='flex items-center gap-1.5 rounded border border-border px-3 py-1 text-xs font-medium text-muted hover:text-zinc-100 disabled:opacity-50'
+                    data-testid='validate-btn'
+                  >
+                    <PlayCircle size={13} /> Validate
+                  </button>
+                  <button
+                    type='button'
+                    onClick={() => formatMutation.mutate()}
+                    disabled={formatMutation.isPending || !contents.trim()}
+                    className='flex items-center gap-1.5 rounded border border-border px-3 py-1 text-xs font-medium text-muted hover:text-zinc-100 disabled:opacity-50'
+                    data-testid='format-btn'
+                  >
+                    <Wand2 size={13} /> Format
+                  </button>
+                  <button
+                    onClick={() => saveMutation.mutate()}
+                    disabled={saveMutation.isPending || hasErrors}
+                    className='flex items-center gap-1.5 rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50'
+                  >
+                    <Save size={13} /> Save
+                  </button>
+                </div>
               )}
             </div>
 

@@ -102,3 +102,37 @@ test('validates and shows problems panel for syntax errors', async ({ page, api 
   await expect(page.getByText('unexpected token')).toBeVisible();
   await expect(page.getByText(/No problems/i)).not.toBeVisible();
 });
+
+test('Format replaces the buffer with the server-canonicalised source', async ({ page, api }) => {
+  await api.loginAs(orgEditor);
+  const s = basicScenario();
+  const p = pipeline({
+    id: 'pip-fmt',
+    org_id: s.org.id,
+    name: 'fmt-me',
+    contents: 'prometheus.scrape "app"{}',
+  });
+  api.seed({ orgs: [s.org], pipelines: [p], validateResult: { valid: true, diagnostics: [] } });
+  await page.goto('/pipelines/pip-fmt');
+  await expect(page.locator('.cm-editor')).toBeVisible();
+
+  await page.getByTestId('format-btn').click();
+
+  await expect(page.locator('.cm-content')).toContainText('// formatted');
+  expect(api.calls('/shepherd.mgmt.v1.PipelineService/FormatPipeline').length).toBeGreaterThan(0);
+});
+
+test('Validate button triggers an on-demand validation', async ({ page, api }) => {
+  await api.loginAs(orgEditor);
+  const s = basicScenario();
+  const p = pipeline({ id: 'pip-val', org_id: s.org.id, name: 'val-me', contents: '// ok' });
+  api.seed({ orgs: [s.org], pipelines: [p], validateResult: { valid: true, diagnostics: [] } });
+  await page.goto('/pipelines/pip-val');
+  await expect(page.locator('.cm-editor')).toBeVisible();
+
+  const before = api.calls('/shepherd.mgmt.v1.PipelineService/ValidatePipeline').length;
+  await page.getByTestId('validate-btn').click();
+  await expect
+    .poll(() => api.calls('/shepherd.mgmt.v1.PipelineService/ValidatePipeline').length)
+    .toBeGreaterThan(before);
+});

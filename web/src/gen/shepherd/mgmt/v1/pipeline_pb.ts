@@ -14,7 +14,7 @@ import type { JsonObject, Message } from "@bufbuild/protobuf";
  * Describes the file shepherd/mgmt/v1/pipeline.proto.
  */
 export const file_shepherd_mgmt_v1_pipeline: GenFile = /*@__PURE__*/
-  fileDesc("Ch9zaGVwaGVyZC9tZ210L3YxL3BpcGVsaW5lLnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIuEBChBQaXBlbGluZVJldmlzaW9uEhAKCHJldmlzaW9uGAEgASgFEhIKCmNoYW5nZWRfYnkYAiABKAkSLgoKY2hhbmdlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEwoLY2hhbmdlX25vdGUYBCABKAkSEAoIY29udGVudHMYBSABKAkSEAoIbWF0Y2hlcnMYBiADKAkSDwoHZW5hYmxlZBgHIAEoCBItCgx3aXphcmRfc3RhdGUYCCABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0IpADCghQaXBlbGluZRIKCgJpZBgBIAEoCRIOCgZvcmdfaWQYAiABKAkSDAoEbmFtZRgDIAEoCRIQCghjb250ZW50cxgEIAEoCRIQCghtYXRjaGVycxgFIAMoCRIPCgdlbmFibGVkGAYgASgIEg4KBnNvdXJjZRgHIAEoCRIQCghyZXZpc2lvbhgIIAEoBRISCgpjcmVhdGVkX2J5GAkgASgJEhIKCnVwZGF0ZWRfYnkYCiABKAkSLgoKY3JlYXRlZF9hdBgLIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgMIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASNQoJcmV2aXNpb25zGA0gAygLMiIuc2hlcGhlcmQubWdtdC52MS5QaXBlbGluZVJldmlzaW9uEi0KDHdpemFyZF9zdGF0ZRgOIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QSFQoNb3duZXJfdGVhbV9pZBgPIAEoCSI9ChRMaXN0UGlwZWxpbmVzUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSFQoNbmVlZHNfdXBncmFkZRgCIAEoCCJRChVMaXN0UGlwZWxpbmVzUmVzcG9uc2USKQoFaXRlbXMYASADKAsyGi5zaGVwaGVyZC5tZ210LnYxLlBpcGVsaW5lEg0KBXRvdGFsGAIgASgFIjAKEkdldFBpcGVsaW5lUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkirwEKFUNyZWF0ZVBpcGVsaW5lUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSDAoEbmFtZRgCIAEoCRIQCghjb250ZW50cxgDIAEoCRIQCghtYXRjaGVycxgEIAMoCRIOCgZzb3VyY2UYBSABKAkSLQoMd2l6YXJkX3N0YXRlGAYgASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdBIVCg1vd25lcl90ZWFtX2lkGAcgASgJIqQBChVVcGRhdGVQaXBlbGluZVJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgoKAmlkGAIgASgJEgwKBG5hbWUYAyABKAkSEAoIY29udGVudHMYBCABKAkSEAoIbWF0Y2hlcnMYBSADKAkSDgoGc291cmNlGAYgASgJEi0KDHdpemFyZF9zdGF0ZRgHIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QiMwoVRGVsZXRlUGlwZWxpbmVSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIKCgJpZBgCIAEoCSIYChZEZWxldGVQaXBlbGluZVJlc3BvbnNlIjMKFUVuYWJsZVBpcGVsaW5lUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkiNAoWRGlzYWJsZVBpcGVsaW5lUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkiSQoXVmFsaWRhdGVQaXBlbGluZVJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgwKBG5hbWUYAiABKAkSEAoIY29udGVudHMYAyABKAkioQEKGFZhbGlkYXRlUGlwZWxpbmVSZXNwb25zZRINCgV2YWxpZBgBIAEoCBIxCgtkaWFnbm9zdGljcxgCIAMoCzIcLnNoZXBoZXJkLm1nbXQudjEuRGlhZ25vc3RpYxIPCgdzaWduYWxzGAMgAygJEhYKDnNpZ25hbHNfcHJvdmVuGAQgASgIEhoKEnVua25vd25fY29tcG9uZW50cxgFIAMoCSIzChVQcmV2aWV3TWF0Y2hlc1JlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgoKAmlkGAIgASgJIj0KEE1hdGNoZWRDb2xsZWN0b3ISDwoHY2x1c3RlchgBIAEoCRIMCgRyb2xlGAIgASgJEgoKAmlkGAMgASgJIlAKFlByZXZpZXdNYXRjaGVzUmVzcG9uc2USNgoKY29sbGVjdG9ycxgBIAMoCzIiLnNoZXBoZXJkLm1nbXQudjEuTWF0Y2hlZENvbGxlY3RvciIyChRMaXN0UmV2aXNpb25zUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkiWQoVTGlzdFJldmlzaW9uc1Jlc3BvbnNlEjEKBWl0ZW1zGAEgAygLMiIuc2hlcGhlcmQubWdtdC52MS5QaXBlbGluZVJldmlzaW9uEg0KBXRvdGFsGAIgASgFIkIKEkdldFJldmlzaW9uUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkSEAoIcmV2aXNpb24YAyABKAUiWwoWUmVzdG9yZVJldmlzaW9uUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkSEAoIcmV2aXNpb24YAyABKAUSEwoLY2hhbmdlX25vdGUYBCABKAkiTAoXU2V0UGlwZWxpbmVPd25lclJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgoKAmlkGAIgASgJEhUKDW93bmVyX3RlYW1faWQYAyABKAky4AkKD1BpcGVsaW5lU2VydmljZRJiCg1MaXN0UGlwZWxpbmVzEiYuc2hlcGhlcmQubWdtdC52MS5MaXN0UGlwZWxpbmVzUmVxdWVzdBonLnNoZXBoZXJkLm1nbXQudjEuTGlzdFBpcGVsaW5lc1Jlc3BvbnNlIgASUQoLR2V0UGlwZWxpbmUSJC5zaGVwaGVyZC5tZ210LnYxLkdldFBpcGVsaW5lUmVxdWVzdBoaLnNoZXBoZXJkLm1nbXQudjEuUGlwZWxpbmUiABJXCg5DcmVhdGVQaXBlbGluZRInLnNoZXBoZXJkLm1nbXQudjEuQ3JlYXRlUGlwZWxpbmVSZXF1ZXN0Ghouc2hlcGhlcmQubWdtdC52MS5QaXBlbGluZSIAElcKDlVwZGF0ZVBpcGVsaW5lEicuc2hlcGhlcmQubWdtdC52MS5VcGRhdGVQaXBlbGluZVJlcXVlc3QaGi5zaGVwaGVyZC5tZ210LnYxLlBpcGVsaW5lIgASZQoORGVsZXRlUGlwZWxpbmUSJy5zaGVwaGVyZC5tZ210LnYxLkRlbGV0ZVBpcGVsaW5lUmVxdWVzdBooLnNoZXBoZXJkLm1nbXQudjEuRGVsZXRlUGlwZWxpbmVSZXNwb25zZSIAElcKDkVuYWJsZVBpcGVsaW5lEicuc2hlcGhlcmQubWdtdC52MS5FbmFibGVQaXBlbGluZVJlcXVlc3QaGi5zaGVwaGVyZC5tZ210LnYxLlBpcGVsaW5lIgASWQoPRGlzYWJsZVBpcGVsaW5lEiguc2hlcGhlcmQubWdtdC52MS5EaXNhYmxlUGlwZWxpbmVSZXF1ZXN0Ghouc2hlcGhlcmQubWdtdC52MS5QaXBlbGluZSIAEmsKEFZhbGlkYXRlUGlwZWxpbmUSKS5zaGVwaGVyZC5tZ210LnYxLlZhbGlkYXRlUGlwZWxpbmVSZXF1ZXN0Giouc2hlcGhlcmQubWdtdC52MS5WYWxpZGF0ZVBpcGVsaW5lUmVzcG9uc2UiABJlCg5QcmV2aWV3TWF0Y2hlcxInLnNoZXBoZXJkLm1nbXQudjEuUHJldmlld01hdGNoZXNSZXF1ZXN0Giguc2hlcGhlcmQubWdtdC52MS5QcmV2aWV3TWF0Y2hlc1Jlc3BvbnNlIgASYgoNTGlzdFJldmlzaW9ucxImLnNoZXBoZXJkLm1nbXQudjEuTGlzdFJldmlzaW9uc1JlcXVlc3QaJy5zaGVwaGVyZC5tZ210LnYxLkxpc3RSZXZpc2lvbnNSZXNwb25zZSIAElkKC0dldFJldmlzaW9uEiQuc2hlcGhlcmQubWdtdC52MS5HZXRSZXZpc2lvblJlcXVlc3QaIi5zaGVwaGVyZC5tZ210LnYxLlBpcGVsaW5lUmV2aXNpb24iABJZCg9SZXN0b3JlUmV2aXNpb24SKC5zaGVwaGVyZC5tZ210LnYxLlJlc3RvcmVSZXZpc2lvblJlcXVlc3QaGi5zaGVwaGVyZC5tZ210LnYxLlBpcGVsaW5lIgASWwoQU2V0UGlwZWxpbmVPd25lchIpLnNoZXBoZXJkLm1nbXQudjEuU2V0UGlwZWxpbmVPd25lclJlcXVlc3QaGi5zaGVwaGVyZC5tZ210LnYxLlBpcGVsaW5lIgBCJlokc2hlcGhlcmQvZ2VuL3NoZXBoZXJkL21nbXQvdjE7bWdtdHYxYgZwcm90bzM", [file_google_protobuf_struct, file_google_protobuf_timestamp, file_shepherd_mgmt_v1_common]);
+  fileDesc("Ch9zaGVwaGVyZC9tZ210L3YxL3BpcGVsaW5lLnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIuEBChBQaXBlbGluZVJldmlzaW9uEhAKCHJldmlzaW9uGAEgASgFEhIKCmNoYW5nZWRfYnkYAiABKAkSLgoKY2hhbmdlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEwoLY2hhbmdlX25vdGUYBCABKAkSEAoIY29udGVudHMYBSABKAkSEAoIbWF0Y2hlcnMYBiADKAkSDwoHZW5hYmxlZBgHIAEoCBItCgx3aXphcmRfc3RhdGUYCCABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0IpADCghQaXBlbGluZRIKCgJpZBgBIAEoCRIOCgZvcmdfaWQYAiABKAkSDAoEbmFtZRgDIAEoCRIQCghjb250ZW50cxgEIAEoCRIQCghtYXRjaGVycxgFIAMoCRIPCgdlbmFibGVkGAYgASgIEg4KBnNvdXJjZRgHIAEoCRIQCghyZXZpc2lvbhgIIAEoBRISCgpjcmVhdGVkX2J5GAkgASgJEhIKCnVwZGF0ZWRfYnkYCiABKAkSLgoKY3JlYXRlZF9hdBgLIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgMIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASNQoJcmV2aXNpb25zGA0gAygLMiIuc2hlcGhlcmQubWdtdC52MS5QaXBlbGluZVJldmlzaW9uEi0KDHdpemFyZF9zdGF0ZRgOIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QSFQoNb3duZXJfdGVhbV9pZBgPIAEoCSI9ChRMaXN0UGlwZWxpbmVzUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSFQoNbmVlZHNfdXBncmFkZRgCIAEoCCJRChVMaXN0UGlwZWxpbmVzUmVzcG9uc2USKQoFaXRlbXMYASADKAsyGi5zaGVwaGVyZC5tZ210LnYxLlBpcGVsaW5lEg0KBXRvdGFsGAIgASgFIjAKEkdldFBpcGVsaW5lUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkirwEKFUNyZWF0ZVBpcGVsaW5lUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSDAoEbmFtZRgCIAEoCRIQCghjb250ZW50cxgDIAEoCRIQCghtYXRjaGVycxgEIAMoCRIOCgZzb3VyY2UYBSABKAkSLQoMd2l6YXJkX3N0YXRlGAYgASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdBIVCg1vd25lcl90ZWFtX2lkGAcgASgJIqQBChVVcGRhdGVQaXBlbGluZVJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgoKAmlkGAIgASgJEgwKBG5hbWUYAyABKAkSEAoIY29udGVudHMYBCABKAkSEAoIbWF0Y2hlcnMYBSADKAkSDgoGc291cmNlGAYgASgJEi0KDHdpemFyZF9zdGF0ZRgHIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QiMwoVRGVsZXRlUGlwZWxpbmVSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIKCgJpZBgCIAEoCSIYChZEZWxldGVQaXBlbGluZVJlc3BvbnNlIjMKFUVuYWJsZVBpcGVsaW5lUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkiNAoWRGlzYWJsZVBpcGVsaW5lUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkiSQoXVmFsaWRhdGVQaXBlbGluZVJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgwKBG5hbWUYAiABKAkSEAoIY29udGVudHMYAyABKAkiOQoVRm9ybWF0UGlwZWxpbmVSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIQCghjb250ZW50cxgCIAEoCSIrChZGb3JtYXRQaXBlbGluZVJlc3BvbnNlEhEKCWZvcm1hdHRlZBgBIAEoCSKhAQoYVmFsaWRhdGVQaXBlbGluZVJlc3BvbnNlEg0KBXZhbGlkGAEgASgIEjEKC2RpYWdub3N0aWNzGAIgAygLMhwuc2hlcGhlcmQubWdtdC52MS5EaWFnbm9zdGljEg8KB3NpZ25hbHMYAyADKAkSFgoOc2lnbmFsc19wcm92ZW4YBCABKAgSGgoSdW5rbm93bl9jb21wb25lbnRzGAUgAygJIjMKFVByZXZpZXdNYXRjaGVzUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkiPQoQTWF0Y2hlZENvbGxlY3RvchIPCgdjbHVzdGVyGAEgASgJEgwKBHJvbGUYAiABKAkSCgoCaWQYAyABKAkiUAoWUHJldmlld01hdGNoZXNSZXNwb25zZRI2Cgpjb2xsZWN0b3JzGAEgAygLMiIuc2hlcGhlcmQubWdtdC52MS5NYXRjaGVkQ29sbGVjdG9yIjIKFExpc3RSZXZpc2lvbnNSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIKCgJpZBgCIAEoCSJZChVMaXN0UmV2aXNpb25zUmVzcG9uc2USMQoFaXRlbXMYASADKAsyIi5zaGVwaGVyZC5tZ210LnYxLlBpcGVsaW5lUmV2aXNpb24SDQoFdG90YWwYAiABKAUiQgoSR2V0UmV2aXNpb25SZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIKCgJpZBgCIAEoCRIQCghyZXZpc2lvbhgDIAEoBSJbChZSZXN0b3JlUmV2aXNpb25SZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIKCgJpZBgCIAEoCRIQCghyZXZpc2lvbhgDIAEoBRITCgtjaGFuZ2Vfbm90ZRgEIAEoCSJMChdTZXRQaXBlbGluZU93bmVyUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkSFQoNb3duZXJfdGVhbV9pZBgDIAEoCTLHCgoPUGlwZWxpbmVTZXJ2aWNlEmIKDUxpc3RQaXBlbGluZXMSJi5zaGVwaGVyZC5tZ210LnYxLkxpc3RQaXBlbGluZXNSZXF1ZXN0Gicuc2hlcGhlcmQubWdtdC52MS5MaXN0UGlwZWxpbmVzUmVzcG9uc2UiABJRCgtHZXRQaXBlbGluZRIkLnNoZXBoZXJkLm1nbXQudjEuR2V0UGlwZWxpbmVSZXF1ZXN0Ghouc2hlcGhlcmQubWdtdC52MS5QaXBlbGluZSIAElcKDkNyZWF0ZVBpcGVsaW5lEicuc2hlcGhlcmQubWdtdC52MS5DcmVhdGVQaXBlbGluZVJlcXVlc3QaGi5zaGVwaGVyZC5tZ210LnYxLlBpcGVsaW5lIgASVwoOVXBkYXRlUGlwZWxpbmUSJy5zaGVwaGVyZC5tZ210LnYxLlVwZGF0ZVBpcGVsaW5lUmVxdWVzdBoaLnNoZXBoZXJkLm1nbXQudjEuUGlwZWxpbmUiABJlCg5EZWxldGVQaXBlbGluZRInLnNoZXBoZXJkLm1nbXQudjEuRGVsZXRlUGlwZWxpbmVSZXF1ZXN0Giguc2hlcGhlcmQubWdtdC52MS5EZWxldGVQaXBlbGluZVJlc3BvbnNlIgASVwoORW5hYmxlUGlwZWxpbmUSJy5zaGVwaGVyZC5tZ210LnYxLkVuYWJsZVBpcGVsaW5lUmVxdWVzdBoaLnNoZXBoZXJkLm1nbXQudjEuUGlwZWxpbmUiABJZCg9EaXNhYmxlUGlwZWxpbmUSKC5zaGVwaGVyZC5tZ210LnYxLkRpc2FibGVQaXBlbGluZVJlcXVlc3QaGi5zaGVwaGVyZC5tZ210LnYxLlBpcGVsaW5lIgASawoQVmFsaWRhdGVQaXBlbGluZRIpLnNoZXBoZXJkLm1nbXQudjEuVmFsaWRhdGVQaXBlbGluZVJlcXVlc3QaKi5zaGVwaGVyZC5tZ210LnYxLlZhbGlkYXRlUGlwZWxpbmVSZXNwb25zZSIAEmUKDkZvcm1hdFBpcGVsaW5lEicuc2hlcGhlcmQubWdtdC52MS5Gb3JtYXRQaXBlbGluZVJlcXVlc3QaKC5zaGVwaGVyZC5tZ210LnYxLkZvcm1hdFBpcGVsaW5lUmVzcG9uc2UiABJlCg5QcmV2aWV3TWF0Y2hlcxInLnNoZXBoZXJkLm1nbXQudjEuUHJldmlld01hdGNoZXNSZXF1ZXN0Giguc2hlcGhlcmQubWdtdC52MS5QcmV2aWV3TWF0Y2hlc1Jlc3BvbnNlIgASYgoNTGlzdFJldmlzaW9ucxImLnNoZXBoZXJkLm1nbXQudjEuTGlzdFJldmlzaW9uc1JlcXVlc3QaJy5zaGVwaGVyZC5tZ210LnYxLkxpc3RSZXZpc2lvbnNSZXNwb25zZSIAElkKC0dldFJldmlzaW9uEiQuc2hlcGhlcmQubWdtdC52MS5HZXRSZXZpc2lvblJlcXVlc3QaIi5zaGVwaGVyZC5tZ210LnYxLlBpcGVsaW5lUmV2aXNpb24iABJZCg9SZXN0b3JlUmV2aXNpb24SKC5zaGVwaGVyZC5tZ210LnYxLlJlc3RvcmVSZXZpc2lvblJlcXVlc3QaGi5zaGVwaGVyZC5tZ210LnYxLlBpcGVsaW5lIgASWwoQU2V0UGlwZWxpbmVPd25lchIpLnNoZXBoZXJkLm1nbXQudjEuU2V0UGlwZWxpbmVPd25lclJlcXVlc3QaGi5zaGVwaGVyZC5tZ210LnYxLlBpcGVsaW5lIgBCJlokc2hlcGhlcmQvZ2VuL3NoZXBoZXJkL21nbXQvdjE7bWdtdHYxYgZwcm90bzM", [file_google_protobuf_struct, file_google_protobuf_timestamp, file_shepherd_mgmt_v1_common]);
 
 /**
  * PipelineRevision mirrors internal/mgmtapi/pipelines.go: revisionResponse.
@@ -467,6 +467,54 @@ export const ValidatePipelineRequestSchema: GenMessage<ValidatePipelineRequest> 
   messageDesc(file_shepherd_mgmt_v1_pipeline, 11);
 
 /**
+ * FormatPipelineRequest carries the raw pipeline body to canonicalise. org_id
+ * scopes the call for authorization; contents is formatted as-is (not
+ * declare-wrapped), so what comes back is exactly what belongs in the editor.
+ *
+ * @generated from message shepherd.mgmt.v1.FormatPipelineRequest
+ */
+export type FormatPipelineRequest = Message<"shepherd.mgmt.v1.FormatPipelineRequest"> & {
+  /**
+   * @generated from field: string org_id = 1;
+   */
+  orgId: string;
+
+  /**
+   * @generated from field: string contents = 2;
+   */
+  contents: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.FormatPipelineRequest.
+ * Use `create(FormatPipelineRequestSchema)` to create a new message.
+ */
+export const FormatPipelineRequestSchema: GenMessage<FormatPipelineRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_pipeline, 12);
+
+/**
+ * FormatPipelineResponse returns the canonicalised source. Unlike
+ * ValidatePipeline, unparseable input is an InvalidArgument error rather than a
+ * 200 with diagnostics: formatting can only act on valid syntax, and the
+ * editor's live validation already reports the parse failure inline.
+ *
+ * @generated from message shepherd.mgmt.v1.FormatPipelineResponse
+ */
+export type FormatPipelineResponse = Message<"shepherd.mgmt.v1.FormatPipelineResponse"> & {
+  /**
+   * @generated from field: string formatted = 1;
+   */
+  formatted: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.FormatPipelineResponse.
+ * Use `create(FormatPipelineResponseSchema)` to create a new message.
+ */
+export const FormatPipelineResponseSchema: GenMessage<FormatPipelineResponse> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_pipeline, 13);
+
+/**
  * ValidatePipelineResponse mirrors internal/validate.Result. The endpoint
  * returns 200 with valid=false + diagnostics on validation failure (not an
  * error code) — "validate endpoints return 200 + diagnostics today".
@@ -523,7 +571,7 @@ export type ValidatePipelineResponse = Message<"shepherd.mgmt.v1.ValidatePipelin
  * Use `create(ValidatePipelineResponseSchema)` to create a new message.
  */
 export const ValidatePipelineResponseSchema: GenMessage<ValidatePipelineResponse> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_pipeline, 12);
+  messageDesc(file_shepherd_mgmt_v1_pipeline, 14);
 
 /**
  * @generated from message shepherd.mgmt.v1.PreviewMatchesRequest
@@ -545,7 +593,7 @@ export type PreviewMatchesRequest = Message<"shepherd.mgmt.v1.PreviewMatchesRequ
  * Use `create(PreviewMatchesRequestSchema)` to create a new message.
  */
 export const PreviewMatchesRequestSchema: GenMessage<PreviewMatchesRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_pipeline, 13);
+  messageDesc(file_shepherd_mgmt_v1_pipeline, 15);
 
 /**
  * MatchedCollector mirrors the per-item shape returned by previewMatchedCollectors.
@@ -574,7 +622,7 @@ export type MatchedCollector = Message<"shepherd.mgmt.v1.MatchedCollector"> & {
  * Use `create(MatchedCollectorSchema)` to create a new message.
  */
 export const MatchedCollectorSchema: GenMessage<MatchedCollector> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_pipeline, 14);
+  messageDesc(file_shepherd_mgmt_v1_pipeline, 16);
 
 /**
  * PreviewMatchesResponse mirrors pipelines.go PreviewMatches: {"collectors": [...]}.
@@ -593,7 +641,7 @@ export type PreviewMatchesResponse = Message<"shepherd.mgmt.v1.PreviewMatchesRes
  * Use `create(PreviewMatchesResponseSchema)` to create a new message.
  */
 export const PreviewMatchesResponseSchema: GenMessage<PreviewMatchesResponse> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_pipeline, 15);
+  messageDesc(file_shepherd_mgmt_v1_pipeline, 17);
 
 /**
  * @generated from message shepherd.mgmt.v1.ListRevisionsRequest
@@ -615,7 +663,7 @@ export type ListRevisionsRequest = Message<"shepherd.mgmt.v1.ListRevisionsReques
  * Use `create(ListRevisionsRequestSchema)` to create a new message.
  */
 export const ListRevisionsRequestSchema: GenMessage<ListRevisionsRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_pipeline, 16);
+  messageDesc(file_shepherd_mgmt_v1_pipeline, 18);
 
 /**
  * @generated from message shepherd.mgmt.v1.ListRevisionsResponse
@@ -637,7 +685,7 @@ export type ListRevisionsResponse = Message<"shepherd.mgmt.v1.ListRevisionsRespo
  * Use `create(ListRevisionsResponseSchema)` to create a new message.
  */
 export const ListRevisionsResponseSchema: GenMessage<ListRevisionsResponse> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_pipeline, 17);
+  messageDesc(file_shepherd_mgmt_v1_pipeline, 19);
 
 /**
  * @generated from message shepherd.mgmt.v1.GetRevisionRequest
@@ -664,7 +712,7 @@ export type GetRevisionRequest = Message<"shepherd.mgmt.v1.GetRevisionRequest"> 
  * Use `create(GetRevisionRequestSchema)` to create a new message.
  */
 export const GetRevisionRequestSchema: GenMessage<GetRevisionRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_pipeline, 18);
+  messageDesc(file_shepherd_mgmt_v1_pipeline, 20);
 
 /**
  * @generated from message shepherd.mgmt.v1.RestoreRevisionRequest
@@ -699,7 +747,7 @@ export type RestoreRevisionRequest = Message<"shepherd.mgmt.v1.RestoreRevisionRe
  * Use `create(RestoreRevisionRequestSchema)` to create a new message.
  */
 export const RestoreRevisionRequestSchema: GenMessage<RestoreRevisionRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_pipeline, 19);
+  messageDesc(file_shepherd_mgmt_v1_pipeline, 21);
 
 /**
  * @generated from message shepherd.mgmt.v1.SetPipelineOwnerRequest
@@ -728,7 +776,7 @@ export type SetPipelineOwnerRequest = Message<"shepherd.mgmt.v1.SetPipelineOwner
  * Use `create(SetPipelineOwnerRequestSchema)` to create a new message.
  */
 export const SetPipelineOwnerRequestSchema: GenMessage<SetPipelineOwnerRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_pipeline, 20);
+  messageDesc(file_shepherd_mgmt_v1_pipeline, 22);
 
 /**
  * PipelineService covers /api/orgs/{org}/pipelines/*. Reads require
@@ -806,6 +854,17 @@ export const PipelineService: GenService<{
     methodKind: "unary";
     input: typeof ValidatePipelineRequestSchema;
     output: typeof ValidatePipelineResponseSchema;
+  },
+  /**
+   * FormatPipeline canonicalises Alloy source (what `alloy fmt` does),
+   * in-process. Pure text transform; org-reader, like ValidatePipeline.
+   *
+   * @generated from rpc shepherd.mgmt.v1.PipelineService.FormatPipeline
+   */
+  formatPipeline: {
+    methodKind: "unary";
+    input: typeof FormatPipelineRequestSchema;
+    output: typeof FormatPipelineResponseSchema;
   },
   /**
    * @generated from rpc shepherd.mgmt.v1.PipelineService.PreviewMatches

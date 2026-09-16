@@ -112,6 +112,7 @@ var procedureRequirements = map[string]string{
 	mgmtv1connect.PipelineServiceEnablePipelineProcedure:   auth.RoleOrgReader,
 	mgmtv1connect.PipelineServiceDisablePipelineProcedure:  auth.RoleOrgReader,
 	mgmtv1connect.PipelineServiceValidatePipelineProcedure: auth.RoleOrgReader,
+	mgmtv1connect.PipelineServiceFormatPipelineProcedure:   auth.RoleOrgReader,
 	mgmtv1connect.PipelineServiceSetPipelineOwnerProcedure: auth.RoleOrgAdmin,
 
 	// DestinationService — org reader for reads, org admin for writes.

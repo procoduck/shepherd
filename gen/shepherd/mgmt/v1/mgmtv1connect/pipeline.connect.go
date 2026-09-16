@@ -57,6 +57,9 @@ const (
 	// PipelineServiceValidatePipelineProcedure is the fully-qualified name of the PipelineService's
 	// ValidatePipeline RPC.
 	PipelineServiceValidatePipelineProcedure = "/shepherd.mgmt.v1.PipelineService/ValidatePipeline"
+	// PipelineServiceFormatPipelineProcedure is the fully-qualified name of the PipelineService's
+	// FormatPipeline RPC.
+	PipelineServiceFormatPipelineProcedure = "/shepherd.mgmt.v1.PipelineService/FormatPipeline"
 	// PipelineServicePreviewMatchesProcedure is the fully-qualified name of the PipelineService's
 	// PreviewMatches RPC.
 	PipelineServicePreviewMatchesProcedure = "/shepherd.mgmt.v1.PipelineService/PreviewMatches"
@@ -84,6 +87,9 @@ type PipelineServiceClient interface {
 	EnablePipeline(context.Context, *connect.Request[v1.EnablePipelineRequest]) (*connect.Response[v1.Pipeline], error)
 	DisablePipeline(context.Context, *connect.Request[v1.DisablePipelineRequest]) (*connect.Response[v1.Pipeline], error)
 	ValidatePipeline(context.Context, *connect.Request[v1.ValidatePipelineRequest]) (*connect.Response[v1.ValidatePipelineResponse], error)
+	// FormatPipeline canonicalises Alloy source (what `alloy fmt` does),
+	// in-process. Pure text transform; org-reader, like ValidatePipeline.
+	FormatPipeline(context.Context, *connect.Request[v1.FormatPipelineRequest]) (*connect.Response[v1.FormatPipelineResponse], error)
 	PreviewMatches(context.Context, *connect.Request[v1.PreviewMatchesRequest]) (*connect.Response[v1.PreviewMatchesResponse], error)
 	ListRevisions(context.Context, *connect.Request[v1.ListRevisionsRequest]) (*connect.Response[v1.ListRevisionsResponse], error)
 	// GetRevision returns one revision in full, including the heavy fields
@@ -164,6 +170,12 @@ func NewPipelineServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(pipelineServiceMethods.ByName("ValidatePipeline")),
 			connect.WithClientOptions(opts...),
 		),
+		formatPipeline: connect.NewClient[v1.FormatPipelineRequest, v1.FormatPipelineResponse](
+			httpClient,
+			baseURL+PipelineServiceFormatPipelineProcedure,
+			connect.WithSchema(pipelineServiceMethods.ByName("FormatPipeline")),
+			connect.WithClientOptions(opts...),
+		),
 		previewMatches: connect.NewClient[v1.PreviewMatchesRequest, v1.PreviewMatchesResponse](
 			httpClient,
 			baseURL+PipelineServicePreviewMatchesProcedure,
@@ -207,6 +219,7 @@ type pipelineServiceClient struct {
 	enablePipeline   *connect.Client[v1.EnablePipelineRequest, v1.Pipeline]
 	disablePipeline  *connect.Client[v1.DisablePipelineRequest, v1.Pipeline]
 	validatePipeline *connect.Client[v1.ValidatePipelineRequest, v1.ValidatePipelineResponse]
+	formatPipeline   *connect.Client[v1.FormatPipelineRequest, v1.FormatPipelineResponse]
 	previewMatches   *connect.Client[v1.PreviewMatchesRequest, v1.PreviewMatchesResponse]
 	listRevisions    *connect.Client[v1.ListRevisionsRequest, v1.ListRevisionsResponse]
 	getRevision      *connect.Client[v1.GetRevisionRequest, v1.PipelineRevision]
@@ -254,6 +267,11 @@ func (c *pipelineServiceClient) ValidatePipeline(ctx context.Context, req *conne
 	return c.validatePipeline.CallUnary(ctx, req)
 }
 
+// FormatPipeline calls shepherd.mgmt.v1.PipelineService.FormatPipeline.
+func (c *pipelineServiceClient) FormatPipeline(ctx context.Context, req *connect.Request[v1.FormatPipelineRequest]) (*connect.Response[v1.FormatPipelineResponse], error) {
+	return c.formatPipeline.CallUnary(ctx, req)
+}
+
 // PreviewMatches calls shepherd.mgmt.v1.PipelineService.PreviewMatches.
 func (c *pipelineServiceClient) PreviewMatches(ctx context.Context, req *connect.Request[v1.PreviewMatchesRequest]) (*connect.Response[v1.PreviewMatchesResponse], error) {
 	return c.previewMatches.CallUnary(ctx, req)
@@ -289,6 +307,9 @@ type PipelineServiceHandler interface {
 	EnablePipeline(context.Context, *connect.Request[v1.EnablePipelineRequest]) (*connect.Response[v1.Pipeline], error)
 	DisablePipeline(context.Context, *connect.Request[v1.DisablePipelineRequest]) (*connect.Response[v1.Pipeline], error)
 	ValidatePipeline(context.Context, *connect.Request[v1.ValidatePipelineRequest]) (*connect.Response[v1.ValidatePipelineResponse], error)
+	// FormatPipeline canonicalises Alloy source (what `alloy fmt` does),
+	// in-process. Pure text transform; org-reader, like ValidatePipeline.
+	FormatPipeline(context.Context, *connect.Request[v1.FormatPipelineRequest]) (*connect.Response[v1.FormatPipelineResponse], error)
 	PreviewMatches(context.Context, *connect.Request[v1.PreviewMatchesRequest]) (*connect.Response[v1.PreviewMatchesResponse], error)
 	ListRevisions(context.Context, *connect.Request[v1.ListRevisionsRequest]) (*connect.Response[v1.ListRevisionsResponse], error)
 	// GetRevision returns one revision in full, including the heavy fields
@@ -365,6 +386,12 @@ func NewPipelineServiceHandler(svc PipelineServiceHandler, opts ...connect.Handl
 		connect.WithSchema(pipelineServiceMethods.ByName("ValidatePipeline")),
 		connect.WithHandlerOptions(opts...),
 	)
+	pipelineServiceFormatPipelineHandler := connect.NewUnaryHandler(
+		PipelineServiceFormatPipelineProcedure,
+		svc.FormatPipeline,
+		connect.WithSchema(pipelineServiceMethods.ByName("FormatPipeline")),
+		connect.WithHandlerOptions(opts...),
+	)
 	pipelineServicePreviewMatchesHandler := connect.NewUnaryHandler(
 		PipelineServicePreviewMatchesProcedure,
 		svc.PreviewMatches,
@@ -413,6 +440,8 @@ func NewPipelineServiceHandler(svc PipelineServiceHandler, opts ...connect.Handl
 			pipelineServiceDisablePipelineHandler.ServeHTTP(w, r)
 		case PipelineServiceValidatePipelineProcedure:
 			pipelineServiceValidatePipelineHandler.ServeHTTP(w, r)
+		case PipelineServiceFormatPipelineProcedure:
+			pipelineServiceFormatPipelineHandler.ServeHTTP(w, r)
 		case PipelineServicePreviewMatchesProcedure:
 			pipelineServicePreviewMatchesHandler.ServeHTTP(w, r)
 		case PipelineServiceListRevisionsProcedure:
@@ -462,6 +491,10 @@ func (UnimplementedPipelineServiceHandler) DisablePipeline(context.Context, *con
 
 func (UnimplementedPipelineServiceHandler) ValidatePipeline(context.Context, *connect.Request[v1.ValidatePipelineRequest]) (*connect.Response[v1.ValidatePipelineResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.PipelineService.ValidatePipeline is not implemented"))
+}
+
+func (UnimplementedPipelineServiceHandler) FormatPipeline(context.Context, *connect.Request[v1.FormatPipelineRequest]) (*connect.Response[v1.FormatPipelineResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.PipelineService.FormatPipeline is not implemented"))
 }
 
 func (UnimplementedPipelineServiceHandler) PreviewMatches(context.Context, *connect.Request[v1.PreviewMatchesRequest]) (*connect.Response[v1.PreviewMatchesResponse], error) {

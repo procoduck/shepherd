@@ -906,6 +906,109 @@ func (x *ValidatePipelineRequest) GetContents() string {
 	return ""
 }
 
+// FormatPipelineRequest carries the raw pipeline body to canonicalise. org_id
+// scopes the call for authorization; contents is formatted as-is (not
+// declare-wrapped), so what comes back is exactly what belongs in the editor.
+type FormatPipelineRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OrgId         string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	Contents      string                 `protobuf:"bytes,2,opt,name=contents,proto3" json:"contents,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FormatPipelineRequest) Reset() {
+	*x = FormatPipelineRequest{}
+	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FormatPipelineRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FormatPipelineRequest) ProtoMessage() {}
+
+func (x *FormatPipelineRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FormatPipelineRequest.ProtoReflect.Descriptor instead.
+func (*FormatPipelineRequest) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_pipeline_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *FormatPipelineRequest) GetOrgId() string {
+	if x != nil {
+		return x.OrgId
+	}
+	return ""
+}
+
+func (x *FormatPipelineRequest) GetContents() string {
+	if x != nil {
+		return x.Contents
+	}
+	return ""
+}
+
+// FormatPipelineResponse returns the canonicalised source. Unlike
+// ValidatePipeline, unparseable input is an InvalidArgument error rather than a
+// 200 with diagnostics: formatting can only act on valid syntax, and the
+// editor's live validation already reports the parse failure inline.
+type FormatPipelineResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Formatted     string                 `protobuf:"bytes,1,opt,name=formatted,proto3" json:"formatted,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FormatPipelineResponse) Reset() {
+	*x = FormatPipelineResponse{}
+	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FormatPipelineResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FormatPipelineResponse) ProtoMessage() {}
+
+func (x *FormatPipelineResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FormatPipelineResponse.ProtoReflect.Descriptor instead.
+func (*FormatPipelineResponse) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_pipeline_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *FormatPipelineResponse) GetFormatted() string {
+	if x != nil {
+		return x.Formatted
+	}
+	return ""
+}
+
 // ValidatePipelineResponse mirrors internal/validate.Result. The endpoint
 // returns 200 with valid=false + diagnostics on validation failure (not an
 // error code) — "validate endpoints return 200 + diagnostics today".
@@ -937,7 +1040,7 @@ type ValidatePipelineResponse struct {
 
 func (x *ValidatePipelineResponse) Reset() {
 	*x = ValidatePipelineResponse{}
-	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[12]
+	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -949,7 +1052,7 @@ func (x *ValidatePipelineResponse) String() string {
 func (*ValidatePipelineResponse) ProtoMessage() {}
 
 func (x *ValidatePipelineResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[12]
+	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -962,7 +1065,7 @@ func (x *ValidatePipelineResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidatePipelineResponse.ProtoReflect.Descriptor instead.
 func (*ValidatePipelineResponse) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_pipeline_proto_rawDescGZIP(), []int{12}
+	return file_shepherd_mgmt_v1_pipeline_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ValidatePipelineResponse) GetValid() bool {
@@ -1010,7 +1113,7 @@ type PreviewMatchesRequest struct {
 
 func (x *PreviewMatchesRequest) Reset() {
 	*x = PreviewMatchesRequest{}
-	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[13]
+	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1022,7 +1125,7 @@ func (x *PreviewMatchesRequest) String() string {
 func (*PreviewMatchesRequest) ProtoMessage() {}
 
 func (x *PreviewMatchesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[13]
+	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1035,7 +1138,7 @@ func (x *PreviewMatchesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PreviewMatchesRequest.ProtoReflect.Descriptor instead.
 func (*PreviewMatchesRequest) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_pipeline_proto_rawDescGZIP(), []int{13}
+	return file_shepherd_mgmt_v1_pipeline_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *PreviewMatchesRequest) GetOrgId() string {
@@ -1064,7 +1167,7 @@ type MatchedCollector struct {
 
 func (x *MatchedCollector) Reset() {
 	*x = MatchedCollector{}
-	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[14]
+	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1076,7 +1179,7 @@ func (x *MatchedCollector) String() string {
 func (*MatchedCollector) ProtoMessage() {}
 
 func (x *MatchedCollector) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[14]
+	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1089,7 +1192,7 @@ func (x *MatchedCollector) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MatchedCollector.ProtoReflect.Descriptor instead.
 func (*MatchedCollector) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_pipeline_proto_rawDescGZIP(), []int{14}
+	return file_shepherd_mgmt_v1_pipeline_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *MatchedCollector) GetCluster() string {
@@ -1123,7 +1226,7 @@ type PreviewMatchesResponse struct {
 
 func (x *PreviewMatchesResponse) Reset() {
 	*x = PreviewMatchesResponse{}
-	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[15]
+	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1135,7 +1238,7 @@ func (x *PreviewMatchesResponse) String() string {
 func (*PreviewMatchesResponse) ProtoMessage() {}
 
 func (x *PreviewMatchesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[15]
+	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1148,7 +1251,7 @@ func (x *PreviewMatchesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PreviewMatchesResponse.ProtoReflect.Descriptor instead.
 func (*PreviewMatchesResponse) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_pipeline_proto_rawDescGZIP(), []int{15}
+	return file_shepherd_mgmt_v1_pipeline_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *PreviewMatchesResponse) GetCollectors() []*MatchedCollector {
@@ -1168,7 +1271,7 @@ type ListRevisionsRequest struct {
 
 func (x *ListRevisionsRequest) Reset() {
 	*x = ListRevisionsRequest{}
-	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[16]
+	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1180,7 +1283,7 @@ func (x *ListRevisionsRequest) String() string {
 func (*ListRevisionsRequest) ProtoMessage() {}
 
 func (x *ListRevisionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[16]
+	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1193,7 +1296,7 @@ func (x *ListRevisionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRevisionsRequest.ProtoReflect.Descriptor instead.
 func (*ListRevisionsRequest) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_pipeline_proto_rawDescGZIP(), []int{16}
+	return file_shepherd_mgmt_v1_pipeline_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ListRevisionsRequest) GetOrgId() string {
@@ -1220,7 +1323,7 @@ type ListRevisionsResponse struct {
 
 func (x *ListRevisionsResponse) Reset() {
 	*x = ListRevisionsResponse{}
-	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[17]
+	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1232,7 +1335,7 @@ func (x *ListRevisionsResponse) String() string {
 func (*ListRevisionsResponse) ProtoMessage() {}
 
 func (x *ListRevisionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[17]
+	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1245,7 +1348,7 @@ func (x *ListRevisionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRevisionsResponse.ProtoReflect.Descriptor instead.
 func (*ListRevisionsResponse) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_pipeline_proto_rawDescGZIP(), []int{17}
+	return file_shepherd_mgmt_v1_pipeline_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ListRevisionsResponse) GetItems() []*PipelineRevision {
@@ -1273,7 +1376,7 @@ type GetRevisionRequest struct {
 
 func (x *GetRevisionRequest) Reset() {
 	*x = GetRevisionRequest{}
-	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[18]
+	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1285,7 +1388,7 @@ func (x *GetRevisionRequest) String() string {
 func (*GetRevisionRequest) ProtoMessage() {}
 
 func (x *GetRevisionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[18]
+	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1298,7 +1401,7 @@ func (x *GetRevisionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRevisionRequest.ProtoReflect.Descriptor instead.
 func (*GetRevisionRequest) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_pipeline_proto_rawDescGZIP(), []int{18}
+	return file_shepherd_mgmt_v1_pipeline_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *GetRevisionRequest) GetOrgId() string {
@@ -1336,7 +1439,7 @@ type RestoreRevisionRequest struct {
 
 func (x *RestoreRevisionRequest) Reset() {
 	*x = RestoreRevisionRequest{}
-	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[19]
+	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1348,7 +1451,7 @@ func (x *RestoreRevisionRequest) String() string {
 func (*RestoreRevisionRequest) ProtoMessage() {}
 
 func (x *RestoreRevisionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[19]
+	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1361,7 +1464,7 @@ func (x *RestoreRevisionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestoreRevisionRequest.ProtoReflect.Descriptor instead.
 func (*RestoreRevisionRequest) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_pipeline_proto_rawDescGZIP(), []int{19}
+	return file_shepherd_mgmt_v1_pipeline_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *RestoreRevisionRequest) GetOrgId() string {
@@ -1404,7 +1507,7 @@ type SetPipelineOwnerRequest struct {
 
 func (x *SetPipelineOwnerRequest) Reset() {
 	*x = SetPipelineOwnerRequest{}
-	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[20]
+	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1416,7 +1519,7 @@ func (x *SetPipelineOwnerRequest) String() string {
 func (*SetPipelineOwnerRequest) ProtoMessage() {}
 
 func (x *SetPipelineOwnerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[20]
+	mi := &file_shepherd_mgmt_v1_pipeline_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1429,7 +1532,7 @@ func (x *SetPipelineOwnerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetPipelineOwnerRequest.ProtoReflect.Descriptor instead.
 func (*SetPipelineOwnerRequest) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_pipeline_proto_rawDescGZIP(), []int{20}
+	return file_shepherd_mgmt_v1_pipeline_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *SetPipelineOwnerRequest) GetOrgId() string {
@@ -1529,7 +1632,12 @@ const file_shepherd_mgmt_v1_pipeline_proto_rawDesc = "" +
 	"\x17ValidatePipelineRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1a\n" +
-	"\bcontents\x18\x03 \x01(\tR\bcontents\"\xe0\x01\n" +
+	"\bcontents\x18\x03 \x01(\tR\bcontents\"J\n" +
+	"\x15FormatPipelineRequest\x12\x15\n" +
+	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x1a\n" +
+	"\bcontents\x18\x02 \x01(\tR\bcontents\"6\n" +
+	"\x16FormatPipelineResponse\x12\x1c\n" +
+	"\tformatted\x18\x01 \x01(\tR\tformatted\"\xe0\x01\n" +
 	"\x18ValidatePipelineResponse\x12\x14\n" +
 	"\x05valid\x18\x01 \x01(\bR\x05valid\x12>\n" +
 	"\vdiagnostics\x18\x02 \x03(\v2\x1c.shepherd.mgmt.v1.DiagnosticR\vdiagnostics\x12\x18\n" +
@@ -1566,7 +1674,8 @@ const file_shepherd_mgmt_v1_pipeline_proto_rawDesc = "" +
 	"\x17SetPipelineOwnerRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\"\n" +
-	"\rowner_team_id\x18\x03 \x01(\tR\vownerTeamId2\xe0\t\n" +
+	"\rowner_team_id\x18\x03 \x01(\tR\vownerTeamId2\xc7\n" +
+	"\n" +
 	"\x0fPipelineService\x12b\n" +
 	"\rListPipelines\x12&.shepherd.mgmt.v1.ListPipelinesRequest\x1a'.shepherd.mgmt.v1.ListPipelinesResponse\"\x00\x12Q\n" +
 	"\vGetPipeline\x12$.shepherd.mgmt.v1.GetPipelineRequest\x1a\x1a.shepherd.mgmt.v1.Pipeline\"\x00\x12W\n" +
@@ -1576,6 +1685,7 @@ const file_shepherd_mgmt_v1_pipeline_proto_rawDesc = "" +
 	"\x0eEnablePipeline\x12'.shepherd.mgmt.v1.EnablePipelineRequest\x1a\x1a.shepherd.mgmt.v1.Pipeline\"\x00\x12Y\n" +
 	"\x0fDisablePipeline\x12(.shepherd.mgmt.v1.DisablePipelineRequest\x1a\x1a.shepherd.mgmt.v1.Pipeline\"\x00\x12k\n" +
 	"\x10ValidatePipeline\x12).shepherd.mgmt.v1.ValidatePipelineRequest\x1a*.shepherd.mgmt.v1.ValidatePipelineResponse\"\x00\x12e\n" +
+	"\x0eFormatPipeline\x12'.shepherd.mgmt.v1.FormatPipelineRequest\x1a(.shepherd.mgmt.v1.FormatPipelineResponse\"\x00\x12e\n" +
 	"\x0ePreviewMatches\x12'.shepherd.mgmt.v1.PreviewMatchesRequest\x1a(.shepherd.mgmt.v1.PreviewMatchesResponse\"\x00\x12b\n" +
 	"\rListRevisions\x12&.shepherd.mgmt.v1.ListRevisionsRequest\x1a'.shepherd.mgmt.v1.ListRevisionsResponse\"\x00\x12Y\n" +
 	"\vGetRevision\x12$.shepherd.mgmt.v1.GetRevisionRequest\x1a\".shepherd.mgmt.v1.PipelineRevision\"\x00\x12Y\n" +
@@ -1594,7 +1704,7 @@ func file_shepherd_mgmt_v1_pipeline_proto_rawDescGZIP() []byte {
 	return file_shepherd_mgmt_v1_pipeline_proto_rawDescData
 }
 
-var file_shepherd_mgmt_v1_pipeline_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_shepherd_mgmt_v1_pipeline_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_shepherd_mgmt_v1_pipeline_proto_goTypes = []any{
 	(*PipelineRevision)(nil),         // 0: shepherd.mgmt.v1.PipelineRevision
 	(*Pipeline)(nil),                 // 1: shepherd.mgmt.v1.Pipeline
@@ -1608,31 +1718,33 @@ var file_shepherd_mgmt_v1_pipeline_proto_goTypes = []any{
 	(*EnablePipelineRequest)(nil),    // 9: shepherd.mgmt.v1.EnablePipelineRequest
 	(*DisablePipelineRequest)(nil),   // 10: shepherd.mgmt.v1.DisablePipelineRequest
 	(*ValidatePipelineRequest)(nil),  // 11: shepherd.mgmt.v1.ValidatePipelineRequest
-	(*ValidatePipelineResponse)(nil), // 12: shepherd.mgmt.v1.ValidatePipelineResponse
-	(*PreviewMatchesRequest)(nil),    // 13: shepherd.mgmt.v1.PreviewMatchesRequest
-	(*MatchedCollector)(nil),         // 14: shepherd.mgmt.v1.MatchedCollector
-	(*PreviewMatchesResponse)(nil),   // 15: shepherd.mgmt.v1.PreviewMatchesResponse
-	(*ListRevisionsRequest)(nil),     // 16: shepherd.mgmt.v1.ListRevisionsRequest
-	(*ListRevisionsResponse)(nil),    // 17: shepherd.mgmt.v1.ListRevisionsResponse
-	(*GetRevisionRequest)(nil),       // 18: shepherd.mgmt.v1.GetRevisionRequest
-	(*RestoreRevisionRequest)(nil),   // 19: shepherd.mgmt.v1.RestoreRevisionRequest
-	(*SetPipelineOwnerRequest)(nil),  // 20: shepherd.mgmt.v1.SetPipelineOwnerRequest
-	(*timestamppb.Timestamp)(nil),    // 21: google.protobuf.Timestamp
-	(*structpb.Struct)(nil),          // 22: google.protobuf.Struct
-	(*Diagnostic)(nil),               // 23: shepherd.mgmt.v1.Diagnostic
+	(*FormatPipelineRequest)(nil),    // 12: shepherd.mgmt.v1.FormatPipelineRequest
+	(*FormatPipelineResponse)(nil),   // 13: shepherd.mgmt.v1.FormatPipelineResponse
+	(*ValidatePipelineResponse)(nil), // 14: shepherd.mgmt.v1.ValidatePipelineResponse
+	(*PreviewMatchesRequest)(nil),    // 15: shepherd.mgmt.v1.PreviewMatchesRequest
+	(*MatchedCollector)(nil),         // 16: shepherd.mgmt.v1.MatchedCollector
+	(*PreviewMatchesResponse)(nil),   // 17: shepherd.mgmt.v1.PreviewMatchesResponse
+	(*ListRevisionsRequest)(nil),     // 18: shepherd.mgmt.v1.ListRevisionsRequest
+	(*ListRevisionsResponse)(nil),    // 19: shepherd.mgmt.v1.ListRevisionsResponse
+	(*GetRevisionRequest)(nil),       // 20: shepherd.mgmt.v1.GetRevisionRequest
+	(*RestoreRevisionRequest)(nil),   // 21: shepherd.mgmt.v1.RestoreRevisionRequest
+	(*SetPipelineOwnerRequest)(nil),  // 22: shepherd.mgmt.v1.SetPipelineOwnerRequest
+	(*timestamppb.Timestamp)(nil),    // 23: google.protobuf.Timestamp
+	(*structpb.Struct)(nil),          // 24: google.protobuf.Struct
+	(*Diagnostic)(nil),               // 25: shepherd.mgmt.v1.Diagnostic
 }
 var file_shepherd_mgmt_v1_pipeline_proto_depIdxs = []int32{
-	21, // 0: shepherd.mgmt.v1.PipelineRevision.changed_at:type_name -> google.protobuf.Timestamp
-	22, // 1: shepherd.mgmt.v1.PipelineRevision.wizard_state:type_name -> google.protobuf.Struct
-	21, // 2: shepherd.mgmt.v1.Pipeline.created_at:type_name -> google.protobuf.Timestamp
-	21, // 3: shepherd.mgmt.v1.Pipeline.updated_at:type_name -> google.protobuf.Timestamp
+	23, // 0: shepherd.mgmt.v1.PipelineRevision.changed_at:type_name -> google.protobuf.Timestamp
+	24, // 1: shepherd.mgmt.v1.PipelineRevision.wizard_state:type_name -> google.protobuf.Struct
+	23, // 2: shepherd.mgmt.v1.Pipeline.created_at:type_name -> google.protobuf.Timestamp
+	23, // 3: shepherd.mgmt.v1.Pipeline.updated_at:type_name -> google.protobuf.Timestamp
 	0,  // 4: shepherd.mgmt.v1.Pipeline.revisions:type_name -> shepherd.mgmt.v1.PipelineRevision
-	22, // 5: shepherd.mgmt.v1.Pipeline.wizard_state:type_name -> google.protobuf.Struct
+	24, // 5: shepherd.mgmt.v1.Pipeline.wizard_state:type_name -> google.protobuf.Struct
 	1,  // 6: shepherd.mgmt.v1.ListPipelinesResponse.items:type_name -> shepherd.mgmt.v1.Pipeline
-	22, // 7: shepherd.mgmt.v1.CreatePipelineRequest.wizard_state:type_name -> google.protobuf.Struct
-	22, // 8: shepherd.mgmt.v1.UpdatePipelineRequest.wizard_state:type_name -> google.protobuf.Struct
-	23, // 9: shepherd.mgmt.v1.ValidatePipelineResponse.diagnostics:type_name -> shepherd.mgmt.v1.Diagnostic
-	14, // 10: shepherd.mgmt.v1.PreviewMatchesResponse.collectors:type_name -> shepherd.mgmt.v1.MatchedCollector
+	24, // 7: shepherd.mgmt.v1.CreatePipelineRequest.wizard_state:type_name -> google.protobuf.Struct
+	24, // 8: shepherd.mgmt.v1.UpdatePipelineRequest.wizard_state:type_name -> google.protobuf.Struct
+	25, // 9: shepherd.mgmt.v1.ValidatePipelineResponse.diagnostics:type_name -> shepherd.mgmt.v1.Diagnostic
+	16, // 10: shepherd.mgmt.v1.PreviewMatchesResponse.collectors:type_name -> shepherd.mgmt.v1.MatchedCollector
 	0,  // 11: shepherd.mgmt.v1.ListRevisionsResponse.items:type_name -> shepherd.mgmt.v1.PipelineRevision
 	2,  // 12: shepherd.mgmt.v1.PipelineService.ListPipelines:input_type -> shepherd.mgmt.v1.ListPipelinesRequest
 	4,  // 13: shepherd.mgmt.v1.PipelineService.GetPipeline:input_type -> shepherd.mgmt.v1.GetPipelineRequest
@@ -1642,26 +1754,28 @@ var file_shepherd_mgmt_v1_pipeline_proto_depIdxs = []int32{
 	9,  // 17: shepherd.mgmt.v1.PipelineService.EnablePipeline:input_type -> shepherd.mgmt.v1.EnablePipelineRequest
 	10, // 18: shepherd.mgmt.v1.PipelineService.DisablePipeline:input_type -> shepherd.mgmt.v1.DisablePipelineRequest
 	11, // 19: shepherd.mgmt.v1.PipelineService.ValidatePipeline:input_type -> shepherd.mgmt.v1.ValidatePipelineRequest
-	13, // 20: shepherd.mgmt.v1.PipelineService.PreviewMatches:input_type -> shepherd.mgmt.v1.PreviewMatchesRequest
-	16, // 21: shepherd.mgmt.v1.PipelineService.ListRevisions:input_type -> shepherd.mgmt.v1.ListRevisionsRequest
-	18, // 22: shepherd.mgmt.v1.PipelineService.GetRevision:input_type -> shepherd.mgmt.v1.GetRevisionRequest
-	19, // 23: shepherd.mgmt.v1.PipelineService.RestoreRevision:input_type -> shepherd.mgmt.v1.RestoreRevisionRequest
-	20, // 24: shepherd.mgmt.v1.PipelineService.SetPipelineOwner:input_type -> shepherd.mgmt.v1.SetPipelineOwnerRequest
-	3,  // 25: shepherd.mgmt.v1.PipelineService.ListPipelines:output_type -> shepherd.mgmt.v1.ListPipelinesResponse
-	1,  // 26: shepherd.mgmt.v1.PipelineService.GetPipeline:output_type -> shepherd.mgmt.v1.Pipeline
-	1,  // 27: shepherd.mgmt.v1.PipelineService.CreatePipeline:output_type -> shepherd.mgmt.v1.Pipeline
-	1,  // 28: shepherd.mgmt.v1.PipelineService.UpdatePipeline:output_type -> shepherd.mgmt.v1.Pipeline
-	8,  // 29: shepherd.mgmt.v1.PipelineService.DeletePipeline:output_type -> shepherd.mgmt.v1.DeletePipelineResponse
-	1,  // 30: shepherd.mgmt.v1.PipelineService.EnablePipeline:output_type -> shepherd.mgmt.v1.Pipeline
-	1,  // 31: shepherd.mgmt.v1.PipelineService.DisablePipeline:output_type -> shepherd.mgmt.v1.Pipeline
-	12, // 32: shepherd.mgmt.v1.PipelineService.ValidatePipeline:output_type -> shepherd.mgmt.v1.ValidatePipelineResponse
-	15, // 33: shepherd.mgmt.v1.PipelineService.PreviewMatches:output_type -> shepherd.mgmt.v1.PreviewMatchesResponse
-	17, // 34: shepherd.mgmt.v1.PipelineService.ListRevisions:output_type -> shepherd.mgmt.v1.ListRevisionsResponse
-	0,  // 35: shepherd.mgmt.v1.PipelineService.GetRevision:output_type -> shepherd.mgmt.v1.PipelineRevision
-	1,  // 36: shepherd.mgmt.v1.PipelineService.RestoreRevision:output_type -> shepherd.mgmt.v1.Pipeline
-	1,  // 37: shepherd.mgmt.v1.PipelineService.SetPipelineOwner:output_type -> shepherd.mgmt.v1.Pipeline
-	25, // [25:38] is the sub-list for method output_type
-	12, // [12:25] is the sub-list for method input_type
+	12, // 20: shepherd.mgmt.v1.PipelineService.FormatPipeline:input_type -> shepherd.mgmt.v1.FormatPipelineRequest
+	15, // 21: shepherd.mgmt.v1.PipelineService.PreviewMatches:input_type -> shepherd.mgmt.v1.PreviewMatchesRequest
+	18, // 22: shepherd.mgmt.v1.PipelineService.ListRevisions:input_type -> shepherd.mgmt.v1.ListRevisionsRequest
+	20, // 23: shepherd.mgmt.v1.PipelineService.GetRevision:input_type -> shepherd.mgmt.v1.GetRevisionRequest
+	21, // 24: shepherd.mgmt.v1.PipelineService.RestoreRevision:input_type -> shepherd.mgmt.v1.RestoreRevisionRequest
+	22, // 25: shepherd.mgmt.v1.PipelineService.SetPipelineOwner:input_type -> shepherd.mgmt.v1.SetPipelineOwnerRequest
+	3,  // 26: shepherd.mgmt.v1.PipelineService.ListPipelines:output_type -> shepherd.mgmt.v1.ListPipelinesResponse
+	1,  // 27: shepherd.mgmt.v1.PipelineService.GetPipeline:output_type -> shepherd.mgmt.v1.Pipeline
+	1,  // 28: shepherd.mgmt.v1.PipelineService.CreatePipeline:output_type -> shepherd.mgmt.v1.Pipeline
+	1,  // 29: shepherd.mgmt.v1.PipelineService.UpdatePipeline:output_type -> shepherd.mgmt.v1.Pipeline
+	8,  // 30: shepherd.mgmt.v1.PipelineService.DeletePipeline:output_type -> shepherd.mgmt.v1.DeletePipelineResponse
+	1,  // 31: shepherd.mgmt.v1.PipelineService.EnablePipeline:output_type -> shepherd.mgmt.v1.Pipeline
+	1,  // 32: shepherd.mgmt.v1.PipelineService.DisablePipeline:output_type -> shepherd.mgmt.v1.Pipeline
+	14, // 33: shepherd.mgmt.v1.PipelineService.ValidatePipeline:output_type -> shepherd.mgmt.v1.ValidatePipelineResponse
+	13, // 34: shepherd.mgmt.v1.PipelineService.FormatPipeline:output_type -> shepherd.mgmt.v1.FormatPipelineResponse
+	17, // 35: shepherd.mgmt.v1.PipelineService.PreviewMatches:output_type -> shepherd.mgmt.v1.PreviewMatchesResponse
+	19, // 36: shepherd.mgmt.v1.PipelineService.ListRevisions:output_type -> shepherd.mgmt.v1.ListRevisionsResponse
+	0,  // 37: shepherd.mgmt.v1.PipelineService.GetRevision:output_type -> shepherd.mgmt.v1.PipelineRevision
+	1,  // 38: shepherd.mgmt.v1.PipelineService.RestoreRevision:output_type -> shepherd.mgmt.v1.Pipeline
+	1,  // 39: shepherd.mgmt.v1.PipelineService.SetPipelineOwner:output_type -> shepherd.mgmt.v1.Pipeline
+	26, // [26:40] is the sub-list for method output_type
+	12, // [12:26] is the sub-list for method input_type
 	12, // [12:12] is the sub-list for extension type_name
 	12, // [12:12] is the sub-list for extension extendee
 	0,  // [0:12] is the sub-list for field type_name
@@ -1679,7 +1793,7 @@ func file_shepherd_mgmt_v1_pipeline_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_shepherd_mgmt_v1_pipeline_proto_rawDesc), len(file_shepherd_mgmt_v1_pipeline_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   21,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

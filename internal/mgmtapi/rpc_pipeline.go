@@ -776,6 +776,18 @@ func (s *PipelineService) ValidatePipeline(ctx context.Context, req *connect.Req
 	return connect.NewResponse(resp), nil
 }
 
+// FormatPipeline canonicalises the pipeline body (what `alloy fmt` does),
+// in-process. Unparseable input is InvalidArgument — formatting acts only on
+// valid syntax, and the editor's live validation already reports the parse
+// failure — so the client leaves the buffer untouched on error.
+func (s *PipelineService) FormatPipeline(_ context.Context, req *connect.Request[mgmtv1.FormatPipelineRequest]) (*connect.Response[mgmtv1.FormatPipelineResponse], error) {
+	formatted, err := validate.Format(req.Msg.GetContents())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	return connect.NewResponse(&mgmtv1.FormatPipelineResponse{Formatted: formatted}), nil
+}
+
 // signalStrings renders a signals.Set as strings in signals.All's fixed
 // display order, for a proto repeated-string field.
 func signalStrings(set signals.Set) []string {

@@ -62,3 +62,22 @@ var _ = Describe("WrapForValidation", func() {
 		Expect(wrapped).To(ContainSubstring(`// content`))
 	})
 })
+
+var _ = Describe("Format", func() {
+	It("canonicalises indentation and spacing for valid Alloy", func() {
+		messy := "prometheus.scrape \"t\"   {\ntargets=[]\n    forward_to = []\n}"
+		out, err := validate.Format(messy)
+		Expect(err).NotTo(HaveOccurred())
+		// Re-formatting the output is a no-op: it is already canonical.
+		again, err := validate.Format(out)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(again).To(Equal(out))
+		Expect(out).To(HaveSuffix("\n"))
+		Expect(out).To(ContainSubstring("forward_to = []"))
+	})
+
+	It("returns an error for unparseable content and does not swallow it", func() {
+		_, err := validate.Format("prometheus.scrape \"t\" {\n  targets = [\n")
+		Expect(err).To(HaveOccurred())
+	})
+})

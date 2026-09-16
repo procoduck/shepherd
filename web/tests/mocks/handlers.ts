@@ -1131,6 +1131,14 @@ export function installDefaultHandlers(router: Router) {
   router.register('POST', '/shepherd.mgmt.v1.PipelineService/ValidatePipeline', (r) =>
     json(r, 200, st.validateResult),
   );
+  router.register('POST', '/shepherd.mgmt.v1.PipelineService/FormatPipeline', async (r) => {
+    const req = await body(r);
+    // Deterministic stand-in for `alloy fmt`: a recognisable canonical form so a
+    // test can see the buffer was replaced. Empty input errors like the server.
+    const src = String(req['contents'] ?? '').trim();
+    if (!src) return connectError(r, 400, 'invalid_argument', 'nothing to format');
+    return json(r, 200, { formatted: `// formatted\n${src}\n` });
+  });
   router.register('POST', '/shepherd.mgmt.v1.PipelineService/GetPipeline', async (r) => {
     const req = await body(r);
     const p = (st.pipelines as Obj[]).find((x) => x['id'] === req['id']);

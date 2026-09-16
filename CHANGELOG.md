@@ -25,6 +25,10 @@ Categories used here:
 - **`shepherd_build_info` metric — Shipped.** A constant gauge on `/metrics` whose `version` and
   `commit` labels carry the running build, so a dashboard can join the version onto any other series
   and an operator can confirm what a pod actually rolled to.
+- **Format and Validate buttons in the pipeline editor — Shipped.** Format canonicalises the Alloy
+  source (a new `FormatPipeline` RPC running the `alloy fmt` equivalent in-process) and replaces the
+  buffer; unparseable input is left untouched with a toast. Validate runs an on-demand check beside
+  the existing idle-debounced validation. Both are org-reader, like `ValidatePipeline`.
 
 ## v0.8.0
 
