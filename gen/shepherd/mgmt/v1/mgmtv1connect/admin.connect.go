@@ -62,6 +62,15 @@ const (
 	// AdminServiceRevokeAgentTokenProcedure is the fully-qualified name of the AdminService's
 	// RevokeAgentToken RPC.
 	AdminServiceRevokeAgentTokenProcedure = "/shepherd.mgmt.v1.AdminService/RevokeAgentToken"
+	// AdminServiceListAgentIdentitiesProcedure is the fully-qualified name of the AdminService's
+	// ListAgentIdentities RPC.
+	AdminServiceListAgentIdentitiesProcedure = "/shepherd.mgmt.v1.AdminService/ListAgentIdentities"
+	// AdminServiceCreateAgentIdentityProcedure is the fully-qualified name of the AdminService's
+	// CreateAgentIdentity RPC.
+	AdminServiceCreateAgentIdentityProcedure = "/shepherd.mgmt.v1.AdminService/CreateAgentIdentity"
+	// AdminServiceDeleteAgentIdentityProcedure is the fully-qualified name of the AdminService's
+	// DeleteAgentIdentity RPC.
+	AdminServiceDeleteAgentIdentityProcedure = "/shepherd.mgmt.v1.AdminService/DeleteAgentIdentity"
 	// AdminServiceSearchGroupsProcedure is the fully-qualified name of the AdminService's SearchGroups
 	// RPC.
 	AdminServiceSearchGroupsProcedure = "/shepherd.mgmt.v1.AdminService/SearchGroups"
@@ -97,6 +106,11 @@ type AdminServiceClient interface {
 	ListAgentTokens(context.Context, *connect.Request[v1.ListAgentTokensRequest]) (*connect.Response[v1.ListAgentTokensResponse], error)
 	CreateAgentToken(context.Context, *connect.Request[v1.CreateAgentTokenRequest]) (*connect.Response[v1.CreateAgentTokenResponse], error)
 	RevokeAgentToken(context.Context, *connect.Request[v1.RevokeAgentTokenRequest]) (*connect.Response[v1.RevokeAgentTokenResponse], error)
+	// Collector OIDC identity bindings (docs/plans/2026-09-16-agent-oidc-auth.md):
+	// map a collector's OIDC identity (issuer + app id) to an organisation.
+	ListAgentIdentities(context.Context, *connect.Request[v1.ListAgentIdentitiesRequest]) (*connect.Response[v1.ListAgentIdentitiesResponse], error)
+	CreateAgentIdentity(context.Context, *connect.Request[v1.CreateAgentIdentityRequest]) (*connect.Response[v1.AgentIdentity], error)
+	DeleteAgentIdentity(context.Context, *connect.Request[v1.DeleteAgentIdentityRequest]) (*connect.Response[v1.DeleteAgentIdentityResponse], error)
 	SearchGroups(context.Context, *connect.Request[v1.SearchGroupsRequest]) (*connect.Response[v1.SearchGroupsResponse], error)
 	// OIDC single sign-on configuration. Available only when the Helm chart did
 	// NOT configure an issuer: chart config always wins, and GetOidcSettings
@@ -195,6 +209,24 @@ func NewAdminServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(adminServiceMethods.ByName("RevokeAgentToken")),
 			connect.WithClientOptions(opts...),
 		),
+		listAgentIdentities: connect.NewClient[v1.ListAgentIdentitiesRequest, v1.ListAgentIdentitiesResponse](
+			httpClient,
+			baseURL+AdminServiceListAgentIdentitiesProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("ListAgentIdentities")),
+			connect.WithClientOptions(opts...),
+		),
+		createAgentIdentity: connect.NewClient[v1.CreateAgentIdentityRequest, v1.AgentIdentity](
+			httpClient,
+			baseURL+AdminServiceCreateAgentIdentityProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("CreateAgentIdentity")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteAgentIdentity: connect.NewClient[v1.DeleteAgentIdentityRequest, v1.DeleteAgentIdentityResponse](
+			httpClient,
+			baseURL+AdminServiceDeleteAgentIdentityProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("DeleteAgentIdentity")),
+			connect.WithClientOptions(opts...),
+		),
 		searchGroups: connect.NewClient[v1.SearchGroupsRequest, v1.SearchGroupsResponse](
 			httpClient,
 			baseURL+AdminServiceSearchGroupsProcedure,
@@ -247,6 +279,9 @@ type adminServiceClient struct {
 	listAgentTokens         *connect.Client[v1.ListAgentTokensRequest, v1.ListAgentTokensResponse]
 	createAgentToken        *connect.Client[v1.CreateAgentTokenRequest, v1.CreateAgentTokenResponse]
 	revokeAgentToken        *connect.Client[v1.RevokeAgentTokenRequest, v1.RevokeAgentTokenResponse]
+	listAgentIdentities     *connect.Client[v1.ListAgentIdentitiesRequest, v1.ListAgentIdentitiesResponse]
+	createAgentIdentity     *connect.Client[v1.CreateAgentIdentityRequest, v1.AgentIdentity]
+	deleteAgentIdentity     *connect.Client[v1.DeleteAgentIdentityRequest, v1.DeleteAgentIdentityResponse]
 	searchGroups            *connect.Client[v1.SearchGroupsRequest, v1.SearchGroupsResponse]
 	getOidcSettings         *connect.Client[v1.GetOidcSettingsRequest, v1.OidcSettings]
 	updateOidcSettings      *connect.Client[v1.UpdateOidcSettingsRequest, v1.OidcSettings]
@@ -310,6 +345,21 @@ func (c *adminServiceClient) RevokeAgentToken(ctx context.Context, req *connect.
 	return c.revokeAgentToken.CallUnary(ctx, req)
 }
 
+// ListAgentIdentities calls shepherd.mgmt.v1.AdminService.ListAgentIdentities.
+func (c *adminServiceClient) ListAgentIdentities(ctx context.Context, req *connect.Request[v1.ListAgentIdentitiesRequest]) (*connect.Response[v1.ListAgentIdentitiesResponse], error) {
+	return c.listAgentIdentities.CallUnary(ctx, req)
+}
+
+// CreateAgentIdentity calls shepherd.mgmt.v1.AdminService.CreateAgentIdentity.
+func (c *adminServiceClient) CreateAgentIdentity(ctx context.Context, req *connect.Request[v1.CreateAgentIdentityRequest]) (*connect.Response[v1.AgentIdentity], error) {
+	return c.createAgentIdentity.CallUnary(ctx, req)
+}
+
+// DeleteAgentIdentity calls shepherd.mgmt.v1.AdminService.DeleteAgentIdentity.
+func (c *adminServiceClient) DeleteAgentIdentity(ctx context.Context, req *connect.Request[v1.DeleteAgentIdentityRequest]) (*connect.Response[v1.DeleteAgentIdentityResponse], error) {
+	return c.deleteAgentIdentity.CallUnary(ctx, req)
+}
+
 // SearchGroups calls shepherd.mgmt.v1.AdminService.SearchGroups.
 func (c *adminServiceClient) SearchGroups(ctx context.Context, req *connect.Request[v1.SearchGroupsRequest]) (*connect.Response[v1.SearchGroupsResponse], error) {
 	return c.searchGroups.CallUnary(ctx, req)
@@ -355,6 +405,11 @@ type AdminServiceHandler interface {
 	ListAgentTokens(context.Context, *connect.Request[v1.ListAgentTokensRequest]) (*connect.Response[v1.ListAgentTokensResponse], error)
 	CreateAgentToken(context.Context, *connect.Request[v1.CreateAgentTokenRequest]) (*connect.Response[v1.CreateAgentTokenResponse], error)
 	RevokeAgentToken(context.Context, *connect.Request[v1.RevokeAgentTokenRequest]) (*connect.Response[v1.RevokeAgentTokenResponse], error)
+	// Collector OIDC identity bindings (docs/plans/2026-09-16-agent-oidc-auth.md):
+	// map a collector's OIDC identity (issuer + app id) to an organisation.
+	ListAgentIdentities(context.Context, *connect.Request[v1.ListAgentIdentitiesRequest]) (*connect.Response[v1.ListAgentIdentitiesResponse], error)
+	CreateAgentIdentity(context.Context, *connect.Request[v1.CreateAgentIdentityRequest]) (*connect.Response[v1.AgentIdentity], error)
+	DeleteAgentIdentity(context.Context, *connect.Request[v1.DeleteAgentIdentityRequest]) (*connect.Response[v1.DeleteAgentIdentityResponse], error)
 	SearchGroups(context.Context, *connect.Request[v1.SearchGroupsRequest]) (*connect.Response[v1.SearchGroupsResponse], error)
 	// OIDC single sign-on configuration. Available only when the Helm chart did
 	// NOT configure an issuer: chart config always wins, and GetOidcSettings
@@ -449,6 +504,24 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(adminServiceMethods.ByName("RevokeAgentToken")),
 		connect.WithHandlerOptions(opts...),
 	)
+	adminServiceListAgentIdentitiesHandler := connect.NewUnaryHandler(
+		AdminServiceListAgentIdentitiesProcedure,
+		svc.ListAgentIdentities,
+		connect.WithSchema(adminServiceMethods.ByName("ListAgentIdentities")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceCreateAgentIdentityHandler := connect.NewUnaryHandler(
+		AdminServiceCreateAgentIdentityProcedure,
+		svc.CreateAgentIdentity,
+		connect.WithSchema(adminServiceMethods.ByName("CreateAgentIdentity")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceDeleteAgentIdentityHandler := connect.NewUnaryHandler(
+		AdminServiceDeleteAgentIdentityProcedure,
+		svc.DeleteAgentIdentity,
+		connect.WithSchema(adminServiceMethods.ByName("DeleteAgentIdentity")),
+		connect.WithHandlerOptions(opts...),
+	)
 	adminServiceSearchGroupsHandler := connect.NewUnaryHandler(
 		AdminServiceSearchGroupsProcedure,
 		svc.SearchGroups,
@@ -509,6 +582,12 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 			adminServiceCreateAgentTokenHandler.ServeHTTP(w, r)
 		case AdminServiceRevokeAgentTokenProcedure:
 			adminServiceRevokeAgentTokenHandler.ServeHTTP(w, r)
+		case AdminServiceListAgentIdentitiesProcedure:
+			adminServiceListAgentIdentitiesHandler.ServeHTTP(w, r)
+		case AdminServiceCreateAgentIdentityProcedure:
+			adminServiceCreateAgentIdentityHandler.ServeHTTP(w, r)
+		case AdminServiceDeleteAgentIdentityProcedure:
+			adminServiceDeleteAgentIdentityHandler.ServeHTTP(w, r)
 		case AdminServiceSearchGroupsProcedure:
 			adminServiceSearchGroupsHandler.ServeHTTP(w, r)
 		case AdminServiceGetOidcSettingsProcedure:
@@ -572,6 +651,18 @@ func (UnimplementedAdminServiceHandler) CreateAgentToken(context.Context, *conne
 
 func (UnimplementedAdminServiceHandler) RevokeAgentToken(context.Context, *connect.Request[v1.RevokeAgentTokenRequest]) (*connect.Response[v1.RevokeAgentTokenResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.RevokeAgentToken is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) ListAgentIdentities(context.Context, *connect.Request[v1.ListAgentIdentitiesRequest]) (*connect.Response[v1.ListAgentIdentitiesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.ListAgentIdentities is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) CreateAgentIdentity(context.Context, *connect.Request[v1.CreateAgentIdentityRequest]) (*connect.Response[v1.AgentIdentity], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.CreateAgentIdentity is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) DeleteAgentIdentity(context.Context, *connect.Request[v1.DeleteAgentIdentityRequest]) (*connect.Response[v1.DeleteAgentIdentityResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.DeleteAgentIdentity is not implemented"))
 }
 
 func (UnimplementedAdminServiceHandler) SearchGroups(context.Context, *connect.Request[v1.SearchGroupsRequest]) (*connect.Response[v1.SearchGroupsResponse], error) {

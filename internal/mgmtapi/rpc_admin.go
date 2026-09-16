@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -426,6 +427,102 @@ func (s *AdminService) RevokeAgentToken(ctx context.Context, req *connect.Reques
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to revoke token"))
 	}
 	return connect.NewResponse(&mgmtv1.RevokeAgentTokenResponse{}), nil
+}
+
+// --- Collector OIDC identity bindings (docs/plans/2026-09-16-agent-oidc-auth.md) ---
+
+func decodeStringArray(raw json.RawMessage) []string {
+	var out []string
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &out) //nolint:errcheck // a malformed allowlist reads as empty ("any")
+	}
+	return out
+}
+
+func encodeStringArray(in []string) json.RawMessage {
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	b, _ := json.Marshal(out) //nolint:errcheck // marshaling a []string cannot fail
+	return b
+}
+
+// ListAgentIdentities lists the collector-OIDC bindings, with the org slug.
+func (s *AdminService) ListAgentIdentities(ctx context.Context, _ *connect.Request[mgmtv1.ListAgentIdentitiesRequest]) (*connect.Response[mgmtv1.ListAgentIdentitiesResponse], error) {
+	rows, _ := s.store.Queries.ListAgentIdentities(ctx) //nolint:errcheck // empty list is a safe fallback
+	items := make([]*mgmtv1.AgentIdentity, len(rows))
+	for i := range rows {
+		items[i] = &mgmtv1.AgentIdentity{
+			Issuer:    rows[i].Issuer,
+			AppId:     rows[i].AppID,
+			OrgId:     rows[i].OrgID.String(),
+			OrgName:   rows[i].OrgName,
+			Clusters:  decodeStringArray(rows[i].Clusters),
+			Roles:     decodeStringArray(rows[i].Roles),
+			CreatedBy: rows[i].CreatedBy,
+			CreatedAt: protoTimestamp(rows[i].CreatedAt),
+		}
+	}
+	return connect.NewResponse(&mgmtv1.ListAgentIdentitiesResponse{Items: items, Total: int32(len(items))}), nil //nolint:gosec // binding counts never approach int32 overflow
+}
+
+// CreateAgentIdentity binds an OIDC identity (issuer + app_id) to an org.
+func (s *AdminService) CreateAgentIdentity(ctx context.Context, req *connect.Request[mgmtv1.CreateAgentIdentityRequest]) (*connect.Response[mgmtv1.AgentIdentity], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
+	issuer := strings.TrimSpace(req.Msg.GetIssuer())
+	appID := strings.TrimSpace(req.Msg.GetAppId())
+	if issuer == "" || appID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("issuer and app_id are required"))
+	}
+	org, err := s.store.Queries.GetOrgByName(ctx, strings.TrimSpace(req.Msg.GetOrg()))
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("unknown organisation %q", req.Msg.GetOrg()))
+	}
+	created, err := s.store.Queries.CreateAgentIdentity(ctx, sqlc.CreateAgentIdentityParams{
+		Issuer:    issuer,
+		AppID:     appID,
+		OrgID:     org.ID,
+		Clusters:  encodeStringArray(req.Msg.GetClusters()),
+		Roles:     encodeStringArray(req.Msg.GetRoles()),
+		CreatedBy: actorFromCtx(ctx),
+	})
+	if err != nil {
+		return nil, mapError(err)
+	}
+	auditLog(ctx, s.store, actorFromCtx(ctx), org.ID, "agent_identity.create", "agent_identity", issuer+"|"+appID)
+	return connect.NewResponse(&mgmtv1.AgentIdentity{
+		Issuer:    created.Issuer,
+		AppId:     created.AppID,
+		OrgId:     created.OrgID.String(),
+		OrgName:   org.Name,
+		Clusters:  decodeStringArray(created.Clusters),
+		Roles:     decodeStringArray(created.Roles),
+		CreatedBy: created.CreatedBy,
+		CreatedAt: protoTimestamp(created.CreatedAt),
+	}), nil
+}
+
+// DeleteAgentIdentity removes a binding by (issuer, app_id).
+func (s *AdminService) DeleteAgentIdentity(ctx context.Context, req *connect.Request[mgmtv1.DeleteAgentIdentityRequest]) (*connect.Response[mgmtv1.DeleteAgentIdentityResponse], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
+	issuer := strings.TrimSpace(req.Msg.GetIssuer())
+	appID := strings.TrimSpace(req.Msg.GetAppId())
+	n, err := s.store.Queries.DeleteAgentIdentity(ctx, sqlc.DeleteAgentIdentityParams{Issuer: issuer, AppID: appID})
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to delete binding"))
+	}
+	if n == 0 {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("no such binding"))
+	}
+	auditLog(ctx, s.store, actorFromCtx(ctx), pgtype.UUID{}, "agent_identity.delete", "agent_identity", issuer+"|"+appID)
+	return connect.NewResponse(&mgmtv1.DeleteAgentIdentityResponse{}), nil
 }
 
 // SearchGroups searches Entra groups by display-name prefix. Stubbed to

@@ -26,6 +26,12 @@ service AdminService {
   rpc CreateAgentToken(CreateAgentTokenRequest) returns (CreateAgentTokenResponse) {}
   rpc RevokeAgentToken(RevokeAgentTokenRequest) returns (RevokeAgentTokenResponse) {}
 
+  // Collector OIDC identity bindings (docs/plans/2026-09-16-agent-oidc-auth.md):
+  // map a collector's OIDC identity (issuer + app id) to an organisation.
+  rpc ListAgentIdentities(ListAgentIdentitiesRequest) returns (ListAgentIdentitiesResponse) {}
+  rpc CreateAgentIdentity(CreateAgentIdentityRequest) returns (AgentIdentity) {}
+  rpc DeleteAgentIdentity(DeleteAgentIdentityRequest) returns (DeleteAgentIdentityResponse) {}
+
   rpc SearchGroups(SearchGroupsRequest) returns (SearchGroupsResponse) {}
 
   // OIDC single sign-on configuration. Available only when the Helm chart did
@@ -189,6 +195,43 @@ message RevokeAgentTokenRequest {
 }
 
 message RevokeAgentTokenResponse {}
+
+// AgentIdentity is one collector-OIDC binding: a token identity (issuer +
+// app_id) mapped to an org, with optional cluster/role allowlists (empty =
+// any within the org).
+message AgentIdentity {
+  string issuer = 1;
+  string app_id = 2;
+  string org_id = 3;
+  string org_name = 4;
+  repeated string clusters = 5;
+  repeated string roles = 6;
+  string created_by = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+message ListAgentIdentitiesRequest {}
+
+message ListAgentIdentitiesResponse {
+  repeated AgentIdentity items = 1;
+  int32 total = 2;
+}
+
+message CreateAgentIdentityRequest {
+  string issuer = 1;
+  string app_id = 2;
+  // org is the organisation slug (orgs.name) to bind to.
+  string org = 3;
+  repeated string clusters = 4;
+  repeated string roles = 5;
+}
+
+message DeleteAgentIdentityRequest {
+  string issuer = 1;
+  string app_id = 2;
+}
+
+message DeleteAgentIdentityResponse {}
 
 // GroupSearchResult is a Graph-backed group search hit. Not yet populated by
 // the server (SearchGroups is a stub returning an empty list) — field shape

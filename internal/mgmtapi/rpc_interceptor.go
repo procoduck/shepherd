@@ -33,18 +33,21 @@ var procedureRequirements = map[string]string{
 	mgmtv1connect.MeServiceGetMeProcedure: auth.RoleAny,
 
 	// AdminService — app admin only, except SearchGroups (app admin OR org admin).
-	mgmtv1connect.AdminServiceListOrgsProcedure:         auth.RoleAppAdmin,
-	mgmtv1connect.AdminServiceCreateOrgProcedure:        auth.RoleAppAdmin,
-	mgmtv1connect.AdminServiceUpdateOrgProcedure:        auth.RoleAppAdmin,
-	mgmtv1connect.AdminServiceDeleteOrgProcedure:        auth.RoleAppAdmin,
-	mgmtv1connect.AdminServiceSetOrgTenantIDProcedure:   auth.RoleAppAdmin,
-	mgmtv1connect.AdminServiceListClustersProcedure:     auth.RoleAppAdmin,
-	mgmtv1connect.AdminServiceClaimClusterProcedure:     auth.RoleAppAdmin,
-	mgmtv1connect.AdminServiceUnclaimClusterProcedure:   auth.RoleAppAdmin,
-	mgmtv1connect.AdminServiceListAgentTokensProcedure:  auth.RoleAppAdmin,
-	mgmtv1connect.AdminServiceCreateAgentTokenProcedure: auth.RoleAppAdmin,
-	mgmtv1connect.AdminServiceRevokeAgentTokenProcedure: auth.RoleAppAdmin,
-	mgmtv1connect.AdminServiceSearchGroupsProcedure:     reqAppOrOrgAdmin,
+	mgmtv1connect.AdminServiceListOrgsProcedure:            auth.RoleAppAdmin,
+	mgmtv1connect.AdminServiceCreateOrgProcedure:           auth.RoleAppAdmin,
+	mgmtv1connect.AdminServiceUpdateOrgProcedure:           auth.RoleAppAdmin,
+	mgmtv1connect.AdminServiceDeleteOrgProcedure:           auth.RoleAppAdmin,
+	mgmtv1connect.AdminServiceSetOrgTenantIDProcedure:      auth.RoleAppAdmin,
+	mgmtv1connect.AdminServiceListClustersProcedure:        auth.RoleAppAdmin,
+	mgmtv1connect.AdminServiceClaimClusterProcedure:        auth.RoleAppAdmin,
+	mgmtv1connect.AdminServiceUnclaimClusterProcedure:      auth.RoleAppAdmin,
+	mgmtv1connect.AdminServiceListAgentTokensProcedure:     auth.RoleAppAdmin,
+	mgmtv1connect.AdminServiceCreateAgentTokenProcedure:    auth.RoleAppAdmin,
+	mgmtv1connect.AdminServiceRevokeAgentTokenProcedure:    auth.RoleAppAdmin,
+	mgmtv1connect.AdminServiceListAgentIdentitiesProcedure: auth.RoleAppAdmin,
+	mgmtv1connect.AdminServiceCreateAgentIdentityProcedure: auth.RoleAppAdmin,
+	mgmtv1connect.AdminServiceDeleteAgentIdentityProcedure: auth.RoleAppAdmin,
+	mgmtv1connect.AdminServiceSearchGroupsProcedure:        reqAppOrOrgAdmin,
 
 	// AdminService — OIDC single sign-on configuration. App admin only, and
 	// there is no org-scoped variant on purpose: this configuration decides
@@ -200,14 +203,16 @@ var procedureRequirements = map[string]string{
 // added without a classification decision, so "forgot to gate the new
 // write path" cannot happen silently.
 var capabilityRequirements = map[string]string{
-	mgmtv1connect.AdminServiceCreateOrgProcedure:        capabilityApply,
-	mgmtv1connect.AdminServiceUpdateOrgProcedure:        capabilityApply,
-	mgmtv1connect.AdminServiceDeleteOrgProcedure:        capabilityApply,
-	mgmtv1connect.AdminServiceSetOrgTenantIDProcedure:   capabilityApply,
-	mgmtv1connect.AdminServiceClaimClusterProcedure:     capabilityApply,
-	mgmtv1connect.AdminServiceUnclaimClusterProcedure:   capabilityApply,
-	mgmtv1connect.AdminServiceCreateAgentTokenProcedure: capabilityApply,
-	mgmtv1connect.AdminServiceRevokeAgentTokenProcedure: capabilityApply,
+	mgmtv1connect.AdminServiceCreateOrgProcedure:           capabilityApply,
+	mgmtv1connect.AdminServiceUpdateOrgProcedure:           capabilityApply,
+	mgmtv1connect.AdminServiceDeleteOrgProcedure:           capabilityApply,
+	mgmtv1connect.AdminServiceSetOrgTenantIDProcedure:      capabilityApply,
+	mgmtv1connect.AdminServiceClaimClusterProcedure:        capabilityApply,
+	mgmtv1connect.AdminServiceUnclaimClusterProcedure:      capabilityApply,
+	mgmtv1connect.AdminServiceCreateAgentTokenProcedure:    capabilityApply,
+	mgmtv1connect.AdminServiceRevokeAgentTokenProcedure:    capabilityApply,
+	mgmtv1connect.AdminServiceCreateAgentIdentityProcedure: capabilityApply,
+	mgmtv1connect.AdminServiceDeleteAgentIdentityProcedure: capabilityApply,
 
 	// Repointing or removing the identity provider is as apply-only as a write
 	// gets: it decides who can authenticate at all. A service account can

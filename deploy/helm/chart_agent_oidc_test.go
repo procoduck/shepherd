@@ -32,7 +32,7 @@ func renderConfigYaml(extraValues string) map[string]any {
 		if doc["kind"] != "ConfigMap" {
 			continue
 		}
-		data, _ := doc["data"].(map[string]any) //nolint:errcheck // helm output, shape known
+		data, _ := doc["data"].(map[string]any)  //nolint:errcheck // helm output, shape known
 		raw, _ := data["shepherd.yaml"].(string) //nolint:errcheck // same
 		if raw == "" {
 			continue

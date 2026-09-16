@@ -1237,6 +1237,362 @@ func (*RevokeAgentTokenResponse) Descriptor() ([]byte, []int) {
 	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{21}
 }
 
+// AgentIdentity is one collector-OIDC binding: a token identity (issuer +
+// app_id) mapped to an org, with optional cluster/role allowlists (empty =
+// any within the org).
+type AgentIdentity struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Issuer        string                 `protobuf:"bytes,1,opt,name=issuer,proto3" json:"issuer,omitempty"`
+	AppId         string                 `protobuf:"bytes,2,opt,name=app_id,json=appId,proto3" json:"app_id,omitempty"`
+	OrgId         string                 `protobuf:"bytes,3,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	OrgName       string                 `protobuf:"bytes,4,opt,name=org_name,json=orgName,proto3" json:"org_name,omitempty"`
+	Clusters      []string               `protobuf:"bytes,5,rep,name=clusters,proto3" json:"clusters,omitempty"`
+	Roles         []string               `protobuf:"bytes,6,rep,name=roles,proto3" json:"roles,omitempty"`
+	CreatedBy     string                 `protobuf:"bytes,7,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AgentIdentity) Reset() {
+	*x = AgentIdentity{}
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgentIdentity) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgentIdentity) ProtoMessage() {}
+
+func (x *AgentIdentity) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AgentIdentity.ProtoReflect.Descriptor instead.
+func (*AgentIdentity) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *AgentIdentity) GetIssuer() string {
+	if x != nil {
+		return x.Issuer
+	}
+	return ""
+}
+
+func (x *AgentIdentity) GetAppId() string {
+	if x != nil {
+		return x.AppId
+	}
+	return ""
+}
+
+func (x *AgentIdentity) GetOrgId() string {
+	if x != nil {
+		return x.OrgId
+	}
+	return ""
+}
+
+func (x *AgentIdentity) GetOrgName() string {
+	if x != nil {
+		return x.OrgName
+	}
+	return ""
+}
+
+func (x *AgentIdentity) GetClusters() []string {
+	if x != nil {
+		return x.Clusters
+	}
+	return nil
+}
+
+func (x *AgentIdentity) GetRoles() []string {
+	if x != nil {
+		return x.Roles
+	}
+	return nil
+}
+
+func (x *AgentIdentity) GetCreatedBy() string {
+	if x != nil {
+		return x.CreatedBy
+	}
+	return ""
+}
+
+func (x *AgentIdentity) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+type ListAgentIdentitiesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListAgentIdentitiesRequest) Reset() {
+	*x = ListAgentIdentitiesRequest{}
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListAgentIdentitiesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListAgentIdentitiesRequest) ProtoMessage() {}
+
+func (x *ListAgentIdentitiesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListAgentIdentitiesRequest.ProtoReflect.Descriptor instead.
+func (*ListAgentIdentitiesRequest) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{23}
+}
+
+type ListAgentIdentitiesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Items         []*AgentIdentity       `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	Total         int32                  `protobuf:"varint,2,opt,name=total,proto3" json:"total,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListAgentIdentitiesResponse) Reset() {
+	*x = ListAgentIdentitiesResponse{}
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListAgentIdentitiesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListAgentIdentitiesResponse) ProtoMessage() {}
+
+func (x *ListAgentIdentitiesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListAgentIdentitiesResponse.ProtoReflect.Descriptor instead.
+func (*ListAgentIdentitiesResponse) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *ListAgentIdentitiesResponse) GetItems() []*AgentIdentity {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+func (x *ListAgentIdentitiesResponse) GetTotal() int32 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
+type CreateAgentIdentityRequest struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Issuer string                 `protobuf:"bytes,1,opt,name=issuer,proto3" json:"issuer,omitempty"`
+	AppId  string                 `protobuf:"bytes,2,opt,name=app_id,json=appId,proto3" json:"app_id,omitempty"`
+	// org is the organisation slug (orgs.name) to bind to.
+	Org           string   `protobuf:"bytes,3,opt,name=org,proto3" json:"org,omitempty"`
+	Clusters      []string `protobuf:"bytes,4,rep,name=clusters,proto3" json:"clusters,omitempty"`
+	Roles         []string `protobuf:"bytes,5,rep,name=roles,proto3" json:"roles,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateAgentIdentityRequest) Reset() {
+	*x = CreateAgentIdentityRequest{}
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateAgentIdentityRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateAgentIdentityRequest) ProtoMessage() {}
+
+func (x *CreateAgentIdentityRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateAgentIdentityRequest.ProtoReflect.Descriptor instead.
+func (*CreateAgentIdentityRequest) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *CreateAgentIdentityRequest) GetIssuer() string {
+	if x != nil {
+		return x.Issuer
+	}
+	return ""
+}
+
+func (x *CreateAgentIdentityRequest) GetAppId() string {
+	if x != nil {
+		return x.AppId
+	}
+	return ""
+}
+
+func (x *CreateAgentIdentityRequest) GetOrg() string {
+	if x != nil {
+		return x.Org
+	}
+	return ""
+}
+
+func (x *CreateAgentIdentityRequest) GetClusters() []string {
+	if x != nil {
+		return x.Clusters
+	}
+	return nil
+}
+
+func (x *CreateAgentIdentityRequest) GetRoles() []string {
+	if x != nil {
+		return x.Roles
+	}
+	return nil
+}
+
+type DeleteAgentIdentityRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Issuer        string                 `protobuf:"bytes,1,opt,name=issuer,proto3" json:"issuer,omitempty"`
+	AppId         string                 `protobuf:"bytes,2,opt,name=app_id,json=appId,proto3" json:"app_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteAgentIdentityRequest) Reset() {
+	*x = DeleteAgentIdentityRequest{}
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteAgentIdentityRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteAgentIdentityRequest) ProtoMessage() {}
+
+func (x *DeleteAgentIdentityRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteAgentIdentityRequest.ProtoReflect.Descriptor instead.
+func (*DeleteAgentIdentityRequest) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *DeleteAgentIdentityRequest) GetIssuer() string {
+	if x != nil {
+		return x.Issuer
+	}
+	return ""
+}
+
+func (x *DeleteAgentIdentityRequest) GetAppId() string {
+	if x != nil {
+		return x.AppId
+	}
+	return ""
+}
+
+type DeleteAgentIdentityResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteAgentIdentityResponse) Reset() {
+	*x = DeleteAgentIdentityResponse{}
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteAgentIdentityResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteAgentIdentityResponse) ProtoMessage() {}
+
+func (x *DeleteAgentIdentityResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteAgentIdentityResponse.ProtoReflect.Descriptor instead.
+func (*DeleteAgentIdentityResponse) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{27}
+}
+
 // GroupSearchResult is a Graph-backed group search hit. Not yet populated by
 // the server (SearchGroups is a stub returning an empty list) — field shape
 // anticipates the eventual Entra Graph search response.
@@ -1250,7 +1606,7 @@ type GroupSearchResult struct {
 
 func (x *GroupSearchResult) Reset() {
 	*x = GroupSearchResult{}
-	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[22]
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1262,7 +1618,7 @@ func (x *GroupSearchResult) String() string {
 func (*GroupSearchResult) ProtoMessage() {}
 
 func (x *GroupSearchResult) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[22]
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1275,7 +1631,7 @@ func (x *GroupSearchResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GroupSearchResult.ProtoReflect.Descriptor instead.
 func (*GroupSearchResult) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{22}
+	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *GroupSearchResult) GetId() string {
@@ -1304,7 +1660,7 @@ type SearchGroupsRequest struct {
 
 func (x *SearchGroupsRequest) Reset() {
 	*x = SearchGroupsRequest{}
-	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[23]
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1316,7 +1672,7 @@ func (x *SearchGroupsRequest) String() string {
 func (*SearchGroupsRequest) ProtoMessage() {}
 
 func (x *SearchGroupsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[23]
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1329,7 +1685,7 @@ func (x *SearchGroupsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SearchGroupsRequest.ProtoReflect.Descriptor instead.
 func (*SearchGroupsRequest) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{23}
+	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *SearchGroupsRequest) GetOrgId() string {
@@ -1356,7 +1712,7 @@ type SearchGroupsResponse struct {
 
 func (x *SearchGroupsResponse) Reset() {
 	*x = SearchGroupsResponse{}
-	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[24]
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1368,7 +1724,7 @@ func (x *SearchGroupsResponse) String() string {
 func (*SearchGroupsResponse) ProtoMessage() {}
 
 func (x *SearchGroupsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[24]
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1381,7 +1737,7 @@ func (x *SearchGroupsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SearchGroupsResponse.ProtoReflect.Descriptor instead.
 func (*SearchGroupsResponse) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{24}
+	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *SearchGroupsResponse) GetItems() []*GroupSearchResult {
@@ -1450,7 +1806,7 @@ type OidcSettings struct {
 
 func (x *OidcSettings) Reset() {
 	*x = OidcSettings{}
-	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[25]
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1462,7 +1818,7 @@ func (x *OidcSettings) String() string {
 func (*OidcSettings) ProtoMessage() {}
 
 func (x *OidcSettings) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[25]
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1475,7 +1831,7 @@ func (x *OidcSettings) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OidcSettings.ProtoReflect.Descriptor instead.
 func (*OidcSettings) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{25}
+	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *OidcSettings) GetConfigured() bool {
@@ -1640,7 +1996,7 @@ type GetOidcSettingsRequest struct {
 
 func (x *GetOidcSettingsRequest) Reset() {
 	*x = GetOidcSettingsRequest{}
-	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[26]
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1652,7 +2008,7 @@ func (x *GetOidcSettingsRequest) String() string {
 func (*GetOidcSettingsRequest) ProtoMessage() {}
 
 func (x *GetOidcSettingsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[26]
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1665,7 +2021,7 @@ func (x *GetOidcSettingsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetOidcSettingsRequest.ProtoReflect.Descriptor instead.
 func (*GetOidcSettingsRequest) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{26}
+	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{32}
 }
 
 // UpdateOidcSettingsRequest is a full replacement of the settings row, with
@@ -1697,7 +2053,7 @@ type UpdateOidcSettingsRequest struct {
 
 func (x *UpdateOidcSettingsRequest) Reset() {
 	*x = UpdateOidcSettingsRequest{}
-	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[27]
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1709,7 +2065,7 @@ func (x *UpdateOidcSettingsRequest) String() string {
 func (*UpdateOidcSettingsRequest) ProtoMessage() {}
 
 func (x *UpdateOidcSettingsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[27]
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1722,7 +2078,7 @@ func (x *UpdateOidcSettingsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateOidcSettingsRequest.ProtoReflect.Descriptor instead.
 func (*UpdateOidcSettingsRequest) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{27}
+	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *UpdateOidcSettingsRequest) GetEnabled() bool {
@@ -1847,7 +2203,7 @@ type TestOidcSettingsRequest struct {
 
 func (x *TestOidcSettingsRequest) Reset() {
 	*x = TestOidcSettingsRequest{}
-	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[28]
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1859,7 +2215,7 @@ func (x *TestOidcSettingsRequest) String() string {
 func (*TestOidcSettingsRequest) ProtoMessage() {}
 
 func (x *TestOidcSettingsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[28]
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1872,7 +2228,7 @@ func (x *TestOidcSettingsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestOidcSettingsRequest.ProtoReflect.Descriptor instead.
 func (*TestOidcSettingsRequest) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{28}
+	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *TestOidcSettingsRequest) GetProvider() string {
@@ -1948,7 +2304,7 @@ type TestOidcSettingsResponse struct {
 
 func (x *TestOidcSettingsResponse) Reset() {
 	*x = TestOidcSettingsResponse{}
-	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[29]
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1960,7 +2316,7 @@ func (x *TestOidcSettingsResponse) String() string {
 func (*TestOidcSettingsResponse) ProtoMessage() {}
 
 func (x *TestOidcSettingsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[29]
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1973,7 +2329,7 @@ func (x *TestOidcSettingsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestOidcSettingsResponse.ProtoReflect.Descriptor instead.
 func (*TestOidcSettingsResponse) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{29}
+	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *TestOidcSettingsResponse) GetOk() bool {
@@ -2054,7 +2410,7 @@ type DeleteOidcSettingsRequest struct {
 
 func (x *DeleteOidcSettingsRequest) Reset() {
 	*x = DeleteOidcSettingsRequest{}
-	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[30]
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2066,7 +2422,7 @@ func (x *DeleteOidcSettingsRequest) String() string {
 func (*DeleteOidcSettingsRequest) ProtoMessage() {}
 
 func (x *DeleteOidcSettingsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[30]
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2079,7 +2435,7 @@ func (x *DeleteOidcSettingsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteOidcSettingsRequest.ProtoReflect.Descriptor instead.
 func (*DeleteOidcSettingsRequest) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{30}
+	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{36}
 }
 
 type DeleteOidcSettingsResponse struct {
@@ -2090,7 +2446,7 @@ type DeleteOidcSettingsResponse struct {
 
 func (x *DeleteOidcSettingsResponse) Reset() {
 	*x = DeleteOidcSettingsResponse{}
-	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[31]
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2102,7 +2458,7 @@ func (x *DeleteOidcSettingsResponse) String() string {
 func (*DeleteOidcSettingsResponse) ProtoMessage() {}
 
 func (x *DeleteOidcSettingsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[31]
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2115,7 +2471,7 @@ func (x *DeleteOidcSettingsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteOidcSettingsResponse.ProtoReflect.Descriptor instead.
 func (*DeleteOidcSettingsResponse) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{31}
+	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{37}
 }
 
 type ListOidcProviderPresetsRequest struct {
@@ -2126,7 +2482,7 @@ type ListOidcProviderPresetsRequest struct {
 
 func (x *ListOidcProviderPresetsRequest) Reset() {
 	*x = ListOidcProviderPresetsRequest{}
-	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[32]
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2138,7 +2494,7 @@ func (x *ListOidcProviderPresetsRequest) String() string {
 func (*ListOidcProviderPresetsRequest) ProtoMessage() {}
 
 func (x *ListOidcProviderPresetsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[32]
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2151,7 +2507,7 @@ func (x *ListOidcProviderPresetsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListOidcProviderPresetsRequest.ProtoReflect.Descriptor instead.
 func (*ListOidcProviderPresetsRequest) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{32}
+	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{38}
 }
 
 type ListOidcProviderPresetsResponse struct {
@@ -2163,7 +2519,7 @@ type ListOidcProviderPresetsResponse struct {
 
 func (x *ListOidcProviderPresetsResponse) Reset() {
 	*x = ListOidcProviderPresetsResponse{}
-	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[33]
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2175,7 +2531,7 @@ func (x *ListOidcProviderPresetsResponse) String() string {
 func (*ListOidcProviderPresetsResponse) ProtoMessage() {}
 
 func (x *ListOidcProviderPresetsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[33]
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2188,7 +2544,7 @@ func (x *ListOidcProviderPresetsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListOidcProviderPresetsResponse.ProtoReflect.Descriptor instead.
 func (*ListOidcProviderPresetsResponse) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{33}
+	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *ListOidcProviderPresetsResponse) GetItems() []*OidcProviderPreset {
@@ -2228,7 +2584,7 @@ type OidcProviderPreset struct {
 
 func (x *OidcProviderPreset) Reset() {
 	*x = OidcProviderPreset{}
-	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[34]
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2240,7 +2596,7 @@ func (x *OidcProviderPreset) String() string {
 func (*OidcProviderPreset) ProtoMessage() {}
 
 func (x *OidcProviderPreset) ProtoReflect() protoreflect.Message {
-	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[34]
+	mi := &file_shepherd_mgmt_v1_admin_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2253,7 +2609,7 @@ func (x *OidcProviderPreset) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OidcProviderPreset.ProtoReflect.Descriptor instead.
 func (*OidcProviderPreset) Descriptor() ([]byte, []int) {
-	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{34}
+	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *OidcProviderPreset) GetKey() string {
@@ -2414,7 +2770,32 @@ const file_shepherd_mgmt_v1_admin_proto_rawDesc = "" +
 	"\x06secret\x18\x03 \x01(\tR\x06secret\")\n" +
 	"\x17RevokeAgentTokenRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\x1a\n" +
-	"\x18RevokeAgentTokenResponse\"F\n" +
+	"\x18RevokeAgentTokenResponse\"\xfc\x01\n" +
+	"\rAgentIdentity\x12\x16\n" +
+	"\x06issuer\x18\x01 \x01(\tR\x06issuer\x12\x15\n" +
+	"\x06app_id\x18\x02 \x01(\tR\x05appId\x12\x15\n" +
+	"\x06org_id\x18\x03 \x01(\tR\x05orgId\x12\x19\n" +
+	"\borg_name\x18\x04 \x01(\tR\aorgName\x12\x1a\n" +
+	"\bclusters\x18\x05 \x03(\tR\bclusters\x12\x14\n" +
+	"\x05roles\x18\x06 \x03(\tR\x05roles\x12\x1d\n" +
+	"\n" +
+	"created_by\x18\a \x01(\tR\tcreatedBy\x129\n" +
+	"\n" +
+	"created_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\x1c\n" +
+	"\x1aListAgentIdentitiesRequest\"j\n" +
+	"\x1bListAgentIdentitiesResponse\x125\n" +
+	"\x05items\x18\x01 \x03(\v2\x1f.shepherd.mgmt.v1.AgentIdentityR\x05items\x12\x14\n" +
+	"\x05total\x18\x02 \x01(\x05R\x05total\"\x8f\x01\n" +
+	"\x1aCreateAgentIdentityRequest\x12\x16\n" +
+	"\x06issuer\x18\x01 \x01(\tR\x06issuer\x12\x15\n" +
+	"\x06app_id\x18\x02 \x01(\tR\x05appId\x12\x10\n" +
+	"\x03org\x18\x03 \x01(\tR\x03org\x12\x1a\n" +
+	"\bclusters\x18\x04 \x03(\tR\bclusters\x12\x14\n" +
+	"\x05roles\x18\x05 \x03(\tR\x05roles\"K\n" +
+	"\x1aDeleteAgentIdentityRequest\x12\x16\n" +
+	"\x06issuer\x18\x01 \x01(\tR\x06issuer\x12\x15\n" +
+	"\x06app_id\x18\x02 \x01(\tR\x05appId\"\x1d\n" +
+	"\x1bDeleteAgentIdentityResponse\"F\n" +
 	"\x11GroupSearchResult\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\":\n" +
@@ -2513,7 +2894,7 @@ const file_shepherd_mgmt_v1_admin_proto_rawDesc = "" +
 	"\x15supports_graph_groups\x18\n" +
 	" \x01(\bR\x13supportsGraphGroups\x12\x1f\n" +
 	"\vgroups_note\x18\v \x01(\tR\n" +
-	"groupsNote2\x98\r\n" +
+	"groupsNote2\xec\x0f\n" +
 	"\fAdminService\x12S\n" +
 	"\bListOrgs\x12!.shepherd.mgmt.v1.ListOrgsRequest\x1a\".shepherd.mgmt.v1.ListOrgsResponse\"\x00\x12H\n" +
 	"\tCreateOrg\x12\".shepherd.mgmt.v1.CreateOrgRequest\x1a\x15.shepherd.mgmt.v1.Org\"\x00\x12H\n" +
@@ -2525,7 +2906,10 @@ const file_shepherd_mgmt_v1_admin_proto_rawDesc = "" +
 	"\x0eUnclaimCluster\x12'.shepherd.mgmt.v1.UnclaimClusterRequest\x1a(.shepherd.mgmt.v1.UnclaimClusterResponse\"\x00\x12h\n" +
 	"\x0fListAgentTokens\x12(.shepherd.mgmt.v1.ListAgentTokensRequest\x1a).shepherd.mgmt.v1.ListAgentTokensResponse\"\x00\x12k\n" +
 	"\x10CreateAgentToken\x12).shepherd.mgmt.v1.CreateAgentTokenRequest\x1a*.shepherd.mgmt.v1.CreateAgentTokenResponse\"\x00\x12k\n" +
-	"\x10RevokeAgentToken\x12).shepherd.mgmt.v1.RevokeAgentTokenRequest\x1a*.shepherd.mgmt.v1.RevokeAgentTokenResponse\"\x00\x12_\n" +
+	"\x10RevokeAgentToken\x12).shepherd.mgmt.v1.RevokeAgentTokenRequest\x1a*.shepherd.mgmt.v1.RevokeAgentTokenResponse\"\x00\x12t\n" +
+	"\x13ListAgentIdentities\x12,.shepherd.mgmt.v1.ListAgentIdentitiesRequest\x1a-.shepherd.mgmt.v1.ListAgentIdentitiesResponse\"\x00\x12f\n" +
+	"\x13CreateAgentIdentity\x12,.shepherd.mgmt.v1.CreateAgentIdentityRequest\x1a\x1f.shepherd.mgmt.v1.AgentIdentity\"\x00\x12t\n" +
+	"\x13DeleteAgentIdentity\x12,.shepherd.mgmt.v1.DeleteAgentIdentityRequest\x1a-.shepherd.mgmt.v1.DeleteAgentIdentityResponse\"\x00\x12_\n" +
 	"\fSearchGroups\x12%.shepherd.mgmt.v1.SearchGroupsRequest\x1a&.shepherd.mgmt.v1.SearchGroupsResponse\"\x00\x12]\n" +
 	"\x0fGetOidcSettings\x12(.shepherd.mgmt.v1.GetOidcSettingsRequest\x1a\x1e.shepherd.mgmt.v1.OidcSettings\"\x00\x12c\n" +
 	"\x12UpdateOidcSettings\x12+.shepherd.mgmt.v1.UpdateOidcSettingsRequest\x1a\x1e.shepherd.mgmt.v1.OidcSettings\"\x00\x12k\n" +
@@ -2545,7 +2929,7 @@ func file_shepherd_mgmt_v1_admin_proto_rawDescGZIP() []byte {
 	return file_shepherd_mgmt_v1_admin_proto_rawDescData
 }
 
-var file_shepherd_mgmt_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 35)
+var file_shepherd_mgmt_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 41)
 var file_shepherd_mgmt_v1_admin_proto_goTypes = []any{
 	(*Org)(nil),                             // 0: shepherd.mgmt.v1.Org
 	(*ListOrgsRequest)(nil),                 // 1: shepherd.mgmt.v1.ListOrgsRequest
@@ -2569,71 +2953,85 @@ var file_shepherd_mgmt_v1_admin_proto_goTypes = []any{
 	(*CreateAgentTokenResponse)(nil),        // 19: shepherd.mgmt.v1.CreateAgentTokenResponse
 	(*RevokeAgentTokenRequest)(nil),         // 20: shepherd.mgmt.v1.RevokeAgentTokenRequest
 	(*RevokeAgentTokenResponse)(nil),        // 21: shepherd.mgmt.v1.RevokeAgentTokenResponse
-	(*GroupSearchResult)(nil),               // 22: shepherd.mgmt.v1.GroupSearchResult
-	(*SearchGroupsRequest)(nil),             // 23: shepherd.mgmt.v1.SearchGroupsRequest
-	(*SearchGroupsResponse)(nil),            // 24: shepherd.mgmt.v1.SearchGroupsResponse
-	(*OidcSettings)(nil),                    // 25: shepherd.mgmt.v1.OidcSettings
-	(*GetOidcSettingsRequest)(nil),          // 26: shepherd.mgmt.v1.GetOidcSettingsRequest
-	(*UpdateOidcSettingsRequest)(nil),       // 27: shepherd.mgmt.v1.UpdateOidcSettingsRequest
-	(*TestOidcSettingsRequest)(nil),         // 28: shepherd.mgmt.v1.TestOidcSettingsRequest
-	(*TestOidcSettingsResponse)(nil),        // 29: shepherd.mgmt.v1.TestOidcSettingsResponse
-	(*DeleteOidcSettingsRequest)(nil),       // 30: shepherd.mgmt.v1.DeleteOidcSettingsRequest
-	(*DeleteOidcSettingsResponse)(nil),      // 31: shepherd.mgmt.v1.DeleteOidcSettingsResponse
-	(*ListOidcProviderPresetsRequest)(nil),  // 32: shepherd.mgmt.v1.ListOidcProviderPresetsRequest
-	(*ListOidcProviderPresetsResponse)(nil), // 33: shepherd.mgmt.v1.ListOidcProviderPresetsResponse
-	(*OidcProviderPreset)(nil),              // 34: shepherd.mgmt.v1.OidcProviderPreset
-	(*timestamppb.Timestamp)(nil),           // 35: google.protobuf.Timestamp
+	(*AgentIdentity)(nil),                   // 22: shepherd.mgmt.v1.AgentIdentity
+	(*ListAgentIdentitiesRequest)(nil),      // 23: shepherd.mgmt.v1.ListAgentIdentitiesRequest
+	(*ListAgentIdentitiesResponse)(nil),     // 24: shepherd.mgmt.v1.ListAgentIdentitiesResponse
+	(*CreateAgentIdentityRequest)(nil),      // 25: shepherd.mgmt.v1.CreateAgentIdentityRequest
+	(*DeleteAgentIdentityRequest)(nil),      // 26: shepherd.mgmt.v1.DeleteAgentIdentityRequest
+	(*DeleteAgentIdentityResponse)(nil),     // 27: shepherd.mgmt.v1.DeleteAgentIdentityResponse
+	(*GroupSearchResult)(nil),               // 28: shepherd.mgmt.v1.GroupSearchResult
+	(*SearchGroupsRequest)(nil),             // 29: shepherd.mgmt.v1.SearchGroupsRequest
+	(*SearchGroupsResponse)(nil),            // 30: shepherd.mgmt.v1.SearchGroupsResponse
+	(*OidcSettings)(nil),                    // 31: shepherd.mgmt.v1.OidcSettings
+	(*GetOidcSettingsRequest)(nil),          // 32: shepherd.mgmt.v1.GetOidcSettingsRequest
+	(*UpdateOidcSettingsRequest)(nil),       // 33: shepherd.mgmt.v1.UpdateOidcSettingsRequest
+	(*TestOidcSettingsRequest)(nil),         // 34: shepherd.mgmt.v1.TestOidcSettingsRequest
+	(*TestOidcSettingsResponse)(nil),        // 35: shepherd.mgmt.v1.TestOidcSettingsResponse
+	(*DeleteOidcSettingsRequest)(nil),       // 36: shepherd.mgmt.v1.DeleteOidcSettingsRequest
+	(*DeleteOidcSettingsResponse)(nil),      // 37: shepherd.mgmt.v1.DeleteOidcSettingsResponse
+	(*ListOidcProviderPresetsRequest)(nil),  // 38: shepherd.mgmt.v1.ListOidcProviderPresetsRequest
+	(*ListOidcProviderPresetsResponse)(nil), // 39: shepherd.mgmt.v1.ListOidcProviderPresetsResponse
+	(*OidcProviderPreset)(nil),              // 40: shepherd.mgmt.v1.OidcProviderPreset
+	(*timestamppb.Timestamp)(nil),           // 41: google.protobuf.Timestamp
 }
 var file_shepherd_mgmt_v1_admin_proto_depIdxs = []int32{
-	35, // 0: shepherd.mgmt.v1.Org.created_at:type_name -> google.protobuf.Timestamp
-	35, // 1: shepherd.mgmt.v1.Org.updated_at:type_name -> google.protobuf.Timestamp
+	41, // 0: shepherd.mgmt.v1.Org.created_at:type_name -> google.protobuf.Timestamp
+	41, // 1: shepherd.mgmt.v1.Org.updated_at:type_name -> google.protobuf.Timestamp
 	0,  // 2: shepherd.mgmt.v1.ListOrgsResponse.items:type_name -> shepherd.mgmt.v1.Org
-	35, // 3: shepherd.mgmt.v1.Cluster.created_at:type_name -> google.protobuf.Timestamp
+	41, // 3: shepherd.mgmt.v1.Cluster.created_at:type_name -> google.protobuf.Timestamp
 	8,  // 4: shepherd.mgmt.v1.ListClustersResponse.items:type_name -> shepherd.mgmt.v1.Cluster
-	35, // 5: shepherd.mgmt.v1.AgentToken.created_at:type_name -> google.protobuf.Timestamp
+	41, // 5: shepherd.mgmt.v1.AgentToken.created_at:type_name -> google.protobuf.Timestamp
 	15, // 6: shepherd.mgmt.v1.ListAgentTokensResponse.items:type_name -> shepherd.mgmt.v1.AgentToken
-	22, // 7: shepherd.mgmt.v1.SearchGroupsResponse.items:type_name -> shepherd.mgmt.v1.GroupSearchResult
-	35, // 8: shepherd.mgmt.v1.OidcSettings.updated_at:type_name -> google.protobuf.Timestamp
-	34, // 9: shepherd.mgmt.v1.ListOidcProviderPresetsResponse.items:type_name -> shepherd.mgmt.v1.OidcProviderPreset
-	1,  // 10: shepherd.mgmt.v1.AdminService.ListOrgs:input_type -> shepherd.mgmt.v1.ListOrgsRequest
-	3,  // 11: shepherd.mgmt.v1.AdminService.CreateOrg:input_type -> shepherd.mgmt.v1.CreateOrgRequest
-	4,  // 12: shepherd.mgmt.v1.AdminService.UpdateOrg:input_type -> shepherd.mgmt.v1.UpdateOrgRequest
-	6,  // 13: shepherd.mgmt.v1.AdminService.DeleteOrg:input_type -> shepherd.mgmt.v1.DeleteOrgRequest
-	5,  // 14: shepherd.mgmt.v1.AdminService.SetOrgTenantID:input_type -> shepherd.mgmt.v1.SetOrgTenantIDRequest
-	9,  // 15: shepherd.mgmt.v1.AdminService.ListClusters:input_type -> shepherd.mgmt.v1.ListClustersRequest
-	11, // 16: shepherd.mgmt.v1.AdminService.ClaimCluster:input_type -> shepherd.mgmt.v1.ClaimClusterRequest
-	13, // 17: shepherd.mgmt.v1.AdminService.UnclaimCluster:input_type -> shepherd.mgmt.v1.UnclaimClusterRequest
-	16, // 18: shepherd.mgmt.v1.AdminService.ListAgentTokens:input_type -> shepherd.mgmt.v1.ListAgentTokensRequest
-	18, // 19: shepherd.mgmt.v1.AdminService.CreateAgentToken:input_type -> shepherd.mgmt.v1.CreateAgentTokenRequest
-	20, // 20: shepherd.mgmt.v1.AdminService.RevokeAgentToken:input_type -> shepherd.mgmt.v1.RevokeAgentTokenRequest
-	23, // 21: shepherd.mgmt.v1.AdminService.SearchGroups:input_type -> shepherd.mgmt.v1.SearchGroupsRequest
-	26, // 22: shepherd.mgmt.v1.AdminService.GetOidcSettings:input_type -> shepherd.mgmt.v1.GetOidcSettingsRequest
-	27, // 23: shepherd.mgmt.v1.AdminService.UpdateOidcSettings:input_type -> shepherd.mgmt.v1.UpdateOidcSettingsRequest
-	28, // 24: shepherd.mgmt.v1.AdminService.TestOidcSettings:input_type -> shepherd.mgmt.v1.TestOidcSettingsRequest
-	30, // 25: shepherd.mgmt.v1.AdminService.DeleteOidcSettings:input_type -> shepherd.mgmt.v1.DeleteOidcSettingsRequest
-	32, // 26: shepherd.mgmt.v1.AdminService.ListOidcProviderPresets:input_type -> shepherd.mgmt.v1.ListOidcProviderPresetsRequest
-	2,  // 27: shepherd.mgmt.v1.AdminService.ListOrgs:output_type -> shepherd.mgmt.v1.ListOrgsResponse
-	0,  // 28: shepherd.mgmt.v1.AdminService.CreateOrg:output_type -> shepherd.mgmt.v1.Org
-	0,  // 29: shepherd.mgmt.v1.AdminService.UpdateOrg:output_type -> shepherd.mgmt.v1.Org
-	7,  // 30: shepherd.mgmt.v1.AdminService.DeleteOrg:output_type -> shepherd.mgmt.v1.DeleteOrgResponse
-	0,  // 31: shepherd.mgmt.v1.AdminService.SetOrgTenantID:output_type -> shepherd.mgmt.v1.Org
-	10, // 32: shepherd.mgmt.v1.AdminService.ListClusters:output_type -> shepherd.mgmt.v1.ListClustersResponse
-	12, // 33: shepherd.mgmt.v1.AdminService.ClaimCluster:output_type -> shepherd.mgmt.v1.ClaimClusterResponse
-	14, // 34: shepherd.mgmt.v1.AdminService.UnclaimCluster:output_type -> shepherd.mgmt.v1.UnclaimClusterResponse
-	17, // 35: shepherd.mgmt.v1.AdminService.ListAgentTokens:output_type -> shepherd.mgmt.v1.ListAgentTokensResponse
-	19, // 36: shepherd.mgmt.v1.AdminService.CreateAgentToken:output_type -> shepherd.mgmt.v1.CreateAgentTokenResponse
-	21, // 37: shepherd.mgmt.v1.AdminService.RevokeAgentToken:output_type -> shepherd.mgmt.v1.RevokeAgentTokenResponse
-	24, // 38: shepherd.mgmt.v1.AdminService.SearchGroups:output_type -> shepherd.mgmt.v1.SearchGroupsResponse
-	25, // 39: shepherd.mgmt.v1.AdminService.GetOidcSettings:output_type -> shepherd.mgmt.v1.OidcSettings
-	25, // 40: shepherd.mgmt.v1.AdminService.UpdateOidcSettings:output_type -> shepherd.mgmt.v1.OidcSettings
-	29, // 41: shepherd.mgmt.v1.AdminService.TestOidcSettings:output_type -> shepherd.mgmt.v1.TestOidcSettingsResponse
-	31, // 42: shepherd.mgmt.v1.AdminService.DeleteOidcSettings:output_type -> shepherd.mgmt.v1.DeleteOidcSettingsResponse
-	33, // 43: shepherd.mgmt.v1.AdminService.ListOidcProviderPresets:output_type -> shepherd.mgmt.v1.ListOidcProviderPresetsResponse
-	27, // [27:44] is the sub-list for method output_type
-	10, // [10:27] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	41, // 7: shepherd.mgmt.v1.AgentIdentity.created_at:type_name -> google.protobuf.Timestamp
+	22, // 8: shepherd.mgmt.v1.ListAgentIdentitiesResponse.items:type_name -> shepherd.mgmt.v1.AgentIdentity
+	28, // 9: shepherd.mgmt.v1.SearchGroupsResponse.items:type_name -> shepherd.mgmt.v1.GroupSearchResult
+	41, // 10: shepherd.mgmt.v1.OidcSettings.updated_at:type_name -> google.protobuf.Timestamp
+	40, // 11: shepherd.mgmt.v1.ListOidcProviderPresetsResponse.items:type_name -> shepherd.mgmt.v1.OidcProviderPreset
+	1,  // 12: shepherd.mgmt.v1.AdminService.ListOrgs:input_type -> shepherd.mgmt.v1.ListOrgsRequest
+	3,  // 13: shepherd.mgmt.v1.AdminService.CreateOrg:input_type -> shepherd.mgmt.v1.CreateOrgRequest
+	4,  // 14: shepherd.mgmt.v1.AdminService.UpdateOrg:input_type -> shepherd.mgmt.v1.UpdateOrgRequest
+	6,  // 15: shepherd.mgmt.v1.AdminService.DeleteOrg:input_type -> shepherd.mgmt.v1.DeleteOrgRequest
+	5,  // 16: shepherd.mgmt.v1.AdminService.SetOrgTenantID:input_type -> shepherd.mgmt.v1.SetOrgTenantIDRequest
+	9,  // 17: shepherd.mgmt.v1.AdminService.ListClusters:input_type -> shepherd.mgmt.v1.ListClustersRequest
+	11, // 18: shepherd.mgmt.v1.AdminService.ClaimCluster:input_type -> shepherd.mgmt.v1.ClaimClusterRequest
+	13, // 19: shepherd.mgmt.v1.AdminService.UnclaimCluster:input_type -> shepherd.mgmt.v1.UnclaimClusterRequest
+	16, // 20: shepherd.mgmt.v1.AdminService.ListAgentTokens:input_type -> shepherd.mgmt.v1.ListAgentTokensRequest
+	18, // 21: shepherd.mgmt.v1.AdminService.CreateAgentToken:input_type -> shepherd.mgmt.v1.CreateAgentTokenRequest
+	20, // 22: shepherd.mgmt.v1.AdminService.RevokeAgentToken:input_type -> shepherd.mgmt.v1.RevokeAgentTokenRequest
+	23, // 23: shepherd.mgmt.v1.AdminService.ListAgentIdentities:input_type -> shepherd.mgmt.v1.ListAgentIdentitiesRequest
+	25, // 24: shepherd.mgmt.v1.AdminService.CreateAgentIdentity:input_type -> shepherd.mgmt.v1.CreateAgentIdentityRequest
+	26, // 25: shepherd.mgmt.v1.AdminService.DeleteAgentIdentity:input_type -> shepherd.mgmt.v1.DeleteAgentIdentityRequest
+	29, // 26: shepherd.mgmt.v1.AdminService.SearchGroups:input_type -> shepherd.mgmt.v1.SearchGroupsRequest
+	32, // 27: shepherd.mgmt.v1.AdminService.GetOidcSettings:input_type -> shepherd.mgmt.v1.GetOidcSettingsRequest
+	33, // 28: shepherd.mgmt.v1.AdminService.UpdateOidcSettings:input_type -> shepherd.mgmt.v1.UpdateOidcSettingsRequest
+	34, // 29: shepherd.mgmt.v1.AdminService.TestOidcSettings:input_type -> shepherd.mgmt.v1.TestOidcSettingsRequest
+	36, // 30: shepherd.mgmt.v1.AdminService.DeleteOidcSettings:input_type -> shepherd.mgmt.v1.DeleteOidcSettingsRequest
+	38, // 31: shepherd.mgmt.v1.AdminService.ListOidcProviderPresets:input_type -> shepherd.mgmt.v1.ListOidcProviderPresetsRequest
+	2,  // 32: shepherd.mgmt.v1.AdminService.ListOrgs:output_type -> shepherd.mgmt.v1.ListOrgsResponse
+	0,  // 33: shepherd.mgmt.v1.AdminService.CreateOrg:output_type -> shepherd.mgmt.v1.Org
+	0,  // 34: shepherd.mgmt.v1.AdminService.UpdateOrg:output_type -> shepherd.mgmt.v1.Org
+	7,  // 35: shepherd.mgmt.v1.AdminService.DeleteOrg:output_type -> shepherd.mgmt.v1.DeleteOrgResponse
+	0,  // 36: shepherd.mgmt.v1.AdminService.SetOrgTenantID:output_type -> shepherd.mgmt.v1.Org
+	10, // 37: shepherd.mgmt.v1.AdminService.ListClusters:output_type -> shepherd.mgmt.v1.ListClustersResponse
+	12, // 38: shepherd.mgmt.v1.AdminService.ClaimCluster:output_type -> shepherd.mgmt.v1.ClaimClusterResponse
+	14, // 39: shepherd.mgmt.v1.AdminService.UnclaimCluster:output_type -> shepherd.mgmt.v1.UnclaimClusterResponse
+	17, // 40: shepherd.mgmt.v1.AdminService.ListAgentTokens:output_type -> shepherd.mgmt.v1.ListAgentTokensResponse
+	19, // 41: shepherd.mgmt.v1.AdminService.CreateAgentToken:output_type -> shepherd.mgmt.v1.CreateAgentTokenResponse
+	21, // 42: shepherd.mgmt.v1.AdminService.RevokeAgentToken:output_type -> shepherd.mgmt.v1.RevokeAgentTokenResponse
+	24, // 43: shepherd.mgmt.v1.AdminService.ListAgentIdentities:output_type -> shepherd.mgmt.v1.ListAgentIdentitiesResponse
+	22, // 44: shepherd.mgmt.v1.AdminService.CreateAgentIdentity:output_type -> shepherd.mgmt.v1.AgentIdentity
+	27, // 45: shepherd.mgmt.v1.AdminService.DeleteAgentIdentity:output_type -> shepherd.mgmt.v1.DeleteAgentIdentityResponse
+	30, // 46: shepherd.mgmt.v1.AdminService.SearchGroups:output_type -> shepherd.mgmt.v1.SearchGroupsResponse
+	31, // 47: shepherd.mgmt.v1.AdminService.GetOidcSettings:output_type -> shepherd.mgmt.v1.OidcSettings
+	31, // 48: shepherd.mgmt.v1.AdminService.UpdateOidcSettings:output_type -> shepherd.mgmt.v1.OidcSettings
+	35, // 49: shepherd.mgmt.v1.AdminService.TestOidcSettings:output_type -> shepherd.mgmt.v1.TestOidcSettingsResponse
+	37, // 50: shepherd.mgmt.v1.AdminService.DeleteOidcSettings:output_type -> shepherd.mgmt.v1.DeleteOidcSettingsResponse
+	39, // 51: shepherd.mgmt.v1.AdminService.ListOidcProviderPresets:output_type -> shepherd.mgmt.v1.ListOidcProviderPresetsResponse
+	32, // [32:52] is the sub-list for method output_type
+	12, // [12:32] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_shepherd_mgmt_v1_admin_proto_init() }
@@ -2647,7 +3045,7 @@ func file_shepherd_mgmt_v1_admin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_shepherd_mgmt_v1_admin_proto_rawDesc), len(file_shepherd_mgmt_v1_admin_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   35,
+			NumMessages:   41,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

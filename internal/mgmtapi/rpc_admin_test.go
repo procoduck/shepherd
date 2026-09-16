@@ -316,6 +316,48 @@ var _ = Describe("shepherd.mgmt.v1 AdminService and MeService RPC", Label("integ
 				Expect(item).NotTo(HaveKey("secret"), "list response must never carry the plaintext secret")
 			}
 		})
+
+		It("creates, lists and deletes a collector OIDC identity binding (app-admin only)", func() {
+			appAdmin := createSession(true, nil)
+
+			// Create against the seeded org (admin-rpc-org).
+			createResp := postConnect("/shepherd.mgmt.v1.AdminService/CreateAgentIdentity", map[string]any{
+				"issuer": "https://idp.example/", "appId": "client-eu", "org": "admin-rpc-org",
+				"clusters": []string{"prod-eu-1"}, "roles": []string{},
+			}, appAdmin)
+			Expect(createResp.StatusCode).To(Equal(http.StatusOK))
+			created := decodeBody(createResp)
+			Expect(created["appId"]).To(Equal("client-eu"))
+			Expect(created["orgName"]).To(Equal("admin-rpc-org"))
+
+			listResp := postConnect("/shepherd.mgmt.v1.AdminService/ListAgentIdentities", map[string]any{}, appAdmin)
+			Expect(listResp.StatusCode).To(Equal(http.StatusOK))
+			items, _ := decodeBody(listResp)["items"].([]any) //nolint:errcheck // shape known
+			Expect(items).To(HaveLen(1))
+
+			delResp := postConnect("/shepherd.mgmt.v1.AdminService/DeleteAgentIdentity", map[string]any{
+				"issuer": "https://idp.example/", "appId": "client-eu",
+			}, appAdmin)
+			Expect(delResp.StatusCode).To(Equal(http.StatusOK))
+
+			// Deleting again is a not-found.
+			delAgain := postConnect("/shepherd.mgmt.v1.AdminService/DeleteAgentIdentity", map[string]any{
+				"issuer": "https://idp.example/", "appId": "client-eu",
+			}, appAdmin)
+			Expect(delAgain.StatusCode).To(Equal(http.StatusNotFound))
+		})
+
+		It("rejects an unknown org and a non-app-admin caller", func() {
+			appAdmin := createSession(true, nil)
+			bad := postConnect("/shepherd.mgmt.v1.AdminService/CreateAgentIdentity", map[string]any{
+				"issuer": "https://idp/", "appId": "c", "org": "no-such-org",
+			}, appAdmin)
+			Expect(bad.StatusCode).To(Equal(http.StatusBadRequest))
+
+			nonAdmin := createSession(false, []string{"some-group"})
+			denied := postConnect("/shepherd.mgmt.v1.AdminService/ListAgentIdentities", map[string]any{}, nonAdmin)
+			Expect(denied.StatusCode).To(Equal(http.StatusForbidden))
+		})
 	})
 
 	Describe("MeService", func() {
