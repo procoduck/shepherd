@@ -9,3 +9,70 @@ export SHEPHERD_SECURITY_ENCRYPTION_KEY=...   # the same key you used above
 
 ./bin/shepherd token create --name dev</code></pre>
       </div>
+
+      <h2 id="oidc">Authenticate with OIDC instead of a shared token</h2>
+      <p>A collector can present an OAuth2 access token from the same identity provider that does
+        your single sign-on, rather than a shared agent token. Alloy&rsquo;s <code>remotecfg</code>
+        block fetches and presents it natively, so nothing changes on the agent beyond its config.
+        The token is scoped to one organisation, so a collector in one org can never pull
+        another&rsquo;s configuration.</p>
+      <p>Turn it on in the chart under <code>config.oidc</code> (it stays off until
+        <code>agent_audience</code> is set):</p>
+      <div class="code-block" data-lang="yaml">
+        <div class="code-head"><span>values.yaml</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>config:
+  oidc:
+    issuer: "https://login.microsoftonline.com/&lt;tenant&gt;/v2.0"
+    # The resource identifier a collector's token must carry in `aud`. This is
+    # the master switch and the thing that separates a machine token from a
+    # user login token.
+    agent_audience: "api://shepherd-collectors"
+    # Recommended: require the token to carry a specific app role, so a valid
+    # token for the audience is not enough without the explicit grant.
+    agent_required_role: "Collector.Poll"</code></pre>
+      </div>
+      <p>Then bind each collector&rsquo;s client identity to an organisation. Shepherd holds the
+        mapping — the identity provider is never authoritative for which org a collector belongs
+        to:</p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>shepherd agent-identity create \
+  --issuer "https://login.microsoftonline.com/&lt;tenant&gt;/v2.0" \
+  --app-id "&lt;client-id&gt;" \
+  --org "platform-engineering" \
+  --cluster "prod-eu-1"        # optional; repeatable. Omit for any cluster in the org.</code></pre>
+      </div>
+      <p>A collector whose cluster is unclaimed is auto-assigned to its bound org on its first
+        authenticated poll. A cluster already claimed by a different org is refused.</p>
+
+      <h3 id="oidc-alloy">The Alloy side</h3>
+      <p>Point <code>remotecfg</code> at Shepherd with an <code>oauth2</code> block instead of
+        <code>basic_auth</code>. Alloy fetches its own access token from the provider and presents
+        it on every poll:</p>
+      <div class="code-block" data-lang="alloy">
+        <div class="code-head"><span>config.alloy</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>remotecfg {
+  url = "https://shepherd.example.com"
+  oauth2 {
+    client_id     = sys.env("SHEPHERD_OIDC_CLIENT_ID")
+    client_secret = sys.env("SHEPHERD_OIDC_CLIENT_SECRET")
+    token_url     = "https://login.microsoftonline.com/&lt;tenant&gt;/oauth2/v2.0/token"
+    scopes        = ["api://shepherd-collectors/.default"]
+  }
+  attributes     = { cluster = "prod-eu-1", role = "metrics" }
+  poll_frequency = "60s"
+}</code></pre>
+      </div>
+      <p class="note"><strong>The IdP must issue JWT access tokens</strong> with the configured
+        audience. This is the standard OAuth2 client-credentials grant: in Entra ID, expose an API
+        on Shepherd&rsquo;s app registration, define an app role, and grant it to each collector&rsquo;s
+        own app registration. Keycloak, Auth0 and Okta express the same thing with a client role, a
+        permission, or a scope — set <code>agent_roles_claim</code> to whichever claim your provider
+        emits.</p>
+
+      <h3 id="oidc-beacon">Self-monitoring over OIDC</h3>
+      <p>To send the collector&rsquo;s own health beacon over the same credential, set
+        <code>config.oidc.beacon_auth: oauth2</code> and <code>agent_token_url</code>. Shepherd then
+        renders the beacon&rsquo;s write-back with an <code>oauth2</code> block too. This is a
+        whole-fleet choice: the served configuration is shared across a collector&rsquo;s instances,
+        so a deployment uses one beacon-auth mode.</p>
