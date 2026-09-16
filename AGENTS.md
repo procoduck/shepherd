@@ -5,7 +5,7 @@ React 19 / TypeScript 7 / Vite 8 SPA embedded via go:embed, PostgreSQL 16. Spec:
 
 ## Docs map
 - `docs/project-status.md` — **the single live ledger** (verified baseline, open bugs, unbuilt features, open follow-ups). Do not start a second one.
-- `docs/plans/` — dated per-PR implementation plans while their work is unreleased (empty between releases; every plan so far is in `docs/archive/plans/`); `docs/archive/` — finished work, not maintained; `docs/reviews/` — live decision records only; `docs/proofs/` — red–green proofs cited by Go source and CI (never archive)
+- `docs/plans/` — dated per-PR implementation plans while their work is unreleased (currently `2026-09-16-agent-oidc-auth.md`, a design not yet implemented); a shipped plan moves to `docs/archive/plans/`; `docs/archive/` — finished work, not maintained; `docs/reviews/` — live decision records only; `docs/proofs/` — red–green proofs cited by Go source and CI (never archive)
 - `docs/gateway-tier-plan.md` (§9 step ledger) and `docs/kind-test-environment-plan.md` are the two live multi-session plans
 - `CHANGELOG.md` is hand-written per release in the Shipped / RPC only / Built-not-wired taxonomy; `deploy/helm/shepherd/UPGRADING.md` gets a section whenever a chart *minor* needs operator action
 

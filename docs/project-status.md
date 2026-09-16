@@ -11,7 +11,7 @@
 |---|---|
 | `docs/project-status.md` | this ledger — verified baseline, open bugs, unbuilt features, open follow-ups |
 | `docs/spec.md` | authoritative product/build specification (§ numbers referenced below) |
-| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag (empty since v0.7.0 — all three plans are archived) |
+| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag (`2026-09-16-agent-oidc-auth.md` is a signed design, not yet implemented) |
 | `docs/visual-builder-design-VB1.md` | visual builder design — M1–M8 built; §6.4 (S3) is the live spec for the sandbox feature (enabled by default in the Helm chart since v0.0.1) |
 | `docs/reviews/` | **live decision records only**: `canvas-framework-evaluation.md` (the React Flow decision and the controlled-mode contract `CanvasPane` depends on). Closed reviews move to `docs/archive/reviews/` |
 | `docs/dev-guide.md` | running the dev stack |
@@ -153,6 +153,11 @@ answer and the ledger item it produced is below.
 - [x] **F-REVISIONS**: `contents` on `PipelineRevision`, `RestoreRevision` RPC, the text diff
       view and Restore in the pipeline editor — shipped in v0.6.0, see `CHANGELOG.md`. Graph
       diff for visual pipelines is the remaining follow-up (below).
+- [ ] **Collector OIDC authentication** — an Alloy collector authenticates with a claim-scoped
+      OIDC access token instead of the shared agent token. Design signed 2026-09-16 in
+      `docs/plans/2026-09-16-agent-oidc-auth.md` (claim-scoped, reuse the SSO issuer + a new
+      agent audience, beacon on the same token); not yet implemented. Four phases, proto + chart +
+      one new RBAC rule (auto-claim), so it is ask-first per that plan.
 - [ ] **Editor Format + Validate buttons**: `FormatPipeline` RPC over `alloy fmt`, wired to a
       Format button; an explicit Validate button beside the idle-debounced validation.
 - [ ] **Experimental components as an org setting**: migration + proto field + server-side
