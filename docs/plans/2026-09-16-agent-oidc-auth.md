@@ -34,27 +34,35 @@ demonstrates a one-gate-two-credential-shapes pattern to mirror.
 
 ## 1. Section-1 contract (names other slices depend on)
 
-- **`auth.AgentClaims`** — `{ Issuer, Subject, AppID, Org string; Clusters,
-  Roles []string }`, the validated token. `AppID` is the value of the
-  configured app-identity claim (default `sub`; may be `azp`/`client_id`),
-  `Org`/`Clusters`/`Roles` the optional scope claims (empty = unset).
+- **`auth.AgentClaims`** — `{ Issuer, Subject, AppID string; Roles, Scopes
+  []string; OrgClaim string; Clusters []string }`, the validated token.
+  `AppID` is the configured app-identity claim (default `sub`; may be
+  `azp`/`client_id`); `Roles` is the native roles claim (`roles` on Entra,
+  `resource_access.<c>.roles` on Keycloak, `permissions` on Auth0); `Scopes`
+  is `scp`/`scope` split; `OrgClaim` an optional bespoke org value. All empty
+  when unset.
 - **`auth.Handler.VerifyAgentToken(ctx, rawJWT) (AgentClaims, error)`** — the
   new exported verifier. Returns a typed error for: not-a-JWT, bad signature,
-  wrong issuer, `aud` not the agent audience, expired. It does **not** require
-  an org claim — org is resolved separately (§3.3), because a shared OIDC app
-  cannot carry a per-instance org.
+  wrong issuer, `aud` not the agent audience, expired, **and — when
+  `agent_required_role`/`agent_required_scope` is configured — the token not
+  carrying it**. It does **not** require an org claim; org is resolved
+  separately (§3.3).
 - **`agentapi.Principal`** — carried in the request context after the gate:
   `{ Kind AuthKind; TokenID string; Claims *auth.AgentClaims }`, `AuthKind ∈
   {agentToken, agentOIDC}`. Replaces the bare `tokenIDKey` value
   (`auth.go:36`), which nothing reads today anyway.
 - **`agent_identities` table** — the admin-configured binding for the
-  registration path: `(issuer, app_id) → org_id` plus optional `clusters` /
-  `roles` allowlists, `created_by`, timestamps. The local counterpart to a
-  token claim.
-- **Config keys** (chart + UI): `oidc.agent_audience`, `oidc.agent_app_claim`
-  (default `sub`), `oidc.agent_org_claim` (default `shepherd_org`),
-  `oidc.agent_clusters_claim` (default `shepherd_clusters`),
-  `oidc.agent_roles_claim` (default `shepherd_roles`), and
+  **recommended** registration path: `(issuer, app_id) → org_id` plus optional
+  `clusters` / `roles` allowlists, `created_by`, timestamps. The local
+  counterpart to a token claim; it keeps org assignment in Shepherd.
+- **Config keys** (chart + UI): `oidc.agent_audience`; the authorization gate
+  `oidc.agent_required_role` and `oidc.agent_required_scope` (the direct
+  analog of Entra's "app role bound to the exposed API" — a token that does
+  not carry the grant is refused at verify time); the identity/scope claim
+  names `oidc.agent_app_claim` (default `sub`), `oidc.agent_roles_claim`
+  (default `roles`), `oidc.agent_org_claim` (a bespoke org claim, off unless
+  set), `oidc.agent_org_role_prefix` (map a role like `org:platform-eng` →
+  org, for the role-encodes-org variant), `oidc.agent_clusters_claim`; and
   `oidc.agent_trust_org_claim` (bool, default false — see §3.3). Agent OIDC is
   **on** iff `agent_audience != ""`.
 - **`beacon` env names** for the OAuth2 write-back:
@@ -63,16 +71,26 @@ demonstrates a one-gate-two-credential-shapes pattern to mirror.
 
 ## 2. Signed decisions
 
-- **D1 — Scoped identity, resolved by a chain, not by a single mechanism.**
-  An authenticated OIDC collector's org is resolved in order (§3.3): (1) an
-  admin-configured `agent_identities` binding keyed on the token's `(issuer,
-  app_id)`; (2) the token's own `shepherd_org` claim, but only when
-  `agent_trust_org_claim` is on (the IdP is then authoritative for org
-  assignment); (3) otherwise the existing admin cluster-claim, with the OIDC
-  token proving only liveness. This chain — rather than "org claim, always" —
-  is what lets one design cover both a per-instance-app fleet and a
-  shared-app fleet (see §2.1). Where org is resolved by (1) or (2), Shepherd
-  also enforces `cluster ∈ Clusters` and `role ∈ Roles` when those are set.
+- **D0 — Authentication and authorization are two checks, not one
+  (from the Entra app-role pattern).** `agent_audience` proves the token is
+  *for* Shepherd's collector API; a separate, optional `agent_required_role` /
+  `agent_required_scope` proves the client was *deliberately granted* the
+  collector permission — the exact thing an Entra "app role bound to the
+  exposed API" (or a Keycloak client role, Auth0 permission, Okta scope)
+  expresses. Both are verified before any org resolution. Holding a valid
+  token for the audience is not enough; the grant must be present.
+- **D1 — Org identity is a separate axis, resolved by a chain.** The role/
+  scope grant above says "may be a collector", not "belongs to org X". Org is
+  resolved in order (§3.3): (1) — **recommended** — an admin-configured
+  `agent_identities` binding on `(issuer, app_id)`, which keeps org assignment
+  in Shepherd (matches "unique client per org, Shepherd maps it"); (2) a role
+  that encodes the org (`agent_org_role_prefix`, e.g. `org:platform-eng`) or a
+  bespoke `agent_org_claim`, honoured only when `agent_trust_org_claim` is on,
+  which makes the IdP authoritative for org membership; (3) otherwise the
+  existing admin cluster-claim, the OIDC token proving only liveness. This
+  chain is what lets one design cover both a per-instance-app fleet and a
+  shared-app fleet (§2.1). Where org came from (1) or (2), Shepherd also
+  enforces `cluster ∈ Clusters` and `role ∈ Roles` when those are set.
 - **D1a — Auto-claim (consequence of D1, called out because it changes a
   served-config invariant).** Today an unclaimed cluster is served empty until
   an app-admin runs `ClaimCluster` (`internal/agentapi/service.go:178`). For a
@@ -119,6 +137,28 @@ second scenario — unique app per instance, auto-assigned — is supported two
 ways: by an IdP-emitted claim (step 2) or by an admin-configured mapping (step
 1), and a deployment may mix all three across different fleets.
 
+## 2.2 Mapping to a real IdP (the Entra app-role pattern, generalised)
+
+The idiomatic per-IdP setup, and why the config keys are claim-name-agnostic.
+The **exposed-API + role grant** on the left is the audience and the
+`agent_required_role`/`agent_required_scope` gate (D0); org (D1) is then a
+Shepherd-side `agent_identities` binding on the client id — the recommended
+default — or a per-org role read from the same roles claim.
+
+| IdP | `agent_audience` | grant → `agent_required_role`/`scope` reads | roles claim (`agent_roles_claim`) |
+|---|---|---|---|
+| **Entra ID** | the exposed API's App ID URI (`api://shepherd-collectors`); client granted the app role, calls with `.../.default` | app role name | `roles` |
+| **Keycloak** | audience mapper on a client scope | client role on the service account | `resource_access.<client>.roles` |
+| **Auth0** | the API identifier (audience) | permission on the M2M app | `permissions` |
+| **Okta** | custom auth-server audience | granted scope | `scp` |
+| **Google** | ID-token `target_audience` | — (no role model) | map on `sub`/`azp` via a binding |
+
+The Entra flow you have used maps exactly: expose the API and define one app
+role (`Collector.Poll`) → `agent_audience` + `agent_required_role`; give each
+org's client its own app registration and add an `agent_identities` binding
+`azp → org`. If you would rather the IdP own org membership, define one app
+role per org and set `agent_org_role_prefix` with `agent_trust_org_claim` on.
+
 ## 3. The seam, in code
 
 ### 3.1 Verifier (`internal/auth`)
@@ -127,14 +167,17 @@ The primitive already exists as a local variable in the login callback —
 `rt.provider.Verifier(&oidc.Config{ClientID: rt.settings.ClientID})`
 (`auth.go:440`). Expose an agent variant on the runtime:
 
-- Add `agentAudience`, the three claim names, and a built
+- Add `agentAudience`, the required-grant values, the claim names, and a built
   `agentVerifier *oidc.IDTokenVerifier` to `oidcRuntime` (`auth.go:96`),
   constructed in `Reload` (`auth.go:211`) when `agent_audience` is set:
   `rt.provider.Verifier(&oidc.Config{ClientID: agentAudience})`.
-- `VerifyAgentToken(ctx, raw)`: `refreshIfStale`, load the runtime, verify,
-  then decode claims into `AgentClaims` using the configured claim names
-  (mirroring `resolveGroups`, `auth.go:520`, for the list-or-string groups
-  shape). Reject when the org claim is absent — claim-scoping requires it.
+- `VerifyAgentToken(ctx, raw)`: `refreshIfStale`, load the runtime, verify
+  (signature/issuer/`aud`/exp), then **the D0 grant gate** — if
+  `agent_required_role` is set, require it in the roles claim; if
+  `agent_required_scope` is set, require it in `scp`/`scope`; refuse
+  otherwise. Then decode `AgentClaims` using the configured claim names
+  (reuse the list-or-string shape handling from `resolveGroups`,
+  `auth.go:520`). No org claim is required here — org is §3.3's job.
 - Same source-based client split as user discovery
   (`discoveryClientFor`, `discovery.go:182`): chart issuer unguarded,
   UI issuer guarded by `dialGuard`. No new SSRF surface.
@@ -163,11 +206,17 @@ Branch on scheme:
 (`service.go:351`). After it, when the principal is `agentOIDC`, resolve the
 org through the D1 chain:
 1. `GetAgentIdentity(issuer, app_id)` → if a binding exists, its org (and its
-   optional cluster/role allowlists) win;
-2. else, if `agent_trust_org_claim` and `claims.Org != ""`, resolve that org
-   by its external id (a new `GetOrgByExternalID` query);
+   optional cluster/role allowlists) win. **Recommended default.**
+2. else, if `agent_trust_org_claim` is on: an org read from the roles claim via
+   `agent_org_role_prefix` (a role `org:<slug>` → that org), or from a bespoke
+   `agent_org_claim` — resolved by external id (a new `GetOrgByExternalID`
+   query). The IdP is authoritative here.
 3. else, no OIDC-derived org — fall through to today's `GetCollectorOrgID`
    (admin cluster-claim); an unclaimed cluster still serves empty.
+
+(The D0 grant gate has already run in the verifier, so by this point the token
+is known to carry the "may be a collector" role/scope; this step decides only
+*which org*.)
 
 When org came from (1) or (2):
 - if the resolved binding/claim carries a cluster allowlist, require `cluster
@@ -197,16 +246,18 @@ resolved the served config is computed exactly as for a Basic-auth collector.
 ### 3.5 Config, proto, chart, UI
 
 - `internal/config/config.go OIDCConfig` (`config.go:69`): add
-  `AgentAudience`, `AgentAppClaim`, `AgentOrgClaim`, `AgentClustersClaim`,
-  `AgentRolesClaim`, `AgentTrustOrgClaim bool`.
+  `AgentAudience`, `AgentRequiredRole`, `AgentRequiredScope`, `AgentAppClaim`,
+  `AgentRolesClaim`, `AgentOrgClaim`, `AgentOrgRolePrefix`,
+  `AgentClustersClaim`, `AgentTrustOrgClaim bool`.
 - `proto/shepherd/mgmt/v1/admin.proto OidcSettings` (`admin.proto:219`, next
-  free field 23): add `agent_audience = 23`, `agent_app_claim = 24`,
-  `agent_org_claim = 25`, `agent_clusters_claim = 26`, `agent_roles_claim =
-  27`, `agent_trust_org_claim = 28`, read-only `agent_auth_enabled = 29`.
-  Plus a small `AgentIdentityService` (or additions to `AdminService`) for the
-  `agent_identities` bindings: `List/Create/DeleteAgentIdentity`, app-admin
-  only. **Proto change — ask-first; this plan is the record.** `buf generate`
-  regenerates Go + TS.
+  free field 23): add `agent_audience = 23`, `agent_required_role = 24`,
+  `agent_required_scope = 25`, `agent_app_claim = 26`, `agent_roles_claim =
+  27`, `agent_org_claim = 28`, `agent_org_role_prefix = 29`,
+  `agent_clusters_claim = 30`, `agent_trust_org_claim = 31`, read-only
+  `agent_auth_enabled = 32`. Plus a small `AgentIdentityService` (or additions
+  to `AdminService`) for the `agent_identities` bindings:
+  `List/Create/DeleteAgentIdentity`, app-admin only. **Proto change —
+  ask-first; this plan is the record.** `buf generate` regenerates Go + TS.
 - `deploy/helm/shepherd/values.yaml` oidc block (`values.yaml:107`): the new
   keys, claim-name defaults, `agentAudience` empty and `agentTrustOrgClaim`
   false (feature off by default). **Chart template change → chart version bump
@@ -233,8 +284,10 @@ resolved the served config is computed exactly as for a Basic-auth collector.
 
 - **Verifier unit** (`internal/auth`): a self-signed test issuer (an in-test
   JWKS + `oidc` verifier, or the `mock-oauth2-server` already in `dev/`/`e2e`)
-  — accepts a valid agent token, rejects wrong audience, expired, bad
-  signature, missing org claim. Red first.
+  — accepts a valid agent token; rejects wrong audience, expired, bad
+  signature; and **the D0 grant gate**: with `agent_required_role` set, a token
+  missing that role is refused and one carrying it passes (same for
+  `agent_required_scope`). Red first.
 - **Gate unit** (`internal/agentapi`): `Bearer` valid → principal in ctx;
   `Bearer` when disabled → 401; `Basic` still works; malformed → 401.
 - **Resolution-chain unit** (`internal/agentapi`, integration with the
@@ -272,7 +325,9 @@ resolved the served config is computed exactly as for a Basic-auth collector.
 - **Audience is load-bearing.** If `agent_audience` were ever empty-but-enabled
   the verifier would accept any token the issuer signs; the code must treat
   empty audience as "feature off", never "accept all". A repocheck/unit guard
-  pins this.
+  pins this. The D0 grant gate (`agent_required_role`/`scope`) is the second
+  line — recommended in the docs even though optional — so that a valid token
+  for the audience is not sufficient without the explicit collector grant.
 - **Opaque access tokens.** Some IdPs (Okta org server, Entra v1) issue
   non-JWT access tokens the verifier cannot parse. Documented as a
   prerequisite: the IdP must issue JWT access tokens with the configured
