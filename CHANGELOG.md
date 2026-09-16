@@ -11,7 +11,19 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
-## Unreleased
+## v0.8.0
+
+Chart 0.12.0. The headline is **collector authentication with OIDC**: an Alloy collector can now
+present an OAuth2 access token from the same issuer as user SSO instead of the shared agent token,
+claim-scoped to an organisation by an `agent_identities` binding, with the self-monitoring beacon
+path able to use the same identity. The whole path is proven end to end against a real
+client-credentials token. The feature is **off by default** — agent tokens keep working unchanged,
+and the chart's defaults render exactly what 0.11.0 did — so the upgrade is `helm upgrade` with no
+new values and no `UPGRADING.md` section. Two migrations run on start: `0021_agent_identities`
+(the binding table) and `0022_beacon_principal` (the beacon ingest key generalised from an agent
+token id to an auth principal, so a Bearer-authenticated collector can write back); both are
+additive to existing agent-token collectors. Also in this release: a Change password screen for
+local users, the collector-binding admin UI and RPCs, and the dev/CI fixes below.
 
 ### Added
 
