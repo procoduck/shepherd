@@ -12,28 +12,74 @@ import (
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"shepherd/internal/auth"
 	"shepherd/internal/store"
 )
 
 type contextKey int
 
-const tokenIDKey contextKey = iota
+const principalKey contextKey = iota
 
-// NewAuthGate returns a Connect request gate that validates agent token
-// Basic auth credentials: username = token UUID, password = 32-byte base64url
-// secret. Mount it with connect.WithRequestGate.
+// AuthKind is how a collector authenticated. A token proves liveness only; an
+// OIDC principal additionally carries claims that scope which org, cluster and
+// role it may act for (agent OIDC, docs/plans/2026-09-16-agent-oidc-auth.md).
+type AuthKind int
+
+const (
+	AuthKindToken AuthKind = iota
+	AuthKindOIDC
+)
+
+// Principal is the authenticated collector, placed in the request context by
+// the gate for the service handlers to read.
+type Principal struct {
+	Kind    AuthKind
+	TokenID string            // AuthKindToken
+	Claims  *auth.AgentClaims // AuthKindOIDC
+}
+
+// PrincipalFrom returns the authenticated principal, or the zero value (an
+// AuthKindToken with no id) when none is present — which only happens on a
+// path that did not run the gate.
+func PrincipalFrom(ctx context.Context) Principal {
+	p, _ := ctx.Value(principalKey).(Principal)
+	return p
+}
+
+// AgentVerifier verifies a collector's OAuth2 access token. It is
+// auth.Handler.VerifyAgentToken in production; nil disables the Bearer branch
+// (collector OIDC not configured).
+type AgentVerifier func(ctx context.Context, raw string) (auth.AgentClaims, error)
+
+// NewAuthGate returns a Connect request gate that authenticates a collector.
+// It branches on the Authorization scheme: `Bearer <jwt>` is verified as an
+// OIDC access token (when verifyAgent is non-nil), `Basic <base64(uuid:secret)>`
+// as an agent token. Mount it with connect.WithRequestGate.
 //
 // A gate rather than an interceptor because the decision needs only the
 // headers: it runs before the request body is decompressed or decoded, so a
-// caller with a bad token never makes the server unmarshal its payload. The
-// authenticated token id is placed in the returned context for the handler.
-func NewAuthGate(st *store.Store) connect.RequestGateFunc {
+// caller with a bad credential never makes the server unmarshal its payload.
+// The authenticated Principal is placed in the returned context.
+func NewAuthGate(st *store.Store, verifyAgent AgentVerifier) connect.RequestGateFunc {
 	return func(ctx context.Context, _ connect.Spec, _ connect.Peer, header http.Header) (context.Context, error) {
-		tokenID, err := verifyBasicAuth(ctx, header.Get("Authorization"), st)
+		authz := header.Get("Authorization")
+		if raw, ok := strings.CutPrefix(authz, "Bearer "); ok {
+			// A Bearer header with OIDC not configured is simply unauthenticated
+			// — the feature is off, indistinguishable to a caller from a bad token.
+			if verifyAgent == nil {
+				return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+			}
+			claims, err := verifyAgent(ctx, raw)
+			if err != nil {
+				return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+			}
+			return context.WithValue(ctx, principalKey, Principal{Kind: AuthKindOIDC, Claims: &claims}), nil
+		}
+		tokenID, err := verifyBasicAuth(ctx, authz, st)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeUnauthenticated, err)
 		}
-		return context.WithValue(ctx, tokenIDKey, tokenID), nil
+		return context.WithValue(ctx, principalKey, Principal{Kind: AuthKindToken, TokenID: tokenID}), nil
 	}
 }
 

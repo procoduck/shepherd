@@ -169,9 +169,9 @@ func (s *Service) GetConfig(
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("resolving collector: %w", err))
 	}
 
-	orgID, err := s.store.Queries.GetCollectorOrgID(ctx, coll.ID)
+	orgID, err := s.resolveOrg(ctx, cluster, role, coll)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("resolving org: %w", err))
+		return nil, err
 	}
 
 	// Unclaimed cluster: serve empty config.
@@ -340,6 +340,83 @@ func (s *Service) upsertCollectorInstance(
 }
 
 // effectiveAttrs returns local_attributes, falling back to deprecated attributes if empty.
+// resolveOrg decides which org a request's config is served for, applying the
+// collector-OIDC resolution chain (docs/plans/2026-09-16-agent-oidc-auth.md D1):
+//
+//  1. An OIDC principal with an agent_identities binding on its (issuer,
+//     app_id): the binding's org, after enforcing its optional cluster/role
+//     allowlists, and auto-claiming the cluster to that org (refusing a
+//     cluster already claimed by another org).
+//  2. Anything else — an agent-token principal, or an OIDC principal with no
+//     binding: the existing model, where org comes from an admin cluster-claim
+//     (GetCollectorOrgID; an unclaimed cluster resolves to a null org and is
+//     served empty upstream).
+func (s *Service) resolveOrg(ctx context.Context, cluster, role string, coll sqlc.Collector) (pgtype.UUID, error) {
+	p := PrincipalFrom(ctx)
+	if p.Kind == AuthKindOIDC && p.Claims != nil {
+		binding, err := s.store.Queries.GetAgentIdentityByAppID(ctx, sqlc.GetAgentIdentityByAppIDParams{
+			Issuer: p.Claims.Issuer,
+			AppID:  p.Claims.AppID,
+		})
+		switch {
+		case err == nil:
+			return s.resolveBoundOrg(ctx, cluster, role, coll, binding)
+		case errors.Is(err, pgx.ErrNoRows):
+			// No binding: OIDC proved liveness only; fall through to the admin
+			// cluster-claim model below.
+		default:
+			return pgtype.UUID{}, connect.NewError(connect.CodeInternal, fmt.Errorf("resolving agent identity: %w", err))
+		}
+	}
+	orgID, err := s.store.Queries.GetCollectorOrgID(ctx, coll.ID)
+	if err != nil {
+		return pgtype.UUID{}, connect.NewError(connect.CodeInternal, fmt.Errorf("resolving org: %w", err))
+	}
+	return orgID, nil
+}
+
+// resolveBoundOrg enforces an agent_identities binding's cluster/role
+// allowlists and auto-claims the cluster to the binding's org.
+func (s *Service) resolveBoundOrg(ctx context.Context, cluster, role string, coll sqlc.Collector, binding sqlc.AgentIdentity) (pgtype.UUID, error) {
+	if !allowlistPermits(binding.Clusters, cluster) {
+		return pgtype.UUID{}, connect.NewError(connect.CodePermissionDenied,
+			fmt.Errorf("cluster %q is not permitted for this collector identity", cluster))
+	}
+	if !allowlistPermits(binding.Roles, role) {
+		return pgtype.UUID{}, connect.NewError(connect.CodePermissionDenied,
+			fmt.Errorf("role %q is not permitted for this collector identity", role))
+	}
+	// Bind the cluster to the identity's org, or confirm it is already ours.
+	// A cluster claimed by a different org matches no row (ErrNoRows) — a
+	// token can never take over another org's cluster by naming it.
+	claimed, err := s.store.Queries.ClaimClusterForOrg(ctx, sqlc.ClaimClusterForOrgParams{
+		ID:    coll.ClusterID,
+		OrgID: binding.OrgID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return pgtype.UUID{}, connect.NewError(connect.CodePermissionDenied,
+			fmt.Errorf("cluster %q is claimed by another organisation", cluster))
+	}
+	if err != nil {
+		return pgtype.UUID{}, connect.NewError(connect.CodeInternal, fmt.Errorf("claiming cluster: %w", err))
+	}
+	return claimed, nil
+}
+
+// allowlistPermits reports whether value is allowed by a jsonb string-array
+// allowlist. An empty (or absent) array means "any" — the deliberate default
+// so a binding without a cluster/role list is unrestricted within its org.
+func allowlistPermits(raw json.RawMessage, value string) bool {
+	if len(raw) == 0 {
+		return true
+	}
+	var list []string
+	if err := json.Unmarshal(raw, &list); err != nil || len(list) == 0 {
+		return true
+	}
+	return slices.Contains(list, value)
+}
+
 func effectiveAttrs(local, deprecated map[string]string) map[string]string {
 	if len(local) > 0 {
 		return local

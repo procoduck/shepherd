@@ -15,6 +15,18 @@ Categories used here:
 
 ### Added
 
+- **Collectors can authenticate with OIDC.** An Alloy collector may present an OAuth2 access
+  token from the same issuer as user SSO instead of the shared agent token — Alloy's `remotecfg`
+  block fetches and presents it natively (`oauth2 { ... }`), so no agent-side change is needed.
+  The token is claim-scoped: an `agent_identities` binding (`shepherd agent-identity create`)
+  maps the token's `(issuer, app id)` to an organisation, Shepherd auto-claims the collector's
+  cluster to that org on first poll, and refuses a cluster or role outside the binding's
+  allowlists or a cluster already claimed by another org. A collector with no binding falls back
+  to the existing admin cluster-claim, the OIDC token proving only liveness. Off by default;
+  turn it on with `config.oidc.agent_audience` (and, recommended, `agent_required_role`). Agent
+  tokens keep working unchanged. See docs/plans/2026-09-16-agent-oidc-auth.md. The beacon
+  self-monitoring path still uses the agent token for now (the next phase moves it to OIDC too).
+
 - **A Change password screen.** A local user whose password was defaulted or reset (bootstrap
   `admin`/`admin`, or any admin-created account) is sent to it at sign-in and cannot reach anything
   else until they set their own — the server has always enforced this, but the SPA had no screen for

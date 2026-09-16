@@ -261,6 +261,14 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 		beaconBaseURL = ""
 	}
 	svc := agentapi.New(st, v, logger, agentReg, agentapi.WithBeaconRemoteWrite(beaconBaseURL))
+	// The Bearer branch of the collector gate: a collector's OIDC access token
+	// is verified with the same provider as user login. nil when authHandler
+	// is absent (the route-tree unit test) or OIDC is unconfigured, which
+	// leaves the gate accepting only agent-token Basic auth.
+	var verifyAgentToken agentapi.AgentVerifier
+	if authHandler != nil {
+		verifyAgentToken = authHandler.VerifyAgentToken
+	}
 	// Authentication is a request gate: it runs on the headers alone, before
 	// the body is decompressed or decoded and before any interceptor. A
 	// refused call never reaches telemetry.Interceptor, so the gate is wrapped
@@ -268,7 +276,7 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 	// exactly the thing you want on a graph.
 	connectPath, connectHandler := collectorv1connect.NewCollectorServiceHandler(
 		svc,
-		connect.WithRequestGate(telemetry.RequestGate(agentapi.NewAuthGate(st))),
+		connect.WithRequestGate(telemetry.RequestGate(agentapi.NewAuthGate(st, verifyAgentToken))),
 		connect.WithInterceptors(telemetry.Interceptor()),
 	)
 	r.Mount(connectPath, connectHandler)

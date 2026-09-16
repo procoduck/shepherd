@@ -97,7 +97,7 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 
 		logger := slog.Default()
 		svc := agentapi.New(st, nil, logger, testSchemaRegistry())
-		authGate := agentapi.NewAuthGate(st)
+		authGate := agentapi.NewAuthGate(st, nil)
 		path, handler := collectorv1connect.NewCollectorServiceHandler(
 			svc,
 			connect.WithRequestGate(authGate),
@@ -384,7 +384,7 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 			hdr := "Basic " + base64.StdEncoding.EncodeToString([]byte(tok.ID.String()+":"+secret))
 
 			svc2 := agentapi.New(st2, nil, slog.Default(), nil)
-			authGate2 := agentapi.NewAuthGate(st2)
+			authGate2 := agentapi.NewAuthGate(st2, nil)
 			path2, handler2 := collectorv1connect.NewCollectorServiceHandler(svc2, connect.WithRequestGate(authGate2))
 			mux2 := http.NewServeMux()
 			mux2.Handle(path2, handler2)

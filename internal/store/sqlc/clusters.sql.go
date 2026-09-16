@@ -25,6 +25,30 @@ func (q *Queries) ClaimCluster(ctx context.Context, arg ClaimClusterParams) erro
 	return err
 }
 
+const claimClusterForOrg = `-- name: ClaimClusterForOrg :one
+UPDATE clusters SET org_id = $2, updated_at = now()
+WHERE id = $1 AND (org_id IS NULL OR org_id = $2)
+RETURNING org_id
+`
+
+type ClaimClusterForOrgParams struct {
+	ID    pgtype.UUID `json:"id"`
+	OrgID pgtype.UUID `json:"org_id"`
+}
+
+// Auto-claim for an OIDC-authenticated collector (agent OIDC, resolution
+// mode 1): bind the cluster to org $2 if it is unclaimed, and succeed
+// (idempotently) if it is already ours. A cluster claimed by a DIFFERENT org
+// matches no row and returns pgx.ErrNoRows, which the caller turns into a
+// cross-org PermissionDenied — the token can never silently reassign another
+// org's cluster.
+func (q *Queries) ClaimClusterForOrg(ctx context.Context, arg ClaimClusterForOrgParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, claimClusterForOrg, arg.ID, arg.OrgID)
+	var org_id pgtype.UUID
+	err := row.Scan(&org_id)
+	return org_id, err
+}
+
 const getClusterByID = `-- name: GetClusterByID :one
 SELECT id, name, org_id, created_at, updated_at FROM clusters WHERE id = $1
 `
