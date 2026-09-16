@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"unicode"
 
 	"shepherd/internal/beacon"
 	"shepherd/internal/store"
@@ -68,16 +69,38 @@ func (h *BeaconHandler) authenticate(ctx context.Context, authz string) (string,
 		if err != nil {
 			return "", errUnauthenticated
 		}
-		return "oidc:" + claims.Issuer + "|" + claims.Subject, nil
+		// Strip control characters from the verified claims before they become
+		// a stored key, a rate-limit key, and a log field. The issuer is an
+		// https URL and the subject comes from a signature-verified JWT, so
+		// this is belt-and-braces — but it stops a hostile IdP from smuggling a
+		// newline into the beacon key or the logs (CodeQL log-injection).
+		return "oidc:" + stripControl(claims.Issuer) + "|" + stripControl(claims.Subject), nil
 	}
 	tokenID, err := verifyBasicAuth(ctx, authz, h.store)
 	if err != nil {
 		return "", errUnauthenticated
 	}
-	return tokenID, nil
+	// tokenID is a validated UUID, but sanitising here too keeps `principal`
+	// provably free of control characters on every path into the logs.
+	return stripControl(tokenID), nil
 }
 
 var errUnauthenticated = errors.New("beacon: unauthenticated")
+
+// stripControl removes control runes (including CR and LF) so a value derived
+// from a token cannot inject into a log line or a stored key.
+func stripControl(s string) string {
+	// Explicit CR/LF replacement first (the recognised log-injection barrier),
+	// then drop any remaining control runes.
+	s = strings.ReplaceAll(s, "\n", "")
+	s = strings.ReplaceAll(s, "\r", "")
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
+}
 
 // ServeHTTP implements the G5 gate in one call path:
 //  1. reject an unauthenticated write (401) — half of G5, using the SAME
