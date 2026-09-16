@@ -58,4 +58,24 @@ describe('build-info plugin', () => {
     if (!plugin) throw new Error('no buildInfoPlugin in vite.config.ts');
     expect(plugin[1]).toMatch(/apply:\s*'build'/);
   });
+
+  it('never inherits git stderr — the Docker web stage has no git', () => {
+    // deploy/Dockerfile.local builds the SPA with no git in the context, so a
+    // bare execSync('git ...') printed "/bin/sh: 1: git: not found" into every
+    // image build. Every git call must silence the child's stderr.
+    const source = readFileSync(new URL('../../vite.config.ts', import.meta.url), 'utf8');
+    const plugin = /const buildInfoPlugin\s*=\s*\{([\s\S]*?)\n\};/.exec(source);
+    if (!plugin) throw new Error('no buildInfoPlugin in vite.config.ts');
+    const gitCalls = plugin[1].match(/execSync\([^)]*\)/g) ?? [];
+    expect(gitCalls.length).toBeGreaterThan(0);
+    for (const call of gitCalls) {
+      expect(call).toMatch(/stdio:\s*\[\s*'ignore'\s*,\s*'pipe'\s*,\s*'ignore'\s*\]/);
+    }
+  });
+
+  it('lets a caller inject the sha through the environment', () => {
+    const source = readFileSync(new URL('../../vite.config.ts', import.meta.url), 'utf8');
+    expect(source).toMatch(/process\.env\.SHEPHERD_BUILD_SHA/);
+    expect(source).toMatch(/process\.env\.SHEPHERD_BUILD_DIRTY/);
+  });
 });

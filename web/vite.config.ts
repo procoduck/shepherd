@@ -12,16 +12,33 @@ const buildInfoPlugin = {
   // end of every `make dev-frontend` session. src/api/devServer.test.ts pins it.
   apply: 'build' as const,
   closeBundle() {
+    // The Docker web stage (deploy/Dockerfile.local) builds the SPA with no
+    // git and no .git in the context, so these commands fail there — and
+    // execSync inherits the child's stderr, which printed "/bin/sh: 1: git:
+    // not found" into every image build. `stdio: ['ignore','pipe','ignore']`
+    // silences that; the catch still yields the fallback. A caller that has
+    // the sha (a build with git, or a --build-arg) can inject it through
+    // SHEPHERD_BUILD_SHA / SHEPHERD_BUILD_DIRTY instead, so the embedded
+    // BUILD_INFO carries a real sha for the runtime staleness check
+    // (internal/server/server.go) without shelling out at all.
+    const gitQuiet = (args: string) =>
+      execSync(args, { stdio: ['ignore', 'pipe', 'ignore'] })
+        .toString()
+        .trim();
+    const envSha = process.env.SHEPHERD_BUILD_SHA?.trim();
+    const envDirty = process.env.SHEPHERD_BUILD_DIRTY?.trim();
     const sha = (() => {
+      if (envSha) return envSha;
       try {
-        return execSync('git rev-parse --short HEAD').toString().trim();
+        return gitQuiet('git rev-parse --short HEAD');
       } catch {
         return 'dev';
       }
     })();
     const dirty = (() => {
+      if (envDirty) return envDirty === '1' || envDirty.toLowerCase() === 'true';
       try {
-        return execSync('git status --porcelain').toString().trim() !== '';
+        return gitQuiet('git status --porcelain') !== '';
       } catch {
         return true;
       }
