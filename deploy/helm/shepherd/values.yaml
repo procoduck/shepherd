@@ -132,6 +132,39 @@ config:
     # otherwise. Keep it on for Entra: the groups claim is dropped entirely
     # once a user is in more than ~200 groups.
     # use_graph_groups: true
+    #
+    # --- Collector (agent) OIDC (docs/plans/2026-09-16-agent-oidc-auth.md) ---
+    # Let an Alloy collector authenticate with an OIDC access token from this
+    # same issuer instead of the shared agent token. Off until agent_audience
+    # is set.
+    #
+    # agent_audience is the resource identifier a collector's access token must
+    # carry in `aud` — what separates a machine token from a user login token.
+    # It is the master switch.
+    # agent_audience: "api://shepherd-collectors"
+    #
+    # The grant gate (recommended): require the token to carry an app role or
+    # scope, so a valid token for the audience is not enough without the
+    # explicit collector permission (the IdP "app role bound to the API").
+    # agent_required_role: "Collector.Poll"
+    # agent_required_scope: ""
+    #
+    # Claim names. agent_app_claim identifies the calling client (default
+    # "sub"; often "azp"); agent_roles_claim is the roles claim ("roles" on
+    # Entra, "permissions" on Auth0); agent_clusters_claim, if set, lists the
+    # clusters a token may act for (empty = any within its org).
+    # agent_app_claim: "sub"
+    # agent_roles_claim: "roles"
+    # agent_clusters_claim: ""
+    #
+    # Beacon self-monitoring auth. "basic" (default) uses the agent token;
+    # "oauth2" makes the served beacon pipeline authenticate with the
+    # collector's own OIDC client credentials against agent_token_url. It is a
+    # whole-fleet choice — the served config is shared across a collector's
+    # instances.
+    # beacon_auth: "basic"
+    # agent_token_url: "https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token"
+    # agent_scopes: ["api://shepherd-collectors/.default"]
   auth:
     # session_ttl: how long a signed-in session stays valid before the user
     # must sign in again.
