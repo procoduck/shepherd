@@ -54,6 +54,12 @@ const (
 	// FleetServiceListAttributesProcedure is the fully-qualified name of the FleetService's
 	// ListAttributes RPC.
 	FleetServiceListAttributesProcedure = "/shepherd.mgmt.v1.FleetService/ListAttributes"
+	// FleetServiceSetCollectorLabelProcedure is the fully-qualified name of the FleetService's
+	// SetCollectorLabel RPC.
+	FleetServiceSetCollectorLabelProcedure = "/shepherd.mgmt.v1.FleetService/SetCollectorLabel"
+	// FleetServiceDeleteCollectorLabelProcedure is the fully-qualified name of the FleetService's
+	// DeleteCollectorLabel RPC.
+	FleetServiceDeleteCollectorLabelProcedure = "/shepherd.mgmt.v1.FleetService/DeleteCollectorLabel"
 )
 
 // FleetServiceClient is a client for the shepherd.mgmt.v1.FleetService service.
@@ -65,6 +71,8 @@ type FleetServiceClient interface {
 	CreateAssignment(context.Context, *connect.Request[v1.CreateAssignmentRequest]) (*connect.Response[v1.CreateAssignmentResponse], error)
 	DeleteAssignment(context.Context, *connect.Request[v1.DeleteAssignmentRequest]) (*connect.Response[v1.DeleteAssignmentResponse], error)
 	ListAttributes(context.Context, *connect.Request[v1.ListAttributesRequest]) (*connect.Response[v1.ListAttributesResponse], error)
+	SetCollectorLabel(context.Context, *connect.Request[v1.SetCollectorLabelRequest]) (*connect.Response[v1.CollectorLabelsResponse], error)
+	DeleteCollectorLabel(context.Context, *connect.Request[v1.DeleteCollectorLabelRequest]) (*connect.Response[v1.CollectorLabelsResponse], error)
 }
 
 // NewFleetServiceClient constructs a client for the shepherd.mgmt.v1.FleetService service. By
@@ -120,18 +128,32 @@ func NewFleetServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(fleetServiceMethods.ByName("ListAttributes")),
 			connect.WithClientOptions(opts...),
 		),
+		setCollectorLabel: connect.NewClient[v1.SetCollectorLabelRequest, v1.CollectorLabelsResponse](
+			httpClient,
+			baseURL+FleetServiceSetCollectorLabelProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("SetCollectorLabel")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteCollectorLabel: connect.NewClient[v1.DeleteCollectorLabelRequest, v1.CollectorLabelsResponse](
+			httpClient,
+			baseURL+FleetServiceDeleteCollectorLabelProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("DeleteCollectorLabel")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // fleetServiceClient implements FleetServiceClient.
 type fleetServiceClient struct {
-	listCollectors   *connect.Client[v1.ListCollectorsRequest, v1.ListCollectorsResponse]
-	getCollector     *connect.Client[v1.GetCollectorRequest, v1.Collector]
-	getServedConfig  *connect.Client[v1.GetServedConfigRequest, v1.GetServedConfigResponse]
-	listAssignments  *connect.Client[v1.ListAssignmentsRequest, v1.ListAssignmentsResponse]
-	createAssignment *connect.Client[v1.CreateAssignmentRequest, v1.CreateAssignmentResponse]
-	deleteAssignment *connect.Client[v1.DeleteAssignmentRequest, v1.DeleteAssignmentResponse]
-	listAttributes   *connect.Client[v1.ListAttributesRequest, v1.ListAttributesResponse]
+	listCollectors       *connect.Client[v1.ListCollectorsRequest, v1.ListCollectorsResponse]
+	getCollector         *connect.Client[v1.GetCollectorRequest, v1.Collector]
+	getServedConfig      *connect.Client[v1.GetServedConfigRequest, v1.GetServedConfigResponse]
+	listAssignments      *connect.Client[v1.ListAssignmentsRequest, v1.ListAssignmentsResponse]
+	createAssignment     *connect.Client[v1.CreateAssignmentRequest, v1.CreateAssignmentResponse]
+	deleteAssignment     *connect.Client[v1.DeleteAssignmentRequest, v1.DeleteAssignmentResponse]
+	listAttributes       *connect.Client[v1.ListAttributesRequest, v1.ListAttributesResponse]
+	setCollectorLabel    *connect.Client[v1.SetCollectorLabelRequest, v1.CollectorLabelsResponse]
+	deleteCollectorLabel *connect.Client[v1.DeleteCollectorLabelRequest, v1.CollectorLabelsResponse]
 }
 
 // ListCollectors calls shepherd.mgmt.v1.FleetService.ListCollectors.
@@ -169,6 +191,16 @@ func (c *fleetServiceClient) ListAttributes(ctx context.Context, req *connect.Re
 	return c.listAttributes.CallUnary(ctx, req)
 }
 
+// SetCollectorLabel calls shepherd.mgmt.v1.FleetService.SetCollectorLabel.
+func (c *fleetServiceClient) SetCollectorLabel(ctx context.Context, req *connect.Request[v1.SetCollectorLabelRequest]) (*connect.Response[v1.CollectorLabelsResponse], error) {
+	return c.setCollectorLabel.CallUnary(ctx, req)
+}
+
+// DeleteCollectorLabel calls shepherd.mgmt.v1.FleetService.DeleteCollectorLabel.
+func (c *fleetServiceClient) DeleteCollectorLabel(ctx context.Context, req *connect.Request[v1.DeleteCollectorLabelRequest]) (*connect.Response[v1.CollectorLabelsResponse], error) {
+	return c.deleteCollectorLabel.CallUnary(ctx, req)
+}
+
 // FleetServiceHandler is an implementation of the shepherd.mgmt.v1.FleetService service.
 type FleetServiceHandler interface {
 	ListCollectors(context.Context, *connect.Request[v1.ListCollectorsRequest]) (*connect.Response[v1.ListCollectorsResponse], error)
@@ -178,6 +210,8 @@ type FleetServiceHandler interface {
 	CreateAssignment(context.Context, *connect.Request[v1.CreateAssignmentRequest]) (*connect.Response[v1.CreateAssignmentResponse], error)
 	DeleteAssignment(context.Context, *connect.Request[v1.DeleteAssignmentRequest]) (*connect.Response[v1.DeleteAssignmentResponse], error)
 	ListAttributes(context.Context, *connect.Request[v1.ListAttributesRequest]) (*connect.Response[v1.ListAttributesResponse], error)
+	SetCollectorLabel(context.Context, *connect.Request[v1.SetCollectorLabelRequest]) (*connect.Response[v1.CollectorLabelsResponse], error)
+	DeleteCollectorLabel(context.Context, *connect.Request[v1.DeleteCollectorLabelRequest]) (*connect.Response[v1.CollectorLabelsResponse], error)
 }
 
 // NewFleetServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -229,6 +263,18 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(fleetServiceMethods.ByName("ListAttributes")),
 		connect.WithHandlerOptions(opts...),
 	)
+	fleetServiceSetCollectorLabelHandler := connect.NewUnaryHandler(
+		FleetServiceSetCollectorLabelProcedure,
+		svc.SetCollectorLabel,
+		connect.WithSchema(fleetServiceMethods.ByName("SetCollectorLabel")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fleetServiceDeleteCollectorLabelHandler := connect.NewUnaryHandler(
+		FleetServiceDeleteCollectorLabelProcedure,
+		svc.DeleteCollectorLabel,
+		connect.WithSchema(fleetServiceMethods.ByName("DeleteCollectorLabel")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/shepherd.mgmt.v1.FleetService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case FleetServiceListCollectorsProcedure:
@@ -245,6 +291,10 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 			fleetServiceDeleteAssignmentHandler.ServeHTTP(w, r)
 		case FleetServiceListAttributesProcedure:
 			fleetServiceListAttributesHandler.ServeHTTP(w, r)
+		case FleetServiceSetCollectorLabelProcedure:
+			fleetServiceSetCollectorLabelHandler.ServeHTTP(w, r)
+		case FleetServiceDeleteCollectorLabelProcedure:
+			fleetServiceDeleteCollectorLabelHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -280,4 +330,12 @@ func (UnimplementedFleetServiceHandler) DeleteAssignment(context.Context, *conne
 
 func (UnimplementedFleetServiceHandler) ListAttributes(context.Context, *connect.Request[v1.ListAttributesRequest]) (*connect.Response[v1.ListAttributesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.FleetService.ListAttributes is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) SetCollectorLabel(context.Context, *connect.Request[v1.SetCollectorLabelRequest]) (*connect.Response[v1.CollectorLabelsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.FleetService.SetCollectorLabel is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) DeleteCollectorLabel(context.Context, *connect.Request[v1.DeleteCollectorLabelRequest]) (*connect.Response[v1.CollectorLabelsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.FleetService.DeleteCollectorLabel is not implemented"))
 }

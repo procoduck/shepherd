@@ -10,13 +10,8 @@
  * ships: UI enable -> next real agent poll -> served-config recompute ->
  * agent applies -> agent reports status -> UI reflects it.
  *
- * The collector detail page has no `data-testid="collector-status"` yet
- * (grepped web/src — the page-level status badge at the top of
- * CollectorDetailPage.tsx carries none). This spec locates it structurally
- * instead (the lone <span> under the header's `.flex.items-start
- * .justify-between` row) rather than widening this workstream's territory
- * into web/src; see this run's cross-cutting notes for the one-line testid
- * addition that would let a future spec use getByTestId directly.
+ * Locate the page-level status badge by its stable test ID so adding
+ * collector controls does not break the convergence assertion.
  *
  * Red run (recorded, not re-run by CI):
  *   Control-level: in internal/agentapi/service.go, comment out the
@@ -146,11 +141,9 @@ test.describe('rollout: real fleet convergence', () => {
 
       await page.goto(`/collectors/${metricsCollector.id}`);
       await page.waitForLoadState('networkidle');
-      // Structural locator for the page-level status badge — see the file
-      // doc comment for why this isn't getByTestId('collector-status') yet.
       // The convergence wait above already did the hard part; this just
       // confirms the UI the task actually names reflects the same state.
-      const statusBadge = page.locator('div.flex.items-start.justify-between > span').first();
+      const statusBadge = page.getByTestId('collector-status');
       await expect(statusBadge).toHaveText('APPLIED', { timeout: 20000 });
     } finally {
       await page.request.delete(`/api/orgs/${orgId}/pipelines/${pipeline.id}`, {

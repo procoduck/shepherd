@@ -79,7 +79,7 @@ SELECT * FROM collector_instances WHERE id = $1;
 -- Status, last-seen, and version of the most recently reporting live
 -- instance for a collector, in a single round trip (used by the collector
 -- list endpoint instead of N per-row status-only lookups).
-SELECT remote_config_status, last_seen, alloy_version FROM collector_instances
+SELECT remote_config_status, last_seen, alloy_version, local_attributes FROM collector_instances
 WHERE collector_id = $1 AND unregistered_at IS NULL
 ORDER BY last_seen DESC
 LIMIT 1;

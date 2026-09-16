@@ -11,6 +11,18 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
+## Unreleased
+
+### Added
+
+- **Collector inventory labels — Shipped.** Attach free-form key/value labels to a collector from
+  the UI (the Collectors list and a collector's detail page) to filter and group the fleet, without
+  touching the Alloy-reported attributes or the labels the merge engine matches pipelines against.
+  Keys normalise to lowercase `[a-z0-9._/-]` (1–128 bytes); values are 1–512 bytes with no control
+  or format characters; a collector is capped at 64 labels — enforced both in the handler and by a
+  database CHECK, so a direct-SQL path cannot bypass it. Every set and delete is audited with the
+  key and the prior value. App-admin with apply capability. Migration `0023_collector_labels`.
+
 ## v0.8.0
 
 Chart 0.12.0. The headline is **collector authentication with OIDC**: an Alloy collector can now

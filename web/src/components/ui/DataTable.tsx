@@ -27,6 +27,7 @@ export function DataTable<T>({
   rowProps,
   scrollX,
   testId,
+  ariaLabelledBy,
 }: {
   columns: DataTableColumn<T>[];
   rows: T[];
@@ -37,13 +38,14 @@ export function DataTable<T>({
   rowProps?: (row: T) => Record<string, unknown>;
   scrollX?: boolean;
   testId?: string;
+  ariaLabelledBy?: string;
 }) {
   return (
     <div
       data-testid={testId}
       className={`rounded-lg border border-border overflow-hidden${scrollX ? ' overflow-x-auto' : ''}`}
     >
-      <table className='w-full text-sm'>
+      <table className='w-full text-sm' aria-labelledby={ariaLabelledBy}>
         <thead className='bg-card text-muted'>
           <tr>
             {columns.map((c) => (

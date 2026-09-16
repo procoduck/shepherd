@@ -126,6 +126,141 @@ var _ = Describe("shepherd.mgmt.v1.FleetService RPC", Label("integration"), func
 		Expect(item["cluster"]).To(Equal("fleet-rpc-cluster"))
 	})
 
+	It("persists grouping labels independently of reported Alloy attributes", func() {
+		cluster, err := st.Queries.UpsertCluster(ctx, "labels-cluster")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgID})).To(Succeed())
+		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+		Expect(err).NotTo(HaveOccurred())
+		cookie := createSession(false, []string{"fleet-admin-group"})
+		for key, value := range map[string]string{"team": "payments", "environment": "production"} {
+			resp := postConnect("/shepherd.mgmt.v1.FleetService/SetCollectorLabel", map[string]any{
+				"orgId": orgID.String(), "collectorId": collector.ID.String(), "key": key, "value": value,
+			}, cookie)
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			decodeBody(resp)
+		}
+		// The same upserts used on each Alloy poll must not overwrite UI labels.
+		_, err = st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+		Expect(err).NotTo(HaveOccurred())
+		_, err = st.Queries.UpsertCollectorInstance(ctx, sqlc.UpsertCollectorInstanceParams{
+			ID: "labels-instance", CollectorID: collector.ID, Name: "node-a",
+			LocalAttributes: json.RawMessage(`{"team":"alloy-team","custom.attribute":"visible"}`),
+		})
+		Expect(err).NotTo(HaveOccurred())
+		readCookie := createSession(false, []string{"fleet-reader-group"})
+		resp := postConnect("/shepherd.mgmt.v1.FleetService/GetCollector", map[string]any{
+			"orgId": orgID.String(), "id": collector.ID.String(),
+		}, readCookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		payload := decodeBody(resp)
+		Expect(payload["labels"]).To(HaveKeyWithValue("team", "payments"))
+		Expect(payload["localAttributes"]).To(HaveKeyWithValue("team", "alloy-team"))
+		Expect(payload["localAttributes"]).To(HaveKeyWithValue("custom.attribute", "visible"))
+		resp = postConnect("/shepherd.mgmt.v1.FleetService/ListCollectors", map[string]any{"orgId": orgID.String()}, readCookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		items, ok := decodeBody(resp)["items"].([]any)
+		Expect(ok).To(BeTrue())
+		Expect(items).To(HaveLen(1))
+		Expect(items[0]).NotTo(HaveKey("localAttributes"), "list responses omit lossy dynamic attributes; detail retains them")
+		Expect(items[0]).To(HaveKeyWithValue("labels", HaveKeyWithValue("team", "payments")))
+		resp = postConnect("/shepherd.mgmt.v1.FleetService/SetCollectorLabel", map[string]any{
+			"orgId": orgID.String(), "collectorId": collector.ID.String(), "key": "team", "value": "platform",
+		}, cookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		Expect(decodeBody(resp)["labels"]).To(HaveKeyWithValue("team", "platform"))
+		resp = postConnect("/shepherd.mgmt.v1.FleetService/DeleteCollectorLabel", map[string]any{
+			"orgId": orgID.String(), "collectorId": collector.ID.String(), "key": "team",
+		}, cookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		labels := decodeBody(resp)["labels"]
+		Expect(labels).NotTo(HaveKey("team"))
+		Expect(labels).To(HaveKeyWithValue("environment", "production"))
+	})
+
+	It("rejects invalid label keys and prevents reader and cross-org label writes", func() {
+		cluster, err := st.Queries.UpsertCluster(ctx, "labels-permissions")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgID})).To(Succeed())
+		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+		Expect(err).NotTo(HaveOccurred())
+		request := map[string]any{"orgId": orgID.String(), "collectorId": collector.ID.String(), "key": "team", "value": "payments"}
+		for _, method := range []string{"SetCollectorLabel", "DeleteCollectorLabel"} {
+			body := map[string]any{"orgId": orgID.String(), "collectorId": collector.ID.String(), "key": "team"}
+			resp := postConnect("/shepherd.mgmt.v1.FleetService/"+method, body, createSession(false, []string{"fleet-reader-group"}))
+			Expect(resp.StatusCode).To(Equal(http.StatusForbidden))
+			decodeBody(resp)
+			body["orgId"] = "00000000-0000-0000-0000-000000000001"
+			resp = postConnect("/shepherd.mgmt.v1.FleetService/"+method, body, createSession(true, nil))
+			Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+			decodeBody(resp)
+		}
+		for _, key := range []string{"", "bad key", "bad:key", strings.Repeat("k", 129)} {
+			request["key"] = key
+			resp := postConnect("/shepherd.mgmt.v1.FleetService/SetCollectorLabel", request, createSession(true, nil))
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+			decodeBody(resp)
+			resp = postConnect("/shepherd.mgmt.v1.FleetService/DeleteCollectorLabel", map[string]any{
+				"orgId": orgID.String(), "collectorId": collector.ID.String(), "key": key,
+			}, createSession(true, nil))
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+			decodeBody(resp)
+		}
+		request["key"] = "team"
+		for _, value := range []string{"", strings.Repeat("v", 513), "hidden\u200bvalue"} {
+			request["value"] = value
+			resp := postConnect("/shepherd.mgmt.v1.FleetService/SetCollectorLabel", request, createSession(true, nil))
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+			decodeBody(resp)
+		}
+	})
+
+	It("normalizes label keys and enforces the per-collector label cap", func() {
+		cluster, err := st.Queries.UpsertCluster(ctx, "labels-cap")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgID})).To(Succeed())
+		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+		Expect(err).NotTo(HaveOccurred())
+		cookie := createSession(false, []string{"fleet-admin-group"})
+		for i := range 64 {
+			resp := postConnect("/shepherd.mgmt.v1.FleetService/SetCollectorLabel", map[string]any{
+				"orgId": orgID.String(), "collectorId": collector.ID.String(), "key": fmt.Sprintf("key-%02d", i), "value": "set",
+			}, cookie)
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			decodeBody(resp)
+		}
+		resp := postConnect("/shepherd.mgmt.v1.FleetService/SetCollectorLabel", map[string]any{
+			"orgId": orgID.String(), "collectorId": collector.ID.String(), "key": "KEY-00", "value": "updated",
+		}, cookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		Expect(decodeBody(resp)["labels"]).To(HaveKeyWithValue("key-00", "updated"))
+
+		// A value change is auditable on its own: labels are not versioned, so
+		// the audit row is the only record of what the value was and became.
+		auditRows, err := st.Queries.ListAuditLog(ctx, sqlc.ListAuditLogParams{Limit: 100})
+		Expect(err).NotTo(HaveOccurred())
+		var setDetail map[string]string
+		for i := range auditRows {
+			if auditRows[i].Action != "collector.label.set" {
+				continue
+			}
+			var d map[string]string
+			if json.Unmarshal(auditRows[i].Detail, &d) == nil && d["key"] == "key-00" && d["value"] == "updated" {
+				setDetail = d
+				break
+			}
+		}
+		Expect(setDetail).NotTo(BeNil(), "expected an audit row for the key-00 value update")
+		Expect(setDetail).To(HaveKeyWithValue("value", "updated"))
+		Expect(setDetail).To(HaveKeyWithValue("previous_value", "set"))
+
+		resp = postConnect("/shepherd.mgmt.v1.FleetService/SetCollectorLabel", map[string]any{
+			"orgId": orgID.String(), "collectorId": collector.ID.String(), "key": "overflow", "value": "refused",
+		}, cookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusTooManyRequests))
+		decodeBody(resp)
+	})
+
 	It("scopes ListCollectors to the requested org for an app-admin session, not every org", func() {
 		cluster, err := st.Queries.UpsertCluster(ctx, "fleet-rpc-cluster")
 		Expect(err).NotTo(HaveOccurred())

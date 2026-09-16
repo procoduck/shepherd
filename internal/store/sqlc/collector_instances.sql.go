@@ -92,7 +92,7 @@ func (q *Queries) GetCollectorInstanceByID(ctx context.Context, id string) (Coll
 }
 
 const getLatestCollectorInstanceSummary = `-- name: GetLatestCollectorInstanceSummary :one
-SELECT remote_config_status, last_seen, alloy_version FROM collector_instances
+SELECT remote_config_status, last_seen, alloy_version, local_attributes FROM collector_instances
 WHERE collector_id = $1 AND unregistered_at IS NULL
 ORDER BY last_seen DESC
 LIMIT 1
@@ -102,6 +102,7 @@ type GetLatestCollectorInstanceSummaryRow struct {
 	RemoteConfigStatus pgtype.Text        `json:"remote_config_status"`
 	LastSeen           pgtype.Timestamptz `json:"last_seen"`
 	AlloyVersion       pgtype.Text        `json:"alloy_version"`
+	LocalAttributes    json.RawMessage    `json:"local_attributes"`
 }
 
 // Status, last-seen, and version of the most recently reporting live
@@ -110,7 +111,12 @@ type GetLatestCollectorInstanceSummaryRow struct {
 func (q *Queries) GetLatestCollectorInstanceSummary(ctx context.Context, collectorID pgtype.UUID) (GetLatestCollectorInstanceSummaryRow, error) {
 	row := q.db.QueryRow(ctx, getLatestCollectorInstanceSummary, collectorID)
 	var i GetLatestCollectorInstanceSummaryRow
-	err := row.Scan(&i.RemoteConfigStatus, &i.LastSeen, &i.AlloyVersion)
+	err := row.Scan(
+		&i.RemoteConfigStatus,
+		&i.LastSeen,
+		&i.AlloyVersion,
+		&i.LocalAttributes,
+	)
 	return i, err
 }
 

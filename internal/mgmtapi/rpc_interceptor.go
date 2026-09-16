@@ -73,13 +73,15 @@ var procedureRequirements = map[string]string{
 	mgmtv1connect.UserServiceRemoveOrgMemberProcedure:   auth.RoleAppAdmin,
 
 	// FleetService — org reader for reads, org admin for writes.
-	mgmtv1connect.FleetServiceListCollectorsProcedure:   auth.RoleOrgReader,
-	mgmtv1connect.FleetServiceGetCollectorProcedure:     auth.RoleOrgReader,
-	mgmtv1connect.FleetServiceGetServedConfigProcedure:  auth.RoleOrgReader,
-	mgmtv1connect.FleetServiceListAttributesProcedure:   auth.RoleOrgReader,
-	mgmtv1connect.FleetServiceListAssignmentsProcedure:  auth.RoleOrgAdmin,
-	mgmtv1connect.FleetServiceCreateAssignmentProcedure: auth.RoleOrgAdmin,
-	mgmtv1connect.FleetServiceDeleteAssignmentProcedure: auth.RoleOrgAdmin,
+	mgmtv1connect.FleetServiceListCollectorsProcedure:       auth.RoleOrgReader,
+	mgmtv1connect.FleetServiceGetCollectorProcedure:         auth.RoleOrgReader,
+	mgmtv1connect.FleetServiceGetServedConfigProcedure:      auth.RoleOrgReader,
+	mgmtv1connect.FleetServiceListAttributesProcedure:       auth.RoleOrgReader,
+	mgmtv1connect.FleetServiceListAssignmentsProcedure:      auth.RoleOrgAdmin,
+	mgmtv1connect.FleetServiceCreateAssignmentProcedure:     auth.RoleOrgAdmin,
+	mgmtv1connect.FleetServiceDeleteAssignmentProcedure:     auth.RoleOrgAdmin,
+	mgmtv1connect.FleetServiceSetCollectorLabelProcedure:    auth.RoleOrgAdmin,
+	mgmtv1connect.FleetServiceDeleteCollectorLabelProcedure: auth.RoleOrgAdmin,
 
 	// PipelineService — org reader for reads. Writes
 	// (create/update/delete/enable/disable) are ALSO gated at org-reader
@@ -229,8 +231,10 @@ var capabilityRequirements = map[string]string{
 	mgmtv1connect.UserServiceSetOrgMemberProcedure:      capabilityApply,
 	mgmtv1connect.UserServiceRemoveOrgMemberProcedure:   capabilityApply,
 
-	mgmtv1connect.FleetServiceCreateAssignmentProcedure: capabilityApply,
-	mgmtv1connect.FleetServiceDeleteAssignmentProcedure: capabilityApply,
+	mgmtv1connect.FleetServiceCreateAssignmentProcedure:     capabilityApply,
+	mgmtv1connect.FleetServiceDeleteAssignmentProcedure:     capabilityApply,
+	mgmtv1connect.FleetServiceSetCollectorLabelProcedure:    capabilityApply,
+	mgmtv1connect.FleetServiceDeleteCollectorLabelProcedure: capabilityApply,
 
 	mgmtv1connect.PipelineServiceCreatePipelineProcedure:   capabilityApply,
 	mgmtv1connect.PipelineServiceUpdatePipelineProcedure:   capabilityApply,
