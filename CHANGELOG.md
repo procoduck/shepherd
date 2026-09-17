@@ -22,6 +22,14 @@ Categories used here:
   `VisualService.DiffRevisions` RPC (org-reader). Layout-only moves are ignored. Restoring stays the
   text editor's job for now. _Shipped._ (#118)
 
+- **Experimental components are a per-org opt-in.** The visual builder gated experimental Alloy
+  components behind a flag that was hardcoded off, with no way to permit them and only a client-side
+  check. It is now a real org setting (`orgs.allow_experimental_components`, off by default) with an
+  **authoritative server-side render gate**: `VisualService.Render`/`Validate` refuse a graph that
+  uses an experimental component unless the org has opted in. An app admin flips it per org on the
+  Organisations page, and the builder's palette then offers experimental components for that org.
+  One additive migration (`0024`); existing orgs keep the prior behaviour. _Shipped._ (#114)
+
 - **Tenant routes: the create form now asks for a gateway name in both modes.** It only collected
   the gateway name in operator mode, but the server requires it for a managed route too (it names
   the Gateway Shepherd creates), so the default managed-mode create was rejected. The field is now

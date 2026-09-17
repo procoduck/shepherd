@@ -99,6 +99,11 @@ type ComponentSchema struct { //nolint:revive
 	Blocks     []BlockSchema     `json:"blocks"`
 	Inputs     []PortSchema      `json:"inputs"`
 	Outputs    []PortSchema      `json:"outputs"`
+	// Stability is the component's maturity: "ga", "public-preview", or
+	// "experimental" (#114). The visual builder hides experimental components
+	// unless the org opts in, and the server refuses to render a graph that uses
+	// one without that opt-in. Empty is treated as GA (not experimental).
+	Stability string `json:"stability"`
 }
 
 type AttributeSchema struct { //nolint:revive

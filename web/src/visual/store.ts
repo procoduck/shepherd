@@ -217,6 +217,10 @@ interface VisualStore {
   removeMatcher: (index: number) => void;
   /** Seeds name+matchers together, e.g. after loading an existing pipeline. */
   setPipelineMeta: (name: string, matchers: string[]) => void;
+  /** Sets whether experimental components are permitted (#114), from the org
+   *  setting. Re-runs validation so a graph loaded before the flag arrived is
+   *  re-gated against it. */
+  setAllowExperimental: (allow: boolean) => void;
   setSimHealthByNode: (health: Record<string, SimHealthEntry> | null) => void;
 }
 
@@ -574,6 +578,13 @@ export const useVisualStore = create<VisualStore>()(
         set((state) => ({ matchers: state.matchers.filter((_, i) => i !== index) })),
 
       setPipelineMeta: (pipelineName, matchers) => set({ pipelineName, matchers }),
+
+      setAllowExperimental: (allowExperimental) =>
+        set((state) =>
+          state.allowExperimental === allowExperimental
+            ? state
+            : { allowExperimental, diagnostics: revalidate({ ...state, allowExperimental }) },
+        ),
 
       setSimHealthByNode: (simHealthByNode) => set({ simHealthByNode }),
     }),

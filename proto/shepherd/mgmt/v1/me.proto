@@ -24,6 +24,10 @@ message OrgMembership {
   // session came from. Kept as a string rather than an enum so the legacy JSON
   // value is unchanged.
   string role = 4;
+  // allow_experimental_components mirrors the org setting (#114) so the visual
+  // builder can show experimental components in the palette for a permitted
+  // org. The server render gate is authoritative regardless of this value.
+  bool allow_experimental_components = 5;
 }
 
 // GetMeResponse mirrors internal/mgmtapi/orgs.go: meResponse.

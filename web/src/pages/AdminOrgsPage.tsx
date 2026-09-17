@@ -89,6 +89,7 @@ export function AdminOrgsPage() {
     adminGroupId: '',
     editorGroupId: '',
     readerGroupId: '',
+    allowExperimentalComponents: false,
   });
   const [deleteOrg, setDeleteOrg] = useState<Org | null>(null);
 
@@ -145,6 +146,7 @@ export function AdminOrgsPage() {
       adminGroupId: o.adminGroupId,
       editorGroupId: o.editorGroupId,
       readerGroupId: o.readerGroupId,
+      allowExperimentalComponents: o.allowExperimentalComponents,
     });
   }
 
@@ -313,6 +315,25 @@ export function AdminOrgsPage() {
                 mono
               />
             </Field>
+            <label className='flex items-start gap-2 text-sm'>
+              <input
+                type='checkbox'
+                data-testid='org-allow-experimental'
+                checked={editForm.allowExperimentalComponents}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, allowExperimentalComponents: e.target.checked }))
+                }
+                className='mt-0.5'
+              />
+              <span>
+                <span className='text-zinc-200'>Allow experimental components</span>
+                <span className='block text-xs text-muted-2'>
+                  Lets this org use experimental Alloy components in the visual builder. Off by
+                  default — the builder hides them and the server refuses to render a graph that
+                  uses one.
+                </span>
+              </span>
+            </label>
             <AdminModalActions
               onCancel={() => setEditOrg(null)}
               submitLabel='Save'

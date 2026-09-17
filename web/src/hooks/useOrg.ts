@@ -7,6 +7,10 @@ export interface OrgSummary {
   name: string;
   displayName: string;
   role: string;
+  // allowExperimentalComponents mirrors the org setting (#114): whether the
+  // visual builder may offer experimental Alloy components. The server render
+  // gate is authoritative regardless.
+  allowExperimentalComponents: boolean;
 }
 
 export const ORG_STORAGE_KEY = 'shepherd.orgId';

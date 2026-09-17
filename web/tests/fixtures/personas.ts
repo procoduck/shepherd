@@ -9,7 +9,14 @@ export interface MeResponse {
   displayName: string;
   isAppAdmin: boolean;
   authMethod: string;
-  orgs: Array<{ id: string; name: string; displayName: string; role: string }>;
+  orgs: Array<{
+    id: string;
+    name: string;
+    displayName: string;
+    role: string;
+    // #114: mirrors the org setting; absent means false (proto3 default).
+    allowExperimentalComponents?: boolean;
+  }>;
 }
 
 export const appAdmin: MeResponse = {

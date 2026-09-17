@@ -69,9 +69,13 @@ type OrgMembership struct {
 	// admin/editor/reader group), so the UI does not have to know which path the
 	// session came from. Kept as a string rather than an enum so the legacy JSON
 	// value is unchanged.
-	Role          string `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Role string `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
+	// allow_experimental_components mirrors the org setting (#114) so the visual
+	// builder can show experimental components in the palette for a permitted
+	// org. The server render gate is authoritative regardless of this value.
+	AllowExperimentalComponents bool `protobuf:"varint,5,opt,name=allow_experimental_components,json=allowExperimentalComponents,proto3" json:"allow_experimental_components,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *OrgMembership) Reset() {
@@ -130,6 +134,13 @@ func (x *OrgMembership) GetRole() string {
 		return x.Role
 	}
 	return ""
+}
+
+func (x *OrgMembership) GetAllowExperimentalComponents() bool {
+	if x != nil {
+		return x.AllowExperimentalComponents
+	}
+	return false
 }
 
 // GetMeResponse mirrors internal/mgmtapi/orgs.go: meResponse.
@@ -223,12 +234,13 @@ var File_shepherd_mgmt_v1_me_proto protoreflect.FileDescriptor
 const file_shepherd_mgmt_v1_me_proto_rawDesc = "" +
 	"\n" +
 	"\x19shepherd/mgmt/v1/me.proto\x12\x10shepherd.mgmt.v1\"\x0e\n" +
-	"\fGetMeRequest\"j\n" +
+	"\fGetMeRequest\"\xae\x01\n" +
 	"\rOrgMembership\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12!\n" +
 	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\x12\x12\n" +
-	"\x04role\x18\x04 \x01(\tR\x04role\"\xdb\x01\n" +
+	"\x04role\x18\x04 \x01(\tR\x04role\x12B\n" +
+	"\x1dallow_experimental_components\x18\x05 \x01(\bR\x1ballowExperimentalComponents\"\xdb\x01\n" +
 	"\rGetMeResponse\x12\x19\n" +
 	"\buser_oid\x18\x01 \x01(\tR\auserOid\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12!\n" +

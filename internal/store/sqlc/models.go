@@ -172,15 +172,16 @@ type OidcSetting struct {
 }
 
 type Org struct {
-	ID            pgtype.UUID        `json:"id"`
-	Name          string             `json:"name"`
-	DisplayName   string             `json:"display_name"`
-	AdminGroupID  string             `json:"admin_group_id"`
-	ReaderGroupID pgtype.Text        `json:"reader_group_id"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
-	TenantID      pgtype.Text        `json:"tenant_id"`
-	EditorGroupID pgtype.Text        `json:"editor_group_id"`
+	ID                          pgtype.UUID        `json:"id"`
+	Name                        string             `json:"name"`
+	DisplayName                 string             `json:"display_name"`
+	AdminGroupID                string             `json:"admin_group_id"`
+	ReaderGroupID               pgtype.Text        `json:"reader_group_id"`
+	CreatedAt                   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt                   pgtype.Timestamptz `json:"updated_at"`
+	TenantID                    pgtype.Text        `json:"tenant_id"`
+	EditorGroupID               pgtype.Text        `json:"editor_group_id"`
+	AllowExperimentalComponents bool               `json:"allow_experimental_components"`
 }
 
 type OrgMember struct {

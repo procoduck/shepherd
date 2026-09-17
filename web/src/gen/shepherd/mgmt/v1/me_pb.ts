@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file shepherd/mgmt/v1/me.proto.
  */
 export const file_shepherd_mgmt_v1_me: GenFile = /*@__PURE__*/
-  fileDesc("ChlzaGVwaGVyZC9tZ210L3YxL21lLnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIg4KDEdldE1lUmVxdWVzdCJNCg1PcmdNZW1iZXJzaGlwEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSFAoMZGlzcGxheV9uYW1lGAMgASgJEgwKBHJvbGUYBCABKAkioAEKDUdldE1lUmVzcG9uc2USEAoIdXNlcl9vaWQYASABKAkSDQoFZW1haWwYAiABKAkSFAoMZGlzcGxheV9uYW1lGAMgASgJEhQKDGlzX2FwcF9hZG1pbhgEIAEoCBITCgthdXRoX21ldGhvZBgFIAEoCRItCgRvcmdzGAYgAygLMh8uc2hlcGhlcmQubWdtdC52MS5PcmdNZW1iZXJzaGlwMlcKCU1lU2VydmljZRJKCgVHZXRNZRIeLnNoZXBoZXJkLm1nbXQudjEuR2V0TWVSZXF1ZXN0Gh8uc2hlcGhlcmQubWdtdC52MS5HZXRNZVJlc3BvbnNlIgBCJlokc2hlcGhlcmQvZ2VuL3NoZXBoZXJkL21nbXQvdjE7bWdtdHYxYgZwcm90bzM");
+  fileDesc("ChlzaGVwaGVyZC9tZ210L3YxL21lLnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIg4KDEdldE1lUmVxdWVzdCJ0Cg1PcmdNZW1iZXJzaGlwEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSFAoMZGlzcGxheV9uYW1lGAMgASgJEgwKBHJvbGUYBCABKAkSJQodYWxsb3dfZXhwZXJpbWVudGFsX2NvbXBvbmVudHMYBSABKAgioAEKDUdldE1lUmVzcG9uc2USEAoIdXNlcl9vaWQYASABKAkSDQoFZW1haWwYAiABKAkSFAoMZGlzcGxheV9uYW1lGAMgASgJEhQKDGlzX2FwcF9hZG1pbhgEIAEoCBITCgthdXRoX21ldGhvZBgFIAEoCRItCgRvcmdzGAYgAygLMh8uc2hlcGhlcmQubWdtdC52MS5PcmdNZW1iZXJzaGlwMlcKCU1lU2VydmljZRJKCgVHZXRNZRIeLnNoZXBoZXJkLm1nbXQudjEuR2V0TWVSZXF1ZXN0Gh8uc2hlcGhlcmQubWdtdC52MS5HZXRNZVJlc3BvbnNlIgBCJlokc2hlcGhlcmQvZ2VuL3NoZXBoZXJkL21nbXQvdjE7bWdtdHYxYgZwcm90bzM");
 
 /**
  * @generated from message shepherd.mgmt.v1.GetMeRequest
@@ -57,6 +57,15 @@ export type OrgMembership = Message<"shepherd.mgmt.v1.OrgMembership"> & {
    * @generated from field: string role = 4;
    */
   role: string;
+
+  /**
+   * allow_experimental_components mirrors the org setting (#114) so the visual
+   * builder can show experimental components in the palette for a permitted
+   * org. The server render gate is authoritative regardless of this value.
+   *
+   * @generated from field: bool allow_experimental_components = 5;
+   */
+  allowExperimentalComponents: boolean;
 };
 
 /**

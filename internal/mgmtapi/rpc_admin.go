@@ -73,6 +73,8 @@ func toOrgProto(o sqlc.Org) *mgmtv1.Org {
 		CreatedAt:     protoTimestamp(o.CreatedAt),
 		UpdatedAt:     protoTimestamp(o.UpdatedAt),
 		TenantId:      o.TenantID.String,
+
+		AllowExperimentalComponents: o.AllowExperimentalComponents,
 	}
 }
 
@@ -226,11 +228,12 @@ func (s *AdminService) UpdateOrg(ctx context.Context, req *connect.Request[mgmtv
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("admin_group_id required"))
 	}
 	o, err := s.store.Queries.UpdateOrg(ctx, sqlc.UpdateOrgParams{
-		ID:            id,
-		DisplayName:   msg.GetDisplayName(),
-		AdminGroupID:  msg.GetAdminGroupId(),
-		ReaderGroupID: pgtype.Text{String: msg.GetReaderGroupId(), Valid: msg.GetReaderGroupId() != ""},
-		EditorGroupID: pgtype.Text{String: msg.GetEditorGroupId(), Valid: msg.GetEditorGroupId() != ""},
+		ID:                          id,
+		DisplayName:                 msg.GetDisplayName(),
+		AdminGroupID:                msg.GetAdminGroupId(),
+		ReaderGroupID:               pgtype.Text{String: msg.GetReaderGroupId(), Valid: msg.GetReaderGroupId() != ""},
+		EditorGroupID:               pgtype.Text{String: msg.GetEditorGroupId(), Valid: msg.GetEditorGroupId() != ""},
+		AllowExperimentalComponents: msg.GetAllowExperimentalComponents(),
 	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to update org"))

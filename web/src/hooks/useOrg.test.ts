@@ -13,8 +13,20 @@ import {
 // replace it: the persisted-id <-> localStorage round trip, and the pure
 // fallback rule that ignores a stale/foreign persisted id.
 
-const orgA: OrgSummary = { id: 'org-a', name: 'a', displayName: 'Org A', role: 'admin' };
-const orgB: OrgSummary = { id: 'org-b', name: 'b', displayName: 'Org B', role: 'admin' };
+const orgA: OrgSummary = {
+  id: 'org-a',
+  name: 'a',
+  displayName: 'Org A',
+  role: 'admin',
+  allowExperimentalComponents: false,
+};
+const orgB: OrgSummary = {
+  id: 'org-b',
+  name: 'b',
+  displayName: 'Org B',
+  role: 'admin',
+  allowExperimentalComponents: false,
+};
 
 describe('resolveOrgId (pure fallback rule)', () => {
   it('keeps the persisted id when it names one of the orgs', () => {

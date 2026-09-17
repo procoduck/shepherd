@@ -81,6 +81,15 @@ export function VisualBuilderPage() {
       .catch(console.error);
   }, []); // run once on mount
 
+  // #114: mirror the org's experimental-components setting into the store so the
+  // palette offers experimental components only for a permitted org. The server
+  // render gate is authoritative regardless; this is UX. Re-runs when the
+  // resolved org changes (a multi-org pipeline load can switch orgId below).
+  useEffect(() => {
+    const org = orgs.find((o) => o.id === orgId);
+    useVisualStore.getState().setAllowExperimental(org?.allowExperimentalComponents ?? false);
+  }, [orgs, orgId]);
+
   useEffect(() => {
     if (pipelineId !== 'new') return;
     const stored = sessionStorage.getItem('vb:import-graph');

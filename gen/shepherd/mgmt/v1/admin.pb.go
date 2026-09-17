@@ -42,8 +42,13 @@ type Org struct {
 	// org IS (destinations, tenant routes, git credentials, teams). Empty means
 	// the org has no editor tier and only admins can author.
 	EditorGroupId string `protobuf:"bytes,9,opt,name=editor_group_id,json=editorGroupId,proto3" json:"editor_group_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// allow_experimental_components opts this org into experimental Alloy
+	// components in the visual builder (#114). Off by default: the builder hides
+	// experimental components in the palette and the server refuses to render a
+	// graph that uses one. Only an app admin flips it, via UpdateOrg.
+	AllowExperimentalComponents bool `protobuf:"varint,10,opt,name=allow_experimental_components,json=allowExperimentalComponents,proto3" json:"allow_experimental_components,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *Org) Reset() {
@@ -137,6 +142,13 @@ func (x *Org) GetEditorGroupId() string {
 		return x.EditorGroupId
 	}
 	return ""
+}
+
+func (x *Org) GetAllowExperimentalComponents() bool {
+	if x != nil {
+		return x.AllowExperimentalComponents
+	}
+	return false
 }
 
 type ListOrgsRequest struct {
@@ -327,8 +339,10 @@ type UpdateOrgRequest struct {
 	AdminGroupId  string `protobuf:"bytes,3,opt,name=admin_group_id,json=adminGroupId,proto3" json:"admin_group_id,omitempty"`
 	ReaderGroupId string `protobuf:"bytes,4,opt,name=reader_group_id,json=readerGroupId,proto3" json:"reader_group_id,omitempty"`
 	EditorGroupId string `protobuf:"bytes,5,opt,name=editor_group_id,json=editorGroupId,proto3" json:"editor_group_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// allow_experimental_components — see Org.allow_experimental_components (#114).
+	AllowExperimentalComponents bool `protobuf:"varint,6,opt,name=allow_experimental_components,json=allowExperimentalComponents,proto3" json:"allow_experimental_components,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *UpdateOrgRequest) Reset() {
@@ -394,6 +408,13 @@ func (x *UpdateOrgRequest) GetEditorGroupId() string {
 		return x.EditorGroupId
 	}
 	return ""
+}
+
+func (x *UpdateOrgRequest) GetAllowExperimentalComponents() bool {
+	if x != nil {
+		return x.AllowExperimentalComponents
+	}
+	return false
 }
 
 // SetOrgTenantIDRequest assigns an org's tenant identity when it was created
@@ -2745,7 +2766,7 @@ var File_shepherd_mgmt_v1_admin_proto protoreflect.FileDescriptor
 
 const file_shepherd_mgmt_v1_admin_proto_rawDesc = "" +
 	"\n" +
-	"\x1cshepherd/mgmt/v1/admin.proto\x12\x10shepherd.mgmt.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd5\x02\n" +
+	"\x1cshepherd/mgmt/v1/admin.proto\x12\x10shepherd.mgmt.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x99\x03\n" +
 	"\x03Org\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12!\n" +
@@ -2757,7 +2778,9 @@ const file_shepherd_mgmt_v1_admin_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x1b\n" +
 	"\ttenant_id\x18\b \x01(\tR\btenantId\x12&\n" +
-	"\x0feditor_group_id\x18\t \x01(\tR\reditorGroupId\"\x11\n" +
+	"\x0feditor_group_id\x18\t \x01(\tR\reditorGroupId\x12B\n" +
+	"\x1dallow_experimental_components\x18\n" +
+	" \x01(\bR\x1ballowExperimentalComponents\"\x11\n" +
 	"\x0fListOrgsRequest\"U\n" +
 	"\x10ListOrgsResponse\x12+\n" +
 	"\x05items\x18\x01 \x03(\v2\x15.shepherd.mgmt.v1.OrgR\x05items\x12\x14\n" +
@@ -2768,13 +2791,14 @@ const file_shepherd_mgmt_v1_admin_proto_rawDesc = "" +
 	"\x0eadmin_group_id\x18\x03 \x01(\tR\fadminGroupId\x12&\n" +
 	"\x0freader_group_id\x18\x04 \x01(\tR\rreaderGroupId\x12\x1b\n" +
 	"\ttenant_id\x18\x05 \x01(\tR\btenantId\x12&\n" +
-	"\x0feditor_group_id\x18\x06 \x01(\tR\reditorGroupId\"\xc2\x01\n" +
+	"\x0feditor_group_id\x18\x06 \x01(\tR\reditorGroupId\"\x86\x02\n" +
 	"\x10UpdateOrgRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12$\n" +
 	"\x0eadmin_group_id\x18\x03 \x01(\tR\fadminGroupId\x12&\n" +
 	"\x0freader_group_id\x18\x04 \x01(\tR\rreaderGroupId\x12&\n" +
-	"\x0feditor_group_id\x18\x05 \x01(\tR\reditorGroupId\"K\n" +
+	"\x0feditor_group_id\x18\x05 \x01(\tR\reditorGroupId\x12B\n" +
+	"\x1dallow_experimental_components\x18\x06 \x01(\bR\x1ballowExperimentalComponents\"K\n" +
 	"\x15SetOrgTenantIDRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x1b\n" +
 	"\ttenant_id\x18\x02 \x01(\tR\btenantId\")\n" +

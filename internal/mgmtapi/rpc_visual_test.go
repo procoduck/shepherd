@@ -88,6 +88,63 @@ var _ = Describe("shepherd.mgmt.v1.VisualService", Label("integration"), func() 
 		Expect(result["content"]).To(ContainSubstring(`prometheus.exporter.unix "unix"`))
 	})
 
+	// #114: a graph using an experimental component (otelcol.exporter.debug is
+	// experimental in the embedded schema and needs no required attributes).
+	experimentalGraph := func() map[string]any {
+		return map[string]any{
+			"kind":           "alloy-graph/v1",
+			"schema_version": version.AlloySchemaVersion,
+			"nodes": []map[string]any{
+				{
+					"id": "n1", "component": "otelcol.exporter.debug", "label": "debug",
+					"position": map[string]any{"x": 0, "y": 0},
+					"props":    map[string]any{},
+				},
+			},
+			"edges":    []any{},
+			"bindings": []any{},
+		}
+	}
+
+	hasExperimentalGated := func(result map[string]any) bool {
+		diags, ok := result["diagnostics"].([]any)
+		if !ok {
+			return false
+		}
+		for _, raw := range diags {
+			if d, ok := raw.(map[string]any); ok && d["code"] == "experimental_gated" {
+				return true
+			}
+		}
+		return false
+	}
+
+	It("gates an experimental component unless the org opts in (#114)", func() {
+		// The org defaults to allow_experimental_components = false.
+		body := map[string]any{"org_id": orgID, "graph": experimentalGraph()}
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/Render", adminCookie, body)
+		defer resp.Body.Close() //nolint:errcheck // test cleanup
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		var gated map[string]any
+		Expect(json.NewDecoder(resp.Body).Decode(&gated)).To(Succeed())
+		Expect(hasExperimentalGated(gated)).To(BeTrue(), "expected an experimental_gated diagnostic when the org has not opted in")
+
+		// Opt the org in, then the same graph renders without the gate.
+		_, err := st.Queries.UpdateOrg(ctx, sqlc.UpdateOrgParams{
+			ID: orgUUID(orgID), DisplayName: "Visual RPC Org", AdminGroupID: "visual-admin-grp",
+			AllowExperimentalComponents: true,
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		resp2 := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/Render", adminCookie, body)
+		defer resp2.Body.Close() //nolint:errcheck // test cleanup
+		Expect(resp2.StatusCode).To(Equal(http.StatusOK))
+		var allowed map[string]any
+		Expect(json.NewDecoder(resp2.Body).Decode(&allowed)).To(Succeed())
+		Expect(hasExperimentalGated(allowed)).To(BeFalse(), "expected no gate once the org opts in")
+		Expect(allowed["content"]).To(ContainSubstring(`otelcol.exporter.debug "debug"`))
+	})
+
 	It("denies Render for a session without org-admin access", func() {
 		body := map[string]any{"org_id": orgID, "graph": minimalGraph()}
 		// GraphView is org-reader, but Render requires org-admin.

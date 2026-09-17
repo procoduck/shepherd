@@ -29,11 +29,12 @@ func NewAdminHandler(st *store.Store, logger *slog.Logger) *AdminHandler {
 
 // orgRequest is the legacy wire shape for POST/PATCH .../admin/orgs.
 type orgRequest struct {
-	Name          string `json:"name"`
-	DisplayName   string `json:"display_name"`
-	AdminGroupID  string `json:"admin_group_id"`
-	ReaderGroupID string `json:"reader_group_id"`
-	EditorGroupID string `json:"editor_group_id"`
+	Name                        string `json:"name"`
+	DisplayName                 string `json:"display_name"`
+	AdminGroupID                string `json:"admin_group_id"`
+	ReaderGroupID               string `json:"reader_group_id"`
+	EditorGroupID               string `json:"editor_group_id"`
+	AllowExperimentalComponents bool   `json:"allow_experimental_components"`
 }
 
 // orgOmitFields names the Org field(s) omitted from the legacy JSON when

@@ -41,6 +41,7 @@ function orgToWire(o: Obj) {
     readerGroupId: s(o, 'reader_group_id'),
     createdAt: o['created_at'],
     updatedAt: o['updated_at'],
+    allowExperimentalComponents: b(o, 'allow_experimental_components'),
   };
 }
 
@@ -639,6 +640,7 @@ export function installDefaultHandlers(router: Router) {
     o['display_name'] = req['displayName'];
     o['admin_group_id'] = req['adminGroupId'];
     o['reader_group_id'] = req['readerGroupId'];
+    o['allow_experimental_components'] = req['allowExperimentalComponents'];
     return json(r, 200, orgToWire(o));
   });
   router.register('POST', '/shepherd.mgmt.v1.AdminService/DeleteOrg', async (r) => {

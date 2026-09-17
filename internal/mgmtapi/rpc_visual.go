@@ -76,16 +76,52 @@ func (s *VisualService) loadSchemaPayload(version string) (visual.SchemaPayload,
 // and renders. Every error here mapped to CodeInvalidArgument by callers
 // (Render/Validate never distinguished error causes — see visual.go's
 // original render() callers, both of which reduced any error to 400).
-func (s *VisualService) renderGraph(g *mgmtv1.GraphDocument) (visual.RenderResult, error) {
+func (s *VisualService) renderGraph(g *mgmtv1.GraphDocument) (visual.RenderResult, visual.GraphDocument, visual.SchemaPayload, error) {
 	if s.schema == nil {
-		return visual.RenderResult{}, errSchemaUnavailable
+		return visual.RenderResult{}, visual.GraphDocument{}, visual.SchemaPayload{}, errSchemaUnavailable
 	}
 	doc := graphDocFromProto(g)
 	schemaPayload, err := s.loadSchemaPayload(doc.SchemaVersion)
 	if err != nil {
-		return visual.RenderResult{}, err
+		return visual.RenderResult{}, visual.GraphDocument{}, visual.SchemaPayload{}, err
 	}
-	return visual.Render(doc, schemaPayload), nil
+	return visual.Render(doc, schemaPayload), doc, schemaPayload, nil
+}
+
+// experimentalGate returns L1 render diagnostics for every experimental
+// component (#114) used by an org that has not opted in. Empty when the org
+// permits experimental components or the graph uses none. Default-deny: an org
+// that can't be loaded is treated as not opted in, so experimental stays gated.
+// The diagnostics ride the same channel as a label collision, so the builder's
+// save already blocks on them.
+func (s *VisualService) experimentalGate(ctx context.Context, orgID string, doc visual.GraphDocument, payload visual.SchemaPayload) []visual.RenderDiagnostic {
+	if s.orgAllowsExperimental(ctx, orgID) {
+		return nil
+	}
+	nodes := visual.ExperimentalNodes(doc, payload)
+	if len(nodes) == 0 {
+		return nil
+	}
+	out := make([]visual.RenderDiagnostic, 0, len(nodes))
+	for _, n := range nodes {
+		out = append(out, visual.RenderDiagnostic{
+			Layer: "L1", Severity: "error", Code: "experimental_gated", NodeID: n.NodeID,
+			Message: fmt.Sprintf("%s is experimental and requires the org toggle to be enabled", n.Component),
+		})
+	}
+	return out
+}
+
+func (s *VisualService) orgAllowsExperimental(ctx context.Context, orgID string) bool {
+	var id pgtype.UUID
+	if err := id.Scan(orgID); err != nil {
+		return false
+	}
+	o, err := s.store.Queries.GetOrgByID(ctx, id)
+	if err != nil {
+		return false
+	}
+	return o.AllowExperimentalComponents
 }
 
 // Render renders a visual graph document to Alloy config. When the render
@@ -94,11 +130,15 @@ func (s *VisualService) renderGraph(g *mgmtv1.GraphDocument) (visual.RenderResul
 // (visual.go) inspects that field to reproduce the legacy 422 shape; the
 // Connect JSON path always answers 200 with the diagnostics embedded, which
 // is the "ride in a Diagnostics message" contract from the design doc.
-func (s *VisualService) Render(_ context.Context, req *connect.Request[mgmtv1.RenderRequest]) (*connect.Response[mgmtv1.RenderResponse], error) {
-	result, err := s.renderGraph(req.Msg.GetGraph())
+func (s *VisualService) Render(ctx context.Context, req *connect.Request[mgmtv1.RenderRequest]) (*connect.Response[mgmtv1.RenderResponse], error) {
+	result, doc, payload, err := s.renderGraph(req.Msg.GetGraph())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	// #114: an experimental component used by an org that has not opted in is a
+	// render error, appended to the same Diagnostics the label-collision path
+	// uses.
+	result.Diagnostics = append(result.Diagnostics, s.experimentalGate(ctx, req.Msg.GetOrgId(), doc, payload)...)
 	return connect.NewResponse(&mgmtv1.RenderResponse{
 		Content:     result.Content,
 		NodeMap:     nodeRangesToProto(result.NodeMap),
@@ -113,10 +153,14 @@ func (s *VisualService) Render(_ context.Context, req *connect.Request[mgmtv1.Re
 // failure" behavior — the REST shim decides the HTTP status from the
 // diagnostics' layer tag (see visual.go).
 func (s *VisualService) Validate(ctx context.Context, req *connect.Request[mgmtv1.ValidateVisualRequest]) (*connect.Response[mgmtv1.ValidateVisualResponse], error) {
-	result, err := s.renderGraph(req.Msg.GetGraph())
+	result, doc, payload, err := s.renderGraph(req.Msg.GetGraph())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	// #114: gate experimental components before L1/L2 — an experimental
+	// component with the org toggle off is a render failure, reported in the
+	// same L1 RenderDiagnostics (422) shape.
+	result.Diagnostics = append(result.Diagnostics, s.experimentalGate(ctx, req.Msg.GetOrgId(), doc, payload)...)
 	if len(result.Diagnostics) > 0 {
 		// L1 render diagnostics ride in RenderDiagnostics, not Diagnostics:
 		// they are visual.RenderDiagnostic values (layer/code/node_id/

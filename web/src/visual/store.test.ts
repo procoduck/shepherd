@@ -34,6 +34,62 @@ describe('visual store', () => {
     expect(useVisualStore.getState().doc.nodes).toHaveLength(1);
     expect(useVisualStore.temporal.getState().pastStates.length).toBeGreaterThan(before);
   });
+
+  it('setAllowExperimental re-gates an experimental graph (#114)', () => {
+    // Minimal schema with one experimental component and a graph that uses it.
+    const schema = {
+      _meta: { schema_version: 'alloy-v1.18.1' },
+      components: {
+        'loki.secretfilter': {
+          stability: 'experimental',
+          doc: '',
+          attributes: [],
+          blocks: [],
+          inputs: [],
+          outputs: [],
+          default_snippet: '',
+        },
+      },
+    } as unknown as SchemaPayload;
+    useVisualStore.setState({
+      schema,
+      doc: {
+        kind: 'alloy-graph/v1',
+        schema_version: 'alloy-v1.18.1',
+        nodes: [
+          {
+            id: 'n',
+            component: 'loki.secretfilter',
+            label: 'sf',
+            position: { x: 0, y: 0 },
+            props: {},
+            disabled: false,
+            notes: '',
+          },
+        ],
+        edges: [],
+        bindings: [],
+        viewport: { x: 0, y: 0, zoom: 1 },
+        meta: { created_with: 'test' },
+      },
+    });
+    const codes = () => useVisualStore.getState().diagnostics.map((d) => d.code);
+
+    // Opting in clears the experimental gate; opting back out restores it.
+    useVisualStore.getState().setAllowExperimental(true);
+    expect(useVisualStore.getState().allowExperimental).toBe(true);
+    expect(codes()).not.toContain('experimental_gated');
+
+    useVisualStore.getState().setAllowExperimental(false);
+    expect(codes()).toContain('experimental_gated');
+  });
+
+  it('setAllowExperimental is a no-op when the value is unchanged', () => {
+    useVisualStore.setState({ allowExperimental: false, diagnostics: [] });
+    useVisualStore.getState().setAllowExperimental(false);
+    // Unchanged flag must not trigger a revalidate (which needs a schema).
+    expect(useVisualStore.getState().diagnostics).toEqual([]);
+  });
   it('updateNode drops explicitly-undefined patch values instead of planting them on the node', () => {
     // Regression: InspectorPanel.setProp passes `block_order: undefined` for
     // plain attributes; spreading that onto the node made the save path's

@@ -73,6 +73,11 @@ message Org {
   // org IS (destinations, tenant routes, git credentials, teams). Empty means
   // the org has no editor tier and only admins can author.
   string editor_group_id = 9;
+  // allow_experimental_components opts this org into experimental Alloy
+  // components in the visual builder (#114). Off by default: the builder hides
+  // experimental components in the palette and the server refuses to render a
+  // graph that uses one. Only an app admin flips it, via UpdateOrg.
+  bool allow_experimental_components = 10;
 }
 
 message ListOrgsRequest {}
@@ -106,6 +111,8 @@ message UpdateOrgRequest {
   string admin_group_id = 3;
   string reader_group_id = 4;
   string editor_group_id = 5;
+  // allow_experimental_components — see Org.allow_experimental_components (#114).
+  bool allow_experimental_components = 6;
 }
 
 // SetOrgTenantIDRequest assigns an org's tenant identity when it was created
