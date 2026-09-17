@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   Moon,
   Radio,
+  Route,
   Send,
   Server,
   Shield,
@@ -52,6 +53,7 @@ const navGroups: Array<{ label?: string; items: NavItem[] }> = [
     items: [
       { label: 'Destinations', href: '/destinations', icon: <Send size={16} /> },
       { label: 'Git', href: '/git', icon: <GitBranch size={16} /> },
+      { label: 'Tenant routes', href: '/tenant-routes', icon: <Route size={16} /> },
     ],
   },
   {

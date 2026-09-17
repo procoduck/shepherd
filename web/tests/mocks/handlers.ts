@@ -1266,6 +1266,64 @@ export function installDefaultHandlers(router: Router) {
   });
 
   // ── DestinationService ───────────────────────────────────────────────────
+  router.register('POST', '/shepherd.mgmt.v1.TenantRouteService/ListTenantRoutes', (r) =>
+    json(r, 200, list(st.tenantRoutes as Obj[])),
+  );
+  router.register('POST', '/shepherd.mgmt.v1.TenantRouteService/CreateTenantRoute', async (r) => {
+    const tBody = (await r.request().postDataJSON()) as Obj;
+    const denied = requireOrgRole(r, String(tBody.orgId ?? ''), 'admin');
+    if (denied) return denied;
+    const req = await body(r);
+    // A test opts into the "org has no tenant identity" precondition by setting
+    // st.tenantRoutesNoIdentity — mirrors the server refusing CreateTenantRoute
+    // until an app admin sets orgs.tenant_id.
+    if (st.tenantRoutesNoIdentity) {
+      return connectError(r, 400, 'failed_precondition', 'organisation has no tenant identity');
+    }
+    const route: Obj = {
+      id: mockId('tr'),
+      org_id: req['orgId'],
+      tenant_id: 'tenant-x',
+      kind: req['kind'],
+      segment: `${req['kind']}-${mockId('seg')}`,
+      status: 'active',
+      gateway_mode: req['gatewayMode'],
+      gateway_name: req['gatewayName'] ?? '',
+      gateway_namespace: req['gatewayNamespace'] ?? '',
+      created_at: '2026-09-17T09:00:00Z',
+      updated_at: '2026-09-17T09:00:00Z',
+    };
+    st.tenantRoutes.push(route);
+    return json(r, 200, route);
+  });
+  router.register('POST', '/shepherd.mgmt.v1.TenantRouteService/RotateTenantRoute', async (r) => {
+    const tBody = (await r.request().postDataJSON()) as Obj;
+    const denied = requireOrgRole(r, String(tBody.orgId ?? ''), 'admin');
+    if (denied) return denied;
+    const req = await body(r);
+    const idx = (st.tenantRoutes as Obj[]).findIndex((x) => x['id'] === req['id']);
+    const old = st.tenantRoutes[idx] as Obj;
+    Object.assign(old, { status: 'deprecated', valid_until: '2026-09-18T09:00:00Z' });
+    const active: Obj = {
+      ...old,
+      id: mockId('tr'),
+      segment: `${old['kind']}-${mockId('seg')}`,
+      status: 'active',
+      valid_until: undefined,
+      rotated_from_id: old['id'],
+    };
+    st.tenantRoutes.push(active);
+    return json(r, 200, { active, deprecated: old });
+  });
+  router.register('POST', '/shepherd.mgmt.v1.TenantRouteService/RevokeTenantRoute', async (r) => {
+    const tBody = (await r.request().postDataJSON()) as Obj;
+    const denied = requireOrgRole(r, String(tBody.orgId ?? ''), 'admin');
+    if (denied) return denied;
+    const req = await body(r);
+    const idx = (st.tenantRoutes as Obj[]).findIndex((x) => x['id'] === req['id']);
+    if (idx >= 0) Object.assign(st.tenantRoutes[idx] as Obj, { status: 'revoked' });
+    return json(r, 200, (st.tenantRoutes[idx] as Obj) ?? {});
+  });
   router.register('POST', '/shepherd.mgmt.v1.DestinationService/ListDestinations', (r) =>
     json(r, 200, list((st.destinations as Obj[]).map(destinationToWire))),
   );
@@ -1802,6 +1860,7 @@ export function defaultState(): MockState {
     repoLinks: [],
     agentTokens: [],
     agentIdentities: [],
+    tenantRoutes: [],
     assignments: [],
     groupSearchResults: [],
     auditRows: [],

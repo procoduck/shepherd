@@ -20,6 +20,7 @@ import { OverviewPage } from '@/pages/OverviewPage';
 import { PipelineEditorPage } from '@/pages/PipelineEditorPage';
 import { PipelinesPage } from '@/pages/PipelinesPage';
 import { TeamsPage } from '@/pages/TeamsPage';
+import { TenantRoutesPage } from '@/pages/TenantRoutesPage';
 import { WizardsPage } from '@/pages/WizardsPage';
 import { WizardRunnerPage } from '@/wizard/WizardRunnerPage';
 import { routeManifest } from './routeManifest';
@@ -246,6 +247,14 @@ const teamsRoute = createRoute({
   component: withRequiredRole('/teams', TeamsPage),
 });
 
+// Tenant routes are org-scoped like Teams: reads are org-reader, writes
+// org-admin (gated inside the page via useCanAdminister).
+const tenantRoutesRoute = createRoute({
+  getParentRoute: () => contentRoute,
+  path: '/tenant-routes',
+  component: withRequiredRole('/tenant-routes', TenantRoutesPage),
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   changePasswordRoute,
@@ -260,6 +269,7 @@ const routeTree = rootRoute.addChildren([
       destinationsRoute,
       gitRoute,
       teamsRoute,
+      tenantRoutesRoute,
       wizardsRoute,
       wizardRunnerRoute,
       adminOrgsRoute,

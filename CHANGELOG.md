@@ -15,6 +15,14 @@ Categories used here:
 
 ### Added
 
+- **Tenant routes have a UI — Shipped.** A new org-scoped Tenant routes page (create, rotate,
+  revoke) drives the existing `TenantRouteService` from the browser: mint a rotatable, unguessable
+  ingress segment for the org's telemetry, rotate it with an overlap window, and revoke. Reads are
+  org-reader; writes are org-admin. The segment is minted server-side and is an identifier, not an
+  authorizer — the page says so, since rate limiting belongs at the gateway. Creating a route needs
+  the org to have a tenant identity (an app admin sets it on Organisations); the page surfaces that
+  precondition clearly. This is the storage/lifecycle surface only — applying routes to Kubernetes
+  is the receiver tier.
 - **Collector inventory labels — Shipped.** Attach free-form key/value labels to a collector from
   the UI (the Collectors list and a collector's detail page) to filter and group the fleet, without
   touching the Alloy-reported attributes or the labels the merge engine matches pipelines against.

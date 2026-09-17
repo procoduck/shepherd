@@ -68,6 +68,13 @@ export const routeManifest: RouteEntry[] = [
     label: 'Teams',
   },
   {
+    path: '/tenant-routes',
+    tag: 'protected',
+    distinctLocator: 'text=Tenant routes',
+    requiredRole: 'org-reader',
+    label: 'Tenant routes',
+  },
+  {
     path: '/git',
     tag: 'protected',
     distinctLocator: 'text=Git sync',

@@ -18,6 +18,8 @@ export interface MockState {
   repoLinks: unknown[];
   agentTokens: unknown[];
   agentIdentities: unknown[];
+  tenantRoutes: unknown[];
+  tenantRoutesNoIdentity?: boolean;
   assignments: unknown[];
   groupSearchResults: unknown[];
   auditRows: unknown[];
