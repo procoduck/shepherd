@@ -35,9 +35,14 @@ __pycache__/
 # Playwright walkthrough screenshots
 web/walkthrough/
 
-# Agent git worktrees (see the check-single-dist guard). Each is a full
-# checkout with its own build outputs; none of it belongs in this repo's index.
-/.claude/
+# Agent-local .claude scratch stays out of the index — worktrees (each a full
+# checkout with its own build outputs; see the check-single-dist guard) and
+# RESUME.md notes. Two governance files are exceptions: the contributor-PR
+# review policy and the slash commands must travel with the repo so the
+# AGENTS.md pointer resolves on a fresh clone and in CI.
+/.claude/*
+!/.claude/pr-review-security.md
+!/.claude/commands/
 
 # Playwright MCP session artifacts (screenshots, snapshots, console logs)
 /.playwright-mcp/
