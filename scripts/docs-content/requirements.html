@@ -8,7 +8,7 @@
         <tbody>
           <tr>
             <td><strong>Deploy on Kubernetes</strong><br><span class="req-note">the intended way</span></td>
-            <td><strong>Kubernetes 1.25+</strong> and Helm 3, plus a <strong>PostgreSQL 16</strong>
+            <td><strong>Kubernetes 1.29+</strong> and Helm 3, plus a <strong>PostgreSQL 16</strong>
                 the cluster can reach &mdash; the only major every test, testcontainers run, and the
                 compose stacks pin (<code>postgres:16-alpine</code>); older majors are untested. The
                 chart declares the Kubernetes floor in
@@ -19,14 +19,15 @@
                 chart needs <strong>no CRDs</strong> by default. Two optional extras do add
                 requirements:
                 <code>metrics.serviceMonitor.enabled</code> needs the Prometheus Operator's CRDs, and
-                <code>route.enabled</code> needs the Gateway API CRDs. Letting the chart provision
-                Postgres itself (<code>cnpg.enabled=true</code>, see
-                <a href="database.html#cloudnativepg">Database</a>) raises this floor to
-                <strong>Kubernetes 1.29+</strong> &mdash; the pinned CloudNativePG operator chart
-                (<code>0.29.0</code>) refuses older nodes. <code>kubeVersion</code> still declares only
-                1.25+: that is what the plain install needs, and Helm has no way to make the floor
-                conditional on a value, so the operator path's higher floor is documented here rather
-                than enforced at install.</td>
+                <code>route.enabled</code> needs the Gateway API CRDs. The core features are stable
+                from 1.25 (autoscaling/v2, policy/v1, batch/v1 seccomp), so a default install on
+                external Postgres works from 1.25 in practice; the floor is set to 1.29 because the
+                optional CloudNativePG database path (<code>cnpg.enabled=true</code>, see
+                <a href="database.html#cloudnativepg">Database</a>) needs it &mdash; the pinned
+                operator chart (<code>0.29.0</code>) refuses older nodes &mdash; and Helm cannot make a
+                floor conditional on a value. Rather than enforce 1.25 and leave the operator path's
+                higher requirement to documentation alone, the chart commits to a single global
+                <code>kubeVersion</code> of 1.29.</td>
           </tr>
           <tr>
             <td>Run Shepherd anywhere else</td>

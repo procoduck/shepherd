@@ -13,6 +13,15 @@ Categories used here:
 
 ## Unreleased
 
+### Changed
+
+- **The chart's `kubeVersion` floor is now `1.29`.** It was `1.25` with the CloudNativePG database
+  path (`cnpg.enabled=true`) documented as needing `1.29`. Helm cannot make a floor conditional on a
+  value, so the chart now commits to a single global floor of `1.29` rather than enforcing `1.25` and
+  leaving the higher requirement to prose. A default install on external Postgres still works from
+  `1.25` in practice; the chart simply states one supported floor. Requirements and Database docs
+  updated to match.
+
 ### Added
 
 - **Collector OIDC can trust the IdP for org assignment (mode 2) — Shipped.** By default a

@@ -5,10 +5,14 @@ type: application
 version: 0.12.0
 appVersion: "0.8.0"
 # The chart renders autoscaling/v2 (HPA), policy/v1 (PodDisruptionBudget) and
-# batch/v1 Jobs with a pod-level seccompProfile. 1.25 is where all of those are
-# stable together; without this an older cluster accepts `helm install` and then
-# fails on a kind it does not have.
-kubeVersion: ">=1.25.0-0"
+# batch/v1 Jobs with a pod-level seccompProfile — all stable since 1.25. The
+# floor is 1.29 rather than 1.25 because the optional CloudNativePG database
+# path (cnpg.enabled=true) needs it, and Helm cannot express a floor that only
+# applies when a value is set; a single global floor is the honest contract, so
+# it is set to the higher of the two. A default install (external Postgres) is
+# happy on anything from 1.25, but the chart states one supported floor rather
+# than a conditional one.
+kubeVersion: ">=1.29.0-0"
 keywords:
   - alloy
   - grafana
