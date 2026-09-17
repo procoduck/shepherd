@@ -182,6 +182,13 @@ config:
     # must sign in again.
     session_ttl: "8h"
     #
+    # Per-service-account request rate limit for the management API, keyed on
+    # the credential id (protects the API from a runaway or compromised machine
+    # caller; a human session is never limited). Defaults: 20 req/s, burst 40.
+    # Set the rate to 0 to disable.
+    # service_account_rate_limit: 20
+    # service_account_rate_burst: 40
+    #
     # app_admin_group_ids: the groups whose members are APPLICATION ADMINS —
     # full access everywhere, including the Admin -> Single sign-on page. This
     # is the single most important auth value in the chart and it has no

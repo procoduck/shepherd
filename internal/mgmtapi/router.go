@@ -338,8 +338,9 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 	// covers the authz work and a PermissionDenied is counted rather than
 	// invisible; a call the gate refuses never reaches it, which is why the
 	// gate is wrapped by telemetry.RequestGate.
+	saLimiter := newSARateLimiter(cfg.Auth.ServiceAccountRateLimit, cfg.Auth.ServiceAccountRateBurst)
 	authz := []connect.HandlerOption{
-		connect.WithRequestGate(telemetry.RequestGate(newServiceAccountAuthGate(st))),
+		connect.WithRequestGate(telemetry.RequestGate(newServiceAccountAuthGate(st, saLimiter))),
 		connect.WithInterceptors(telemetry.Interceptor(), newAuthzInterceptor(st)),
 	}
 

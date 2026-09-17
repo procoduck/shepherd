@@ -24,6 +24,13 @@ Categories used here:
   ambiguous role prefix is ignored, a binding wins when both are present, and a token with neither
   still falls through to the admin cluster-claim. Off by default; the Admin → Single sign-on page
   shows which mode is active. Completes the collector-OIDC resolution chain (D1 tier 2).
+- **Per-service-account rate limit — Shipped.** A machine caller of the management API is now rate
+  limited per credential (keyed on the service-account id), enforced in the auth gate before any
+  handler runs — a runaway or compromised credential cannot pin the API, and one noisy account
+  cannot starve another. A human session is never limited. Defaults to 20 req/s, burst 40; tune with
+  `config.auth.service_account_rate_limit` / `service_account_rate_burst`, or set the rate to 0 to
+  disable. This closes the last open R6 condition, clearing the MCP interface to be reached by a
+  machine caller.
 - **Tenant routes have a UI — Shipped.** A new org-scoped Tenant routes page (create, rotate,
   revoke) drives the existing `TenantRouteService` from the browser: mint a rotatable, unguessable
   ingress segment for the org's telemetry, rotate it with an overlap window, and revoke. Reads are

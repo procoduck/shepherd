@@ -95,7 +95,7 @@ var errBadServiceAccountAuth = errors.New("mgmtapi: invalid service account cred
 // outright — it never falls through to be treated as an anonymous session,
 // which would silently downgrade a bad credential into "no access" instead
 // of "who are you" (fail loud, not fail open).
-func newServiceAccountAuthGate(st *store.Store) connect.RequestGateFunc {
+func newServiceAccountAuthGate(st *store.Store, limiter *saRateLimiter) connect.RequestGateFunc {
 	return func(ctx context.Context, _ connect.Spec, _ connect.Peer, header http.Header) (context.Context, error) {
 		authHeader := header.Get("Authorization")
 		if !strings.HasPrefix(authHeader, "Basic ") {
@@ -105,6 +105,16 @@ func newServiceAccountAuthGate(st *store.Store) connect.RequestGateFunc {
 		sa, err := verifyServiceAccountBasicAuth(ctx, authHeader, st)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeUnauthenticated, errBadServiceAccountAuth)
+		}
+		// R6: bound how fast one credential may call the API, keyed on the
+		// verified id. Enforced after authentication (an unauthenticated
+		// caller has no id to key on and is already refused above) and before
+		// any interceptor or handler runs, so a limited request costs nothing
+		// downstream. ResourceExhausted is the Connect code a client backs off
+		// on.
+		if !limiter.allow(sa.ID) {
+			return nil, connect.NewError(connect.CodeResourceExhausted,
+				errors.New("mgmtapi: service account request rate limit exceeded"))
 		}
 		// Verify the on-behalf-of claim HERE, where it enters, rather
 		// than only in requireWriteAuthorized. That guard runs on

@@ -168,3 +168,83 @@ func g12PostConnect(server *httptest.Server, procedure string, body map[string]a
 	Expect(err).NotTo(HaveOccurred())
 	return resp
 }
+
+// R6 (docs/gateway-tier-plan.md §7): a per-service-account request rate limit,
+// keyed on the credential id, enforced in the auth gate. Its own server so the
+// limit can be set low; the rest of the suite runs with the limiter disabled
+// (a directly-built config leaves the rate at 0), so this is the one place the
+// limiter is exercised end to end.
+var _ = Describe("Service-account rate limit (R6)", Label("integration"), func() {
+	var (
+		ctx    context.Context
+		cancel context.CancelFunc
+		st     *store.Store
+		server *httptest.Server
+		orgID  pgtype.UUID
+		id     string
+		secret string
+	)
+
+	BeforeEach(func() {
+		ctx, cancel = context.WithCancel(context.Background())
+		dbURL := sharedPG.IsolatedDB(ctx, GinkgoTB())
+		var err error
+		st, err = store.New(ctx, &config.DatabaseConfig{URL: dbURL, MaxConns: 5}, slog.Default())
+		Expect(err).NotTo(HaveOccurred())
+
+		o, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "rl-org", DisplayName: "RL Org", AdminGroupID: "rl-admin"})
+		Expect(err).NotTo(HaveOccurred())
+		orgID = o.ID
+		secret, id = g12MakeServiceAccount(ctx, st, orgID, "rl-propose", "propose")
+
+		// Rate 1/s, burst 2: two immediate requests pass, the third is refused.
+		cfg := &config.Config{Auth: config.AuthConfig{
+			InsecureCookies:         true,
+			ServiceAccountRateLimit: 1,
+			ServiceAccountRateBurst: 2,
+		}}
+		authHandler := auth.NewLocalAdmin(cfg, st, slog.Default())
+		server = httptest.NewServer(newRPCWiringRouter(st, authHandler, cfg))
+	})
+
+	AfterEach(func() {
+		server.Close()
+		st.Close()
+		cancel()
+	})
+
+	list := func() int {
+		resp := g12PostConnect(server, "/shepherd.mgmt.v1.PipelineService/ListPipelines", map[string]any{
+			"orgId": orgID.String(),
+		}, id, secret, "")
+		defer resp.Body.Close() //nolint:errcheck // test cleanup
+		return resp.StatusCode
+	}
+
+	It("refuses a credential that exceeds its burst with 429/ResourceExhausted", func() {
+		Expect(list()).To(Equal(http.StatusOK))
+		Expect(list()).To(Equal(http.StatusOK))
+		// The third immediate call has drained the bucket.
+		Expect(list()).To(Equal(http.StatusTooManyRequests))
+	})
+
+	It("does not limit a human session (only Basic-auth machine callers are keyed)", func() {
+		// A cookie session never presents Basic auth, so the gate returns early
+		// without keying it — a burst of session reads past the SA burst is
+		// never refused. Posted to the same Connect procedure the limited SA
+		// hit above, but with a session cookie instead of Basic credentials.
+		cookie := newAppAdminSession(ctx, st)
+		for range 5 {
+			buf, _ := json.Marshal(map[string]any{"orgId": orgID.String()}) //nolint:errcheck // test fixture
+			req, err := http.NewRequest(http.MethodPost, server.URL+"/shepherd.mgmt.v1.PipelineService/ListPipelines", strings.NewReader(string(buf)))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Requested-With", "XMLHttpRequest")
+			req.AddCookie(cookie)
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			resp.Body.Close() //nolint:errcheck // test cleanup
+			Expect(resp.StatusCode).NotTo(Equal(http.StatusTooManyRequests))
+		}
+	})
+})

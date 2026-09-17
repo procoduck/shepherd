@@ -159,6 +159,15 @@ type AuthConfig struct {
 	SessionTTL       time.Duration `mapstructure:"session_ttl"`
 	// InsecureCookies disables Secure flag on auth cookies. Only for non-TLS local dev.
 	InsecureCookies bool `mapstructure:"insecure_cookies"`
+	// ServiceAccountRateLimit / ServiceAccountRateBurst bound how fast a single
+	// service account may call the management API, keyed on the credential's
+	// id (the R6 condition for reaching the MCP interface with a machine
+	// caller). Rate is sustained requests per second; burst is the bucket
+	// depth that absorbs a spike. A human session is never limited here — the
+	// gate only sees a Basic-auth machine caller. Defaults: 20 req/s, burst
+	// 40. Set the rate to 0 to disable the limiter.
+	ServiceAccountRateLimit float64 `mapstructure:"service_account_rate_limit"`
+	ServiceAccountRateBurst int     `mapstructure:"service_account_rate_burst"`
 }
 
 // GraphConfig holds Microsoft Graph API client settings.
@@ -338,6 +347,8 @@ func Load(file string) (*Config, error) {
 	v.SetDefault("database.max_conns", 20)
 	v.SetDefault("graph.base_url", "https://graph.microsoft.com")
 	v.SetDefault("agent.sweep_interval", "5m")
+	v.SetDefault("auth.service_account_rate_limit", 20)
+	v.SetDefault("auth.service_account_rate_burst", 40)
 	v.SetDefault("validate.stage3_timeout", "30s")
 	// Simulator defaults are the dev/compose service; a Kubernetes deploy
 	// overrides them through the SHEPHERD_SIMULATOR_* bindings below.

@@ -278,6 +278,12 @@
             },
             "insecure_cookies": {
               "type": "boolean"
+            },
+            "service_account_rate_limit": {
+              "type": "number"
+            },
+            "service_account_rate_burst": {
+              "type": "integer"
             }
           }
         },
