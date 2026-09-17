@@ -139,9 +139,11 @@ export function TenantRoutesPage() {
         kind: createForm.kind,
         format: createForm.format,
         gatewayMode: createForm.gatewayMode,
-        gatewayName: createForm.gatewayMode === 'operator' ? createForm.gatewayName.trim() : '',
-        gatewayNamespace:
-          createForm.gatewayMode === 'operator' ? createForm.gatewayNamespace.trim() : '',
+        // gateway_name is required in both modes: in managed it names the
+        // Gateway Shepherd creates, in operator the existing Gateway to attach
+        // to. gateway_namespace is optional in both (empty = the route's own).
+        gatewayName: createForm.gatewayName.trim(),
+        gatewayNamespace: createForm.gatewayNamespace.trim(),
       }),
     onSuccess: () => {
       toast.success('Tenant route created');
@@ -269,33 +271,34 @@ export function TenantRoutesPage() {
                 <option value='operator'>Operator (attach to an existing Gateway)</option>
               </Select>
             </Field>
-            {createForm.gatewayMode === 'operator' && (
-              <>
-                <Field label='Gateway name'>
-                  <Input
-                    value={createForm.gatewayName}
-                    onChange={(e) => setCreateForm((f) => ({ ...f, gatewayName: e.target.value }))}
-                    required
-                    data-testid='route-gateway-name'
-                    placeholder='shared-gateway'
-                  />
-                </Field>
-                <Field
-                  label='Gateway namespace'
-                  optional
-                  hint='Empty means the route&rsquo;s own namespace.'
-                >
-                  <Input
-                    value={createForm.gatewayNamespace}
-                    onChange={(e) =>
-                      setCreateForm((f) => ({ ...f, gatewayNamespace: e.target.value }))
-                    }
-                    data-testid='route-gateway-namespace'
-                    placeholder='gateway-system'
-                  />
-                </Field>
-              </>
-            )}
+            <Field
+              label='Gateway name'
+              hint={
+                createForm.gatewayMode === 'managed'
+                  ? 'The name Shepherd gives the Gateway it creates.'
+                  : 'The name of your existing Gateway to attach to.'
+              }
+            >
+              <Input
+                value={createForm.gatewayName}
+                onChange={(e) => setCreateForm((f) => ({ ...f, gatewayName: e.target.value }))}
+                required
+                data-testid='route-gateway-name'
+                placeholder='shepherd-receiver-gw'
+              />
+            </Field>
+            <Field
+              label='Gateway namespace'
+              optional
+              hint='Empty means the route&rsquo;s own namespace.'
+            >
+              <Input
+                value={createForm.gatewayNamespace}
+                onChange={(e) => setCreateForm((f) => ({ ...f, gatewayNamespace: e.target.value }))}
+                data-testid='route-gateway-namespace'
+                placeholder='gateway-system'
+              />
+            </Field>
             <ModalActions
               onCancel={() => setShowCreate(false)}
               submitLabel='Create route'

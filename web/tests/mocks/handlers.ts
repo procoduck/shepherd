@@ -1280,6 +1280,10 @@ export function installDefaultHandlers(router: Router) {
     if (st.tenantRoutesNoIdentity) {
       return connectError(r, 400, 'failed_precondition', 'organisation has no tenant identity');
     }
+    // The server requires gateway_name in BOTH modes (rpc_tenant_route.go).
+    if (!String(req['gatewayName'] ?? '').trim()) {
+      return connectError(r, 400, 'invalid_argument', 'gateway_name must not be empty');
+    }
     const route: Obj = {
       id: mockId('tr'),
       org_id: req['orgId'],

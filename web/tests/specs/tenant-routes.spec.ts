@@ -20,9 +20,11 @@ test('creates, rotates and revokes a tenant route', async ({ page, api }) => {
   await expect(panel.getByRole('heading', { name: 'Tenant routes' })).toBeVisible();
   await expect(panel.getByText('No tenant routes yet.')).toBeVisible();
 
-  // Create an OTLP route in managed mode (no gateway name needed).
+  // Create an OTLP route in managed mode. Gateway name is required in both
+  // modes (the server needs it to name the managed Gateway too).
   await page.getByTestId('route-new').click();
   await page.getByTestId('route-kind').selectOption('otlp');
+  await page.getByTestId('route-gateway-name').fill('shepherd-receiver-gw');
   await page.getByRole('button', { name: 'Create route' }).click();
 
   // It appears, active, with a server-minted segment.
@@ -87,6 +89,7 @@ test('surfaces the missing-tenant-identity precondition', async ({ page, api }) 
   await page.goto('/tenant-routes');
 
   await page.getByTestId('route-new').click();
+  await page.getByTestId('route-gateway-name').fill('shepherd-receiver-gw');
   await page.getByRole('button', { name: 'Create route' }).click();
 
   await expect(page.getByText(/no tenant identity yet/i)).toBeVisible();

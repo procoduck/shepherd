@@ -15,6 +15,11 @@ Categories used here:
 
 ### Added
 
+- **Tenant routes: the create form now asks for a gateway name in both modes.** It only collected
+  the gateway name in operator mode, but the server requires it for a managed route too (it names
+  the Gateway Shepherd creates), so the default managed-mode create was rejected. The field is now
+  shown in both modes, with a mode-aware hint. Found by walking the live UI.
+
 - **Wizards surface warnings on the preview.** A wizard can now tell an operator when it silently
   defaulted, added, or dropped something, instead of leaving the output quietly different from what
   was typed. `RenderWizardResponse` carries a `warnings` field, and the runner page shows them in a
