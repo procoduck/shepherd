@@ -481,13 +481,18 @@ surface and still has to be reasoned about. Red-run proven.
 **This did not close R2** at the time. The data review was owed, and the off-switch was a courtesy to
 operators, not a substitute for it. R2 was signed 2026-09-11 (above).
 
-### `shepherd-mcp` is deliberately not in the release archives
+### `shepherd-mcp` now ships as its own desktop archive (R6 signed 2026-09-17)
 
-The release builds `shepherd` and `shepherd-simulator` for linux/amd64 and linux/arm64 only.
-`cmd/shepherd-mcp` is absent on purpose: it is a client-side stdio process that runs under an
-editor's MCP integration, so linux-only server archives would be the wrong vehicle even if W11 were
-signed off — and R6 is open. Build it from source until then. Recorded here because an omission
-nobody wrote down reads as an oversight the next time someone checks.
+For most of this plan's life `cmd/shepherd-mcp` was deliberately absent from the release: it is a
+client-side stdio process that runs under an editor's MCP integration, so the linux-only *server*
+archives would have been the wrong vehicle, and R6 (the two conditions gating a machine caller
+reaching it) was open. Both are now resolved. R6's `propose_pipeline_revision` audit shipped
+2026-08-22, and its per-service-account rate limit shipped in the v0.9.0 cycle, so W11 is reachable.
+And the packaging objection is answered by giving it its *own* archive rather than folding it into
+the server one: `shepherd-mcp` builds for linux, macOS and Windows on amd64 and arm64 — the desktops
+an editor runs on — and ships as `shepherd-mcp_<version>_<os>_<arch>` (a zip on Windows), with no
+image, since there is nothing to deploy. The two server binaries stay linux-only. Build-from-source
+still works; the archive is a convenience, not a new requirement.
 
 ## 8. How sub-agents work on this
 

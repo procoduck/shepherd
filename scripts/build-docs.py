@@ -84,6 +84,10 @@ NAV = [
         ("simulation", "Sandbox simulation", "Sandbox simulation",
          "Run a candidate pipeline against synthetic telemetry in a contained sandbox before it reaches a collector."),
     ]),
+    ("Automation", [
+        ("mcp", "AI agent (MCP)", "AI agent interface (MCP)",
+         "Run the shepherd-mcp server so an editor's AI agent can read pipelines and propose changes for a human to apply."),
+    ]),
     ("Reference", [
         ("helm-values", "Helm values", "Helm values",
          "Every value the chart accepts, generated from the chart's own values.yaml."),

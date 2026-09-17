@@ -35,10 +35,41 @@ builds:
       - -X shepherd/internal/version.Commit={{ .ShortCommit }}
       - -X shepherd/internal/version.Date={{ .CommitDate }}
     mod_timestamp: "{{ .CommitTimestamp }}"
+  # shepherd-mcp is the MCP agent interface (W11): a client-side stdio process
+  # that runs on the DEVELOPER's machine under an editor's MCP integration, not
+  # in the cluster. So — unlike the two server binaries above, which are
+  # linux-only because they run in a pod — it is built for the desktop OSes an
+  # editor runs on. It ships only as an archive (no image): there is nothing to
+  # deploy, it is downloaded and run locally.
+  - id: shepherd-mcp
+    main: ./cmd/shepherd-mcp
+    binary: shepherd-mcp
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X shepherd/internal/version.Version={{ .Version }}
+      - -X shepherd/internal/version.Commit={{ .ShortCommit }}
+      - -X shepherd/internal/version.Date={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
-  - formats: [tar.gz]
+  # The server archive: the two linux binaries a cluster runs. Restricted to
+  # those ids so it does not also sweep in shepherd-mcp on linux.
+  - id: server
+    ids: [shepherd, shepherd-simulator]
+    formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  # The MCP archive: the client-side binary, per desktop OS/arch. Windows ships
+  # as a zip (the platform convention) with the usual .exe.
+  - id: mcp
+    ids: [shepherd-mcp]
+    formats: [tar.gz]
+    name_template: "shepherd-mcp_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
 
 checksum:
   name_template: checksums.txt

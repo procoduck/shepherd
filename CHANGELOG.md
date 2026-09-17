@@ -13,6 +13,17 @@ Categories used here:
 
 ## Unreleased
 
+### Added
+
+- **The MCP agent interface ships in the release archives.** `shepherd-mcp` — a client-side stdio
+  Model Context Protocol server that lets an editor's AI agent read an org and *propose* pipeline
+  changes for a human to apply — is now a downloadable release artifact for linux, macOS and Windows
+  on amd64 and arm64 (`shepherd-mcp_<version>_<os>_<arch>`; a zip on Windows). It runs on the
+  developer's machine, not the cluster, so it ships only as an archive, no image. The two server
+  binaries stay linux-only. This is reachable now that R6 is satisfied (the per-service-account rate
+  limit above, plus the propose-audit that already shipped). See the new **AI agent (MCP)** docs
+  page; build-from-source still works.
+
 ### Changed
 
 - **The chart's `kubeVersion` floor is now `1.29`.** It was `1.25` with the CloudNativePG database

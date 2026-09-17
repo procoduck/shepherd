@@ -1,0 +1,85 @@
+<h1>AI agent interface (MCP)</h1>
+      <p>
+        <code>shepherd-mcp</code> is a small <a href="https://modelcontextprotocol.io/">Model Context
+        Protocol</a> server that lets an AI agent &mdash; the one in your editor, say &mdash; read a
+        Shepherd organisation and <strong>propose</strong> pipeline changes for a human to review and
+        apply. It never writes anything itself: every mutating action is a proposal, attributed to a
+        named human, that lands in the normal review path. Reading and proposing are all it can do.
+      </p>
+
+      <h2 id="what-it-can-do">What the agent can do</h2>
+      <p>The server exposes a read-plus-propose slice of the management API as MCP tools:</p>
+      <ul>
+        <li><code>list_pipelines</code>, <code>get_pipeline</code> &mdash; read the org&rsquo;s pipelines.</li>
+        <li><code>list_collectors</code>, <code>list_fleet_attributes</code> &mdash; read the fleet.</li>
+        <li><code>validate_pipeline</code>, <code>preview_matches</code> &mdash; check a candidate
+          without saving it: does it parse, and which collectors would it match.</li>
+        <li><code>propose_pipeline_revision</code> &mdash; produce a fully-formed, validated revision
+          <em>proposal</em>. It writes nothing; a human applies it through the usual path.</li>
+      </ul>
+
+      <h2 id="credential">Give it a service account</h2>
+      <p>
+        The agent authenticates as a service account scoped to a single organisation,
+        with <strong>propose</strong> capability &mdash; never apply. Mint one from
+        <strong>Service accounts</strong> (or the API), then note its id and one-time secret. A
+        propose-capability, editor-tier account is exactly right: it can read and propose, and the
+        server has no path to apply even if the credential were broader.
+      </p>
+      <p class="note">
+        Every call the agent makes is attributed to the human named in
+        <code>SHEPHERD_MCP_ON_BEHALF_OF</code>, and that claim is verified against the human the
+        service account was issued by &mdash; a machine cannot name someone it was not delegated to.
+        Requests are also rate limited per credential, so a runaway agent cannot flood the API.
+      </p>
+
+      <h2 id="install">Download and run</h2>
+      <p>
+        Grab <code>shepherd-mcp</code> for your platform from the
+        <a href="https://github.com/procoduck/shepherd/releases">release archives</a>
+        (<code>shepherd-mcp_&lt;version&gt;_&lt;os&gt;_&lt;arch&gt;</code>; a <code>.zip</code> on
+        Windows), or build it from source with
+        <code>go build ./cmd/shepherd-mcp</code>. It speaks stdio and takes four environment
+        variables, all required:
+      </p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>export SHEPHERD_MCP_BASE_URL="https://shepherd.example.com"
+export SHEPHERD_MCP_SERVICE_ACCOUNT_ID="&lt;service-account-id&gt;"
+export SHEPHERD_MCP_SERVICE_ACCOUNT_SECRET="&lt;service-account-secret&gt;"
+export SHEPHERD_MCP_ON_BEHALF_OF="you@example.com"
+
+./shepherd-mcp</code></pre>
+      </div>
+      <p>
+        A missing variable is a hard error, not a reduced-safety default: the agent has no identity
+        to act under without all four.
+      </p>
+
+      <h2 id="editor">Wire it into an editor</h2>
+      <p>
+        Most MCP-capable clients take a command and its environment. The shape below is typical
+        (consult your client for the exact file); the secret is best supplied from your shell or a
+        secret store rather than committed:
+      </p>
+      <div class="code-block" data-lang="json">
+        <div class="code-head"><span>mcp config</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>{
+  "mcpServers": {
+    "shepherd": {
+      "command": "/path/to/shepherd-mcp",
+      "env": {
+        "SHEPHERD_MCP_BASE_URL": "https://shepherd.example.com",
+        "SHEPHERD_MCP_SERVICE_ACCOUNT_ID": "&lt;service-account-id&gt;",
+        "SHEPHERD_MCP_SERVICE_ACCOUNT_SECRET": "&lt;service-account-secret&gt;",
+        "SHEPHERD_MCP_ON_BEHALF_OF": "you@example.com"
+      }
+    }
+  }
+}</code></pre>
+      </div>
+      <p class="note">
+        The agent&rsquo;s proposals never reach the auto-applying GitOps path, and it cannot apply a
+        change itself. A human reviews and applies every revision it produces &mdash; the agent
+        speeds up authoring, it does not gain write access to the fleet.
+      </p>
