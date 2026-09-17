@@ -20,7 +20,7 @@ function StatusBadge({ status }: { status: string }) {
       ? 'bg-emerald-500/15 text-emerald-400'
       : status === 'deprecated'
         ? 'bg-amber-500/15 text-amber-400'
-        : 'bg-zinc-500/15 text-muted-2';
+        : 'bg-border text-muted-2';
   return <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${tone}`}>{status}</span>;
 }
 
