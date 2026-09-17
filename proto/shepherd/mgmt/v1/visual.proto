@@ -15,6 +15,10 @@ service VisualService {
   rpc Validate(ValidateVisualRequest) returns (ValidateVisualResponse) {}
   rpc UpgradeCheck(UpgradeCheckRequest) returns (UpgradeCheckResponse) {}
   rpc GraphView(GraphViewRequest) returns (GraphViewResponse) {}
+  // DiffRevisions returns the structural graph diff between two of a
+  // pipeline's revisions — the visual-builder counterpart to the text-only
+  // RevisionDiff (#118). Org-reader, like GraphView.
+  rpc DiffRevisions(DiffRevisionsRequest) returns (DiffRevisionsResponse) {}
 }
 
 // -- Graph document (internal/visual.GraphDocument and friends) --
@@ -215,4 +219,80 @@ message GraphViewResponse {
   GraphDocument graph = 1;
   bool opaque = 2;
   string warning = 3;
+}
+
+// -- DiffRevisions --
+
+message DiffRevisionsRequest {
+  string org_id = 1;
+  // id is the pipeline id, matching GraphViewRequest.id.
+  string id = 2;
+  // from_revision is the base (older) revision to diff from.
+  int32 from_revision = 3;
+  // to_revision is the target revision to diff to; 0 means "the pipeline's
+  // current saved state" (its live wizard_state / contents), so the common
+  // "revision N vs current" case needs no lookup of the latest revision number.
+  int32 to_revision = 4;
+}
+
+// FieldChange is one modified attribute on a changed node: a top-level field
+// ("label", "component", "disabled", "notes", "block_order") or a component
+// property keyed "prop:<name>". old_value/new_value are human-readable
+// stringifications (an added attribute has an empty old_value, a removed one
+// an empty new_value).
+message FieldChange {
+  string field = 1;
+  string old_value = 2;
+  string new_value = 3;
+}
+
+// NodeChange is one node added, removed, or changed between the two graphs.
+// kind is one of "added" | "removed" | "changed" (a string, per the
+// enum-like-field rule this file already follows for UpgradeItem.class).
+// field_changes is populated only when kind is "changed".
+message NodeChange {
+  string kind = 1;
+  string id = 2;
+  string component = 3;
+  string label = 4;
+  repeated FieldChange field_changes = 5;
+}
+
+// EdgeChange is one wire added, removed, or changed (endpoints or order).
+// from/to are the target-graph endpoints for added/changed, the base-graph
+// endpoints for removed.
+message EdgeChange {
+  string kind = 1;
+  string id = 2;
+  PortRef from = 3;
+  PortRef to = 4;
+}
+
+// BindingChange is one property binding added, removed, or changed. old_ref is
+// set for removed/changed, new_ref for added/changed.
+message BindingChange {
+  string kind = 1;
+  string node = 2;
+  string prop = 3;
+  BindingRef old_ref = 4;
+  BindingRef new_ref = 5;
+}
+
+// GraphDiff is the structural difference between two graph documents,
+// mirroring internal/visual.GraphDiff.
+message GraphDiff {
+  repeated NodeChange node_changes = 1;
+  repeated EdgeChange edge_changes = 2;
+  repeated BindingChange binding_changes = 3;
+}
+
+// DiffRevisionsResponse carries the graph diff plus best-effort flags: a side
+// is opaque when it had no saved graph (wizard_state) and its Alloy contents
+// could not be re-parsed cleanly into a graph, so that side is treated as an
+// empty document and warning explains.
+message DiffRevisionsResponse {
+  GraphDiff diff = 1;
+  bool from_opaque = 2;
+  bool to_opaque = 3;
+  string warning = 4;
 }

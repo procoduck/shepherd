@@ -152,10 +152,11 @@ var procedureRequirements = map[string]string{
 	mgmtv1connect.WizardServiceCommitWizardProcedure:    auth.RoleOrgEditor,
 
 	// VisualService — org editor, except GraphView (org reader).
-	mgmtv1connect.VisualServiceRenderProcedure:       auth.RoleOrgEditor,
-	mgmtv1connect.VisualServiceValidateProcedure:     auth.RoleOrgEditor,
-	mgmtv1connect.VisualServiceUpgradeCheckProcedure: auth.RoleOrgEditor,
-	mgmtv1connect.VisualServiceGraphViewProcedure:    auth.RoleOrgReader,
+	mgmtv1connect.VisualServiceRenderProcedure:        auth.RoleOrgEditor,
+	mgmtv1connect.VisualServiceValidateProcedure:      auth.RoleOrgEditor,
+	mgmtv1connect.VisualServiceUpgradeCheckProcedure:  auth.RoleOrgEditor,
+	mgmtv1connect.VisualServiceGraphViewProcedure:     auth.RoleOrgReader,
+	mgmtv1connect.VisualServiceDiffRevisionsProcedure: auth.RoleOrgReader,
 
 	// SimulateService — org editor.
 	mgmtv1connect.SimulateServiceSimulateRelabelProcedure: auth.RoleOrgEditor,

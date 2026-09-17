@@ -42,6 +42,9 @@ const (
 	VisualServiceUpgradeCheckProcedure = "/shepherd.mgmt.v1.VisualService/UpgradeCheck"
 	// VisualServiceGraphViewProcedure is the fully-qualified name of the VisualService's GraphView RPC.
 	VisualServiceGraphViewProcedure = "/shepherd.mgmt.v1.VisualService/GraphView"
+	// VisualServiceDiffRevisionsProcedure is the fully-qualified name of the VisualService's
+	// DiffRevisions RPC.
+	VisualServiceDiffRevisionsProcedure = "/shepherd.mgmt.v1.VisualService/DiffRevisions"
 )
 
 // VisualServiceClient is a client for the shepherd.mgmt.v1.VisualService service.
@@ -50,6 +53,10 @@ type VisualServiceClient interface {
 	Validate(context.Context, *connect.Request[v1.ValidateVisualRequest]) (*connect.Response[v1.ValidateVisualResponse], error)
 	UpgradeCheck(context.Context, *connect.Request[v1.UpgradeCheckRequest]) (*connect.Response[v1.UpgradeCheckResponse], error)
 	GraphView(context.Context, *connect.Request[v1.GraphViewRequest]) (*connect.Response[v1.GraphViewResponse], error)
+	// DiffRevisions returns the structural graph diff between two of a
+	// pipeline's revisions — the visual-builder counterpart to the text-only
+	// RevisionDiff (#118). Org-reader, like GraphView.
+	DiffRevisions(context.Context, *connect.Request[v1.DiffRevisionsRequest]) (*connect.Response[v1.DiffRevisionsResponse], error)
 }
 
 // NewVisualServiceClient constructs a client for the shepherd.mgmt.v1.VisualService service. By
@@ -87,15 +94,22 @@ func NewVisualServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(visualServiceMethods.ByName("GraphView")),
 			connect.WithClientOptions(opts...),
 		),
+		diffRevisions: connect.NewClient[v1.DiffRevisionsRequest, v1.DiffRevisionsResponse](
+			httpClient,
+			baseURL+VisualServiceDiffRevisionsProcedure,
+			connect.WithSchema(visualServiceMethods.ByName("DiffRevisions")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // visualServiceClient implements VisualServiceClient.
 type visualServiceClient struct {
-	render       *connect.Client[v1.RenderRequest, v1.RenderResponse]
-	validate     *connect.Client[v1.ValidateVisualRequest, v1.ValidateVisualResponse]
-	upgradeCheck *connect.Client[v1.UpgradeCheckRequest, v1.UpgradeCheckResponse]
-	graphView    *connect.Client[v1.GraphViewRequest, v1.GraphViewResponse]
+	render        *connect.Client[v1.RenderRequest, v1.RenderResponse]
+	validate      *connect.Client[v1.ValidateVisualRequest, v1.ValidateVisualResponse]
+	upgradeCheck  *connect.Client[v1.UpgradeCheckRequest, v1.UpgradeCheckResponse]
+	graphView     *connect.Client[v1.GraphViewRequest, v1.GraphViewResponse]
+	diffRevisions *connect.Client[v1.DiffRevisionsRequest, v1.DiffRevisionsResponse]
 }
 
 // Render calls shepherd.mgmt.v1.VisualService.Render.
@@ -118,12 +132,21 @@ func (c *visualServiceClient) GraphView(ctx context.Context, req *connect.Reques
 	return c.graphView.CallUnary(ctx, req)
 }
 
+// DiffRevisions calls shepherd.mgmt.v1.VisualService.DiffRevisions.
+func (c *visualServiceClient) DiffRevisions(ctx context.Context, req *connect.Request[v1.DiffRevisionsRequest]) (*connect.Response[v1.DiffRevisionsResponse], error) {
+	return c.diffRevisions.CallUnary(ctx, req)
+}
+
 // VisualServiceHandler is an implementation of the shepherd.mgmt.v1.VisualService service.
 type VisualServiceHandler interface {
 	Render(context.Context, *connect.Request[v1.RenderRequest]) (*connect.Response[v1.RenderResponse], error)
 	Validate(context.Context, *connect.Request[v1.ValidateVisualRequest]) (*connect.Response[v1.ValidateVisualResponse], error)
 	UpgradeCheck(context.Context, *connect.Request[v1.UpgradeCheckRequest]) (*connect.Response[v1.UpgradeCheckResponse], error)
 	GraphView(context.Context, *connect.Request[v1.GraphViewRequest]) (*connect.Response[v1.GraphViewResponse], error)
+	// DiffRevisions returns the structural graph diff between two of a
+	// pipeline's revisions — the visual-builder counterpart to the text-only
+	// RevisionDiff (#118). Org-reader, like GraphView.
+	DiffRevisions(context.Context, *connect.Request[v1.DiffRevisionsRequest]) (*connect.Response[v1.DiffRevisionsResponse], error)
 }
 
 // NewVisualServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -157,6 +180,12 @@ func NewVisualServiceHandler(svc VisualServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(visualServiceMethods.ByName("GraphView")),
 		connect.WithHandlerOptions(opts...),
 	)
+	visualServiceDiffRevisionsHandler := connect.NewUnaryHandler(
+		VisualServiceDiffRevisionsProcedure,
+		svc.DiffRevisions,
+		connect.WithSchema(visualServiceMethods.ByName("DiffRevisions")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/shepherd.mgmt.v1.VisualService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case VisualServiceRenderProcedure:
@@ -167,6 +196,8 @@ func NewVisualServiceHandler(svc VisualServiceHandler, opts ...connect.HandlerOp
 			visualServiceUpgradeCheckHandler.ServeHTTP(w, r)
 		case VisualServiceGraphViewProcedure:
 			visualServiceGraphViewHandler.ServeHTTP(w, r)
+		case VisualServiceDiffRevisionsProcedure:
+			visualServiceDiffRevisionsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -190,4 +221,8 @@ func (UnimplementedVisualServiceHandler) UpgradeCheck(context.Context, *connect.
 
 func (UnimplementedVisualServiceHandler) GraphView(context.Context, *connect.Request[v1.GraphViewRequest]) (*connect.Response[v1.GraphViewResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.VisualService.GraphView is not implemented"))
+}
+
+func (UnimplementedVisualServiceHandler) DiffRevisions(context.Context, *connect.Request[v1.DiffRevisionsRequest]) (*connect.Response[v1.DiffRevisionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.VisualService.DiffRevisions is not implemented"))
 }

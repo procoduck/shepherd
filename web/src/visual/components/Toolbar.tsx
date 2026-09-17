@@ -10,6 +10,7 @@ import { useOrgId } from '../../hooks/useOrg';
 import { clearDraft } from '../draft';
 import { isValidMatcher } from '../matcher';
 import { useVisualStore } from '../store';
+import { RevisionCompare } from './RevisionCompare';
 import { SandboxRunPanel } from './SandboxRunPanel';
 
 /** Thrown when the server-side render (VisualService.Render) reports L1
@@ -33,6 +34,7 @@ export function Toolbar({ pipelineId }: { pipelineId: string }) {
 
   const [matcherInput, setMatcherInput] = useState('');
   const [matcherError, setMatcherError] = useState<string | null>(null);
+  const [comparing, setComparing] = useState(false);
 
   const orgId = useOrgId();
   const navigate = useNavigate();
@@ -228,6 +230,25 @@ export function Toolbar({ pipelineId }: { pipelineId: string }) {
             ? `Flow OK · ${doc.nodes.filter((n) => !n.disabled).length} nodes, ${doc.edges.length} wires`
             : `Flow broken · ${errors} problem${errors !== 1 ? 's' : ''}`}
         </span>
+      )}
+      {/* History opens the graph revision diff (#118). Only a saved pipeline
+          has revisions to compare, so it's hidden for a brand-new one. */}
+      {pipelineId !== 'new' && (
+        <button
+          type='button'
+          data-testid='toolbar-history'
+          onClick={() => setComparing(true)}
+          className='text-sm px-3 py-1 rounded border shrink-0'
+        >
+          History
+        </button>
+      )}
+      {comparing && orgId && pipelineId !== 'new' && (
+        <RevisionCompare
+          pipelineId={pipelineId}
+          orgId={orgId}
+          onClose={() => setComparing(false)}
+        />
       )}
       <SandboxRunPanel orgId={orgId} />
       <button

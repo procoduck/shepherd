@@ -11,7 +11,7 @@ import type { JsonObject, Message } from "@bufbuild/protobuf";
  * Describes the file shepherd/mgmt/v1/visual.proto.
  */
 export const file_shepherd_mgmt_v1_visual: GenFile = /*@__PURE__*/
-  fileDesc("Ch1zaGVwaGVyZC9tZ210L3YxL3Zpc3VhbC5wcm90bxIQc2hlcGhlcmQubWdtdC52MSIgCghQb3NpdGlvbhIJCgF4GAEgASgBEgkKAXkYAiABKAEiLgoIVmlld3BvcnQSCQoBeBgBIAEoARIJCgF5GAIgASgBEgwKBHpvb20YAyABKAEiIQoJR3JhcGhNZXRhEhQKDGNyZWF0ZWRfd2l0aBgBIAEoCSIlCgdQb3J0UmVmEgwKBG5vZGUYASABKAkSDAoEcG9ydBgCIAEoCSI4CgpCaW5kaW5nUmVmEgwKBG5vZGUYASABKAkSDgoGZXhwb3J0GAIgASgJEgwKBGV4cHIYAyABKAkixQEKCUdyYXBoTm9kZRIKCgJpZBgBIAEoCRIRCgljb21wb25lbnQYAiABKAkSDQoFbGFiZWwYAyABKAkSLAoIcG9zaXRpb24YBCABKAsyGi5zaGVwaGVyZC5tZ210LnYxLlBvc2l0aW9uEiYKBXByb3BzGAUgASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdBIQCghkaXNhYmxlZBgGIAEoCBINCgVub3RlcxgHIAEoCRITCgtibG9ja19vcmRlchgIIAMoCSKFAQoJR3JhcGhFZGdlEgoKAmlkGAEgASgJEicKBGZyb20YAiABKAsyGS5zaGVwaGVyZC5tZ210LnYxLlBvcnRSZWYSJQoCdG8YAyABKAsyGS5zaGVwaGVyZC5tZ210LnYxLlBvcnRSZWYSEgoFb3JkZXIYBCABKAVIAIgBAUIICgZfb3JkZXIiVQoMR3JhcGhCaW5kaW5nEgwKBG5vZGUYASABKAkSDAoEcHJvcBgCIAEoCRIpCgNyZWYYAyABKAsyHC5zaGVwaGVyZC5tZ210LnYxLkJpbmRpbmdSZWYimAIKDUdyYXBoRG9jdW1lbnQSDAoEa2luZBgBIAEoCRIWCg5zY2hlbWFfdmVyc2lvbhgCIAEoCRIqCgVub2RlcxgDIAMoCzIbLnNoZXBoZXJkLm1nbXQudjEuR3JhcGhOb2RlEioKBWVkZ2VzGAQgAygLMhsuc2hlcGhlcmQubWdtdC52MS5HcmFwaEVkZ2USMAoIYmluZGluZ3MYBSADKAsyHi5zaGVwaGVyZC5tZ210LnYxLkdyYXBoQmluZGluZxIsCgh2aWV3cG9ydBgGIAEoCzIaLnNoZXBoZXJkLm1nbXQudjEuVmlld3BvcnQSKQoEbWV0YRgHIAEoCzIbLnNoZXBoZXJkLm1nbXQudjEuR3JhcGhNZXRhIjEKCU5vZGVSYW5nZRISCgpzdGFydF9saW5lGAEgASgFEhAKCGVuZF9saW5lGAIgASgFImMKEFZpc3VhbERpYWdub3N0aWMSDQoFbGF5ZXIYASABKAkSDAoEY29kZRgCIAEoCRIPCgdub2RlX2lkGAMgASgJEhAKCG5vZGVfaWQyGAQgASgJEg8KB21lc3NhZ2UYBSABKAkiTwoNUmVuZGVyUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSLgoFZ3JhcGgYAiABKAsyHy5zaGVwaGVyZC5tZ210LnYxLkdyYXBoRG9jdW1lbnQi6AEKDlJlbmRlclJlc3BvbnNlEg8KB2NvbnRlbnQYASABKAkSPwoIbm9kZV9tYXAYAiADKAsyLS5zaGVwaGVyZC5tZ210LnYxLlJlbmRlclJlc3BvbnNlLk5vZGVNYXBFbnRyeRI3CgtkaWFnbm9zdGljcxgDIAMoCzIiLnNoZXBoZXJkLm1nbXQudjEuVmlzdWFsRGlhZ25vc3RpYxpLCgxOb2RlTWFwRW50cnkSCwoDa2V5GAEgASgJEioKBXZhbHVlGAIgASgLMhsuc2hlcGhlcmQubWdtdC52MS5Ob2RlUmFuZ2U6AjgBIlcKFVZhbGlkYXRlVmlzdWFsUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSLgoFZ3JhcGgYAiABKAsyHy5zaGVwaGVyZC5tZ210LnYxLkdyYXBoRG9jdW1lbnQiYgoUVmlzdWFsTm9kZURpYWdub3N0aWMSDQoFbGF5ZXIYASABKAkSDwoHbm9kZV9pZBgCIAEoCRIMCgRsaW5lGAMgASgFEgsKA2NvbBgEIAEoBRIPCgdtZXNzYWdlGAUgASgJIpUBChZWYWxpZGF0ZVZpc3VhbFJlc3BvbnNlEjsKC2RpYWdub3N0aWNzGAEgAygLMiYuc2hlcGhlcmQubWdtdC52MS5WaXN1YWxOb2RlRGlhZ25vc3RpYxI+ChJyZW5kZXJfZGlhZ25vc3RpY3MYAiADKAsyIi5zaGVwaGVyZC5tZ210LnYxLlZpc3VhbERpYWdub3N0aWMiVQoTVXBncmFkZUNoZWNrUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSLgoFZ3JhcGgYAiABKAsyHy5zaGVwaGVyZC5tZ210LnYxLkdyYXBoRG9jdW1lbnQiZAoLVXBncmFkZUl0ZW0SDwoHbm9kZV9pZBgBIAEoCRISCgpub2RlX2xhYmVsGAIgASgJEhEKCWNvbXBvbmVudBgDIAEoCRINCgVjbGFzcxgEIAEoCRIOCgZkZXRhaWwYBSABKAkihQEKFFVwZ3JhZGVDaGVja1Jlc3BvbnNlEhMKC29sZF92ZXJzaW9uGAEgASgJEhMKC25ld192ZXJzaW9uGAIgASgJEiwKBWl0ZW1zGAMgAygLMh0uc2hlcGhlcmQubWdtdC52MS5VcGdyYWRlSXRlbRIVCg1uZWVkc191cGdyYWRlGAQgASgIIi4KEEdyYXBoVmlld1JlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgoKAmlkGAIgASgJImQKEUdyYXBoVmlld1Jlc3BvbnNlEi4KBWdyYXBoGAEgASgLMh8uc2hlcGhlcmQubWdtdC52MS5HcmFwaERvY3VtZW50Eg4KBm9wYXF1ZRgCIAEoCBIPCgd3YXJuaW5nGAMgASgJMvgCCg1WaXN1YWxTZXJ2aWNlEk0KBlJlbmRlchIfLnNoZXBoZXJkLm1nbXQudjEuUmVuZGVyUmVxdWVzdBogLnNoZXBoZXJkLm1nbXQudjEuUmVuZGVyUmVzcG9uc2UiABJfCghWYWxpZGF0ZRInLnNoZXBoZXJkLm1nbXQudjEuVmFsaWRhdGVWaXN1YWxSZXF1ZXN0Giguc2hlcGhlcmQubWdtdC52MS5WYWxpZGF0ZVZpc3VhbFJlc3BvbnNlIgASXwoMVXBncmFkZUNoZWNrEiUuc2hlcGhlcmQubWdtdC52MS5VcGdyYWRlQ2hlY2tSZXF1ZXN0GiYuc2hlcGhlcmQubWdtdC52MS5VcGdyYWRlQ2hlY2tSZXNwb25zZSIAElYKCUdyYXBoVmlldxIiLnNoZXBoZXJkLm1nbXQudjEuR3JhcGhWaWV3UmVxdWVzdBojLnNoZXBoZXJkLm1nbXQudjEuR3JhcGhWaWV3UmVzcG9uc2UiAEImWiRzaGVwaGVyZC9nZW4vc2hlcGhlcmQvbWdtdC92MTttZ210djFiBnByb3RvMw", [file_google_protobuf_struct]);
+  fileDesc("Ch1zaGVwaGVyZC9tZ210L3YxL3Zpc3VhbC5wcm90bxIQc2hlcGhlcmQubWdtdC52MSIgCghQb3NpdGlvbhIJCgF4GAEgASgBEgkKAXkYAiABKAEiLgoIVmlld3BvcnQSCQoBeBgBIAEoARIJCgF5GAIgASgBEgwKBHpvb20YAyABKAEiIQoJR3JhcGhNZXRhEhQKDGNyZWF0ZWRfd2l0aBgBIAEoCSIlCgdQb3J0UmVmEgwKBG5vZGUYASABKAkSDAoEcG9ydBgCIAEoCSI4CgpCaW5kaW5nUmVmEgwKBG5vZGUYASABKAkSDgoGZXhwb3J0GAIgASgJEgwKBGV4cHIYAyABKAkixQEKCUdyYXBoTm9kZRIKCgJpZBgBIAEoCRIRCgljb21wb25lbnQYAiABKAkSDQoFbGFiZWwYAyABKAkSLAoIcG9zaXRpb24YBCABKAsyGi5zaGVwaGVyZC5tZ210LnYxLlBvc2l0aW9uEiYKBXByb3BzGAUgASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdBIQCghkaXNhYmxlZBgGIAEoCBINCgVub3RlcxgHIAEoCRITCgtibG9ja19vcmRlchgIIAMoCSKFAQoJR3JhcGhFZGdlEgoKAmlkGAEgASgJEicKBGZyb20YAiABKAsyGS5zaGVwaGVyZC5tZ210LnYxLlBvcnRSZWYSJQoCdG8YAyABKAsyGS5zaGVwaGVyZC5tZ210LnYxLlBvcnRSZWYSEgoFb3JkZXIYBCABKAVIAIgBAUIICgZfb3JkZXIiVQoMR3JhcGhCaW5kaW5nEgwKBG5vZGUYASABKAkSDAoEcHJvcBgCIAEoCRIpCgNyZWYYAyABKAsyHC5zaGVwaGVyZC5tZ210LnYxLkJpbmRpbmdSZWYimAIKDUdyYXBoRG9jdW1lbnQSDAoEa2luZBgBIAEoCRIWCg5zY2hlbWFfdmVyc2lvbhgCIAEoCRIqCgVub2RlcxgDIAMoCzIbLnNoZXBoZXJkLm1nbXQudjEuR3JhcGhOb2RlEioKBWVkZ2VzGAQgAygLMhsuc2hlcGhlcmQubWdtdC52MS5HcmFwaEVkZ2USMAoIYmluZGluZ3MYBSADKAsyHi5zaGVwaGVyZC5tZ210LnYxLkdyYXBoQmluZGluZxIsCgh2aWV3cG9ydBgGIAEoCzIaLnNoZXBoZXJkLm1nbXQudjEuVmlld3BvcnQSKQoEbWV0YRgHIAEoCzIbLnNoZXBoZXJkLm1nbXQudjEuR3JhcGhNZXRhIjEKCU5vZGVSYW5nZRISCgpzdGFydF9saW5lGAEgASgFEhAKCGVuZF9saW5lGAIgASgFImMKEFZpc3VhbERpYWdub3N0aWMSDQoFbGF5ZXIYASABKAkSDAoEY29kZRgCIAEoCRIPCgdub2RlX2lkGAMgASgJEhAKCG5vZGVfaWQyGAQgASgJEg8KB21lc3NhZ2UYBSABKAkiTwoNUmVuZGVyUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSLgoFZ3JhcGgYAiABKAsyHy5zaGVwaGVyZC5tZ210LnYxLkdyYXBoRG9jdW1lbnQi6AEKDlJlbmRlclJlc3BvbnNlEg8KB2NvbnRlbnQYASABKAkSPwoIbm9kZV9tYXAYAiADKAsyLS5zaGVwaGVyZC5tZ210LnYxLlJlbmRlclJlc3BvbnNlLk5vZGVNYXBFbnRyeRI3CgtkaWFnbm9zdGljcxgDIAMoCzIiLnNoZXBoZXJkLm1nbXQudjEuVmlzdWFsRGlhZ25vc3RpYxpLCgxOb2RlTWFwRW50cnkSCwoDa2V5GAEgASgJEioKBXZhbHVlGAIgASgLMhsuc2hlcGhlcmQubWdtdC52MS5Ob2RlUmFuZ2U6AjgBIlcKFVZhbGlkYXRlVmlzdWFsUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSLgoFZ3JhcGgYAiABKAsyHy5zaGVwaGVyZC5tZ210LnYxLkdyYXBoRG9jdW1lbnQiYgoUVmlzdWFsTm9kZURpYWdub3N0aWMSDQoFbGF5ZXIYASABKAkSDwoHbm9kZV9pZBgCIAEoCRIMCgRsaW5lGAMgASgFEgsKA2NvbBgEIAEoBRIPCgdtZXNzYWdlGAUgASgJIpUBChZWYWxpZGF0ZVZpc3VhbFJlc3BvbnNlEjsKC2RpYWdub3N0aWNzGAEgAygLMiYuc2hlcGhlcmQubWdtdC52MS5WaXN1YWxOb2RlRGlhZ25vc3RpYxI+ChJyZW5kZXJfZGlhZ25vc3RpY3MYAiADKAsyIi5zaGVwaGVyZC5tZ210LnYxLlZpc3VhbERpYWdub3N0aWMiVQoTVXBncmFkZUNoZWNrUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSLgoFZ3JhcGgYAiABKAsyHy5zaGVwaGVyZC5tZ210LnYxLkdyYXBoRG9jdW1lbnQiZAoLVXBncmFkZUl0ZW0SDwoHbm9kZV9pZBgBIAEoCRISCgpub2RlX2xhYmVsGAIgASgJEhEKCWNvbXBvbmVudBgDIAEoCRINCgVjbGFzcxgEIAEoCRIOCgZkZXRhaWwYBSABKAkihQEKFFVwZ3JhZGVDaGVja1Jlc3BvbnNlEhMKC29sZF92ZXJzaW9uGAEgASgJEhMKC25ld192ZXJzaW9uGAIgASgJEiwKBWl0ZW1zGAMgAygLMh0uc2hlcGhlcmQubWdtdC52MS5VcGdyYWRlSXRlbRIVCg1uZWVkc191cGdyYWRlGAQgASgIIi4KEEdyYXBoVmlld1JlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgoKAmlkGAIgASgJImQKEUdyYXBoVmlld1Jlc3BvbnNlEi4KBWdyYXBoGAEgASgLMh8uc2hlcGhlcmQubWdtdC52MS5HcmFwaERvY3VtZW50Eg4KBm9wYXF1ZRgCIAEoCBIPCgd3YXJuaW5nGAMgASgJIl4KFERpZmZSZXZpc2lvbnNSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIKCgJpZBgCIAEoCRIVCg1mcm9tX3JldmlzaW9uGAMgASgFEhMKC3RvX3JldmlzaW9uGAQgASgFIkIKC0ZpZWxkQ2hhbmdlEg0KBWZpZWxkGAEgASgJEhEKCW9sZF92YWx1ZRgCIAEoCRIRCgluZXdfdmFsdWUYAyABKAkifgoKTm9kZUNoYW5nZRIMCgRraW5kGAEgASgJEgoKAmlkGAIgASgJEhEKCWNvbXBvbmVudBgDIAEoCRINCgVsYWJlbBgEIAEoCRI0Cg1maWVsZF9jaGFuZ2VzGAUgAygLMh0uc2hlcGhlcmQubWdtdC52MS5GaWVsZENoYW5nZSJ2CgpFZGdlQ2hhbmdlEgwKBGtpbmQYASABKAkSCgoCaWQYAiABKAkSJwoEZnJvbRgDIAEoCzIZLnNoZXBoZXJkLm1nbXQudjEuUG9ydFJlZhIlCgJ0bxgEIAEoCzIZLnNoZXBoZXJkLm1nbXQudjEuUG9ydFJlZiKXAQoNQmluZGluZ0NoYW5nZRIMCgRraW5kGAEgASgJEgwKBG5vZGUYAiABKAkSDAoEcHJvcBgDIAEoCRItCgdvbGRfcmVmGAQgASgLMhwuc2hlcGhlcmQubWdtdC52MS5CaW5kaW5nUmVmEi0KB25ld19yZWYYBSABKAsyHC5zaGVwaGVyZC5tZ210LnYxLkJpbmRpbmdSZWYirQEKCUdyYXBoRGlmZhIyCgxub2RlX2NoYW5nZXMYASADKAsyHC5zaGVwaGVyZC5tZ210LnYxLk5vZGVDaGFuZ2USMgoMZWRnZV9jaGFuZ2VzGAIgAygLMhwuc2hlcGhlcmQubWdtdC52MS5FZGdlQ2hhbmdlEjgKD2JpbmRpbmdfY2hhbmdlcxgDIAMoCzIfLnNoZXBoZXJkLm1nbXQudjEuQmluZGluZ0NoYW5nZSJ7ChVEaWZmUmV2aXNpb25zUmVzcG9uc2USKQoEZGlmZhgBIAEoCzIbLnNoZXBoZXJkLm1nbXQudjEuR3JhcGhEaWZmEhMKC2Zyb21fb3BhcXVlGAIgASgIEhEKCXRvX29wYXF1ZRgDIAEoCBIPCgd3YXJuaW5nGAQgASgJMtwDCg1WaXN1YWxTZXJ2aWNlEk0KBlJlbmRlchIfLnNoZXBoZXJkLm1nbXQudjEuUmVuZGVyUmVxdWVzdBogLnNoZXBoZXJkLm1nbXQudjEuUmVuZGVyUmVzcG9uc2UiABJfCghWYWxpZGF0ZRInLnNoZXBoZXJkLm1nbXQudjEuVmFsaWRhdGVWaXN1YWxSZXF1ZXN0Giguc2hlcGhlcmQubWdtdC52MS5WYWxpZGF0ZVZpc3VhbFJlc3BvbnNlIgASXwoMVXBncmFkZUNoZWNrEiUuc2hlcGhlcmQubWdtdC52MS5VcGdyYWRlQ2hlY2tSZXF1ZXN0GiYuc2hlcGhlcmQubWdtdC52MS5VcGdyYWRlQ2hlY2tSZXNwb25zZSIAElYKCUdyYXBoVmlldxIiLnNoZXBoZXJkLm1nbXQudjEuR3JhcGhWaWV3UmVxdWVzdBojLnNoZXBoZXJkLm1nbXQudjEuR3JhcGhWaWV3UmVzcG9uc2UiABJiCg1EaWZmUmV2aXNpb25zEiYuc2hlcGhlcmQubWdtdC52MS5EaWZmUmV2aXNpb25zUmVxdWVzdBonLnNoZXBoZXJkLm1nbXQudjEuRGlmZlJldmlzaW9uc1Jlc3BvbnNlIgBCJlokc2hlcGhlcmQvZ2VuL3NoZXBoZXJkL21nbXQvdjE7bWdtdHYxYgZwcm90bzM", [file_google_protobuf_struct]);
 
 /**
  * @generated from message shepherd.mgmt.v1.Position
@@ -688,6 +688,264 @@ export const GraphViewResponseSchema: GenMessage<GraphViewResponse> = /*@__PURE_
   messageDesc(file_shepherd_mgmt_v1_visual, 20);
 
 /**
+ * @generated from message shepherd.mgmt.v1.DiffRevisionsRequest
+ */
+export type DiffRevisionsRequest = Message<"shepherd.mgmt.v1.DiffRevisionsRequest"> & {
+  /**
+   * @generated from field: string org_id = 1;
+   */
+  orgId: string;
+
+  /**
+   * id is the pipeline id, matching GraphViewRequest.id.
+   *
+   * @generated from field: string id = 2;
+   */
+  id: string;
+
+  /**
+   * from_revision is the base (older) revision to diff from.
+   *
+   * @generated from field: int32 from_revision = 3;
+   */
+  fromRevision: number;
+
+  /**
+   * to_revision is the target revision to diff to; 0 means "the pipeline's
+   * current saved state" (its live wizard_state / contents), so the common
+   * "revision N vs current" case needs no lookup of the latest revision number.
+   *
+   * @generated from field: int32 to_revision = 4;
+   */
+  toRevision: number;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.DiffRevisionsRequest.
+ * Use `create(DiffRevisionsRequestSchema)` to create a new message.
+ */
+export const DiffRevisionsRequestSchema: GenMessage<DiffRevisionsRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_visual, 21);
+
+/**
+ * FieldChange is one modified attribute on a changed node: a top-level field
+ * ("label", "component", "disabled", "notes", "block_order") or a component
+ * property keyed "prop:<name>". old_value/new_value are human-readable
+ * stringifications (an added attribute has an empty old_value, a removed one
+ * an empty new_value).
+ *
+ * @generated from message shepherd.mgmt.v1.FieldChange
+ */
+export type FieldChange = Message<"shepherd.mgmt.v1.FieldChange"> & {
+  /**
+   * @generated from field: string field = 1;
+   */
+  field: string;
+
+  /**
+   * @generated from field: string old_value = 2;
+   */
+  oldValue: string;
+
+  /**
+   * @generated from field: string new_value = 3;
+   */
+  newValue: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.FieldChange.
+ * Use `create(FieldChangeSchema)` to create a new message.
+ */
+export const FieldChangeSchema: GenMessage<FieldChange> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_visual, 22);
+
+/**
+ * NodeChange is one node added, removed, or changed between the two graphs.
+ * kind is one of "added" | "removed" | "changed" (a string, per the
+ * enum-like-field rule this file already follows for UpgradeItem.class).
+ * field_changes is populated only when kind is "changed".
+ *
+ * @generated from message shepherd.mgmt.v1.NodeChange
+ */
+export type NodeChange = Message<"shepherd.mgmt.v1.NodeChange"> & {
+  /**
+   * @generated from field: string kind = 1;
+   */
+  kind: string;
+
+  /**
+   * @generated from field: string id = 2;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string component = 3;
+   */
+  component: string;
+
+  /**
+   * @generated from field: string label = 4;
+   */
+  label: string;
+
+  /**
+   * @generated from field: repeated shepherd.mgmt.v1.FieldChange field_changes = 5;
+   */
+  fieldChanges: FieldChange[];
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.NodeChange.
+ * Use `create(NodeChangeSchema)` to create a new message.
+ */
+export const NodeChangeSchema: GenMessage<NodeChange> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_visual, 23);
+
+/**
+ * EdgeChange is one wire added, removed, or changed (endpoints or order).
+ * from/to are the target-graph endpoints for added/changed, the base-graph
+ * endpoints for removed.
+ *
+ * @generated from message shepherd.mgmt.v1.EdgeChange
+ */
+export type EdgeChange = Message<"shepherd.mgmt.v1.EdgeChange"> & {
+  /**
+   * @generated from field: string kind = 1;
+   */
+  kind: string;
+
+  /**
+   * @generated from field: string id = 2;
+   */
+  id: string;
+
+  /**
+   * @generated from field: shepherd.mgmt.v1.PortRef from = 3;
+   */
+  from?: PortRef | undefined;
+
+  /**
+   * @generated from field: shepherd.mgmt.v1.PortRef to = 4;
+   */
+  to?: PortRef | undefined;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.EdgeChange.
+ * Use `create(EdgeChangeSchema)` to create a new message.
+ */
+export const EdgeChangeSchema: GenMessage<EdgeChange> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_visual, 24);
+
+/**
+ * BindingChange is one property binding added, removed, or changed. old_ref is
+ * set for removed/changed, new_ref for added/changed.
+ *
+ * @generated from message shepherd.mgmt.v1.BindingChange
+ */
+export type BindingChange = Message<"shepherd.mgmt.v1.BindingChange"> & {
+  /**
+   * @generated from field: string kind = 1;
+   */
+  kind: string;
+
+  /**
+   * @generated from field: string node = 2;
+   */
+  node: string;
+
+  /**
+   * @generated from field: string prop = 3;
+   */
+  prop: string;
+
+  /**
+   * @generated from field: shepherd.mgmt.v1.BindingRef old_ref = 4;
+   */
+  oldRef?: BindingRef | undefined;
+
+  /**
+   * @generated from field: shepherd.mgmt.v1.BindingRef new_ref = 5;
+   */
+  newRef?: BindingRef | undefined;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.BindingChange.
+ * Use `create(BindingChangeSchema)` to create a new message.
+ */
+export const BindingChangeSchema: GenMessage<BindingChange> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_visual, 25);
+
+/**
+ * GraphDiff is the structural difference between two graph documents,
+ * mirroring internal/visual.GraphDiff.
+ *
+ * @generated from message shepherd.mgmt.v1.GraphDiff
+ */
+export type GraphDiff = Message<"shepherd.mgmt.v1.GraphDiff"> & {
+  /**
+   * @generated from field: repeated shepherd.mgmt.v1.NodeChange node_changes = 1;
+   */
+  nodeChanges: NodeChange[];
+
+  /**
+   * @generated from field: repeated shepherd.mgmt.v1.EdgeChange edge_changes = 2;
+   */
+  edgeChanges: EdgeChange[];
+
+  /**
+   * @generated from field: repeated shepherd.mgmt.v1.BindingChange binding_changes = 3;
+   */
+  bindingChanges: BindingChange[];
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.GraphDiff.
+ * Use `create(GraphDiffSchema)` to create a new message.
+ */
+export const GraphDiffSchema: GenMessage<GraphDiff> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_visual, 26);
+
+/**
+ * DiffRevisionsResponse carries the graph diff plus best-effort flags: a side
+ * is opaque when it had no saved graph (wizard_state) and its Alloy contents
+ * could not be re-parsed cleanly into a graph, so that side is treated as an
+ * empty document and warning explains.
+ *
+ * @generated from message shepherd.mgmt.v1.DiffRevisionsResponse
+ */
+export type DiffRevisionsResponse = Message<"shepherd.mgmt.v1.DiffRevisionsResponse"> & {
+  /**
+   * @generated from field: shepherd.mgmt.v1.GraphDiff diff = 1;
+   */
+  diff?: GraphDiff | undefined;
+
+  /**
+   * @generated from field: bool from_opaque = 2;
+   */
+  fromOpaque: boolean;
+
+  /**
+   * @generated from field: bool to_opaque = 3;
+   */
+  toOpaque: boolean;
+
+  /**
+   * @generated from field: string warning = 4;
+   */
+  warning: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.DiffRevisionsResponse.
+ * Use `create(DiffRevisionsResponseSchema)` to create a new message.
+ */
+export const DiffRevisionsResponseSchema: GenMessage<DiffRevisionsResponse> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_visual, 27);
+
+/**
  * VisualService covers /api/orgs/{org}/visual/* and the pipeline graph view.
  * Render/Validate/UpgradeCheck require org-editor (D6, the same authoring
  * ceiling WizardService and SimulateService hold); GraphView requires
@@ -727,6 +985,18 @@ export const VisualService: GenService<{
     methodKind: "unary";
     input: typeof GraphViewRequestSchema;
     output: typeof GraphViewResponseSchema;
+  },
+  /**
+   * DiffRevisions returns the structural graph diff between two of a
+   * pipeline's revisions — the visual-builder counterpart to the text-only
+   * RevisionDiff (#118). Org-reader, like GraphView.
+   *
+   * @generated from rpc shepherd.mgmt.v1.VisualService.DiffRevisions
+   */
+  diffRevisions: {
+    methodKind: "unary";
+    input: typeof DiffRevisionsRequestSchema;
+    output: typeof DiffRevisionsResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_shepherd_mgmt_v1_visual, 0);

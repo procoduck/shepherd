@@ -189,4 +189,94 @@ prometheus.remote_write "sink" {
 		defer resp.Body.Close() //nolint:errcheck // test cleanup
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
 	})
+
+	// A visual graph carrying its own wizard_state, so DiffRevisions reads the
+	// saved graph directly rather than re-parsing Alloy. `scrape` is the
+	// scrape_interval on the single node, so callers can vary it per revision.
+	visualStateGraph := func(scrape string, extraNode bool) json.RawMessage {
+		nodes := []map[string]any{{
+			"id": "n1", "component": "prometheus.scrape", "label": "web",
+			"position": map[string]any{"x": 0, "y": 0},
+			"props":    map[string]any{"scrape_interval": scrape},
+		}}
+		if extraNode {
+			nodes = append(nodes, map[string]any{
+				"id": "n2", "component": "loki.write", "label": "central",
+				"position": map[string]any{"x": 200, "y": 0},
+				"props":    map[string]any{},
+			})
+		}
+		b, err := json.Marshal(map[string]any{
+			"kind": "alloy-graph/v1", "schema_version": version.AlloySchemaVersion,
+			"nodes": nodes, "edges": []any{}, "bindings": []any{},
+		})
+		Expect(err).NotTo(HaveOccurred())
+		return b
+	}
+
+	It("diffs a revision against the current saved graph (to_revision 0)", func() {
+		// Current pipeline: two nodes, scrape_interval 30s.
+		p, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: orgUUID(orgID), Name: "diff-pipe", Contents: "// current\n",
+			Matchers: json.RawMessage(`[]`), Enabled: false, Source: "visual",
+			WizardState: visualStateGraph("30s", true),
+			CreatedBy:   "test", UpdatedBy: "test",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		// Revision 1: one node, scrape_interval 15s.
+		_, err = st.Queries.CreatePipelineRevision(ctx, sqlc.CreatePipelineRevisionParams{
+			PipelineID: p.ID, Revision: 1, Contents: "// r1\n", Matchers: json.RawMessage(`[]`),
+			Enabled: false, ChangedBy: "test", ChangeNote: "first",
+			WizardState: visualStateGraph("15s", false),
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		body := map[string]any{"org_id": orgID, "id": p.ID.String(), "from_revision": 1, "to_revision": 0}
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/DiffRevisions", readerCookie, body)
+		defer resp.Body.Close() //nolint:errcheck // test cleanup
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		var result map[string]any
+		Expect(json.NewDecoder(resp.Body).Decode(&result)).To(Succeed())
+		diff, ok := result["diff"].(map[string]any)
+		Expect(ok).To(BeTrue(), "expected a diff, got %#v", result)
+		nodeChanges, ok := diff["nodeChanges"].([]any)
+		Expect(ok).To(BeTrue())
+		Expect(nodeChanges).To(HaveLen(2))
+
+		byID := map[string]map[string]any{}
+		for _, raw := range nodeChanges {
+			nc, ok := raw.(map[string]any)
+			Expect(ok).To(BeTrue())
+			id, ok := nc["id"].(string)
+			Expect(ok).To(BeTrue())
+			byID[id] = nc
+		}
+		Expect(byID["n1"]["kind"]).To(Equal("changed"))
+		fcs, ok := byID["n1"]["fieldChanges"].([]any)
+		Expect(ok).To(BeTrue())
+		Expect(fcs).To(HaveLen(1))
+		fc, ok := fcs[0].(map[string]any)
+		Expect(ok).To(BeTrue())
+		Expect(fc["field"]).To(Equal("prop:scrape_interval"))
+		Expect(fc["oldValue"]).To(Equal("15s"))
+		Expect(fc["newValue"]).To(Equal("30s"))
+		Expect(byID["n2"]["kind"]).To(Equal("added"))
+	})
+
+	It("returns not_found for a from_revision that does not exist", func() {
+		p, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: orgUUID(orgID), Name: "diff-missing-rev", Contents: "// c\n",
+			Matchers: json.RawMessage(`[]`), Enabled: false, Source: "visual",
+			WizardState: visualStateGraph("30s", false), CreatedBy: "test", UpdatedBy: "test",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		body := map[string]any{"org_id": orgID, "id": p.ID.String(), "from_revision": 99, "to_revision": 0}
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/DiffRevisions", readerCookie, body)
+		defer resp.Body.Close() //nolint:errcheck // test cleanup
+		Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+		Expect(connectErrorCode(resp)).To(Equal("not_found"))
+	})
 })

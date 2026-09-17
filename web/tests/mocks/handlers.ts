@@ -249,6 +249,41 @@ function upgradeCheckResultToWire(r: Obj) {
   };
 }
 
+function graphDiffResultToWire(r: Obj) {
+  const diff = (r['diff'] as Obj) ?? {};
+  return {
+    diff: {
+      nodeChanges: arr<Obj>(diff, 'node_changes').map((nc) => ({
+        kind: s(nc, 'kind'),
+        id: s(nc, 'id'),
+        component: s(nc, 'component'),
+        label: s(nc, 'label'),
+        fieldChanges: arr<Obj>(nc, 'field_changes').map((f) => ({
+          field: s(f, 'field'),
+          oldValue: s(f, 'old_value'),
+          newValue: s(f, 'new_value'),
+        })),
+      })),
+      edgeChanges: arr<Obj>(diff, 'edge_changes').map((ec) => ({
+        kind: s(ec, 'kind'),
+        id: s(ec, 'id'),
+        from: ec['from'],
+        to: ec['to'],
+      })),
+      bindingChanges: arr<Obj>(diff, 'binding_changes').map((bc) => ({
+        kind: s(bc, 'kind'),
+        node: s(bc, 'node'),
+        prop: s(bc, 'prop'),
+        oldRef: bc['old_ref'],
+        newRef: bc['new_ref'],
+      })),
+    },
+    fromOpaque: b(r, 'from_opaque'),
+    toOpaque: b(r, 'to_opaque'),
+    warning: s(r, 'warning'),
+  };
+}
+
 function visualRenderResultToWire(r: Obj) {
   const nodeMap: Obj = {};
   for (const [key, value] of Object.entries((r['node_map'] as Obj) ?? {})) {
@@ -1682,6 +1717,20 @@ export function installDefaultHandlers(router: Router) {
       warning: s(gv, 'warning'),
     });
   });
+  router.register('POST', '/shepherd.mgmt.v1.VisualService/DiffRevisions', (r) =>
+    json(
+      r,
+      200,
+      graphDiffResultToWire(
+        (st.graphDiffResult as Obj) ?? {
+          diff: { node_changes: [], edge_changes: [], binding_changes: [] },
+          from_opaque: false,
+          to_opaque: false,
+          warning: '',
+        },
+      ),
+    ),
+  );
 
   // ── SimulateService ──────────────────────────────────────────────────────
   router.register('POST', '/shepherd.mgmt.v1.SimulateService/SimulateRelabel', (r) =>
@@ -1945,6 +1994,7 @@ export function defaultState(): MockState {
     schema: undefined,
     visualRenderResult: undefined,
     graphViewResult: undefined,
+    graphDiffResult: undefined,
     upgradeCheckResult: undefined,
     simulateRelabelResult: undefined,
     simulateLogsResult: undefined,

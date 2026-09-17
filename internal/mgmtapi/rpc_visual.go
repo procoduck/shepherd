@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"connectrpc.com/connect"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"google.golang.org/protobuf/types/known/structpb"
 
@@ -16,6 +17,7 @@ import (
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
 	"shepherd/internal/schema"
 	"shepherd/internal/store"
+	"shepherd/internal/store/sqlc"
 	"shepherd/internal/validate"
 	"shepherd/internal/visual"
 )
@@ -228,38 +230,136 @@ func (s *VisualService) GraphView(ctx context.Context, req *connect.Request[mgmt
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("pipeline not found"))
 	}
 
-	// s.schema is nil when the registry failed to initialize (see MountRPC);
-	// fall back to the pinned default version so the best-effort schema load
-	// below degrades to a schemaless parse instead of panicking. The empty
-	// CurrentVersion check keeps the same fallback for a registry built
-	// without a version — unreachable in production wiring, cheap to guard.
-	schemaVersion := "alloy-v1.18.1"
-	if s.schema != nil && s.schema.CurrentVersion() != "" {
-		schemaVersion = "alloy-v" + strings.TrimPrefix(s.schema.CurrentVersion(), "alloy-v")
-	}
-
-	// B3(b): ParseAlloy needs the schema to know which exports are
-	// receiver-kind (D1) — without it, edges fall back to the legacy
-	// referenced->referencing orientation, which is backwards for every
-	// receiver export (prometheus.remote_write.receiver, loki.write.receiver,
-	// otelcol.*.input, pyroscope.*.receiver). Best-effort: if the schema
-	// can't be loaded, still parse without it rather than fail GraphView.
-	schemaPayload, schemaErr := s.loadSchemaPayload(schemaVersion)
-	if schemaErr != nil {
-		s.logger.Warn("graph view: schema unavailable for text re-parse, edges may be misoriented", "err", schemaErr, "schema_version", schemaVersion)
-	}
-
-	var result visual.ParseResult
-	if schemaErr == nil {
-		result = visual.ParseAlloy(p.Contents, schemaVersion, schemaPayload)
-	} else {
-		result = visual.ParseAlloy(p.Contents, schemaVersion)
-	}
+	result := s.contentsToGraph(p.Contents)
 	return connect.NewResponse(&mgmtv1.GraphViewResponse{
 		Graph:   graphDocToProto(result.Doc),
 		Opaque:  result.Opaque,
 		Warning: result.Warning,
 	}), nil
+}
+
+// contentsToGraph re-parses Alloy `contents` into a visual graph document,
+// schema-aware where possible. Shared by GraphView and DiffRevisions so the two
+// can't drift on schema handling.
+//
+// B3(b): ParseAlloy needs the schema to know which exports are receiver-kind
+// (D1) — without it, edges fall back to the legacy referenced->referencing
+// orientation, which is backwards for every receiver export
+// (prometheus.remote_write.receiver, loki.write.receiver, otelcol.*.input,
+// pyroscope.*.receiver). Best-effort: if the schema can't be loaded, still parse
+// without it rather than fail the caller.
+func (s *VisualService) contentsToGraph(contents string) visual.ParseResult {
+	// s.schema is nil when the registry failed to initialize (see MountRPC);
+	// fall back to the pinned default version so the best-effort schema load
+	// below degrades to a schemaless parse instead of panicking. The empty
+	// CurrentVersion check keeps the same fallback for a registry built without
+	// a version — unreachable in production wiring, cheap to guard.
+	schemaVersion := "alloy-v1.18.1"
+	if s.schema != nil && s.schema.CurrentVersion() != "" {
+		schemaVersion = "alloy-v" + strings.TrimPrefix(s.schema.CurrentVersion(), "alloy-v")
+	}
+
+	schemaPayload, schemaErr := s.loadSchemaPayload(schemaVersion)
+	if schemaErr != nil {
+		s.logger.Warn("graph re-parse: schema unavailable, edges may be misoriented", "err", schemaErr, "schema_version", schemaVersion)
+		return visual.ParseAlloy(contents, schemaVersion)
+	}
+	return visual.ParseAlloy(contents, schemaVersion, schemaPayload)
+}
+
+// graphFromState resolves a graph from a stored wizard_state, falling back to a
+// schema-aware re-parse of the pipeline/revision contents when there is no
+// well-formed saved graph. The bool reports whether the fallback was opaque
+// (contents that couldn't be reconstructed into a graph), and the string is the
+// re-parse warning if any.
+func (s *VisualService) graphFromState(wizardState json.RawMessage, contents string) (visual.GraphDocument, bool, string) {
+	if len(wizardState) > 0 {
+		var doc visual.GraphDocument
+		if err := json.Unmarshal(wizardState, &doc); err == nil && doc.Kind != "" {
+			return doc, false, ""
+		}
+	}
+	pr := s.contentsToGraph(contents)
+	return pr.Doc, pr.Opaque, pr.Warning
+}
+
+// DiffRevisions returns the structural graph diff between two of a pipeline's
+// revisions (#118). to_revision == 0 diffs against the pipeline's current saved
+// state. [reader] — enforced by the authz interceptor (rpc_interceptor.go).
+func (s *VisualService) DiffRevisions(ctx context.Context, req *connect.Request[mgmtv1.DiffRevisionsRequest]) (*connect.Response[mgmtv1.DiffRevisionsResponse], error) {
+	var id pgtype.UUID
+	if err := id.Scan(req.Msg.GetId()); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid pipeline id"))
+	}
+	var orgID pgtype.UUID
+	if err := orgID.Scan(req.Msg.GetOrgId()); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid org id"))
+	}
+	if req.Msg.GetFromRevision() <= 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("from_revision must be positive"))
+	}
+
+	p, err := s.store.Queries.GetPipelineByID(ctx, id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("pipeline not found"))
+	}
+	// NotFound rather than PermissionDenied on an org mismatch, so the response
+	// doesn't confirm a pipeline the caller can't see exists (same rule as
+	// GraphView / loadPipeline).
+	if p.OrgID != orgID {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("pipeline not found"))
+	}
+
+	fromDoc, fromOpaque, fromWarn, err := s.revisionGraph(ctx, id, req.Msg.GetFromRevision())
+	if err != nil {
+		return nil, err
+	}
+
+	var toDoc visual.GraphDocument
+	var toOpaque bool
+	var toWarn string
+	if req.Msg.GetToRevision() == 0 {
+		toDoc, toOpaque, toWarn = s.graphFromState(p.WizardState, p.Contents)
+	} else {
+		toDoc, toOpaque, toWarn, err = s.revisionGraph(ctx, id, req.Msg.GetToRevision())
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	diff := visual.DiffGraphs(fromDoc, toDoc)
+	return connect.NewResponse(&mgmtv1.DiffRevisionsResponse{
+		Diff:       graphDiffToProto(diff),
+		FromOpaque: fromOpaque,
+		ToOpaque:   toOpaque,
+		Warning:    joinWarnings(fromWarn, toWarn),
+	}), nil
+}
+
+// revisionGraph loads one revision's stored graph (or a re-parse of its
+// contents). A missing revision is NotFound.
+func (s *VisualService) revisionGraph(ctx context.Context, pipelineID pgtype.UUID, revision int32) (visual.GraphDocument, bool, string, error) {
+	rv, err := s.store.Queries.GetPipelineRevision(ctx, sqlc.GetPipelineRevisionParams{
+		PipelineID: pipelineID, Revision: revision,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return visual.GraphDocument{}, false, "", connect.NewError(connect.CodeNotFound, fmt.Errorf("revision %d not found", revision))
+		}
+		return visual.GraphDocument{}, false, "", mapError(err)
+	}
+	doc, opaque, warn := s.graphFromState(rv.WizardState, rv.Contents)
+	return doc, opaque, warn, nil
+}
+
+func joinWarnings(ws ...string) string {
+	var kept []string
+	for _, w := range ws {
+		if w != "" {
+			kept = append(kept, w)
+		}
+	}
+	return strings.Join(kept, "; ")
 }
 
 // -- proto <-> internal/visual conversions --
@@ -360,6 +460,35 @@ func graphDocToProto(doc visual.GraphDocument) *mgmtv1.GraphDocument {
 		})
 	}
 	return g
+}
+
+func graphDiffToProto(d visual.GraphDiff) *mgmtv1.GraphDiff {
+	out := &mgmtv1.GraphDiff{}
+	for _, nc := range d.NodeChanges {
+		fcs := make([]*mgmtv1.FieldChange, 0, len(nc.FieldChanges))
+		for _, fc := range nc.FieldChanges {
+			fcs = append(fcs, &mgmtv1.FieldChange{Field: fc.Field, OldValue: fc.OldValue, NewValue: fc.NewValue})
+		}
+		out.NodeChanges = append(out.NodeChanges, &mgmtv1.NodeChange{
+			Kind: nc.Kind, Id: nc.ID, Component: nc.Component, Label: nc.Label, FieldChanges: fcs,
+		})
+	}
+	for _, ec := range d.EdgeChanges {
+		out.EdgeChanges = append(out.EdgeChanges, &mgmtv1.EdgeChange{
+			Kind: ec.Kind, Id: ec.ID,
+			From: &mgmtv1.PortRef{Node: ec.From.Node, Port: ec.From.Port},
+			To:   &mgmtv1.PortRef{Node: ec.To.Node, Port: ec.To.Port},
+		})
+	}
+	for i := range d.BindingChanges {
+		bc := &d.BindingChanges[i]
+		out.BindingChanges = append(out.BindingChanges, &mgmtv1.BindingChange{
+			Kind: bc.Kind, Node: bc.Node, Prop: bc.Prop,
+			OldRef: &mgmtv1.BindingRef{Node: bc.OldRef.Node, Export: bc.OldRef.Export, Expr: bc.OldRef.Expr},
+			NewRef: &mgmtv1.BindingRef{Node: bc.NewRef.Node, Export: bc.NewRef.Export, Expr: bc.NewRef.Expr},
+		})
+	}
+	return out
 }
 
 func nodeRangesToProto(nm map[string]visual.NodeRange) map[string]*mgmtv1.NodeRange {

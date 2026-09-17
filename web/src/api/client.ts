@@ -180,6 +180,102 @@ export async function graphView(orgId: string, id: string): Promise<GraphViewRes
   return { graph: fromWireGraph(res.graph), opaque: res.opaque, warning: res.warning };
 }
 
+// ---- DiffRevisions (#118: graph diff for visual pipelines) ----
+
+export type GraphChangeKind = 'added' | 'removed' | 'changed';
+
+export interface GraphFieldChange {
+  field: string;
+  old_value: string;
+  new_value: string;
+}
+
+export interface GraphNodeChange {
+  kind: GraphChangeKind;
+  id: string;
+  component: string;
+  label: string;
+  field_changes: GraphFieldChange[];
+}
+
+export interface GraphEdgeChange {
+  kind: GraphChangeKind;
+  id: string;
+  from: { node: string; port: string };
+  to: { node: string; port: string };
+}
+
+export interface GraphBindingChange {
+  kind: GraphChangeKind;
+  node: string;
+  prop: string;
+  old_ref: { node: string; export: string; expr: string };
+  new_ref: { node: string; export: string; expr: string };
+}
+
+export interface GraphDiffResult {
+  node_changes: GraphNodeChange[];
+  edge_changes: GraphEdgeChange[];
+  binding_changes: GraphBindingChange[];
+  from_opaque: boolean;
+  to_opaque: boolean;
+  warning: string;
+}
+
+const emptyPort = (p?: { node: string; port: string }) => ({
+  node: p?.node ?? '',
+  port: p?.port ?? '',
+});
+const emptyRef = (r?: { node: string; export: string; expr: string }) => ({
+  node: r?.node ?? '',
+  export: r?.export ?? '',
+  expr: r?.expr ?? '',
+});
+
+/**
+ * DiffRevisions compares two of a pipeline's revisions and returns a structural
+ * graph diff (added/removed/changed nodes, wires and bindings). toRevision = 0
+ * (the default) diffs against the pipeline's current saved state.
+ */
+export async function diffRevisions(
+  orgId: string,
+  id: string,
+  fromRevision: number,
+  toRevision = 0,
+): Promise<GraphDiffResult> {
+  const res = await clients.visual.diffRevisions({ orgId, id, fromRevision, toRevision });
+  const d = res.diff;
+  return {
+    node_changes: (d?.nodeChanges ?? []).map((n) => ({
+      kind: n.kind as GraphChangeKind,
+      id: n.id,
+      component: n.component,
+      label: n.label,
+      field_changes: (n.fieldChanges ?? []).map((f) => ({
+        field: f.field,
+        old_value: f.oldValue,
+        new_value: f.newValue,
+      })),
+    })),
+    edge_changes: (d?.edgeChanges ?? []).map((e) => ({
+      kind: e.kind as GraphChangeKind,
+      id: e.id,
+      from: emptyPort(e.from),
+      to: emptyPort(e.to),
+    })),
+    binding_changes: (d?.bindingChanges ?? []).map((b) => ({
+      kind: b.kind as GraphChangeKind,
+      node: b.node,
+      prop: b.prop,
+      old_ref: emptyRef(b.oldRef),
+      new_ref: emptyRef(b.newRef),
+    })),
+    from_opaque: res.fromOpaque,
+    to_opaque: res.toOpaque,
+    warning: res.warning,
+  };
+}
+
 // ---- SimulateService ----
 
 export interface RelabelStep {

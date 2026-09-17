@@ -1395,6 +1395,507 @@ func (x *GraphViewResponse) GetWarning() string {
 	return ""
 }
 
+type DiffRevisionsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	OrgId string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	// id is the pipeline id, matching GraphViewRequest.id.
+	Id string `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	// from_revision is the base (older) revision to diff from.
+	FromRevision int32 `protobuf:"varint,3,opt,name=from_revision,json=fromRevision,proto3" json:"from_revision,omitempty"`
+	// to_revision is the target revision to diff to; 0 means "the pipeline's
+	// current saved state" (its live wizard_state / contents), so the common
+	// "revision N vs current" case needs no lookup of the latest revision number.
+	ToRevision    int32 `protobuf:"varint,4,opt,name=to_revision,json=toRevision,proto3" json:"to_revision,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DiffRevisionsRequest) Reset() {
+	*x = DiffRevisionsRequest{}
+	mi := &file_shepherd_mgmt_v1_visual_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DiffRevisionsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DiffRevisionsRequest) ProtoMessage() {}
+
+func (x *DiffRevisionsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_visual_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DiffRevisionsRequest.ProtoReflect.Descriptor instead.
+func (*DiffRevisionsRequest) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_visual_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *DiffRevisionsRequest) GetOrgId() string {
+	if x != nil {
+		return x.OrgId
+	}
+	return ""
+}
+
+func (x *DiffRevisionsRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *DiffRevisionsRequest) GetFromRevision() int32 {
+	if x != nil {
+		return x.FromRevision
+	}
+	return 0
+}
+
+func (x *DiffRevisionsRequest) GetToRevision() int32 {
+	if x != nil {
+		return x.ToRevision
+	}
+	return 0
+}
+
+// FieldChange is one modified attribute on a changed node: a top-level field
+// ("label", "component", "disabled", "notes", "block_order") or a component
+// property keyed "prop:<name>". old_value/new_value are human-readable
+// stringifications (an added attribute has an empty old_value, a removed one
+// an empty new_value).
+type FieldChange struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Field         string                 `protobuf:"bytes,1,opt,name=field,proto3" json:"field,omitempty"`
+	OldValue      string                 `protobuf:"bytes,2,opt,name=old_value,json=oldValue,proto3" json:"old_value,omitempty"`
+	NewValue      string                 `protobuf:"bytes,3,opt,name=new_value,json=newValue,proto3" json:"new_value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FieldChange) Reset() {
+	*x = FieldChange{}
+	mi := &file_shepherd_mgmt_v1_visual_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FieldChange) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FieldChange) ProtoMessage() {}
+
+func (x *FieldChange) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_visual_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FieldChange.ProtoReflect.Descriptor instead.
+func (*FieldChange) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_visual_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *FieldChange) GetField() string {
+	if x != nil {
+		return x.Field
+	}
+	return ""
+}
+
+func (x *FieldChange) GetOldValue() string {
+	if x != nil {
+		return x.OldValue
+	}
+	return ""
+}
+
+func (x *FieldChange) GetNewValue() string {
+	if x != nil {
+		return x.NewValue
+	}
+	return ""
+}
+
+// NodeChange is one node added, removed, or changed between the two graphs.
+// kind is one of "added" | "removed" | "changed" (a string, per the
+// enum-like-field rule this file already follows for UpgradeItem.class).
+// field_changes is populated only when kind is "changed".
+type NodeChange struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	Id            string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Component     string                 `protobuf:"bytes,3,opt,name=component,proto3" json:"component,omitempty"`
+	Label         string                 `protobuf:"bytes,4,opt,name=label,proto3" json:"label,omitempty"`
+	FieldChanges  []*FieldChange         `protobuf:"bytes,5,rep,name=field_changes,json=fieldChanges,proto3" json:"field_changes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NodeChange) Reset() {
+	*x = NodeChange{}
+	mi := &file_shepherd_mgmt_v1_visual_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NodeChange) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NodeChange) ProtoMessage() {}
+
+func (x *NodeChange) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_visual_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NodeChange.ProtoReflect.Descriptor instead.
+func (*NodeChange) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_visual_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *NodeChange) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *NodeChange) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *NodeChange) GetComponent() string {
+	if x != nil {
+		return x.Component
+	}
+	return ""
+}
+
+func (x *NodeChange) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+func (x *NodeChange) GetFieldChanges() []*FieldChange {
+	if x != nil {
+		return x.FieldChanges
+	}
+	return nil
+}
+
+// EdgeChange is one wire added, removed, or changed (endpoints or order).
+// from/to are the target-graph endpoints for added/changed, the base-graph
+// endpoints for removed.
+type EdgeChange struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	Id            string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	From          *PortRef               `protobuf:"bytes,3,opt,name=from,proto3" json:"from,omitempty"`
+	To            *PortRef               `protobuf:"bytes,4,opt,name=to,proto3" json:"to,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EdgeChange) Reset() {
+	*x = EdgeChange{}
+	mi := &file_shepherd_mgmt_v1_visual_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EdgeChange) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EdgeChange) ProtoMessage() {}
+
+func (x *EdgeChange) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_visual_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EdgeChange.ProtoReflect.Descriptor instead.
+func (*EdgeChange) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_visual_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *EdgeChange) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *EdgeChange) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *EdgeChange) GetFrom() *PortRef {
+	if x != nil {
+		return x.From
+	}
+	return nil
+}
+
+func (x *EdgeChange) GetTo() *PortRef {
+	if x != nil {
+		return x.To
+	}
+	return nil
+}
+
+// BindingChange is one property binding added, removed, or changed. old_ref is
+// set for removed/changed, new_ref for added/changed.
+type BindingChange struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	Node          string                 `protobuf:"bytes,2,opt,name=node,proto3" json:"node,omitempty"`
+	Prop          string                 `protobuf:"bytes,3,opt,name=prop,proto3" json:"prop,omitempty"`
+	OldRef        *BindingRef            `protobuf:"bytes,4,opt,name=old_ref,json=oldRef,proto3" json:"old_ref,omitempty"`
+	NewRef        *BindingRef            `protobuf:"bytes,5,opt,name=new_ref,json=newRef,proto3" json:"new_ref,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BindingChange) Reset() {
+	*x = BindingChange{}
+	mi := &file_shepherd_mgmt_v1_visual_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BindingChange) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BindingChange) ProtoMessage() {}
+
+func (x *BindingChange) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_visual_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BindingChange.ProtoReflect.Descriptor instead.
+func (*BindingChange) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_visual_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *BindingChange) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *BindingChange) GetNode() string {
+	if x != nil {
+		return x.Node
+	}
+	return ""
+}
+
+func (x *BindingChange) GetProp() string {
+	if x != nil {
+		return x.Prop
+	}
+	return ""
+}
+
+func (x *BindingChange) GetOldRef() *BindingRef {
+	if x != nil {
+		return x.OldRef
+	}
+	return nil
+}
+
+func (x *BindingChange) GetNewRef() *BindingRef {
+	if x != nil {
+		return x.NewRef
+	}
+	return nil
+}
+
+// GraphDiff is the structural difference between two graph documents,
+// mirroring internal/visual.GraphDiff.
+type GraphDiff struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	NodeChanges    []*NodeChange          `protobuf:"bytes,1,rep,name=node_changes,json=nodeChanges,proto3" json:"node_changes,omitempty"`
+	EdgeChanges    []*EdgeChange          `protobuf:"bytes,2,rep,name=edge_changes,json=edgeChanges,proto3" json:"edge_changes,omitempty"`
+	BindingChanges []*BindingChange       `protobuf:"bytes,3,rep,name=binding_changes,json=bindingChanges,proto3" json:"binding_changes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *GraphDiff) Reset() {
+	*x = GraphDiff{}
+	mi := &file_shepherd_mgmt_v1_visual_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GraphDiff) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GraphDiff) ProtoMessage() {}
+
+func (x *GraphDiff) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_visual_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GraphDiff.ProtoReflect.Descriptor instead.
+func (*GraphDiff) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_visual_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *GraphDiff) GetNodeChanges() []*NodeChange {
+	if x != nil {
+		return x.NodeChanges
+	}
+	return nil
+}
+
+func (x *GraphDiff) GetEdgeChanges() []*EdgeChange {
+	if x != nil {
+		return x.EdgeChanges
+	}
+	return nil
+}
+
+func (x *GraphDiff) GetBindingChanges() []*BindingChange {
+	if x != nil {
+		return x.BindingChanges
+	}
+	return nil
+}
+
+// DiffRevisionsResponse carries the graph diff plus best-effort flags: a side
+// is opaque when it had no saved graph (wizard_state) and its Alloy contents
+// could not be re-parsed cleanly into a graph, so that side is treated as an
+// empty document and warning explains.
+type DiffRevisionsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Diff          *GraphDiff             `protobuf:"bytes,1,opt,name=diff,proto3" json:"diff,omitempty"`
+	FromOpaque    bool                   `protobuf:"varint,2,opt,name=from_opaque,json=fromOpaque,proto3" json:"from_opaque,omitempty"`
+	ToOpaque      bool                   `protobuf:"varint,3,opt,name=to_opaque,json=toOpaque,proto3" json:"to_opaque,omitempty"`
+	Warning       string                 `protobuf:"bytes,4,opt,name=warning,proto3" json:"warning,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DiffRevisionsResponse) Reset() {
+	*x = DiffRevisionsResponse{}
+	mi := &file_shepherd_mgmt_v1_visual_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DiffRevisionsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DiffRevisionsResponse) ProtoMessage() {}
+
+func (x *DiffRevisionsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_visual_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DiffRevisionsResponse.ProtoReflect.Descriptor instead.
+func (*DiffRevisionsResponse) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_visual_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *DiffRevisionsResponse) GetDiff() *GraphDiff {
+	if x != nil {
+		return x.Diff
+	}
+	return nil
+}
+
+func (x *DiffRevisionsResponse) GetFromOpaque() bool {
+	if x != nil {
+		return x.FromOpaque
+	}
+	return false
+}
+
+func (x *DiffRevisionsResponse) GetToOpaque() bool {
+	if x != nil {
+		return x.ToOpaque
+	}
+	return false
+}
+
+func (x *DiffRevisionsResponse) GetWarning() string {
+	if x != nil {
+		return x.Warning
+	}
+	return ""
+}
+
 var File_shepherd_mgmt_v1_visual_proto protoreflect.FileDescriptor
 
 const file_shepherd_mgmt_v1_visual_proto_rawDesc = "" +
@@ -1500,12 +2001,52 @@ const file_shepherd_mgmt_v1_visual_proto_rawDesc = "" +
 	"\x11GraphViewResponse\x125\n" +
 	"\x05graph\x18\x01 \x01(\v2\x1f.shepherd.mgmt.v1.GraphDocumentR\x05graph\x12\x16\n" +
 	"\x06opaque\x18\x02 \x01(\bR\x06opaque\x12\x18\n" +
-	"\awarning\x18\x03 \x01(\tR\awarning2\xf8\x02\n" +
+	"\awarning\x18\x03 \x01(\tR\awarning\"\x83\x01\n" +
+	"\x14DiffRevisionsRequest\x12\x15\n" +
+	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12#\n" +
+	"\rfrom_revision\x18\x03 \x01(\x05R\ffromRevision\x12\x1f\n" +
+	"\vto_revision\x18\x04 \x01(\x05R\n" +
+	"toRevision\"]\n" +
+	"\vFieldChange\x12\x14\n" +
+	"\x05field\x18\x01 \x01(\tR\x05field\x12\x1b\n" +
+	"\told_value\x18\x02 \x01(\tR\boldValue\x12\x1b\n" +
+	"\tnew_value\x18\x03 \x01(\tR\bnewValue\"\xa8\x01\n" +
+	"\n" +
+	"NodeChange\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12\x1c\n" +
+	"\tcomponent\x18\x03 \x01(\tR\tcomponent\x12\x14\n" +
+	"\x05label\x18\x04 \x01(\tR\x05label\x12B\n" +
+	"\rfield_changes\x18\x05 \x03(\v2\x1d.shepherd.mgmt.v1.FieldChangeR\ffieldChanges\"\x8a\x01\n" +
+	"\n" +
+	"EdgeChange\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12-\n" +
+	"\x04from\x18\x03 \x01(\v2\x19.shepherd.mgmt.v1.PortRefR\x04from\x12)\n" +
+	"\x02to\x18\x04 \x01(\v2\x19.shepherd.mgmt.v1.PortRefR\x02to\"\xb9\x01\n" +
+	"\rBindingChange\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n" +
+	"\x04node\x18\x02 \x01(\tR\x04node\x12\x12\n" +
+	"\x04prop\x18\x03 \x01(\tR\x04prop\x125\n" +
+	"\aold_ref\x18\x04 \x01(\v2\x1c.shepherd.mgmt.v1.BindingRefR\x06oldRef\x125\n" +
+	"\anew_ref\x18\x05 \x01(\v2\x1c.shepherd.mgmt.v1.BindingRefR\x06newRef\"\xd7\x01\n" +
+	"\tGraphDiff\x12?\n" +
+	"\fnode_changes\x18\x01 \x03(\v2\x1c.shepherd.mgmt.v1.NodeChangeR\vnodeChanges\x12?\n" +
+	"\fedge_changes\x18\x02 \x03(\v2\x1c.shepherd.mgmt.v1.EdgeChangeR\vedgeChanges\x12H\n" +
+	"\x0fbinding_changes\x18\x03 \x03(\v2\x1f.shepherd.mgmt.v1.BindingChangeR\x0ebindingChanges\"\xa0\x01\n" +
+	"\x15DiffRevisionsResponse\x12/\n" +
+	"\x04diff\x18\x01 \x01(\v2\x1b.shepherd.mgmt.v1.GraphDiffR\x04diff\x12\x1f\n" +
+	"\vfrom_opaque\x18\x02 \x01(\bR\n" +
+	"fromOpaque\x12\x1b\n" +
+	"\tto_opaque\x18\x03 \x01(\bR\btoOpaque\x12\x18\n" +
+	"\awarning\x18\x04 \x01(\tR\awarning2\xdc\x03\n" +
 	"\rVisualService\x12M\n" +
 	"\x06Render\x12\x1f.shepherd.mgmt.v1.RenderRequest\x1a .shepherd.mgmt.v1.RenderResponse\"\x00\x12_\n" +
 	"\bValidate\x12'.shepherd.mgmt.v1.ValidateVisualRequest\x1a(.shepherd.mgmt.v1.ValidateVisualResponse\"\x00\x12_\n" +
 	"\fUpgradeCheck\x12%.shepherd.mgmt.v1.UpgradeCheckRequest\x1a&.shepherd.mgmt.v1.UpgradeCheckResponse\"\x00\x12V\n" +
-	"\tGraphView\x12\".shepherd.mgmt.v1.GraphViewRequest\x1a#.shepherd.mgmt.v1.GraphViewResponse\"\x00B&Z$shepherd/gen/shepherd/mgmt/v1;mgmtv1b\x06proto3"
+	"\tGraphView\x12\".shepherd.mgmt.v1.GraphViewRequest\x1a#.shepherd.mgmt.v1.GraphViewResponse\"\x00\x12b\n" +
+	"\rDiffRevisions\x12&.shepherd.mgmt.v1.DiffRevisionsRequest\x1a'.shepherd.mgmt.v1.DiffRevisionsResponse\"\x00B&Z$shepherd/gen/shepherd/mgmt/v1;mgmtv1b\x06proto3"
 
 var (
 	file_shepherd_mgmt_v1_visual_proto_rawDescOnce sync.Once
@@ -1519,7 +2060,7 @@ func file_shepherd_mgmt_v1_visual_proto_rawDescGZIP() []byte {
 	return file_shepherd_mgmt_v1_visual_proto_rawDescData
 }
 
-var file_shepherd_mgmt_v1_visual_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
+var file_shepherd_mgmt_v1_visual_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
 var file_shepherd_mgmt_v1_visual_proto_goTypes = []any{
 	(*Position)(nil),               // 0: shepherd.mgmt.v1.Position
 	(*Viewport)(nil),               // 1: shepherd.mgmt.v1.Viewport
@@ -1542,12 +2083,19 @@ var file_shepherd_mgmt_v1_visual_proto_goTypes = []any{
 	(*UpgradeCheckResponse)(nil),   // 18: shepherd.mgmt.v1.UpgradeCheckResponse
 	(*GraphViewRequest)(nil),       // 19: shepherd.mgmt.v1.GraphViewRequest
 	(*GraphViewResponse)(nil),      // 20: shepherd.mgmt.v1.GraphViewResponse
-	nil,                            // 21: shepherd.mgmt.v1.RenderResponse.NodeMapEntry
-	(*structpb.Struct)(nil),        // 22: google.protobuf.Struct
+	(*DiffRevisionsRequest)(nil),   // 21: shepherd.mgmt.v1.DiffRevisionsRequest
+	(*FieldChange)(nil),            // 22: shepherd.mgmt.v1.FieldChange
+	(*NodeChange)(nil),             // 23: shepherd.mgmt.v1.NodeChange
+	(*EdgeChange)(nil),             // 24: shepherd.mgmt.v1.EdgeChange
+	(*BindingChange)(nil),          // 25: shepherd.mgmt.v1.BindingChange
+	(*GraphDiff)(nil),              // 26: shepherd.mgmt.v1.GraphDiff
+	(*DiffRevisionsResponse)(nil),  // 27: shepherd.mgmt.v1.DiffRevisionsResponse
+	nil,                            // 28: shepherd.mgmt.v1.RenderResponse.NodeMapEntry
+	(*structpb.Struct)(nil),        // 29: google.protobuf.Struct
 }
 var file_shepherd_mgmt_v1_visual_proto_depIdxs = []int32{
 	0,  // 0: shepherd.mgmt.v1.GraphNode.position:type_name -> shepherd.mgmt.v1.Position
-	22, // 1: shepherd.mgmt.v1.GraphNode.props:type_name -> google.protobuf.Struct
+	29, // 1: shepherd.mgmt.v1.GraphNode.props:type_name -> google.protobuf.Struct
 	3,  // 2: shepherd.mgmt.v1.GraphEdge.from:type_name -> shepherd.mgmt.v1.PortRef
 	3,  // 3: shepherd.mgmt.v1.GraphEdge.to:type_name -> shepherd.mgmt.v1.PortRef
 	4,  // 4: shepherd.mgmt.v1.GraphBinding.ref:type_name -> shepherd.mgmt.v1.BindingRef
@@ -1557,7 +2105,7 @@ var file_shepherd_mgmt_v1_visual_proto_depIdxs = []int32{
 	1,  // 8: shepherd.mgmt.v1.GraphDocument.viewport:type_name -> shepherd.mgmt.v1.Viewport
 	2,  // 9: shepherd.mgmt.v1.GraphDocument.meta:type_name -> shepherd.mgmt.v1.GraphMeta
 	8,  // 10: shepherd.mgmt.v1.RenderRequest.graph:type_name -> shepherd.mgmt.v1.GraphDocument
-	21, // 11: shepherd.mgmt.v1.RenderResponse.node_map:type_name -> shepherd.mgmt.v1.RenderResponse.NodeMapEntry
+	28, // 11: shepherd.mgmt.v1.RenderResponse.node_map:type_name -> shepherd.mgmt.v1.RenderResponse.NodeMapEntry
 	10, // 12: shepherd.mgmt.v1.RenderResponse.diagnostics:type_name -> shepherd.mgmt.v1.VisualDiagnostic
 	8,  // 13: shepherd.mgmt.v1.ValidateVisualRequest.graph:type_name -> shepherd.mgmt.v1.GraphDocument
 	14, // 14: shepherd.mgmt.v1.ValidateVisualResponse.diagnostics:type_name -> shepherd.mgmt.v1.VisualNodeDiagnostic
@@ -1565,20 +2113,31 @@ var file_shepherd_mgmt_v1_visual_proto_depIdxs = []int32{
 	8,  // 16: shepherd.mgmt.v1.UpgradeCheckRequest.graph:type_name -> shepherd.mgmt.v1.GraphDocument
 	17, // 17: shepherd.mgmt.v1.UpgradeCheckResponse.items:type_name -> shepherd.mgmt.v1.UpgradeItem
 	8,  // 18: shepherd.mgmt.v1.GraphViewResponse.graph:type_name -> shepherd.mgmt.v1.GraphDocument
-	9,  // 19: shepherd.mgmt.v1.RenderResponse.NodeMapEntry.value:type_name -> shepherd.mgmt.v1.NodeRange
-	11, // 20: shepherd.mgmt.v1.VisualService.Render:input_type -> shepherd.mgmt.v1.RenderRequest
-	13, // 21: shepherd.mgmt.v1.VisualService.Validate:input_type -> shepherd.mgmt.v1.ValidateVisualRequest
-	16, // 22: shepherd.mgmt.v1.VisualService.UpgradeCheck:input_type -> shepherd.mgmt.v1.UpgradeCheckRequest
-	19, // 23: shepherd.mgmt.v1.VisualService.GraphView:input_type -> shepherd.mgmt.v1.GraphViewRequest
-	12, // 24: shepherd.mgmt.v1.VisualService.Render:output_type -> shepherd.mgmt.v1.RenderResponse
-	15, // 25: shepherd.mgmt.v1.VisualService.Validate:output_type -> shepherd.mgmt.v1.ValidateVisualResponse
-	18, // 26: shepherd.mgmt.v1.VisualService.UpgradeCheck:output_type -> shepherd.mgmt.v1.UpgradeCheckResponse
-	20, // 27: shepherd.mgmt.v1.VisualService.GraphView:output_type -> shepherd.mgmt.v1.GraphViewResponse
-	24, // [24:28] is the sub-list for method output_type
-	20, // [20:24] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	22, // 19: shepherd.mgmt.v1.NodeChange.field_changes:type_name -> shepherd.mgmt.v1.FieldChange
+	3,  // 20: shepherd.mgmt.v1.EdgeChange.from:type_name -> shepherd.mgmt.v1.PortRef
+	3,  // 21: shepherd.mgmt.v1.EdgeChange.to:type_name -> shepherd.mgmt.v1.PortRef
+	4,  // 22: shepherd.mgmt.v1.BindingChange.old_ref:type_name -> shepherd.mgmt.v1.BindingRef
+	4,  // 23: shepherd.mgmt.v1.BindingChange.new_ref:type_name -> shepherd.mgmt.v1.BindingRef
+	23, // 24: shepherd.mgmt.v1.GraphDiff.node_changes:type_name -> shepherd.mgmt.v1.NodeChange
+	24, // 25: shepherd.mgmt.v1.GraphDiff.edge_changes:type_name -> shepherd.mgmt.v1.EdgeChange
+	25, // 26: shepherd.mgmt.v1.GraphDiff.binding_changes:type_name -> shepherd.mgmt.v1.BindingChange
+	26, // 27: shepherd.mgmt.v1.DiffRevisionsResponse.diff:type_name -> shepherd.mgmt.v1.GraphDiff
+	9,  // 28: shepherd.mgmt.v1.RenderResponse.NodeMapEntry.value:type_name -> shepherd.mgmt.v1.NodeRange
+	11, // 29: shepherd.mgmt.v1.VisualService.Render:input_type -> shepherd.mgmt.v1.RenderRequest
+	13, // 30: shepherd.mgmt.v1.VisualService.Validate:input_type -> shepherd.mgmt.v1.ValidateVisualRequest
+	16, // 31: shepherd.mgmt.v1.VisualService.UpgradeCheck:input_type -> shepherd.mgmt.v1.UpgradeCheckRequest
+	19, // 32: shepherd.mgmt.v1.VisualService.GraphView:input_type -> shepherd.mgmt.v1.GraphViewRequest
+	21, // 33: shepherd.mgmt.v1.VisualService.DiffRevisions:input_type -> shepherd.mgmt.v1.DiffRevisionsRequest
+	12, // 34: shepherd.mgmt.v1.VisualService.Render:output_type -> shepherd.mgmt.v1.RenderResponse
+	15, // 35: shepherd.mgmt.v1.VisualService.Validate:output_type -> shepherd.mgmt.v1.ValidateVisualResponse
+	18, // 36: shepherd.mgmt.v1.VisualService.UpgradeCheck:output_type -> shepherd.mgmt.v1.UpgradeCheckResponse
+	20, // 37: shepherd.mgmt.v1.VisualService.GraphView:output_type -> shepherd.mgmt.v1.GraphViewResponse
+	27, // 38: shepherd.mgmt.v1.VisualService.DiffRevisions:output_type -> shepherd.mgmt.v1.DiffRevisionsResponse
+	34, // [34:39] is the sub-list for method output_type
+	29, // [29:34] is the sub-list for method input_type
+	29, // [29:29] is the sub-list for extension type_name
+	29, // [29:29] is the sub-list for extension extendee
+	0,  // [0:29] is the sub-list for field type_name
 }
 
 func init() { file_shepherd_mgmt_v1_visual_proto_init() }
@@ -1593,7 +2152,7 @@ func file_shepherd_mgmt_v1_visual_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_shepherd_mgmt_v1_visual_proto_rawDesc), len(file_shepherd_mgmt_v1_visual_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   22,
+			NumMessages:   29,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -15,6 +15,13 @@ Categories used here:
 
 ### Added
 
+- **Graph diff for visual pipelines.** The visual builder had no revision UI, so a visual
+  pipeline's graph-level change could only be read as a line diff of the generated Alloy. A new
+  **History** button opens a structural diff of any revision against the current version — nodes,
+  wires and bindings added / removed / changed, with a per-property before→after — backed by a new
+  `VisualService.DiffRevisions` RPC (org-reader). Layout-only moves are ignored. Restoring stays the
+  text editor's job for now. _Shipped._ (#118)
+
 - **Tenant routes: the create form now asks for a gateway name in both modes.** It only collected
   the gateway name in operator mode, but the server requires it for a managed route too (it names
   the Gateway Shepherd creates), so the default managed-mode create was rejected. The field is now
