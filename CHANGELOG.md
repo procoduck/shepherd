@@ -11,87 +11,87 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
-## Unreleased
+## v0.9.0
+
+Chart 0.13.0. A broad feature release: two new admin UIs for surfaces whose backends had already
+shipped (tenant routes, service accounts), the collector-OIDC story rounded out (mode 2 —
+IdP-authoritative org — plus the gate shown on the SSO page), the machine-caller path finished (a
+per-service-account rate limit closes R6, and the MCP agent interface now ships as a downloadable
+binary), and a set of smaller authoring and operability wins (Format/Validate editor buttons, a
+`shepherd_build_info` metric, collector inventory labels). The `/api` REST shim is deprecated with
+in-band headers, and the chart's `kubeVersion` floor moves to `1.29`.
+
+**Upgrade:** `helm upgrade`. One migration runs on start, `0023_collector_labels`, additive to
+existing collectors. The chart floor is now `1.29` (the CloudNativePG database path already needed
+it; a default install on external Postgres still works from 1.25 in practice, but the chart states
+one supported floor). Every new capability is **off by default** — mode 2, the collector-OIDC gate,
+and beacon-over-OIDC all stay off until configured, and the SA rate limit defaults to a generous
+20 req/s. No `UPGRADING.md` section is needed.
 
 ### Added
 
+- **Collector OIDC can trust the IdP for org assignment (mode 2).** By default a collector's
+  organisation comes from a Shepherd-local `agent_identities` binding. A deployment that trusts its
+  issuer can now instead let the IdP assert the org: `config.oidc.agent_trust_org_claim` names a
+  claim carrying the org's name, or `config.oidc.agent_org_role_prefix` reads it from an app role
+  (`shepherd-org:platform-eng` → org `platform-eng`). The asserted org is resolved by name and
+  auto-claims the collector's cluster exactly as a binding does; an unknown org is refused, an
+  ambiguous role prefix is ignored, a binding wins when both are present, and a token with neither
+  still falls through to the admin cluster-claim. Off by default; the Admin → Single sign-on page
+  shows which mode is active. Completes the collector-OIDC resolution chain (D1 tier 2).
+- **The collector-OIDC gate is shown on the SSO page.** Admin → Single sign-on now displays the
+  collector-authentication gate (`agent_audience`, `agent_required_role`, `agent_required_scope`,
+  and the mode-2 keys) read-only beside the provider it reuses, so an admin can see whether
+  collectors may authenticate with OIDC without reading chart values. Set via chart config / the
+  CLI, never this form.
+- **Per-service-account rate limit.** A machine caller of the management API is now rate limited per
+  credential (keyed on the service-account id), enforced in the auth gate before any handler runs —
+  a runaway or compromised credential cannot pin the API, and one noisy account cannot starve
+  another. A human session is never limited. Defaults to 20 req/s, burst 40; tune with
+  `config.auth.service_account_rate_limit` / `service_account_rate_burst`, or set the rate to 0 to
+  disable. Closes the last open R6 condition.
 - **The MCP agent interface ships in the release archives.** `shepherd-mcp` — a client-side stdio
   Model Context Protocol server that lets an editor's AI agent read an org and *propose* pipeline
   changes for a human to apply — is now a downloadable release artifact for linux, macOS and Windows
   on amd64 and arm64 (`shepherd-mcp_<version>_<os>_<arch>`; a zip on Windows). It runs on the
-  developer's machine, not the cluster, so it ships only as an archive, no image. The two server
-  binaries stay linux-only. This is reachable now that R6 is satisfied (the per-service-account rate
-  limit above, plus the propose-audit that already shipped). See the new **AI agent (MCP)** docs
+  developer's machine, not the cluster, so it ships only as an archive, no image; the two server
+  binaries stay linux-only. Reachable now that R6 is satisfied. See the new **AI agent (MCP)** docs
   page; build-from-source still works.
+- **Tenant routes have a UI.** A new org-scoped Tenant routes page (create, rotate, revoke) drives
+  the existing `TenantRouteService` from the browser: mint a rotatable, unguessable ingress segment
+  for the org's telemetry, rotate it with an overlap window, and revoke. Reads are org-reader;
+  writes are org-admin. The segment is minted server-side and is an identifier, not an authorizer —
+  the page says so, since rate limiting belongs at the gateway. Creating a route needs the org to
+  have a tenant identity (an app admin sets it on Organisations); the page surfaces that
+  precondition. Storage/lifecycle surface only — applying routes to Kubernetes is the receiver tier.
+- **Service accounts have a UI.** A new org-scoped Service accounts page (list, create, revoke)
+  drives the existing `ServiceAccountService` from the browser: mint an org-scoped machine credential
+  with a capability (propose/apply) and role (editor/admin), see its one-time secret once, and
+  revoke it. The grant is fixed at creation — changing it is revoke-and-recreate, so it always reads
+  as two audited actions. Org-admin throughout.
+- **Collector inventory labels.** Attach free-form key/value labels to a collector from the UI (the
+  Collectors list and a collector's detail page) to filter and group the fleet, without touching the
+  Alloy-reported attributes or the labels the merge engine matches pipelines against. Keys normalise
+  to lowercase `[a-z0-9._/-]` (1–128 bytes); values are 1–512 bytes with no control or format
+  characters; a collector is capped at 64 labels — enforced both in the handler and by a database
+  CHECK. Every set and delete is audited with the key and the prior value. Migration
+  `0023_collector_labels`.
+- **Format and Validate buttons in the pipeline editor.** Format canonicalises the Alloy source (a
+  new `FormatPipeline` RPC running the `alloy fmt` equivalent in-process) and replaces the buffer;
+  unparseable input is left untouched with a toast. Validate runs an on-demand check beside the
+  existing idle-debounced validation. Both are org-reader, like `ValidatePipeline`.
+- **`shepherd_build_info` metric.** A constant gauge on `/metrics` whose `version` and `commit`
+  labels carry the running build, so a dashboard can join the version onto any other series and an
+  operator can confirm what a pod actually rolled to.
 
 ### Changed
 
-- **The chart's `kubeVersion` floor is now `1.29`.** It was `1.25` with the CloudNativePG database
+- **The chart's `kubeVersion` floor is now `1.29`.** It was `1.25`, with the CloudNativePG database
   path (`cnpg.enabled=true`) documented as needing `1.29`. Helm cannot make a floor conditional on a
   value, so the chart now commits to a single global floor of `1.29` rather than enforcing `1.25` and
   leaving the higher requirement to prose. A default install on external Postgres still works from
   `1.25` in practice; the chart simply states one supported floor. Requirements and Database docs
   updated to match.
-
-### Added
-
-- **Collector OIDC can trust the IdP for org assignment (mode 2) — Shipped.** By default a
-  collector's organisation comes from a Shepherd-local `agent_identities` binding. A deployment that
-  trusts its issuer can now instead let the IdP assert the org: `config.oidc.agent_trust_org_claim`
-  names a claim carrying the org's name, or `config.oidc.agent_org_role_prefix` reads it from an app
-  role (`shepherd-org:platform-eng` → org `platform-eng`). The asserted org is resolved by name and
-  auto-claims the collector's cluster exactly as a binding does; an unknown org is refused, an
-  ambiguous role prefix is ignored, a binding wins when both are present, and a token with neither
-  still falls through to the admin cluster-claim. Off by default; the Admin → Single sign-on page
-  shows which mode is active. Completes the collector-OIDC resolution chain (D1 tier 2).
-- **Per-service-account rate limit — Shipped.** A machine caller of the management API is now rate
-  limited per credential (keyed on the service-account id), enforced in the auth gate before any
-  handler runs — a runaway or compromised credential cannot pin the API, and one noisy account
-  cannot starve another. A human session is never limited. Defaults to 20 req/s, burst 40; tune with
-  `config.auth.service_account_rate_limit` / `service_account_rate_burst`, or set the rate to 0 to
-  disable. This closes the last open R6 condition, clearing the MCP interface to be reached by a
-  machine caller.
-- **Tenant routes have a UI — Shipped.** A new org-scoped Tenant routes page (create, rotate,
-  revoke) drives the existing `TenantRouteService` from the browser: mint a rotatable, unguessable
-  ingress segment for the org's telemetry, rotate it with an overlap window, and revoke. Reads are
-  org-reader; writes are org-admin. The segment is minted server-side and is an identifier, not an
-  authorizer — the page says so, since rate limiting belongs at the gateway. Creating a route needs
-  the org to have a tenant identity (an app admin sets it on Organisations); the page surfaces that
-  precondition clearly. This is the storage/lifecycle surface only — applying routes to Kubernetes
-  is the receiver tier.
-- **Service accounts have a UI — Shipped.** A new org-scoped Service accounts page (list, create,
-  revoke) drives the existing `ServiceAccountService` from the browser: mint an org-scoped machine
-  credential with a capability (propose/apply) and role (editor/admin), see its one-time secret
-  once, and revoke it. The grant is fixed at creation — changing it is revoke-and-recreate, so it
-  always reads as two audited actions. Org-admin throughout (there is no read-only view).
-- **Collector inventory labels — Shipped.** Attach free-form key/value labels to a collector from
-  the UI (the Collectors list and a collector's detail page) to filter and group the fleet, without
-  touching the Alloy-reported attributes or the labels the merge engine matches pipelines against.
-  Keys normalise to lowercase `[a-z0-9._/-]` (1–128 bytes); values are 1–512 bytes with no control
-  or format characters; a collector is capped at 64 labels — enforced both in the handler and by a
-  database CHECK, so a direct-SQL path cannot bypass it. Every set and delete is audited with the
-  key and the prior value. App-admin with apply capability. Migration `0023_collector_labels`.
-- **`shepherd_build_info` metric — Shipped.** A constant gauge on `/metrics` whose `version` and
-  `commit` labels carry the running build, so a dashboard can join the version onto any other series
-  and an operator can confirm what a pod actually rolled to.
-- **Format and Validate buttons in the pipeline editor — Shipped.** Format canonicalises the Alloy
-  source (a new `FormatPipeline` RPC running the `alloy fmt` equivalent in-process) and replaces the
-  buffer; unparseable input is left untouched with a toast. Validate runs an on-demand check beside
-  the existing idle-debounced validation. Both are org-reader, like `ValidatePipeline`.
-- **The collector-OIDC gate is shown on the SSO page — Shipped.** Admin → Single sign-on now
-  displays the collector-authentication gate (`agent_audience`, `agent_required_role`,
-  `agent_required_scope`) read-only beside the provider it reuses, so an admin can see whether
-  collectors may authenticate with OIDC without reading chart values. Set via chart config / the
-  CLI, never this form. Off shows a one-line hint to set `config.oidc.agent_audience`.
-
-### Deprecated
-
-- **The `/api` REST shim is deprecated.** The plain-JSON `/api/*` routes predate the
-  `shepherd.mgmt.v1` Connect contract and remain only for external integrations. Every `/api`
-  response now carries a `Deprecation: true` header, a `Link: </shepherd.mgmt.v1>; rel="successor-version"`,
-  and a `Warning: 299` note. The routes still work unchanged; they will be **removed a release after
-  v0.9.0**. Machine callers should move to the Connect API (the same contract the SPA uses). The
-  headers are advisory and change no behaviour.
 
 ### Deprecated
 
