@@ -307,6 +307,16 @@ export function AdminAuthPage() {
             <dd className='font-mono text-xs'>
               {settings.agentRequiredScope || <span className='text-muted-3'>any</span>}
             </dd>
+            <dt className='text-muted-2'>Org from IdP</dt>
+            <dd className='font-mono text-xs' data-testid='agent-org-mode'>
+              {settings.agentTrustOrgClaim ? (
+                `claim ${settings.agentTrustOrgClaim}`
+              ) : settings.agentOrgRolePrefix ? (
+                `role prefix ${settings.agentOrgRolePrefix}`
+              ) : (
+                <span className='text-muted-3'>off (bindings)</span>
+              )}
+            </dd>
           </dl>
         ) : (
           <p className='text-sm text-muted-2' data-testid='agent-oidc-off'>

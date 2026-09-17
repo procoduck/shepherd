@@ -17,6 +17,7 @@ import (
 
 	collectorv1 "shepherd/gen/collector/v1"
 	"shepherd/gen/collector/v1/collectorv1connect"
+	"shepherd/internal/auth"
 	"shepherd/internal/beacon"
 	"shepherd/internal/merge"
 	"shepherd/internal/metrics"
@@ -366,8 +367,12 @@ func (s *Service) resolveOrg(ctx context.Context, cluster, role string, coll sql
 		case err == nil:
 			return s.resolveBoundOrg(ctx, cluster, role, coll, binding)
 		case errors.Is(err, pgx.ErrNoRows):
-			// No binding: OIDC proved liveness only; fall through to the admin
-			// cluster-claim model below.
+			// No binding. If mode 2 is on and the token asserts an org (D1
+			// tier 2), trust it; otherwise OIDC proved liveness only and we
+			// fall through to the admin cluster-claim model below.
+			if p.Claims.Org != "" {
+				return s.resolveClaimOrg(ctx, cluster, coll, p.Claims)
+			}
 		default:
 			return pgtype.UUID{}, connect.NewError(connect.CodeInternal, fmt.Errorf("resolving agent identity: %w", err))
 		}
@@ -396,6 +401,43 @@ func (s *Service) resolveBoundOrg(ctx context.Context, cluster, role string, col
 	claimed, err := s.store.Queries.ClaimClusterForOrg(ctx, sqlc.ClaimClusterForOrgParams{
 		ID:    coll.ClusterID,
 		OrgID: binding.OrgID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return pgtype.UUID{}, connect.NewError(connect.CodePermissionDenied,
+			fmt.Errorf("cluster %q is claimed by another organisation", cluster))
+	}
+	if err != nil {
+		return pgtype.UUID{}, connect.NewError(connect.CodeInternal, fmt.Errorf("claiming cluster: %w", err))
+	}
+	return claimed, nil
+}
+
+// resolveClaimOrg handles D1 tier 2: the token carries no Shepherd binding but
+// the IdP asserts an org (mode 2, opted into via config). The asserted value is
+// an org NAME — it is resolved to an id here, and the cluster is auto-claimed
+// to it exactly as a binding would, refusing a cluster already owned by another
+// org. An asserted org that does not exist is a hard refusal, not a
+// fall-through: the operator has chosen to trust this issuer's org assignment,
+// so an unknown org names a real misconfiguration rather than "serve empty".
+func (s *Service) resolveClaimOrg(ctx context.Context, cluster string, coll sqlc.Collector, claims *auth.AgentClaims) (pgtype.UUID, error) {
+	// Honour the token's own clusters claim, when it carries one: mode 2 has
+	// no Shepherd-side binding to scope the token, so this claim is the only
+	// cluster allowlist. Empty means "any cluster in the asserted org".
+	if len(claims.Clusters) > 0 && !slices.Contains(claims.Clusters, cluster) {
+		return pgtype.UUID{}, connect.NewError(connect.CodePermissionDenied,
+			fmt.Errorf("cluster %q is not permitted by this token's clusters claim", cluster))
+	}
+	org, err := s.store.Queries.GetOrgByName(ctx, claims.Org)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return pgtype.UUID{}, connect.NewError(connect.CodePermissionDenied,
+			fmt.Errorf("token asserts organisation %q, which does not exist", claims.Org))
+	}
+	if err != nil {
+		return pgtype.UUID{}, connect.NewError(connect.CodeInternal, fmt.Errorf("resolving asserted org: %w", err))
+	}
+	claimed, err := s.store.Queries.ClaimClusterForOrg(ctx, sqlc.ClaimClusterForOrgParams{
+		ID:    coll.ClusterID,
+		OrgID: org.ID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return pgtype.UUID{}, connect.NewError(connect.CodePermissionDenied,

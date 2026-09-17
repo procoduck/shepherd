@@ -76,6 +76,10 @@ type Settings struct {
 	AgentAppClaim      string
 	AgentRolesClaim    string
 	AgentClustersClaim string
+	// AgentTrustOrgClaim / AgentOrgRolePrefix enable mode 2 (IdP-authoritative
+	// org); see config.OIDCConfig. Empty = off (a binding is authoritative).
+	AgentTrustOrgClaim string
+	AgentOrgRolePrefix string
 
 	Source    string
 	UpdatedAt time.Time
@@ -479,6 +483,8 @@ func settingsFromConfig(cfg *config.Config) *Settings {
 		AgentAppClaim:      defaultString(cfg.OIDC.AgentAppClaim, "sub"),
 		AgentRolesClaim:    defaultString(cfg.OIDC.AgentRolesClaim, "roles"),
 		AgentClustersClaim: cfg.OIDC.AgentClustersClaim,
+		AgentTrustOrgClaim: cfg.OIDC.AgentTrustOrgClaim,
+		AgentOrgRolePrefix: cfg.OIDC.AgentOrgRolePrefix,
 
 		Source: SourceHelm,
 	}

@@ -115,9 +115,10 @@ export SHEPHERD_SECURITY_ENCRYPTION_KEY=...   # the same key you used above
     # token for the audience is not enough without the explicit grant.
     agent_required_role: "Collector.Poll"</code></pre>
       </div>
-      <p>Then bind each collector&rsquo;s client identity to an organisation. Shepherd holds the
-        mapping — the identity provider is never authoritative for which org a collector belongs
-        to:</p>
+      <p>Then bind each collector&rsquo;s client identity to an organisation. By default Shepherd holds
+        the mapping — the identity provider is not authoritative for which org a collector belongs
+        to (see <a href="#oidc-mode2">Trusting the IdP for org assignment</a> to opt into the
+        alternative):</p>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
         <pre><code>shepherd agent-identity create \
@@ -128,6 +129,23 @@ export SHEPHERD_SECURITY_ENCRYPTION_KEY=...   # the same key you used above
       </div>
       <p>A collector whose cluster is unclaimed is auto-assigned to its bound org on its first
         authenticated poll. A cluster already claimed by a different org is refused.</p>
+
+      <h3 id="oidc-mode2">Trusting the IdP for org assignment (optional)</h3>
+      <p>Instead of a Shepherd-side binding, you can let the identity provider assert the org, if you
+        trust it to. Off by default; turn it on with one of two config values:</p>
+      <ul>
+        <li><code>oidc.agent_trust_org_claim</code> — the name of a token claim whose value is the
+          org&rsquo;s name (a custom claim your IdP emits, e.g. <code>shepherd_org</code>).</li>
+        <li><code>oidc.agent_org_role_prefix</code> — read the org from an app role under this prefix,
+          the &ldquo;app role names the org&rdquo; pattern. With prefix <code>shepherd-org:</code>,
+          the role <code>shepherd-org:platform-engineering</code> assigns the collector to
+          <code>platform-engineering</code>.</li>
+      </ul>
+      <p>The asserted value is an org <em>name</em>, resolved against your organisations and then
+        auto-claiming the cluster exactly as a binding would. An org that does not exist is refused;
+        a role prefix that matches two different orgs is treated as no assertion. A token that
+        carries neither a binding nor a trusted org claim still falls through to the admin
+        cluster-claim. A binding, when present, wins over an asserted claim.</p>
 
       <h3 id="oidc-alloy">The Alloy side</h3>
       <p>Point <code>remotecfg</code> at Shepherd with an <code>oauth2</code> block instead of
@@ -171,6 +189,7 @@ export SHEPHERD_SECURITY_ENCRYPTION_KEY=...   # the same key you used above
       <p class="toc-label">On this page</p>
       <ul>
         <li><a href="#oidc">Authenticate with OIDC instead of a shared token</a></li>
+        <li class="sub"><a href="#oidc-mode2">Trusting the IdP for org assignment (optional)</a></li>
         <li class="sub"><a href="#oidc-alloy">The Alloy side</a></li>
         <li class="sub"><a href="#oidc-beacon">Self-monitoring over OIDC</a></li>
       </ul>

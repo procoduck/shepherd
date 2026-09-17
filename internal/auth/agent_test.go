@@ -236,4 +236,58 @@ func TestVerifyAgentToken(t *testing.T) {
 			t.Fatalf("want ErrAgentOIDCUnavailable, got %v", err)
 		}
 	})
+
+	// Mode 2 (IdP-authoritative org): Claims.Org carries the asserted org name.
+	t.Run("mode 2 off: Org is empty even when a claim looks org-like", func(t *testing.T) {
+		h := handlerFor(t, ti, config.OIDCConfig{AgentAudience: "shepherd-collectors"})
+		claims := baseClaims(ti, "shepherd-collectors")
+		claims["shepherd_org"] = "platform-eng"
+		claims["roles"] = []any{"shepherd-org:platform-eng"}
+		ac, err := h.VerifyAgentToken(ctx, ti.sign(t, claims))
+		if err != nil {
+			t.Fatalf("verify: %v", err)
+		}
+		if ac.Org != "" {
+			t.Errorf("Org must be empty while mode 2 is off, got %q", ac.Org)
+		}
+	})
+
+	t.Run("mode 2 via a direct trust-org claim", func(t *testing.T) {
+		h := handlerFor(t, ti, config.OIDCConfig{AgentAudience: "shepherd-collectors", AgentTrustOrgClaim: "shepherd_org"})
+		claims := baseClaims(ti, "shepherd-collectors")
+		claims["shepherd_org"] = "platform-eng"
+		ac, err := h.VerifyAgentToken(ctx, ti.sign(t, claims))
+		if err != nil {
+			t.Fatalf("verify: %v", err)
+		}
+		if ac.Org != "platform-eng" {
+			t.Errorf("Org from trust claim: got %q, want platform-eng", ac.Org)
+		}
+	})
+
+	t.Run("mode 2 via a role prefix", func(t *testing.T) {
+		h := handlerFor(t, ti, config.OIDCConfig{AgentAudience: "shepherd-collectors", AgentOrgRolePrefix: "shepherd-org:"})
+		claims := baseClaims(ti, "shepherd-collectors")
+		claims["roles"] = []any{"Collector.Poll", "shepherd-org:platform-eng"}
+		ac, err := h.VerifyAgentToken(ctx, ti.sign(t, claims))
+		if err != nil {
+			t.Fatalf("verify: %v", err)
+		}
+		if ac.Org != "platform-eng" {
+			t.Errorf("Org from role prefix: got %q, want platform-eng", ac.Org)
+		}
+	})
+
+	t.Run("mode 2 role prefix is empty when two roles name different orgs", func(t *testing.T) {
+		h := handlerFor(t, ti, config.OIDCConfig{AgentAudience: "shepherd-collectors", AgentOrgRolePrefix: "shepherd-org:"})
+		claims := baseClaims(ti, "shepherd-collectors")
+		claims["roles"] = []any{"shepherd-org:platform-eng", "shepherd-org:data-eng"}
+		ac, err := h.VerifyAgentToken(ctx, ti.sign(t, claims))
+		if err != nil {
+			t.Fatalf("verify: %v", err)
+		}
+		if ac.Org != "" {
+			t.Errorf("ambiguous role prefix must yield no org, got %q", ac.Org)
+		}
+	})
 }

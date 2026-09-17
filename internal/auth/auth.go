@@ -114,6 +114,8 @@ type oidcRuntime struct {
 	agentAppClaim      string
 	agentRolesClaim    string
 	agentClustersClaim string
+	agentTrustOrgClaim string
+	agentOrgRolePrefix string
 }
 
 // settingsRefreshInterval bounds how stale a replica's view of the
@@ -278,6 +280,8 @@ func (h *Handler) Reload(ctx context.Context) error {
 		rt.agentAppClaim = settings.AgentAppClaim
 		rt.agentRolesClaim = settings.AgentRolesClaim
 		rt.agentClustersClaim = settings.AgentClustersClaim
+		rt.agentTrustOrgClaim = settings.AgentTrustOrgClaim
+		rt.agentOrgRolePrefix = settings.AgentOrgRolePrefix
 	}
 	h.rt.Store(rt)
 	h.logger.Info("OIDC provider active", "settings", settings)
@@ -380,7 +384,9 @@ func (s Settings) equivalentTo(other Settings) bool {
 		s.AgentRequiredScope == other.AgentRequiredScope &&
 		s.AgentAppClaim == other.AgentAppClaim &&
 		s.AgentRolesClaim == other.AgentRolesClaim &&
-		s.AgentClustersClaim == other.AgentClustersClaim
+		s.AgentClustersClaim == other.AgentClustersClaim &&
+		s.AgentTrustOrgClaim == other.AgentTrustOrgClaim &&
+		s.AgentOrgRolePrefix == other.AgentOrgRolePrefix
 }
 
 // oidcUnavailable answers a request that reached an OIDC route while no

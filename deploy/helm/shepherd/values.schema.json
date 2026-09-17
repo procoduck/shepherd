@@ -239,6 +239,12 @@
             "agent_clusters_claim": {
               "type": "string"
             },
+            "agent_trust_org_claim": {
+              "type": "string"
+            },
+            "agent_org_role_prefix": {
+              "type": "string"
+            },
             "beacon_auth": {
               "type": "string",
               "enum": [

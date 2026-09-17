@@ -119,6 +119,22 @@ type OIDCConfig struct {
 	// AgentClustersClaim, when set, names a claim listing the clusters this
 	// token may act for; empty means "any within the resolved org".
 	AgentClustersClaim string `mapstructure:"agent_clusters_claim"`
+	// AgentTrustOrgClaim / AgentOrgRolePrefix opt the deployment into mode 2
+	// (D1 tier 2): trusting the IdP to assert which organisation a collector
+	// belongs to, instead of a Shepherd-local agent_identities binding.
+	// AgentTrustOrgClaim names a claim whose value is the org's name. As an
+	// alternative or in addition, AgentOrgRolePrefix reads the org from a role
+	// in AgentRolesClaim whose value starts with the prefix (e.g.
+	// "shepherd-org:" → the role "shepherd-org:platform-eng" names org
+	// "platform-eng") — the "app role names the org" pattern. Both are empty
+	// by default: a binding is the shipped-first path, and trusting an
+	// issuer's org assignment is an explicit opt-in. A token that carries
+	// neither a binding nor a trusted org claim falls through to the admin
+	// cluster-claim, exactly as before. When the claim resolves to no org or
+	// (for a role prefix) to more than one, resolution falls through rather
+	// than guessing.
+	AgentTrustOrgClaim string `mapstructure:"agent_trust_org_claim"`
+	AgentOrgRolePrefix string `mapstructure:"agent_org_role_prefix"`
 
 	// Beacon self-monitoring auth (Phase 2). BeaconAuth selects how the
 	// rendered beacon remote_write authenticates: "basic" (the agent token,

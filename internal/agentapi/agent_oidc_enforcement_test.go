@@ -146,4 +146,54 @@ var _ = Describe("Collector OIDC enforcement", Label("integration"), func() {
 		Expect(resp.Msg.Content).To(BeEmpty())
 		Expect(clusterOrg(ctx, "prod-eu-1").Valid).To(BeFalse(), "no binding must not auto-claim")
 	})
+
+	// Mode 2 (D1 tier 2): no binding, but the IdP asserts an org via Claims.Org.
+	oidcCtxOrg := func(ctx context.Context, appID, orgName string, clusters ...string) context.Context {
+		return agentapi.ContextWithOIDCPrincipal(ctx, auth.AgentClaims{
+			Issuer: issuer, AppID: appID, Org: orgName, Clusters: clusters,
+		})
+	}
+
+	It("resolves the org from the token's asserted claim and auto-claims the cluster", func(ctx context.Context) {
+		_, err := getConfig(oidcCtxOrg(ctx, "client-eu", "platform-eng"), "prod-eu-1", "metrics")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(clusterOrg(ctx, "prod-eu-1")).To(Equal(org.ID), "the asserted org's cluster is claimed on first poll")
+	})
+
+	It("refuses an asserted org that does not exist", func(ctx context.Context) {
+		_, err := getConfig(oidcCtxOrg(ctx, "client-eu", "no-such-org"), "prod-eu-1", "metrics")
+		Expect(codeOf(err)).To(Equal(connect.CodePermissionDenied))
+		Expect(clusterOrg(ctx, "prod-eu-1").Valid).To(BeFalse(), "a refused poll must not claim the cluster")
+	})
+
+	It("refuses a cluster outside the token's own clusters claim", func(ctx context.Context) {
+		_, err := getConfig(oidcCtxOrg(ctx, "client-eu", "platform-eng", "staging-eu-1"), "prod-eu-1", "metrics")
+		Expect(codeOf(err)).To(Equal(connect.CodePermissionDenied))
+	})
+
+	It("refuses an asserted org taking over another org's cluster", func(ctx context.Context) {
+		other, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "other-org", DisplayName: "Other", AdminGroupID: "g2"})
+		Expect(err).NotTo(HaveOccurred())
+		_, err = getConfig(ctx, "prod-eu-1", "metrics") // agent-token path registers the cluster
+		Expect(err).NotTo(HaveOccurred())
+		cl, err := st.Queries.GetClusterByName(ctx, "prod-eu-1")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cl.ID, OrgID: other.ID})).To(Succeed())
+
+		_, err = getConfig(oidcCtxOrg(ctx, "client-eu", "platform-eng"), "prod-eu-1", "metrics")
+		Expect(codeOf(err)).To(Equal(connect.CodePermissionDenied))
+		Expect(clusterOrg(ctx, "prod-eu-1")).To(Equal(other.ID), "the other org's claim is untouched")
+	})
+
+	It("prefers a binding over an asserted org claim when both are present", func(ctx context.Context) {
+		// A Shepherd-local binding is authoritative: even if the token also
+		// asserts a different org, the binding's org wins (tier 1 before 2).
+		bind(ctx, "client-eu", arr(), arr())
+		ctxBoth := agentapi.ContextWithOIDCPrincipal(ctx, auth.AgentClaims{
+			Issuer: issuer, AppID: "client-eu", Org: "other-org",
+		})
+		_, err := getConfig(ctxBoth, "prod-eu-1", "metrics")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(clusterOrg(ctx, "prod-eu-1")).To(Equal(org.ID), "the binding's org wins over the asserted claim")
+	})
 })

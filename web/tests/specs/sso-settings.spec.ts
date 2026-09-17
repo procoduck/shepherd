@@ -196,6 +196,7 @@ test('surfaces the collector-OIDC gate read-only when configured', async ({ page
       agent_audience: 'api://shepherd-collectors',
       agent_required_role: 'Collector.Poll',
       agent_required_scope: '',
+      agent_org_role_prefix: 'shepherd-org:',
     },
   });
   await page.goto('/admin/auth');
@@ -205,5 +206,7 @@ test('surfaces the collector-OIDC gate read-only when configured', async ({ page
   await expect(gate).toContainText('Collector.Poll');
   // Empty required scope renders as "any", not blank.
   await expect(gate).toContainText('any');
+  // Mode 2 row reflects the role-prefix opt-in.
+  await expect(page.getByTestId('agent-org-mode')).toContainText('role prefix shepherd-org:');
   await expect(page.getByTestId('agent-oidc-off')).toHaveCount(0);
 });

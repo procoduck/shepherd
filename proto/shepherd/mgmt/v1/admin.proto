@@ -315,6 +315,12 @@ message OidcSettings {
   string agent_audience = 23;
   string agent_required_role = 24;
   string agent_required_scope = 25;
+  // Mode 2 (IdP-authoritative org), read-only: when set, a collector's org is
+  // taken from the IdP rather than a Shepherd-local binding. agent_trust_org_claim
+  // names a claim carrying the org name; agent_org_role_prefix reads the org
+  // from a role under that prefix. Both empty means a binding is authoritative.
+  string agent_trust_org_claim = 26;
+  string agent_org_role_prefix = 27;
 }
 
 message GetOidcSettingsRequest {}

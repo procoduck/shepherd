@@ -15,6 +15,15 @@ Categories used here:
 
 ### Added
 
+- **Collector OIDC can trust the IdP for org assignment (mode 2) — Shipped.** By default a
+  collector's organisation comes from a Shepherd-local `agent_identities` binding. A deployment that
+  trusts its issuer can now instead let the IdP assert the org: `config.oidc.agent_trust_org_claim`
+  names a claim carrying the org's name, or `config.oidc.agent_org_role_prefix` reads it from an app
+  role (`shepherd-org:platform-eng` → org `platform-eng`). The asserted org is resolved by name and
+  auto-claims the collector's cluster exactly as a binding does; an unknown org is refused, an
+  ambiguous role prefix is ignored, a binding wins when both are present, and a token with neither
+  still falls through to the admin cluster-claim. Off by default; the Admin → Single sign-on page
+  shows which mode is active. Completes the collector-OIDC resolution chain (D1 tier 2).
 - **Tenant routes have a UI — Shipped.** A new org-scoped Tenant routes page (create, rotate,
   revoke) drives the existing `TenantRouteService` from the browser: mint a rotatable, unguessable
   ingress segment for the org's telemetry, rotate it with an overlap window, and revoke. Reads are

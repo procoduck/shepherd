@@ -1811,6 +1811,12 @@ type OidcSettings struct {
 	AgentAudience      string `protobuf:"bytes,23,opt,name=agent_audience,json=agentAudience,proto3" json:"agent_audience,omitempty"`
 	AgentRequiredRole  string `protobuf:"bytes,24,opt,name=agent_required_role,json=agentRequiredRole,proto3" json:"agent_required_role,omitempty"`
 	AgentRequiredScope string `protobuf:"bytes,25,opt,name=agent_required_scope,json=agentRequiredScope,proto3" json:"agent_required_scope,omitempty"`
+	// Mode 2 (IdP-authoritative org), read-only: when set, a collector's org is
+	// taken from the IdP rather than a Shepherd-local binding. agent_trust_org_claim
+	// names a claim carrying the org name; agent_org_role_prefix reads the org
+	// from a role under that prefix. Both empty means a binding is authoritative.
+	AgentTrustOrgClaim string `protobuf:"bytes,26,opt,name=agent_trust_org_claim,json=agentTrustOrgClaim,proto3" json:"agent_trust_org_claim,omitempty"`
+	AgentOrgRolePrefix string `protobuf:"bytes,27,opt,name=agent_org_role_prefix,json=agentOrgRolePrefix,proto3" json:"agent_org_role_prefix,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -2016,6 +2022,20 @@ func (x *OidcSettings) GetAgentRequiredRole() string {
 func (x *OidcSettings) GetAgentRequiredScope() string {
 	if x != nil {
 		return x.AgentRequiredScope
+	}
+	return ""
+}
+
+func (x *OidcSettings) GetAgentTrustOrgClaim() string {
+	if x != nil {
+		return x.AgentTrustOrgClaim
+	}
+	return ""
+}
+
+func (x *OidcSettings) GetAgentOrgRolePrefix() string {
+	if x != nil {
+		return x.AgentOrgRolePrefix
 	}
 	return ""
 }
@@ -2836,7 +2856,7 @@ const file_shepherd_mgmt_v1_admin_proto_rawDesc = "" +
 	"\x01q\x18\x02 \x01(\tR\x01q\"g\n" +
 	"\x14SearchGroupsResponse\x129\n" +
 	"\x05items\x18\x01 \x03(\v2#.shepherd.mgmt.v1.GroupSearchResultR\x05items\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x05R\x05total\"\xfb\x06\n" +
+	"\x05total\x18\x02 \x01(\x05R\x05total\"\xe1\a\n" +
 	"\fOidcSettings\x12\x1e\n" +
 	"\n" +
 	"configured\x18\x01 \x01(\bR\n" +
@@ -2869,7 +2889,9 @@ const file_shepherd_mgmt_v1_admin_proto_rawDesc = "" +
 	"updated_by\x18\x16 \x01(\tR\tupdatedBy\x12%\n" +
 	"\x0eagent_audience\x18\x17 \x01(\tR\ragentAudience\x12.\n" +
 	"\x13agent_required_role\x18\x18 \x01(\tR\x11agentRequiredRole\x120\n" +
-	"\x14agent_required_scope\x18\x19 \x01(\tR\x12agentRequiredScope\"\x18\n" +
+	"\x14agent_required_scope\x18\x19 \x01(\tR\x12agentRequiredScope\x121\n" +
+	"\x15agent_trust_org_claim\x18\x1a \x01(\tR\x12agentTrustOrgClaim\x121\n" +
+	"\x15agent_org_role_prefix\x18\x1b \x01(\tR\x12agentOrgRolePrefix\"\x18\n" +
 	"\x16GetOidcSettingsRequest\"\x8b\x04\n" +
 	"\x19UpdateOidcSettingsRequest\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\x1a\n" +

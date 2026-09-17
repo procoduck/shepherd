@@ -157,6 +157,18 @@ config:
     # agent_roles_claim: "roles"
     # agent_clusters_claim: ""
     #
+    # Mode 2 — IdP-authoritative org (opt-in). By default a collector's org
+    # comes from a Shepherd-local agent-identity binding (see the CLI /
+    # Admin -> Single sign-on). These let the IdP assert the org instead:
+    # agent_trust_org_claim names a claim whose value IS the org's name;
+    # agent_org_role_prefix reads the org from a role like
+    # "shepherd-org:platform-eng" (prefix "shepherd-org:"). Both empty by
+    # default — setting either means you trust this issuer's org assignment.
+    # A token with neither a binding nor a trusted org claim still falls
+    # through to the admin cluster-claim.
+    # agent_trust_org_claim: ""
+    # agent_org_role_prefix: ""
+    #
     # Beacon self-monitoring auth. "basic" (default) uses the agent token;
     # "oauth2" makes the served beacon pipeline authenticate with the
     # collector's own OIDC client credentials against agent_token_url. It is a

@@ -27,6 +27,13 @@ type AgentClaims struct {
 	// Clusters, when the token carries the configured clusters claim, is the
 	// allowlist of clusters this token may act for (empty = any in the org).
 	Clusters []string
+	// Org is the organisation the IdP asserts this collector belongs to, when
+	// mode 2 (IdP-authoritative org) is enabled and the token carries it — the
+	// value of the configured trust-org claim, or the org named by a role
+	// under the configured role prefix. Empty when mode 2 is off, the claim is
+	// absent, or a role prefix matched no single org. It is a NAME, resolved
+	// to an org id downstream (internal/agentapi), never trusted as an id.
+	Org string
 }
 
 var (
@@ -85,6 +92,12 @@ func (h *Handler) VerifyAgentToken(ctx context.Context, raw string) (AgentClaims
 		ac.AppID = claimString(claims, rt.agentAppClaim)
 	}
 
+	// Mode 2 (IdP-authoritative org): read the org the IdP asserts, when the
+	// deployment has opted in. A direct trust-org claim wins; otherwise a role
+	// under the configured prefix names the org. Resolved to an org id
+	// downstream — here it is only the asserted name (empty when off/absent).
+	ac.Org = agentAssertedOrg(rt, claims, ac.Roles)
+
 	// D0 grant gate: holding a valid token for the audience is not enough; the
 	// client must carry the explicit collector grant when one is required.
 	if rt.agentRequiredRole != "" && !slices.Contains(ac.Roles, rt.agentRequiredRole) {
@@ -94,6 +107,39 @@ func (h *Handler) VerifyAgentToken(ctx context.Context, raw string) (AgentClaims
 		return AgentClaims{}, ErrAgentGrantMissing
 	}
 	return ac, nil
+}
+
+// agentAssertedOrg extracts the IdP-asserted organisation name for mode 2, or
+// "" when mode 2 is off or the token carries no unambiguous org.
+//
+//   - A direct trust-org claim (agentTrustOrgClaim) wins when present and
+//     non-empty: the operator has said "this claim IS the org".
+//   - Otherwise, if a role prefix is configured, the org is read from a role
+//     under that prefix ("<prefix><org>"). Exactly one distinct org must
+//     result: zero means the token asserts none, and more than one is
+//     ambiguous — both return "", so resolution falls through to the admin
+//     cluster-claim rather than picking an org the operator did not intend.
+func agentAssertedOrg(rt *oidcRuntime, claims map[string]any, roles []string) string {
+	if rt.agentTrustOrgClaim != "" {
+		if org := strings.TrimSpace(claimString(claims, rt.agentTrustOrgClaim)); org != "" {
+			return org
+		}
+	}
+	if rt.agentOrgRolePrefix == "" {
+		return ""
+	}
+	var found string
+	for _, role := range roles {
+		rest, ok := strings.CutPrefix(role, rt.agentOrgRolePrefix)
+		if !ok || rest == "" {
+			continue
+		}
+		if found != "" && found != rest {
+			return "" // ambiguous: two roles name different orgs
+		}
+		found = rest
+	}
+	return found
 }
 
 // scopeValues reads OAuth2 scopes from a token. `scp` (Entra, others) may be a

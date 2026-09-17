@@ -262,6 +262,8 @@ func (s *AdminService) toOidcSettingsProto(in *auth.Settings) *mgmtv1.OidcSettin
 	out.AgentAudience = in.AgentAudience
 	out.AgentRequiredRole = in.AgentRequiredRole
 	out.AgentRequiredScope = in.AgentRequiredScope
+	out.AgentTrustOrgClaim = in.AgentTrustOrgClaim
+	out.AgentOrgRolePrefix = in.AgentOrgRolePrefix
 	if !in.UpdatedAt.IsZero() {
 		out.UpdatedAt = timestamppb.New(in.UpdatedAt)
 	}

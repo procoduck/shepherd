@@ -263,6 +263,7 @@ var _ = Describe("shepherd.mgmt.v1 AdminService OIDC settings RPC", Label("integ
 					Provider: "entra", SubjectClaim: "oid", GroupsClaim: "groups",
 					EmailClaim: "email", NameClaim: "name", UseGraphGroups: true,
 					AgentAudience: "api://shepherd-collectors", AgentRequiredRole: "Collector.Poll",
+					AgentOrgRolePrefix: "shepherd-org:",
 				},
 				Graph: config.GraphConfig{BaseURL: "https://graph.microsoft.com"},
 			}
@@ -289,6 +290,7 @@ var _ = Describe("shepherd.mgmt.v1 AdminService OIDC settings RPC", Label("integ
 			// reuses.
 			Expect(body["agentAudience"]).To(Equal("api://shepherd-collectors"))
 			Expect(body["agentRequiredRole"]).To(Equal("Collector.Poll"))
+			Expect(body["agentOrgRolePrefix"]).To(Equal("shepherd-org:"))
 		})
 
 		It("refuses writes with failed_precondition and audits the refusal", func() {
