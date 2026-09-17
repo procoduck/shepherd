@@ -47,6 +47,27 @@ func requireAppOrOrgAdmin(st *store.Store) func(http.Handler) http.Handler {
 	}
 }
 
+// deprecationSuccessor names the surface that replaces the REST shim, carried
+// in the Link header's successor-version relation. It is the Connect contract
+// root; a specific procedure is the service path plus the method.
+const deprecationSuccessor = "/shepherd.mgmt.v1"
+
+// deprecationHeaders marks a response as coming from the deprecated REST shim.
+// It sets Deprecation (RFC 9745), a successor-version Link (RFC 8288) pointing
+// at the Connect contract, and a human-readable Warning (RFC 7234, code 299)
+// so a person reading a raw response sees the migration note without consulting
+// a spec. Removal is deliberately not a fixed Sunset date here — the removal
+// release is scheduled, not calendar-dated — so no Sunset header is emitted.
+func deprecationHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Deprecation", "true")
+		h.Set("Link", "<"+deprecationSuccessor+">; rel=\"successor-version\"")
+		h.Set("Warning", `299 - "Deprecated: the /api REST shim is replaced by the shepherd.mgmt.v1 Connect API and will be removed a release after v0.9.0; migrate machine callers to Connect."`)
+		next.ServeHTTP(w, r)
+	})
+}
+
 // Router builds the /api chi sub-router.
 func Router(st *store.Store, cfg *config.Config, enc *crypto.Encryptor, logger *slog.Logger) http.Handler {
 	if logger == nil {
@@ -81,6 +102,16 @@ func Router(st *store.Store, cfg *config.Config, enc *crypto.Encryptor, logger *
 	repoLinks := NewRepoLinksHandler(NewGitOpsService(st, enc, logger))
 
 	r := chi.NewRouter()
+
+	// Every /api route is a legacy REST shim over the shepherd.mgmt.v1 Connect
+	// contract (see doc.go). The shim is scheduled for removal: it is announced
+	// deprecated in the v0.9.0 changelog and will be removed a release later.
+	// This middleware marks every shim response so an external integration
+	// still calling plain JSON is told, in-band, to move to Connect — the live
+	// UI already speaks Connect (web/src/api/transport.ts) and is unaffected.
+	// The headers are advisory (RFC 8594 / RFC 9745 style) and change no
+	// behaviour, so callers keep working until the routes are actually removed.
+	r.Use(deprecationHeaders)
 
 	// NotFound: unmatched /api/* paths return 404 JSON instead of the default chi response.
 	apiNotFound := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

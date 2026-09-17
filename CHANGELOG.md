@@ -30,6 +30,15 @@ Categories used here:
   buffer; unparseable input is left untouched with a toast. Validate runs an on-demand check beside
   the existing idle-debounced validation. Both are org-reader, like `ValidatePipeline`.
 
+### Deprecated
+
+- **The `/api` REST shim is deprecated.** The plain-JSON `/api/*` routes predate the
+  `shepherd.mgmt.v1` Connect contract and remain only for external integrations. Every `/api`
+  response now carries a `Deprecation: true` header, a `Link: </shepherd.mgmt.v1>; rel="successor-version"`,
+  and a `Warning: 299` note. The routes still work unchanged; they will be **removed a release after
+  v0.9.0**. Machine callers should move to the Connect API (the same contract the SPA uses). The
+  headers are advisory and change no behaviour.
+
 ## v0.8.0
 
 Chart 0.12.0. The headline is **collector authentication with OIDC**: an Alloy collector can now
