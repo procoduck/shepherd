@@ -256,6 +256,12 @@ func (s *AdminService) toOidcSettingsProto(in *auth.Settings) *mgmtv1.OidcSettin
 	out.UseGraphGroups = in.UseGraphGroups
 	out.GraphBaseUrl = in.GraphBaseURL
 	out.UpdatedBy = in.UpdatedBy
+	// Collector-OIDC gate — read-only, from chart config / CLI, surfaced so the
+	// admin sees it beside the SSO provider it reuses. It is never written by
+	// this settings form.
+	out.AgentAudience = in.AgentAudience
+	out.AgentRequiredRole = in.AgentRequiredRole
+	out.AgentRequiredScope = in.AgentRequiredScope
 	if !in.UpdatedAt.IsZero() {
 		out.UpdatedAt = timestamppb.New(in.UpdatedAt)
 	}

@@ -303,6 +303,18 @@ message OidcSettings {
 
   google.protobuf.Timestamp updated_at = 21;
   string updated_by = 22;
+
+  // Collector-OIDC gate, read-only. These configure whether an Alloy collector
+  // may authenticate with an access token from this same issuer, and are set
+  // via chart config / CLI, never this settings form — they are surfaced here
+  // only so an admin can see the gate alongside the SSO provider it reuses.
+  // agent_audience is the `aud` a collector token must carry (empty means
+  // collector OIDC is off); agent_required_role / agent_required_scope are the
+  // D0 grant the token must also prove. See the collector-OIDC bindings
+  // section for the identity→org mapping.
+  string agent_audience = 23;
+  string agent_required_role = 24;
+  string agent_required_scope = 25;
 }
 
 message GetOidcSettingsRequest {}

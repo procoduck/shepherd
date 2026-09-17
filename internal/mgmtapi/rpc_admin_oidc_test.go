@@ -262,6 +262,7 @@ var _ = Describe("shepherd.mgmt.v1 AdminService OIDC settings RPC", Label("integ
 					ClientSecret: oidcTestSecret, RedirectURL: "https://shepherd.example/auth/callback",
 					Provider: "entra", SubjectClaim: "oid", GroupsClaim: "groups",
 					EmailClaim: "email", NameClaim: "name", UseGraphGroups: true,
+					AgentAudience: "api://shepherd-collectors", AgentRequiredRole: "Collector.Poll",
 				},
 				Graph: config.GraphConfig{BaseURL: "https://graph.microsoft.com"},
 			}
@@ -282,6 +283,12 @@ var _ = Describe("shepherd.mgmt.v1 AdminService OIDC settings RPC", Label("integ
 			Expect(body["editable"]).To(BeNil(), "proto3 JSON omits a false bool")
 			Expect(body["statusMessage"]).To(ContainSubstring("Helm chart"))
 			Expect(raw).NotTo(ContainSubstring(oidcTestSecret), "the chart's client secret reached the wire")
+
+			// The collector-OIDC gate (chart config / CLI, never this form) is
+			// surfaced read-only so an admin sees it beside the provider it
+			// reuses.
+			Expect(body["agentAudience"]).To(Equal("api://shepherd-collectors"))
+			Expect(body["agentRequiredRole"]).To(Equal("Collector.Poll"))
 		})
 
 		It("refuses writes with failed_precondition and audits the refusal", func() {

@@ -285,6 +285,39 @@ export function AdminAuthPage() {
       )}
 
       <hr className='border-border' />
+
+      <section className='space-y-2' data-testid='collector-oidc-gate'>
+        <h2 className='text-base font-semibold'>Collector authentication (OIDC)</h2>
+        <p className='text-sm text-muted'>
+          Whether an Alloy collector may authenticate with an access token from this same issuer.
+          Configured by chart values / the CLI, not this form — shown here so you can see the gate
+          beside the provider it reuses.
+        </p>
+        {settings?.agentAudience ? (
+          <dl className='grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1.5 text-sm'>
+            <dt className='text-muted-2'>Audience</dt>
+            <dd className='font-mono text-xs' data-testid='agent-audience'>
+              {settings.agentAudience}
+            </dd>
+            <dt className='text-muted-2'>Required role</dt>
+            <dd className='font-mono text-xs'>
+              {settings.agentRequiredRole || <span className='text-muted-3'>any</span>}
+            </dd>
+            <dt className='text-muted-2'>Required scope</dt>
+            <dd className='font-mono text-xs'>
+              {settings.agentRequiredScope || <span className='text-muted-3'>any</span>}
+            </dd>
+          </dl>
+        ) : (
+          <p className='text-sm text-muted-2' data-testid='agent-oidc-off'>
+            Off — set{' '}
+            <code className='rounded bg-border px-1 py-0.5'>config.oidc.agent_audience</code> to let
+            collectors authenticate with OIDC.
+          </p>
+        )}
+      </section>
+
+      <hr className='border-border' />
       <CollectorBindingsSection isAppAdmin={isAppAdmin} />
 
       {confirmRemove && (

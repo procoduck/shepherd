@@ -153,3 +153,57 @@ test('a non-app-admin is refused', async ({ page, api }) => {
     expect(onRoot || hasDeniedBanner).toBe(true);
   }).toPass({ timeout: 5000 });
 });
+
+test('shows the collector-OIDC gate as off when no agent audience is set', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(appAdmin);
+  await page.goto('/admin/auth');
+
+  await expect(
+    page.getByRole('heading', { name: 'Collector authentication (OIDC)' }),
+  ).toBeVisible();
+  await expect(page.getByTestId('agent-oidc-off')).toBeVisible();
+  await expect(page.getByTestId('agent-audience')).toHaveCount(0);
+});
+
+test('surfaces the collector-OIDC gate read-only when configured', async ({ page, api }) => {
+  await api.loginAs(appAdmin);
+  api.seed({
+    oidcSettings: {
+      configured: true,
+      enabled: true,
+      active: true,
+      source: 'helm',
+      editable: false,
+      provider: 'entra',
+      display_name: 'Microsoft',
+      issuer: 'https://login.microsoftonline.com/tenant/v2.0',
+      client_id: 'chart-client',
+      client_secret_set: true,
+      redirect_url: 'https://shepherd.example/auth/callback',
+      scopes: ['openid', 'profile', 'email'],
+      subject_claim: 'oid',
+      email_claim: 'email',
+      name_claim: 'name',
+      groups_claim: 'groups',
+      app_admin_groups: ['chart-group'],
+      use_graph_groups: true,
+      graph_base_url: 'https://graph.microsoft.com',
+      status_message: '',
+      updated_by: '',
+      agent_audience: 'api://shepherd-collectors',
+      agent_required_role: 'Collector.Poll',
+      agent_required_scope: '',
+    },
+  });
+  await page.goto('/admin/auth');
+
+  await expect(page.getByTestId('agent-audience')).toHaveText('api://shepherd-collectors');
+  const gate = page.getByTestId('collector-oidc-gate');
+  await expect(gate).toContainText('Collector.Poll');
+  // Empty required scope renders as "any", not blank.
+  await expect(gate).toContainText('any');
+  await expect(page.getByTestId('agent-oidc-off')).toHaveCount(0);
+});

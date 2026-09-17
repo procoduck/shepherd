@@ -29,6 +29,11 @@ Categories used here:
   source (a new `FormatPipeline` RPC running the `alloy fmt` equivalent in-process) and replaces the
   buffer; unparseable input is left untouched with a toast. Validate runs an on-demand check beside
   the existing idle-debounced validation. Both are org-reader, like `ValidatePipeline`.
+- **The collector-OIDC gate is shown on the SSO page — Shipped.** Admin → Single sign-on now
+  displays the collector-authentication gate (`agent_audience`, `agent_required_role`,
+  `agent_required_scope`) read-only beside the provider it reuses, so an admin can see whether
+  collectors may authenticate with OIDC without reading chart values. Set via chart config / the
+  CLI, never this form. Off shows a one-line hint to set `config.oidc.agent_audience`.
 
 ### Deprecated
 
