@@ -58,7 +58,10 @@ const navGroups: Array<{ label?: string; items: NavItem[] }> = [
   },
   {
     label: 'Access',
-    items: [{ label: 'Teams', href: '/teams', icon: <Users2 size={16} /> }],
+    items: [
+      { label: 'Teams', href: '/teams', icon: <Users2 size={16} /> },
+      { label: 'Service accounts', href: '/service-accounts', icon: <KeyRound size={16} /> },
+    ],
   },
   {
     label: 'Admin',

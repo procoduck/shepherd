@@ -23,6 +23,11 @@ Categories used here:
   the org to have a tenant identity (an app admin sets it on Organisations); the page surfaces that
   precondition clearly. This is the storage/lifecycle surface only — applying routes to Kubernetes
   is the receiver tier.
+- **Service accounts have a UI — Shipped.** A new org-scoped Service accounts page (list, create,
+  revoke) drives the existing `ServiceAccountService` from the browser: mint an org-scoped machine
+  credential with a capability (propose/apply) and role (editor/admin), see its one-time secret
+  once, and revoke it. The grant is fixed at creation — changing it is revoke-and-recreate, so it
+  always reads as two audited actions. Org-admin throughout (there is no read-only view).
 - **Collector inventory labels — Shipped.** Attach free-form key/value labels to a collector from
   the UI (the Collectors list and a collector's detail page) to filter and group the fleet, without
   touching the Alloy-reported attributes or the labels the merge engine matches pipelines against.

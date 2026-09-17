@@ -20,6 +20,7 @@ export interface MockState {
   agentIdentities: unknown[];
   tenantRoutes: unknown[];
   tenantRoutesNoIdentity?: boolean;
+  serviceAccounts: unknown[];
   assignments: unknown[];
   groupSearchResults: unknown[];
   auditRows: unknown[];

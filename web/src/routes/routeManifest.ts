@@ -75,6 +75,13 @@ export const routeManifest: RouteEntry[] = [
     label: 'Tenant routes',
   },
   {
+    path: '/service-accounts',
+    tag: 'protected',
+    distinctLocator: 'text=Service accounts',
+    requiredRole: 'org-admin',
+    label: 'Service accounts',
+  },
+  {
     path: '/git',
     tag: 'protected',
     distinctLocator: 'text=Git sync',

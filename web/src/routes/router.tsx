@@ -19,6 +19,7 @@ import { LoginPage } from '@/pages/LoginPage';
 import { OverviewPage } from '@/pages/OverviewPage';
 import { PipelineEditorPage } from '@/pages/PipelineEditorPage';
 import { PipelinesPage } from '@/pages/PipelinesPage';
+import { ServiceAccountsPage } from '@/pages/ServiceAccountsPage';
 import { TeamsPage } from '@/pages/TeamsPage';
 import { TenantRoutesPage } from '@/pages/TenantRoutesPage';
 import { WizardsPage } from '@/pages/WizardsPage';
@@ -255,6 +256,14 @@ const tenantRoutesRoute = createRoute({
   component: withRequiredRole('/tenant-routes', TenantRoutesPage),
 });
 
+// Service accounts are org-scoped; every procedure is org-admin, so the whole
+// page is org-admin (there is no read-only view).
+const serviceAccountsRoute = createRoute({
+  getParentRoute: () => contentRoute,
+  path: '/service-accounts',
+  component: withRequiredRole('/service-accounts', ServiceAccountsPage),
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   changePasswordRoute,
@@ -270,6 +279,7 @@ const routeTree = rootRoute.addChildren([
       gitRoute,
       teamsRoute,
       tenantRoutesRoute,
+      serviceAccountsRoute,
       wizardsRoute,
       wizardRunnerRoute,
       adminOrgsRoute,

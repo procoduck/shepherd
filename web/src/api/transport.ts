@@ -24,6 +24,7 @@ import { FleetService } from '@/gen/shepherd/mgmt/v1/fleet_pb';
 import { GitOpsService } from '@/gen/shepherd/mgmt/v1/gitops_pb';
 import { MeService } from '@/gen/shepherd/mgmt/v1/me_pb';
 import { PipelineService } from '@/gen/shepherd/mgmt/v1/pipeline_pb';
+import { ServiceAccountService } from '@/gen/shepherd/mgmt/v1/service_account_pb';
 import { SimulateService } from '@/gen/shepherd/mgmt/v1/simulate_pb';
 import { TeamService } from '@/gen/shepherd/mgmt/v1/team_pb';
 import { TenantRouteService } from '@/gen/shepherd/mgmt/v1/tenant_route_pb';
@@ -74,5 +75,6 @@ export const clients = {
   simulate: createClient(SimulateService, transport),
   team: createClient(TeamService, transport),
   tenantRoute: createClient(TenantRouteService, transport),
+  serviceAccount: createClient(ServiceAccountService, transport),
   audit: createClient(AuditService, transport),
 } satisfies Record<string, Client<DescService>>;

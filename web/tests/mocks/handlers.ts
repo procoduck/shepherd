@@ -1324,6 +1324,52 @@ export function installDefaultHandlers(router: Router) {
     if (idx >= 0) Object.assign(st.tenantRoutes[idx] as Obj, { status: 'revoked' });
     return json(r, 200, (st.tenantRoutes[idx] as Obj) ?? {});
   });
+  router.register('POST', '/shepherd.mgmt.v1.ServiceAccountService/ListServiceAccounts', (r) =>
+    json(r, 200, list(st.serviceAccounts as Obj[])),
+  );
+  router.register(
+    'POST',
+    '/shepherd.mgmt.v1.ServiceAccountService/CreateServiceAccount',
+    async (r) => {
+      const sBody = (await r.request().postDataJSON()) as Obj;
+      const denied = requireOrgRole(r, String(sBody.orgId ?? ''), 'admin');
+      if (denied) return denied;
+      const req = await body(r);
+      const id = mockId('sa');
+      const role = String(req['role'] ?? '') || 'editor';
+      const account: Obj = {
+        id,
+        org_id: req['orgId'],
+        name: req['name'],
+        capability: req['capability'],
+        role,
+        created_by: 'appadmin@example.com',
+        status: 'active',
+        created_at: '2026-09-17T09:00:00Z',
+      };
+      st.serviceAccounts.push(account);
+      return json(r, 200, {
+        id,
+        name: req['name'],
+        capability: req['capability'],
+        secret: `sa-secret-${id}`,
+        role,
+      });
+    },
+  );
+  router.register(
+    'POST',
+    '/shepherd.mgmt.v1.ServiceAccountService/RevokeServiceAccount',
+    async (r) => {
+      const sBody = (await r.request().postDataJSON()) as Obj;
+      const denied = requireOrgRole(r, String(sBody.orgId ?? ''), 'admin');
+      if (denied) return denied;
+      const req = await body(r);
+      const idx = (st.serviceAccounts as Obj[]).findIndex((x) => x['id'] === req['id']);
+      if (idx >= 0) Object.assign(st.serviceAccounts[idx] as Obj, { status: 'revoked' });
+      return json(r, 200, {});
+    },
+  );
   router.register('POST', '/shepherd.mgmt.v1.DestinationService/ListDestinations', (r) =>
     json(r, 200, list((st.destinations as Obj[]).map(destinationToWire))),
   );
@@ -1861,6 +1907,7 @@ export function defaultState(): MockState {
     agentTokens: [],
     agentIdentities: [],
     tenantRoutes: [],
+    serviceAccounts: [],
     assignments: [],
     groupSearchResults: [],
     auditRows: [],
