@@ -11,6 +11,17 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
+## Unreleased
+
+### Added
+
+- **Wizards surface warnings on the preview.** A wizard can now tell an operator when it silently
+  defaulted, added, or dropped something, instead of leaving the output quietly different from what
+  was typed. `RenderWizardResponse` carries a `warnings` field, and the runner page shows them in a
+  banner above the validation status. The self-monitoring wizard emits the first two: log collection
+  requested but dropped because no destination was named, and a log path that was defaulted rather
+  than typed. Not errors — the render still succeeds.
+
 ## v0.9.0
 
 Chart 0.13.0. A broad feature release: two new admin UIs for surfaces whose backends had already

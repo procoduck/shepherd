@@ -1600,12 +1600,20 @@ export function installDefaultHandlers(router: Router) {
     const matchers: string[] = [];
     if (s(state, 'cluster_pattern')) matchers.push(`cluster=~"${s(state, 'cluster_pattern')}"`);
     if (s(state, 'role')) matchers.push(`role="${s(state, 'role')}"`);
+    // Mirror the server's B2 warnings: logs asked for but no destination named.
+    const warnings: string[] = [];
+    if (state['logs_enabled'] === true && !s(state, 'logs_dest_name')) {
+      warnings.push(
+        'Log collection was requested but no logs destination was set, so it was left out.',
+      );
+    }
     return json(r, 200, {
       contents: `prometheus.scrape "app" {\n  job_name = "${jobName}"\n  forward_to = [prometheus.remote_write.metrics.receiver]\n}\n`,
       matchers,
       valid: true,
       diagnostics: [],
       matchedCollectors: [],
+      warnings,
     });
   });
   router.register('POST', '/shepherd.mgmt.v1.WizardService/CommitWizard', async (r) => {

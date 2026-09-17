@@ -97,4 +97,10 @@ message RenderWizardResponse {
   bool valid = 3;
   repeated Diagnostic diagnostics = 4;
   repeated MatchedCollector matched_collectors = 5;
+  // warnings are human-readable notes about non-obvious things the wizard did
+  // to the input — a value it defaulted, a step it added, or an option it
+  // dropped because a dependency was missing. Not errors (the render
+  // succeeded); the UI shows them so the operator is not surprised by output
+  // that differs from what they typed.
+  repeated string warnings = 6;
 }

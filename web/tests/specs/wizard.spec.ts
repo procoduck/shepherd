@@ -150,3 +150,43 @@ test('a matcher the wizard added silently is labelled on Review; one the user ch
   const roleChip = page.locator('span', { hasText: 'role="singleton"' }).first();
   await expect(roleChip.locator('[data-testid="wizard-added-matcher"]')).toHaveCount(1);
 });
+
+test('the preview surfaces wizard warnings from the render response', async ({ page, api }) => {
+  await api.loginAs(appAdmin);
+  const s = basicScenario();
+  api.seed({
+    orgs: [s.org],
+    destinations: [destination({ id: 'dst-prom', name: 'prom-prod', type: 'prometheus' })],
+  });
+  // The render response carries a B2 warning (e.g. logs requested with no
+  // destination, so the block was dropped). The runner must show it, not hide
+  // it, so the operator sees the output differs from what they asked for.
+  api.override('POST', '/shepherd.mgmt.v1.WizardService/RenderWizard', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        contents: 'prometheus.scrape "app" {}\n',
+        matchers: ['role="metrics"'],
+        valid: true,
+        diagnostics: [],
+        matchedCollectors: [],
+        warnings: [
+          'Log collection was requested but no logs destination was set, so it was left out.',
+        ],
+      }),
+    });
+  });
+
+  await page.goto('/wizards');
+  await page.getByRole('link', { name: /app observability|start|begin/i }).click();
+  await page.getByLabel('Metrics endpoint URL').fill('http://myapp:9090/metrics');
+  await page.getByLabel('Job label').fill('my-app');
+  await page.getByRole('button', { name: /next|continue/i }).click();
+  await page.getByRole('button', { name: /next|continue/i }).click();
+  await page.getByLabel('Metrics destination').selectOption('prom-prod');
+  await page.getByRole('button', { name: /next|continue/i }).click();
+  await page.getByRole('button', { name: /next|continue/i }).click();
+
+  await expect(page.getByTestId('wizard-warnings')).toContainText('no logs destination was set');
+});

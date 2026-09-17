@@ -131,6 +131,7 @@ func (s *WizardService) RenderWizard(ctx context.Context, req *connect.Request[m
 		Valid:             valResult.Valid,
 		Diagnostics:       diagnosticsToProto(valResult.Diagnostics),
 		MatchedCollectors: items,
+		Warnings:          result.Warnings,
 	}), nil
 }
 

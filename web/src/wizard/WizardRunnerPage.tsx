@@ -248,6 +248,19 @@ export function WizardRunnerPage() {
                       )}
                     </div>
 
+                    {(renderQuery.data.warnings ?? []).length > 0 && (
+                      <div
+                        className='rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300'
+                        data-testid='wizard-warnings'
+                      >
+                        <ul className='space-y-1'>
+                          {(renderQuery.data.warnings ?? []).map((w) => (
+                            <li key={w}>{w}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
                     <div className='flex items-center gap-1.5 text-xs' aria-live='polite'>
                       {renderQuery.isFetching ? (
                         <span className='text-muted'>Validating…</span>

@@ -62,6 +62,13 @@ type CommitResult struct {
 	// Commit; a caller (a UI, an audit trail) can show it without
 	// recomputing Role itself.
 	Role string
+	// Warnings are human-readable notes about non-obvious things a wizard did
+	// to the operator's input: a value it defaulted, a step it added, or an
+	// option it silently dropped because a dependency was missing. They are
+	// NOT errors — the commit succeeded — but a preview (RenderWizard) surfaces
+	// them so an operator is not surprised by output that differs from what
+	// they typed. Empty when the wizard did exactly what the form asked.
+	Warnings []string
 }
 
 // Wizard is the interface each wizard kind must implement.

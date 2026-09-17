@@ -78,6 +78,31 @@ var _ = Describe("SelfMonitoringWizard golden files", func() {
 		Expect(result.Role).To(Equal("singleton"))
 		Expect(result.Contents).To(ContainSubstring("loki.source.file"))
 		Expect(result.Contents).To(ContainSubstring("/var/log/alloy/*.log"))
+		// B2: the defaulted path is a first-class warning, not a client guess.
+		Expect(result.Warnings).To(ContainElement(ContainSubstring("default")))
+	})
+
+	// B2: logs asked for but no destination named — the block is silently
+	// dropped, so the preview must say so as a warning rather than hide it.
+	It("warns when logs are requested but no destination is set", func() {
+		result, err := wiz.Commit(map[string]any{
+			"metrics_dest_name": "prom-prod",
+			"logs_enabled":      true,
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.Contents).NotTo(ContainSubstring("loki.source.file"), "logs are dropped with no destination")
+		Expect(result.Warnings).To(ContainElement(ContainSubstring("no logs destination")))
+	})
+
+	It("emits no warnings when the form is complete", func() {
+		result, err := wiz.Commit(map[string]any{
+			"metrics_dest_name": "prom-prod",
+			"logs_enabled":      true,
+			"logs_dest_name":    "loki-prod",
+			"log_path":          "/var/log/app/*.log",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.Warnings).To(BeEmpty())
 	})
 
 	It("declares a default log path in the schema", func() {

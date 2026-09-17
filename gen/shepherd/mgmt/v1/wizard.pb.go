@@ -558,8 +558,14 @@ type RenderWizardResponse struct {
 	Valid             bool                   `protobuf:"varint,3,opt,name=valid,proto3" json:"valid,omitempty"`
 	Diagnostics       []*Diagnostic          `protobuf:"bytes,4,rep,name=diagnostics,proto3" json:"diagnostics,omitempty"`
 	MatchedCollectors []*MatchedCollector    `protobuf:"bytes,5,rep,name=matched_collectors,json=matchedCollectors,proto3" json:"matched_collectors,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// warnings are human-readable notes about non-obvious things the wizard did
+	// to the input — a value it defaulted, a step it added, or an option it
+	// dropped because a dependency was missing. Not errors (the render
+	// succeeded); the UI shows them so the operator is not surprised by output
+	// that differs from what they typed.
+	Warnings      []string `protobuf:"bytes,6,rep,name=warnings,proto3" json:"warnings,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RenderWizardResponse) Reset() {
@@ -627,6 +633,13 @@ func (x *RenderWizardResponse) GetMatchedCollectors() []*MatchedCollector {
 	return nil
 }
 
+func (x *RenderWizardResponse) GetWarnings() []string {
+	if x != nil {
+		return x.Warnings
+	}
+	return nil
+}
+
 var File_shepherd_mgmt_v1_wizard_proto protoreflect.FileDescriptor
 
 const file_shepherd_mgmt_v1_wizard_proto_rawDesc = "" +
@@ -667,13 +680,14 @@ const file_shepherd_mgmt_v1_wizard_proto_rawDesc = "" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12-\n" +
-	"\x05state\x18\x04 \x01(\v2\x17.google.protobuf.StructR\x05state\"\xf7\x01\n" +
+	"\x05state\x18\x04 \x01(\v2\x17.google.protobuf.StructR\x05state\"\x93\x02\n" +
 	"\x14RenderWizardResponse\x12\x1a\n" +
 	"\bcontents\x18\x01 \x01(\tR\bcontents\x12\x1a\n" +
 	"\bmatchers\x18\x02 \x03(\tR\bmatchers\x12\x14\n" +
 	"\x05valid\x18\x03 \x01(\bR\x05valid\x12>\n" +
 	"\vdiagnostics\x18\x04 \x03(\v2\x1c.shepherd.mgmt.v1.DiagnosticR\vdiagnostics\x12Q\n" +
-	"\x12matched_collectors\x18\x05 \x03(\v2\".shepherd.mgmt.v1.MatchedCollectorR\x11matchedCollectors2\x82\x03\n" +
+	"\x12matched_collectors\x18\x05 \x03(\v2\".shepherd.mgmt.v1.MatchedCollectorR\x11matchedCollectors\x12\x1a\n" +
+	"\bwarnings\x18\x06 \x03(\tR\bwarnings2\x82\x03\n" +
 	"\rWizardService\x12\\\n" +
 	"\vListWizards\x12$.shepherd.mgmt.v1.ListWizardsRequest\x1a%.shepherd.mgmt.v1.ListWizardsResponse\"\x00\x12]\n" +
 	"\x0fGetWizardSchema\x12(.shepherd.mgmt.v1.GetWizardSchemaRequest\x1a\x1e.shepherd.mgmt.v1.WizardSchema\"\x00\x12_\n" +

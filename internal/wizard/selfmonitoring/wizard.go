@@ -128,6 +128,7 @@ func (w *Wizard) Commit(state map[string]any) (wizard.CommitResult, error) {
 
 	logsDest := get("logs_dest_name")
 	logPath := get("log_path")
+	logPathProvided := logPath != ""
 	// The runner UI only seeds a field's Default into wizard state
 	// (WizardRunnerPage.tsx), never its Placeholder, so a client that
 	// leaves log_path untouched sends no log_path key at all — get("log_path")
@@ -138,7 +139,21 @@ func (w *Wizard) Commit(state map[string]any) (wizard.CommitResult, error) {
 	if logPath == "" {
 		logPath = "/var/log/alloy/*.log"
 	}
-	logsEnabled := getBool("logs_enabled", true) && logsDest != ""
+	logsRequested := getBool("logs_enabled", true)
+	logsEnabled := logsRequested && logsDest != ""
+
+	// Warnings surface the non-obvious decisions this wizard just made, so a
+	// preview does not hide them (B2). Two cases matter: log collection asked
+	// for but dropped because no destination was named, and a log path that
+	// was defaulted rather than typed.
+	var warnings []string
+	if logsRequested && logsDest == "" {
+		warnings = append(warnings, "Log collection was requested but no logs destination was set, "+
+			"so it was left out — name a logs destination to include it.")
+	}
+	if logsEnabled && !logPathProvided {
+		warnings = append(warnings, fmt.Sprintf("No log path was given, so the default %q was used.", logPath))
+	}
 
 	var sb strings.Builder
 
@@ -199,5 +214,6 @@ loki.write "logs" {
 	return wizard.CommitResult{
 		Contents: sb.String(),
 		Matchers: matchers,
+		Warnings: warnings,
 	}, nil
 }
