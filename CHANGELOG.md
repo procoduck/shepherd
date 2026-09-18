@@ -13,6 +13,14 @@ Categories used here:
 
 ## Unreleased
 
+### Added
+
+- **Per-org "allow label matchers" setting (rollout flag).** Groundwork for letting admin-set
+  collector labels participate in pipeline matching (#139): a new org setting
+  (`orgs.allow_label_matchers`, off by default) an app admin flips on the Organisations page.
+  Additive migration `0026`; no matching behaviour changes yet — the gated wire-up that reads this
+  flag lands in a follow-up, so no org's served config is affected by this change. (#139)
+
 ## v0.10.0
 
 Chart 0.14.0. A focused follow-up to v0.9.0's broad release, centred on the visual builder: a
