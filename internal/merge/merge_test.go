@@ -113,6 +113,39 @@ var _ = Describe("MatchesPipeline", func() {
 	)
 })
 
+var _ = Describe("BuildCollectorLabels", func() {
+	It("merges admin labels in alongside the built-in cluster/role labels", func() {
+		cl := merge.BuildCollectorLabels("coll-1", "prod-eu-1", "metrics", map[string]string{"team": "platform"})
+		Expect(cl.CollectorID).To(Equal("coll-1"))
+		Expect(cl.Labels).To(Equal(map[string]string{"cluster": "prod-eu-1", "role": "metrics", "team": "platform"}))
+	})
+
+	It("drops a reserved key in adminLabels even if somehow persisted", func() {
+		cl := merge.BuildCollectorLabels("coll-1", "prod-eu-1", "metrics", map[string]string{
+			"team": "platform", "os": "linux", "collector.foo": "x", "shepherd.bar": "y",
+		})
+		Expect(cl.Labels).To(Equal(map[string]string{"cluster": "prod-eu-1", "role": "metrics", "team": "platform"}))
+	})
+
+	It("cluster/role always win over a same-named admin label", func() {
+		cl := merge.BuildCollectorLabels("coll-1", "prod-eu-1", "metrics", map[string]string{"cluster": "attacker-controlled", "role": "logs"})
+		Expect(cl.Labels).To(Equal(map[string]string{"cluster": "prod-eu-1", "role": "metrics"}))
+	})
+
+	It("produces just the built-in labels for a nil/empty adminLabels", func() {
+		cl := merge.BuildCollectorLabels("coll-1", "prod-eu-1", "metrics", nil)
+		Expect(cl.Labels).To(Equal(map[string]string{"cluster": "prod-eu-1", "role": "metrics"}))
+	})
+
+	It("lets MatchesPipeline match purely on a custom admin label, no cluster/role matcher", func() {
+		cl := merge.BuildCollectorLabels("coll-1", "prod-eu-1", "metrics", map[string]string{"team": "platform"})
+		p := merge.Pipeline{Name: "team-only", Matchers: []string{`team="platform"`}, Source: "ui"}
+		matched, err := merge.MatchesPipeline(p, cl)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(matched).To(BeTrue())
+	})
+})
+
 var _ = Describe("Assemble", func() {
 	cl := merge.CollectorLabels{
 		CollectorID: "coll-uuid-1",
@@ -351,6 +384,27 @@ totally.bogus.component "x" {
 		Expect(r.Content).To(ContainSubstring("// No pipelines matched"))
 		Expect(r.Content).To(ContainSubstring("// Excluded (1)"))
 		Expect(r.Content).To(ContainSubstring("metrics-pipe:"))
+	})
+
+	// procoduck/shepherd#139 Phase 1: a "Manage labels" write can never set a
+	// reserved key like "role" (rpc_fleet.go rejects it), but a row that
+	// predates a key becoming reserved could still hold one (the "retroactive
+	// collision" known issue). BuildCollectorLabels must drop it, so role
+	// enforcement always reads the real role column here — never an admin
+	// label — even for such a stale row and even with label matching enabled.
+	It("role enforcement reads the real role column, never a same-named admin label (#139)", func() {
+		cl := merge.BuildCollectorLabels("coll-uuid-1", "test", "logs", map[string]string{"role": "metrics"})
+		Expect(cl.Labels["role"]).To(Equal("logs"), "BuildCollectorLabels must have dropped the admin label's role and kept the real one")
+
+		pipelines := []merge.Pipeline{
+			{Name: "metrics-pipe", Contents: metricsOnlyPipeline, Matchers: []string{`cluster="test"`}, Source: "ui"},
+		}
+		r, err := merge.Assemble("coll-uuid-1", "test/logs", cl, pipelines, "dev", "2024-01-01T00:00:00Z", merge.WithRoleEnforcement(reg))
+		Expect(err).NotTo(HaveOccurred())
+		// If role enforcement had been fooled into treating this as role=metrics,
+		// the metrics pipeline would be INCLUDED instead of excluded.
+		Expect(r.Content).NotTo(ContainSubstring("pipe_metrics_pipe"))
+		Expect(r.Exclusions).To(HaveLen(1))
 	})
 })
 

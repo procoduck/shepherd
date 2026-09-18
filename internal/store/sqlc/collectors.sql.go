@@ -122,7 +122,7 @@ func (q *Queries) ListCollectorsByOrg(ctx context.Context, orgID pgtype.UUID) ([
 }
 
 const listCollectorsWithClusterByOrg = `-- name: ListCollectorsWithClusterByOrg :many
-SELECT c.id, c.cluster_id, c.role, c.created_at, c.updated_at, cl.name AS cluster_name
+SELECT c.id, c.cluster_id, c.role, c.created_at, c.updated_at, c.labels, cl.name AS cluster_name
 FROM collectors c
 JOIN clusters cl ON c.cluster_id = cl.id
 WHERE cl.org_id = $1
@@ -135,6 +135,7 @@ type ListCollectorsWithClusterByOrgRow struct {
 	Role        string             `json:"role"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	Labels      json.RawMessage    `json:"labels"`
 	ClusterName string             `json:"cluster_name"`
 }
 
@@ -153,6 +154,7 @@ func (q *Queries) ListCollectorsWithClusterByOrg(ctx context.Context, orgID pgty
 			&i.Role,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Labels,
 			&i.ClusterName,
 		); err != nil {
 			return nil, err

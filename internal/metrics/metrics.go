@@ -101,6 +101,19 @@ var (
 		Help:      "Connect RPC duration in seconds by procedure.",
 		Buckets:   prometheus.DefBuckets,
 	}, []string{"procedure"})
+
+	// PipelineMatchChangesTotal counts pipeline-to-collector match flips caused
+	// by a label mutation, labelled by direction ("added" or "removed"). A
+	// collector's effective label set can change which pipelines it draws
+	// config from without anyone editing a pipeline — this is the signal an
+	// operator's existing Alertmanager/Grafana can alert on directly (e.g.
+	// increase(...{direction="removed"}[1h]) > 0), no new alerting UI needed
+	// inside Shepherd. See LABEL-MATCHING-PLAN.md §7.
+	PipelineMatchChangesTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "shepherd",
+		Name:      "pipeline_match_changes_total",
+		Help:      "Total pipeline-to-collector match changes caused by a label mutation, by direction (added, removed).",
+	}, []string{"direction"})
 )
 
 // init publishes the build-info series as soon as the package loads, so

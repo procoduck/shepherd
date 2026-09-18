@@ -74,6 +74,12 @@ type OrgMembership struct {
 	// builder can show experimental components in the palette for a permitted
 	// org. The server render gate is authoritative regardless of this value.
 	AllowExperimentalComponents bool `protobuf:"varint,5,opt,name=allow_experimental_components,json=allowExperimentalComponents,proto3" json:"allow_experimental_components,omitempty"`
+	// allow_label_matching mirrors the org setting (#139). The server match
+	// gate is authoritative regardless of this value.
+	AllowLabelMatching bool `protobuf:"varint,6,opt,name=allow_label_matching,json=allowLabelMatching,proto3" json:"allow_label_matching,omitempty"`
+	// allow_local_attribute_matching mirrors the org setting (#139). The server
+	// match gate is authoritative regardless of this value.
+	AllowLocalAttributeMatching bool `protobuf:"varint,7,opt,name=allow_local_attribute_matching,json=allowLocalAttributeMatching,proto3" json:"allow_local_attribute_matching,omitempty"`
 	unknownFields               protoimpl.UnknownFields
 	sizeCache                   protoimpl.SizeCache
 }
@@ -139,6 +145,20 @@ func (x *OrgMembership) GetRole() string {
 func (x *OrgMembership) GetAllowExperimentalComponents() bool {
 	if x != nil {
 		return x.AllowExperimentalComponents
+	}
+	return false
+}
+
+func (x *OrgMembership) GetAllowLabelMatching() bool {
+	if x != nil {
+		return x.AllowLabelMatching
+	}
+	return false
+}
+
+func (x *OrgMembership) GetAllowLocalAttributeMatching() bool {
+	if x != nil {
+		return x.AllowLocalAttributeMatching
 	}
 	return false
 }
@@ -234,13 +254,15 @@ var File_shepherd_mgmt_v1_me_proto protoreflect.FileDescriptor
 const file_shepherd_mgmt_v1_me_proto_rawDesc = "" +
 	"\n" +
 	"\x19shepherd/mgmt/v1/me.proto\x12\x10shepherd.mgmt.v1\"\x0e\n" +
-	"\fGetMeRequest\"\xae\x01\n" +
+	"\fGetMeRequest\"\xa5\x02\n" +
 	"\rOrgMembership\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12!\n" +
 	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\x12\x12\n" +
 	"\x04role\x18\x04 \x01(\tR\x04role\x12B\n" +
-	"\x1dallow_experimental_components\x18\x05 \x01(\bR\x1ballowExperimentalComponents\"\xdb\x01\n" +
+	"\x1dallow_experimental_components\x18\x05 \x01(\bR\x1ballowExperimentalComponents\x120\n" +
+	"\x14allow_label_matching\x18\x06 \x01(\bR\x12allowLabelMatching\x12C\n" +
+	"\x1eallow_local_attribute_matching\x18\a \x01(\bR\x1ballowLocalAttributeMatching\"\xdb\x01\n" +
 	"\rGetMeResponse\x12\x19\n" +
 	"\buser_oid\x18\x01 \x01(\tR\auserOid\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12!\n" +

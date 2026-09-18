@@ -424,4 +424,113 @@ var _ = Describe("PipelineService Connect RPC", Label("integration"), func() {
 
 		Expect(lockTx.Rollback(ctx)).To(Succeed())
 	})
+
+	// procoduck/shepherd#139 Phase 1: PreviewMatches must reproduce today's
+	// {cluster, role}-only matching byte-for-byte until the org opts in, then
+	// pick up admin labels once it does — the actual end-to-end proof that
+	// allow_label_matching gates previewMatchedCollectors's admin-label wiring,
+	// not just that BuildCollectorLabels behaves correctly in isolation.
+	It("PreviewMatches ignores admin labels until allow_label_matching is on, then honors them (#139)", func() {
+		cookie := sessionCookie(true)
+
+		cluster, err := st.Queries.UpsertCluster(ctx, "preview-matches-cluster")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgUUID(orgID)})).To(Succeed())
+		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+		Expect(err).NotTo(HaveOccurred())
+
+		setLabelResp := postConnect("/shepherd.mgmt.v1.FleetService/SetCollectorLabel", map[string]any{
+			"orgId": orgID, "collectorId": collector.ID.String(), "key": "team", "value": "platform",
+		}, cookie)
+		Expect(setLabelResp.StatusCode).To(Equal(http.StatusOK))
+
+		createResp := postConnect("/shepherd.mgmt.v1.PipelineService/CreatePipeline", map[string]any{
+			"org_id": orgID, "name": "team-only-pipe", "contents": `// valid alloy comment`,
+			"matchers": []string{`team="platform"`},
+		}, cookie)
+		Expect(createResp.StatusCode).To(Equal(http.StatusOK))
+		var created struct {
+			ID string `json:"id"`
+		}
+		decodeBody(createResp, &created)
+
+		preview := func() []any {
+			resp := postConnect("/shepherd.mgmt.v1.PipelineService/PreviewMatches", map[string]any{
+				"org_id": orgID, "id": created.ID,
+			}, cookie)
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			var payload struct {
+				Collectors []any `json:"collectors"`
+			}
+			decodeBody(resp, &payload)
+			return payload.Collectors
+		}
+
+		Expect(preview()).To(BeEmpty(), "flag off: a custom-label-only matcher must match nothing, same as before #139")
+
+		updateResp := postConnect("/shepherd.mgmt.v1.AdminService/UpdateOrg", map[string]any{
+			"orgId": orgID, "displayName": "RPC Pipeline Org", "adminGroupId": "admin-group", "allowLabelMatching": true,
+		}, cookie)
+		Expect(updateResp.StatusCode).To(Equal(http.StatusOK))
+
+		Expect(preview()).To(HaveLen(1), "flag on: the collector's admin label must now participate in matching")
+	})
+
+	// Red run that caught a real gap: recomputeOrgCaches (the eager
+	// background recompute EnablePipeline/DisablePipeline/UpdatePipeline/
+	// DeletePipeline kick off via `go s.recomputeOrgCaches(...)`) built its
+	// own serve.Collector{} without AdminLabels, bypassing every other fix
+	// in this PR. PreviewMatches's own gating test above did not catch it
+	// because it exercises a different code path (previewMatchedCollectors,
+	// not recomputeOrgCaches) — this test exercises the actual
+	// EnablePipeline -> GetServedConfig path a real collector's poll would
+	// hit.
+	It("EnablePipeline's eager recompute honors admin labels once allow_label_matching is on (#139)", func() {
+		cookie := sessionCookie(true)
+
+		cluster, err := st.Queries.UpsertCluster(ctx, "recompute-org-caches-cluster")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgUUID(orgID)})).To(Succeed())
+		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+		Expect(err).NotTo(HaveOccurred())
+
+		setLabelResp := postConnect("/shepherd.mgmt.v1.FleetService/SetCollectorLabel", map[string]any{
+			"orgId": orgID, "collectorId": collector.ID.String(), "key": "team", "value": "platform",
+		}, cookie)
+		Expect(setLabelResp.StatusCode).To(Equal(http.StatusOK))
+
+		updateResp := postConnect("/shepherd.mgmt.v1.AdminService/UpdateOrg", map[string]any{
+			"orgId": orgID, "displayName": "RPC Pipeline Org", "adminGroupId": "admin-group", "allowLabelMatching": true,
+		}, cookie)
+		Expect(updateResp.StatusCode).To(Equal(http.StatusOK))
+
+		createResp := postConnect("/shepherd.mgmt.v1.PipelineService/CreatePipeline", map[string]any{
+			"org_id": orgID, "name": "recompute-org-caches-pipe", "contents": `// recompute-org-caches-marker`,
+			"matchers": []string{`team="platform"`},
+		}, cookie)
+		Expect(createResp.StatusCode).To(Equal(http.StatusOK))
+		var created struct {
+			ID string `json:"id"`
+		}
+		decodeBody(createResp, &created)
+
+		enableResp := postConnect("/shepherd.mgmt.v1.PipelineService/EnablePipeline", map[string]any{
+			"org_id": orgID, "id": created.ID,
+		}, cookie)
+		Expect(enableResp.StatusCode).To(Equal(http.StatusOK))
+
+		// recomputeOrgCaches runs in a detached goroutine, so this must poll
+		// rather than assert immediately.
+		Eventually(func() string {
+			resp := postConnect("/shepherd.mgmt.v1.FleetService/GetServedConfig", map[string]any{
+				"orgId": orgID, "id": collector.ID.String(),
+			}, cookie)
+			var payload struct {
+				Content string `json:"content"`
+			}
+			decodeBody(resp, &payload)
+			return payload.Content
+		}, "5s", "50ms").Should(ContainSubstring("recompute-org-caches-marker"),
+			"the admin-label-matched pipeline must reach this collector's served config once allow_label_matching is on")
+	})
 })

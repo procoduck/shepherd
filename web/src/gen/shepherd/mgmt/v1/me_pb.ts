@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file shepherd/mgmt/v1/me.proto.
  */
 export const file_shepherd_mgmt_v1_me: GenFile = /*@__PURE__*/
-  fileDesc("ChlzaGVwaGVyZC9tZ210L3YxL21lLnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIg4KDEdldE1lUmVxdWVzdCJ0Cg1PcmdNZW1iZXJzaGlwEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSFAoMZGlzcGxheV9uYW1lGAMgASgJEgwKBHJvbGUYBCABKAkSJQodYWxsb3dfZXhwZXJpbWVudGFsX2NvbXBvbmVudHMYBSABKAgioAEKDUdldE1lUmVzcG9uc2USEAoIdXNlcl9vaWQYASABKAkSDQoFZW1haWwYAiABKAkSFAoMZGlzcGxheV9uYW1lGAMgASgJEhQKDGlzX2FwcF9hZG1pbhgEIAEoCBITCgthdXRoX21ldGhvZBgFIAEoCRItCgRvcmdzGAYgAygLMh8uc2hlcGhlcmQubWdtdC52MS5PcmdNZW1iZXJzaGlwMlcKCU1lU2VydmljZRJKCgVHZXRNZRIeLnNoZXBoZXJkLm1nbXQudjEuR2V0TWVSZXF1ZXN0Gh8uc2hlcGhlcmQubWdtdC52MS5HZXRNZVJlc3BvbnNlIgBCJlokc2hlcGhlcmQvZ2VuL3NoZXBoZXJkL21nbXQvdjE7bWdtdHYxYgZwcm90bzM");
+  fileDesc("ChlzaGVwaGVyZC9tZ210L3YxL21lLnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIg4KDEdldE1lUmVxdWVzdCK6AQoNT3JnTWVtYmVyc2hpcBIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCRIMCgRyb2xlGAQgASgJEiUKHWFsbG93X2V4cGVyaW1lbnRhbF9jb21wb25lbnRzGAUgASgIEhwKFGFsbG93X2xhYmVsX21hdGNoaW5nGAYgASgIEiYKHmFsbG93X2xvY2FsX2F0dHJpYnV0ZV9tYXRjaGluZxgHIAEoCCKgAQoNR2V0TWVSZXNwb25zZRIQCgh1c2VyX29pZBgBIAEoCRINCgVlbWFpbBgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkSFAoMaXNfYXBwX2FkbWluGAQgASgIEhMKC2F1dGhfbWV0aG9kGAUgASgJEi0KBG9yZ3MYBiADKAsyHy5zaGVwaGVyZC5tZ210LnYxLk9yZ01lbWJlcnNoaXAyVwoJTWVTZXJ2aWNlEkoKBUdldE1lEh4uc2hlcGhlcmQubWdtdC52MS5HZXRNZVJlcXVlc3QaHy5zaGVwaGVyZC5tZ210LnYxLkdldE1lUmVzcG9uc2UiAEImWiRzaGVwaGVyZC9nZW4vc2hlcGhlcmQvbWdtdC92MTttZ210djFiBnByb3RvMw");
 
 /**
  * @generated from message shepherd.mgmt.v1.GetMeRequest
@@ -66,6 +66,22 @@ export type OrgMembership = Message<"shepherd.mgmt.v1.OrgMembership"> & {
    * @generated from field: bool allow_experimental_components = 5;
    */
   allowExperimentalComponents: boolean;
+
+  /**
+   * allow_label_matching mirrors the org setting (#139). The server match
+   * gate is authoritative regardless of this value.
+   *
+   * @generated from field: bool allow_label_matching = 6;
+   */
+  allowLabelMatching: boolean;
+
+  /**
+   * allow_local_attribute_matching mirrors the org setting (#139). The server
+   * match gate is authoritative regardless of this value.
+   *
+   * @generated from field: bool allow_local_attribute_matching = 7;
+   */
+  allowLocalAttributeMatching: boolean;
 };
 
 /**

@@ -480,10 +480,17 @@ func (r *Reconciler) stage3DryRun(ctx context.Context, link sqlc.RepoLink, candi
 		return fmt.Errorf("loading cluster: %w", err)
 	}
 
-	cl := merge.CollectorLabels{
-		CollectorID: link.CollectorID.String(),
-		Labels:      map[string]string{"role": coll.Role, "cluster": cluster.Name},
+	// Admin labels only participate in matching once the org has opted in
+	// (procoduck/shepherd#139) — an org with the flag off must reproduce
+	// exactly the pre-#139 {cluster, role}-only behavior.
+	var adminLabels map[string]string
+	if org, orgErr := r.store.Queries.GetOrgByID(ctx, link.OrgID); orgErr == nil && org.AllowLabelMatching {
+		if jsonErr := json.Unmarshal(coll.Labels, &adminLabels); jsonErr != nil {
+			r.logger.Warn("gitsync: decoding collector labels", "collector_id", link.CollectorID.String(), "err", jsonErr)
+			adminLabels = nil
+		}
 	}
+	cl := merge.BuildCollectorLabels(link.CollectorID.String(), cluster.Name, coll.Role, adminLabels)
 	// No WithRoleEnforcement option: gitsync has no schema registry, so this
 	// deliberately validates the unenforced superset (see doc comment above).
 	assembled, err := merge.Assemble(link.CollectorID.String(), cluster.Name+"/"+coll.Role, cl, mergePipelines, "dev", "")

@@ -19,7 +19,7 @@ WHERE cl.org_id = $1
 ORDER BY cl.name, c.role;
 
 -- name: ListCollectorsWithClusterByOrg :many
-SELECT c.id, c.cluster_id, c.role, c.created_at, c.updated_at, cl.name AS cluster_name
+SELECT c.id, c.cluster_id, c.role, c.created_at, c.updated_at, c.labels, cl.name AS cluster_name
 FROM collectors c
 JOIN clusters cl ON c.cluster_id = cl.id
 WHERE cl.org_id = $1

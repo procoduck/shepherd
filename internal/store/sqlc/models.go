@@ -183,6 +183,8 @@ type Org struct {
 	TenantID                    pgtype.Text        `json:"tenant_id"`
 	EditorGroupID               pgtype.Text        `json:"editor_group_id"`
 	AllowExperimentalComponents bool               `json:"allow_experimental_components"`
+	AllowLabelMatching          bool               `json:"allow_label_matching"`
+	AllowLocalAttributeMatching bool               `json:"allow_local_attribute_matching"`
 }
 
 type OrgMember struct {

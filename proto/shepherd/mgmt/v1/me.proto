@@ -28,6 +28,12 @@ message OrgMembership {
   // builder can show experimental components in the palette for a permitted
   // org. The server render gate is authoritative regardless of this value.
   bool allow_experimental_components = 5;
+  // allow_label_matching mirrors the org setting (#139). The server match
+  // gate is authoritative regardless of this value.
+  bool allow_label_matching = 6;
+  // allow_local_attribute_matching mirrors the org setting (#139). The server
+  // match gate is authoritative regardless of this value.
+  bool allow_local_attribute_matching = 7;
 }
 
 // GetMeResponse mirrors internal/mgmtapi/orgs.go: meResponse.

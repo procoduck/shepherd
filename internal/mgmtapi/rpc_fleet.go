@@ -17,6 +17,8 @@ import (
 
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
+	"shepherd/internal/merge"
+	"shepherd/internal/metrics"
 	"shepherd/internal/schema"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
@@ -294,20 +296,25 @@ func (s *FleetService) SetCollectorLabel(ctx context.Context, req *connect.Reque
 	if !validCollectorLabelKey(key) {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("label key must be 1-128 bytes using lowercase letters, numbers, '.', '_', '-', or '/'"))
 	}
+	if merge.IsReserved(key) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("label key is reserved for built-in use"))
+	}
 	if !validCollectorLabelValue(value) {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("label value must be 1-512 bytes with no control or format characters"))
 	}
-	// Read the prior value before the write, as DeleteCollectorLabel does:
+	// Read the prior labels before the write, as DeleteCollectorLabel does:
 	// labels are not versioned, so the audit row is the only record that a
-	// value changed. previous is empty when the key is new.
+	// value changed. previous is empty when the key is new. beforeLabels
+	// (the full map, not just this key) also feeds emitMatchDrift below.
 	before, err := s.store.Queries.GetCollectorByID(ctx, id)
 	if err != nil {
 		return nil, mapError(err)
 	}
-	previous := ""
-	if current, decodeErr := decodeCollectorLabels(before.Labels); decodeErr == nil {
-		previous = current[key]
+	beforeLabels, decodeErr := decodeCollectorLabels(before.Labels)
+	if decodeErr != nil {
+		beforeLabels = map[string]string{}
 	}
+	previous := beforeLabels[key]
 	raw, err := s.store.Queries.SetCollectorLabel(ctx, sqlc.SetCollectorLabelParams{
 		ID: id, LabelKey: key, LabelValue: value,
 	})
@@ -326,6 +333,10 @@ func (s *FleetService) SetCollectorLabel(ctx context.Context, req *connect.Reque
 	}
 	orgID, _ := parseUUID(req.Msg.GetOrgId())
 	auditLogDetail(ctx, s.store, actorFromCtx(ctx), "user", orgID, "collector.label.set", "collector", id.String(), map[string]string{"key": key, "value": value, "previous_value": previous})
+	if cacheErr := s.store.Queries.MarkServeCacheDirty(ctx, id); cacheErr != nil {
+		s.logger.Error("set collector label: marking serve cache dirty", "collector_id", id, "err", cacheErr)
+	}
+	s.emitMatchDrift(ctx, orgID, id, before.ClusterID, before.Role, beforeLabels, labels, "collector.label.set")
 	return connect.NewResponse(&mgmtv1.CollectorLabelsResponse{Labels: labels}), nil
 }
 
@@ -346,10 +357,11 @@ func (s *FleetService) DeleteCollectorLabel(ctx context.Context, req *connect.Re
 	if err != nil {
 		return nil, mapError(err)
 	}
-	previous := ""
-	if current, decodeErr := decodeCollectorLabels(before.Labels); decodeErr == nil {
-		previous = current[key]
+	beforeLabels, decodeErr := decodeCollectorLabels(before.Labels)
+	if decodeErr != nil {
+		beforeLabels = map[string]string{}
 	}
+	previous := beforeLabels[key]
 	raw, err := s.store.Queries.DeleteCollectorLabel(ctx, sqlc.DeleteCollectorLabelParams{
 		ID: id, LabelKey: key,
 	})
@@ -362,7 +374,67 @@ func (s *FleetService) DeleteCollectorLabel(ctx context.Context, req *connect.Re
 	}
 	orgID, _ := parseUUID(req.Msg.GetOrgId())
 	auditLogDetail(ctx, s.store, actorFromCtx(ctx), "user", orgID, "collector.label.delete", "collector", id.String(), map[string]string{"key": key, "previous_value": previous})
+	if cacheErr := s.store.Queries.MarkServeCacheDirty(ctx, id); cacheErr != nil {
+		s.logger.Error("delete collector label: marking serve cache dirty", "collector_id", id, "err", cacheErr)
+	}
+	s.emitMatchDrift(ctx, orgID, id, before.ClusterID, before.Role, beforeLabels, labels, "collector.label.delete")
 	return connect.NewResponse(&mgmtv1.CollectorLabelsResponse{Labels: labels}), nil
+}
+
+// emitMatchDrift is §7's match-drift observability hook (LABEL-MATCHING-PLAN.md),
+// called after a label mutation commits. It recomputes which of the org's
+// enabled pipelines match this collector under beforeLabels vs. afterLabels
+// (the full admin-label maps, not just the one key that changed) and, for
+// every pipeline whose match status flipped, increments
+// metrics.PipelineMatchChangesTotal and writes a "pipeline.match.changed"
+// audit row carrying the direction and cause.
+//
+// A no-op for an org with allow_label_matching off: admin labels never enter
+// matching for such an org (every other BuildCollectorLabels call site passes
+// nil for it, per adminLabelsIfAllowed), so a "flip" computed here would not
+// reflect what's actually served — and skipping before listing pipelines
+// avoids two extra queries on every label edit for the (currently common)
+// case of an org that hasn't opted in.
+//
+// Best-effort: errors are logged, never returned — a label write must not
+// fail because the drift computation that describes its downstream effect
+// failed.
+func (s *FleetService) emitMatchDrift(ctx context.Context, orgID, collectorID, clusterID pgtype.UUID, role string, beforeLabels, afterLabels map[string]string, cause string) {
+	org, err := s.store.Queries.GetOrgByID(ctx, orgID)
+	if err != nil || !org.AllowLabelMatching {
+		return
+	}
+	rows, err := s.store.Queries.ListEnabledPipelinesForMerge(ctx, orgID)
+	if err != nil {
+		s.logger.Error("match-drift: listing enabled pipelines", "org_id", orgID.String(), "err", err)
+		return
+	}
+	cluster, _ := s.store.Queries.GetClusterByID(ctx, clusterID) //nolint:errcheck // empty cluster name is safe in merge
+	pipelines := make([]merge.Pipeline, 0, len(rows))
+	for i := range rows {
+		r := rows[i]
+		var matchers []string
+		if jsonErr := json.Unmarshal(r.Matchers, &matchers); jsonErr != nil {
+			matchers = nil
+		}
+		pipelines = append(pipelines, merge.Pipeline{
+			ID: r.ID.String(), Name: r.Name, Matchers: matchers, Source: r.Source,
+			RepoLinkCollectorID: repoLinkCollectorID(r.RepoLinkCollectorID),
+		})
+	}
+	collIDStr := collectorID.String()
+	before := merge.BuildCollectorLabels(collIDStr, cluster.Name, role, beforeLabels)
+	after := merge.BuildCollectorLabels(collIDStr, cluster.Name, role, afterLabels)
+	for _, d := range merge.DiffMatches(pipelines, before, after) {
+		metrics.PipelineMatchChangesTotal.WithLabelValues(d.Direction).Inc()
+		auditLogDetail(ctx, s.store, actorFromCtx(ctx), "user", orgID, "pipeline.match.changed", "pipeline", d.PipelineID, map[string]string{
+			"pipeline_id":   d.PipelineID,
+			"pipeline_name": d.PipelineName,
+			"collector_id":  collIDStr,
+			"direction":     d.Direction,
+			"cause":         cause,
+		})
+	}
 }
 
 // GetServedConfig returns the config currently served to a collector. A

@@ -14,9 +14,11 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"shepherd/internal/auth"
 	"shepherd/internal/config"
+	"shepherd/internal/metrics"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 )
@@ -178,6 +180,55 @@ var _ = Describe("shepherd.mgmt.v1.FleetService RPC", Label("integration"), func
 		Expect(labels).To(HaveKeyWithValue("environment", "production"))
 	})
 
+	It("marks the per-collector serve cache dirty on label mutations", func() {
+		cluster, err := st.Queries.UpsertCluster(ctx, "labels-cache-dirty")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgID})).To(Succeed())
+		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+		Expect(err).NotTo(HaveOccurred())
+		cookie := createSession(false, []string{"fleet-admin-group"})
+
+		// Seed a clean (not-dirty) serve_cache row, as if this collector was
+		// already served, so a label mutation is the only thing that could
+		// dirty it again.
+		_, err = st.Queries.UpsertServeCacheConditional(ctx, sqlc.UpsertServeCacheConditionalParams{
+			CollectorID: collector.ID, Content: "v1", Hash: "h-v1", DirtySeq: 0,
+		})
+		Expect(err).NotTo(HaveOccurred())
+		row, err := st.Queries.GetServeCache(ctx, collector.ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(row.Dirty).To(BeFalse())
+
+		resp := postConnect("/shepherd.mgmt.v1.FleetService/SetCollectorLabel", map[string]any{
+			"orgId": orgID.String(), "collectorId": collector.ID.String(), "key": "team", "value": "payments",
+		}, cookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		decodeBody(resp)
+		row, err = st.Queries.GetServeCache(ctx, collector.ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(row.Dirty).To(BeTrue(), "SetCollectorLabel must mark this collector's serve cache dirty")
+		dirtySeqAfterSet := row.DirtySeq
+
+		// Clear the flag again so the next assertion isn't riding on the
+		// mark SetCollectorLabel just made.
+		_, err = st.Queries.UpsertServeCacheConditional(ctx, sqlc.UpsertServeCacheConditionalParams{
+			CollectorID: collector.ID, Content: "v2", Hash: "h-v2", DirtySeq: dirtySeqAfterSet,
+		})
+		Expect(err).NotTo(HaveOccurred())
+		row, err = st.Queries.GetServeCache(ctx, collector.ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(row.Dirty).To(BeFalse())
+
+		resp = postConnect("/shepherd.mgmt.v1.FleetService/DeleteCollectorLabel", map[string]any{
+			"orgId": orgID.String(), "collectorId": collector.ID.String(), "key": "team",
+		}, cookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		decodeBody(resp)
+		row, err = st.Queries.GetServeCache(ctx, collector.ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(row.Dirty).To(BeTrue(), "DeleteCollectorLabel must mark this collector's serve cache dirty")
+	})
+
 	It("rejects invalid label keys and prevents reader and cross-org label writes", func() {
 		cluster, err := st.Queries.UpsertCluster(ctx, "labels-permissions")
 		Expect(err).NotTo(HaveOccurred())
@@ -213,6 +264,29 @@ var _ = Describe("shepherd.mgmt.v1.FleetService RPC", Label("integration"), func
 			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
 			decodeBody(resp)
 		}
+	})
+
+	It("rejects reserved label keys at write time", func() {
+		cluster, err := st.Queries.UpsertCluster(ctx, "labels-reserved")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgID})).To(Succeed())
+		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+		Expect(err).NotTo(HaveOccurred())
+		cookie := createSession(true, nil)
+		for _, key := range []string{"role", "cluster", "id", "os", "alloy_version", "collector.foo", "shepherd.foo", "ROLE"} {
+			resp := postConnect("/shepherd.mgmt.v1.FleetService/SetCollectorLabel", map[string]any{
+				"orgId": orgID.String(), "collectorId": collector.ID.String(), "key": key, "value": "x",
+			}, cookie)
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest), "key %q must be rejected as reserved", key)
+			decodeBody(resp)
+		}
+		// A non-reserved key must still be settable — the reserved check must
+		// not have swallowed the ordinary path.
+		resp := postConnect("/shepherd.mgmt.v1.FleetService/SetCollectorLabel", map[string]any{
+			"orgId": orgID.String(), "collectorId": collector.ID.String(), "key": "team", "value": "platform",
+		}, cookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		Expect(decodeBody(resp)["labels"]).To(HaveKeyWithValue("team", "platform"))
 	})
 
 	It("normalizes label keys and enforces the per-collector label cap", func() {
@@ -390,5 +464,112 @@ var _ = Describe("shepherd.mgmt.v1.FleetService RPC", Label("integration"), func
 			"collectorId": collector.ID.String(),
 		}, cookie)
 		Expect(resp.StatusCode).To(Equal(http.StatusForbidden))
+	})
+
+	// LABEL-MATCHING-PLAN.md §7 / PR-5: a label mutation that flips which
+	// pipelines match a collector must emit shepherd_pipeline_match_changes_total
+	// and a "pipeline.match.changed" audit row — but only for an org that has
+	// opted into allow_label_matching, and only on an actual flip, not every
+	// label write.
+	It("emits match-drift metrics and audit rows only for a real flip, only once allow_label_matching is on", func() {
+		cluster, err := st.Queries.UpsertCluster(ctx, "match-drift-cluster")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgID})).To(Succeed())
+		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+		Expect(err).NotTo(HaveOccurred())
+		cookie := createSession(true, nil)
+
+		_, err = st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: orgID, Name: "match-drift-pipe", Contents: "// match-drift-pipe",
+			Matchers: json.RawMessage(`["team=\"platform\""]`), Enabled: true, Source: "ui",
+			CreatedBy: "test", UpdatedBy: "test",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		matchChangedRows := func() []sqlc.AuditLog {
+			rows, listErr := st.Queries.ListAuditLog(ctx, sqlc.ListAuditLogParams{Limit: 100})
+			Expect(listErr).NotTo(HaveOccurred())
+			var out []sqlc.AuditLog
+			for _, r := range rows {
+				if r.Action == "pipeline.match.changed" {
+					out = append(out, r)
+				}
+			}
+			return out
+		}
+
+		// Flag off (default): setting the matching label must produce no
+		// audit row and no metric movement, even though the pipeline's
+		// matcher would flip if the flag were on.
+		addedBefore := testutil.ToFloat64(metrics.PipelineMatchChangesTotal.WithLabelValues("added"))
+		resp := postConnect("/shepherd.mgmt.v1.FleetService/SetCollectorLabel", map[string]any{
+			"orgId": orgID.String(), "collectorId": collector.ID.String(), "key": "team", "value": "platform",
+		}, cookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		decodeBody(resp)
+		Expect(testutil.ToFloat64(metrics.PipelineMatchChangesTotal.WithLabelValues("added"))).To(Equal(addedBefore),
+			"flag off: no match-drift metric movement")
+		Expect(matchChangedRows()).To(BeEmpty(), "flag off: no match-drift audit row")
+
+		// Turn the flag on. The collector already carries team=platform from
+		// above, so the pipeline is already matching -- flipping the flag
+		// itself goes through no hook here (§7 only fires on a mutation), so
+		// no drift row should appear from this step alone.
+		_, err = st.Queries.UpdateOrg(ctx, sqlc.UpdateOrgParams{
+			ID: orgID, DisplayName: "Fleet RPC Org", AdminGroupID: "fleet-admin-group",
+			ReaderGroupID:      pgtype.Text{String: "fleet-reader-group", Valid: true},
+			AllowLabelMatching: true,
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		// An edit to an unrelated key must not be reported as a flip.
+		addedBefore = testutil.ToFloat64(metrics.PipelineMatchChangesTotal.WithLabelValues("added"))
+		resp = postConnect("/shepherd.mgmt.v1.FleetService/SetCollectorLabel", map[string]any{
+			"orgId": orgID.String(), "collectorId": collector.ID.String(), "key": "unrelated", "value": "x",
+		}, cookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		decodeBody(resp)
+		Expect(testutil.ToFloat64(metrics.PipelineMatchChangesTotal.WithLabelValues("added"))).To(Equal(addedBefore),
+			"an unrelated key change must not be reported as a flip")
+
+		// Flip the pipeline out of matching (team: platform -> staging): "removed".
+		removedBefore := testutil.ToFloat64(metrics.PipelineMatchChangesTotal.WithLabelValues("removed"))
+		resp = postConnect("/shepherd.mgmt.v1.FleetService/SetCollectorLabel", map[string]any{
+			"orgId": orgID.String(), "collectorId": collector.ID.String(), "key": "team", "value": "staging",
+		}, cookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		decodeBody(resp)
+		Expect(testutil.ToFloat64(metrics.PipelineMatchChangesTotal.WithLabelValues("removed"))).To(Equal(removedBefore + 1))
+		removedRows := matchChangedRows()
+		Expect(removedRows).To(HaveLen(1))
+		var detail map[string]string
+		Expect(json.Unmarshal(removedRows[0].Detail, &detail)).To(Succeed())
+		Expect(detail).To(HaveKeyWithValue("pipeline_name", "match-drift-pipe"))
+		Expect(detail).To(HaveKeyWithValue("collector_id", collector.ID.String()))
+		Expect(detail).To(HaveKeyWithValue("direction", "removed"))
+		Expect(detail).To(HaveKeyWithValue("cause", "collector.label.set"))
+
+		// Flip it back into matching (team: staging -> platform): "added".
+		addedBefore = testutil.ToFloat64(metrics.PipelineMatchChangesTotal.WithLabelValues("added"))
+		resp = postConnect("/shepherd.mgmt.v1.FleetService/SetCollectorLabel", map[string]any{
+			"orgId": orgID.String(), "collectorId": collector.ID.String(), "key": "team", "value": "platform",
+		}, cookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		decodeBody(resp)
+		Expect(testutil.ToFloat64(metrics.PipelineMatchChangesTotal.WithLabelValues("added"))).To(Equal(addedBefore + 1))
+
+		// Deleting the label flips it back out again: "removed", cause reflects the delete.
+		removedBefore = testutil.ToFloat64(metrics.PipelineMatchChangesTotal.WithLabelValues("removed"))
+		resp = postConnect("/shepherd.mgmt.v1.FleetService/DeleteCollectorLabel", map[string]any{
+			"orgId": orgID.String(), "collectorId": collector.ID.String(), "key": "team",
+		}, cookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		decodeBody(resp)
+		Expect(testutil.ToFloat64(metrics.PipelineMatchChangesTotal.WithLabelValues("removed"))).To(Equal(removedBefore + 1))
+		allRows := matchChangedRows()
+		Expect(len(allRows)).To(BeNumerically(">=", 2))
+		mostRecent := allRows[0] // ListAuditLog orders ORDER BY at DESC, newest first.
+		Expect(json.Unmarshal(mostRecent.Detail, &detail)).To(Succeed())
+		Expect(detail).To(HaveKeyWithValue("cause", "collector.label.delete"))
 	})
 })

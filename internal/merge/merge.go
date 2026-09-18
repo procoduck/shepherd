@@ -45,6 +45,32 @@ type CollectorLabels struct {
 	Labels      map[string]string
 }
 
+// BuildCollectorLabels merges the built-in cluster/role labels with a
+// collector's admin-set "Manage labels" (collectors.labels), for callers
+// gated on an org's allow_label_matching flag (procoduck/shepherd#139).
+// Callers not opted in must pass a nil/empty adminLabels — this function
+// applies no gating itself, so an ungated call always merges whatever it is
+// given.
+//
+// Any adminLabels key IsReserved rejects is dropped here even though
+// SetCollectorLabel already refuses to write one — defense in depth against
+// a row that predates a key becoming reserved (see docs' "retroactive
+// collision" known issue), and cluster/role are set AFTER that filter so
+// they can never be shadowed by a same-named admin label regardless of
+// iteration order.
+func BuildCollectorLabels(collectorID, cluster, role string, adminLabels map[string]string) CollectorLabels {
+	labels := make(map[string]string, len(adminLabels)+2)
+	for k, v := range adminLabels {
+		if IsReserved(k) {
+			continue
+		}
+		labels[k] = v
+	}
+	labels["cluster"] = cluster
+	labels["role"] = role
+	return CollectorLabels{CollectorID: collectorID, Labels: labels}
+}
+
 // sanitizeRe matches characters outside [a-z0-9_].
 var sanitizeRe = regexp.MustCompile(`[^a-z0-9_]`)
 

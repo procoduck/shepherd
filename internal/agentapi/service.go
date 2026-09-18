@@ -497,6 +497,17 @@ func (s *Service) recomputeServeCache(ctx context.Context, coll sqlc.Collector, 
 		return "", "", fmt.Errorf("listing pipelines: %w", err)
 	}
 
+	// Admin labels only participate in matching once the org has opted in
+	// (procoduck/shepherd#139) — an org with the flag off must reproduce
+	// exactly the pre-#139 {cluster, role}-only behavior, byte for byte.
+	var adminLabels map[string]string
+	if org, orgErr := s.store.Queries.GetOrgByID(ctx, orgID); orgErr == nil && org.AllowLabelMatching {
+		if jsonErr := json.Unmarshal(coll.Labels, &adminLabels); jsonErr != nil {
+			s.logger.Warn("recomputeServeCache: decoding collector labels", "collector_id", coll.ID.String(), "err", jsonErr)
+			adminLabels = nil
+		}
+	}
+
 	var mergePipelines []merge.Pipeline
 	for i := range enabledPipelines {
 		ep := enabledPipelines[i]
@@ -541,7 +552,7 @@ func (s *Service) recomputeServeCache(ctx context.Context, coll sqlc.Collector, 
 	// internal/mgmtapi's eager recompute (docs/gateway-tier-plan.md §10).
 	result, err := serve.ComputeServed(ctx,
 		serve.Deps{Schema: s.schema, BeaconBaseline: s.beaconBaseline},
-		serve.Collector{ID: coll.ID.String(), Cluster: clusterName, Role: coll.Role},
+		serve.Collector{ID: coll.ID.String(), Cluster: clusterName, Role: coll.Role, AdminLabels: adminLabels},
 		mergePipelines,
 	)
 	if err != nil {

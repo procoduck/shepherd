@@ -58,7 +58,7 @@ func (s *MeService) GetMe(ctx context.Context, _ *connect.Request[mgmtv1.GetMeRe
 	for i := range allOrgs {
 		org := &allOrgs[i]
 		if sess.IsAppAdmin {
-			orgEntries = append(orgEntries, &mgmtv1.OrgMembership{Id: org.ID.String(), Name: org.Name, DisplayName: org.DisplayName, Role: auth.OrgRoleAdmin, AllowExperimentalComponents: org.AllowExperimentalComponents})
+			orgEntries = append(orgEntries, &mgmtv1.OrgMembership{Id: org.ID.String(), Name: org.Name, DisplayName: org.DisplayName, Role: auth.OrgRoleAdmin, AllowExperimentalComponents: org.AllowExperimentalComponents, AllowLabelMatching: org.AllowLabelMatching, AllowLocalAttributeMatching: org.AllowLocalAttributeMatching})
 			continue
 		}
 		// Both sign-in paths resolve to the SAME three role names here, because
@@ -67,7 +67,7 @@ func (s *MeService) GetMe(ctx context.Context, _ *connect.Request[mgmtv1.GetMeRe
 		// use it — the server would allow the write the UI never offered.
 		role := auth.ResolveOrgRole(ctx, s.store, sess, *org)
 		if role != "" {
-			orgEntries = append(orgEntries, &mgmtv1.OrgMembership{Id: org.ID.String(), Name: org.Name, DisplayName: org.DisplayName, Role: role, AllowExperimentalComponents: org.AllowExperimentalComponents})
+			orgEntries = append(orgEntries, &mgmtv1.OrgMembership{Id: org.ID.String(), Name: org.Name, DisplayName: org.DisplayName, Role: role, AllowExperimentalComponents: org.AllowExperimentalComponents, AllowLabelMatching: org.AllowLabelMatching, AllowLocalAttributeMatching: org.AllowLocalAttributeMatching})
 		}
 	}
 

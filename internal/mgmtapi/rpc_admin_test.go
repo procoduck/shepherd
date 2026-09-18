@@ -126,6 +126,37 @@ var _ = Describe("shepherd.mgmt.v1 AdminService and MeService RPC", Label("integ
 			Expect(len(items)).To(BeNumerically(">=", 2), "seed org plus the one just created")
 		})
 
+		It("UpdateOrg persists the attribute-matching rollout flags independently (#139)", func() {
+			appAdmin := createSession(true, nil)
+
+			updateResp := postConnect("/shepherd.mgmt.v1.AdminService/UpdateOrg", map[string]any{
+				"orgId": orgIDStr, "displayName": "Admin RPC Org", "adminGroupId": "admin-rpc-admin-group",
+				"allowLabelMatching": true,
+			}, appAdmin)
+			Expect(updateResp.StatusCode).To(Equal(http.StatusOK))
+			updated := decodeBody(updateResp)
+			Expect(updated["allowLabelMatching"]).To(BeTrue())
+			// allowLocalAttributeMatching must default to false and not be
+			// flipped as a side effect of setting the other flag — they are
+			// two independent flags, not one combined toggle.
+			_, present := updated["allowLocalAttributeMatching"]
+			if present {
+				Expect(updated["allowLocalAttributeMatching"]).To(BeFalse())
+			}
+
+			// A second update flips the other flag and must leave the first
+			// one exactly as it was, since both are read from the request on
+			// every UpdateOrg call rather than merged against the stored row.
+			updateResp2 := postConnect("/shepherd.mgmt.v1.AdminService/UpdateOrg", map[string]any{
+				"orgId": orgIDStr, "displayName": "Admin RPC Org", "adminGroupId": "admin-rpc-admin-group",
+				"allowLabelMatching": true, "allowLocalAttributeMatching": true,
+			}, appAdmin)
+			Expect(updateResp2.StatusCode).To(Equal(http.StatusOK))
+			updated2 := decodeBody(updateResp2)
+			Expect(updated2["allowLabelMatching"]).To(BeTrue())
+			Expect(updated2["allowLocalAttributeMatching"]).To(BeTrue())
+		})
+
 		It("denies ListOrgs for an org-admin session that is not an app admin", func() {
 			orgAdmin := createSession(false, []string{"admin-rpc-admin-group"})
 
@@ -377,6 +408,26 @@ var _ = Describe("shepherd.mgmt.v1 AdminService and MeService RPC", Label("integ
 			Expect(ok).To(BeTrue())
 			Expect(org["id"]).To(Equal(orgIDStr))
 			Expect(org["role"]).To(Equal("admin"))
+		})
+
+		It("reports the attribute-matching rollout flags on the org membership (#139)", func() {
+			appAdmin := createSession(true, nil)
+			updateResp := postConnect("/shepherd.mgmt.v1.AdminService/UpdateOrg", map[string]any{
+				"orgId": orgIDStr, "displayName": "Admin RPC Org", "adminGroupId": "admin-rpc-admin-group",
+				"allowLabelMatching": true, "allowLocalAttributeMatching": true,
+			}, appAdmin)
+			Expect(updateResp.StatusCode).To(Equal(http.StatusOK))
+
+			cookie := createSession(false, []string{"admin-rpc-admin-group"})
+			resp := postConnect("/shepherd.mgmt.v1.MeService/GetMe", map[string]any{}, cookie)
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			payload := decodeBody(resp)
+			orgs, ok := payload["orgs"].([]any)
+			Expect(ok).To(BeTrue(), "expected an orgs array")
+			org, ok := orgs[0].(map[string]any)
+			Expect(ok).To(BeTrue())
+			Expect(org["allowLabelMatching"]).To(BeTrue())
+			Expect(org["allowLocalAttributeMatching"]).To(BeTrue())
 		})
 
 		It("denies GetMe for a request with no session with the Connect unauthenticated code", func() {
