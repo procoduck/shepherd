@@ -78,6 +78,11 @@ message Org {
   // experimental components in the palette and the server refuses to render a
   // graph that uses one. Only an app admin flips it, via UpdateOrg.
   bool allow_experimental_components = 10;
+  // allow_label_matchers opts this org into using admin-set collector labels
+  // (collectors.labels) as pipeline matcher keys, alongside the built-in
+  // {cluster, role} (#139). Off by default, so no served config changes until an
+  // app admin turns it on. Only an app admin flips it, via UpdateOrg.
+  bool allow_label_matchers = 11;
 }
 
 message ListOrgsRequest {}
@@ -113,6 +118,8 @@ message UpdateOrgRequest {
   string editor_group_id = 5;
   // allow_experimental_components — see Org.allow_experimental_components (#114).
   bool allow_experimental_components = 6;
+  // allow_label_matchers — see Org.allow_label_matchers (#139).
+  bool allow_label_matchers = 7;
 }
 
 // SetOrgTenantIDRequest assigns an org's tenant identity when it was created

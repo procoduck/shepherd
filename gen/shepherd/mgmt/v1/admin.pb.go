@@ -47,8 +47,13 @@ type Org struct {
 	// experimental components in the palette and the server refuses to render a
 	// graph that uses one. Only an app admin flips it, via UpdateOrg.
 	AllowExperimentalComponents bool `protobuf:"varint,10,opt,name=allow_experimental_components,json=allowExperimentalComponents,proto3" json:"allow_experimental_components,omitempty"`
-	unknownFields               protoimpl.UnknownFields
-	sizeCache                   protoimpl.SizeCache
+	// allow_label_matchers opts this org into using admin-set collector labels
+	// (collectors.labels) as pipeline matcher keys, alongside the built-in
+	// {cluster, role} (#139). Off by default, so no served config changes until an
+	// app admin turns it on. Only an app admin flips it, via UpdateOrg.
+	AllowLabelMatchers bool `protobuf:"varint,11,opt,name=allow_label_matchers,json=allowLabelMatchers,proto3" json:"allow_label_matchers,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *Org) Reset() {
@@ -147,6 +152,13 @@ func (x *Org) GetEditorGroupId() string {
 func (x *Org) GetAllowExperimentalComponents() bool {
 	if x != nil {
 		return x.AllowExperimentalComponents
+	}
+	return false
+}
+
+func (x *Org) GetAllowLabelMatchers() bool {
+	if x != nil {
+		return x.AllowLabelMatchers
 	}
 	return false
 }
@@ -341,8 +353,10 @@ type UpdateOrgRequest struct {
 	EditorGroupId string `protobuf:"bytes,5,opt,name=editor_group_id,json=editorGroupId,proto3" json:"editor_group_id,omitempty"`
 	// allow_experimental_components — see Org.allow_experimental_components (#114).
 	AllowExperimentalComponents bool `protobuf:"varint,6,opt,name=allow_experimental_components,json=allowExperimentalComponents,proto3" json:"allow_experimental_components,omitempty"`
-	unknownFields               protoimpl.UnknownFields
-	sizeCache                   protoimpl.SizeCache
+	// allow_label_matchers — see Org.allow_label_matchers (#139).
+	AllowLabelMatchers bool `protobuf:"varint,7,opt,name=allow_label_matchers,json=allowLabelMatchers,proto3" json:"allow_label_matchers,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *UpdateOrgRequest) Reset() {
@@ -413,6 +427,13 @@ func (x *UpdateOrgRequest) GetEditorGroupId() string {
 func (x *UpdateOrgRequest) GetAllowExperimentalComponents() bool {
 	if x != nil {
 		return x.AllowExperimentalComponents
+	}
+	return false
+}
+
+func (x *UpdateOrgRequest) GetAllowLabelMatchers() bool {
+	if x != nil {
+		return x.AllowLabelMatchers
 	}
 	return false
 }
@@ -2766,7 +2787,7 @@ var File_shepherd_mgmt_v1_admin_proto protoreflect.FileDescriptor
 
 const file_shepherd_mgmt_v1_admin_proto_rawDesc = "" +
 	"\n" +
-	"\x1cshepherd/mgmt/v1/admin.proto\x12\x10shepherd.mgmt.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x99\x03\n" +
+	"\x1cshepherd/mgmt/v1/admin.proto\x12\x10shepherd.mgmt.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xcb\x03\n" +
 	"\x03Org\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12!\n" +
@@ -2780,7 +2801,8 @@ const file_shepherd_mgmt_v1_admin_proto_rawDesc = "" +
 	"\ttenant_id\x18\b \x01(\tR\btenantId\x12&\n" +
 	"\x0feditor_group_id\x18\t \x01(\tR\reditorGroupId\x12B\n" +
 	"\x1dallow_experimental_components\x18\n" +
-	" \x01(\bR\x1ballowExperimentalComponents\"\x11\n" +
+	" \x01(\bR\x1ballowExperimentalComponents\x120\n" +
+	"\x14allow_label_matchers\x18\v \x01(\bR\x12allowLabelMatchers\"\x11\n" +
 	"\x0fListOrgsRequest\"U\n" +
 	"\x10ListOrgsResponse\x12+\n" +
 	"\x05items\x18\x01 \x03(\v2\x15.shepherd.mgmt.v1.OrgR\x05items\x12\x14\n" +
@@ -2791,14 +2813,15 @@ const file_shepherd_mgmt_v1_admin_proto_rawDesc = "" +
 	"\x0eadmin_group_id\x18\x03 \x01(\tR\fadminGroupId\x12&\n" +
 	"\x0freader_group_id\x18\x04 \x01(\tR\rreaderGroupId\x12\x1b\n" +
 	"\ttenant_id\x18\x05 \x01(\tR\btenantId\x12&\n" +
-	"\x0feditor_group_id\x18\x06 \x01(\tR\reditorGroupId\"\x86\x02\n" +
+	"\x0feditor_group_id\x18\x06 \x01(\tR\reditorGroupId\"\xb8\x02\n" +
 	"\x10UpdateOrgRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12$\n" +
 	"\x0eadmin_group_id\x18\x03 \x01(\tR\fadminGroupId\x12&\n" +
 	"\x0freader_group_id\x18\x04 \x01(\tR\rreaderGroupId\x12&\n" +
 	"\x0feditor_group_id\x18\x05 \x01(\tR\reditorGroupId\x12B\n" +
-	"\x1dallow_experimental_components\x18\x06 \x01(\bR\x1ballowExperimentalComponents\"K\n" +
+	"\x1dallow_experimental_components\x18\x06 \x01(\bR\x1ballowExperimentalComponents\x120\n" +
+	"\x14allow_label_matchers\x18\a \x01(\bR\x12allowLabelMatchers\"K\n" +
 	"\x15SetOrgTenantIDRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x1b\n" +
 	"\ttenant_id\x18\x02 \x01(\tR\btenantId\")\n" +

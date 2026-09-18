@@ -90,6 +90,7 @@ export function AdminOrgsPage() {
     editorGroupId: '',
     readerGroupId: '',
     allowExperimentalComponents: false,
+    allowLabelMatchers: false,
   });
   const [deleteOrg, setDeleteOrg] = useState<Org | null>(null);
 
@@ -147,6 +148,7 @@ export function AdminOrgsPage() {
       editorGroupId: o.editorGroupId,
       readerGroupId: o.readerGroupId,
       allowExperimentalComponents: o.allowExperimentalComponents,
+      allowLabelMatchers: o.allowLabelMatchers,
     });
   }
 
@@ -331,6 +333,25 @@ export function AdminOrgsPage() {
                   Lets this org use experimental Alloy components in the visual builder. Off by
                   default — the builder hides them and the server refuses to render a graph that
                   uses one.
+                </span>
+              </span>
+            </label>
+            <label className='flex items-start gap-2 text-sm'>
+              <input
+                type='checkbox'
+                data-testid='org-allow-label-matchers'
+                checked={editForm.allowLabelMatchers}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, allowLabelMatchers: e.target.checked }))
+                }
+                className='mt-0.5'
+              />
+              <span>
+                <span className='text-zinc-200'>Allow label matchers</span>
+                <span className='block text-xs text-muted-2'>
+                  Lets pipelines in this org target collectors by their admin-set labels, alongside
+                  cluster and role. Off by default — turning it on can change which collectors a
+                  pipeline reaches, so review matcher impact first.
                 </span>
               </span>
             </label>
