@@ -15,6 +15,13 @@ Categories used here:
 
 ### Added
 
+- **Collector label keys are reserved against built-in matcher facts.** Groundwork for letting
+  admin-set collector labels participate in pipeline matching (#139): `SetCollectorLabel` now rejects
+  a key that a matcher reserves for a built-in collector fact — `cluster`, `role`, `id`, `os`,
+  `alloy_version`, or anything under the `collector.*` / `shepherd.*` prefixes — so an admin label can
+  never shadow, or be shadowed by, a built-in key once labels become matchers. No serving behaviour
+  changes yet. (#139)
+
 - **Reconciliation surface — declared vs served vs observed.** A collector detail page now has a
   **Reconciliation** tab that surfaces drift between what a collector's role declares, what Shepherd
   serves it, and what it is observed running (`FleetService.GetReconciliation`, org-reader). The

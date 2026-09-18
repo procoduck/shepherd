@@ -213,6 +213,15 @@ var _ = Describe("shepherd.mgmt.v1.FleetService RPC", Label("integration"), func
 			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
 			decodeBody(resp)
 		}
+		// #139: a key reserved for a built-in matcher fact is charset-valid but
+		// rejected on write, so an admin label can't shadow cluster/role/etc.
+		request["value"] = "x"
+		for _, key := range []string{"cluster", "role", "id", "os", "alloy_version", "collector.team", "shepherd.managed"} {
+			request["key"] = key
+			resp := postConnect("/shepherd.mgmt.v1.FleetService/SetCollectorLabel", request, createSession(true, nil))
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+			decodeBody(resp)
+		}
 	})
 
 	It("normalizes label keys and enforces the per-collector label cap", func() {
