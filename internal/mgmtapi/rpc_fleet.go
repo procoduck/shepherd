@@ -281,6 +281,33 @@ func validCollectorLabelValue(value string) bool {
 	}) == -1
 }
 
+// reservedCollectorLabelKeys are the keys a pipeline matcher reserves for
+// built-in collector facts (#139). `cluster` and `role` are what the matcher
+// already means today; `id`, `os` and `alloy_version` are identity/agent facts
+// it will expose as labels once collectors.labels and local_attributes become
+// matcher keys. An admin-set label may not use any of them, so an admin label
+// can never shadow — or be shadowed by — a built-in matcher key. The
+// `collector.` / `shepherd.` prefixes are reserved alongside them (see
+// reservedCollectorLabelKey) so future built-in keys never become a breaking
+// change for an org that had picked the same name.
+var reservedCollectorLabelKeys = map[string]struct{}{
+	"cluster":       {},
+	"role":          {},
+	"id":            {},
+	"os":            {},
+	"alloy_version": {},
+}
+
+// reservedCollectorLabelKey reports whether key is reserved for a built-in
+// collector attribute — an exact reserved key, or anything under the reserved
+// `collector.` / `shepherd.` namespaces. Callers reject a write to such a key.
+func reservedCollectorLabelKey(key string) bool {
+	if _, ok := reservedCollectorLabelKeys[key]; ok {
+		return true
+	}
+	return strings.HasPrefix(key, "collector.") || strings.HasPrefix(key, "shepherd.")
+}
+
 // SetCollectorLabel saves an inventory label independently of Alloy configuration.
 func (s *FleetService) SetCollectorLabel(ctx context.Context, req *connect.Request[mgmtv1.SetCollectorLabelRequest]) (*connect.Response[mgmtv1.CollectorLabelsResponse], error) {
 	if err := requireWriteAuthorized(ctx); err != nil {
@@ -293,6 +320,12 @@ func (s *FleetService) SetCollectorLabel(ctx context.Context, req *connect.Reque
 	key, value := strings.ToLower(req.Msg.GetKey()), req.Msg.GetValue()
 	if !validCollectorLabelKey(key) {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("label key must be 1-128 bytes using lowercase letters, numbers, '.', '_', '-', or '/'"))
+	}
+	// #139: an admin label may not use a key the matcher reserves for a built-in
+	// collector fact — otherwise, once labels become matcher keys, an admin label
+	// could shadow (or be shadowed by) `cluster`/`role`/etc.
+	if reservedCollectorLabelKey(key) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("label key is reserved for a built-in collector attribute (cluster, role, id, os, alloy_version, or a collector.*/shepherd.* prefix)"))
 	}
 	if !validCollectorLabelValue(value) {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("label value must be 1-512 bytes with no control or format characters"))
