@@ -42,6 +42,9 @@ const (
 	// FleetServiceGetServedConfigProcedure is the fully-qualified name of the FleetService's
 	// GetServedConfig RPC.
 	FleetServiceGetServedConfigProcedure = "/shepherd.mgmt.v1.FleetService/GetServedConfig"
+	// FleetServiceGetReconciliationProcedure is the fully-qualified name of the FleetService's
+	// GetReconciliation RPC.
+	FleetServiceGetReconciliationProcedure = "/shepherd.mgmt.v1.FleetService/GetReconciliation"
 	// FleetServiceListAssignmentsProcedure is the fully-qualified name of the FleetService's
 	// ListAssignments RPC.
 	FleetServiceListAssignmentsProcedure = "/shepherd.mgmt.v1.FleetService/ListAssignments"
@@ -67,6 +70,9 @@ type FleetServiceClient interface {
 	ListCollectors(context.Context, *connect.Request[v1.ListCollectorsRequest]) (*connect.Response[v1.ListCollectorsResponse], error)
 	GetCollector(context.Context, *connect.Request[v1.GetCollectorRequest]) (*connect.Response[v1.Collector], error)
 	GetServedConfig(context.Context, *connect.Request[v1.GetServedConfigRequest]) (*connect.Response[v1.GetServedConfigResponse], error)
+	// GetReconciliation returns the collector's declared-vs-served-vs-observed
+	// drift findings (W6, #110). Org-reader, like GetServedConfig.
+	GetReconciliation(context.Context, *connect.Request[v1.GetReconciliationRequest]) (*connect.Response[v1.GetReconciliationResponse], error)
 	ListAssignments(context.Context, *connect.Request[v1.ListAssignmentsRequest]) (*connect.Response[v1.ListAssignmentsResponse], error)
 	CreateAssignment(context.Context, *connect.Request[v1.CreateAssignmentRequest]) (*connect.Response[v1.CreateAssignmentResponse], error)
 	DeleteAssignment(context.Context, *connect.Request[v1.DeleteAssignmentRequest]) (*connect.Response[v1.DeleteAssignmentResponse], error)
@@ -102,6 +108,12 @@ func NewFleetServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			httpClient,
 			baseURL+FleetServiceGetServedConfigProcedure,
 			connect.WithSchema(fleetServiceMethods.ByName("GetServedConfig")),
+			connect.WithClientOptions(opts...),
+		),
+		getReconciliation: connect.NewClient[v1.GetReconciliationRequest, v1.GetReconciliationResponse](
+			httpClient,
+			baseURL+FleetServiceGetReconciliationProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("GetReconciliation")),
 			connect.WithClientOptions(opts...),
 		),
 		listAssignments: connect.NewClient[v1.ListAssignmentsRequest, v1.ListAssignmentsResponse](
@@ -148,6 +160,7 @@ type fleetServiceClient struct {
 	listCollectors       *connect.Client[v1.ListCollectorsRequest, v1.ListCollectorsResponse]
 	getCollector         *connect.Client[v1.GetCollectorRequest, v1.Collector]
 	getServedConfig      *connect.Client[v1.GetServedConfigRequest, v1.GetServedConfigResponse]
+	getReconciliation    *connect.Client[v1.GetReconciliationRequest, v1.GetReconciliationResponse]
 	listAssignments      *connect.Client[v1.ListAssignmentsRequest, v1.ListAssignmentsResponse]
 	createAssignment     *connect.Client[v1.CreateAssignmentRequest, v1.CreateAssignmentResponse]
 	deleteAssignment     *connect.Client[v1.DeleteAssignmentRequest, v1.DeleteAssignmentResponse]
@@ -169,6 +182,11 @@ func (c *fleetServiceClient) GetCollector(ctx context.Context, req *connect.Requ
 // GetServedConfig calls shepherd.mgmt.v1.FleetService.GetServedConfig.
 func (c *fleetServiceClient) GetServedConfig(ctx context.Context, req *connect.Request[v1.GetServedConfigRequest]) (*connect.Response[v1.GetServedConfigResponse], error) {
 	return c.getServedConfig.CallUnary(ctx, req)
+}
+
+// GetReconciliation calls shepherd.mgmt.v1.FleetService.GetReconciliation.
+func (c *fleetServiceClient) GetReconciliation(ctx context.Context, req *connect.Request[v1.GetReconciliationRequest]) (*connect.Response[v1.GetReconciliationResponse], error) {
+	return c.getReconciliation.CallUnary(ctx, req)
 }
 
 // ListAssignments calls shepherd.mgmt.v1.FleetService.ListAssignments.
@@ -206,6 +224,9 @@ type FleetServiceHandler interface {
 	ListCollectors(context.Context, *connect.Request[v1.ListCollectorsRequest]) (*connect.Response[v1.ListCollectorsResponse], error)
 	GetCollector(context.Context, *connect.Request[v1.GetCollectorRequest]) (*connect.Response[v1.Collector], error)
 	GetServedConfig(context.Context, *connect.Request[v1.GetServedConfigRequest]) (*connect.Response[v1.GetServedConfigResponse], error)
+	// GetReconciliation returns the collector's declared-vs-served-vs-observed
+	// drift findings (W6, #110). Org-reader, like GetServedConfig.
+	GetReconciliation(context.Context, *connect.Request[v1.GetReconciliationRequest]) (*connect.Response[v1.GetReconciliationResponse], error)
 	ListAssignments(context.Context, *connect.Request[v1.ListAssignmentsRequest]) (*connect.Response[v1.ListAssignmentsResponse], error)
 	CreateAssignment(context.Context, *connect.Request[v1.CreateAssignmentRequest]) (*connect.Response[v1.CreateAssignmentResponse], error)
 	DeleteAssignment(context.Context, *connect.Request[v1.DeleteAssignmentRequest]) (*connect.Response[v1.DeleteAssignmentResponse], error)
@@ -237,6 +258,12 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 		FleetServiceGetServedConfigProcedure,
 		svc.GetServedConfig,
 		connect.WithSchema(fleetServiceMethods.ByName("GetServedConfig")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fleetServiceGetReconciliationHandler := connect.NewUnaryHandler(
+		FleetServiceGetReconciliationProcedure,
+		svc.GetReconciliation,
+		connect.WithSchema(fleetServiceMethods.ByName("GetReconciliation")),
 		connect.WithHandlerOptions(opts...),
 	)
 	fleetServiceListAssignmentsHandler := connect.NewUnaryHandler(
@@ -283,6 +310,8 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 			fleetServiceGetCollectorHandler.ServeHTTP(w, r)
 		case FleetServiceGetServedConfigProcedure:
 			fleetServiceGetServedConfigHandler.ServeHTTP(w, r)
+		case FleetServiceGetReconciliationProcedure:
+			fleetServiceGetReconciliationHandler.ServeHTTP(w, r)
 		case FleetServiceListAssignmentsProcedure:
 			fleetServiceListAssignmentsHandler.ServeHTTP(w, r)
 		case FleetServiceCreateAssignmentProcedure:
@@ -314,6 +343,10 @@ func (UnimplementedFleetServiceHandler) GetCollector(context.Context, *connect.R
 
 func (UnimplementedFleetServiceHandler) GetServedConfig(context.Context, *connect.Request[v1.GetServedConfigRequest]) (*connect.Response[v1.GetServedConfigResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.FleetService.GetServedConfig is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) GetReconciliation(context.Context, *connect.Request[v1.GetReconciliationRequest]) (*connect.Response[v1.GetReconciliationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.FleetService.GetReconciliation is not implemented"))
 }
 
 func (UnimplementedFleetServiceHandler) ListAssignments(context.Context, *connect.Request[v1.ListAssignmentsRequest]) (*connect.Response[v1.ListAssignmentsResponse], error) {

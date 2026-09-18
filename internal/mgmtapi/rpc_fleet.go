@@ -17,6 +17,7 @@ import (
 
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
+	"shepherd/internal/schema"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 )
@@ -28,11 +29,31 @@ import (
 type FleetService struct {
 	store  *store.Store
 	logger *slog.Logger
+	// schema drives signals.Derive when reconciling a collector's served
+	// pipelines (GetReconciliation). Nil for the REST-shim FleetService, which
+	// never serves that procedure; signals.Derive tolerates a nil registry
+	// (unclassified → worst-case), so a nil here only ever affects
+	// reconciliation, never the collector reads the shim uses.
+	schema *schema.Registry
+}
+
+// FleetServiceOption configures optional FleetService behavior.
+type FleetServiceOption func(*FleetService)
+
+// WithFleetSchema supplies the schema registry GetReconciliation needs to derive
+// a served pipeline's signals. Only the Connect handler wiring passes it; the
+// REST shim (orgs.go) leaves it nil.
+func WithFleetSchema(reg *schema.Registry) FleetServiceOption {
+	return func(s *FleetService) { s.schema = reg }
 }
 
 // NewFleetService constructs a FleetService with the deps OrgsHandler uses today.
-func NewFleetService(st *store.Store, logger *slog.Logger) *FleetService {
-	return &FleetService{store: st, logger: logger}
+func NewFleetService(st *store.Store, logger *slog.Logger, opts ...FleetServiceOption) *FleetService {
+	s := &FleetService{store: st, logger: logger}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 var _ mgmtv1connect.FleetServiceHandler = (*FleetService)(nil)

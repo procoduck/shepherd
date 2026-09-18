@@ -69,6 +69,15 @@ type BaselineConfig struct {
 	// the floor on how fast beacon_inventory rows can go stale, so it is a
 	// deliberate choice, not an inherited default.
 	ScrapeInterval string
+
+	// CollectorID, when non-empty, is stamped onto every beacon series as the
+	// label CollectorIDLabel (shepherd_collector_id), so a beacon write can be
+	// attributed to the exact collector whose served config carried this
+	// baseline — the join the reconciliation surface (#110) needs, since
+	// beacon_inventory's (principal, instance_label) identity does not map to a
+	// collector. Set per-collector by serve.ComputeServed; empty renders the
+	// pre-#110 baseline unchanged.
+	CollectorID string
 	// TokenIDEnv and TokenSecretEnv name the environment variables the
 	// rendered remote_write's basic_auth block reads via sys.env(...). Use
 	// DefaultTokenIDEnv/DefaultTokenSecretEnv unless a caller has a specific
@@ -208,6 +217,18 @@ func RenderBaselinePipeline(cfg BaselineConfig) (string, error) {
 	fmt.Fprintf(&sb, "    regex         = %q\n", runningComponentsMetric)
 	sb.WriteString("    action        = \"keep\"\n")
 	sb.WriteString("  }\n")
+	// #110: stamp the collector id onto every kept beacon series so Shepherd
+	// can attribute this write back to the exact collector whose served config
+	// carried this baseline (the reconciliation observed<->collector join). A
+	// constant-label replace with no source_labels sets the label outright.
+	// Empty CollectorID renders the pre-#110 baseline unchanged.
+	if cfg.CollectorID != "" {
+		sb.WriteString("\n  rule {\n")
+		fmt.Fprintf(&sb, "    target_label = %q\n", CollectorIDLabel)
+		fmt.Fprintf(&sb, "    replacement  = %q\n", cfg.CollectorID)
+		sb.WriteString("    action       = \"replace\"\n")
+		sb.WriteString("  }\n")
+	}
 	sb.WriteString("}\n\n")
 
 	fmt.Fprintf(&sb, "prometheus.remote_write %q {\n", cfg.Label)

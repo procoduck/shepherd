@@ -63,7 +63,7 @@ func TestProject_HealthyComponent(t *testing.T) {
 		}, 0),
 	}}
 
-	instance, obs, err := Project(wr)
+	instance, _, obs, err := Project(wr)
 	if err != nil {
 		t.Fatalf("Project: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestProject_UnhealthyComponent(t *testing.T) {
 		}, 1),
 	}}
 
-	_, obs, err := Project(wr)
+	_, _, obs, err := Project(wr)
 	if err != nil {
 		t.Fatalf("Project: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestProject_IgnoresEverythingElse(t *testing.T) {
 		}, 2),
 	}}
 
-	instance, obs, err := Project(wr)
+	instance, _, obs, err := Project(wr)
 	if err != nil {
 		t.Fatalf("Project: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestProject_NoInstanceLabel(t *testing.T) {
 		}, 1),
 	}}
 
-	_, _, err := Project(wr)
+	_, _, _, err := Project(wr)
 	if !errors.Is(err, ErrNoInstanceLabel) {
 		t.Fatalf("err = %v, want ErrNoInstanceLabel", err)
 	}
@@ -156,11 +156,56 @@ func TestProject_DeterministicOrder(t *testing.T) {
 			lbl("health_type", "healthy"), lbl("instance", "i"),
 		}, 1),
 	}}
-	_, obs, err := Project(wr)
+	_, _, obs, err := Project(wr)
 	if err != nil {
 		t.Fatalf("Project: %v", err)
 	}
 	if len(obs) != 2 || obs[0].ComponentName != "pipe_aaa" || obs[1].ComponentName != "pipe_zzz" {
 		t.Fatalf("obs = %+v, want sorted [pipe_aaa, pipe_zzz]", obs)
+	}
+}
+
+func TestProject_ExtractsCollectorID(t *testing.T) {
+	wr := &prompb.WriteRequest{Timeseries: []prompb.TimeSeries{
+		series([]prompb.Label{
+			lbl("__name__", runningComponentsMetric),
+			lbl("controller_path", "pipe_x"),
+			lbl("health_type", "healthy"),
+			lbl("instance", "10.0.0.1:12345"),
+			lbl(CollectorIDLabel, "col-abc-123"),
+		}, 1),
+	}}
+	instance, collectorID, obs, err := Project(wr)
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	if collectorID != "col-abc-123" {
+		t.Fatalf("collectorID = %q, want col-abc-123", collectorID)
+	}
+	if instance != "10.0.0.1:12345" {
+		t.Fatalf("instance = %q, want 10.0.0.1:12345", instance)
+	}
+	if len(obs) != 1 {
+		t.Fatalf("observations = %d, want 1", len(obs))
+	}
+}
+
+func TestProject_NoCollectorIDLabelIsEmpty(t *testing.T) {
+	// A pre-#110 baseline write carries no shepherd_collector_id; Project must
+	// still succeed and just report an empty collector id.
+	wr := &prompb.WriteRequest{Timeseries: []prompb.TimeSeries{
+		series([]prompb.Label{
+			lbl("__name__", runningComponentsMetric),
+			lbl("controller_path", "pipe_x"),
+			lbl("health_type", "healthy"),
+			lbl("instance", "10.0.0.1:12345"),
+		}, 1),
+	}}
+	_, collectorID, _, err := Project(wr)
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	if collectorID != "" {
+		t.Fatalf("collectorID = %q, want empty", collectorID)
 	}
 }

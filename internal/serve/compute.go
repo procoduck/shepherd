@@ -109,7 +109,14 @@ func ComputeServed(_ context.Context, deps Deps, coll Collector, pipelines []mer
 	// Metrics"). A no-op when deps.BeaconBaseline is the zero value.
 	content := assembled.Content
 	var baselineErr error
-	if appended, appendErr := beacon.AppendBaseline(content, deps.BeaconBaseline); appendErr != nil {
+	// #110: stamp this collector's id into its baseline so the beacon writes it
+	// produces can be attributed back to it for reconciliation. BeaconBaseline
+	// is otherwise identical across collectors; CollectorID is the one
+	// per-collector field, set here rather than by the caller so both serve
+	// paths get it.
+	baselineCfg := deps.BeaconBaseline
+	baselineCfg.CollectorID = coll.ID
+	if appended, appendErr := beacon.AppendBaseline(content, baselineCfg); appendErr != nil {
 		// Render failure is a static-config bug (a bad Label, say), not a
 		// per-collector condition — degrade to serving without the baseline
 		// rather than taking the collector's config offline over it. The

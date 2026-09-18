@@ -13,6 +13,9 @@ service FleetService {
   rpc ListCollectors(ListCollectorsRequest) returns (ListCollectorsResponse) {}
   rpc GetCollector(GetCollectorRequest) returns (Collector) {}
   rpc GetServedConfig(GetServedConfigRequest) returns (GetServedConfigResponse) {}
+  // GetReconciliation returns the collector's declared-vs-served-vs-observed
+  // drift findings (W6, #110). Org-reader, like GetServedConfig.
+  rpc GetReconciliation(GetReconciliationRequest) returns (GetReconciliationResponse) {}
   rpc ListAssignments(ListAssignmentsRequest) returns (ListAssignmentsResponse) {}
   rpc CreateAssignment(CreateAssignmentRequest) returns (CreateAssignmentResponse) {}
   rpc DeleteAssignment(DeleteAssignmentRequest) returns (DeleteAssignmentResponse) {}
@@ -96,6 +99,40 @@ message GetServedConfigResponse {
   string content = 1;
   string hash = 2;
   google.protobuf.Timestamp computed_at = 3;
+}
+
+message GetReconciliationRequest {
+  string org_id = 1;
+  string id = 2;
+}
+
+// Finding is one reconciliation contradiction (internal/reconcile.Finding).
+// A finding always names exactly two disagreeing sources.
+message Finding {
+  // kind is "role_signal_mismatch" (declared<->served) or
+  // "unserved_component_observed" (served<->observed). A string, per this
+  // repo's enum-like-field rule.
+  string kind = 1;
+  // sources names the two disagreeing inputs, from "declared" | "served" |
+  // "observed", in the kind's documented order.
+  repeated string sources = 2;
+  // summary is a human-readable sentence naming both sides' claims — safe to
+  // show verbatim.
+  string summary = 3;
+  // pipeline_name is set for role_signal_mismatch: the served pipeline whose
+  // signals violated the declared role.
+  string pipeline_name = 4;
+  // controller_path is set for unserved_component_observed: the beacon-reported
+  // identity that matched no served pipeline.
+  string controller_path = 5;
+  // stale is set for unserved_component_observed: the observation is old enough
+  // to be due for the beacon sweeper's expiry (evidence it WAS running, not
+  // proof it still is).
+  bool stale = 6;
+}
+
+message GetReconciliationResponse {
+  repeated Finding findings = 1;
 }
 
 message ListAssignmentsRequest {

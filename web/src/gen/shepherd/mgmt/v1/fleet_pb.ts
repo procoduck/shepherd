@@ -12,7 +12,7 @@ import type { JsonObject, Message } from "@bufbuild/protobuf";
  * Describes the file shepherd/mgmt/v1/fleet.proto.
  */
 export const file_shepherd_mgmt_v1_fleet: GenFile = /*@__PURE__*/
-  fileDesc("ChxzaGVwaGVyZC9tZ210L3YxL2ZsZWV0LnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIuEBChFDb2xsZWN0b3JJbnN0YW5jZRIMCgRuYW1lGAEgASgJEhUKDWFsbG95X3ZlcnNpb24YAiABKAkSCgoCb3MYAyABKAkSLQoJbGFzdF9zZWVuGAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIcChRyZW1vdGVfY29uZmlnX3N0YXR1cxgFIAEoCRIbChNyZW1vdGVfY29uZmlnX2Vycm9yGAYgASgJEjEKEGxvY2FsX2F0dHJpYnV0ZXMYByABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0Iq4DCglDb2xsZWN0b3ISCgoCaWQYASABKAkSEgoKY2x1c3Rlcl9pZBgCIAEoCRIPCgdjbHVzdGVyGAMgASgJEgwKBHJvbGUYBCABKAkSDgoGb3JnX2lkGAUgASgJEhwKFHJlbW90ZV9jb25maWdfc3RhdHVzGAYgASgJEhsKE3JlbW90ZV9jb25maWdfZXJyb3IYByABKAkSLQoJbGFzdF9zZWVuGAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIVCg1hbGxveV92ZXJzaW9uGAkgASgJEjEKEGxvY2FsX2F0dHJpYnV0ZXMYCiABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0EjYKCWluc3RhbmNlcxgLIAMoCzIjLnNoZXBoZXJkLm1nbXQudjEuQ29sbGVjdG9ySW5zdGFuY2USNwoGbGFiZWxzGAwgAygLMicuc2hlcGhlcmQubWdtdC52MS5Db2xsZWN0b3IuTGFiZWxzRW50cnkaLQoLTGFiZWxzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASJcChhTZXRDb2xsZWN0b3JMYWJlbFJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEhQKDGNvbGxlY3Rvcl9pZBgCIAEoCRILCgNrZXkYAyABKAkSDQoFdmFsdWUYBCABKAkiUAobRGVsZXRlQ29sbGVjdG9yTGFiZWxSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIUCgxjb2xsZWN0b3JfaWQYAiABKAkSCwoDa2V5GAMgASgJIo8BChdDb2xsZWN0b3JMYWJlbHNSZXNwb25zZRJFCgZsYWJlbHMYASADKAsyNS5zaGVwaGVyZC5tZ210LnYxLkNvbGxlY3RvckxhYmVsc1Jlc3BvbnNlLkxhYmVsc0VudHJ5Gi0KC0xhYmVsc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiJwoVTGlzdENvbGxlY3RvcnNSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCSJTChZMaXN0Q29sbGVjdG9yc1Jlc3BvbnNlEioKBWl0ZW1zGAEgAygLMhsuc2hlcGhlcmQubWdtdC52MS5Db2xsZWN0b3ISDQoFdG90YWwYAiABKAUiMQoTR2V0Q29sbGVjdG9yUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkiNAoWR2V0U2VydmVkQ29uZmlnUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkiaQoXR2V0U2VydmVkQ29uZmlnUmVzcG9uc2USDwoHY29udGVudBgBIAEoCRIMCgRoYXNoGAIgASgJEi8KC2NvbXB1dGVkX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCI+ChZMaXN0QXNzaWdubWVudHNSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIUCgxjb2xsZWN0b3JfaWQYAiABKAkidgoKQXNzaWdubWVudBIKCgJpZBgBIAEoCRIQCghncm91cF9pZBgCIAEoCRIaChJncm91cF9kaXNwbGF5X25hbWUYAyABKAkSLgoKY3JlYXRlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiVQoXTGlzdEFzc2lnbm1lbnRzUmVzcG9uc2USKwoFaXRlbXMYASADKAsyHC5zaGVwaGVyZC5tZ210LnYxLkFzc2lnbm1lbnQSDQoFdG90YWwYAiABKAUibQoXQ3JlYXRlQXNzaWdubWVudFJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEhQKDGNvbGxlY3Rvcl9pZBgCIAEoCRIQCghncm91cF9pZBgDIAEoCRIaChJncm91cF9kaXNwbGF5X25hbWUYBCABKAkiOAoYQ3JlYXRlQXNzaWdubWVudFJlc3BvbnNlEgoKAmlkGAEgASgJEhAKCGdyb3VwX2lkGAIgASgJIlEKF0RlbGV0ZUFzc2lnbm1lbnRSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIUCgxjb2xsZWN0b3JfaWQYAiABKAkSEAoIZ3JvdXBfaWQYAyABKAkiGgoYRGVsZXRlQXNzaWdubWVudFJlc3BvbnNlIicKFUxpc3RBdHRyaWJ1dGVzUmVxdWVzdBIOCgZvcmdfaWQYASABKAkiRQoWTGlzdEF0dHJpYnV0ZXNSZXNwb25zZRIrCgphdHRyaWJ1dGVzGAEgASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdDLCBwoMRmxlZXRTZXJ2aWNlEmUKDkxpc3RDb2xsZWN0b3JzEicuc2hlcGhlcmQubWdtdC52MS5MaXN0Q29sbGVjdG9yc1JlcXVlc3QaKC5zaGVwaGVyZC5tZ210LnYxLkxpc3RDb2xsZWN0b3JzUmVzcG9uc2UiABJUCgxHZXRDb2xsZWN0b3ISJS5zaGVwaGVyZC5tZ210LnYxLkdldENvbGxlY3RvclJlcXVlc3QaGy5zaGVwaGVyZC5tZ210LnYxLkNvbGxlY3RvciIAEmgKD0dldFNlcnZlZENvbmZpZxIoLnNoZXBoZXJkLm1nbXQudjEuR2V0U2VydmVkQ29uZmlnUmVxdWVzdBopLnNoZXBoZXJkLm1nbXQudjEuR2V0U2VydmVkQ29uZmlnUmVzcG9uc2UiABJoCg9MaXN0QXNzaWdubWVudHMSKC5zaGVwaGVyZC5tZ210LnYxLkxpc3RBc3NpZ25tZW50c1JlcXVlc3QaKS5zaGVwaGVyZC5tZ210LnYxLkxpc3RBc3NpZ25tZW50c1Jlc3BvbnNlIgASawoQQ3JlYXRlQXNzaWdubWVudBIpLnNoZXBoZXJkLm1nbXQudjEuQ3JlYXRlQXNzaWdubWVudFJlcXVlc3QaKi5zaGVwaGVyZC5tZ210LnYxLkNyZWF0ZUFzc2lnbm1lbnRSZXNwb25zZSIAEmsKEERlbGV0ZUFzc2lnbm1lbnQSKS5zaGVwaGVyZC5tZ210LnYxLkRlbGV0ZUFzc2lnbm1lbnRSZXF1ZXN0Giouc2hlcGhlcmQubWdtdC52MS5EZWxldGVBc3NpZ25tZW50UmVzcG9uc2UiABJlCg5MaXN0QXR0cmlidXRlcxInLnNoZXBoZXJkLm1nbXQudjEuTGlzdEF0dHJpYnV0ZXNSZXF1ZXN0Giguc2hlcGhlcmQubWdtdC52MS5MaXN0QXR0cmlidXRlc1Jlc3BvbnNlIgASbAoRU2V0Q29sbGVjdG9yTGFiZWwSKi5zaGVwaGVyZC5tZ210LnYxLlNldENvbGxlY3RvckxhYmVsUmVxdWVzdBopLnNoZXBoZXJkLm1nbXQudjEuQ29sbGVjdG9yTGFiZWxzUmVzcG9uc2UiABJyChREZWxldGVDb2xsZWN0b3JMYWJlbBItLnNoZXBoZXJkLm1nbXQudjEuRGVsZXRlQ29sbGVjdG9yTGFiZWxSZXF1ZXN0Gikuc2hlcGhlcmQubWdtdC52MS5Db2xsZWN0b3JMYWJlbHNSZXNwb25zZSIAQiZaJHNoZXBoZXJkL2dlbi9zaGVwaGVyZC9tZ210L3YxO21nbXR2MWIGcHJvdG8z", [file_google_protobuf_struct, file_google_protobuf_timestamp]);
+  fileDesc("ChxzaGVwaGVyZC9tZ210L3YxL2ZsZWV0LnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIuEBChFDb2xsZWN0b3JJbnN0YW5jZRIMCgRuYW1lGAEgASgJEhUKDWFsbG95X3ZlcnNpb24YAiABKAkSCgoCb3MYAyABKAkSLQoJbGFzdF9zZWVuGAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIcChRyZW1vdGVfY29uZmlnX3N0YXR1cxgFIAEoCRIbChNyZW1vdGVfY29uZmlnX2Vycm9yGAYgASgJEjEKEGxvY2FsX2F0dHJpYnV0ZXMYByABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0Iq4DCglDb2xsZWN0b3ISCgoCaWQYASABKAkSEgoKY2x1c3Rlcl9pZBgCIAEoCRIPCgdjbHVzdGVyGAMgASgJEgwKBHJvbGUYBCABKAkSDgoGb3JnX2lkGAUgASgJEhwKFHJlbW90ZV9jb25maWdfc3RhdHVzGAYgASgJEhsKE3JlbW90ZV9jb25maWdfZXJyb3IYByABKAkSLQoJbGFzdF9zZWVuGAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIVCg1hbGxveV92ZXJzaW9uGAkgASgJEjEKEGxvY2FsX2F0dHJpYnV0ZXMYCiABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0EjYKCWluc3RhbmNlcxgLIAMoCzIjLnNoZXBoZXJkLm1nbXQudjEuQ29sbGVjdG9ySW5zdGFuY2USNwoGbGFiZWxzGAwgAygLMicuc2hlcGhlcmQubWdtdC52MS5Db2xsZWN0b3IuTGFiZWxzRW50cnkaLQoLTGFiZWxzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASJcChhTZXRDb2xsZWN0b3JMYWJlbFJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEhQKDGNvbGxlY3Rvcl9pZBgCIAEoCRILCgNrZXkYAyABKAkSDQoFdmFsdWUYBCABKAkiUAobRGVsZXRlQ29sbGVjdG9yTGFiZWxSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIUCgxjb2xsZWN0b3JfaWQYAiABKAkSCwoDa2V5GAMgASgJIo8BChdDb2xsZWN0b3JMYWJlbHNSZXNwb25zZRJFCgZsYWJlbHMYASADKAsyNS5zaGVwaGVyZC5tZ210LnYxLkNvbGxlY3RvckxhYmVsc1Jlc3BvbnNlLkxhYmVsc0VudHJ5Gi0KC0xhYmVsc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiJwoVTGlzdENvbGxlY3RvcnNSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCSJTChZMaXN0Q29sbGVjdG9yc1Jlc3BvbnNlEioKBWl0ZW1zGAEgAygLMhsuc2hlcGhlcmQubWdtdC52MS5Db2xsZWN0b3ISDQoFdG90YWwYAiABKAUiMQoTR2V0Q29sbGVjdG9yUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkiNAoWR2V0U2VydmVkQ29uZmlnUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkiaQoXR2V0U2VydmVkQ29uZmlnUmVzcG9uc2USDwoHY29udGVudBgBIAEoCRIMCgRoYXNoGAIgASgJEi8KC2NvbXB1dGVkX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCI2ChhHZXRSZWNvbmNpbGlhdGlvblJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgoKAmlkGAIgASgJIngKB0ZpbmRpbmcSDAoEa2luZBgBIAEoCRIPCgdzb3VyY2VzGAIgAygJEg8KB3N1bW1hcnkYAyABKAkSFQoNcGlwZWxpbmVfbmFtZRgEIAEoCRIXCg9jb250cm9sbGVyX3BhdGgYBSABKAkSDQoFc3RhbGUYBiABKAgiSAoZR2V0UmVjb25jaWxpYXRpb25SZXNwb25zZRIrCghmaW5kaW5ncxgBIAMoCzIZLnNoZXBoZXJkLm1nbXQudjEuRmluZGluZyI+ChZMaXN0QXNzaWdubWVudHNSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIUCgxjb2xsZWN0b3JfaWQYAiABKAkidgoKQXNzaWdubWVudBIKCgJpZBgBIAEoCRIQCghncm91cF9pZBgCIAEoCRIaChJncm91cF9kaXNwbGF5X25hbWUYAyABKAkSLgoKY3JlYXRlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiVQoXTGlzdEFzc2lnbm1lbnRzUmVzcG9uc2USKwoFaXRlbXMYASADKAsyHC5zaGVwaGVyZC5tZ210LnYxLkFzc2lnbm1lbnQSDQoFdG90YWwYAiABKAUibQoXQ3JlYXRlQXNzaWdubWVudFJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEhQKDGNvbGxlY3Rvcl9pZBgCIAEoCRIQCghncm91cF9pZBgDIAEoCRIaChJncm91cF9kaXNwbGF5X25hbWUYBCABKAkiOAoYQ3JlYXRlQXNzaWdubWVudFJlc3BvbnNlEgoKAmlkGAEgASgJEhAKCGdyb3VwX2lkGAIgASgJIlEKF0RlbGV0ZUFzc2lnbm1lbnRSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIUCgxjb2xsZWN0b3JfaWQYAiABKAkSEAoIZ3JvdXBfaWQYAyABKAkiGgoYRGVsZXRlQXNzaWdubWVudFJlc3BvbnNlIicKFUxpc3RBdHRyaWJ1dGVzUmVxdWVzdBIOCgZvcmdfaWQYASABKAkiRQoWTGlzdEF0dHJpYnV0ZXNSZXNwb25zZRIrCgphdHRyaWJ1dGVzGAEgASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdDKyCAoMRmxlZXRTZXJ2aWNlEmUKDkxpc3RDb2xsZWN0b3JzEicuc2hlcGhlcmQubWdtdC52MS5MaXN0Q29sbGVjdG9yc1JlcXVlc3QaKC5zaGVwaGVyZC5tZ210LnYxLkxpc3RDb2xsZWN0b3JzUmVzcG9uc2UiABJUCgxHZXRDb2xsZWN0b3ISJS5zaGVwaGVyZC5tZ210LnYxLkdldENvbGxlY3RvclJlcXVlc3QaGy5zaGVwaGVyZC5tZ210LnYxLkNvbGxlY3RvciIAEmgKD0dldFNlcnZlZENvbmZpZxIoLnNoZXBoZXJkLm1nbXQudjEuR2V0U2VydmVkQ29uZmlnUmVxdWVzdBopLnNoZXBoZXJkLm1nbXQudjEuR2V0U2VydmVkQ29uZmlnUmVzcG9uc2UiABJuChFHZXRSZWNvbmNpbGlhdGlvbhIqLnNoZXBoZXJkLm1nbXQudjEuR2V0UmVjb25jaWxpYXRpb25SZXF1ZXN0Gisuc2hlcGhlcmQubWdtdC52MS5HZXRSZWNvbmNpbGlhdGlvblJlc3BvbnNlIgASaAoPTGlzdEFzc2lnbm1lbnRzEiguc2hlcGhlcmQubWdtdC52MS5MaXN0QXNzaWdubWVudHNSZXF1ZXN0Gikuc2hlcGhlcmQubWdtdC52MS5MaXN0QXNzaWdubWVudHNSZXNwb25zZSIAEmsKEENyZWF0ZUFzc2lnbm1lbnQSKS5zaGVwaGVyZC5tZ210LnYxLkNyZWF0ZUFzc2lnbm1lbnRSZXF1ZXN0Giouc2hlcGhlcmQubWdtdC52MS5DcmVhdGVBc3NpZ25tZW50UmVzcG9uc2UiABJrChBEZWxldGVBc3NpZ25tZW50Eikuc2hlcGhlcmQubWdtdC52MS5EZWxldGVBc3NpZ25tZW50UmVxdWVzdBoqLnNoZXBoZXJkLm1nbXQudjEuRGVsZXRlQXNzaWdubWVudFJlc3BvbnNlIgASZQoOTGlzdEF0dHJpYnV0ZXMSJy5zaGVwaGVyZC5tZ210LnYxLkxpc3RBdHRyaWJ1dGVzUmVxdWVzdBooLnNoZXBoZXJkLm1nbXQudjEuTGlzdEF0dHJpYnV0ZXNSZXNwb25zZSIAEmwKEVNldENvbGxlY3RvckxhYmVsEiouc2hlcGhlcmQubWdtdC52MS5TZXRDb2xsZWN0b3JMYWJlbFJlcXVlc3QaKS5zaGVwaGVyZC5tZ210LnYxLkNvbGxlY3RvckxhYmVsc1Jlc3BvbnNlIgAScgoURGVsZXRlQ29sbGVjdG9yTGFiZWwSLS5zaGVwaGVyZC5tZ210LnYxLkRlbGV0ZUNvbGxlY3RvckxhYmVsUmVxdWVzdBopLnNoZXBoZXJkLm1nbXQudjEuQ29sbGVjdG9yTGFiZWxzUmVzcG9uc2UiAEImWiRzaGVwaGVyZC9nZW4vc2hlcGhlcmQvbWdtdC92MTttZ210djFiBnByb3RvMw", [file_google_protobuf_struct, file_google_protobuf_timestamp]);
 
 /**
  * CollectorInstance mirrors internal/mgmtapi/orgs.go: collectorInstanceResponse.
@@ -336,6 +336,110 @@ export const GetServedConfigResponseSchema: GenMessage<GetServedConfigResponse> 
   messageDesc(file_shepherd_mgmt_v1_fleet, 9);
 
 /**
+ * @generated from message shepherd.mgmt.v1.GetReconciliationRequest
+ */
+export type GetReconciliationRequest = Message<"shepherd.mgmt.v1.GetReconciliationRequest"> & {
+  /**
+   * @generated from field: string org_id = 1;
+   */
+  orgId: string;
+
+  /**
+   * @generated from field: string id = 2;
+   */
+  id: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.GetReconciliationRequest.
+ * Use `create(GetReconciliationRequestSchema)` to create a new message.
+ */
+export const GetReconciliationRequestSchema: GenMessage<GetReconciliationRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_fleet, 10);
+
+/**
+ * Finding is one reconciliation contradiction (internal/reconcile.Finding).
+ * A finding always names exactly two disagreeing sources.
+ *
+ * @generated from message shepherd.mgmt.v1.Finding
+ */
+export type Finding = Message<"shepherd.mgmt.v1.Finding"> & {
+  /**
+   * kind is "role_signal_mismatch" (declared<->served) or
+   * "unserved_component_observed" (served<->observed). A string, per this
+   * repo's enum-like-field rule.
+   *
+   * @generated from field: string kind = 1;
+   */
+  kind: string;
+
+  /**
+   * sources names the two disagreeing inputs, from "declared" | "served" |
+   * "observed", in the kind's documented order.
+   *
+   * @generated from field: repeated string sources = 2;
+   */
+  sources: string[];
+
+  /**
+   * summary is a human-readable sentence naming both sides' claims — safe to
+   * show verbatim.
+   *
+   * @generated from field: string summary = 3;
+   */
+  summary: string;
+
+  /**
+   * pipeline_name is set for role_signal_mismatch: the served pipeline whose
+   * signals violated the declared role.
+   *
+   * @generated from field: string pipeline_name = 4;
+   */
+  pipelineName: string;
+
+  /**
+   * controller_path is set for unserved_component_observed: the beacon-reported
+   * identity that matched no served pipeline.
+   *
+   * @generated from field: string controller_path = 5;
+   */
+  controllerPath: string;
+
+  /**
+   * stale is set for unserved_component_observed: the observation is old enough
+   * to be due for the beacon sweeper's expiry (evidence it WAS running, not
+   * proof it still is).
+   *
+   * @generated from field: bool stale = 6;
+   */
+  stale: boolean;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.Finding.
+ * Use `create(FindingSchema)` to create a new message.
+ */
+export const FindingSchema: GenMessage<Finding> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_fleet, 11);
+
+/**
+ * @generated from message shepherd.mgmt.v1.GetReconciliationResponse
+ */
+export type GetReconciliationResponse = Message<"shepherd.mgmt.v1.GetReconciliationResponse"> & {
+  /**
+   * @generated from field: repeated shepherd.mgmt.v1.Finding findings = 1;
+   */
+  findings: Finding[];
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.GetReconciliationResponse.
+ * Use `create(GetReconciliationResponseSchema)` to create a new message.
+ */
+export const GetReconciliationResponseSchema: GenMessage<GetReconciliationResponse> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_fleet, 12);
+
+/**
  * @generated from message shepherd.mgmt.v1.ListAssignmentsRequest
  */
 export type ListAssignmentsRequest = Message<"shepherd.mgmt.v1.ListAssignmentsRequest"> & {
@@ -355,7 +459,7 @@ export type ListAssignmentsRequest = Message<"shepherd.mgmt.v1.ListAssignmentsRe
  * Use `create(ListAssignmentsRequestSchema)` to create a new message.
  */
 export const ListAssignmentsRequestSchema: GenMessage<ListAssignmentsRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_fleet, 10);
+  messageDesc(file_shepherd_mgmt_v1_fleet, 13);
 
 /**
  * Assignment mirrors internal/store/sqlc: GroupAssignment.
@@ -389,7 +493,7 @@ export type Assignment = Message<"shepherd.mgmt.v1.Assignment"> & {
  * Use `create(AssignmentSchema)` to create a new message.
  */
 export const AssignmentSchema: GenMessage<Assignment> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_fleet, 11);
+  messageDesc(file_shepherd_mgmt_v1_fleet, 14);
 
 /**
  * @generated from message shepherd.mgmt.v1.ListAssignmentsResponse
@@ -411,7 +515,7 @@ export type ListAssignmentsResponse = Message<"shepherd.mgmt.v1.ListAssignmentsR
  * Use `create(ListAssignmentsResponseSchema)` to create a new message.
  */
 export const ListAssignmentsResponseSchema: GenMessage<ListAssignmentsResponse> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_fleet, 12);
+  messageDesc(file_shepherd_mgmt_v1_fleet, 15);
 
 /**
  * @generated from message shepherd.mgmt.v1.CreateAssignmentRequest
@@ -443,7 +547,7 @@ export type CreateAssignmentRequest = Message<"shepherd.mgmt.v1.CreateAssignment
  * Use `create(CreateAssignmentRequestSchema)` to create a new message.
  */
 export const CreateAssignmentRequestSchema: GenMessage<CreateAssignmentRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_fleet, 13);
+  messageDesc(file_shepherd_mgmt_v1_fleet, 16);
 
 /**
  * @generated from message shepherd.mgmt.v1.CreateAssignmentResponse
@@ -465,7 +569,7 @@ export type CreateAssignmentResponse = Message<"shepherd.mgmt.v1.CreateAssignmen
  * Use `create(CreateAssignmentResponseSchema)` to create a new message.
  */
 export const CreateAssignmentResponseSchema: GenMessage<CreateAssignmentResponse> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_fleet, 14);
+  messageDesc(file_shepherd_mgmt_v1_fleet, 17);
 
 /**
  * @generated from message shepherd.mgmt.v1.DeleteAssignmentRequest
@@ -492,7 +596,7 @@ export type DeleteAssignmentRequest = Message<"shepherd.mgmt.v1.DeleteAssignment
  * Use `create(DeleteAssignmentRequestSchema)` to create a new message.
  */
 export const DeleteAssignmentRequestSchema: GenMessage<DeleteAssignmentRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_fleet, 15);
+  messageDesc(file_shepherd_mgmt_v1_fleet, 18);
 
 /**
  * @generated from message shepherd.mgmt.v1.DeleteAssignmentResponse
@@ -505,7 +609,7 @@ export type DeleteAssignmentResponse = Message<"shepherd.mgmt.v1.DeleteAssignmen
  * Use `create(DeleteAssignmentResponseSchema)` to create a new message.
  */
 export const DeleteAssignmentResponseSchema: GenMessage<DeleteAssignmentResponse> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_fleet, 16);
+  messageDesc(file_shepherd_mgmt_v1_fleet, 19);
 
 /**
  * @generated from message shepherd.mgmt.v1.ListAttributesRequest
@@ -522,7 +626,7 @@ export type ListAttributesRequest = Message<"shepherd.mgmt.v1.ListAttributesRequ
  * Use `create(ListAttributesRequestSchema)` to create a new message.
  */
 export const ListAttributesRequestSchema: GenMessage<ListAttributesRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_fleet, 17);
+  messageDesc(file_shepherd_mgmt_v1_fleet, 20);
 
 /**
  * ListAttributesResponse mirrors orgs.go ListAttributes, which returns a bare
@@ -548,7 +652,7 @@ export type ListAttributesResponse = Message<"shepherd.mgmt.v1.ListAttributesRes
  * Use `create(ListAttributesResponseSchema)` to create a new message.
  */
 export const ListAttributesResponseSchema: GenMessage<ListAttributesResponse> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_fleet, 18);
+  messageDesc(file_shepherd_mgmt_v1_fleet, 21);
 
 /**
  * FleetService covers /api/orgs/{org}/collectors/* and /attributes.
@@ -580,6 +684,17 @@ export const FleetService: GenService<{
     methodKind: "unary";
     input: typeof GetServedConfigRequestSchema;
     output: typeof GetServedConfigResponseSchema;
+  },
+  /**
+   * GetReconciliation returns the collector's declared-vs-served-vs-observed
+   * drift findings (W6, #110). Org-reader, like GetServedConfig.
+   *
+   * @generated from rpc shepherd.mgmt.v1.FleetService.GetReconciliation
+   */
+  getReconciliation: {
+    methodKind: "unary";
+    input: typeof GetReconciliationRequestSchema;
+    output: typeof GetReconciliationResponseSchema;
   },
   /**
    * @generated from rpc shepherd.mgmt.v1.FleetService.ListAssignments

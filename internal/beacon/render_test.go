@@ -44,6 +44,38 @@ func TestRenderBaselinePipeline_ContainsExpectedComponents(t *testing.T) {
 	// DefaultTokenIDEnv/DefaultTokenSecretEnv for why.
 }
 
+func TestRenderBaselinePipeline_StampsCollectorID(t *testing.T) {
+	cfg := validConfig()
+	cfg.CollectorID = "col-abc-123"
+	out, err := RenderBaselinePipeline(cfg)
+	if err != nil {
+		t.Fatalf("RenderBaselinePipeline: %v", err)
+	}
+	if r := validate.Stage1(out); !r.Valid {
+		t.Fatalf("baseline with a collector id is not valid Alloy: %+v\n---\n%s", r.Diagnostics, out)
+	}
+	for _, want := range []string{
+		`target_label = "shepherd_collector_id"`,
+		`replacement  = "col-abc-123"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("stamped baseline missing %q\n---\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderBaselinePipeline_NoCollectorIDNoStamp(t *testing.T) {
+	// The default config has no CollectorID; the stamp rule must be absent so a
+	// pre-#110 baseline renders byte-identical to before.
+	out, err := RenderBaselinePipeline(validConfig())
+	if err != nil {
+		t.Fatalf("RenderBaselinePipeline: %v", err)
+	}
+	if strings.Contains(out, "shepherd_collector_id") {
+		t.Errorf("baseline with no collector id must not stamp one\n---\n%s", out)
+	}
+}
+
 func TestRenderBaselinePipeline_RequiresEveryField(t *testing.T) {
 	base := validConfig()
 	cases := []func(*BaselineConfig){

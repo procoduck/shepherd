@@ -15,6 +15,17 @@ Categories used here:
 
 ### Added
 
+- **Reconciliation surface — declared vs served vs observed.** A collector detail page now has a
+  **Reconciliation** tab that surfaces drift between what a collector's role declares, what Shepherd
+  serves it, and what it is observed running (`FleetService.GetReconciliation`, org-reader). The
+  comparison engine (`internal/reconcile`) already existed but was unwired; the missing piece was
+  attributing a beacon write to a collector. Shepherd's per-collector baseline pipeline now stamps
+  `shepherd_collector_id` onto every beacon series, stored on `beacon_inventory` (migration `0025`,
+  additive, nullable), so observed components map exactly to a collector rather than to a shared
+  credential. The actionable signal is a managed pipeline a collector is still running that its
+  desired served set no longer contains (a disabled or deleted pipeline it will drop on its next
+  config reload); root-level/BYO components are out of scope. _Shipped._ (#110)
+
 - **Graph diff for visual pipelines.** The visual builder had no revision UI, so a visual
   pipeline's graph-level change could only be read as a line diff of the generated Alloy. A new
   **History** button opens a structural diff of any revision against the current version — nodes,

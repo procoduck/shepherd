@@ -76,6 +76,7 @@ var procedureRequirements = map[string]string{
 	mgmtv1connect.FleetServiceListCollectorsProcedure:       auth.RoleOrgReader,
 	mgmtv1connect.FleetServiceGetCollectorProcedure:         auth.RoleOrgReader,
 	mgmtv1connect.FleetServiceGetServedConfigProcedure:      auth.RoleOrgReader,
+	mgmtv1connect.FleetServiceGetReconciliationProcedure:    auth.RoleOrgReader,
 	mgmtv1connect.FleetServiceListAttributesProcedure:       auth.RoleOrgReader,
 	mgmtv1connect.FleetServiceListAssignmentsProcedure:      auth.RoleOrgAdmin,
 	mgmtv1connect.FleetServiceCreateAssignmentProcedure:     auth.RoleOrgAdmin,

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"shepherd/internal/beacon"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
@@ -160,11 +162,20 @@ func (h *BeaconHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	instanceLabel, observations, err := beacon.Project(wr)
+	instanceLabel, collectorID, observations, err := beacon.Project(wr)
 	if err != nil {
 		h.logger.Warn("beacon: project failed", "err", err, "principal", principal)
 		http.Error(w, "beacon: "+err.Error(), http.StatusBadRequest)
 		return
+	}
+
+	// #110: the baseline stamps the collector id (shepherd_collector_id) onto
+	// every beacon series so the reconciliation surface can attribute this write
+	// to a collector. An absent or unparseable id (a pre-#110 baseline) stores
+	// as NULL — the row is kept, just unattributed.
+	var collectorUUID pgtype.UUID
+	if collectorID != "" {
+		_ = collectorUUID.Scan(collectorID) //nolint:errcheck // invalid scan leaves Valid=false → stored NULL
 	}
 
 	for _, obs := range observations {
@@ -173,6 +184,7 @@ func (h *BeaconHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			InstanceLabel: instanceLabel,
 			ComponentName: obs.ComponentName,
 			Healthy:       obs.Healthy,
+			CollectorID:   collectorUUID,
 		}); err != nil {
 			h.logger.Error("beacon: storing component observation failed", "err", err,
 				"principal", principal, "instance", instanceLabel, "component", obs.ComponentName)

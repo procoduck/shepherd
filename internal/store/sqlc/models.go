@@ -53,6 +53,7 @@ type BeaconInventory struct {
 	LastSeen      pgtype.Timestamptz `json:"last_seen"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	Principal     string             `json:"principal"`
+	CollectorID   pgtype.UUID        `json:"collector_id"`
 }
 
 type Cluster struct {

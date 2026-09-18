@@ -359,7 +359,7 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 			return mgmtv1connect.NewUserServiceHandler(NewUserService(st, users, logger), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewFleetServiceHandler(NewFleetService(st, logger), authz...)
+			return mgmtv1connect.NewFleetServiceHandler(NewFleetService(st, logger, WithFleetSchema(schemaReg)), authz...)
 		},
 		func() (string, http.Handler) {
 			return mgmtv1connect.NewPipelineServiceHandler(NewPipelineService(st, v, schemaReg, logger, WithBeaconRemoteWrite(cfg.Server.BaseURL, beacon.OAuth2ForBeacon(cfg.OIDC.BeaconAuth, cfg.OIDC.AgentTokenURL, cfg.OIDC.AgentScopes))), authz...)

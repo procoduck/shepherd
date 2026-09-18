@@ -1097,6 +1097,17 @@ export function installDefaultHandlers(router: Router) {
       computedAt: sc['computed_at'],
     });
   });
+  router.register('POST', '/shepherd.mgmt.v1.FleetService/GetReconciliation', (r) => {
+    const findings = arr<Obj>((st.reconciliation as Obj) ?? {}, 'findings').map((f) => ({
+      kind: s(f, 'kind'),
+      sources: arr<string>(f, 'sources'),
+      summary: s(f, 'summary'),
+      pipelineName: s(f, 'pipeline_name'),
+      controllerPath: s(f, 'controller_path'),
+      stale: b(f, 'stale'),
+    }));
+    return json(r, 200, { findings });
+  });
   router.register('POST', '/shepherd.mgmt.v1.FleetService/ListAssignments', async (r) => {
     const req = await body(r);
     const rows = (st.assignments as Obj[]).filter((a) => a['collector_id'] === req['collectorId']);
@@ -1981,6 +1992,7 @@ export function defaultState(): MockState {
       content: '',
       hash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
     },
+    reconciliation: { findings: [] },
     unmatched: [],
     authMethods: {
       oidc: true,

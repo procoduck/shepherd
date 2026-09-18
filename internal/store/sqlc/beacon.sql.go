@@ -27,8 +27,45 @@ func (q *Queries) DeleteExpiredBeaconInventory(ctx context.Context, lastSeen pgt
 	return result.RowsAffected(), nil
 }
 
+const listBeaconInventoryByCollector = `-- name: ListBeaconInventoryByCollector :many
+SELECT id, instance_label, component_name, healthy, last_seen, created_at, principal, collector_id FROM beacon_inventory WHERE collector_id = $1 ORDER BY instance_label, component_name
+`
+
+// Backs the reconciliation surface's "observed" input (#110): every component
+// the fleet has reported running under this collector's baseline. Keyed on the
+// collector id the baseline stamps (shepherd_collector_id), so it is exact per
+// collector rather than per shared credential.
+func (q *Queries) ListBeaconInventoryByCollector(ctx context.Context, collectorID pgtype.UUID) ([]BeaconInventory, error) {
+	rows, err := q.db.Query(ctx, listBeaconInventoryByCollector, collectorID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []BeaconInventory
+	for rows.Next() {
+		var i BeaconInventory
+		if err := rows.Scan(
+			&i.ID,
+			&i.InstanceLabel,
+			&i.ComponentName,
+			&i.Healthy,
+			&i.LastSeen,
+			&i.CreatedAt,
+			&i.Principal,
+			&i.CollectorID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listBeaconInventoryByPrincipal = `-- name: ListBeaconInventoryByPrincipal :many
-SELECT id, instance_label, component_name, healthy, last_seen, created_at, principal FROM beacon_inventory WHERE principal = $1 ORDER BY instance_label, component_name
+SELECT id, instance_label, component_name, healthy, last_seen, created_at, principal, collector_id FROM beacon_inventory WHERE principal = $1 ORDER BY instance_label, component_name
 `
 
 func (q *Queries) ListBeaconInventoryByPrincipal(ctx context.Context, principal string) ([]BeaconInventory, error) {
@@ -48,6 +85,7 @@ func (q *Queries) ListBeaconInventoryByPrincipal(ctx context.Context, principal 
 			&i.LastSeen,
 			&i.CreatedAt,
 			&i.Principal,
+			&i.CollectorID,
 		); err != nil {
 			return nil, err
 		}
@@ -60,19 +98,24 @@ func (q *Queries) ListBeaconInventoryByPrincipal(ctx context.Context, principal 
 }
 
 const upsertBeaconComponent = `-- name: UpsertBeaconComponent :one
-INSERT INTO beacon_inventory (principal, instance_label, component_name, healthy, last_seen)
-VALUES ($1, $2, $3, $4, now())
+INSERT INTO beacon_inventory (principal, instance_label, component_name, healthy, collector_id, last_seen)
+VALUES ($1, $2, $3, $4, $5, now())
 ON CONFLICT (principal, instance_label, component_name) DO UPDATE SET
-    healthy   = EXCLUDED.healthy,
-    last_seen = now()
-RETURNING id, instance_label, component_name, healthy, last_seen, created_at, principal
+    healthy      = EXCLUDED.healthy,
+    -- Upgrade a previously-unattributed row (NULL from a pre-#110 baseline) the
+    -- moment the collector re-reports under the new baseline; never overwrite a
+    -- known id back to NULL if a stray write omits the label.
+    collector_id = COALESCE(EXCLUDED.collector_id, beacon_inventory.collector_id),
+    last_seen    = now()
+RETURNING id, instance_label, component_name, healthy, last_seen, created_at, principal, collector_id
 `
 
 type UpsertBeaconComponentParams struct {
-	Principal     string `json:"principal"`
-	InstanceLabel string `json:"instance_label"`
-	ComponentName string `json:"component_name"`
-	Healthy       bool   `json:"healthy"`
+	Principal     string      `json:"principal"`
+	InstanceLabel string      `json:"instance_label"`
+	ComponentName string      `json:"component_name"`
+	Healthy       bool        `json:"healthy"`
+	CollectorID   pgtype.UUID `json:"collector_id"`
 }
 
 // principal + instance_label + component_name is this table's identity (see
@@ -87,6 +130,7 @@ func (q *Queries) UpsertBeaconComponent(ctx context.Context, arg UpsertBeaconCom
 		arg.InstanceLabel,
 		arg.ComponentName,
 		arg.Healthy,
+		arg.CollectorID,
 	)
 	var i BeaconInventory
 	err := row.Scan(
@@ -97,6 +141,7 @@ func (q *Queries) UpsertBeaconComponent(ctx context.Context, arg UpsertBeaconCom
 		&i.LastSeen,
 		&i.CreatedAt,
 		&i.Principal,
+		&i.CollectorID,
 	)
 	return i, err
 }

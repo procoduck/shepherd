@@ -36,6 +36,14 @@ type ComponentObservation struct {
 // being read — see Project's loop.
 const runningComponentsMetric = "alloy_component_controller_running_components"
 
+// CollectorIDLabel is the label the rendered baseline pipeline stamps on every
+// beacon series (BaselineConfig.CollectorID), carrying the id of the collector
+// whose served config produced the baseline. Project reads it so a beacon write
+// can be attributed to a collector for reconciliation (#110). Absent on writes
+// from a collector still running a pre-#110 baseline; Project then returns an
+// empty collector id and the write is stored unattributed.
+const CollectorIDLabel = "shepherd_collector_id"
+
 // healthTypeHealthy is the health_type label value the pinned metric uses
 // for "this component is up". Every other health_type value (unhealthy,
 // exited, unknown — Alloy's component.HealthType enum) counts against
@@ -62,7 +70,7 @@ var ErrNoInstanceLabel = errors.New("beacon: write request has no instance label
 // A series whose __name__ is not runningComponentsMetric is skipped without
 // its Samples ever being indexed — Project only ever reads a Sample.Value
 // for the one metric it understands.
-func Project(wr *prompb.WriteRequest) (instanceLabel string, observations []ComponentObservation, err error) {
+func Project(wr *prompb.WriteRequest) (instanceLabel, collectorID string, observations []ComponentObservation, err error) {
 	// path -> health_type -> summed count. Alloy's controllerCollector emits
 	// one series per (controller_path, health_type) pair currently non-zero;
 	// summing (rather than "last wins") is defensive against a batch that
@@ -87,6 +95,10 @@ func Project(wr *prompb.WriteRequest) (instanceLabel string, observations []Comp
 				if instanceLabel == "" {
 					instanceLabel = l.Value
 				}
+			case CollectorIDLabel:
+				if collectorID == "" {
+					collectorID = l.Value
+				}
 			}
 		}
 
@@ -108,7 +120,7 @@ func Project(wr *prompb.WriteRequest) (instanceLabel string, observations []Comp
 	}
 
 	if instanceLabel == "" {
-		return "", nil, ErrNoInstanceLabel
+		return "", "", nil, ErrNoInstanceLabel
 	}
 
 	sort.Strings(order)
@@ -119,7 +131,7 @@ func Project(wr *prompb.WriteRequest) (instanceLabel string, observations []Comp
 			Healthy:       isHealthy(counts[path]),
 		})
 	}
-	return instanceLabel, observations, nil
+	return instanceLabel, collectorID, observations, nil
 }
 
 // isHealthy reports whether byHealthType — one controller_path's
