@@ -25,6 +25,7 @@ SET display_name    = $2,
     reader_group_id = $4,
     editor_group_id = sqlc.narg('editor_group_id'),
     allow_experimental_components = sqlc.arg('allow_experimental_components'),
+    allow_label_matchers = sqlc.arg('allow_label_matchers'),
     updated_at      = now()
 WHERE id = $1
 RETURNING *;

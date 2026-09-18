@@ -35,6 +35,7 @@ type orgRequest struct {
 	ReaderGroupID               string `json:"reader_group_id"`
 	EditorGroupID               string `json:"editor_group_id"`
 	AllowExperimentalComponents bool   `json:"allow_experimental_components"`
+	AllowLabelMatchers          bool   `json:"allow_label_matchers"`
 }
 
 // orgOmitFields names the Org field(s) omitted from the legacy JSON when

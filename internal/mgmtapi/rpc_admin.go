@@ -75,6 +75,7 @@ func toOrgProto(o sqlc.Org) *mgmtv1.Org {
 		TenantId:      o.TenantID.String,
 
 		AllowExperimentalComponents: o.AllowExperimentalComponents,
+		AllowLabelMatchers:          o.AllowLabelMatchers,
 	}
 }
 
@@ -234,6 +235,7 @@ func (s *AdminService) UpdateOrg(ctx context.Context, req *connect.Request[mgmtv
 		ReaderGroupID:               pgtype.Text{String: msg.GetReaderGroupId(), Valid: msg.GetReaderGroupId() != ""},
 		EditorGroupID:               pgtype.Text{String: msg.GetEditorGroupId(), Valid: msg.GetEditorGroupId() != ""},
 		AllowExperimentalComponents: msg.GetAllowExperimentalComponents(),
+		AllowLabelMatchers:          msg.GetAllowLabelMatchers(),
 	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to update org"))
