@@ -13,6 +13,19 @@ Categories used here:
 
 ## Unreleased
 
+## v0.10.0
+
+Chart 0.14.0. A focused follow-up to v0.9.0's broad release, centred on the visual builder: a
+structural revision **graph diff** (declared/served config aside, you can now see exactly which
+nodes, wires and bindings a revision changed), and an org-level **experimental-components** opt-in
+with an authoritative server-side render gate. Rounded out by two operability wins carried over
+from v0.9.0's tail: the wizard preview now surfaces warnings, and the tenant-route create form asks
+for a gateway name in both modes. One additive migration (`0024`,
+`orgs.allow_experimental_components`); no chart-values changes.
+
+**Upgrade:** `helm upgrade`. Migration `0024` runs on start, additive — existing orgs keep the
+prior behaviour (experimental components gated off).
+
 ### Added
 
 - **Graph diff for visual pipelines.** The visual builder had no revision UI, so a visual
