@@ -79,13 +79,31 @@ var _ = Describe("release.yml", func() {
 	It("attests provenance for the release archives and images", func() {
 		rel := loadWorkflow("release.yml")
 
-		Expect(rel.Permissions["id-token"]).To(Equal("write"),
-			"attest-build-provenance needs id-token: write")
-		Expect(rel.Permissions["attestations"]).To(Equal("write"),
-			"attest-build-provenance needs attestations: write")
+		// Token-Permissions hardening (Scorecard): id-token/attestations: write
+		// live on the jobs that actually run attest-build-provenance, not at the
+		// top level, so the workflow's default token stays read-only.
+		for _, jobName := range []string{"release", "attest-images"} {
+			job, ok := rel.Jobs[jobName]
+			Expect(ok).To(BeTrue(), "release.yml has no %s job", jobName)
+			Expect(job.Permissions["id-token"]).To(Equal("write"),
+				"attest-build-provenance in the %s job needs id-token: write", jobName)
+			Expect(job.Permissions["attestations"]).To(Equal("write"),
+				"attest-build-provenance in the %s job needs attestations: write", jobName)
+		}
+
+		// The top-level token stays read-only (Scorecard Token-Permissions): only
+		// `release` may write contents/packages, and only where it publishes.
+		Expect(rel.Permissions["contents"]).NotTo(Equal("write"),
+			"top-level contents: write is over-broad — scope it to the release job")
+		Expect(rel.Permissions["packages"]).NotTo(Equal("write"),
+			"top-level packages: write is over-broad — scope it to the release job")
 
 		release, ok := rel.Jobs["release"]
 		Expect(ok).To(BeTrue(), "release.yml has no release job")
+		Expect(release.Permissions["contents"]).To(Equal("write"),
+			"the release job cuts the GitHub release and needs contents: write")
+		Expect(release.Permissions["packages"]).To(Equal("write"),
+			"the release job pushes images + chart to GHCR and needs packages: write")
 
 		var attestsChecksums bool
 		for _, s := range release.Steps {

@@ -41,11 +41,13 @@ concurrency:
   group: release
   cancel-in-progress: false
 
+# Least privilege at the top level (Scorecard Token-Permissions): the default
+# for any job is read-only, and each job below grants exactly the write scopes
+# it needs — only `release` (cuts the GitHub release + pushes to GHCR) and the
+# attest jobs (Sigstore provenance) get any write at all. `verify` publishes
+# nothing and stays read-only.
 permissions:
-  contents: write
-  packages: write
-  id-token: write      # actions/attest-build-provenance: sign with Sigstore
-  attestations: write  # actions/attest-build-provenance: publish the attestation
+  contents: read
 
 jobs:
   # Gates the tagged commit exactly as hard as a PR to main: nothing here
@@ -57,6 +59,10 @@ jobs:
     runs-on: ubuntu-latest
     if: github.repository == 'procoduck/shepherd'
     timeout-minutes: 20
+    # Read-only: this job builds and scans images locally but never pushes, and
+    # cuts no release — the Alloy image it pulls is a public Docker Hub image.
+    permissions:
+      contents: read
     steps:
       # The push.tags glob above (GitHub Actions has no \d) still lets
       # through e.g. "v1.2.3.4" or "v01.2.3" -- reject anything that isn't a
@@ -152,6 +158,15 @@ jobs:
     runs-on: ubuntu-latest
     if: github.repository == 'procoduck/shepherd'
     timeout-minutes: 30
+    # The only job that publishes: goreleaser cuts the GitHub release
+    # (contents: write) and pushes images + the Helm chart to GHCR
+    # (packages: write); attest-build-provenance signs the archives
+    # (id-token/attestations: write).
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
     outputs:
       # JSON array of {name, digest} for the attest-images job's matrix —
       # the image names and digests aren't known until goreleaser has run.
@@ -420,6 +435,12 @@ jobs:
     needs: release
     if: needs.release.outputs.images != '[]'
     runs-on: ubuntu-latest
+    # attest-build-provenance only: Sigstore signing needs id-token +
+    # attestations write; contents: read is the action's documented minimum.
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     strategy:
       matrix:
         image: ${{ fromJson(needs.release.outputs.images) }}
