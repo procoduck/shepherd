@@ -1,10 +1,16 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_DB: shepherd_e2e
       POSTGRES_USER: shepherd
       POSTGRES_PASSWORD: shepherd
+      # Keep the traditional data path under postgres 18, which otherwise
+      # defaults PGDATA to /var/lib/postgresql/18/docker. This service has no
+      # persistent volume, so it isn't strictly required here, but pinning it
+      # keeps the data layout identical to dev/docker-compose.dev.yaml and is
+      # future-proof if a volume is ever added.
+      PGDATA: /var/lib/postgresql/data
     healthcheck:
       # -h 127.0.0.1 forces the check over TCP, and that is the whole point.
       # Without it pg_isready uses the UNIX SOCKET, and on a first-time volume

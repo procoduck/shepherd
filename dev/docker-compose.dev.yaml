@@ -15,11 +15,18 @@
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_DB: shepherd_dev
       POSTGRES_USER: shepherd
       POSTGRES_PASSWORD: shepherd
+      # postgres 18 moved its default PGDATA to a versioned subdirectory
+      # (/var/lib/postgresql/18/docker) and the entrypoint now refuses to
+      # start when a volume is mounted at the old /var/lib/postgresql/data
+      # ("Error: in 18+, these Docker images are configured to store database
+      # data in a [different location]"). We mount the named volume below at
+      # that traditional path, so pin PGDATA back to it to keep the layout.
+      PGDATA: /var/lib/postgresql/data
     ports:
       - "15432:5432"
     volumes:
