@@ -58,17 +58,27 @@ jobs:
       fail-fast: false
       matrix:
         # Same languages default setup analyzed (JS + TS are one CodeQL
-        # language). build-mode: none analyzes source without a build — Go
-        # supports it, and it keeps the job fork-safe (no toolchain/build of
-        # untrusted PR code).
+        # language). The interpreted/config languages support build-mode: none
+        # (no build, fully fork-safe). Go is compiled and CodeQL rejects `none`
+        # for it ("Go does not support the none build mode"), so it uses
+        # autobuild — `go build`, which does not execute the analysed code and
+        # runs in the isolated fork-PR runner.
         include:
           - { language: actions, build-mode: none }
-          - { language: go, build-mode: none }
+          - { language: go, build-mode: autobuild }
           - { language: javascript-typescript, build-mode: none }
           - { language: python, build-mode: none }
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Go's autobuild runs `go build`, which needs the go.mod toolchain; the
+      # other languages build nothing. Same pinned setup-go SHA as release.yml.
+      - name: Set up Go
+        if: matrix.language == 'go'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
 
       # Same pinned action SHA as security-scan.yml's upload-sarif, so Renovate/
       # Dependabot bump init/analyze/upload in lockstep (scripts/repocheck
