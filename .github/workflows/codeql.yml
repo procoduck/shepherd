@@ -1,0 +1,89 @@
+# codeql.yml — CodeQL advanced setup.
+#
+# Why this file exists (replacing GitHub's "default setup"): default setup does
+# NOT analyze pull requests from forks
+# (https://docs.github.com/en/code-security/concepts/code-scanning/setup-types),
+# but `CodeQL` is a required status check on main. So every external-contributor
+# (fork) PR was permanently blocked — its head commit never got a CodeQL run.
+# Advanced setup runs on a plain `pull_request` event, which DOES fire for public
+# fork PRs, and its code-scanning upload works even under the read-only token a
+# fork PR gets — GitHub's upload endpoint carves out PR uploads from forks (the
+# same reason security-scan.yml's Trivy upload-sarif already succeeds on fork
+# PRs). The required check is named `CodeQL` and comes from the code-scanning
+# app, not these Actions jobs, so branch protection stays unchanged after the
+# migration.
+#
+# Migration note: while default setup is still enabled, the `analyze` step here
+# is rejected ("Upload with CodeQL results rejected due to 'default setup'"), so
+# this workflow's own jobs go red on the introducing PR — expected, and harmless
+# because they are not required checks and default setup still supplies the
+# required `CodeQL` for a same-repo PR. Disable default setup (Settings →
+# Advanced Security → Code scanning → CodeQL analysis → Switch to advanced →
+# Disable CodeQL) and this workflow takes over.
+
+name: CodeQL
+
+on:
+  # No path filters, and no job-level `if:` that can skip: default setup ran on
+  # every PR, and a filtered advanced workflow would produce no `CodeQL` check on
+  # (say) a docs-only PR, leaving that PR permanently blocked on a missing
+  # required check.
+  pull_request:
+  push:
+    branches: [main]
+  # push + schedule are load-bearing, not optional: a PR's results are diffed
+  # against the base branch's most recent analysis, which these keep fresh.
+  schedule:
+    - cron: "27 6 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  # Supersede an in-flight PR analysis on a new push; never cancel a push/
+  # schedule analysis of main (that is the baseline PRs diff against).
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      security-events: write # upload code-scanning results
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # Same languages default setup analyzed (JS + TS are one CodeQL
+        # language). build-mode: none analyzes source without a build — Go
+        # supports it, and it keeps the job fork-safe (no toolchain/build of
+        # untrusted PR code).
+        include:
+          - { language: actions, build-mode: none }
+          - { language: go, build-mode: none }
+          - { language: javascript-typescript, build-mode: none }
+          - { language: python, build-mode: none }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Same pinned action SHA as security-scan.yml's upload-sarif, so Renovate/
+      # Dependabot bump init/analyze/upload in lockstep (scripts/repocheck
+      # enforces SHA pinning).
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          # Parity with the default setup this replaces, which ran the
+          # "extended" query suite — without this the migration silently
+          # narrows coverage.
+          queries: security-extended
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v3
+        with:
+          category: "/language:${{ matrix.language }}"
