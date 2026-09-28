@@ -157,11 +157,12 @@ how each is assigned.
 
 ## Management API
 
-The `/api/*` REST surface is a thin shim over a typed Connect RPC contract
-(`shepherd.mgmt.v1`). Both share the same session-cookie authorization, and the
-Connect endpoints are plain HTTP POST + JSON, so integrators may call them
-directly — the tradeoff is camelCase fields (`orgId`) and
-`shepherd.mgmt.v1.<Service>/<Method>` paths instead of REST resource paths.
+The management API is a typed Connect RPC contract, `shepherd.mgmt.v1` — the
+same one the web UI uses. Calls are plain HTTP POST + JSON to
+`/shepherd.mgmt.v1.<Service>/<Method>` with camelCase fields (`orgId`), so no
+generated client is needed; a browser session cookie or a service account
+authorizes them. The older plain-JSON `/api/*` REST routes were removed in
+v0.11.0 (see the [changelog](CHANGELOG.md) for the migration).
 
 ```bash
 curl -s -X POST http://localhost:8080/shepherd.mgmt.v1.PipelineService/ListPipelines \

@@ -47,6 +47,28 @@ Categories used here:
   pipeline it will drop on its next config reload); root-level/BYO components are out of scope.
   _Shipped._ (#110)
 
+### Removed
+
+- **The `/api` REST shim.** The plain-JSON `/api/*` routes that duplicated the `shepherd.mgmt.v1`
+  Connect procedures — deprecated in v0.9.0 with a `Deprecation` header, and promised for removal a
+  release later — are gone; they now answer `404`. The web UI already used Connect, so nothing
+  changes for UI users. **Machine callers must move to Connect:** `POST
+  /shepherd.mgmt.v1.<Service>/<Method>` with a JSON body (`docs/spec.md` §12 has the service list and
+  the role each needs). Differences to expect when porting a caller:
+  - Field names are lowerCamelCase (`orgId`, `lastSeen`), and zero values — `false`, `0`, `""`, empty
+    lists — are **omitted** from responses rather than sent.
+  - Errors are `{"code": "...", "message": "..."}` with the Connect status mapping, not the shim's
+    `{"error": {...}}` envelope; creates answer `200`, not `201`, and deletes `200 {}`, not `204`.
+  - `ValidatePipeline` and the visual `Render`/`Validate` answer `200` with `valid` and diagnostics in
+    the body; the shim's `422` is gone.
+  - Numbers inside `local_attributes` arrive as doubles: an integer beyond 2^53, or a decimal's
+    trailing zeros, is not preserved byte-for-byte as the shim did.
+  - `ValidatePipeline` is open to org readers, as it always was over Connect (it validates without
+    changing any pipeline); the shim had put it behind org editor.
+
+  Still under `/api`, because the Connect contract leaves them out on purpose: `/api/schema/*` (the
+  Alloy component schema, ETag cached), `/api/version`, and `/api/auth/*`.
+
 ### Fixed
 
 - **Editing an org on the Organisations page no longer switches attribute matching off.** The edit

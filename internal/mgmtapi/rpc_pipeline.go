@@ -298,12 +298,12 @@ func (s *PipelineService) loadPipeline(ctx context.Context, orgIDStr, idStr stri
 }
 
 // authorizeOwnership enforces G11 (docs/gateway-tier-plan.md): the caller
-// must be an org admin, or a member of the team identified by
+// must be an org editor or above, or a member of the team identified by
 // ownerTeamID. Called individually inside every PipelineService write
 // handler (Create/Update/Delete/Enable/Disable) — per write path, not from
 // the interceptor, which only proved "has some access to this org" (see
 // procedureRequirements' comment). ownerTeamID is "" for an unowned
-// pipeline, which auth.AuthorizeOwnership treats as org-admin-only.
+// pipeline, which auth.AuthorizeOwnership reserves for org editors and above.
 func (s *PipelineService) authorizeOwnership(ctx context.Context, orgIDStr, ownerTeamID string) error {
 	sess := auth.SessionFromCtx(ctx)
 	if sess == nil {

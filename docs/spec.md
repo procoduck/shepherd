@@ -65,7 +65,7 @@ Spoke clusters already run local chart-generated config (clusterMetrics, podLogs
 | CLI | `github.com/spf13/cobra` |
 | Config | `github.com/spf13/viper` (file + env, prefix `SHEPHERD_`) |
 | Agent API | `connectrpc.com/connect` (Connect protocol, h2c via `golang.org/x/net/http2/h2c`) |
-| Management API | Connect `shepherd.mgmt.v1` services (`internal/mgmtapi`), primary contract for Go and TypeScript, plus a `github.com/go-chi/chi/v5`-mounted legacy REST shim kept wire-compatible for existing callers |
+| Management API | Connect `shepherd.mgmt.v1` services (`internal/mgmtapi`), the one contract for Go and TypeScript; `github.com/go-chi/chi/v5` routes the few out-of-contract endpoints (§12) |
 | DB | PostgreSQL 16 |
 | DB access | `github.com/jackc/pgx/v5` pool + `sqlc` generated queries |
 | Migrations | `github.com/golang-migrate/migrate/v4` (embedded, run via CLI subcommand) |
@@ -97,7 +97,7 @@ shepherd/
 │   ├── config/                     # viper loading + typed Config struct + validation
 │   ├── server/                     # http server assembly, middleware, embedded SPA
 │   ├── agentapi/                   # collector.v1 Connect service implementation
-│   ├── mgmtapi/                    # shepherd.mgmt.v1 Connect services + the chi-mounted legacy REST shim
+│   ├── mgmtapi/                    # shepherd.mgmt.v1 Connect services + the /api schema routes
 │   ├── auth/                       # OIDC flow, local users, sessions, RBAC middleware
 │   ├── graph/                      # Microsoft Graph client (user groups, group search)
 │   ├── ado/                        # Entra service-principal token provider (ADO auth kind only; see the git-provider amendment)
@@ -390,9 +390,9 @@ hash := hex(sha256(content))
 - `GET /auth/login` → generate `state` + PKCE verifier, store in a short-lived httpOnly cookie, redirect to the authorize endpoint.
 - `GET /auth/callback` → verify state, exchange code (with PKCE) for tokens, verify ID token with go-oidc. Resolve the user's groups per §7.1a. Store the session row (§5) with `group_ids`, set session cookie: httpOnly, `Secure`, `SameSite=Lax`, name `shepherd_session`. Session TTL: `auth.session_ttl` (default 8h; the row's `expires_at` is fixed at creation and does not extend on activity). An OIDC session additionally ends at the ID token's own expiry (`sessions.id_token_expires`, typically ~1h for Entra/Okta) even if the row's TTL has not elapsed yet: `SessionMiddleware` rejects it and deletes the row on the next request past that point, since there is no refresh-token flow to silently extend it.
 - Local sign-in (`POST /api/auth/local/login`, §7.2) is throttled per account and per source IP by an in-process token bucket, to blunt password guessing against the argon2id-hashed local credential store.
-- `GET /api/me` → current user profile + computed roles. `GET /auth/logout` → delete session (the SPA's Sign out button calls it with GET).
+- `MeService.GetMe` (§12) → current user profile + computed roles. `GET /auth/logout` → delete session (the SPA's Sign out button calls it with GET).
 - `GET /auth/methods` → which sign-in methods the login page should offer, plus the label for the OIDC button. It reports whether OIDC is **live** (a discovered provider is loaded), not merely whether one is configured: a saved-but-undiscoverable provider must not render a button that can only dead-end.
-- All `/api/*` routes require a valid session (middleware). CSRF: require header `X-Requested-With: XMLHttpRequest` on mutating requests (sufficient with SameSite=Lax).
+- Every management call (§12) and `/api/schema/*` requires a valid session (middleware). CSRF: require header `X-Requested-With: XMLHttpRequest` on mutating requests (sufficient with SameSite=Lax).
 
 ### 7.1a Provider portability — claims and groups
 
@@ -497,7 +497,7 @@ Before the role column existed, `authorizeServiceAccountProcedure` (`internal/mg
 
 **Stage 3 — Merge dry-run.** For a pipeline save/toggle: compute the set of logical collectors the new matcher set would affect (plus those affected by the *old* version), assemble each collector's full merged config with the candidate change applied, and run stages 1–2 on each merged result. If ANY merged config fails, **reject the save** with a response listing the failing collectors and diagnostics. This prevents the "one bad pipeline poisons the whole merge" failure mode.
 
-API: `POST /api/orgs/{org}/pipelines/validate` runs stages 1–2 only (fast, used by the editor's Validate button and on-type debounce); the actual save/update/enable endpoints run all three stages server-side regardless of what the client did.
+API: `PipelineService.ValidatePipeline` (§12) runs stages 1–2 only (fast, used by the editor's Validate button and on-type debounce); the actual save/update/enable endpoints run all three stages server-side regardless of what the client did.
 
 Git-synced files that fail validation: keep the previous good pipeline revision, set `repo_links.sync_status='error'` with details, surface in UI. Never partially apply a commit: a sync applies all files of a commit transactionally or none.
 
@@ -604,57 +604,43 @@ Destinations reference a Kubernetes Secret that must already exist on every spok
 
 ---
 
-## 12. Management REST API (`/api`, JSON)
+## 12. Management API (Connect `shepherd.mgmt.v1`)
 
-Standard envelope: errors as `{"error": {"code": "...", "message": "...", "details": [...]}}`; lists support `?limit=&offset=` and return `{"items": [...], "total": n}`. Resources (roles in brackets):
+The management API is the Connect contract `shepherd.mgmt.v1`: 14 services defined in
+`proto/shepherd/mgmt/v1/*.proto`, generated for Go (`gen/`) and TypeScript (`web/src/gen/`), and
+served by `internal/mgmtapi` (`MountRPC`). The SPA and every machine caller use it. A unary call is
+`POST /shepherd.mgmt.v1.<Service>/<Method>` with a JSON request body (the Connect protocol), so
+integrators need no generated client: field names are lowerCamelCase, zero values are omitted from
+responses, and errors are `{"code": "<snake_case>", "message": "..."}` with the Connect HTTP status
+mapping (401 `unauthenticated`, 403 `permission_denied`, 404 `not_found`, 409 `already_exists`, ...).
+Mutating calls carry the CSRF header (§7); machine callers authenticate as a service account (§7.3a).
+
+**Authorization.** `procedureRequirements` in `internal/mgmtapi/rpc_interceptor.go` is the
+authoritative per-procedure table; the interceptor fails closed for any procedure missing from it. The
+floor per service:
+
+| Service | Floor |
+|---|---|
+| `MeService` | any authenticated caller |
+| `AdminService`, `UserService` | app admin |
+| `FleetService`, `DestinationService`, `TenantRouteService`, `TeamService` | reads: org reader · writes: org admin |
+| `PipelineService` | reads: org reader · writes: org reader at the interceptor, then a per-pipeline check in the handler (`auth.AuthorizeOwnership`) — an org editor or above may write any pipeline, anyone else only a pipeline owned by a team they belong to; `ValidatePipeline` and `FormatPipeline` stay org reader; `SetPipelineOwner` is org admin |
+| `WizardService`, `SimulateService` | org editor |
+| `VisualService` | org editor; `GraphView` and `DiffRevisions` are org reader |
+| `GitOpsService`, `AuditService`, `ServiceAccountService` | org admin |
+
+**What `/api` still serves.** Only what the Connect contract deliberately leaves out
+(`docs/archive/api-contract-design.md`, "Out of contract, unchanged"):
 
 ```
-GET    /api/me                                   [any]  profile + roles + orgs visible
-# Admin
-POST   /api/admin/orgs                           [app]  {name, display_name, admin_group_id, reader_group_id?, editor_group_id?}
-GET    /api/admin/orgs                           [app]
-PATCH  /api/admin/orgs/{org}                     [app]
-DELETE /api/admin/orgs/{org}                     [app]  (only if empty)
-GET    /api/admin/clusters?unclaimed=true        [app]  discovery of registered clusters
-POST   /api/admin/clusters/{cluster}/claim       [app]  {org_id}
-POST   /api/admin/clusters/{cluster}/unclaim     [app]
-GET    /api/admin/agent-tokens                   [app]
-POST   /api/admin/agent-tokens                   [app]  -> secret returned ONCE
-DELETE /api/admin/agent-tokens/{id}              [app]  (revoke)
-GET    /api/admin/groups/search?q=               [app|orgadmin]  Graph-backed
-# Org-scoped
-GET    /api/orgs/{org}/collectors                [reader+]  list logical collectors + instance rollups
-GET    /api/orgs/{org}/collectors/{id}           [reader]   detail incl. instances, status, matched pipelines
-GET    /api/orgs/{org}/collectors/{id}/served-config [reader]  current cache content+hash
-POST   /api/orgs/{org}/collectors/{id}/assignments   [orgadmin] {group_id}
-DELETE /api/orgs/{org}/collectors/{id}/assignments/{group_id} [orgadmin]
-GET    /api/orgs/{org}/pipelines                 [reader]
-POST   /api/orgs/{org}/pipelines                 [orgeditor] (validation gate)
-GET    /api/orgs/{org}/pipelines/{id}            [reader]   incl. revisions
-PUT    /api/orgs/{org}/pipelines/{id}            [orgeditor] (validation gate)
-POST   /api/orgs/{org}/pipelines/{id}/enable|disable [orgeditor] (stage-3 on enable)
-DELETE /api/orgs/{org}/pipelines/{id}            [orgeditor]
-POST   /api/orgs/{org}/pipelines/validate        [orgeditor] stages 1–2, returns diagnostics
-GET    /api/orgs/{org}/pipelines/{id}/preview-matches [reader] collectors a matcher set hits
-GET    /api/orgs/{org}/attributes                [reader] distinct attribute keys → sorted distinct values across the org's collector instances (incl. built-ins cluster/role); feeds matcher autocomplete
-CRUD   /api/orgs/{org}/destinations              [orgadmin write, reader read]
-list/create/delete (+ /test)   /api/orgs/{org}/git-credentials   [orgadmin]  (secret write-only; the ADO-specific route name from the amendment below was renamed here, matching the Connect-side AdoCredential -> GitCredential rename)
-POST   /api/orgs/{org}/git-credentials/{id}/test [orgadmin]  verifies token + org access
-list/create/delete   /api/orgs/{org}/repo-links   [orgadmin]
-GET    /api/orgs/{org}/wizards                   [orgeditor]
-GET    /api/orgs/{org}/wizards/{kind}            [orgeditor] schema for one wizard kind
-POST   /api/orgs/{org}/wizards/render            [orgeditor] input -> rendered configs + diagnostics + match preview, nothing persisted
-POST   /api/orgs/{org}/wizards/commit            [orgeditor] input -> creates pipelines (gate)
-POST   /api/orgs/{org}/visual/render             [orgeditor] graph -> { content, diagnostics[], node_map }
-POST   /api/orgs/{org}/visual/validate           [orgeditor] graph -> diagnostics[] (layers L2+L3, node-addressed)
-POST   /api/orgs/{org}/visual/upgrade-check      [orgeditor] graph -> schema-upgrade diagnostics
-GET    /api/orgs/{org}/pipelines/{id}/graph      [reader]    VisualService.GraphView
-POST   /api/orgs/{org}/simulate/relabel          [orgeditor] { rules, sample_targets } → per-target trace
-POST   /api/orgs/{org}/simulate/logs             [orgeditor] { stages, sample_lines } → per-line trace
-POST   /api/orgs/{org}/simulate/runs             [orgeditor] graph → { run_id }
-GET    /api/orgs/{org}/simulate/runs/{id}        [orgeditor] status | results
-GET    /api/orgs/{org}/audit                     [orgadmin]
+GET    /api/schema/current                       [any]  pinned Alloy component schema + overlay (ETag cached)
+GET    /api/schema/{version}                     [any]  one schema version + overlay (ETag cached)
+GET    /api/version                              [none] build version
+POST   /api/auth/local/login, /api/auth/local/password   local sign-in and password change (§7.2)
 ```
+
+The plain-JSON REST shim that duplicated the Connect procedures under `/api/*` was deprecated in
+v0.9.0 and **removed in v0.11.0**; its routes now answer 404.
 
 ---
 
@@ -941,9 +927,9 @@ The e2e suite proves the full loop **locally with no cloud dependencies**: a gen
 1. **Registration & claiming.** After stack-up, `Eventually` the app-admin API shows cluster `e2e-cluster` unclaimed with a live `metrics` collector instance. Claim it into a freshly created org. Assert Alloy is healthy throughout (`GET alloy:12345/-/ready`).
 2. **Pipeline lifecycle (the core loop).** As orgAdmin: create a destination (pointing at a dummy secret name — the pipeline for this test uses a trivial self-contained config like `prometheus.exporter.self "e2e" { }` + a `prometheus.scrape` forwarding to `prometheus.remote_write` at a black-hole URL so no secret machinery is needed); create + enable the pipeline with matcher `cluster="e2e-cluster"`, `role="metrics"`. Assert: (a) served-config endpoint shows the declare-wrapped content and a hash; (b) `Eventually` the collector detail reports `remote_config_status: APPLIED` with that hash's config; (c) Alloy's own API confirms remote components exist — `GET alloy:12345/api/v0/web/components` contains component IDs prefixed with the remotecfg module. Then update the pipeline; assert the hash changes and status returns to APPLIED. Then disable it; assert served config returns to header-only and Alloy drops the components.
 3. **not_modified efficiency.** Scrape Shepherd's own `/metrics` and assert the `shepherd_getconfig_total{result="not_modified"}` counter increases across two Alloy poll cycles with no config change.
-4. **Validation gate.** As orgAdmin, attempt to save a syntactically invalid pipeline → 422 with line/col diagnostics; attempt to enable a pipeline that breaks the merge (duplicate declare label forged via name collision after sanitization, e.g. names `a-b` and `a_b`) → rejected listing the affected collector, and the served hash is unchanged.
+4. **Validation gate.** As orgAdmin, attempt to save a syntactically invalid pipeline → refused, with line/col diagnostics from validation; attempt to enable a pipeline that breaks the merge (duplicate declare label forged via name collision after sanitization, e.g. names `a-b` and `a_b`) → rejected listing the affected collector, and the served hash is unchanged.
 5. **GitOps sync.** Create an ADO credential (mock SP) + repo link targeting the collector, seed mockmsft with a valid `.alloy` file → `Eventually` a `source=git` pipeline exists and Alloy applies the enlarged merge. Push an invalid file via `/__fixture` → sync_status becomes `error`, last good config still served (hash unchanged). Fix the file → recovers.
-6. **RBAC.** reader can GET collectors/pipelines of the assigned collector but every POST/PUT/DELETE returns 403; `nobody` gets 403/404 on org resources; unauthenticated `/api/*` returns 401; agent endpoint with a wrong token secret returns Connect `unauthenticated`.
+6. **RBAC.** reader can GET collectors/pipelines of the assigned collector but every POST/PUT/DELETE returns 403; `nobody` gets 403/404 on org resources; an unauthenticated management call returns 401 `unauthenticated`; agent endpoint with a wrong token secret returns Connect `unauthenticated`.
 7. **Status FAILED propagation.** Serve a config that passes validation but fails at runtime apply is hard to construct reliably — instead, have mockmsft… skip; simulate by asserting the plumbing: temporarily insert (via SQL through a test-only helper) a FAILED status row is NOT needed — instead assert the field round-trips using scenario 2's transitions (UNSET→APPLYING→APPLIED). `// DECISION` comment allowed here if APPLYING is never observed due to timing.
 
 ### 18.5 CI note
@@ -1253,6 +1239,7 @@ Stage 3 assembles the merged config for every affected collector — affected = 
 The OIDC code flow MUST use PKCE (S256). All auth/session cookies set `Secure: true`; config `auth.insecure_cookies: true` (default false) may disable this for non-TLS local dev only. CSRF: require `X-Requested-With: XMLHttpRequest` on mutating requests.
 
 ### §D.3 — §12 (amended)
+The REST paths below were removed in v0.11.0; the Connect procedures are `PipelineService.ListRevisions` and `GetRevision`.
 Add under pipelines: `GET /api/orgs/{org}/pipelines/{id}/revisions` [reader] (list only — no `contents`, `matchers`, `enabled`, or `wizard_state`); `GET /api/orgs/{org}/pipelines/{id}/revisions/{rev}` [reader] (the full revision, including its `contents`); `POST /api/orgs/{org}/pipelines/{id}/revisions/{rev}/restore` [orgeditor] (writes a new revision from the given one's contents+matchers+enabled(+wizard_state), through the same validation gate and authorization as `PUT .../pipelines/{id}`; allowed on git-sourced pipelines, whose next sync overwrites it; records a `pipeline.restore` audit row).
 
 ### §D.4 — §13.6 (amended)
@@ -1392,6 +1379,8 @@ UI offers, so it names the role actually held — reporting `"viewer"` to an
 editor would hide the pipeline editor from someone who can in fact use it.
 
 ### §12 (amended) — GET /api/admin/clusters canonical contract
+
+The REST path was removed in v0.11.0; the same contract is `AdminService.ListClusters` (with its `unclaimed` filter).
 
 Returns ALL clusters (claimed + unclaimed). Shape: `{id, name, org_id (empty UUID if unclaimed), created_at}`.
 Use `?unclaimed=true` to filter to unclaimed only. The old behaviour of returning only unclaimed clusters by default is a bug (fixed in FS-1).
