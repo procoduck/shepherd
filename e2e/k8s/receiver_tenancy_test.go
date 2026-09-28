@@ -231,7 +231,7 @@ receiver:
 				helmRun(t, cfg, f, "upgrade", release, "--reuse-values")
 				return ctx
 			}).
-		Assess("a receiver config the renderer refuses stops the pod at init instead of starting Alloy",
+		Assess("a receiver config the renderer refuses stops the new pod at init, and the running receiver keeps serving",
 			func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
 				// A batch cap below the batch size: receiver.Validate refuses it
 				// (Alloy itself would refuse to start). No --wait: the new pod is
@@ -244,18 +244,34 @@ receiver:
 				}
 				end := time.Now().Add(2 * time.Minute)
 				for {
-					out := utils.RunCommand(fmt.Sprintf(
-						"kubectl --kubeconfig %s -n %s get pods -l app.kubernetes.io/component=receiver "+
-							`-o jsonpath={range .items[*]}{.status.initContainerStatuses[0].state.terminated.exitCode}{"|"}{.status.initContainerStatuses[0].lastState.terminated.exitCode}{"\n"}{end}`,
-						cfg.KubeconfigFile(), f.ns)).Result()
-					if strings.Contains(out, "1|") || strings.Contains(out, "|1") {
-						logs := utils.RunCommand(fmt.Sprintf(
-							"kubectl --kubeconfig %s -n %s logs -l app.kubernetes.io/component=receiver -c render --tail=20",
-							cfg.KubeconfigFile(), f.ns)).Result()
-						if !strings.Contains(logs, "send_batch_max_size") {
-							t.Fatalf("the render init container failed, but not for the refused setting:\n%s", logs)
+					// One line per receiver pod: "<render exit code>|<ready>".
+					out := kubectlArgv(cfg, "-n", f.ns, "get", "pods", "-l", "app.kubernetes.io/component=receiver",
+						"-o", `jsonpath={range .items[*]}{.status.initContainerStatuses[0].lastState.terminated.exitCode}{.status.initContainerStatuses[0].state.terminated.exitCode}|{.status.containerStatuses[0].ready}{"\n"}{end}`)
+					failedInit, stillServing := false, false
+					for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+						code, ready, _ := strings.Cut(line, "|")
+						if code != "" && code != "0" {
+							failedInit = true
 						}
-						t.Logf("render refused the config at init, as intended:\n%s", logs)
+						if ready == "true" {
+							stillServing = true
+						}
+					}
+					if failedInit {
+						logs := kubectlArgv(cfg, "-n", f.ns, "logs", "-l", "app.kubernetes.io/component=receiver",
+							"-c", "render", "--previous", "--tail=20")
+						if !strings.Contains(logs, "send_batch_max_size") {
+							logs = kubectlArgv(cfg, "-n", f.ns, "logs", "-l", "app.kubernetes.io/component=receiver", "-c", "render", "--tail=20")
+						}
+						if !strings.Contains(logs, "send_batch_max_size") {
+							t.Fatalf("a render init container failed, but not for the refused setting:\n%s", logs)
+						}
+						// The rollout halts at the bad pod: the receiver that was
+						// already running must still be the one serving.
+						if !stillServing {
+							t.Fatalf("the refused config took the receiver down — no receiver pod is Ready:\n%s", out)
+						}
+						t.Logf("render refused the config at init, and the running receiver kept serving:\n%s", logs)
 						return ctx
 					}
 					if time.Now().After(end) {
@@ -448,4 +464,14 @@ func receiverDiagnostics(cfg *envconf.Config, ns, gwNS, gwDeploy string) string 
 		"\n--- receiver logs ---\n" +
 		run(fmt.Sprintf("-n %s logs -l app.kubernetes.io/component=receiver -c alloy --tail=40", ns)) +
 		"\n--- receiver NetworkPolicy ---\n" + run(fmt.Sprintf("-n %s get networkpolicy -l app.kubernetes.io/component=receiver -o yaml", ns))
+}
+
+// kubectlArgv runs kubectl from an explicit argv and returns its combined
+// output. Like postSpanOnce (and signsIn in chart_deps_test.go, which hit the
+// same thing), it avoids utils.RunCommand: gexe re-tokenises a command
+// string, which splits a jsonpath expression into stray arguments ("name
+// cannot be provided when a selector is specified").
+func kubectlArgv(cfg *envconf.Config, args ...string) string {
+	out, _ := exec.Command("kubectl", append([]string{"--kubeconfig", cfg.KubeconfigFile()}, args...)...).CombinedOutput() //nolint:errcheck // callers judge the output
+	return string(out)
 }
