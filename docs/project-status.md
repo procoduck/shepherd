@@ -228,12 +228,11 @@ was closed in the same batches (`CHANGELOG.md` v0.7.0).
 
 In rough priority order; closed items stay in place, marked with the release that shipped them:
 
-- [ ] **Decide: should `ValidatePipeline` require org editor?** Over Connect its interceptor row is
-      `auth.RoleOrgReader`, so an org reader can validate pipeline text (nothing is written, apart
-      from the `pipeline.propose` audit row for service-account callers). The removed REST shim put
-      it behind org editor, and `role_matrix_test.go` pins the current Connect behaviour. Tightening
-      it is an RBAC change, so it is ask-first.
-
+- [x] **`ValidatePipeline` stays open to org readers** (decided 2026-09-28). Its Connect interceptor
+      row is `auth.RoleOrgReader`: a reader can validate pipeline text, which writes nothing apart
+      from the `pipeline.propose` audit row for service-account callers. The removed REST shim had put
+      it behind org editor; that stricter rule is not carried over. `role_matrix_test.go` pins the
+      Connect behaviour.
 - [ ] **A collector's `APPLIED` status can mean "polled with the served hash", not "loaded it
       successfully."** `ClearStaleFailedStatus` promotes NULL/FAILED to `APPLIED` on a status-less
       poll carrying the served hash, and nothing Shepherd reads today (`effective_config` is
