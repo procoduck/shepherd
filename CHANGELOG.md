@@ -13,6 +13,20 @@ Categories used here:
 
 ## Unreleased
 
+## v0.11.0
+
+Chart 0.15.0. Two fleet capabilities ship: the **Reconciliation** tab (declared vs served vs
+observed, per collector) and **attribute-based pipeline matching**, which lets matchers use a
+collector's admin-set labels and its agent-reported `local_attributes` behind two per-org opt-ins,
+both off by default. And one removal: the **`/api` REST shim**, deprecated in v0.9.0, is gone —
+external integrations must call the `shepherd.mgmt.v1` Connect API. Two additive migrations
+(`0025`, `0026`); no chart-values changes.
+
+**Upgrade:** `helm upgrade`. Migrations `0025` (`beacon_inventory.collector_id`) and `0026` (the two
+matching flags, default off) run on start and are additive — existing orgs match exactly as
+before. **Before upgrading, move any external caller of `/api/*` to Connect** (see *Removed*
+below); the web UI needs nothing.
+
 ### Added
 
 - **Collector label keys are reserved against built-in matcher facts.** Groundwork for letting
@@ -68,18 +82,6 @@ Categories used here:
 
   Still under `/api`, because the Connect contract leaves them out on purpose: `/api/schema/*` (the
   Alloy component schema, ETag cached), `/api/version`, and `/api/auth/*`.
-
-### Fixed
-
-- **Editing an org on the Organisations page no longer switches attribute matching off.** The edit
-  form did not send `allow_label_matching` / `allow_local_attribute_matching`, and `UpdateOrg` replaces
-  every field from the request, so saving any change — even a rename — reset both flags to false.
-  (#139)
-- **The Reconciliation tab no longer reports label-matched pipelines as drift.** With
-  `allow_label_matching` or `allow_local_attribute_matching` on, a pipeline can reach a collector
-  through a label rather than `cluster`/`role`; the reconciliation surface built its desired served set
-  from `cluster`/`role` alone, so a pipeline the collector was correctly running showed up as "no
-  longer served". It now matches with the same gated label set as the serve paths. (#110, #139)
 
 ## v0.10.0
 

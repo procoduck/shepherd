@@ -72,7 +72,7 @@ kubectl -n shepherd create secret generic shepherd-secrets \
   --from-literal=SHEPHERD_SECURITY_ENCRYPTION_KEY="$(openssl rand -base64 32)" \
   --from-literal=SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD='choose-a-password'
 
-helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.14.0 \
+helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.15.0 \
   --namespace shepherd --set existingSecret=shepherd-secrets
 
 kubectl -n shepherd port-forward svc/shepherd 8080:8080
@@ -185,12 +185,12 @@ the Gateway API HTTPRoute apply and the receiver tier that would make a
 tenant route deliver traffic (`TenantRouteService` itself — segment
 issuance, listing, rotation, revocation — is mounted on the mgmtapi Connect
 surface and reachable today; nothing calls `internal/gateway.ApplyRoute`
-outside its own tests, and nothing imports `internal/receiver`), three-way
-reconciliation, onboarding artifacts, a k8s-monitoring chart-values
-generator, and a read-plus-propose MCP interface (`cmd/shepherd-mcp` builds
-but ships in none of the release artifacts — see `.goreleaser.yaml`).
+outside its own tests, and nothing imports `internal/receiver`), onboarding
+artifacts, and a k8s-monitoring chart-values generator.
 `docs/gateway-tier-plan.md` §9 tracks what stands between each one and being
-usable. Do not plan against them yet.
+usable. Do not plan against them yet. (Reconciliation — declared vs served vs
+observed — shipped in v0.11.0, and the read-plus-propose MCP interface,
+`shepherd-mcp`, ships in the release archives since v0.9.0.)
 
 ## Development
 
