@@ -159,7 +159,8 @@ v0.9.0), reconciliation (W6, v0.11.0). Still to build, each a GitHub issue:
 
 - **Receiver tier (W4's other half) — #109.** Plan: `docs/plans/2026-09-28-receiver-tier.md`
   (config rendered at pod start, destinations from chart values, default off; tenant-route apply is
-  a separate follow-up). Four PRs, then back to R3 to sign.
+  a separate follow-up). Four PRs, then back to R3 to sign. PR 1 (`receiver render`) merged; PR 2
+  (chart, default off) in review.
 - **Onboarding artifacts page (W7) — #111.** "Connect an app" snippets for a tenant route.
 - **Chart-values generator UI (W9) + gate G10 — #112.**
 

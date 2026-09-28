@@ -22,12 +22,19 @@ Categories used here:
   org's collectors carry. The matchers docs page covers label and agent-attribute matching.
   _Shipped._ (#139)
 
-- **`shepherd receiver render`** — first piece of the receiver tier (#109,
-  `docs/plans/2026-09-28-receiver-tier.md`). Validates a receiver config file (YAML, OTLP/HTTP
-  only) with the receiver package's checks and renders it to Alloy config; nothing is written when
-  validation fails. Endpoints are a URL literal or an environment-variable name and credentials are
-  environment references — never raw Alloy expressions from the file. _Built, not wired_: the chart
-  does not deploy a receiver yet.
+- **Receiver tier in the chart — off by default.** `receiver.enabled` deploys an OTLP/HTTP Alloy
+  that a Gateway API gateway fronts (#109, `docs/plans/2026-09-28-receiver-tier.md`). An init
+  container runs the new `shepherd receiver render`, which validates the receiver config built from
+  `receiver.*` values and renders it — nothing is written on failure, so a bad config stops the pod
+  at `Init:Error` — and Alloy (the version pinned for the Shepherd image) runs the result, read-only
+  and non-root. Its NetworkPolicy admits only the gateway (`receiver.networkPolicy.gatewayFrom`) and
+  default-denies egress apart from DNS and the operator's destination rules; both lists are required.
+  Destinations come from values, with endpoints and `Authorization` headers optionally from Secrets
+  that never reach the ConfigMap. `shepherd healthcheck` gains `--path` for the receiver's probes.
+  Rendering now always sets the batch processor's `send_batch_max_size`: omitted, Alloy's default
+  cap refused to start a receiver whose batch size exceeded it — which `alloy validate` does not
+  catch. _Off by default until review gate R3 is signed_; tenant routes are not applied to the
+  cluster yet, so you create the HTTPRoute yourself.
 
 ### Changed
 

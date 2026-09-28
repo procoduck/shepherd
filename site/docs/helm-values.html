@@ -373,6 +373,54 @@
           <tr><td><code>simulator.networkPolicy.extraEgress</code></td><td><code>[]</code></td><td>extraEgress lets an operator open one additional narrow hole (e.g. a split-horizon internal DNS server that is not kube-dns) without editing the template. Empty by default: the harness is everything the sandbox needs, by design.</td></tr>
         </tbody>
       </table>
+      <h2 id="receiver"><code>receiver</code></h2>
+      <p>Receiver tier (#109, docs/plans/2026-09-28-receiver-tier.md): an OTLP/HTTP Alloy that a Gateway API gateway fronts. The gateway&#x27;s HTTPRoute strips the tenant-route prefix and injects the tenant header; with pass-through tenancy the receiver forwards each request&#x27;s data carrying that header to the tenant-aware backends below. The prefix is an identifier, not an authorizer -- see docs/gateway-tier-plan.md §3.<br>OFF by default, and it stays off until review gate R3 is signed (docs/gateway-tier-plan.md §7): containment, a tested off-switch, the gateway as the only ingress, and a real-Alloy tenancy proof. Tenant routes created in Shepherd are not yet applied to the cluster, so nothing routes to this receiver until you create the HTTPRoute yourself.</p>
+      <table>
+        <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>receiver.enabled</code></td><td><code>false</code></td><td>enabled: deploy the receiver tier. Off until R3 is signed -- see above.</td></tr>
+          <tr><td><code>receiver.replicas</code></td><td><code>1</code></td><td>replicas: receiver pods behind the receiver Service. Each is stateless.</td></tr>
+          <tr><td><code>receiver.mode</code></td><td><code>pass_through</code></td><td>mode: &quot;pass_through&quot; forwards the tenant header the gateway injected (one receiver serves many tenants); &quot;static&quot; sends no tenant header. Pass-through refuses a gRPC listener, so only OTLP/HTTP is ever served.</td></tr>
+          <tr><td><code>receiver.listener.port</code></td><td><code>4318</code></td><td>port: the OTLP/HTTP port the receiver listens on and its Service exposes.</td></tr>
+          <tr><td><code>receiver.listener.maxRequestBodySize</code></td><td><code>&quot;8MiB&quot;</code></td><td>maxRequestBodySize: the largest request body accepted. Required -- there is deliberately no implicit limit.</td></tr>
+          <tr><td><code>receiver.batch.timeout</code></td><td><code>&quot;5s&quot;</code></td><td>timeout: how long a batch may wait before it is sent.</td></tr>
+          <tr><td><code>receiver.batch.sendBatchSize</code></td><td><code>8192</code></td><td>sendBatchSize: items that trigger sending a batch.</td></tr>
+          <tr><td><code>receiver.batch.sendBatchMaxSize</code></td><td><code>0</code></td><td>sendBatchMaxSize: the largest batch sent; 0 means no cap. A non-zero value below sendBatchSize is refused at render.</td></tr>
+          <tr><td><code>receiver.exporters.metrics.enabled</code></td><td><code>false</code></td><td>enabled: forward metrics (e.g. to Mimir&#x27;s OTLP endpoint).</td></tr>
+          <tr><td><code>receiver.exporters.metrics.protocol</code></td><td><code>http</code></td><td>protocol: &quot;http&quot; (otlphttp) or &quot;grpc&quot; (otlp) toward the backend. This is the outbound connection; the listener stays OTLP/HTTP.</td></tr>
+          <tr><td><code>receiver.exporters.metrics.endpoint</code></td><td><code>&quot;&quot;</code></td><td>endpoint: the backend URL, when it is not secret.</td></tr>
+          <tr><td><code>receiver.exporters.metrics.endpointFromSecret.name</code></td><td><code>&quot;&quot;</code></td><td>name: a Secret holding the endpoint URL, instead of endpoint above.</td></tr>
+          <tr><td><code>receiver.exporters.metrics.endpointFromSecret.key</code></td><td><code>&quot;endpoint&quot;</code></td><td>key: the key within that Secret.</td></tr>
+          <tr><td><code>receiver.exporters.metrics.authorizationFromSecret.name</code></td><td><code>&quot;&quot;</code></td><td>name: a Secret holding the full Authorization header value (for example &quot;Bearer &lt;token&gt;&quot;). Empty sends no Authorization header.</td></tr>
+          <tr><td><code>receiver.exporters.metrics.authorizationFromSecret.key</code></td><td><code>&quot;authorization&quot;</code></td><td>key: the key within that Secret.</td></tr>
+          <tr><td><code>receiver.exporters.logs.enabled</code></td><td><code>false</code></td><td>enabled: forward logs (e.g. to Loki&#x27;s OTLP endpoint).</td></tr>
+          <tr><td><code>receiver.exporters.logs.protocol</code></td><td><code>http</code></td><td>protocol: &quot;http&quot; or &quot;grpc&quot; toward the backend, as for metrics.</td></tr>
+          <tr><td><code>receiver.exporters.logs.endpoint</code></td><td><code>&quot;&quot;</code></td><td>endpoint: the backend URL, when it is not secret.</td></tr>
+          <tr><td><code>receiver.exporters.logs.endpointFromSecret.name</code></td><td><code>&quot;&quot;</code></td><td>name: a Secret holding the endpoint URL, instead of endpoint above.</td></tr>
+          <tr><td><code>receiver.exporters.logs.endpointFromSecret.key</code></td><td><code>&quot;endpoint&quot;</code></td><td>key: the key within that Secret.</td></tr>
+          <tr><td><code>receiver.exporters.logs.authorizationFromSecret.name</code></td><td><code>&quot;&quot;</code></td><td>name: a Secret holding the full Authorization header value. Empty sends no Authorization header.</td></tr>
+          <tr><td><code>receiver.exporters.logs.authorizationFromSecret.key</code></td><td><code>&quot;authorization&quot;</code></td><td>key: the key within that Secret.</td></tr>
+          <tr><td><code>receiver.exporters.traces.enabled</code></td><td><code>false</code></td><td>enabled: forward traces (e.g. to Tempo&#x27;s OTLP endpoint).</td></tr>
+          <tr><td><code>receiver.exporters.traces.protocol</code></td><td><code>http</code></td><td>protocol: &quot;http&quot; or &quot;grpc&quot; toward the backend, as for metrics.</td></tr>
+          <tr><td><code>receiver.exporters.traces.endpoint</code></td><td><code>&quot;&quot;</code></td><td>endpoint: the backend URL, when it is not secret.</td></tr>
+          <tr><td><code>receiver.exporters.traces.endpointFromSecret.name</code></td><td><code>&quot;&quot;</code></td><td>name: a Secret holding the endpoint URL, instead of endpoint above.</td></tr>
+          <tr><td><code>receiver.exporters.traces.endpointFromSecret.key</code></td><td><code>&quot;endpoint&quot;</code></td><td>key: the key within that Secret.</td></tr>
+          <tr><td><code>receiver.exporters.traces.authorizationFromSecret.name</code></td><td><code>&quot;&quot;</code></td><td>name: a Secret holding the full Authorization header value. Empty sends no Authorization header.</td></tr>
+          <tr><td><code>receiver.exporters.traces.authorizationFromSecret.key</code></td><td><code>&quot;authorization&quot;</code></td><td>key: the key within that Secret.</td></tr>
+          <tr><td><code>receiver.networkPolicy.gatewayFrom</code></td><td><code>[]</code></td><td>gatewayFrom: NetworkPolicy peers (namespaceSelector / podSelector) matching your gateway&#x27;s pods -- the ONLY ingress the receiver accepts. Required when enabled: anything else reaching the port could assert any tenant.</td></tr>
+          <tr><td><code>receiver.networkPolicy.egress</code></td><td><code>[]</code></td><td>egress: NetworkPolicy egress rules reaching your backends (ipBlock, or namespace/pod selectors for in-cluster ones). Required when enabled: egress is default-deny apart from cluster DNS.</td></tr>
+          <tr><td><code>receiver.networkPolicy.dns.podSelector.k8s-app</code></td><td><code>kube-dns</code></td><td>k8s-app: CoreDNS&#x27;s label in most distributions (kind, kubeadm, EKS, GKE).</td></tr>
+          <tr><td><code>receiver.storageSizeLimit</code></td><td><code>256Mi</code></td><td>storageSizeLimit: size cap on Alloy&#x27;s scratch storage (an emptyDir; the root filesystem is read-only).</td></tr>
+          <tr><td><code>receiver.resources.requests.cpu</code></td><td><code>100m</code></td><td>cpu: minimum CPU reserved for the receiver.</td></tr>
+          <tr><td><code>receiver.resources.requests.memory</code></td><td><code>128Mi</code></td><td>memory: minimum memory reserved for the receiver.</td></tr>
+          <tr><td><code>receiver.resources.limits.cpu</code></td><td><code>&quot;1&quot;</code></td><td>cpu: the receiver&#x27;s CPU ceiling.</td></tr>
+          <tr><td><code>receiver.resources.limits.memory</code></td><td><code>512Mi</code></td><td>memory: the receiver&#x27;s memory ceiling.</td></tr>
+          <tr><td><code>receiver.podAnnotations</code></td><td><code>{}</code></td><td>podAnnotations: extra annotations on the receiver pod template.</td></tr>
+          <tr><td><code>receiver.nodeSelector</code></td><td><code>{}</code></td><td>nodeSelector: constrain receiver pods to nodes carrying these labels.</td></tr>
+          <tr><td><code>receiver.tolerations</code></td><td><code>[]</code></td><td>tolerations: let receiver pods schedule onto tainted nodes.</td></tr>
+          <tr><td><code>receiver.affinity</code></td><td><code>{}</code></td><td>affinity: pod/node affinity rules for the receiver pods.</td></tr>
+        </tbody>
+      </table>
         <nav class="page-nav" aria-label="Pagination">
           <a class="page-nav-prev" href="mcp.html"><span>Previous</span><strong>AI agent (MCP)</strong></a>
           <a class="page-nav-next" href="resources.html"><span>Next</span><strong>Further reading</strong></a>
@@ -408,6 +456,7 @@
         <li><a href="#autoscaling">autoscaling</a></li>
         <li><a href="#networkpolicy">networkPolicy</a></li>
         <li><a href="#simulator">simulator</a></li>
+        <li><a href="#receiver">receiver</a></li>
       </ul>
     </aside>
   </div>
