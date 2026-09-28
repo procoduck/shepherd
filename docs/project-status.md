@@ -162,13 +162,11 @@ v0.9.0), reconciliation (W6, v0.11.0). Still to build, each a GitHub issue:
 - **Onboarding artifacts page (W7) — #111.** "Connect an app" snippets for a tenant route.
 - **Chart-values generator UI (W9) + gate G10 — #112.**
 
-### Attribute-based matching — UI and docs · **#139 item 8**
+### Attribute-based matching — UI and docs · **#139 item 8** · done, unreleased
 
-Matching on admin labels and agent `local_attributes` shipped in v0.11.0 (#144), behind two
-per-org flags that are **RPC only**: nothing in the UI turns them on (`AdminService.UpdateOrg` does),
-there is no matcher-key autocomplete, and the docs site has no matchers page. Until the UI exists,
-the Organisations edit form must keep carrying both flags through on save (#158 fixed it resetting
-them).
+Built on `main`: org-editor toggles for both matching flags, matcher suggestions in the pipeline
+editor and visual builder (fed by a `ListAttributes` that now lists only keys matching evaluates),
+and the matchers docs section. Ships in the next release; closes #139.
 
 Closed features (F5 sandbox simulation, F-SIGNAL-SERVE) are in `docs/archive/completed-2026-09-11.md`.
 F-REVISIONS closed — see `CHANGELOG.md` v0.6.0 "Pipelines — Shipped"; its plan is archived at

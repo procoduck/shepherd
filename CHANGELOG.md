@@ -13,6 +13,24 @@ Categories used here:
 
 ## Unreleased
 
+### Added
+
+- **Attribute-matching toggles and matcher suggestions.** The two per-org matching flags from
+  v0.11.0 now have checkboxes on **Admin → Organisations → Edit** (label matching shows the org's
+  own `shepherd admin audit-matcher-impact --org <id>` command to preview the effect first). The
+  pipeline editor's and visual builder's matcher inputs now suggest the `key="value"` pairs the
+  org's collectors carry. The matchers docs page covers label and agent-attribute matching.
+  _Shipped._ (#139)
+
+### Changed
+
+- **`FleetService.ListAttributes` lists only keys that pipeline matching evaluates.** It used to
+  return every agent-reported attribute key whether or not the org matched on them, and never an
+  admin label. It now returns `cluster` and `role` always, admin labels when label matching is on,
+  agent attributes (lowercased, latest instance per collector) when agent-attribute matching is on,
+  and never a reserved key — so the MCP `list_fleet_attributes` tool and any API caller stop being
+  offered keys a matcher can never hit. (#139)
+
 ## v0.11.0
 
 Chart 0.15.0. Two fleet capabilities ship: the **Reconciliation** tab (declared vs served vs
