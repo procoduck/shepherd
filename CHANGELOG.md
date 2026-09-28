@@ -22,6 +22,13 @@ Categories used here:
   org's collectors carry. The matchers docs page covers label and agent-attribute matching.
   _Shipped._ (#139)
 
+- **`shepherd receiver render`** — first piece of the receiver tier (#109,
+  `docs/plans/2026-09-28-receiver-tier.md`). Validates a receiver config file (YAML, OTLP/HTTP
+  only) with the receiver package's checks and renders it to Alloy config; nothing is written when
+  validation fails. Endpoints are a URL literal or an environment-variable name and credentials are
+  environment references — never raw Alloy expressions from the file. _Built, not wired_: the chart
+  does not deploy a receiver yet.
+
 ### Changed
 
 - **`FleetService.ListAttributes` lists only keys that pipeline matching evaluates.** It used to
