@@ -19,7 +19,7 @@
 |---|---|
 | `docs/project-status.md` | this ledger — verified baseline, open bugs, unbuilt features, open follow-ups |
 | `docs/spec.md` | authoritative product/build specification (§ numbers referenced below) |
-| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. Empty at v0.11.0 — the reconciliation plan shipped and is archived |
+| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. Current: `2026-09-28-receiver-tier.md` (#109, awaiting approval) |
 | `docs/visual-builder-design-VB1.md` | visual builder design — M1–M8 built; §6.4 (S3) is the live spec for the sandbox feature (enabled by default in the Helm chart since v0.0.1) |
 | `docs/reviews/` | **live decision records only**: `canvas-framework-evaluation.md` (the React Flow decision and the controlled-mode contract `CanvasPane` depends on). Closed reviews move to `docs/archive/reviews/` |
 | `docs/dev-guide.md` | running the dev stack |
@@ -157,8 +157,9 @@ R1, R2 signed; R6's conditions met in v0.9.0; R3 open. Shipped since the sign-of
 UI (W4, v0.9.0), service accounts UI (W10, v0.9.0), the MCP interface in the release archives (W11,
 v0.9.0), reconciliation (W6, v0.11.0). Still to build, each a GitHub issue:
 
-- **Receiver tier (W4's other half) — #109.** Chart Deployment + Service + NetworkPolicy (gateway the
-  only ingress), tested off-switch, real-Alloy pass-through tenancy e2e; then back to R3 to sign.
+- **Receiver tier (W4's other half) — #109.** Plan: `docs/plans/2026-09-28-receiver-tier.md`
+  (config rendered at pod start, destinations from chart values, default off; tenant-route apply is
+  a separate follow-up). Four PRs, then back to R3 to sign.
 - **Onboarding artifacts page (W7) — #111.** "Connect an app" snippets for a tenant route.
 - **Chart-values generator UI (W9) + gate G10 — #112.**
 
