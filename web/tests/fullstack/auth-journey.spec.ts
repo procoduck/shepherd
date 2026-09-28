@@ -2,7 +2,7 @@
  * Fullstack: auth-journey (V4-16a)
  * The full login/logout lifecycle as one ordered journey.
  */
-import { expect, test } from './fixtures';
+import { expect, rpc, test } from './fixtures';
 
 test.describe('auth-journey', () => {
   test('full login/logout lifecycle', async ({ page, context }) => {
@@ -17,9 +17,8 @@ test.describe('auth-journey', () => {
     await expect(page.getByTestId('local-login-submit')).toBeVisible();
 
     // The SPA probes identity through the generated Connect client
-    // (MeService/GetMe), not the legacy /api/me REST shim which only external
-    // integrations use — match either so this asserts the app's real behavior.
-    const isMeProbe = (url: string) => url.endsWith('/api/me') || url.includes('MeService/GetMe');
+    // (MeService/GetMe) — the only identity endpoint it has.
+    const isMeProbe = (url: string) => url.includes('MeService/GetMe');
     await expect
       .poll(() => responses.filter((response) => isMeProbe(response.url)).length, {
         message: 'the SPA must probe its identity endpoint while unauthenticated',
@@ -50,12 +49,13 @@ test.describe('auth-journey', () => {
     const cookiesAfterLogout = await context.cookies();
     expect(cookiesAfterLogout.find((cookie) => cookie.name === 'shepherd_session')).toBeUndefined();
 
-    const replayResp = await page.request.get('/api/me', {
-      headers: {
-        Cookie: `shepherd_session=${preLogoutCookieValue}`,
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-    });
+    const replayResp = await rpc(
+      page,
+      'MeService',
+      'GetMe',
+      {},
+      { Cookie: `shepherd_session=${preLogoutCookieValue}` },
+    );
     expect(replayResp.status()).toBe(401);
 
     await page.goBack();

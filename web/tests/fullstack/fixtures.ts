@@ -5,7 +5,7 @@
  * NEVER import the mocked `api` fixture here.
  * NEVER intercept network requests (page-level route mocks) in fullstack specs.
  */
-import { test as base, expect, type Page } from '@playwright/test';
+import { type APIResponse, test as base, expect, type Page } from '@playwright/test';
 
 // Dev stack credentials (from dev/shepherd.dev.env)
 export const DEV_ADMIN_USERNAME = 'admin';
@@ -55,6 +55,71 @@ export async function loginAs(page: Page, username: string, password: string): P
  * export because every existing fullstack spec imports it by name. */
 export async function loginAsAdmin(page: Page): Promise<void> {
   return loginAs(page, DEV_ADMIN_USERNAME, DEV_ADMIN_PASSWORD);
+}
+
+/** A shepherd.mgmt.v1 service name, e.g. 'PipelineService'. */
+export type MgmtService =
+  | 'MeService'
+  | 'AdminService'
+  | 'UserService'
+  | 'FleetService'
+  | 'PipelineService'
+  | 'DestinationService'
+  | 'GitOpsService'
+  | 'WizardService'
+  | 'VisualService'
+  | 'SimulateService'
+  | 'AuditService'
+  | 'TenantRouteService'
+  | 'TeamService'
+  | 'ServiceAccountService';
+
+/**
+ * rpc calls a shepherd.mgmt.v1 procedure the way the SPA's own transport
+ * does (web/src/api/transport.ts): a Connect unary POST of JSON to
+ * /shepherd.mgmt.v1.<Service>/<Method>, with the X-Requested-With header the
+ * server's CSRF middleware demands on every non-GET request. The session
+ * cookie from loginAs rides along on page.request.
+ *
+ * The raw APIResponse is returned so callers can assert on the HTTP status
+ * the Connect protocol maps each code to (200 success — creates included —
+ * 401 unauthenticated, 403 permission_denied, 503 unavailable, ...). Bodies
+ * are protojson: lowerCamelCase field names, zero values (false, 0, "",
+ * empty lists) OMITTED, int64 as strings; an error body is
+ * { code: "<snake_case code>", message }.
+ */
+export function rpc(
+  page: Page,
+  service: MgmtService,
+  method: string,
+  data: Record<string, unknown> = {},
+  headers: Record<string, string> = {},
+): Promise<APIResponse> {
+  return page.request.post(`/shepherd.mgmt.v1.${service}/${method}`, {
+    data,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+      ...headers,
+    },
+  });
+}
+
+/** The fields of MeService.GetMe the fullstack specs read. `orgs` is absent
+ * (protojson omits an empty list) when the caller belongs to no org. */
+export interface Me {
+  orgs?: Array<{ id: string; name: string; role?: string }>;
+}
+
+/** getMe returns the logged-in caller's MeService.GetMe response, failing
+ * loudly on anything but 200. */
+export async function getMe(page: Page): Promise<Required<Me>> {
+  const resp = await rpc(page, 'MeService', 'GetMe');
+  if (resp.status() !== 200) {
+    throw new Error(`GetMe failed: ${resp.status()} ${await resp.text()}`);
+  }
+  const me = (await resp.json()) as Me;
+  return { orgs: me.orgs ?? [] };
 }
 
 /**

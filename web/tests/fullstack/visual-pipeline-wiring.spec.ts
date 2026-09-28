@@ -22,7 +22,7 @@
  * itself can produce and save that content in the first place.
  */
 import { expect, type Locator, type Page, test } from '@playwright/test';
-import { loginAsAdmin } from './fixtures';
+import { getMe, loginAsAdmin, rpc } from './fixtures';
 
 async function dragWire(page: Page, from: Locator, to: Locator) {
   const fromBox = await from.boundingBox();
@@ -132,13 +132,9 @@ test('a fully wired discovery -> scrape -> remote_write pipeline saves with both
   // Read back the saved content through the real API — this is what
   // `alloy validate` is run against outside this spec (Docker isn't
   // reachable from inside the Playwright browser sandbox).
-  const meResp = await page.request.get('/api/me');
-  const me = await meResp.json();
+  const me = await getMe(page);
   const orgId: string = me.orgs[0].id;
-  const getResp = await page.request.post('/shepherd.mgmt.v1.PipelineService/GetPipeline', {
-    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-    data: { org_id: orgId, id: pipelineId },
-  });
+  const getResp = await rpc(page, 'PipelineService', 'GetPipeline', { orgId, id: pipelineId });
   expect(getResp.status()).toBe(200);
   const pipeline = await getResp.json();
   expect(pipeline.contents).toContain('forward_to = [prometheus.remote_write.');

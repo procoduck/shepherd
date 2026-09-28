@@ -24,7 +24,7 @@
  *   value, so the badge never reads APPLIED. Reverted and rebuilt back to
  *   green afterward.
  */
-import { expect, loginAsAdmin, test } from './fixtures';
+import { expect, getMe, loginAsAdmin, rpc, test } from './fixtures';
 
 test.describe('rollout: real fleet convergence', () => {
   test('enabling a pipeline from /pipelines is applied by the real agent and reported back', async ({
@@ -33,32 +33,29 @@ test.describe('rollout: real fleet convergence', () => {
     test.setTimeout(150_000);
     await loginAsAdmin(page);
 
-    const meResp = await page.request.get('/api/me', {
-      headers: { 'X-Requested-With': 'XMLHttpRequest' },
-    });
-    const me = (await meResp.json()) as { orgs: Array<{ id: string; name: string }> };
+    const me = await getMe(page);
     const org = me.orgs.find((o) => o.name === 'platform-org');
     if (!org) throw new Error('dev seed must provide platform-org');
     const orgId = org.id;
 
-    const collectorsResp = await page.request.get(`/api/orgs/${orgId}/collectors`, {
-      headers: { 'X-Requested-With': 'XMLHttpRequest' },
-    });
+    const collectorsResp = await rpc(page, 'FleetService', 'ListCollectors', { orgId });
     const collectors = (await collectorsResp.json()) as {
-      items: Array<{ id: string; role: string; cluster: string }>;
+      items?: Array<{ id: string; role: string; cluster: string }>;
     };
-    const metricsCollector = collectors.items.find(
+    const metricsCollector = (collectors.items ?? []).find(
       (c) => c.role === 'metrics' && c.cluster === 'prod-eu-1',
     );
     if (!metricsCollector) {
       throw new Error('dev seed must provide the prod-eu-1/metrics collector (alloy-metrics)');
     }
 
-    const baselineResp = await page.request.get(
-      `/api/orgs/${orgId}/collectors/${metricsCollector.id}/served-config`,
-      { headers: { 'X-Requested-With': 'XMLHttpRequest' } },
-    );
-    const baseline = (await baselineResp.json()) as { hash: string };
+    const baselineResp = await rpc(page, 'FleetService', 'GetServedConfig', {
+      orgId,
+      id: metricsCollector.id,
+    });
+    expect(baselineResp.status()).toBe(200);
+    // protojson omits an empty hash (nothing computed yet) — '' is that.
+    const baselineHash = ((await baselineResp.json()) as { hash?: string }).hash ?? '';
 
     // Create a fresh pipeline matching this exact collector, via the API —
     // only the enable step below goes through the UI (that's the part this
@@ -68,22 +65,20 @@ test.describe('rollout: real fleet convergence', () => {
     // reuse `name` as its own block label below — underscores only, matching
     // pipelines.spec.ts's fs_pipe_... convention.
     const name = `fs_rollout_${Date.now()}`;
-    const createResp = await page.request.post(`/api/orgs/${orgId}/pipelines`, {
-      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-      data: {
-        name,
-        contents: `prometheus.exporter.self "${name}" { }`,
-        matchers: [`cluster="prod-eu-1"`, `role="metrics"`],
-      },
+    const createResp = await rpc(page, 'PipelineService', 'CreatePipeline', {
+      orgId,
+      name,
+      contents: `prometheus.exporter.self "${name}" { }`,
+      matchers: [`cluster="prod-eu-1"`, `role="metrics"`],
     });
-    expect(createResp.status()).toBe(201);
+    expect(createResp.status()).toBe(200);
     const pipeline = (await createResp.json()) as { id: string };
 
     try {
       await page.goto('/pipelines');
       // The admin belongs to more than one org, and with no persisted
       // selection in this fresh context, useOrg falls back to orgs[0] —
-      // /api/me sorts by name, so that is data-eng, not platform-org, which
+      // GetMe sorts by name, so that is data-eng, not platform-org, which
       // is where this pipeline actually lives (walkthrough.spec.ts hits the
       // identical default).
       await page.getByTestId('org-switcher').selectOption({ label: 'Platform Engineering' });
@@ -103,12 +98,15 @@ test.describe('rollout: real fleet convergence', () => {
       await expect
         .poll(
           async () => {
-            const resp = await page.request.get(
-              `/api/orgs/${orgId}/collectors/${metricsCollector.id}/served-config`,
-              { headers: { 'X-Requested-With': 'XMLHttpRequest' } },
+            const resp = await rpc(page, 'FleetService', 'GetServedConfig', {
+              orgId,
+              id: metricsCollector.id,
+            });
+            const data = (await resp.json()) as { content?: string; hash?: string };
+            return (
+              (data.hash ?? '') !== baselineHash &&
+              (data.content ?? '').includes(`declare "${blockName}"`)
             );
-            const data = (await resp.json()) as { content: string; hash: string };
-            return data.hash !== baseline.hash && data.content.includes(`declare "${blockName}"`);
           },
           { timeout: 30000, intervals: [2000] },
         )
@@ -125,13 +123,13 @@ test.describe('rollout: real fleet convergence', () => {
       const seenReports = new Set<string>();
       let lastStatus = '';
       await expect(async () => {
-        const resp = await page.request.get(
-          `/api/orgs/${orgId}/collectors/${metricsCollector.id}`,
-          { headers: { 'X-Requested-With': 'XMLHttpRequest' } },
-        );
-        const detail = (await resp.json()) as { last_seen?: string; remote_config_status?: string };
-        if (detail.last_seen) seenReports.add(detail.last_seen);
-        lastStatus = (detail.remote_config_status ?? '').toUpperCase();
+        const resp = await rpc(page, 'FleetService', 'GetCollector', {
+          orgId,
+          id: metricsCollector.id,
+        });
+        const detail = (await resp.json()) as { lastSeen?: string; remoteConfigStatus?: string };
+        if (detail.lastSeen) seenReports.add(detail.lastSeen);
+        lastStatus = (detail.remoteConfigStatus ?? '').toUpperCase();
         expect(
           seenReports.size,
           'need >=2 real agent poll reports since the config changed',
@@ -146,9 +144,7 @@ test.describe('rollout: real fleet convergence', () => {
       const statusBadge = page.getByTestId('collector-status');
       await expect(statusBadge).toHaveText('APPLIED', { timeout: 20000 });
     } finally {
-      await page.request.delete(`/api/orgs/${orgId}/pipelines/${pipeline.id}`, {
-        headers: { 'X-Requested-With': 'XMLHttpRequest' },
-      });
+      await rpc(page, 'PipelineService', 'DeletePipeline', { orgId, id: pipeline.id });
     }
   });
 });

@@ -24,7 +24,7 @@
  *   unset) fails at the probe with exactly:
  *     simulator not enabled in this stack — run make test-fullstack-sim
  */
-import { expect, loginAsAdmin, test } from './fixtures';
+import { expect, getMe, loginAsAdmin, rpc, test } from './fixtures';
 
 test.describe('sandbox-run', () => {
   test.skip(
@@ -36,10 +36,7 @@ test.describe('sandbox-run', () => {
     test.setTimeout(150_000);
     await loginAsAdmin(page);
 
-    const meResp = await page.request.get('/api/me', {
-      headers: { 'X-Requested-With': 'XMLHttpRequest' },
-    });
-    const me = (await meResp.json()) as { orgs: Array<{ id: string; name: string }> };
+    const me = await getMe(page);
     const org = me.orgs.find((o) => o.name === 'platform-org');
     if (!org) throw new Error('dev seed must provide platform-org');
     const orgId = org.id;
@@ -47,20 +44,15 @@ test.describe('sandbox-run', () => {
     // Probe: a deliberately graph-less CreateRun. If the simulator profile
     // is absent, cfg.Simulator.Enabled is false and this is rejected before
     // the graph is ever inspected — that specific message is the signal.
-    const probeResp = await page.request.post('/shepherd.mgmt.v1.SimulateService/CreateRun', {
-      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-      data: { orgId },
-    });
+    const probeResp = await rpc(page, 'SimulateService', 'CreateRun', { orgId });
     const probeBody = (await probeResp.json().catch(() => ({}))) as { message?: string };
     if ((probeBody.message ?? '').includes('not enabled')) {
       throw new Error('simulator not enabled in this stack — run make test-fullstack-sim');
     }
 
-    const listResp = await page.request.get(`/api/orgs/${orgId}/pipelines`, {
-      headers: { 'X-Requested-With': 'XMLHttpRequest' },
-    });
-    const list = (await listResp.json()) as { items: Array<{ id: string; name: string }> };
-    const demo = list.items.find((p) => p.name === 'demo-visual');
+    const listResp = await rpc(page, 'PipelineService', 'ListPipelines', { orgId });
+    const list = (await listResp.json()) as { items?: Array<{ id: string; name: string }> };
+    const demo = (list.items ?? []).find((p) => p.name === 'demo-visual');
     if (!demo) throw new Error('dev seed must contain the demo-visual pipeline');
 
     await page.goto(`/pipelines/${demo.id}/visual`);
