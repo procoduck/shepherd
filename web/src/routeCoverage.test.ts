@@ -2,88 +2,48 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-// Spec-drift guard (docs/frontend-testing.md §3.1 / §10): every endpoint listed
-// in docs/spec.md §12 must have a corresponding default handler in
-// web/tests/mocks/handlers.ts, or be explicitly, deliberately excused below.
+// Spec-drift guard (docs/frontend-testing.md §3.1 / §10): every endpoint the app can call
+// must have a default handler in web/tests/mocks/handlers.ts, or be explicitly,
+// deliberately excused below.
 //
-// The app has migrated to Connect RPC with REST shims (docs/archive/api-contract-design.md):
-// the mock layer keys on Connect procedure paths (`/shepherd.mgmt.v1.<Service>/<Method>`),
-// not the legacy REST paths spec §12 documents. So this test parses spec §12's REST
-// endpoint list, maps each one to the Connect procedure that actually serves it today,
-// and checks THAT procedure has a mock handler. A handful of §12 endpoints are pure REST
-// (no Connect procedure at all -- /auth/*, /api/schema/*) and are checked directly.
+// Two sources, both authoritative for their half of the surface:
+//   - Connect procedures: read from the generated service descriptors
+//     (web/src/gen/shepherd/mgmt/v1/*_pb.ts), so a procedure added to proto/ is covered the
+//     moment `make generate` runs — nobody has to remember to list it here.
+//   - The few REST routes the Connect contract deliberately leaves out: parsed from the
+//     fenced block in docs/spec.md §12 ("What /api still serves").
+//
+// Until v0.11.0 this test parsed spec §12's list of /api REST shim routes and mapped each to
+// its Connect procedure. The shim was removed; checking the descriptors directly is stricter,
+// because it also covers procedures the old REST list never named.
 
 const specPath = path.resolve(__dirname, '../../docs/spec.md');
 const handlersPath = path.resolve(__dirname, '../tests/mocks/handlers.ts');
 
-interface SpecEndpoint {
-  /** HTTP method from spec, or a synthetic CRUD sub-operation (LIST/CREATE/GET/UPDATE/DELETE). */
-  method: string;
-  path: string;
-  /** original spec line, for failure messages */ raw: string;
+const generated = import.meta.glob('/src/gen/shepherd/mgmt/v1/*_pb.ts', { eager: true }) as Record<
+  string,
+  Record<string, unknown>
+>;
+
+interface ServiceDesc {
+  kind: string;
+  typeName: string;
+  methods: { name: string }[];
 }
 
-const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
-
-// A `CRUD <path>` line in spec §12 is shorthand for these five operations.
-// LIST/CREATE act on the collection path; GET/UPDATE/DELETE act on `<path>/{id}`.
-const CRUD_OPS: { method: string; onItem: boolean }[] = [
-  { method: 'LIST', onItem: false },
-  { method: 'CREATE', onItem: false },
-  { method: 'GET', onItem: true },
-  { method: 'UPDATE', onItem: true },
-  { method: 'DELETE', onItem: true },
-];
-
-/** Parses the fenced endpoint list out of spec.md's "## 12. Management REST API" section. */
-function parseSpecSection12(specSource: string): SpecEndpoint[] {
-  const heading = '## 12. Management REST API';
-  const headingIdx = specSource.indexOf(heading);
-  if (headingIdx === -1) {
-    throw new Error(`spec.md heading "${heading}" not found -- has §12 been renamed/moved?`);
-  }
-  const fenceStart = specSource.indexOf('```', headingIdx);
-  const fenceEnd = specSource.indexOf('```', fenceStart + 3);
-  if (fenceStart === -1 || fenceEnd === -1) {
-    throw new Error('spec.md §12 endpoint code block not found (expected a ``` fenced list)');
-  }
-  const block = specSource.slice(fenceStart + 3, fenceEnd);
-
-  const endpoints: SpecEndpoint[] = [];
-  for (const rawLine of block.split('\n')) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#')) continue; // blank line or "# Admin" / "# Org-scoped" divider
-
-    const [methodToken, pathToken] = line.split(/\s+/, 2);
-    if (!methodToken || !pathToken) continue;
-    const cleanPath = pathToken.split('?')[0]; // drop query strings like ?unclaimed=true
-
-    if (methodToken === 'CRUD') {
-      for (const op of CRUD_OPS) {
-        endpoints.push({
-          method: op.method,
-          path: cleanPath + (op.onItem ? '/{id}' : ''),
-          raw: line,
-        });
+/** Every `/shepherd.mgmt.v1.<Service>/<Method>` procedure path the generated code defines. */
+function connectProcedures(): string[] {
+  const procedures: string[] = [];
+  for (const mod of Object.values(generated)) {
+    for (const value of Object.values(mod)) {
+      const desc = value as Partial<ServiceDesc> | null;
+      if (desc?.kind !== 'service' || !desc.typeName) continue;
+      for (const method of desc.methods ?? []) {
+        procedures.push(`/${desc.typeName}/${method.name}`);
       }
-      continue;
     }
-
-    if (!HTTP_METHODS.includes(methodToken)) continue; // not an endpoint line
-
-    if (cleanPath.includes('|')) {
-      // e.g. ".../pipelines/{id}/enable|disable" -> two endpoints
-      const lastSlash = cleanPath.lastIndexOf('/');
-      const prefix = cleanPath.slice(0, lastSlash + 1);
-      for (const alt of cleanPath.slice(lastSlash + 1).split('|')) {
-        endpoints.push({ method: methodToken, path: prefix + alt, raw: line });
-      }
-      continue;
-    }
-
-    endpoints.push({ method: methodToken, path: cleanPath, raw: line });
   }
-  return endpoints;
+  return procedures.sort();
 }
 
 /** Every `router.register('METHOD', 'path', ...)` call in handlers.ts, as "METHOD path" keys. */
@@ -96,151 +56,109 @@ function registeredRouteKeys(handlersSource: string): Set<string> {
   return keys;
 }
 
-// spec §12 "METHOD path" -> the Connect RPC procedure that actually serves it today
-// (docs/archive/api-contract-design.md's routes-mirroring table, cross-checked against
-// internal/mgmtapi/router.go and web/tests/mocks/handlers.ts). CRUD-expanded keys use
-// the synthetic LIST/CREATE/GET/UPDATE/DELETE method from parseSpecSection12 above.
-const SPEC_TO_PROCEDURE: Record<string, string> = {
-  'GET /api/me': '/shepherd.mgmt.v1.MeService/GetMe',
+interface RestEndpoint {
+  method: string;
+  path: string;
+  /** original spec line, for failure messages */ raw: string;
+}
 
-  'POST /api/admin/orgs': '/shepherd.mgmt.v1.AdminService/CreateOrg',
-  'GET /api/admin/orgs': '/shepherd.mgmt.v1.AdminService/ListOrgs',
-  'PATCH /api/admin/orgs/{org}': '/shepherd.mgmt.v1.AdminService/UpdateOrg',
-  'DELETE /api/admin/orgs/{org}': '/shepherd.mgmt.v1.AdminService/DeleteOrg',
-  'GET /api/admin/clusters': '/shepherd.mgmt.v1.AdminService/ListClusters',
-  'POST /api/admin/clusters/{cluster}/claim': '/shepherd.mgmt.v1.AdminService/ClaimCluster',
-  'POST /api/admin/clusters/{cluster}/unclaim': '/shepherd.mgmt.v1.AdminService/UnclaimCluster',
-  'GET /api/admin/agent-tokens': '/shepherd.mgmt.v1.AdminService/ListAgentTokens',
-  'POST /api/admin/agent-tokens': '/shepherd.mgmt.v1.AdminService/CreateAgentToken',
-  'DELETE /api/admin/agent-tokens/{id}': '/shepherd.mgmt.v1.AdminService/RevokeAgentToken',
-  'GET /api/admin/groups/search': '/shepherd.mgmt.v1.AdminService/SearchGroups',
+/** Parses the fenced REST route list out of spec.md §12. */
+function parseSpecRestRoutes(specSource: string): RestEndpoint[] {
+  const heading = '## 12. Management API';
+  const headingIdx = specSource.indexOf(heading);
+  if (headingIdx === -1) {
+    throw new Error(`spec.md heading "${heading}" not found -- has §12 been renamed/moved?`);
+  }
+  const nextSection = specSource.indexOf('\n## ', headingIdx + heading.length);
+  const section = specSource.slice(headingIdx, nextSection === -1 ? undefined : nextSection);
+  const fenceStart = section.indexOf('```');
+  const fenceEnd = section.indexOf('```', fenceStart + 3);
+  if (fenceStart === -1 || fenceEnd === -1) {
+    throw new Error('spec.md §12 REST route block not found (expected a ``` fenced list)');
+  }
+  const endpoints: RestEndpoint[] = [];
+  for (const rawLine of section.slice(fenceStart + 3, fenceEnd).split('\n')) {
+    const line = rawLine.trim();
+    const match = /^(GET|POST|PUT|PATCH|DELETE)\s+(.+?)(\s{2,}|$)/.exec(line);
+    if (!match) continue;
+    // "POST /a, /b" lists several paths sharing one method.
+    for (const p of match[2].split(',')) {
+      endpoints.push({ method: match[1], path: p.trim(), raw: line });
+    }
+  }
+  return endpoints;
+}
 
-  'GET /api/orgs/{org}/collectors': '/shepherd.mgmt.v1.FleetService/ListCollectors',
-  'GET /api/orgs/{org}/collectors/{id}': '/shepherd.mgmt.v1.FleetService/GetCollector',
-  'GET /api/orgs/{org}/collectors/{id}/served-config':
-    '/shepherd.mgmt.v1.FleetService/GetServedConfig',
-  'POST /api/orgs/{org}/collectors/{id}/assignments':
-    '/shepherd.mgmt.v1.FleetService/CreateAssignment',
-  'DELETE /api/orgs/{org}/collectors/{id}/assignments/{group_id}':
-    '/shepherd.mgmt.v1.FleetService/DeleteAssignment',
-  'GET /api/orgs/{org}/attributes': '/shepherd.mgmt.v1.FleetService/ListAttributes',
-
-  'GET /api/orgs/{org}/pipelines': '/shepherd.mgmt.v1.PipelineService/ListPipelines',
-  'POST /api/orgs/{org}/pipelines': '/shepherd.mgmt.v1.PipelineService/CreatePipeline',
-  'GET /api/orgs/{org}/pipelines/{id}': '/shepherd.mgmt.v1.PipelineService/GetPipeline',
-  'PUT /api/orgs/{org}/pipelines/{id}': '/shepherd.mgmt.v1.PipelineService/UpdatePipeline',
-  'POST /api/orgs/{org}/pipelines/{id}/enable': '/shepherd.mgmt.v1.PipelineService/EnablePipeline',
-  'POST /api/orgs/{org}/pipelines/{id}/disable':
-    '/shepherd.mgmt.v1.PipelineService/DisablePipeline',
-  'DELETE /api/orgs/{org}/pipelines/{id}': '/shepherd.mgmt.v1.PipelineService/DeletePipeline',
-  'POST /api/orgs/{org}/pipelines/validate': '/shepherd.mgmt.v1.PipelineService/ValidatePipeline',
-  'GET /api/orgs/{org}/pipelines/{id}/preview-matches':
-    '/shepherd.mgmt.v1.PipelineService/PreviewMatches',
-  // These two live in spec.md §D.3, not the §12 fence this test parses
-  // (docs-tests owns that placement) — harmless to map pre-emptively, and
-  // correct the day someone moves them into §12 (see the plan's "routeCoverage
-  // drift" risk note).
-  'GET /api/orgs/{org}/pipelines/{id}/revisions/{rev}':
-    '/shepherd.mgmt.v1.PipelineService/GetRevision',
-  'POST /api/orgs/{org}/pipelines/{id}/revisions/{rev}/restore':
-    '/shepherd.mgmt.v1.PipelineService/RestoreRevision',
-
-  'LIST /api/orgs/{org}/destinations': '/shepherd.mgmt.v1.DestinationService/ListDestinations',
-  'CREATE /api/orgs/{org}/destinations': '/shepherd.mgmt.v1.DestinationService/CreateDestination',
-  'GET /api/orgs/{org}/destinations/{id}': '/shepherd.mgmt.v1.DestinationService/GetDestination',
-  'UPDATE /api/orgs/{org}/destinations/{id}':
-    '/shepherd.mgmt.v1.DestinationService/UpdateDestination',
-  'DELETE /api/orgs/{org}/destinations/{id}':
-    '/shepherd.mgmt.v1.DestinationService/DeleteDestination',
-
-  'LIST /api/orgs/{org}/git-credentials': '/shepherd.mgmt.v1.GitOpsService/ListCredentials',
-  'CREATE /api/orgs/{org}/git-credentials': '/shepherd.mgmt.v1.GitOpsService/CreateCredential',
-  'DELETE /api/orgs/{org}/git-credentials/{id}': '/shepherd.mgmt.v1.GitOpsService/DeleteCredential',
-  'POST /api/orgs/{org}/git-credentials/{id}/test':
-    '/shepherd.mgmt.v1.GitOpsService/TestCredential',
-
-  'LIST /api/orgs/{org}/repo-links': '/shepherd.mgmt.v1.GitOpsService/ListRepoLinks',
-  'CREATE /api/orgs/{org}/repo-links': '/shepherd.mgmt.v1.GitOpsService/CreateRepoLink',
-  'DELETE /api/orgs/{org}/repo-links/{id}': '/shepherd.mgmt.v1.GitOpsService/DeleteRepoLink',
-
-  'GET /api/orgs/{org}/wizards': '/shepherd.mgmt.v1.WizardService/ListWizards',
-  'GET /api/orgs/{org}/wizards/{kind}': '/shepherd.mgmt.v1.WizardService/GetWizardSchema',
-  'POST /api/orgs/{org}/wizards/render': '/shepherd.mgmt.v1.WizardService/RenderWizard',
-  'POST /api/orgs/{org}/wizards/commit': '/shepherd.mgmt.v1.WizardService/CommitWizard',
-
-  'POST /api/orgs/{org}/visual/render': '/shepherd.mgmt.v1.VisualService/Render',
-  'POST /api/orgs/{org}/visual/validate': '/shepherd.mgmt.v1.VisualService/Validate',
-  'POST /api/orgs/{org}/visual/upgrade-check': '/shepherd.mgmt.v1.VisualService/UpgradeCheck',
-  'GET /api/orgs/{org}/pipelines/{id}/graph': '/shepherd.mgmt.v1.VisualService/GraphView',
-
-  'POST /api/orgs/{org}/simulate/relabel': '/shepherd.mgmt.v1.SimulateService/SimulateRelabel',
-  'POST /api/orgs/{org}/simulate/logs': '/shepherd.mgmt.v1.SimulateService/SimulateLogs',
-  'POST /api/orgs/{org}/simulate/runs': '/shepherd.mgmt.v1.SimulateService/CreateRun',
-  'GET /api/orgs/{org}/simulate/runs/{id}': '/shepherd.mgmt.v1.SimulateService/GetRun',
-
-  'GET /api/orgs/{org}/audit': '/shepherd.mgmt.v1.AuditService/ListAudit',
+// Procedures with no default mock handler. Every entry predates this guard's switch to the
+// generated descriptors (the REST-list version never looked at them), so each is a known
+// backlog item, not an oversight this test excuses. Delete an entry in the same change that
+// adds its handler; a stale entry fails the test below.
+const UNMOCKED_PROCEDURES: Record<string, string> = {
+  '/shepherd.mgmt.v1.AdminService/SetOrgTenantID': 'tenant-id admin action; no mocked spec yet',
+  '/shepherd.mgmt.v1.DestinationService/ListDestinationBindings':
+    'destination bindings: no default handler yet',
+  '/shepherd.mgmt.v1.DestinationService/GetDestinationBinding':
+    'destination bindings: no default handler yet',
+  '/shepherd.mgmt.v1.DestinationService/CreateDestinationBinding':
+    'destination bindings: no default handler yet',
+  '/shepherd.mgmt.v1.DestinationService/UpdateDestinationBinding':
+    'destination bindings: no default handler yet',
+  '/shepherd.mgmt.v1.DestinationService/DeleteDestinationBinding':
+    'destination bindings: no default handler yet',
+  '/shepherd.mgmt.v1.DestinationService/ResolveDestinationBinding':
+    'destination bindings: no default handler yet',
+  '/shepherd.mgmt.v1.FleetService/SetCollectorLabel': 'collector labels: no default handler yet',
+  '/shepherd.mgmt.v1.FleetService/DeleteCollectorLabel': 'collector labels: no default handler yet',
+  '/shepherd.mgmt.v1.PipelineService/SetPipelineOwner':
+    'pipeline ownership: no default handler yet',
+  '/shepherd.mgmt.v1.UserService/ListOrgMembers': 'org members list: no default handler yet',
 };
 
-// Spec §12 endpoints with NO handler today because the backend genuinely doesn't
-// implement them yet (verified against internal/mgmtapi/router.go and the proto
-// service definitions) -- real, tracked gaps rather than test bugs. Each cites the
-// docs/project-status.md ledger item that owns closing it. Delete an entry the same
-// change that gives it a real handler, so this list can't quietly go stale.
-const KNOWN_GAPS: Record<string, string> = {
-  'GET /api/orgs/{org}/git-credentials/{id}':
-    'F4 -- no single-credential read procedure exists yet',
-  'UPDATE /api/orgs/{org}/git-credentials/{id}': 'F4 -- "update a credential" is an open item',
-  'GET /api/orgs/{org}/repo-links/{id}': 'F4 -- no single-repo-link read procedure exists yet',
-  'UPDATE /api/orgs/{org}/repo-links/{id}': 'F4 -- repo-link update is an open item',
+// Spec §12 REST routes the mock layer deliberately does not serve.
+const UNMOCKED_REST: Record<string, string> = {
+  'GET /api/version': 'build version; the SPA never calls it',
 };
 
-// Endpoints spec §12 documents that never got a Connect procedure by design --
-// they remain plain REST/browser-redirect routes (docs/archive/api-contract-design.md
-// "Out of contract, unchanged"). Checked directly against handlers.ts's REST registrations.
-const REST_ONLY: Record<string, string> = {};
+// The mock router matches `:param` segments, so a spec path is served by a handler whose
+// pattern matches it segment-for-segment (`/api/schema/current` by `/api/schema/:version`).
+function servedBy(pattern: string, specPath: string): boolean {
+  const a = pattern.split('/');
+  const b = specPath.split('/');
+  if (a.length !== b.length) return false;
+  return a.every((seg, i) => seg.startsWith(':') || /^\{.+\}$/.test(b[i]) || seg === b[i]);
+}
 
-describe('spec §12 / mock route coverage (spec-drift guard)', () => {
-  const specSource = readFileSync(specPath, 'utf-8');
-  const handlersSource = readFileSync(handlersPath, 'utf-8');
-  const specEndpoints = parseSpecSection12(specSource);
+describe('mock coverage of the management API', () => {
+  const handlersSource = readFileSync(handlersPath, 'utf8');
   const registered = registeredRouteKeys(handlersSource);
+  const procedures = connectProcedures();
 
-  it('parses a non-trivial endpoint list from spec.md §12 (parser sanity check)', () => {
-    // Guards against the parser silently matching nothing if §12's heading or fence
-    // format changes -- an empty list would make the coverage test below vacuously pass.
-    expect(specEndpoints.length).toBeGreaterThan(20);
+  it('finds the generated services (guards against a silently empty glob)', () => {
+    expect(procedures.length).toBeGreaterThan(50);
   });
 
-  it('every spec §12 endpoint has a mock handler, or is an explicit tracked gap', () => {
-    const missing: string[] = [];
+  it('every Connect procedure has a default mock handler, or is excused', () => {
+    const missing = procedures.filter(
+      (p) => !registered.has(`POST ${p}`) && !(p in UNMOCKED_PROCEDURES),
+    );
+    expect(missing, 'procedures with no mock handler in tests/mocks/handlers.ts').toEqual([]);
+  });
 
-    for (const ep of specEndpoints) {
-      const key = `${ep.method} ${ep.path}`;
-      if (key in KNOWN_GAPS) continue;
+  it('no excused procedure is stale (gone from the contract, or mocked after all)', () => {
+    const stale = Object.keys(UNMOCKED_PROCEDURES).filter(
+      (p) => !procedures.includes(p) || registered.has(`POST ${p}`),
+    );
+    expect(stale, 'remove these from UNMOCKED_PROCEDURES').toEqual([]);
+  });
 
-      const restKey = REST_ONLY[key];
-      if (restKey) {
-        if (!registered.has(restKey)) {
-          missing.push(`${key} -- no REST handler registered for "${restKey}" (raw: "${ep.raw}")`);
-        }
-        continue;
-      }
-
-      const procedure = SPEC_TO_PROCEDURE[key];
-      if (!procedure) {
-        missing.push(
-          `${key} -- no SPEC_TO_PROCEDURE mapping in this test; add one, or list it in KNOWN_GAPS ` +
-            `with a ledger reference if it's a real, tracked gap (raw: "${ep.raw}")`,
-        );
-        continue;
-      }
-      if (!registered.has(`POST ${procedure}`)) {
-        missing.push(
-          `${key} -- expected handler for Connect procedure ${procedure}, none registered in handlers.ts`,
-        );
-      }
-    }
-
-    expect(missing, `Unmocked spec §12 endpoints:\n${missing.join('\n')}`).toEqual([]);
+  it('every REST route spec §12 still documents has a mock handler, or is excused', () => {
+    const spec = parseSpecRestRoutes(readFileSync(specPath, 'utf8'));
+    expect(spec.length, 'spec §12 REST route block parsed empty').toBeGreaterThan(0);
+    const patterns = [...registered].map((k) => k.split(' ') as [string, string]);
+    const missing = spec
+      .filter((e) => !(`${e.method} ${e.path}` in UNMOCKED_REST))
+      .filter((e) => !patterns.some(([m, p]) => m === e.method && servedBy(p, e.path)))
+      .map((e) => `${e.method} ${e.path}  (spec: ${e.raw})`);
+    expect(missing, 'spec §12 REST routes with no mock handler').toEqual([]);
   });
 });
