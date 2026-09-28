@@ -3,8 +3,6 @@ package mgmtapi_test
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -60,7 +58,7 @@ var _ = Describe("Collector instance metadata", Label("integration"), func() {
 			},
 		}
 		authHandler := auth.NewLocalAdmin(cfg, st, slog.Default())
-		server = httptest.NewServer(newRESTRouter(st, authHandler, cfg, nil))
+		server = httptest.NewServer(newRPCWiringRouter(st, authHandler, cfg))
 		adminCookie = newAppAdminSession(ctx, st)
 	})
 
@@ -94,7 +92,17 @@ var _ = Describe("Collector instance metadata", Label("integration"), func() {
 		return inst
 	}
 
-	Describe("GET /orgs/{org}/collectors/{id}", func() {
+	getCollector := func(id pgtype.UUID) map[string]any {
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.FleetService/GetCollector", adminCookie,
+			map[string]any{"orgId": orgID, "id": id.String()})
+		defer resp.Body.Close() //nolint:errcheck // test cleanup
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		var result map[string]any
+		Expect(json.NewDecoder(resp.Body).Decode(&result)).To(Succeed())
+		return result
+	}
+
+	Describe("FleetService/GetCollector", func() {
 		It("includes the instances array with per-instance metadata, newest last_seen first", func() {
 			collector := createCollector("meta-cluster-detail")
 
@@ -107,12 +115,7 @@ var _ = Describe("Collector instance metadata", Label("integration"), func() {
 				RemoteConfigError:  pgtype.Text{String: "schema validation failed", Valid: true},
 			})).To(Succeed())
 
-			resp := getRequest(server, fmt.Sprintf("/orgs/%s/collectors/%s", orgID, collector.ID.String()), adminCookie)
-			defer resp.Body.Close() //nolint:errcheck // test cleanup
-			Expect(resp.StatusCode).To(Equal(http.StatusOK))
-
-			var result map[string]any
-			Expect(json.NewDecoder(resp.Body).Decode(&result)).To(Succeed())
+			result := getCollector(collector.ID)
 
 			Expect(result["cluster"]).To(Equal("meta-cluster-detail"))
 			Expect(result["role"]).To(Equal("metrics"))
@@ -124,23 +127,23 @@ var _ = Describe("Collector instance metadata", Label("integration"), func() {
 			newest, ok := instancesRaw[0].(map[string]any)
 			Expect(ok).To(BeTrue())
 			Expect(newest["name"]).To(Equal("node-b"))
-			Expect(newest["alloy_version"]).To(Equal("v1.2.0"))
+			Expect(newest["alloyVersion"]).To(Equal("v1.2.0"))
 			Expect(newest["os"]).To(Equal("darwin"))
-			Expect(newest["remote_config_status"]).To(Equal("FAILED"))
-			Expect(newest["remote_config_error"]).To(Equal("schema validation failed"))
-			Expect(newest["last_seen"]).NotTo(BeEmpty())
-			Expect(newest["local_attributes"]).To(HaveKeyWithValue("env", "prod"))
+			Expect(newest["remoteConfigStatus"]).To(Equal("FAILED"))
+			Expect(newest["remoteConfigError"]).To(Equal("schema validation failed"))
+			Expect(newest["lastSeen"]).NotTo(BeEmpty())
+			Expect(newest["localAttributes"]).To(HaveKeyWithValue("env", "prod"))
 
 			older, ok := instancesRaw[1].(map[string]any)
 			Expect(ok).To(BeTrue())
 			Expect(older["name"]).To(Equal("node-a"))
 
 			// The collector-level fields roll up from the latest instance.
-			Expect(result["alloy_version"]).To(Equal("v1.2.0"))
-			Expect(result["remote_config_status"]).To(Equal("FAILED"))
-			Expect(result["remote_config_error"]).To(Equal("schema validation failed"))
-			Expect(result["local_attributes"]).To(HaveKeyWithValue("env", "prod"))
-			Expect(result["last_seen"]).NotTo(BeEmpty())
+			Expect(result["alloyVersion"]).To(Equal("v1.2.0"))
+			Expect(result["remoteConfigStatus"]).To(Equal("FAILED"))
+			Expect(result["remoteConfigError"]).To(Equal("schema validation failed"))
+			Expect(result["localAttributes"]).To(HaveKeyWithValue("env", "prod"))
+			Expect(result["lastSeen"]).NotTo(BeEmpty())
 		})
 
 		It("omits unregistered instances from the instances array", func() {
@@ -148,12 +151,7 @@ var _ = Describe("Collector instance metadata", Label("integration"), func() {
 			upsertInstance("inst-gone", collector.ID, "node-gone", "v1.0.0", "linux", `{}`)
 			Expect(st.Queries.UnregisterInstance(ctx, "inst-gone")).To(Succeed())
 
-			resp := getRequest(server, fmt.Sprintf("/orgs/%s/collectors/%s", orgID, collector.ID.String()), adminCookie)
-			defer resp.Body.Close() //nolint:errcheck // test cleanup
-			Expect(resp.StatusCode).To(Equal(http.StatusOK))
-
-			var result map[string]any
-			Expect(json.NewDecoder(resp.Body).Decode(&result)).To(Succeed())
+			result := getCollector(collector.ID)
 			instancesRaw, _ := result["instances"].([]any) //nolint:errcheck // absent field decodes to nil, asserted below
 			Expect(instancesRaw).To(BeEmpty())
 		})
@@ -161,67 +159,27 @@ var _ = Describe("Collector instance metadata", Label("integration"), func() {
 		It("returns a collector with no reported instances yet without error", func() {
 			collector := createCollector("meta-cluster-empty")
 
-			resp := getRequest(server, fmt.Sprintf("/orgs/%s/collectors/%s", orgID, collector.ID.String()), adminCookie)
-			defer resp.Body.Close() //nolint:errcheck // test cleanup
-			Expect(resp.StatusCode).To(Equal(http.StatusOK))
-
-			var result map[string]any
-			Expect(json.NewDecoder(resp.Body).Decode(&result)).To(Succeed())
-			Expect(result["remote_config_status"]).To(BeNil())
-			Expect(result["last_seen"]).To(BeNil())
+			result := getCollector(collector.ID)
+			Expect(result["remoteConfigStatus"]).To(BeNil())
+			Expect(result["lastSeen"]).To(BeNil())
 		})
 
-		// Contract-fidelity regression: the legacy handler passed the stored
-		// local_attributes jsonb bytes straight onto the wire
-		// (json.RawMessage). Decoding them into a google.protobuf.Struct and
-		// re-marshaling through protojson is not byte-preserving — every
-		// number becomes a Struct Value's float64 — so the REST shim must
-		// substitute the untouched stored bytes back in, both on the
-		// collector-level rollup and on each instance. Postgres's jsonb
-		// storage itself normalizes object key order (verified separately),
-		// so this asserts on what a Struct round-trip provably cannot
-		// reproduce regardless of storage normalization: a fractional
-		// value's exact decimal text, and an integer beyond float64's
-		// 2^53 exact-integer range.
-		It("preserves local_attributes number formatting and integer precision byte-for-byte", func() {
-			collector := createCollector("meta-cluster-attrs")
-			upsertInstance("inst-attrs", collector.ID, "node-attrs", "v1.0.0", "linux",
-				`{"big":9007199254740993,"small":1.500000}`)
-
-			resp := getRequest(server, fmt.Sprintf("/orgs/%s/collectors/%s", orgID, collector.ID.String()), adminCookie)
-			defer resp.Body.Close() //nolint:errcheck // test cleanup
-			Expect(resp.StatusCode).To(Equal(http.StatusOK))
-
-			body, err := io.ReadAll(resp.Body)
-			Expect(err).NotTo(HaveOccurred())
-
-			// A Struct round-trip would print "small":1.5 (trailing zeros
-			// lost) and corrupt "big" to 9007199254740992 (float64 can't
-			// exactly represent it) — checked as raw text, not a decoded
-			// comparison, since decoding either side back through
-			// encoding/json would itself launder the exact precision loss
-			// this test exists to catch.
-			var result struct {
-				LocalAttributes json.RawMessage `json:"local_attributes"`
-				Instances       []struct {
-					LocalAttributes json.RawMessage `json:"local_attributes"`
-				} `json:"instances"`
-			}
-			Expect(json.Unmarshal(body, &result)).To(Succeed())
-			Expect(string(result.LocalAttributes)).To(ContainSubstring("9007199254740993"), "integers beyond 2^53 must not lose precision")
-			Expect(string(result.LocalAttributes)).To(ContainSubstring("1.500000"), "trailing zeros must survive, not collapse to 1.5")
-			Expect(result.Instances).To(HaveLen(1))
-			Expect(string(result.Instances[0].LocalAttributes)).To(ContainSubstring("9007199254740993"))
-			Expect(string(result.Instances[0].LocalAttributes)).To(ContainSubstring("1.500000"))
-		})
+		// No byte-preservation spec for local_attributes here. The /api REST
+		// shim spliced the stored jsonb bytes back onto the wire so numbers
+		// kept their exact text; Connect carries local_attributes as a
+		// google.protobuf.Struct, where every number is a float64 (an integer
+		// beyond 2^53 or "1.500000"'s trailing zeros do not survive). That was
+		// already what the SPA saw, and the shim that preserved the bytes was
+		// removed with the rest of /api.
 	})
 
-	Describe("GET /orgs/{org}/collectors", func() {
+	Describe("FleetService/ListCollectors", func() {
 		It("includes each item's latest last_seen and alloy_version", func() {
 			collector := createCollector("meta-cluster-list")
 			upsertInstance("inst-list-1", collector.ID, "node-list", "v2.0.0", "linux", `{}`)
 
-			resp := getRequest(server, fmt.Sprintf("/orgs/%s/collectors", orgID), adminCookie)
+			resp := postConnectJSON(server, "/shepherd.mgmt.v1.FleetService/ListCollectors", adminCookie,
+				map[string]any{"orgId": orgID})
 			defer resp.Body.Close() //nolint:errcheck // test cleanup
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
@@ -238,8 +196,8 @@ var _ = Describe("Collector instance metadata", Label("integration"), func() {
 				}
 			}
 			Expect(found).NotTo(BeNil(), "expected the created collector in the list response")
-			Expect(found["alloy_version"]).To(Equal("v2.0.0"))
-			Expect(found["last_seen"]).NotTo(BeEmpty())
+			Expect(found["alloyVersion"]).To(Equal("v2.0.0"))
+			Expect(found["lastSeen"]).NotTo(BeEmpty())
 		})
 	})
 })
