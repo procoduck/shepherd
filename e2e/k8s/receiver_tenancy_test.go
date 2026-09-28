@@ -153,7 +153,11 @@ receiver:
 				end := time.Now().Add(gatewayProbeDeadline)
 				var code string
 				for i := 0; ; i++ {
-					if code = postSpanOnce(cfg, gwNS, fmt.Sprintf("from-gw-ns-%d", i), direct, nil); code == "200" {
+					// A tenant header of its own: this request bypasses the
+					// route, and pass-through forwards whatever it carries —
+					// without one it would reach the backend untagged and trip
+					// the next assessment's "nothing untagged" check.
+					if code = postSpanOnce(cfg, gwNS, fmt.Sprintf("from-gw-ns-%d", i), direct, directProbeTenant); code == "200" {
 						return ctx
 					}
 					if time.Now().After(end) {
@@ -199,7 +203,7 @@ receiver:
 				// Several attempts, all refused: one timeout alone could be a
 				// transient network hiccup that proves nothing.
 				for i := 0; i < 3; i++ {
-					if code := postSpanOnce(cfg, f.ns, fmt.Sprintf("direct-denied-%d", i), direct, nil); code != "000" {
+					if code := postSpanOnce(cfg, f.ns, fmt.Sprintf("direct-denied-%d", i), direct, directProbeTenant); code != "000" {
 						t.Fatalf("a pod outside the gateway namespace reached the receiver directly (HTTP %s) — "+
 							"it could assert any tenant; the NetworkPolicy does not confine ingress to the gateway", code)
 					}
@@ -213,7 +217,7 @@ receiver:
 				}
 				end := time.Now().Add(gatewayProbeDeadline)
 				for i := 0; ; i++ {
-					if code := postSpanOnce(cfg, f.ns, fmt.Sprintf("direct-open-%d", i), direct, nil); code == "200" {
+					if code := postSpanOnce(cfg, f.ns, fmt.Sprintf("direct-open-%d", i), direct, directProbeTenant); code == "200" {
 						t.Logf("control: without the NetworkPolicy the same direct request succeeds (HTTP 200)")
 						break
 					}
@@ -273,6 +277,10 @@ receiver:
 
 	testenv.Test(t, feat)
 }
+
+// directProbeTenant tags the test's own requests that go straight to the
+// receiver, bypassing the gateway: they must not read as a dropped tenant.
+var directProbeTenant = map[string]string{gateway.TenantHeader: "direct-probe"}
 
 // receiverSinkPod is the backend the receiver exports to. mendhak/http-https-
 // echo logs every request — path and headers — which is how the test reads
