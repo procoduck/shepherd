@@ -65,4 +65,33 @@ ready and healthy with none. Pinned by `internal/receiver/batch_test.go`.
 
 ## Kind-suite runs
 
-Recorded once CI's `e2e-k8s` job has run `TestReceiverPassThroughTenancy` on this PR.
+**Green — CI `e2e-k8s`, run 36479921906 (PR #171, `c43b5cb`, 2026-09-28).** Calico enforcing,
+NGF gateway, the chart's receiver built from this tree:
+
+```
+--- PASS: TestReceiverPassThroughTenancy (194.60s)
+    --- PASS: CNI_enforces_NetworkPolicy (phases 1-3)
+    --- PASS: the_gateway's_namespace_can_reach_the_receiver_directly_(the_NetworkPolicy's_allowed_side)
+    --- PASS: each_tenant's_spans_reach_the_backend_carrying_exactly_that_tenant,_through_the_real_receiver
+          backend saw, by tenant: map[acme:1 direct-probe:1 globex:1]
+    --- PASS: a_tenant_header_the_client_sets_itself_never_reaches_the_backend
+    --- PASS: the_gateway_is_the_only_ingress:_a_pod_elsewhere_cannot_reach_the_receiver,_until_the_NetworkPolicy_is_removed
+          control: without the NetworkPolicy the same direct request succeeds (HTTP 200)
+    --- PASS: a_receiver_config_the_renderer_refuses_stops_the_new_pod_at_init,_and_the_running_receiver_keeps_serving
+```
+
+(`direct-probe` is the test's own direct-to-receiver requests, tagged so they cannot read as a
+dropped tenant.) The render-guard run also showed the blast-radius property now asserted: the new
+pod sat at `Init:CrashLoopBackOff` while the previous receiver pod stayed Ready.
+
+**Earlier red runs on this PR were test-harness defects, not product ones**, kept here because they
+cost three CI cycles: `utils.RunCommand` (gexe) re-tokenises a command string, mangling a JSON
+body, an `sh -c` script and a `jsonpath` expression in turn — the receiver itself was Running and
+Ready in every one. Every kubectl call in the test now runs from an explicit argv.
+
+## Open point for R3: `gatewayFrom` granularity
+
+The positive-control probe showed that ANY pod in the gateway's namespace — not only the gateway's
+data plane — can reach a pass-through receiver and assert any tenant, when `gatewayFrom` selects by
+namespace alone. Narrowing it with a `podSelector` for the data-plane pods closes that; whether the
+chart should REQUIRE one is a decision for R3.
