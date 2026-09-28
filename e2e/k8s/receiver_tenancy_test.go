@@ -330,7 +330,7 @@ func postSpanOnce(cfg *envconf.Config, podNS, name, url string, headers map[stri
 	// not curl's own exit status (28 on a timeout).
 	script := fmt.Sprintf("curl -s -o /dev/null -w %%{http_code} --max-time 10 -X POST -H %s%s --data %s %s; true",
 		shellQuote("Content-Type: application/json"), hdr.String(), shellQuote(otlpSpanJSON(name)), shellQuote(url))
-	cmd := exec.Command("kubectl", "--kubeconfig", cfg.KubeconfigFile(), "-n", podNS, //nolint:gosec // G204: fixed binary, argv built from test constants
+	cmd := exec.Command("kubectl", "--kubeconfig", cfg.KubeconfigFile(), "-n", podNS,
 		"run", name, "--image=curlimages/curl:8.11.1", "--restart=Never", "--rm", "--attach",
 		"--quiet", "--pod-running-timeout=2m", "--command", "--", "sh", "-c", script)
 	// Judged by the printed status, not kubectl's exit code: a pod that
