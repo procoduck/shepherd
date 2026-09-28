@@ -84,16 +84,6 @@ func respondError(w http.ResponseWriter, status int, code, message string) {
 	})
 }
 
-// decodeJSON decodes the request body into v, responding with 400 on error.
-// Returns false if the decode failed (handler should return immediately).
-func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
-	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
-		respondError(w, http.StatusBadRequest, "bad_request", "invalid JSON: "+err.Error())
-		return false
-	}
-	return true
-}
-
 // isUniqueViolation returns true for PostgreSQL unique-constraint violations (SQLSTATE 23505).
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError

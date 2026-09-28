@@ -23,9 +23,7 @@ import (
 	"shepherd/internal/store/sqlc"
 )
 
-// AdminService implements mgmtv1connect.AdminServiceHandler. Business logic
-// moved here from AdminHandler (admin.go), which is now a thin REST shim
-// delegating to these methods in-process.
+// AdminService implements mgmtv1connect.AdminServiceHandler.
 type AdminService struct {
 	store  *store.Store
 	logger *slog.Logger
@@ -40,9 +38,9 @@ type AdminService struct {
 }
 
 // AdminServiceOption configures optional AdminService dependencies. The
-// options exist so the REST shim (admin.go) and the several tests that
-// construct this service directly keep compiling unchanged as capabilities
-// that need more than a store are added.
+// options exist so the several tests that construct this service directly
+// keep compiling unchanged as capabilities that need more than a store are
+// added.
 type AdminServiceOption func(*AdminService)
 
 // WithOIDCHandler supplies the auth handler backing the OIDC settings
@@ -51,7 +49,7 @@ func WithOIDCHandler(h *auth.Handler) AdminServiceOption {
 	return func(s *AdminService) { s.oidc = h }
 }
 
-// NewAdminService constructs an AdminService with the deps AdminHandler uses today.
+// NewAdminService constructs an AdminService.
 func NewAdminService(st *store.Store, logger *slog.Logger, opts ...AdminServiceOption) *AdminService {
 	s := &AdminService{store: st, logger: logger}
 	for _, opt := range opts {
@@ -261,30 +259,17 @@ func (s *AdminService) DeleteOrg(ctx context.Context, req *connect.Request[mgmtv
 	}
 	if content.ClusterCount > 0 || content.PipelineCount > 0 {
 		msg := fmt.Sprintf("org has %d clusters, %d pipelines", content.ClusterCount, content.PipelineCount)
-		return nil, connect.NewError(connect.CodeAlreadyExists, &orgNotEmptyError{message: msg})
+		return nil, connect.NewError(connect.CodeAlreadyExists, errors.New(msg))
 	}
 
 	if err := s.store.Queries.DeleteOrg(ctx, id); err != nil {
 		if isFKViolation(err) {
-			return nil, connect.NewError(connect.CodeAlreadyExists, &orgNotEmptyError{message: "org still has references"})
+			return nil, connect.NewError(connect.CodeAlreadyExists, errors.New("org still has references"))
 		}
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to delete org"))
 	}
 	return connect.NewResponse(&mgmtv1.DeleteOrgResponse{}), nil
 }
-
-// orgNotEmptyError indicates an org cannot be deleted because it still has
-// clusters, pipelines, or other references. The REST shim (admin.go's
-// DeleteOrg) detects this via errors.As and renders the legacy
-// {"error":{"code":"not_empty",...}} envelope exactly — the Ginkgo REST
-// suite keys on that literal code string, so it cannot be replaced by
-// connect.CodeAlreadyExists's default rendering ("already_exists"). Mirrors
-// destinationInUseError in rpc_destination.go.
-type orgNotEmptyError struct {
-	message string
-}
-
-func (e *orgNotEmptyError) Error() string { return e.message }
 
 // errClusterNotFound is returned by ClaimCluster/UnclaimCluster when the
 // named cluster genuinely does not exist (GetClusterByName's error was
@@ -533,8 +518,7 @@ func (s *AdminService) DeleteAgentIdentity(ctx context.Context, req *connect.Req
 }
 
 // SearchGroups searches Entra groups by display-name prefix. Stubbed to
-// match the pre-migration legacy handler exactly (see admin.go's original
-// AdminHandler.SearchGroups comment): no Graph client is threaded through
+// match the pre-Connect REST handler exactly: no Graph client is threaded through
 // the server anywhere today, so this always returns an empty list rather
 // than guessing at behavior. Implementing it needs both the wiring change
 // and an app-mode search call on internal/graph's Client (the unused cached

@@ -19,9 +19,7 @@ import (
 	"shepherd/internal/store/sqlc"
 )
 
-// SimulateService implements mgmtv1connect.SimulateServiceHandler — the
-// business logic for /api/orgs/{org}/simulate/*, moved here from
-// SimulateHandler (simulate.go, now a thin REST shim over this service).
+// SimulateService implements mgmtv1connect.SimulateServiceHandler.
 type SimulateService struct {
 	store  *store.Store
 	cfg    config.SimulatorConfig

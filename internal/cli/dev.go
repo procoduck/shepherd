@@ -429,7 +429,7 @@ func dataEngPipelineItems() []seedPipelineItem {
 // seedPipelines creates the given pipelines under orgID, idempotently. For
 // each pipeline actually created (not already present), it also writes
 // pipeline_revisions revision 1 and an audit_log row, mirroring what
-// PipelinesHandler.Create does in internal/mgmtapi/pipelines.go (R3-H4).
+// PipelineService.CreatePipeline does in internal/mgmtapi/rpc_pipeline.go (R3-H4).
 func seedPipelines(ctx context.Context, st *store.Store, orgID pgtype.UUID, items []seedPipelineItem) error {
 	summary := make([]string, 0, len(items))
 	for _, item := range items {

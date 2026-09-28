@@ -24,10 +24,8 @@ import (
 	"shepherd/internal/store/sqlc"
 )
 
-// FleetService implements mgmtv1connect.FleetServiceHandler. Business logic
-// migrated here from OrgsHandler's collector/assignment/attribute methods
-// (orgs.go), which are now thin REST shims delegating to these methods
-// in-process. See docs/archive/api-contract-design.md, "Server wiring".
+// FleetService implements mgmtv1connect.FleetServiceHandler. See
+// docs/archive/api-contract-design.md, "Server wiring".
 type FleetService struct {
 	store  *store.Store
 	logger *slog.Logger
@@ -43,13 +41,13 @@ type FleetService struct {
 type FleetServiceOption func(*FleetService)
 
 // WithFleetSchema supplies the schema registry GetReconciliation needs to derive
-// a served pipeline's signals. Only the Connect handler wiring passes it; the
-// REST shim (orgs.go) leaves it nil.
+// a served pipeline's signals. The Connect handler wiring always passes it;
+// tests that build a FleetService directly may leave it nil.
 func WithFleetSchema(reg *schema.Registry) FleetServiceOption {
 	return func(s *FleetService) { s.schema = reg }
 }
 
-// NewFleetService constructs a FleetService with the deps OrgsHandler uses today.
+// NewFleetService constructs a FleetService.
 func NewFleetService(st *store.Store, logger *slog.Logger, opts ...FleetServiceOption) *FleetService {
 	s := &FleetService{store: st, logger: logger}
 	for _, opt := range opts {
@@ -142,34 +140,18 @@ func (s *FleetService) ListCollectors(ctx context.Context, req *connect.Request[
 
 // GetCollector returns one collector, including its live instances.
 func (s *FleetService) GetCollector(ctx context.Context, req *connect.Request[mgmtv1.GetCollectorRequest]) (*connect.Response[mgmtv1.Collector], error) {
-	resp, _, err := s.getCollector(ctx, req.Msg.GetOrgId(), req.Msg.GetId())
+	resp, err := s.getCollector(ctx, req.Msg.GetOrgId(), req.Msg.GetId())
 	if err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(resp), nil
 }
 
-// collectorLocalAttrsRaw is the collector/instance jsonb local_attributes
-// columns' raw bytes, exactly as stored, alongside the *mgmtv1.Collector
-// getCollector builds from them. The Connect wire response only ever
-// carries LocalAttributes as a structpb.Struct (per the design's
-// Struct-modeling rule for genuinely dynamic payloads); decoding stored
-// JSON into a Struct and re-marshaling it through protojson is not
-// byte-preserving — map iteration order isn't the original key order, and
-// every number becomes a Struct Value's float64 — so the REST shim (which
-// must stay byte-compatible with the legacy handler's direct
-// json.RawMessage passthrough) substitutes these raw bytes back in after
-// marshaling. See orgs.go's GetCollector.
-type collectorLocalAttrsRaw struct {
-	collector json.RawMessage   // nil when the collector has no reporting instances
-	instances []json.RawMessage // parallel to Collector.Instances; element nil if that instance's attrs failed to decode
-}
-
 // loadOwnedCollector resolves a collector id and enforces that it belongs to
 // orgIDStr, mirroring loadOwnedDestination/loadPipeline.
 //
-// Neither the Connect interceptor nor the REST middleware can do this for us:
-// both authorize against the org NAMED IN THE REQUEST, which proves the caller
+// The Connect interceptor cannot do this for us: it authorizes against the
+// org NAMED IN THE REQUEST, which proves the caller
 // has a role in that org and nothing about the id they passed alongside it. A
 // by-id handler without this check is a cross-tenant read (or write) for any
 // authenticated member of any org, because a UUID is not an authorization
@@ -193,18 +175,20 @@ func (s *FleetService) loadOwnedCollector(ctx context.Context, orgIDStr, idStr s
 	return id, nil
 }
 
-// getCollector is GetCollector's implementation, additionally returning the
-// untouched local_attributes bytes the REST shim needs for byte-compatible
-// rendering (collectorLocalAttrsRaw) — kept out of the exported Connect
-// method so the wire contract (a bare *mgmtv1.Collector) is unaffected.
-func (s *FleetService) getCollector(ctx context.Context, orgIDStr, idStr string) (*mgmtv1.Collector, collectorLocalAttrsRaw, error) {
+// getCollector is GetCollector's implementation. local_attributes travel as
+// a structpb.Struct (the design's Struct-modeling rule for genuinely dynamic
+// payloads), so numbers come back as float64: an integer beyond 2^53 or a
+// decimal's trailing zeros are not preserved. The /api REST shim used to
+// splice the stored bytes back in for byte-compatibility; it was removed in
+// v0.11.0.
+func (s *FleetService) getCollector(ctx context.Context, orgIDStr, idStr string) (*mgmtv1.Collector, error) {
 	id, err := s.loadOwnedCollector(ctx, orgIDStr, idStr)
 	if err != nil {
-		return nil, collectorLocalAttrsRaw{}, err
+		return nil, err
 	}
 	c, err := s.store.Queries.GetCollectorByID(ctx, id)
 	if err != nil {
-		return nil, collectorLocalAttrsRaw{}, connect.NewError(connect.CodeNotFound, errors.New("collector not found"))
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("collector not found"))
 	}
 	cluster, _ := s.store.Queries.GetClusterByID(ctx, c.ClusterID) //nolint:errcheck // empty name is safe
 
@@ -214,14 +198,11 @@ func (s *FleetService) getCollector(ctx context.Context, orgIDStr, idStr string)
 		rows = nil
 	}
 	instances := make([]*mgmtv1.CollectorInstance, len(rows))
-	rawAttrs := make([]json.RawMessage, len(rows))
 	for i := range rows {
 		row := &rows[i]
 		attrs, attrErr := structFromJSON(row.LocalAttributes)
 		if attrErr != nil {
 			s.logger.Warn("get collector: decoding instance local_attributes", "err", attrErr)
-		} else if len(row.LocalAttributes) > 0 {
-			rawAttrs[i] = row.LocalAttributes
 		}
 		instances[i] = &mgmtv1.CollectorInstance{
 			Name:               row.Name,
@@ -240,10 +221,9 @@ func (s *FleetService) getCollector(ctx context.Context, orgIDStr, idStr string)
 		Role:      c.Role,
 		Instances: instances,
 	}
-	raw := collectorLocalAttrsRaw{instances: rawAttrs}
 	resp.Labels, err = decodeCollectorLabels(c.Labels)
 	if err != nil {
-		return nil, collectorLocalAttrsRaw{}, err
+		return nil, err
 	}
 	if len(instances) > 0 {
 		latest := instances[0]
@@ -252,9 +232,8 @@ func (s *FleetService) getCollector(ctx context.Context, orgIDStr, idStr string)
 		resp.LastSeen = latest.LastSeen
 		resp.AlloyVersion = latest.AlloyVersion
 		resp.LocalAttributes = latest.LocalAttributes
-		raw.collector = rawAttrs[0]
 	}
-	return resp, raw, nil
+	return resp, nil
 }
 
 func decodeCollectorLabels(raw []byte) (map[string]string, error) {
@@ -446,7 +425,7 @@ func (s *FleetService) emitMatchDrift(ctx context.Context, orgID, collectorID, c
 
 // GetServedConfig returns the config currently served to a collector. A
 // missing serve-cache row (never served yet) is not an error: it renders as
-// an all-empty response, matching OrgsHandler.ServedConfig's existing
+// an all-empty response, matching the pre-Connect REST handler's
 // behavior of never surfacing the cache-miss as a 404.
 func (s *FleetService) GetServedConfig(ctx context.Context, req *connect.Request[mgmtv1.GetServedConfigRequest]) (*connect.Response[mgmtv1.GetServedConfigResponse], error) {
 	id, err := s.loadOwnedCollector(ctx, req.Msg.GetOrgId(), req.Msg.GetId())

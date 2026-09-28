@@ -175,7 +175,7 @@ func verifyServiceAccountBasicAuth(ctx context.Context, authHeader string, st *s
 // enforcing one of them is not enforcement." newAuthzInterceptor
 // (rpc_interceptor.go) is the only entry Connect traffic has today, but a
 // gate that lives ONLY there is one refactor away from a second entry
-// (a REST shim, a future direct-call path) silently bypassing it, the same
+// (a future direct-call path, like the /api REST shim this repo once had) silently bypassing it, the same
 // shape the W1 gap took. Calling this explicitly, by name, inside each
 // handler is what keeps a newly added write path from inheriting
 // enforcement it never asked for — see capabilityRequirements'

@@ -32,9 +32,7 @@ import (
 	"shepherd/internal/visual"
 )
 
-// PipelineService implements mgmtv1connect.PipelineServiceHandler. Business
-// logic moved here from PipelinesHandler (pipelines.go), which is now a
-// thin REST shim delegating to these methods in-process.
+// PipelineService implements mgmtv1connect.PipelineServiceHandler.
 type PipelineService struct {
 	store     *store.Store
 	validator *validate.Validator
@@ -73,7 +71,7 @@ func WithBeaconRemoteWrite(baseURL string, oauth2 *beacon.OAuth2Auth) PipelineSe
 	}
 }
 
-// NewPipelineService constructs a PipelineService with the deps PipelinesHandler uses today.
+// NewPipelineService constructs a PipelineService.
 func NewPipelineService(st *store.Store, v *validate.Validator, reg *schema.Registry, logger *slog.Logger, opts ...PipelineServiceOption) *PipelineService {
 	s := &PipelineService{store: st, validator: v, schema: reg, logger: logger}
 	for _, opt := range opts {
@@ -84,11 +82,8 @@ func NewPipelineService(st *store.Store, v *validate.Validator, reg *schema.Regi
 
 var _ mgmtv1connect.PipelineServiceHandler = (*PipelineService)(nil)
 
-// Sentinel errors for PipelineService. Message text mirrors the legacy
-// pipelines.go handler strings exactly so the REST shim's rendered
-// {"error":{"message":...}} stays byte-compatible even though the "code"
-// value now reflects the connect.Code rather than the old ad-hoc string
-// (see shim.go's WriteConnectError / docs/archive/api-contract-design.md's Errors
+// Sentinel errors for PipelineService. Message text still matches the
+// pre-Connect handler strings (docs/archive/api-contract-design.md's Errors
 // mapping table).
 var (
 	errOrgIDInvalid         = errors.New("invalid org id")
@@ -112,11 +107,11 @@ var (
 )
 
 // pipelineValidationError carries Stage1/2 diagnostics for a CreatePipeline
-// or UpdatePipeline call that failed the validation gate. The REST shim
-// (pipelines.go's writePipelineSaveError) type-asserts on this via errors.As
-// to reproduce the legacy {"error":...,"diagnostics":[...]} envelope;
-// ValidatePipeline (which never fails — see its doc comment) carries the
-// same diagnostics directly on its response instead.
+// or UpdatePipeline call that failed the validation gate. Over Connect the
+// caller sees only the failed_precondition code and message; the removed
+// /api REST shim used to unpack these diagnostics into its error envelope.
+// A caller that needs them calls ValidatePipeline, which carries the same
+// diagnostics on a normal response (see its doc comment).
 type pipelineValidationError struct {
 	Diagnostics []validate.Diagnostic
 }
@@ -268,7 +263,7 @@ func (s *PipelineService) checkVisualRenderMatch(_ context.Context, clientConten
 
 // loadPipeline fetches a pipeline by id, mapping an unparsable id to
 // InvalidArgument (400) and a missing row to NotFound (404) — the same two
-// distinct statuses PipelinesHandler.loadPipeline produced. Any OTHER lookup
+// distinct statuses the pre-Connect REST handler produced. Any OTHER lookup
 // failure (a connection error, a canceled query, anything that is not
 // pgx.ErrNoRows) goes through mapError instead of being folded into the same
 // NotFound — W2-S7b's fix for the "blanket NotFound regardless of actual
@@ -710,8 +705,7 @@ func (s *PipelineService) DisablePipeline(ctx context.Context, req *connect.Requ
 // It never returns a connect error for invalid content: valid=false and its
 // diagnostics ride on a normal (connect-success) response, matching
 // docs/archive/api-contract-design.md's "validate endpoints return 200 + diagnostics
-// today — keep that shape". The REST shim (pipelines.go) maps valid=false to
-// HTTP 422 to preserve the legacy status code.
+// today — keep that shape".
 func (s *PipelineService) ValidatePipeline(ctx context.Context, req *connect.Request[mgmtv1.ValidatePipelineRequest]) (*connect.Response[mgmtv1.ValidatePipelineResponse], error) {
 	name := req.Msg.GetName()
 	if name == "" {
@@ -1066,7 +1060,7 @@ func (s *PipelineService) RestoreRevision(ctx context.Context, req *connect.Requ
 	return connect.NewResponse(pipelineToProto(updated)), nil
 }
 
-// --- helpers moved verbatim from PipelinesHandler (pipelines.go) ---
+// --- helpers originally written for the pre-Connect REST handler ---
 
 func (s *PipelineService) createRevision(ctx context.Context, p sqlc.Pipeline, note, actor string) error {
 	return createPipelineRevision(ctx, s.store, p, note, actor)
