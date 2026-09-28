@@ -115,8 +115,10 @@ otlp:
 	It("writes nothing when validation fails, so the pod fails at init", func() {
 		dir := GinkgoT().TempDir()
 		out := filepath.Join(dir, "config.alloy")
-		rootCmd.SetArgs([]string{"receiver", "render",
-			"--config", writeFile(validReceiverFile + "extra: true\n"), "--out", out})
+		rootCmd.SetArgs([]string{
+			"receiver", "render",
+			"--config", writeFile(validReceiverFile + "extra: true\n"), "--out", out,
+		})
 		Expect(rootCmd.Execute()).To(HaveOccurred())
 		Expect(out).NotTo(BeAnExistingFile())
 
