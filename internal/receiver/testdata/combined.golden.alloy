@@ -86,6 +86,7 @@ loki.write "acme_faro_logs2" {
 }
 
 otelcol.processor.batch "faro_acme_traces" {
+  send_batch_max_size = 0
   output {
     traces  = [otelcol.exporter.otlp.acme_faro_tempo2.input]
   }

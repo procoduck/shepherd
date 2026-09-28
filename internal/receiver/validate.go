@@ -111,7 +111,20 @@ func validateLabel(field, label string) error {
 	return nil
 }
 
+// validateBatch mirrors the rule Alloy enforces only at run time (its
+// validate step accepts the config): a non-zero cap below the batch size.
+func validateBatch(b BatchConfig) error {
+	if b.SendBatchMaxSize != 0 && b.SendBatchMaxSize < b.SendBatchSize {
+		return fmt.Errorf("batch: send_batch_max_size (%d) must be 0 (no cap) or at least send_batch_size (%d)",
+			b.SendBatchMaxSize, b.SendBatchSize)
+	}
+	return nil
+}
+
 func validateOTLPPipeline(p OTLPPipeline) error {
+	if err := validateBatch(p.Batch); err != nil {
+		return err
+	}
 	if err := validateLabel("Label", p.Label); err != nil {
 		return err
 	}
