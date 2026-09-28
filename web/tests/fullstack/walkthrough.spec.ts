@@ -12,8 +12,10 @@ type PageIssue = { route: string; kind: string; detail: string };
 const issues: PageIssue[] = [];
 
 // Requests the app makes that are expected to fail in the dev stack are noted here,
-// so a genuinely broken call still surfaces.
-const EXPECTED_FAILURES = [/\/api\/admin\/groups\/search/];
+// so a genuinely broken call still surfaces. Empty since the /api REST shim (whose
+// groups-search route used to 404 here) was removed; the SPA's Connect SearchGroups
+// call succeeds with an empty list.
+const EXPECTED_FAILURES: RegExp[] = [];
 
 function watch(page: Page, route: string) {
   page.on('console', (m) => {
