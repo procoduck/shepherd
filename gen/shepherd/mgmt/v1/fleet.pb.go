@@ -23,7 +23,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// CollectorInstance mirrors internal/mgmtapi/orgs.go: collectorInstanceResponse.
+// CollectorInstance is one running Alloy process reporting as a logical Collector.
 type CollectorInstance struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	Name               string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -117,7 +117,7 @@ func (x *CollectorInstance) GetLocalAttributes() *structpb.Struct {
 	return nil
 }
 
-// Collector mirrors internal/mgmtapi/orgs.go: collectorResponse. The scalar
+// Collector is a logical collector, one per cluster and role. The scalar
 // remote_config_status/remote_config_error/last_seen/alloy_version/
 // local_attributes fields are rolled up from the collector's most recently
 // reporting instance; instances is populated only on GetCollector.
@@ -627,7 +627,7 @@ func (x *GetServedConfigRequest) GetId() string {
 	return ""
 }
 
-// GetServedConfigResponse mirrors orgs.go ServedConfig: {"content","hash","computed_at"}.
+// GetServedConfigResponse is the merged config currently served to a collector.
 // content and hash are "" when no serve-cache entry exists yet.
 type GetServedConfigResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1318,14 +1318,13 @@ func (x *ListAttributesRequest) GetOrgId() string {
 	return ""
 }
 
-// ListAttributesResponse mirrors orgs.go ListAttributes, which returns a bare
-// JSON object keyed by attribute name (today always includes "cluster" and
-// "role", plus any other distinct attribute keys) mapping to their distinct
-// values: {"cluster": [...], "role": [...], ...}. The key set is
-// data-dependent, so it is modeled as a Struct rather than fixed fields; the
-// REST shim marshals `attributes` directly rather than the wrapping message
-// to stay byte-compatible with the legacy bare-object shape (see notes to
-// the wiring agent).
+// ListAttributesResponse maps each matcher key pipeline matching evaluates for
+// the org to its distinct values: {"cluster": [...], "role": [...], ...}.
+// cluster and role are always present; admin labels and agent-reported
+// local_attributes appear only when the org's allow_label_matching /
+// allow_local_attribute_matching flags are on, and reserved keys never do
+// (#139). The key set is data-dependent, so it is modeled as a Struct rather
+// than fixed fields.
 type ListAttributesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Attributes    *structpb.Struct       `protobuf:"bytes,1,opt,name=attributes,proto3" json:"attributes,omitempty"`

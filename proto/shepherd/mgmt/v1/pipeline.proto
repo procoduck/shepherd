@@ -8,11 +8,12 @@ import "shepherd/mgmt/v1/common.proto";
 
 option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 
-// PipelineService covers /api/orgs/{org}/pipelines/*. Reads require
-// org-reader. Writes (create/update/delete/enable/disable/set-owner) require
-// EITHER org-admin OR — W10, docs/gateway-tier-plan.md G11 — membership (via
-// IdP group) of the team that owns the target pipeline; an unowned pipeline
-// stays org-admin-only. See internal/auth.AuthorizeOwnership and
+// PipelineService manages an org's pipelines and their revisions. Reads
+// require org-reader. Writes (create/update/delete/enable/disable/restore)
+// require EITHER org-editor or above OR — W10, docs/gateway-tier-plan.md
+// G11 — membership (IdP group or local team member) of the team that owns
+// the target pipeline; an unowned pipeline needs org-editor or above, and
+// SetPipelineOwner is org-admin. See internal/auth.AuthorizeOwnership and
 // internal/mgmtapi's per-handler ownership checks: the coarse org-reader
 // gate below only proves "has some access to this org", the fine-grained
 // ownership decision is made inside each handler, not at this table.
@@ -49,7 +50,7 @@ service PipelineService {
   rpc SetPipelineOwner(SetPipelineOwnerRequest) returns (Pipeline) {}
 }
 
-// PipelineRevision mirrors internal/mgmtapi/pipelines.go: revisionResponse.
+// PipelineRevision is one saved revision of a pipeline.
 // contents/matchers/enabled/wizard_state (5-8) are populated only by
 // GetRevision — ListRevisions and Pipeline.revisions stay metadata-only.
 message PipelineRevision {
@@ -63,9 +64,9 @@ message PipelineRevision {
   google.protobuf.Struct wizard_state = 8;
 }
 
-// Pipeline mirrors internal/mgmtapi/pipelines.go: pipelineResponse. revision
-// is carried for shape-fidelity but is never populated by pipelineToResponse
-// today (always 0/omitted); revisions is populated only on GetPipeline.
+// Pipeline is an Alloy config fragment plus the matchers that decide which
+// collectors receive it. revision is never populated today (always
+// 0/omitted); revisions is populated only on GetPipeline.
 message Pipeline {
   string id = 1;
   string org_id = 2;
@@ -111,7 +112,7 @@ message GetPipelineRequest {
   string id = 2;
 }
 
-// CreatePipelineRequest mirrors pipelineRequest in pipelines.go. wizard_state
+// CreatePipelineRequest creates a pipeline in org_id. wizard_state
 // is the visual-builder graph document (source="visual") or wizard form
 // state (source="wizard") — dynamic, hence Struct.
 message CreatePipelineRequest {
@@ -225,7 +226,7 @@ message MatchedCollector {
   string id = 3;
 }
 
-// PreviewMatchesResponse mirrors pipelines.go PreviewMatches: {"collectors": [...]}.
+// PreviewMatchesResponse lists the collectors a pipeline's matchers currently select.
 message PreviewMatchesResponse {
   repeated MatchedCollector collectors = 1;
 }

@@ -633,7 +633,7 @@ func (x *TestCredentialResponse) GetTokenExchangeOk() bool {
 	return false
 }
 
-// RepoLink mirrors internal/mgmtapi/repolinks.go: repoLinkResponse.
+// RepoLink binds a git repository path to a collector's pipelines.
 type RepoLink struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`

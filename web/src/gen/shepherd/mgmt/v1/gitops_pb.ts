@@ -346,7 +346,7 @@ export const TestCredentialResponseSchema: GenMessage<TestCredentialResponse> = 
   messageDesc(file_shepherd_mgmt_v1_gitops, 7);
 
 /**
- * RepoLink mirrors internal/mgmtapi/repolinks.go: repoLinkResponse.
+ * RepoLink binds a git repository path to a collector's pipelines.
  *
  * @generated from message shepherd.mgmt.v1.RepoLink
  */
@@ -524,9 +524,8 @@ export const DeleteRepoLinkResponseSchema: GenMessage<DeleteRepoLinkResponse> = 
   messageDesc(file_shepherd_mgmt_v1_gitops, 13);
 
 /**
- * GitOpsService covers /api/orgs/{org}/ado-credentials/* (legacy path,
- * kept for wire compatibility — see internal/mgmtapi/repolinks.go) and
- * /api/orgs/{org}/repo-links/*. All methods require org-admin.
+ * GitOpsService manages an org's git credentials and repo links. All methods
+ * require org-admin.
  *
  * docs/git-provider-design.md §3.4: this is a BREAKING rename of
  * AdoCredential -> GitCredential, acceptable only because nothing consumes

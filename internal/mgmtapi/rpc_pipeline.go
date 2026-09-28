@@ -133,7 +133,7 @@ func diagnosticsToProto(diags []validate.Diagnostic) []*mgmtv1.Diagnostic {
 	return out
 }
 
-// pipelineToProto mirrors pipelineToResponse: it never populates Revision
+// pipelineToProto never populates Revision
 // (always 0) and only populates Revisions when the caller (GetPipeline)
 // explicitly attaches them.
 func pipelineToProto(p sqlc.Pipeline) *mgmtv1.Pipeline {
