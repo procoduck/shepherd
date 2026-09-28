@@ -340,7 +340,7 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 			r.Post("/api/auth/local/login", authHandler.LocalLoginHandler)
 			r.Post(auth.ChangePasswordPath, authHandler.ChangePasswordHandler)
 		}
-		r.Mount("/api", mgmtapi.Router(st, cfg, enc, logger))
+		r.Mount("/api", mgmtapi.Router())
 
 		// shepherd.mgmt.v1 Connect RPC handlers — the typed contract behind the
 		// /api shims above (docs/archive/api-contract-design.md). Mounted in the same

@@ -11,15 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"shepherd/internal/auth"
 	"shepherd/internal/config"
-	"shepherd/internal/crypto"
-	"shepherd/internal/mgmtapi"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/testutil"
@@ -226,28 +223,11 @@ var _ = Describe("Pipelines API", Label("integration"), func() {
 	})
 })
 
-// newRESTRouter wires mgmtapi.Router (the legacy REST shim surface) behind
-// session + CSRF middleware, matching production wiring
-// (internal/server/server.go's `r.Mount("/api", mgmtapi.Router(...))` group)
-// closely enough for the router's RequireAuth/RequireAppAdmin/
-// RequireOrgAccess guards to resolve a real session from the request
-// cookie. See also newVisualRESTRouter (visual_rest_test.go), which does the
-// same thing for its own Describe block.
-func newRESTRouter(st *store.Store, authHandler *auth.Handler, cfg *config.Config, enc *crypto.Encryptor) http.Handler {
-	r := chi.NewRouter()
-	r.Group(func(r chi.Router) {
-		r.Use(authHandler.SessionMiddleware)
-		r.Use(auth.CSRFMiddleware)
-		r.Mount("/", mgmtapi.Router(st, cfg, enc, nil))
-	})
-	return r
-}
-
 // newAppAdminSession creates an app-admin session and returns its cookie.
-// An app admin is authorized for every route the REST shim exposes (see
-// auth.authorizeOrgAccess's IsAppAdmin bypass), so the REST-shim
-// compatibility-oracle tests in this package use one session for every
-// request rather than juggling per-route reader/org-admin identities.
+// An app admin is authorized for every org-scoped procedure (see
+// auth.authorizeOrgAccess's IsAppAdmin bypass), so specs that are not about
+// authorization use one session for every request rather than juggling
+// per-procedure reader/org-admin identities.
 func newAppAdminSession(ctx context.Context, st *store.Store) *http.Cookie {
 	id := fmt.Sprintf("app-admin-sess-%d", time.Now().UnixNano())
 	groupsJSON, err := json.Marshal([]string{})
@@ -264,7 +244,8 @@ func newAppAdminSession(ctx context.Context, st *store.Store) *http.Cookie {
 }
 
 // postJSON issues a POST with a JSON body, cookie, and the CSRF header the
-// production web transport always sends on mutating requests.
+// production web transport always sends on mutating requests. Connect unary
+// calls are plain JSON POSTs, so this serves any procedure path.
 func postJSON(server *httptest.Server, path string, body any, cookie *http.Cookie) *http.Response {
 	var buf bytes.Buffer
 	if body != nil {
@@ -277,40 +258,6 @@ func postJSON(server *httptest.Server, path string, body any, cookie *http.Cooki
 		panic(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Requested-With", "XMLHttpRequest")
-	if cookie != nil {
-		req.AddCookie(cookie)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		panic(err)
-	}
-	return resp
-}
-
-// getRequest issues a GET with a session cookie.
-func getRequest(server *httptest.Server, path string, cookie *http.Cookie) *http.Response {
-	req, err := http.NewRequest(http.MethodGet, server.URL+path, nil)
-	if err != nil {
-		panic(err)
-	}
-	if cookie != nil {
-		req.AddCookie(cookie)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		panic(err)
-	}
-	return resp
-}
-
-// deleteRequest issues a DELETE with a session cookie and the CSRF header
-// the production web transport always sends on mutating requests.
-func deleteRequest(server *httptest.Server, path string, cookie *http.Cookie) *http.Response {
-	req, err := http.NewRequest(http.MethodDelete, server.URL+path, nil)
-	if err != nil {
-		panic(err)
-	}
 	req.Header.Set("X-Requested-With", "XMLHttpRequest")
 	if cookie != nil {
 		req.AddCookie(cookie)
