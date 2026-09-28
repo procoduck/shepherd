@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -506,27 +507,54 @@ func (s *FleetService) DeleteAssignment(ctx context.Context, req *connect.Reques
 	return connect.NewResponse(&mgmtv1.DeleteAssignmentResponse{}), nil
 }
 
-// ListAttributes lists local attributes observed across an org's
-// collectors, keyed by attribute name. A malformed/empty org_id resolves to
-// SQL NULL (matching legacy orgIDFromParam, which never rejected it) and the
-// query simply returns no rows for it.
+// ListAttributes returns the matcher keys pipeline matching evaluates for an
+// org, each with its distinct values: the suggestions behind the pipeline
+// editor's matcher input and the MCP list_fleet_attributes tool. That is
+// exactly what merge.BuildCollectorLabels sees (#139): cluster and role
+// always; admin labels only when the org has allow_label_matching; agent
+// local_attributes (latest instance per collector, keys lowercased) only
+// with allow_local_attribute_matching; reserved keys never. A key matching
+// would ignore is not suggested, because a matcher written against it can
+// never hit. A malformed/empty org_id resolves to no collectors.
 func (s *FleetService) ListAttributes(ctx context.Context, req *connect.Request[mgmtv1.ListAttributesRequest]) (*connect.Response[mgmtv1.ListAttributesResponse], error) {
-	orgID, _ := parseUUID(req.Msg.GetOrgId()) // invalid/empty org id resolves to NULL, matching legacy orgIDFromParam
-	keys, err := s.store.Queries.ListDistinctAttributeKeys(ctx, orgID)
+	orgID, _ := parseUUID(req.Msg.GetOrgId()) // invalid/empty org id resolves to NULL: no rows
+	collectors, err := s.store.Queries.ListCollectorsWithClusterByOrg(ctx, orgID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to list attributes"))
 	}
-	result := map[string]any{"cluster": []any{}, "role": []any{}}
-	for _, k := range keys {
-		vals, _ := s.store.Queries.ListDistinctAttributeValues(ctx, sqlc.ListDistinctAttributeValuesParams{ //nolint:errcheck // empty is safe fallback
-			OrgID:   orgID,
-			Column2: k,
-		})
-		valAny := make([]any, len(vals))
-		for i, v := range vals {
-			valAny[i] = v
+	org, _ := s.store.Queries.GetOrgByID(ctx, orgID) //nolint:errcheck // a missing org degrades to cluster/role only, as on the serve paths
+
+	values := map[string]map[string]struct{}{"cluster": {}, "role": {}}
+	add := func(k, v string) {
+		if values[k] == nil {
+			values[k] = map[string]struct{}{}
 		}
-		result[k] = valAny
+		values[k][v] = struct{}{}
+	}
+	localAttrs := localAttrsByOrg(ctx, s.store.Queries, orgID, org.AllowLocalAttributeMatching)
+	for i := range collectors {
+		c := collectors[i]
+		// BuildCollectorLabels applies the reserved-key filter and the
+		// lowercasing, so suggestions cannot drift from matching.
+		cl := merge.BuildCollectorLabels(c.ID.String(), c.ClusterName, c.Role,
+			adminLabelsIfAllowed(org.AllowLabelMatching, c.Labels), localAttrs[c.ID.String()])
+		for k, v := range cl.Labels {
+			add(k, v)
+		}
+	}
+
+	result := make(map[string]any, len(values))
+	for k, set := range values {
+		vals := make([]string, 0, len(set))
+		for v := range set {
+			vals = append(vals, v)
+		}
+		slices.Sort(vals)
+		list := make([]any, len(vals))
+		for i, v := range vals {
+			list[i] = v
+		}
+		result[k] = list
 	}
 	attrs, err := structpb.NewStruct(result)
 	if err != nil {
