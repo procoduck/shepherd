@@ -90,9 +90,8 @@ export function AdminOrgsPage() {
     editorGroupId: '',
     readerGroupId: '',
     allowExperimentalComponents: false,
-    // No control for these two yet (#139 item 8), but UpdateOrg replaces
-    // every field from the request, so they must ride through unchanged —
-    // omitting them would silently reset both matching flags on any save.
+    // UpdateOrg replaces every field from the request, so both matching
+    // flags must always be sent — omitting one would reset it to false.
     allowLabelMatching: false,
     allowLocalAttributeMatching: false,
   });
@@ -338,6 +337,48 @@ export function AdminOrgsPage() {
                   Lets this org use experimental Alloy components in the visual builder. Off by
                   default — the builder hides them and the server refuses to render a graph that
                   uses one.
+                </span>
+              </span>
+            </label>
+            <label className='flex items-start gap-2 text-sm'>
+              <input
+                type='checkbox'
+                data-testid='org-allow-label-matching'
+                checked={editForm.allowLabelMatching}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, allowLabelMatching: e.target.checked }))
+                }
+                className='mt-0.5'
+              />
+              <span>
+                <span className='text-zinc-200'>Match pipelines on collector labels</span>
+                <span className='block text-xs text-muted-2'>
+                  Lets pipeline matchers use the labels admins set on collectors, alongside cluster
+                  and role. Off by default. Turning it on can change which collectors existing
+                  pipelines reach — preview that first with{' '}
+                  <code className='font-mono'>
+                    shepherd admin audit-matcher-impact --org {editOrg?.id}
+                  </code>
+                  .
+                </span>
+              </span>
+            </label>
+            <label className='flex items-start gap-2 text-sm'>
+              <input
+                type='checkbox'
+                data-testid='org-allow-local-attribute-matching'
+                checked={editForm.allowLocalAttributeMatching}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, allowLocalAttributeMatching: e.target.checked }))
+                }
+                className='mt-0.5'
+              />
+              <span>
+                <span className='text-zinc-200'>Match pipelines on agent-reported attributes</span>
+                <span className='block text-xs text-muted-2'>
+                  Lets matchers use the attributes each collector reports about itself. Anyone
+                  holding a collector&apos;s token can set these, so treat them as less trusted: a
+                  label an admin set always wins on the same key. Off by default.
                 </span>
               </span>
             </label>

@@ -41,3 +41,33 @@ test('editing an org keeps its attribute-matching flags on', async ({ page, api 
   expect(body.allowLabelMatching).toBe(true);
   expect(body.allowLocalAttributeMatching).toBe(true);
 });
+
+test('an app admin turns label matching on for an org, leaving agent attributes off', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(appAdmin);
+  api.seed({
+    orgs: [{ ...org, allow_label_matching: false, allow_local_attribute_matching: false }],
+  });
+  await page.goto('/admin/orgs');
+
+  await page.getByRole('button', { name: 'Edit prod-org' }).click();
+  const labels = page.getByTestId('org-allow-label-matching');
+  const agentAttrs = page.getByTestId('org-allow-local-attribute-matching');
+  await expect(labels).not.toBeChecked();
+  await expect(agentAttrs).not.toBeChecked();
+  // The impact-preview hint names this org, ready to paste.
+  await expect(page.getByText('shepherd admin audit-matcher-impact --org org-0001')).toBeVisible();
+
+  await labels.check();
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.locator('[data-sonner-toast]').filter({ hasText: 'updated' })).toBeVisible({
+    timeout: 5_000,
+  });
+
+  const body = api.calls('AdminService/UpdateOrg')[0].body as Record<string, unknown>;
+  expect(body.allowLabelMatching).toBe(true);
+  // protobuf JSON omits a false bool; the server reads an absent field as false.
+  expect(body.allowLocalAttributeMatching ?? false).toBe(false);
+});
