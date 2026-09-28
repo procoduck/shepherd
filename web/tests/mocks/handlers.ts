@@ -532,7 +532,8 @@ export function installDefaultHandlers(router: Router) {
       // The real RequirePasswordChange middleware sits in front of every API
       // route, so GetMe is refused too — but with the auth handler's JSON
       // shape, which connect-web cannot decode: the SPA sees a bare
-      // PermissionDenied and asks /api/me (below) for the code.
+      // PermissionDenied, then re-asks this same procedure with a plain fetch
+      // to read the code from the body (src/api/localAuth.ts).
       return r.fulfill({
         status: 403,
         contentType: 'application/json',
@@ -546,32 +547,6 @@ export function installDefaultHandlers(router: Router) {
     }
     if (st.me === null || st.me === undefined) {
       return connectError(r, 401, 'unauthenticated', 'not authenticated');
-    }
-    return json(r, 200, st.me);
-  });
-
-  // REST /api/me sits behind the same password-change middleware and answers
-  // with the auth JSON, so the SPA can recover the code the Connect error
-  // dropped (src/api/localAuth.ts).
-  router.register('GET', '/api/me', (r) => {
-    if (st.passwordChangeRequired) {
-      return r.fulfill({
-        status: 403,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          error: {
-            code: 'password_change_required',
-            message: 'set a new password before continuing',
-          },
-        }),
-      });
-    }
-    if (st.me === null || st.me === undefined) {
-      return r.fulfill({
-        status: 401,
-        contentType: 'application/json',
-        body: JSON.stringify({ error: { code: 'unauthenticated', message: 'not authenticated' } }),
-      });
     }
     return json(r, 200, st.me);
   });

@@ -89,26 +89,39 @@ func (c *apiClient) do(method, path string, body any) (*http.Response, error) {
 	return c.hc.Do(req)
 }
 
-func (c *apiClient) getJSON(path string, out any) {
-	GinkgoHelper()
-	resp, err := c.do("GET", path, nil)
-	Expect(err).NotTo(HaveOccurred())
-	Expect(resp.StatusCode).To(Equal(http.StatusOK))
-	Expect(json.NewDecoder(resp.Body).Decode(out)).To(Succeed())
-	resp.Body.Close() //nolint:errcheck // test cleanup
+// rpcPath is the Connect unary URL for a shepherd.mgmt.v1 procedure.
+func rpcPath(service, method string) string {
+	return "/shepherd.mgmt.v1." + service + "/" + method
 }
 
-func (c *apiClient) postJSON(path string, body, out any) int {
+// rpc calls a shepherd.mgmt.v1 Connect procedure using the Connect protocol's
+// unary JSON encoding: POST rpcPath(service, method) with the request message
+// as the body (nil sends the empty message). Requests may use proto field
+// names (snake_case), which protojson accepts; responses come back in
+// protojson's lowerCamelCase with zero values OMITTED — an empty list, a
+// false bool and an empty string have no key at all — so decode each
+// response into a fresh value rather than one reused across polls, or a
+// field that went empty keeps its previous value. out is decoded only on 200;
+// the status is returned either way (errors map per the Connect spec: 401
+// unauthenticated, 403 permission_denied, 404 not_found, ...).
+func (c *apiClient) rpc(service, method string, req, out any) int {
 	GinkgoHelper()
-	resp, err := c.do("POST", path, body)
+	if req == nil {
+		req = struct{}{}
+	}
+	resp, err := c.do("POST", rpcPath(service, method), req)
 	Expect(err).NotTo(HaveOccurred())
 	defer resp.Body.Close() //nolint:errcheck // test cleanup
-	if out != nil {
-		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-			return resp.StatusCode
-		}
+	if resp.StatusCode == http.StatusOK && out != nil {
+		Expect(json.NewDecoder(resp.Body).Decode(out)).To(Succeed())
 	}
 	return resp.StatusCode
+}
+
+// mustRPC is rpc for a call that must succeed.
+func (c *apiClient) mustRPC(service, method string, req, out any) {
+	GinkgoHelper()
+	Expect(c.rpc(service, method, req, out)).To(Equal(http.StatusOK), "%s/%s must succeed", service, method)
 }
 
 func fixture(kind string, data map[string]any) {
@@ -145,7 +158,7 @@ var _ = SynchronizedBeforeSuite(func() []byte {
 	return nil
 }, func(_ []byte) {
 	// Resolve the admin token ID from the tokens list as a logged-in app admin.
-	// (shepherd-init creates it with a known secret; RBAC is enforced on /api/admin/*)
+	// (shepherd-init creates it with a known secret; AdminService is app-admin only)
 	admin := newAdminClient()
 	var tokens struct {
 		Items []struct {
@@ -153,7 +166,7 @@ var _ = SynchronizedBeforeSuite(func() []byte {
 			Name string `json:"name"`
 		} `json:"items"`
 	}
-	admin.getJSON("/api/admin/agent-tokens", &tokens)
+	admin.mustRPC("AdminService", "ListAgentTokens", nil, &tokens)
 	Expect(tokens.Items).NotTo(BeEmpty())
 
 	adminClient = admin
@@ -165,14 +178,14 @@ var _ = SynchronizedAfterSuite(func() {}, func() {
 var _ = Describe("Shepherd E2E", Ordered, func() {
 	_ = Describe("1. Registration & claiming", Ordered, func() {
 		It("shows e2e-cluster as unclaimed after Alloy boots", func() {
-			var clusters struct {
-				Items []struct {
-					Name  string `json:"name"`
-					OrgID string `json:"org_id"`
-				} `json:"items"`
-			}
 			Eventually(func() bool {
-				adminClient.getJSON("/api/admin/clusters", &clusters)
+				var clusters struct {
+					Items []struct {
+						Name  string `json:"name"`
+						OrgID string `json:"orgId"`
+					} `json:"items"`
+				}
+				adminClient.mustRPC("AdminService", "ListClusters", nil, &clusters)
 				for _, c := range clusters.Items {
 					if c.Name == "e2e-cluster" {
 						return true
@@ -186,17 +199,19 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 			var org struct {
 				ID string `json:"id"`
 			}
-			status := adminClient.postJSON("/api/admin/orgs", map[string]string{
+			// Connect answers a create with 200, not REST's 201.
+			status := adminClient.rpc("AdminService", "CreateOrg", map[string]string{
 				"name":           "e2e-org",
 				"display_name":   "E2E Org",
 				"admin_group_id": appAdminGroupID,
 			}, &org)
-			Expect(status).To(Equal(http.StatusCreated))
+			Expect(status).To(Equal(http.StatusOK))
 			orgID = org.ID
 			Expect(orgID).NotTo(BeEmpty())
 
-			status = adminClient.postJSON("/api/admin/clusters/e2e-cluster/claim", map[string]string{
-				"org_id": orgID,
+			status = adminClient.rpc("AdminService", "ClaimCluster", map[string]string{
+				"cluster": "e2e-cluster",
+				"org_id":  orgID,
 			}, nil)
 			Expect(status).To(Equal(http.StatusOK))
 		})
@@ -212,16 +227,19 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 			var p struct {
 				ID string `json:"id"`
 			}
-			status := adminClient.postJSON(fmt.Sprintf("/api/orgs/%s/pipelines", orgID), map[string]any{
+			status := adminClient.rpc("PipelineService", "CreatePipeline", map[string]any{
+				"org_id":   orgID,
 				"name":     "e2e-pipe",
 				"contents": `prometheus.exporter.self "e2e" { }`,
 				"matchers": []string{`cluster="e2e-cluster"`, `role="metrics"`},
 			}, &p)
-			Expect(status).To(Equal(http.StatusCreated))
+			Expect(status).To(Equal(http.StatusOK))
 			pipelineID = p.ID
 			Expect(pipelineID).NotTo(BeEmpty())
 
-			status = adminClient.postJSON(fmt.Sprintf("/api/orgs/%s/pipelines/%s/enable", orgID, pipelineID), nil, nil)
+			status = adminClient.rpc("PipelineService", "EnablePipeline", map[string]string{
+				"org_id": orgID, "id": pipelineID,
+			}, nil)
 			Expect(status).To(Equal(http.StatusOK))
 		})
 
@@ -231,21 +249,23 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 					ID string `json:"id"`
 				} `json:"items"`
 			}
-			adminClient.getJSON(fmt.Sprintf("/api/orgs/%s/collectors", orgID), &collectors)
+			adminClient.mustRPC("FleetService", "ListCollectors", map[string]string{"org_id": orgID}, &collectors)
 			Expect(collectors.Items).NotTo(BeEmpty())
 
 			collID := collectors.Items[0].ID
-			var served struct {
+			type servedConfig struct {
 				Content string `json:"content"`
 				Hash    string `json:"hash"`
 			}
+			var served servedConfig
 			// Wait for the pipeline itself, not just any non-empty hash:
 			// EnablePipeline recomputes the serve cache in a background
 			// goroutine, and Alloy's first poll has already cached a
 			// beacon-only config (non-empty hash, "No pipelines matched"), so
 			// a hash-only wait can accept that stale row and fail here.
 			Eventually(func() string {
-				adminClient.getJSON(fmt.Sprintf("/api/orgs/%s/collectors/%s/served-config", orgID, collID), &served)
+				served = servedConfig{}
+				adminClient.mustRPC("FleetService", "GetServedConfig", map[string]string{"org_id": orgID, "id": collID}, &served)
 				return served.Content
 			}).WithTimeout(30 * time.Second).WithPolling(2 * time.Second).Should(ContainSubstring(`declare "pipe_e2e_pipe"`))
 			Expect(served.Hash).NotTo(BeEmpty())
@@ -253,14 +273,14 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 		})
 
 		It("Alloy reports remote_config_status APPLIED", func() {
-			var collectors struct {
-				Items []struct {
-					ID                 string `json:"id"`
-					RemoteConfigStatus string `json:"remote_config_status"`
-				} `json:"items"`
-			}
 			Eventually(func() bool {
-				adminClient.getJSON(fmt.Sprintf("/api/orgs/%s/collectors", orgID), &collectors)
+				var collectors struct {
+					Items []struct {
+						ID                 string `json:"id"`
+						RemoteConfigStatus string `json:"remoteConfigStatus"`
+					} `json:"items"`
+				}
+				adminClient.mustRPC("FleetService", "ListCollectors", map[string]string{"org_id": orgID}, &collectors)
 				for _, c := range collectors.Items {
 					if c.RemoteConfigStatus == "APPLIED" {
 						return true
@@ -271,7 +291,9 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 		})
 
 		It("disabling the pipeline returns header-only config", func() {
-			status := adminClient.postJSON(fmt.Sprintf("/api/orgs/%s/pipelines/%s/disable", orgID, pipelineID), nil, nil)
+			status := adminClient.rpc("PipelineService", "DisablePipeline", map[string]string{
+				"org_id": orgID, "id": pipelineID,
+			}, nil)
 			Expect(status).To(Equal(http.StatusOK))
 
 			_ = pipelineHash // suppress unused
@@ -281,14 +303,14 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 					ID string `json:"id"`
 				} `json:"items"`
 			}
-			adminClient.getJSON(fmt.Sprintf("/api/orgs/%s/collectors", orgID), &collectors)
+			adminClient.mustRPC("FleetService", "ListCollectors", map[string]string{"org_id": orgID}, &collectors)
 			if len(collectors.Items) > 0 {
 				collID := collectors.Items[0].ID
-				var served struct {
-					Content string `json:"content"`
-				}
 				Eventually(func() bool {
-					adminClient.getJSON(fmt.Sprintf("/api/orgs/%s/collectors/%s/served-config", orgID, collID), &served)
+					var served struct {
+						Content string `json:"content"`
+					}
+					adminClient.mustRPC("FleetService", "GetServedConfig", map[string]string{"org_id": orgID, "id": collID}, &served)
 					return !bytes.Contains([]byte(served.Content), []byte("pipe_e2e_pipe"))
 				}).WithTimeout(30 * time.Second).WithPolling(2 * time.Second).Should(BeTrue())
 			}
@@ -323,15 +345,24 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 	})
 
 	_ = Describe("4. Validation gate", func() {
-		It("rejects syntactically invalid pipeline with 422", func() {
+		It("rejects syntactically invalid pipeline: valid=false with diagnostics", func() {
 			Expect(orgID).NotTo(BeEmpty())
+			// ValidatePipeline reports a failed gate in the response body, not
+			// the HTTP status: the REST shim turned valid=false into a 422, but
+			// the procedure itself answers 200. valid is omitted when false, so
+			// the non-empty diagnostics are what prove the body is a real
+			// rejection rather than an empty message.
 			var result struct {
-				Error struct{ Code string } `json:"error"`
+				Valid       bool              `json:"valid"`
+				Diagnostics []json.RawMessage `json:"diagnostics"`
 			}
-			status := adminClient.postJSON(fmt.Sprintf("/api/orgs/%s/pipelines/validate", orgID), map[string]string{
+			status := adminClient.rpc("PipelineService", "ValidatePipeline", map[string]string{
+				"org_id":   orgID,
 				"contents": "prometheus.scrape { missing closing",
 			}, &result)
-			Expect(status).To(Equal(http.StatusUnprocessableEntity))
+			Expect(status).To(Equal(http.StatusOK))
+			Expect(result.Valid).To(BeFalse(), "invalid Alloy syntax must fail the validation gate")
+			Expect(result.Diagnostics).NotTo(BeEmpty(), "a failed gate must say why")
 		})
 	})
 
@@ -350,12 +381,21 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 		// P1-E.1: unauthenticated mgmt request MUST return 401 exactly (not 200).
 		// Red-green proof: a fully open server passes BeElementOf(200,401) — the old test
 		// could not detect an RBAC regression. This test FAILS if auth is disabled.
-		It("unauthenticated /api/* returns 401 exactly", func() {
-			resp, err := http.Get(shepherdURL + "/api/admin/orgs")
+		It("unauthenticated mgmt RPC returns 401 exactly", func() {
+			// A well-formed Connect call (JSON content type, the CSRF header)
+			// with no session cookie, so the only thing that can refuse it is
+			// the authz interceptor — a 403 csrf_required here would prove
+			// nothing about RBAC.
+			resp, err := newAnonymousClient().do("POST", rpcPath("AdminService", "ListOrgs"), struct{}{})
 			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close() //nolint:errcheck // test cleanup
 			// OIDC issuer is configured in the e2e stack — unauthenticated MUST be 401.
 			Expect(resp.StatusCode).To(Equal(http.StatusUnauthorized), "unauthenticated mgmt request must return 401; got %d — RBAC is not enforced", resp.StatusCode)
-			resp.Body.Close() //nolint:errcheck // test cleanup
+			var connectErr struct {
+				Code string `json:"code"`
+			}
+			Expect(json.NewDecoder(resp.Body).Decode(&connectErr)).To(Succeed())
+			Expect(connectErr.Code).To(Equal("unauthenticated"))
 		})
 
 		It("agent endpoint with wrong secret returns unauthenticated", func() {
@@ -381,10 +421,10 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 				ID     string `json:"id"`
 				Secret string `json:"secret"`
 			}
-			status := adminClient.postJSON("/api/admin/agent-tokens", map[string]string{
+			status := adminClient.rpc("AdminService", "CreateAgentToken", map[string]string{
 				"name": "rbac-revoke-test",
 			}, &created)
-			Expect(status).To(Equal(http.StatusCreated))
+			Expect(status).To(Equal(http.StatusOK))
 			Expect(created.ID).NotTo(BeEmpty())
 			Expect(created.Secret).NotTo(BeEmpty())
 
@@ -403,11 +443,9 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 			resp.Body.Close() //nolint:errcheck // test cleanup
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
-			// Revoke the token.
-			revokeResp, err := adminClient.do("DELETE", "/api/admin/agent-tokens/"+created.ID, nil)
-			Expect(err).NotTo(HaveOccurred())
-			revokeResp.Body.Close() //nolint:errcheck // test cleanup
-			Expect(revokeResp.StatusCode).To(Equal(http.StatusNoContent))
+			// Revoke the token (Connect answers 200 with an empty message, not 204).
+			status = adminClient.rpc("AdminService", "RevokeAgentToken", map[string]string{"id": created.ID}, nil)
+			Expect(status).To(Equal(http.StatusOK))
 
 			// Next call with the revoked token must be rejected.
 			req2, err := http.NewRequest("POST",
@@ -434,10 +472,10 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 			}
 			var collectors struct {
 				Items []struct {
-					RemoteConfigStatus string `json:"remote_config_status"`
+					RemoteConfigStatus string `json:"remoteConfigStatus"`
 				} `json:"items"`
 			}
-			adminClient.getJSON(fmt.Sprintf("/api/orgs/%s/collectors", orgID), &collectors)
+			adminClient.mustRPC("FleetService", "ListCollectors", map[string]string{"org_id": orgID}, &collectors)
 			for _, c := range collectors.Items {
 				Expect(c.RemoteConfigStatus).To(SatisfyAny(
 					BeEmpty(),
@@ -454,7 +492,7 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 // Scenario 8: Local admin alongside OIDC — login + audit actor (LA-1).
 // Runs as a separate non-Ordered describe so it does not depend on orgID from the main flow.
 var _ = Describe("8. Local admin login + audit actor (LA-1)", func() {
-	It("local admin login with allow_with_oidc=true succeeds and /api/me returns auth_method:local", func() {
+	It("local admin login with allow_with_oidc=true succeeds and MeService.GetMe returns authMethod local", func() {
 		// POST /api/auth/local/login with the e2e static password.
 		type loginRequest struct {
 			Username string `json:"username"`
@@ -474,9 +512,10 @@ var _ = Describe("8. Local admin login + audit actor (LA-1)", func() {
 		Expect(resp.StatusCode).To(Equal(http.StatusOK), "local admin login must return 200")
 		resp.Body.Close() //nolint:errcheck // test cleanup
 
-		// GET /api/me with the session cookie — must return auth_method:"local".
-		meReq, err := http.NewRequest("GET", shepherdURL+"/api/me", nil)
+		// MeService.GetMe with the session cookie — must return authMethod "local".
+		meReq, err := http.NewRequest("POST", shepherdURL+rpcPath("MeService", "GetMe"), bytes.NewBufferString("{}"))
 		Expect(err).NotTo(HaveOccurred())
+		meReq.Header.Set("Content-Type", "application/json")
 		meReq.Header.Set("X-Requested-With", "XMLHttpRequest")
 		meResp, err := hc.Do(meReq)
 		Expect(err).NotTo(HaveOccurred())
@@ -485,7 +524,7 @@ var _ = Describe("8. Local admin login + audit actor (LA-1)", func() {
 
 		var me map[string]any
 		Expect(json.NewDecoder(meResp.Body).Decode(&me)).To(Succeed())
-		Expect(me["auth_method"]).To(Equal("local"), "auth_method must be 'local' for local admin session")
+		Expect(me["authMethod"]).To(Equal("local"), "authMethod must be 'local' for local admin session")
 	})
 })
 
