@@ -31,6 +31,16 @@ Categories used here:
   and never a reserved key — so the MCP `list_fleet_attributes` tool and any API caller stop being
   offered keys a matcher can never hit. (#139)
 
+### Fixed
+
+- **The visual builder no longer overwrites an unsaved draft when it opens.** On opening, the builder
+  stamps the served schema version onto its fresh document, and the draft autosave treated that as
+  an edit — 500ms later it saved the empty (or just-loaded) graph over the draft left by an earlier
+  session. Usually the restore banner still appeared, but the draft on disk was already gone, so
+  leaving without choosing lost it; on a slow load the save could land first and the banner never
+  appeared at all. Autosave now starts only once the restore check has run, and pauses while a
+  restore choice is pending.
+
 ## v0.11.0
 
 Chart 0.15.0. Two fleet capabilities ship: the **Reconciliation** tab (declared vs served vs

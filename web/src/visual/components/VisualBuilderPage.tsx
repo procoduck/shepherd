@@ -73,6 +73,9 @@ export function VisualBuilderPage() {
   const [loadState, setLoadState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draftToRestore, setDraftToRestore] = useState<GraphDocument | null>(null);
+  // Whether the restore check below has run for this pipelineId. Autosave
+  // waits for it (see the autosave effect).
+  const [draftChecked, setDraftChecked] = useState(false);
   const [discardingDraft, setDiscardingDraft] = useState(false);
 
   useEffect(() => {
@@ -108,6 +111,9 @@ export function VisualBuilderPage() {
   useEffect(() => {
     if (prevPipelineIdRef.current !== null && prevPipelineIdRef.current !== pipelineId) {
       useVisualStore.getState().resetDoc();
+      // A new pipelineId has its own draft to check before autosave resumes.
+      setDraftChecked(false);
+      setDraftToRestore(null);
     }
     prevPipelineIdRef.current = pipelineId;
   }, [pipelineId]);
@@ -117,7 +123,18 @@ export function VisualBuilderPage() {
   // persistence, so a refresh, a closed tab or a crash loses however long
   // was spent wiring it up. Re-subscribed whenever pipelineId changes so a
   // save always lands under the right draft key.
-  useEffect(() => subscribeDraftAutosave(useVisualStore, pipelineId), [pipelineId]);
+  //
+  // Not until the restore check has run, and not while a restore is pending:
+  // until then the draft on disk is the only copy of an earlier session's
+  // work. Mount-time doc changes (setSchema stamping the served version onto
+  // a fresh doc, an existing pipeline's load) used to trigger a save of the
+  // empty or freshly loaded doc over it 500ms later — losing the draft
+  // whenever the user left without choosing, and hiding the banner entirely
+  // whenever that save beat the check's read.
+  useEffect(() => {
+    if (!draftChecked || draftToRestore) return;
+    return subscribeDraftAutosave(useVisualStore, pipelineId);
+  }, [pipelineId, draftChecked, draftToRestore]);
 
   // Offer to restore a draft left behind by an earlier session. Checked once
   // the doc this pipelineId should actually start from is in place: for
@@ -130,11 +147,16 @@ export function VisualBuilderPage() {
   useEffect(() => {
     if (pipelineId !== 'new' && loadState !== 'idle') return;
     let cancelled = false;
-    loadDraft(pipelineId).then((draft) => {
-      if (cancelled) return;
-      const current = useVisualStore.getState().doc;
-      if (shouldOfferRestore(draft, current)) setDraftToRestore(draft);
-    });
+    loadDraft(pipelineId)
+      .then((draft) => {
+        if (cancelled) return;
+        const current = useVisualStore.getState().doc;
+        if (shouldOfferRestore(draft, current)) setDraftToRestore(draft);
+      })
+      .catch(console.error)
+      .finally(() => {
+        if (!cancelled) setDraftChecked(true);
+      });
     return () => {
       cancelled = true;
     };

@@ -252,9 +252,10 @@ In rough priority order; closed items stay in place, marked with the release tha
       `make vulncheck` refuses it; the fix exists only in a `v1.85.0-dev` pseudo-version. Take the
       bump (Dependabot will propose it) once v1.85.0 stable is released. The other three modules in
       that group shipped via #153.
-- [ ] **`web/tests/specs/visual-drafts.spec.ts` is flaky under load** — "a draft can be discarded,
-      and no longer offers itself after" misses `draft-restore-banner` in roughly 15% of repeated
-      runs, identically on `main` and on branches (measured 2026-09-28, 40-run batches).
+- [x] **`visual-drafts.spec.ts` flaked under load — it was a real bug.** The builder's draft
+      autosave overwrote a pending draft on open (the schema-version stamp counted as an edit); the
+      spec caught it whenever that save beat the restore check. Fixed on `main` (autosave now waits
+      for the restore decision), with a deterministic regression spec.
 - [x] **Bump Alloy for the 15 high CVEs in the bundled binary (done 2026-09-14, v1.19.2).**
       Trivy found 15 HIGH, unfixed-excluded CVEs in the v1.18.1 binary bundled into both images
       (built upstream with Go 1.26.5). v1.19.2 is built on a patched Go and carries 2, both in
