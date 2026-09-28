@@ -8,8 +8,8 @@
 > board is archived at `docs/archive/plans/2026-09-16-outstanding-work.md` — eight of its twelve
 > remaining items shipped in v0.9.0/v0.10.0 and the other four are GitHub issues (§3).
 >
-> Baseline re-verified 2026-09-28 at the v0.10.0 release
-> (`0c3b2f5`, chart 0.14.0) from the CI and release runs on that commit, not from a summary.
+> Baseline re-verified 2026-09-28 at the v0.11.0 release
+> (`25145fc`, chart 0.15.0) from the CI and release runs on that commit, not from a summary.
 > Completed rounds live in `docs/archive/` — the history this ledger used to carry inline is
 > `docs/archive/completed-2026-09-11.md`. Do not start a second ledger.
 
@@ -19,7 +19,7 @@
 |---|---|
 | `docs/project-status.md` | this ledger — verified baseline, open bugs, unbuilt features, open follow-ups |
 | `docs/spec.md` | authoritative product/build specification (§ numbers referenced below) |
-| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. Current: `2026-09-18-reconciliation-surface.md` (#140, merged, unreleased) |
+| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. Empty at v0.11.0 — the reconciliation plan shipped and is archived |
 | `docs/visual-builder-design-VB1.md` | visual builder design — M1–M8 built; §6.4 (S3) is the live spec for the sandbox feature (enabled by default in the Helm chart since v0.0.1) |
 | `docs/reviews/` | **live decision records only**: `canvas-framework-evaluation.md` (the React Flow decision and the controlled-mode contract `CanvasPane` depends on). Closed reviews move to `docs/archive/reviews/` |
 | `docs/dev-guide.md` | running the dev stack |
@@ -33,24 +33,24 @@
 
 ---
 
-## 1. Verified baseline (2026-09-28, v0.10.0)
+## 1. Verified baseline (2026-09-28, v0.11.0)
 
-Every row is a CI or release run on `0c3b2f5` (the v0.10.0 release commit, PR #141) or the run that
+Every row is a CI or release run on `25145fc` (the v0.11.0 release commit, PR #163) or the run that
 last exercised the surface, so the claim is checkable by run id rather than by trusting this table.
 
 | Check | Where it ran | Result |
 |---|---|---|
-| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 35334854676 (`0c3b2f5`) | clean |
+| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 36400152608 (`25145fc`) | clean |
 | `golangci-lint` + config verify, all ten `make guards`, `helm lint` (incl. the dev-kind values), `scripts/repocheck` | CI `lint` + `guards` jobs, same run | 0 issues |
 | `go test ./...` with coverage (testcontainers Postgres) | CI `test` job, same run | green |
-| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job, run 35278775261 (PR #138, `7c067ee` — the last web change before the tag; the release commit only rebuilt the bundle) | clean |
-| Mocked Playwright (`make test-ui`) | CI `test-ui` job, same run (35278775261) | green |
-| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 35334854676 (`0c3b2f5`) | green |
-| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml` on push to main, run 35340416064 (`a035e18`, the first main push after the tag — path-filtered, so the release commit itself did not trigger it) | green |
-| Kubernetes e2e, kind (`make e2e-k8s`) | `e2e-k8s.yml` weekly schedule, run 35706767112 (`1a5a52e`) | green |
-| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job on PRs touching the sandbox surface, run 35861469841 (PR #154, `e1f4b1f`, the postgres 18 compose change) | green |
-| CodeQL (actions, go, javascript-typescript, python; `security-extended`) | advanced setup `codeql.yml` since #151/#152 (2026-09-23) — covers fork PRs, which default setup did not | green on `main` |
-| Release: verify job, goreleaser, image attestations, chart OCI push, `scan-published` | `release.yml`, run 35334888511 | success — chart 0.14.0 / appVersion 0.10.0, provenance attested for both images, `scan-published` green for both |
+| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job, run 36397116495 (`1c05e52`, PR #162 — the last web change; the release commit only rebuilt the bundle) | clean |
+| Mocked Playwright (`make test-ui`) | CI `test-ui` job, same run (36397116495) | green |
+| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 36400152608 (`25145fc`) | green |
+| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml`, manual dispatch on `25145fc`, run 36401527729 — dispatched because the path filter skipped it after #162 removed the REST shim | green (22 specs) |
+| Kubernetes e2e, kind (`make e2e-k8s`) | `e2e-k8s.yml` on the release PR (#163, `24ebbf2`), run 36397765892 | green |
+| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job, same manual dispatch on `25145fc` (run 36401527729) | green (containment + run lifecycle) |
+| CodeQL (actions, go, javascript-typescript, python; `security-extended`) | `codeql.yml` on `25145fc`, run 36400152824 | green |
+| Release: verify job, goreleaser, image attestations, chart OCI push, `scan-published` | `release.yml`, run 36400183145 | success — chart 0.15.0 / appVersion 0.11.0 pullable, images `0.11.0` + `latest` present for both, SLSA v1 provenance verified (`gh attestation verify`, source `25145fc`), `scan-published` green for both |
 
 ### What demonstrably works end to end
 
@@ -99,9 +99,9 @@ the manual end-to-end pass the list above records. Re-walk them on the next rele
 - **v0.10.0** — structural graph diff for visual pipelines; experimental components as a per-org
   setting with a server-side render gate; a warnings channel on the wizard preview; the tenant-route
   create form asking for a gateway name in both modes.
-- **On `main`, unreleased** — the Reconciliation tab (#140, migration `0025`); built-in matcher keys
-  reserved against collector labels (#142); attribute-based pipeline matching behind two per-org
-  flags (#144, migration `0026`); CodeQL advanced setup (#151/#152).
+- **v0.11.0** — the Reconciliation tab (#140, migration `0025`); attribute-based pipeline matching
+  behind two per-org flags (#142/#144/#158, migration `0026`); the `/api` REST shim removed
+  (#160/#161/#162).
 
 ### History
 
@@ -115,6 +115,8 @@ remediation with its D1–D14 decisions, and the v0.5.0 dependency and toolchain
   and OIDC mode 2), chart 0.13.0.
 - 2026-09-18 — v0.10.0 (graph diff, experimental components per org, wizard warnings), chart 0.14.0,
   release run 35334888511.
+- 2026-09-28 — v0.11.0 (reconciliation, attribute-based matching, REST shim removed), chart 0.15.0,
+  release run 36400183145.
 
 ---
 
@@ -153,7 +155,7 @@ the contributing set.
 
 R1, R2 signed; R6's conditions met in v0.9.0; R3 open. Shipped since the sign-offs: tenant routes
 UI (W4, v0.9.0), service accounts UI (W10, v0.9.0), the MCP interface in the release archives (W11,
-v0.9.0), reconciliation (W6, merged, unreleased). Still to build, each a GitHub issue:
+v0.9.0), reconciliation (W6, v0.11.0). Still to build, each a GitHub issue:
 
 - **Receiver tier (W4's other half) — #109.** Chart Deployment + Service + NetworkPolicy (gateway the
   only ingress), tested off-switch, real-Alloy pass-through tenancy e2e; then back to R3 to sign.
@@ -162,7 +164,7 @@ v0.9.0), reconciliation (W6, merged, unreleased). Still to build, each a GitHub 
 
 ### Attribute-based matching — UI and docs · **#139 item 8**
 
-Matching on admin labels and agent `local_attributes` is built and on `main` (#144), behind two
+Matching on admin labels and agent `local_attributes` shipped in v0.11.0 (#144), behind two
 per-org flags that are **RPC only**: nothing in the UI turns them on (`AdminService.UpdateOrg` does),
 there is no matcher-key autocomplete, and the docs site has no matchers page. Until the UI exists,
 the Organisations edit form must keep carrying both flags through on save (#158 fixed it resetting
@@ -205,17 +207,15 @@ answer and the ledger item it produced is below.
 - [x] **Experimental components as an org setting** — shipped in v0.10.0 (migration `0024`,
       server-side render gate).
 - [x] **`shepherd_build_info` gauge** — shipped in v0.9.0.
-- [ ] **REST shim removal — overdue.** Deprecated in v0.9.0 with in-band headers and a stated
-      removal "a release after v0.9.0"; v0.10.0 did not remove it. Before it can go, `e2e/e2e_test.go`
-      (which drives everything through `/api/*`) has to move to Connect. Decide: remove in the next
-      release, or restate the removal target in `CHANGELOG.md`.
+- [x] **REST shim removal** — removed in v0.11.0 (#162) after its callers moved to Connect
+      (#160/#161); `/api` now serves only the out-of-contract schema routes (`docs/spec.md` §12).
 - [ ] **Receiver tier build (R3)** — #109.
 - [x] **R6 conditions** — the per-service-account rate limit shipped in v0.9.0 (#130); the
       `pipeline.propose` audit row already existed. `shepherd-mcp` joined the release archives in
       v0.9.0 (#132).
 - [x] **Tenant routes UI** (W4) — shipped in v0.9.0.
 - [x] **Service-accounts UI** (W10 remainder) — shipped in v0.9.0.
-- [x] **Reconciliation surface** (W6) — merged (#140), ships in the next release.
+- [x] **Reconciliation surface** (W6) — shipped in v0.11.0 (#140).
 - [ ] **Onboarding artifacts page** (W7) — #111.
 - [ ] **Chart-values generator UI** (W9) + gate G10 in the kind suite — #112.
 
@@ -227,6 +227,12 @@ first live bring-up (`docs/archive/plans/2026-09-14-kind-dev-stack.md`); every o
 was closed in the same batches (`CHANGELOG.md` v0.7.0).
 
 In rough priority order; closed items stay in place, marked with the release that shipped them:
+
+- [ ] **Decide: should `ValidatePipeline` require org editor?** Over Connect its interceptor row is
+      `auth.RoleOrgReader`, so an org reader can validate pipeline text (nothing is written, apart
+      from the `pipeline.propose` audit row for service-account callers). The removed REST shim put
+      it behind org editor, and `role_matrix_test.go` pins the current Connect behaviour. Tightening
+      it is an RBAC change, so it is ask-first.
 
 - [ ] **A collector's `APPLIED` status can mean "polled with the served hash", not "loaded it
       successfully."** `ClearStaleFailedStatus` promotes NULL/FAILED to `APPLIED` on a status-less
