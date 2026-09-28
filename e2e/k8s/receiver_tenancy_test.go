@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -316,21 +316,24 @@ func otlpSpanJSON(name string) string {
 
 // postSpanOnce POSTs one OTLP/JSON span from a one-shot pod in podNS and
 // returns the HTTP status curl reported ("000" when the connection failed).
+//
+// kubectl runs from an explicit argv (os/exec), NOT utils.RunCommand: gexe,
+// underneath it, re-tokenises the command string with its own parser, which
+// mangled both the JSON body and the `sh -c` script — the probe failed for a
+// reason that had nothing to do with the network it was meant to test.
 func postSpanOnce(cfg *envconf.Config, podNS, name, url string, headers map[string]string) string {
 	var hdr strings.Builder
 	for k, v := range headers {
 		fmt.Fprintf(&hdr, " -H %s", shellQuote(k+": "+v))
 	}
-	// sh -c with `; true`: curl's own exit code (28 on timeout) would make
-	// kubectl append "pod ... terminated (Error)" to the output; only the
-	// HTTP code (000 when the connection failed) is wanted.
-	curl := fmt.Sprintf("curl -s -o /dev/null -w %%{http_code} --max-time 10 -X POST -H %s%s --data %s %s; true",
+	// `; true`: only the HTTP code (000 when the connection failed) is wanted,
+	// not curl's own exit status (28 on a timeout).
+	script := fmt.Sprintf("curl -s -o /dev/null -w %%{http_code} --max-time 10 -X POST -H %s%s --data %s %s; true",
 		shellQuote("Content-Type: application/json"), hdr.String(), shellQuote(otlpSpanJSON(name)), shellQuote(url))
-	p := utils.RunCommand(fmt.Sprintf(
-		"kubectl --kubeconfig %s -n %s run %s --image=curlimages/curl:8.11.1 --restart=Never --rm --attach "+
-			"--quiet --pod-running-timeout=2m --command -- sh -c %s",
-		cfg.KubeconfigFile(), podNS, name, strconv.Quote(curl)))
-	return lastLine(p.Result())
+	out, _ := exec.Command("kubectl", "--kubeconfig", cfg.KubeconfigFile(), "-n", podNS, //nolint:gosec // G204: fixed binary, argv built from test constants
+		"run", name, "--image=curlimages/curl:8.11.1", "--restart=Never", "--rm", "--attach",
+		"--quiet", "--pod-running-timeout=2m", "--command", "--", "sh", "-c", script).CombinedOutput() //nolint:errcheck // judged by the printed status, not the exit code
+	return lastLine(string(out))
 }
 
 // postSpanUntil POSTs a span through the gateway until the receiver accepts it
