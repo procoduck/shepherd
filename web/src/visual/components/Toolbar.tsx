@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { renderVisual } from '../../api/client';
 import { clients, toApiError } from '../../api/transport';
+import { MatcherSuggestions } from '../../components/MatcherSuggestions';
 import { useOrgId } from '../../hooks/useOrg';
 import { clearDraft } from '../draft';
 import { isValidMatcher } from '../matcher';
@@ -164,6 +165,7 @@ export function Toolbar({ pipelineId }: { pipelineId: string }) {
         ))}
         <input
           data-testid='matcher-input'
+          list='visual-matcher-suggestions'
           value={matcherInput}
           onChange={(e) => {
             setMatcherInput(e.target.value);
@@ -178,6 +180,7 @@ export function Toolbar({ pipelineId }: { pipelineId: string }) {
           placeholder='cluster="prod-eu-1"'
           className='shrink-0 border rounded px-2 py-1 text-xs w-40 font-mono bg-background'
         />
+        <MatcherSuggestions id='visual-matcher-suggestions' orgId={orgId} />
         {matcherError && (
           <span data-testid='matcher-error' className='shrink-0 text-xs text-red-500'>
             {matcherError}
