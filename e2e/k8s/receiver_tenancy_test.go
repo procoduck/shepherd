@@ -144,6 +144,25 @@ receiver:
 			}
 			return ctx
 		}).
+		Assess("the gateway's namespace can reach the receiver directly (the NetworkPolicy's allowed side)",
+			func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
+				// The positive half of the ingress rule, and the first thing to
+				// know if the gateway path below fails: can traffic from gwNS
+				// reach the receiver at all?
+				direct := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d/v1/traces", receiver, f.ns, recvPort)
+				end := time.Now().Add(gatewayProbeDeadline)
+				var code string
+				for i := 0; ; i++ {
+					if code = postSpanOnce(cfg, gwNS, fmt.Sprintf("from-gw-ns-%d", i), direct, nil); code == "200" {
+						return ctx
+					}
+					if time.Now().After(end) {
+						t.Fatalf("a pod in the gateway namespace %s could not reach the receiver directly (last HTTP %q) — "+
+							"the NetworkPolicy's gatewayFrom does not admit it\n%s", gwNS, code, receiverDiagnostics(cfg, f.ns, gwNS, gwSvc))
+					}
+					time.Sleep(3 * time.Second)
+				}
+			}).
 		Assess("each tenant's spans reach the backend carrying exactly that tenant, through the real receiver",
 			func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
 				for _, r := range []struct{ tenant, seg string }{{tenantA, segA}, {tenantB, segB}} {
@@ -300,15 +319,18 @@ func otlpSpanJSON(name string) string {
 func postSpanOnce(cfg *envconf.Config, podNS, name, url string, headers map[string]string) string {
 	var hdr strings.Builder
 	for k, v := range headers {
-		fmt.Fprintf(&hdr, " -H %s", strconv.Quote(k+": "+v))
+		fmt.Fprintf(&hdr, " -H %s", shellQuote(k+": "+v))
 	}
+	// sh -c with `; true`: curl's own exit code (28 on timeout) would make
+	// kubectl append "pod ... terminated (Error)" to the output; only the
+	// HTTP code (000 when the connection failed) is wanted.
+	curl := fmt.Sprintf("curl -s -o /dev/null -w %%{http_code} --max-time 10 -X POST -H %s%s --data %s %s; true",
+		shellQuote("Content-Type: application/json"), hdr.String(), shellQuote(otlpSpanJSON(name)), shellQuote(url))
 	p := utils.RunCommand(fmt.Sprintf(
 		"kubectl --kubeconfig %s -n %s run %s --image=curlimages/curl:8.11.1 --restart=Never --rm --attach "+
-			"--quiet --pod-running-timeout=2m --command -- curl -s -o /dev/null -w %%{http_code} --max-time 5 "+
-			"-X POST -H %s%s --data %s %s",
-		cfg.KubeconfigFile(), podNS, name, strconv.Quote("Content-Type: application/json"), hdr.String(),
-		strconv.Quote(otlpSpanJSON(name)), strconv.Quote(url)))
-	return strings.TrimSpace(p.Result())
+			"--quiet --pod-running-timeout=2m --command -- sh -c %s",
+		cfg.KubeconfigFile(), podNS, name, strconv.Quote(curl)))
+	return lastLine(p.Result())
 }
 
 // postSpanUntil POSTs a span through the gateway until the receiver accepts it
@@ -325,7 +347,7 @@ func postSpanUntil(t *testing.T, cfg *envconf.Config, podNS, gwNS, gwSvc, path, 
 		time.Sleep(3 * time.Second)
 	}
 	t.Fatalf("POST %s through the gateway never got HTTP 200 from the receiver within %s (last: %q)\n%s",
-		path, gatewayProbeDeadline, code, describeNS(cfg, podNS))
+		path, gatewayProbeDeadline, code, receiverDiagnostics(cfg, podNS, gwNS, gwSvc))
 }
 
 // sinkTenantCounts reads the sink's request log and counts OTLP trace
@@ -384,4 +406,32 @@ func waitSinkTenantAbove(t *testing.T, cfg *envconf.Config, ns, sink, tenant str
 		}
 		time.Sleep(3 * time.Second)
 	}
+}
+
+// shellQuote single-quotes s for sh, which the curl command line runs under.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
+}
+
+// lastLine is the final non-empty line of kubectl run's output — the curl
+// status code — past any kubectl notices printed before it.
+func lastLine(out string) string {
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	return strings.TrimSpace(lines[len(lines)-1])
+}
+
+// receiverDiagnostics gathers what a failed probe needs to be understood:
+// the receiver namespace, the gateway data plane's own logs (did nginx get
+// the request, and what did the upstream do?), and the receiver's logs.
+func receiverDiagnostics(cfg *envconf.Config, ns, gwNS, gwDeploy string) string {
+	run := func(cmd string) string {
+		return utils.RunCommand(fmt.Sprintf("kubectl --kubeconfig %s %s", cfg.KubeconfigFile(), cmd)).Result()
+	}
+	return describeNS(cfg, ns) +
+		"\n--- gateway data plane (" + gwNS + "/" + gwDeploy + ") logs ---\n" +
+		run(fmt.Sprintf("-n %s logs deploy/%s --all-containers --tail=40", gwNS, gwDeploy)) +
+		"\n--- pods in " + gwNS + " ---\n" + run(fmt.Sprintf("-n %s get pods -o wide --show-labels", gwNS)) +
+		"\n--- receiver logs ---\n" +
+		run(fmt.Sprintf("-n %s logs -l app.kubernetes.io/component=receiver -c alloy --tail=40", ns)) +
+		"\n--- receiver NetworkPolicy ---\n" + run(fmt.Sprintf("-n %s get networkpolicy -l app.kubernetes.io/component=receiver -o yaml", ns))
 }
