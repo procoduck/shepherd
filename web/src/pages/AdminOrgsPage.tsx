@@ -90,6 +90,11 @@ export function AdminOrgsPage() {
     editorGroupId: '',
     readerGroupId: '',
     allowExperimentalComponents: false,
+    // No control for these two yet (#139 item 8), but UpdateOrg replaces
+    // every field from the request, so they must ride through unchanged —
+    // omitting them would silently reset both matching flags on any save.
+    allowLabelMatching: false,
+    allowLocalAttributeMatching: false,
   });
   const [deleteOrg, setDeleteOrg] = useState<Org | null>(null);
 
@@ -147,6 +152,8 @@ export function AdminOrgsPage() {
       editorGroupId: o.editorGroupId,
       readerGroupId: o.readerGroupId,
       allowExperimentalComponents: o.allowExperimentalComponents,
+      allowLabelMatching: o.allowLabelMatching,
+      allowLocalAttributeMatching: o.allowLocalAttributeMatching,
     });
   }
 

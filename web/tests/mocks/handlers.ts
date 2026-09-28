@@ -42,6 +42,8 @@ function orgToWire(o: Obj) {
     createdAt: o['created_at'],
     updatedAt: o['updated_at'],
     allowExperimentalComponents: b(o, 'allow_experimental_components'),
+    allowLabelMatching: b(o, 'allow_label_matching'),
+    allowLocalAttributeMatching: b(o, 'allow_local_attribute_matching'),
   };
 }
 
@@ -641,6 +643,10 @@ export function installDefaultHandlers(router: Router) {
     o['admin_group_id'] = req['adminGroupId'];
     o['reader_group_id'] = req['readerGroupId'];
     o['allow_experimental_components'] = req['allowExperimentalComponents'];
+    // Full replace, like the real UpdateOrg (internal/mgmtapi/rpc_admin.go):
+    // an omitted proto3 bool arrives as false.
+    o['allow_label_matching'] = req['allowLabelMatching'] ?? false;
+    o['allow_local_attribute_matching'] = req['allowLocalAttributeMatching'] ?? false;
     return json(r, 200, orgToWire(o));
   });
   router.register('POST', '/shepherd.mgmt.v1.AdminService/DeleteOrg', async (r) => {

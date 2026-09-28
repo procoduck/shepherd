@@ -239,12 +239,16 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 				Content string `json:"content"`
 				Hash    string `json:"hash"`
 			}
-			Eventually(func() bool {
+			// Wait for the pipeline itself, not just any non-empty hash:
+			// EnablePipeline recomputes the serve cache in a background
+			// goroutine, and Alloy's first poll has already cached a
+			// beacon-only config (non-empty hash, "No pipelines matched"), so
+			// a hash-only wait can accept that stale row and fail here.
+			Eventually(func() string {
 				adminClient.getJSON(fmt.Sprintf("/api/orgs/%s/collectors/%s/served-config", orgID, collID), &served)
-				return served.Hash != "" && served.Hash != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-			}).WithTimeout(30 * time.Second).WithPolling(2 * time.Second).Should(BeTrue())
-
-			Expect(served.Content).To(ContainSubstring(`declare "pipe_e2e_pipe"`))
+				return served.Content
+			}).WithTimeout(30 * time.Second).WithPolling(2 * time.Second).Should(ContainSubstring(`declare "pipe_e2e_pipe"`))
+			Expect(served.Hash).NotTo(BeEmpty())
 			pipelineHash = served.Hash
 		})
 

@@ -19,8 +19,23 @@ Categories used here:
   admin-set collector labels participate in pipeline matching (#139): `SetCollectorLabel` now rejects
   a key that a matcher reserves for a built-in collector fact — `cluster`, `role`, `id`, `os`,
   `alloy_version`, or anything under the `collector.*` / `shepherd.*` prefixes — so an admin label can
-  never shadow, or be shadowed by, a built-in key once labels become matchers. No serving behaviour
-  changes yet. (#139)
+  never shadow, or be shadowed by, a built-in key once labels become matchers. (#139)
+
+- **Attribute-based pipeline matching — collector labels and local attributes as matcher keys.**
+  Pipeline matchers can now use a collector's admin-set labels (`collectors.labels`) and its
+  agent-reported `local_attributes`, not just `cluster` and `role`. Each source sits behind its own
+  per-org opt-in, `allow_label_matching` and `allow_local_attribute_matching` (migration `0026`,
+  additive, both default **off** — existing orgs match exactly as before). They are separate because
+  `local_attributes` is agent-reported, so reachable with a compromised agent token. Precedence is
+  `local_attributes` < admin labels < `cluster`/`role`: the built-in keys can never be shadowed, and
+  reserved keys are dropped from both sources. Every serve path (lazy `GetConfig`, the eager recompute
+  after pipeline changes, Stage 3 validation and the matched-collector preview) applies the same gate.
+  Label edits now invalidate the collector's serve cache, and a label or attribute change that alters
+  which pipelines a collector matches is counted (`shepherd_pipeline_match_changes_total`) and
+  audited (`pipeline.match.changed`). Before flipping either flag, `shepherd admin
+  audit-matcher-impact --org <id>` shows which pipelines would gain or lose collectors. _RPC only_ for
+  the flags themselves — set them with `AdminService.UpdateOrg`; there is no toggle in the UI yet.
+  (#139, #144)
 
 - **Reconciliation surface — declared vs served vs observed.** A collector detail page now has a
   **Reconciliation** tab that surfaces drift between what a collector's role declares, what Shepherd
@@ -31,6 +46,18 @@ Categories used here:
   collector is still running that its desired served set no longer contains (a disabled or deleted
   pipeline it will drop on its next config reload); root-level/BYO components are out of scope.
   _Shipped._ (#110)
+
+### Fixed
+
+- **Editing an org on the Organisations page no longer switches attribute matching off.** The edit
+  form did not send `allow_label_matching` / `allow_local_attribute_matching`, and `UpdateOrg` replaces
+  every field from the request, so saving any change — even a rename — reset both flags to false.
+  (#139)
+- **The Reconciliation tab no longer reports label-matched pipelines as drift.** With
+  `allow_label_matching` or `allow_local_attribute_matching` on, a pipeline can reach a collector
+  through a label rather than `cluster`/`role`; the reconciliation surface built its desired served set
+  from `cluster`/`role` alone, so a pipeline the collector was correctly running showed up as "no
+  longer served". It now matches with the same gated label set as the serve paths. (#110, #139)
 
 ## v0.10.0
 
