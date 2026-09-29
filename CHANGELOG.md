@@ -44,6 +44,15 @@ Categories used here:
   nothing applies routes yet (`docs/plans/2026-09-29-tenant-route-apply.md`, PR 1 of 5).
   _RPC only._
 
+- **Tenant-route reconciler.** With `gateway.routes.apply.enabled` (plus the namespace and the
+  receiver Service it points routes at), Shepherd applies each active or in-overlap tenant route's
+  HTTPRoute through the Gateway API, verifies the gateway attached it, and records `applied`,
+  `refused` (with the gateway's reason) or `error` on the route, retrying with backoff. Revoked
+  routes, deprecated routes past their overlap (now revoked automatically) and HTTPRoutes no route
+  wants are deleted; Faro routes are `not_applicable`. The Gateway itself is never touched. Uses
+  `k8s.io/client-go`'s dynamic client, in-cluster only. _Built, not wired_ — the chart does not
+  grant the RBAC or set the config yet (plan PR 3).
+
 ### Changed
 
 - **`FleetService.ListAttributes` lists only keys that pipeline matching evaluates.** It used to

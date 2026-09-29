@@ -241,3 +241,28 @@ func TestRenderHTTPRoute_Validation(t *testing.T) {
 		t.Fatalf("baseline valid spec was rejected: %v", err)
 	}
 }
+
+// TestRenderHTTPRoute_ExtraLabelsCannotOverrideOwnership pins that a caller's
+// labels are added, but never replace the managed-by/route-kind pair.
+func TestRenderHTTPRoute_ExtraLabelsCannotOverrideOwnership(t *testing.T) {
+	spec := otlpSpec()
+	spec.Labels = map[string]string{
+		"shepherd.io/tenant-route-id": "0b7c",
+		gateway.ManagedByLabel:        "someone-else",
+		gateway.RouteKindLabel:        "faro",
+	}
+	route, err := gateway.RenderHTTPRoute(spec)
+	if err != nil {
+		t.Fatalf("RenderHTTPRoute: %v", err)
+	}
+	want := map[string]string{
+		"shepherd.io/tenant-route-id": "0b7c",
+		gateway.ManagedByLabel:        "shepherd",
+		gateway.RouteKindLabel:        "otlp",
+	}
+	for k, v := range want {
+		if got := route.Labels[k]; got != v {
+			t.Errorf("label %s = %q, want %q", k, got, v)
+		}
+	}
+}

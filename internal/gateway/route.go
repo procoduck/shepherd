@@ -92,6 +92,12 @@ type RouteSpec struct {
 	BackendName      string
 	BackendNamespace string
 	BackendPort      int32
+
+	// Labels are extra metadata labels for the rendered object — the route
+	// reconciler (internal/routeapply) stamps its route id here so it can
+	// find the objects it owns. They cannot override ManagedByLabel or
+	// RouteKindLabel, which are always the values this function sets.
+	Labels map[string]string
 }
 
 // PathPrefix is the literal path prefix this spec matches on:
@@ -166,10 +172,7 @@ func RenderHTTPRoute(spec RouteSpec) (*gatewayv1.HTTPRoute, error) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      spec.Name,
 			Namespace: spec.Namespace,
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "shepherd",
-				"shepherd.io/route-kind":       string(spec.Kind),
-			},
+			Labels:    routeLabels(spec),
 		},
 		Spec: gatewayv1.HTTPRouteSpec{
 			CommonRouteSpec: gatewayv1.CommonRouteSpec{
@@ -220,6 +223,22 @@ func RenderHTTPRoute(spec RouteSpec) (*gatewayv1.HTTPRoute, error) {
 			}},
 		},
 	}, nil
+}
+
+// ManagedByLabel and RouteKindLabel are set on every rendered HTTPRoute.
+const (
+	ManagedByLabel = "app.kubernetes.io/managed-by"
+	RouteKindLabel = "shepherd.io/route-kind"
+)
+
+func routeLabels(spec RouteSpec) map[string]string {
+	labels := make(map[string]string, len(spec.Labels)+2)
+	for k, v := range spec.Labels {
+		labels[k] = v
+	}
+	labels[ManagedByLabel] = "shepherd"
+	labels[RouteKindLabel] = string(spec.Kind)
+	return labels
 }
 
 // optionalNamespace returns nil for "" (meaning "same namespace as the

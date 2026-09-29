@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -109,4 +110,60 @@ func TestGitSyncLimitOverrides(t *testing.T) {
 	if cfg.GitSync.FetchTimeout != 5*time.Second {
 		t.Errorf("gitsync.fetch_timeout = %s, want 5s", cfg.GitSync.FetchTimeout)
 	}
+}
+
+// TestRouteApplyConfig pins the tenant-route reconciler's config: off by
+// default, loadable from the env vars the chart sets, and refused when enabled
+// without the namespace and receiver backend it cannot guess.
+func TestRouteApplyConfig(t *testing.T) {
+	base := func(t *testing.T) {
+		t.Setenv("SHEPHERD_DATABASE_URL", "postgres://example")
+		t.Setenv("SHEPHERD_SECURITY_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	}
+
+	t.Run("off by default", func(t *testing.T) {
+		base(t)
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		a := cfg.Gateway.Routes.Apply
+		if a.Enabled {
+			t.Error("gateway.routes.apply.enabled defaults to true, want false")
+		}
+		if a.BackendPort != 4318 || a.Interval != 60*time.Second || a.AttachTimeout != 60*time.Second {
+			t.Errorf("defaults = port %d, interval %s, attach_timeout %s; want 4318, 60s, 60s",
+				a.BackendPort, a.Interval, a.AttachTimeout)
+		}
+	})
+
+	t.Run("enabled from env", func(t *testing.T) {
+		base(t)
+		t.Setenv("SHEPHERD_GATEWAY_ROUTES_APPLY_ENABLED", "true")
+		t.Setenv("SHEPHERD_GATEWAY_ROUTES_APPLY_NAMESPACE", "shepherd")
+		t.Setenv("SHEPHERD_GATEWAY_ROUTES_APPLY_BACKEND_SERVICE", "shepherd-receiver")
+		t.Setenv("SHEPHERD_GATEWAY_ROUTES_APPLY_BACKEND_PORT", "4319")
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		a := cfg.Gateway.Routes.Apply
+		if !a.Enabled || a.Namespace != "shepherd" || a.BackendService != "shepherd-receiver" || a.BackendPort != 4319 {
+			t.Errorf("loaded %+v", a)
+		}
+	})
+
+	t.Run("enabled without namespace or backend is refused", func(t *testing.T) {
+		base(t)
+		t.Setenv("SHEPHERD_GATEWAY_ROUTES_APPLY_ENABLED", "true")
+		_, err := Load("")
+		if err == nil {
+			t.Fatal("Load succeeded, want a configuration error")
+		}
+		for _, want := range []string{"gateway.routes.apply.namespace", "gateway.routes.apply.backend_service"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error %q does not name %s", err, want)
+			}
+		}
+	})
 }

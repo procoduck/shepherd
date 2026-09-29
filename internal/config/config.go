@@ -23,6 +23,7 @@ type Config struct {
 	Validate  ValidateConfig  `mapstructure:"validate"`
 	Simulator SimulatorConfig `mapstructure:"simulator"`
 	GitSync   GitSyncConfig   `mapstructure:"gitsync"`
+	Gateway   GatewayConfig   `mapstructure:"gateway"`
 	ADO       ADOConfig       `mapstructure:"ado"`
 	Security  SecurityConfig  `mapstructure:"security"`
 	Tracing   TracingConfig   `mapstructure:"tracing"`
@@ -284,6 +285,35 @@ type GitSyncConfig struct {
 	FetchTimeout time.Duration `mapstructure:"fetch_timeout"`
 }
 
+// GatewayConfig holds Gateway API settings.
+type GatewayConfig struct {
+	Routes GatewayRoutesConfig `mapstructure:"routes"`
+}
+
+// GatewayRoutesConfig holds tenant-route settings.
+type GatewayRoutesConfig struct {
+	Apply RouteApplyConfig `mapstructure:"apply"`
+}
+
+// RouteApplyConfig configures the tenant-route reconciler (internal/routeapply,
+// docs/plans/2026-09-29-tenant-route-apply.md): when enabled, Shepherd applies
+// each tenant route's HTTPRoute in Namespace, pointing at the receiver Service
+// BackendService:BackendPort in the same namespace, and removes the ones no
+// route wants. It runs in-cluster only, with the chart's receiver-gated RBAC.
+type RouteApplyConfig struct {
+	Enabled bool `mapstructure:"enabled"`
+	// Namespace the HTTPRoutes live in — Shepherd's own, next to the receiver.
+	Namespace string `mapstructure:"namespace"`
+	// BackendService and BackendPort name the receiver Service.
+	BackendService string `mapstructure:"backend_service"`
+	BackendPort    int32  `mapstructure:"backend_port"`
+	// Interval between reconcile passes.
+	Interval time.Duration `mapstructure:"interval"`
+	// AttachTimeout bounds how long one apply waits for the gateway to report
+	// the route attached; expiry is recorded as an error, never a success.
+	AttachTimeout time.Duration `mapstructure:"attach_timeout"`
+}
+
 // ADOConfig holds Azure DevOps base URL override (for testing).
 type ADOConfig struct {
 	BaseURL string `mapstructure:"base_url"`
@@ -373,6 +403,9 @@ func Load(file string) (*Config, error) {
 	v.SetDefault("gitsync.max_file_bytes", 1*1024*1024)
 	v.SetDefault("gitsync.max_files", 500)
 	v.SetDefault("gitsync.fetch_timeout", "60s")
+	v.SetDefault("gateway.routes.apply.backend_port", 4318)
+	v.SetDefault("gateway.routes.apply.interval", "60s")
+	v.SetDefault("gateway.routes.apply.attach_timeout", "60s")
 	v.SetDefault("tracing.protocol", "grpc")
 	v.SetDefault("tracing.insecure", true)
 	v.SetDefault("tracing.sample_ratio", 0.1)
@@ -474,6 +507,12 @@ func Load(file string) (*Config, error) {
 		{"tracing.sample_ratio", "SHEPHERD_TRACING_SAMPLE_RATIO"},
 		{"tracing.service_name", "SHEPHERD_TRACING_SERVICE_NAME"},
 		{"tracing.service_version", "SHEPHERD_TRACING_SERVICE_VERSION"},
+		{"gateway.routes.apply.enabled", "SHEPHERD_GATEWAY_ROUTES_APPLY_ENABLED"},
+		{"gateway.routes.apply.namespace", "SHEPHERD_GATEWAY_ROUTES_APPLY_NAMESPACE"},
+		{"gateway.routes.apply.backend_service", "SHEPHERD_GATEWAY_ROUTES_APPLY_BACKEND_SERVICE"},
+		{"gateway.routes.apply.backend_port", "SHEPHERD_GATEWAY_ROUTES_APPLY_BACKEND_PORT"},
+		{"gateway.routes.apply.interval", "SHEPHERD_GATEWAY_ROUTES_APPLY_INTERVAL"},
+		{"gateway.routes.apply.attach_timeout", "SHEPHERD_GATEWAY_ROUTES_APPLY_ATTACH_TIMEOUT"},
 		{"log.level", "SHEPHERD_LOG_LEVEL"},
 		{"log.format", "SHEPHERD_LOG_FORMAT"},
 	} {
@@ -505,6 +544,24 @@ func Load(file string) (*Config, error) {
 	key, err := base64.StdEncoding.DecodeString(c.Security.EncryptionKey)
 	if err != nil || len(key) != 32 {
 		return nil, fmt.Errorf("configuration errors:\n  - security.encryption_key must be a base64-encoded 32-byte value")
+	}
+	if a := c.Gateway.Routes.Apply; a.Enabled {
+		var errs []string
+		if a.Namespace == "" {
+			errs = append(errs, "gateway.routes.apply.namespace is required when route apply is enabled")
+		}
+		if a.BackendService == "" {
+			errs = append(errs, "gateway.routes.apply.backend_service is required when route apply is enabled")
+		}
+		if a.BackendPort < 1 || a.BackendPort > 65535 {
+			errs = append(errs, "gateway.routes.apply.backend_port must be 1-65535")
+		}
+		if a.Interval <= 0 || a.AttachTimeout <= 0 {
+			errs = append(errs, "gateway.routes.apply.interval and attach_timeout must be positive")
+		}
+		if len(errs) > 0 {
+			return nil, fmt.Errorf("configuration errors:\n  - %s", strings.Join(errs, "\n  - "))
+		}
 	}
 	// UseGraphGroups has no SetDefault because its default depends on another
 	// key: Graph is Entra's directory API, so "on" is right for Entra and
