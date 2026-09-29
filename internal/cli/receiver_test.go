@@ -114,6 +114,12 @@ otlp:
 	)
 
 	It("prints the refusal without cobra's usage text, so the pod log shows only the reason", func() {
+		// Other specs (token_test.go) set SilenceErrors/SilenceUsage on the
+		// shared rootCmd; pin them to cobra's defaults so this spec tests the
+		// render command's OWN SilenceUsage, whatever ran before it.
+		prevErrs, prevUsage := rootCmd.SilenceErrors, rootCmd.SilenceUsage
+		rootCmd.SilenceErrors, rootCmd.SilenceUsage = false, false
+		defer func() { rootCmd.SilenceErrors, rootCmd.SilenceUsage = prevErrs, prevUsage }()
 		// cobra writes the error to Err but the usage text to Out: capture both.
 		var errOut bytes.Buffer
 		rootCmd.SetErr(&errOut)
