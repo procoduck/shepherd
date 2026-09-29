@@ -1,8 +1,8 @@
 # Gateway tier, beacon, and tenant routing — multi-session implementation plan
 
 > Status (sign-off round 2026-09-11, §7 "Sign-offs recorded 2026-09-11"): **W1, W2, W3 and W8 are
-> done. R1, R2 and R5 are signed; R6 is signed; R3's receiver tier is built and ready for sign-off
-> (2026-09-29, §7).** W4 (tenant routes) is cleared by R1 to reach
+> done. R1, R2 and R5 are signed; R6 is signed; R3 is signed (2026-09-29, §7), with the receiver tier
+> kept opt-in.** W4 (tenant routes) is cleared by R1 to reach
 > users; W5's beacon is cleared by R2 (the "status and reality diverge" note this header carried
 > is resolved — the beacon shipped on by default ahead of R2, and R2 has now been signed). W6, W7,
 > W9 and W10 are cleared for product surfaces by decision, with the work scheduled in
@@ -494,7 +494,7 @@ an editor runs on — and ships as `shepherd-mcp_<version>_<os>_<arch>` (a zip o
 image, since there is nothing to deploy. The two server binaries stay linux-only. Build-from-source
 still works; the archive is a convenience, not a new requirement.
 
-### R3 — the receiver tier is built; ready for sign-off (2026-09-29)
+### R3 — the receiver tier is built; signed 2026-09-29, default kept off
 
 R3 was held open on 2026-09-11 because there was nothing to sign: the receiver was a library the
 chart did not deploy. It is now built (#109, `docs/plans/2026-09-28-receiver-tier.md`) and ships
@@ -512,8 +512,9 @@ Found and fixed on the way, both invisible to `alloy validate`: an omitted `send
 made Alloy refuse to START a receiver whose batch size exceeded its default cap (now always
 rendered; `Validate` refuses a cap below the batch size), and the namespace-only ingress gap above.
 
-**What signing R3 decides:** whether the receiver may default **on**. Signing does not by itself
-flip the default; that is a separate chart change. **Still out of scope** and not asked of R3:
+**Signed 2026-09-29, with the receiver kept opt-in** (`receiver.enabled: false`). Every row above
+was accepted as met. Defaulting it on remains a separate decision — and would need an `UPGRADING.md`
+note, since the chart then requires `gatewayFrom` and `egress` from every operator. **Still out of scope** and not asked of R3:
 applying tenant routes to the cluster automatically (`CreateTenantRoute` → `ApplyRoute` has no
 production caller — operators create the HTTPRoute themselves until that follow-up lands), Faro
 (D10, demand-driven), gRPC ingress, and receiver autoscaling.
