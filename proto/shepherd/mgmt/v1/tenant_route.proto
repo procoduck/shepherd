@@ -51,6 +51,17 @@ message TenantRoute {
   google.protobuf.Timestamp created_at = 12;
   google.protobuf.Timestamp updated_at = 13;
   google.protobuf.Timestamp revoked_at = 14;
+  // apply_status is whether this route's HTTPRoute is actually in the
+  // cluster, as the tenant-route reconciler last found it: "pending",
+  // "applied" (attachment verified), "refused" (the gateway refused
+  // attachment), "error" (retried), "removed" (revoked or expired, HTTPRoute
+  // deleted) or "not_applicable" (a Faro route, or route apply disabled).
+  string apply_status = 15;
+  // apply_message is the reason behind "refused" or "error" -- the gateway's
+  // own condition message where it gave one.
+  string apply_message = 16;
+  // applied_at is the last time attachment was verified.
+  google.protobuf.Timestamp applied_at = 17;
 }
 
 message ListTenantRoutesRequest {

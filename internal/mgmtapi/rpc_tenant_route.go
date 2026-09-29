@@ -68,6 +68,9 @@ func toTenantRouteProto(r sqlc.TenantRoute) *mgmtv1.TenantRoute {
 		CreatedAt:        protoTimestamp(r.CreatedAt),
 		UpdatedAt:        protoTimestamp(r.UpdatedAt),
 		RevokedAt:        protoTimestamp(r.RevokedAt),
+		ApplyStatus:      r.ApplyStatus,
+		ApplyMessage:     r.ApplyMessage,
+		AppliedAt:        protoTimestamp(r.AppliedAt),
 	}
 	if r.RotatedFromID.Valid {
 		out.RotatedFromId = r.RotatedFromID.String()

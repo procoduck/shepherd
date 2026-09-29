@@ -332,6 +332,9 @@ type TenantRoute struct {
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
+	ApplyStatus      string             `json:"apply_status"`
+	ApplyMessage     string             `json:"apply_message"`
+	AppliedAt        pgtype.Timestamptz `json:"applied_at"`
 }
 
 type User struct {

@@ -38,6 +38,12 @@ Categories used here:
   catch. _Off by default until review gate R3 is signed_; tenant routes are not applied to the
   cluster yet, so you create the HTTPRoute yourself.
 
+- **Tenant-route apply status on the API.** `TenantRoute` carries `apply_status`, `apply_message`
+  and `applied_at` (migration 0027), the record the upcoming route reconciler will keep of whether
+  each route's HTTPRoute is in the cluster and attached. Every route reads `pending` for now —
+  nothing applies routes yet (`docs/plans/2026-09-29-tenant-route-apply.md`, PR 1 of 5).
+  _RPC only._
+
 ### Changed
 
 - **`FleetService.ListAttributes` lists only keys that pipeline matching evaluates.** It used to

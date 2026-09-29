@@ -139,6 +139,10 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 		items, ok := listed["items"].([]any)
 		Expect(ok).To(BeTrue(), "expected an items array")
 		Expect(items).To(HaveLen(1))
+		first, ok := items[0].(map[string]any)
+		Expect(ok).To(BeTrue())
+		Expect(first["applyStatus"]).To(Equal("pending"), "Create only writes the row; nothing has applied it yet")
+		Expect(first).NotTo(HaveKey("appliedAt"))
 
 		rotateResp := postConnect("/shepherd.mgmt.v1.TenantRouteService/RotateTenantRoute",
 			map[string]any{"orgId": orgID.String(), "id": routeID}, admin)
@@ -169,6 +173,36 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 		revoked := decodeBody(revokeResp)
 		Expect(revoked["status"]).To(Equal("revoked"))
 		Expect(revoked["revokedAt"]).NotTo(BeEmpty())
+	})
+
+	It("returns the apply outcome the reconciler recorded on the row", func() {
+		admin := createSession(false, []string{"tenant-route-admin-group"})
+		body := map[string]any{}
+		for k, v := range createBody {
+			body[k] = v
+		}
+		body["orgId"] = orgID.String()
+		created := decodeBody(postConnect("/shepherd.mgmt.v1.TenantRouteService/CreateTenantRoute", body, admin))
+		routeID, ok := created["id"].(string)
+		Expect(ok).To(BeTrue())
+
+		var id pgtype.UUID
+		Expect(id.Scan(routeID)).To(Succeed())
+		_, err := st.Queries.SetTenantRouteApplyStatus(ctx, sqlc.SetTenantRouteApplyStatusParams{
+			ID: id, ApplyStatus: "refused", ApplyMessage: "NotAllowedByListeners",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		reader := createSession(false, []string{"tenant-route-reader-group"})
+		listed := decodeBody(postConnect("/shepherd.mgmt.v1.TenantRouteService/ListTenantRoutes", map[string]any{"orgId": orgID.String()}, reader))
+		items, ok := listed["items"].([]any)
+		Expect(ok).To(BeTrue())
+		Expect(items).To(HaveLen(1))
+		item, ok := items[0].(map[string]any)
+		Expect(ok).To(BeTrue())
+		Expect(item["applyStatus"]).To(Equal("refused"))
+		Expect(item["applyMessage"]).To(Equal("NotAllowedByListeners"))
+		Expect(item).NotTo(HaveKey("appliedAt"), "a refusal is not a verified apply")
 	})
 
 	It("denies ListTenantRoutes for an authenticated session with no access to the org", func() {
