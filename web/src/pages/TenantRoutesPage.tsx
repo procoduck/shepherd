@@ -24,6 +24,61 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${tone}`}>{status}</span>;
 }
 
+// Whether the route's HTTPRoute is in the cluster and attached — what the
+// tenant-route reconciler last recorded. A refusal or error carries the
+// gateway's or apiserver's reason, shown under the badge so it is not lost in
+// a tooltip.
+const APPLY: Record<string, { label: string; tone: string; hint: string }> = {
+  pending: {
+    label: 'pending',
+    tone: 'bg-border text-muted-2',
+    hint: 'Not applied yet. Shepherd applies routes when the receiver tier is on with tenant-route apply enabled.',
+  },
+  applied: {
+    label: 'applied',
+    tone: 'bg-emerald-500/15 text-emerald-400',
+    hint: 'In the cluster and attached to the gateway.',
+  },
+  refused: {
+    label: 'refused',
+    tone: 'bg-red-500/15 text-red-400',
+    hint: 'The gateway refused to attach the route — check its listeners and allowedRoutes.',
+  },
+  error: {
+    label: 'error',
+    tone: 'bg-amber-500/15 text-amber-400',
+    hint: 'Applying the route failed; Shepherd retries with backoff.',
+  },
+  removed: {
+    label: 'removed',
+    tone: 'bg-border text-muted-2',
+    hint: 'The route no longer routes and its HTTPRoute has been deleted.',
+  },
+  not_applicable: {
+    label: 'not applied',
+    tone: 'bg-border text-muted-2',
+    hint: 'Shepherd does not apply this kind of route.',
+  },
+};
+
+function ApplyStatus({ route }: { route: TenantRoute }) {
+  const a = APPLY[route.applyStatus] ?? APPLY.pending;
+  const title = route.appliedAt
+    ? `${a.hint} Last verified ${timestampDate(route.appliedAt).toLocaleString()}.`
+    : a.hint;
+  const showMessage = route.applyStatus === 'refused' || route.applyStatus === 'error';
+  return (
+    <span className='block max-w-sm' data-testid={`route-apply-${route.segment}`}>
+      <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${a.tone}`} title={title}>
+        {a.label}
+      </span>
+      {showMessage && route.applyMessage && (
+        <span className='mt-1 block break-words text-xs text-muted'>{route.applyMessage}</span>
+      )}
+    </span>
+  );
+}
+
 function routeColumns(
   canAdminister: boolean,
   onRotate: (r: TenantRoute) => void,
@@ -38,6 +93,7 @@ function routeColumns(
     },
     { key: 'kind', header: 'Kind', render: (r) => r.kind },
     { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} /> },
+    { key: 'apply', header: 'In cluster', render: (r) => <ApplyStatus route={r} /> },
     {
       key: 'gateway',
       header: 'Gateway',
@@ -107,9 +163,11 @@ const EMPTY_CREATE = {
  * A tenant route pairs the org's tenant identity with a rotatable, unguessable
  * path segment that the receiver-tier gateway renders into a Gateway API
  * HTTPRoute. This page is the storage/lifecycle surface: create, rotate (issue
- * a new segment and run both briefly), and revoke. It does not apply anything
- * to Kubernetes — that is the receiver tier. Reads are org-reader; writes are
- * org-admin (useCanAdminister), matching TenantRouteService.
+ * a new segment and run both briefly), and revoke. The RPCs only change
+ * Shepherd's records; the tenant-route reconciler (internal/routeapply) applies
+ * the HTTPRoutes in the background, and "In cluster" shows what it last saw.
+ * Reads are org-reader; writes are org-admin (useCanAdminister), matching
+ * TenantRouteService.
  *
  * The segment is always minted server-side; the URL is an identifier, not an
  * authorizer — Shepherd enforces the CORS origin allowlist and rotation, while

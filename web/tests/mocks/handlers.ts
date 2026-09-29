@@ -1320,6 +1320,7 @@ export function installDefaultHandlers(router: Router) {
       kind: req['kind'],
       segment: `${req['kind']}-${mockId('seg')}`,
       status: 'active',
+      apply_status: 'pending',
       gateway_mode: req['gatewayMode'],
       gateway_name: req['gatewayName'] ?? '',
       gateway_namespace: req['gatewayNamespace'] ?? '',
@@ -1342,6 +1343,10 @@ export function installDefaultHandlers(router: Router) {
       id: mockId('tr'),
       segment: `${old['kind']}-${mockId('seg')}`,
       status: 'active',
+      // A new row: nothing has applied it yet.
+      apply_status: 'pending',
+      apply_message: '',
+      applied_at: undefined,
       valid_until: undefined,
       rotated_from_id: old['id'],
     };
