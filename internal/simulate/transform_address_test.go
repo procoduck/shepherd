@@ -159,7 +159,7 @@ var _ = Describe("Transform: no authored address reaches the sandbox", func() {
 				"if that is intended, update relabelDestinationPaths and docs/proofs/simulator-containment.md together")
 		// Stated so the sweep cannot pass by probing nothing: a filter bug or a
 		// schema payload that failed to load would otherwise look like success.
-		Expect(probed).To(Equal(674), "address-named attribute paths probed")
+		Expect(probed).To(Equal(675), "address-named attribute paths probed")
 		// And most of them must actually REACH a render. A sweep whose probes
 		// all failed closed for some unrelated reason would report the same
 		// leak list while testing nothing about rule K.

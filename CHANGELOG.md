@@ -13,6 +13,15 @@ Categories used here:
 
 ## Unreleased
 
+### Changed
+
+- **Alloy v1.20.1.** The bundled Alloy (Stage 2 validation, the receiver tier, the sandbox) and the
+  component schema the editor and visual builder use move from v1.19.2 to v1.20.1. New components:
+  `otelcol.encoding.jsonlog` and `otelcol.encoding.text` (experimental). **Behaviour change in
+  your pipelines:** in `otelcol.receiver.filelog`, `top_n = 0` now means "track all files" instead
+  of "use the default" — leave it unset for the default. Collectors keep running whatever Alloy
+  version you deploy them with; this changes what Shepherd validates against. (#183)
+
 ## v0.12.0
 
 Chart 0.16.0. The **receiver tier** ships (off by default; review gate R3 signed): an OTLP/HTTP

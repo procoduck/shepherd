@@ -80,7 +80,7 @@ Images in Dockerfiles, compose files, kind manifests, Go pod specs and testconta
 | Upstream image | Pin lives in |
 |---|---|
 | `gcr.io/distroless/base-nossl-debian12:nonroot` | `deploy/versions.env` (DISTROLESS_BASE_IMAGE) — app and simulator images (`make check-docker` guards `deploy/Dockerfile.*`; the init image's runtime base is GO_IMAGE); `e2e/mockmsft/Dockerfile:6` hardcodes `static-debian12:nonroot` — not in `check-docker`, but Renovate refreshes its digest |
-| `grafana/alloy:v1.19.2` | `deploy/versions.env` (ALLOY_IMAGE); compose files restate it as a `${ALLOY_IMAGE:-…}` fallback, `dev/kind/alloy.yaml` takes it via `__ALLOY_IMAGE__` |
+| `grafana/alloy:v1.20.1` | `deploy/versions.env` (ALLOY_IMAGE); compose files restate it as a `${ALLOY_IMAGE:-…}` fallback, `dev/kind/alloy.yaml` takes it via `__ALLOY_IMAGE__` |
 | `golang:1.26-alpine` | `deploy/versions.env` (GO_IMAGE); also the init image's runtime base; `e2e/mockmsft/Dockerfile:1` hardcodes it — not in `check-docker`, Renovate-refreshed |
 | `node:24-slim` | `deploy/versions.env` (NODE_IMAGE) |
 | `postgres:16-alpine` | compose files, `Makefile` (smoke), `internal/testutil/postgres.go`, `e2e/k8s/fixtures_test.go` — NOT versions.env |

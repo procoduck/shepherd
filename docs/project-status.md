@@ -56,7 +56,7 @@ last exercised the surface, so the claim is checkable by run id rather than by t
 
 Verified on the running stack and in the browser, not inferred:
 
-- **Agent protocol** — real Alloy v1.19.2 agents register, poll and apply served config; status,
+- **Agent protocol** — real Alloy v1.20.1 agents register, poll and apply served config; status,
   hash and not-modified round-trip. Collector-token auth is a Connect request gate (v0.5.0): a
   bad credential is refused before the body is read.
 - **Merge engine + validation gate** — served config carries both seeded pipelines, declare-wrapped,
@@ -242,7 +242,7 @@ In rough priority order; closed items stay in place, marked with the release tha
       successfully."** `ClearStaleFailedStatus` promotes NULL/FAILED to `APPLIED` on a status-less
       poll carrying the served hash, and nothing Shepherd reads today (`effective_config` is
       unread; beacon rows are not keyed by collector instance) can tell a fresh load from a
-      rejected one served from cache. Needs a reproduction against a live Alloy v1.19.2 agent
+      rejected one served from cache. Needs a reproduction against a live Alloy v1.20.1 agent
       before picking one of three options — see `docs/archive/plans/2026-09-14-walkthrough-fixes.md` §3
       (B1). GitHub issue #115.
 - [x] **Wizards have no channel to say when they silently drop or add something** (B2) — a
