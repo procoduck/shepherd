@@ -1063,6 +1063,35 @@ export function installDefaultHandlers(router: Router) {
   router.register('POST', '/shepherd.mgmt.v1.FleetService/ListCollectors', (r) =>
     json(r, 200, list((st.collectors as Obj[]).map(collectorToWire))),
   );
+  // RenderChartValues: org-admin; mirrors the server's cross-org refusal
+  // (st.claimedElsewhere lists cluster names another org owns). The YAML
+  // bodies are stand-ins; the real rendering is Go's.
+  router.register('POST', '/shepherd.mgmt.v1.FleetService/RenderChartValues', async (r) => {
+    const req = await body(r);
+    const denied = requireOrgRole(r, String(req['orgId'] ?? ''), 'admin');
+    if (denied) return denied;
+    const cluster = String(req['clusterName'] ?? '');
+    if ((st.claimedElsewhere ?? []).includes(cluster)) {
+      return connectError(
+        r,
+        400,
+        'failed_precondition',
+        `cluster name "${cluster}" belongs to another organisation; choose a different name`,
+      );
+    }
+    const roles = (req['roles'] as string[] | undefined) ?? [];
+    const ns = String(req['namespace'] || 'monitoring');
+    return json(r, 200, {
+      values_yaml: `cluster:\n  name: "${cluster}"\ncollectors:\n${roles.map((ro) => `  alloy-${ro}:\n    remoteConfig:\n      enabled: true\n`).join('')}`,
+      credentials_yaml: 'collectors: {}\n',
+      chart_version: '4.4.0',
+      secret_command: `kubectl -n ${ns} create secret generic shepherd-agent-token`,
+      helm_command: `helm upgrade --install k8s-monitoring k8s-monitoring --namespace ${ns}`,
+      secret_name: 'shepherd-agent-token',
+      cluster_status: cluster === 'known' ? 'unclaimed' : 'new',
+      shepherd_url: 'https://shepherd.example.com',
+    });
+  });
   router.register('POST', '/shepherd.mgmt.v1.FleetService/GetCollector', async (r) => {
     const req = await body(r);
     const c = (st.collectors as Obj[]).find((x) => x['id'] === req['id']);

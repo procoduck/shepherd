@@ -22,6 +22,8 @@ export interface MockState {
   tenantRoutesNoIdentity?: boolean;
   // The server's gateway.routes.public_base_url, for RenderConnectApp.
   gatewayPublicBaseUrl?: string;
+  // Cluster names another org has claimed, for RenderChartValues.
+  claimedElsewhere?: string[];
   serviceAccounts: unknown[];
   assignments: unknown[];
   groupSearchResults: unknown[];

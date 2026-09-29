@@ -270,15 +270,17 @@ receiver:
 // shepherdAPI is a signed-in Connect client for a chart-installed Shepherd,
 // reached through `kubectl port-forward` from the test process.
 type shepherdAPI struct {
-	cfg    *envconf.Config
-	ns     string
-	svc    string
-	base   string
-	pf     *exec.Cmd
-	mu     sync.Mutex
-	cookie string
-	admin  mgmtv1connect.AdminServiceClient
-	routes mgmtv1connect.TenantRouteServiceClient
+	cfg       *envconf.Config
+	ns        string
+	svc       string
+	base      string
+	pf        *exec.Cmd
+	mu        sync.Mutex
+	cookie    string
+	admin     mgmtv1connect.AdminServiceClient
+	routes    mgmtv1connect.TenantRouteServiceClient
+	fleet     mgmtv1connect.FleetServiceClient
+	pipelines mgmtv1connect.PipelineServiceClient
 }
 
 var forwardingRE = regexp.MustCompile(`Forwarding from 127\.0\.0\.1:(\d+)`)
@@ -315,6 +317,8 @@ func newShepherdAPI(t *testing.T, cfg *envconf.Config, ns, svc string) *shepherd
 	client := &http.Client{Timeout: 30 * time.Second, Transport: a}
 	a.admin = mgmtv1connect.NewAdminServiceClient(client, a.base)
 	a.routes = mgmtv1connect.NewTenantRouteServiceClient(client, a.base)
+	a.fleet = mgmtv1connect.NewFleetServiceClient(client, a.base)
+	a.pipelines = mgmtv1connect.NewPipelineServiceClient(client, a.base)
 	return a
 }
 

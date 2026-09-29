@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	"regexp"
 	"slices"
 	"strings"
 	"unicode"
@@ -18,6 +20,7 @@ import (
 
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
+	"shepherd/internal/chartvalues"
 	"shepherd/internal/merge"
 	"shepherd/internal/metrics"
 	"shepherd/internal/schema"
@@ -36,6 +39,9 @@ type FleetService struct {
 	// (unclassified → worst-case), so a nil here only ever affects
 	// reconciliation, never the collector reads the shim uses.
 	schema *schema.Registry
+	// baseURL is server.base_url, the address RenderChartValues points
+	// collectors at.
+	baseURL string
 }
 
 // FleetServiceOption configures optional FleetService behavior.
@@ -46,6 +52,11 @@ type FleetServiceOption func(*FleetService)
 // tests that build a FleetService directly may leave it nil.
 func WithFleetSchema(reg *schema.Registry) FleetServiceOption {
 	return func(s *FleetService) { s.schema = reg }
+}
+
+// WithFleetBaseURL sets the Shepherd URL RenderChartValues renders.
+func WithFleetBaseURL(u string) FleetServiceOption {
+	return func(s *FleetService) { s.baseURL = u }
 }
 
 // NewFleetService constructs a FleetService.
@@ -562,3 +573,79 @@ func (s *FleetService) ListAttributes(ctx context.Context, req *connect.Request[
 	}
 	return connect.NewResponse(&mgmtv1.ListAttributesResponse{Attributes: attrs}), nil
 }
+
+// chartValuesSecretName is the Secret RenderChartValues' credentials layer
+// reads the agent token from.
+const chartValuesSecretName = "shepherd-agent-token"
+
+// RenderChartValues renders internal/chartvalues' two values files for a
+// cluster joining the org's fleet, plus the commands that apply them. The
+// Shepherd URL is server.base_url and the tenant attribute the org's tenant
+// identity, so neither can be pointed elsewhere by the caller. A cluster name
+// another org has claimed is refused: its collectors would register into
+// that org's fleet, not this one's.
+func (s *FleetService) RenderChartValues(ctx context.Context, req *connect.Request[mgmtv1.RenderChartValuesRequest]) (*connect.Response[mgmtv1.RenderChartValuesResponse], error) {
+	orgID, err := scanUUID(req.Msg.GetOrgId())
+	if err != nil {
+		return nil, err
+	}
+	org, err := s.store.Queries.GetOrgByID(ctx, orgID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("org not found"))
+	}
+	clusterName := strings.TrimSpace(req.Msg.GetClusterName())
+
+	status := "new"
+	switch c, err := s.store.Queries.GetClusterByName(ctx, clusterName); {
+	case errors.Is(err, pgx.ErrNoRows):
+	case err != nil:
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to look up cluster"))
+	case !c.OrgID.Valid:
+		status = "unclaimed"
+	case c.OrgID == orgID:
+		status = "claimed"
+	default:
+		return nil, connect.NewError(connect.CodeFailedPrecondition,
+			fmt.Errorf("cluster name %q belongs to another organisation; choose a different name", clusterName))
+	}
+
+	spec := chartvalues.Spec{
+		ClusterName:   clusterName,
+		ShepherdURL:   s.baseURL,
+		Tenant:        org.TenantID.String,
+		Roles:         req.Msg.GetRoles(),
+		PollFrequency: strings.TrimSpace(req.Msg.GetPollFrequency()),
+	}
+	values, err := chartvalues.Render(spec)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	creds, err := chartvalues.RenderCredentialsLayer(spec.Roles, chartValuesSecretName)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	ns := strings.TrimSpace(req.Msg.GetNamespace())
+	if ns == "" {
+		ns = "monitoring"
+	}
+	if !k8sNameRE.MatchString(ns) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("namespace %q is not a valid Kubernetes name", ns))
+	}
+	helmCmd := fmt.Sprintf("helm upgrade --install k8s-monitoring k8s-monitoring \\\n"+
+		"  --repo https://grafana.github.io/helm-charts --version %s \\\n"+
+		"  --namespace %s --create-namespace \\\n"+
+		"  -f your-values.yaml -f shepherd-layer.yaml -f shepherd-credentials.yaml", chartvalues.PinnedChartVersion, ns)
+	return connect.NewResponse(&mgmtv1.RenderChartValuesResponse{
+		ValuesYaml:      string(values),
+		CredentialsYaml: string(creds),
+		ChartVersion:    chartvalues.PinnedChartVersion,
+		SecretCommand:   chartvalues.CredentialsSecretCommand(ns, chartValuesSecretName),
+		HelmCommand:     helmCmd,
+		SecretName:      chartValuesSecretName,
+		ClusterStatus:   status,
+		ShepherdUrl:     s.baseURL,
+	}), nil
+}
+
+// k8sNameRE is an RFC 1123 label: a namespace name.
+var k8sNameRE = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)

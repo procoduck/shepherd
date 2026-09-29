@@ -180,8 +180,8 @@ reach this surface.
 Shepherd is in active development and pre-1.0; expect breaking changes, which
 the [changelog](CHANGELOG.md) calls out explicitly.
 
-One subsystem is **built and tested but not wired to a running surface**:
-a k8s-monitoring chart-values generator.
+Nothing is currently **built but not wired**: the onboarding artifacts and the
+k8s-monitoring chart-values generator were the last, both shipped with their UI.
 `docs/gateway-tier-plan.md` §9 tracks what stands between each one and being
 usable. Do not plan against them yet. (Reconciliation — declared vs served vs
 observed — shipped in v0.11.0, and the read-plus-propose MCP interface,

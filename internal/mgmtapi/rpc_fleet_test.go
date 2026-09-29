@@ -17,6 +17,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"shepherd/internal/auth"
+	"shepherd/internal/chartvalues"
 	"shepherd/internal/config"
 	"shepherd/internal/metrics"
 	"shepherd/internal/store"
@@ -58,6 +59,7 @@ var _ = Describe("shepherd.mgmt.v1.FleetService RPC", Label("integration"), func
 		orgID = o.ID
 
 		cfg := &config.Config{Auth: config.AuthConfig{InsecureCookies: true}}
+		cfg.Server.BaseURL = "https://shepherd.example.com"
 		authHandler = auth.NewLocalAdmin(cfg, st, slog.Default())
 		server = httptest.NewServer(newRPCWiringRouter(st, authHandler, cfg))
 	})
@@ -580,5 +582,88 @@ var _ = Describe("shepherd.mgmt.v1.FleetService RPC", Label("integration"), func
 		mostRecent := allRows[0] // ListAuditLog orders ORDER BY at DESC, newest first.
 		Expect(json.Unmarshal(mostRecent.Detail, &detail)).To(Succeed())
 		Expect(detail).To(HaveKeyWithValue("cause", "collector.label.delete"))
+	})
+
+	Describe("RenderChartValues", func() {
+		render := func(cookie *http.Cookie, body map[string]any) (int, map[string]any) {
+			resp := postConnect("/shepherd.mgmt.v1.FleetService/RenderChartValues", body, cookie)
+			return resp.StatusCode, decodeBody(resp)
+		}
+		var admin *http.Cookie
+		BeforeEach(func() { admin = createSession(false, []string{"fleet-admin-group"}) })
+
+		It("renders both values files pointed at server.base_url, for a cluster never seen", func() {
+			code, out := render(admin, map[string]any{
+				"orgId": orgID.String(), "clusterName": "prod-eu-1", "roles": []string{"metrics", "logs"},
+			})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			Expect(out["clusterStatus"]).To(Equal("new"))
+			Expect(out["shepherdUrl"]).To(Equal("https://shepherd.example.com"))
+			Expect(out["chartVersion"]).To(Equal(chartvalues.PinnedChartVersion))
+			values, _ := out["valuesYaml"].(string)     //nolint:errcheck // asserted below
+			creds, _ := out["credentialsYaml"].(string) //nolint:errcheck // asserted below
+			Expect(values).To(ContainSubstring(`name: "prod-eu-1"`))
+			Expect(values).To(ContainSubstring(`url: "https://shepherd.example.com"`))
+			Expect(values).To(ContainSubstring("alloy-metrics:"))
+			Expect(values).To(ContainSubstring("alloy-logs:"))
+			Expect(values).NotTo(ContainSubstring("alloy-singleton:"))
+			Expect(chartvalues.ValidateValues([]byte(values))).To(Succeed())
+			Expect(chartvalues.ValidateValues([]byte(creds))).To(Succeed())
+			Expect(creds).To(ContainSubstring(`name: "shepherd-agent-token"`))
+			Expect(out["secretCommand"]).To(ContainSubstring("-n monitoring create secret generic shepherd-agent-token"))
+			Expect(out["helmCommand"]).To(ContainSubstring("--version " + chartvalues.PinnedChartVersion))
+		})
+
+		It("reports a registered cluster as unclaimed, then claimed once the org owns it", func() {
+			cluster, err := st.Queries.UpsertCluster(ctx, "staging")
+			Expect(err).NotTo(HaveOccurred())
+			body := map[string]any{"orgId": orgID.String(), "clusterName": "staging", "roles": []string{"metrics"}, "namespace": "observability"}
+			_, out := render(admin, body)
+			Expect(out["clusterStatus"]).To(Equal("unclaimed"))
+			Expect(out["secretCommand"]).To(ContainSubstring("-n observability "))
+
+			Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgID})).To(Succeed())
+			_, out = render(admin, body)
+			Expect(out["clusterStatus"]).To(Equal("claimed"))
+		})
+
+		It("refuses a cluster name another org has claimed", func() {
+			other, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "fleet-other", DisplayName: "Other", AdminGroupID: "x"})
+			Expect(err).NotTo(HaveOccurred())
+			cluster, err := st.Queries.UpsertCluster(ctx, "theirs")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: other.ID})).To(Succeed())
+
+			code, out := render(admin, map[string]any{"orgId": orgID.String(), "clusterName": "theirs", "roles": []string{"metrics"}})
+			Expect(code).To(Equal(http.StatusBadRequest))
+			Expect(out["code"]).To(Equal("failed_precondition"))
+			Expect(out["message"]).To(ContainSubstring("another organisation"))
+		})
+
+		It("stamps the org's tenant identity, not one the caller chose", func() {
+			Expect(st.Queries.SetOrgTenantID(ctx, sqlc.SetOrgTenantIDParams{ID: orgID, TenantID: pgtype.Text{String: "acme", Valid: true}})).Error().NotTo(HaveOccurred())
+			_, out := render(admin, map[string]any{"orgId": orgID.String(), "clusterName": "c1", "roles": []string{"metrics"}})
+			Expect(out["valuesYaml"]).To(ContainSubstring(`tenant: "acme"`))
+		})
+
+		DescribeTable("refuses invalid input",
+			func(body map[string]any, wantMsg string) {
+				body["orgId"] = orgID.String()
+				code, out := render(admin, body)
+				Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
+				Expect(out["message"]).To(ContainSubstring(wantMsg))
+			},
+			Entry("no roles", map[string]any{"clusterName": "c1"}, "Role"),
+			Entry("unknown role", map[string]any{"clusterName": "c1", "roles": []string{"gpu"}}, "gpu"),
+			Entry("no cluster name", map[string]any{"roles": []string{"metrics"}}, "ClusterName"),
+			Entry("bad poll frequency", map[string]any{"clusterName": "c1", "roles": []string{"metrics"}, "pollFrequency": "soon"}, "PollFrequency"),
+			Entry("bad namespace", map[string]any{"clusterName": "c1", "roles": []string{"metrics"}, "namespace": "Not_OK"}, "namespace"),
+		)
+
+		It("is org-admin only", func() {
+			reader := createSession(false, []string{"fleet-reader-group"})
+			code, _ := render(reader, map[string]any{"orgId": orgID.String(), "clusterName": "c1", "roles": []string{"metrics"}})
+			Expect(code).To(Equal(http.StatusForbidden))
+		})
 	})
 })

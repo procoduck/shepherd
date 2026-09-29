@@ -1,8 +1,7 @@
 import { useMutation } from '@tanstack/react-query';
-import { Check, Copy } from 'lucide-react';
 import { useState } from 'react';
-import { toast } from 'sonner';
 import { clients, toApiError } from '@/api/transport';
+import { CopyButton } from '@/components/ui/CopyButton';
 import { Field, Input, Select } from '@/components/ui/Field';
 import { Modal } from '@/components/ui/Modal';
 import type { RenderConnectAppResponse, TenantRoute } from '@/gen/shepherd/mgmt/v1/tenant_route_pb';
@@ -20,28 +19,6 @@ const ARTIFACTS: { key: keyof RenderConnectAppResponse; label: string }[] = [
   { key: 'cdk', label: 'CDK' },
   { key: 'sdkNotes', label: 'SDK notes' },
 ];
-
-function CopyButton({ text, label }: { text: string; label: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      type='button'
-      aria-label={`Copy ${label}`}
-      onClick={async () => {
-        try {
-          await navigator.clipboard.writeText(text);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        } catch {
-          toast.error('Copy failed — select and copy the text manually');
-        }
-      }}
-      className='flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-muted hover:text-zinc-200'
-    >
-      {copied ? <Check size={12} /> : <Copy size={12} />} {copied ? 'Copied' : 'Copy'}
-    </button>
-  );
-}
 
 /**
  * "Connect an app" for one active OTLP tenant route: the endpoint and the

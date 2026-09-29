@@ -63,6 +63,15 @@ Categories used here:
   reader can use it; new RPC `TenantRouteService.RenderConnectApp`. Revoked, deprecated and Faro
   routes are refused, since their endpoints do not (or soon will not) route. _Shipped._ (#111)
 
+- **Connect a cluster (k8s-monitoring values).** On **Collectors**, an org admin chooses
+  **Connect a cluster**, names it and picks its collectors, and gets two values files for Grafana's
+  k8s-monitoring chart — each collector's `remoteConfig` pointed at this Shepherd, and the agent-token
+  wiring from a Kubernetes Secret (never the token itself) — plus the `kubectl create secret` and
+  `helm upgrade --install` commands. It says whether the cluster still needs claiming, and refuses a
+  cluster name another organisation owns. New RPC `FleetService.RenderChartValues` (org admin).
+  Proven on kind with the real chart at the pinned version (gate G10): a collector registers, is
+  claimed, and loads a served pipeline. _Shipped._ (#112)
+
 ### Changed
 
 - **`FleetService.ListAttributes` lists only keys that pipeline matching evaluates.** It used to

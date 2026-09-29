@@ -108,6 +108,16 @@
 }</code></pre>
       </div>
       <p>On first poll, an unclaimed cluster gets served an empty config so it keeps running whatever it already has locally — nothing is disrupted until an app admin claims the cluster for an organisation (<a href="roles.html">Roles</a>) and one of that organisation's admins enables pipelines that match it.</p>
+
+      <h2 id="k8s-monitoring">With Grafana's k8s-monitoring chart</h2>
+      <p>If your clusters run Grafana's <code>k8s-monitoring</code> Helm chart, Shepherd writes the values for you. On <strong>Collectors</strong>, an organisation admin chooses <strong>Connect a cluster</strong>, names the cluster and picks its collectors (metrics, logs, singleton, receiver). Shepherd returns:</p>
+      <ul>
+        <li><code>shepherd-layer.yaml</code> &mdash; each collector's <code>remoteConfig</code>, pointed at this Shepherd's <code>server.base_url</code>, with the cluster name and role as attributes and the organisation's tenant if it has one;</li>
+        <li><code>shepherd-credentials.yaml</code> &mdash; loads the agent token into each collector from a Kubernetes Secret (it names the Secret; it never contains the token);</li>
+        <li>the <code>kubectl create secret</code> and <code>helm upgrade --install</code> commands that use them.</li>
+      </ul>
+      <p>Apply both files next to your own values &mdash; they set nothing else, so sizing, features and destinations stay yours. The values are checked against the k8s-monitoring version they name, and Shepherd's test suite installs that exact chart with them and watches a collector register and load a pipeline.</p>
+      <p>Two things still need an app admin: an agent token (<strong>Admin &rarr; Agent Tokens</strong>) for the Secret, and, once the collectors have registered, claiming the cluster for your organisation (<strong>Admin &rarr; Clusters</strong>). The dialog says which of those the cluster still needs. A cluster name another organisation already owns is refused.</p>
         <nav class="page-nav" aria-label="Pagination">
           <a class="page-nav-prev" href="agent-tokens.html"><span>Previous</span><strong>Agent tokens</strong></a>
           <a class="page-nav-next" href="authoring.html"><span>Next</span><strong>Authoring pipelines</strong></a>
@@ -115,6 +125,12 @@
       </div>
     </div>
 
+    <aside class="docs-toc">
+      <p class="toc-label">On this page</p>
+      <ul>
+        <li><a href="#k8s-monitoring">With Grafana's k8s-monitoring chart</a></li>
+      </ul>
+    </aside>
   </div>
 </div>
 

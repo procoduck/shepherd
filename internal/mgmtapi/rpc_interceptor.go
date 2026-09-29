@@ -83,6 +83,7 @@ var procedureRequirements = map[string]string{
 	mgmtv1connect.FleetServiceDeleteAssignmentProcedure:     auth.RoleOrgAdmin,
 	mgmtv1connect.FleetServiceSetCollectorLabelProcedure:    auth.RoleOrgAdmin,
 	mgmtv1connect.FleetServiceDeleteCollectorLabelProcedure: auth.RoleOrgAdmin,
+	mgmtv1connect.FleetServiceRenderChartValuesProcedure:    auth.RoleOrgAdmin,
 
 	// PipelineService — org reader for reads. Writes
 	// (create/update/delete/enable/disable) are ALSO gated at org-reader
