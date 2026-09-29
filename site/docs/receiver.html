@@ -168,10 +168,39 @@
         serving &mdash; and <code>kubectl logs &lt;pod&gt; -c render</code> says why.
       </p>
 
-      <h2 id="routes">Routes: create them yourself for now</h2>
+      <h2 id="routes">Tenant routes</h2>
       <p>
-        Tenant routes created in Shepherd are not yet applied to your cluster. Until they are, create
-        the HTTPRoute for each tenant yourself &mdash; the same shape Shepherd renders:
+        Create a tenant route on <strong>Admin &rarr; Tenant routes</strong> (or through
+        <code>TenantRouteService</code>), naming the Gateway it attaches to. Shepherd then creates the
+        route's HTTPRoute in its own namespace, pointing at the receiver, and waits for the gateway to
+        report it attached. The <strong>In cluster</strong> column shows the result:
+      </p>
+      <ul>
+        <li><strong>applied</strong> &mdash; the gateway accepted the route; traffic to its path
+            reaches the receiver with the org's tenant.</li>
+        <li><strong>refused</strong> &mdash; the gateway will not attach it, and says why underneath.
+            Usually the Gateway's listeners do not admit routes from Shepherd's namespace: set their
+            <code>allowedRoutes.namespaces</code> to include it. Shepherd keeps checking, so the route
+            turns <strong>applied</strong> once the Gateway is fixed.</li>
+        <li><strong>error</strong> &mdash; anything else (the error is shown); retried with backoff.</li>
+        <li><strong>pending</strong> &mdash; not applied yet. A route that stays pending means route
+            apply is off: the receiver tier is disabled, or <code>receiver.applyTenantRoutes</code> is
+            <code>false</code>.</li>
+        <li><strong>removed</strong> &mdash; the route was revoked, or its rotation overlap ended, and
+            its HTTPRoute has been deleted.</li>
+      </ul>
+      <p>
+        Rotating a route keeps the old path working until its overlap ends, then Shepherd revokes it
+        and deletes its HTTPRoute. Revoking deletes it straight away. Shepherd never creates or
+        changes a Gateway, and never touches HTTPRoutes it did not create (it finds its own by the
+        <code>shepherd.io/tenant-route-id</code> label).
+      </p>
+      <p>
+        To do this, the chart gives Shepherd's ServiceAccount a Role on <code>httproutes</code> in the
+        release namespace and permission to read the one <code>httproutes.gateway.networking.k8s.io</code>
+        CRD (to check the Gateway API version), and mounts its token on the Shepherd pod. None of it
+        exists with the receiver off. To manage the HTTPRoutes yourself instead, set
+        <code>receiver.applyTenantRoutes: false</code> and write each one in this shape:
       </p>
       <pre><code>apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -208,7 +237,7 @@ spec:
         <li><a href="#how-it-works">How it works</a></li>
         <li><a href="#enable">Enable it</a></li>
         <li><a href="#what-the-chart-refuses">What the chart refuses</a></li>
-        <li><a href="#routes">Routes: create them yourself for now</a></li>
+        <li><a href="#routes">Tenant routes</a></li>
       </ul>
     </aside>
   </div>

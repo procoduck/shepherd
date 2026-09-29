@@ -35,23 +35,25 @@ Categories used here:
   that never reach the ConfigMap. `shepherd healthcheck` gains `--path` for the receiver's probes.
   Rendering now always sets the batch processor's `send_batch_max_size`: omitted, Alloy's default
   cap refused to start a receiver whose batch size exceeded it — which `alloy validate` does not
-  catch. _Off by default until review gate R3 is signed_; tenant routes are not applied to the
-  cluster yet, so you create the HTTPRoute yourself.
+  catch. Off by default; review gate R3 was signed 2026-09-29 with the receiver kept opt-in.
 
-- **Tenant-route apply status on the API.** `TenantRoute` carries `apply_status`, `apply_message`
-  and `applied_at` (migration 0027), the record the upcoming route reconciler will keep of whether
-  each route's HTTPRoute is in the cluster and attached. Every route reads `pending` for now —
-  nothing applies routes yet (`docs/plans/2026-09-29-tenant-route-apply.md`, PR 1 of 5).
-  _RPC only._
-
-- **Tenant-route reconciler.** With `gateway.routes.apply.enabled` (plus the namespace and the
-  receiver Service it points routes at), Shepherd applies each active or in-overlap tenant route's
-  HTTPRoute through the Gateway API, verifies the gateway attached it, and records `applied`,
-  `refused` (with the gateway's reason) or `error` on the route, retrying with backoff. Revoked
-  routes, deprecated routes past their overlap (now revoked automatically) and HTTPRoutes no route
-  wants are deleted; Faro routes are `not_applicable`. The Gateway itself is never touched. Uses
-  `k8s.io/client-go`'s dynamic client, in-cluster only. _Built, not wired_ — the chart does not
-  grant the RBAC or set the config yet (plan PR 3).
+- **Shepherd applies tenant routes to the cluster.** With the receiver tier on, each active tenant
+  route — and a rotated one through its overlap — gets its HTTPRoute created in Shepherd's
+  namespace, pointing at the receiver, and Shepherd waits for the gateway to report it attached
+  before calling it `applied`. A route the gateway refuses (its listeners do not admit Shepherd's
+  namespace) shows `refused` with the gateway's reason; other failures show `error` and are
+  retried with backoff. Revoking a route deletes its HTTPRoute, a deprecated route is revoked
+  automatically when its overlap ends, and HTTPRoutes Shepherd created that no route wants any
+  more are removed; HTTPRoutes it did not create are never touched, and neither is the Gateway.
+  Faro routes are not applied (no Faro receiver exists). **Admin → Tenant routes** has an
+  **In cluster** column with that status and reason; the API carries `apply_status`,
+  `apply_message` and `applied_at` (migration 0027). The chart grants the access only with
+  `receiver.enabled` (and `receiver.applyTenantRoutes`, default `true`): a Role on `httproutes` in
+  the release namespace and `get` on the one HTTPRoute CRD, with the service-account token mounted
+  on the Shepherd pod only. With the receiver off, nothing changes. Proven end to end on kind: a
+  route created through the API carries its org's tenant through a real gateway and receiver.
+  See `UPGRADING.md` if you wrote tenant HTTPRoutes by hand. Uses `k8s.io/client-go`. _Shipped._
+  (`docs/plans/2026-09-29-tenant-route-apply.md`)
 
 ### Changed
 
@@ -61,12 +63,6 @@ Categories used here:
   agent attributes (lowercased, latest instance per collector) when agent-attribute matching is on,
   and never a reserved key — so the MCP `list_fleet_attributes` tool and any API caller stop being
   offered keys a matcher can never hit. (#139)
-
-- **Chart: tenant-route apply RBAC, receiver-gated.** With `receiver.enabled` (and the new
-  `receiver.applyTenantRoutes`, default `true`) the chart grants Shepherd's ServiceAccount a
-  namespaced Role on `httproutes` and `get` on the one HTTPRoute CRD, mounts its token on the app
-  pod only, and configures the tenant-route reconciler. With the receiver off nothing changes —
-  no RBAC, no token. See `UPGRADING.md` if you wrote tenant HTTPRoutes by hand.
 
 ### Fixed
 

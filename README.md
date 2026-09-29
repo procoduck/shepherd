@@ -180,17 +180,13 @@ reach this surface.
 Shepherd is in active development and pre-1.0; expect breaking changes, which
 the [changelog](CHANGELOG.md) calls out explicitly.
 
-Several subsystems are **built and tested but not wired to a running surface**:
-the Gateway API HTTPRoute apply and the receiver tier that would make a
-tenant route deliver traffic (`TenantRouteService` itself — segment
-issuance, listing, rotation, revocation — is mounted on the mgmtapi Connect
-surface and reachable today; nothing calls `internal/gateway.ApplyRoute`
-outside its own tests, and nothing imports `internal/receiver`), onboarding
-artifacts, and a k8s-monitoring chart-values generator.
+Two subsystems are **built and tested but not wired to a running surface**:
+onboarding artifacts and a k8s-monitoring chart-values generator.
 `docs/gateway-tier-plan.md` §9 tracks what stands between each one and being
 usable. Do not plan against them yet. (Reconciliation — declared vs served vs
 observed — shipped in v0.11.0, and the read-plus-propose MCP interface,
-`shepherd-mcp`, ships in the release archives since v0.9.0.)
+`shepherd-mcp`, ships in the release archives since v0.9.0. The receiver tier
+and tenant-route apply are shipped but off by default: `receiver.enabled`.)
 
 ## Development
 
