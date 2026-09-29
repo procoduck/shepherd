@@ -1,0 +1,105 @@
+<h1>Receiver tier</h1>
+      <p>
+        The receiver tier is an OTLP/HTTP endpoint for applications &mdash; browsers, Lambdas,
+        services &mdash; that sits behind your Gateway API gateway and forwards each tenant's data to
+        your tenant-aware backends (Mimir, Loki, Tempo) carrying that tenant's
+        <code>X-Scope-OrgID</code>. One receiver serves every tenant.
+      </p>
+      <p>
+        <strong>It is off by default</strong> (<code>receiver.enabled: false</code>) while it goes
+        through its security review. You can turn it on to try it; the chart tells you so when you
+        do.
+      </p>
+
+      <h2 id="how-it-works">How it works</h2>
+      <pre><code>client  --&gt;  https://gw.example/otlp/&lt;route-segment&gt;/v1/traces
+        --&gt;  your gateway's HTTPRoute
+               strips the /otlp/&lt;route-segment&gt; prefix
+               SETS X-Scope-OrgID: &lt;tenant&gt;   (replacing anything the client sent)
+        --&gt;  the receiver (Alloy, OTLP/HTTP)
+               forwards the request's X-Scope-OrgID with its data
+        --&gt;  your backend</code></pre>
+      <p>
+        The tenant comes from the <em>route</em>, not the client: a client that sends its own
+        <code>X-Scope-OrgID</code> has it overwritten by the gateway. The route segment in the URL is an
+        <strong>identifier, not a secret</strong> &mdash; URLs leak through logs and browser history.
+        Protect the endpoint with the gateway's own controls (origin allowlists, rate limits) and
+        rotate segments when they leak.
+      </p>
+      <p>
+        Because the tenant header is only trustworthy when the gateway set it, the receiver accepts
+        traffic <strong>only from your gateway's pods</strong>. Its NetworkPolicy admits the peers in
+        <code>receiver.networkPolicy.gatewayFrom</code> and nothing else, so a pod elsewhere cannot
+        reach it and claim a tenant.
+      </p>
+
+      <h2 id="enable">Enable it</h2>
+      <pre><code>receiver:
+  enabled: true
+  exporters:
+    traces:
+      enabled: true
+      endpoint: "http://tempo-distributor.observability:4318"
+    metrics:
+      enabled: true
+      endpointFromSecret: {name: mimir-otlp, key: endpoint}
+      authorizationFromSecret: {name: mimir-otlp, key: authorization}
+  networkPolicy:
+    # Your gateway's data-plane pods -- a podSelector is REQUIRED.
+    gatewayFrom:
+      - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: gateways}}
+        podSelector: {matchLabels: {gateway.networking.k8s.io/gateway-name: edge}}
+    # Where the receiver may send data. Egress is otherwise denied (DNS aside).
+    egress:
+      - to:
+          - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: observability}}</code></pre>
+      <p>
+        Gateway API implementations label their data-plane pods
+        <code>gateway.networking.k8s.io/gateway-name: &lt;gateway&gt;</code>, which is the selector
+        shown. Credentials go in a Secret and reach the receiver only as environment variables &mdash;
+        never in its ConfigMap.
+      </p>
+
+      <h2 id="what-the-chart-refuses">What the chart refuses</h2>
+      <ul>
+        <li>An empty <code>gatewayFrom</code> or <code>egress</code> &mdash; a receiver no gateway can
+            reach, or one that cannot deliver, fails <code>helm template</code> with a message.</li>
+        <li>A <code>gatewayFrom</code> peer without a non-empty <code>podSelector</code> &mdash; a
+            namespace alone would admit any pod in it, and any such pod could assert any tenant.</li>
+        <li>A gRPC listener &mdash; only OTLP/HTTP is served, because the tenant header is set by an
+            HTTPRoute, which cannot front gRPC.</li>
+        <li>A request-body limit left unset, or a batch cap below the batch size.</li>
+      </ul>
+      <p>
+        The receiver's config is rendered and validated when its pod starts. A config the renderer
+        refuses stops the new pod at <code>Init:Error</code> &mdash; the receiver already running keeps
+        serving &mdash; and <code>kubectl logs &lt;pod&gt; -c render</code> says why.
+      </p>
+
+      <h2 id="routes">Routes: create them yourself for now</h2>
+      <p>
+        Tenant routes created in Shepherd are not yet applied to your cluster. Until they are, create
+        the HTTPRoute for each tenant yourself &mdash; the same shape Shepherd renders:
+      </p>
+      <pre><code>apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: acme-otlp
+  namespace: shepherd            # the receiver's namespace
+spec:
+  parentRefs:
+    - name: edge
+      namespace: gateways
+  rules:
+    - matches:
+        - path: {type: PathPrefix, value: /otlp/acme-7f3k2}
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path: {type: ReplacePrefixMatch, replacePrefixMatch: ""}
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            set: [{name: X-Scope-OrgID, value: acme}]
+      backendRefs:
+        - name: shepherd-receiver      # &lt;release&gt;-receiver
+          port: 4318</code></pre>

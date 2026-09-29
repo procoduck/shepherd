@@ -860,9 +860,13 @@ receiver:
         # key: the key within that Secret.
         key: "authorization"
   networkPolicy:
-    # gatewayFrom: NetworkPolicy peers (namespaceSelector / podSelector) matching
-    # your gateway's pods -- the ONLY ingress the receiver accepts. Required when
-    # enabled: anything else reaching the port could assert any tenant.
+    # gatewayFrom: NetworkPolicy peers matching your gateway's data-plane pods --
+    # the ONLY ingress the receiver accepts. Required when enabled, and every peer
+    # needs a non-empty podSelector (a namespace alone would admit any pod in it,
+    # and any such pod could assert any tenant). Gateway API implementations label
+    # their data plane gateway.networking.k8s.io/gateway-name: <gateway>, e.g.
+    #   - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: gateways}}
+    #     podSelector: {matchLabels: {gateway.networking.k8s.io/gateway-name: edge}}
     gatewayFrom: []
     # egress: NetworkPolicy egress rules reaching your backends (ipBlock, or
     # namespace/pod selectors for in-cluster ones). Required when enabled:

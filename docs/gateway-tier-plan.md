@@ -1,8 +1,8 @@
 # Gateway tier, beacon, and tenant routing — multi-session implementation plan
 
 > Status (sign-off round 2026-09-11, §7 "Sign-offs recorded 2026-09-11"): **W1, W2, W3 and W8 are
-> done. R1, R2 and R5 are signed; R6 is signed conditionally on two small pieces of work; R3 stays
-> open with the receiver-tier build now scheduled.** W4 (tenant routes) is cleared by R1 to reach
+> done. R1, R2 and R5 are signed; R6 is signed; R3's receiver tier is built and ready for sign-off
+> (2026-09-29, §7).** W4 (tenant routes) is cleared by R1 to reach
 > users; W5's beacon is cleared by R2 (the "status and reality diverge" note this header carried
 > is resolved — the beacon shipped on by default ahead of R2, and R2 has now been signed). W6, W7,
 > W9 and W10 are cleared for product surfaces by decision, with the work scheduled in
@@ -493,6 +493,30 @@ the server one: `shepherd-mcp` builds for linux, macOS and Windows on amd64 and 
 an editor runs on — and ships as `shepherd-mcp_<version>_<os>_<arch>` (a zip on Windows), with no
 image, since there is nothing to deploy. The two server binaries stay linux-only. Build-from-source
 still works; the archive is a convenience, not a new requirement.
+
+### R3 — the receiver tier is built; ready for sign-off (2026-09-29)
+
+R3 was held open on 2026-09-11 because there was nothing to sign: the receiver was a library the
+chart did not deploy. It is now built (#109, `docs/plans/2026-09-28-receiver-tier.md`) and ships
+**off by default**. What R3 asked for, and where each is proven:
+
+| R3 asks for | Built | Proven |
+|---|---|---|
+| Containment | Receiver pod read-only, non-root, all capabilities dropped, no service-account token; config rendered by an init container, never templated in Helm | `deploy/helm/chart_receiver_test.go` (both containers hardened) |
+| The gateway as the only ingress | NetworkPolicy admits only `receiver.networkPolicy.gatewayFrom`, and **every peer must carry a non-empty `podSelector`** — a namespace-only peer fails `helm template` (decided 2026-09-29, after the kind run showed any pod in the gateway's namespace could otherwise reach the receiver and assert any tenant) | kind, Calico-enforced: a pod outside the gateway's namespace AND a non-gateway pod inside it are both refused; the same request succeeds once the policy is deleted (in-test control) |
+| Pass-through tenancy against a **real Alloy** | The chart's receiver, behind a real NGF gateway, routes applied by `gateway.ApplyRoute` | kind: two tenants each reach the backend with exactly their `X-Scope-OrgID`, nothing untagged; a client-asserted header never arrives. Red run (`docs/proofs/receiver-tier.md` §1): without the batch `metadata_keys`, both tenants merge into ONE untagged request while every client gets 200 and Alloy logs no error |
+| A documented off-switch that is itself tested | `receiver.enabled`, default `false` | chart spec (defaults render nothing) and kind (a default install creates no receiver object) |
+| Blast radius | A config the renderer refuses stops the NEW pod at `Init:Error`; the rollout halts there | kind: the previous receiver pod stays Ready while the new one crash-loops at init |
+
+Found and fixed on the way, both invisible to `alloy validate`: an omitted `send_batch_max_size`
+made Alloy refuse to START a receiver whose batch size exceeded its default cap (now always
+rendered; `Validate` refuses a cap below the batch size), and the namespace-only ingress gap above.
+
+**What signing R3 decides:** whether the receiver may default **on**. Signing does not by itself
+flip the default; that is a separate chart change. **Still out of scope** and not asked of R3:
+applying tenant routes to the cluster automatically (`CreateTenantRoute` → `ApplyRoute` has no
+production caller — operators create the HTTPRoute themselves until that follow-up lands), Faro
+(D10, demand-driven), gRPC ingress, and receiver autoscaling.
 
 ## 8. How sub-agents work on this
 

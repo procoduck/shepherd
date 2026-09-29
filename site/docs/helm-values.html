@@ -68,6 +68,10 @@
     <li><a href="single-sign-on.html">Single sign-on</a></li>
     <li><a href="users-and-teams.html">Users and teams</a></li>
   </ul>
+  <p class="docs-nav-cat">Ingest</p>
+  <ul>
+    <li><a href="receiver.html">Receiver tier</a></li>
+  </ul>
   <p class="docs-nav-cat">Sandbox</p>
   <ul>
     <li><a href="simulation.html">Sandbox simulation</a></li>
@@ -407,7 +411,7 @@
           <tr><td><code>receiver.exporters.traces.endpointFromSecret.key</code></td><td><code>&quot;endpoint&quot;</code></td><td>key: the key within that Secret.</td></tr>
           <tr><td><code>receiver.exporters.traces.authorizationFromSecret.name</code></td><td><code>&quot;&quot;</code></td><td>name: a Secret holding the full Authorization header value. Empty sends no Authorization header.</td></tr>
           <tr><td><code>receiver.exporters.traces.authorizationFromSecret.key</code></td><td><code>&quot;authorization&quot;</code></td><td>key: the key within that Secret.</td></tr>
-          <tr><td><code>receiver.networkPolicy.gatewayFrom</code></td><td><code>[]</code></td><td>gatewayFrom: NetworkPolicy peers (namespaceSelector / podSelector) matching your gateway&#x27;s pods -- the ONLY ingress the receiver accepts. Required when enabled: anything else reaching the port could assert any tenant.</td></tr>
+          <tr><td><code>receiver.networkPolicy.gatewayFrom</code></td><td><code>[]</code></td><td>gatewayFrom: NetworkPolicy peers matching your gateway&#x27;s data-plane pods -- the ONLY ingress the receiver accepts. Required when enabled, and every peer needs a non-empty podSelector (a namespace alone would admit any pod in it, and any such pod could assert any tenant). Gateway API implementations label their data plane gateway.networking.k8s.io/gateway-name: &lt;gateway&gt;, e.g. - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: gateways}} podSelector: {matchLabels: {gateway.networking.k8s.io/gateway-name: edge}}</td></tr>
           <tr><td><code>receiver.networkPolicy.egress</code></td><td><code>[]</code></td><td>egress: NetworkPolicy egress rules reaching your backends (ipBlock, or namespace/pod selectors for in-cluster ones). Required when enabled: egress is default-deny apart from cluster DNS.</td></tr>
           <tr><td><code>receiver.networkPolicy.dns.podSelector.k8s-app</code></td><td><code>kube-dns</code></td><td>k8s-app: CoreDNS&#x27;s label in most distributions (kind, kubeadm, EKS, GKE).</td></tr>
           <tr><td><code>receiver.storageSizeLimit</code></td><td><code>256Mi</code></td><td>storageSizeLimit: size cap on Alloy&#x27;s scratch storage (an emptyDir; the root filesystem is read-only).</td></tr>

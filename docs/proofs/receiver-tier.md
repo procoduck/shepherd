@@ -89,9 +89,11 @@ cost three CI cycles: `utils.RunCommand` (gexe) re-tokenises a command string, m
 body, an `sh -c` script and a `jsonpath` expression in turn — the receiver itself was Running and
 Ready in every one. Every kubectl call in the test now runs from an explicit argv.
 
-## Open point for R3: `gatewayFrom` granularity
+## `gatewayFrom` granularity — decided 2026-09-29: a podSelector is required
 
-The positive-control probe showed that ANY pod in the gateway's namespace — not only the gateway's
-data plane — can reach a pass-through receiver and assert any tenant, when `gatewayFrom` selects by
-namespace alone. Narrowing it with a `podSelector` for the data-plane pods closes that; whether the
-chart should REQUIRE one is a decision for R3.
+The first green run's positive-control probe showed that ANY pod in the gateway's namespace — not
+only the gateway's data plane — could reach a pass-through receiver and assert any tenant when
+`gatewayFrom` selected by namespace alone. The chart now refuses a `gatewayFrom` peer without a
+non-empty `podSelector` (red: the two chart specs pinning it fail with the rule removed), and the
+kind test's second assessment asserts the property directly: a non-gateway pod in the gateway's own
+namespace is refused.

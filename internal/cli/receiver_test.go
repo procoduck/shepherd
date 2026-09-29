@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 
@@ -111,6 +112,21 @@ otlp:
 `, "MaxRequestBodySize must be set explicitly"),
 		Entry("an empty file", "", "empty receiver config"),
 	)
+
+	It("prints the refusal without cobra's usage text, so the pod log shows only the reason", func() {
+		// cobra writes the error to Err but the usage text to Out: capture both.
+		var errOut bytes.Buffer
+		rootCmd.SetErr(&errOut)
+		rootCmd.SetOut(&errOut)
+		defer func() { rootCmd.SetErr(nil); rootCmd.SetOut(nil) }()
+		rootCmd.SetArgs([]string{
+			"receiver", "render",
+			"--config", writeFile(validReceiverFile + "extra: true\n"), "--out", filepath.Join(GinkgoT().TempDir(), "x.alloy"),
+		})
+		Expect(rootCmd.Execute()).To(HaveOccurred())
+		Expect(errOut.String()).To(ContainSubstring("field extra not found"))
+		Expect(errOut.String()).NotTo(ContainSubstring("Usage:"))
+	})
 
 	It("writes nothing when validation fails, so the pod fails at init", func() {
 		dir := GinkgoT().TempDir()

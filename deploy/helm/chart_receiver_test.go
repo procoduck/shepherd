@@ -33,6 +33,7 @@ receiver:
   networkPolicy:
     gatewayFrom:
       - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: gateway}}
+        podSelector: {matchLabels: {gateway.networking.k8s.io/gateway-name: edge}}
     egress:
       - to: [{ipBlock: {cidr: 10.0.0.0/8}}]
 `
@@ -113,8 +114,12 @@ var _ = Describe("receiver tier chart objects", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(out).To(ContainSubstring(wantMsg))
 		},
-		Entry("no gatewayFrom", "    gatewayFrom:\n      - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: gateway}}\n",
+		Entry("no gatewayFrom", "    gatewayFrom:\n      - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: gateway}}\n"+
+			"        podSelector: {matchLabels: {gateway.networking.k8s.io/gateway-name: edge}}\n",
 			"receiver.networkPolicy.gatewayFrom must name the gateway"),
+		Entry("a gatewayFrom peer with only a namespace (any pod in it could assert any tenant)",
+			"        podSelector: {matchLabels: {gateway.networking.k8s.io/gateway-name: edge}}\n",
+			"gatewayFrom[0] must include a non-empty podSelector"),
 		Entry("no egress", "    egress:\n      - to: [{ipBlock: {cidr: 10.0.0.0/8}}]\n",
 			"receiver.networkPolicy.egress must allow"),
 	)
@@ -129,6 +134,7 @@ var _ = Describe("receiver tier chart objects", func() {
 		Expect(ingress).To(HaveLen(1))
 		Expect(dig(ingress[0], "from")).To(Equal([]any{map[string]any{
 			"namespaceSelector": map[string]any{"matchLabels": map[string]any{"kubernetes.io/metadata.name": "gateway"}},
+			"podSelector":       map[string]any{"matchLabels": map[string]any{"gateway.networking.k8s.io/gateway-name": "edge"}},
 		}}))
 		Expect(dig(ingress[0], "ports")).To(Equal([]any{map[string]any{"port": "otlp-http", "protocol": "TCP"}}))
 
@@ -180,6 +186,13 @@ var _ = Describe("receiver tier chart objects", func() {
 		}
 		Expect(refs).To(HaveKeyWithValue("RECEIVER_METRICS_ENDPOINT", "mimir-endpoint"))
 		Expect(refs).To(HaveKeyWithValue("RECEIVER_METRICS_AUTHORIZATION", "mimir-auth"))
+	})
+
+	It("refuses an empty podSelector, which would match every pod in the namespace", func() {
+		_, out, err := helmTemplate(strings.Replace(receiverOn,
+			"podSelector: {matchLabels: {gateway.networking.k8s.io/gateway-name: edge}}", "podSelector: {}", 1))
+		Expect(err).To(HaveOccurred())
+		Expect(out).To(ContainSubstring("gatewayFrom[0] must include a non-empty podSelector"))
 	})
 
 	It("rejects an unsupported mode through the values schema", func() {

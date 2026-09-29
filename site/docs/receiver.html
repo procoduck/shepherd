@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Receiver tier &mdash; Shepherd docs</title>
+<meta name="description" content="An OTLP/HTTP endpoint behind your gateway that forwards each tenant&#x27;s data under its own tenant — off by default while under review.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="../index.html">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 2.5 4 6v6c0 5.2 3.4 9.4 8 10.5 4.6-1.1 8-5.3 8-10.5V6l-8-3.5Z" stroke="var(--accent)" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M8.5 12.2 11 14.7l4.8-5" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Shepherd
+    </a>
+    <div class="nav-links">
+      <a href="../index.html#features">Features</a>
+      <a href="../index.html#architecture">Architecture</a>
+      <a href="index.html">Docs</a>
+      <a class="btn btn-outline" href="https://github.com/procoduck/shepherd">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<div class="docs-body">
+  <div class="wrap docs-shell">
+<aside class="docs-nav" id="docs-nav">
+  <p class="docs-nav-label">Documentation</p>
+  <p class="docs-nav-cat">Get started</p>
+  <ul>
+    <li><a href="quickstart.html">Quickstart</a></li>
+  </ul>
+  <p class="docs-nav-cat">About</p>
+  <ul>
+    <li><a href="overview.html">What Shepherd is</a></li>
+    <li><a href="roles.html">Roles and access</a></li>
+  </ul>
+  <p class="docs-nav-cat">Install</p>
+  <ul>
+    <li><a href="requirements.html">Requirements</a></li>
+    <li><a href="kubernetes.html">Kubernetes (Helm)</a></li>
+    <li><a href="database.html">Database</a></li>
+    <li><a href="secrets.html">Secrets</a></li>
+    <li><a href="configuration.html">Configuration</a></li>
+    <li><a href="local-development.html">Running from source</a></li>
+  </ul>
+  <p class="docs-nav-cat">Fleet</p>
+  <ul>
+    <li><a href="agent-tokens.html">Agent tokens</a></li>
+    <li><a href="collectors.html">Connect a collector</a></li>
+  </ul>
+  <p class="docs-nav-cat">Pipelines</p>
+  <ul>
+    <li><a href="authoring.html">Authoring pipelines</a></li>
+    <li><a href="matchers.html">Matchers and validation</a></li>
+    <li><a href="gitops.html">GitOps</a></li>
+  </ul>
+  <p class="docs-nav-cat">Access control</p>
+  <ul>
+    <li><a href="single-sign-on.html">Single sign-on</a></li>
+    <li><a href="users-and-teams.html">Users and teams</a></li>
+  </ul>
+  <p class="docs-nav-cat">Ingest</p>
+  <ul>
+    <li><a href="receiver.html" class="active" aria-current="page">Receiver tier</a></li>
+  </ul>
+  <p class="docs-nav-cat">Sandbox</p>
+  <ul>
+    <li><a href="simulation.html">Sandbox simulation</a></li>
+  </ul>
+  <p class="docs-nav-cat">Automation</p>
+  <ul>
+    <li><a href="mcp.html">AI agent (MCP)</a></li>
+  </ul>
+  <p class="docs-nav-cat">Reference</p>
+  <ul>
+    <li><a href="helm-values.html">Helm values</a></li>
+    <li><a href="resources.html">Further reading</a></li>
+  </ul>
+</aside>
+
+    <div class="docs-main">
+      <nav class="crumbs" aria-label="Breadcrumb"><a href="index.html">Docs</a><span aria-hidden="true">/</span><span>Ingest</span><span aria-hidden="true">/</span><span class="crumb-here">Receiver tier</span></nav>
+      <div class="docs-content">
+<h1>Receiver tier</h1>
+      <p>
+        The receiver tier is an OTLP/HTTP endpoint for applications &mdash; browsers, Lambdas,
+        services &mdash; that sits behind your Gateway API gateway and forwards each tenant's data to
+        your tenant-aware backends (Mimir, Loki, Tempo) carrying that tenant's
+        <code>X-Scope-OrgID</code>. One receiver serves every tenant.
+      </p>
+      <p>
+        <strong>It is off by default</strong> (<code>receiver.enabled: false</code>) while it goes
+        through its security review. You can turn it on to try it; the chart tells you so when you
+        do.
+      </p>
+
+      <h2 id="how-it-works">How it works</h2>
+      <pre><code>client  --&gt;  https://gw.example/otlp/&lt;route-segment&gt;/v1/traces
+        --&gt;  your gateway's HTTPRoute
+               strips the /otlp/&lt;route-segment&gt; prefix
+               SETS X-Scope-OrgID: &lt;tenant&gt;   (replacing anything the client sent)
+        --&gt;  the receiver (Alloy, OTLP/HTTP)
+               forwards the request's X-Scope-OrgID with its data
+        --&gt;  your backend</code></pre>
+      <p>
+        The tenant comes from the <em>route</em>, not the client: a client that sends its own
+        <code>X-Scope-OrgID</code> has it overwritten by the gateway. The route segment in the URL is an
+        <strong>identifier, not a secret</strong> &mdash; URLs leak through logs and browser history.
+        Protect the endpoint with the gateway's own controls (origin allowlists, rate limits) and
+        rotate segments when they leak.
+      </p>
+      <p>
+        Because the tenant header is only trustworthy when the gateway set it, the receiver accepts
+        traffic <strong>only from your gateway's pods</strong>. Its NetworkPolicy admits the peers in
+        <code>receiver.networkPolicy.gatewayFrom</code> and nothing else, so a pod elsewhere cannot
+        reach it and claim a tenant.
+      </p>
+
+      <h2 id="enable">Enable it</h2>
+      <pre><code>receiver:
+  enabled: true
+  exporters:
+    traces:
+      enabled: true
+      endpoint: "http://tempo-distributor.observability:4318"
+    metrics:
+      enabled: true
+      endpointFromSecret: {name: mimir-otlp, key: endpoint}
+      authorizationFromSecret: {name: mimir-otlp, key: authorization}
+  networkPolicy:
+    # Your gateway's data-plane pods -- a podSelector is REQUIRED.
+    gatewayFrom:
+      - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: gateways}}
+        podSelector: {matchLabels: {gateway.networking.k8s.io/gateway-name: edge}}
+    # Where the receiver may send data. Egress is otherwise denied (DNS aside).
+    egress:
+      - to:
+          - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: observability}}</code></pre>
+      <p>
+        Gateway API implementations label their data-plane pods
+        <code>gateway.networking.k8s.io/gateway-name: &lt;gateway&gt;</code>, which is the selector
+        shown. Credentials go in a Secret and reach the receiver only as environment variables &mdash;
+        never in its ConfigMap.
+      </p>
+
+      <h2 id="what-the-chart-refuses">What the chart refuses</h2>
+      <ul>
+        <li>An empty <code>gatewayFrom</code> or <code>egress</code> &mdash; a receiver no gateway can
+            reach, or one that cannot deliver, fails <code>helm template</code> with a message.</li>
+        <li>A <code>gatewayFrom</code> peer without a non-empty <code>podSelector</code> &mdash; a
+            namespace alone would admit any pod in it, and any such pod could assert any tenant.</li>
+        <li>A gRPC listener &mdash; only OTLP/HTTP is served, because the tenant header is set by an
+            HTTPRoute, which cannot front gRPC.</li>
+        <li>A request-body limit left unset, or a batch cap below the batch size.</li>
+      </ul>
+      <p>
+        The receiver's config is rendered and validated when its pod starts. A config the renderer
+        refuses stops the new pod at <code>Init:Error</code> &mdash; the receiver already running keeps
+        serving &mdash; and <code>kubectl logs &lt;pod&gt; -c render</code> says why.
+      </p>
+
+      <h2 id="routes">Routes: create them yourself for now</h2>
+      <p>
+        Tenant routes created in Shepherd are not yet applied to your cluster. Until they are, create
+        the HTTPRoute for each tenant yourself &mdash; the same shape Shepherd renders:
+      </p>
+      <pre><code>apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: acme-otlp
+  namespace: shepherd            # the receiver's namespace
+spec:
+  parentRefs:
+    - name: edge
+      namespace: gateways
+  rules:
+    - matches:
+        - path: {type: PathPrefix, value: /otlp/acme-7f3k2}
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path: {type: ReplacePrefixMatch, replacePrefixMatch: ""}
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            set: [{name: X-Scope-OrgID, value: acme}]
+      backendRefs:
+        - name: shepherd-receiver      # &lt;release&gt;-receiver
+          port: 4318</code></pre>
+        <nav class="page-nav" aria-label="Pagination">
+          <a class="page-nav-prev" href="users-and-teams.html"><span>Previous</span><strong>Users and teams</strong></a>
+          <a class="page-nav-next" href="simulation.html"><span>Next</span><strong>Sandbox simulation</strong></a>
+        </nav>
+      </div>
+    </div>
+
+    <aside class="docs-toc">
+      <p class="toc-label">On this page</p>
+      <ul>
+        <li><a href="#how-it-works">How it works</a></li>
+        <li><a href="#enable">Enable it</a></li>
+        <li><a href="#what-the-chart-refuses">What the chart refuses</a></li>
+        <li><a href="#routes">Routes: create them yourself for now</a></li>
+      </ul>
+    </aside>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-left">
+      <span class="pill">v0.11.0</span>
+      <span>self-hosted Grafana Alloy fleet manager</span>
+    </div>
+    <div class="foot-links">
+      <a href="https://github.com/procoduck/shepherd">GitHub</a>
+      <a href="index.html">Docs</a>
+      <a href="../index.html">Home</a>
+    </div>
+  </div>
+</footer>
+
+<script src="../docs.js" defer></script>
+</body>
+</html>

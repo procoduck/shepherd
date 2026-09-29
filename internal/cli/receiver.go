@@ -41,6 +41,8 @@ var receiverRenderCmd = &cobra.Command{
 		"validation fails, so a bad config fails the pod at init instead of starting an Alloy " +
 		"that forwards untagged data.",
 	Args: cobra.NoArgs,
+	// The refusal is the whole message a pod log needs: no usage text after it.
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		content, err := renderReceiverFile(receiverRenderConfig)
 		if err != nil {

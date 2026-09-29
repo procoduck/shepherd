@@ -27,8 +27,10 @@ Categories used here:
   container runs the new `shepherd receiver render`, which validates the receiver config built from
   `receiver.*` values and renders it — nothing is written on failure, so a bad config stops the pod
   at `Init:Error` — and Alloy (the version pinned for the Shepherd image) runs the result, read-only
-  and non-root. Its NetworkPolicy admits only the gateway (`receiver.networkPolicy.gatewayFrom`) and
-  default-denies egress apart from DNS and the operator's destination rules; both lists are required.
+  and non-root. Its NetworkPolicy admits only the gateway (`receiver.networkPolicy.gatewayFrom`, where
+  every peer must carry a non-empty `podSelector` for the gateway's data-plane pods -- a namespace
+  alone would let any pod in it assert any tenant) and default-denies egress apart from DNS and the
+  operator's destination rules; both lists are required. New docs page: **Receiver tier**.
   Destinations come from values, with endpoints and `Authorization` headers optionally from Secrets
   that never reach the ConfigMap. `shepherd healthcheck` gains `--path` for the receiver's probes.
   Rendering now always sets the batch processor's `send_batch_max_size`: omitted, Alloy's default

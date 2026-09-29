@@ -108,12 +108,13 @@ receiver:
   networkPolicy:
     gatewayFrom:
       - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: %[4]s}}
+        podSelector: {matchLabels: {gateway.networking.k8s.io/gateway-name: %[5]s}}
     egress:
       - to:
           - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: %[2]s}}
             podSelector: {matchLabels: {app: %[1]s}}
         ports: [{port: %[3]d, protocol: TCP}]
-`, sinkName, f.ns, sinkPort, gwNS)
+`, sinkName, f.ns, sinkPort, gwNS, gwName)
 			valuesFile := filepath.Join(t.TempDir(), "receiver-values.yaml")
 			if err := os.WriteFile(valuesFile, []byte(values), 0o600); err != nil {
 				t.Fatalf("writing receiver values: %v", err)
@@ -144,28 +145,24 @@ receiver:
 			}
 			return ctx
 		}).
-		Assess("the gateway's namespace can reach the receiver directly (the NetworkPolicy's allowed side)",
+		Assess("a pod in the gateway's own namespace that is not the gateway cannot reach the receiver",
 			func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-				// The positive half of the ingress rule, and the first thing to
-				// know if the gateway path below fails: can traffic from gwNS
-				// reach the receiver at all?
+				// The chart requires every gatewayFrom peer to carry a podSelector
+				// (the data plane's gateway.networking.k8s.io/gateway-name label):
+				// a namespace alone would admit ANY pod in it, and with
+				// pass-through tenancy any such pod could assert any tenant. An
+				// earlier run of this test showed exactly that before the chart
+				// required the selector. The gateway itself reaching the receiver
+				// is what the next assessment proves.
 				direct := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d/v1/traces", receiver, f.ns, recvPort)
-				end := time.Now().Add(gatewayProbeDeadline)
-				var code string
-				for i := 0; ; i++ {
-					// A tenant header of its own: this request bypasses the
-					// route, and pass-through forwards whatever it carries —
-					// without one it would reach the backend untagged and trip
-					// the next assessment's "nothing untagged" check.
-					if code = postSpanOnce(cfg, gwNS, fmt.Sprintf("from-gw-ns-%d", i), direct, directProbeTenant); code == "200" {
-						return ctx
+				for i := 0; i < 3; i++ {
+					if code := postSpanOnce(cfg, gwNS, fmt.Sprintf("gw-ns-bystander-%d", i), direct, directProbeTenant); code != "000" {
+						t.Fatalf("a non-gateway pod in the gateway namespace %s reached the receiver (HTTP %s) — it could "+
+							"assert any tenant; gatewayFrom must select the gateway's pods, not its namespace\n%s",
+							gwNS, code, receiverDiagnostics(cfg, f.ns, gwNS, gwSvc))
 					}
-					if time.Now().After(end) {
-						t.Fatalf("a pod in the gateway namespace %s could not reach the receiver directly (last HTTP %q) — "+
-							"the NetworkPolicy's gatewayFrom does not admit it\n%s", gwNS, code, receiverDiagnostics(cfg, f.ns, gwNS, gwSvc))
-					}
-					time.Sleep(3 * time.Second)
 				}
+				return ctx
 			}).
 		Assess("each tenant's spans reach the backend carrying exactly that tenant, through the real receiver",
 			func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {

@@ -3,6 +3,12 @@
 {{- if not $np.gatewayFrom }}
 {{- fail "receiver.networkPolicy.gatewayFrom must name the gateway's pods/namespace: the gateway is the only ingress a pass-through receiver may have (it is what sets the tenant header)" }}
 {{- end }}
+{{- range $i, $peer := $np.gatewayFrom }}
+{{- $ps := $peer.podSelector }}
+{{- if not (and $ps (or $ps.matchLabels $ps.matchExpressions)) }}
+{{- fail (printf "receiver.networkPolicy.gatewayFrom[%d] must include a non-empty podSelector naming the gateway's data-plane pods (e.g. gateway.networking.k8s.io/gateway-name: <gateway>): with a namespace alone, ANY pod in that namespace could reach the receiver and assert any tenant" $i) }}
+{{- end }}
+{{- end }}
 {{- if not $np.egress }}
 {{- fail "receiver.networkPolicy.egress must allow the receiver's destinations (ipBlock or namespace/pod selectors): egress is default-deny apart from DNS" }}
 {{- end }}
