@@ -47,12 +47,13 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "shepherd.serviceAccountName" . }}
-      # false at the POD level too, not only on the ServiceAccount. An
-      # omitted field inherits the namespace default, and pointing the workload
-      # at someone else's ServiceAccount (serviceAccount.create: false) would
-      # otherwise mount whatever token that account carries. Shepherd never
-      # calls the Kubernetes API.
-      automountServiceAccountToken: false
+      # Set at the POD level, not only on the ServiceAccount: an omitted field
+      # inherits the namespace default, and pointing the workload at someone
+      # else's ServiceAccount (serviceAccount.create: false) would otherwise
+      # mount whatever token that account carries. The token is mounted only
+      # when Shepherd applies tenant routes (receiver tier on) -- the one thing
+      # it calls the Kubernetes API for, under rbac-tenant-routes.yaml.
+      automountServiceAccountToken: {{ include "shepherd.routeApplyEnabled" . | eq "true" }}
       securityContext:
         {{- include "shepherd.podSecurityContext" . | nindent 8 }}
       volumes:
@@ -86,7 +87,7 @@ spec:
             - secretRef:
                 name: {{ include "shepherd.secretName" . }}
                 optional: true
-          {{- $env := list (include "shepherd.podEnv" .) (include "shepherd.simulatorTokenEnv" .) | join "\n" | trim }}
+          {{- $env := list (include "shepherd.podEnv" .) (include "shepherd.simulatorTokenEnv" .) (include "shepherd.routeApplyEnv" .) | join "\n" | trim }}
           {{- if $env }}
           env:
             {{- $env | nindent 12 }}

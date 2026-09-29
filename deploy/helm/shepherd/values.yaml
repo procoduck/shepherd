@@ -782,6 +782,12 @@ receiver:
   enabled: false
   # replicas: receiver pods behind the receiver Service. Each is stateless.
   replicas: 1
+  # applyTenantRoutes: Shepherd creates, updates and removes each tenant
+  # route's HTTPRoute (in this namespace, pointing at the receiver Service) and
+  # shows whether the gateway attached it. Grants Shepherd's ServiceAccount a
+  # namespaced Role on httproutes and a ClusterRole to read the one HTTPRoute
+  # CRD, and mounts its token. false: no RBAC; write the HTTPRoutes yourself.
+  applyTenantRoutes: true
   # mode: "pass_through" forwards the tenant header the gateway injected (one
   # receiver serves many tenants); "static" sends no tenant header. Pass-through
   # refuses a gRPC listener, so only OTLP/HTTP is ever served.

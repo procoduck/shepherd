@@ -928,6 +928,10 @@
           "type": "integer",
           "minimum": 1
         },
+        "applyTenantRoutes": {
+          "description": "Shepherd applies tenant routes' HTTPRoutes itself (namespaced Role on httproutes, get on the HTTPRoute CRD).",
+          "type": "boolean"
+        },
         "mode": {
           "type": "string",
           "enum": [

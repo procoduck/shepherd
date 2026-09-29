@@ -53,6 +53,12 @@ Categories used here:
   and never a reserved key — so the MCP `list_fleet_attributes` tool and any API caller stop being
   offered keys a matcher can never hit. (#139)
 
+- **Chart: tenant-route apply RBAC, receiver-gated.** With `receiver.enabled` (and the new
+  `receiver.applyTenantRoutes`, default `true`) the chart grants Shepherd's ServiceAccount a
+  namespaced Role on `httproutes` and `get` on the one HTTPRoute CRD, mounts its token on the app
+  pod only, and configures the tenant-route reconciler. With the receiver off nothing changes —
+  no RBAC, no token. See `UPGRADING.md` if you wrote tenant HTTPRoutes by hand.
+
 ### Fixed
 
 - **The visual builder no longer overwrites an unsaved draft when it opens.** On opening, the builder

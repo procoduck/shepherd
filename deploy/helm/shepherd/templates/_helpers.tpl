@@ -489,3 +489,34 @@ otlp:
 {{- end }}
 {{- end }}
 {{- end }}
+
+{{/*
+Tenant-route apply (docs/plans/2026-09-29-tenant-route-apply.md): "true" when
+Shepherd should apply tenant routes' HTTPRoutes itself -- only with the receiver
+tier on, since the routes point at the receiver Service. Gates the RBAC, the
+pod's token mount and the reconciler's env; empty otherwise.
+*/}}
+{{- define "shepherd.routeApplyEnabled" -}}
+{{- if and ((.Values.receiver).enabled) (ne ((.Values.receiver).applyTenantRoutes) false) -}}
+true
+{{- end -}}
+{{- end }}
+
+{{/*
+The reconciler's env, for the app Deployment only: its namespace from the
+downward API, and the receiver Service this chart renders as the backend.
+*/}}
+{{- define "shepherd.routeApplyEnv" -}}
+{{- if include "shepherd.routeApplyEnabled" . -}}
+- name: SHEPHERD_GATEWAY_ROUTES_APPLY_ENABLED
+  value: "true"
+- name: SHEPHERD_GATEWAY_ROUTES_APPLY_NAMESPACE
+  valueFrom:
+    fieldRef:
+      fieldPath: metadata.namespace
+- name: SHEPHERD_GATEWAY_ROUTES_APPLY_BACKEND_SERVICE
+  value: {{ include "shepherd.receiverFullname" . | quote }}
+- name: SHEPHERD_GATEWAY_ROUTES_APPLY_BACKEND_PORT
+  value: {{ .Values.receiver.listener.port | quote }}
+{{- end -}}
+{{- end }}
