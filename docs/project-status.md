@@ -164,7 +164,8 @@ v0.9.0), reconciliation (W6, v0.11.0). Still to build, each a GitHub issue:
   (`docs/plans/2026-09-29-tenant-route-apply.md`, #175–#178 + the kind proof): Shepherd applies each
   route's HTTPRoute through a background reconciler (`internal/routeapply`) under receiver-gated
   RBAC, and the Tenant routes page shows the result.
-- **Onboarding artifacts page (W7) — #111.** "Connect an app" snippets for a tenant route.
+- **Onboarding artifacts page (W7) — #111.** Done, unreleased: `TenantRouteService.RenderConnectApp` renders
+  `internal/onboarding` for an active OTLP route; the Tenant routes page's **Connect an app** dialog shows it.
 - **Chart-values generator UI (W9) + gate G10 — #112.**
 
 ### Attribute-based matching — UI and docs · **#139 item 8** · done, unreleased
@@ -219,7 +220,7 @@ answer and the ledger item it produced is below.
 - [x] **Tenant routes UI** (W4) — shipped in v0.9.0.
 - [x] **Service-accounts UI** (W10 remainder) — shipped in v0.9.0.
 - [x] **Reconciliation surface** (W6) — shipped in v0.11.0 (#140).
-- [ ] **Onboarding artifacts page** (W7) — #111.
+- [x] **Onboarding artifacts page** (W7) — #111.
 - [ ] **Chart-values generator UI** (W9) + gate G10 in the kind suite — #112.
 
 ### Smaller follow-ups

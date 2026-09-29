@@ -520,3 +520,17 @@ downward API, and the receiver Service this chart renders as the backend.
   value: {{ .Values.receiver.listener.port | quote }}
 {{- end -}}
 {{- end }}
+
+{{/*
+The gateway's public URL, for the "connect an app" snippets on the Tenant
+routes page. App Deployment only; with the receiver on and the value set.
+*/}}
+{{- define "shepherd.publicBaseURLEnv" -}}
+{{- if and ((.Values.receiver).enabled) ((.Values.receiver).publicBaseURL) -}}
+{{- if not (hasPrefix "https://" .Values.receiver.publicBaseURL) -}}
+{{- fail "receiver.publicBaseURL must be an https URL: apps send telemetry to it from outside the cluster" -}}
+{{- end -}}
+- name: SHEPHERD_GATEWAY_ROUTES_PUBLIC_BASE_URL
+  value: {{ .Values.receiver.publicBaseURL | quote }}
+{{- end -}}
+{{- end }}

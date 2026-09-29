@@ -928,6 +928,11 @@
           "type": "integer",
           "minimum": 1
         },
+        "publicBaseURL": {
+          "description": "The gateway's public https URL, prefilling the connect-an-app snippets. Empty: users enter it.",
+          "type": "string",
+          "pattern": "^(https://.+)?$"
+        },
         "applyTenantRoutes": {
           "description": "Shepherd applies tenant routes' HTTPRoutes itself (namespaced Role on httproutes, get on the HTTPRoute CRD).",
           "type": "boolean"

@@ -45,6 +45,9 @@ const (
 	// TenantRouteServiceRevokeTenantRouteProcedure is the fully-qualified name of the
 	// TenantRouteService's RevokeTenantRoute RPC.
 	TenantRouteServiceRevokeTenantRouteProcedure = "/shepherd.mgmt.v1.TenantRouteService/RevokeTenantRoute"
+	// TenantRouteServiceRenderConnectAppProcedure is the fully-qualified name of the
+	// TenantRouteService's RenderConnectApp RPC.
+	TenantRouteServiceRenderConnectAppProcedure = "/shepherd.mgmt.v1.TenantRouteService/RenderConnectApp"
 )
 
 // TenantRouteServiceClient is a client for the shepherd.mgmt.v1.TenantRouteService service.
@@ -53,6 +56,10 @@ type TenantRouteServiceClient interface {
 	CreateTenantRoute(context.Context, *connect.Request[v1.CreateTenantRouteRequest]) (*connect.Response[v1.TenantRoute], error)
 	RotateTenantRoute(context.Context, *connect.Request[v1.RotateTenantRouteRequest]) (*connect.Response[v1.RotateTenantRouteResponse], error)
 	RevokeTenantRoute(context.Context, *connect.Request[v1.RevokeTenantRouteRequest]) (*connect.Response[v1.TenantRoute], error)
+	// RenderConnectApp renders the "connect an app" artifacts (W7,
+	// internal/onboarding) for one OTLP route: the endpoint an app's OTel SDK
+	// points at, as env vars and IaC/SDK snippets. Read-only.
+	RenderConnectApp(context.Context, *connect.Request[v1.RenderConnectAppRequest]) (*connect.Response[v1.RenderConnectAppResponse], error)
 }
 
 // NewTenantRouteServiceClient constructs a client for the shepherd.mgmt.v1.TenantRouteService
@@ -90,6 +97,12 @@ func NewTenantRouteServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(tenantRouteServiceMethods.ByName("RevokeTenantRoute")),
 			connect.WithClientOptions(opts...),
 		),
+		renderConnectApp: connect.NewClient[v1.RenderConnectAppRequest, v1.RenderConnectAppResponse](
+			httpClient,
+			baseURL+TenantRouteServiceRenderConnectAppProcedure,
+			connect.WithSchema(tenantRouteServiceMethods.ByName("RenderConnectApp")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -99,6 +112,7 @@ type tenantRouteServiceClient struct {
 	createTenantRoute *connect.Client[v1.CreateTenantRouteRequest, v1.TenantRoute]
 	rotateTenantRoute *connect.Client[v1.RotateTenantRouteRequest, v1.RotateTenantRouteResponse]
 	revokeTenantRoute *connect.Client[v1.RevokeTenantRouteRequest, v1.TenantRoute]
+	renderConnectApp  *connect.Client[v1.RenderConnectAppRequest, v1.RenderConnectAppResponse]
 }
 
 // ListTenantRoutes calls shepherd.mgmt.v1.TenantRouteService.ListTenantRoutes.
@@ -121,6 +135,11 @@ func (c *tenantRouteServiceClient) RevokeTenantRoute(ctx context.Context, req *c
 	return c.revokeTenantRoute.CallUnary(ctx, req)
 }
 
+// RenderConnectApp calls shepherd.mgmt.v1.TenantRouteService.RenderConnectApp.
+func (c *tenantRouteServiceClient) RenderConnectApp(ctx context.Context, req *connect.Request[v1.RenderConnectAppRequest]) (*connect.Response[v1.RenderConnectAppResponse], error) {
+	return c.renderConnectApp.CallUnary(ctx, req)
+}
+
 // TenantRouteServiceHandler is an implementation of the shepherd.mgmt.v1.TenantRouteService
 // service.
 type TenantRouteServiceHandler interface {
@@ -128,6 +147,10 @@ type TenantRouteServiceHandler interface {
 	CreateTenantRoute(context.Context, *connect.Request[v1.CreateTenantRouteRequest]) (*connect.Response[v1.TenantRoute], error)
 	RotateTenantRoute(context.Context, *connect.Request[v1.RotateTenantRouteRequest]) (*connect.Response[v1.RotateTenantRouteResponse], error)
 	RevokeTenantRoute(context.Context, *connect.Request[v1.RevokeTenantRouteRequest]) (*connect.Response[v1.TenantRoute], error)
+	// RenderConnectApp renders the "connect an app" artifacts (W7,
+	// internal/onboarding) for one OTLP route: the endpoint an app's OTel SDK
+	// points at, as env vars and IaC/SDK snippets. Read-only.
+	RenderConnectApp(context.Context, *connect.Request[v1.RenderConnectAppRequest]) (*connect.Response[v1.RenderConnectAppResponse], error)
 }
 
 // NewTenantRouteServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -161,6 +184,12 @@ func NewTenantRouteServiceHandler(svc TenantRouteServiceHandler, opts ...connect
 		connect.WithSchema(tenantRouteServiceMethods.ByName("RevokeTenantRoute")),
 		connect.WithHandlerOptions(opts...),
 	)
+	tenantRouteServiceRenderConnectAppHandler := connect.NewUnaryHandler(
+		TenantRouteServiceRenderConnectAppProcedure,
+		svc.RenderConnectApp,
+		connect.WithSchema(tenantRouteServiceMethods.ByName("RenderConnectApp")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/shepherd.mgmt.v1.TenantRouteService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case TenantRouteServiceListTenantRoutesProcedure:
@@ -171,6 +200,8 @@ func NewTenantRouteServiceHandler(svc TenantRouteServiceHandler, opts ...connect
 			tenantRouteServiceRotateTenantRouteHandler.ServeHTTP(w, r)
 		case TenantRouteServiceRevokeTenantRouteProcedure:
 			tenantRouteServiceRevokeTenantRouteHandler.ServeHTTP(w, r)
+		case TenantRouteServiceRenderConnectAppProcedure:
+			tenantRouteServiceRenderConnectAppHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -194,4 +225,8 @@ func (UnimplementedTenantRouteServiceHandler) RotateTenantRoute(context.Context,
 
 func (UnimplementedTenantRouteServiceHandler) RevokeTenantRoute(context.Context, *connect.Request[v1.RevokeTenantRouteRequest]) (*connect.Response[v1.TenantRoute], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.TenantRouteService.RevokeTenantRoute is not implemented"))
+}
+
+func (UnimplementedTenantRouteServiceHandler) RenderConnectApp(context.Context, *connect.Request[v1.RenderConnectAppRequest]) (*connect.Response[v1.RenderConnectAppResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.TenantRouteService.RenderConnectApp is not implemented"))
 }

@@ -167,3 +167,37 @@ func TestRouteApplyConfig(t *testing.T) {
 		}
 	})
 }
+
+// TestGatewayPublicBaseURL: the connect-an-app default URL loads from the env
+// var the chart sets, and a non-https value fails at startup rather than
+// rendering snippets that point apps at plaintext.
+func TestGatewayPublicBaseURL(t *testing.T) {
+	for _, tc := range []struct {
+		value   string
+		wantErr bool
+	}{
+		{"", false},
+		{"https://telemetry.example.com", false},
+		{"http://telemetry.example.com", true},
+		{"https://", true},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			t.Setenv("SHEPHERD_DATABASE_URL", "postgres://example")
+			t.Setenv("SHEPHERD_SECURITY_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+			t.Setenv("SHEPHERD_GATEWAY_ROUTES_PUBLIC_BASE_URL", tc.value)
+			cfg, err := Load("")
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "gateway.routes.public_base_url") {
+					t.Fatalf("Load(%q) = %v, want an error naming gateway.routes.public_base_url", tc.value, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Gateway.Routes.PublicBaseURL != tc.value {
+				t.Errorf("public_base_url = %q, want %q", cfg.Gateway.Routes.PublicBaseURL, tc.value)
+			}
+		})
+	}
+}

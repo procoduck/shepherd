@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strings"
 	"time"
 
@@ -293,6 +294,11 @@ type GatewayConfig struct {
 // GatewayRoutesConfig holds tenant-route settings.
 type GatewayRoutesConfig struct {
 	Apply RouteApplyConfig `mapstructure:"apply"`
+	// PublicBaseURL is the gateway's public https URL, e.g.
+	// https://telemetry.example.com — what apps outside the cluster send OTLP
+	// to. It prefills the "connect an app" snippets; Shepherd cannot discover
+	// it. Optional: users can enter one on the page instead.
+	PublicBaseURL string `mapstructure:"public_base_url"`
 }
 
 // RouteApplyConfig configures the tenant-route reconciler (internal/routeapply,
@@ -507,6 +513,7 @@ func Load(file string) (*Config, error) {
 		{"tracing.sample_ratio", "SHEPHERD_TRACING_SAMPLE_RATIO"},
 		{"tracing.service_name", "SHEPHERD_TRACING_SERVICE_NAME"},
 		{"tracing.service_version", "SHEPHERD_TRACING_SERVICE_VERSION"},
+		{"gateway.routes.public_base_url", "SHEPHERD_GATEWAY_ROUTES_PUBLIC_BASE_URL"},
 		{"gateway.routes.apply.enabled", "SHEPHERD_GATEWAY_ROUTES_APPLY_ENABLED"},
 		{"gateway.routes.apply.namespace", "SHEPHERD_GATEWAY_ROUTES_APPLY_NAMESPACE"},
 		{"gateway.routes.apply.backend_service", "SHEPHERD_GATEWAY_ROUTES_APPLY_BACKEND_SERVICE"},
@@ -544,6 +551,11 @@ func Load(file string) (*Config, error) {
 	key, err := base64.StdEncoding.DecodeString(c.Security.EncryptionKey)
 	if err != nil || len(key) != 32 {
 		return nil, fmt.Errorf("configuration errors:\n  - security.encryption_key must be a base64-encoded 32-byte value")
+	}
+	if raw := c.Gateway.Routes.PublicBaseURL; raw != "" {
+		if u, err := url.Parse(raw); err != nil || u.Scheme != "https" || u.Host == "" {
+			return nil, fmt.Errorf("configuration errors:\n  - gateway.routes.public_base_url %q must be an https URL with a host", raw)
+		}
 	}
 	if a := c.Gateway.Routes.Apply; a.Enabled {
 		var errs []string

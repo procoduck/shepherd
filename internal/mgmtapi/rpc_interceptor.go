@@ -171,6 +171,7 @@ var procedureRequirements = map[string]string{
 	// TenantRouteService — org reader for reads, org admin for writes
 	// (create/rotate/revoke all mint or destroy routing capacity).
 	mgmtv1connect.TenantRouteServiceListTenantRoutesProcedure:  auth.RoleOrgReader,
+	mgmtv1connect.TenantRouteServiceRenderConnectAppProcedure:  auth.RoleOrgReader,
 	mgmtv1connect.TenantRouteServiceCreateTenantRouteProcedure: auth.RoleOrgAdmin,
 	mgmtv1connect.TenantRouteServiceRotateTenantRouteProcedure: auth.RoleOrgAdmin,
 	mgmtv1connect.TenantRouteServiceRevokeTenantRouteProcedure: auth.RoleOrgAdmin,

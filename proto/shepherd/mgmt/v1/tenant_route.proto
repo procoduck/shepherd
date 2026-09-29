@@ -11,14 +11,19 @@ option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 // with a rotatable, unguessable path segment (D9) that
 // internal/gateway.RenderHTTPRoute renders into a Gateway API HTTPRoute
 // (D8's two ownership modes: gateway_mode "managed" or "operator"). This
-// service is the storage/lifecycle surface only — it does not apply
-// anything to Kubernetes; that is the next slice. Reads require org-reader;
-// writes (Create/Rotate/Revoke) require org-admin.
+// service only changes Shepherd's records; the tenant-route reconciler
+// (internal/routeapply) applies the HTTPRoutes and records apply_status.
+// Reads (List, RenderConnectApp) require org-reader; writes
+// (Create/Rotate/Revoke) require org-admin.
 service TenantRouteService {
   rpc ListTenantRoutes(ListTenantRoutesRequest) returns (ListTenantRoutesResponse) {}
   rpc CreateTenantRoute(CreateTenantRouteRequest) returns (TenantRoute) {}
   rpc RotateTenantRoute(RotateTenantRouteRequest) returns (RotateTenantRouteResponse) {}
   rpc RevokeTenantRoute(RevokeTenantRouteRequest) returns (TenantRoute) {}
+  // RenderConnectApp renders the "connect an app" artifacts (W7,
+  // internal/onboarding) for one OTLP route: the endpoint an app's OTel SDK
+  // points at, as env vars and IaC/SDK snippets. Read-only.
+  rpc RenderConnectApp(RenderConnectAppRequest) returns (RenderConnectAppResponse) {}
 }
 
 // TenantRoute mirrors internal/store/sqlc.TenantRoute (0009_tenant_routes).
@@ -130,4 +135,48 @@ message RotateTenantRouteResponse {
 message RevokeTenantRouteRequest {
   string org_id = 1;
   string id = 2;
+}
+
+// RenderConnectAppRequest names the route and the app being connected.
+message RenderConnectAppRequest {
+  string org_id = 1;
+  string id = 2;
+  // service_name becomes OTEL_SERVICE_NAME. Required.
+  string service_name = 3;
+  // protocol is "http/protobuf" (default when empty) or "http/json". There is
+  // no gRPC: the gateway identifies the tenant from the URL path, which a gRPC
+  // client cannot set.
+  string protocol = 4;
+  // include_adot_layer adds the AWS Distro for OpenTelemetry Lambda layer
+  // wiring to the Lambda artifacts, with the layer ARN left for the operator
+  // to fill in (it is region- and architecture-specific).
+  bool include_adot_layer = 5;
+  // gateway_base_url is the gateway's public https URL. Empty uses the
+  // server's configured gateway.routes.public_base_url; FailedPrecondition
+  // when neither is set.
+  string gateway_base_url = 6;
+}
+
+// RenderConnectAppResponse carries every artifact, each derived from the same
+// base_endpoint the gateway routes (internal/onboarding.BaseEndpoint).
+message RenderConnectAppResponse {
+  // base_endpoint is OTEL_EXPORTER_OTLP_ENDPOINT: the SDK appends v1/traces etc.
+  string base_endpoint = 1;
+  // gateway_base_url is the URL actually used — the request's, or the
+  // configured default.
+  string gateway_base_url = 2;
+  // env is a KEY=VALUE .env file.
+  string env = 3;
+  // lambda is JSON for `aws lambda update-function-configuration --environment`.
+  string lambda = 4;
+  // terraform is an HCL fragment for an aws_lambda_function.
+  string terraform = 5;
+  // sam is a template.yaml fragment for an AWS::Serverless::Function.
+  string sam = 6;
+  // cdk is a TypeScript fragment for a lambda.Function.
+  string cdk = 7;
+  // k8s is a container `env` fragment for a pod template.
+  string k8s = 8;
+  // sdk_notes is Markdown explaining the variables and when code changes are needed.
+  string sdk_notes = 9;
 }

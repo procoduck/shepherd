@@ -158,7 +158,7 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 			return mgmtv1connect.NewAuditServiceHandler(NewAuditService(st, logger), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewTenantRouteServiceHandler(NewTenantRouteService(st, logger), authz...)
+			return mgmtv1connect.NewTenantRouteServiceHandler(NewTenantRouteService(st, logger, WithGatewayPublicBaseURL(cfg.Gateway.Routes.PublicBaseURL)), authz...)
 		},
 		func() (string, http.Handler) {
 			return mgmtv1connect.NewTeamServiceHandler(NewTeamService(st, logger), authz...)

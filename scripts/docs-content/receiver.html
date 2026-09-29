@@ -103,6 +103,24 @@
         changes a Gateway, and never touches HTTPRoutes it did not create (it finds its own by the
         <code>shepherd.io/tenant-route-id</code> label).
       </p>
+      <h2 id="connect-an-app">Connect an app</h2>
+      <p>
+        Each active OTLP route has a <strong>Connect an app</strong> button (any org member can use
+        it). Enter the service name and Shepherd shows the endpoint to send to, plus ready-to-paste
+        configuration: a <code>.env</code> file, a Kubernetes container <code>env</code> block, Lambda
+        environment JSON, Terraform, SAM and CDK fragments, and notes for OpenTelemetry SDKs. Most SDKs
+        need no code change &mdash; the standard <code>OTEL_EXPORTER_OTLP_*</code> variables are
+        enough.
+      </p>
+      <p>
+        The endpoint uses your gateway's public address. Set it once with
+        <code>receiver.publicBaseURL</code> (it must be <code>https://</code>); otherwise users type it
+        in the dialog. Only OTLP over HTTP is offered: the gateway finds the tenant from the URL path,
+        which a gRPC client cannot set.
+      </p>
+      <pre><code>receiver:
+  publicBaseURL: https://telemetry.example.com</code></pre>
+
       <p>
         To do this, the chart gives Shepherd's ServiceAccount a Role on <code>httproutes</code> in the
         release namespace and permission to read the one <code>httproutes.gateway.networking.k8s.io</code>

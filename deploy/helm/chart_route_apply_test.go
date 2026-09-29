@@ -115,3 +115,24 @@ var _ = Describe("tenant-route apply chart wiring", func() {
 		})
 	})
 })
+
+var _ = Describe("receiver.publicBaseURL", func() {
+	It("reaches the Shepherd pod as the connect-an-app default URL", func() {
+		objs, out, err := helmTemplate(receiverOn + "  publicBaseURL: https://telemetry.example.com\n")
+		Expect(err).NotTo(HaveOccurred(), out)
+		env := envOf(containerOf(appDeployment(objs), "shepherd"))
+		Expect(dig(env["SHEPHERD_GATEWAY_ROUTES_PUBLIC_BASE_URL"], "value")).To(Equal("https://telemetry.example.com"))
+	})
+
+	It("is absent when unset", func() {
+		objs, out, err := helmTemplate(receiverOn)
+		Expect(err).NotTo(HaveOccurred(), out)
+		Expect(envOf(containerOf(appDeployment(objs), "shepherd"))).NotTo(HaveKey("SHEPHERD_GATEWAY_ROUTES_PUBLIC_BASE_URL"))
+	})
+
+	It("refuses a plaintext URL", func() {
+		_, out, err := helmTemplate(receiverOn + "  publicBaseURL: http://telemetry.example.com\n")
+		Expect(err).To(HaveOccurred())
+		Expect(out).To(ContainSubstring("publicBaseURL"))
+	})
+})

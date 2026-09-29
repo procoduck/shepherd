@@ -55,6 +55,14 @@ Categories used here:
   See `UPGRADING.md` if you wrote tenant HTTPRoutes by hand. Uses `k8s.io/client-go`. _Shipped._
   (`docs/plans/2026-09-29-tenant-route-apply.md`)
 
+- **Connect an app.** Each active OTLP tenant route on **Admin → Tenant routes** has a
+  **Connect an app** dialog: enter a service name and get the endpoint plus ready-to-paste
+  configuration — `.env`, Kubernetes `env`, Lambda JSON, Terraform, SAM, CDK and SDK notes — all
+  derived from the same path the route's HTTPRoute matches. The gateway's public address comes from
+  the new `receiver.publicBaseURL` (`gateway.routes.public_base_url`), or users enter it. Any org
+  reader can use it; new RPC `TenantRouteService.RenderConnectApp`. Revoked, deprecated and Faro
+  routes are refused, since their endpoints do not (or soon will not) route. _Shipped._ (#111)
+
 ### Changed
 
 - **`FleetService.ListAttributes` lists only keys that pipeline matching evaluates.** It used to

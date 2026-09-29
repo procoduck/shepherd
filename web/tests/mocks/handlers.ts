@@ -1353,6 +1353,39 @@ export function installDefaultHandlers(router: Router) {
     st.tenantRoutes.push(active);
     return json(r, 200, { active, deprecated: old });
   });
+  // RenderConnectApp mirrors the server's rules the specs exercise: a gateway
+  // URL (the request's, else st.gatewayPublicBaseUrl) is required and must
+  // be https. The artifact bodies are stand-ins; the real rendering is Go's.
+  router.register('POST', '/shepherd.mgmt.v1.TenantRouteService/RenderConnectApp', async (r) => {
+    const req = await body(r);
+    const route = (st.tenantRoutes as Obj[]).find((x) => x['id'] === req['id']);
+    if (!route) return connectError(r, 404, 'not_found', 'tenant route not found');
+    const gw = String(req['gatewayBaseUrl'] || st.gatewayPublicBaseUrl || '');
+    if (!gw) {
+      return connectError(
+        r,
+        400,
+        'failed_precondition',
+        "no gateway URL: enter your gateway's public https URL, or have an operator set gateway.routes.public_base_url",
+      );
+    }
+    if (!gw.startsWith('https://')) {
+      return connectError(r, 400, 'invalid_argument', `gateway base URL "${gw}" must use https`);
+    }
+    const base = `${gw.replace(/\/$/, '')}/otlp/${route['segment']}`;
+    const env = `OTEL_EXPORTER_OTLP_ENDPOINT=${base}\nOTEL_EXPORTER_OTLP_PROTOCOL=${req['protocol'] || 'http/protobuf'}\nOTEL_SERVICE_NAME=${req['serviceName']}\n`;
+    return json(r, 200, {
+      base_endpoint: base,
+      gateway_base_url: gw,
+      env,
+      lambda: '{"Variables": {}}',
+      terraform: 'environment { variables = {} }',
+      sam: 'Environment:',
+      cdk: 'environment: {}',
+      k8s: `env:\n  - name: OTEL_EXPORTER_OTLP_ENDPOINT\n    value: ${base}\n`,
+      sdk_notes: '# SDK notes',
+    });
+  });
   router.register('POST', '/shepherd.mgmt.v1.TenantRouteService/RevokeTenantRoute', async (r) => {
     const tBody = (await r.request().postDataJSON()) as Obj;
     const denied = requireOrgRole(r, String(tBody.orgId ?? ''), 'admin');

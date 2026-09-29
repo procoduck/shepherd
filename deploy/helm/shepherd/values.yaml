@@ -788,6 +788,11 @@ receiver:
   # namespaced Role on httproutes and a ClusterRole to read the one HTTPRoute
   # CRD, and mounts its token. false: no RBAC; write the HTTPRoutes yourself.
   applyTenantRoutes: true
+  # publicBaseURL: your gateway's public https URL (e.g.
+  # https://telemetry.example.com) -- where apps outside the cluster send OTLP.
+  # Prefills the "Connect an app" snippets on the Tenant routes page; users can
+  # still enter a different one there. Empty: they type it each time.
+  publicBaseURL: ""
   # mode: "pass_through" forwards the tenant header the gateway injected (one
   # receiver serves many tenants); "static" sends no tenant header. Pass-through
   # refuses a gRPC listener, so only OTLP/HTTP is ever served.

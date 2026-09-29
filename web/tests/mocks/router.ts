@@ -20,6 +20,8 @@ export interface MockState {
   agentIdentities: unknown[];
   tenantRoutes: unknown[];
   tenantRoutesNoIdentity?: boolean;
+  // The server's gateway.routes.public_base_url, for RenderConnectApp.
+  gatewayPublicBaseUrl?: string;
   serviceAccounts: unknown[];
   assignments: unknown[];
   groupSearchResults: unknown[];

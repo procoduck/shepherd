@@ -144,3 +144,105 @@ test('shows whether each route is in the cluster, with the reason when it is not
     'httproutes is forbidden',
   );
 });
+
+test('a reader connects an app to an active route: endpoint and snippets from the server', async ({
+  page,
+  api,
+}) => {
+  const s = basicScenario();
+  const route = (segment: string, extra: Record<string, unknown>) => ({
+    id: `tr-${segment}`,
+    org_id: s.org.id,
+    tenant_id: 'tenant-x',
+    kind: 'otlp',
+    segment,
+    status: 'active',
+    gateway_mode: 'operator',
+    gateway_name: 'edge',
+    gateway_namespace: 'gateways',
+    created_at: '2026-09-29T09:00:00Z',
+    updated_at: '2026-09-29T09:00:00Z',
+    ...extra,
+  });
+  api.seed({
+    orgs: [s.org],
+    gatewayPublicBaseUrl: 'https://telemetry.example.com',
+    tenantRoutes: [
+      route('otlp-live', { apply_status: 'applied' }),
+      route('otlp-old', { status: 'revoked', apply_status: 'removed' }),
+      route('faro-live', { kind: 'faro', apply_status: 'not_applicable' }),
+    ],
+  });
+  await api.loginAs(reader);
+  await page.goto('/tenant-routes');
+
+  // Only the active OTLP route offers it: a revoked endpoint 404s, and Faro
+  // has no receiver.
+  await expect(page.getByTestId('route-connect-otlp-old')).toHaveCount(0);
+  await expect(page.getByTestId('route-connect-faro-live')).toHaveCount(0);
+
+  await page.getByTestId('route-connect-otlp-live').click();
+  const dialog = page.getByTestId('connect-app');
+  await expect(dialog.getByTestId('connect-app-not-applied')).toHaveCount(0);
+  await dialog.getByTestId('connect-app-service').fill('checkout');
+  await dialog.getByTestId('connect-app-render').click();
+
+  // The configured URL is filled in, and the endpoint is the server's.
+  await expect(dialog.getByTestId('connect-app-endpoint')).toHaveText(
+    'https://telemetry.example.com/otlp/otlp-live',
+  );
+  await expect(dialog.getByTestId('connect-app-gateway')).toHaveValue(
+    'https://telemetry.example.com',
+  );
+  await expect(dialog.getByTestId('connect-app-artifact')).toContainText(
+    'OTEL_SERVICE_NAME=checkout',
+  );
+  await dialog.getByTestId('connect-app-tab-k8s').click();
+  await expect(dialog.getByTestId('connect-app-artifact')).toContainText(
+    'name: OTEL_EXPORTER_OTLP_ENDPOINT',
+  );
+  const calls = api.calls('/shepherd.mgmt.v1.TenantRouteService/RenderConnectApp');
+  expect(calls.length).toBe(1);
+  expect(calls[0].body).toMatchObject({ serviceName: 'checkout' });
+  // Left empty, so the server's configured URL is the one used.
+  expect(calls[0].body).not.toHaveProperty('gatewayBaseUrl');
+
+  // A plaintext override is refused with the server's reason.
+  await dialog.getByTestId('connect-app-gateway').fill('http://edge.example.org');
+  await dialog.getByTestId('connect-app-render').click();
+  await expect(dialog.getByTestId('connect-app-error')).toContainText('https');
+});
+
+test('connect-an-app warns when the route is not applied, and explains a missing gateway URL', async ({
+  page,
+  api,
+}) => {
+  const s = basicScenario();
+  api.seed({
+    orgs: [s.org],
+    tenantRoutes: [
+      {
+        id: 'tr-new',
+        org_id: s.org.id,
+        tenant_id: 'tenant-x',
+        kind: 'otlp',
+        segment: 'otlp-new',
+        status: 'active',
+        apply_status: 'pending',
+        gateway_mode: 'operator',
+        gateway_name: 'edge',
+        gateway_namespace: '',
+        created_at: '2026-09-29T09:00:00Z',
+        updated_at: '2026-09-29T09:00:00Z',
+      },
+    ],
+  });
+  await api.loginAs(reader);
+  await page.goto('/tenant-routes');
+  await page.getByTestId('route-connect-otlp-new').click();
+  const dialog = page.getByTestId('connect-app');
+  await expect(dialog.getByTestId('connect-app-not-applied')).toContainText('pending');
+  await dialog.getByTestId('connect-app-service').fill('checkout');
+  await dialog.getByTestId('connect-app-render').click();
+  await expect(dialog.getByTestId('connect-app-error')).toContainText('gateway URL');
+});

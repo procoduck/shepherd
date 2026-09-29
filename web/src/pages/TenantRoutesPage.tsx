@@ -1,10 +1,11 @@
 import { timestampDate } from '@bufbuild/protobuf/wkt';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, RotateCw, Trash2 } from 'lucide-react';
+import { Plug, Plus, RotateCw, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { clients, toApiError } from '@/api/transport';
 import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
+import { ConnectAppDialog } from '@/components/ConnectAppDialog';
 import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Field, Input, Select } from '@/components/ui/Field';
@@ -81,10 +82,11 @@ function ApplyStatus({ route }: { route: TenantRoute }) {
 
 function routeColumns(
   canAdminister: boolean,
+  onConnect: (r: TenantRoute) => void,
   onRotate: (r: TenantRoute) => void,
   onRevoke: (r: TenantRoute) => void,
 ): DataTableColumn<TenantRoute>[] {
-  const cols: DataTableColumn<TenantRoute>[] = [
+  return [
     {
       key: 'segment',
       header: 'Segment',
@@ -113,26 +115,38 @@ function routeColumns(
           <span className='text-muted-3'>—</span>
         ),
     },
-  ];
-  if (canAdminister) {
-    cols.push({
+    {
       key: 'actions',
       header: '',
       cellClassName: 'px-4 py-2.5 text-right',
-      render: (r) =>
-        r.status === 'revoked' ? null : (
-          <span className='flex items-center justify-end gap-2'>
-            {r.status === 'active' && (
-              <button
-                type='button'
-                onClick={() => onRotate(r)}
-                aria-label={`Rotate ${r.segment}`}
-                className='text-muted-3 hover:text-indigo-400'
-                data-testid={`route-rotate-${r.segment}`}
-              >
-                <RotateCw size={14} />
-              </button>
-            )}
+      render: (r) => (
+        <span className='flex items-center justify-end gap-2'>
+          {/* Connecting an app is read-only, so every reader gets it — but
+              only for a route whose endpoint works now and will keep working. */}
+          {r.status === 'active' && r.kind === 'otlp' && (
+            <button
+              type='button'
+              onClick={() => onConnect(r)}
+              aria-label={`Connect an app to ${r.segment}`}
+              title='Connect an app'
+              className='text-muted-3 hover:text-indigo-400'
+              data-testid={`route-connect-${r.segment}`}
+            >
+              <Plug size={14} />
+            </button>
+          )}
+          {canAdminister && r.status === 'active' && (
+            <button
+              type='button'
+              onClick={() => onRotate(r)}
+              aria-label={`Rotate ${r.segment}`}
+              className='text-muted-3 hover:text-indigo-400'
+              data-testid={`route-rotate-${r.segment}`}
+            >
+              <RotateCw size={14} />
+            </button>
+          )}
+          {canAdminister && r.status !== 'revoked' && (
             <button
               type='button'
               onClick={() => onRevoke(r)}
@@ -142,11 +156,11 @@ function routeColumns(
             >
               <Trash2 size={14} />
             </button>
-          </span>
-        ),
-    });
-  }
-  return cols;
+          )}
+        </span>
+      ),
+    },
+  ];
 }
 
 const EMPTY_CREATE = {
@@ -182,6 +196,7 @@ export function TenantRoutesPage() {
   const [toRotate, setToRotate] = useState<TenantRoute | null>(null);
   const [overlapHours, setOverlapHours] = useState('24');
   const [toRevoke, setToRevoke] = useState<TenantRoute | null>(null);
+  const [toConnect, setToConnect] = useState<TenantRoute | null>(null);
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['tenant-routes', orgId],
@@ -281,7 +296,7 @@ export function TenantRoutesPage() {
         </div>
       ) : (
         <DataTable
-          columns={routeColumns(canAdminister, setToRotate, setToRevoke)}
+          columns={routeColumns(canAdminister, setToConnect, setToRotate, setToRevoke)}
           rows={data?.items ?? []}
           rowKey={(r) => r.id}
         />
@@ -403,6 +418,10 @@ export function TenantRoutesPage() {
             />
           </form>
         </Modal>
+      )}
+
+      {toConnect && (
+        <ConnectAppDialog route={toConnect} orgId={orgId} onClose={() => setToConnect(null)} />
       )}
 
       {toRevoke && (
