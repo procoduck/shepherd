@@ -13,6 +13,22 @@ Categories used here:
 
 ## Unreleased
 
+## v0.12.0
+
+Chart 0.16.0. The **receiver tier** ships (off by default; review gate R3 signed): an OTLP/HTTP
+endpoint behind your Gateway API gateway that forwards each tenant's data with its
+`X-Scope-OrgID`. With it on, **Shepherd applies tenant routes to the cluster** itself and shows
+whether each one is attached. Two onboarding surfaces complete the product: **Connect an app**
+(OTel SDK / IaC snippets for a tenant route) and **Connect a cluster** (values for Grafana's
+k8s-monitoring chart, proven on kind against the real chart). One additive migration (`0027`).
+
+**Upgrade:** `helm upgrade`. Nothing changes unless you set `receiver.enabled: true` — no new RBAC,
+no mounted service-account token, no new pods. Migration `0027` (tenant-route apply status) is
+additive. Before turning the receiver on, read `deploy/helm/shepherd/UPGRADING.md` (0.15.x →
+0.16.0) for the RBAC it grants and what happens to HTTPRoutes you created yourself. New RPCs:
+`TenantRouteService.RenderConnectApp`, `FleetService.RenderChartValues`. New dependency:
+`k8s.io/client-go` (dynamic client, used only by the tenant-route reconciler).
+
 ### Added
 
 - **Attribute-matching toggles and matcher suggestions.** The two per-org matching flags from

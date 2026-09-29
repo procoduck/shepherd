@@ -2,21 +2,22 @@
 
 ## 0.15.x → 0.16.0
 
-Nothing to do unless you run the receiver tier (`receiver.enabled: true`).
+An ordinary `helm upgrade`, with nothing to do: the new receiver tier is off
+(`receiver.enabled: false`), and with it off the chart renders exactly the
+objects it did before.
 
-**With the receiver on, Shepherd now applies tenant routes itself**
-(`receiver.applyTenantRoutes`, default `true`). The chart grants Shepherd's
+**When you turn the receiver on,** Shepherd also applies tenant routes itself
+(`receiver.applyTenantRoutes`, default `true`). The chart then grants Shepherd's
 ServiceAccount a Role on `httproutes` in the release namespace and a ClusterRole
 that can only `get` the `httproutes.gateway.networking.k8s.io` CRD, and the
-Shepherd pod now mounts its service-account token. With the receiver off,
-none of this renders.
+Shepherd pod mounts its service-account token. With the receiver off, none of
+this renders.
 
-**If you wrote tenant HTTPRoutes by hand** (as the 0.15 docs told you to),
-Shepherd will create its own for the same paths, named
-`shepherd-tenant-route-<route id>`. It never touches HTTPRoutes it did not create,
-so after upgrading, check that each tenant route shows `applied` and then delete
-your hand-written copies. Or keep writing them yourself and set
-`receiver.applyTenantRoutes: false`.
+**If you already created HTTPRoutes for your tenant routes yourself,** Shepherd
+creates its own for the same paths, named `shepherd-tenant-route-<route id>`. It
+never touches HTTPRoutes it did not create, so once each tenant route shows
+`applied` on the Tenant routes page, delete your copies. Or keep managing them
+yourself and set `receiver.applyTenantRoutes: false`.
 
 ## 0.9.x → 0.10.0
 
