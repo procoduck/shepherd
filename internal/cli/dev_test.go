@@ -11,6 +11,7 @@ import (
 	"shepherd/internal/schema"
 	"shepherd/internal/validate"
 	"shepherd/internal/version"
+	"shepherd/internal/visual"
 )
 
 func TestDevSeed(t *testing.T) {
@@ -228,5 +229,29 @@ var _ = Describe("demoVisualGraph", func() {
 			Expect(toRole).To(Equal("accepts"),
 				"edge target %s.%s: %q has role %q; data must enter the destination", e.To.Node, e.To.Port, toComp, toRole)
 		}
+	})
+
+	// #203: the seed writes revision 1 without a wizard_state, so DiffRevisions
+	// re-parses its contents — and the re-parse names the nodes
+	// n_discovery_kubernetes_pods etc. where the saved graph says n1/n2/n3. The
+	// History view then listed every node as both added and removed. The two are
+	// the same pipeline, so the diff must be empty.
+	It("diffs as unchanged against a re-parse of its own contents", func() {
+		reg, err := schema.New(schema.Embedded, version.AlloySchemaVersion)
+		Expect(err).NotTo(HaveOccurred())
+		merged, _, err := reg.Get(reg.CurrentVersion())
+		Expect(err).NotTo(HaveOccurred())
+		b, err := json.Marshal(merged)
+		Expect(err).NotTo(HaveOccurred())
+		var payload visual.SchemaPayload
+		Expect(json.Unmarshal(b, &payload)).To(Succeed())
+
+		parsed := visual.ParseAlloy(demoVisualContents, reg.CurrentVersion(), payload)
+		Expect(parsed.Opaque).To(BeFalse(), "warning: %s", parsed.Warning)
+		var saved visual.GraphDocument
+		Expect(json.Unmarshal([]byte(demoVisualGraph), &saved)).To(Succeed())
+
+		diff := visual.DiffGraphs(parsed.Doc, saved)
+		Expect(diff.IsEmpty()).To(BeTrue(), "diff: %+v", diff)
 	})
 })

@@ -55,17 +55,31 @@ const richDiff = {
       {
         kind: 'added',
         id: 'e1',
-        from: { node: 'n1', port: 'forward_to' },
-        to: { node: 'n2', port: 'receiver' },
+        // #203: the server names wire endpoints `component "label"`, not by
+        // graph-internal node id.
+        from: { node: 'prometheus.scrape "web"', port: 'forward_to' },
+        to: { node: 'loki.write "central"', port: 'receiver' },
+      },
+      {
+        kind: 'removed',
+        id: 'e_long',
+        from: {
+          node: 'otelcol.receiver.prometheus "an_unusually_long_block_label_that_cannot_fit_on_one_line_of_the_compare_modal"',
+          port: 'output',
+        },
+        to: {
+          node: 'otelcol.exporter.otlphttp "another_equally_long_block_label_for_the_destination_side"',
+          port: 'input',
+        },
       },
     ],
     binding_changes: [
       {
         kind: 'changed',
-        node: 'n1',
+        node: 'prometheus.scrape "web"',
         prop: 'forward_to',
-        old_ref: { node: 'local', export: 'receiver', expr: '' },
-        new_ref: { node: 'central', export: 'receiver', expr: '' },
+        old_ref: { node: 'loki.write "local"', export: 'receiver', expr: '' },
+        new_ref: { node: 'loki.write "central"', export: 'receiver', expr: '' },
       },
     ],
   },
@@ -112,12 +126,26 @@ test.describe('visual builder — graph revision diff (#118)', () => {
     // Added node.
     await expect(diff).toContainText('loki.write "central"');
     await expect(diff.getByTestId('change-kind-added').first()).toBeVisible();
-    // Added wire, rendered node.port → node.port.
-    await expect(diff).toContainText('n1.forward_to → n2.receiver');
+    // Added wire, rendered by human name — component "label".port → … (#203).
+    const wires = diff.getByTestId('edge-change');
+    await expect(wires).toHaveCount(2);
+    await expect(
+      wires.filter({
+        hasText: 'prometheus.scrape "web".forward_to → loki.write "central".receiver',
+      }),
+    ).toHaveCount(1);
+    // A long wire wraps inside its row instead of overflowing it (#203).
+    for (const wire of await wires.all()) {
+      const fits = await wire.evaluate((el) => {
+        const row = el.parentElement as HTMLElement;
+        return row.scrollWidth <= row.clientWidth;
+      });
+      expect(fits).toBe(true);
+    }
     // Changed binding, old → new ref.
-    await expect(diff).toContainText('n1.forward_to');
-    await expect(diff).toContainText('local.receiver');
-    await expect(diff).toContainText('central.receiver');
+    await expect(diff).toContainText('prometheus.scrape "web".forward_to');
+    await expect(diff).toContainText('loki.write "local".receiver');
+    await expect(diff).toContainText('loki.write "central".receiver');
 
     const calls = api.calls('VisualService/DiffRevisions');
     expect(calls).toHaveLength(1);

@@ -103,17 +103,17 @@ export function RevisionCompare({
                 <>
                   <DiffSection title='Nodes' count={diff.node_changes.length}>
                     {diff.node_changes.map((n) => (
-                      <NodeChangeRow key={n.id} change={n} />
+                      <NodeChangeRow key={`${n.kind}:${n.id}`} change={n} />
                     ))}
                   </DiffSection>
                   <DiffSection title='Wires' count={diff.edge_changes.length}>
                     {diff.edge_changes.map((e) => (
-                      <EdgeChangeRow key={e.id} change={e} />
+                      <EdgeChangeRow key={`${e.kind}:${e.id}`} change={e} />
                     ))}
                   </DiffSection>
                   <DiffSection title='Bindings' count={diff.binding_changes.length}>
                     {diff.binding_changes.map((b) => (
-                      <BindingChangeRow key={`${b.node}.${b.prop}`} change={b} />
+                      <BindingChangeRow key={`${b.kind}:${b.node}.${b.prop}`} change={b} />
                     ))}
                   </DiffSection>
                 </>
@@ -171,9 +171,9 @@ function DiffSection({
 function NodeChangeRow({ change }: { change: GraphNodeChange }) {
   return (
     <div className='rounded border border-border bg-card/40 px-2 py-1.5 text-xs'>
-      <div className='flex items-center gap-2'>
+      <div className='flex items-start gap-2'>
         <KindBadge kind={change.kind} />
-        <span className='font-mono text-zinc-200'>
+        <span className='min-w-0 break-words font-mono text-zinc-200'>
           {change.component}
           {change.label ? ` "${change.label}"` : ''}
         </span>
@@ -181,7 +181,7 @@ function NodeChangeRow({ change }: { change: GraphNodeChange }) {
       {change.field_changes.length > 0 && (
         <ul className='mt-1 space-y-0.5 pl-1'>
           {change.field_changes.map((f) => (
-            <li key={f.field} className='text-muted-2'>
+            <li key={f.field} className='break-words text-muted-2'>
               <span className='font-mono text-muted'>{f.field}</span>{' '}
               <span className='text-red-400'>{f.old_value || '∅'}</span>
               {' → '}
@@ -194,14 +194,24 @@ function NodeChangeRow({ change }: { change: GraphNodeChange }) {
   );
 }
 
-const port = (p: { node: string; port: string }) => (p.port ? `${p.node}.${p.port}` : p.node);
+// A wire endpoint as the server names it: the block's display name
+// (`component "label"`, #203 — never the graph-internal node id) and its port.
+function Endpoint({ end }: { end: { node: string; port: string } }) {
+  return (
+    <span className='break-words'>
+      {end.node}
+      {end.port && <span className='text-muted'>.{end.port}</span>}
+    </span>
+  );
+}
 
 function EdgeChangeRow({ change }: { change: GraphEdgeChange }) {
+  // Long component names wrap inside the row rather than overflowing it (#203).
   return (
-    <div className='flex items-center gap-2 rounded border border-border bg-card/40 px-2 py-1.5 text-xs'>
+    <div className='flex items-start gap-2 rounded border border-border bg-card/40 px-2 py-1.5 text-xs'>
       <KindBadge kind={change.kind} />
-      <span className='font-mono text-zinc-200'>
-        {port(change.from)} → {port(change.to)}
+      <span className='min-w-0 break-words font-mono text-zinc-200' data-testid='edge-change'>
+        <Endpoint end={change.from} /> → <Endpoint end={change.to} />
       </span>
     </div>
   );
@@ -216,14 +226,14 @@ const ref = (r: { node: string; export: string; expr: string }) => {
 function BindingChangeRow({ change }: { change: GraphBindingChange }) {
   return (
     <div className='rounded border border-border bg-card/40 px-2 py-1.5 text-xs'>
-      <div className='flex items-center gap-2'>
+      <div className='flex items-start gap-2'>
         <KindBadge kind={change.kind} />
-        <span className='font-mono text-zinc-200'>
+        <span className='min-w-0 break-words font-mono text-zinc-200'>
           {change.node}.{change.prop}
         </span>
       </div>
       {change.kind === 'changed' && (
-        <div className='mt-1 pl-1 text-muted-2'>
+        <div className='mt-1 break-words pl-1 text-muted-2'>
           <span className='text-red-400'>{ref(change.old_ref)}</span>
           {' → '}
           <span className='text-emerald-400'>{ref(change.new_ref)}</span>
