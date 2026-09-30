@@ -6,14 +6,16 @@
  * Run with the dev stack up: pnpm exec playwright test tests/fullstack/walkthrough.spec.ts --config playwright.fullstack.config.ts
  */
 import { expect, type Page, test } from '@playwright/test';
-import { loginAsAdmin } from './fixtures';
+import { getMe, loginAsAdmin, rpc } from './fixtures';
 
 type PageIssue = { route: string; kind: string; detail: string };
 const issues: PageIssue[] = [];
 
 // Requests the app makes that are expected to fail in the dev stack are noted here,
-// so a genuinely broken call still surfaces.
-const EXPECTED_FAILURES = [/\/api\/admin\/groups\/search/];
+// so a genuinely broken call still surfaces. Empty since the /api REST shim (whose
+// groups-search route used to 404 here) was removed; the SPA's Connect SearchGroups
+// call succeeds with an empty list.
+const EXPECTED_FAILURES: RegExp[] = [];
 
 function watch(page: Page, route: string) {
   page.on('console', (m) => {
@@ -126,8 +128,8 @@ test('pipelines list and editor load a seeded pipeline', async ({ page }) => {
 
 test('the app exposes a way to reach every org the admin owns', async ({ page }) => {
   await loginAsAdmin(page);
-  const me = await (await page.request.get('/api/me')).json();
-  const orgCount = (me.orgs ?? []).length;
+  const me = await getMe(page);
+  const orgCount = me.orgs.length;
   expect(orgCount, 'dev seed should provide multiple orgs').toBeGreaterThan(1);
   await page.goto('/pipelines');
   await page.waitForLoadState('networkidle');
@@ -174,13 +176,14 @@ test('the seeded visual pipeline renders its edges on the canvas', async ({ page
   // edges matched nothing and were silently dropped — the canvas showed nodes with
   // no connections and L1 called them unwired.
   await loginAsAdmin(page);
-  const me = await (await page.request.get('/api/me')).json();
-  const org =
-    (me.orgs ?? []).find((o: { name: string }) => o.name === 'platform-org') ?? me.orgs?.[0];
+  const me = await getMe(page);
+  const org = me.orgs.find((o) => o.name === 'platform-org') ?? me.orgs[0];
   if (!org) throw new Error('dev seed must provide platform-org (or any org)');
 
-  const list = await (await page.request.get(`/api/orgs/${org.id}/pipelines`)).json();
-  const demo = (list.items ?? []).find((p: { name: string }) => p.name === 'demo-visual');
+  const list = (await (
+    await rpc(page, 'PipelineService', 'ListPipelines', { orgId: org.id })
+  ).json()) as { items?: Array<{ id: string; name: string }> };
+  const demo = (list.items ?? []).find((p) => p.name === 'demo-visual');
   // This spec exists to catch the schema/port regression that made the seeded
   // graph render edgeless; skipping when the pipeline is absent would retire the
   // guard exactly when the seed broke.

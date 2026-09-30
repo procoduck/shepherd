@@ -48,7 +48,7 @@ traces; it configures the collectors that ship them.
 | To | You need |
 |---|---|
 | Run Shepherd | A Kubernetes cluster, Helm 3, and a **PostgreSQL 16** it can reach — the only major every test, testcontainers run, and the compose stacks pin (`postgres:16-alpine`); older majors are untested. The chart needs no CRDs by default. |
-| Run collectors | [Grafana Alloy](https://grafana.com/docs/alloy/) **v1.19.2** — the version whose component schema this build validates against, pinned in `deploy/versions.env`. |
+| Run collectors | [Grafana Alloy](https://grafana.com/docs/alloy/) **v1.20.1** — the version whose component schema this build validates against, pinned in `deploy/versions.env`. |
 | Build from source | Go (see `go.mod`), Node 24 with pnpm, Docker (tests start real PostgreSQL via testcontainers), and Helm. |
 
 Two optional integrations need their operators installed first:
@@ -72,7 +72,7 @@ kubectl -n shepherd create secret generic shepherd-secrets \
   --from-literal=SHEPHERD_SECURITY_ENCRYPTION_KEY="$(openssl rand -base64 32)" \
   --from-literal=SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD='choose-a-password'
 
-helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.14.0 \
+helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.16.0 \
   --namespace shepherd --set existingSecret=shepherd-secrets
 
 kubectl -n shepherd port-forward svc/shepherd 8080:8080
@@ -157,11 +157,12 @@ how each is assigned.
 
 ## Management API
 
-The `/api/*` REST surface is a thin shim over a typed Connect RPC contract
-(`shepherd.mgmt.v1`). Both share the same session-cookie authorization, and the
-Connect endpoints are plain HTTP POST + JSON, so integrators may call them
-directly — the tradeoff is camelCase fields (`orgId`) and
-`shepherd.mgmt.v1.<Service>/<Method>` paths instead of REST resource paths.
+The management API is a typed Connect RPC contract, `shepherd.mgmt.v1` — the
+same one the web UI uses. Calls are plain HTTP POST + JSON to
+`/shepherd.mgmt.v1.<Service>/<Method>` with camelCase fields (`orgId`), so no
+generated client is needed; a browser session cookie or a service account
+authorizes them. The older plain-JSON `/api/*` REST routes were removed in
+v0.11.0 (see the [changelog](CHANGELOG.md) for the migration).
 
 ```bash
 curl -s -X POST http://localhost:8080/shepherd.mgmt.v1.PipelineService/ListPipelines \
@@ -179,17 +180,13 @@ reach this surface.
 Shepherd is in active development and pre-1.0; expect breaking changes, which
 the [changelog](CHANGELOG.md) calls out explicitly.
 
-Several subsystems are **built and tested but not wired to a running surface**:
-the Gateway API HTTPRoute apply and the receiver tier that would make a
-tenant route deliver traffic (`TenantRouteService` itself — segment
-issuance, listing, rotation, revocation — is mounted on the mgmtapi Connect
-surface and reachable today; nothing calls `internal/gateway.ApplyRoute`
-outside its own tests, and nothing imports `internal/receiver`), three-way
-reconciliation, onboarding artifacts, a k8s-monitoring chart-values
-generator, and a read-plus-propose MCP interface (`cmd/shepherd-mcp` builds
-but ships in none of the release artifacts — see `.goreleaser.yaml`).
+Nothing is currently **built but not wired**: the onboarding artifacts and the
+k8s-monitoring chart-values generator were the last, both shipped with their UI.
 `docs/gateway-tier-plan.md` §9 tracks what stands between each one and being
-usable. Do not plan against them yet.
+usable. Do not plan against them yet. (Reconciliation — declared vs served vs
+observed — shipped in v0.11.0, and the read-plus-propose MCP interface,
+`shepherd-mcp`, ships in the release archives since v0.9.0. The receiver tier
+and tenant-route apply are shipped but off by default: `receiver.enabled`.)
 
 ## Development
 

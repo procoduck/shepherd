@@ -7,7 +7,7 @@
  * and Logs), which is exactly why this test can target the seeded
  * "singleton" collector on prod-eu-1 without needing a cluster_pattern.
  */
-import { expect, forceRecompute, loginAsAdmin, test } from './fixtures';
+import { expect, forceRecompute, getMe, loginAsAdmin, rpc, test } from './fixtures';
 
 test.describe('wizard-commit', () => {
   test('committing the self-monitoring wizard produces a pipeline whose served config carries its block', async ({
@@ -15,56 +15,44 @@ test.describe('wizard-commit', () => {
   }) => {
     await loginAsAdmin(page);
 
-    const meResp = await page.request.get('/api/me', {
-      headers: { 'X-Requested-With': 'XMLHttpRequest' },
-    });
-    const me = (await meResp.json()) as { orgs: Array<{ id: string; name: string }> };
+    const me = await getMe(page);
     const org = me.orgs.find((o) => o.name === 'platform-org');
     if (!org) throw new Error('dev seed must provide platform-org');
     const orgId = org.id;
 
     const name = `fs-selfmon-${Date.now()}`;
-    const commitResp = await page.request.post(`/api/orgs/${orgId}/wizards/commit`, {
-      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-      data: {
-        // orgId in the body is required despite the URL param: the REST
-        // shim's protojson.Unmarshal(body, req) replaces the whole message
-        // (including the OrgId this handler pre-sets from the URL) rather
-        // than merging into it, so an orgId-less body reaches CommitWizard
-        // with an empty OrgId and 500s on the pipelines.org_id NOT NULL
-        // constraint.
-        orgId,
-        kind: 'self-monitoring',
-        name,
-        state: {
-          job_name: 'alloy-self',
-          scrape_interval: '60s',
-          metrics_dest_name: 'prom-prod',
-          // Logs deliberately left off (logs_dest_name/log_path empty):
-          // Commit() only emits the loki.* blocks when both are set, and
-          // this test only needs the pipeline to exist and match, not the
-          // mixed-signal detail the wizard package itself already covers.
-          logs_enabled: false,
-        },
+    const commitResp = await rpc(page, 'WizardService', 'CommitWizard', {
+      orgId,
+      kind: 'self-monitoring',
+      name,
+      // `state` is a google.protobuf.Struct, so its keys go over the wire
+      // verbatim (snake_case, as the wizard package reads them).
+      state: {
+        job_name: 'alloy-self',
+        scrape_interval: '60s',
+        metrics_dest_name: 'prom-prod',
+        // Logs deliberately left off (logs_dest_name/log_path empty):
+        // Commit() only emits the loki.* blocks when both are set, and
+        // this test only needs the pipeline to exist and match, not the
+        // mixed-signal detail the wizard package itself already covers.
+        logs_enabled: false,
       },
     });
-    expect(commitResp.status()).toBe(201);
+    expect(commitResp.status()).toBe(200);
     const pipeline = (await commitResp.json()) as { id: string; matchers: string[] };
     expect(pipeline.matchers).toContain('role="singleton"');
 
-    const enableResp = await page.request.post(
-      `/api/orgs/${orgId}/pipelines/${pipeline.id}/enable`,
-      { headers: { 'X-Requested-With': 'XMLHttpRequest' } },
-    );
+    const enableResp = await rpc(page, 'PipelineService', 'EnablePipeline', {
+      orgId,
+      id: pipeline.id,
+    });
     expect(enableResp.status()).toBe(200);
 
-    const collectorsResp = await page.request.get(`/api/orgs/${orgId}/collectors`, {
-      headers: { 'X-Requested-With': 'XMLHttpRequest' },
-    });
+    const collectorsResp = await rpc(page, 'FleetService', 'ListCollectors', { orgId });
     const collectors = (await collectorsResp.json()) as {
-      items: Array<{ id: string; role: string; cluster: string }>;
+      items?: Array<{ id: string; role: string; cluster: string }>;
     };
-    const singletonCollector = collectors.items.find(
+    const singletonCollector = (collectors.items ?? []).find(
       (c) => c.role === 'singleton' && c.cluster === 'prod-eu-1',
     );
     if (!singletonCollector) {
@@ -80,19 +68,18 @@ test.describe('wizard-commit', () => {
     await expect
       .poll(
         async () => {
-          const resp = await page.request.get(
-            `/api/orgs/${orgId}/collectors/${singletonCollector.id}/served-config`,
-            { headers: { 'X-Requested-With': 'XMLHttpRequest' } },
-          );
-          const data = (await resp.json()) as { content: string };
-          return data.content;
+          const resp = await rpc(page, 'FleetService', 'GetServedConfig', {
+            orgId,
+            id: singletonCollector.id,
+          });
+          // protojson omits an empty content (a cache miss) — '' is that.
+          const data = (await resp.json()) as { content?: string };
+          return data.content ?? '';
         },
         { timeout: 15000, intervals: [1000] },
       )
       .toContain(`declare "${blockName}"`);
 
-    await page.request.delete(`/api/orgs/${orgId}/pipelines/${pipeline.id}`, {
-      headers: { 'X-Requested-With': 'XMLHttpRequest' },
-    });
+    await rpc(page, 'PipelineService', 'DeletePipeline', { orgId, id: pipeline.id });
   });
 });

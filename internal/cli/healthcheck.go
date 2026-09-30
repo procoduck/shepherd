@@ -10,14 +10,18 @@ import (
 func init() {
 	cmd := &cobra.Command{
 		Use:          "healthcheck",
-		Short:        "Check /healthz endpoint (exits 0 if healthy, 1 otherwise)",
+		Short:        "Check an HTTP health endpoint, /healthz by default (exits 0 if healthy, 1 otherwise)",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			addr, err := cmd.Flags().GetString("addr")
 			if err != nil {
 				return fmt.Errorf("reading addr flag: %w", err)
 			}
-			req, err := http.NewRequestWithContext(cmd.Context(), http.MethodGet, "http://"+addr+"/healthz", nil)
+			path, err := cmd.Flags().GetString("path")
+			if err != nil {
+				return fmt.Errorf("reading path flag: %w", err)
+			}
+			req, err := http.NewRequestWithContext(cmd.Context(), http.MethodGet, "http://"+addr+path, nil)
 			if err != nil {
 				return fmt.Errorf("building request: %w", err)
 			}
@@ -33,5 +37,9 @@ func init() {
 		},
 	}
 	cmd.Flags().String("addr", "localhost:8080", "host:port of the shepherd server")
+	// The receiver tier's Alloy container runs from the Shepherd image, which
+	// has no curl: its exec readiness probe is this command against Alloy's
+	// own /-/ready on loopback.
+	cmd.Flags().String("path", "/healthz", "request path to check")
 	rootCmd.AddCommand(cmd)
 }

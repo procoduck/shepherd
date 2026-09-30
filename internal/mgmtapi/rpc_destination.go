@@ -21,40 +21,23 @@ import (
 )
 
 // DestinationService implements mgmtv1connect.DestinationServiceHandler.
-// Business logic moved here from OrgsHandler's destination methods
-// (orgs.go), which are now thin REST shims delegating to these methods
-// in-process. See docs/archive/api-contract-design.md, "Server wiring".
+// See docs/archive/api-contract-design.md, "Server wiring".
 type DestinationService struct {
 	store  *store.Store
 	logger *slog.Logger
 }
 
-// NewDestinationService constructs a DestinationService with the deps OrgsHandler uses today.
+// NewDestinationService constructs a DestinationService.
 func NewDestinationService(st *store.Store, logger *slog.Logger) *DestinationService {
 	return &DestinationService{store: st, logger: logger}
 }
 
 var _ mgmtv1connect.DestinationServiceHandler = (*DestinationService)(nil)
 
-// destinationInUseError indicates a destination cannot be deleted because it
-// is referenced by one or more wizard-managed pipelines. The REST shim
-// (orgs.go's DeleteDestination) detects this via errors.As and renders the
-// legacy {"error":{"code":"in_use",...}} envelope exactly — the frontend
-// (web/src/pages/DestinationsPage.tsx) and the Ginkgo REST suite both key on
-// that literal code string, so it cannot be replaced by a generic connect
-// code's default rendering (WriteConnectError would render CodeAlreadyExists
-// as "already_exists").
-type destinationInUseError struct {
-	message string
-}
-
-func (e *destinationInUseError) Error() string { return e.message }
-
 // destinationExtraJSON converts a CreateDestination/UpdateDestination
 // request's extra Struct to the jsonb bytes stored in the destinations
 // table. A nil/absent Struct (extra not provided) stores "{}", matching
-// OrgsHandler's legacy `if len(extra) == 0 { extra = json.RawMessage("{}") }`
-// default.
+// the pre-Connect REST handler's default.
 func destinationExtraJSON(extra *structpb.Struct) ([]byte, error) {
 	if extra == nil {
 		return []byte("{}"), nil
@@ -96,8 +79,8 @@ func toDestinationProto(d sqlc.Destination) (*mgmtv1.Destination, error) {
 }
 
 // ListDestinations lists destinations in an org. Errors from the store are
-// swallowed to an empty list, matching OrgsHandler.ListDestinations's
-// existing `//nolint:errcheck // empty is safe fallback` behavior.
+// swallowed to an empty list, matching the pre-Connect REST
+// handler's behavior.
 func (s *DestinationService) ListDestinations(ctx context.Context, req *connect.Request[mgmtv1.ListDestinationsRequest]) (*connect.Response[mgmtv1.ListDestinationsResponse], error) {
 	orgID, _ := parseUUID(req.Msg.GetOrgId())                     // invalid/empty org id resolves to NULL, matching legacy orgIDFromParam
 	dests, _ := s.store.Queries.ListDestinationsByOrg(ctx, orgID) //nolint:errcheck // empty is safe fallback
@@ -216,7 +199,7 @@ func (s *DestinationService) CreateDestination(ctx context.Context, req *connect
 }
 
 // UpdateDestination updates a destination. Matches
-// OrgsHandler.UpdateDestination's existing behavior: any store error
+// the pre-Connect REST handler's behavior: any store error
 // (including a unique-name violation) maps to a generic internal error — the
 // legacy handler never special-cased conflicts here the way Create does.
 func (s *DestinationService) UpdateDestination(ctx context.Context, req *connect.Request[mgmtv1.UpdateDestinationRequest]) (*connect.Response[mgmtv1.Destination], error) {
@@ -257,10 +240,10 @@ func (s *DestinationService) UpdateDestination(ctx context.Context, req *connect
 	return connect.NewResponse(item), nil
 }
 
-// DeleteDestination deletes a destination, refusing (with a
-// destinationInUseError) when it is still referenced by a wizard-managed
-// pipeline's wizard_state. Mirrors OrgsHandler.DeleteDestination's JSONB
-// containment check exactly (ListPipelineNamesReferencingDestination).
+// DeleteDestination deletes a destination, refusing with already_exists
+// (naming the referencing pipelines) when a wizard-managed pipeline's
+// wizard_state still references it — a JSONB containment check
+// (ListPipelineNamesReferencingDestination).
 func (s *DestinationService) DeleteDestination(ctx context.Context, req *connect.Request[mgmtv1.DeleteDestinationRequest]) (*connect.Response[mgmtv1.DeleteDestinationResponse], error) {
 	if err := requireWriteAuthorized(ctx); err != nil {
 		return nil, err
@@ -277,7 +260,7 @@ func (s *DestinationService) DeleteDestination(ctx context.Context, req *connect
 	}
 	if len(refNames) > 0 {
 		msg := fmt.Sprintf("referenced by %d wizard pipeline(s): %s", len(refNames), strings.Join(refNames, ", "))
-		return nil, connect.NewError(connect.CodeAlreadyExists, &destinationInUseError{message: msg})
+		return nil, connect.NewError(connect.CodeAlreadyExists, errors.New(msg))
 	}
 
 	if err := s.store.Queries.DeleteDestination(ctx, id); err != nil {

@@ -228,10 +228,8 @@ var _ = Describe("shepherd.mgmt.v1.SimulateService — Run API (S3 sandbox runs)
 		}
 
 		// The Connect protocol's own HTTP status mapping for FailedPrecondition
-		// is 400 (distinct from the REST shim's custom 422 mapping — see
-		// ConnectCodeStatus/WriteConnectError, exercised through this same cap
-		// via the REST shim in simulate_run_rest_test.go instead). The Connect
-		// error code itself is the load-bearing assertion here.
+		// is 400. The Connect error code itself is the load-bearing assertion
+		// here.
 		resp := createRun(adminCookie, minimalRunGraph(orgID))
 		defer resp.Body.Close() //nolint:errcheck // test cleanup
 		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))

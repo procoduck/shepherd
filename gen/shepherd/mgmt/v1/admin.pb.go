@@ -22,7 +22,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// Org mirrors internal/mgmtapi/admin.go: orgResponse.
+// Org is a tenant: its IdP groups per role and its per-org feature settings.
 type Org struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -265,7 +265,7 @@ func (x *ListOrgsResponse) GetTotal() int32 {
 	return 0
 }
 
-// CreateOrgRequest mirrors orgRequest in admin.go.
+// CreateOrgRequest creates an Org.
 type CreateOrgRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -598,7 +598,7 @@ func (*DeleteOrgResponse) Descriptor() ([]byte, []int) {
 	return file_shepherd_mgmt_v1_admin_proto_rawDescGZIP(), []int{7}
 }
 
-// Cluster mirrors internal/mgmtapi/admin.go: clusterResponse.
+// Cluster is a registered cluster; org_id is empty until an app admin claims it.
 type Cluster struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -950,7 +950,7 @@ func (x *UnclaimClusterResponse) GetStatus() string {
 	return ""
 }
 
-// AgentToken mirrors internal/mgmtapi/admin.go: tokenResponse.
+// AgentToken is a collector credential's metadata; the secret is never returned after creation.
 type AgentToken struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	Id        string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -1161,7 +1161,7 @@ func (x *CreateAgentTokenRequest) GetName() string {
 }
 
 // CreateAgentTokenResponse carries the one-time plaintext secret alongside
-// the token's identity (admin.go CreateToken: {"id","name","secret"}).
+// the token's identity. The secret is shown this once and cannot be read back.
 type CreateAgentTokenResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`

@@ -2,11 +2,12 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
 import { clients } from '@/api/transport';
+import { ConnectClusterDialog } from '@/components/ConnectClusterDialog';
 import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Field, Input, Select } from '@/components/ui/Field';
 import type { Collector } from '@/gen/shepherd/mgmt/v1/fleet_pb';
-import { useOrgId } from '@/hooks/useOrg';
+import { useCanAdminister, useOrgId } from '@/hooks/useOrg';
 import { formatTimestampRelative } from '@/lib/utils';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -70,6 +71,8 @@ const collectorColumns: DataTableColumn<Collector>[] = [
 
 export function CollectorsPage() {
   const orgId = useOrgId();
+  const canAdminister = useCanAdminister();
+  const [showConnect, setShowConnect] = useState(false);
   const [search, setSearch] = useState('');
   const [groupBy, setGroupBy] = useState('');
   const { data, isLoading, isError, error } = useQuery({
@@ -113,7 +116,18 @@ export function CollectorsPage() {
     <div className='space-y-4'>
       <div className='flex items-center justify-between'>
         <h1 className='text-xl font-semibold'>Collectors</h1>
+        {!!orgId && canAdminister && (
+          <button
+            type='button'
+            onClick={() => setShowConnect(true)}
+            data-testid='connect-cluster-open'
+            className='rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500'
+          >
+            Connect a cluster
+          </button>
+        )}
       </div>
+      {showConnect && <ConnectClusterDialog orgId={orgId} onClose={() => setShowConnect(false)} />}
       <div className='flex items-end gap-3'>
         <Field label='Search collectors' className='flex-1'>
           <Input value={search} onChange={(e) => setSearch(e.target.value)} />

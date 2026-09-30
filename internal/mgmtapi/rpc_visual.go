@@ -22,9 +22,8 @@ import (
 	"shepherd/internal/visual"
 )
 
-// VisualService implements mgmtv1connect.VisualServiceHandler — the business
-// logic for /api/orgs/{org}/visual/* and the pipeline graph view, moved here
-// from VisualHandler (visual.go, now a thin REST shim over this service).
+// VisualService implements mgmtv1connect.VisualServiceHandler, including the
+// pipeline graph view.
 type VisualService struct {
 	store     *store.Store
 	validator *validate.Validator
@@ -32,7 +31,7 @@ type VisualService struct {
 	logger    *slog.Logger
 }
 
-// NewVisualService constructs a VisualService with the deps VisualHandler uses today.
+// NewVisualService constructs a VisualService.
 func NewVisualService(st *store.Store, v *validate.Validator, reg *schema.Registry, logger *slog.Logger) *VisualService {
 	return &VisualService{store: st, validator: v, schema: reg, logger: logger}
 }
@@ -71,7 +70,7 @@ func (s *VisualService) loadSchemaPayload(version string) (visual.SchemaPayload,
 	return schemaPayload, nil
 }
 
-// renderGraph mirrors VisualHandler.render: decodes the graph's schema
+// renderGraph decodes the graph's schema
 // version, loads and re-marshals the schema payload into visual.SchemaPayload,
 // and renders. Every error here mapped to CodeInvalidArgument by callers
 // (Render/Validate never distinguished error causes — see visual.go's
@@ -126,10 +125,9 @@ func (s *VisualService) orgAllowsExperimental(ctx context.Context, orgID string)
 
 // Render renders a visual graph document to Alloy config. When the render
 // step produces L1 diagnostics (e.g. a label collision), the response still
-// carries them in Diagnostics rather than as a connect error — the REST shim
-// (visual.go) inspects that field to reproduce the legacy 422 shape; the
-// Connect JSON path always answers 200 with the diagnostics embedded, which
-// is the "ride in a Diagnostics message" contract from the design doc.
+// carries them in Diagnostics rather than as a connect error: the answer is
+// 200 with the diagnostics embedded, the "ride in a Diagnostics message"
+// contract from the design doc.
 func (s *VisualService) Render(ctx context.Context, req *connect.Request[mgmtv1.RenderRequest]) (*connect.Response[mgmtv1.RenderResponse], error) {
 	result, doc, payload, err := s.renderGraph(req.Msg.GetGraph())
 	if err != nil {
@@ -148,10 +146,7 @@ func (s *VisualService) Render(ctx context.Context, req *connect.Request[mgmtv1.
 
 // Validate validates a visual graph document: first the render step (L1),
 // then Stage1+2 Alloy validation on the rendered content (L2). Diagnostics
-// from either layer ride in the response rather than as a connect error,
-// mirroring VisualHandler.Validate's "always 200 except on an L1 render
-// failure" behavior — the REST shim decides the HTTP status from the
-// diagnostics' layer tag (see visual.go).
+// from either layer ride in the response rather than as a connect error.
 func (s *VisualService) Validate(ctx context.Context, req *connect.Request[mgmtv1.ValidateVisualRequest]) (*connect.Response[mgmtv1.ValidateVisualResponse], error) {
 	result, doc, payload, err := s.renderGraph(req.Msg.GetGraph())
 	if err != nil {
@@ -168,8 +163,7 @@ func (s *VisualService) Validate(ctx context.Context, req *connect.Request[mgmtv
 		// diagnostics Diagnostics carries (layer/node_id/line/col/message —
 		// line/col never existed for this kind, and VisualNodeDiagnostic has
 		// no slot for code/node_id2). renderDiagnosticsToProto is the same
-		// conversion Render uses, so this reproduces the legacy 422 shape
-		// exactly via the REST shim's writeValidateL1LegacyShape.
+		// conversion Render uses.
 		return connect.NewResponse(&mgmtv1.ValidateVisualResponse{
 			RenderDiagnostics: renderDiagnosticsToProto(result.Diagnostics),
 		}), nil

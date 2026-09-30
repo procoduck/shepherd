@@ -1,0 +1,147 @@
+{{- if ((.Values.receiver).enabled) }}
+{{- $r := .Values.receiver }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "shepherd.receiverFullname" . }}
+  labels:
+    {{- include "shepherd.receiverLabels" . | nindent 4 }}
+spec:
+  replicas: {{ $r.replicas }}
+  selector:
+    matchLabels:
+      {{- include "shepherd.receiverSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # The config is rendered once, at pod start; a changed receiver.yaml
+        # only takes effect in a new pod.
+        checksum/receiver-config: {{ include (print $.Template.BasePath "/configmap-receiver.yaml") . | sha256sum }}
+        {{- with $r.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "shepherd.receiverSelectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "shepherd.receiverFullname" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: receiver-config
+          configMap:
+            name: {{ include "shepherd.receiverFullname" . }}
+        # The rendered Alloy config, written by the init container.
+        - name: rendered
+          emptyDir:
+            sizeLimit: 1Mi
+        # Alloy's --storage.path; the root filesystem is read-only.
+        - name: data
+          emptyDir:
+            sizeLimit: {{ $r.storageSizeLimit }}
+      # Both containers run the Shepherd image: it carries the renderer and the
+      # Alloy binary pinned in deploy/versions.env (ALLOY_IMAGE), the version
+      # internal/receiver renders for -- no second image pin to keep in step.
+      initContainers:
+        # Validates receiver.yaml and renders it. Validation failure writes
+        # nothing and exits non-zero, so the pod stops at Init:Error instead of
+        # starting an Alloy that forwards untagged data.
+        - name: render
+          image: {{ include "shepherd.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/usr/local/bin/shepherd", "receiver", "render",
+                    "--config", "/etc/receiver/receiver.yaml", "--out", "/rendered/config.alloy"]
+          volumeMounts:
+            - name: receiver-config
+              mountPath: /etc/receiver
+              readOnly: true
+            - name: rendered
+              mountPath: /rendered
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml $r.resources | nindent 12 }}
+      containers:
+        - name: alloy
+          image: {{ include "shepherd.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/usr/local/bin/alloy"]
+          args:
+            - run
+            - /rendered/config.alloy
+            - --storage.path=/var/lib/alloy
+            # Alloy's own HTTP server stays on loopback: the probes below exec
+            # inside this container, and nothing else needs to reach it.
+            - --server.http.listen-addr=127.0.0.1:12345
+          ports:
+            - name: otlp-http
+              containerPort: {{ $r.listener.port }}
+              protocol: TCP
+          env:
+            {{- range $signal := list "metrics" "logs" "traces" }}
+            {{- $e := index $r.exporters $signal }}
+            {{- if and $e.enabled $e.endpointFromSecret.name }}
+            - name: {{ printf "RECEIVER_%s_ENDPOINT" (upper $signal) }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $e.endpointFromSecret.name }}
+                  key: {{ $e.endpointFromSecret.key }}
+            {{- end }}
+            {{- if and $e.enabled $e.authorizationFromSecret.name }}
+            - name: {{ printf "RECEIVER_%s_AUTHORIZATION" (upper $signal) }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $e.authorizationFromSecret.name }}
+                  key: {{ $e.authorizationFromSecret.key }}
+            {{- end }}
+            {{- end }}
+          volumeMounts:
+            - name: rendered
+              mountPath: /rendered
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/alloy
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          # exec, not httpGet: Alloy listens on loopback only, and the Shepherd
+          # image has no curl -- `shepherd healthcheck --path` probes it.
+          readinessProbe:
+            exec:
+              command: ["/usr/local/bin/shepherd", "healthcheck", "--addr", "127.0.0.1:12345", "--path", "/-/ready"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["/usr/local/bin/shepherd", "healthcheck", "--addr", "127.0.0.1:12345", "--path", "/-/healthy"]
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            {{- toYaml $r.resources | nindent 12 }}
+      {{- with $r.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $r.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $r.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

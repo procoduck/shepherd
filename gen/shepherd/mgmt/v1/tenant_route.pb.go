@@ -53,8 +53,19 @@ type TenantRoute struct {
 	CreatedAt        *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt        *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	RevokedAt        *timestamppb.Timestamp `protobuf:"bytes,14,opt,name=revoked_at,json=revokedAt,proto3" json:"revoked_at,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// apply_status is whether this route's HTTPRoute is actually in the
+	// cluster, as the tenant-route reconciler last found it: "pending",
+	// "applied" (attachment verified), "refused" (the gateway refused
+	// attachment), "error" (retried), "removed" (revoked or expired, HTTPRoute
+	// deleted) or "not_applicable" (a Faro route, or route apply disabled).
+	ApplyStatus string `protobuf:"bytes,15,opt,name=apply_status,json=applyStatus,proto3" json:"apply_status,omitempty"`
+	// apply_message is the reason behind "refused" or "error" -- the gateway's
+	// own condition message where it gave one.
+	ApplyMessage string `protobuf:"bytes,16,opt,name=apply_message,json=applyMessage,proto3" json:"apply_message,omitempty"`
+	// applied_at is the last time attachment was verified.
+	AppliedAt     *timestamppb.Timestamp `protobuf:"bytes,17,opt,name=applied_at,json=appliedAt,proto3" json:"applied_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *TenantRoute) Reset() {
@@ -181,6 +192,27 @@ func (x *TenantRoute) GetUpdatedAt() *timestamppb.Timestamp {
 func (x *TenantRoute) GetRevokedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.RevokedAt
+	}
+	return nil
+}
+
+func (x *TenantRoute) GetApplyStatus() string {
+	if x != nil {
+		return x.ApplyStatus
+	}
+	return ""
+}
+
+func (x *TenantRoute) GetApplyMessage() string {
+	if x != nil {
+		return x.ApplyMessage
+	}
+	return ""
+}
+
+func (x *TenantRoute) GetAppliedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.AppliedAt
 	}
 	return nil
 }
@@ -560,11 +592,226 @@ func (x *RevokeTenantRouteRequest) GetId() string {
 	return ""
 }
 
+// RenderConnectAppRequest names the route and the app being connected.
+type RenderConnectAppRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	OrgId string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	Id    string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	// service_name becomes OTEL_SERVICE_NAME. Required.
+	ServiceName string `protobuf:"bytes,3,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	// protocol is "http/protobuf" (default when empty) or "http/json". There is
+	// no gRPC: the gateway identifies the tenant from the URL path, which a gRPC
+	// client cannot set.
+	Protocol string `protobuf:"bytes,4,opt,name=protocol,proto3" json:"protocol,omitempty"`
+	// include_adot_layer adds the AWS Distro for OpenTelemetry Lambda layer
+	// wiring to the Lambda artifacts, with the layer ARN left for the operator
+	// to fill in (it is region- and architecture-specific).
+	IncludeAdotLayer bool `protobuf:"varint,5,opt,name=include_adot_layer,json=includeAdotLayer,proto3" json:"include_adot_layer,omitempty"`
+	// gateway_base_url is the gateway's public https URL. Empty uses the
+	// server's configured gateway.routes.public_base_url; FailedPrecondition
+	// when neither is set.
+	GatewayBaseUrl string `protobuf:"bytes,6,opt,name=gateway_base_url,json=gatewayBaseUrl,proto3" json:"gateway_base_url,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *RenderConnectAppRequest) Reset() {
+	*x = RenderConnectAppRequest{}
+	mi := &file_shepherd_mgmt_v1_tenant_route_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RenderConnectAppRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RenderConnectAppRequest) ProtoMessage() {}
+
+func (x *RenderConnectAppRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_tenant_route_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RenderConnectAppRequest.ProtoReflect.Descriptor instead.
+func (*RenderConnectAppRequest) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_tenant_route_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *RenderConnectAppRequest) GetOrgId() string {
+	if x != nil {
+		return x.OrgId
+	}
+	return ""
+}
+
+func (x *RenderConnectAppRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *RenderConnectAppRequest) GetServiceName() string {
+	if x != nil {
+		return x.ServiceName
+	}
+	return ""
+}
+
+func (x *RenderConnectAppRequest) GetProtocol() string {
+	if x != nil {
+		return x.Protocol
+	}
+	return ""
+}
+
+func (x *RenderConnectAppRequest) GetIncludeAdotLayer() bool {
+	if x != nil {
+		return x.IncludeAdotLayer
+	}
+	return false
+}
+
+func (x *RenderConnectAppRequest) GetGatewayBaseUrl() string {
+	if x != nil {
+		return x.GatewayBaseUrl
+	}
+	return ""
+}
+
+// RenderConnectAppResponse carries every artifact, each derived from the same
+// base_endpoint the gateway routes (internal/onboarding.BaseEndpoint).
+type RenderConnectAppResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// base_endpoint is OTEL_EXPORTER_OTLP_ENDPOINT: the SDK appends v1/traces etc.
+	BaseEndpoint string `protobuf:"bytes,1,opt,name=base_endpoint,json=baseEndpoint,proto3" json:"base_endpoint,omitempty"`
+	// gateway_base_url is the URL actually used — the request's, or the
+	// configured default.
+	GatewayBaseUrl string `protobuf:"bytes,2,opt,name=gateway_base_url,json=gatewayBaseUrl,proto3" json:"gateway_base_url,omitempty"`
+	// env is a KEY=VALUE .env file.
+	Env string `protobuf:"bytes,3,opt,name=env,proto3" json:"env,omitempty"`
+	// lambda is JSON for `aws lambda update-function-configuration --environment`.
+	Lambda string `protobuf:"bytes,4,opt,name=lambda,proto3" json:"lambda,omitempty"`
+	// terraform is an HCL fragment for an aws_lambda_function.
+	Terraform string `protobuf:"bytes,5,opt,name=terraform,proto3" json:"terraform,omitempty"`
+	// sam is a template.yaml fragment for an AWS::Serverless::Function.
+	Sam string `protobuf:"bytes,6,opt,name=sam,proto3" json:"sam,omitempty"`
+	// cdk is a TypeScript fragment for a lambda.Function.
+	Cdk string `protobuf:"bytes,7,opt,name=cdk,proto3" json:"cdk,omitempty"`
+	// k8s is a container `env` fragment for a pod template.
+	K8S string `protobuf:"bytes,8,opt,name=k8s,proto3" json:"k8s,omitempty"`
+	// sdk_notes is Markdown explaining the variables and when code changes are needed.
+	SdkNotes      string `protobuf:"bytes,9,opt,name=sdk_notes,json=sdkNotes,proto3" json:"sdk_notes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RenderConnectAppResponse) Reset() {
+	*x = RenderConnectAppResponse{}
+	mi := &file_shepherd_mgmt_v1_tenant_route_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RenderConnectAppResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RenderConnectAppResponse) ProtoMessage() {}
+
+func (x *RenderConnectAppResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_tenant_route_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RenderConnectAppResponse.ProtoReflect.Descriptor instead.
+func (*RenderConnectAppResponse) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_tenant_route_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *RenderConnectAppResponse) GetBaseEndpoint() string {
+	if x != nil {
+		return x.BaseEndpoint
+	}
+	return ""
+}
+
+func (x *RenderConnectAppResponse) GetGatewayBaseUrl() string {
+	if x != nil {
+		return x.GatewayBaseUrl
+	}
+	return ""
+}
+
+func (x *RenderConnectAppResponse) GetEnv() string {
+	if x != nil {
+		return x.Env
+	}
+	return ""
+}
+
+func (x *RenderConnectAppResponse) GetLambda() string {
+	if x != nil {
+		return x.Lambda
+	}
+	return ""
+}
+
+func (x *RenderConnectAppResponse) GetTerraform() string {
+	if x != nil {
+		return x.Terraform
+	}
+	return ""
+}
+
+func (x *RenderConnectAppResponse) GetSam() string {
+	if x != nil {
+		return x.Sam
+	}
+	return ""
+}
+
+func (x *RenderConnectAppResponse) GetCdk() string {
+	if x != nil {
+		return x.Cdk
+	}
+	return ""
+}
+
+func (x *RenderConnectAppResponse) GetK8S() string {
+	if x != nil {
+		return x.K8S
+	}
+	return ""
+}
+
+func (x *RenderConnectAppResponse) GetSdkNotes() string {
+	if x != nil {
+		return x.SdkNotes
+	}
+	return ""
+}
+
 var File_shepherd_mgmt_v1_tenant_route_proto protoreflect.FileDescriptor
 
 const file_shepherd_mgmt_v1_tenant_route_proto_rawDesc = "" +
 	"\n" +
-	"#shepherd/mgmt/v1/tenant_route.proto\x12\x10shepherd.mgmt.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa0\x04\n" +
+	"#shepherd/mgmt/v1/tenant_route.proto\x12\x10shepherd.mgmt.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa3\x05\n" +
 	"\vTenantRoute\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06org_id\x18\x02 \x01(\tR\x05orgId\x12\x1b\n" +
@@ -584,7 +831,11 @@ const file_shepherd_mgmt_v1_tenant_route_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x129\n" +
 	"\n" +
-	"revoked_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampR\trevokedAt\"0\n" +
+	"revoked_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampR\trevokedAt\x12!\n" +
+	"\fapply_status\x18\x0f \x01(\tR\vapplyStatus\x12#\n" +
+	"\rapply_message\x18\x10 \x01(\tR\fapplyMessage\x129\n" +
+	"\n" +
+	"applied_at\x18\x11 \x01(\v2\x1a.google.protobuf.TimestampR\tappliedAt\"0\n" +
 	"\x17ListTenantRoutesRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\"e\n" +
 	"\x18ListTenantRoutesResponse\x123\n" +
@@ -609,12 +860,30 @@ const file_shepherd_mgmt_v1_tenant_route_proto_rawDesc = "" +
 	"deprecated\"A\n" +
 	"\x18RevokeTenantRouteRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x0e\n" +
-	"\x02id\x18\x02 \x01(\tR\x02id2\xb5\x03\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\"\xd7\x01\n" +
+	"\x17RenderConnectAppRequest\x12\x15\n" +
+	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12!\n" +
+	"\fservice_name\x18\x03 \x01(\tR\vserviceName\x12\x1a\n" +
+	"\bprotocol\x18\x04 \x01(\tR\bprotocol\x12,\n" +
+	"\x12include_adot_layer\x18\x05 \x01(\bR\x10includeAdotLayer\x12(\n" +
+	"\x10gateway_base_url\x18\x06 \x01(\tR\x0egatewayBaseUrl\"\x84\x02\n" +
+	"\x18RenderConnectAppResponse\x12#\n" +
+	"\rbase_endpoint\x18\x01 \x01(\tR\fbaseEndpoint\x12(\n" +
+	"\x10gateway_base_url\x18\x02 \x01(\tR\x0egatewayBaseUrl\x12\x10\n" +
+	"\x03env\x18\x03 \x01(\tR\x03env\x12\x16\n" +
+	"\x06lambda\x18\x04 \x01(\tR\x06lambda\x12\x1c\n" +
+	"\tterraform\x18\x05 \x01(\tR\tterraform\x12\x10\n" +
+	"\x03sam\x18\x06 \x01(\tR\x03sam\x12\x10\n" +
+	"\x03cdk\x18\a \x01(\tR\x03cdk\x12\x10\n" +
+	"\x03k8s\x18\b \x01(\tR\x03k8s\x12\x1b\n" +
+	"\tsdk_notes\x18\t \x01(\tR\bsdkNotes2\xa2\x04\n" +
 	"\x12TenantRouteService\x12k\n" +
 	"\x10ListTenantRoutes\x12).shepherd.mgmt.v1.ListTenantRoutesRequest\x1a*.shepherd.mgmt.v1.ListTenantRoutesResponse\"\x00\x12`\n" +
 	"\x11CreateTenantRoute\x12*.shepherd.mgmt.v1.CreateTenantRouteRequest\x1a\x1d.shepherd.mgmt.v1.TenantRoute\"\x00\x12n\n" +
 	"\x11RotateTenantRoute\x12*.shepherd.mgmt.v1.RotateTenantRouteRequest\x1a+.shepherd.mgmt.v1.RotateTenantRouteResponse\"\x00\x12`\n" +
-	"\x11RevokeTenantRoute\x12*.shepherd.mgmt.v1.RevokeTenantRouteRequest\x1a\x1d.shepherd.mgmt.v1.TenantRoute\"\x00B&Z$shepherd/gen/shepherd/mgmt/v1;mgmtv1b\x06proto3"
+	"\x11RevokeTenantRoute\x12*.shepherd.mgmt.v1.RevokeTenantRouteRequest\x1a\x1d.shepherd.mgmt.v1.TenantRoute\"\x00\x12k\n" +
+	"\x10RenderConnectApp\x12).shepherd.mgmt.v1.RenderConnectAppRequest\x1a*.shepherd.mgmt.v1.RenderConnectAppResponse\"\x00B&Z$shepherd/gen/shepherd/mgmt/v1;mgmtv1b\x06proto3"
 
 var (
 	file_shepherd_mgmt_v1_tenant_route_proto_rawDescOnce sync.Once
@@ -628,7 +897,7 @@ func file_shepherd_mgmt_v1_tenant_route_proto_rawDescGZIP() []byte {
 	return file_shepherd_mgmt_v1_tenant_route_proto_rawDescData
 }
 
-var file_shepherd_mgmt_v1_tenant_route_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_shepherd_mgmt_v1_tenant_route_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_shepherd_mgmt_v1_tenant_route_proto_goTypes = []any{
 	(*TenantRoute)(nil),               // 0: shepherd.mgmt.v1.TenantRoute
 	(*ListTenantRoutesRequest)(nil),   // 1: shepherd.mgmt.v1.ListTenantRoutesRequest
@@ -637,29 +906,34 @@ var file_shepherd_mgmt_v1_tenant_route_proto_goTypes = []any{
 	(*RotateTenantRouteRequest)(nil),  // 4: shepherd.mgmt.v1.RotateTenantRouteRequest
 	(*RotateTenantRouteResponse)(nil), // 5: shepherd.mgmt.v1.RotateTenantRouteResponse
 	(*RevokeTenantRouteRequest)(nil),  // 6: shepherd.mgmt.v1.RevokeTenantRouteRequest
-	(*timestamppb.Timestamp)(nil),     // 7: google.protobuf.Timestamp
+	(*RenderConnectAppRequest)(nil),   // 7: shepherd.mgmt.v1.RenderConnectAppRequest
+	(*RenderConnectAppResponse)(nil),  // 8: shepherd.mgmt.v1.RenderConnectAppResponse
+	(*timestamppb.Timestamp)(nil),     // 9: google.protobuf.Timestamp
 }
 var file_shepherd_mgmt_v1_tenant_route_proto_depIdxs = []int32{
-	7,  // 0: shepherd.mgmt.v1.TenantRoute.valid_until:type_name -> google.protobuf.Timestamp
-	7,  // 1: shepherd.mgmt.v1.TenantRoute.created_at:type_name -> google.protobuf.Timestamp
-	7,  // 2: shepherd.mgmt.v1.TenantRoute.updated_at:type_name -> google.protobuf.Timestamp
-	7,  // 3: shepherd.mgmt.v1.TenantRoute.revoked_at:type_name -> google.protobuf.Timestamp
-	0,  // 4: shepherd.mgmt.v1.ListTenantRoutesResponse.items:type_name -> shepherd.mgmt.v1.TenantRoute
-	0,  // 5: shepherd.mgmt.v1.RotateTenantRouteResponse.active:type_name -> shepherd.mgmt.v1.TenantRoute
-	0,  // 6: shepherd.mgmt.v1.RotateTenantRouteResponse.deprecated:type_name -> shepherd.mgmt.v1.TenantRoute
-	1,  // 7: shepherd.mgmt.v1.TenantRouteService.ListTenantRoutes:input_type -> shepherd.mgmt.v1.ListTenantRoutesRequest
-	3,  // 8: shepherd.mgmt.v1.TenantRouteService.CreateTenantRoute:input_type -> shepherd.mgmt.v1.CreateTenantRouteRequest
-	4,  // 9: shepherd.mgmt.v1.TenantRouteService.RotateTenantRoute:input_type -> shepherd.mgmt.v1.RotateTenantRouteRequest
-	6,  // 10: shepherd.mgmt.v1.TenantRouteService.RevokeTenantRoute:input_type -> shepherd.mgmt.v1.RevokeTenantRouteRequest
-	2,  // 11: shepherd.mgmt.v1.TenantRouteService.ListTenantRoutes:output_type -> shepherd.mgmt.v1.ListTenantRoutesResponse
-	0,  // 12: shepherd.mgmt.v1.TenantRouteService.CreateTenantRoute:output_type -> shepherd.mgmt.v1.TenantRoute
-	5,  // 13: shepherd.mgmt.v1.TenantRouteService.RotateTenantRoute:output_type -> shepherd.mgmt.v1.RotateTenantRouteResponse
-	0,  // 14: shepherd.mgmt.v1.TenantRouteService.RevokeTenantRoute:output_type -> shepherd.mgmt.v1.TenantRoute
-	11, // [11:15] is the sub-list for method output_type
-	7,  // [7:11] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	9,  // 0: shepherd.mgmt.v1.TenantRoute.valid_until:type_name -> google.protobuf.Timestamp
+	9,  // 1: shepherd.mgmt.v1.TenantRoute.created_at:type_name -> google.protobuf.Timestamp
+	9,  // 2: shepherd.mgmt.v1.TenantRoute.updated_at:type_name -> google.protobuf.Timestamp
+	9,  // 3: shepherd.mgmt.v1.TenantRoute.revoked_at:type_name -> google.protobuf.Timestamp
+	9,  // 4: shepherd.mgmt.v1.TenantRoute.applied_at:type_name -> google.protobuf.Timestamp
+	0,  // 5: shepherd.mgmt.v1.ListTenantRoutesResponse.items:type_name -> shepherd.mgmt.v1.TenantRoute
+	0,  // 6: shepherd.mgmt.v1.RotateTenantRouteResponse.active:type_name -> shepherd.mgmt.v1.TenantRoute
+	0,  // 7: shepherd.mgmt.v1.RotateTenantRouteResponse.deprecated:type_name -> shepherd.mgmt.v1.TenantRoute
+	1,  // 8: shepherd.mgmt.v1.TenantRouteService.ListTenantRoutes:input_type -> shepherd.mgmt.v1.ListTenantRoutesRequest
+	3,  // 9: shepherd.mgmt.v1.TenantRouteService.CreateTenantRoute:input_type -> shepherd.mgmt.v1.CreateTenantRouteRequest
+	4,  // 10: shepherd.mgmt.v1.TenantRouteService.RotateTenantRoute:input_type -> shepherd.mgmt.v1.RotateTenantRouteRequest
+	6,  // 11: shepherd.mgmt.v1.TenantRouteService.RevokeTenantRoute:input_type -> shepherd.mgmt.v1.RevokeTenantRouteRequest
+	7,  // 12: shepherd.mgmt.v1.TenantRouteService.RenderConnectApp:input_type -> shepherd.mgmt.v1.RenderConnectAppRequest
+	2,  // 13: shepherd.mgmt.v1.TenantRouteService.ListTenantRoutes:output_type -> shepherd.mgmt.v1.ListTenantRoutesResponse
+	0,  // 14: shepherd.mgmt.v1.TenantRouteService.CreateTenantRoute:output_type -> shepherd.mgmt.v1.TenantRoute
+	5,  // 15: shepherd.mgmt.v1.TenantRouteService.RotateTenantRoute:output_type -> shepherd.mgmt.v1.RotateTenantRouteResponse
+	0,  // 16: shepherd.mgmt.v1.TenantRouteService.RevokeTenantRoute:output_type -> shepherd.mgmt.v1.TenantRoute
+	8,  // 17: shepherd.mgmt.v1.TenantRouteService.RenderConnectApp:output_type -> shepherd.mgmt.v1.RenderConnectAppResponse
+	13, // [13:18] is the sub-list for method output_type
+	8,  // [8:13] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_shepherd_mgmt_v1_tenant_route_proto_init() }
@@ -673,7 +947,7 @@ func file_shepherd_mgmt_v1_tenant_route_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_shepherd_mgmt_v1_tenant_route_proto_rawDesc), len(file_shepherd_mgmt_v1_tenant_route_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

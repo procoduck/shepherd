@@ -7,8 +7,9 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 
-// FleetService covers /api/orgs/{org}/collectors/* and /attributes.
-// Reads require org-reader; writes (assignments) require org-admin.
+// FleetService covers an org's collectors, their labels and assignments,
+// matcher attributes, and reconciliation. Reads require org-reader; writes
+// (labels, assignments) require org-admin.
 service FleetService {
   rpc ListCollectors(ListCollectorsRequest) returns (ListCollectorsResponse) {}
   rpc GetCollector(GetCollectorRequest) returns (Collector) {}
@@ -22,9 +23,14 @@ service FleetService {
   rpc ListAttributes(ListAttributesRequest) returns (ListAttributesResponse) {}
   rpc SetCollectorLabel(SetCollectorLabelRequest) returns (CollectorLabelsResponse) {}
   rpc DeleteCollectorLabel(DeleteCollectorLabelRequest) returns (CollectorLabelsResponse) {}
+  // RenderChartValues renders the Helm values that connect a cluster's
+  // Grafana k8s-monitoring collectors to this Shepherd (W9,
+  // internal/chartvalues). Org-admin: it decides which cluster name joins
+  // the org's fleet. Writes nothing.
+  rpc RenderChartValues(RenderChartValuesRequest) returns (RenderChartValuesResponse) {}
 }
 
-// CollectorInstance mirrors internal/mgmtapi/orgs.go: collectorInstanceResponse.
+// CollectorInstance is one running Alloy process reporting as a logical Collector.
 message CollectorInstance {
   string name = 1;
   string alloy_version = 2;
@@ -36,7 +42,7 @@ message CollectorInstance {
   google.protobuf.Struct local_attributes = 7;
 }
 
-// Collector mirrors internal/mgmtapi/orgs.go: collectorResponse. The scalar
+// Collector is a logical collector, one per cluster and role. The scalar
 // remote_config_status/remote_config_error/last_seen/alloy_version/
 // local_attributes fields are rolled up from the collector's most recently
 // reporting instance; instances is populated only on GetCollector.
@@ -93,7 +99,7 @@ message GetServedConfigRequest {
   string id = 2;
 }
 
-// GetServedConfigResponse mirrors orgs.go ServedConfig: {"content","hash","computed_at"}.
+// GetServedConfigResponse is the merged config currently served to a collector.
 // content and hash are "" when no serve-cache entry exists yet.
 message GetServedConfigResponse {
   string content = 1;
@@ -177,14 +183,53 @@ message ListAttributesRequest {
   string org_id = 1;
 }
 
-// ListAttributesResponse mirrors orgs.go ListAttributes, which returns a bare
-// JSON object keyed by attribute name (today always includes "cluster" and
-// "role", plus any other distinct attribute keys) mapping to their distinct
-// values: {"cluster": [...], "role": [...], ...}. The key set is
-// data-dependent, so it is modeled as a Struct rather than fixed fields; the
-// REST shim marshals `attributes` directly rather than the wrapping message
-// to stay byte-compatible with the legacy bare-object shape (see notes to
-// the wiring agent).
+// ListAttributesResponse maps each matcher key pipeline matching evaluates for
+// the org to its distinct values: {"cluster": [...], "role": [...], ...}.
+// cluster and role are always present; admin labels and agent-reported
+// local_attributes appear only when the org's allow_label_matching /
+// allow_local_attribute_matching flags are on, and reserved keys never do
+// (#139). The key set is data-dependent, so it is modeled as a Struct rather
+// than fixed fields.
 message ListAttributesResponse {
   google.protobuf.Struct attributes = 1;
+}
+
+// RenderChartValuesRequest describes the cluster being connected.
+message RenderChartValuesRequest {
+  string org_id = 1;
+  // cluster_name is the chart's cluster.name, which each collector reports
+  // as its "cluster" attribute. Required.
+  string cluster_name = 2;
+  // roles are the collectors to wire: any of "metrics", "logs", "singleton",
+  // "receiver". At least one.
+  repeated string roles = 3;
+  // poll_frequency is how often each collector polls Shepherd, e.g. "60s".
+  // Empty means 60s.
+  string poll_frequency = 4;
+  // namespace is where k8s-monitoring is installed, for the rendered
+  // commands only. Empty means "monitoring".
+  string namespace = 5;
+}
+
+// RenderChartValuesResponse carries both values files and the commands that
+// use them. Neither file contains a secret.
+message RenderChartValuesResponse {
+  // values_yaml wires each collector's remoteConfig to Shepherd.
+  string values_yaml = 1;
+  // credentials_yaml loads the agent token into each collector from the
+  // Secret secret_name.
+  string credentials_yaml = 2;
+  // chart_version is the k8s-monitoring version these values are checked against.
+  string chart_version = 3;
+  // secret_command creates the Secret, with placeholders for the token.
+  string secret_command = 4;
+  // helm_command installs or upgrades k8s-monitoring with both files.
+  string helm_command = 5;
+  string secret_name = 6;
+  // cluster_status is "new" (never registered), "unclaimed" (registered,
+  // waiting for an app admin to claim it for this org) or "claimed" (already
+  // this org's). A name claimed by another org is refused instead.
+  string cluster_status = 7;
+  // shepherd_url is the address the collectors poll (server.base_url).
+  string shepherd_url = 8;
 }

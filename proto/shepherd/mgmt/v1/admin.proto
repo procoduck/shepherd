@@ -6,8 +6,8 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 
-// AdminService covers /api/admin/*: org, cluster, and agent-token
-// administration plus group search. All methods require app-admin, except
+// AdminService is org, cluster, and agent-token administration plus group
+// search. All methods require app-admin, except
 // SearchGroups (app admin or org admin).
 service AdminService {
   rpc ListOrgs(ListOrgsRequest) returns (ListOrgsResponse) {}
@@ -54,7 +54,7 @@ service AdminService {
   rpc ListOidcProviderPresets(ListOidcProviderPresetsRequest) returns (ListOidcProviderPresetsResponse) {}
 }
 
-// Org mirrors internal/mgmtapi/admin.go: orgResponse.
+// Org is a tenant: its IdP groups per role and its per-org feature settings.
 message Org {
   string id = 1;
   string name = 2;
@@ -99,7 +99,7 @@ message ListOrgsResponse {
   int32 total = 2;
 }
 
-// CreateOrgRequest mirrors orgRequest in admin.go.
+// CreateOrgRequest creates an Org.
 message CreateOrgRequest {
   string name = 1;
   string display_name = 2;
@@ -147,7 +147,7 @@ message DeleteOrgRequest {
 
 message DeleteOrgResponse {}
 
-// Cluster mirrors internal/mgmtapi/admin.go: clusterResponse.
+// Cluster is a registered cluster; org_id is empty until an app admin claims it.
 message Cluster {
   string id = 1;
   string name = 2;
@@ -184,7 +184,7 @@ message UnclaimClusterResponse {
   string status = 1;
 }
 
-// AgentToken mirrors internal/mgmtapi/admin.go: tokenResponse.
+// AgentToken is a collector credential's metadata; the secret is never returned after creation.
 message AgentToken {
   string id = 1;
   string name = 2;
@@ -206,7 +206,7 @@ message CreateAgentTokenRequest {
 }
 
 // CreateAgentTokenResponse carries the one-time plaintext secret alongside
-// the token's identity (admin.go CreateToken: {"id","name","secret"}).
+// the token's identity. The secret is shown this once and cannot be read back.
 message CreateAgentTokenResponse {
   string id = 1;
   string name = 2;

@@ -3,7 +3,6 @@ package mgmtapi_test
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -85,7 +84,7 @@ var _ = Describe("D6 baseline on the eager serve path", Label("integration"), fu
 			Validate: config.ValidateConfig{AlloyBinary: "", StabilityLevel: "experimental", Timeout: 10e9},
 		}
 		authHandler := auth.NewLocalAdmin(cfg, st, slog.Default())
-		server = httptest.NewServer(newRESTRouter(st, authHandler, cfg, nil))
+		server = httptest.NewServer(newRPCWiringRouter(st, authHandler, cfg))
 		adminCookie = newAppAdminSession(ctx, st)
 	})
 
@@ -103,11 +102,12 @@ var _ = Describe("D6 baseline on the eager serve path", Label("integration"), fu
 		// Creating a pipeline is what triggers the eager recompute — the real
 		// entry point, not recomputeOrgCaches called directly, so this spec
 		// also covers the wiring that reaches it.
-		resp := postJSON(server, fmt.Sprintf("/orgs/%s/pipelines", orgID), map[string]any{
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.PipelineService/CreatePipeline", adminCookie, map[string]any{
+			"orgId":    orgID,
 			"name":     "beacon-probe",
 			"contents": "// a pipeline whose content is irrelevant; the baseline is appended regardless",
 			"matchers": []string{},
-		}, adminCookie)
+		})
 		Expect(resp.StatusCode).To(BeNumerically("<", 300), "creating the pipeline should succeed")
 		var created map[string]any
 		Expect(json.NewDecoder(resp.Body).Decode(&created)).To(Succeed())
@@ -118,7 +118,9 @@ var _ = Describe("D6 baseline on the eager serve path", Label("integration"), fu
 		// A pipeline is created disabled, and recomputeOrgCaches merges only
 		// ENABLED pipelines — so enabling is what produces a served config to
 		// append the baseline to. Enabling triggers its own recompute.
-		enableResp := postJSON(server, fmt.Sprintf("/orgs/%s/pipelines/%s/enable", orgID, pipelineID), nil, adminCookie)
+		enableResp := postConnectJSON(server, "/shepherd.mgmt.v1.PipelineService/EnablePipeline", adminCookie, map[string]any{
+			"orgId": orgID, "id": pipelineID,
+		})
 		defer enableResp.Body.Close() //nolint:errcheck // test cleanup
 		Expect(enableResp.StatusCode).To(Equal(http.StatusOK))
 

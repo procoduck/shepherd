@@ -64,3 +64,15 @@ Ingress or an HTTPRoute -- see `ingress` and `route` in values.yaml.
 {{ end }}
 Create a token:
   kubectl exec -it -n {{ .Release.Namespace }} deploy/{{ $fullName }} -- shepherd token create --name my-cluster
+{{- if ((.Values.receiver).enabled) }}
+
+Receiver tier: ENABLED ({{ include "shepherd.receiverFullname" . }}, OTLP/HTTP on port {{ .Values.receiver.listener.port }}).
+  - It is enabled ahead of review gate R3 (docs/gateway-tier-plan.md §7);
+    the chart defaults it off until R3 is signed.
+  - Only the peers in receiver.networkPolicy.gatewayFrom can reach it. With
+    mode={{ .Values.receiver.mode }}, the tenant is the X-Scope-OrgID header
+    your gateway's HTTPRoute sets -- the route prefix is an identifier, not an
+    authorizer.
+  - Tenant routes created in Shepherd are NOT applied to the cluster yet:
+    create the HTTPRoute pointing at this Service yourself.
+{{- end }}

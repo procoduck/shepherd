@@ -44,7 +44,7 @@ func NewServer(b *Backend, version string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_fleet_attributes",
-		Description: "List the distinct attribute values (cluster, role, and any others) collectors in an org report — useful for writing pipeline matchers.",
+		Description: "List the matcher keys pipeline matching evaluates for an org, each with its distinct values — cluster and role always, plus collector labels and agent-reported attributes when the org has enabled matching on them. Use these keys when writing pipeline matchers: a key not listed here can never match.",
 	}, b.listFleetAttributes)
 
 	mcp.AddTool(s, &mcp.Tool{

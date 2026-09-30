@@ -1,7 +1,7 @@
 {
   "_meta": {
-    "alloy_version": "v1.19.2",
-    "description": "Overlay for alloy-v1.19.2. Deep-merged server-side over the artifact before serving via GET /api/schema/{version}. Keys must exist in the artifact (CI-enforced). Components absent from this overlay land in the 'advanced' category.",
+    "alloy_version": "v1.20.1",
+    "description": "Overlay for alloy-v1.20.1. Deep-merged server-side over the artifact before serving via GET /api/schema/{version}. Keys must exist in the artifact (CI-enforced). Components absent from this overlay land in the 'advanced' category.",
     "version": "5"
   },
   "categories": {
@@ -1035,6 +1035,22 @@
         "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
       },
       "terminal_ok": false
+    },
+    "otelcol.encoding.jsonlog": {
+      "category": "config",
+      "doc": "Encodes and decodes JSON log records for OTel receivers and exporters that take an encoding extension (experimental).",
+      "icon": "file",
+      "sim_secret_source": {
+        "mode": "drop_ref"
+      }
+    },
+    "otelcol.encoding.text": {
+      "category": "config",
+      "doc": "Encodes and decodes plain-text lines for OTel receivers and exporters that take an encoding extension (experimental).",
+      "icon": "file",
+      "sim_secret_source": {
+        "mode": "drop_ref"
+      }
     },
     "otelcol.exporter.awss3": {
       "category": "destinations",

@@ -1,0 +1,152 @@
+<h1>Receiver tier</h1>
+      <p>
+        The receiver tier is an OTLP/HTTP endpoint for applications &mdash; browsers, Lambdas,
+        services &mdash; that sits behind your Gateway API gateway and forwards each tenant's data to
+        your tenant-aware backends (Mimir, Loki, Tempo) carrying that tenant's
+        <code>X-Scope-OrgID</code>. One receiver serves every tenant.
+      </p>
+      <p>
+        <strong>It is off by default</strong> (<code>receiver.enabled: false</code>) while it goes
+        through its security review. You can turn it on to try it; the chart tells you so when you
+        do.
+      </p>
+
+      <h2 id="how-it-works">How it works</h2>
+      <pre><code>client  --&gt;  https://gw.example/otlp/&lt;route-segment&gt;/v1/traces
+        --&gt;  your gateway's HTTPRoute
+               strips the /otlp/&lt;route-segment&gt; prefix
+               SETS X-Scope-OrgID: &lt;tenant&gt;   (replacing anything the client sent)
+        --&gt;  the receiver (Alloy, OTLP/HTTP)
+               forwards the request's X-Scope-OrgID with its data
+        --&gt;  your backend</code></pre>
+      <p>
+        The tenant comes from the <em>route</em>, not the client: a client that sends its own
+        <code>X-Scope-OrgID</code> has it overwritten by the gateway. The route segment in the URL is an
+        <strong>identifier, not a secret</strong> &mdash; URLs leak through logs and browser history.
+        Protect the endpoint with the gateway's own controls (origin allowlists, rate limits) and
+        rotate segments when they leak.
+      </p>
+      <p>
+        Because the tenant header is only trustworthy when the gateway set it, the receiver accepts
+        traffic <strong>only from your gateway's pods</strong>. Its NetworkPolicy admits the peers in
+        <code>receiver.networkPolicy.gatewayFrom</code> and nothing else, so a pod elsewhere cannot
+        reach it and claim a tenant.
+      </p>
+
+      <h2 id="enable">Enable it</h2>
+      <pre><code>receiver:
+  enabled: true
+  exporters:
+    traces:
+      enabled: true
+      endpoint: "http://tempo-distributor.observability:4318"
+    metrics:
+      enabled: true
+      endpointFromSecret: {name: mimir-otlp, key: endpoint}
+      authorizationFromSecret: {name: mimir-otlp, key: authorization}
+  networkPolicy:
+    # Your gateway's data-plane pods -- a podSelector is REQUIRED.
+    gatewayFrom:
+      - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: gateways}}
+        podSelector: {matchLabels: {gateway.networking.k8s.io/gateway-name: edge}}
+    # Where the receiver may send data. Egress is otherwise denied (DNS aside).
+    egress:
+      - to:
+          - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: observability}}</code></pre>
+      <p>
+        Gateway API implementations label their data-plane pods
+        <code>gateway.networking.k8s.io/gateway-name: &lt;gateway&gt;</code>, which is the selector
+        shown. Credentials go in a Secret and reach the receiver only as environment variables &mdash;
+        never in its ConfigMap.
+      </p>
+
+      <h2 id="what-the-chart-refuses">What the chart refuses</h2>
+      <ul>
+        <li>An empty <code>gatewayFrom</code> or <code>egress</code> &mdash; a receiver no gateway can
+            reach, or one that cannot deliver, fails <code>helm template</code> with a message.</li>
+        <li>A <code>gatewayFrom</code> peer without a non-empty <code>podSelector</code> &mdash; a
+            namespace alone would admit any pod in it, and any such pod could assert any tenant.</li>
+        <li>A gRPC listener &mdash; only OTLP/HTTP is served, because the tenant header is set by an
+            HTTPRoute, which cannot front gRPC.</li>
+        <li>A request-body limit left unset, or a batch cap below the batch size.</li>
+      </ul>
+      <p>
+        The receiver's config is rendered and validated when its pod starts. A config the renderer
+        refuses stops the new pod at <code>Init:Error</code> &mdash; the receiver already running keeps
+        serving &mdash; and <code>kubectl logs &lt;pod&gt; -c render</code> says why.
+      </p>
+
+      <h2 id="routes">Tenant routes</h2>
+      <p>
+        Create a tenant route on <strong>Admin &rarr; Tenant routes</strong> (or through
+        <code>TenantRouteService</code>), naming the Gateway it attaches to. Shepherd then creates the
+        route's HTTPRoute in its own namespace, pointing at the receiver, and waits for the gateway to
+        report it attached. The <strong>In cluster</strong> column shows the result:
+      </p>
+      <ul>
+        <li><strong>applied</strong> &mdash; the gateway accepted the route; traffic to its path
+            reaches the receiver with the org's tenant.</li>
+        <li><strong>refused</strong> &mdash; the gateway will not attach it, and says why underneath.
+            Usually the Gateway's listeners do not admit routes from Shepherd's namespace: set their
+            <code>allowedRoutes.namespaces</code> to include it. Shepherd keeps checking, so the route
+            turns <strong>applied</strong> once the Gateway is fixed.</li>
+        <li><strong>error</strong> &mdash; anything else (the error is shown); retried with backoff.</li>
+        <li><strong>pending</strong> &mdash; not applied yet. A route that stays pending means route
+            apply is off: the receiver tier is disabled, or <code>receiver.applyTenantRoutes</code> is
+            <code>false</code>.</li>
+        <li><strong>removed</strong> &mdash; the route was revoked, or its rotation overlap ended, and
+            its HTTPRoute has been deleted.</li>
+      </ul>
+      <p>
+        Rotating a route keeps the old path working until its overlap ends, then Shepherd revokes it
+        and deletes its HTTPRoute. Revoking deletes it straight away. Shepherd never creates or
+        changes a Gateway, and never touches HTTPRoutes it did not create (it finds its own by the
+        <code>shepherd.io/tenant-route-id</code> label).
+      </p>
+      <h2 id="connect-an-app">Connect an app</h2>
+      <p>
+        Each active OTLP route has a <strong>Connect an app</strong> button (any org member can use
+        it). Enter the service name and Shepherd shows the endpoint to send to, plus ready-to-paste
+        configuration: a <code>.env</code> file, a Kubernetes container <code>env</code> block, Lambda
+        environment JSON, Terraform, SAM and CDK fragments, and notes for OpenTelemetry SDKs. Most SDKs
+        need no code change &mdash; the standard <code>OTEL_EXPORTER_OTLP_*</code> variables are
+        enough.
+      </p>
+      <p>
+        The endpoint uses your gateway's public address. Set it once with
+        <code>receiver.publicBaseURL</code> (it must be <code>https://</code>); otherwise users type it
+        in the dialog. Only OTLP over HTTP is offered: the gateway finds the tenant from the URL path,
+        which a gRPC client cannot set.
+      </p>
+      <pre><code>receiver:
+  publicBaseURL: https://telemetry.example.com</code></pre>
+
+      <p>
+        To do this, the chart gives Shepherd's ServiceAccount a Role on <code>httproutes</code> in the
+        release namespace and permission to read the one <code>httproutes.gateway.networking.k8s.io</code>
+        CRD (to check the Gateway API version), and mounts its token on the Shepherd pod. None of it
+        exists with the receiver off. To manage the HTTPRoutes yourself instead, set
+        <code>receiver.applyTenantRoutes: false</code> and write each one in this shape:
+      </p>
+      <pre><code>apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: acme-otlp
+  namespace: shepherd            # the receiver's namespace
+spec:
+  parentRefs:
+    - name: edge
+      namespace: gateways
+  rules:
+    - matches:
+        - path: {type: PathPrefix, value: /otlp/acme-7f3k2}
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path: {type: ReplacePrefixMatch, replacePrefixMatch: ""}
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            set: [{name: X-Scope-OrgID, value: acme}]
+      backendRefs:
+        - name: shepherd-receiver      # &lt;release&gt;-receiver
+          port: 4318</code></pre>

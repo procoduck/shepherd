@@ -6,7 +6,8 @@ import "google/protobuf/struct.proto";
 
 option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 
-// VisualService covers /api/orgs/{org}/visual/* and the pipeline graph view.
+// VisualService renders, validates and diffs visual graphs, and serves the
+// pipeline graph view.
 // Render/Validate/UpgradeCheck require org-editor (D6, the same authoring
 // ceiling WizardService and SimulateService hold); GraphView requires
 // org-reader.
@@ -132,7 +133,7 @@ message RenderRequest {
   GraphDocument graph = 2;
 }
 
-// RenderResponse mirrors internal/mgmtapi/visual.go: visualResponse.
+// RenderResponse is a visual graph rendered to Alloy config.
 message RenderResponse {
   string content = 1;
   map<string, NodeRange> node_map = 2;
@@ -157,9 +158,9 @@ message VisualNodeDiagnostic {
   string message = 5;
 }
 
-// ValidateVisualResponse mirrors visual.go Validate: {"diagnostics": [...]}.
-// Returns 200 with an empty list on success — "validate endpoints return 200
-// + diagnostics today".
+// ValidateVisualResponse carries a visual graph's validation diagnostics.
+// Validation problems ride in the response (an empty list on success), not
+// as a Connect error.
 message ValidateVisualResponse {
   // diagnostics carries L2 (Stage1/2 Alloy validation) diagnostics, remapped
   // onto canvas nodes — always a 200 response, even when diagnostics is
@@ -168,12 +169,12 @@ message ValidateVisualResponse {
   // render_diagnostics carries L1 (render-failure) diagnostics when the
   // graph itself failed to render (e.g. a label collision or an unknown
   // component) — the same VisualDiagnostic shape (layer/code/node_id/
-  // node_id2/message) Render's legacy 422 body uses, which is a different
+  // node_id2/message) RenderResponse uses, which is a different
   // shape from diagnostics' (layer/node_id/line/col/message): line/col
   // never existed for this diagnostic kind, and code/node_id2 have no slot
-  // in VisualNodeDiagnostic. A non-empty render_diagnostics always means a
-  // 422 (see visual.go's Validate REST shim). Populated exactly when
-  // diagnostics is empty.
+  // in VisualNodeDiagnostic. A non-empty render_diagnostics means the graph
+  // could not be rendered at all. Populated exactly when diagnostics is
+  // empty.
   repeated VisualDiagnostic render_diagnostics = 2;
 }
 
@@ -214,7 +215,7 @@ message GraphViewRequest {
   string id = 2;
 }
 
-// GraphViewResponse mirrors visual.go GraphView: {"graph","opaque","warning"}.
+// GraphViewResponse is a pipeline's graph for the read-only graph view.
 message GraphViewResponse {
   GraphDocument graph = 1;
   bool opaque = 2;

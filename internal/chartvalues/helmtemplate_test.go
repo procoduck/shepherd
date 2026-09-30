@@ -56,9 +56,16 @@ func TestHelmTemplateCleanly(t *testing.T) {
 				t.Fatalf("writing generated values: %v", err)
 			}
 
-			supplementPath := filepath.Join(dir, "operator-supplement.yaml")
-			if err := os.WriteFile(supplementPath, operatorExtraEnvSupplement(spec.Roles), 0o600); err != nil {
-				t.Fatalf("writing operator supplement: %v", err)
+			// The credentials layer the RPC hands out alongside Render's: it
+			// carries the chart's required extra env AND the token wiring,
+			// so this also proves the two files together are what renders.
+			credentials, err := chartvalues.RenderCredentialsLayer(spec.Roles, "shepherd-agent-token")
+			if err != nil {
+				t.Fatalf("rendering credentials layer: %v", err)
+			}
+			supplementPath := filepath.Join(dir, "credentials-layer.yaml")
+			if err := os.WriteFile(supplementPath, credentials, 0o600); err != nil {
+				t.Fatalf("writing credentials layer: %v", err)
 			}
 
 			cmd := exec.Command(helmBin, "template", "testrelease", chartDir,
@@ -71,7 +78,8 @@ func TestHelmTemplateCleanly(t *testing.T) {
 			}
 
 			out := stdout.String()
-			if !containsAll(out, "remotecfg {", `url = "`+trimSlash(spec.ShepherdURL)+`"`) {
+			if !containsAll(out, "remotecfg {", `url = "`+trimSlash(spec.ShepherdURL)+`"`,
+				"name: SHEPHERD_AGENT_TOKEN_ID", "key: token-id") {
 				t.Errorf("helm template output is missing the expected remotecfg block for %s:\n%s", name, out)
 			}
 		})
@@ -131,26 +139,6 @@ func containsAll(haystack string, needles ...string) bool {
 		}
 	}
 	return true
-}
-
-// operatorExtraEnvSupplement builds the minimal values fragment satisfying
-// render.go's RequiredOperatorExtraEnvVar for exactly the collectors this
-// fixture's roles enable — scoped to those collectors deliberately: adding
-// an extraEnv entry for a collector name Render never mentions would create
-// a NEW, unwanted collectors.<name> entry (collectors.list.enabled iterates
-// every key present under .Values.collectors), which would make this test
-// pass for the wrong reason.
-func operatorExtraEnvSupplement(roles []string) []byte {
-	var buf bytes.Buffer
-	buf.WriteString("collectors:\n")
-	for _, role := range roles {
-		buf.WriteString("  alloy-" + role + ":\n")
-		buf.WriteString("    alloy:\n")
-		buf.WriteString("      extraEnv:\n")
-		buf.WriteString("        - name: " + chartvalues.RequiredOperatorExtraEnvVar + "\n")
-		buf.WriteString("          value: \"unused\"\n")
-	}
-	return buf.Bytes()
 }
 
 // pullPinnedChart fetches the exact PinnedChartVersion release of

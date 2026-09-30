@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -13,26 +14,41 @@ import (
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
 	"shepherd/internal/gateway"
+	"shepherd/internal/onboarding"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 )
 
 // TenantRouteService implements mgmtv1connect.TenantRouteServiceHandler:
 // create/list/rotate/revoke for tenant route records (W4,
-// docs/gateway-tier-plan.md §4). It owns the generation POLICY wiring
+// docs/gateway-tier-plan.md §4), plus the read-only "connect an app"
+// rendering (W7). It owns the generation POLICY wiring
 // (internal/gateway.GenerateSegment, D9) and persistence
 // (0009_tenant_routes, D8's two gateway_mode values); it does not touch
-// Kubernetes at all — rendering (internal/gateway.RenderHTTPRoute already
-// exists) and the actual apply are explicitly a later slice (plan §5's W4
-// boundary).
+// Kubernetes — internal/routeapply's reconciler applies the HTTPRoutes.
 type TenantRouteService struct {
 	store  *store.Store
 	logger *slog.Logger
+	// publicBaseURL is the gateway's public https URL, the default for
+	// RenderConnectApp (gateway.routes.public_base_url). May be empty.
+	publicBaseURL string
+}
+
+// TenantRouteOption configures a TenantRouteService.
+type TenantRouteOption func(*TenantRouteService)
+
+// WithGatewayPublicBaseURL sets the default gateway URL RenderConnectApp uses.
+func WithGatewayPublicBaseURL(u string) TenantRouteOption {
+	return func(s *TenantRouteService) { s.publicBaseURL = u }
 }
 
 // NewTenantRouteService constructs a TenantRouteService.
-func NewTenantRouteService(st *store.Store, logger *slog.Logger) *TenantRouteService {
-	return &TenantRouteService{store: st, logger: logger}
+func NewTenantRouteService(st *store.Store, logger *slog.Logger, opts ...TenantRouteOption) *TenantRouteService {
+	s := &TenantRouteService{store: st, logger: logger}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
 }
 
 var _ mgmtv1connect.TenantRouteServiceHandler = (*TenantRouteService)(nil)
@@ -68,6 +84,9 @@ func toTenantRouteProto(r sqlc.TenantRoute) *mgmtv1.TenantRoute {
 		CreatedAt:        protoTimestamp(r.CreatedAt),
 		UpdatedAt:        protoTimestamp(r.UpdatedAt),
 		RevokedAt:        protoTimestamp(r.RevokedAt),
+		ApplyStatus:      r.ApplyStatus,
+		ApplyMessage:     r.ApplyMessage,
+		AppliedAt:        protoTimestamp(r.AppliedAt),
 	}
 	if r.RotatedFromID.Valid {
 		out.RotatedFromId = r.RotatedFromID.String()
@@ -336,4 +355,75 @@ func (s *TenantRouteService) RevokeTenantRoute(ctx context.Context, req *connect
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to revoke tenant route"))
 	}
 	return connect.NewResponse(toTenantRouteProto(r)), nil
+}
+
+// RenderConnectApp renders internal/onboarding's artifacts for one of the
+// org's routes. Only an active OTLP route qualifies: a deprecated one stops
+// routing when its overlap ends, a revoked one already has, and Faro has no
+// receiver (D10) — handing out any of those endpoints is handing out a 404.
+// The endpoint itself comes from onboarding.BaseEndpoint, the same
+// RouteSpec.PathPrefix the gateway's HTTPRoute matches on (G7).
+func (s *TenantRouteService) RenderConnectApp(ctx context.Context, req *connect.Request[mgmtv1.RenderConnectAppRequest]) (*connect.Response[mgmtv1.RenderConnectAppResponse], error) {
+	r, err := s.loadOwnedTenantRoute(ctx, req.Msg.GetOrgId(), req.Msg.GetId())
+	if err != nil {
+		return nil, err
+	}
+	if r.Kind != string(gateway.KindOTLP) {
+		return nil, connect.NewError(connect.CodeFailedPrecondition,
+			errors.New("only OTLP routes have connect-an-app snippets: Shepherd deploys no Faro receiver"))
+	}
+	if r.Status != "active" {
+		return nil, connect.NewError(connect.CodeFailedPrecondition,
+			fmt.Errorf("route is %s, so its endpoint will not (or soon will not) route — connect apps to the org's active route", r.Status))
+	}
+	serviceName := strings.TrimSpace(req.Msg.GetServiceName())
+	if serviceName == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("service_name must not be empty"))
+	}
+	protocol := onboarding.Protocol(req.Msg.GetProtocol())
+	if protocol == "" {
+		protocol = onboarding.ProtocolHTTPProtobuf
+	}
+	if protocol != onboarding.ProtocolHTTPProtobuf && protocol != onboarding.ProtocolHTTPJSON {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("protocol %q is not %q or %q (OTLP/gRPC cannot carry the tenant path)", protocol,
+				onboarding.ProtocolHTTPProtobuf, onboarding.ProtocolHTTPJSON))
+	}
+	baseURL := strings.TrimSpace(req.Msg.GetGatewayBaseUrl())
+	if baseURL == "" {
+		baseURL = s.publicBaseURL
+	}
+	if baseURL == "" {
+		return nil, connect.NewError(connect.CodeFailedPrecondition,
+			errors.New("no gateway URL: enter your gateway's public https URL, or have an operator set gateway.routes.public_base_url"))
+	}
+
+	spec := onboarding.ConnectAppSpec{
+		GatewayBaseURL:   baseURL,
+		Route:            gateway.RouteSpec{Kind: gateway.RouteKind(r.Kind), RouteSegment: r.Segment},
+		ServiceName:      serviceName,
+		Protocol:         protocol,
+		IncludeADOTLayer: req.Msg.GetIncludeAdotLayer(),
+	}
+	b, err := onboarding.Render(spec)
+	if err != nil {
+		// The inputs above are checked; what remains is the URL's shape
+		// (https, a host), which is the caller's to fix.
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	base, err := onboarding.BaseEndpoint(baseURL, spec.Route)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	return connect.NewResponse(&mgmtv1.RenderConnectAppResponse{
+		BaseEndpoint:   base,
+		GatewayBaseUrl: baseURL,
+		Env:            b.Env,
+		Lambda:         b.Lambda,
+		Terraform:      b.Terraform,
+		Sam:            b.SAM,
+		Cdk:            b.CDK,
+		K8S:            b.K8s,
+		SdkNotes:       b.SDKNotes,
+	}), nil
 }

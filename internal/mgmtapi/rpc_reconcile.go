@@ -49,7 +49,7 @@ func (s *FleetService) GetReconciliation(ctx context.Context, req *connect.Reque
 	}
 	cluster, _ := s.store.Queries.GetClusterByID(ctx, coll.ClusterID) //nolint:errcheck // empty cluster name only affects matcher matching, degrades safely
 
-	served, err := s.reconcileServed(ctx, orgID, coll.ID.String(), coll.Role, cluster.Name)
+	served, err := s.reconcileServed(ctx, orgID, coll.ID.String(), coll.Role, cluster.Name, coll.Labels)
 	if err != nil {
 		s.logger.Warn("reconcile: building served set failed", "collector_id", id.String(), "err", err)
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to reconcile served pipelines"))
@@ -84,15 +84,20 @@ func (s *FleetService) GetReconciliation(ctx context.Context, req *connect.Reque
 // surface produces is therefore served<->observed drift: a collector running a
 // managed pipeline that its desired served set no longer contains (a disabled or
 // deleted pipeline it has not yet dropped).
-func (s *FleetService) reconcileServed(ctx context.Context, orgID pgtype.UUID, collectorID, role, cluster string) ([]reconcile.ServedPipeline, error) {
+//
+// The label set is built exactly as the serve paths build it (#139): admin
+// labels and local_attributes join cluster/role only when the org's matching
+// flags allow it. Using cluster/role alone here would leave out a pipeline the
+// collector reaches through a label — one it is correctly running — and report
+// it as drift.
+func (s *FleetService) reconcileServed(ctx context.Context, orgID pgtype.UUID, collectorID, role, cluster string, rawLabels json.RawMessage) ([]reconcile.ServedPipeline, error) {
 	eps, err := s.store.Queries.ListEnabledPipelinesForMerge(ctx, orgID)
 	if err != nil {
 		return nil, err
 	}
-	cl := merge.CollectorLabels{
-		CollectorID: collectorID,
-		Labels:      map[string]string{"role": role, "cluster": cluster},
-	}
+	org, _ := s.store.Queries.GetOrgByID(ctx, orgID) //nolint:errcheck // an org lookup failure degrades to cluster/role-only matching, as on the serve paths
+	localAttrs := localAttrsByOrg(ctx, s.store.Queries, orgID, org.AllowLocalAttributeMatching)
+	cl := merge.BuildCollectorLabels(collectorID, cluster, role, adminLabelsIfAllowed(org.AllowLabelMatching, rawLabels), localAttrs[collectorID])
 	var served []reconcile.ServedPipeline
 	for i := range eps {
 		ep := eps[i]

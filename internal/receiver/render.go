@@ -179,9 +179,10 @@ func renderBatch(sb *strings.Builder, label string, batch BatchConfig, passThrou
 	if batch.SendBatchSize != 0 {
 		_, _ = fmt.Fprintf(sb, "  send_batch_size = %d\n", batch.SendBatchSize)
 	}
-	if batch.SendBatchMaxSize != 0 {
-		_, _ = fmt.Fprintf(sb, "  send_batch_max_size = %d\n", batch.SendBatchMaxSize)
-	}
+	// Always explicit, 0 included (0 = no cap): omitted, Alloy applies its own
+	// non-zero default cap and refuses to START — not to validate — whenever
+	// send_batch_size exceeds it.
+	_, _ = fmt.Fprintf(sb, "  send_batch_max_size = %d\n", batch.SendBatchMaxSize)
 	if passThrough {
 		// Preserve exactly the one key the tenant auth component reads, and
 		// nothing else: every distinct value of a preserved key creates its

@@ -5,6 +5,8 @@
 // reaches a Connect client as a bare PermissionDenied with no message. These
 // helpers read that shape directly.
 
+import { MeService } from '@/gen/shepherd/mgmt/v1/me_pb';
+
 export const CHANGE_PASSWORD_PATH = '/change-password';
 
 export interface AuthErrorBody {
@@ -43,14 +45,36 @@ export async function changePassword(currentPassword: string, newPassword: strin
 }
 
 /**
+ * The GetMe procedure's Connect URL, derived from the generated descriptor so
+ * a rename in me.proto breaks the build rather than this probe.
+ */
+const GET_ME_PATH = `/${MeService.typeName}/${MeService.method.getMe.name}`;
+
+/**
  * Whether the session's every request is being refused with
  * password_change_required. Asked only after a Connect call has already
- * failed: the REST /api/me sits behind the same middleware and answers with
- * the auth JSON, which carries the code the Connect error lost.
+ * failed.
+ *
+ * This is a plain fetch of the GetMe procedure rather than a call through
+ * `clients.me`, on purpose: the middleware answers every route, Connect ones
+ * included, with the auth JSON (`{"error":{"code":...}}`), which connect-web
+ * cannot decode — its client surfaces only a bare PermissionDenied with an
+ * empty message. Reading the 403 body directly recovers the code. The request
+ * is the Connect unary JSON call the client would have sent: POST, an empty
+ * GetMeRequest, and the X-Requested-With header the CSRF middleware demands.
  */
 export async function passwordChangeRequired(): Promise<boolean> {
   try {
-    const response = await fetch('/api/me', { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+    const response = await fetch(GET_ME_PATH, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'Connect-Protocol-Version': '1',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      body: '{}',
+    });
     if (response.status !== 403) return false;
     const body = (await response.json()) as AuthErrorBody;
     return body?.error?.code === 'password_change_required';

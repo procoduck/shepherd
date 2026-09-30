@@ -284,12 +284,12 @@ var _ = Describe("Scenario sandbox-sim: a literal scrape target is re-pointed at
 		var org struct {
 			ID string `json:"id"`
 		}
-		status := adminClient.postJSON("/api/admin/orgs", map[string]string{
+		status := adminClient.rpc("AdminService", "CreateOrg", map[string]string{
 			"name":           "e2e-sandbox-egress-org",
 			"display_name":   "E2E Sandbox-Egress Org",
 			"admin_group_id": appAdminGroupID,
 		}, &org)
-		Expect(status).To(Equal(http.StatusCreated))
+		Expect(status).To(Equal(http.StatusOK))
 		egressOrgID = org.ID
 	})
 
@@ -323,9 +323,9 @@ var _ = Describe("Scenario sandbox-sim: a literal scrape target is re-pointed at
 		}
 
 		var created struct {
-			RunID string `json:"run_id"`
+			RunID string `json:"runId"`
 		}
-		status := adminClient.postJSON(fmt.Sprintf("/api/orgs/%s/simulate/runs", egressOrgID), map[string]any{
+		status := adminClient.rpc("SimulateService", "CreateRun", map[string]any{
 			"org_id":           egressOrgID,
 			"graph":            graph,
 			"duration_seconds": 20,
@@ -427,12 +427,12 @@ var _ = Describe("Scenario sandbox-sim: a runtime retarget is accepted by the tr
 			var org struct {
 				ID string `json:"id"`
 			}
-			status := adminClient.postJSON("/api/admin/orgs", map[string]string{
+			status := adminClient.rpc("AdminService", "CreateOrg", map[string]string{
 				"name":           "e2e-sandbox-retarget-org",
 				"display_name":   "E2E Sandbox-Retarget Org",
 				"admin_group_id": appAdminGroupID,
 			}, &org)
-			Expect(status).To(Equal(http.StatusCreated))
+			Expect(status).To(Equal(http.StatusOK))
 			retargetOrg = org.ID
 		})
 
@@ -481,9 +481,9 @@ var _ = Describe("Scenario sandbox-sim: a runtime retarget is accepted by the tr
 			}
 
 			var created struct {
-				RunID string `json:"run_id"`
+				RunID string `json:"runId"`
 			}
-			status := adminClient.postJSON(fmt.Sprintf("/api/orgs/%s/simulate/runs", retargetOrg), map[string]any{
+			status := adminClient.rpc("SimulateService", "CreateRun", map[string]any{
 				"org_id":           retargetOrg,
 				"graph":            graph,
 				"duration_seconds": 15,

@@ -183,18 +183,16 @@ var _ = Describe("GitOpsService (Connect RPC)", Label("integration"), func() {
 
 		It("creates and lists a credential over the Connect handler (happy path, legacy kind default)", func() {
 			// The raw Connect wire uses connect-go's default JSON codec
-			// (camelCase field names, unlike the REST shim's UseProtoNames
-			// snake_case) — see docs/archive/api-contract-design.md's note that
-			// Connect endpoints are plain HTTP POST + JSON in their own
-			// dialect, separate from the REST shim's byte-compatible JSON.
+			// (camelCase field names) — see docs/archive/api-contract-design.md's
+			// note that Connect endpoints are plain HTTP POST + JSON.
 			created := createCredential(createCredWire{
 				Name: "primary", AdoOrgURL: "https://dev.azure.com/acme",
 				EntraTenantID: "tenant-1", ClientID: "client-1", ClientSecret: "super-secret",
 			})
 			Expect(created["name"]).To(Equal("primary"))
 			Expect(created["clientId"]).To(Equal("client-1"))
-			// kind omitted -> defaults to ado_sp (the legacy REST shim's
-			// pre-rename shape never sent kind).
+			// kind omitted -> defaults to ado_sp (requests from before the
+			// credential-kind rename never sent kind).
 			Expect(created["kind"]).To(Equal("ado_sp"))
 			Expect(created).NotTo(HaveKey("clientSecret"))
 			Expect(created).NotTo(HaveKey("client_secret"))

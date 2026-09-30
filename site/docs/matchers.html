@@ -68,6 +68,10 @@
     <li><a href="single-sign-on.html">Single sign-on</a></li>
     <li><a href="users-and-teams.html">Users and teams</a></li>
   </ul>
+  <p class="docs-nav-cat">Ingest</p>
+  <ul>
+    <li><a href="receiver.html">Receiver tier</a></li>
+  </ul>
   <p class="docs-nav-cat">Sandbox</p>
   <ul>
     <li><a href="simulation.html">Sandbox simulation</a></li>
@@ -95,16 +99,54 @@
       </p>
 <h2 id="matchers">Matchers decide who gets it</h2>
       <p>
-        Matchers use Alertmanager syntax against the attributes a collector reports —
+        Matchers use Alertmanager syntax against a collector's keys —
         <code>cluster="prod-eu-1"</code>, <code>role="metrics"</code>, <code>role=~"metrics|logs"</code>.
-        A pipeline with no matchers reaches nothing. The editor previews how many collectors currently
-        match before you save, so "this matches nothing" is visible rather than discovered later.
+        Every collector has <code>cluster</code> and <code>role</code>; an organisation can opt in to
+        more (below). A pipeline with no matchers reaches nothing. The editor previews how many
+        collectors currently match before you save, so "this matches nothing" is visible rather than
+        discovered later, and the matcher input suggests the <code>key="value"</code> pairs your
+        collectors actually carry &mdash; only keys that matching will evaluate.
       </p>
       <p><img src="../img/pipelines.jpg" alt="The Pipelines list showing name, source, matchers and an enabled toggle for each pipeline" loading="lazy"></p>
       <p>
         The <strong>Source</strong> column is worth reading: <code>ui</code>, <code>wizard</code>,
         <code>visual</code> and <code>git</code> pipelines all merge identically, but a
         <code>git</code> one is owned by its repository and will be overwritten on the next sync.
+      </p>
+
+      <h2 id="matching-on-labels">Matching on labels and agent attributes</h2>
+      <p>
+        Two per-organisation settings, both <strong>off by default</strong>, let matchers use more than
+        <code>cluster</code> and <code>role</code>. An app admin turns them on under
+        <strong>Admin &rarr; Organisations &rarr; Edit</strong>:
+      </p>
+      <ul>
+        <li><strong>Match pipelines on collector labels</strong> &mdash; the labels an org admin sets on
+            a collector's page (<code>team="payments"</code>).</li>
+        <li><strong>Match pipelines on agent-reported attributes</strong> &mdash; the attributes a
+            collector's Alloy reports about itself, from its most recently seen instance. Keys are
+            lowercased, so an agent's <code>Zone</code> matches <code>zone="eu-1"</code>.</li>
+      </ul>
+      <p>
+        They are separate because they are trusted differently: anyone holding a collector's token
+        can change what it reports, while only an org admin can set a label. So when the same key
+        comes from both, the admin label wins &mdash; and <code>cluster</code> and <code>role</code>
+        always win over either. Some keys can never be set by a label or an attribute:
+        <code>cluster</code>, <code>role</code>, <code>id</code>, <code>os</code>,
+        <code>alloy_version</code>, and anything starting <code>collector.</code> or
+        <code>shepherd.</code>. A key must also be a valid matcher name (letters, digits and
+        underscores, not starting with a digit), so an attribute such as <code>k8s.namespace</code>
+        cannot be matched on.
+      </p>
+      <p>
+        Turning label matching on can change which collectors your existing pipelines reach. Preview
+        that before you flip it:
+      </p>
+      <pre><code>shepherd admin audit-matcher-impact --org &lt;org-id&gt;</code></pre>
+      <p>
+        After that, any label or attribute change that alters which pipelines a collector matches is
+        written to the audit log as <code>pipeline.match.changed</code> and counted in the
+        <code>shepherd_pipeline_match_changes_total</code> metric.
       </p>
 
       <h2 id="the-validation-gate">The validation gate</h2>
@@ -134,6 +176,7 @@
       <p class="toc-label">On this page</p>
       <ul>
         <li><a href="#matchers">Matchers decide who gets it</a></li>
+        <li><a href="#matching-on-labels">Matching on labels and agent attributes</a></li>
         <li><a href="#the-validation-gate">The validation gate</a></li>
       </ul>
     </aside>
@@ -143,7 +186,7 @@
 <footer>
   <div class="wrap">
     <div class="foot-left">
-      <span class="pill">v0.10.0</span>
+      <span class="pill">v0.12.0</span>
       <span>self-hosted Grafana Alloy fleet manager</span>
     </div>
     <div class="foot-links">

@@ -26,8 +26,7 @@ export const GetMeRequestSchema: GenMessage<GetMeRequest> = /*@__PURE__*/
   messageDesc(file_shepherd_mgmt_v1_me, 0);
 
 /**
- * OrgMembership is one org the actor can see, with their effective role in it
- * (internal/mgmtapi/orgs.go: meOrgEntry).
+ * OrgMembership is one org the actor can see, with their effective role in it.
  *
  * @generated from message shepherd.mgmt.v1.OrgMembership
  */
@@ -51,8 +50,7 @@ export type OrgMembership = Message<"shepherd.mgmt.v1.OrgMembership"> & {
    * Role is "admin", "editor" or "viewer" — the same three names for a local
    * user (org_members.role) and an OIDC one (matched against the org's
    * admin/editor/reader group), so the UI does not have to know which path the
-   * session came from. Kept as a string rather than an enum so the legacy JSON
-   * value is unchanged.
+   * session came from. Kept as a string rather than an enum.
    *
    * @generated from field: string role = 4;
    */
@@ -92,7 +90,7 @@ export const OrgMembershipSchema: GenMessage<OrgMembership> = /*@__PURE__*/
   messageDesc(file_shepherd_mgmt_v1_me, 1);
 
 /**
- * GetMeResponse mirrors internal/mgmtapi/orgs.go: meResponse.
+ * GetMeResponse is the caller's identity and the orgs they can see.
  *
  * @generated from message shepherd.mgmt.v1.GetMeResponse
  */
@@ -139,7 +137,6 @@ export const GetMeResponseSchema: GenMessage<GetMeResponse> = /*@__PURE__*/
 
 /**
  * MeService reports the authenticated actor's identity and org memberships.
- * Mirrors GET /api/me (internal/mgmtapi/orgs.go: OrgsHandler.Me).
  *
  * @generated from service shepherd.mgmt.v1.MeService
  */

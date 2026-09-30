@@ -133,6 +133,56 @@ var _ = Describe("shepherd.mgmt.v1.FleetService/GetReconciliation", Label("integ
 		Expect(findings()).To(BeEmpty())
 	})
 
+	// #139/#144: with allow_label_matching on, a pipeline can reach a collector
+	// through an admin label rather than cluster/role. The desired served set
+	// must be built with the same gated label set the serve paths use, or a
+	// label-matched pipeline the collector is correctly running reads as
+	// "no longer served" drift.
+	Context("with a pipeline matched by an admin label", func() {
+		BeforeEach(func() {
+			_, err := st.Queries.SetCollectorLabel(ctx, sqlc.SetCollectorLabelParams{
+				ID: collID, LabelKey: "team", LabelValue: "payments",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			_, err = st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+				OrgID: orgID, Name: "by-label",
+				Contents: "loki.write \"dest\" {\n  endpoint {\n    url = \"http://example.com/loki/api/v1/push\"\n  }\n}\n",
+				Matchers: json.RawMessage(`["team=\"payments\""]`),
+				Enabled:  true, Source: "ui", CreatedBy: "test", UpdatedBy: "test",
+			})
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		setLabelMatching := func(on bool) {
+			o, err := st.Queries.GetOrgByID(ctx, orgID)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = st.Queries.UpdateOrg(ctx, sqlc.UpdateOrgParams{
+				ID: orgID, DisplayName: o.DisplayName, AdminGroupID: o.AdminGroupID,
+				ReaderGroupID: o.ReaderGroupID, EditorGroupID: o.EditorGroupID,
+				AllowExperimentalComponents: o.AllowExperimentalComponents,
+				AllowLabelMatching:          on,
+				AllowLocalAttributeMatching: o.AllowLocalAttributeMatching,
+			})
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		It("does not report it as drift when the org has label matching on", func() {
+			setLabelMatching(true)
+			observe("pipe_keep_me", true)
+			observe("pipe_by_label", true)
+			Expect(findings()).To(BeEmpty())
+		})
+
+		It("reports it as drift when the org has label matching off", func() {
+			setLabelMatching(false)
+			observe("pipe_keep_me", true)
+			observe("pipe_by_label", true)
+			fs := findings()
+			Expect(fs).To(HaveLen(1))
+			Expect(fs[0]["controllerPath"]).To(Equal("pipe_by_label"))
+		})
+	})
+
 	It("does not attribute another collector's beacon rows", func() {
 		// A row with no collector id (a pre-#110 baseline) must not appear as
 		// observed for this collector.

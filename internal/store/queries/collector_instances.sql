@@ -29,10 +29,13 @@ ON CONFLICT (id) DO UPDATE SET
 RETURNING *;
 
 -- name: UpdateInstanceStatus :exec
+-- remote_config_status_hash records which config the status is about: the
+-- hash the agent sent alongside it (see 0028).
 UPDATE collector_instances
-SET remote_config_status = $2,
-    remote_config_error  = $3,
-    updated_at           = now()
+SET remote_config_status      = $2,
+    remote_config_error       = $3,
+    remote_config_status_hash = sqlc.narg(status_hash),
+    updated_at                = now()
 WHERE id = $1;
 
 -- name: ClearStaleFailedStatus :exec
@@ -42,11 +45,20 @@ WHERE id = $1;
 -- Scoped to rows currently FAILED: a genuine FAILED the agent keeps
 -- re-reporting is persisted by UpdateInstanceStatus earlier in the same
 -- request and must win, so this call is a no-op whenever that happened.
+--
+-- EXCEPT a FAILED reported for the very hash now being polled (#115): Alloy
+-- reports a rejected config's FAILED once, then keeps polling with the
+-- rejected hash and no status while it runs its previous config. That silence
+-- is not recovery; the row stays FAILED until the agent reports a status for
+-- another config.
 UPDATE collector_instances
-SET remote_config_status = 'APPLIED',
-    remote_config_error  = NULL,
-    updated_at           = now()
-WHERE id = $1
+SET remote_config_status      = 'APPLIED',
+    remote_config_error       = NULL,
+    remote_config_status_hash = sqlc.arg(polled_hash),
+    updated_at                = now()
+WHERE id = sqlc.arg(id)
+  AND NOT (COALESCE(remote_config_status, '') = 'FAILED'
+           AND remote_config_status_hash IS NOT DISTINCT FROM sqlc.arg(polled_hash))
   -- Also covers a status that was never reported (NULL) or was cleared by the
   -- sweeper's inactive marker: agents report a status only when they apply a
   -- CHANGE, so a healthy collector that applied once and then polled steadily

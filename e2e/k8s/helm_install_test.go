@@ -115,6 +115,19 @@ func TestHelmChartDefaultValuesInstall(t *testing.T) {
 				helmRun(t, cfg, f, "install", release)
 				return ctx
 			}).
+		Assess("the receiver tier is NOT deployed by default",
+			func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
+				// receiver.enabled defaults false and must stay that way until
+				// review gate R3 is signed (docs/gateway-tier-plan.md §5, #109):
+				// a default install with no receiver object of any kind.
+				p := utils.RunCommand(fmt.Sprintf(
+					"kubectl --kubeconfig %s -n %s get deploy,svc,networkpolicy,configmap,serviceaccount -o name",
+					cfg.KubeconfigFile(), f.ns))
+				if strings.Contains(p.Result(), release+"-receiver") {
+					t.Fatalf("a DEFAULT install deployed the receiver tier before R3 is signed:\n%s", p.Result())
+				}
+				return ctx
+			}).
 		Assess("the simulator IS deployed by default, WITH its NetworkPolicy",
 			func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
 				// simulator.enabled defaults true since v0.0.1 — both

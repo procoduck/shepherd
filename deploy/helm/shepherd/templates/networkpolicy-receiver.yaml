@@ -1,0 +1,53 @@
+{{- if ((.Values.receiver).enabled) }}
+{{- $np := .Values.receiver.networkPolicy }}
+{{- if not $np.gatewayFrom }}
+{{- fail "receiver.networkPolicy.gatewayFrom must name the gateway's pods/namespace: the gateway is the only ingress a pass-through receiver may have (it is what sets the tenant header)" }}
+{{- end }}
+{{- range $i, $peer := $np.gatewayFrom }}
+{{- $ps := $peer.podSelector }}
+{{- if not (and $ps (or $ps.matchLabels $ps.matchExpressions)) }}
+{{- fail (printf "receiver.networkPolicy.gatewayFrom[%d] must include a non-empty podSelector naming the gateway's data-plane pods (e.g. gateway.networking.k8s.io/gateway-name: <gateway>): with a namespace alone, ANY pod in that namespace could reach the receiver and assert any tenant" $i) }}
+{{- end }}
+{{- end }}
+{{- if not $np.egress }}
+{{- fail "receiver.networkPolicy.egress must allow the receiver's destinations (ipBlock or namespace/pod selectors): egress is default-deny apart from DNS" }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "shepherd.receiverFullname" . }}
+  labels:
+    {{- include "shepherd.receiverLabels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "shepherd.receiverSelectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  # The gateway is the ONLY ingress (gate R3). With pass-through tenancy the
+  # tenant header is whatever the request carries, and only the gateway's
+  # HTTPRoute sets it trustworthily -- anything else reaching this port could
+  # assert any tenant it liked.
+  ingress:
+    - from:
+        {{- toYaml $np.gatewayFrom | nindent 8 }}
+      ports:
+        - port: otlp-http
+          protocol: TCP
+  # Default-deny egress apart from cluster DNS and the operator's destination
+  # rules. A NetworkPolicy cannot select an external destination by URL, so
+  # the operator states them (receiver.networkPolicy.egress).
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              {{- toYaml $np.dns.podSelector | nindent 14 }}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    {{- toYaml $np.egress | nindent 4 }}
+{{- end }}

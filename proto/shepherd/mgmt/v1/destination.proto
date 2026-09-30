@@ -7,7 +7,7 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 
-// DestinationService covers /api/orgs/{org}/destinations/*. Reads require
+// DestinationService manages an org's destinations. Reads require
 // org-reader; writes require org-admin.
 //
 // Destination templates + tenant bindings (W2, docs/gateway-tier-plan.md
@@ -36,7 +36,7 @@ service DestinationService {
   rpc ResolveDestinationBinding(ResolveDestinationBindingRequest) returns (ResolvedDestination) {}
 }
 
-// Destination mirrors internal/mgmtapi/orgs.go: destinationResponse.
+// Destination is a named remote-write/export target an org's pipelines send to.
 message Destination {
   string id = 1;
   string org_id = 2;
@@ -69,7 +69,7 @@ message GetDestinationRequest {
   string id = 2;
 }
 
-// CreateDestinationRequest mirrors destinationRequest in orgs.go.
+// CreateDestinationRequest creates a Destination in org_id.
 message CreateDestinationRequest {
   string org_id = 1;
   string name = 2;

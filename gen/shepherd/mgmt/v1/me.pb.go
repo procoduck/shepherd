@@ -57,8 +57,7 @@ func (*GetMeRequest) Descriptor() ([]byte, []int) {
 	return file_shepherd_mgmt_v1_me_proto_rawDescGZIP(), []int{0}
 }
 
-// OrgMembership is one org the actor can see, with their effective role in it
-// (internal/mgmtapi/orgs.go: meOrgEntry).
+// OrgMembership is one org the actor can see, with their effective role in it.
 type OrgMembership struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	Id          string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -67,8 +66,7 @@ type OrgMembership struct {
 	// Role is "admin", "editor" or "viewer" — the same three names for a local
 	// user (org_members.role) and an OIDC one (matched against the org's
 	// admin/editor/reader group), so the UI does not have to know which path the
-	// session came from. Kept as a string rather than an enum so the legacy JSON
-	// value is unchanged.
+	// session came from. Kept as a string rather than an enum.
 	Role string `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
 	// allow_experimental_components mirrors the org setting (#114) so the visual
 	// builder can show experimental components in the palette for a permitted
@@ -163,7 +161,7 @@ func (x *OrgMembership) GetAllowLocalAttributeMatching() bool {
 	return false
 }
 
-// GetMeResponse mirrors internal/mgmtapi/orgs.go: meResponse.
+// GetMeResponse is the caller's identity and the orgs they can see.
 type GetMeResponse struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	UserOid     string                 `protobuf:"bytes,1,opt,name=user_oid,json=userOid,proto3" json:"user_oid,omitempty"`

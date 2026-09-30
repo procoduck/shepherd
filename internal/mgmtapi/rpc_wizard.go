@@ -38,9 +38,7 @@ import (
 	_ "shepherd/internal/wizard/selfmonitoring"   // register wizard
 )
 
-// WizardService implements mgmtv1connect.WizardServiceHandler — the business
-// logic for /api/orgs/{org}/wizards/*, moved here from WizardHandler
-// (wizards.go, now a thin REST shim over this service).
+// WizardService implements mgmtv1connect.WizardServiceHandler.
 type WizardService struct {
 	store     *store.Store
 	registry  *wizard.Registry
@@ -48,7 +46,7 @@ type WizardService struct {
 	logger    *slog.Logger
 }
 
-// NewWizardService constructs a WizardService with the deps WizardHandler uses today.
+// NewWizardService constructs a WizardService.
 func NewWizardService(st *store.Store, v *validate.Validator, logger *slog.Logger) *WizardService {
 	return &WizardService{store: st, registry: wizard.Default(), validator: v, logger: logger}
 }

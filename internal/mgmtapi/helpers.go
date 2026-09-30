@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"shepherd/internal/auth"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 )
@@ -83,16 +84,6 @@ func respondError(w http.ResponseWriter, status int, code, message string) {
 	})
 }
 
-// decodeJSON decodes the request body into v, responding with 400 on error.
-// Returns false if the decode failed (handler should return immediately).
-func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
-	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
-		respondError(w, http.StatusBadRequest, "bad_request", "invalid JSON: "+err.Error())
-		return false
-	}
-	return true
-}
-
 // isUniqueViolation returns true for PostgreSQL unique-constraint violations (SQLSTATE 23505).
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
@@ -153,4 +144,16 @@ func auditLogDetail(ctx context.Context, st *store.Store, actor, actorType strin
 		Detail:       detailJSON,
 		OnBehalfOf:   onBehalfOf,
 	})
+}
+
+// actorFromCtx returns the authenticated actor identity from the request
+// context: a machine caller's service account name (prefixed "svcacct:",
+// matching auditLogDetail's identical prefix above) when the request is
+// machine-authenticated, otherwise the human session's actor. Returns
+// "anonymous" if neither is set (should not happen in practice).
+func actorFromCtx(ctx context.Context) string {
+	if sa, ok := serviceAccountFromCtx(ctx); ok {
+		return "svcacct:" + sa.Name
+	}
+	return auth.ActorFromCtx(ctx)
 }

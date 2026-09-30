@@ -15,7 +15,7 @@ export const file_shepherd_mgmt_v1_audit: GenFile = /*@__PURE__*/
   fileDesc("ChxzaGVwaGVyZC9tZ210L3YxL2F1ZGl0LnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIsUBCgpBdWRpdEVudHJ5EgoKAmlkGAEgASgDEiYKAmF0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBINCgVhY3RvchgDIAEoCRISCgphY3Rvcl90eXBlGAQgASgJEg4KBm9yZ19pZBgFIAEoCRIOCgZhY3Rpb24YBiABKAkSFQoNcmVzb3VyY2VfdHlwZRgHIAEoCRITCgtyZXNvdXJjZV9pZBgIIAEoCRIUCgxvbl9iZWhhbGZfb2YYCSABKAkiYAoQTGlzdEF1ZGl0UmVxdWVzdBIOCgZvcmdfaWQYASABKAkSDQoFbGltaXQYAiABKAUSDgoGb2Zmc2V0GAMgASgFEg0KBWFjdG9yGAQgASgJEg4KBmFjdGlvbhgFIAEoCSJPChFMaXN0QXVkaXRSZXNwb25zZRIrCgVpdGVtcxgBIAMoCzIcLnNoZXBoZXJkLm1nbXQudjEuQXVkaXRFbnRyeRINCgV0b3RhbBgCIAEoBTJmCgxBdWRpdFNlcnZpY2USVgoJTGlzdEF1ZGl0EiIuc2hlcGhlcmQubWdtdC52MS5MaXN0QXVkaXRSZXF1ZXN0GiMuc2hlcGhlcmQubWdtdC52MS5MaXN0QXVkaXRSZXNwb25zZSIAQiZaJHNoZXBoZXJkL2dlbi9zaGVwaGVyZC9tZ210L3YxO21nbXR2MWIGcHJvdG8z", [file_google_protobuf_timestamp]);
 
 /**
- * AuditEntry mirrors internal/mgmtapi/audit.go: auditResponse.
+ * AuditEntry is one audit-log row.
  *
  * @generated from message shepherd.mgmt.v1.AuditEntry
  */
@@ -141,7 +141,7 @@ export const ListAuditResponseSchema: GenMessage<ListAuditResponse> = /*@__PURE_
   messageDesc(file_shepherd_mgmt_v1_audit, 2);
 
 /**
- * AuditService covers /api/orgs/{org}/audit. Requires org-admin.
+ * AuditService reads an org's audit log. Requires org-admin.
  *
  * @generated from service shepherd.mgmt.v1.AuditService
  */

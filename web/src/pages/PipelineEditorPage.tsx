@@ -13,6 +13,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { clients, toApiError } from '@/api/transport';
+import { MatcherSuggestions } from '@/components/MatcherSuggestions';
 import { Input } from '@/components/ui/Field';
 import { Modal, ModalActions } from '@/components/ui/Modal';
 import { diffStats } from '@/editor/diffStats';
@@ -215,6 +216,7 @@ export function PipelineEditorPage() {
           ))}
           <div className='flex gap-2'>
             <input
+              list='pipeline-matcher-suggestions'
               value={newMatcher}
               onChange={(e) => setNewMatcher(e.target.value)}
               onKeyDown={(e) => {
@@ -227,6 +229,7 @@ export function PipelineEditorPage() {
               placeholder='cluster="prod"  (Enter to add)'
               disabled={readOnly}
             />
+            <MatcherSuggestions id='pipeline-matcher-suggestions' orgId={orgId} />
           </div>
         </div>
 

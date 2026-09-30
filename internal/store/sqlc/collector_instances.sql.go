@@ -14,10 +14,13 @@ import (
 
 const clearStaleFailedStatus = `-- name: ClearStaleFailedStatus :exec
 UPDATE collector_instances
-SET remote_config_status = 'APPLIED',
-    remote_config_error  = NULL,
-    updated_at           = now()
-WHERE id = $1
+SET remote_config_status      = 'APPLIED',
+    remote_config_error       = NULL,
+    remote_config_status_hash = $1,
+    updated_at                = now()
+WHERE id = $2
+  AND NOT (COALESCE(remote_config_status, '') = 'FAILED'
+           AND remote_config_status_hash IS NOT DISTINCT FROM $1)
   -- Also covers a status that was never reported (NULL) or was cleared by the
   -- sweeper's inactive marker: agents report a status only when they apply a
   -- CHANGE, so a healthy collector that applied once and then polled steadily
@@ -29,14 +32,25 @@ WHERE id = $1
        OR remote_config_status IN ('FAILED', 'inactive', ''))
 `
 
+type ClearStaleFailedStatusParams struct {
+	PolledHash pgtype.Text `json:"polled_hash"`
+	ID         string      `json:"id"`
+}
+
 // A poll that carries no RemoteConfigStatus payload but whose reported hash
 // matches what GetConfig actually served means the agent is healthy on its
 // current config (see B1) — clear a stale FAILED marker back to APPLIED.
 // Scoped to rows currently FAILED: a genuine FAILED the agent keeps
 // re-reporting is persisted by UpdateInstanceStatus earlier in the same
 // request and must win, so this call is a no-op whenever that happened.
-func (q *Queries) ClearStaleFailedStatus(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, clearStaleFailedStatus, id)
+//
+// EXCEPT a FAILED reported for the very hash now being polled (#115): Alloy
+// reports a rejected config's FAILED once, then keeps polling with the
+// rejected hash and no status while it runs its previous config. That silence
+// is not recovery; the row stays FAILED until the agent reports a status for
+// another config.
+func (q *Queries) ClearStaleFailedStatus(ctx context.Context, arg ClearStaleFailedStatusParams) error {
+	_, err := q.db.Exec(ctx, clearStaleFailedStatus, arg.PolledHash, arg.ID)
 	return err
 }
 
@@ -68,7 +82,7 @@ func (q *Queries) DeleteOldInstances(ctx context.Context, lastSeen pgtype.Timest
 }
 
 const getCollectorInstanceByID = `-- name: GetCollectorInstanceByID :one
-SELECT id, collector_id, name, local_attributes, alloy_version, os, last_seen, unregistered_at, remote_config_status, remote_config_error, created_at, updated_at FROM collector_instances WHERE id = $1
+SELECT id, collector_id, name, local_attributes, alloy_version, os, last_seen, unregistered_at, remote_config_status, remote_config_error, created_at, updated_at, remote_config_status_hash FROM collector_instances WHERE id = $1
 `
 
 func (q *Queries) GetCollectorInstanceByID(ctx context.Context, id string) (CollectorInstance, error) {
@@ -87,6 +101,7 @@ func (q *Queries) GetCollectorInstanceByID(ctx context.Context, id string) (Coll
 		&i.RemoteConfigError,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RemoteConfigStatusHash,
 	)
 	return i, err
 }
@@ -252,9 +267,10 @@ func (q *Queries) UnregisterInstance(ctx context.Context, id string) error {
 
 const updateInstanceStatus = `-- name: UpdateInstanceStatus :exec
 UPDATE collector_instances
-SET remote_config_status = $2,
-    remote_config_error  = $3,
-    updated_at           = now()
+SET remote_config_status      = $2,
+    remote_config_error       = $3,
+    remote_config_status_hash = $4,
+    updated_at                = now()
 WHERE id = $1
 `
 
@@ -262,10 +278,18 @@ type UpdateInstanceStatusParams struct {
 	ID                 string      `json:"id"`
 	RemoteConfigStatus pgtype.Text `json:"remote_config_status"`
 	RemoteConfigError  pgtype.Text `json:"remote_config_error"`
+	StatusHash         pgtype.Text `json:"status_hash"`
 }
 
+// remote_config_status_hash records which config the status is about: the
+// hash the agent sent alongside it (see 0028).
 func (q *Queries) UpdateInstanceStatus(ctx context.Context, arg UpdateInstanceStatusParams) error {
-	_, err := q.db.Exec(ctx, updateInstanceStatus, arg.ID, arg.RemoteConfigStatus, arg.RemoteConfigError)
+	_, err := q.db.Exec(ctx, updateInstanceStatus,
+		arg.ID,
+		arg.RemoteConfigStatus,
+		arg.RemoteConfigError,
+		arg.StatusHash,
+	)
 	return err
 }
 
@@ -288,7 +312,7 @@ ON CONFLICT (id) DO UPDATE SET
                                 ELSE collector_instances.remote_config_status
                             END,
     updated_at   = now()
-RETURNING id, collector_id, name, local_attributes, alloy_version, os, last_seen, unregistered_at, remote_config_status, remote_config_error, created_at, updated_at
+RETURNING id, collector_id, name, local_attributes, alloy_version, os, last_seen, unregistered_at, remote_config_status, remote_config_error, created_at, updated_at, remote_config_status_hash
 `
 
 type UpsertCollectorInstanceParams struct {
@@ -332,6 +356,7 @@ func (q *Queries) UpsertCollectorInstance(ctx context.Context, arg UpsertCollect
 		&i.RemoteConfigError,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RemoteConfigStatusHash,
 	)
 	return i, err
 }

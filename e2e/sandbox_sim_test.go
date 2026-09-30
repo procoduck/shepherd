@@ -3,8 +3,6 @@
 package e2e_test
 
 import (
-	"encoding/json"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -46,12 +44,12 @@ var _ = Describe("Scenario sandbox-sim: S3 sandbox run against the real simulato
 		var org struct {
 			ID string `json:"id"`
 		}
-		status := adminClient.postJSON("/api/admin/orgs", map[string]string{
+		status := adminClient.rpc("AdminService", "CreateOrg", map[string]string{
 			"name":           "e2e-sandbox-sim-org",
 			"display_name":   "E2E Sandbox-Sim Org",
 			"admin_group_id": appAdminGroupID,
 		}, &org)
-		Expect(status).To(Equal(http.StatusCreated))
+		Expect(status).To(Equal(http.StatusOK))
 		simOrgID = org.ID
 		Expect(simOrgID).NotTo(BeEmpty())
 	})
@@ -111,14 +109,9 @@ var _ = Describe("Scenario sandbox-sim: S3 sandbox run against the real simulato
 
 	It("submits the minimal-scrape graph and reaches completed within 90s", func() {
 		var created struct {
-			RunID string `json:"run_id"`
+			RunID string `json:"runId"`
 		}
-		// org_id repeats the URL path segment in the body: SimulateHandler.CreateRun
-		// (internal/mgmtapi/simulate.go) pre-sets req.OrgId from chi.URLParam, but
-		// protojson.Unmarshal resets the message before merging the body, so an
-		// omitted org_id lands as "" — matching the convention rpc_simulate_run_test.go's
-		// minimalRunGraph and simulate_run_rest_test.go already use.
-		status := adminClient.postJSON(fmt.Sprintf("/api/orgs/%s/simulate/runs", simOrgID), map[string]any{
+		status := adminClient.rpc("SimulateService", "CreateRun", map[string]any{
 			"org_id":           simOrgID,
 			"graph":            minimalScrapeGraph,
 			"duration_seconds": 18,
@@ -220,9 +213,9 @@ var _ = Describe("Scenario sandbox-sim: S3 sandbox run against the real simulato
 		}
 
 		var created struct {
-			RunID string `json:"run_id"`
+			RunID string `json:"runId"`
 		}
-		status := adminClient.postJSON(fmt.Sprintf("/api/orgs/%s/simulate/runs", simOrgID), map[string]any{
+		status := adminClient.rpc("SimulateService", "CreateRun", map[string]any{
 			"org_id":           simOrgID,
 			"graph":            unhealthyGraph,
 			"duration_seconds": 18,
@@ -241,19 +234,21 @@ var _ = Describe("Scenario sandbox-sim: S3 sandbox run against the real simulato
 	})
 })
 
-// capturedSeries/componentHealth/rewrite/simulateRunView mirror the JSON
-// shim's snake_case field names (mgmtapi.MarshalOpts: UseProtoNames,
-// EmitUnpopulated) for shepherd.mgmt.v1.SimulateRun and its nested messages.
+// capturedSeries/componentHealth/rewrite/simulateRunView mirror the protojson
+// (lowerCamelCase) field names of shepherd.mgmt.v1.SimulateRun and its nested
+// messages as SimulateService.GetRun answers them over Connect. Zero values
+// are omitted on that wire, so an absent field decodes as its Go zero value —
+// the same thing every assertion below already treats as "not set".
 type capturedSeries struct {
 	Name   string            `json:"name"`
 	Labels map[string]string `json:"labels"`
 }
 
 type componentHealth struct {
-	NodeID      string `json:"node_id"`
-	NodeLabel   string `json:"node_label"`
+	NodeID      string `json:"nodeId"`
+	NodeLabel   string `json:"nodeLabel"`
 	Component   string `json:"component"`
-	HealthState string `json:"health_state"`
+	HealthState string `json:"healthState"`
 	Message     string `json:"message"`
 }
 
@@ -263,31 +258,27 @@ type rewrite struct {
 
 type simulateRunView struct {
 	Status          string            `json:"status"`
-	ErrorCode       string            `json:"error_code"`
-	ErrorMessage    string            `json:"error_message"`
-	StderrTail      string            `json:"stderr_tail"`
-	CapturedSeries  []capturedSeries  `json:"captured_series"`
-	ComponentHealth []componentHealth `json:"component_health"`
+	ErrorCode       string            `json:"errorCode"`
+	ErrorMessage    string            `json:"errorMessage"`
+	StderrTail      string            `json:"stderrTail"`
+	CapturedSeries  []capturedSeries  `json:"capturedSeries"`
+	ComponentHealth []componentHealth `json:"componentHealth"`
 	Rewrites        []rewrite         `json:"rewrites"`
 }
 
 func getRun(orgID, runID string) simulateRunView {
 	GinkgoHelper()
 	var run simulateRunView
-	adminClient.getJSON(fmt.Sprintf("/api/orgs/%s/simulate/runs/%s", orgID, runID), &run)
+	adminClient.mustRPC("SimulateService", "GetRun", map[string]string{"org_id": orgID, "id": runID}, &run)
 	return run
 }
 
+// getRunStatus is getRun for polling: a non-200 answer reads as "no status
+// yet" rather than failing the spec.
 func getRunStatus(orgID, runID string) string {
 	GinkgoHelper()
-	resp, err := adminClient.do("GET", fmt.Sprintf("/api/orgs/%s/simulate/runs/%s", orgID, runID), nil)
-	Expect(err).NotTo(HaveOccurred())
-	defer resp.Body.Close() //nolint:errcheck // test cleanup
-	if resp.StatusCode != http.StatusOK {
-		return ""
-	}
 	var run simulateRunView
-	if err := json.NewDecoder(resp.Body).Decode(&run); err != nil {
+	if adminClient.rpc("SimulateService", "GetRun", map[string]string{"org_id": orgID, "id": runID}, &run) != http.StatusOK {
 		return ""
 	}
 	return run.Status

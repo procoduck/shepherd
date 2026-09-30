@@ -1,10 +1,11 @@
 import { timestampDate } from '@bufbuild/protobuf/wkt';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, RotateCw, Trash2 } from 'lucide-react';
+import { Plug, Plus, RotateCw, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { clients, toApiError } from '@/api/transport';
 import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
+import { ConnectAppDialog } from '@/components/ConnectAppDialog';
 import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Field, Input, Select } from '@/components/ui/Field';
@@ -24,12 +25,68 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${tone}`}>{status}</span>;
 }
 
+// Whether the route's HTTPRoute is in the cluster and attached — what the
+// tenant-route reconciler last recorded. A refusal or error carries the
+// gateway's or apiserver's reason, shown under the badge so it is not lost in
+// a tooltip.
+const APPLY: Record<string, { label: string; tone: string; hint: string }> = {
+  pending: {
+    label: 'pending',
+    tone: 'bg-border text-muted-2',
+    hint: 'Not applied yet. Shepherd applies routes when the receiver tier is on with tenant-route apply enabled.',
+  },
+  applied: {
+    label: 'applied',
+    tone: 'bg-emerald-500/15 text-emerald-400',
+    hint: 'In the cluster and attached to the gateway.',
+  },
+  refused: {
+    label: 'refused',
+    tone: 'bg-red-500/15 text-red-400',
+    hint: 'The gateway refused to attach the route — check its listeners and allowedRoutes.',
+  },
+  error: {
+    label: 'error',
+    tone: 'bg-amber-500/15 text-amber-400',
+    hint: 'Applying the route failed; Shepherd retries with backoff.',
+  },
+  removed: {
+    label: 'removed',
+    tone: 'bg-border text-muted-2',
+    hint: 'The route no longer routes and its HTTPRoute has been deleted.',
+  },
+  not_applicable: {
+    label: 'not applied',
+    tone: 'bg-border text-muted-2',
+    hint: 'Shepherd does not apply this kind of route.',
+  },
+};
+
+function ApplyStatus({ route }: { route: TenantRoute }) {
+  const a = APPLY[route.applyStatus] ?? APPLY.pending;
+  const title = route.appliedAt
+    ? `${a.hint} Last verified ${timestampDate(route.appliedAt).toLocaleString()}.`
+    : a.hint;
+  const showMessage = route.applyStatus === 'refused' || route.applyStatus === 'error';
+  return (
+    <span className='block max-w-sm' data-testid={`route-apply-${route.segment}`}>
+      <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${a.tone}`} title={title}>
+        {a.label}
+      </span>
+      {showMessage && route.applyMessage && (
+        <span className='mt-1 block break-words text-xs text-muted'>{route.applyMessage}</span>
+      )}
+    </span>
+  );
+}
+
 function routeColumns(
   canAdminister: boolean,
+  onConnect: (r: TenantRoute) => void,
   onRotate: (r: TenantRoute) => void,
   onRevoke: (r: TenantRoute) => void,
 ): DataTableColumn<TenantRoute>[] {
-  const cols: DataTableColumn<TenantRoute>[] = [
+  return [
     {
       key: 'segment',
       header: 'Segment',
@@ -38,6 +95,7 @@ function routeColumns(
     },
     { key: 'kind', header: 'Kind', render: (r) => r.kind },
     { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} /> },
+    { key: 'apply', header: 'In cluster', render: (r) => <ApplyStatus route={r} /> },
     {
       key: 'gateway',
       header: 'Gateway',
@@ -57,26 +115,38 @@ function routeColumns(
           <span className='text-muted-3'>—</span>
         ),
     },
-  ];
-  if (canAdminister) {
-    cols.push({
+    {
       key: 'actions',
       header: '',
       cellClassName: 'px-4 py-2.5 text-right',
-      render: (r) =>
-        r.status === 'revoked' ? null : (
-          <span className='flex items-center justify-end gap-2'>
-            {r.status === 'active' && (
-              <button
-                type='button'
-                onClick={() => onRotate(r)}
-                aria-label={`Rotate ${r.segment}`}
-                className='text-muted-3 hover:text-indigo-400'
-                data-testid={`route-rotate-${r.segment}`}
-              >
-                <RotateCw size={14} />
-              </button>
-            )}
+      render: (r) => (
+        <span className='flex items-center justify-end gap-2'>
+          {/* Connecting an app is read-only, so every reader gets it — but
+              only for a route whose endpoint works now and will keep working. */}
+          {r.status === 'active' && r.kind === 'otlp' && (
+            <button
+              type='button'
+              onClick={() => onConnect(r)}
+              aria-label={`Connect an app to ${r.segment}`}
+              title='Connect an app'
+              className='text-muted-3 hover:text-indigo-400'
+              data-testid={`route-connect-${r.segment}`}
+            >
+              <Plug size={14} />
+            </button>
+          )}
+          {canAdminister && r.status === 'active' && (
+            <button
+              type='button'
+              onClick={() => onRotate(r)}
+              aria-label={`Rotate ${r.segment}`}
+              className='text-muted-3 hover:text-indigo-400'
+              data-testid={`route-rotate-${r.segment}`}
+            >
+              <RotateCw size={14} />
+            </button>
+          )}
+          {canAdminister && r.status !== 'revoked' && (
             <button
               type='button'
               onClick={() => onRevoke(r)}
@@ -86,11 +156,11 @@ function routeColumns(
             >
               <Trash2 size={14} />
             </button>
-          </span>
-        ),
-    });
-  }
-  return cols;
+          )}
+        </span>
+      ),
+    },
+  ];
 }
 
 const EMPTY_CREATE = {
@@ -107,9 +177,11 @@ const EMPTY_CREATE = {
  * A tenant route pairs the org's tenant identity with a rotatable, unguessable
  * path segment that the receiver-tier gateway renders into a Gateway API
  * HTTPRoute. This page is the storage/lifecycle surface: create, rotate (issue
- * a new segment and run both briefly), and revoke. It does not apply anything
- * to Kubernetes — that is the receiver tier. Reads are org-reader; writes are
- * org-admin (useCanAdminister), matching TenantRouteService.
+ * a new segment and run both briefly), and revoke. The RPCs only change
+ * Shepherd's records; the tenant-route reconciler (internal/routeapply) applies
+ * the HTTPRoutes in the background, and "In cluster" shows what it last saw.
+ * Reads are org-reader; writes are org-admin (useCanAdminister), matching
+ * TenantRouteService.
  *
  * The segment is always minted server-side; the URL is an identifier, not an
  * authorizer — Shepherd enforces the CORS origin allowlist and rotation, while
@@ -124,6 +196,7 @@ export function TenantRoutesPage() {
   const [toRotate, setToRotate] = useState<TenantRoute | null>(null);
   const [overlapHours, setOverlapHours] = useState('24');
   const [toRevoke, setToRevoke] = useState<TenantRoute | null>(null);
+  const [toConnect, setToConnect] = useState<TenantRoute | null>(null);
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['tenant-routes', orgId],
@@ -223,7 +296,7 @@ export function TenantRoutesPage() {
         </div>
       ) : (
         <DataTable
-          columns={routeColumns(canAdminister, setToRotate, setToRevoke)}
+          columns={routeColumns(canAdminister, setToConnect, setToRotate, setToRevoke)}
           rows={data?.items ?? []}
           rowKey={(r) => r.id}
         />
@@ -345,6 +418,10 @@ export function TenantRoutesPage() {
             />
           </form>
         </Modal>
+      )}
+
+      {toConnect && (
+        <ConnectAppDialog route={toConnect} orgId={orgId} onClose={() => setToConnect(null)} />
       )}
 
       {toRevoke && (

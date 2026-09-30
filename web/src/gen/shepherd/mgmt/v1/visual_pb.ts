@@ -403,7 +403,7 @@ export const RenderRequestSchema: GenMessage<RenderRequest> = /*@__PURE__*/
   messageDesc(file_shepherd_mgmt_v1_visual, 11);
 
 /**
- * RenderResponse mirrors internal/mgmtapi/visual.go: visualResponse.
+ * RenderResponse is a visual graph rendered to Alloy config.
  *
  * @generated from message shepherd.mgmt.v1.RenderResponse
  */
@@ -495,9 +495,9 @@ export const VisualNodeDiagnosticSchema: GenMessage<VisualNodeDiagnostic> = /*@_
   messageDesc(file_shepherd_mgmt_v1_visual, 14);
 
 /**
- * ValidateVisualResponse mirrors visual.go Validate: {"diagnostics": [...]}.
- * Returns 200 with an empty list on success — "validate endpoints return 200
- * + diagnostics today".
+ * ValidateVisualResponse carries a visual graph's validation diagnostics.
+ * Validation problems ride in the response (an empty list on success), not
+ * as a Connect error.
  *
  * @generated from message shepherd.mgmt.v1.ValidateVisualResponse
  */
@@ -515,12 +515,12 @@ export type ValidateVisualResponse = Message<"shepherd.mgmt.v1.ValidateVisualRes
    * render_diagnostics carries L1 (render-failure) diagnostics when the
    * graph itself failed to render (e.g. a label collision or an unknown
    * component) — the same VisualDiagnostic shape (layer/code/node_id/
-   * node_id2/message) Render's legacy 422 body uses, which is a different
+   * node_id2/message) RenderResponse uses, which is a different
    * shape from diagnostics' (layer/node_id/line/col/message): line/col
    * never existed for this diagnostic kind, and code/node_id2 have no slot
-   * in VisualNodeDiagnostic. A non-empty render_diagnostics always means a
-   * 422 (see visual.go's Validate REST shim). Populated exactly when
-   * diagnostics is empty.
+   * in VisualNodeDiagnostic. A non-empty render_diagnostics means the graph
+   * could not be rendered at all. Populated exactly when diagnostics is
+   * empty.
    *
    * @generated from field: repeated shepherd.mgmt.v1.VisualDiagnostic render_diagnostics = 2;
    */
@@ -659,7 +659,7 @@ export const GraphViewRequestSchema: GenMessage<GraphViewRequest> = /*@__PURE__*
   messageDesc(file_shepherd_mgmt_v1_visual, 19);
 
 /**
- * GraphViewResponse mirrors visual.go GraphView: {"graph","opaque","warning"}.
+ * GraphViewResponse is a pipeline's graph for the read-only graph view.
  *
  * @generated from message shepherd.mgmt.v1.GraphViewResponse
  */
@@ -946,7 +946,8 @@ export const DiffRevisionsResponseSchema: GenMessage<DiffRevisionsResponse> = /*
   messageDesc(file_shepherd_mgmt_v1_visual, 27);
 
 /**
- * VisualService covers /api/orgs/{org}/visual/* and the pipeline graph view.
+ * VisualService renders, validates and diffs visual graphs, and serves the
+ * pipeline graph view.
  * Render/Validate/UpgradeCheck require org-editor (D6, the same authoring
  * ceiling WizardService and SimulateService hold); GraphView requires
  * org-reader.

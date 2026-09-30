@@ -22,9 +22,7 @@ import (
 	"shepherd/internal/store/sqlc"
 )
 
-// GitOpsService implements mgmtv1connect.GitOpsServiceHandler. Business
-// logic moved here from RepoLinksHandler (repolinks.go), which is now a
-// thin REST shim delegating to these methods in-process.
+// GitOpsService implements mgmtv1connect.GitOpsServiceHandler.
 type GitOpsService struct {
 	store      *store.Store
 	crypto     *crypto.Encryptor
@@ -32,7 +30,7 @@ type GitOpsService struct {
 	logger     *slog.Logger
 }
 
-// NewGitOpsService constructs a GitOpsService with the deps RepoLinksHandler uses today.
+// NewGitOpsService constructs a GitOpsService.
 func NewGitOpsService(st *store.Store, enc *crypto.Encryptor, logger *slog.Logger) *GitOpsService {
 	return &GitOpsService{store: st, crypto: enc, tokenCache: gitrepo.NewTokenCache(), logger: logger}
 }
@@ -41,8 +39,8 @@ var _ mgmtv1connect.GitOpsServiceHandler = (*GitOpsService)(nil)
 
 // errEncryptionUnavailable is returned (as connect.CodeUnavailable) for
 // mutating GitOps calls when the server was booted without an encryption
-// key. Mirrors the router.go nil-encryptor guard that previously wrapped
-// RepoLinksHandler: reads degrade to empty lists, writes are unavailable.
+// key. Mirrors the nil-encryptor guard the pre-Connect REST handlers had: reads
+// degrade to empty lists, writes are unavailable.
 var errEncryptionUnavailable = errors.New("encryption not configured")
 
 // validCredentialKinds are the six auth strategies from
@@ -70,7 +68,7 @@ func scanUUID(s string) (pgtype.UUID, error) {
 }
 
 // protoTimestamp converts a nullable Postgres timestamptz to a proto
-// Timestamp, truncated to whole seconds to match the legacy REST responses'
+// Timestamp, truncated to whole seconds to match the pre-Connect REST responses'
 // fixed "2006-01-02T15:04:05Z" formatting (which always dropped
 // sub-second precision) so protojson's RFC3339 rendering stays
 // byte-compatible with the pre-migration wire format.
@@ -154,9 +152,8 @@ func (s *GitOpsService) CreateCredential(ctx context.Context, req *connect.Reque
 
 	kind := msg.GetKind()
 	if kind == "" {
-		// The legacy REST shim's pre-rename shape (repolinks.go's
-		// adoCredRequest) never sent kind: every credential it created was
-		// an ADO service principal.
+		// A request that omits kind predates the credential-kind rename:
+		// every credential created before it was an ADO service principal.
 		kind = "ado_sp"
 	}
 	if !validCredentialKinds[kind] {

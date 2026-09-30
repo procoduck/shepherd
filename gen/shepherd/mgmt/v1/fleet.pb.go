@@ -23,7 +23,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// CollectorInstance mirrors internal/mgmtapi/orgs.go: collectorInstanceResponse.
+// CollectorInstance is one running Alloy process reporting as a logical Collector.
 type CollectorInstance struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	Name               string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -117,7 +117,7 @@ func (x *CollectorInstance) GetLocalAttributes() *structpb.Struct {
 	return nil
 }
 
-// Collector mirrors internal/mgmtapi/orgs.go: collectorResponse. The scalar
+// Collector is a logical collector, one per cluster and role. The scalar
 // remote_config_status/remote_config_error/last_seen/alloy_version/
 // local_attributes fields are rolled up from the collector's most recently
 // reporting instance; instances is populated only on GetCollector.
@@ -627,7 +627,7 @@ func (x *GetServedConfigRequest) GetId() string {
 	return ""
 }
 
-// GetServedConfigResponse mirrors orgs.go ServedConfig: {"content","hash","computed_at"}.
+// GetServedConfigResponse is the merged config currently served to a collector.
 // content and hash are "" when no serve-cache entry exists yet.
 type GetServedConfigResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1318,14 +1318,13 @@ func (x *ListAttributesRequest) GetOrgId() string {
 	return ""
 }
 
-// ListAttributesResponse mirrors orgs.go ListAttributes, which returns a bare
-// JSON object keyed by attribute name (today always includes "cluster" and
-// "role", plus any other distinct attribute keys) mapping to their distinct
-// values: {"cluster": [...], "role": [...], ...}. The key set is
-// data-dependent, so it is modeled as a Struct rather than fixed fields; the
-// REST shim marshals `attributes` directly rather than the wrapping message
-// to stay byte-compatible with the legacy bare-object shape (see notes to
-// the wiring agent).
+// ListAttributesResponse maps each matcher key pipeline matching evaluates for
+// the org to its distinct values: {"cluster": [...], "role": [...], ...}.
+// cluster and role are always present; admin labels and agent-reported
+// local_attributes appear only when the org's allow_label_matching /
+// allow_local_attribute_matching flags are on, and reserved keys never do
+// (#139). The key set is data-dependent, so it is modeled as a Struct rather
+// than fixed fields.
 type ListAttributesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Attributes    *structpb.Struct       `protobuf:"bytes,1,opt,name=attributes,proto3" json:"attributes,omitempty"`
@@ -1368,6 +1367,203 @@ func (x *ListAttributesResponse) GetAttributes() *structpb.Struct {
 		return x.Attributes
 	}
 	return nil
+}
+
+// RenderChartValuesRequest describes the cluster being connected.
+type RenderChartValuesRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	OrgId string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	// cluster_name is the chart's cluster.name, which each collector reports
+	// as its "cluster" attribute. Required.
+	ClusterName string `protobuf:"bytes,2,opt,name=cluster_name,json=clusterName,proto3" json:"cluster_name,omitempty"`
+	// roles are the collectors to wire: any of "metrics", "logs", "singleton",
+	// "receiver". At least one.
+	Roles []string `protobuf:"bytes,3,rep,name=roles,proto3" json:"roles,omitempty"`
+	// poll_frequency is how often each collector polls Shepherd, e.g. "60s".
+	// Empty means 60s.
+	PollFrequency string `protobuf:"bytes,4,opt,name=poll_frequency,json=pollFrequency,proto3" json:"poll_frequency,omitempty"`
+	// namespace is where k8s-monitoring is installed, for the rendered
+	// commands only. Empty means "monitoring".
+	Namespace     string `protobuf:"bytes,5,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RenderChartValuesRequest) Reset() {
+	*x = RenderChartValuesRequest{}
+	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RenderChartValuesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RenderChartValuesRequest) ProtoMessage() {}
+
+func (x *RenderChartValuesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RenderChartValuesRequest.ProtoReflect.Descriptor instead.
+func (*RenderChartValuesRequest) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_fleet_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *RenderChartValuesRequest) GetOrgId() string {
+	if x != nil {
+		return x.OrgId
+	}
+	return ""
+}
+
+func (x *RenderChartValuesRequest) GetClusterName() string {
+	if x != nil {
+		return x.ClusterName
+	}
+	return ""
+}
+
+func (x *RenderChartValuesRequest) GetRoles() []string {
+	if x != nil {
+		return x.Roles
+	}
+	return nil
+}
+
+func (x *RenderChartValuesRequest) GetPollFrequency() string {
+	if x != nil {
+		return x.PollFrequency
+	}
+	return ""
+}
+
+func (x *RenderChartValuesRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+// RenderChartValuesResponse carries both values files and the commands that
+// use them. Neither file contains a secret.
+type RenderChartValuesResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// values_yaml wires each collector's remoteConfig to Shepherd.
+	ValuesYaml string `protobuf:"bytes,1,opt,name=values_yaml,json=valuesYaml,proto3" json:"values_yaml,omitempty"`
+	// credentials_yaml loads the agent token into each collector from the
+	// Secret secret_name.
+	CredentialsYaml string `protobuf:"bytes,2,opt,name=credentials_yaml,json=credentialsYaml,proto3" json:"credentials_yaml,omitempty"`
+	// chart_version is the k8s-monitoring version these values are checked against.
+	ChartVersion string `protobuf:"bytes,3,opt,name=chart_version,json=chartVersion,proto3" json:"chart_version,omitempty"`
+	// secret_command creates the Secret, with placeholders for the token.
+	SecretCommand string `protobuf:"bytes,4,opt,name=secret_command,json=secretCommand,proto3" json:"secret_command,omitempty"`
+	// helm_command installs or upgrades k8s-monitoring with both files.
+	HelmCommand string `protobuf:"bytes,5,opt,name=helm_command,json=helmCommand,proto3" json:"helm_command,omitempty"`
+	SecretName  string `protobuf:"bytes,6,opt,name=secret_name,json=secretName,proto3" json:"secret_name,omitempty"`
+	// cluster_status is "new" (never registered), "unclaimed" (registered,
+	// waiting for an app admin to claim it for this org) or "claimed" (already
+	// this org's). A name claimed by another org is refused instead.
+	ClusterStatus string `protobuf:"bytes,7,opt,name=cluster_status,json=clusterStatus,proto3" json:"cluster_status,omitempty"`
+	// shepherd_url is the address the collectors poll (server.base_url).
+	ShepherdUrl   string `protobuf:"bytes,8,opt,name=shepherd_url,json=shepherdUrl,proto3" json:"shepherd_url,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RenderChartValuesResponse) Reset() {
+	*x = RenderChartValuesResponse{}
+	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RenderChartValuesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RenderChartValuesResponse) ProtoMessage() {}
+
+func (x *RenderChartValuesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_fleet_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RenderChartValuesResponse.ProtoReflect.Descriptor instead.
+func (*RenderChartValuesResponse) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_fleet_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *RenderChartValuesResponse) GetValuesYaml() string {
+	if x != nil {
+		return x.ValuesYaml
+	}
+	return ""
+}
+
+func (x *RenderChartValuesResponse) GetCredentialsYaml() string {
+	if x != nil {
+		return x.CredentialsYaml
+	}
+	return ""
+}
+
+func (x *RenderChartValuesResponse) GetChartVersion() string {
+	if x != nil {
+		return x.ChartVersion
+	}
+	return ""
+}
+
+func (x *RenderChartValuesResponse) GetSecretCommand() string {
+	if x != nil {
+		return x.SecretCommand
+	}
+	return ""
+}
+
+func (x *RenderChartValuesResponse) GetHelmCommand() string {
+	if x != nil {
+		return x.HelmCommand
+	}
+	return ""
+}
+
+func (x *RenderChartValuesResponse) GetSecretName() string {
+	if x != nil {
+		return x.SecretName
+	}
+	return ""
+}
+
+func (x *RenderChartValuesResponse) GetClusterStatus() string {
+	if x != nil {
+		return x.ClusterStatus
+	}
+	return ""
+}
+
+func (x *RenderChartValuesResponse) GetShepherdUrl() string {
+	if x != nil {
+		return x.ShepherdUrl
+	}
+	return ""
 }
 
 var File_shepherd_mgmt_v1_fleet_proto protoreflect.FileDescriptor
@@ -1474,7 +1670,24 @@ const file_shepherd_mgmt_v1_fleet_proto_rawDesc = "" +
 	"\x16ListAttributesResponse\x127\n" +
 	"\n" +
 	"attributes\x18\x01 \x01(\v2\x17.google.protobuf.StructR\n" +
-	"attributes2\xb2\b\n" +
+	"attributes\"\xaf\x01\n" +
+	"\x18RenderChartValuesRequest\x12\x15\n" +
+	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12!\n" +
+	"\fcluster_name\x18\x02 \x01(\tR\vclusterName\x12\x14\n" +
+	"\x05roles\x18\x03 \x03(\tR\x05roles\x12%\n" +
+	"\x0epoll_frequency\x18\x04 \x01(\tR\rpollFrequency\x12\x1c\n" +
+	"\tnamespace\x18\x05 \x01(\tR\tnamespace\"\xc1\x02\n" +
+	"\x19RenderChartValuesResponse\x12\x1f\n" +
+	"\vvalues_yaml\x18\x01 \x01(\tR\n" +
+	"valuesYaml\x12)\n" +
+	"\x10credentials_yaml\x18\x02 \x01(\tR\x0fcredentialsYaml\x12#\n" +
+	"\rchart_version\x18\x03 \x01(\tR\fchartVersion\x12%\n" +
+	"\x0esecret_command\x18\x04 \x01(\tR\rsecretCommand\x12!\n" +
+	"\fhelm_command\x18\x05 \x01(\tR\vhelmCommand\x12\x1f\n" +
+	"\vsecret_name\x18\x06 \x01(\tR\n" +
+	"secretName\x12%\n" +
+	"\x0ecluster_status\x18\a \x01(\tR\rclusterStatus\x12!\n" +
+	"\fshepherd_url\x18\b \x01(\tR\vshepherdUrl2\xa2\t\n" +
 	"\fFleetService\x12e\n" +
 	"\x0eListCollectors\x12'.shepherd.mgmt.v1.ListCollectorsRequest\x1a(.shepherd.mgmt.v1.ListCollectorsResponse\"\x00\x12T\n" +
 	"\fGetCollector\x12%.shepherd.mgmt.v1.GetCollectorRequest\x1a\x1b.shepherd.mgmt.v1.Collector\"\x00\x12h\n" +
@@ -1485,7 +1698,8 @@ const file_shepherd_mgmt_v1_fleet_proto_rawDesc = "" +
 	"\x10DeleteAssignment\x12).shepherd.mgmt.v1.DeleteAssignmentRequest\x1a*.shepherd.mgmt.v1.DeleteAssignmentResponse\"\x00\x12e\n" +
 	"\x0eListAttributes\x12'.shepherd.mgmt.v1.ListAttributesRequest\x1a(.shepherd.mgmt.v1.ListAttributesResponse\"\x00\x12l\n" +
 	"\x11SetCollectorLabel\x12*.shepherd.mgmt.v1.SetCollectorLabelRequest\x1a).shepherd.mgmt.v1.CollectorLabelsResponse\"\x00\x12r\n" +
-	"\x14DeleteCollectorLabel\x12-.shepherd.mgmt.v1.DeleteCollectorLabelRequest\x1a).shepherd.mgmt.v1.CollectorLabelsResponse\"\x00B&Z$shepherd/gen/shepherd/mgmt/v1;mgmtv1b\x06proto3"
+	"\x14DeleteCollectorLabel\x12-.shepherd.mgmt.v1.DeleteCollectorLabelRequest\x1a).shepherd.mgmt.v1.CollectorLabelsResponse\"\x00\x12n\n" +
+	"\x11RenderChartValues\x12*.shepherd.mgmt.v1.RenderChartValuesRequest\x1a+.shepherd.mgmt.v1.RenderChartValuesResponse\"\x00B&Z$shepherd/gen/shepherd/mgmt/v1;mgmtv1b\x06proto3"
 
 var (
 	file_shepherd_mgmt_v1_fleet_proto_rawDescOnce sync.Once
@@ -1499,7 +1713,7 @@ func file_shepherd_mgmt_v1_fleet_proto_rawDescGZIP() []byte {
 	return file_shepherd_mgmt_v1_fleet_proto_rawDescData
 }
 
-var file_shepherd_mgmt_v1_fleet_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
+var file_shepherd_mgmt_v1_fleet_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
 var file_shepherd_mgmt_v1_fleet_proto_goTypes = []any{
 	(*CollectorInstance)(nil),           // 0: shepherd.mgmt.v1.CollectorInstance
 	(*Collector)(nil),                   // 1: shepherd.mgmt.v1.Collector
@@ -1523,25 +1737,27 @@ var file_shepherd_mgmt_v1_fleet_proto_goTypes = []any{
 	(*DeleteAssignmentResponse)(nil),    // 19: shepherd.mgmt.v1.DeleteAssignmentResponse
 	(*ListAttributesRequest)(nil),       // 20: shepherd.mgmt.v1.ListAttributesRequest
 	(*ListAttributesResponse)(nil),      // 21: shepherd.mgmt.v1.ListAttributesResponse
-	nil,                                 // 22: shepherd.mgmt.v1.Collector.LabelsEntry
-	nil,                                 // 23: shepherd.mgmt.v1.CollectorLabelsResponse.LabelsEntry
-	(*timestamppb.Timestamp)(nil),       // 24: google.protobuf.Timestamp
-	(*structpb.Struct)(nil),             // 25: google.protobuf.Struct
+	(*RenderChartValuesRequest)(nil),    // 22: shepherd.mgmt.v1.RenderChartValuesRequest
+	(*RenderChartValuesResponse)(nil),   // 23: shepherd.mgmt.v1.RenderChartValuesResponse
+	nil,                                 // 24: shepherd.mgmt.v1.Collector.LabelsEntry
+	nil,                                 // 25: shepherd.mgmt.v1.CollectorLabelsResponse.LabelsEntry
+	(*timestamppb.Timestamp)(nil),       // 26: google.protobuf.Timestamp
+	(*structpb.Struct)(nil),             // 27: google.protobuf.Struct
 }
 var file_shepherd_mgmt_v1_fleet_proto_depIdxs = []int32{
-	24, // 0: shepherd.mgmt.v1.CollectorInstance.last_seen:type_name -> google.protobuf.Timestamp
-	25, // 1: shepherd.mgmt.v1.CollectorInstance.local_attributes:type_name -> google.protobuf.Struct
-	24, // 2: shepherd.mgmt.v1.Collector.last_seen:type_name -> google.protobuf.Timestamp
-	25, // 3: shepherd.mgmt.v1.Collector.local_attributes:type_name -> google.protobuf.Struct
+	26, // 0: shepherd.mgmt.v1.CollectorInstance.last_seen:type_name -> google.protobuf.Timestamp
+	27, // 1: shepherd.mgmt.v1.CollectorInstance.local_attributes:type_name -> google.protobuf.Struct
+	26, // 2: shepherd.mgmt.v1.Collector.last_seen:type_name -> google.protobuf.Timestamp
+	27, // 3: shepherd.mgmt.v1.Collector.local_attributes:type_name -> google.protobuf.Struct
 	0,  // 4: shepherd.mgmt.v1.Collector.instances:type_name -> shepherd.mgmt.v1.CollectorInstance
-	22, // 5: shepherd.mgmt.v1.Collector.labels:type_name -> shepherd.mgmt.v1.Collector.LabelsEntry
-	23, // 6: shepherd.mgmt.v1.CollectorLabelsResponse.labels:type_name -> shepherd.mgmt.v1.CollectorLabelsResponse.LabelsEntry
+	24, // 5: shepherd.mgmt.v1.Collector.labels:type_name -> shepherd.mgmt.v1.Collector.LabelsEntry
+	25, // 6: shepherd.mgmt.v1.CollectorLabelsResponse.labels:type_name -> shepherd.mgmt.v1.CollectorLabelsResponse.LabelsEntry
 	1,  // 7: shepherd.mgmt.v1.ListCollectorsResponse.items:type_name -> shepherd.mgmt.v1.Collector
-	24, // 8: shepherd.mgmt.v1.GetServedConfigResponse.computed_at:type_name -> google.protobuf.Timestamp
+	26, // 8: shepherd.mgmt.v1.GetServedConfigResponse.computed_at:type_name -> google.protobuf.Timestamp
 	11, // 9: shepherd.mgmt.v1.GetReconciliationResponse.findings:type_name -> shepherd.mgmt.v1.Finding
-	24, // 10: shepherd.mgmt.v1.Assignment.created_at:type_name -> google.protobuf.Timestamp
+	26, // 10: shepherd.mgmt.v1.Assignment.created_at:type_name -> google.protobuf.Timestamp
 	14, // 11: shepherd.mgmt.v1.ListAssignmentsResponse.items:type_name -> shepherd.mgmt.v1.Assignment
-	25, // 12: shepherd.mgmt.v1.ListAttributesResponse.attributes:type_name -> google.protobuf.Struct
+	27, // 12: shepherd.mgmt.v1.ListAttributesResponse.attributes:type_name -> google.protobuf.Struct
 	5,  // 13: shepherd.mgmt.v1.FleetService.ListCollectors:input_type -> shepherd.mgmt.v1.ListCollectorsRequest
 	7,  // 14: shepherd.mgmt.v1.FleetService.GetCollector:input_type -> shepherd.mgmt.v1.GetCollectorRequest
 	8,  // 15: shepherd.mgmt.v1.FleetService.GetServedConfig:input_type -> shepherd.mgmt.v1.GetServedConfigRequest
@@ -1552,18 +1768,20 @@ var file_shepherd_mgmt_v1_fleet_proto_depIdxs = []int32{
 	20, // 20: shepherd.mgmt.v1.FleetService.ListAttributes:input_type -> shepherd.mgmt.v1.ListAttributesRequest
 	2,  // 21: shepherd.mgmt.v1.FleetService.SetCollectorLabel:input_type -> shepherd.mgmt.v1.SetCollectorLabelRequest
 	3,  // 22: shepherd.mgmt.v1.FleetService.DeleteCollectorLabel:input_type -> shepherd.mgmt.v1.DeleteCollectorLabelRequest
-	6,  // 23: shepherd.mgmt.v1.FleetService.ListCollectors:output_type -> shepherd.mgmt.v1.ListCollectorsResponse
-	1,  // 24: shepherd.mgmt.v1.FleetService.GetCollector:output_type -> shepherd.mgmt.v1.Collector
-	9,  // 25: shepherd.mgmt.v1.FleetService.GetServedConfig:output_type -> shepherd.mgmt.v1.GetServedConfigResponse
-	12, // 26: shepherd.mgmt.v1.FleetService.GetReconciliation:output_type -> shepherd.mgmt.v1.GetReconciliationResponse
-	15, // 27: shepherd.mgmt.v1.FleetService.ListAssignments:output_type -> shepherd.mgmt.v1.ListAssignmentsResponse
-	17, // 28: shepherd.mgmt.v1.FleetService.CreateAssignment:output_type -> shepherd.mgmt.v1.CreateAssignmentResponse
-	19, // 29: shepherd.mgmt.v1.FleetService.DeleteAssignment:output_type -> shepherd.mgmt.v1.DeleteAssignmentResponse
-	21, // 30: shepherd.mgmt.v1.FleetService.ListAttributes:output_type -> shepherd.mgmt.v1.ListAttributesResponse
-	4,  // 31: shepherd.mgmt.v1.FleetService.SetCollectorLabel:output_type -> shepherd.mgmt.v1.CollectorLabelsResponse
-	4,  // 32: shepherd.mgmt.v1.FleetService.DeleteCollectorLabel:output_type -> shepherd.mgmt.v1.CollectorLabelsResponse
-	23, // [23:33] is the sub-list for method output_type
-	13, // [13:23] is the sub-list for method input_type
+	22, // 23: shepherd.mgmt.v1.FleetService.RenderChartValues:input_type -> shepherd.mgmt.v1.RenderChartValuesRequest
+	6,  // 24: shepherd.mgmt.v1.FleetService.ListCollectors:output_type -> shepherd.mgmt.v1.ListCollectorsResponse
+	1,  // 25: shepherd.mgmt.v1.FleetService.GetCollector:output_type -> shepherd.mgmt.v1.Collector
+	9,  // 26: shepherd.mgmt.v1.FleetService.GetServedConfig:output_type -> shepherd.mgmt.v1.GetServedConfigResponse
+	12, // 27: shepherd.mgmt.v1.FleetService.GetReconciliation:output_type -> shepherd.mgmt.v1.GetReconciliationResponse
+	15, // 28: shepherd.mgmt.v1.FleetService.ListAssignments:output_type -> shepherd.mgmt.v1.ListAssignmentsResponse
+	17, // 29: shepherd.mgmt.v1.FleetService.CreateAssignment:output_type -> shepherd.mgmt.v1.CreateAssignmentResponse
+	19, // 30: shepherd.mgmt.v1.FleetService.DeleteAssignment:output_type -> shepherd.mgmt.v1.DeleteAssignmentResponse
+	21, // 31: shepherd.mgmt.v1.FleetService.ListAttributes:output_type -> shepherd.mgmt.v1.ListAttributesResponse
+	4,  // 32: shepherd.mgmt.v1.FleetService.SetCollectorLabel:output_type -> shepherd.mgmt.v1.CollectorLabelsResponse
+	4,  // 33: shepherd.mgmt.v1.FleetService.DeleteCollectorLabel:output_type -> shepherd.mgmt.v1.CollectorLabelsResponse
+	23, // 34: shepherd.mgmt.v1.FleetService.RenderChartValues:output_type -> shepherd.mgmt.v1.RenderChartValuesResponse
+	24, // [24:35] is the sub-list for method output_type
+	13, // [13:24] is the sub-list for method input_type
 	13, // [13:13] is the sub-list for extension type_name
 	13, // [13:13] is the sub-list for extension extendee
 	0,  // [0:13] is the sub-list for field type_name
@@ -1580,7 +1798,7 @@ func file_shepherd_mgmt_v1_fleet_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_shepherd_mgmt_v1_fleet_proto_rawDesc), len(file_shepherd_mgmt_v1_fleet_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   24,
+			NumMessages:   26,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

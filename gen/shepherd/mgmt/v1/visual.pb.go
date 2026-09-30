@@ -819,7 +819,7 @@ func (x *RenderRequest) GetGraph() *GraphDocument {
 	return nil
 }
 
-// RenderResponse mirrors internal/mgmtapi/visual.go: visualResponse.
+// RenderResponse is a visual graph rendered to Alloy config.
 type RenderResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Content       string                 `protobuf:"bytes,1,opt,name=content,proto3" json:"content,omitempty"`
@@ -1011,9 +1011,9 @@ func (x *VisualNodeDiagnostic) GetMessage() string {
 	return ""
 }
 
-// ValidateVisualResponse mirrors visual.go Validate: {"diagnostics": [...]}.
-// Returns 200 with an empty list on success — "validate endpoints return 200
-// + diagnostics today".
+// ValidateVisualResponse carries a visual graph's validation diagnostics.
+// Validation problems ride in the response (an empty list on success), not
+// as a Connect error.
 type ValidateVisualResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// diagnostics carries L2 (Stage1/2 Alloy validation) diagnostics, remapped
@@ -1023,12 +1023,12 @@ type ValidateVisualResponse struct {
 	// render_diagnostics carries L1 (render-failure) diagnostics when the
 	// graph itself failed to render (e.g. a label collision or an unknown
 	// component) — the same VisualDiagnostic shape (layer/code/node_id/
-	// node_id2/message) Render's legacy 422 body uses, which is a different
+	// node_id2/message) RenderResponse uses, which is a different
 	// shape from diagnostics' (layer/node_id/line/col/message): line/col
 	// never existed for this diagnostic kind, and code/node_id2 have no slot
-	// in VisualNodeDiagnostic. A non-empty render_diagnostics always means a
-	// 422 (see visual.go's Validate REST shim). Populated exactly when
-	// diagnostics is empty.
+	// in VisualNodeDiagnostic. A non-empty render_diagnostics means the graph
+	// could not be rendered at all. Populated exactly when diagnostics is
+	// empty.
 	RenderDiagnostics []*VisualDiagnostic `protobuf:"bytes,2,rep,name=render_diagnostics,json=renderDiagnostics,proto3" json:"render_diagnostics,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
@@ -1334,7 +1334,7 @@ func (x *GraphViewRequest) GetId() string {
 	return ""
 }
 
-// GraphViewResponse mirrors visual.go GraphView: {"graph","opaque","warning"}.
+// GraphViewResponse is a pipeline's graph for the read-only graph view.
 type GraphViewResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Graph         *GraphDocument         `protobuf:"bytes,1,opt,name=graph,proto3" json:"graph,omitempty"`
