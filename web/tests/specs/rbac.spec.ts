@@ -59,7 +59,8 @@ test('reader sees the pipeline editor without a Save button', async ({ page, api
 });
 
 // Nav group visibility (Shell.tsx: the Admin group and its adminOnly items
-// are filtered on me.isAppAdmin alone, never org role) for every persona
+// are filtered on me.isAppAdmin; org-scoped links on routeManifest's
+// requiredRole in the selected org — see nav-gating.spec.ts) for every persona
 // that hasn't exercised it yet. appAdmin/orgAdmin/localAdmin above cover the
 // positive and one negative case; these round out the matrix.
 test('orgEditor does not see admin nav group', async ({ page, api }) => {
@@ -100,7 +101,9 @@ test('orgEditor sees the Fleet, Delivery and Access nav groups', async ({ page, 
   api.seed({ orgs: [s.org] });
   await page.goto('/');
   await expect(page.getByRole('link', { name: 'Collectors' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Git' })).toBeVisible();
+  // Git is org-admin, so an editor's Delivery group shows Destinations instead
+  // (nav-gating.spec.ts covers the hidden links).
+  await expect(page.getByRole('link', { name: 'Destinations' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Teams' })).toBeVisible();
 });
 
@@ -110,7 +113,7 @@ test('reader sees the Fleet, Delivery and Access nav groups', async ({ page, api
   api.seed({ orgs: [s.org] });
   await page.goto('/');
   await expect(page.getByRole('link', { name: 'Collectors' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Git' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Destinations' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Teams' })).toBeVisible();
 });
 

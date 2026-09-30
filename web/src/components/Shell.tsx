@@ -26,7 +26,7 @@ import { buildCrumbs } from '@/components/breadcrumb';
 import { useMe } from '@/hooks/useMe';
 import { useOrg } from '@/hooks/useOrg';
 import { cn } from '@/lib/utils';
-import { routeManifest } from '@/routes/routeManifest';
+import { requiredRoleFor, roleSatisfied, routeManifest } from '@/routes/routeManifest';
 import { applyTheme, resolveTheme, setStoredTheme, type Theme } from '@/theme';
 
 interface NavItem {
@@ -195,7 +195,14 @@ export function Shell() {
         {/* Nav */}
         <nav className='flex-1 overflow-y-auto py-3 px-2 space-y-4'>
           {navGroups.map((group, gi) => {
-            const visibleItems = group.items.filter((item) => !item.adminOnly || me.isAppAdmin);
+            // A link is offered only when its route's requiredRole (routeManifest,
+            // the same table RequireRole enforces) is met in the selected org —
+            // otherwise it led to a page that refused (#206).
+            const visibleItems = group.items.filter((item) => {
+              if (item.adminOnly && !me.isAppAdmin) return false;
+              const required = requiredRoleFor(item.href);
+              return !required || roleSatisfied(me, orgId, required);
+            });
             if (visibleItems.length === 0) return null;
             return (
               <div key={gi}>

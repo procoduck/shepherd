@@ -9,8 +9,8 @@
  *   PipelineService.UpdatePipeline call (with the viewer's own session
  *   cookie) is rejected 403 by the real server — not merely hidden
  *   client-side.
- * - both personas are denied /admin/orgs (app-admin only) and land back on
- *   '/' with the route guard's denial marker.
+ * - both personas are denied /admin/orgs (app-admin only): the route guard
+ *   shows its denial page at that URL (#206 — it used to redirect to '/').
  *
  * Red run (recorded, not re-run by CI):
  *   - Login-level: with dev-reset run before the seed (no `dev seed` step),
@@ -33,25 +33,13 @@ async function getPlatformOrgId(page: Page): Promise<string> {
   return org.id;
 }
 
-/** A denial is either a router-level redirect to '/' or a visible
- * [data-testid="route-denied"] element — RequireRole shows the denial
- * marker synchronously and then redirects in the same effect, so either
- * observation proves the guard fired (route-guard.spec.ts, the mocked
- * sibling of this check, uses the identical two-signal poll). */
+/** A denial is RequireRole's visible [data-testid="route-denied"] page,
+ * shown at the URL that was asked for (#206: it no longer redirects to '/',
+ * which read as a broken link). The page component itself is never mounted. */
 async function expectRouteDenied(page: Page, route: string) {
   await page.goto(route);
-  await expect(async () => {
-    const onRoot = new URL(page.url()).pathname === '/';
-    const hasDeniedBanner = await page
-      .getByTestId('route-denied')
-      .isVisible()
-      .catch(() => false);
-    expect(onRoot || hasDeniedBanner).toBe(true);
-  }).toPass({ timeout: 5000 });
-  // Whichever signal fired, the guard must not leave the denied route mounted.
-  await expect(async () => {
-    expect(new URL(page.url()).pathname).toBe('/');
-  }).toPass({ timeout: 5000 });
+  await expect(page.getByTestId('route-denied')).toBeVisible({ timeout: 5000 });
+  expect(new URL(page.url()).pathname).toBe(route);
 }
 
 test.describe('roles: editor', () => {

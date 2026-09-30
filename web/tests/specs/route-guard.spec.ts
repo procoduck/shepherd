@@ -15,10 +15,11 @@
  *     TeamServiceListTeamsProcedure's RoleOrgReader in rpc_interceptor.go).
  *     orgAdmin, orgEditor and reader all belong to org-0001 and clear
  *     org-reader; nobody belongs to no org at all and is denied.
- * A denial is either a router-level redirect to '/' or a visible
- * [data-testid="route-denied"] element, and — the part a redirect alone
- * cannot prove — the page's privileged RPC for that route must never have
- * fired, i.e. the denied page's data never left the guard to render.
+ * A denial is a visible [data-testid="route-denied"] page (since #206 shown
+ * in place; it used to redirect to '/', which the poll below still accepts),
+ * and — the part the marker alone cannot prove — the page's privileged RPC
+ * for that route must never have fired, i.e. the denied page's data never
+ * left the guard to render.
  *
  * This was the RED run for W6-S7 before it landed: every denial case below
  * failed with routeManifest carrying no requiredRole and no RequireRole

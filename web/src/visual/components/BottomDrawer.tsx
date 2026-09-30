@@ -7,10 +7,11 @@ import {
   simulateRelabel,
   type TargetTrace,
 } from '../../api/client';
-import { useOrgId } from '../../hooks/useOrg';
+import { useCanWrite, useOrgId } from '../../hooks/useOrg';
 import { renderTS } from '../renderTS';
 import { useVisualStore } from '../store';
 import { useDebouncedValue } from '../useDebouncedValue';
+import { READ_ONLY_REASON } from './Toolbar';
 export function BottomDrawer() {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<'problems' | 'code' | 'simulate'>('problems');
@@ -20,6 +21,9 @@ export function BottomDrawer() {
   const selected = useVisualStore((s) => s.selected);
   const setSelected = useVisualStore((s) => s.setSelected);
   const orgId = useOrgId();
+  // Server render (Verify) and the simulators are org-editor RPCs; a viewer
+  // sees the tabs but cannot run them (#206).
+  const readOnly = !useCanWrite();
   const [simulateTab, setSimulateTab] = useState<'relabel' | 'logs'>('relabel');
   const [relabelResult, setRelabelResult] = useState<{ traces: TargetTrace[] }>();
   const [logsResult, setLogsResult] = useState<{ traces: LineTrace[] }>();
@@ -98,9 +102,11 @@ export function BottomDrawer() {
     selectedNode?.component === 'prometheus.relabel' || !selectedNode ? (
       <>
         <button
-          className='border rounded px-2 py-1 text-xs'
+          className='border rounded px-2 py-1 text-xs disabled:opacity-50 disabled:cursor-not-allowed'
           data-testid='simulate-relabel-run'
           onClick={runRelabel}
+          disabled={readOnly}
+          title={readOnly ? READ_ONLY_REASON : undefined}
         >
           Run
         </button>
@@ -140,9 +146,11 @@ export function BottomDrawer() {
     selectedNode?.component === 'loki.process' || !selectedNode ? (
       <>
         <button
-          className='border rounded px-2 py-1 text-xs'
+          className='border rounded px-2 py-1 text-xs disabled:opacity-50 disabled:cursor-not-allowed'
           data-testid='simulate-logs-run'
           onClick={runLogs}
+          disabled={readOnly}
+          title={readOnly ? READ_ONLY_REASON : undefined}
         >
           Run
         </button>
@@ -246,7 +254,12 @@ export function BottomDrawer() {
             )
           ) : tab === 'code' ? (
             <div data-testid='code-tab-content'>
-              <button className='border rounded px-2 py-1 text-xs mb-2' onClick={verify}>
+              <button
+                className='border rounded px-2 py-1 text-xs mb-2 disabled:opacity-50 disabled:cursor-not-allowed'
+                onClick={verify}
+                disabled={readOnly}
+                title={readOnly ? READ_ONLY_REASON : undefined}
+              >
                 Verify render
               </button>
               {verified && rendered?.content === verified.content && (

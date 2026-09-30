@@ -24,13 +24,13 @@ import { TeamsPage } from '@/pages/TeamsPage';
 import { TenantRoutesPage } from '@/pages/TenantRoutesPage';
 import { WizardsPage } from '@/pages/WizardsPage';
 import { WizardRunnerPage } from '@/wizard/WizardRunnerPage';
-import { routeManifest } from './routeManifest';
+import { requiredRoleFor } from './routeManifest';
 
 // Wraps a page component in RequireRole using routeManifest's requiredRole
 // for `path` as the single source of truth (W6-S7 / routeManifest.test.ts) —
 // a route with no requiredRole entry renders unguarded, same as before.
 function withRequiredRole<P extends object>(path: string, Component: (props: P) => JSX.Element) {
-  const requiredRole = routeManifest.find((r) => r.path === path)?.requiredRole;
+  const requiredRole = requiredRoleFor(path);
   if (!requiredRole) return Component;
   return function RoleGuarded(props: P) {
     return (
@@ -150,11 +150,11 @@ const GraphViewPageLazy = lazyNamed(
 const visualNewRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/pipelines/visual/new',
-  component: () => (
+  component: withRequiredRole('/pipelines/visual/new', () => (
     <Suspense fallback={<div className='h-full p-4 text-sm'>Loading visual builder…</div>}>
       <VisualBuilderPageLazy />
     </Suspense>
-  ),
+  )),
 });
 const visualEditRoute = createRoute({
   getParentRoute: () => shellRoute,

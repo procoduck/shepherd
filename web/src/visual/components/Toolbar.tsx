@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { renderVisual } from '../../api/client';
 import { clients, toApiError } from '../../api/transport';
 import { MatcherSuggestions } from '../../components/MatcherSuggestions';
-import { useOrgId } from '../../hooks/useOrg';
+import { useCanWrite, useOrgId } from '../../hooks/useOrg';
 import { clearDraft } from '../draft';
 import { isValidMatcher } from '../matcher';
 import { useVisualStore } from '../store';
@@ -20,6 +20,8 @@ import { SandboxRunPanel } from './SandboxRunPanel';
  * mutation's error handler can show the diagnostic message verbatim instead
  * of running it through toApiError. */
 class RenderFailedError extends Error {}
+
+export const READ_ONLY_REASON = "Viewers can't change pipelines — ask an org editor or admin";
 
 export function Toolbar({ pipelineId }: { pipelineId: string }) {
   const diagnostics = useVisualStore((s) => s.diagnostics);
@@ -38,6 +40,10 @@ export function Toolbar({ pipelineId }: { pipelineId: string }) {
   const [comparing, setComparing] = useState(false);
 
   const orgId = useOrgId();
+  // Read-only for viewers, like the text editor (PipelineEditorPage): every
+  // action here is org-editor on the server, so offering it only produced a
+  // 403 toast (#206).
+  const readOnly = !useCanWrite();
   const navigate = useNavigate();
   const qc = useQueryClient();
 
@@ -111,12 +117,14 @@ export function Toolbar({ pipelineId }: { pipelineId: string }) {
   // so the existing "add a matcher" tooltip still wins when both are true;
   // an unwired/misconfigured graph is reported separately once that's fixed.
   const hasBlockingErrors = errors > 0;
-  const canSave = !matchersRequired && !hasBlockingErrors && !saveMutation.isPending;
-  const saveDisabledReason = matchersRequired
-    ? 'Add at least one matcher before saving — format: key="value" or key=~"regex" (quotes required)'
-    : hasBlockingErrors
-      ? `Fix ${errors} blocking problem${errors !== 1 ? 's' : ''} before saving`
-      : undefined;
+  const canSave = !readOnly && !matchersRequired && !hasBlockingErrors && !saveMutation.isPending;
+  const saveDisabledReason = readOnly
+    ? READ_ONLY_REASON
+    : matchersRequired
+      ? 'Add at least one matcher before saving — format: key="value" or key=~"regex" (quotes required)'
+      : hasBlockingErrors
+        ? `Fix ${errors} blocking problem${errors !== 1 ? 's' : ''} before saving`
+        : undefined;
 
   // Clicking the validity chip reuses the bottom drawer's own Problems-tab
   // button rather than duplicating its open/tab state — that state is
@@ -134,9 +142,19 @@ export function Toolbar({ pipelineId }: { pipelineId: string }) {
         data-testid='toolbar-name'
         value={pipelineName}
         onChange={(e) => setPipelineName(e.target.value)}
+        disabled={readOnly}
         placeholder='Pipeline name...'
-        className='border rounded px-2 py-1 text-sm w-48 bg-background'
+        className='border rounded px-2 py-1 text-sm w-48 bg-background disabled:opacity-60 disabled:cursor-not-allowed'
       />
+      {readOnly && (
+        <span
+          data-testid='toolbar-read-only'
+          title={READ_ONLY_REASON}
+          className='shrink-0 text-xs px-2 py-0.5 rounded border border-border text-muted'
+        >
+          Read only
+        </span>
+      )}
       <span className='text-xs text-muted'>
         {pipelineId === 'new' ? 'New pipeline' : pipelineId}
       </span>
@@ -157,7 +175,8 @@ export function Toolbar({ pipelineId }: { pipelineId: string }) {
               data-testid={`matcher-remove-${i}`}
               aria-label={`Remove matcher ${m}`}
               onClick={() => removeMatcher(i)}
-              className='text-muted hover:text-red-400'
+              disabled={readOnly}
+              className='text-muted hover:text-red-400 disabled:opacity-50 disabled:cursor-not-allowed'
             >
               ×
             </button>
@@ -178,7 +197,8 @@ export function Toolbar({ pipelineId }: { pipelineId: string }) {
             }
           }}
           placeholder='cluster="prod-eu-1"'
-          className='shrink-0 border rounded px-2 py-1 text-xs w-40 font-mono bg-background'
+          disabled={readOnly}
+          className='shrink-0 border rounded px-2 py-1 text-xs w-40 font-mono bg-background disabled:opacity-60 disabled:cursor-not-allowed'
         />
         <MatcherSuggestions id='visual-matcher-suggestions' orgId={orgId} />
         {matcherError && (
@@ -253,7 +273,7 @@ export function Toolbar({ pipelineId }: { pipelineId: string }) {
           onClose={() => setComparing(false)}
         />
       )}
-      <SandboxRunPanel orgId={orgId} />
+      <SandboxRunPanel orgId={orgId} disabledReason={readOnly ? READ_ONLY_REASON : undefined} />
       <button
         data-testid='toolbar-save'
         onClick={() => saveMutation.mutate()}

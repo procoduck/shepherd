@@ -8,8 +8,8 @@
  * route's primary read RPC:
  *   - 'app-admin' — admin/*  (AdminService, UserService: app admin only)
  *   - 'org-admin' — /git, /audit (GitOpsService, AuditService)
- *   - 'org-editor' — /wizards, /wizards/$kind, /pipelines/new
- *     (WizardService, and pipeline authoring)
+ *   - 'org-editor' — /wizards, /wizards/$kind, /pipelines/new,
+ *     /pipelines/visual/new (WizardService, and pipeline authoring)
  *   - 'org-reader' — every other org-scoped page that has no elevated
  *     requirement of its own (e.g. /teams — TeamService.ListTeams)
  * The server remains the actual enforcement (RequireRole exists only so a
@@ -92,7 +92,14 @@ export const routeManifest: RouteEntry[] = [
   // still protected, and were missing here entirely -- which the completeness
   // guard could not notice, because it only checked that listed routes had a
   // tag rather than that every real route was listed.
-  { path: '/pipelines/visual/new', tag: 'protected', label: 'Visual builder' },
+  // Creating a pipeline is org-editor whichever editor it is authored in
+  // (#206: a viewer reached this canvas and every action failed with a 403).
+  {
+    path: '/pipelines/visual/new',
+    tag: 'protected',
+    requiredRole: 'org-editor',
+    label: 'Visual builder',
+  },
   { path: '/pipelines/$id/visual', tag: 'protected', label: 'Visual builder' },
   { path: '/pipelines/$id/graph', tag: 'protected', label: 'Graph view' },
   {
@@ -192,4 +199,11 @@ export function roleSatisfied(
   const membership = me.orgs.find((o) => o.id === orgId);
   if (!membership) return false;
   return (ORG_ROLE_RANK[membership.role] ?? 0) >= REQUIRED_ORG_ROLE_RANK[required];
+}
+
+/** The requiredRole routeManifest records for exactly `path`, if any. Shell
+ *  uses it to hide nav links a role cannot use, router.tsx to guard routes —
+ *  one table for both, so a link is never offered to a page that denies. */
+export function requiredRoleFor(path: string): RequiredRole | undefined {
+  return routeManifest.find((r) => r.path === path)?.requiredRole;
 }

@@ -1,9 +1,11 @@
 import { Boxes } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCanWrite } from '../../hooks/useOrg';
 import { canConnectPorts, resolvePorts } from '../l1';
 import { rankPaletteItems } from '../paletteSearch';
 import { useVisualStore } from '../store';
 import { CollapsiblePanel } from './CollapsiblePanel';
+import { READ_ONLY_REASON } from './Toolbar';
 
 const CATEGORIES = ['sources', 'transform', 'destinations', 'config', 'advanced'] as const;
 const LABELS: Record<string, string> = {
@@ -30,6 +32,8 @@ export function Palette() {
   const doc = useVisualStore((s) => s.doc);
   const addNode = useVisualStore((s) => s.addNode);
   const allowExperimental = useVisualStore((s) => s.allowExperimental);
+  // A viewer can browse the catalogue but not place components (#206).
+  const readOnly = !useCanWrite();
   const [search, setSearch] = useState('');
   const [showAllOverride, setShowAllOverride] = useState(false);
   const clickCountRef = useRef(0);
@@ -111,6 +115,7 @@ export function Palette() {
   const PALETTE_COL_SPACING = 320;
   const PALETTE_ROW_SPACING = 200;
   const handleClick = (name: string) => {
+    if (readOnly) return;
     const count = clickCountRef.current;
     clickCountRef.current += 1;
     const col = count % PALETTE_GRID_COLS;
@@ -136,6 +141,14 @@ export function Palette() {
         className='flex flex-col min-h-0 flex-1 overflow-hidden'
         onWheel={(e) => e.stopPropagation()}
       >
+        {readOnly && (
+          <p
+            data-testid='palette-read-only'
+            className='px-3 py-1.5 text-xs text-muted border-b border-border'
+          >
+            {READ_ONLY_REASON}
+          </p>
+        )}
         <div className='p-2 border-b border-border'>
           <input
             type='text'
@@ -173,12 +186,23 @@ export function Palette() {
                 {catItems.map(({ name, def }) => (
                   <div
                     key={name}
-                    draggable
+                    draggable={!readOnly}
+                    aria-disabled={readOnly || undefined}
                     data-component={name}
                     data-testid={`palette-item-${name}`}
-                    onDragStart={(e) => e.dataTransfer.setData('application/vb-component', name)}
+                    onDragStart={(e) => {
+                      if (readOnly) {
+                        e.preventDefault();
+                        return;
+                      }
+                      e.dataTransfer.setData('application/vb-component', name);
+                    }}
                     onClick={() => handleClick(name)}
-                    className='px-3 py-1.5 text-sm cursor-pointer hover:bg-accent/10 flex items-center gap-2'
+                    className={`px-3 py-1.5 text-sm flex items-center gap-2 ${
+                      readOnly
+                        ? 'cursor-not-allowed opacity-60'
+                        : 'cursor-pointer hover:bg-accent/10'
+                    }`}
                   >
                     <span
                       className={`h-1.5 w-1.5 rounded-full shrink-0 ${CATEGORY_DOT[cat]}`}

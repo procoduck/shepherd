@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { roleSatisfied, routeManifest } from './routeManifest';
+import { requiredRoleFor, roleSatisfied, routeManifest } from './routeManifest';
 
 // Minimal RoleSubject-shaped fixtures — deliberately not imported from
 // tests/fixtures/personas.ts (outside src/, and outside this workstream's
@@ -26,6 +26,7 @@ describe('routeManifest requiredRole — mirrors internal/mgmtapi/rpc_intercepto
     expect(routeManifest.find((r) => r.path === '/wizards')?.requiredRole).toBe('org-editor');
     expect(routeManifest.find((r) => r.path === '/wizards/$kind')?.requiredRole).toBe('org-editor');
     expect(routeManifest.find((r) => r.path === '/pipelines/new')?.requiredRole).toBe('org-editor');
+    expect(requiredRoleFor('/pipelines/visual/new')).toBe('org-editor');
   });
 
   it('routes with no elevated requirement carry no requiredRole', () => {

@@ -293,7 +293,15 @@ function ResultsView({
   );
 }
 
-export function SandboxRunPanel({ orgId }: { orgId: string | undefined }) {
+export function SandboxRunPanel({
+  orgId,
+  disabledReason,
+}: {
+  orgId: string | undefined;
+  /** Set when the user may not run simulations (a viewer, #206): the trigger
+   *  renders disabled with this as its tooltip. */
+  disabledReason?: string;
+}) {
   const doc = useVisualStore((s) => s.doc);
   const setSimHealthByNode = useVisualStore((s) => s.setSimHealthByNode);
 
@@ -415,7 +423,8 @@ export function SandboxRunPanel({ orgId }: { orgId: string | undefined }) {
         type='button'
         data-testid='simulate-menu-trigger'
         onClick={() => setMenuOpen((v) => !v)}
-        disabled={!orgId}
+        disabled={!orgId || !!disabledReason}
+        title={disabledReason}
         className='text-sm px-3 py-1 rounded border shrink-0 disabled:opacity-50 disabled:cursor-not-allowed'
       >
         Simulate ▾
