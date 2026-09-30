@@ -17,12 +17,18 @@ import { test } from '../fixtures/test';
  * that's the actual thing under test — the store instance itself, not a
  * proxy for it.
  */
-async function waitForDraftSaved(page: Page, pipelineId: string): Promise<void> {
+async function waitForDraftSaved(
+  page: Page,
+  pipelineId: string,
+  // When set, the draft must contain a node of this component — for a spec
+  // where an older draft (with other nodes) is already on disk.
+  component?: string,
+): Promise<void> {
   await expect
     .poll(
       () =>
         page.evaluate(
-          (key) =>
+          ({ key, component }) =>
             new Promise<boolean>((resolve) => {
               const openReq = indexedDB.open('keyval-store');
               openReq.onerror = () => resolve(false);
@@ -37,14 +43,17 @@ async function waitForDraftSaved(page: Page, pipelineId: string): Promise<void> 
                 // autosave may first persist the empty doc (the served
                 // schema version stamped onto a fresh doc is a doc change),
                 // and reloading on that would leave nothing to restore.
-                getReq.onsuccess = () =>
+                getReq.onsuccess = () => {
+                  const nodes =
+                    (getReq.result as { nodes?: { component: string }[] } | undefined)?.nodes ?? [];
                   resolve(
-                    ((getReq.result as { nodes?: unknown[] } | undefined)?.nodes?.length ?? 0) > 0,
+                    component ? nodes.some((n) => n.component === component) : nodes.length > 0,
                   );
+                };
                 getReq.onerror = () => resolve(false);
               };
             }),
-          `vb:draft:${pipelineId}`,
+          { key: `vb:draft:${pipelineId}`, component },
         ),
       { timeout: 5000 },
     )
@@ -135,6 +144,41 @@ test.describe('visual builder drafts', () => {
     await expect(page.getByTestId('draft-restore-banner')).toBeVisible();
     await page.getByTestId('draft-restore').click();
     await expect(page.locator('.react-flow__node')).toHaveCount(1);
+  });
+
+  // #202: an edit made while the banner is still unanswered used to be lost —
+  // autosave stayed paused for as long as the banner showed, so the old draft
+  // stayed on disk and "Restore draft" on the next visit brought back the
+  // graph from before the edit. Editing now counts as continuing from what's
+  // on screen: the banner goes away and the edited graph becomes the draft.
+  test('an edit made while the restore banner is showing becomes the draft', async ({ page }) => {
+    await page.click('[data-testid="palette-item-prometheus.remote_write"]');
+    await expect(page.locator('.react-flow__node')).toHaveCount(1);
+    await waitForDraftSaved(page, 'new');
+
+    page.on('dialog', (d) => {
+      void d.accept();
+    });
+    await page.reload();
+    await page.waitForSelector('[data-testid="visual-builder"]', { timeout: 10_000 });
+    await expect(page.getByTestId('draft-restore-banner')).toBeVisible();
+
+    // Edit without answering the banner.
+    await page.waitForSelector('[data-testid="palette-search"]', { timeout: 8_000 });
+    await page.click('[data-testid="palette-item-loki.write"]');
+    await expect(page.locator('.react-flow__node')).toHaveCount(1);
+    await expect(page.getByTestId('draft-restore-banner')).not.toBeVisible();
+    await waitForDraftSaved(page, 'new', 'loki.write');
+
+    await page.reload();
+    await page.waitForSelector('[data-testid="visual-builder"]', { timeout: 10_000 });
+    await expect(page.getByTestId('draft-restore-banner')).toBeVisible();
+    await page.getByTestId('draft-restore').click();
+    await expect(page.locator('.react-flow__node')).toHaveCount(1);
+    // The restored node is the one added while the banner showed, not the
+    // older draft's remote_write.
+    await expect(page.locator('.react-flow__node')).toContainText('loki.write');
+    await expect(page.locator('.react-flow__node')).not.toContainText('prometheus.remote_write');
   });
 
   test('no banner appears for a route with no draft', async ({ page }) => {

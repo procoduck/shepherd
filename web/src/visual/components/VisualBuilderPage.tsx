@@ -4,7 +4,13 @@ import { toast } from 'sonner';
 import { graphView } from '../../api/client';
 import { clients, toApiError } from '../../api/transport';
 import { useOrg } from '../../hooks/useOrg';
-import { clearDraft, loadDraft, shouldOfferRestore, subscribeDraftAutosave } from '../draft';
+import {
+  clearDraft,
+  loadDraft,
+  saveDraft,
+  shouldOfferRestore,
+  subscribeDraftAutosave,
+} from '../draft';
 import { fetchSchema } from '../schemaAdapter';
 import { useVisualStore } from '../store';
 import type { GraphDocument } from '../types';
@@ -135,6 +141,39 @@ export function VisualBuilderPage() {
     if (!draftChecked || draftToRestore) return;
     return subscribeDraftAutosave(useVisualStore, pipelineId);
   }, [pipelineId, draftChecked, draftToRestore]);
+
+  // #202: editing the graph while the restore banner is still unanswered
+  // counts as choosing to continue from what's on screen. Autosave is paused
+  // while the banner shows (above), so without this an edit made then was
+  // never saved: the old draft stayed on disk, and "Restore draft" on the
+  // next visit silently brought back the graph from before the edit. Rather
+  // than block editing until the banner is answered, the first real edit
+  // supersedes the old draft: it is saved at once (the change that triggered
+  // this happened before autosave re-subscribes, so it would otherwise wait
+  // for the next edit) and the banner is dismissed, which resumes autosave.
+  //
+  // Only a change to the graph's content counts — nodes, edges, bindings.
+  // setSchema stamping the served version onto a fresh doc (which can land
+  // after the check) and a pan/zoom are not the user continuing from here.
+  // Restore's own importGraph also passes through here; that saves the
+  // restored draft over itself, which is harmless.
+  useEffect(() => {
+    if (!draftToRestore) return;
+    const unsubscribe = useVisualStore.subscribe((state, prev) => {
+      const { doc } = state;
+      if (
+        doc.nodes === prev.doc.nodes &&
+        doc.edges === prev.doc.edges &&
+        doc.bindings === prev.doc.bindings
+      ) {
+        return;
+      }
+      unsubscribe();
+      saveDraft(pipelineId, doc).catch(console.error);
+      setDraftToRestore(null);
+    });
+    return unsubscribe;
+  }, [pipelineId, draftToRestore]);
 
   // Offer to restore a draft left behind by an earlier session. Checked once
   // the doc this pipelineId should actually start from is in place: for
