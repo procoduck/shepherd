@@ -94,7 +94,6 @@ function parseSpecRestRoutes(specSource: string): RestEndpoint[] {
 // backlog item, not an oversight this test excuses. Delete an entry in the same change that
 // adds its handler; a stale entry fails the test below.
 const UNMOCKED_PROCEDURES: Record<string, string> = {
-  '/shepherd.mgmt.v1.AdminService/SetOrgTenantID': 'tenant-id admin action; no mocked spec yet',
   '/shepherd.mgmt.v1.DestinationService/ListDestinationBindings':
     'destination bindings: no default handler yet',
   '/shepherd.mgmt.v1.DestinationService/GetDestinationBinding':

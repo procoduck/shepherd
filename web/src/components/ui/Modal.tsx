@@ -88,7 +88,10 @@ export function Modal({
   }, []);
 
   return (
-    <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/60'>
+    // overflow-y-auto + my-auto: a dialog taller than the window (the org
+    // editor with its tenant field, on a laptop screen) scrolls instead of
+    // clipping its title and Save button off both edges (#204).
+    <div className='fixed inset-0 z-50 flex justify-center overflow-y-auto bg-black/60 p-4'>
       <div
         ref={panelRef}
         tabIndex={-1}
@@ -96,7 +99,7 @@ export function Modal({
         aria-modal='true'
         aria-labelledby={titleId}
         data-testid={testId}
-        className={`w-full ${SIZE_CLASSES[size]} rounded-xl border border-border bg-background p-6 shadow-2xl`}
+        className={`my-auto w-full ${SIZE_CLASSES[size]} rounded-xl border border-border bg-background p-6 shadow-2xl`}
       >
         <div className='mb-4 flex items-center justify-between'>
           <h2 id={titleId} className='text-base font-semibold'>

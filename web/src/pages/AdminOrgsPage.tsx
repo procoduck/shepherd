@@ -95,6 +95,9 @@ export function AdminOrgsPage() {
     allowLabelMatching: false,
     allowLocalAttributeMatching: false,
   });
+  // Set-once tenant identity for an org created without one (#204); sent
+  // through SetOrgTenantID only when non-empty.
+  const [editTenantId, setEditTenantId] = useState('');
   const [deleteOrg, setDeleteOrg] = useState<Org | null>(null);
 
   const { data, isLoading, isError, error } = useQuery({
@@ -116,7 +119,15 @@ export function AdminOrgsPage() {
   });
 
   const updateMut = useMutation({
-    mutationFn: () => clients.admin.updateOrg({ orgId: editOrg?.id ?? '', ...editForm }),
+    mutationFn: async () => {
+      const orgId = editOrg?.id ?? '';
+      const updated = await clients.admin.updateOrg({ orgId, ...editForm });
+      const tenantId = editTenantId.trim();
+      if (!editOrg?.tenantId && tenantId) {
+        return clients.admin.setOrgTenantID({ orgId, tenantId });
+      }
+      return updated;
+    },
     onSuccess: () => {
       toast.success('Organisation updated');
       invalidate();
@@ -145,6 +156,7 @@ export function AdminOrgsPage() {
 
   function openEdit(o: Org) {
     setEditOrg(o);
+    setEditTenantId('');
     setEditForm({
       displayName: o.displayName,
       adminGroupId: o.adminGroupId,
@@ -295,6 +307,28 @@ export function AdminOrgsPage() {
                 required
               />
             </Field>
+            {editOrg.tenantId ? (
+              <Field
+                label='Tenant ID'
+                hint='Set once when the org got its identity; it cannot be changed.'
+              >
+                <Input value={editOrg.tenantId} mono disabled data-testid='org-edit-tenant-set' />
+              </Field>
+            ) : (
+              <Field
+                label='Tenant ID'
+                optional
+                hint='The tenant this org’s telemetry ships under (X-Scope-OrgID). Set it once — it cannot be changed afterwards. Until it is set, the org cannot have tenant routes.'
+              >
+                <Input
+                  value={editTenantId}
+                  onChange={(e) => setEditTenantId(e.target.value)}
+                  mono
+                  placeholder='acme'
+                  data-testid='org-edit-tenant'
+                />
+              </Field>
+            )}
             <Field label='Admin group ID'>
               <Input
                 value={editForm.adminGroupId}

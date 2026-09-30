@@ -39,6 +39,7 @@ function orgToWire(o: Obj) {
     displayName: s(o, 'display_name'),
     adminGroupId: s(o, 'admin_group_id'),
     readerGroupId: s(o, 'reader_group_id'),
+    tenantId: s(o, 'tenant_id'),
     createdAt: o['created_at'],
     updatedAt: o['updated_at'],
     allowExperimentalComponents: b(o, 'allow_experimental_components'),
@@ -622,6 +623,16 @@ export function installDefaultHandlers(router: Router) {
     // an omitted proto3 bool arrives as false.
     o['allow_label_matching'] = req['allowLabelMatching'] ?? false;
     o['allow_local_attribute_matching'] = req['allowLocalAttributeMatching'] ?? false;
+    return json(r, 200, orgToWire(o));
+  });
+  router.register('POST', '/shepherd.mgmt.v1.AdminService/SetOrgTenantID', async (r) => {
+    const req = await body(r);
+    const o = (st.orgs as Obj[]).find((org) => org['id'] === req['orgId']);
+    if (!o) return connectError(r, 404, 'not_found', 'org not found');
+    // Set-once, like the real handler.
+    if (o['tenant_id'])
+      return connectError(r, 400, 'failed_precondition', 'tenant id is already set');
+    o['tenant_id'] = req['tenantId'];
     return json(r, 200, orgToWire(o));
   });
   router.register('POST', '/shepherd.mgmt.v1.AdminService/DeleteOrg', async (r) => {
