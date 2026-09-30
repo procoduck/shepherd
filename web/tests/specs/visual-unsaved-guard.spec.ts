@@ -3,6 +3,7 @@
 // non-empty graph, so opening an existing pipeline and leaving it untouched
 // still produced the prompt.
 import { expect } from '@playwright/test';
+import { currentSchemaVersion } from '@/visual/schemaVersion';
 import { basicScenario, pipeline } from '../fixtures/factories';
 import { orgEditor } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
@@ -10,7 +11,9 @@ import { test } from '../fixtures/test';
 
 const loadedGraph = {
   kind: 'alloy-graph/v1',
-  schema_version: 'alloy-v1.19.2',
+  // The fixture's own version, so loading this graph never counts as a
+  // schema upgrade (that would itself be an unsaved change).
+  schema_version: currentSchemaVersion(schemaFixture),
   nodes: [
     {
       id: 'n1',

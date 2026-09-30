@@ -163,14 +163,22 @@ jobs:
           fi
 
           # frontend gates web and test-ui — ~4 billed minutes. Both run
-          # entirely inside web/ (typecheck, vitest, biome, vite build, and
-          # Playwright against `vite preview` with mocked APIs), so nothing
-          # outside web/ can change their result — except proto/, which
-          # regenerates web/src/gen, and scripts/build-web.sh, which both
-          # jobs' builds run through (the canonical `pnpm install`/`pnpm
-          # build` path per the check-build-script guard) but which lives
-          # outside web/ and so was previously invisible to this gate.
-          if echo "$files" | grep -vE '\.md$' | grep -qE '(^web/|^proto/|^scripts/build-web\.sh$|^buf\.(gen\.)?yaml$|^Makefile$|^\.github/workflows/ci\.yml$)'; then
+          # inside web/ (typecheck, vitest, biome, vite build, and Playwright
+          # against `vite preview` with mocked APIs), but they also READ files
+          # outside it, and each of those is an input to the gate:
+          #   - proto/ regenerates web/src/gen;
+          #   - scripts/build-web.sh is the build both jobs run through;
+          #   - internal/schema/artifacts/ is the schema the mocked suite's
+          #     fixture and the l1/wireOrient vitests load (the Alloy v1.20.1
+          #     bump, #185, broke a mocked spec that nothing re-ran until a web
+          #     PR landed on top of it);
+          #   - internal/visual/testdata/corpus/ is the Go corpus renderTS.test
+          #     compares against;
+          #   - docs/spec.md §12 is parsed by routeCoverage.test — the one
+          #     Markdown file that is an input, so it is kept when the rest of
+          #     the Markdown is dropped.
+          frontend_files=$( (echo "$files" | grep -vE '\.md$'; echo "$files" | grep -xE 'docs/spec\.md') || true)
+          if echo "$frontend_files" | grep -qE '(^web/|^proto/|^scripts/build-web\.sh$|^internal/schema/artifacts/|^internal/visual/testdata/corpus/|^docs/spec\.md$|^buf\.(gen\.)?yaml$|^Makefile$|^\.github/workflows/ci\.yml$)'; then
             echo "frontend=true" >> "$GITHUB_OUTPUT"
           else
             echo "frontend=false" >> "$GITHUB_OUTPUT"
