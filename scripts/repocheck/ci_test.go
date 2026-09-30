@@ -118,14 +118,28 @@ var _ = Describe("govulncheck", func() {
 // that merged close together -- a cancelled run provides none of that
 // signal.
 var _ = Describe("ci.yml housekeeping", func() {
-	It("routes a scripts/build-web.sh change to the frontend gate", func() {
+	It("routes every non-web input of the web jobs to the frontend gate", func() {
 		ci := readRepoFile(".github/workflows/ci.yml")
-		re := regexp.MustCompile(`(?m)^\s*if echo "\$files"(?: \| grep -vE '[^']+')? \| grep -qE '([^']+)'; then\n\s*echo "frontend=true"`)
+		re := regexp.MustCompile(`(?m)^\s*if echo "\$\w+"(?: \| grep -vE '[^']+')? \| grep -qE '([^']+)'; then\n\s*echo "frontend=true"`)
 		m := re.FindStringSubmatch(ci)
 		Expect(m).NotTo(BeNil(), "could not find the frontend gate's grep pattern in ci.yml")
 		pattern := regexp.MustCompile(m[1])
-		Expect(pattern.MatchString("scripts/build-web.sh")).To(BeTrue(),
-			"frontend gate pattern %q must match scripts/build-web.sh", m[1])
+		// Every file outside web/ that the web and test-ui jobs read. Red run,
+		// 2026-09-30: the pattern had none of the last three, so the Alloy
+		// v1.20.1 bump (#185) never re-ran test-ui and main carried a broken
+		// mocked spec until a Dependabot web PR tripped over it.
+		for _, path := range []string{
+			"scripts/build-web.sh",
+			"internal/schema/artifacts/alloy-v1.20.1.json",
+			"internal/visual/testdata/corpus/kitchen-sink.golden.alloy",
+			"docs/spec.md",
+		} {
+			Expect(pattern.MatchString(path)).To(BeTrue(), "frontend gate pattern %q must match %s", m[1], path)
+		}
+		// docs/spec.md is Markdown; the gate drops Markdown before matching,
+		// so it must be put back explicitly.
+		Expect(ci).To(ContainSubstring(`grep -xE 'docs/spec\.md'`),
+			"the frontend file list must keep docs/spec.md, which routeCoverage.test parses")
 	})
 
 	// Red run, 2026-09-15: ci.yml carried `paths-ignore: **.md, docs/**,
@@ -158,16 +172,26 @@ var _ = Describe("ci.yml housekeeping", func() {
 			"scripts/docs-content/roles.html", "internal/spa/AGENTS.md", "web/AGENTS.md", "CHANGELOG.md",
 		}
 		for _, gate := range []string{"backend", "frontend", "generated"} {
-			re := regexp.MustCompile(`(?m)^\s*if echo "\$files"(?: \| grep -vE '([^']+)')?\s*\| grep -qE '([^']+)'; then\n\s*echo "` + gate + `=true"`)
+			re := regexp.MustCompile(`(?m)^\s*if echo "\$(\w+)"(?: \| grep -vE '([^']+)')?\s*\| grep -qE '([^']+)'; then\n\s*echo "` + gate + `=true"`)
 			m := re.FindStringSubmatch(ci)
 			Expect(m).NotTo(BeNil(), "could not find the %s gate's grep pattern in ci.yml", gate)
-			var exclude *regexp.Regexp
-			if m[1] != "" {
-				exclude = regexp.MustCompile(m[1])
+			var exclude, keep *regexp.Regexp
+			if m[2] != "" {
+				exclude = regexp.MustCompile(m[2])
 			}
-			include := regexp.MustCompile(m[2])
+			// A gate may match a filtered list built one line earlier:
+			// `list=$( (echo "$files" | grep -vE 'X'; echo "$files" | grep -xE 'K') || true)`
+			// — X is dropped, except the files K names, which are kept.
+			if m[1] != "files" {
+				lre := regexp.MustCompile(`(?m)^\s*` + m[1] + `=\$\( \(echo "\$files" \| grep -vE '([^']+)'; echo "\$files" \| grep -xE '([^']+)'\) \|\| true\)`)
+				lm := lre.FindStringSubmatch(ci)
+				Expect(lm).NotTo(BeNil(), "could not find how the %s gate builds $%s", gate, m[1])
+				exclude = regexp.MustCompile(lm[1])
+				keep = regexp.MustCompile(`^(?:` + lm[2] + `)$`)
+			}
+			include := regexp.MustCompile(m[3])
 			for _, f := range docsOnly {
-				if exclude != nil && exclude.MatchString(f) {
+				if exclude != nil && exclude.MatchString(f) && (keep == nil || !keep.MatchString(f)) {
 					continue
 				}
 				Expect(include.MatchString(f)).To(BeFalse(), "%s gate must not open for %s", gate, f)

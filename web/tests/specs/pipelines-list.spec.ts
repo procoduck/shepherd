@@ -1,3 +1,4 @@
+import { currentSchemaVersion } from '@/visual/schemaVersion';
 import { basicScenario, pipeline } from '../fixtures/factories';
 import { appAdmin, orgEditor } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
@@ -25,16 +26,17 @@ test('New pipeline button is visible for orgAdmin', async ({ page, api }) => {
 test('a visual pipeline rendered under an older schema is badged', async ({ page, api }) => {
   await api.loginAs(orgEditor);
   const s = basicScenario();
-  // schemaFixture's artifact is alloy-v1.19.2 (currentSchemaVersion normalises
-  // its _meta.alloy_version "v1.19.2" to this form) — see schema-fixture.ts
-  // and src/visual/schemaVersion.ts.
+  // "Current" is whatever the fixture's artifact is — the newest one on disk,
+  // so it moves with every Alloy bump; hard-coding it made this spec badge
+  // both rows after v1.20.1 landed.
+  const currentVersion = currentSchemaVersion(schemaFixture);
   const stale = {
     ...pipeline({ id: 'pip-stale', name: 'stale-visual', source: 'visual' }),
     wizard_state: { schema_version: 'alloy-v1.12.0' },
   };
   const current = {
     ...pipeline({ id: 'pip-current', name: 'current-visual', source: 'visual' }),
-    wizard_state: { schema_version: 'alloy-v1.19.2' },
+    wizard_state: { schema_version: currentVersion },
   };
   api.seed({ orgs: [s.org], schema: schemaFixture, pipelines: [stale, current] });
   await page.goto('/pipelines');
