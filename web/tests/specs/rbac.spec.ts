@@ -46,7 +46,7 @@ test('reader sees the pipelines list without New pipeline or the Enabled switch'
   await expect(page.getByRole('link', { name: 'ui-enabled' })).toBeVisible();
   await expect(page.getByRole('link', { name: /New pipeline/i })).toHaveCount(0);
   await expect(page.getByRole('link', { name: /Visual builder/i })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /^(Enable|Disable)$/ })).toHaveCount(0);
+  await expect(page.getByRole('switch', { name: /^Enabled: / })).toHaveCount(0);
 });
 
 test('reader sees the pipeline editor without a Save button', async ({ page, api }) => {

@@ -50,3 +50,35 @@ test('a visual pipeline rendered under an older schema is badged', async ({ page
   await expect(badge).toContainText('alloy-v1.12.0');
   await expect(badge).toHaveAttribute('href', '/pipelines/pip-stale/visual');
 });
+
+test('the enable toggle is a switch whose knob sits at the start when off (#208)', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(orgEditor);
+  const s = basicScenario();
+  const on = pipeline({ id: 'pip-on', name: 'on-pipe', enabled: true });
+  const off = pipeline({ id: 'pip-off', name: 'off-pipe', enabled: false });
+  api.seed({ orgs: [s.org], pipelines: [on, off] });
+  await page.goto('/pipelines');
+
+  const onSwitch = page.getByRole('switch', { name: 'Enabled: on-pipe' });
+  const offSwitch = page.getByRole('switch', { name: 'Enabled: off-pipe' });
+  await expect(onSwitch).toHaveAttribute('aria-checked', 'true');
+  await expect(offSwitch).toHaveAttribute('aria-checked', 'false');
+
+  // The knob stays inside its track, at the left when off and the right when on.
+  for (const [sw, atRight] of [
+    [offSwitch, false],
+    [onSwitch, true],
+  ] as const) {
+    const track = await sw.boundingBox();
+    const knob = await sw.locator('span').boundingBox();
+    if (!track || !knob) throw new Error('no layout');
+    expect(knob.x).toBeGreaterThanOrEqual(track.x);
+    expect(knob.x + knob.width).toBeLessThanOrEqual(track.x + track.width + 0.5);
+    const knobCenter = knob.x + knob.width / 2;
+    const trackCenter = track.x + track.width / 2;
+    expect(knobCenter > trackCenter).toBe(atRight);
+  }
+});

@@ -71,12 +71,17 @@ function pipelineColumns(
       render: (p) =>
         canWrite ? (
           <button
+            type='button'
+            role='switch'
+            aria-checked={p.enabled}
+            aria-label={`Enabled: ${p.name}`}
             onClick={() => onToggle(p)}
-            className={`w-9 h-5 rounded-full relative transition-colors ${p.enabled ? 'bg-emerald-600' : 'bg-border-strong'}`}
-            aria-label={p.enabled ? 'Disable' : 'Enable'}
+            className={`w-9 h-5 rounded-full relative shrink-0 transition-colors ${p.enabled ? 'bg-emerald-600' : 'bg-border-strong'}`}
           >
+            {/* Anchored left so the knob's position is the translate alone:
+                2px in, then 16px across a 36px track (#208). */}
             <span
-              className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${p.enabled ? 'translate-x-4' : 'translate-x-0.5'}`}
+              className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${p.enabled ? 'translate-x-4' : 'translate-x-0'}`}
             />
           </button>
         ) : (

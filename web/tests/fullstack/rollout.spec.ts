@@ -85,8 +85,9 @@ test.describe('rollout: real fleet convergence', () => {
       await page.waitForLoadState('networkidle');
       const row = page.getByTestId(`pipeline-row-${name}`);
       await expect(row).toBeVisible();
-      await row.getByRole('button', { name: 'Enable' }).click();
-      await expect(row.getByRole('button', { name: 'Disable' })).toBeVisible();
+      const toggle = row.getByRole('switch', { name: `Enabled: ${name}` });
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-checked', 'true');
 
       // EnablePipeline recomputes the org's serve caches eagerly, in a
       // goroutine (rpc_pipeline.go's recomputeOrgCaches) — so the SERVER
