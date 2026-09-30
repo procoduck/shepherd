@@ -57,12 +57,20 @@ const auditColumns: DataTableColumn<AuditEntry>[] = [
     header: 'Resource',
     cellClassName: 'px-4 py-2.5 text-muted text-xs',
     render: (entry) => (
-      <>
-        {entry.resourceType}
+      // Type and id on separate lines: inline, a full UUID ran into the type
+      // and read as one token (#212). The id is shortened; hover shows it all.
+      <div className='flex flex-col'>
+        <span>{entry.resourceType}</span>
         {entry.resourceId && (
-          <span className='ml-1 font-mono text-muted-3'>{entry.resourceId}</span>
+          <span
+            className='font-mono text-muted-3'
+            title={entry.resourceId}
+            data-testid='audit-resource-id'
+          >
+            {entry.resourceId.length > 13 ? `${entry.resourceId.slice(0, 8)}…` : entry.resourceId}
+          </span>
         )}
-      </>
+      </div>
     ),
   },
 ];

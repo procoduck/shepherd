@@ -119,3 +119,18 @@ test('an org admin can also filter the audit log by actor', async ({ page, api }
   await expect(page.locator('tbody tr')).toHaveCount(1);
   await expect(page.locator('tbody tr')).toContainText('bob@example.com');
 });
+
+// #212: inline, a full UUID ran into the resource type and read as one token.
+test('the resource column shows the type and a shortened id, full id on hover', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(appAdmin);
+  const uuid = '0b3e9a4c-5d2f-4e61-9a7b-1c2d3e4f5a6b';
+  api.seed({ orgs: [org({ id: 'org-0001' })], auditRows: [auditRow({ resource_id: uuid })] });
+  await page.goto('/audit');
+
+  const id = page.getByTestId('audit-resource-id');
+  await expect(id).toHaveText('0b3e9a4c…');
+  await expect(id).toHaveAttribute('title', uuid);
+});

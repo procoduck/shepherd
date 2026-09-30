@@ -98,3 +98,41 @@ test('a viewer sees the teams but is offered no way to change them', async ({ pa
   await expect(page.getByTestId('team-members-platform')).toHaveCount(0);
   await expect(page.getByTestId('team-delete-platform')).toHaveCount(0);
 });
+
+// #212: the picker offered every local account on the server, including
+// people who are not in this organisation.
+test('offers only people in this organisation as new members', async ({ page, api }) => {
+  await api.loginAs(appAdmin);
+  api.seed({
+    users: [
+      {
+        id: 'user-2',
+        login: 'alice',
+        email: 'alice@example.com',
+        display_name: 'Alice',
+        is_app_admin: false,
+        must_change_password: false,
+        disabled: false,
+        orgs: [
+          { id: 'org-0001', name: 'prod-org', display_name: 'Production Org', role: 'editor' },
+        ],
+      },
+      {
+        id: 'user-3',
+        login: 'bob',
+        email: 'bob@example.com',
+        display_name: 'Bob',
+        is_app_admin: false,
+        must_change_password: false,
+        disabled: false,
+        orgs: [{ id: 'org-0002', name: 'other-org', display_name: 'Other Org', role: 'editor' }],
+      },
+    ],
+  });
+  await page.goto('/teams');
+
+  await page.getByTestId('team-members-empty-team').click();
+  const select = page.getByTestId('team-member-add-select');
+  await expect(select.locator('option[value="user-2"]')).toHaveCount(1);
+  await expect(select.locator('option[value="user-3"]')).toHaveCount(0);
+});

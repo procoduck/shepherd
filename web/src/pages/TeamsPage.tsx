@@ -319,7 +319,11 @@ function TeamMembersModal({
 
   const members = data?.items ?? [];
   const memberIds = new Set(members.map((m) => m.userId));
-  const candidates = (users?.items ?? []).filter((u) => !memberIds.has(u.id));
+  // Only people in this organisation: a team is part of the org, and the
+  // picker used to offer every local account on the server (#212).
+  const candidates = (users?.items ?? []).filter(
+    (u) => !memberIds.has(u.id) && u.orgs.some((o) => o.id === orgId),
+  );
 
   return (
     <AdminModal title={`Members of ${team.name}`} onClose={onClose}>
