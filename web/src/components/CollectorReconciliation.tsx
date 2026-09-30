@@ -7,7 +7,16 @@ import { clients } from '@/api/transport';
  * out of CollectorDetailPage to keep that page under the file-size guard and to
  * own its own query (mounted only while the tab is active).
  */
-export function CollectorReconciliation({ orgId, id }: { orgId: string; id: string }) {
+export function CollectorReconciliation({
+  orgId,
+  id,
+  status,
+}: {
+  orgId: string;
+  id: string;
+  /** The collector's remote_config_status, e.g. FAILED (upper-cased). */
+  status: string;
+}) {
   const { data, isLoading } = useQuery({
     queryKey: ['reconciliation', orgId, id],
     queryFn: () => clients.fleet.getReconciliation({ orgId, id }),
@@ -23,15 +32,30 @@ export function CollectorReconciliation({ orgId, id }: { orgId: string; id: stri
         observed running. A managed pipeline running that is no longer served is drift the collector
         will clear on its next config reload.
       </p>
+      {status === 'FAILED' && (
+        // Reconciliation compares signals; it cannot see that the agent
+        // rejected its served config. A FAILED collector is running its
+        // previous config, so "served" is not what is running (#198).
+        <div
+          className='rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400'
+          data-testid='reconciliation-load-failed'
+        >
+          Not in sync — this collector rejected the config it is being served and is still running
+          its previous one. The error is shown above; the served and observed state below cannot
+          agree until it loads.
+        </div>
+      )}
       {isLoading ? (
         <p className='text-sm text-muted'>Checking…</p>
       ) : findings.length === 0 ? (
-        <div
-          className='rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-400'
-          data-testid='reconciliation-in-sync'
-        >
-          In sync — declared, served and observed all agree.
-        </div>
+        status === 'FAILED' ? null : (
+          <div
+            className='rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-400'
+            data-testid='reconciliation-in-sync'
+          >
+            In sync — declared, served and observed all agree.
+          </div>
+        )
       ) : (
         <ul className='space-y-2' data-testid='reconciliation-findings'>
           {findings.map((f, i) => (

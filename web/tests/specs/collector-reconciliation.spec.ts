@@ -49,3 +49,24 @@ test('reconciliation tab lists a drift finding', async ({ page, api }) => {
   await expect(findings).toContainText('served ↔ observed');
   await expect(page.getByTestId('reconciliation-in-sync')).toHaveCount(0);
 });
+
+test('reconciliation tab does not say "in sync" for a collector that rejected its config (#198)', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(appAdmin);
+  const s = basicScenario();
+  const c = collector({
+    id: 'col-recon-failed',
+    role: 'metrics',
+    remote_config_status: 'FAILED',
+    remote_config_error: '40:3: Failed to build component',
+  });
+  api.seed({ orgs: [s.org], collectors: [c], reconciliation: { findings: [] } });
+
+  await page.goto(`/collectors/${c.id}`);
+  await page.getByRole('button', { name: 'Reconciliation' }).click();
+
+  await expect(page.getByTestId('reconciliation-load-failed')).toContainText('Not in sync');
+  await expect(page.getByTestId('reconciliation-in-sync')).toHaveCount(0);
+});

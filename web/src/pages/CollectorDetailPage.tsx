@@ -247,7 +247,9 @@ export function CollectorDetailPage() {
         </div>
       )}
 
-      {tab === 'reconciliation' && <CollectorReconciliation orgId={orgId} id={id} />}
+      {tab === 'reconciliation' && (
+        <CollectorReconciliation orgId={orgId} id={id} status={status} />
+      )}
 
       {tab === 'attributes' && detail && (
         <CollectorAttributes
