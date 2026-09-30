@@ -174,6 +174,18 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 		revoked := decodeBody(revokeResp)
 		Expect(revoked["status"]).To(Equal("revoked"))
 		Expect(revoked["revokedAt"]).NotTo(BeEmpty())
+
+		// Every route write is audited (#199): none of the three was before.
+		rows, err := st.Pool().Query(ctx, "SELECT action FROM audit_log WHERE resource_type = 'tenant_route' ORDER BY at")
+		Expect(err).NotTo(HaveOccurred())
+		var actions []string
+		for rows.Next() {
+			var a string
+			Expect(rows.Scan(&a)).To(Succeed())
+			actions = append(actions, a)
+		}
+		rows.Close()
+		Expect(actions).To(Equal([]string{"tenant_route.create", "tenant_route.rotate", "tenant_route.revoke"}))
 	})
 
 	It("returns the apply outcome the reconciler recorded on the row", func() {

@@ -261,6 +261,7 @@ func (s *TenantRouteService) CreateTenantRoute(ctx context.Context, req *connect
 		}
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create tenant route"))
 	}
+	auditLog(ctx, s.store, actorFromCtx(ctx), orgID, "tenant_route.create", "tenant_route", r.ID.String())
 	return connect.NewResponse(toTenantRouteProto(r)), nil
 }
 
@@ -333,6 +334,7 @@ func (s *TenantRouteService) RotateTenantRoute(ctx context.Context, req *connect
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to commit rotation"))
 	}
 
+	auditLog(ctx, s.store, actorFromCtx(ctx), current.OrgID, "tenant_route.rotate", "tenant_route", current.ID.String())
 	return connect.NewResponse(&mgmtv1.RotateTenantRouteResponse{
 		Active:     toTenantRouteProto(active),
 		Deprecated: toTenantRouteProto(deprecated),
@@ -354,6 +356,7 @@ func (s *TenantRouteService) RevokeTenantRoute(ctx context.Context, req *connect
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to revoke tenant route"))
 	}
+	auditLog(ctx, s.store, actorFromCtx(ctx), r.OrgID, "tenant_route.revoke", "tenant_route", r.ID.String())
 	return connect.NewResponse(toTenantRouteProto(r)), nil
 }
 

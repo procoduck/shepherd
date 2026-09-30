@@ -213,6 +213,7 @@ func (s *GitOpsService) CreateCredential(ctx context.Context, req *connect.Reque
 		}
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create credential"))
 	}
+	auditLog(ctx, s.store, actorFromCtx(ctx), orgID, "git_credential.create", "git_credential", c.ID.String())
 	return connect.NewResponse(toGitCredentialProto(c)), nil
 }
 
@@ -242,6 +243,7 @@ func (s *GitOpsService) DeleteCredential(ctx context.Context, req *connect.Reque
 		s.logger.Error("delete git credential", "err", err)
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to delete credential"))
 	}
+	auditLog(ctx, s.store, actorFromCtx(ctx), cred.OrgID, "git_credential.delete", "git_credential", id.String())
 	return connect.NewResponse(&mgmtv1.DeleteCredentialResponse{}), nil
 }
 
@@ -494,6 +496,7 @@ func (s *GitOpsService) CreateRepoLink(ctx context.Context, req *connect.Request
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create repo link"))
 	}
+	auditLog(ctx, s.store, actorFromCtx(ctx), orgID, "repo_link.create", "repo_link", l.ID.String())
 	return connect.NewResponse(toRepoLinkProto(l)), nil
 }
 
@@ -517,6 +520,7 @@ func (s *GitOpsService) DeleteRepoLink(ctx context.Context, req *connect.Request
 		s.logger.Error("delete repo link", "err", err)
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to delete repo link"))
 	}
+	auditLog(ctx, s.store, actorFromCtx(ctx), link.OrgID, "repo_link.delete", "repo_link", id.String())
 	return connect.NewResponse(&mgmtv1.DeleteRepoLinkResponse{}), nil
 }
 

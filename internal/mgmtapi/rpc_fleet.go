@@ -497,6 +497,9 @@ func (s *FleetService) CreateAssignment(ctx context.Context, req *connect.Reques
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create assignment"))
 	}
+	if orgID, err := scanUUID(req.Msg.GetOrgId()); err == nil {
+		auditLogDetail(ctx, s.store, actorFromCtx(ctx), "user", orgID, "assignment.create", "collector", id.String(), map[string]string{"group_id": a.GroupID})
+	}
 	return connect.NewResponse(&mgmtv1.CreateAssignmentResponse{Id: a.ID.String(), GroupId: a.GroupID}), nil
 }
 
@@ -514,6 +517,9 @@ func (s *FleetService) DeleteAssignment(ctx context.Context, req *connect.Reques
 		GroupID:     req.Msg.GetGroupId(),
 	}); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to delete assignment"))
+	}
+	if orgID, err := scanUUID(req.Msg.GetOrgId()); err == nil {
+		auditLogDetail(ctx, s.store, actorFromCtx(ctx), "user", orgID, "assignment.delete", "collector", collID.String(), map[string]string{"group_id": req.Msg.GetGroupId()})
 	}
 	return connect.NewResponse(&mgmtv1.DeleteAssignmentResponse{}), nil
 }

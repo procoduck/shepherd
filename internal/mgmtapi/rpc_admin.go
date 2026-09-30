@@ -240,6 +240,7 @@ func (s *AdminService) UpdateOrg(ctx context.Context, req *connect.Request[mgmtv
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to update org"))
 	}
+	auditLog(ctx, s.store, actorFromCtx(ctx), o.ID, "org.update", "org", o.ID.String())
 	return connect.NewResponse(toOrgProto(o)), nil
 }
 
@@ -268,6 +269,7 @@ func (s *AdminService) DeleteOrg(ctx context.Context, req *connect.Request[mgmtv
 		}
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to delete org"))
 	}
+	auditLog(ctx, s.store, actorFromCtx(ctx), id, "org.delete", "org", id.String())
 	return connect.NewResponse(&mgmtv1.DeleteOrgResponse{}), nil
 }
 
@@ -321,6 +323,7 @@ func (s *AdminService) ClaimCluster(ctx context.Context, req *connect.Request[mg
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to claim cluster"))
 	}
 	s.logger.Info("cluster claimed", "cluster_id", cluster.ID, "org_id", orgID)
+	auditLog(ctx, s.store, actorFromCtx(ctx), orgID, "cluster.claim", "cluster", cluster.ID.String())
 	return connect.NewResponse(&mgmtv1.ClaimClusterResponse{Status: "claimed"}), nil
 }
 
@@ -362,6 +365,8 @@ func (s *AdminService) UnclaimCluster(ctx context.Context, req *connect.Request[
 	}
 
 	s.logger.Info("cluster unclaimed", "cluster_id", cluster.ID)
+	// Audited against the org that just lost the cluster, so it shows in that org's log.
+	auditLog(ctx, s.store, actorFromCtx(ctx), cluster.OrgID, "cluster.unclaim", "cluster", cluster.ID.String())
 	return connect.NewResponse(&mgmtv1.UnclaimClusterResponse{Status: "unclaimed"}), nil
 }
 
@@ -399,6 +404,8 @@ func (s *AdminService) CreateAgentToken(ctx context.Context, req *connect.Reques
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create token"))
 	}
+	// Agent tokens are not org-scoped: a global (no-org) audit row.
+	auditLog(ctx, s.store, actorFromCtx(ctx), pgtype.UUID{}, "agent_token.create", "agent_token", tok.ID.String())
 	return connect.NewResponse(&mgmtv1.CreateAgentTokenResponse{
 		Id:     tok.ID.String(),
 		Name:   tok.Name,
@@ -418,6 +425,7 @@ func (s *AdminService) RevokeAgentToken(ctx context.Context, req *connect.Reques
 	if err := s.store.Queries.RevokeAgentToken(ctx, id); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to revoke token"))
 	}
+	auditLog(ctx, s.store, actorFromCtx(ctx), pgtype.UUID{}, "agent_token.revoke", "agent_token", id.String())
 	return connect.NewResponse(&mgmtv1.RevokeAgentTokenResponse{}), nil
 }
 
