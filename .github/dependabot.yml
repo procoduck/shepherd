@@ -34,6 +34,13 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # GO-2026-6443 (grpc server panic on a missing :authority/Host) affects
+      # 1.84.x and govulncheck finds it reachable (internal/simsvc serves
+      # gRPC), so `make vulncheck` fails any PR that takes it. 1.83.2 is
+      # fixed; the next fixed line is 1.85. Drop this at the first stable 1.85.
+      - dependency-name: "google.golang.org/grpc"
+        versions: [">= 1.84.0, < 1.85.0"]
 
   # Dependabot's npm ecosystem understands pnpm lockfiles (web/pnpm-lock.yaml);
   # there is no separate "pnpm" ecosystem value.

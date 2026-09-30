@@ -145,6 +145,18 @@ var _ = Describe("renovate.json", func() {
 			}
 		}
 		Expect(alloyFrozen).To(BeTrue(), "an Alloy tag bump is a schema bump and must not come from Renovate")
+
+		// docker versioning calls golang 1.26-alpine -> 1.27-alpine a MINOR
+		// update; a rule that froze only majors let the grouped image PR
+		// propose a Go release the go.mod go directive had not moved to.
+		var goMinorFrozen bool
+		for _, r := range cfg.PackageRules {
+			if slices.Contains(r.MatchPackageNames, "golang") && r.Enabled != nil && !*r.Enabled &&
+				slices.Contains(r.MatchUpdateTypes, "minor") && slices.Contains(r.MatchUpdateTypes, "major") {
+				goMinorFrozen = true
+			}
+		}
+		Expect(goMinorFrozen).To(BeTrue(), "a golang tag bump (major or minor) is a toolchain decision, not a Monday image PR")
 	})
 
 	// Renovate evaluates matchStrings with RE2 semantics, and so does Go's
