@@ -454,6 +454,17 @@ var _ = Describe("PipelineService GetRevision / RestoreRevision", Label("integra
 		Expect(err).NotTo(HaveOccurred())
 		Expect(reloaded.Enabled).To(BeFalse(), "restoring revision 1 must flip the pipeline back to disabled")
 
+		// The flip is audited as the toggle would be, beside pipeline.restore (#200).
+		auditRows, err := st.Queries.ListAuditLog(ctx, sqlc.ListAuditLogParams{Column1: orgUUID(orgID), Limit: 100})
+		Expect(err).NotTo(HaveOccurred())
+		var restoreDisable bool
+		for i := range auditRows {
+			if auditRows[i].Action == "pipeline.disable" && auditRows[i].ResourceID == id && auditRows[i].Actor == editorEmail() {
+				restoreDisable = true
+			}
+		}
+		Expect(restoreDisable).To(BeTrue(), "a restore that disables the pipeline must write pipeline.disable")
+
 		Eventually(func() string {
 			cache, cacheErr := st.Queries.GetServeCache(ctx, collector.ID)
 			if cacheErr != nil {

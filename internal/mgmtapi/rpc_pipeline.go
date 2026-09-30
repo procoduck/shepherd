@@ -1057,6 +1057,16 @@ func (s *PipelineService) RestoreRevision(ctx context.Context, req *connect.Requ
 	}
 
 	auditLog(ctx, s.store, actor, orgID, "pipeline.restore", "pipeline", p.ID.String())
+	// Restore brings back the revision's enabled state too (spec §12). When
+	// that flips it, say so in the log as the toggle would (#200) — a restore
+	// that disables a pipeline must not look like a content-only change.
+	if targetEnabled != p.Enabled {
+		action := "pipeline.disable"
+		if targetEnabled {
+			action = "pipeline.enable"
+		}
+		auditLog(ctx, s.store, actor, orgID, action, "pipeline", p.ID.String())
+	}
 	return connect.NewResponse(pipelineToProto(updated)), nil
 }
 

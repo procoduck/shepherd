@@ -49,7 +49,10 @@ test('revision history lists each revision with its author and note', async ({ p
 // "restore calls the RPC and refreshes" and "reader sees the diff but no
 // Restore" all use it, always by clicking the row for revision #1
 // specifically. Returns the pipeline id so callers can navigate to it.
-function seedTwoRevisions(api: { seed: (partial: Record<string, unknown>) => void }): string {
+function seedTwoRevisions(
+  api: { seed: (partial: Record<string, unknown>) => void },
+  rev1Enabled = true,
+): string {
   const s = basicScenario();
   const pipelineId = 'pip-diff';
   api.seed({
@@ -84,7 +87,7 @@ function seedTwoRevisions(api: { seed: (partial: Record<string, unknown>) => voi
             change_note: 'created',
             contents: 'old-only-line\nshared-line',
             matchers: [`cluster="prod-eu-1"`],
-            enabled: true,
+            enabled: rev1Enabled,
           },
         ],
       },
@@ -138,6 +141,8 @@ test('restore calls the RPC and refreshes', async ({ page, api }) => {
 
   await page.getByTestId('restore-btn').click();
   await expect(page.getByTestId('restore-dialog')).toBeVisible();
+  // Both revisions are enabled: nothing to warn about.
+  await expect(page.getByTestId('restore-enabled-change')).toHaveCount(0);
   await page.getByTestId('confirm-restore-btn').click();
 
   const calls = api.calls('/shepherd.mgmt.v1.PipelineService/RestoreRevision');
@@ -238,4 +243,16 @@ test('reader sees the diff but no Restore', async ({ page, api }) => {
   await expect(page.getByTestId('revision-diff')).toBeVisible();
   await expect(page.getByTestId('restore-btn')).toHaveCount(0);
   expect(api.calls('/shepherd.mgmt.v1.PipelineService/RestoreRevision')).toHaveLength(0);
+});
+
+test('restore warns when it will disable the pipeline (#200)', async ({ page, api }) => {
+  await api.loginAs(appAdmin);
+  // Revision 1 was saved while the pipeline was disabled; it is enabled now.
+  const pipelineId = seedTwoRevisions(api, false);
+  await page.goto(`/pipelines/${pipelineId}`);
+
+  await page.getByRole('button', { name: /revision history \(2\)/i }).click();
+  await viewRevision(page, 1);
+  await page.getByTestId('restore-btn').click();
+  await expect(page.getByTestId('restore-enabled-change')).toContainText('disables the pipeline');
 });

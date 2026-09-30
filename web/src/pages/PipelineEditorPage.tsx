@@ -434,9 +434,16 @@ export function PipelineEditorPage() {
             className='space-y-4'
           >
             <p className='text-sm text-muted'>
-              Restore revision #{selectedRevision}? This creates a new revision from its contents
-              and matchers; the current text is kept in history.
+              Restore revision #{selectedRevision}? This creates a new revision from its contents,
+              matchers and enabled state; the current text is kept in history.
             </p>
+            {revisionDetail && pipeline && revisionDetail.enabled !== pipeline.enabled && (
+              <p data-testid='restore-enabled-change' className='text-sm text-amber-400'>
+                {revisionDetail.enabled
+                  ? 'This revision was saved while the pipeline was enabled, so restoring it enables the pipeline — it will be served to matching collectors.'
+                  : 'This revision was saved while the pipeline was disabled, so restoring it disables the pipeline — it stops being served.'}
+              </p>
+            )}
             {pipeline?.source === 'git' && (
               <p data-testid='restore-git-warning' className='text-sm text-amber-400'>
                 This pipeline is managed by Git. The restore is written as a new revision now, but

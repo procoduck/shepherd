@@ -37,7 +37,8 @@
       </p>
       <p>
         Restoring a revision does not rewrite history &mdash; it creates a new revision from the old
-        one's contents and runs it through the same validation gate as any other save. A
+        one's contents, matchers and enabled state — so restoring a revision saved while
+        the pipeline was disabled disables it, and the dialog says so — and runs it through the same validation gate as any other save. A
         git-managed pipeline can be restored too, but the next sync from the repository wins.
       </p>
 
