@@ -35,11 +35,31 @@ type Reconciler struct {
 	limits     gitrepo.Limits
 	tokenCache *gitrepo.TokenCache
 	logger     *slog.Logger
+	// locker, when set, limits passes to one replica at a time (see Locker).
+	locker Locker
+}
+
+// Locker lets exactly one Shepherd replica run a sync pass at a time. The
+// chart runs two replicas by default; without it each replica fetched every
+// due repo, and a new commit seen by both at once was synced twice —
+// duplicate revisions and audit rows (#210).
+type Locker interface {
+	// TryLock returns ok=false, without error, when another replica holds
+	// the lock. On ok=true the caller must call unlock when the pass ends.
+	TryLock(ctx context.Context) (unlock func(), ok bool, err error)
+}
+
+// Option configures a Reconciler.
+type Option func(*Reconciler)
+
+// WithLocker makes the Reconciler take l before every pass.
+func WithLocker(l Locker) Option {
+	return func(r *Reconciler) { r.locker = l }
 }
 
 // New creates a Reconciler.
-func New(st *store.Store, enc *crypto.Encryptor, v *validate.Validator, cfg *config.Config, logger *slog.Logger) *Reconciler {
-	return &Reconciler{
+func New(st *store.Store, enc *crypto.Encryptor, v *validate.Validator, cfg *config.Config, logger *slog.Logger, opts ...Option) *Reconciler {
+	r := &Reconciler{
 		store:     st,
 		crypto:    enc,
 		validator: v,
@@ -53,6 +73,10 @@ func New(st *store.Store, enc *crypto.Encryptor, v *validate.Validator, cfg *con
 		tokenCache: gitrepo.NewTokenCache(),
 		logger:     logger.With("component", "gitsync"),
 	}
+	for _, o := range opts {
+		o(r)
+	}
+	return r
 }
 
 // Start runs the reconciliation loop until ctx is cancelled.
@@ -78,6 +102,18 @@ func (r *Reconciler) run(ctx context.Context) {
 }
 
 func (r *Reconciler) reconcileAll(ctx context.Context) {
+	if r.locker != nil {
+		unlock, ok, err := r.locker.TryLock(ctx)
+		if err != nil {
+			r.logger.Error("gitsync: taking the sync lock", "err", err)
+			return
+		}
+		if !ok {
+			// Another replica is syncing; it records the outcomes.
+			return
+		}
+		defer unlock()
+	}
 	links, err := r.store.Queries.ListDueRepoLinks(ctx)
 	if err != nil {
 		r.logger.Error("gitsync: listing due repo links", "err", err)

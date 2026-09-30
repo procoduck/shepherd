@@ -21,6 +21,7 @@ import (
 	"golang.org/x/net/http2/h2c" //nolint:staticcheck // h2c is still required for Connect/gRPC cleartext
 
 	"shepherd/gen/collector/v1/collectorv1connect"
+	"shepherd/internal/advisorylock"
 	"shepherd/internal/agentapi"
 	"shepherd/internal/auth"
 	"shepherd/internal/beacon"
@@ -400,7 +401,8 @@ func (s *Server) Run(ctx context.Context) error {
 	// encryptor to be configured, since repo_link credentials are stored
 	// encrypted; without it there is no key to decrypt them with.
 	if s.enc != nil {
-		reconciler := gitsync.New(s.store, s.enc, s.validator, s.cfg, s.logger)
+		reconciler := gitsync.New(s.store, s.enc, s.validator, s.cfg, s.logger,
+			gitsync.WithLocker(advisorylock.New(s.store.Pool(), advisorylock.GitSync, "git-sync", s.logger)))
 		reconciler.Start(ctx)
 	} else {
 		s.logger.Warn("gitops reconciler not started: encryption key not configured")

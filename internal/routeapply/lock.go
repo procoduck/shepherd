@@ -2,10 +2,11 @@ package routeapply
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"shepherd/internal/advisorylock"
 )
 
 // Locker lets exactly one Shepherd replica run a reconcile pass at a time.
@@ -18,47 +19,11 @@ type Locker interface {
 	TryLock(ctx context.Context) (unlock func(), ok bool, err error)
 }
 
-// routeApplyAdvisoryLockNamespace is the classid half of the
-// pg_try_advisory_lock(classid, objid) key. Fixed and distinct from the
-// simulate worker's "SIM1" so the two never contend in the shared keyspace.
-const routeApplyAdvisoryLockNamespace = 0x52544131 // "RTA1" packed into an int32
-
-// PGLocker is a Postgres session-level advisory lock held on a dedicated
-// pooled connection for the length of one pass (the same pattern
-// internal/simulate/worker uses). A replica that dies mid-pass drops its
-// connection, and Postgres releases the lock with it.
-type PGLocker struct {
-	pool   *pgxpool.Pool
-	logger *slog.Logger
-}
+// PGLocker is the production Locker: a Postgres advisory lock (see
+// internal/advisorylock).
+type PGLocker = advisorylock.Lock
 
 // NewPGLocker returns a Locker backed by pool.
 func NewPGLocker(pool *pgxpool.Pool, logger *slog.Logger) *PGLocker {
-	return &PGLocker{pool: pool, logger: logger}
-}
-
-// TryLock implements Locker.
-func (l *PGLocker) TryLock(ctx context.Context) (func(), bool, error) {
-	conn, err := l.pool.Acquire(ctx)
-	if err != nil {
-		return nil, false, fmt.Errorf("acquiring a connection for the route-apply lock: %w", err)
-	}
-	var got bool
-	// RAW-SQL-OK: session-scoped advisory lock primitive, not representable as a sqlc row query
-	if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1, 1)", int32(routeApplyAdvisoryLockNamespace)).Scan(&got); err != nil {
-		conn.Release()
-		return nil, false, fmt.Errorf("taking the route-apply lock: %w", err)
-	}
-	if !got {
-		conn.Release()
-		return nil, false, nil
-	}
-	return func() {
-		// RAW-SQL-OK: session-scoped advisory lock primitive, not representable as a sqlc row query
-		if _, err := conn.Exec(context.WithoutCancel(ctx), "SELECT pg_advisory_unlock($1, 1)", int32(routeApplyAdvisoryLockNamespace)); err != nil {
-			// Not fatal: the lock goes with the connection when it closes.
-			l.logger.Warn("route-apply advisory unlock failed", "err", err)
-		}
-		conn.Release()
-	}, true, nil
+	return advisorylock.New(pool, advisorylock.RouteApply, "route-apply", logger)
 }

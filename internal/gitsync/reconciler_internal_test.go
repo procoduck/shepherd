@@ -156,6 +156,19 @@ var _ = Describe("Reconciler.reconcileLink", Label("integration"), func() {
 		Expect(p.commitAndPush(ctx, map[string]string{pipelineName + ".alloy": content}, "sync fixture")).To(Succeed())
 	}
 
+	It("syncs a due link from reconcileAll while holding the sync lock, then releases it", func() {
+		push("// via the pass")
+		l := &fakeLocker{ok: true}
+		r.locker = l
+
+		r.reconcileAll(ctx)
+
+		pipeline, err := st.Queries.GetPipelineByOrgAndName(ctx, sqlc.GetPipelineByOrgAndNameParams{OrgID: link.OrgID, Name: pipelineName})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(pipeline.Contents).To(Equal("// via the pass"))
+		Expect(l.unlocked).To(Equal(1))
+	})
+
 	It("first sync creates the pipeline", func() {
 		push("// original content")
 
@@ -372,6 +385,38 @@ var _ = Describe("Reconciler.reconcileLink", Label("integration"), func() {
 // org reader) or a log line, whatever a transport error chooses to echo
 // (CodeQL go/clear-text-logging). Red run: making redactSecrets return err
 // unchanged fails the first two specs.
+type fakeLocker struct {
+	ok       bool
+	err      error
+	unlocked int
+}
+
+func (l *fakeLocker) TryLock(context.Context) (func(), bool, error) {
+	if l.err != nil || !l.ok {
+		return nil, false, l.err
+	}
+	return func() { l.unlocked++ }, true, nil
+}
+
+// #210: the chart runs two replicas, and each ran every sync pass. A replica
+// that does not hold the lock must not touch the store at all — the nil store
+// here panics on the first query.
+var _ = Describe("Reconciler.reconcileAll with a Locker", func() {
+	newRec := func(l Locker) *Reconciler {
+		return &Reconciler{logger: slog.New(slog.NewTextHandler(io.Discard, nil)), locker: l}
+	}
+
+	It("skips the pass while another replica holds the lock", func() {
+		Expect(func() { newRec(&fakeLocker{ok: false}).reconcileAll(context.Background()) }).NotTo(Panic())
+	})
+
+	It("skips the pass when the lock cannot be taken", func() {
+		Expect(func() {
+			newRec(&fakeLocker{err: errors.New("db down")}).reconcileAll(context.Background())
+		}).NotTo(Panic())
+	})
+})
+
 var _ = Describe("secret scrubbing of recorded sync errors", func() {
 	It("replaces every occurrence of a secret and drops the original wrapping", func() {
 		err := fmt.Errorf("fetching files: %w", errors.New("https://svc:hunter2@git.example.com: 401 (hunter2)"))

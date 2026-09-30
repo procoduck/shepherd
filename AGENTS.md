@@ -42,6 +42,7 @@ React 19 / TypeScript 7 / Vite 8 SPA embedded via go:embed, PostgreSQL 16. Spec:
 - `internal/routeapply/` — tenant-route reconciler: applies/removes each route's HTTPRoute via `gateway.ApplyRoute` (client-go dynamic client, in-cluster only), records `apply_status` on the row
 - `internal/beacon/` — remote_write ingest projection, baseline pipeline, inventory (D6)
 - `internal/reconcile/` — declared vs served vs observed collector state
+- `internal/advisorylock/` — Postgres advisory lock so one replica runs each background pass (route apply, git sync)
 - `internal/onboarding/` — "connect an app" artifacts (env, Lambda, Terraform, SAM, CDK, k8s, SDK notes)
 - `internal/chartvalues/` — k8s-monitoring Helm values layering file
 - `internal/grafana/` — optional outcome verification ("did the data arrive")
