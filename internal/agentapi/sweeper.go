@@ -34,7 +34,8 @@ var tableRowsGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
 const beaconInventoryExpireAfter = 5 * time.Minute
 
 // Sweeper marks collector instances inactive after inactiveAfter and hard-deletes
-// them after deleteAfter. It runs on a background goroutine.
+// them after deleteAfter; a zero duration disables that step. It runs on a
+// background goroutine.
 type Sweeper struct {
 	store         *store.Store
 	logger        *slog.Logger
@@ -85,14 +86,24 @@ func (sw *Sweeper) run(ctx context.Context) {
 func (sw *Sweeper) sweep(ctx context.Context) {
 	now := time.Now()
 
-	inactiveBefore := pgtype.Timestamptz{Time: now.Add(-sw.inactiveAfter), Valid: true}
-	if err := sw.store.Queries.MarkStaleInstancesInactive(ctx, inactiveBefore); err != nil {
-		sw.logger.Error("sweeper: failed to mark stale instances inactive", "err", err)
+	// An unset threshold (0 — there is no viper default; the chart supplies
+	// 5m / 24h) turns that sweep off. It used to mean "older than now": every
+	// sweep deleted every live instance, the re-registered rows started with
+	// no status, and ApplySilentPoll promoted them to APPLIED — a failing
+	// collector read APPLIED within five minutes of any start without the
+	// chart (the dev stack, a bare binary).
+	if sw.inactiveAfter > 0 {
+		inactiveBefore := pgtype.Timestamptz{Time: now.Add(-sw.inactiveAfter), Valid: true}
+		if err := sw.store.Queries.MarkStaleInstancesInactive(ctx, inactiveBefore); err != nil {
+			sw.logger.Error("sweeper: failed to mark stale instances inactive", "err", err)
+		}
 	}
 
-	deleteBefore := pgtype.Timestamptz{Time: now.Add(-sw.deleteAfter), Valid: true}
-	if err := sw.store.Queries.DeleteOldInstances(ctx, deleteBefore); err != nil {
-		sw.logger.Error("sweeper: failed to delete old instances", "err", err)
+	if sw.deleteAfter > 0 {
+		deleteBefore := pgtype.Timestamptz{Time: now.Add(-sw.deleteAfter), Valid: true}
+		if err := sw.store.Queries.DeleteOldInstances(ctx, deleteBefore); err != nil {
+			sw.logger.Error("sweeper: failed to delete old instances", "err", err)
+		}
 	}
 
 	// Sweep expired sessions; log count at Debug when any were deleted.

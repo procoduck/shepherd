@@ -236,7 +236,7 @@ Mount the generated handler at `POST /collector.v1.CollectorService/{Method}` on
 
 **`UnregisterCollector`:** mark the instance row `unregistered_at = now()`. Do not delete.
 
-**Lifecycle sweeper** (background goroutine, interval from config): mark instances *inactive* if `last_seen` older than `agent.inactive_after` (default `3h`); hard-delete instance rows older than `agent.delete_after` (default `720h`). Logical collectors with zero instances remain (they hold assignments) but display as "no live instances".
+**Lifecycle sweeper** (background goroutine, interval from config): mark instances *inactive* if `last_seen` older than `agent.inactive_after`; hard-delete instance rows older than `agent.delete_after`. Neither has a server default — the chart supplies `5m` / `24h` — and an unset (zero) value turns that step off. Logical collectors with zero instances remain (they hold assignments) but display as "no live instances".
 
 ### 4.2 Hashing
 

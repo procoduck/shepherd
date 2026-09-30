@@ -58,6 +58,57 @@ var _ = Describe("Sweeper", Label("integration"), func() {
 		Expect(err).NotTo(HaveOccurred())
 	}
 
+	It("leaves live instances alone when the thresholds are unset", func() {
+		// No viper default: without the chart both are 0. That used to mean
+		// "older than now" — every sweep deleted every live instance, and the
+		// re-registered row's missing status was then promoted to APPLIED,
+		// erasing a FAILED the agent would never re-send.
+		cluster, err := st.Queries.UpsertCluster(ctx, "sweep-cluster")
+		Expect(err).NotTo(HaveOccurred())
+		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+		Expect(err).NotTo(HaveOccurred())
+		_, err = st.Queries.UpsertCollectorInstance(ctx, sqlc.UpsertCollectorInstanceParams{
+			ID: "inst-live", CollectorID: collector.ID, Name: "live", LocalAttributes: json.RawMessage(`{}`),
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.UpdateInstanceStatus(ctx, sqlc.UpdateInstanceStatusParams{
+			ID:                 "inst-live",
+			RemoteConfigStatus: pgtype.Text{String: "FAILED", Valid: true},
+			RemoteConfigError:  pgtype.Text{String: "boom", Valid: true},
+		})).To(Succeed())
+
+		NewSweeper(st, &config.AgentConfig{SweepInterval: time.Minute}, slog.Default()).sweep(ctx)
+
+		inst, err := st.Queries.GetCollectorInstanceByID(ctx, "inst-live")
+		Expect(err).NotTo(HaveOccurred(), "an unset delete_after must not delete a live instance")
+		Expect(inst.RemoteConfigStatus.String).To(Equal("FAILED"))
+	})
+
+	It("still marks and deletes stale instances when the thresholds are set", func() {
+		cluster, err := st.Queries.UpsertCluster(ctx, "sweep-cluster-2")
+		Expect(err).NotTo(HaveOccurred())
+		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+		Expect(err).NotTo(HaveOccurred())
+		for _, id := range []string{"inst-idle", "inst-gone"} {
+			_, err = st.Queries.UpsertCollectorInstance(ctx, sqlc.UpsertCollectorInstanceParams{
+				ID: id, CollectorID: collector.ID, Name: id, LocalAttributes: json.RawMessage(`{}`),
+			})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		_, err = st.Pool().Exec(ctx, `UPDATE collector_instances SET last_seen = now() - interval '10 minutes' WHERE id = 'inst-idle'`)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = st.Pool().Exec(ctx, `UPDATE collector_instances SET last_seen = now() - interval '2 days' WHERE id = 'inst-gone'`)
+		Expect(err).NotTo(HaveOccurred())
+
+		NewSweeper(st, &config.AgentConfig{InactiveAfter: 5 * time.Minute, DeleteAfter: 24 * time.Hour, SweepInterval: time.Minute}, slog.Default()).sweep(ctx)
+
+		idle, err := st.Queries.GetCollectorInstanceByID(ctx, "inst-idle")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(idle.RemoteConfigStatus.String).To(Equal("inactive"))
+		_, err = st.Queries.GetCollectorInstanceByID(ctx, "inst-gone")
+		Expect(err).To(HaveOccurred(), "an instance past delete_after is deleted")
+	})
+
 	It("sweeper deletes expired sessions and preserves live ones", func() {
 		now := time.Now()
 		createSession("test-session-a", now.Add(-time.Hour))
