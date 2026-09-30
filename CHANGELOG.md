@@ -13,14 +13,155 @@ Categories used here:
 
 ## Unreleased
 
+### Fixed
+
+- **A collector no longer shows APPLIED for a config its agent rejected.** When Alloy fails to load
+  a served config that passed validation (reproduced on v1.20.1: e.g. a scrape timeout longer than
+  its interval, or a `local.file` whose path does not exist), it reports FAILED once and then keeps
+  polling silently while running its previous config; Shepherd read that silence as recovery and
+  showed APPLIED one poll later. The collector now stays FAILED, with Alloy's error, until the agent
+  reports a status for another config. Migration `0028` (additive). (#115)
+
+### Changed
+
+- **Alloy v1.20.1.** The bundled Alloy (Stage 2 validation, the receiver tier, the sandbox) and the
+  component schema the editor and visual builder use move from v1.19.2 to v1.20.1. New components:
+  `otelcol.encoding.jsonlog` and `otelcol.encoding.text` (experimental). **Behaviour change in
+  your pipelines:** in `otelcol.receiver.filelog`, `top_n = 0` now means "track all files" instead
+  of "use the default" — leave it unset for the default. Collectors keep running whatever Alloy
+  version you deploy them with; this changes what Shepherd validates against. (#183)
+
+## v0.12.0
+
+Chart 0.16.0. The **receiver tier** ships (off by default; review gate R3 signed): an OTLP/HTTP
+endpoint behind your Gateway API gateway that forwards each tenant's data with its
+`X-Scope-OrgID`. With it on, **Shepherd applies tenant routes to the cluster** itself and shows
+whether each one is attached. Two onboarding surfaces complete the product: **Connect an app**
+(OTel SDK / IaC snippets for a tenant route) and **Connect a cluster** (values for Grafana's
+k8s-monitoring chart, proven on kind against the real chart). One additive migration (`0027`).
+
+**Upgrade:** `helm upgrade`. Nothing changes unless you set `receiver.enabled: true` — no new RBAC,
+no mounted service-account token, no new pods. Migration `0027` (tenant-route apply status) is
+additive. Before turning the receiver on, read `deploy/helm/shepherd/UPGRADING.md` (0.15.x →
+0.16.0) for the RBAC it grants and what happens to HTTPRoutes you created yourself. New RPCs:
+`TenantRouteService.RenderConnectApp`, `FleetService.RenderChartValues`. New dependency:
+`k8s.io/client-go` (dynamic client, used only by the tenant-route reconciler).
+
+### Added
+
+- **Attribute-matching toggles and matcher suggestions.** The two per-org matching flags from
+  v0.11.0 now have checkboxes on **Admin → Organisations → Edit** (label matching shows the org's
+  own `shepherd admin audit-matcher-impact --org <id>` command to preview the effect first). The
+  pipeline editor's and visual builder's matcher inputs now suggest the `key="value"` pairs the
+  org's collectors carry. The matchers docs page covers label and agent-attribute matching.
+  _Shipped._ (#139)
+
+- **Receiver tier in the chart — off by default.** `receiver.enabled` deploys an OTLP/HTTP Alloy
+  that a Gateway API gateway fronts (#109, `docs/plans/2026-09-28-receiver-tier.md`). An init
+  container runs the new `shepherd receiver render`, which validates the receiver config built from
+  `receiver.*` values and renders it — nothing is written on failure, so a bad config stops the pod
+  at `Init:Error` — and Alloy (the version pinned for the Shepherd image) runs the result, read-only
+  and non-root. Its NetworkPolicy admits only the gateway (`receiver.networkPolicy.gatewayFrom`, where
+  every peer must carry a non-empty `podSelector` for the gateway's data-plane pods -- a namespace
+  alone would let any pod in it assert any tenant) and default-denies egress apart from DNS and the
+  operator's destination rules; both lists are required. New docs page: **Receiver tier**.
+  Destinations come from values, with endpoints and `Authorization` headers optionally from Secrets
+  that never reach the ConfigMap. `shepherd healthcheck` gains `--path` for the receiver's probes.
+  Rendering now always sets the batch processor's `send_batch_max_size`: omitted, Alloy's default
+  cap refused to start a receiver whose batch size exceeded it — which `alloy validate` does not
+  catch. Off by default; review gate R3 was signed 2026-09-29 with the receiver kept opt-in.
+
+- **Shepherd applies tenant routes to the cluster.** With the receiver tier on, each active tenant
+  route — and a rotated one through its overlap — gets its HTTPRoute created in Shepherd's
+  namespace, pointing at the receiver, and Shepherd waits for the gateway to report it attached
+  before calling it `applied`. A route the gateway refuses (its listeners do not admit Shepherd's
+  namespace) shows `refused` with the gateway's reason; other failures show `error` and are
+  retried with backoff. Revoking a route deletes its HTTPRoute, a deprecated route is revoked
+  automatically when its overlap ends, and HTTPRoutes Shepherd created that no route wants any
+  more are removed; HTTPRoutes it did not create are never touched, and neither is the Gateway.
+  Faro routes are not applied (no Faro receiver exists). **Admin → Tenant routes** has an
+  **In cluster** column with that status and reason; the API carries `apply_status`,
+  `apply_message` and `applied_at` (migration 0027). The chart grants the access only with
+  `receiver.enabled` (and `receiver.applyTenantRoutes`, default `true`): a Role on `httproutes` in
+  the release namespace and `get` on the one HTTPRoute CRD, with the service-account token mounted
+  on the Shepherd pod only. With the receiver off, nothing changes. Proven end to end on kind: a
+  route created through the API carries its org's tenant through a real gateway and receiver.
+  See `UPGRADING.md` if you wrote tenant HTTPRoutes by hand. Uses `k8s.io/client-go`. _Shipped._
+  (`docs/plans/2026-09-29-tenant-route-apply.md`)
+
+- **Connect an app.** Each active OTLP tenant route on **Admin → Tenant routes** has a
+  **Connect an app** dialog: enter a service name and get the endpoint plus ready-to-paste
+  configuration — `.env`, Kubernetes `env`, Lambda JSON, Terraform, SAM, CDK and SDK notes — all
+  derived from the same path the route's HTTPRoute matches. The gateway's public address comes from
+  the new `receiver.publicBaseURL` (`gateway.routes.public_base_url`), or users enter it. Any org
+  reader can use it; new RPC `TenantRouteService.RenderConnectApp`. Revoked, deprecated and Faro
+  routes are refused, since their endpoints do not (or soon will not) route. _Shipped._ (#111)
+
+- **Connect a cluster (k8s-monitoring values).** On **Collectors**, an org admin chooses
+  **Connect a cluster**, names it and picks its collectors, and gets two values files for Grafana's
+  k8s-monitoring chart — each collector's `remoteConfig` pointed at this Shepherd, and the agent-token
+  wiring from a Kubernetes Secret (never the token itself) — plus the `kubectl create secret` and
+  `helm upgrade --install` commands. It says whether the cluster still needs claiming, and refuses a
+  cluster name another organisation owns. New RPC `FleetService.RenderChartValues` (org admin).
+  Proven on kind with the real chart at the pinned version (gate G10): a collector registers, is
+  claimed, and loads a served pipeline. _Shipped._ (#112)
+
+### Changed
+
+- **`FleetService.ListAttributes` lists only keys that pipeline matching evaluates.** It used to
+  return every agent-reported attribute key whether or not the org matched on them, and never an
+  admin label. It now returns `cluster` and `role` always, admin labels when label matching is on,
+  agent attributes (lowercased, latest instance per collector) when agent-attribute matching is on,
+  and never a reserved key — so the MCP `list_fleet_attributes` tool and any API caller stop being
+  offered keys a matcher can never hit. (#139)
+
+### Fixed
+
+- **The visual builder no longer overwrites an unsaved draft when it opens.** On opening, the builder
+  stamps the served schema version onto its fresh document, and the draft autosave treated that as
+  an edit — 500ms later it saved the empty (or just-loaded) graph over the draft left by an earlier
+  session. Usually the restore banner still appeared, but the draft on disk was already gone, so
+  leaving without choosing lost it; on a slow load the save could land first and the banner never
+  appeared at all. Autosave now starts only once the restore check has run, and pauses while a
+  restore choice is pending.
+
+## v0.11.0
+
+Chart 0.15.0. Two fleet capabilities ship: the **Reconciliation** tab (declared vs served vs
+observed, per collector) and **attribute-based pipeline matching**, which lets matchers use a
+collector's admin-set labels and its agent-reported `local_attributes` behind two per-org opt-ins,
+both off by default. And one removal: the **`/api` REST shim**, deprecated in v0.9.0, is gone —
+external integrations must call the `shepherd.mgmt.v1` Connect API. Two additive migrations
+(`0025`, `0026`); no chart-values changes.
+
+**Upgrade:** `helm upgrade`. Migrations `0025` (`beacon_inventory.collector_id`) and `0026` (the two
+matching flags, default off) run on start and are additive — existing orgs match exactly as
+before. **Before upgrading, move any external caller of `/api/*` to Connect** (see *Removed*
+below); the web UI needs nothing.
+
 ### Added
 
 - **Collector label keys are reserved against built-in matcher facts.** Groundwork for letting
   admin-set collector labels participate in pipeline matching (#139): `SetCollectorLabel` now rejects
   a key that a matcher reserves for a built-in collector fact — `cluster`, `role`, `id`, `os`,
   `alloy_version`, or anything under the `collector.*` / `shepherd.*` prefixes — so an admin label can
-  never shadow, or be shadowed by, a built-in key once labels become matchers. No serving behaviour
-  changes yet. (#139)
+  never shadow, or be shadowed by, a built-in key once labels become matchers. (#139)
+
+- **Attribute-based pipeline matching — collector labels and local attributes as matcher keys.**
+  Pipeline matchers can now use a collector's admin-set labels (`collectors.labels`) and its
+  agent-reported `local_attributes`, not just `cluster` and `role`. Each source sits behind its own
+  per-org opt-in, `allow_label_matching` and `allow_local_attribute_matching` (migration `0026`,
+  additive, both default **off** — existing orgs match exactly as before). They are separate because
+  `local_attributes` is agent-reported, so reachable with a compromised agent token. Precedence is
+  `local_attributes` < admin labels < `cluster`/`role`: the built-in keys can never be shadowed, and
+  reserved keys are dropped from both sources. Every serve path (lazy `GetConfig`, the eager recompute
+  after pipeline changes, Stage 3 validation and the matched-collector preview) applies the same gate.
+  Label edits now invalidate the collector's serve cache, and a label or attribute change that alters
+  which pipelines a collector matches is counted (`shepherd_pipeline_match_changes_total`) and
+  audited (`pipeline.match.changed`). Before flipping either flag, `shepherd admin
+  audit-matcher-impact --org <id>` shows which pipelines would gain or lose collectors. _RPC only_ for
+  the flags themselves — set them with `AdminService.UpdateOrg`; there is no toggle in the UI yet.
+  (#139, #144)
 
 - **Reconciliation surface — declared vs served vs observed.** A collector detail page now has a
   **Reconciliation** tab that surfaces drift between what a collector's role declares, what Shepherd
@@ -31,6 +172,28 @@ Categories used here:
   collector is still running that its desired served set no longer contains (a disabled or deleted
   pipeline it will drop on its next config reload); root-level/BYO components are out of scope.
   _Shipped._ (#110)
+
+### Removed
+
+- **The `/api` REST shim.** The plain-JSON `/api/*` routes that duplicated the `shepherd.mgmt.v1`
+  Connect procedures — deprecated in v0.9.0 with a `Deprecation` header, and promised for removal a
+  release later — are gone; they now answer `404`. The web UI already used Connect, so nothing
+  changes for UI users. **Machine callers must move to Connect:** `POST
+  /shepherd.mgmt.v1.<Service>/<Method>` with a JSON body (`docs/spec.md` §12 has the service list and
+  the role each needs). Differences to expect when porting a caller:
+  - Field names are lowerCamelCase (`orgId`, `lastSeen`), and zero values — `false`, `0`, `""`, empty
+    lists — are **omitted** from responses rather than sent.
+  - Errors are `{"code": "...", "message": "..."}` with the Connect status mapping, not the shim's
+    `{"error": {...}}` envelope; creates answer `200`, not `201`, and deletes `200 {}`, not `204`.
+  - `ValidatePipeline` and the visual `Render`/`Validate` answer `200` with `valid` and diagnostics in
+    the body; the shim's `422` is gone.
+  - Numbers inside `local_attributes` arrive as doubles: an integer beyond 2^53, or a decimal's
+    trailing zeros, is not preserved byte-for-byte as the shim did.
+  - `ValidatePipeline` is open to org readers, as it always was over Connect (it validates without
+    changing any pipeline); the shim had put it behind org editor.
+
+  Still under `/api`, because the Connect contract leaves them out on purpose: `/api/schema/*` (the
+  Alloy component schema, ETag cached), `/api/version`, and `/api/auth/*`.
 
 ## v0.10.0
 
@@ -46,17 +209,6 @@ for a gateway name in both modes. One additive migration (`0024`,
 prior behaviour (experimental components gated off).
 
 ### Added
-
-- **Reconciliation surface — declared vs served vs observed.** A collector detail page now has a
-  **Reconciliation** tab that surfaces drift between what a collector's role declares, what Shepherd
-  serves it, and what it is observed running (`FleetService.GetReconciliation`, org-reader). The
-  comparison engine (`internal/reconcile`) already existed but was unwired; the missing piece was
-  attributing a beacon write to a collector. Shepherd's per-collector baseline pipeline now stamps
-  `shepherd_collector_id` onto every beacon series, stored on `beacon_inventory` (migration `0025`,
-  additive, nullable), so observed components map exactly to a collector rather than to a shared
-  credential. The actionable signal is a managed pipeline a collector is still running that its
-  desired served set no longer contains (a disabled or deleted pipeline it will drop on its next
-  config reload); root-level/BYO components are out of scope. _Shipped._ (#110)
 
 - **Graph diff for visual pipelines.** The visual builder had no revision UI, so a visual
   pipeline's graph-level change could only be read as a line diff of the generated Alloy. A new

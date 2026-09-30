@@ -5,10 +5,11 @@
 > working tracker — status, assignment, and what's next. This document stays the human-readable
 > **verified-baseline snapshot** (what demonstrably works, at which release/run), refreshed at each
 > release; day-to-day item status moves to the board. The outstanding-work sequence that seeded the
-> board is `docs/plans/2026-09-16-outstanding-work.md`.
+> board is archived at `docs/archive/plans/2026-09-16-outstanding-work.md` — eight of its twelve
+> remaining items shipped in v0.9.0/v0.10.0 and the other four are GitHub issues (§3).
 >
-> Baseline re-verified 2026-09-15 at the v0.7.0 release
-> (`185309e`, chart 0.11.0) from the CI and release runs on that commit, not from a summary.
+> Baseline re-verified 2026-09-28 at the v0.11.0 release
+> (`25145fc`, chart 0.15.0) from the CI and release runs on that commit, not from a summary.
 > Completed rounds live in `docs/archive/` — the history this ledger used to carry inline is
 > `docs/archive/completed-2026-09-11.md`. Do not start a second ledger.
 
@@ -18,7 +19,7 @@
 |---|---|
 | `docs/project-status.md` | this ledger — verified baseline, open bugs, unbuilt features, open follow-ups |
 | `docs/spec.md` | authoritative product/build specification (§ numbers referenced below) |
-| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. Current: `2026-09-16-outstanding-work.md` (the code-confirmed sequence that seeded the board) |
+| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. Current: `2026-09-28-receiver-tier.md` (#109, built, unreleased) and `2026-09-29-tenant-route-apply.md` (awaiting approval) |
 | `docs/visual-builder-design-VB1.md` | visual builder design — M1–M8 built; §6.4 (S3) is the live spec for the sandbox feature (enabled by default in the Helm chart since v0.0.1) |
 | `docs/reviews/` | **live decision records only**: `canvas-framework-evaluation.md` (the React Flow decision and the controlled-mode contract `CanvasPane` depends on). Closed reviews move to `docs/archive/reviews/` |
 | `docs/dev-guide.md` | running the dev stack |
@@ -26,35 +27,36 @@
 | `docs/git-provider-design.md` | GitOps provider-auth design; live at top level because Go source cites its § numbers |
 | `docs/platform-monitoring-architecture.md` | target-fleet reference notes |
 | `docs/kind-test-environment-plan.md` | kind-based Kubernetes test environment (`make e2e-k8s`, weekly + path-filtered on qualifying PRs) plus §11 the reusable dev stack it shares pins with (`make dev-kind`, the Kubernetes flavour of `make dev`). Steps 1, 2, 4, 6 done; step 3 (full-values install, true previous-version upgrade spec) and step 5 (`NOTES.txt` CNI warning) still open — see its status header |
-| `docs/gateway-tier-plan.md` | **in progress**: all 11 workstreams built (2026-08-22); W1, W2, W3, W5, W8 done; R1, R2 signed and R6 signed conditionally on 2026-09-11, R3 open with the receiver-tier build scheduled; the product surfaces for W4/W6/W7/W9/W10 are §4 items here. Its §9 is the step ledger; §7 the review gates and sign-offs |
+| `docs/gateway-tier-plan.md` | **in progress**: all 11 workstreams built (2026-08-22); W1, W2, W3, W5, W8 done; R1, R2 signed; R6's two conditions met in v0.9.0 (per-service-account rate limit, the `pipeline.propose` audit row), so W11 ships; R3 open with the receiver-tier build (#109) still to do; the product surfaces left are W7 onboarding (#111) and W9 chart-values + G10 (#112). Its §9 is the step ledger; §7 the review gates and sign-offs |
 | `docs/proofs/` | red–green proofs for shipped controls. Not archived: Go source and CI workflows cite these paths |
 | `docs/archive/` | finished work, kept as the record of why things are the way they are |
 
 ---
 
-## 1. Verified baseline (2026-09-16, v0.8.0)
+## 1. Verified baseline (2026-09-28, v0.11.0)
 
-Every row is a CI or release run on `230d3d5` (the v0.8.0 release commit, PR #96) or the PR that
-produced the surface, so the claim is checkable by run id rather than by trusting this table.
+Every row is a CI or release run on `25145fc` (the v0.11.0 release commit, PR #163) or the run that
+last exercised the surface, so the claim is checkable by run id rather than by trusting this table.
 
 | Check | Where it ran | Result |
 |---|---|---|
-| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 35110928613 (PR #96, `230d3d5`) | clean |
+| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 36400152608 (`25145fc`) | clean |
 | `golangci-lint` + config verify, all ten `make guards`, `helm lint` (incl. the dev-kind values), `scripts/repocheck` | CI `lint` + `guards` jobs, same run | 0 issues |
-| `go test ./...` with coverage (testcontainers Postgres) | CI `test` job, same run (35110928613) | green |
-| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job, run 35107501553 (PR #94, `afcf6cf` — last web change: the collector-bindings admin UI; the release commit changed no web sources) | clean |
-| Mocked Playwright (`make test-ui`) | CI `test-ui` job, same run (35107501553, PR #94) | green (incl. the `collector-bindings.spec.ts` added there) |
-| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 35110928613 (PR #96) | green |
-| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml` on push to main, run 35110454575 | green |
-| Kubernetes e2e, kind (`make e2e-k8s`) | `e2e-k8s.yml` on PR #96, run 35110928576 | green |
-| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job on PRs touching the sandbox surface (path-filtered, never on push), run 34828420060 (PR #62) — nothing since has touched that surface | green |
-| Release: verify job, goreleaser, image attestations, chart OCI push, `scan-published` | `release.yml`, run 35112915878 | success — chart 0.12.0 / appVersion 0.8.0 pullable, images `0.8.0` + `latest` present, provenance attested for both images, `scan-published` green for both |
+| `go test ./...` with coverage (testcontainers Postgres) | CI `test` job, same run | green |
+| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job, run 36397116495 (`1c05e52`, PR #162 — the last web change; the release commit only rebuilt the bundle) | clean |
+| Mocked Playwright (`make test-ui`) | CI `test-ui` job, same run (36397116495) | green |
+| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 36400152608 (`25145fc`) | green |
+| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml`, manual dispatch on `25145fc`, run 36401527729 — dispatched because the path filter skipped it after #162 removed the REST shim | green (22 specs) |
+| Kubernetes e2e, kind (`make e2e-k8s`) | `e2e-k8s.yml` on the release PR (#163, `24ebbf2`), run 36397765892 | green |
+| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job, same manual dispatch on `25145fc` (run 36401527729) | green (containment + run lifecycle) |
+| CodeQL (actions, go, javascript-typescript, python; `security-extended`) | `codeql.yml` on `25145fc`, run 36400152824 | green |
+| Release: verify job, goreleaser, image attestations, chart OCI push, `scan-published` | `release.yml`, run 36400183145 | success — chart 0.15.0 / appVersion 0.11.0 pullable, images `0.11.0` + `latest` present for both, SLSA v1 provenance verified (`gh attestation verify`, source `25145fc`), `scan-published` green for both |
 
 ### What demonstrably works end to end
 
 Verified on the running stack and in the browser, not inferred:
 
-- **Agent protocol** — real Alloy v1.19.2 agents register, poll and apply served config; status,
+- **Agent protocol** — real Alloy v1.20.1 agents register, poll and apply served config; status,
   hash and not-modified round-trip. Collector-token auth is a Connect request gate (v0.5.0): a
   bad credential is refused before the body is read.
 - **Merge engine + validation gate** — served config carries both seeded pipelines, declare-wrapped,
@@ -82,7 +84,24 @@ Verified on the running stack and in the browser, not inferred:
   token is verified, grant-gated, and served its bound org's config, with the cluster auto-claimed;
   the whole path is proven end to end against a real token (`internal/agentapi/agent_oidc_e2e_test.go`,
   PR #95). Off by default; agent tokens keep working. Beacon write-back can use the same identity.
-  Deferred mode 2 (IdP-authoritative org) is board issue #113.
+  Mode 2 (IdP-authoritative org) shipped in v0.9.0 (#129).
+
+### Shipped since v0.8.0 — CI-verified, not yet re-walked in the browser
+
+Each item is covered by the CI and release runs above and described in `CHANGELOG.md`; none has had
+the manual end-to-end pass the list above records. Re-walk them on the next release.
+
+- **v0.9.0** — tenant routes UI; service accounts UI with a per-service-account request rate limit
+  (R6's last condition); `shepherd-mcp` in the release archives (W11); collector OIDC mode 2 and the
+  collector-OIDC gate on the SSO page; collector inventory labels; editor **Format** / **Validate**;
+  `shepherd_build_info`; the chart `kubeVersion` floor raised to 1.29; the `/api` REST shim
+  deprecated with in-band headers.
+- **v0.10.0** — structural graph diff for visual pipelines; experimental components as a per-org
+  setting with a server-side render gate; a warnings channel on the wizard preview; the tenant-route
+  create form asking for a gateway name in both modes.
+- **v0.11.0** — the Reconciliation tab (#140, migration `0025`); attribute-based pipeline matching
+  behind two per-org flags (#142/#144/#158, migration `0026`); the `/api` REST shim removed
+  (#160/#161/#162).
 
 ### History
 
@@ -90,6 +109,14 @@ The dated passes that used to sit here — the 2026-08-20 baseline, the 2026-08-
 containment / health remediation passes, the 2026-08-22 gateway-tier build-out, the 2026-09-11
 remediation with its D1–D14 decisions, and the v0.5.0 dependency and toolchain catch-up — are in
 `docs/archive/completed-2026-09-11.md`, verbatim. `CHANGELOG.md` is the user-facing view.
+
+- 2026-09-16 — v0.8.0 (collector OIDC), release run 35112915878.
+- 2026-09-17 — v0.9.0 (Waves 1+2 of the outstanding-work plan plus the R6 rate limit, MCP archives
+  and OIDC mode 2), chart 0.13.0.
+- 2026-09-18 — v0.10.0 (graph diff, experimental components per org, wizard warnings), chart 0.14.0,
+  release run 35334888511.
+- 2026-09-28 — v0.11.0 (reconciliation, attribute-based matching, REST shim removed), chart 0.15.0,
+  release run 36400183145.
 
 ---
 
@@ -126,11 +153,27 @@ the contributing set.
 
 ### Gateway-tier workstreams · see `docs/gateway-tier-plan.md` §7 "Sign-offs recorded 2026-09-11"
 
-R1, R2 signed; R6 signed conditionally; R3 open with the build scheduled. What is now scheduled
-product work rather than a gate: tenant routes reaching users (W4, cleared by R1), the receiver
-tier (W4's other half, to be built then brought back to R3), reconciliation (W6), onboarding
-artifacts (W7), the chart-values UI + G10 (W9), teams UI (W10), and the two R6 conditions for the
-MCP interface (W11). Each is a §4 item below.
+R1, R2 signed; R6's conditions met in v0.9.0; R3 open. Shipped since the sign-offs: tenant routes
+UI (W4, v0.9.0), service accounts UI (W10, v0.9.0), the MCP interface in the release archives (W11,
+v0.9.0), reconciliation (W6, v0.11.0). Still to build, each a GitHub issue:
+
+- **Receiver tier (W4's other half) — #109.** Plan: `docs/plans/2026-09-28-receiver-tier.md`
+  (config rendered at pod start, destinations from chart values, default off; tenant-route apply is
+  a separate follow-up). Built: CLI (#169), chart (#170), kind proof (#171), docs + the R3 packet
+  (gateway plan §7). **R3 signed 2026-09-29**, receiver kept opt-in. **Tenant-route apply done, unreleased**
+  (`docs/plans/2026-09-29-tenant-route-apply.md`, #175–#178 + the kind proof): Shepherd applies each
+  route's HTTPRoute through a background reconciler (`internal/routeapply`) under receiver-gated
+  RBAC, and the Tenant routes page shows the result.
+- **Onboarding artifacts page (W7) — #111.** Done, unreleased: `TenantRouteService.RenderConnectApp` renders
+  `internal/onboarding` for an active OTLP route; the Tenant routes page's **Connect an app** dialog shows it.
+- **Chart-values generator UI (W9) + gate G10 — #112.** Done, unreleased: `FleetService.RenderChartValues` +
+  the Collectors page's **Connect a cluster** dialog; G10 is `e2e/k8s/chart_values_test.go`.
+
+### Attribute-based matching — UI and docs · **#139 item 8** · done, unreleased
+
+Built on `main`: org-editor toggles for both matching flags, matcher suggestions in the pipeline
+editor and visual builder (fed by a `ListAttributes` that now lists only keys matching evaluates),
+and the matchers docs section. Ships in the next release; closes #139.
 
 Closed features (F5 sandbox simulation, F-SIGNAL-SERVE) are in `docs/archive/completed-2026-09-11.md`.
 F-REVISIONS closed — see `CHANGELOG.md` v0.6.0 "Pipelines — Shipped"; its plan is archived at
@@ -165,68 +208,59 @@ answer and the ledger item it produced is below.
 - [x] **F-REVISIONS**: `contents` on `PipelineRevision`, `RestoreRevision` RPC, the text diff
       view and Restore in the pipeline editor — shipped in v0.6.0, see `CHANGELOG.md`. Graph
       diff for visual pipelines is the remaining follow-up (below).
-- [ ] **Editor Format + Validate buttons**: `FormatPipeline` RPC over `alloy fmt`, wired to a
-      Format button; an explicit Validate button beside the idle-debounced validation.
-- [ ] **Experimental components as an org setting**: migration + proto field + server-side
-      render gate (an experimental node with the toggle off is a render error), replacing the
-      hardcoded client flag.
-- [ ] **`shepherd_build_info` gauge** (labels `version`, `commit`) in `internal/metrics`.
-- [ ] **REST shim deprecation**: changelog notice, `Deprecation` header on every shim route,
-      removal scheduled one release later.
-- [ ] **Receiver tier build (R3)**: chart Deployment + Service + NetworkPolicy (gateway the only
-      ingress), tested off-switch, real-Alloy pass-through tenancy e2e; then R3 sign-off.
-- [ ] **R6 conditions**: per-service-account request rate limit (server-side, keyed on the
-      service-account id) — still open (nothing in `internal/mgmtapi/machine_auth.go`). The
-      `pipeline.propose` audit row already exists: `ValidatePipeline` writes it for every
-      service-account caller (`internal/mgmtapi/rpc_pipeline.go`, red-run in
-      `attribution_test.go`, since 2026-08-22), and `propose_pipeline_revision` composes that RPC.
-      MCP binary joins the release archives only after the rate limit lands.
-- [ ] **Tenant routes UI** (W4, cleared by R1): create/list/rotate/revoke, with the
-      identifier-not-authorizer caveat and edge-control guidance on the docs site.
-- [ ] **Service-accounts UI** (W10 remainder): create/list/revoke with the role tier — no client
-      in `web/src/api/transport.ts` and no page. Teams and explicit members shipped in v0.3.0
-      (`web/src/pages/TeamsPage.tsx`).
-- [ ] **Reconciliation surface** (W6): per-collector declared vs served vs observed drift.
-- [ ] **Onboarding artifacts page** (W7): "connect an app" snippets for a tenant route.
-- [ ] **Chart-values generator UI** (W9) + gate G10 in the kind suite.
+- [x] **Editor Format + Validate buttons** — shipped in v0.9.0.
+- [x] **Experimental components as an org setting** — shipped in v0.10.0 (migration `0024`,
+      server-side render gate).
+- [x] **`shepherd_build_info` gauge** — shipped in v0.9.0.
+- [x] **REST shim removal** — removed in v0.11.0 (#162) after its callers moved to Connect
+      (#160/#161); `/api` now serves only the out-of-contract schema routes (`docs/spec.md` §12).
+- [ ] **Receiver tier build (R3)** — #109.
+- [x] **R6 conditions** — the per-service-account rate limit shipped in v0.9.0 (#130); the
+      `pipeline.propose` audit row already existed. `shepherd-mcp` joined the release archives in
+      v0.9.0 (#132).
+- [x] **Tenant routes UI** (W4) — shipped in v0.9.0.
+- [x] **Service-accounts UI** (W10 remainder) — shipped in v0.9.0.
+- [x] **Reconciliation surface** (W6) — shipped in v0.11.0 (#140).
+- [x] **Onboarding artifacts page** (W7) — #111.
+- [x] **Chart-values generator UI** (W9) + gate G10 in the kind suite — #112.
 
 ### Smaller follow-ups
 
-Three items below (marked with the plan link) come from the v0.6.0 manual UI walkthrough
-(`docs/archive/plans/2026-09-14-walkthrough-fixes.md`, §3 "Blocked") and two from the kind dev stack's
+B1–B3 come from the v0.6.0 manual UI walkthrough (`docs/archive/plans/2026-09-14-walkthrough-fixes.md`,
+§3 "Blocked") — B2 and B3 have since shipped, B1 is still open — and two items from the kind dev stack's
 first live bring-up (`docs/archive/plans/2026-09-14-kind-dev-stack.md`); every other finding from both
-was closed in the same batches — see `CHANGELOG.md` Unreleased.
+was closed in the same batches (`CHANGELOG.md` v0.7.0).
 
-Open, in rough priority order:
+In rough priority order; closed items stay in place, marked with the release that shipped them:
 
-- [ ] **A collector's `APPLIED` status can mean "polled with the served hash", not "loaded it
-      successfully."** `ClearStaleFailedStatus` promotes NULL/FAILED to `APPLIED` on a status-less
-      poll carrying the served hash, and nothing Shepherd reads today (`effective_config` is
-      unread; beacon rows are not keyed by collector instance) can tell a fresh load from a
-      rejected one served from cache. Needs a reproduction against a live Alloy v1.19.2 agent
-      before picking one of three options — see `docs/archive/plans/2026-09-14-walkthrough-fixes.md` §3
-      (B1).
-- [ ] **Wizards have no channel to say when they silently drop or add something** (`B2` in the
-      same plan). `wizard.CommitResult`/`RenderWizardResponse` carry no `warnings` field, so the
-      self-monitoring log-step default and the wizard-added-matcher badge (both shipped in the
-      same batch) work around the gap client-side rather than closing it; a first-class warnings
-      field is a `proto/` change, deferred.
-- [ ] **`Chart.yaml` `kubeVersion` says `>=1.25.0-0`, but `cnpg.enabled` needs `>=1.29.0-0`**
-      (`B3` in the same plan). Helm cannot express a conditional floor; raising the global one
-      refuses plain installs that work today. The database docs state the operator-path floor;
-      raising the chart floor is a chart minor — decide separately.
+- [x] **`ValidatePipeline` stays open to org readers** (decided 2026-09-28). Its Connect interceptor
+      row is `auth.RoleOrgReader`: a reader can validate pipeline text, which writes nothing apart
+      from the `pipeline.propose` audit row for service-account callers. The removed REST shim had put
+      it behind org editor; that stricter rule is not carried over. `role_matrix_test.go` pins the
+      Connect behaviour.
+- [x] **A collector's `APPLIED` status can mean "polled with the served hash", not "loaded it
+      successfully."** Reproduced against a live Alloy v1.20.1 (it reports FAILED once with the
+      rejected hash, then polls silently with it); fixed with option 1 — migration `0028`
+      records the hash a status is for, and the clear-back skips a FAILED for the polled hash.
+      Proof: `docs/proofs/applied-status.md`. #115.
+- [x] **Wizards have no channel to say when they silently drop or add something** (B2) — a
+      first-class warnings field on the render preview shipped in v0.10.0 (#134).
+- [x] **`Chart.yaml` `kubeVersion` floor** (B3) — raised to 1.29 in v0.9.0 (#131).
 - [ ] **`NOTES.txt` prints `https://` for every `route.hostnames` entry** although a route may be
       plain http (the kind dev stack's is). Cosmetic; fix with the next chart release.
 - [ ] **A 30 s sandbox run against a 30 s scrape interval captures one scrape or none**, depending
       on where the scrape jitter lands — the first `make dev-kind` run showed 0 series and the next
       two 21. Containment and capture are fine; the run window versus the pipeline's own interval
       is the product question (a minimum window, or a first-scrape trigger).
-- [ ] **Graph diff for visual pipelines.** The pipeline editor's revision diff is text-only
-      (`RevisionDiff`, CodeMirror merge view); the visual builder page has no revision UI, so a
-      visual pipeline's graph-level change is not diffable, only its rendered text. Restoring a
-      visual pipeline from the text editor still restores the graph (`wizard_state` travels with
-      the revision) for revisions written after migration 0019 — older rows carry no graph, so
-      restoring one restores text only — only the *diff view* is text-only.
+- [x] **Graph diff for visual pipelines** — shipped in v0.10.0 (#137).
+- [ ] **grpc held at v1.83.2.** v1.84.0 carries GO-2026-6443, which Shepherd's RPC code calls, so
+      `make vulncheck` refuses it; the fix exists only in a `v1.85.0-dev` pseudo-version. Take the
+      bump (Dependabot will propose it) once v1.85.0 stable is released. The other three modules in
+      that group shipped via #153.
+- [x] **`visual-drafts.spec.ts` flaked under load — it was a real bug.** The builder's draft
+      autosave overwrote a pending draft on open (the schema-version stamp counted as an edit); the
+      spec caught it whenever that save beat the restore check. Fixed on `main` (autosave now waits
+      for the restore decision), with a deterministic regression spec.
 - [x] **Bump Alloy for the 15 high CVEs in the bundled binary (done 2026-09-14, v1.19.2).**
       Trivy found 15 HIGH, unfixed-excluded CVEs in the v1.18.1 binary bundled into both images
       (built upstream with Go 1.26.5). v1.19.2 is built on a patched Go and carries 2, both in
@@ -244,8 +278,8 @@ Open, in rough priority order:
       correctly into `props` and renders, but the separate `GraphBinding`/`doc.bindings[]` channel
       stays flat-top-level-prop-only by design, not yet extended.
 - [ ] **Kind suite, plan steps 3 and 5** (`docs/kind-test-environment-plan.md`): the full-values
-      install and the true previous-version Helm upgrade spec (no longer blocked — chart 0.9.0,
-      0.10.0, 0.10.1, 0.10.2 and 0.11.0 are all published), and the `NOTES.txt` CNI/NetworkPolicy warning (G10 is
+      install and the true previous-version Helm upgrade spec (no longer blocked — charts 0.9.0
+      through 0.14.0 are published), and the `NOTES.txt` CNI/NetworkPolicy warning (G10 is
       scheduled with the chart-values UI above).
 - [ ] Overlay entries scaffolded by `make schema` carry `needs_review: true` and need an editorial
       pass on the next Alloy bump.

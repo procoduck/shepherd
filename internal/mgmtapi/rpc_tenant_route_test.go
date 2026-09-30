@@ -57,6 +57,7 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 		orgID = o.ID
 
 		cfg := &config.Config{Auth: config.AuthConfig{InsecureCookies: true}}
+		cfg.Gateway.Routes.PublicBaseURL = "https://telemetry.example.com"
 		authHandler = auth.NewLocalAdmin(cfg, st, slog.Default())
 		server = httptest.NewServer(newRPCWiringRouter(st, authHandler, cfg))
 	})
@@ -139,6 +140,10 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 		items, ok := listed["items"].([]any)
 		Expect(ok).To(BeTrue(), "expected an items array")
 		Expect(items).To(HaveLen(1))
+		first, ok := items[0].(map[string]any)
+		Expect(ok).To(BeTrue())
+		Expect(first["applyStatus"]).To(Equal("pending"), "Create only writes the row; nothing has applied it yet")
+		Expect(first).NotTo(HaveKey("appliedAt"))
 
 		rotateResp := postConnect("/shepherd.mgmt.v1.TenantRouteService/RotateTenantRoute",
 			map[string]any{"orgId": orgID.String(), "id": routeID}, admin)
@@ -169,6 +174,137 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 		revoked := decodeBody(revokeResp)
 		Expect(revoked["status"]).To(Equal("revoked"))
 		Expect(revoked["revokedAt"]).NotTo(BeEmpty())
+	})
+
+	It("returns the apply outcome the reconciler recorded on the row", func() {
+		admin := createSession(false, []string{"tenant-route-admin-group"})
+		body := map[string]any{}
+		for k, v := range createBody {
+			body[k] = v
+		}
+		body["orgId"] = orgID.String()
+		created := decodeBody(postConnect("/shepherd.mgmt.v1.TenantRouteService/CreateTenantRoute", body, admin))
+		routeID, ok := created["id"].(string)
+		Expect(ok).To(BeTrue())
+
+		var id pgtype.UUID
+		Expect(id.Scan(routeID)).To(Succeed())
+		_, err := st.Queries.SetTenantRouteApplyStatus(ctx, sqlc.SetTenantRouteApplyStatusParams{
+			ID: id, ApplyStatus: "refused", ApplyMessage: "NotAllowedByListeners",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		reader := createSession(false, []string{"tenant-route-reader-group"})
+		listed := decodeBody(postConnect("/shepherd.mgmt.v1.TenantRouteService/ListTenantRoutes", map[string]any{"orgId": orgID.String()}, reader))
+		items, ok := listed["items"].([]any)
+		Expect(ok).To(BeTrue())
+		Expect(items).To(HaveLen(1))
+		item, ok := items[0].(map[string]any)
+		Expect(ok).To(BeTrue())
+		Expect(item["applyStatus"]).To(Equal("refused"))
+		Expect(item["applyMessage"]).To(Equal("NotAllowedByListeners"))
+		Expect(item).NotTo(HaveKey("appliedAt"), "a refusal is not a verified apply")
+	})
+
+	Describe("RenderConnectApp", func() {
+		var admin, reader *http.Cookie
+
+		createRoute := func(kind string) map[string]any {
+			body := map[string]any{}
+			for k, v := range createBody {
+				body[k] = v
+			}
+			body["orgId"] = orgID.String()
+			body["kind"] = kind
+			resp := postConnect("/shepherd.mgmt.v1.TenantRouteService/CreateTenantRoute", body, admin)
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			return decodeBody(resp)
+		}
+		render := func(cookie *http.Cookie, body map[string]any) (int, map[string]any) {
+			resp := postConnect("/shepherd.mgmt.v1.TenantRouteService/RenderConnectApp", body, cookie)
+			return resp.StatusCode, decodeBody(resp)
+		}
+
+		BeforeEach(func() {
+			admin = createSession(false, []string{"tenant-route-admin-group"})
+			reader = createSession(false, []string{"tenant-route-reader-group"})
+		})
+
+		It("renders every artifact for an org reader, from the configured gateway URL", func() {
+			route := createRoute("otlp")
+			code, out := render(reader, map[string]any{"orgId": orgID.String(), "id": route["id"], "serviceName": "checkout"})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+
+			segment, ok := route["segment"].(string)
+			Expect(ok).To(BeTrue())
+			wantBase := "https://telemetry.example.com/otlp/" + segment
+			Expect(out["baseEndpoint"]).To(Equal(wantBase), "the endpoint must be the path the route's HTTPRoute matches")
+			Expect(out["gatewayBaseUrl"]).To(Equal("https://telemetry.example.com"))
+			Expect(out["env"]).To(ContainSubstring("OTEL_EXPORTER_OTLP_ENDPOINT=" + wantBase))
+			Expect(out["env"]).To(ContainSubstring("OTEL_SERVICE_NAME=checkout"))
+			Expect(out["env"]).To(ContainSubstring("OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf"), "protobuf is the default")
+			for _, k := range []string{"lambda", "terraform", "sam", "cdk", "k8s", "sdkNotes"} {
+				Expect(out[k]).NotTo(BeEmpty(), "artifact %s", k)
+			}
+		})
+
+		It("uses the request's gateway URL over the configured one", func() {
+			route := createRoute("otlp")
+			code, out := render(reader, map[string]any{
+				"orgId": orgID.String(), "id": route["id"], "serviceName": "checkout",
+				"gatewayBaseUrl": "https://edge.example.org", "protocol": "http/json",
+			})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			Expect(out["baseEndpoint"]).To(HavePrefix("https://edge.example.org/otlp/"))
+			Expect(out["env"]).To(ContainSubstring("OTEL_EXPORTER_OTLP_PROTOCOL=http/json"))
+		})
+
+		DescribeTable("refuses what would hand out an endpoint that does not work",
+			func(mutate func(body map[string]any), wantCode int, wantMsg string) {
+				route := createRoute("otlp")
+				body := map[string]any{"orgId": orgID.String(), "id": route["id"], "serviceName": "checkout"}
+				mutate(body)
+				code, out := render(reader, body)
+				Expect(code).To(Equal(wantCode), "%v", out)
+				Expect(out["message"]).To(ContainSubstring(wantMsg))
+			},
+			Entry("a plaintext gateway URL", func(b map[string]any) { b["gatewayBaseUrl"] = "http://edge.example.org" },
+				http.StatusBadRequest, "https"),
+			Entry("gRPC", func(b map[string]any) { b["protocol"] = "grpc" }, http.StatusBadRequest, "gRPC"),
+			Entry("no service name", func(b map[string]any) { b["serviceName"] = "  " }, http.StatusBadRequest, "service_name"),
+		)
+
+		It("refuses a revoked route, and a Faro route", func() {
+			route := createRoute("otlp")
+			resp := postConnect("/shepherd.mgmt.v1.TenantRouteService/RevokeTenantRoute",
+				map[string]any{"orgId": orgID.String(), "id": route["id"]}, admin)
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			code, out := render(reader, map[string]any{"orgId": orgID.String(), "id": route["id"], "serviceName": "x"})
+			Expect(code).To(Equal(http.StatusBadRequest))
+			Expect(out["code"]).To(Equal("failed_precondition"))
+			Expect(out["message"]).To(ContainSubstring("revoked"))
+
+			faro := createRoute("faro")
+			code, out = render(reader, map[string]any{"orgId": orgID.String(), "id": faro["id"], "serviceName": "x"})
+			Expect(code).To(Equal(http.StatusBadRequest))
+			Expect(out["message"]).To(ContainSubstring("Faro"))
+		})
+
+		It("does not render another org's route, and denies a caller with no access", func() {
+			route := createRoute("otlp")
+			other, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
+				Name: "render-other", DisplayName: "Other", AdminGroupID: "render-other-admins",
+				ReaderGroupID: pgtype.Text{String: "render-other-readers", Valid: true},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			otherReader := createSession(false, []string{"render-other-readers"})
+			code, _ := render(otherReader, map[string]any{"orgId": other.ID.String(), "id": route["id"], "serviceName": "x"})
+			Expect(code).To(Equal(http.StatusNotFound), "pairing your own org id with another org's route id")
+
+			outsider := createSession(false, []string{"nobody"})
+			code, _ = render(outsider, map[string]any{"orgId": orgID.String(), "id": route["id"], "serviceName": "x"})
+			Expect(code).To(Equal(http.StatusForbidden))
+		})
 	})
 
 	It("denies ListTenantRoutes for an authenticated session with no access to the org", func() {

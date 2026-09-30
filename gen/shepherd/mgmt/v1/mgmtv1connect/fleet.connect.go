@@ -63,6 +63,9 @@ const (
 	// FleetServiceDeleteCollectorLabelProcedure is the fully-qualified name of the FleetService's
 	// DeleteCollectorLabel RPC.
 	FleetServiceDeleteCollectorLabelProcedure = "/shepherd.mgmt.v1.FleetService/DeleteCollectorLabel"
+	// FleetServiceRenderChartValuesProcedure is the fully-qualified name of the FleetService's
+	// RenderChartValues RPC.
+	FleetServiceRenderChartValuesProcedure = "/shepherd.mgmt.v1.FleetService/RenderChartValues"
 )
 
 // FleetServiceClient is a client for the shepherd.mgmt.v1.FleetService service.
@@ -79,6 +82,11 @@ type FleetServiceClient interface {
 	ListAttributes(context.Context, *connect.Request[v1.ListAttributesRequest]) (*connect.Response[v1.ListAttributesResponse], error)
 	SetCollectorLabel(context.Context, *connect.Request[v1.SetCollectorLabelRequest]) (*connect.Response[v1.CollectorLabelsResponse], error)
 	DeleteCollectorLabel(context.Context, *connect.Request[v1.DeleteCollectorLabelRequest]) (*connect.Response[v1.CollectorLabelsResponse], error)
+	// RenderChartValues renders the Helm values that connect a cluster's
+	// Grafana k8s-monitoring collectors to this Shepherd (W9,
+	// internal/chartvalues). Org-admin: it decides which cluster name joins
+	// the org's fleet. Writes nothing.
+	RenderChartValues(context.Context, *connect.Request[v1.RenderChartValuesRequest]) (*connect.Response[v1.RenderChartValuesResponse], error)
 }
 
 // NewFleetServiceClient constructs a client for the shepherd.mgmt.v1.FleetService service. By
@@ -152,6 +160,12 @@ func NewFleetServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(fleetServiceMethods.ByName("DeleteCollectorLabel")),
 			connect.WithClientOptions(opts...),
 		),
+		renderChartValues: connect.NewClient[v1.RenderChartValuesRequest, v1.RenderChartValuesResponse](
+			httpClient,
+			baseURL+FleetServiceRenderChartValuesProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("RenderChartValues")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -167,6 +181,7 @@ type fleetServiceClient struct {
 	listAttributes       *connect.Client[v1.ListAttributesRequest, v1.ListAttributesResponse]
 	setCollectorLabel    *connect.Client[v1.SetCollectorLabelRequest, v1.CollectorLabelsResponse]
 	deleteCollectorLabel *connect.Client[v1.DeleteCollectorLabelRequest, v1.CollectorLabelsResponse]
+	renderChartValues    *connect.Client[v1.RenderChartValuesRequest, v1.RenderChartValuesResponse]
 }
 
 // ListCollectors calls shepherd.mgmt.v1.FleetService.ListCollectors.
@@ -219,6 +234,11 @@ func (c *fleetServiceClient) DeleteCollectorLabel(ctx context.Context, req *conn
 	return c.deleteCollectorLabel.CallUnary(ctx, req)
 }
 
+// RenderChartValues calls shepherd.mgmt.v1.FleetService.RenderChartValues.
+func (c *fleetServiceClient) RenderChartValues(ctx context.Context, req *connect.Request[v1.RenderChartValuesRequest]) (*connect.Response[v1.RenderChartValuesResponse], error) {
+	return c.renderChartValues.CallUnary(ctx, req)
+}
+
 // FleetServiceHandler is an implementation of the shepherd.mgmt.v1.FleetService service.
 type FleetServiceHandler interface {
 	ListCollectors(context.Context, *connect.Request[v1.ListCollectorsRequest]) (*connect.Response[v1.ListCollectorsResponse], error)
@@ -233,6 +253,11 @@ type FleetServiceHandler interface {
 	ListAttributes(context.Context, *connect.Request[v1.ListAttributesRequest]) (*connect.Response[v1.ListAttributesResponse], error)
 	SetCollectorLabel(context.Context, *connect.Request[v1.SetCollectorLabelRequest]) (*connect.Response[v1.CollectorLabelsResponse], error)
 	DeleteCollectorLabel(context.Context, *connect.Request[v1.DeleteCollectorLabelRequest]) (*connect.Response[v1.CollectorLabelsResponse], error)
+	// RenderChartValues renders the Helm values that connect a cluster's
+	// Grafana k8s-monitoring collectors to this Shepherd (W9,
+	// internal/chartvalues). Org-admin: it decides which cluster name joins
+	// the org's fleet. Writes nothing.
+	RenderChartValues(context.Context, *connect.Request[v1.RenderChartValuesRequest]) (*connect.Response[v1.RenderChartValuesResponse], error)
 }
 
 // NewFleetServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -302,6 +327,12 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(fleetServiceMethods.ByName("DeleteCollectorLabel")),
 		connect.WithHandlerOptions(opts...),
 	)
+	fleetServiceRenderChartValuesHandler := connect.NewUnaryHandler(
+		FleetServiceRenderChartValuesProcedure,
+		svc.RenderChartValues,
+		connect.WithSchema(fleetServiceMethods.ByName("RenderChartValues")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/shepherd.mgmt.v1.FleetService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case FleetServiceListCollectorsProcedure:
@@ -324,6 +355,8 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 			fleetServiceSetCollectorLabelHandler.ServeHTTP(w, r)
 		case FleetServiceDeleteCollectorLabelProcedure:
 			fleetServiceDeleteCollectorLabelHandler.ServeHTTP(w, r)
+		case FleetServiceRenderChartValuesProcedure:
+			fleetServiceRenderChartValuesHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -371,4 +404,8 @@ func (UnimplementedFleetServiceHandler) SetCollectorLabel(context.Context, *conn
 
 func (UnimplementedFleetServiceHandler) DeleteCollectorLabel(context.Context, *connect.Request[v1.DeleteCollectorLabelRequest]) (*connect.Response[v1.CollectorLabelsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.FleetService.DeleteCollectorLabel is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) RenderChartValues(context.Context, *connect.Request[v1.RenderChartValuesRequest]) (*connect.Response[v1.RenderChartValuesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.FleetService.RenderChartValues is not implemented"))
 }

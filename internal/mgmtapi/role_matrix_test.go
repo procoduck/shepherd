@@ -133,9 +133,10 @@ var _ = Describe("Connect role matrix: org-editor rung, CSRF", Label("integratio
 	// procedure — WizardService, VisualService, SimulateService all sit at
 	// auth.RoleOrgEditor, strictly above reader. These are pinning
 	// duplicates of coverage that already exists per-service
-	// (rpc_wizard_test.go, rpc_simulate_test.go, visual_rest_test.go);
-	// gathered here so the whole editor-floor shape is visible in one
-	// table.
+	// (rpc_wizard_test.go, rpc_simulate_test.go); gathered here so the whole
+	// editor-floor shape is visible in one table. ListWizards and
+	// VisualService/Validate were proven only over the /api REST shim until
+	// it was removed; their rows here carry that proof on Connect.
 	DescribeTable("an org reader (viewer) is refused permission_denied on org-editor-gated authoring procedures",
 		func(procedure string, extraFields map[string]any) {
 			body := map[string]any{"org_id": orgID}
@@ -152,6 +153,7 @@ var _ = Describe("Connect role matrix: org-editor rung, CSRF", Label("integratio
 		},
 		Entry("WizardService/CommitWizard", "/shepherd.mgmt.v1.WizardService/CommitWizard",
 			map[string]any{"kind": "app-observability", "name": "n", "state": map[string]any{}}),
+		Entry("WizardService/ListWizards", "/shepherd.mgmt.v1.WizardService/ListWizards", map[string]any{}),
 		Entry("VisualService/Validate", "/shepherd.mgmt.v1.VisualService/Validate", map[string]any{"graph": map[string]any{}}),
 		Entry("SimulateService/SimulateRelabel", "/shepherd.mgmt.v1.SimulateService/SimulateRelabel",
 			map[string]any{"rules": []any{}, "sample_targets": []any{}}),
@@ -166,6 +168,29 @@ var _ = Describe("Connect role matrix: org-editor rung, CSRF", Label("integratio
 		// this Entry fail (200 instead of 403); reverted before commit.
 		Entry("PipelineService/RestoreRevision", "/shepherd.mgmt.v1.PipelineService/RestoreRevision",
 			map[string]any{"id": pipelineIDPlaceholder, "revision": 1}),
+	)
+
+	// The other half of the editor floor: an org editor gets PAST the role
+	// gate on the same authoring procedures (the request may still fail
+	// validation — the property here is admission, not success). The /api
+	// REST shim carried these "lets an org editor ..." proofs until it was
+	// removed. ValidatePipeline is listed for admission only: its
+	// interceptor row is auth.RoleOrgReader, so unlike the REST shim (which
+	// put it behind org-editor) Connect admits an org reader too.
+	DescribeTable("an org editor is admitted to org-editor-gated authoring procedures",
+		func(procedure string, body map[string]any) {
+			body["org_id"] = orgID
+			resp := postConnectJSON(server, procedure, editorCookie, body)
+			defer resp.Body.Close() //nolint:errcheck // test cleanup
+			Expect(resp.StatusCode).NotTo(Equal(http.StatusForbidden))
+			Expect(resp.StatusCode).NotTo(Equal(http.StatusUnauthorized))
+		},
+		Entry("WizardService/ListWizards", "/shepherd.mgmt.v1.WizardService/ListWizards", map[string]any{}),
+		Entry("VisualService/Validate", "/shepherd.mgmt.v1.VisualService/Validate", map[string]any{"graph": map[string]any{}}),
+		Entry("SimulateService/SimulateRelabel", "/shepherd.mgmt.v1.SimulateService/SimulateRelabel",
+			map[string]any{"rules": []any{}, "sample_targets": []any{}}),
+		Entry("PipelineService/ValidatePipeline", "/shepherd.mgmt.v1.PipelineService/ValidatePipeline",
+			map[string]any{"name": "p", "contents": ""}),
 	)
 
 	It("refuses a mutating Connect request that omits the CSRF header", func() {

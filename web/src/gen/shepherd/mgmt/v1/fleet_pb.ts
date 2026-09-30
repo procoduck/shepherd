@@ -12,10 +12,10 @@ import type { JsonObject, Message } from "@bufbuild/protobuf";
  * Describes the file shepherd/mgmt/v1/fleet.proto.
  */
 export const file_shepherd_mgmt_v1_fleet: GenFile = /*@__PURE__*/
-  fileDesc("ChxzaGVwaGVyZC9tZ210L3YxL2ZsZWV0LnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIuEBChFDb2xsZWN0b3JJbnN0YW5jZRIMCgRuYW1lGAEgASgJEhUKDWFsbG95X3ZlcnNpb24YAiABKAkSCgoCb3MYAyABKAkSLQoJbGFzdF9zZWVuGAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIcChRyZW1vdGVfY29uZmlnX3N0YXR1cxgFIAEoCRIbChNyZW1vdGVfY29uZmlnX2Vycm9yGAYgASgJEjEKEGxvY2FsX2F0dHJpYnV0ZXMYByABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0Iq4DCglDb2xsZWN0b3ISCgoCaWQYASABKAkSEgoKY2x1c3Rlcl9pZBgCIAEoCRIPCgdjbHVzdGVyGAMgASgJEgwKBHJvbGUYBCABKAkSDgoGb3JnX2lkGAUgASgJEhwKFHJlbW90ZV9jb25maWdfc3RhdHVzGAYgASgJEhsKE3JlbW90ZV9jb25maWdfZXJyb3IYByABKAkSLQoJbGFzdF9zZWVuGAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIVCg1hbGxveV92ZXJzaW9uGAkgASgJEjEKEGxvY2FsX2F0dHJpYnV0ZXMYCiABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0EjYKCWluc3RhbmNlcxgLIAMoCzIjLnNoZXBoZXJkLm1nbXQudjEuQ29sbGVjdG9ySW5zdGFuY2USNwoGbGFiZWxzGAwgAygLMicuc2hlcGhlcmQubWdtdC52MS5Db2xsZWN0b3IuTGFiZWxzRW50cnkaLQoLTGFiZWxzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASJcChhTZXRDb2xsZWN0b3JMYWJlbFJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEhQKDGNvbGxlY3Rvcl9pZBgCIAEoCRILCgNrZXkYAyABKAkSDQoFdmFsdWUYBCABKAkiUAobRGVsZXRlQ29sbGVjdG9yTGFiZWxSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIUCgxjb2xsZWN0b3JfaWQYAiABKAkSCwoDa2V5GAMgASgJIo8BChdDb2xsZWN0b3JMYWJlbHNSZXNwb25zZRJFCgZsYWJlbHMYASADKAsyNS5zaGVwaGVyZC5tZ210LnYxLkNvbGxlY3RvckxhYmVsc1Jlc3BvbnNlLkxhYmVsc0VudHJ5Gi0KC0xhYmVsc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiJwoVTGlzdENvbGxlY3RvcnNSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCSJTChZMaXN0Q29sbGVjdG9yc1Jlc3BvbnNlEioKBWl0ZW1zGAEgAygLMhsuc2hlcGhlcmQubWdtdC52MS5Db2xsZWN0b3ISDQoFdG90YWwYAiABKAUiMQoTR2V0Q29sbGVjdG9yUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkiNAoWR2V0U2VydmVkQ29uZmlnUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkiaQoXR2V0U2VydmVkQ29uZmlnUmVzcG9uc2USDwoHY29udGVudBgBIAEoCRIMCgRoYXNoGAIgASgJEi8KC2NvbXB1dGVkX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCI2ChhHZXRSZWNvbmNpbGlhdGlvblJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgoKAmlkGAIgASgJIngKB0ZpbmRpbmcSDAoEa2luZBgBIAEoCRIPCgdzb3VyY2VzGAIgAygJEg8KB3N1bW1hcnkYAyABKAkSFQoNcGlwZWxpbmVfbmFtZRgEIAEoCRIXCg9jb250cm9sbGVyX3BhdGgYBSABKAkSDQoFc3RhbGUYBiABKAgiSAoZR2V0UmVjb25jaWxpYXRpb25SZXNwb25zZRIrCghmaW5kaW5ncxgBIAMoCzIZLnNoZXBoZXJkLm1nbXQudjEuRmluZGluZyI+ChZMaXN0QXNzaWdubWVudHNSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIUCgxjb2xsZWN0b3JfaWQYAiABKAkidgoKQXNzaWdubWVudBIKCgJpZBgBIAEoCRIQCghncm91cF9pZBgCIAEoCRIaChJncm91cF9kaXNwbGF5X25hbWUYAyABKAkSLgoKY3JlYXRlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiVQoXTGlzdEFzc2lnbm1lbnRzUmVzcG9uc2USKwoFaXRlbXMYASADKAsyHC5zaGVwaGVyZC5tZ210LnYxLkFzc2lnbm1lbnQSDQoFdG90YWwYAiABKAUibQoXQ3JlYXRlQXNzaWdubWVudFJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEhQKDGNvbGxlY3Rvcl9pZBgCIAEoCRIQCghncm91cF9pZBgDIAEoCRIaChJncm91cF9kaXNwbGF5X25hbWUYBCABKAkiOAoYQ3JlYXRlQXNzaWdubWVudFJlc3BvbnNlEgoKAmlkGAEgASgJEhAKCGdyb3VwX2lkGAIgASgJIlEKF0RlbGV0ZUFzc2lnbm1lbnRSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIUCgxjb2xsZWN0b3JfaWQYAiABKAkSEAoIZ3JvdXBfaWQYAyABKAkiGgoYRGVsZXRlQXNzaWdubWVudFJlc3BvbnNlIicKFUxpc3RBdHRyaWJ1dGVzUmVxdWVzdBIOCgZvcmdfaWQYASABKAkiRQoWTGlzdEF0dHJpYnV0ZXNSZXNwb25zZRIrCgphdHRyaWJ1dGVzGAEgASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdDKyCAoMRmxlZXRTZXJ2aWNlEmUKDkxpc3RDb2xsZWN0b3JzEicuc2hlcGhlcmQubWdtdC52MS5MaXN0Q29sbGVjdG9yc1JlcXVlc3QaKC5zaGVwaGVyZC5tZ210LnYxLkxpc3RDb2xsZWN0b3JzUmVzcG9uc2UiABJUCgxHZXRDb2xsZWN0b3ISJS5zaGVwaGVyZC5tZ210LnYxLkdldENvbGxlY3RvclJlcXVlc3QaGy5zaGVwaGVyZC5tZ210LnYxLkNvbGxlY3RvciIAEmgKD0dldFNlcnZlZENvbmZpZxIoLnNoZXBoZXJkLm1nbXQudjEuR2V0U2VydmVkQ29uZmlnUmVxdWVzdBopLnNoZXBoZXJkLm1nbXQudjEuR2V0U2VydmVkQ29uZmlnUmVzcG9uc2UiABJuChFHZXRSZWNvbmNpbGlhdGlvbhIqLnNoZXBoZXJkLm1nbXQudjEuR2V0UmVjb25jaWxpYXRpb25SZXF1ZXN0Gisuc2hlcGhlcmQubWdtdC52MS5HZXRSZWNvbmNpbGlhdGlvblJlc3BvbnNlIgASaAoPTGlzdEFzc2lnbm1lbnRzEiguc2hlcGhlcmQubWdtdC52MS5MaXN0QXNzaWdubWVudHNSZXF1ZXN0Gikuc2hlcGhlcmQubWdtdC52MS5MaXN0QXNzaWdubWVudHNSZXNwb25zZSIAEmsKEENyZWF0ZUFzc2lnbm1lbnQSKS5zaGVwaGVyZC5tZ210LnYxLkNyZWF0ZUFzc2lnbm1lbnRSZXF1ZXN0Giouc2hlcGhlcmQubWdtdC52MS5DcmVhdGVBc3NpZ25tZW50UmVzcG9uc2UiABJrChBEZWxldGVBc3NpZ25tZW50Eikuc2hlcGhlcmQubWdtdC52MS5EZWxldGVBc3NpZ25tZW50UmVxdWVzdBoqLnNoZXBoZXJkLm1nbXQudjEuRGVsZXRlQXNzaWdubWVudFJlc3BvbnNlIgASZQoOTGlzdEF0dHJpYnV0ZXMSJy5zaGVwaGVyZC5tZ210LnYxLkxpc3RBdHRyaWJ1dGVzUmVxdWVzdBooLnNoZXBoZXJkLm1nbXQudjEuTGlzdEF0dHJpYnV0ZXNSZXNwb25zZSIAEmwKEVNldENvbGxlY3RvckxhYmVsEiouc2hlcGhlcmQubWdtdC52MS5TZXRDb2xsZWN0b3JMYWJlbFJlcXVlc3QaKS5zaGVwaGVyZC5tZ210LnYxLkNvbGxlY3RvckxhYmVsc1Jlc3BvbnNlIgAScgoURGVsZXRlQ29sbGVjdG9yTGFiZWwSLS5zaGVwaGVyZC5tZ210LnYxLkRlbGV0ZUNvbGxlY3RvckxhYmVsUmVxdWVzdBopLnNoZXBoZXJkLm1nbXQudjEuQ29sbGVjdG9yTGFiZWxzUmVzcG9uc2UiAEImWiRzaGVwaGVyZC9nZW4vc2hlcGhlcmQvbWdtdC92MTttZ210djFiBnByb3RvMw", [file_google_protobuf_struct, file_google_protobuf_timestamp]);
+  fileDesc("ChxzaGVwaGVyZC9tZ210L3YxL2ZsZWV0LnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIuEBChFDb2xsZWN0b3JJbnN0YW5jZRIMCgRuYW1lGAEgASgJEhUKDWFsbG95X3ZlcnNpb24YAiABKAkSCgoCb3MYAyABKAkSLQoJbGFzdF9zZWVuGAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIcChRyZW1vdGVfY29uZmlnX3N0YXR1cxgFIAEoCRIbChNyZW1vdGVfY29uZmlnX2Vycm9yGAYgASgJEjEKEGxvY2FsX2F0dHJpYnV0ZXMYByABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0Iq4DCglDb2xsZWN0b3ISCgoCaWQYASABKAkSEgoKY2x1c3Rlcl9pZBgCIAEoCRIPCgdjbHVzdGVyGAMgASgJEgwKBHJvbGUYBCABKAkSDgoGb3JnX2lkGAUgASgJEhwKFHJlbW90ZV9jb25maWdfc3RhdHVzGAYgASgJEhsKE3JlbW90ZV9jb25maWdfZXJyb3IYByABKAkSLQoJbGFzdF9zZWVuGAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIVCg1hbGxveV92ZXJzaW9uGAkgASgJEjEKEGxvY2FsX2F0dHJpYnV0ZXMYCiABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0EjYKCWluc3RhbmNlcxgLIAMoCzIjLnNoZXBoZXJkLm1nbXQudjEuQ29sbGVjdG9ySW5zdGFuY2USNwoGbGFiZWxzGAwgAygLMicuc2hlcGhlcmQubWdtdC52MS5Db2xsZWN0b3IuTGFiZWxzRW50cnkaLQoLTGFiZWxzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASJcChhTZXRDb2xsZWN0b3JMYWJlbFJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEhQKDGNvbGxlY3Rvcl9pZBgCIAEoCRILCgNrZXkYAyABKAkSDQoFdmFsdWUYBCABKAkiUAobRGVsZXRlQ29sbGVjdG9yTGFiZWxSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIUCgxjb2xsZWN0b3JfaWQYAiABKAkSCwoDa2V5GAMgASgJIo8BChdDb2xsZWN0b3JMYWJlbHNSZXNwb25zZRJFCgZsYWJlbHMYASADKAsyNS5zaGVwaGVyZC5tZ210LnYxLkNvbGxlY3RvckxhYmVsc1Jlc3BvbnNlLkxhYmVsc0VudHJ5Gi0KC0xhYmVsc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiJwoVTGlzdENvbGxlY3RvcnNSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCSJTChZMaXN0Q29sbGVjdG9yc1Jlc3BvbnNlEioKBWl0ZW1zGAEgAygLMhsuc2hlcGhlcmQubWdtdC52MS5Db2xsZWN0b3ISDQoFdG90YWwYAiABKAUiMQoTR2V0Q29sbGVjdG9yUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkiNAoWR2V0U2VydmVkQ29uZmlnUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkiaQoXR2V0U2VydmVkQ29uZmlnUmVzcG9uc2USDwoHY29udGVudBgBIAEoCRIMCgRoYXNoGAIgASgJEi8KC2NvbXB1dGVkX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCI2ChhHZXRSZWNvbmNpbGlhdGlvblJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgoKAmlkGAIgASgJIngKB0ZpbmRpbmcSDAoEa2luZBgBIAEoCRIPCgdzb3VyY2VzGAIgAygJEg8KB3N1bW1hcnkYAyABKAkSFQoNcGlwZWxpbmVfbmFtZRgEIAEoCRIXCg9jb250cm9sbGVyX3BhdGgYBSABKAkSDQoFc3RhbGUYBiABKAgiSAoZR2V0UmVjb25jaWxpYXRpb25SZXNwb25zZRIrCghmaW5kaW5ncxgBIAMoCzIZLnNoZXBoZXJkLm1nbXQudjEuRmluZGluZyI+ChZMaXN0QXNzaWdubWVudHNSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIUCgxjb2xsZWN0b3JfaWQYAiABKAkidgoKQXNzaWdubWVudBIKCgJpZBgBIAEoCRIQCghncm91cF9pZBgCIAEoCRIaChJncm91cF9kaXNwbGF5X25hbWUYAyABKAkSLgoKY3JlYXRlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiVQoXTGlzdEFzc2lnbm1lbnRzUmVzcG9uc2USKwoFaXRlbXMYASADKAsyHC5zaGVwaGVyZC5tZ210LnYxLkFzc2lnbm1lbnQSDQoFdG90YWwYAiABKAUibQoXQ3JlYXRlQXNzaWdubWVudFJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEhQKDGNvbGxlY3Rvcl9pZBgCIAEoCRIQCghncm91cF9pZBgDIAEoCRIaChJncm91cF9kaXNwbGF5X25hbWUYBCABKAkiOAoYQ3JlYXRlQXNzaWdubWVudFJlc3BvbnNlEgoKAmlkGAEgASgJEhAKCGdyb3VwX2lkGAIgASgJIlEKF0RlbGV0ZUFzc2lnbm1lbnRSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIUCgxjb2xsZWN0b3JfaWQYAiABKAkSEAoIZ3JvdXBfaWQYAyABKAkiGgoYRGVsZXRlQXNzaWdubWVudFJlc3BvbnNlIicKFUxpc3RBdHRyaWJ1dGVzUmVxdWVzdBIOCgZvcmdfaWQYASABKAkiRQoWTGlzdEF0dHJpYnV0ZXNSZXNwb25zZRIrCgphdHRyaWJ1dGVzGAEgASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdCJ6ChhSZW5kZXJDaGFydFZhbHVlc1JlcXVlc3QSDgoGb3JnX2lkGAEgASgJEhQKDGNsdXN0ZXJfbmFtZRgCIAEoCRINCgVyb2xlcxgDIAMoCRIWCg5wb2xsX2ZyZXF1ZW5jeRgEIAEoCRIRCgluYW1lc3BhY2UYBSABKAki0gEKGVJlbmRlckNoYXJ0VmFsdWVzUmVzcG9uc2USEwoLdmFsdWVzX3lhbWwYASABKAkSGAoQY3JlZGVudGlhbHNfeWFtbBgCIAEoCRIVCg1jaGFydF92ZXJzaW9uGAMgASgJEhYKDnNlY3JldF9jb21tYW5kGAQgASgJEhQKDGhlbG1fY29tbWFuZBgFIAEoCRITCgtzZWNyZXRfbmFtZRgGIAEoCRIWCg5jbHVzdGVyX3N0YXR1cxgHIAEoCRIUCgxzaGVwaGVyZF91cmwYCCABKAkyogkKDEZsZWV0U2VydmljZRJlCg5MaXN0Q29sbGVjdG9ycxInLnNoZXBoZXJkLm1nbXQudjEuTGlzdENvbGxlY3RvcnNSZXF1ZXN0Giguc2hlcGhlcmQubWdtdC52MS5MaXN0Q29sbGVjdG9yc1Jlc3BvbnNlIgASVAoMR2V0Q29sbGVjdG9yEiUuc2hlcGhlcmQubWdtdC52MS5HZXRDb2xsZWN0b3JSZXF1ZXN0Ghsuc2hlcGhlcmQubWdtdC52MS5Db2xsZWN0b3IiABJoCg9HZXRTZXJ2ZWRDb25maWcSKC5zaGVwaGVyZC5tZ210LnYxLkdldFNlcnZlZENvbmZpZ1JlcXVlc3QaKS5zaGVwaGVyZC5tZ210LnYxLkdldFNlcnZlZENvbmZpZ1Jlc3BvbnNlIgASbgoRR2V0UmVjb25jaWxpYXRpb24SKi5zaGVwaGVyZC5tZ210LnYxLkdldFJlY29uY2lsaWF0aW9uUmVxdWVzdBorLnNoZXBoZXJkLm1nbXQudjEuR2V0UmVjb25jaWxpYXRpb25SZXNwb25zZSIAEmgKD0xpc3RBc3NpZ25tZW50cxIoLnNoZXBoZXJkLm1nbXQudjEuTGlzdEFzc2lnbm1lbnRzUmVxdWVzdBopLnNoZXBoZXJkLm1nbXQudjEuTGlzdEFzc2lnbm1lbnRzUmVzcG9uc2UiABJrChBDcmVhdGVBc3NpZ25tZW50Eikuc2hlcGhlcmQubWdtdC52MS5DcmVhdGVBc3NpZ25tZW50UmVxdWVzdBoqLnNoZXBoZXJkLm1nbXQudjEuQ3JlYXRlQXNzaWdubWVudFJlc3BvbnNlIgASawoQRGVsZXRlQXNzaWdubWVudBIpLnNoZXBoZXJkLm1nbXQudjEuRGVsZXRlQXNzaWdubWVudFJlcXVlc3QaKi5zaGVwaGVyZC5tZ210LnYxLkRlbGV0ZUFzc2lnbm1lbnRSZXNwb25zZSIAEmUKDkxpc3RBdHRyaWJ1dGVzEicuc2hlcGhlcmQubWdtdC52MS5MaXN0QXR0cmlidXRlc1JlcXVlc3QaKC5zaGVwaGVyZC5tZ210LnYxLkxpc3RBdHRyaWJ1dGVzUmVzcG9uc2UiABJsChFTZXRDb2xsZWN0b3JMYWJlbBIqLnNoZXBoZXJkLm1nbXQudjEuU2V0Q29sbGVjdG9yTGFiZWxSZXF1ZXN0Gikuc2hlcGhlcmQubWdtdC52MS5Db2xsZWN0b3JMYWJlbHNSZXNwb25zZSIAEnIKFERlbGV0ZUNvbGxlY3RvckxhYmVsEi0uc2hlcGhlcmQubWdtdC52MS5EZWxldGVDb2xsZWN0b3JMYWJlbFJlcXVlc3QaKS5zaGVwaGVyZC5tZ210LnYxLkNvbGxlY3RvckxhYmVsc1Jlc3BvbnNlIgASbgoRUmVuZGVyQ2hhcnRWYWx1ZXMSKi5zaGVwaGVyZC5tZ210LnYxLlJlbmRlckNoYXJ0VmFsdWVzUmVxdWVzdBorLnNoZXBoZXJkLm1nbXQudjEuUmVuZGVyQ2hhcnRWYWx1ZXNSZXNwb25zZSIAQiZaJHNoZXBoZXJkL2dlbi9zaGVwaGVyZC9tZ210L3YxO21nbXR2MWIGcHJvdG8z", [file_google_protobuf_struct, file_google_protobuf_timestamp]);
 
 /**
- * CollectorInstance mirrors internal/mgmtapi/orgs.go: collectorInstanceResponse.
+ * CollectorInstance is one running Alloy process reporting as a logical Collector.
  *
  * @generated from message shepherd.mgmt.v1.CollectorInstance
  */
@@ -66,7 +66,7 @@ export const CollectorInstanceSchema: GenMessage<CollectorInstance> = /*@__PURE_
   messageDesc(file_shepherd_mgmt_v1_fleet, 0);
 
 /**
- * Collector mirrors internal/mgmtapi/orgs.go: collectorResponse. The scalar
+ * Collector is a logical collector, one per cluster and role. The scalar
  * remote_config_status/remote_config_error/last_seen/alloy_version/
  * local_attributes fields are rolled up from the collector's most recently
  * reporting instance; instances is populated only on GetCollector.
@@ -306,7 +306,7 @@ export const GetServedConfigRequestSchema: GenMessage<GetServedConfigRequest> = 
   messageDesc(file_shepherd_mgmt_v1_fleet, 8);
 
 /**
- * GetServedConfigResponse mirrors orgs.go ServedConfig: {"content","hash","computed_at"}.
+ * GetServedConfigResponse is the merged config currently served to a collector.
  * content and hash are "" when no serve-cache entry exists yet.
  *
  * @generated from message shepherd.mgmt.v1.GetServedConfigResponse
@@ -629,14 +629,13 @@ export const ListAttributesRequestSchema: GenMessage<ListAttributesRequest> = /*
   messageDesc(file_shepherd_mgmt_v1_fleet, 20);
 
 /**
- * ListAttributesResponse mirrors orgs.go ListAttributes, which returns a bare
- * JSON object keyed by attribute name (today always includes "cluster" and
- * "role", plus any other distinct attribute keys) mapping to their distinct
- * values: {"cluster": [...], "role": [...], ...}. The key set is
- * data-dependent, so it is modeled as a Struct rather than fixed fields; the
- * REST shim marshals `attributes` directly rather than the wrapping message
- * to stay byte-compatible with the legacy bare-object shape (see notes to
- * the wiring agent).
+ * ListAttributesResponse maps each matcher key pipeline matching evaluates for
+ * the org to its distinct values: {"cluster": [...], "role": [...], ...}.
+ * cluster and role are always present; admin labels and agent-reported
+ * local_attributes appear only when the org's allow_label_matching /
+ * allow_local_attribute_matching flags are on, and reserved keys never do
+ * (#139). The key set is data-dependent, so it is modeled as a Struct rather
+ * than fixed fields.
  *
  * @generated from message shepherd.mgmt.v1.ListAttributesResponse
  */
@@ -655,8 +654,132 @@ export const ListAttributesResponseSchema: GenMessage<ListAttributesResponse> = 
   messageDesc(file_shepherd_mgmt_v1_fleet, 21);
 
 /**
- * FleetService covers /api/orgs/{org}/collectors/* and /attributes.
- * Reads require org-reader; writes (assignments) require org-admin.
+ * RenderChartValuesRequest describes the cluster being connected.
+ *
+ * @generated from message shepherd.mgmt.v1.RenderChartValuesRequest
+ */
+export type RenderChartValuesRequest = Message<"shepherd.mgmt.v1.RenderChartValuesRequest"> & {
+  /**
+   * @generated from field: string org_id = 1;
+   */
+  orgId: string;
+
+  /**
+   * cluster_name is the chart's cluster.name, which each collector reports
+   * as its "cluster" attribute. Required.
+   *
+   * @generated from field: string cluster_name = 2;
+   */
+  clusterName: string;
+
+  /**
+   * roles are the collectors to wire: any of "metrics", "logs", "singleton",
+   * "receiver". At least one.
+   *
+   * @generated from field: repeated string roles = 3;
+   */
+  roles: string[];
+
+  /**
+   * poll_frequency is how often each collector polls Shepherd, e.g. "60s".
+   * Empty means 60s.
+   *
+   * @generated from field: string poll_frequency = 4;
+   */
+  pollFrequency: string;
+
+  /**
+   * namespace is where k8s-monitoring is installed, for the rendered
+   * commands only. Empty means "monitoring".
+   *
+   * @generated from field: string namespace = 5;
+   */
+  namespace: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.RenderChartValuesRequest.
+ * Use `create(RenderChartValuesRequestSchema)` to create a new message.
+ */
+export const RenderChartValuesRequestSchema: GenMessage<RenderChartValuesRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_fleet, 22);
+
+/**
+ * RenderChartValuesResponse carries both values files and the commands that
+ * use them. Neither file contains a secret.
+ *
+ * @generated from message shepherd.mgmt.v1.RenderChartValuesResponse
+ */
+export type RenderChartValuesResponse = Message<"shepherd.mgmt.v1.RenderChartValuesResponse"> & {
+  /**
+   * values_yaml wires each collector's remoteConfig to Shepherd.
+   *
+   * @generated from field: string values_yaml = 1;
+   */
+  valuesYaml: string;
+
+  /**
+   * credentials_yaml loads the agent token into each collector from the
+   * Secret secret_name.
+   *
+   * @generated from field: string credentials_yaml = 2;
+   */
+  credentialsYaml: string;
+
+  /**
+   * chart_version is the k8s-monitoring version these values are checked against.
+   *
+   * @generated from field: string chart_version = 3;
+   */
+  chartVersion: string;
+
+  /**
+   * secret_command creates the Secret, with placeholders for the token.
+   *
+   * @generated from field: string secret_command = 4;
+   */
+  secretCommand: string;
+
+  /**
+   * helm_command installs or upgrades k8s-monitoring with both files.
+   *
+   * @generated from field: string helm_command = 5;
+   */
+  helmCommand: string;
+
+  /**
+   * @generated from field: string secret_name = 6;
+   */
+  secretName: string;
+
+  /**
+   * cluster_status is "new" (never registered), "unclaimed" (registered,
+   * waiting for an app admin to claim it for this org) or "claimed" (already
+   * this org's). A name claimed by another org is refused instead.
+   *
+   * @generated from field: string cluster_status = 7;
+   */
+  clusterStatus: string;
+
+  /**
+   * shepherd_url is the address the collectors poll (server.base_url).
+   *
+   * @generated from field: string shepherd_url = 8;
+   */
+  shepherdUrl: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.RenderChartValuesResponse.
+ * Use `create(RenderChartValuesResponseSchema)` to create a new message.
+ */
+export const RenderChartValuesResponseSchema: GenMessage<RenderChartValuesResponse> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_fleet, 23);
+
+/**
+ * FleetService covers an org's collectors, their labels and assignments,
+ * matcher attributes, and reconciliation. Reads require org-reader; writes
+ * (labels, assignments) require org-admin.
  *
  * @generated from service shepherd.mgmt.v1.FleetService
  */
@@ -743,6 +866,19 @@ export const FleetService: GenService<{
     methodKind: "unary";
     input: typeof DeleteCollectorLabelRequestSchema;
     output: typeof CollectorLabelsResponseSchema;
+  },
+  /**
+   * RenderChartValues renders the Helm values that connect a cluster's
+   * Grafana k8s-monitoring collectors to this Shepherd (W9,
+   * internal/chartvalues). Org-admin: it decides which cluster name joins
+   * the org's fleet. Writes nothing.
+   *
+   * @generated from rpc shepherd.mgmt.v1.FleetService.RenderChartValues
+   */
+  renderChartValues: {
+    methodKind: "unary";
+    input: typeof RenderChartValuesRequestSchema;
+    output: typeof RenderChartValuesResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_shepherd_mgmt_v1_fleet, 0);

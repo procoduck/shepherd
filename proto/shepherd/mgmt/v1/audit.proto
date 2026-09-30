@@ -6,12 +6,12 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 
-// AuditService covers /api/orgs/{org}/audit. Requires org-admin.
+// AuditService reads an org's audit log. Requires org-admin.
 service AuditService {
   rpc ListAudit(ListAuditRequest) returns (ListAuditResponse) {}
 }
 
-// AuditEntry mirrors internal/mgmtapi/audit.go: auditResponse.
+// AuditEntry is one audit-log row.
 message AuditEntry {
   int64 id = 1;
   google.protobuf.Timestamp at = 2;

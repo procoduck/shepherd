@@ -1,0 +1,1 @@
+ALTER TABLE collector_instances DROP COLUMN remote_config_status_hash;

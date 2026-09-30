@@ -2,8 +2,7 @@
  * Fullstack: editing a pipeline's matchers in the classic editor moves it
  * from one dev collector's pipeline list to the other (W7-10).
  *
- * "Pipeline list" is proven via GET .../pipelines/{id}/preview-matches
- * (PipelineService.PreviewMatches) — the same merge-matching logic the
+ * "Pipeline list" is proven via PipelineService.PreviewMatches — the same merge-matching logic the
  * server uses to decide which collectors a pipeline's config is served to,
  * not a client-side re-implementation of matcher evaluation (which
  * docs/frontend-testing.md §8 rules out for this layer).
@@ -19,7 +18,7 @@
  *   all — the assertion that it now names the logs collector fails loudly,
  *   not silently. Reverted and rebuilt back to green afterward.
  */
-import { expect, loginAsAdmin, test } from './fixtures';
+import { expect, getMe, loginAsAdmin, rpc, test } from './fixtures';
 
 interface MatchedCollector {
   cluster: string;
@@ -33,10 +32,7 @@ test.describe('matcher-edit', () => {
   }) => {
     await loginAsAdmin(page);
 
-    const meResp = await page.request.get('/api/me', {
-      headers: { 'X-Requested-With': 'XMLHttpRequest' },
-    });
-    const me = (await meResp.json()) as { orgs: Array<{ id: string; name: string }> };
+    const me = await getMe(page);
     const org = me.orgs.find((o) => o.name === 'platform-org');
     if (!org) throw new Error('dev seed must provide platform-org');
     const orgId = org.id;
@@ -46,30 +42,31 @@ test.describe('matcher-edit', () => {
     // reuse `name` as its own block label below — underscores only, matching
     // pipelines.spec.ts's fs_pipe_... convention.
     const name = `fs_matcher_edit_${Date.now()}`;
-    const createResp = await page.request.post(`/api/orgs/${orgId}/pipelines`, {
-      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-      data: {
-        name,
-        contents: `prometheus.exporter.self "${name}" { }`,
-        matchers: [`cluster="prod-eu-1"`, `role="metrics"`],
-      },
+    const createResp = await rpc(page, 'PipelineService', 'CreatePipeline', {
+      orgId,
+      name,
+      contents: `prometheus.exporter.self "${name}" { }`,
+      matchers: [`cluster="prod-eu-1"`, `role="metrics"`],
     });
-    expect(createResp.status()).toBe(201);
+    expect(createResp.status()).toBe(200);
     const pipeline = (await createResp.json()) as { id: string };
 
     try {
-      const before = await page.request.get(
-        `/api/orgs/${orgId}/pipelines/${pipeline.id}/preview-matches`,
-        { headers: { 'X-Requested-With': 'XMLHttpRequest' } },
-      );
-      const beforeMatches = (await before.json()) as { collectors: MatchedCollector[] };
-      expect(beforeMatches.collectors.some((c) => c.role === 'metrics')).toBe(true);
-      expect(beforeMatches.collectors.some((c) => c.role === 'logs')).toBe(false);
+      const before = await rpc(page, 'PipelineService', 'PreviewMatches', {
+        orgId,
+        id: pipeline.id,
+      });
+      expect(before.status()).toBe(200);
+      // protojson omits an empty collectors list — absent means none matched.
+      const beforeMatches =
+        ((await before.json()) as { collectors?: MatchedCollector[] }).collectors ?? [];
+      expect(beforeMatches.some((c) => c.role === 'metrics')).toBe(true);
+      expect(beforeMatches.some((c) => c.role === 'logs')).toBe(false);
 
       await page.goto(`/pipelines/${pipeline.id}`);
       // The admin belongs to more than one org, and with no persisted
       // selection in this fresh context, useOrg falls back to orgs[0] —
-      // /api/me sorts by name, so that is data-eng, not platform-org, and
+      // GetMe sorts by name, so that is data-eng, not platform-org, and
       // this pipeline's own org-scoped queries would 404 without switching
       // (walkthrough.spec.ts hits the identical default, W7-10).
       await page.getByTestId('org-switcher').selectOption({ label: 'Platform Engineering' });
@@ -92,17 +89,17 @@ test.describe('matcher-edit', () => {
       await saveButton.click();
       await expect(page.getByText(/Pipeline saved/i)).toBeVisible({ timeout: 10000 });
 
-      const after = await page.request.get(
-        `/api/orgs/${orgId}/pipelines/${pipeline.id}/preview-matches`,
-        { headers: { 'X-Requested-With': 'XMLHttpRequest' } },
-      );
-      const afterMatches = (await after.json()) as { collectors: MatchedCollector[] };
-      expect(afterMatches.collectors.some((c) => c.role === 'logs')).toBe(true);
-      expect(afterMatches.collectors.some((c) => c.role === 'metrics')).toBe(false);
-    } finally {
-      await page.request.delete(`/api/orgs/${orgId}/pipelines/${pipeline.id}`, {
-        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      const after = await rpc(page, 'PipelineService', 'PreviewMatches', {
+        orgId,
+        id: pipeline.id,
       });
+      expect(after.status()).toBe(200);
+      const afterMatches =
+        ((await after.json()) as { collectors?: MatchedCollector[] }).collectors ?? [];
+      expect(afterMatches.some((c) => c.role === 'logs')).toBe(true);
+      expect(afterMatches.some((c) => c.role === 'metrics')).toBe(false);
+    } finally {
+      await rpc(page, 'PipelineService', 'DeletePipeline', { orgId, id: pipeline.id });
     }
   });
 });

@@ -14,7 +14,7 @@ import (
 const createTenantRoute = `-- name: CreateTenantRoute :one
 INSERT INTO tenant_routes (org_id, tenant_id, kind, segment, gateway_mode, gateway_name, gateway_namespace, rotated_from_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, org_id, tenant_id, kind, segment, status, valid_until, rotated_from_id, gateway_mode, gateway_name, gateway_namespace, created_at, updated_at, revoked_at
+RETURNING id, org_id, tenant_id, kind, segment, status, valid_until, rotated_from_id, gateway_mode, gateway_name, gateway_namespace, created_at, updated_at, revoked_at, apply_status, apply_message, applied_at
 `
 
 type CreateTenantRouteParams struct {
@@ -55,6 +55,9 @@ func (q *Queries) CreateTenantRoute(ctx context.Context, arg CreateTenantRoutePa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.RevokedAt,
+		&i.ApplyStatus,
+		&i.ApplyMessage,
+		&i.AppliedAt,
 	)
 	return i, err
 }
@@ -63,7 +66,7 @@ const deprecateTenantRoute = `-- name: DeprecateTenantRoute :one
 UPDATE tenant_routes
 SET status = 'deprecated', valid_until = $2, updated_at = now()
 WHERE id = $1 AND status = 'active'
-RETURNING id, org_id, tenant_id, kind, segment, status, valid_until, rotated_from_id, gateway_mode, gateway_name, gateway_namespace, created_at, updated_at, revoked_at
+RETURNING id, org_id, tenant_id, kind, segment, status, valid_until, rotated_from_id, gateway_mode, gateway_name, gateway_namespace, created_at, updated_at, revoked_at, apply_status, apply_message, applied_at
 `
 
 type DeprecateTenantRouteParams struct {
@@ -89,12 +92,15 @@ func (q *Queries) DeprecateTenantRoute(ctx context.Context, arg DeprecateTenantR
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.RevokedAt,
+		&i.ApplyStatus,
+		&i.ApplyMessage,
+		&i.AppliedAt,
 	)
 	return i, err
 }
 
 const getActiveTenantRoute = `-- name: GetActiveTenantRoute :one
-SELECT id, org_id, tenant_id, kind, segment, status, valid_until, rotated_from_id, gateway_mode, gateway_name, gateway_namespace, created_at, updated_at, revoked_at FROM tenant_routes
+SELECT id, org_id, tenant_id, kind, segment, status, valid_until, rotated_from_id, gateway_mode, gateway_name, gateway_namespace, created_at, updated_at, revoked_at, apply_status, apply_message, applied_at FROM tenant_routes
 WHERE org_id = $1 AND tenant_id = $2 AND kind = $3 AND status = 'active'
 `
 
@@ -122,12 +128,15 @@ func (q *Queries) GetActiveTenantRoute(ctx context.Context, arg GetActiveTenantR
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.RevokedAt,
+		&i.ApplyStatus,
+		&i.ApplyMessage,
+		&i.AppliedAt,
 	)
 	return i, err
 }
 
 const getTenantRouteByID = `-- name: GetTenantRouteByID :one
-SELECT id, org_id, tenant_id, kind, segment, status, valid_until, rotated_from_id, gateway_mode, gateway_name, gateway_namespace, created_at, updated_at, revoked_at FROM tenant_routes WHERE id = $1
+SELECT id, org_id, tenant_id, kind, segment, status, valid_until, rotated_from_id, gateway_mode, gateway_name, gateway_namespace, created_at, updated_at, revoked_at, apply_status, apply_message, applied_at FROM tenant_routes WHERE id = $1
 `
 
 func (q *Queries) GetTenantRouteByID(ctx context.Context, id pgtype.UUID) (TenantRoute, error) {
@@ -148,12 +157,15 @@ func (q *Queries) GetTenantRouteByID(ctx context.Context, id pgtype.UUID) (Tenan
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.RevokedAt,
+		&i.ApplyStatus,
+		&i.ApplyMessage,
+		&i.AppliedAt,
 	)
 	return i, err
 }
 
 const listTenantRoutesByOrg = `-- name: ListTenantRoutesByOrg :many
-SELECT id, org_id, tenant_id, kind, segment, status, valid_until, rotated_from_id, gateway_mode, gateway_name, gateway_namespace, created_at, updated_at, revoked_at FROM tenant_routes WHERE org_id = $1 ORDER BY tenant_id, kind, created_at DESC
+SELECT id, org_id, tenant_id, kind, segment, status, valid_until, rotated_from_id, gateway_mode, gateway_name, gateway_namespace, created_at, updated_at, revoked_at, apply_status, apply_message, applied_at FROM tenant_routes WHERE org_id = $1 ORDER BY tenant_id, kind, created_at DESC
 `
 
 func (q *Queries) ListTenantRoutesByOrg(ctx context.Context, orgID pgtype.UUID) ([]TenantRoute, error) {
@@ -180,6 +192,100 @@ func (q *Queries) ListTenantRoutesByOrg(ctx context.Context, orgID pgtype.UUID) 
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.RevokedAt,
+			&i.ApplyStatus,
+			&i.ApplyMessage,
+			&i.AppliedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTenantRoutesForReconcile = `-- name: ListTenantRoutesForReconcile :many
+SELECT id, org_id, tenant_id, kind, segment, status, valid_until, rotated_from_id, gateway_mode, gateway_name, gateway_namespace, created_at, updated_at, revoked_at, apply_status, apply_message, applied_at FROM tenant_routes ORDER BY created_at
+`
+
+// Every route, in every status: the reconciler decides per row whether its
+// HTTPRoute should exist, so revoked rows are needed too (to delete theirs).
+func (q *Queries) ListTenantRoutesForReconcile(ctx context.Context) ([]TenantRoute, error) {
+	rows, err := q.db.Query(ctx, listTenantRoutesForReconcile)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TenantRoute
+	for rows.Next() {
+		var i TenantRoute
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.TenantID,
+			&i.Kind,
+			&i.Segment,
+			&i.Status,
+			&i.ValidUntil,
+			&i.RotatedFromID,
+			&i.GatewayMode,
+			&i.GatewayName,
+			&i.GatewayNamespace,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.RevokedAt,
+			&i.ApplyStatus,
+			&i.ApplyMessage,
+			&i.AppliedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const revokeExpiredTenantRoutes = `-- name: RevokeExpiredTenantRoutes :many
+UPDATE tenant_routes
+SET status = 'revoked', revoked_at = now(), updated_at = now()
+WHERE status = 'deprecated' AND valid_until IS NOT NULL AND valid_until < now()
+RETURNING id, org_id, tenant_id, kind, segment, status, valid_until, rotated_from_id, gateway_mode, gateway_name, gateway_namespace, created_at, updated_at, revoked_at, apply_status, apply_message, applied_at
+`
+
+// The rotation overlap has ended: a deprecated route past valid_until is
+// revoked (the janitor sweep the gateway plan listed as unbuilt).
+func (q *Queries) RevokeExpiredTenantRoutes(ctx context.Context) ([]TenantRoute, error) {
+	rows, err := q.db.Query(ctx, revokeExpiredTenantRoutes)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TenantRoute
+	for rows.Next() {
+		var i TenantRoute
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.TenantID,
+			&i.Kind,
+			&i.Segment,
+			&i.Status,
+			&i.ValidUntil,
+			&i.RotatedFromID,
+			&i.GatewayMode,
+			&i.GatewayName,
+			&i.GatewayNamespace,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.RevokedAt,
+			&i.ApplyStatus,
+			&i.ApplyMessage,
+			&i.AppliedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -195,7 +301,7 @@ const revokeTenantRoute = `-- name: RevokeTenantRoute :one
 UPDATE tenant_routes
 SET status = 'revoked', revoked_at = now(), updated_at = now()
 WHERE id = $1
-RETURNING id, org_id, tenant_id, kind, segment, status, valid_until, rotated_from_id, gateway_mode, gateway_name, gateway_namespace, created_at, updated_at, revoked_at
+RETURNING id, org_id, tenant_id, kind, segment, status, valid_until, rotated_from_id, gateway_mode, gateway_name, gateway_namespace, created_at, updated_at, revoked_at, apply_status, apply_message, applied_at
 `
 
 func (q *Queries) RevokeTenantRoute(ctx context.Context, id pgtype.UUID) (TenantRoute, error) {
@@ -216,6 +322,51 @@ func (q *Queries) RevokeTenantRoute(ctx context.Context, id pgtype.UUID) (Tenant
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.RevokedAt,
+		&i.ApplyStatus,
+		&i.ApplyMessage,
+		&i.AppliedAt,
+	)
+	return i, err
+}
+
+const setTenantRouteApplyStatus = `-- name: SetTenantRouteApplyStatus :one
+UPDATE tenant_routes
+SET apply_status  = $1,
+    apply_message = $2,
+    applied_at    = CASE WHEN $1 = 'applied' THEN now() ELSE applied_at END
+WHERE id = $3
+RETURNING id, org_id, tenant_id, kind, segment, status, valid_until, rotated_from_id, gateway_mode, gateway_name, gateway_namespace, created_at, updated_at, revoked_at, apply_status, apply_message, applied_at
+`
+
+type SetTenantRouteApplyStatusParams struct {
+	ApplyStatus  string      `json:"apply_status"`
+	ApplyMessage string      `json:"apply_message"`
+	ID           pgtype.UUID `json:"id"`
+}
+
+// Records one reconcile outcome. applied_at moves only on a verified apply,
+// so it keeps meaning "last time attachment was confirmed".
+func (q *Queries) SetTenantRouteApplyStatus(ctx context.Context, arg SetTenantRouteApplyStatusParams) (TenantRoute, error) {
+	row := q.db.QueryRow(ctx, setTenantRouteApplyStatus, arg.ApplyStatus, arg.ApplyMessage, arg.ID)
+	var i TenantRoute
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.TenantID,
+		&i.Kind,
+		&i.Segment,
+		&i.Status,
+		&i.ValidUntil,
+		&i.RotatedFromID,
+		&i.GatewayMode,
+		&i.GatewayName,
+		&i.GatewayNamespace,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.RevokedAt,
+		&i.ApplyStatus,
+		&i.ApplyMessage,
+		&i.AppliedAt,
 	)
 	return i, err
 }

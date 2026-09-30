@@ -5,9 +5,10 @@
  * - editor: logs in through the real login form, sees the New-pipeline
  *   affordance on /pipelines, creates and saves a fresh pipeline through the
  *   real editor UI, and the save actually persists server-side.
- * - viewer: sees no write affordances on /pipelines, and a direct PUT to a
- *   pipeline (with the viewer's own session cookie) is rejected 403 by the
- *   real server — not merely hidden client-side.
+ * - viewer: sees no write affordances on /pipelines, and a direct
+ *   PipelineService.UpdatePipeline call (with the viewer's own session
+ *   cookie) is rejected 403 by the real server — not merely hidden
+ *   client-side.
  * - both personas are denied /admin/orgs (app-admin only) and land back on
  *   '/' with the route guard's denial marker.
  *
@@ -23,17 +24,10 @@
  *     Restored afterward and rebuilt back to green.
  */
 import type { Page } from '@playwright/test';
-import { DEV_EDITOR, DEV_VIEWER, expect, loginAs, test } from './fixtures';
-
-interface Me {
-  orgs: Array<{ id: string; name: string; role: string }>;
-}
+import { DEV_EDITOR, DEV_VIEWER, expect, getMe, loginAs, rpc, test } from './fixtures';
 
 async function getPlatformOrgId(page: Page): Promise<string> {
-  const resp = await page.request.get('/api/me', {
-    headers: { 'X-Requested-With': 'XMLHttpRequest' },
-  });
-  const me = (await resp.json()) as Me;
+  const me = await getMe(page);
   const org = me.orgs.find((o) => o.name === 'platform-org');
   if (!org) throw new Error('dev seed must provide platform-org for the editor/viewer personas');
   return org.id;
@@ -118,21 +112,19 @@ test.describe('roles: editor', () => {
     const pipelineId = page.url().split('/pipelines/')[1];
 
     // Confirm it actually persisted server-side, then clean it up.
-    const getResp = await page.request.get(`/api/orgs/${orgId}/pipelines/${pipelineId}`, {
-      headers: { 'X-Requested-With': 'XMLHttpRequest' },
-    });
+    const getResp = await rpc(page, 'PipelineService', 'GetPipeline', { orgId, id: pipelineId });
     expect(getResp.status()).toBe(200);
     const saved = (await getResp.json()) as { name: string };
     expect(saved.name).toBe(name);
 
-    await page.request.delete(`/api/orgs/${orgId}/pipelines/${pipelineId}`, {
-      headers: { 'X-Requested-With': 'XMLHttpRequest' },
-    });
+    await rpc(page, 'PipelineService', 'DeletePipeline', { orgId, id: pipelineId });
   });
 });
 
 test.describe('roles: viewer', () => {
-  test('viewer sees no write affordances, and a direct PUT is rejected 403', async ({ page }) => {
+  test('viewer sees no write affordances, and a direct UpdatePipeline is rejected 403', async ({
+    page,
+  }) => {
     await loginAs(page, DEV_VIEWER.username, DEV_VIEWER.password);
     const orgId = await getPlatformOrgId(page);
 
@@ -150,24 +142,28 @@ test.describe('roles: viewer', () => {
       page.locator('button[aria-label="Enable"], button[aria-label="Disable"]'),
     ).toHaveCount(0);
 
-    const listResp = await page.request.get(`/api/orgs/${orgId}/pipelines`, {
-      headers: { 'X-Requested-With': 'XMLHttpRequest' },
-    });
+    const listResp = await rpc(page, 'PipelineService', 'ListPipelines', { orgId });
+    expect(listResp.status()).toBe(200);
+    // protojson omits empty fields: a pipeline with no matchers has no
+    // `matchers` key at all.
     const list = (await listResp.json()) as {
-      items: Array<{ id: string; name: string; contents: string; matchers: string[] }>;
+      items?: Array<{ id: string; name: string; contents?: string; matchers?: string[] }>;
     };
-    const target = list.items[0];
+    const target = list.items?.[0];
     if (!target) throw new Error('dev seed must provide at least one pipeline on platform-org');
 
     // page.request shares the browser context's cookies — this really is
     // the viewer's own session, not an admin bypass (W7-03's whole point).
-    const putResp = await page.request.put(`/api/orgs/${orgId}/pipelines/${target.id}`, {
-      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-      data: { name: target.name, contents: target.contents, matchers: target.matchers },
+    const putResp = await rpc(page, 'PipelineService', 'UpdatePipeline', {
+      orgId,
+      id: target.id,
+      name: target.name,
+      contents: target.contents ?? '',
+      matchers: target.matchers ?? [],
     });
     expect(putResp.status()).toBe(403);
-    const body = (await putResp.json()) as { error: { code: string } };
-    expect(body.error.code).toBeTruthy();
+    const body = (await putResp.json()) as { code: string };
+    expect(body.code).toBe('permission_denied');
   });
 });
 

@@ -13,15 +13,13 @@ import (
 	"shepherd/internal/store"
 )
 
-// MeService implements mgmtv1connect.MeServiceHandler. Business logic moved
-// here from OrgsHandler.Me (orgs.go), which is now a thin REST shim
-// delegating to this method in-process.
+// MeService implements mgmtv1connect.MeServiceHandler.
 type MeService struct {
 	store  *store.Store
 	logger *slog.Logger
 }
 
-// NewMeService constructs a MeService with the deps OrgsHandler.Me uses today.
+// NewMeService constructs a MeService.
 func NewMeService(st *store.Store, logger *slog.Logger) *MeService {
 	return &MeService{store: st, logger: logger}
 }
@@ -29,14 +27,14 @@ func NewMeService(st *store.Store, logger *slog.Logger) *MeService {
 var _ mgmtv1connect.MeServiceHandler = (*MeService)(nil)
 
 // noStoreCacheControl is the Cache-Control value GetMe has always returned
-// (see legacy OrgsHandler.Me): authentication state must never be cached.
+// (the pre-Connect REST handler did the same): authentication state must never be cached.
 // MountRPC's procedureRequirements grants GetMe to any authenticated
 // session (auth.RoleAny), so the authz interceptor already enforces
 // authentication for direct Connect callers; this method sets the same
 // header on the Connect response (connect.Response.Header()) so that wire
-// dialect also conveys the no-caching intent, and repeats the nil-session
-// guard below so the REST shim — which calls this method directly,
-// bypassing the interceptor — keeps its own 401 behavior unchanged.
+// dialect also conveys the no-caching intent. The nil-session guard below
+// is defence in depth for any caller that reaches this method without the
+// interceptor (the removed /api REST shim was one).
 const noStoreCacheControl = "no-store, no-cache, must-revalidate"
 
 // GetMe returns the caller's identity and org memberships.

@@ -433,3 +433,104 @@ up to 10, left a multi-pod deployment with no budget at all.
 {{- .Values.replicas -}}
 {{- end -}}
 {{- end }}
+
+{{/*
+Receiver tier (#109, docs/plans/2026-09-28-receiver-tier.md): an OTLP/HTTP
+Alloy that the gateway fronts and that forwards each tenant's data with the
+tenant header the gateway injected. Its own stable name, like the simulator's.
+*/}}
+{{- define "shepherd.receiverFullname" -}}
+{{- printf "%s-receiver" (include "shepherd.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "shepherd.receiverLabels" -}}
+{{ include "shepherd.labels" . }}
+app.kubernetes.io/component: receiver
+{{- end }}
+
+{{- define "shepherd.receiverSelectorLabels" -}}
+{{ include "shepherd.selectorLabels" . }}
+app.kubernetes.io/component: receiver
+{{- end }}
+
+{{/*
+The receiver config file `shepherd receiver render` reads (internal/cli/
+receiver.go's format). One exporter per enabled signal; a secret-sourced
+endpoint or credential becomes an env var name the Alloy container gets from
+its Secret, so no secret value is ever written into this ConfigMap.
+*/}}
+{{- define "shepherd.receiverConfig" -}}
+{{- $r := .Values.receiver -}}
+otlp:
+  - label: tenants
+    mode: {{ $r.mode | quote }}
+    http:
+      listen_addr: {{ printf "0.0.0.0:%d" (int $r.listener.port) | quote }}
+      max_request_body_size: {{ required "receiver.listener.maxRequestBodySize is required" $r.listener.maxRequestBodySize | quote }}
+    batch:
+      timeout: {{ $r.batch.timeout | quote }}
+      send_batch_size: {{ int $r.batch.sendBatchSize }}
+      send_batch_max_size: {{ int $r.batch.sendBatchMaxSize }}
+{{- range $signal := list "metrics" "logs" "traces" }}
+{{- $e := index $r.exporters $signal }}
+{{- if $e.enabled }}
+    {{ $signal }}:
+      name: {{ $signal }}
+      protocol: {{ $e.protocol | quote }}
+      {{- if $e.endpointFromSecret.name }}
+      endpoint_env: {{ printf "RECEIVER_%s_ENDPOINT" (upper $signal) | quote }}
+      {{- else }}
+      endpoint: {{ required (printf "receiver.exporters.%s: set endpoint or endpointFromSecret" $signal) $e.endpoint | quote }}
+      {{- end }}
+      {{- if $e.authorizationFromSecret.name }}
+      secret_header_env:
+        Authorization: {{ printf "RECEIVER_%s_AUTHORIZATION" (upper $signal) | quote }}
+      {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Tenant-route apply (docs/plans/2026-09-29-tenant-route-apply.md): "true" when
+Shepherd should apply tenant routes' HTTPRoutes itself -- only with the receiver
+tier on, since the routes point at the receiver Service. Gates the RBAC, the
+pod's token mount and the reconciler's env; empty otherwise.
+*/}}
+{{- define "shepherd.routeApplyEnabled" -}}
+{{- if and ((.Values.receiver).enabled) (ne ((.Values.receiver).applyTenantRoutes) false) -}}
+true
+{{- end -}}
+{{- end }}
+
+{{/*
+The reconciler's env, for the app Deployment only: its namespace from the
+downward API, and the receiver Service this chart renders as the backend.
+*/}}
+{{- define "shepherd.routeApplyEnv" -}}
+{{- if include "shepherd.routeApplyEnabled" . -}}
+- name: SHEPHERD_GATEWAY_ROUTES_APPLY_ENABLED
+  value: "true"
+- name: SHEPHERD_GATEWAY_ROUTES_APPLY_NAMESPACE
+  valueFrom:
+    fieldRef:
+      fieldPath: metadata.namespace
+- name: SHEPHERD_GATEWAY_ROUTES_APPLY_BACKEND_SERVICE
+  value: {{ include "shepherd.receiverFullname" . | quote }}
+- name: SHEPHERD_GATEWAY_ROUTES_APPLY_BACKEND_PORT
+  value: {{ .Values.receiver.listener.port | quote }}
+{{- end -}}
+{{- end }}
+
+{{/*
+The gateway's public URL, for the "connect an app" snippets on the Tenant
+routes page. App Deployment only; with the receiver on and the value set.
+*/}}
+{{- define "shepherd.publicBaseURLEnv" -}}
+{{- if and ((.Values.receiver).enabled) ((.Values.receiver).publicBaseURL) -}}
+{{- if not (hasPrefix "https://" .Values.receiver.publicBaseURL) -}}
+{{- fail "receiver.publicBaseURL must be an https URL: apps send telemetry to it from outside the cluster" -}}
+{{- end -}}
+- name: SHEPHERD_GATEWAY_ROUTES_PUBLIC_BASE_URL
+  value: {{ .Values.receiver.publicBaseURL | quote }}
+{{- end -}}
+{{- end }}

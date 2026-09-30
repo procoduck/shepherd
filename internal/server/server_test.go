@@ -73,6 +73,42 @@ var _ = Describe("API prefix guard", func() {
 		Entry("GET /shepherd.mgmt.v1.Nope/Nope", "/shepherd.mgmt.v1.Nope/Nope"),
 	)
 
+	// v0.11.0 removed the /api REST shim (deprecated in v0.9.0): its routes no
+	// longer exist, so even without a session they are a 404, not the 401 an
+	// existing-but-guarded route gives. Red run: against the tree with the shim
+	// still mounted, every entry answered 401.
+	DescribeTable("removed REST shim routes are gone, not merely guarded",
+		func(method, path string) {
+			req := httptest.NewRequest(method, path, nil)
+			req.Header.Set("X-Requested-With", "XMLHttpRequest")
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, req)
+			Expect(rec.Code).To(Equal(http.StatusNotFound), method+" "+path)
+			Expect(rec.Header().Get("Content-Type")).To(Equal("application/json"), path)
+			Expect(rec.Body.String()).To(ContainSubstring("not_found"), path)
+		},
+		Entry("GET /api/me", http.MethodGet, "/api/me"),
+		Entry("GET /api/admin/orgs", http.MethodGet, "/api/admin/orgs"),
+		Entry("GET /api/orgs/{org}/pipelines", http.MethodGet, "/api/orgs/00000000-0000-0000-0000-000000000001/pipelines"),
+		Entry("POST /api/orgs/{org}/pipelines", http.MethodPost, "/api/orgs/00000000-0000-0000-0000-000000000001/pipelines"),
+		Entry("GET /api/orgs/{org}/collectors/{id}/served-config", http.MethodGet,
+			"/api/orgs/00000000-0000-0000-0000-000000000001/collectors/00000000-0000-0000-0000-000000000002/served-config"),
+	)
+
+	// What /api still serves is outside the Connect contract on purpose
+	// (docs/archive/api-contract-design.md): the schema artifacts. They are
+	// still routed — an unauthenticated request is refused, not 404'd.
+	DescribeTable("out-of-contract /api routes are still routed",
+		func(path string) {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, req)
+			Expect(rec.Code).To(Equal(http.StatusUnauthorized), path)
+		},
+		Entry("GET /api/schema/current", "/api/schema/current"),
+		Entry("GET /api/schema/{version}", "/api/schema/v1.19.2"),
+	)
+
 	It("real routes still respond", func() {
 		req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 		rec := httptest.NewRecorder()

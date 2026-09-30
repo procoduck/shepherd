@@ -23,7 +23,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// Destination mirrors internal/mgmtapi/orgs.go: destinationResponse.
+// Destination is a named remote-write/export target an org's pipelines send to.
 type Destination struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -307,7 +307,7 @@ func (x *GetDestinationRequest) GetId() string {
 	return ""
 }
 
-// CreateDestinationRequest mirrors destinationRequest in orgs.go.
+// CreateDestinationRequest creates a Destination in org_id.
 type CreateDestinationRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	OrgId           string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`

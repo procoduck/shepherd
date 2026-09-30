@@ -1,0 +1,62 @@
+{{- if include "shepherd.routeApplyEnabled" . }}
+{{- /*
+The only Kubernetes API access Shepherd has, and only with the receiver tier
+on: write HTTPRoutes in its own namespace (the tenant routes it applies, next
+to the receiver Service they point at), and read the ONE CustomResourceDefinition
+that says which Gateway API version the cluster runs (D3). Never Gateways,
+never other namespaces. receiver.applyTenantRoutes: false removes all of it.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "shepherd.fullname" . }}-tenant-routes
+  labels:
+    {{- include "shepherd.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes"]
+    verbs: ["get", "list", "create", "update", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "shepherd.fullname" . }}-tenant-routes
+  labels:
+    {{- include "shepherd.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "shepherd.fullname" . }}-tenant-routes
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "shepherd.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  # Cluster-scoped: carries the namespace so two releases do not collide.
+  name: {{ printf "%s-%s-gateway-api-version" .Release.Namespace (include "shepherd.fullname" .) | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "shepherd.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    resourceNames: ["httproutes.gateway.networking.k8s.io"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ printf "%s-%s-gateway-api-version" .Release.Namespace (include "shepherd.fullname" .) | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "shepherd.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ printf "%s-%s-gateway-api-version" .Release.Namespace (include "shepherd.fullname" .) | trunc 63 | trimSuffix "-" }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "shepherd.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

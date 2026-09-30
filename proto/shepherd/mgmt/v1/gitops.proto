@@ -7,9 +7,8 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 
-// GitOpsService covers /api/orgs/{org}/ado-credentials/* (legacy path,
-// kept for wire compatibility — see internal/mgmtapi/repolinks.go) and
-// /api/orgs/{org}/repo-links/*. All methods require org-admin.
+// GitOpsService manages an org's git credentials and repo links. All methods
+// require org-admin.
 //
 // docs/git-provider-design.md §3.4: this is a BREAKING rename of
 // AdoCredential -> GitCredential, acceptable only because nothing consumes
@@ -132,7 +131,7 @@ message TestCredentialResponse {
   bool token_exchange_ok = 4;
 }
 
-// RepoLink mirrors internal/mgmtapi/repolinks.go: repoLinkResponse.
+// RepoLink binds a git repository path to a collector's pipelines.
 message RepoLink {
   string id = 1;
   string repo_url = 2;

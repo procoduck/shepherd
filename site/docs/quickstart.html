@@ -68,6 +68,10 @@
     <li><a href="single-sign-on.html">Single sign-on</a></li>
     <li><a href="users-and-teams.html">Users and teams</a></li>
   </ul>
+  <p class="docs-nav-cat">Ingest</p>
+  <ul>
+    <li><a href="receiver.html">Receiver tier</a></li>
+  </ul>
   <p class="docs-nav-cat">Sandbox</p>
   <ul>
     <li><a href="simulation.html">Sandbox simulation</a></li>
@@ -130,7 +134,7 @@ kubectl -n shepherd create secret generic shepherd-secrets \
       </p>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.14.0 \
+        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.16.0 \
   --namespace shepherd \
   --set existingSecret=shepherd-secrets
 
@@ -240,7 +244,7 @@ kubectl -n shepherd rollout status deploy/shepherd</code></pre>
 <footer>
   <div class="wrap">
     <div class="foot-left">
-      <span class="pill">v0.10.0</span>
+      <span class="pill">v0.12.0</span>
       <span>self-hosted Grafana Alloy fleet manager</span>
     </div>
     <div class="foot-links">

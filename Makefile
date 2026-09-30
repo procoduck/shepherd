@@ -243,11 +243,13 @@ smoke: docker-build-local docker-build-init ## Container smoke test (< 60s, Dock
 		-w '%{http_code}' -o /dev/null) && \
 	if [ "$$SMOKE_COOKIE" != "200" ]; then echo "ERROR: local login returned $$SMOKE_COOKIE"; exit 1; fi && \
 	echo "[local admin login OK]" && \
-	SMOKE_ME=$$(curl -sf http://localhost:18080/api/me \
+	SMOKE_ME=$$(curl -sf -X POST http://localhost:18080/shepherd.mgmt.v1.MeService/GetMe \
+		-H 'Content-Type: application/json' \
 		-H 'X-Requested-With: XMLHttpRequest' \
+		-d '{}' \
 		-b /tmp/shepherd-smoke-cookie.txt) && \
-	echo "$$SMOKE_ME" | grep -q '"auth_method":"local"' || { echo "ERROR: /api/me did not return auth_method:local; got: $$SMOKE_ME"; exit 1; } && \
-	echo "[/api/me auth_method:local OK]" && \
+	echo "$$SMOKE_ME" | grep -Eq '"authMethod": ?"local"' || { echo "ERROR: MeService/GetMe did not return authMethod:local; got: $$SMOKE_ME"; exit 1; } && \
+	echo "[MeService/GetMe authMethod:local OK]" && \
 	echo "==> Sending SIGTERM and asserting clean shutdown..." && \
 	docker stop $$SMOKE_SRV && \
 	EXIT_CODE=$$(docker inspect $$SMOKE_SRV --format='{{.State.ExitCode}}') && \

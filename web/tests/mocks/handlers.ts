@@ -42,6 +42,8 @@ function orgToWire(o: Obj) {
     createdAt: o['created_at'],
     updatedAt: o['updated_at'],
     allowExperimentalComponents: b(o, 'allow_experimental_components'),
+    allowLabelMatching: b(o, 'allow_label_matching'),
+    allowLocalAttributeMatching: b(o, 'allow_local_attribute_matching'),
   };
 }
 
@@ -530,7 +532,8 @@ export function installDefaultHandlers(router: Router) {
       // The real RequirePasswordChange middleware sits in front of every API
       // route, so GetMe is refused too — but with the auth handler's JSON
       // shape, which connect-web cannot decode: the SPA sees a bare
-      // PermissionDenied and asks /api/me (below) for the code.
+      // PermissionDenied, then re-asks this same procedure with a plain fetch
+      // to read the code from the body (src/api/localAuth.ts).
       return r.fulfill({
         status: 403,
         contentType: 'application/json',
@@ -544,32 +547,6 @@ export function installDefaultHandlers(router: Router) {
     }
     if (st.me === null || st.me === undefined) {
       return connectError(r, 401, 'unauthenticated', 'not authenticated');
-    }
-    return json(r, 200, st.me);
-  });
-
-  // REST /api/me sits behind the same password-change middleware and answers
-  // with the auth JSON, so the SPA can recover the code the Connect error
-  // dropped (src/api/localAuth.ts).
-  router.register('GET', '/api/me', (r) => {
-    if (st.passwordChangeRequired) {
-      return r.fulfill({
-        status: 403,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          error: {
-            code: 'password_change_required',
-            message: 'set a new password before continuing',
-          },
-        }),
-      });
-    }
-    if (st.me === null || st.me === undefined) {
-      return r.fulfill({
-        status: 401,
-        contentType: 'application/json',
-        body: JSON.stringify({ error: { code: 'unauthenticated', message: 'not authenticated' } }),
-      });
     }
     return json(r, 200, st.me);
   });
@@ -641,6 +618,10 @@ export function installDefaultHandlers(router: Router) {
     o['admin_group_id'] = req['adminGroupId'];
     o['reader_group_id'] = req['readerGroupId'];
     o['allow_experimental_components'] = req['allowExperimentalComponents'];
+    // Full replace, like the real UpdateOrg (internal/mgmtapi/rpc_admin.go):
+    // an omitted proto3 bool arrives as false.
+    o['allow_label_matching'] = req['allowLabelMatching'] ?? false;
+    o['allow_local_attribute_matching'] = req['allowLocalAttributeMatching'] ?? false;
     return json(r, 200, orgToWire(o));
   });
   router.register('POST', '/shepherd.mgmt.v1.AdminService/DeleteOrg', async (r) => {
@@ -1082,6 +1063,35 @@ export function installDefaultHandlers(router: Router) {
   router.register('POST', '/shepherd.mgmt.v1.FleetService/ListCollectors', (r) =>
     json(r, 200, list((st.collectors as Obj[]).map(collectorToWire))),
   );
+  // RenderChartValues: org-admin; mirrors the server's cross-org refusal
+  // (st.claimedElsewhere lists cluster names another org owns). The YAML
+  // bodies are stand-ins; the real rendering is Go's.
+  router.register('POST', '/shepherd.mgmt.v1.FleetService/RenderChartValues', async (r) => {
+    const req = await body(r);
+    const denied = requireOrgRole(r, String(req['orgId'] ?? ''), 'admin');
+    if (denied) return denied;
+    const cluster = String(req['clusterName'] ?? '');
+    if ((st.claimedElsewhere ?? []).includes(cluster)) {
+      return connectError(
+        r,
+        400,
+        'failed_precondition',
+        `cluster name "${cluster}" belongs to another organisation; choose a different name`,
+      );
+    }
+    const roles = (req['roles'] as string[] | undefined) ?? [];
+    const ns = String(req['namespace'] || 'monitoring');
+    return json(r, 200, {
+      values_yaml: `cluster:\n  name: "${cluster}"\ncollectors:\n${roles.map((ro) => `  alloy-${ro}:\n    remoteConfig:\n      enabled: true\n`).join('')}`,
+      credentials_yaml: 'collectors: {}\n',
+      chart_version: '4.4.0',
+      secret_command: `kubectl -n ${ns} create secret generic shepherd-agent-token`,
+      helm_command: `helm upgrade --install k8s-monitoring k8s-monitoring --namespace ${ns}`,
+      secret_name: 'shepherd-agent-token',
+      cluster_status: cluster === 'known' ? 'unclaimed' : 'new',
+      shepherd_url: 'https://shepherd.example.com',
+    });
+  });
   router.register('POST', '/shepherd.mgmt.v1.FleetService/GetCollector', async (r) => {
     const req = await body(r);
     const c = (st.collectors as Obj[]).find((x) => x['id'] === req['id']);
@@ -1339,6 +1349,7 @@ export function installDefaultHandlers(router: Router) {
       kind: req['kind'],
       segment: `${req['kind']}-${mockId('seg')}`,
       status: 'active',
+      apply_status: 'pending',
       gateway_mode: req['gatewayMode'],
       gateway_name: req['gatewayName'] ?? '',
       gateway_namespace: req['gatewayNamespace'] ?? '',
@@ -1361,11 +1372,48 @@ export function installDefaultHandlers(router: Router) {
       id: mockId('tr'),
       segment: `${old['kind']}-${mockId('seg')}`,
       status: 'active',
+      // A new row: nothing has applied it yet.
+      apply_status: 'pending',
+      apply_message: '',
+      applied_at: undefined,
       valid_until: undefined,
       rotated_from_id: old['id'],
     };
     st.tenantRoutes.push(active);
     return json(r, 200, { active, deprecated: old });
+  });
+  // RenderConnectApp mirrors the server's rules the specs exercise: a gateway
+  // URL (the request's, else st.gatewayPublicBaseUrl) is required and must
+  // be https. The artifact bodies are stand-ins; the real rendering is Go's.
+  router.register('POST', '/shepherd.mgmt.v1.TenantRouteService/RenderConnectApp', async (r) => {
+    const req = await body(r);
+    const route = (st.tenantRoutes as Obj[]).find((x) => x['id'] === req['id']);
+    if (!route) return connectError(r, 404, 'not_found', 'tenant route not found');
+    const gw = String(req['gatewayBaseUrl'] || st.gatewayPublicBaseUrl || '');
+    if (!gw) {
+      return connectError(
+        r,
+        400,
+        'failed_precondition',
+        "no gateway URL: enter your gateway's public https URL, or have an operator set gateway.routes.public_base_url",
+      );
+    }
+    if (!gw.startsWith('https://')) {
+      return connectError(r, 400, 'invalid_argument', `gateway base URL "${gw}" must use https`);
+    }
+    const base = `${gw.replace(/\/$/, '')}/otlp/${route['segment']}`;
+    const env = `OTEL_EXPORTER_OTLP_ENDPOINT=${base}\nOTEL_EXPORTER_OTLP_PROTOCOL=${req['protocol'] || 'http/protobuf'}\nOTEL_SERVICE_NAME=${req['serviceName']}\n`;
+    return json(r, 200, {
+      base_endpoint: base,
+      gateway_base_url: gw,
+      env,
+      lambda: '{"Variables": {}}',
+      terraform: 'environment { variables = {} }',
+      sam: 'Environment:',
+      cdk: 'environment: {}',
+      k8s: `env:\n  - name: OTEL_EXPORTER_OTLP_ENDPOINT\n    value: ${base}\n`,
+      sdk_notes: '# SDK notes',
+    });
   });
   router.register('POST', '/shepherd.mgmt.v1.TenantRouteService/RevokeTenantRoute', async (r) => {
     const tBody = (await r.request().postDataJSON()) as Obj;

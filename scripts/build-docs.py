@@ -80,6 +80,10 @@ NAV = [
         ("users-and-teams", "Users and teams", "Users and teams",
          "Local accounts, org roles and team membership \u2014 with or without an identity provider."),
     ]),
+    ("Ingest", [
+        ("receiver", "Receiver tier", "Receiver tier",
+         "An OTLP/HTTP endpoint behind your gateway that forwards each tenant's data under its own tenant \u2014 off by default while under review."),
+    ]),
     ("Sandbox", [
         ("simulation", "Sandbox simulation", "Sandbox simulation",
          "Run a candidate pipeline against synthetic telemetry in a contained sandbox before it reaches a collector."),

@@ -915,6 +915,259 @@
           }
         }
       }
+    },
+    "receiver": {
+      "description": "Receiver tier (#109): OTLP/HTTP Alloy fronted by the gateway. Off until review gate R3 is signed.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "publicBaseURL": {
+          "description": "The gateway's public https URL, prefilling the connect-an-app snippets. Empty: users enter it.",
+          "type": "string",
+          "pattern": "^(https://.+)?$"
+        },
+        "applyTenantRoutes": {
+          "description": "Shepherd applies tenant routes' HTTPRoutes itself (namespaced Role on httproutes, get on the HTTPRoute CRD).",
+          "type": "boolean"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "pass_through",
+            "static"
+          ]
+        },
+        "listener": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "maxRequestBodySize": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "batch": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "timeout": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sendBatchSize": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "sendBatchMaxSize": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "exporters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "metrics": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "protocol": {
+                  "type": "string",
+                  "enum": [
+                    "http",
+                    "grpc"
+                  ]
+                },
+                "endpoint": {
+                  "type": "string"
+                },
+                "endpointFromSecret": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                "authorizationFromSecret": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            },
+            "logs": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "protocol": {
+                  "type": "string",
+                  "enum": [
+                    "http",
+                    "grpc"
+                  ]
+                },
+                "endpoint": {
+                  "type": "string"
+                },
+                "endpointFromSecret": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                "authorizationFromSecret": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            },
+            "traces": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "protocol": {
+                  "type": "string",
+                  "enum": [
+                    "http",
+                    "grpc"
+                  ]
+                },
+                "endpoint": {
+                  "type": "string"
+                },
+                "endpointFromSecret": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                "authorizationFromSecret": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "networkPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "gatewayFrom": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "egress": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "dns": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "podSelector": {
+                  "$ref": "#/definitions/labelMap"
+                }
+              }
+            }
+          }
+        },
+        "storageSizeLimit": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resources": {
+          "$ref": "#/definitions/resources"
+        },
+        "podAnnotations": {
+          "$ref": "#/definitions/labelMap"
+        },
+        "nodeSelector": {
+          "$ref": "#/definitions/labelMap"
+        },
+        "tolerations": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "affinity": {
+          "type": "object"
+        }
+      }
     }
   },
   "if": {

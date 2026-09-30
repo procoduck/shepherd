@@ -1,5 +1,24 @@
 # Upgrading the Shepherd chart
 
+## 0.15.x → 0.16.0
+
+An ordinary `helm upgrade`, with nothing to do: the new receiver tier is off
+(`receiver.enabled: false`), and with it off the chart renders exactly the
+objects it did before.
+
+**When you turn the receiver on,** Shepherd also applies tenant routes itself
+(`receiver.applyTenantRoutes`, default `true`). The chart then grants Shepherd's
+ServiceAccount a Role on `httproutes` in the release namespace and a ClusterRole
+that can only `get` the `httproutes.gateway.networking.k8s.io` CRD, and the
+Shepherd pod mounts its service-account token. With the receiver off, none of
+this renders.
+
+**If you already created HTTPRoutes for your tenant routes yourself,** Shepherd
+creates its own for the same paths, named `shepherd-tenant-route-<route id>`. It
+never touches HTTPRoutes it did not create, so once each tenant route shows
+`applied` on the Tenant routes page, delete your copies. Or keep managing them
+yourself and set `receiver.applyTenantRoutes: false`.
+
 ## 0.9.x → 0.10.0
 
 An ordinary `helm upgrade`. Every pod rolls once — read on for why — but there

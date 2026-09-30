@@ -47,16 +47,19 @@ func gitOpsScenario5() {
 
 	It("finds the e2e collector that repo links will target", func() {
 		Expect(orgID).NotTo(BeEmpty(), "org must be claimed first (scenario 1)")
-		var collectors struct {
-			Items []struct {
-				ID string `json:"id"`
-			} `json:"items"`
-		}
 		Eventually(func() bool {
-			adminClient.getJSON(fmt.Sprintf("/api/orgs/%s/collectors", orgID), &collectors)
-			return len(collectors.Items) > 0
+			var collectors struct {
+				Items []struct {
+					ID string `json:"id"`
+				} `json:"items"`
+			}
+			adminClient.mustRPC("FleetService", "ListCollectors", map[string]string{"org_id": orgID}, &collectors)
+			if len(collectors.Items) == 0 {
+				return false
+			}
+			collectorID = collectors.Items[0].ID
+			return true
 		}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(BeTrue())
-		collectorID = collectors.Items[0].ID
 	})
 
 	// --- 5a. full lifecycle, pat ---------------------------------------
@@ -116,13 +119,7 @@ func gitOpsScenario5() {
 		// covered end to end — docs/git-provider-design.md §4.
 		Expect(patPipelineID).NotTo(BeEmpty(), "initial sync must have run")
 
-		var before struct {
-			Items []struct {
-				Revision int `json:"revision"`
-			} `json:"items"`
-		}
-		adminClient.getJSON(fmt.Sprintf("/api/orgs/%s/pipelines/%s/revisions", orgID, patPipelineID), &before)
-		beforeCount := len(before.Items)
+		beforeCount := revisionCount(patPipelineID)
 
 		ctx := context.Background()
 		_, err := patPusher.commitAndPush(ctx, map[string]string{
@@ -135,14 +132,8 @@ func gitOpsScenario5() {
 			return content
 		}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(ContainSubstring("e2e_git_pat_v2"))
 
-		var after struct {
-			Items []struct {
-				Revision int `json:"revision"`
-			} `json:"items"`
-		}
 		Eventually(func() int {
-			adminClient.getJSON(fmt.Sprintf("/api/orgs/%s/pipelines/%s/revisions", orgID, patPipelineID), &after)
-			return len(after.Items)
+			return revisionCount(patPipelineID)
 		}).WithTimeout(15*time.Second).WithPolling(time.Second).Should(BeNumerically(">", beforeCount),
 			"a new pipeline_revisions row must be recorded for the second commit")
 
@@ -373,7 +364,7 @@ func findPipelineByName(name string) (gitPipeline, bool) {
 	var list struct {
 		Items []gitPipeline `json:"items"`
 	}
-	adminClient.getJSON(fmt.Sprintf("/api/orgs/%s/pipelines", orgID), &list)
+	adminClient.mustRPC("PipelineService", "ListPipelines", map[string]string{"org_id": orgID}, &list)
 	for _, p := range list.Items {
 		if p.Name == name {
 			return p, true
@@ -387,11 +378,11 @@ func findRepoLinkByCollector(collectorID, repoURL string) string {
 	var list struct {
 		Items []struct {
 			ID          string `json:"id"`
-			CollectorID string `json:"collector_id"`
-			RepoURL     string `json:"repo_url"`
+			CollectorID string `json:"collectorId"`
+			RepoURL     string `json:"repoUrl"`
 		} `json:"items"`
 	}
-	adminClient.getJSON(fmt.Sprintf("/api/orgs/%s/repo-links", orgID), &list)
+	adminClient.mustRPC("GitOpsService", "ListRepoLinks", map[string]string{"org_id": orgID}, &list)
 	for _, l := range list.Items {
 		if l.CollectorID == collectorID && l.RepoURL == repoURL {
 			return l.ID
@@ -405,10 +396,10 @@ func repoLinkSyncStatus(id string) string {
 	var list struct {
 		Items []struct {
 			ID         string `json:"id"`
-			SyncStatus string `json:"sync_status"`
+			SyncStatus string `json:"syncStatus"`
 		} `json:"items"`
 	}
-	adminClient.getJSON(fmt.Sprintf("/api/orgs/%s/repo-links", orgID), &list)
+	adminClient.mustRPC("GitOpsService", "ListRepoLinks", map[string]string{"org_id": orgID}, &list)
 	for _, l := range list.Items {
 		if l.ID == id {
 			return l.SyncStatus
@@ -436,17 +427,32 @@ func servedConfig(collectorID string) (content, hash string) {
 		Content string `json:"content"`
 		Hash    string `json:"hash"`
 	}
-	adminClient.getJSON(fmt.Sprintf("/api/orgs/%s/collectors/%s/served-config", orgID, collectorID), &served)
+	adminClient.mustRPC("FleetService", "GetServedConfig", map[string]string{"org_id": orgID, "id": collectorID}, &served)
 	return served.Content, served.Hash
 }
 
+// revisionCount is how many pipeline_revisions rows the pipeline has.
+func revisionCount(pipelineID string) int {
+	GinkgoHelper()
+	var list struct {
+		Items []struct {
+			Revision int `json:"revision"`
+		} `json:"items"`
+	}
+	adminClient.mustRPC("PipelineService", "ListRevisions", map[string]string{"org_id": orgID, "id": pipelineID}, &list)
+	return len(list.Items)
+}
+
+// createGitCredential and createRepoLink take the request message's proto
+// field names; org_id is filled in here. Connect answers a create with 200.
 func createGitCredential(body map[string]any) string {
 	GinkgoHelper()
 	var resp struct {
 		ID string `json:"id"`
 	}
-	status := adminClient.postJSON(fmt.Sprintf("/api/orgs/%s/git-credentials", orgID), body, &resp)
-	Expect(status).To(Equal(http.StatusCreated), "creating git credential kind=%v", body["kind"])
+	body["org_id"] = orgID
+	status := adminClient.rpc("GitOpsService", "CreateCredential", body, &resp)
+	Expect(status).To(Equal(http.StatusOK), "creating git credential kind=%v", body["kind"])
 	Expect(resp.ID).NotTo(BeEmpty())
 	return resp.ID
 }
@@ -456,8 +462,9 @@ func createRepoLink(body map[string]any) string {
 	var resp struct {
 		ID string `json:"id"`
 	}
-	status := adminClient.postJSON(fmt.Sprintf("/api/orgs/%s/repo-links", orgID), body, &resp)
-	Expect(status).To(Equal(http.StatusCreated), "creating repo link for %v", body["repo_url"])
+	body["org_id"] = orgID
+	status := adminClient.rpc("GitOpsService", "CreateRepoLink", body, &resp)
+	Expect(status).To(Equal(http.StatusOK), "creating repo link for %v", body["repo_url"])
 	Expect(resp.ID).NotTo(BeEmpty())
 	return resp.ID
 }

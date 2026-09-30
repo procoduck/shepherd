@@ -8,7 +8,7 @@ import "shepherd/mgmt/v1/visual.proto";
 
 option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 
-// SimulateService covers /api/orgs/{org}/simulate/*: deterministic S2
+// SimulateService runs simulations: deterministic S2
 // stage-trace evaluation, and S3 sandboxed runs (VB-1 §6.4). All methods
 // require org-editor (D6): simulation authors what the org runs, the same
 // ceiling WizardService and VisualService's authoring surfaces hold.

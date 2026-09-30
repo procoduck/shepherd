@@ -1,0 +1,14 @@
+{{- if ((.Values.receiver).enabled) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "shepherd.receiverFullname" . }}
+  labels:
+    {{- include "shepherd.receiverLabels" . | nindent 4 }}
+data:
+  # Read by the render init container (`shepherd receiver render`), which
+  # validates it and writes the Alloy config the receiver runs. Carries no
+  # secret values -- only the names of the env vars that hold them.
+  receiver.yaml: |
+    {{- include "shepherd.receiverConfig" . | nindent 4 }}
+{{- end }}

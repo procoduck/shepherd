@@ -7,7 +7,7 @@
  * revision counts and contents each scenario asserts on are exactly what
  * the previous scenario's actions produced:
  *
- *   1. REST round trip  — create (rev 1, contents A), PUT (rev 2, contents
+ *   1. RPC round trip   — create (rev 1, contents A), PUT (rev 2, contents
  *      B), GetRevision(1), RestoreRevision(1) (-> rev 3, contents A again),
  *      ListRevisions, GetPipeline, and the audit trail.
  *   2. UI restore        — the pipeline now holds revisions [3, 2, 1]
@@ -35,11 +35,7 @@
  * integration gate) before this suite can go green, and the ledger must
  * not claim fullstack coverage for F-REVISIONS until it has.
  */
-import { DEV_VIEWER, expect, loginAs, loginAsAdmin, test } from './fixtures';
-
-interface Me {
-  orgs: Array<{ id: string; name: string }>;
-}
+import { DEV_VIEWER, expect, getMe, loginAs, loginAsAdmin, rpc, test } from './fixtures';
 
 const MARKER_A = 'marker-revisions-a';
 const MARKER_B = 'marker-revisions-b';
@@ -52,31 +48,33 @@ test.describe
     const contentsA = `prometheus.exporter.self "${pipeName}" { }\n// ${MARKER_A}`;
     const contentsB = `prometheus.exporter.self "${pipeName}" { }\n// ${MARKER_B}`;
 
-    test('REST round trip', async ({ page }) => {
+    test('RPC round trip', async ({ page }) => {
       await loginAsAdmin(page);
 
-      const meResp = await page.request.get('/api/me', {
-        headers: { 'X-Requested-With': 'XMLHttpRequest' },
-      });
-      const me = (await meResp.json()) as Me;
+      const me = await getMe(page);
       const org = me.orgs.find((o) => o.name === 'platform-org');
       if (!org) throw new Error('dev seed must provide at least one org');
       orgId = org.id;
 
       // Create — revision 1, contents A.
-      const createResp = await page.request.post(`/api/orgs/${orgId}/pipelines`, {
-        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-        data: { name: pipeName, contents: contentsA, matchers: [] },
+      const createResp = await rpc(page, 'PipelineService', 'CreatePipeline', {
+        orgId,
+        name: pipeName,
+        contents: contentsA,
+        matchers: [],
       });
-      expect(createResp.status()).toBe(201);
+      expect(createResp.status()).toBe(200);
       const created = (await createResp.json()) as { id: string; contents: string };
       pipelineId = created.id;
       expect(created.contents).toBe(contentsA);
 
       // Update — revision 2, contents B.
-      const updateResp = await page.request.put(`/api/orgs/${orgId}/pipelines/${pipelineId}`, {
-        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-        data: { name: pipeName, contents: contentsB, matchers: [] },
+      const updateResp = await rpc(page, 'PipelineService', 'UpdatePipeline', {
+        orgId,
+        id: pipelineId,
+        name: pipeName,
+        contents: contentsB,
+        matchers: [],
       });
       expect(updateResp.status()).toBe(200);
       const updated = (await updateResp.json()) as { contents: string };
@@ -84,10 +82,11 @@ test.describe
 
       // GetRevision(1) — the old row's own contents, never mutated by the
       // update above.
-      const rev1Resp = await page.request.get(
-        `/api/orgs/${orgId}/pipelines/${pipelineId}/revisions/1`,
-        { headers: { 'X-Requested-With': 'XMLHttpRequest' } },
-      );
+      const rev1Resp = await rpc(page, 'PipelineService', 'GetRevision', {
+        orgId,
+        id: pipelineId,
+        revision: 1,
+      });
       expect(rev1Resp.status()).toBe(200);
       const rev1 = (await rev1Resp.json()) as { revision: number; contents: string };
       expect(rev1.revision).toBe(1);
@@ -95,10 +94,11 @@ test.describe
 
       // RestoreRevision(1) — writes a NEW revision (3) from revision 1's
       // contents; the response is the updated Pipeline.
-      const restoreResp = await page.request.post(
-        `/api/orgs/${orgId}/pipelines/${pipelineId}/revisions/1/restore`,
-        { headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } },
-      );
+      const restoreResp = await rpc(page, 'PipelineService', 'RestoreRevision', {
+        orgId,
+        id: pipelineId,
+        revision: 1,
+      });
       expect(restoreResp.status()).toBe(200);
       const restored = (await restoreResp.json()) as { contents: string };
       expect(restored.contents).toBe(contentsA);
@@ -108,35 +108,39 @@ test.describe
       // red-run assertion described at the top of the file: change the
       // expected string below to 'Restored from revision 2' to see it fail
       // on the server's real note.
-      const revsResp = await page.request.get(
-        `/api/orgs/${orgId}/pipelines/${pipelineId}/revisions`,
-        { headers: { 'X-Requested-With': 'XMLHttpRequest' } },
-      );
+      const revsResp = await rpc(page, 'PipelineService', 'ListRevisions', {
+        orgId,
+        id: pipelineId,
+      });
       expect(revsResp.status()).toBe(200);
       const revs = (await revsResp.json()) as {
-        items: Array<{ revision: number; change_note: string }>;
+        items: Array<{ revision: number; changeNote: string }>;
       };
       expect(revs.items.length).toBe(3);
-      expect(revs.items[0].change_note).toBe('Restored from revision 1');
+      expect(revs.items[0].changeNote).toBe('Restored from revision 1');
 
       // GetPipeline reflects the restore.
-      const getResp = await page.request.get(`/api/orgs/${orgId}/pipelines/${pipelineId}`, {
-        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      const getResp = await rpc(page, 'PipelineService', 'GetPipeline', {
+        orgId,
+        id: pipelineId,
       });
       expect(getResp.status()).toBe(200);
       const got = (await getResp.json()) as { contents: string };
       expect(got.contents).toBe(contentsA);
 
       // The restore wrote a pipeline.restore audit row for this pipeline.
-      const auditResp = await page.request.get(`/api/orgs/${orgId}/audit?action=pipeline.restore`, {
-        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      const auditResp = await rpc(page, 'AuditService', 'ListAudit', {
+        orgId,
+        action: 'pipeline.restore',
       });
       expect(auditResp.status()).toBe(200);
       const audit = (await auditResp.json()) as {
-        items: Array<{ action: string; resource_id: string }>;
+        items?: Array<{ action: string; resourceId: string }>;
       };
       expect(
-        audit.items.some((i) => i.action === 'pipeline.restore' && i.resource_id === pipelineId),
+        (audit.items ?? []).some(
+          (i) => i.action === 'pipeline.restore' && i.resourceId === pipelineId,
+        ),
       ).toBe(true);
     });
 
@@ -202,10 +206,11 @@ test.describe
 
       // page.request shares the browser context's cookies — this really is
       // the viewer's own session, not an admin bypass.
-      const resp = await page.request.post(
-        `/api/orgs/${orgId}/pipelines/${pipelineId}/revisions/1/restore`,
-        { headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } },
-      );
+      const resp = await rpc(page, 'PipelineService', 'RestoreRevision', {
+        orgId,
+        id: pipelineId,
+        revision: 1,
+      });
       expect(resp.status()).toBe(403);
     });
 
@@ -213,9 +218,7 @@ test.describe
       if (!pipelineId || !orgId) return;
       const page = await browser.newPage();
       await loginAsAdmin(page);
-      await page.request.delete(`/api/orgs/${orgId}/pipelines/${pipelineId}`, {
-        headers: { 'X-Requested-With': 'XMLHttpRequest' },
-      });
+      await rpc(page, 'PipelineService', 'DeletePipeline', { orgId, id: pipelineId });
       await page.close();
     });
   });

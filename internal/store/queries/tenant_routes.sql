@@ -27,3 +27,26 @@ RETURNING *;
 
 -- name: TenantRouteSegmentExists :one
 SELECT EXISTS(SELECT 1 FROM tenant_routes WHERE kind = $1 AND segment = $2) AS exists;
+
+-- name: ListTenantRoutesForReconcile :many
+-- Every route, in every status: the reconciler decides per row whether its
+-- HTTPRoute should exist, so revoked rows are needed too (to delete theirs).
+SELECT * FROM tenant_routes ORDER BY created_at;
+
+-- name: SetTenantRouteApplyStatus :one
+-- Records one reconcile outcome. applied_at moves only on a verified apply,
+-- so it keeps meaning "last time attachment was confirmed".
+UPDATE tenant_routes
+SET apply_status  = sqlc.arg(apply_status),
+    apply_message = sqlc.arg(apply_message),
+    applied_at    = CASE WHEN sqlc.arg(apply_status) = 'applied' THEN now() ELSE applied_at END
+WHERE id = sqlc.arg(id)
+RETURNING *;
+
+-- name: RevokeExpiredTenantRoutes :many
+-- The rotation overlap has ended: a deprecated route past valid_until is
+-- revoked (the janitor sweep the gateway plan listed as unbuilt).
+UPDATE tenant_routes
+SET status = 'revoked', revoked_at = now(), updated_at = now()
+WHERE status = 'deprecated' AND valid_until IS NOT NULL AND valid_until < now()
+RETURNING *;

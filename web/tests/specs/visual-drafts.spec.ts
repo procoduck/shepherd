@@ -33,7 +33,14 @@ async function waitForDraftSaved(page: Page, pipelineId: string): Promise<void> 
                   return;
                 }
                 const getReq = db.transaction('keyval', 'readonly').objectStore('keyval').get(key);
-                getReq.onsuccess = () => resolve(getReq.result !== undefined);
+                // A draft WITH the node the test added — not just any entry:
+                // autosave may first persist the empty doc (the served
+                // schema version stamped onto a fresh doc is a doc change),
+                // and reloading on that would leave nothing to restore.
+                getReq.onsuccess = () =>
+                  resolve(
+                    ((getReq.result as { nodes?: unknown[] } | undefined)?.nodes?.length ?? 0) > 0,
+                  );
                 getReq.onerror = () => resolve(false);
               };
             }),
@@ -99,6 +106,35 @@ test.describe('visual builder drafts', () => {
     await page.reload();
     await page.waitForSelector('[data-testid="visual-builder"]', { timeout: 10_000 });
     await expect(page.getByTestId('draft-restore-banner')).not.toBeVisible();
+  });
+
+  // Opening the builder must not overwrite a pending draft. setSchema stamps the
+  // served schema version onto the fresh doc on mount — a doc change — and the
+  // autosave used to write that empty doc over the saved draft 500ms later. The
+  // banner still showed (it had read the draft first, when it won that race),
+  // but the draft on disk was already gone: leave without choosing, come back,
+  // and the work was lost. This reload-twice sequence is deterministic.
+  test('a pending draft survives leaving without choosing restore or discard', async ({ page }) => {
+    await page.click('[data-testid="palette-item-prometheus.remote_write"]');
+    await expect(page.locator('.react-flow__node')).toHaveCount(1);
+    await waitForDraftSaved(page, 'new');
+
+    page.on('dialog', (d) => {
+      void d.accept();
+    });
+    // Fake timers from here, so the (old) debounced autosave can be fired
+    // deterministically instead of slept for.
+    await page.clock.install();
+    await page.reload();
+    await page.waitForSelector('[data-testid="visual-builder"]', { timeout: 10_000 });
+    await expect(page.getByTestId('draft-restore-banner')).toBeVisible();
+    await page.clock.runFor(2000); // well past the 500ms autosave debounce
+
+    await page.reload();
+    await page.waitForSelector('[data-testid="visual-builder"]', { timeout: 10_000 });
+    await expect(page.getByTestId('draft-restore-banner')).toBeVisible();
+    await page.getByTestId('draft-restore').click();
+    await expect(page.locator('.react-flow__node')).toHaveCount(1);
   });
 
   test('no banner appears for a route with no draft', async ({ page }) => {

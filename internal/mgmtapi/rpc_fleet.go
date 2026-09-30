@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -17,6 +20,7 @@ import (
 
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
+	"shepherd/internal/chartvalues"
 	"shepherd/internal/merge"
 	"shepherd/internal/metrics"
 	"shepherd/internal/schema"
@@ -24,10 +28,8 @@ import (
 	"shepherd/internal/store/sqlc"
 )
 
-// FleetService implements mgmtv1connect.FleetServiceHandler. Business logic
-// migrated here from OrgsHandler's collector/assignment/attribute methods
-// (orgs.go), which are now thin REST shims delegating to these methods
-// in-process. See docs/archive/api-contract-design.md, "Server wiring".
+// FleetService implements mgmtv1connect.FleetServiceHandler. See
+// docs/archive/api-contract-design.md, "Server wiring".
 type FleetService struct {
 	store  *store.Store
 	logger *slog.Logger
@@ -37,19 +39,27 @@ type FleetService struct {
 	// (unclassified → worst-case), so a nil here only ever affects
 	// reconciliation, never the collector reads the shim uses.
 	schema *schema.Registry
+	// baseURL is server.base_url, the address RenderChartValues points
+	// collectors at.
+	baseURL string
 }
 
 // FleetServiceOption configures optional FleetService behavior.
 type FleetServiceOption func(*FleetService)
 
 // WithFleetSchema supplies the schema registry GetReconciliation needs to derive
-// a served pipeline's signals. Only the Connect handler wiring passes it; the
-// REST shim (orgs.go) leaves it nil.
+// a served pipeline's signals. The Connect handler wiring always passes it;
+// tests that build a FleetService directly may leave it nil.
 func WithFleetSchema(reg *schema.Registry) FleetServiceOption {
 	return func(s *FleetService) { s.schema = reg }
 }
 
-// NewFleetService constructs a FleetService with the deps OrgsHandler uses today.
+// WithFleetBaseURL sets the Shepherd URL RenderChartValues renders.
+func WithFleetBaseURL(u string) FleetServiceOption {
+	return func(s *FleetService) { s.baseURL = u }
+}
+
+// NewFleetService constructs a FleetService.
 func NewFleetService(st *store.Store, logger *slog.Logger, opts ...FleetServiceOption) *FleetService {
 	s := &FleetService{store: st, logger: logger}
 	for _, opt := range opts {
@@ -142,34 +152,18 @@ func (s *FleetService) ListCollectors(ctx context.Context, req *connect.Request[
 
 // GetCollector returns one collector, including its live instances.
 func (s *FleetService) GetCollector(ctx context.Context, req *connect.Request[mgmtv1.GetCollectorRequest]) (*connect.Response[mgmtv1.Collector], error) {
-	resp, _, err := s.getCollector(ctx, req.Msg.GetOrgId(), req.Msg.GetId())
+	resp, err := s.getCollector(ctx, req.Msg.GetOrgId(), req.Msg.GetId())
 	if err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(resp), nil
 }
 
-// collectorLocalAttrsRaw is the collector/instance jsonb local_attributes
-// columns' raw bytes, exactly as stored, alongside the *mgmtv1.Collector
-// getCollector builds from them. The Connect wire response only ever
-// carries LocalAttributes as a structpb.Struct (per the design's
-// Struct-modeling rule for genuinely dynamic payloads); decoding stored
-// JSON into a Struct and re-marshaling it through protojson is not
-// byte-preserving — map iteration order isn't the original key order, and
-// every number becomes a Struct Value's float64 — so the REST shim (which
-// must stay byte-compatible with the legacy handler's direct
-// json.RawMessage passthrough) substitutes these raw bytes back in after
-// marshaling. See orgs.go's GetCollector.
-type collectorLocalAttrsRaw struct {
-	collector json.RawMessage   // nil when the collector has no reporting instances
-	instances []json.RawMessage // parallel to Collector.Instances; element nil if that instance's attrs failed to decode
-}
-
 // loadOwnedCollector resolves a collector id and enforces that it belongs to
 // orgIDStr, mirroring loadOwnedDestination/loadPipeline.
 //
-// Neither the Connect interceptor nor the REST middleware can do this for us:
-// both authorize against the org NAMED IN THE REQUEST, which proves the caller
+// The Connect interceptor cannot do this for us: it authorizes against the
+// org NAMED IN THE REQUEST, which proves the caller
 // has a role in that org and nothing about the id they passed alongside it. A
 // by-id handler without this check is a cross-tenant read (or write) for any
 // authenticated member of any org, because a UUID is not an authorization
@@ -193,18 +187,20 @@ func (s *FleetService) loadOwnedCollector(ctx context.Context, orgIDStr, idStr s
 	return id, nil
 }
 
-// getCollector is GetCollector's implementation, additionally returning the
-// untouched local_attributes bytes the REST shim needs for byte-compatible
-// rendering (collectorLocalAttrsRaw) — kept out of the exported Connect
-// method so the wire contract (a bare *mgmtv1.Collector) is unaffected.
-func (s *FleetService) getCollector(ctx context.Context, orgIDStr, idStr string) (*mgmtv1.Collector, collectorLocalAttrsRaw, error) {
+// getCollector is GetCollector's implementation. local_attributes travel as
+// a structpb.Struct (the design's Struct-modeling rule for genuinely dynamic
+// payloads), so numbers come back as float64: an integer beyond 2^53 or a
+// decimal's trailing zeros are not preserved. The /api REST shim used to
+// splice the stored bytes back in for byte-compatibility; it was removed in
+// v0.11.0.
+func (s *FleetService) getCollector(ctx context.Context, orgIDStr, idStr string) (*mgmtv1.Collector, error) {
 	id, err := s.loadOwnedCollector(ctx, orgIDStr, idStr)
 	if err != nil {
-		return nil, collectorLocalAttrsRaw{}, err
+		return nil, err
 	}
 	c, err := s.store.Queries.GetCollectorByID(ctx, id)
 	if err != nil {
-		return nil, collectorLocalAttrsRaw{}, connect.NewError(connect.CodeNotFound, errors.New("collector not found"))
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("collector not found"))
 	}
 	cluster, _ := s.store.Queries.GetClusterByID(ctx, c.ClusterID) //nolint:errcheck // empty name is safe
 
@@ -214,14 +210,11 @@ func (s *FleetService) getCollector(ctx context.Context, orgIDStr, idStr string)
 		rows = nil
 	}
 	instances := make([]*mgmtv1.CollectorInstance, len(rows))
-	rawAttrs := make([]json.RawMessage, len(rows))
 	for i := range rows {
 		row := &rows[i]
 		attrs, attrErr := structFromJSON(row.LocalAttributes)
 		if attrErr != nil {
 			s.logger.Warn("get collector: decoding instance local_attributes", "err", attrErr)
-		} else if len(row.LocalAttributes) > 0 {
-			rawAttrs[i] = row.LocalAttributes
 		}
 		instances[i] = &mgmtv1.CollectorInstance{
 			Name:               row.Name,
@@ -240,10 +233,9 @@ func (s *FleetService) getCollector(ctx context.Context, orgIDStr, idStr string)
 		Role:      c.Role,
 		Instances: instances,
 	}
-	raw := collectorLocalAttrsRaw{instances: rawAttrs}
 	resp.Labels, err = decodeCollectorLabels(c.Labels)
 	if err != nil {
-		return nil, collectorLocalAttrsRaw{}, err
+		return nil, err
 	}
 	if len(instances) > 0 {
 		latest := instances[0]
@@ -252,9 +244,8 @@ func (s *FleetService) getCollector(ctx context.Context, orgIDStr, idStr string)
 		resp.LastSeen = latest.LastSeen
 		resp.AlloyVersion = latest.AlloyVersion
 		resp.LocalAttributes = latest.LocalAttributes
-		raw.collector = rawAttrs[0]
 	}
-	return resp, raw, nil
+	return resp, nil
 }
 
 func decodeCollectorLabels(raw []byte) (map[string]string, error) {
@@ -446,7 +437,7 @@ func (s *FleetService) emitMatchDrift(ctx context.Context, orgID, collectorID, c
 
 // GetServedConfig returns the config currently served to a collector. A
 // missing serve-cache row (never served yet) is not an error: it renders as
-// an all-empty response, matching OrgsHandler.ServedConfig's existing
+// an all-empty response, matching the pre-Connect REST handler's
 // behavior of never surfacing the cache-miss as a 404.
 func (s *FleetService) GetServedConfig(ctx context.Context, req *connect.Request[mgmtv1.GetServedConfigRequest]) (*connect.Response[mgmtv1.GetServedConfigResponse], error) {
 	id, err := s.loadOwnedCollector(ctx, req.Msg.GetOrgId(), req.Msg.GetId())
@@ -527,27 +518,54 @@ func (s *FleetService) DeleteAssignment(ctx context.Context, req *connect.Reques
 	return connect.NewResponse(&mgmtv1.DeleteAssignmentResponse{}), nil
 }
 
-// ListAttributes lists local attributes observed across an org's
-// collectors, keyed by attribute name. A malformed/empty org_id resolves to
-// SQL NULL (matching legacy orgIDFromParam, which never rejected it) and the
-// query simply returns no rows for it.
+// ListAttributes returns the matcher keys pipeline matching evaluates for an
+// org, each with its distinct values: the suggestions behind the pipeline
+// editor's matcher input and the MCP list_fleet_attributes tool. That is
+// exactly what merge.BuildCollectorLabels sees (#139): cluster and role
+// always; admin labels only when the org has allow_label_matching; agent
+// local_attributes (latest instance per collector, keys lowercased) only
+// with allow_local_attribute_matching; reserved keys never. A key matching
+// would ignore is not suggested, because a matcher written against it can
+// never hit. A malformed/empty org_id resolves to no collectors.
 func (s *FleetService) ListAttributes(ctx context.Context, req *connect.Request[mgmtv1.ListAttributesRequest]) (*connect.Response[mgmtv1.ListAttributesResponse], error) {
-	orgID, _ := parseUUID(req.Msg.GetOrgId()) // invalid/empty org id resolves to NULL, matching legacy orgIDFromParam
-	keys, err := s.store.Queries.ListDistinctAttributeKeys(ctx, orgID)
+	orgID, _ := parseUUID(req.Msg.GetOrgId()) // invalid/empty org id resolves to NULL: no rows
+	collectors, err := s.store.Queries.ListCollectorsWithClusterByOrg(ctx, orgID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to list attributes"))
 	}
-	result := map[string]any{"cluster": []any{}, "role": []any{}}
-	for _, k := range keys {
-		vals, _ := s.store.Queries.ListDistinctAttributeValues(ctx, sqlc.ListDistinctAttributeValuesParams{ //nolint:errcheck // empty is safe fallback
-			OrgID:   orgID,
-			Column2: k,
-		})
-		valAny := make([]any, len(vals))
-		for i, v := range vals {
-			valAny[i] = v
+	org, _ := s.store.Queries.GetOrgByID(ctx, orgID) //nolint:errcheck // a missing org degrades to cluster/role only, as on the serve paths
+
+	values := map[string]map[string]struct{}{"cluster": {}, "role": {}}
+	add := func(k, v string) {
+		if values[k] == nil {
+			values[k] = map[string]struct{}{}
 		}
-		result[k] = valAny
+		values[k][v] = struct{}{}
+	}
+	localAttrs := localAttrsByOrg(ctx, s.store.Queries, orgID, org.AllowLocalAttributeMatching)
+	for i := range collectors {
+		c := collectors[i]
+		// BuildCollectorLabels applies the reserved-key filter and the
+		// lowercasing, so suggestions cannot drift from matching.
+		cl := merge.BuildCollectorLabels(c.ID.String(), c.ClusterName, c.Role,
+			adminLabelsIfAllowed(org.AllowLabelMatching, c.Labels), localAttrs[c.ID.String()])
+		for k, v := range cl.Labels {
+			add(k, v)
+		}
+	}
+
+	result := make(map[string]any, len(values))
+	for k, set := range values {
+		vals := make([]string, 0, len(set))
+		for v := range set {
+			vals = append(vals, v)
+		}
+		slices.Sort(vals)
+		list := make([]any, len(vals))
+		for i, v := range vals {
+			list[i] = v
+		}
+		result[k] = list
 	}
 	attrs, err := structpb.NewStruct(result)
 	if err != nil {
@@ -555,3 +573,79 @@ func (s *FleetService) ListAttributes(ctx context.Context, req *connect.Request[
 	}
 	return connect.NewResponse(&mgmtv1.ListAttributesResponse{Attributes: attrs}), nil
 }
+
+// chartValuesSecretName is the Secret RenderChartValues' credentials layer
+// reads the agent token from.
+const chartValuesSecretName = "shepherd-agent-token"
+
+// RenderChartValues renders internal/chartvalues' two values files for a
+// cluster joining the org's fleet, plus the commands that apply them. The
+// Shepherd URL is server.base_url and the tenant attribute the org's tenant
+// identity, so neither can be pointed elsewhere by the caller. A cluster name
+// another org has claimed is refused: its collectors would register into
+// that org's fleet, not this one's.
+func (s *FleetService) RenderChartValues(ctx context.Context, req *connect.Request[mgmtv1.RenderChartValuesRequest]) (*connect.Response[mgmtv1.RenderChartValuesResponse], error) {
+	orgID, err := scanUUID(req.Msg.GetOrgId())
+	if err != nil {
+		return nil, err
+	}
+	org, err := s.store.Queries.GetOrgByID(ctx, orgID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("org not found"))
+	}
+	clusterName := strings.TrimSpace(req.Msg.GetClusterName())
+
+	status := "new"
+	switch c, err := s.store.Queries.GetClusterByName(ctx, clusterName); {
+	case errors.Is(err, pgx.ErrNoRows):
+	case err != nil:
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to look up cluster"))
+	case !c.OrgID.Valid:
+		status = "unclaimed"
+	case c.OrgID == orgID:
+		status = "claimed"
+	default:
+		return nil, connect.NewError(connect.CodeFailedPrecondition,
+			fmt.Errorf("cluster name %q belongs to another organisation; choose a different name", clusterName))
+	}
+
+	spec := chartvalues.Spec{
+		ClusterName:   clusterName,
+		ShepherdURL:   s.baseURL,
+		Tenant:        org.TenantID.String,
+		Roles:         req.Msg.GetRoles(),
+		PollFrequency: strings.TrimSpace(req.Msg.GetPollFrequency()),
+	}
+	values, err := chartvalues.Render(spec)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	creds, err := chartvalues.RenderCredentialsLayer(spec.Roles, chartValuesSecretName)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	ns := strings.TrimSpace(req.Msg.GetNamespace())
+	if ns == "" {
+		ns = "monitoring"
+	}
+	if !k8sNameRE.MatchString(ns) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("namespace %q is not a valid Kubernetes name", ns))
+	}
+	helmCmd := fmt.Sprintf("helm upgrade --install k8s-monitoring k8s-monitoring \\\n"+
+		"  --repo https://grafana.github.io/helm-charts --version %s \\\n"+
+		"  --namespace %s --create-namespace \\\n"+
+		"  -f your-values.yaml -f shepherd-layer.yaml -f shepherd-credentials.yaml", chartvalues.PinnedChartVersion, ns)
+	return connect.NewResponse(&mgmtv1.RenderChartValuesResponse{
+		ValuesYaml:      string(values),
+		CredentialsYaml: string(creds),
+		ChartVersion:    chartvalues.PinnedChartVersion,
+		SecretCommand:   chartvalues.CredentialsSecretCommand(ns, chartValuesSecretName),
+		HelmCommand:     helmCmd,
+		SecretName:      chartValuesSecretName,
+		ClusterStatus:   status,
+		ShepherdUrl:     s.baseURL,
+	}), nil
+}
+
+// k8sNameRE is an RFC 1123 label: a namespace name.
+var k8sNameRE = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)

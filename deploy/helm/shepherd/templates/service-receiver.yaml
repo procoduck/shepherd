@@ -1,0 +1,19 @@
+{{- if ((.Values.receiver).enabled) }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "shepherd.receiverFullname" . }}
+  labels:
+    {{- include "shepherd.receiverLabels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "shepherd.receiverSelectorLabels" . | nindent 4 }}
+  # OTLP/HTTP only. Pass-through tenancy refuses gRPC: the tenant header is
+  # set by an HTTPRoute, and an HTTPRoute cannot front gRPC.
+  ports:
+    - name: otlp-http
+      port: {{ .Values.receiver.listener.port }}
+      targetPort: otlp-http
+      protocol: TCP
+{{- end }}

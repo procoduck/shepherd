@@ -21,6 +21,7 @@ faro.receiver "public_faro" {
 }
 
 otelcol.processor.batch "faro_public_faro_traces" {
+  send_batch_max_size = 0
   output {
     traces  = [otelcol.exporter.otlphttp.public_faro_tempo.input]
   }

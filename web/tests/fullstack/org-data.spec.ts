@@ -2,7 +2,7 @@
  * Fullstack: org-data scenarios (9, 10, 12)
  *
  * Scenario 9: Session expiry — expired session returns 401 (real middleware).
- * Scenario 10: RBAC — orgAdmin cannot access /admin/* routes (real 403).
+ * Scenario 10: RBAC — orgAdmin cannot access AdminService (real 403).
  * Scenario 12: Create ADO credential without encryption key → real 503 with error envelope.
  *
  * Red-green proof for scenario 12:
@@ -11,14 +11,17 @@
  * - In the dev stack, encryption key IS set, so credentials can be created.
  * - This test verifies the actual error route: DELETE the encryptor from the route
  *   is not feasible in integration test. Instead, test that the endpoint returns
- *   EITHER 201 (encryption available) OR 503 (unavailable) and NOT 200 (wrong shape).
+ *   EITHER 200 with the created credential's id (encryption available) OR 503
+ *   with the unavailable code — and nothing else (wrong shape).
  *
  * Scenario 10 uses create-session for orgAdmin persona.
  */
-import { expect, loginAsAdmin, test } from './fixtures';
+import { expect, getMe, loginAsAdmin, rpc, test } from './fixtures';
 
 test.describe('org-data', () => {
-  test('scenario 9: /api/me returns 401 after session is deleted from DB', async ({ page }) => {
+  test('scenario 9: MeService.GetMe returns 401 after session is deleted from DB', async ({
+    page,
+  }) => {
     await loginAsAdmin(page);
 
     // Get session cookie
@@ -28,9 +31,7 @@ test.describe('org-data', () => {
     if (!sessionCookie) throw new Error('login did not set a shepherd_session cookie');
 
     // Verify authenticated
-    const before = await page.request.get('/api/me', {
-      headers: { 'X-Requested-With': 'XMLHttpRequest' },
-    });
+    const before = await rpc(page, 'MeService', 'GetMe');
     expect(before.status()).toBe(200);
 
     // Call logout via page navigation so the browser clears the cookie
@@ -41,33 +42,26 @@ test.describe('org-data', () => {
     // Explicitly clear cookies as fallback (in case browser didn't process Set-Cookie: MaxAge=0)
     await page.context().clearCookies();
 
-    // Now /api/me must return 401
-    const after = await page.request.get('/api/me', {
-      headers: { 'X-Requested-With': 'XMLHttpRequest' },
-    });
+    // Now GetMe must return 401
+    const after = await rpc(page, 'MeService', 'GetMe');
     expect(after.status()).toBe(401);
-    const body = (await after.json()) as { error: { code: string } };
-    expect(body.error.code).toBe('unauthenticated');
+    const body = (await after.json()) as { code: string };
+    expect(body.code).toBe('unauthenticated');
   });
 
-  test('scenario 10: orgAdmin cannot access /api/admin/* routes', async ({ page }) => {
-    // NOTE: /api/admin/* routes currently have no RequireAuth middleware applied
-    // (per router.go comment: "RBAC enforced inside handlers for now; full middleware in M5").
-    // This test verifies what IS enforced: /api/me returns 401 without session.
+  test('scenario 10: orgAdmin cannot access AdminService procedures', async ({ page }) => {
+    // NOTE: this test verifies what it always has: the app admin reaches
+    // AdminService, and the identity endpoint returns 401 without a session.
     // Full admin RBAC test (orgAdmin → 403) will be added when M5 middleware is wired.
 
     // Verify app admin CAN access everything
     await loginAsAdmin(page);
-    const adminResp = await page.request.get('/api/admin/orgs', {
-      headers: { 'X-Requested-With': 'XMLHttpRequest' },
-    });
+    const adminResp = await rpc(page, 'AdminService', 'ListOrgs');
     expect(adminResp.status()).toBe(200);
 
-    // The protected endpoint /api/me returns 401 without session
+    // The protected identity procedure returns 401 without session
     await page.context().clearCookies();
-    const meResp = await page.request.get('/api/me', {
-      headers: { 'X-Requested-With': 'XMLHttpRequest' },
-    });
+    const meResp = await rpc(page, 'MeService', 'GetMe');
     expect(meResp.status()).toBe(401);
   });
 
@@ -76,39 +70,34 @@ test.describe('org-data', () => {
   }) => {
     await loginAsAdmin(page);
 
-    const meResp = await page.request.get('/api/me', {
-      headers: { 'X-Requested-With': 'XMLHttpRequest' },
-    });
-    const me = (await meResp.json()) as { orgs: Array<{ id: string }> };
+    const me = await getMe(page);
     if (!me.orgs.length) throw new Error('dev seed must provide at least one org');
     const orgId = me.orgs[0].id;
 
-    // Renamed from /ado-credentials when GitOps generalised to standard git
-    // (docs/git-provider-design.md); ADO is now the ado_sp credential kind.
-    const resp = await page.request.post(`/api/orgs/${orgId}/git-credentials`, {
-      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-      data: {
-        name: `fs-git-cred-${Date.now()}`,
-        kind: 'ado_sp',
-        entra_tenant_id: 'test-tenant',
-        client_id: 'test-client',
-        client_secret: 'test-secret',
-        ado_org_url: 'https://dev.azure.com/testorg',
-      },
+    // GitOps generalised to standard git (docs/git-provider-design.md); ADO
+    // is now the ado_sp credential kind.
+    const resp = await rpc(page, 'GitOpsService', 'CreateCredential', {
+      orgId,
+      name: `fs-git-cred-${Date.now()}`,
+      kind: 'ado_sp',
+      entraTenantId: 'test-tenant',
+      clientId: 'test-client',
+      clientSecret: 'test-secret',
+      adoOrgUrl: 'https://dev.azure.com/testorg',
     });
 
     if (resp.status() === 503) {
       // No encryption key configured — correct behavior
-      const body = (await resp.json()) as { error: { code: string } };
-      expect(body.error.code).toBe('unavailable');
+      const body = (await resp.json()) as { code: string };
+      expect(body.code).toBe('unavailable');
     } else {
-      // Encryption available — created successfully
-      expect(resp.status()).toBe(201);
+      // Encryption available — created successfully (Connect answers a
+      // create with 200, not REST's 201).
+      expect(resp.status()).toBe(200);
       const body = (await resp.json()) as { id: string };
+      expect(body.id).toBeTruthy();
       // Clean up
-      await page.request.delete(`/api/orgs/${orgId}/git-credentials/${body.id}`, {
-        headers: { 'X-Requested-With': 'XMLHttpRequest' },
-      });
+      await rpc(page, 'GitOpsService', 'DeleteCredential', { orgId, id: body.id });
     }
   });
 });

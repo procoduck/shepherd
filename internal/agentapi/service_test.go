@@ -959,8 +959,59 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 				return served.Msg.Hash
 			}
 
-			It("clears FAILED to APPLIED when a later poll reports the served hash with no status", func() {
+			// #115, replaying what Alloy v1.20.1 was recorded doing
+			// (docs/proofs/applied-status.md): after rejecting a config it
+			// reports FAILED once WITH that config's hash, then keeps polling
+			// with the same hash and no status while it runs its previous
+			// config. That silence is not recovery.
+			It("stays FAILED while the agent polls silently with the hash it rejected", func() {
 				servedHash := failClaimed()
+
+				for range 3 {
+					_, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+						Id:              "recompute-instance",
+						Hash:            servedHash,
+						LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"},
+					}))
+					Expect(err).NotTo(HaveOccurred())
+				}
+
+				instance, err := st.Queries.GetCollectorInstanceByID(ctx, "recompute-instance")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(instance.RemoteConfigStatus.String).To(Equal("FAILED"),
+					"a FAILED for the config the agent is still polling with must not read as APPLIED")
+				Expect(instance.RemoteConfigError.String).To(Equal("dial tcp: lookup shepherd: no such host"),
+					"the rejection reason stays visible")
+			})
+
+			It("becomes APPLIED when the agent reports APPLIED for a config", func() {
+				servedHash := failClaimed()
+
+				_, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+					Id:              "recompute-instance",
+					Hash:            servedHash,
+					LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"},
+					RemoteConfigStatus: &collectorv1.RemoteConfigStatus{
+						Status: collectorv1.RemoteConfigStatuses_RemoteConfigStatuses_APPLIED,
+					},
+				}))
+				Expect(err).NotTo(HaveOccurred())
+
+				instance, err := st.Queries.GetCollectorInstanceByID(ctx, "recompute-instance")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(instance.RemoteConfigStatus.String).To(Equal("APPLIED"))
+				Expect(instance.RemoteConfigError.Valid).To(BeFalse())
+			})
+
+			It("clears a FAILED recorded for a different config once the agent polls the served hash", func() {
+				servedHash := failClaimed()
+				// The FAILED was about some earlier config, not the one now served.
+				Expect(st.Queries.UpdateInstanceStatus(ctx, sqlc.UpdateInstanceStatusParams{
+					ID:                 "recompute-instance",
+					RemoteConfigStatus: pgtype.Text{String: "FAILED", Valid: true},
+					RemoteConfigError:  pgtype.Text{String: "old failure", Valid: true},
+					StatusHash:         pgtype.Text{String: "an-earlier-hash", Valid: true},
+				})).To(Succeed())
 
 				_, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
 					Id:              "recompute-instance",
@@ -971,8 +1022,27 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 
 				instance, err := st.Queries.GetCollectorInstanceByID(ctx, "recompute-instance")
 				Expect(err).NotTo(HaveOccurred())
-				Expect(instance.RemoteConfigStatus.String).To(Equal("APPLIED"), "matching hash with no fresh status means the agent recovered")
+				Expect(instance.RemoteConfigStatus.String).To(Equal("APPLIED"))
 				Expect(instance.RemoteConfigError.Valid).To(BeFalse(), "stale error message must be cleared alongside the status")
+			})
+
+			It("still promotes a never-reported status to APPLIED on a served-hash poll", func() {
+				_, _ = setupClaimedPipeline()
+				served, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+					Id:              "recompute-instance",
+					LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"},
+				}))
+				Expect(err).NotTo(HaveOccurred())
+				_, err = client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+					Id:              "recompute-instance",
+					Hash:            served.Msg.Hash,
+					LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"},
+				}))
+				Expect(err).NotTo(HaveOccurred())
+
+				instance, err := st.Queries.GetCollectorInstanceByID(ctx, "recompute-instance")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(instance.RemoteConfigStatus.String).To(Equal("APPLIED"))
 			})
 
 			It("stays FAILED when the agent keeps re-reporting FAILED", func() {

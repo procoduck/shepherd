@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file shepherd/mgmt/v1/tenant_route.proto.
  */
 export const file_shepherd_mgmt_v1_tenant_route: GenFile = /*@__PURE__*/
-  fileDesc("CiNzaGVwaGVyZC9tZ210L3YxL3RlbmFudF9yb3V0ZS5wcm90bxIQc2hlcGhlcmQubWdtdC52MSKMAwoLVGVuYW50Um91dGUSCgoCaWQYASABKAkSDgoGb3JnX2lkGAIgASgJEhEKCXRlbmFudF9pZBgDIAEoCRIMCgRraW5kGAQgASgJEg8KB3NlZ21lbnQYBSABKAkSDgoGc3RhdHVzGAYgASgJEi8KC3ZhbGlkX3VudGlsGAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIXCg9yb3RhdGVkX2Zyb21faWQYCCABKAkSFAoMZ2F0ZXdheV9tb2RlGAkgASgJEhQKDGdhdGV3YXlfbmFtZRgKIAEoCRIZChFnYXRld2F5X25hbWVzcGFjZRgLIAEoCRIuCgpjcmVhdGVkX2F0GAwgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgp1cGRhdGVkX2F0GA0gASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgpyZXZva2VkX2F0GA4gASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIpChdMaXN0VGVuYW50Um91dGVzUmVxdWVzdBIOCgZvcmdfaWQYASABKAkiVwoYTGlzdFRlbmFudFJvdXRlc1Jlc3BvbnNlEiwKBWl0ZW1zGAEgAygLMh0uc2hlcGhlcmQubWdtdC52MS5UZW5hbnRSb3V0ZRINCgV0b3RhbBgCIAEoBSKgAQoYQ3JlYXRlVGVuYW50Um91dGVSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIMCgRraW5kGAMgASgJEg4KBmZvcm1hdBgEIAEoCRIUCgxnYXRld2F5X21vZGUYBSABKAkSFAoMZ2F0ZXdheV9uYW1lGAYgASgJEhkKEWdhdGV3YXlfbmFtZXNwYWNlGAcgASgJSgQIAhADUgl0ZW5hbnRfaWQiXwoYUm90YXRlVGVuYW50Um91dGVSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIKCgJpZBgCIAEoCRIOCgZmb3JtYXQYAyABKAkSFwoPb3ZlcmxhcF9zZWNvbmRzGAQgASgFIn0KGVJvdGF0ZVRlbmFudFJvdXRlUmVzcG9uc2USLQoGYWN0aXZlGAEgASgLMh0uc2hlcGhlcmQubWdtdC52MS5UZW5hbnRSb3V0ZRIxCgpkZXByZWNhdGVkGAIgASgLMh0uc2hlcGhlcmQubWdtdC52MS5UZW5hbnRSb3V0ZSI2ChhSZXZva2VUZW5hbnRSb3V0ZVJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgoKAmlkGAIgASgJMrUDChJUZW5hbnRSb3V0ZVNlcnZpY2USawoQTGlzdFRlbmFudFJvdXRlcxIpLnNoZXBoZXJkLm1nbXQudjEuTGlzdFRlbmFudFJvdXRlc1JlcXVlc3QaKi5zaGVwaGVyZC5tZ210LnYxLkxpc3RUZW5hbnRSb3V0ZXNSZXNwb25zZSIAEmAKEUNyZWF0ZVRlbmFudFJvdXRlEiouc2hlcGhlcmQubWdtdC52MS5DcmVhdGVUZW5hbnRSb3V0ZVJlcXVlc3QaHS5zaGVwaGVyZC5tZ210LnYxLlRlbmFudFJvdXRlIgASbgoRUm90YXRlVGVuYW50Um91dGUSKi5zaGVwaGVyZC5tZ210LnYxLlJvdGF0ZVRlbmFudFJvdXRlUmVxdWVzdBorLnNoZXBoZXJkLm1nbXQudjEuUm90YXRlVGVuYW50Um91dGVSZXNwb25zZSIAEmAKEVJldm9rZVRlbmFudFJvdXRlEiouc2hlcGhlcmQubWdtdC52MS5SZXZva2VUZW5hbnRSb3V0ZVJlcXVlc3QaHS5zaGVwaGVyZC5tZ210LnYxLlRlbmFudFJvdXRlIgBCJlokc2hlcGhlcmQvZ2VuL3NoZXBoZXJkL21nbXQvdjE7bWdtdHYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
+  fileDesc("CiNzaGVwaGVyZC9tZ210L3YxL3RlbmFudF9yb3V0ZS5wcm90bxIQc2hlcGhlcmQubWdtdC52MSLpAwoLVGVuYW50Um91dGUSCgoCaWQYASABKAkSDgoGb3JnX2lkGAIgASgJEhEKCXRlbmFudF9pZBgDIAEoCRIMCgRraW5kGAQgASgJEg8KB3NlZ21lbnQYBSABKAkSDgoGc3RhdHVzGAYgASgJEi8KC3ZhbGlkX3VudGlsGAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIXCg9yb3RhdGVkX2Zyb21faWQYCCABKAkSFAoMZ2F0ZXdheV9tb2RlGAkgASgJEhQKDGdhdGV3YXlfbmFtZRgKIAEoCRIZChFnYXRld2F5X25hbWVzcGFjZRgLIAEoCRIuCgpjcmVhdGVkX2F0GAwgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgp1cGRhdGVkX2F0GA0gASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgpyZXZva2VkX2F0GA4gASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIUCgxhcHBseV9zdGF0dXMYDyABKAkSFQoNYXBwbHlfbWVzc2FnZRgQIAEoCRIuCgphcHBsaWVkX2F0GBEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIpChdMaXN0VGVuYW50Um91dGVzUmVxdWVzdBIOCgZvcmdfaWQYASABKAkiVwoYTGlzdFRlbmFudFJvdXRlc1Jlc3BvbnNlEiwKBWl0ZW1zGAEgAygLMh0uc2hlcGhlcmQubWdtdC52MS5UZW5hbnRSb3V0ZRINCgV0b3RhbBgCIAEoBSKgAQoYQ3JlYXRlVGVuYW50Um91dGVSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIMCgRraW5kGAMgASgJEg4KBmZvcm1hdBgEIAEoCRIUCgxnYXRld2F5X21vZGUYBSABKAkSFAoMZ2F0ZXdheV9uYW1lGAYgASgJEhkKEWdhdGV3YXlfbmFtZXNwYWNlGAcgASgJSgQIAhADUgl0ZW5hbnRfaWQiXwoYUm90YXRlVGVuYW50Um91dGVSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIKCgJpZBgCIAEoCRIOCgZmb3JtYXQYAyABKAkSFwoPb3ZlcmxhcF9zZWNvbmRzGAQgASgFIn0KGVJvdGF0ZVRlbmFudFJvdXRlUmVzcG9uc2USLQoGYWN0aXZlGAEgASgLMh0uc2hlcGhlcmQubWdtdC52MS5UZW5hbnRSb3V0ZRIxCgpkZXByZWNhdGVkGAIgASgLMh0uc2hlcGhlcmQubWdtdC52MS5UZW5hbnRSb3V0ZSI2ChhSZXZva2VUZW5hbnRSb3V0ZVJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgoKAmlkGAIgASgJIpMBChdSZW5kZXJDb25uZWN0QXBwUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkSFAoMc2VydmljZV9uYW1lGAMgASgJEhAKCHByb3RvY29sGAQgASgJEhoKEmluY2x1ZGVfYWRvdF9sYXllchgFIAEoCBIYChBnYXRld2F5X2Jhc2VfdXJsGAYgASgJIrUBChhSZW5kZXJDb25uZWN0QXBwUmVzcG9uc2USFQoNYmFzZV9lbmRwb2ludBgBIAEoCRIYChBnYXRld2F5X2Jhc2VfdXJsGAIgASgJEgsKA2VudhgDIAEoCRIOCgZsYW1iZGEYBCABKAkSEQoJdGVycmFmb3JtGAUgASgJEgsKA3NhbRgGIAEoCRILCgNjZGsYByABKAkSCwoDazhzGAggASgJEhEKCXNka19ub3RlcxgJIAEoCTKiBAoSVGVuYW50Um91dGVTZXJ2aWNlEmsKEExpc3RUZW5hbnRSb3V0ZXMSKS5zaGVwaGVyZC5tZ210LnYxLkxpc3RUZW5hbnRSb3V0ZXNSZXF1ZXN0Giouc2hlcGhlcmQubWdtdC52MS5MaXN0VGVuYW50Um91dGVzUmVzcG9uc2UiABJgChFDcmVhdGVUZW5hbnRSb3V0ZRIqLnNoZXBoZXJkLm1nbXQudjEuQ3JlYXRlVGVuYW50Um91dGVSZXF1ZXN0Gh0uc2hlcGhlcmQubWdtdC52MS5UZW5hbnRSb3V0ZSIAEm4KEVJvdGF0ZVRlbmFudFJvdXRlEiouc2hlcGhlcmQubWdtdC52MS5Sb3RhdGVUZW5hbnRSb3V0ZVJlcXVlc3QaKy5zaGVwaGVyZC5tZ210LnYxLlJvdGF0ZVRlbmFudFJvdXRlUmVzcG9uc2UiABJgChFSZXZva2VUZW5hbnRSb3V0ZRIqLnNoZXBoZXJkLm1nbXQudjEuUmV2b2tlVGVuYW50Um91dGVSZXF1ZXN0Gh0uc2hlcGhlcmQubWdtdC52MS5UZW5hbnRSb3V0ZSIAEmsKEFJlbmRlckNvbm5lY3RBcHASKS5zaGVwaGVyZC5tZ210LnYxLlJlbmRlckNvbm5lY3RBcHBSZXF1ZXN0Giouc2hlcGhlcmQubWdtdC52MS5SZW5kZXJDb25uZWN0QXBwUmVzcG9uc2UiAEImWiRzaGVwaGVyZC9nZW4vc2hlcGhlcmQvbWdtdC92MTttZ210djFiBnByb3RvMw", [file_google_protobuf_timestamp]);
 
 /**
  * TenantRoute mirrors internal/store/sqlc.TenantRoute (0009_tenant_routes).
@@ -110,6 +110,32 @@ export type TenantRoute = Message<"shepherd.mgmt.v1.TenantRoute"> & {
    * @generated from field: google.protobuf.Timestamp revoked_at = 14;
    */
   revokedAt?: Timestamp | undefined;
+
+  /**
+   * apply_status is whether this route's HTTPRoute is actually in the
+   * cluster, as the tenant-route reconciler last found it: "pending",
+   * "applied" (attachment verified), "refused" (the gateway refused
+   * attachment), "error" (retried), "removed" (revoked or expired, HTTPRoute
+   * deleted) or "not_applicable" (a Faro route, or route apply disabled).
+   *
+   * @generated from field: string apply_status = 15;
+   */
+  applyStatus: string;
+
+  /**
+   * apply_message is the reason behind "refused" or "error" -- the gateway's
+   * own condition message where it gave one.
+   *
+   * @generated from field: string apply_message = 16;
+   */
+  applyMessage: string;
+
+  /**
+   * applied_at is the last time attachment was verified.
+   *
+   * @generated from field: google.protobuf.Timestamp applied_at = 17;
+   */
+  appliedAt?: Timestamp | undefined;
 };
 
 /**
@@ -311,14 +337,152 @@ export const RevokeTenantRouteRequestSchema: GenMessage<RevokeTenantRouteRequest
   messageDesc(file_shepherd_mgmt_v1_tenant_route, 6);
 
 /**
+ * RenderConnectAppRequest names the route and the app being connected.
+ *
+ * @generated from message shepherd.mgmt.v1.RenderConnectAppRequest
+ */
+export type RenderConnectAppRequest = Message<"shepherd.mgmt.v1.RenderConnectAppRequest"> & {
+  /**
+   * @generated from field: string org_id = 1;
+   */
+  orgId: string;
+
+  /**
+   * @generated from field: string id = 2;
+   */
+  id: string;
+
+  /**
+   * service_name becomes OTEL_SERVICE_NAME. Required.
+   *
+   * @generated from field: string service_name = 3;
+   */
+  serviceName: string;
+
+  /**
+   * protocol is "http/protobuf" (default when empty) or "http/json". There is
+   * no gRPC: the gateway identifies the tenant from the URL path, which a gRPC
+   * client cannot set.
+   *
+   * @generated from field: string protocol = 4;
+   */
+  protocol: string;
+
+  /**
+   * include_adot_layer adds the AWS Distro for OpenTelemetry Lambda layer
+   * wiring to the Lambda artifacts, with the layer ARN left for the operator
+   * to fill in (it is region- and architecture-specific).
+   *
+   * @generated from field: bool include_adot_layer = 5;
+   */
+  includeAdotLayer: boolean;
+
+  /**
+   * gateway_base_url is the gateway's public https URL. Empty uses the
+   * server's configured gateway.routes.public_base_url; FailedPrecondition
+   * when neither is set.
+   *
+   * @generated from field: string gateway_base_url = 6;
+   */
+  gatewayBaseUrl: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.RenderConnectAppRequest.
+ * Use `create(RenderConnectAppRequestSchema)` to create a new message.
+ */
+export const RenderConnectAppRequestSchema: GenMessage<RenderConnectAppRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_tenant_route, 7);
+
+/**
+ * RenderConnectAppResponse carries every artifact, each derived from the same
+ * base_endpoint the gateway routes (internal/onboarding.BaseEndpoint).
+ *
+ * @generated from message shepherd.mgmt.v1.RenderConnectAppResponse
+ */
+export type RenderConnectAppResponse = Message<"shepherd.mgmt.v1.RenderConnectAppResponse"> & {
+  /**
+   * base_endpoint is OTEL_EXPORTER_OTLP_ENDPOINT: the SDK appends v1/traces etc.
+   *
+   * @generated from field: string base_endpoint = 1;
+   */
+  baseEndpoint: string;
+
+  /**
+   * gateway_base_url is the URL actually used — the request's, or the
+   * configured default.
+   *
+   * @generated from field: string gateway_base_url = 2;
+   */
+  gatewayBaseUrl: string;
+
+  /**
+   * env is a KEY=VALUE .env file.
+   *
+   * @generated from field: string env = 3;
+   */
+  env: string;
+
+  /**
+   * lambda is JSON for `aws lambda update-function-configuration --environment`.
+   *
+   * @generated from field: string lambda = 4;
+   */
+  lambda: string;
+
+  /**
+   * terraform is an HCL fragment for an aws_lambda_function.
+   *
+   * @generated from field: string terraform = 5;
+   */
+  terraform: string;
+
+  /**
+   * sam is a template.yaml fragment for an AWS::Serverless::Function.
+   *
+   * @generated from field: string sam = 6;
+   */
+  sam: string;
+
+  /**
+   * cdk is a TypeScript fragment for a lambda.Function.
+   *
+   * @generated from field: string cdk = 7;
+   */
+  cdk: string;
+
+  /**
+   * k8s is a container `env` fragment for a pod template.
+   *
+   * @generated from field: string k8s = 8;
+   */
+  k8s: string;
+
+  /**
+   * sdk_notes is Markdown explaining the variables and when code changes are needed.
+   *
+   * @generated from field: string sdk_notes = 9;
+   */
+  sdkNotes: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.RenderConnectAppResponse.
+ * Use `create(RenderConnectAppResponseSchema)` to create a new message.
+ */
+export const RenderConnectAppResponseSchema: GenMessage<RenderConnectAppResponse> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_tenant_route, 8);
+
+/**
  * TenantRouteService covers tenant route records for the receiver tier's
  * gateway (docs/gateway-tier-plan.md §4 W4). A tenant route pairs a tenant
  * with a rotatable, unguessable path segment (D9) that
  * internal/gateway.RenderHTTPRoute renders into a Gateway API HTTPRoute
  * (D8's two ownership modes: gateway_mode "managed" or "operator"). This
- * service is the storage/lifecycle surface only — it does not apply
- * anything to Kubernetes; that is the next slice. Reads require org-reader;
- * writes (Create/Rotate/Revoke) require org-admin.
+ * service only changes Shepherd's records; the tenant-route reconciler
+ * (internal/routeapply) applies the HTTPRoutes and records apply_status.
+ * Reads (List, RenderConnectApp) require org-reader; writes
+ * (Create/Rotate/Revoke) require org-admin.
  *
  * @generated from service shepherd.mgmt.v1.TenantRouteService
  */
@@ -354,6 +518,18 @@ export const TenantRouteService: GenService<{
     methodKind: "unary";
     input: typeof RevokeTenantRouteRequestSchema;
     output: typeof TenantRouteSchema;
+  },
+  /**
+   * RenderConnectApp renders the "connect an app" artifacts (W7,
+   * internal/onboarding) for one OTLP route: the endpoint an app's OTel SDK
+   * points at, as env vars and IaC/SDK snippets. Read-only.
+   *
+   * @generated from rpc shepherd.mgmt.v1.TenantRouteService.RenderConnectApp
+   */
+  renderConnectApp: {
+    methodKind: "unary";
+    input: typeof RenderConnectAppRequestSchema;
+    output: typeof RenderConnectAppResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_shepherd_mgmt_v1_tenant_route, 0);

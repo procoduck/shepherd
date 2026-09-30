@@ -23,7 +23,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// PipelineRevision mirrors internal/mgmtapi/pipelines.go: revisionResponse.
+// PipelineRevision is one saved revision of a pipeline.
 // contents/matchers/enabled/wizard_state (5-8) are populated only by
 // GetRevision — ListRevisions and Pipeline.revisions stay metadata-only.
 type PipelineRevision struct {
@@ -126,9 +126,9 @@ func (x *PipelineRevision) GetWizardState() *structpb.Struct {
 	return nil
 }
 
-// Pipeline mirrors internal/mgmtapi/pipelines.go: pipelineResponse. revision
-// is carried for shape-fidelity but is never populated by pipelineToResponse
-// today (always 0/omitted); revisions is populated only on GetPipeline.
+// Pipeline is an Alloy config fragment plus the matchers that decide which
+// collectors receive it. revision is never populated today (always
+// 0/omitted); revisions is populated only on GetPipeline.
 type Pipeline struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Id       string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -453,7 +453,7 @@ func (x *GetPipelineRequest) GetId() string {
 	return ""
 }
 
-// CreatePipelineRequest mirrors pipelineRequest in pipelines.go. wizard_state
+// CreatePipelineRequest creates a pipeline in org_id. wizard_state
 // is the visual-builder graph document (source="visual") or wizard form
 // state (source="wizard") — dynamic, hence Struct.
 type CreatePipelineRequest struct {
@@ -1216,7 +1216,7 @@ func (x *MatchedCollector) GetId() string {
 	return ""
 }
 
-// PreviewMatchesResponse mirrors pipelines.go PreviewMatches: {"collectors": [...]}.
+// PreviewMatchesResponse lists the collectors a pipeline's matchers currently select.
 type PreviewMatchesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Collectors    []*MatchedCollector    `protobuf:"bytes,1,rep,name=collectors,proto3" json:"collectors,omitempty"`

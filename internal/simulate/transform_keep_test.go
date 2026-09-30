@@ -149,7 +149,7 @@ var _ = Describe("Transform: rule K keeps exactly what the overlay allowlists", 
 
 	It("plants a canary at every string-carrying attribute path in the artifact and finds it in the render if and only if the path is allowlisted", func() {
 		paths := canaryPaths(payload)
-		Expect(len(paths)).To(Equal(4736),
+		Expect(len(paths)).To(Equal(4779),
 			"the probe must cover every string-carrying attribute path the shipped artifact declares")
 
 		var leaked, missing, refused []string
@@ -234,8 +234,16 @@ var _ = Describe("Transform: rule K keeps exactly what the overlay allowlists", 
 		// processor.redaction, -prometheus.write.queue). 608 reach the sandbox
 		// (redaction's 19 kept paths minus its non-string ones, less
 		// write.queue's kept strings) and 4128 do not; 608 + 4128 = 4736.
-		Expect(present).To(Equal(608), "string-carrying paths that reach the sandbox")
-		Expect(absent).To(Equal(4128), "string-carrying paths that do not")
+		// Alloy v1.20.1 (2026-09-29): 4779 paths (artifact 6705, up from 6624).
+		// The four new ones that reach the sandbox are otelcol.processor.
+		// memory_limiter's {min,max}_gc_interval_when_{soft,hard}_limited —
+		// durations inside a keep_subtree body measured clean; every other new
+		// string-carrying path (receiver keepalive timeouts, exporter
+		// client.keepalive.*, remote_write's sigv4.session_name, cloudflare's
+		// max_request_body_size) is dropped by the existing keep lists.
+		// 612 + 4167 = 4779.
+		Expect(present).To(Equal(612), "string-carrying paths that reach the sandbox")
+		Expect(absent).To(Equal(4167), "string-carrying paths that do not")
 	})
 
 	// The three leaks finding 1 proved, named individually so a regression says

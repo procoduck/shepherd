@@ -14,16 +14,14 @@ import (
 	"shepherd/internal/store/sqlc"
 )
 
-// AuditService implements mgmtv1connect.AuditServiceHandler. Business logic
-// moved here from AuditHandler (audit.go), which is now a thin REST shim
-// delegating to this service in-process. See docs/archive/api-contract-design.md,
-// "Server wiring".
+// AuditService implements mgmtv1connect.AuditServiceHandler. See
+// docs/archive/api-contract-design.md, "Server wiring".
 type AuditService struct {
 	store  *store.Store
 	logger *slog.Logger
 }
 
-// NewAuditService constructs an AuditService with the deps AuditHandler uses today.
+// NewAuditService constructs an AuditService.
 func NewAuditService(st *store.Store, logger *slog.Logger) *AuditService {
 	return &AuditService{store: st, logger: logger}
 }
@@ -42,7 +40,7 @@ const (
 // resolves to SQL NULL (matching legacy orgIDFromParam, which never
 // rejected it), returning entries across all orgs. limit outside (0, 200]
 // resets to the default of 25 (not clamped to 200 — mirroring
-// AuditHandler.List's paginationParams exactly); offset below 0 resets to 0.
+// the pre-Connect REST handler's pagination exactly); offset below 0 resets to 0.
 func (s *AuditService) ListAudit(ctx context.Context, req *connect.Request[mgmtv1.ListAuditRequest]) (*connect.Response[mgmtv1.ListAuditResponse], error) {
 	orgID, _ := parseUUID(req.Msg.GetOrgId()) // invalid/empty org id resolves to NULL, matching legacy orgIDFromParam
 

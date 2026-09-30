@@ -29,6 +29,7 @@ import (
 	"shepherd/internal/gitsync"
 	"shepherd/internal/mgmtapi"
 	"shepherd/internal/migrations"
+	"shepherd/internal/routeapply"
 	"shepherd/internal/schema"
 	"shepherd/internal/simulate/worker"
 	"shepherd/internal/spa"
@@ -340,7 +341,7 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 			r.Post("/api/auth/local/login", authHandler.LocalLoginHandler)
 			r.Post(auth.ChangePasswordPath, authHandler.ChangePasswordHandler)
 		}
-		r.Mount("/api", mgmtapi.Router(st, cfg, enc, logger))
+		r.Mount("/api", mgmtapi.Router())
 
 		// shepherd.mgmt.v1 Connect RPC handlers — the typed contract behind the
 		// /api shims above (docs/archive/api-contract-design.md). Mounted in the same
@@ -403,6 +404,19 @@ func (s *Server) Run(ctx context.Context) error {
 		reconciler.Start(ctx)
 	} else {
 		s.logger.Warn("gitops reconciler not started: encryption key not configured")
+	}
+
+	// Tenant-route apply (docs/plans/2026-09-29-tenant-route-apply.md): off
+	// unless configured, and in-cluster only — the chart grants the RBAC when
+	// the receiver tier is on. A missing in-cluster config is logged, not
+	// fatal: the rest of Shepherd works without it and routes stay pending.
+	if s.cfg.Gateway.Routes.Apply.Enabled {
+		kube, kubeErr := routeapply.NewInCluster()
+		if kubeErr != nil {
+			s.logger.Error("tenant-route apply not started", "err", kubeErr)
+		} else {
+			routeapply.New(s.store.Queries, kube, s.cfg.Gateway.Routes.Apply, s.logger).Start(ctx)
+		}
 	}
 
 	errCh := make(chan error, 2)

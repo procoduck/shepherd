@@ -83,6 +83,7 @@ var procedureRequirements = map[string]string{
 	mgmtv1connect.FleetServiceDeleteAssignmentProcedure:     auth.RoleOrgAdmin,
 	mgmtv1connect.FleetServiceSetCollectorLabelProcedure:    auth.RoleOrgAdmin,
 	mgmtv1connect.FleetServiceDeleteCollectorLabelProcedure: auth.RoleOrgAdmin,
+	mgmtv1connect.FleetServiceRenderChartValuesProcedure:    auth.RoleOrgAdmin,
 
 	// PipelineService — org reader for reads. Writes
 	// (create/update/delete/enable/disable) are ALSO gated at org-reader
@@ -171,6 +172,7 @@ var procedureRequirements = map[string]string{
 	// TenantRouteService — org reader for reads, org admin for writes
 	// (create/rotate/revoke all mint or destroy routing capacity).
 	mgmtv1connect.TenantRouteServiceListTenantRoutesProcedure:  auth.RoleOrgReader,
+	mgmtv1connect.TenantRouteServiceRenderConnectAppProcedure:  auth.RoleOrgReader,
 	mgmtv1connect.TenantRouteServiceCreateTenantRouteProcedure: auth.RoleOrgAdmin,
 	mgmtv1connect.TenantRouteServiceRotateTenantRouteProcedure: auth.RoleOrgAdmin,
 	mgmtv1connect.TenantRouteServiceRevokeTenantRouteProcedure: auth.RoleOrgAdmin,
