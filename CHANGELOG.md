@@ -15,6 +15,12 @@ Categories used here:
 
 ### Fixed
 
+- **Tenant-route apply with more than one Shepherd replica.** The chart runs two replicas by
+  default, and each ran the route reconciler: they raced on the same HTTPRoutes, the loser of each
+  update recorded a conflict, and a route's **In cluster** status flapped between `applied` and
+  `error`. Passes now take a Postgres advisory lock, so one replica reconciles at a time and another
+  takes over if it goes away. Affects v0.12.0 installs with `receiver.enabled`.
+
 - **A collector no longer shows APPLIED for a config its agent rejected.** When Alloy fails to load
   a served config that passed validation (reproduced on v1.20.1: e.g. a scrape timeout longer than
   its interval, or a `local.file` whose path does not exist), it reports FAILED once and then keeps

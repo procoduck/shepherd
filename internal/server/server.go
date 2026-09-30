@@ -415,7 +415,8 @@ func (s *Server) Run(ctx context.Context) error {
 		if kubeErr != nil {
 			s.logger.Error("tenant-route apply not started", "err", kubeErr)
 		} else {
-			routeapply.New(s.store.Queries, kube, s.cfg.Gateway.Routes.Apply, s.logger).Start(ctx)
+			routeapply.New(s.store.Queries, kube, s.cfg.Gateway.Routes.Apply, s.logger,
+				routeapply.WithLocker(routeapply.NewPGLocker(s.store.Pool(), s.logger))).Start(ctx)
 		}
 	}
 

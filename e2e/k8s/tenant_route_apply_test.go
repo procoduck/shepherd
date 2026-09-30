@@ -127,7 +127,9 @@ receiver:
 			if err := os.WriteFile(valuesFile, []byte(values), 0o600); err != nil {
 				t.Fatalf("writing values: %v", err)
 			}
-			helmRun(t, cfg, f, "install", release, "--set replicas=1", "-f "+valuesFile)
+			// Two replicas, the chart default: both run the reconciler, and
+			// the advisory lock must let only one reconcile at a time.
+			helmRun(t, cfg, f, "install", release, "--set replicas=2", "-f "+valuesFile)
 			waitDeploymentAvailable(t, cfg, f.ns, release)
 			waitDeploymentAvailable(t, cfg, f.ns, receiver)
 
@@ -171,6 +173,23 @@ receiver:
 				got := api.waitApplyStatus(ctx, t, orgID, first.GetId(), routeapply.StatusApplied)
 				if got.GetAppliedAt() == nil {
 					t.Fatal("applied without an applied_at")
+				}
+
+				// With two replicas racing, the loser of each get-then-update
+				// recorded a conflict and the status flapped to `error`. Watch
+				// several reconcile intervals (5s here): it must stay applied.
+				for i := 0; i < 6; i++ {
+					time.Sleep(5 * time.Second)
+					resp, err := api.routes.ListTenantRoutes(ctx, connect.NewRequest(&mgmtv1.ListTenantRoutesRequest{OrgId: orgID}))
+					if err != nil {
+						t.Fatalf("ListTenantRoutes: %v", err)
+					}
+					for _, r := range resp.Msg.GetItems() {
+						if r.GetId() == first.GetId() && r.GetApplyStatus() != routeapply.StatusApplied {
+							t.Fatalf("with two replicas the route left applied: %q %q — replicas are racing",
+								r.GetApplyStatus(), r.GetApplyMessage())
+						}
+					}
 				}
 
 				var hr gatewayv1.HTTPRoute

@@ -77,15 +77,26 @@ type Reconciler struct {
 	cluster Cluster
 	cfg     config.RouteApplyConfig
 	logger  *slog.Logger
-	now     func() time.Time
+	// locker, when set, limits passes to one replica at a time (see Locker).
+	locker Locker
+	now    func() time.Time
 	// retry holds per-route backoff after a refusal or error; a route with no
 	// entry is attempted every pass. Memory only: a restart retries at once.
 	retry map[string]*backoff
 }
 
+// Option configures a Reconciler.
+type Option func(*Reconciler)
+
+// WithLocker makes each pass run only while holding l, so replicas take turns
+// instead of racing on the same HTTPRoutes.
+func WithLocker(l Locker) Option {
+	return func(r *Reconciler) { r.locker = l }
+}
+
 // New creates a Reconciler.
-func New(st Store, cl Cluster, cfg config.RouteApplyConfig, logger *slog.Logger) *Reconciler {
-	return &Reconciler{
+func New(st Store, cl Cluster, cfg config.RouteApplyConfig, logger *slog.Logger, opts ...Option) *Reconciler {
+	r := &Reconciler{
 		store:   st,
 		cluster: cl,
 		cfg:     cfg,
@@ -93,6 +104,10 @@ func New(st Store, cl Cluster, cfg config.RouteApplyConfig, logger *slog.Logger)
 		now:     time.Now,
 		retry:   map[string]*backoff{},
 	}
+	for _, o := range opts {
+		o(r)
+	}
+	return r
 }
 
 // Start runs a pass immediately and then every cfg.Interval until ctx ends.
@@ -120,6 +135,18 @@ func ObjectName(id string) string {
 // Reconcile runs one pass. Failures are logged and recorded per route; a pass
 // never stops at the first one.
 func (r *Reconciler) Reconcile(ctx context.Context) {
+	if r.locker != nil {
+		unlock, ok, err := r.locker.TryLock(ctx)
+		if err != nil {
+			r.logger.Error("route-apply lock", "err", err)
+			return
+		}
+		if !ok {
+			// Another replica is reconciling; it records the outcomes.
+			return
+		}
+		defer unlock()
+	}
 	if revoked, err := r.store.RevokeExpiredTenantRoutes(ctx); err != nil {
 		r.logger.Error("revoking expired deprecated routes", "err", err)
 	} else {
