@@ -13,13 +13,24 @@ Categories used here:
 
 ## Unreleased
 
+## v0.13.0
+
+Chart 0.17.0. Moves validation and the bundled Alloy to **v1.20.1**, and fixes two things v0.12.0
+got wrong about collector and route status: a collector whose agent **rejected** a config no longer
+shows APPLIED, and **tenant-route apply** no longer flaps between `applied` and `error` under the
+chart's default two replicas. One additive migration (`0028`).
+
+**Upgrade:** `helm upgrade`. Migration `0028` (`collector_instances.remote_config_status_hash`) is
+additive. Pipelines are now validated against Alloy v1.20.1 — check any `otelcol.receiver.filelog`
+that sets `top_n = 0` (see *Changed*). No chart-values changes.
+
 ### Fixed
 
 - **Tenant-route apply with more than one Shepherd replica.** The chart runs two replicas by
   default, and each ran the route reconciler: they raced on the same HTTPRoutes, the loser of each
   update recorded a conflict, and a route's **In cluster** status flapped between `applied` and
   `error`. Passes now take a Postgres advisory lock, so one replica reconciles at a time and another
-  takes over if it goes away. Affects v0.12.0 installs with `receiver.enabled`.
+  takes over if it goes away. Affects v0.12.0 installs with `receiver.enabled`. (#192)
 
 - **A collector no longer shows APPLIED for a config its agent rejected.** When Alloy fails to load
   a served config that passed validation (reproduced on v1.20.1: e.g. a scrape timeout longer than
