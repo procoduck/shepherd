@@ -236,6 +236,22 @@ export function AdminUsersPage() {
   }
 
   const users = data?.items ?? [];
+  // A local session's user_oid is "local:<login>" (internal/auth), which is
+  // how this page knows which row is the person using it.
+  const isSelf = (u: User) => me?.userOid === `local:${u.login}`;
+  const activeAppAdmins = users.filter((u) => u.isAppAdmin && !u.disabled).length;
+  const deleteBody = (u: User) =>
+    [
+      'This removes the account, its organisation roles and any active sessions.',
+      isSelf(u) && 'This is the account you are signed in with: you will be signed out.',
+      u.isAppAdmin &&
+        (activeAppAdmins <= 1
+          ? 'It is the only active app admin — nobody will be able to manage users or organisations from the UI afterwards.'
+          : 'This user is an app admin.'),
+      'It cannot be undone.',
+    ]
+      .filter(Boolean)
+      .join(' ');
 
   return (
     <div className='space-y-4'>
@@ -314,10 +330,8 @@ export function AdminUsersPage() {
 
       {deleteUser && (
         <AdminConfirmDialog
-          title={`Delete ${deleteUser.login}?`}
-          body={`This removes the account, its organisation roles and any active sessions. ${
-            deleteUser.isAppAdmin ? 'This user is an app admin. ' : ''
-          }It cannot be undone.`}
+          title={isSelf(deleteUser) ? 'Delete your own account?' : `Delete ${deleteUser.login}?`}
+          body={deleteBody(deleteUser)}
           confirmLabel='Delete'
           pendingLabel='Deleting…'
           pending={deleteMut.isPending}

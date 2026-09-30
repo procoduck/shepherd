@@ -35,7 +35,7 @@ export function EditUserModal({
   const [isAppAdmin, setIsAppAdmin] = useState(user.isAppAdmin);
   const [disabled, setDisabled] = useState(user.disabled);
   const [addOrgId, setAddOrgId] = useState('');
-  const [addRole, setAddRole] = useState(ORG_ROLES[0]);
+  const [addRole, setAddRole] = useState('viewer');
 
   // Every org, so a membership can be added. This is the app-admin surface, so
   // the list is not filtered by the editing admin's own memberships.
@@ -118,6 +118,7 @@ export function EditUserModal({
                   <span className='flex-1 truncate'>{o.displayName || o.name}</span>
                   <select
                     data-testid={`edit-org-role-${o.name}`}
+                    aria-label={`Role in ${o.displayName || o.name}`}
                     value={o.role}
                     disabled={orgPending}
                     onChange={(e) => onSetOrgRole(o.id, e.target.value)}
@@ -147,6 +148,7 @@ export function EditUserModal({
             <div className='flex items-center gap-2 pt-1'>
               <select
                 data-testid='edit-org-add-id'
+                aria-label='Organisation to add'
                 value={addOrgId}
                 onChange={(e) => setAddOrgId(e.target.value)}
                 className='flex-1 rounded-md border border-border-strong bg-card px-2 py-1 text-xs'
@@ -160,6 +162,7 @@ export function EditUserModal({
               </select>
               <select
                 data-testid='edit-org-add-role'
+                aria-label='Role in the organisation to add'
                 value={addRole}
                 onChange={(e) => setAddRole(e.target.value)}
                 className='rounded-md border border-border-strong bg-card px-2 py-1 text-xs'

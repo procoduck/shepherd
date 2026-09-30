@@ -53,7 +53,11 @@ export const transport = createConnectTransport({
  */
 export function toApiError(reason: unknown): ApiError {
   const err = ConnectError.from(reason);
-  return { code: connectCodeName(err.code), message: err.rawMessage || err.message };
+  // The server wraps some errors with its Go package name ("auth: forbidden",
+  // "auth: password must be at least 8 characters"). That prefix is an
+  // implementation detail, not something to show a person.
+  const message = (err.rawMessage || err.message).replace(/^auth: /, '');
+  return { code: connectCodeName(err.code), message };
 }
 
 /** "PermissionDenied" -> "permission_denied", matching the REST error envelope's code style. */

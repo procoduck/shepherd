@@ -33,6 +33,7 @@ import (
 	"shepherd/internal/crypto"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
+	"shepherd/internal/version"
 )
 
 const (
@@ -93,7 +94,11 @@ prometheus.remote_write "seed" {
 // example rather than a copy of that fixture. It seeds the demo-visual
 // pipeline's wizard_state so opening the visual builder shows a real, editable
 // graph instead of an empty canvas (D1/R3-H5).
-const demoVisualGraph = `{"kind":"alloy-graph/v1","schema_version":"alloy-v1.18.1","nodes":[{"id":"n1","component":"discovery.kubernetes","label":"pods","position":{"x":40,"y":80},"props":{"role":"pod"},"disabled":false,"notes":""},{"id":"n2","component":"prometheus.scrape","label":"demo","position":{"x":420,"y":80},"props":{"job_name":"demo","scrape_interval":"30s"},"disabled":false,"notes":""},{"id":"n3","component":"prometheus.remote_write","label":"demo","position":{"x":800,"y":80},"props":{"endpoint":[{"url":"` + seedDestProdPromURL + `"}]},"disabled":false,"notes":""}],"edges":[{"id":"e1","from":{"node":"n1","port":"targets"},"to":{"node":"n2","port":"targets"}},{"id":"e2","from":{"node":"n2","port":"forward_to"},"to":{"node":"n3","port":"receiver"}}],"bindings":[],"viewport":{"x":0,"y":0,"zoom":1},"meta":{"created_with":"shepherd-dev-seed"}}`
+//
+// schema_version follows the pinned schema: a hardcoded alloy-v1.18.1 outlived
+// two Alloy bumps and made a fresh `make dev` open demo-visual with a
+// stale-render warning.
+const demoVisualGraph = `{"kind":"alloy-graph/v1","schema_version":"` + version.AlloySchemaVersion + `","nodes":[{"id":"n1","component":"discovery.kubernetes","label":"pods","position":{"x":40,"y":80},"props":{"role":"pod"},"disabled":false,"notes":""},{"id":"n2","component":"prometheus.scrape","label":"demo","position":{"x":420,"y":80},"props":{"job_name":"demo","scrape_interval":"30s"},"disabled":false,"notes":""},{"id":"n3","component":"prometheus.remote_write","label":"demo","position":{"x":800,"y":80},"props":{"endpoint":[{"url":"` + seedDestProdPromURL + `"}]},"disabled":false,"notes":""}],"edges":[{"id":"e1","from":{"node":"n1","port":"targets"},"to":{"node":"n2","port":"targets"}},{"id":"e2","from":{"node":"n2","port":"forward_to"},"to":{"node":"n3","port":"receiver"}}],"bindings":[],"viewport":{"x":0,"y":0,"zoom":1},"meta":{"created_with":"shepherd-dev-seed"}}`
 
 // demoVisualContents is the exact render of demoVisualGraph produced by
 // visual.Render against the SHIPPED schema (internal/schema's embedded artifact

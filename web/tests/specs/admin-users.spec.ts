@@ -73,7 +73,9 @@ test('refuses a duplicate login and a short password', async ({ page, api }) => 
   // hint says "At least 8 characters" too, so a loose locator resolves to both
   // and fails strict mode -- but only once a toast from the assertion above is
   // still on screen, which is why it survived running this file alone.
-  await expect(page.getByText('auth: password must be at least 8 characters')).toBeVisible();
+  await expect(
+    page.getByText('password must be at least 8 characters', { exact: true }),
+  ).toBeVisible();
 });
 
 test('a non-app-admin is refused', async ({ page, api }) => {
@@ -122,4 +124,39 @@ test('says plainly that an account with no organisation can see nothing', async 
   await page.getByTestId('user-edit-admin').click();
   await page.getByTestId('edit-org-remove-prod-org').click();
   await expect(page.getByTestId('edit-orgs-empty')).toContainText('sign in but see nothing');
+});
+
+// Walkthrough (#212): Delete on the signed-in, only app admin looked like any
+// other row's — no word that it was their own account or the last admin.
+test('deleting your own account, the only app admin, says both', async ({ page, api }) => {
+  await api.loginAs({ ...appAdmin, userOid: 'local:admin', authMethod: 'local' });
+  await page.goto('/admin/users');
+
+  await page.getByTestId('user-delete-admin').click();
+  await expect(page.getByRole('heading', { name: 'Delete your own account?' })).toBeVisible();
+  await expect(page.getByText(/you will be signed out/)).toBeVisible();
+  await expect(page.getByText(/only active app admin/)).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+
+  // Someone else's account reads as before.
+  await page.getByTestId('user-delete-alice').click();
+  await expect(page.getByRole('heading', { name: 'Delete alice?' })).toBeVisible();
+  await expect(page.getByText(/you will be signed out/)).toHaveCount(0);
+});
+
+test('adding a user to an organisation defaults to the least-privileged role', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(appAdmin);
+  api.seed({
+    orgs: [
+      { id: 'org-0001', name: 'prod-org', display_name: 'Production Org' },
+      { id: 'org-0002', name: 'staging-org', display_name: 'Staging Org' },
+    ],
+  });
+  await page.goto('/admin/users');
+  await page.getByTestId('user-edit-alice').click();
+  await expect(page.getByLabel('Role in the organisation to add')).toHaveValue('viewer');
+  await expect(page.getByLabel('Organisation to add', { exact: true })).toBeVisible();
 });

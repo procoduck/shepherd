@@ -16,7 +16,14 @@ import (
 	"shepherd/internal/server"
 )
 
-func init() { rootCmd.AddCommand(&cobra.Command{Use: "serve", RunE: runServe}) }
+func init() {
+	rootCmd.AddCommand(&cobra.Command{
+		Use:   "serve",
+		Short: "Run the Shepherd server: web UI, management API and the collector (remotecfg) API",
+		RunE:  runServe,
+	})
+}
+
 func parseLogLevel(s string) (slog.Level, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "debug":
