@@ -1525,6 +1525,7 @@ export function installDefaultHandlers(router: Router) {
         secret_name: req['secretName'],
         secret_namespace: req['secretNamespace'],
         auth_mode: req['authMode'],
+        extra: req['extra'] ?? {},
       });
     }
     return json(r, 200, destinationToWire((st.destinations[idx] as Obj) ?? req));

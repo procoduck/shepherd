@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ExternalLink, Plus, Trash2 } from 'lucide-react';
+import { ExternalLink, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { clients, toApiError } from '@/api/transport';
@@ -50,8 +50,55 @@ function DestinationUrl({ url }: { url: string }) {
   );
 }
 
+/**
+ * Human labels for the auth modes the schema admits (0001_init: `none`,
+ * `oauth2_secret`, `basic_secret`). An unknown value — possible, since the API
+ * stores whatever it is sent — is shown verbatim rather than hidden.
+ */
+const AUTH_MODE_LABELS: Record<string, string> = {
+  none: 'None',
+  basic_secret: 'Basic auth (Kubernetes Secret)',
+  oauth2_secret: 'OAuth2 (Kubernetes Secret)',
+};
+
+function authModeLabel(mode: string): string {
+  return AUTH_MODE_LABELS[mode] ?? mode;
+}
+
+function isSecretMode(mode: string): boolean {
+  return mode === 'basic_secret' || mode === 'oauth2_secret';
+}
+
+/**
+ * What a secret-based auth mode does today. This text states what the code
+ * does, not what docs/spec.md §11 intends: the server stores the mode and the
+ * Secret reference, but no pipeline renderer reads them — the wizards emit
+ * `url = sys.env("SHEPHERD_DEST_<NAME>_URL")` and no auth block — and nothing
+ * defines which keys the Secret must hold. Change this text when that changes.
+ */
+function SecretModeExplanation({ mode }: { mode: string }) {
+  const kind = mode === 'basic_secret' ? 'HTTP basic auth' : 'OAuth2 client credentials';
+  return (
+    <div
+      data-testid='auth-mode-explanation'
+      className='rounded-md border border-border bg-card/40 px-3 py-2 text-2xs text-muted'
+    >
+      <p>
+        For {kind} kept in a Kubernetes Secret that already exists on each spoke cluster. Shepherd
+        stores only the Secret's namespace and name &mdash; never the credential itself.
+      </p>
+      <p className='mt-1'>
+        Not applied yet: generated pipelines do not read this Secret or add an auth block, and the
+        keys the Secret must hold are not defined. Until they are, configure the credentials on the
+        collector itself.
+      </p>
+    </div>
+  );
+}
+
 function destinationColumns(
   canAdminister: boolean,
+  openEdit: (d: Destination) => void,
   setPendingDelete: (d: { id: string; name: string } | null) => void,
 ): DataTableColumn<Destination>[] {
   return [
@@ -72,7 +119,16 @@ function destinationColumns(
       key: 'auth',
       header: 'Auth',
       cellClassName: 'px-4 py-2.5 text-xs text-muted',
-      render: (d) => d.authMode,
+      render: (d) => (
+        <>
+          <span>{authModeLabel(d.authMode)}</span>
+          {isSecretMode(d.authMode) && (d.secretNamespace || d.secretName) && (
+            <span className='block font-mono text-2xs text-muted-3'>
+              {d.secretNamespace}/{d.secretName}
+            </span>
+          )}
+        </>
+      ),
     },
     {
       key: 'actions',
@@ -80,28 +136,184 @@ function destinationColumns(
       cellClassName: 'px-4 py-2.5 text-right',
       render: (d) =>
         canAdminister && (
-          <button
-            onClick={() => setPendingDelete({ id: d.id, name: d.name })}
-            className='text-muted-3 transition-colors hover:text-red-400'
-            aria-label='Delete destination'
-          >
-            <Trash2 size={14} />
-          </button>
+          <div className='flex justify-end gap-3'>
+            <button
+              onClick={() => openEdit(d)}
+              className='text-muted-3 transition-colors hover:text-indigo-400'
+              aria-label={`Edit ${d.name}`}
+            >
+              <Pencil size={14} />
+            </button>
+            <button
+              onClick={() => setPendingDelete({ id: d.id, name: d.name })}
+              className='text-muted-3 transition-colors hover:text-red-400'
+              aria-label='Delete destination'
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
         ),
     },
   ];
+}
+
+interface DestinationFormState {
+  name: string;
+  type: string;
+  url: string;
+  authMode: string;
+  secretNamespace: string;
+  secretName: string;
+}
+
+const EMPTY_FORM: DestinationFormState = {
+  name: '',
+  type: 'prometheus',
+  url: '',
+  authMode: 'none',
+  secretNamespace: '',
+  secretName: '',
+};
+
+function validateUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    // new URL() accepts javascript: and data: quite happily, so parsing is
+    // not validation. Only http(s) is a destination Shepherd can ship to.
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return 'Only http:// and https:// destinations are supported';
+    }
+    return '';
+  } catch {
+    return 'Enter a valid URL (e.g. http://prometheus:9090)';
+  }
+}
+
+/**
+ * The create and edit dialog share one form. The secret reference fields only
+ * appear for a secret-based auth mode; the parent decides what to send for
+ * them when the mode is `none`.
+ */
+function DestinationFormDialog({
+  title,
+  initial,
+  submitLabel,
+  pendingLabel,
+  pending,
+  onCancel,
+  onSubmit,
+}: {
+  title: string;
+  initial: DestinationFormState;
+  submitLabel: string;
+  pendingLabel: string;
+  pending: boolean;
+  onCancel: () => void;
+  onSubmit: (form: DestinationFormState) => void;
+}) {
+  const [form, setForm] = useState(initial);
+  const [urlError, setUrlError] = useState('');
+  const secretMode = isSecretMode(form.authMode);
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const err = validateUrl(form.url);
+    setUrlError(err);
+    if (!err) onSubmit(form);
+  }
+
+  return (
+    <Modal title={title} onClose={onCancel}>
+      <form onSubmit={handleSubmit} className='space-y-4'>
+        <Field label='Name'>
+          <Input
+            value={form.name}
+            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+            required
+            placeholder='prom-prod'
+          />
+        </Field>
+        <Field label='Type'>
+          <Select
+            value={form.type}
+            onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
+          >
+            <option value='prometheus'>Prometheus</option>
+            <option value='loki'>Loki</option>
+            <option value='otlp'>Tempo (OTLP)</option>
+          </Select>
+        </Field>
+        <Field label='URL' error={urlError}>
+          <Input
+            value={form.url}
+            onChange={(e) => {
+              setForm((f) => ({ ...f, url: e.target.value }));
+              setUrlError('');
+            }}
+            onBlur={() => form.url && setUrlError(validateUrl(form.url))}
+            required
+            mono
+            placeholder='http://prometheus:9090'
+          />
+        </Field>
+        <Field label='Auth mode'>
+          <Select
+            value={form.authMode}
+            onChange={(e) => setForm((f) => ({ ...f, authMode: e.target.value }))}
+          >
+            {!(form.authMode in AUTH_MODE_LABELS) && (
+              <option value={form.authMode}>{form.authMode}</option>
+            )}
+            <option value='none'>{AUTH_MODE_LABELS.none}</option>
+            <option value='basic_secret'>{AUTH_MODE_LABELS.basic_secret}</option>
+            <option value='oauth2_secret'>{AUTH_MODE_LABELS.oauth2_secret}</option>
+          </Select>
+        </Field>
+        {secretMode && (
+          <>
+            <SecretModeExplanation mode={form.authMode} />
+            <div className='flex gap-3'>
+              <Field label='Secret namespace' className='flex-1'>
+                <Input
+                  value={form.secretNamespace}
+                  onChange={(e) => setForm((f) => ({ ...f, secretNamespace: e.target.value }))}
+                  required
+                  mono
+                  placeholder='monitoring'
+                />
+              </Field>
+              <Field label='Secret name' className='flex-1'>
+                <Input
+                  value={form.secretName}
+                  onChange={(e) => setForm((f) => ({ ...f, secretName: e.target.value }))}
+                  required
+                  mono
+                  placeholder='mimir-credentials'
+                />
+              </Field>
+            </div>
+          </>
+        )}
+        <ModalActions
+          onCancel={onCancel}
+          submitLabel={submitLabel}
+          pendingLabel={pendingLabel}
+          pending={pending}
+        />
+      </form>
+    </Modal>
+  );
 }
 
 export function DestinationsPage() {
   const orgId = useOrgId();
   // Destinations decide where telemetry ships, so the server requires org
   // admin. Offering the form to an editor or viewer only produces a rejection
-  // after they have filled it in.
+  // after they have filled it in. Edit is gated exactly like create.
   const canAdminister = useCanAdminister();
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState({ name: '', type: 'prometheus', url: '', authMode: 'none' });
-  const [urlError, setUrlError] = useState('');
+  const [editing, setEditing] = useState<Destination | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
 
   const { data, isLoading, isError, error } = useQuery({
@@ -111,23 +323,57 @@ export function DestinationsPage() {
   });
 
   const createMut = useMutation({
-    mutationFn: () =>
-      clients.destination.createDestination({
+    mutationFn: (form: DestinationFormState) => {
+      const secret = isSecretMode(form.authMode);
+      return clients.destination.createDestination({
         orgId,
-        ...form,
+        name: form.name,
+        type: form.type,
+        url: form.url,
+        authMode: form.authMode,
         tenantId: '',
-        secretName: '',
-        secretNamespace: '',
-      }),
+        secretName: secret ? form.secretName.trim() : '',
+        secretNamespace: secret ? form.secretNamespace.trim() : '',
+      });
+    },
     onSuccess: () => {
       toast.success('Destination created');
       qc.invalidateQueries({ queryKey: ['destinations', orgId] });
       setShowCreate(false);
-      setForm({ name: '', type: 'prometheus', url: '', authMode: 'none' });
     },
     onError: (e) => {
       const err = toApiError(e);
       toast.error(err.message || 'Failed to create destination');
+    },
+  });
+
+  // UpdateDestination replaces every field, so the ones this form does not
+  // show (tenant ID, extra, and the Secret reference while the mode is
+  // `none`) are sent back unchanged rather than wiped.
+  const updateMut = useMutation({
+    mutationFn: ({ d, form }: { d: Destination; form: DestinationFormState }) => {
+      const secret = isSecretMode(form.authMode);
+      return clients.destination.updateDestination({
+        orgId,
+        id: d.id,
+        name: form.name,
+        type: form.type,
+        url: form.url,
+        authMode: form.authMode,
+        tenantId: d.tenantId,
+        secretName: secret ? form.secretName.trim() : d.secretName,
+        secretNamespace: secret ? form.secretNamespace.trim() : d.secretNamespace,
+        extra: d.extra,
+      });
+    },
+    onSuccess: () => {
+      toast.success('Destination updated');
+      qc.invalidateQueries({ queryKey: ['destinations', orgId] });
+      setEditing(null);
+    },
+    onError: (e) => {
+      const err = toApiError(e);
+      toast.error(err.message || 'Failed to update destination');
     },
   });
 
@@ -146,28 +392,6 @@ export function DestinationsPage() {
       );
     },
   });
-
-  function validateUrl(url: string): boolean {
-    try {
-      const parsed = new URL(url);
-      // new URL() accepts javascript: and data: quite happily, so parsing is
-      // not validation. Only http(s) is a destination Shepherd can ship to.
-      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-        setUrlError('Only http:// and https:// destinations are supported');
-        return false;
-      }
-      setUrlError('');
-      return true;
-    } catch {
-      setUrlError('Enter a valid URL (e.g. http://prometheus:9090)');
-      return false;
-    }
-  }
-
-  function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
-    if (validateUrl(form.url)) createMut.mutate();
-  }
 
   return (
     <div className='space-y-4'>
@@ -216,73 +440,41 @@ export function DestinationsPage() {
         </div>
       ) : (
         <DataTable
-          columns={destinationColumns(canAdminister, setPendingDelete)}
+          columns={destinationColumns(canAdminister, setEditing, setPendingDelete)}
           rows={data?.items ?? []}
           rowKey={(d) => d.id}
         />
       )}
 
       {showCreate && (
-        <Modal
+        <DestinationFormDialog
           title='New destination'
-          onClose={() => {
-            setShowCreate(false);
-            setUrlError('');
+          initial={EMPTY_FORM}
+          submitLabel='Create'
+          pendingLabel='Creating…'
+          pending={createMut.isPending}
+          onCancel={() => setShowCreate(false)}
+          onSubmit={(form) => createMut.mutate(form)}
+        />
+      )}
+
+      {editing && (
+        <DestinationFormDialog
+          title={`Edit ${editing.name}`}
+          initial={{
+            name: editing.name,
+            type: editing.type,
+            url: editing.url,
+            authMode: editing.authMode,
+            secretNamespace: editing.secretNamespace,
+            secretName: editing.secretName,
           }}
-        >
-          <form onSubmit={handleCreate} className='space-y-4'>
-            <Field label='Name'>
-              <Input
-                value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                required
-                placeholder='prom-prod'
-              />
-            </Field>
-            <Field label='Type'>
-              <Select
-                value={form.type}
-                onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
-              >
-                <option value='prometheus'>Prometheus</option>
-                <option value='loki'>Loki</option>
-                <option value='otlp'>Tempo (OTLP)</option>
-              </Select>
-            </Field>
-            <Field label='URL' error={urlError}>
-              <Input
-                value={form.url}
-                onChange={(e) => {
-                  setForm((f) => ({ ...f, url: e.target.value }));
-                  setUrlError('');
-                }}
-                onBlur={() => form.url && validateUrl(form.url)}
-                required
-                mono
-                placeholder='http://prometheus:9090'
-              />
-            </Field>
-            <Field label='Auth mode'>
-              <Select
-                value={form.authMode}
-                onChange={(e) => setForm((f) => ({ ...f, authMode: e.target.value }))}
-              >
-                <option value='none'>None</option>
-                <option value='oauth2_secret'>OAuth2 secret</option>
-                <option value='basic_secret'>Basic secret</option>
-              </Select>
-            </Field>
-            <ModalActions
-              onCancel={() => {
-                setShowCreate(false);
-                setUrlError('');
-              }}
-              submitLabel='Create'
-              pendingLabel='Creating…'
-              pending={createMut.isPending}
-            />
-          </form>
-        </Modal>
+          submitLabel='Save'
+          pendingLabel='Saving…'
+          pending={updateMut.isPending}
+          onCancel={() => setEditing(null)}
+          onSubmit={(form) => updateMut.mutate({ d: editing, form })}
+        />
       )}
     </div>
   );
