@@ -38,36 +38,46 @@ SET remote_config_status      = $2,
     updated_at                = now()
 WHERE id = $1;
 
--- name: ClearStaleFailedStatus :exec
--- A poll that carries no RemoteConfigStatus payload but whose reported hash
--- matches what GetConfig actually served means the agent is healthy on its
--- current config (see B1) — clear a stale FAILED marker back to APPLIED.
--- Scoped to rows currently FAILED: a genuine FAILED the agent keeps
--- re-reporting is persisted by UpdateInstanceStatus earlier in the same
--- request and must win, so this call is a no-op whenever that happened.
+-- name: ApplySilentPoll :exec
+-- A poll with no RemoteConfigStatus, whose hash equals what GetConfig served.
+-- What that silence means is Alloy's rule (remotecfg's
+-- getRemoteConfigStatusForRequest, v1.20.1): it re-sends a status only when
+-- the (status, error message) pair CHANGES — not when the config hash does.
+-- Evidence and captured request sequences: docs/proofs/applied-status.md.
 --
--- EXCEPT a FAILED reported for the very hash now being polled (#115): Alloy
--- reports a rejected config's FAILED once, then keeps polling with the
--- rejected hash and no status while it runs its previous config. That silence
--- is not recovery; the row stays FAILED until the agent reports a status for
--- another config.
+--   * loaded = the poll carries effective_config: Alloy sets it only after a
+--     successful load, and sends it whenever the loaded config changes, so
+--     this is a verified load of the polled hash → APPLIED.
+--   * no status ever reported (NULL, '', or the sweeper's cleared 'inactive')
+--     → APPLIED, so a healthy collector that applied before its row was reset
+--     does not sit at UNKNOWN forever.
+--   * anything else → the status stands: Alloy said nothing because its
+--     outcome is unchanged. A FAILED stays FAILED — a new config that fails
+--     with the same error is not re-reported (#115, F1) — and its
+--     status_hash moves to the polled hash, which is now the config it is
+--     failing on.
+-- Writes only when something changes, so a steady fleet does not rewrite
+-- its rows on every poll.
 UPDATE collector_instances
-SET remote_config_status      = 'APPLIED',
-    remote_config_error       = NULL,
+SET remote_config_status = CASE
+        WHEN sqlc.arg(loaded)::bool
+          OR remote_config_status IS NULL
+          OR remote_config_status IN ('inactive', '') THEN 'APPLIED'
+        ELSE remote_config_status
+    END,
+    remote_config_error = CASE
+        WHEN sqlc.arg(loaded)::bool
+          OR remote_config_status IS NULL
+          OR remote_config_status IN ('inactive', '') THEN NULL
+        ELSE remote_config_error
+    END,
     remote_config_status_hash = sqlc.arg(polled_hash),
     updated_at                = now()
 WHERE id = sqlc.arg(id)
-  AND NOT (COALESCE(remote_config_status, '') = 'FAILED'
-           AND remote_config_status_hash IS NOT DISTINCT FROM sqlc.arg(polled_hash))
-  -- Also covers a status that was never reported (NULL) or was cleared by the
-  -- sweeper's inactive marker: agents report a status only when they apply a
-  -- CHANGE, so a healthy collector that applied once and then polled steadily
-  -- would otherwise sit at UNKNOWN in the UI forever. A status the agent is
-  -- actively re-reporting is written by UpdateInstanceStatus earlier in the
-  -- same request and still wins, because this runs only when the poll carried
-  -- no status payload at all.
-  AND (remote_config_status IS NULL
-       OR remote_config_status IN ('FAILED', 'inactive', ''));
+  AND (sqlc.arg(loaded)::bool
+       OR remote_config_status IS NULL
+       OR remote_config_status IN ('inactive', '')
+       OR remote_config_status_hash IS DISTINCT FROM sqlc.arg(polled_hash));
 
 -- name: UnregisterInstance :exec
 UPDATE collector_instances
@@ -75,11 +85,14 @@ SET unregistered_at = now(), updated_at = now()
 WHERE id = $1;
 
 -- name: MarkStaleInstancesInactive :exec
+-- A FAILED is left alone: 'inactive' is cleared on reconnect and a cleared
+-- status is promoted to APPLIED by ApplySilentPoll, so marking a failing
+-- instance inactive would turn its failure into APPLIED once it came back.
 UPDATE collector_instances
 SET remote_config_status = 'inactive', updated_at = now()
 WHERE last_seen < $1
   AND unregistered_at IS NULL
-  AND (remote_config_status IS NULL OR remote_config_status != 'inactive');
+  AND (remote_config_status IS NULL OR remote_config_status NOT IN ('inactive', 'FAILED'));
 
 -- name: DeleteOldInstances :exec
 DELETE FROM collector_instances WHERE last_seen < $1;

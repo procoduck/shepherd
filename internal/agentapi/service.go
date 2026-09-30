@@ -196,7 +196,7 @@ func (s *Service) GetConfig(
 
 	// Unclaimed cluster: serve empty config.
 	if !orgID.Valid {
-		s.maybeClearFailedStatus(ctx, req.Msg.Id, req.Msg.RemoteConfigStatus, req.Msg.Hash, emptyHash)
+		s.applySilentPoll(ctx, req.Msg, emptyHash)
 		if req.Msg.Hash == emptyHash {
 			metrics.ObserveGetConfig("not_modified", start)
 			return connect.NewResponse(&collectorv1.GetConfigResponse{
@@ -260,11 +260,8 @@ func (s *Service) GetConfig(
 		}
 	}
 
-	// A poll reporting no fresh status but a hash matching what we actually
-	// served means the agent is healthy on the current config (B1): clear a
-	// stale FAILED marker. A RemoteConfigStatus persisted just above always
-	// wins, including a repeated FAILED — see maybeClearFailedStatus.
-	s.maybeClearFailedStatus(ctx, req.Msg.Id, req.Msg.RemoteConfigStatus, req.Msg.Hash, cache.Hash)
+	// A poll with no fresh status but the hash we served: see applySilentPoll.
+	s.applySilentPoll(ctx, req.Msg, cache.Hash)
 
 	if req.Msg.Hash == cache.Hash {
 		metrics.ObserveGetConfig("not_modified", start)
@@ -282,30 +279,25 @@ func (s *Service) GetConfig(
 	}), nil
 }
 
-// maybeClearFailedStatus implements the B1 clearing rule: when a poll
-// carries no RemoteConfigStatus payload and the agent's reported hash
-// equals what GetConfig actually served, the agent is healthy on its
-// current config, so a stale FAILED marker is cleared back to APPLIED —
-// unless that FAILED was reported for this very hash (#115): Alloy reports a
-// rejected config once and then polls silently with its hash while running
-// the previous config, so that silence must not read as recovery.
-// If the request DOES carry a RemoteConfigStatus — including a repeated
-// FAILED — GetConfig has already persisted it via UpdateInstanceStatus
-// above, and that write wins: status is non-nil here, so this is a no-op.
-func (s *Service) maybeClearFailedStatus(
-	ctx context.Context,
-	instanceID string,
-	status *collectorv1.RemoteConfigStatus,
-	agentHash, servedHash string,
-) {
-	if status != nil || agentHash != servedHash {
+// applySilentPoll records what a status-less poll for the served hash means.
+// Alloy re-sends a status only when its (status, error) pair changes, so the
+// silence is "same outcome as last reported" — for a new config too (#115,
+// F1: a new config failing with an identical error is never re-reported). A
+// poll carrying effective_config is the exception that proves a load: Alloy
+// sets it only after loading successfully. The SQL (ApplySilentPoll) holds
+// the full rule; a status carried by the request was already persisted above
+// and always wins, so this is a no-op then.
+func (s *Service) applySilentPoll(ctx context.Context, req *collectorv1.GetConfigRequest, servedHash string) {
+	if req.GetRemoteConfigStatus() != nil || req.GetHash() != servedHash {
 		return
 	}
-	if err := s.store.Queries.ClearStaleFailedStatus(ctx, sqlc.ClearStaleFailedStatusParams{
-		ID:         instanceID,
-		PolledHash: pgtype.Text{String: agentHash, Valid: agentHash != ""},
+	loaded := len(req.GetEffectiveConfig().GetConfigMap().GetConfigMap()) > 0
+	if err := s.store.Queries.ApplySilentPoll(ctx, sqlc.ApplySilentPollParams{
+		ID:         req.GetId(),
+		Loaded:     loaded,
+		PolledHash: pgtype.Text{String: req.GetHash(), Valid: req.GetHash() != ""},
 	}); err != nil {
-		s.logger.Warn("failed to clear stale FAILED status", "instance_id", instanceID, "err", err)
+		s.logger.Warn("failed to record silent poll", "instance_id", req.GetId(), "err", err)
 	}
 }
 

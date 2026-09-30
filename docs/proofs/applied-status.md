@@ -1,55 +1,82 @@
-# APPLIED means loaded, not polled (#115, B1)
+# APPLIED means loaded, not polled (#115, B1 — and F1)
 
-**Claim.** After this fix, a collector whose agent rejected the served config stays **FAILED**
-(with Alloy's own error) until the agent reports a status for a different config. Before it,
-Shepherd showed **APPLIED** one poll after the rejection.
+**Claim.** A collector whose agent rejected the config it was served shows **FAILED**, with Alloy's
+error, until the agent reports a different outcome — including when Shepherd serves it a *new*
+config that fails the same way. A collector shows **APPLIED** only after Alloy reported it or
+proved it (see below).
 
-## What Alloy actually does (recorded 2026-09-29, Alloy v1.20.1)
+This file supersedes its first version (#186), whose model of Alloy's reporting was incomplete: it
+fixed the case below marked (a) and missed (b), which a UI walkthrough then found as F1.
 
-A throwaway collector.v1 server logged every `GetConfig` request from a real
-`grafana/alloy:v1.20.1` container polling every 10s (`remotecfg { poll_frequency = "10s" }`), while
-serving, in turn: a valid config (A), a config that passes `alloy validate` but fails to decode at
-load (B, `prometheus.scrape` with `scrape_timeout` > `scrape_interval`), A again, a config whose
-component fails to build at load (C, `local.file` on a missing path), then A again. Both B and C
-pass `alloy validate` v1.20.1 — i.e. they pass Shepherd's Stage 2 gate. (The walkthrough's
-original example, an undeclared component reference, is now refused by `alloy validate` and never
-reaches an agent.) Each line: the phase being served, the hash the agent sent, the status it sent,
-and whether it sent `effective_config`:
+## How Alloy reports (v1.20.1, read from source and captured on the wire)
 
+`internal/service/remotecfg/config_manager.go`, `getRemoteConfigStatusForRequest`:
+
+```go
+// Send status if we've never sent one before (first call) or if it has changed
+if cm.lastSentConfigStatus == nil ||
+    cm.remoteConfigStatus.Status != cm.lastSentConfigStatus.Status ||
+    cm.remoteConfigStatus.ErrorMessage != cm.lastSentConfigStatus.ErrorMessage {
 ```
 
+So a status is sent only when the **(status, error message)** pair changes — never because the
+config hash changed. The request `hash` is the last hash Alloy *received*, loaded or not.
+`effective_config` is set only after a successful load and is sent whenever the loaded config
+changes.
+
+Captured requests from a real `grafana/alloy:v1.20.1` polling a recording collector.v1 server:
+
+```
+(a) one bad config
+    hash=(empty)  status=UNSET
+    hash=H(bad)   status=FAILED "2:3: Failed to build component: decoding configuration: …"
+    hash=H(bad)   status=nil                                    (every later poll)
+
+(b) the served config changes, the failure does not (F1) — the real dev served config;
+    the header timestamp moved, the failing component stayed at line 40
+    hash=HA       status=FAILED "40:3: Failed to build component: … KUBERNETES_SERVICE_HOST …"
+    hash=HA       status=nil   (x3)
+    hash=HB       status=nil   (x6)     ← HB also failed to load (Alloy logged it); no status re-sent
+    hash=HC       status=FAILED "41:3: …"  ← one extra line above: a DIFFERENT message, so re-sent
+    hash=HD       status=APPLIED  effective_config=set   ← the failing pipeline removed
+
+(c) a good config replacing a good config
+    hash=H2       status=nil  effective_config=set          ← no status: APPLIED → APPLIED is no change
 ```
 
-After a restart the agent re-registers, polls with an empty hash, and reports `APPLIED` explicitly
-for the config it fetches (recorded separately; same harness).
+A passive capture of the dev stack's own agent (tcpdump in its network namespace) matched (b):
+after a label edit changed the served hash, every poll carried the new hash and no status.
 
-Read off the log:
-
-1. A rejected config is reported **FAILED exactly once**, carrying **the rejected config's hash**.
-2. Every later poll carries **that same hash and no status** — while Alloy keeps running the
-   previous config (its own log: "failed to evaluate config", previous components still up).
-3. A config Alloy loads is always reported **APPLIED explicitly**.
-4. `effective_config` is sent only on the **first** successful apply after start — never on FAILED,
-   never on later APPLIED. It cannot tell "loaded" from "rejected" (option 2 of the walkthrough's B1
-   is not viable).
+What this means for a status-less poll with the served hash: **the agent's outcome is unchanged**
+— unless the poll carries `effective_config`, which proves a load.
 
 ## Red
 
-Shepherd's clear-back rule (`ClearStaleFailedStatus`) promoted FAILED to APPLIED on any status-less
-poll whose hash matched the served hash — point 2 above, exactly. Removing the new guard from the
-query (the `AND NOT (… 'FAILED' AND remote_config_status_hash IS NOT DISTINCT FROM polled_hash)`
-clause) and running `ginkgo --focus B1 ./internal/agentapi`:
+Before this change, `ClearStaleFailedStatus` promoted a FAILED to APPLIED on any status-less poll
+with the served hash unless the FAILED had been recorded for that same hash. In (b) it was recorded
+for HA and the poll carried HB, so the row read APPLIED while Alloy was failing. Reproduced live on
+the dev stack (`make dev`): prod-eu-1/metrics showed APPLIED while `dev-alloy-metrics-1` logged
+`failed to parse and load new remote configuration … received_hash=9c66c310 loaded_hash=""`.
 
-```
-[FAIL] CollectorService GetConfig B1: stale FAILED status clearing [It] stays FAILED while the agent polls silently with the hash it rejected [integration]
-FAIL! -- 5 Passed | 1 Failed | 0 Pending | 50 Skipped
-```
+The spec that asserted the old rule — "clears a FAILED recorded for a different config once the
+agent polls the served hash" — encoded the bug and was replaced.
 
 ## Green
 
-Migration `0028` adds `collector_instances.remote_config_status_hash`; `UpdateInstanceStatus` stores
-the hash a status was reported with; `ClearStaleFailedStatus` skips a FAILED recorded for the hash
-now being polled. With the guard in place: `SUCCESS! -- 6 Passed` — the recorded sequence (FAILED
-once, then silent polls with the same hash) stays FAILED with its error; an explicit APPLIED still
-wins; a FAILED recorded for a different config, a never-reported status, and the sweeper's
-`inactive` marker still promote to APPLIED on a served-hash poll, as before.
+`ApplySilentPoll` (`internal/store/queries/collector_instances.sql`) replaces it: a status-less
+poll with the served hash
+- carrying `effective_config` → APPLIED (a verified load);
+- on a row that never had a status (NULL, `''`, the sweeper's cleared `inactive`) → APPLIED;
+- otherwise → the status stands, and its `remote_config_status_hash` follows the polled hash.
+
+`MarkStaleInstancesInactive` no longer overwrites a FAILED: `inactive` is cleared on reconnect and
+a cleared status is promoted, so it would have turned a failure into APPLIED.
+
+Specs (`internal/agentapi/service_test.go`, "B1: stale FAILED status clearing"): (a) and (b) stay
+FAILED with the hash following; `effective_config` on a failing and on an applied row both give
+APPLIED; the sweeper leaves FAILED alone. Mutation checks, each run and each failing exactly one
+spec: promoting FAILED again; ignoring `effective_config`; letting the sweeper overwrite FAILED.
+
+Live, on the dev stack with the fix: after restarting `dev-alloy-metrics-1` the row went
+`FAILED 47841195`; a label edit then served `ae0b4366`, Alloy failed to load it and sent no status,
+and the row read `FAILED ae0b4366` — failed, on the config it had just been served.

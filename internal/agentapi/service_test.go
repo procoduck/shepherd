@@ -1003,19 +1003,63 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 				Expect(instance.RemoteConfigError.Valid).To(BeFalse())
 			})
 
-			It("clears a FAILED recorded for a different config once the agent polls the served hash", func() {
-				servedHash := failClaimed()
-				// The FAILED was about some earlier config, not the one now served.
+			// F1 (the #115 walkthrough follow-up): Alloy re-sends a status only
+			// when its (status, error) pair changes — remotecfg's
+			// getRemoteConfigStatusForRequest. A NEW config that fails with a
+			// byte-identical error (the served header's timestamp changes the
+			// hash, the failing line does not move) is therefore never
+			// re-reported: the agent polls silently with the new hash. That
+			// must stay FAILED — and follow the new hash — not read as recovery.
+			It("stays FAILED when a new config fails with the same error, and follows the new hash", func() {
+				failClaimed()
+				// The FAILED was reported for an earlier config.
 				Expect(st.Queries.UpdateInstanceStatus(ctx, sqlc.UpdateInstanceStatusParams{
 					ID:                 "recompute-instance",
 					RemoteConfigStatus: pgtype.Text{String: "FAILED", Valid: true},
-					RemoteConfigError:  pgtype.Text{String: "old failure", Valid: true},
+					RemoteConfigError:  pgtype.Text{String: "40:3: Failed to build component", Valid: true},
 					StatusHash:         pgtype.Text{String: "an-earlier-hash", Valid: true},
 				})).To(Succeed())
+				served, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+					Id:              "recompute-instance",
+					Hash:            "an-earlier-hash",
+					LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"},
+				}))
+				Expect(err).NotTo(HaveOccurred())
+
+				// Alloy receives the new config, fails identically, says nothing.
+				for range 2 {
+					_, err = client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+						Id:              "recompute-instance",
+						Hash:            served.Msg.Hash,
+						LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"},
+					}))
+					Expect(err).NotTo(HaveOccurred())
+				}
+
+				instance, err := st.Queries.GetCollectorInstanceByID(ctx, "recompute-instance")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(instance.RemoteConfigStatus.String).To(Equal("FAILED"),
+					"silence after FAILED means the outcome is unchanged, not recovered")
+				Expect(instance.RemoteConfigError.String).To(Equal("40:3: Failed to build component"))
+				Expect(instance.RemoteConfigStatusHash.String).To(Equal(served.Msg.Hash),
+					"the failure is now about the config the agent was just served")
+			})
+
+			// Alloy sets effective_config only after a successful load and sends
+			// it whenever the loaded config changes — with no status when the
+			// status itself did not change (APPLIED → APPLIED), or the first
+			// time after a FAILED if the status did change.
+			effective := &collectorv1.EffectiveConfig{ConfigMap: &collectorv1.AgentConfigMap{
+				ConfigMap: map[string]*collectorv1.AgentConfigFile{"": {Body: []byte("// loaded")}},
+			}}
+
+			It("treats a silent poll carrying effective_config for the served hash as a load", func() {
+				servedHash := failClaimed()
 
 				_, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
 					Id:              "recompute-instance",
 					Hash:            servedHash,
+					EffectiveConfig: effective,
 					LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"},
 				}))
 				Expect(err).NotTo(HaveOccurred())
@@ -1023,7 +1067,41 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 				instance, err := st.Queries.GetCollectorInstanceByID(ctx, "recompute-instance")
 				Expect(err).NotTo(HaveOccurred())
 				Expect(instance.RemoteConfigStatus.String).To(Equal("APPLIED"))
-				Expect(instance.RemoteConfigError.Valid).To(BeFalse(), "stale error message must be cleared alongside the status")
+				Expect(instance.RemoteConfigError.Valid).To(BeFalse())
+				Expect(instance.RemoteConfigStatusHash.String).To(Equal(servedHash))
+			})
+
+			It("keeps APPLIED on a good config replacing a good one, and follows the new hash", func() {
+				servedHash := failClaimed()
+				Expect(st.Queries.UpdateInstanceStatus(ctx, sqlc.UpdateInstanceStatusParams{
+					ID:                 "recompute-instance",
+					RemoteConfigStatus: pgtype.Text{String: "APPLIED", Valid: true},
+					StatusHash:         pgtype.Text{String: "an-earlier-hash", Valid: true},
+				})).To(Succeed())
+
+				_, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+					Id:              "recompute-instance",
+					Hash:            servedHash,
+					EffectiveConfig: effective,
+					LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"},
+				}))
+				Expect(err).NotTo(HaveOccurred())
+
+				instance, err := st.Queries.GetCollectorInstanceByID(ctx, "recompute-instance")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(instance.RemoteConfigStatus.String).To(Equal("APPLIED"))
+				Expect(instance.RemoteConfigStatusHash.String).To(Equal(servedHash))
+			})
+
+			It("does not let the sweeper's inactive marker erase a FAILED", func() {
+				failClaimed()
+				Expect(st.Queries.MarkStaleInstancesInactive(ctx,
+					pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true})).To(Succeed())
+
+				instance, err := st.Queries.GetCollectorInstanceByID(ctx, "recompute-instance")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(instance.RemoteConfigStatus.String).To(Equal("FAILED"),
+					"inactive is cleared on reconnect and then promoted to APPLIED; a failure must survive that")
 			})
 
 			It("still promotes a never-reported status to APPLIED on a served-hash poll", func() {

@@ -13,6 +13,16 @@ Categories used here:
 
 ## Unreleased
 
+### Fixed
+
+- **A failing collector no longer turns APPLIED when Shepherd serves it a new config.** v0.13.0's
+  fix (#115) covered a rejected config followed by silent polls, but Alloy re-sends a status only
+  when the error *message* changes: when a label edit or any other change served a new config that
+  failed the same way, the agent stayed silent and Shepherd read that as recovery. A status-less
+  poll now keeps the last reported outcome (and follows the new config); it means APPLIED only when
+  Alloy proves a load by sending its effective config. The lifecycle sweeper no longer marks a
+  FAILED collector inactive, which had the same effect once it reconnected.
+
 ## v0.13.0
 
 Chart 0.17.0. Moves validation and the bundled Alloy to **v1.20.1**, and fixes two things v0.12.0
