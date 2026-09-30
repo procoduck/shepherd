@@ -19,7 +19,7 @@
 |---|---|
 | `docs/project-status.md` | this ledger — verified baseline, open bugs, unbuilt features, open follow-ups |
 | `docs/spec.md` | authoritative product/build specification (§ numbers referenced below) |
-| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. Current: `2026-09-28-receiver-tier.md` (#109, built, unreleased) and `2026-09-29-tenant-route-apply.md` (awaiting approval) |
+| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. Empty since v0.12.0 (both September plans shipped and are archived) |
 | `docs/visual-builder-design-VB1.md` | visual builder design — M1–M8 built; §6.4 (S3) is the live spec for the sandbox feature (enabled by default in the Helm chart since v0.0.1) |
 | `docs/reviews/` | **live decision records only**: `canvas-framework-evaluation.md` (the React Flow decision and the controlled-mode contract `CanvasPane` depends on). Closed reviews move to `docs/archive/reviews/` |
 | `docs/dev-guide.md` | running the dev stack |
@@ -27,7 +27,7 @@
 | `docs/git-provider-design.md` | GitOps provider-auth design; live at top level because Go source cites its § numbers |
 | `docs/platform-monitoring-architecture.md` | target-fleet reference notes |
 | `docs/kind-test-environment-plan.md` | kind-based Kubernetes test environment (`make e2e-k8s`, weekly + path-filtered on qualifying PRs) plus §11 the reusable dev stack it shares pins with (`make dev-kind`, the Kubernetes flavour of `make dev`). Steps 1, 2, 4, 6 done; step 3 (full-values install, true previous-version upgrade spec) and step 5 (`NOTES.txt` CNI warning) still open — see its status header |
-| `docs/gateway-tier-plan.md` | **in progress**: all 11 workstreams built (2026-08-22); W1, W2, W3, W5, W8 done; R1, R2 signed; R6's two conditions met in v0.9.0 (per-service-account rate limit, the `pipeline.propose` audit row), so W11 ships; R3 open with the receiver-tier build (#109) still to do; the product surfaces left are W7 onboarding (#111) and W9 chart-values + G10 (#112). Its §9 is the step ledger; §7 the review gates and sign-offs |
+| `docs/gateway-tier-plan.md` | **all 11 workstreams shipped** as of v0.12.0; every review gate signed (R1, R2, R3, R5, R6). Kept live for its decisions (D1–D11), §9 step ledger and the open questions in §11 (beacon retention, team scope/ownership, proposal shape) |
 | `docs/proofs/` | red–green proofs for shipped controls. Not archived: Go source and CI workflows cite these paths |
 | `docs/archive/` | finished work, kept as the record of why things are the way they are |
 
@@ -108,6 +108,20 @@ the manual end-to-end pass the list above records. Re-walk them on the next rele
   as HTTPRoutes under receiver-gated RBAC (#175–#178, #180, migration `0027`); Connect an app
   (#111) and Connect a cluster with the G10 kind proof (#112).
 
+### On `main`, unreleased (next: v0.13.0)
+
+CI-verified on `main`, in `CHANGELOG.md` *Unreleased*:
+
+- **Alloy v1.20.1** (#185, closes #183) — bundled binary and component schema; compose E2E and the
+  kind suite green on the bump.
+- **APPLIED means loaded** (#186, closes #115) — migration `0028`; a rejected config stays FAILED.
+  Proof: `docs/proofs/applied-status.md`.
+- **Tenant-route apply with two replicas** (#192) — an advisory lock so one replica reconciles at a
+  time; before it, the chart's default `replicas: 2` raced and flapped route status. Kind suite now
+  runs this feature with two replicas.
+- Dependency rounds (#157, #188, #189); grpc held (#187); CI's frontend gate now covers the web
+  tests' inputs outside `web/` (#190); the `values.yaml` receiver header corrected (#191).
+
 ### History
 
 The dated passes that used to sit here — the 2026-08-20 baseline, the 2026-08-21 W1 / sandbox
@@ -158,29 +172,9 @@ Served config is shown, but nothing links back to the pipelines that produced it
 to get from "this collector runs X" to "because pipeline Y matched". The merge engine already knows
 the contributing set.
 
-### Gateway-tier workstreams · see `docs/gateway-tier-plan.md` §7 "Sign-offs recorded 2026-09-11"
-
-R1, R2 signed; R6's conditions met in v0.9.0; R3 open. Shipped since the sign-offs: tenant routes
-UI (W4, v0.9.0), service accounts UI (W10, v0.9.0), the MCP interface in the release archives (W11,
-v0.9.0), reconciliation (W6, v0.11.0). Still to build, each a GitHub issue:
-
-- **Receiver tier (W4's other half) — #109.** Plan: `docs/archive/plans/2026-09-28-receiver-tier.md`
-  (config rendered at pod start, destinations from chart values, default off; tenant-route apply is
-  a separate follow-up). Built: CLI (#169), chart (#170), kind proof (#171), docs + the R3 packet
-  (gateway plan §7). **R3 signed 2026-09-29**, receiver kept opt-in. **Tenant-route apply done, unreleased**
-  (`docs/archive/plans/2026-09-29-tenant-route-apply.md`, #175–#178 + the kind proof): Shepherd applies each
-  route's HTTPRoute through a background reconciler (`internal/routeapply`) under receiver-gated
-  RBAC, and the Tenant routes page shows the result.
-- **Onboarding artifacts page (W7) — #111.** Done, unreleased: `TenantRouteService.RenderConnectApp` renders
-  `internal/onboarding` for an active OTLP route; the Tenant routes page's **Connect an app** dialog shows it.
-- **Chart-values generator UI (W9) + gate G10 — #112.** Done, unreleased: `FleetService.RenderChartValues` +
-  the Collectors page's **Connect a cluster** dialog; G10 is `e2e/k8s/chart_values_test.go`.
-
-### Attribute-based matching — UI and docs · **#139 item 8** · done, unreleased
-
-Built on `main`: org-editor toggles for both matching flags, matcher suggestions in the pipeline
-editor and visual builder (fed by a `ListAttributes` that now lists only keys matching evaluates),
-and the matchers docs section. Ships in the next release; closes #139.
+All gateway-tier workstreams (W1–W11) and attribute-based matching (#139) have shipped — the last
+of them in v0.12.0: the receiver tier (#109, opt-in, R3 signed), tenant-route apply, onboarding
+artifacts (#111) and the chart-values generator with G10 (#112). See `docs/gateway-tier-plan.md` §9.
 
 Closed features (F5 sandbox simulation, F-SIGNAL-SERVE) are in `docs/archive/completed-2026-09-11.md`.
 F-REVISIONS closed — see `CHANGELOG.md` v0.6.0 "Pipelines — Shipped"; its plan is archived at
@@ -221,15 +215,15 @@ answer and the ledger item it produced is below.
 - [x] **`shepherd_build_info` gauge** — shipped in v0.9.0.
 - [x] **REST shim removal** — removed in v0.11.0 (#162) after its callers moved to Connect
       (#160/#161); `/api` now serves only the out-of-contract schema routes (`docs/spec.md` §12).
-- [ ] **Receiver tier build (R3)** — #109.
+- [x] **Receiver tier build (R3)** — #109; shipped in v0.12.0, opt-in (R3 signed 2026-09-29).
 - [x] **R6 conditions** — the per-service-account rate limit shipped in v0.9.0 (#130); the
       `pipeline.propose` audit row already existed. `shepherd-mcp` joined the release archives in
       v0.9.0 (#132).
 - [x] **Tenant routes UI** (W4) — shipped in v0.9.0.
 - [x] **Service-accounts UI** (W10 remainder) — shipped in v0.9.0.
 - [x] **Reconciliation surface** (W6) — shipped in v0.11.0 (#140).
-- [x] **Onboarding artifacts page** (W7) — #111.
-- [x] **Chart-values generator UI** (W9) + gate G10 in the kind suite — #112.
+- [x] **Onboarding artifacts page** (W7) — #111, shipped in v0.12.0.
+- [x] **Chart-values generator UI** (W9) + gate G10 in the kind suite — #112, shipped in v0.12.0.
 
 ### Smaller follow-ups
 
@@ -262,8 +256,9 @@ In rough priority order; closed items stay in place, marked with the release tha
 - [x] **Graph diff for visual pipelines** — shipped in v0.10.0 (#137).
 - [ ] **grpc held at v1.83.2.** v1.84.0 carries GO-2026-6443, which Shepherd's RPC code calls, so
       `make vulncheck` refuses it; the fix exists only in a `v1.85.0-dev` pseudo-version. Take the
-      bump (Dependabot will propose it) once v1.85.0 stable is released. The other three modules in
-      that group shipped via #153.
+      bump once v1.85.0 stable is released: `.github/dependabot.yml` ignores `>= 1.84.0, < 1.85.0`
+      (#187), so the first stable 1.85 arrives as a normal Dependabot PR — drop the ignore then.
+      The rest of each group ships as usual (#153, #188).
 - [x] **`visual-drafts.spec.ts` flaked under load — it was a real bug.** The builder's draft
       autosave overwrote a pending draft on open (the schema-version stamp counted as an edit); the
       spec caught it whenever that save beat the restore check. Fixed on `main` (autosave now waits

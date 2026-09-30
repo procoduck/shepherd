@@ -11,6 +11,11 @@
 > CNI control — see §8b for what building it taught us about probe observability); Layer C and the
 > remaining steps proposed.
 >
+> **Now twelve** (re-counted 2026-09-30): since the nine below, the receiver tier's pass-through
+> tenancy (`receiver_tenancy_test.go`, R3), tenant-route apply through the Connect API with two
+> replicas (`tenant_route_apply_test.go`) and G10's real k8s-monitoring install
+> (`chart_values_test.go`) were added. `e2e/k8s/README.md` carries the current list and timing.
+>
 > **Grown since**: the suite now runs **nine features** (re-counted 2026-09-11 — one
 > `features.New(...)` per `TestX` function across `e2e/k8s/*_test.go`, `TestMain` excluded:
 > `chart_deps_test.go`, `helm_install_test.go` (×2), `helm_repeatable_test.go`,
