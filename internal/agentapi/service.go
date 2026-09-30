@@ -173,6 +173,8 @@ func (s *Service) GetConfig(
 			ID:                 req.Msg.Id,
 			RemoteConfigStatus: pgtype.Text{String: statusStr, Valid: true},
 			RemoteConfigError:  pgtype.Text{String: errMsg, Valid: errMsg != ""},
+			// Which config this status is about (#115): the hash sent with it.
+			StatusHash: pgtype.Text{String: req.Msg.Hash, Valid: req.Msg.Hash != ""},
 		}); err != nil {
 			s.logger.Warn("failed to update instance status", "instance_id", req.Msg.Id, "err", err)
 		}
@@ -283,7 +285,10 @@ func (s *Service) GetConfig(
 // maybeClearFailedStatus implements the B1 clearing rule: when a poll
 // carries no RemoteConfigStatus payload and the agent's reported hash
 // equals what GetConfig actually served, the agent is healthy on its
-// current config, so a stale FAILED marker is cleared back to APPLIED.
+// current config, so a stale FAILED marker is cleared back to APPLIED —
+// unless that FAILED was reported for this very hash (#115): Alloy reports a
+// rejected config once and then polls silently with its hash while running
+// the previous config, so that silence must not read as recovery.
 // If the request DOES carry a RemoteConfigStatus — including a repeated
 // FAILED — GetConfig has already persisted it via UpdateInstanceStatus
 // above, and that write wins: status is non-nil here, so this is a no-op.
@@ -296,7 +301,10 @@ func (s *Service) maybeClearFailedStatus(
 	if status != nil || agentHash != servedHash {
 		return
 	}
-	if err := s.store.Queries.ClearStaleFailedStatus(ctx, instanceID); err != nil {
+	if err := s.store.Queries.ClearStaleFailedStatus(ctx, sqlc.ClearStaleFailedStatusParams{
+		ID:         instanceID,
+		PolledHash: pgtype.Text{String: agentHash, Valid: agentHash != ""},
+	}); err != nil {
 		s.logger.Warn("failed to clear stale FAILED status", "instance_id", instanceID, "err", err)
 	}
 }

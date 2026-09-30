@@ -13,6 +13,15 @@ Categories used here:
 
 ## Unreleased
 
+### Fixed
+
+- **A collector no longer shows APPLIED for a config its agent rejected.** When Alloy fails to load
+  a served config that passed validation (reproduced on v1.20.1: e.g. a scrape timeout longer than
+  its interval, or a `local.file` whose path does not exist), it reports FAILED once and then keeps
+  polling silently while running its previous config; Shepherd read that silence as recovery and
+  showed APPLIED one poll later. The collector now stays FAILED, with Alloy's error, until the agent
+  reports a status for another config. Migration `0028` (additive). (#115)
+
 ### Changed
 
 - **Alloy v1.20.1.** The bundled Alloy (Stage 2 validation, the receiver tier, the sandbox) and the

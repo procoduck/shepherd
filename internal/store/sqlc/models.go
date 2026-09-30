@@ -74,18 +74,19 @@ type Collector struct {
 }
 
 type CollectorInstance struct {
-	ID                 string             `json:"id"`
-	CollectorID        pgtype.UUID        `json:"collector_id"`
-	Name               string             `json:"name"`
-	LocalAttributes    json.RawMessage    `json:"local_attributes"`
-	AlloyVersion       pgtype.Text        `json:"alloy_version"`
-	Os                 pgtype.Text        `json:"os"`
-	LastSeen           pgtype.Timestamptz `json:"last_seen"`
-	UnregisteredAt     pgtype.Timestamptz `json:"unregistered_at"`
-	RemoteConfigStatus pgtype.Text        `json:"remote_config_status"`
-	RemoteConfigError  pgtype.Text        `json:"remote_config_error"`
-	CreatedAt          pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	ID                     string             `json:"id"`
+	CollectorID            pgtype.UUID        `json:"collector_id"`
+	Name                   string             `json:"name"`
+	LocalAttributes        json.RawMessage    `json:"local_attributes"`
+	AlloyVersion           pgtype.Text        `json:"alloy_version"`
+	Os                     pgtype.Text        `json:"os"`
+	LastSeen               pgtype.Timestamptz `json:"last_seen"`
+	UnregisteredAt         pgtype.Timestamptz `json:"unregistered_at"`
+	RemoteConfigStatus     pgtype.Text        `json:"remote_config_status"`
+	RemoteConfigError      pgtype.Text        `json:"remote_config_error"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
+	RemoteConfigStatusHash pgtype.Text        `json:"remote_config_status_hash"`
 }
 
 type Destination struct {

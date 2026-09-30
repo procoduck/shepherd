@@ -238,13 +238,11 @@ In rough priority order; closed items stay in place, marked with the release tha
       from the `pipeline.propose` audit row for service-account callers. The removed REST shim had put
       it behind org editor; that stricter rule is not carried over. `role_matrix_test.go` pins the
       Connect behaviour.
-- [ ] **A collector's `APPLIED` status can mean "polled with the served hash", not "loaded it
-      successfully."** `ClearStaleFailedStatus` promotes NULL/FAILED to `APPLIED` on a status-less
-      poll carrying the served hash, and nothing Shepherd reads today (`effective_config` is
-      unread; beacon rows are not keyed by collector instance) can tell a fresh load from a
-      rejected one served from cache. Needs a reproduction against a live Alloy v1.20.1 agent
-      before picking one of three options — see `docs/archive/plans/2026-09-14-walkthrough-fixes.md` §3
-      (B1). GitHub issue #115.
+- [x] **A collector's `APPLIED` status can mean "polled with the served hash", not "loaded it
+      successfully."** Reproduced against a live Alloy v1.20.1 (it reports FAILED once with the
+      rejected hash, then polls silently with it); fixed with option 1 — migration `0028`
+      records the hash a status is for, and the clear-back skips a FAILED for the polled hash.
+      Proof: `docs/proofs/applied-status.md`. #115.
 - [x] **Wizards have no channel to say when they silently drop or add something** (B2) — a
       first-class warnings field on the render preview shipped in v0.10.0 (#134).
 - [x] **`Chart.yaml` `kubeVersion` floor** (B3) — raised to 1.29 in v0.9.0 (#131).
