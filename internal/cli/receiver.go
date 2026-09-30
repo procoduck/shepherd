@@ -16,7 +16,7 @@ import (
 	"shepherd/internal/receiver"
 )
 
-// The receiver tier (docs/plans/2026-09-28-receiver-tier.md) renders its
+// The receiver tier (docs/archive/plans/2026-09-28-receiver-tier.md) renders its
 // Alloy config at pod start: an init container runs `shepherd receiver
 // render` over a file the chart builds from its values, and the Alloy
 // container runs the result. Rendering here, rather than templating Alloy in

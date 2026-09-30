@@ -435,7 +435,7 @@ up to 10, left a multi-pod deployment with no budget at all.
 {{- end }}
 
 {{/*
-Receiver tier (#109, docs/plans/2026-09-28-receiver-tier.md): an OTLP/HTTP
+Receiver tier (#109, docs/archive/plans/2026-09-28-receiver-tier.md): an OTLP/HTTP
 Alloy that the gateway fronts and that forwards each tenant's data with the
 tenant header the gateway injected. Its own stable name, like the simulator's.
 */}}
@@ -491,7 +491,7 @@ otlp:
 {{- end }}
 
 {{/*
-Tenant-route apply (docs/plans/2026-09-29-tenant-route-apply.md): "true" when
+Tenant-route apply (docs/archive/plans/2026-09-29-tenant-route-apply.md): "true" when
 Shepherd should apply tenant routes' HTTPRoutes itself -- only with the receiver
 tier on, since the routes point at the receiver Service. Gates the RBAC, the
 pod's token mount and the reconciler's env; empty otherwise.

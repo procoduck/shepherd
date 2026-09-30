@@ -302,7 +302,7 @@ type GatewayRoutesConfig struct {
 }
 
 // RouteApplyConfig configures the tenant-route reconciler (internal/routeapply,
-// docs/plans/2026-09-29-tenant-route-apply.md): when enabled, Shepherd applies
+// docs/archive/plans/2026-09-29-tenant-route-apply.md): when enabled, Shepherd applies
 // each tenant route's HTTPRoute in Namespace, pointing at the receiver Service
 // BackendService:BackendPort in the same namespace, and removes the ones no
 // route wants. It runs in-cluster only, with the chart's receiver-gated RBAC.

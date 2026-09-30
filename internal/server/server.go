@@ -406,7 +406,7 @@ func (s *Server) Run(ctx context.Context) error {
 		s.logger.Warn("gitops reconciler not started: encryption key not configured")
 	}
 
-	// Tenant-route apply (docs/plans/2026-09-29-tenant-route-apply.md): off
+	// Tenant-route apply (docs/archive/plans/2026-09-29-tenant-route-apply.md): off
 	// unless configured, and in-cluster only — the chart grants the RBAC when
 	// the receiver tier is on. A missing in-cluster config is logged, not
 	// fatal: the rest of Shepherd works without it and routes stay pending.

@@ -14,7 +14,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Receiver tier, PR 2 of docs/plans/2026-09-28-receiver-tier.md: the chart's
+// Receiver tier, PR 2 of docs/archive/plans/2026-09-28-receiver-tier.md: the chart's
 // receiver objects, off by default, and the posture review gate R3 asks for.
 // The runtime half (real Alloy, real gateway, Calico-enforced policy) is the
 // kind suite's; these pin what the chart renders.

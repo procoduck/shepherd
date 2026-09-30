@@ -13,7 +13,7 @@ import (
 	"shepherd/internal/store/sqlc"
 )
 
-// The store half of tenant-route apply (docs/plans/2026-09-29-tenant-route-apply.md
+// The store half of tenant-route apply (docs/archive/plans/2026-09-29-tenant-route-apply.md
 // PR 1, migration 0027): the reconciler's reads and its status writes.
 var _ = Describe("tenant route apply status (0027)", Label("integration"), func() {
 	var (

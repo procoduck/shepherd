@@ -765,20 +765,21 @@ simulator:
     # needs, by design.
     extraEgress: []
 
-# Receiver tier (#109, docs/plans/2026-09-28-receiver-tier.md): an OTLP/HTTP
+# Receiver tier (#109, docs/archive/plans/2026-09-28-receiver-tier.md): an OTLP/HTTP
 # Alloy that a Gateway API gateway fronts. The gateway's HTTPRoute strips the
 # tenant-route prefix and injects the tenant header; with pass-through tenancy
 # the receiver forwards each request's data carrying that header to the
 # tenant-aware backends below. The prefix is an identifier, not an
 # authorizer -- see docs/gateway-tier-plan.md §3.
 #
-# OFF by default, and it stays off until review gate R3 is signed
-# (docs/gateway-tier-plan.md §7): containment, a tested off-switch, the gateway
-# as the only ingress, and a real-Alloy tenancy proof. Tenant routes created in
-# Shepherd are not yet applied to the cluster, so nothing routes to this
-# receiver until you create the HTTPRoute yourself.
+# OFF by default: an opt-in feature. Review gate R3 (docs/gateway-tier-plan.md
+# §7: containment, a tested off-switch, the gateway as the only ingress, a
+# real-Alloy tenancy proof) was signed 2026-09-29 with the receiver kept
+# opt-in. With it on, Shepherd applies each tenant route's HTTPRoute itself
+# (applyTenantRoutes below) and shows on the Tenant routes page whether the
+# gateway attached it.
 receiver:
-  # enabled: deploy the receiver tier. Off until R3 is signed -- see above.
+  # enabled: deploy the receiver tier (opt-in -- see above).
   enabled: false
   # replicas: receiver pods behind the receiver Service. Each is stateless.
   replicas: 1

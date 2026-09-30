@@ -5,7 +5,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-// Tenant-route apply, PR 3 of docs/plans/2026-09-29-tenant-route-apply.md: the
+// Tenant-route apply, PR 3 of docs/archive/plans/2026-09-29-tenant-route-apply.md: the
 // chart gives Shepherd Kubernetes API access ONLY with the receiver tier on,
 // and only what internal/routeapply uses. Whether the reconciler actually
 // works with exactly these grants is the kind suite's to prove (PR 5).

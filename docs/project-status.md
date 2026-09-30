@@ -8,8 +8,8 @@
 > board is archived at `docs/archive/plans/2026-09-16-outstanding-work.md` — eight of its twelve
 > remaining items shipped in v0.9.0/v0.10.0 and the other four are GitHub issues (§3).
 >
-> Baseline re-verified 2026-09-28 at the v0.11.0 release
-> (`25145fc`, chart 0.15.0) from the CI and release runs on that commit, not from a summary.
+> Baseline re-verified 2026-09-30 at the v0.12.0 release
+> (`268c72e`, chart 0.16.0) from the CI and release runs on that commit, not from a summary.
 > Completed rounds live in `docs/archive/` — the history this ledger used to carry inline is
 > `docs/archive/completed-2026-09-11.md`. Do not start a second ledger.
 
@@ -33,24 +33,26 @@
 
 ---
 
-## 1. Verified baseline (2026-09-28, v0.11.0)
+## 1. Verified baseline (2026-09-30, v0.12.0)
 
-Every row is a CI or release run on `25145fc` (the v0.11.0 release commit, PR #163) or the run that
+Every row is a CI or release run on `268c72e` (the v0.12.0 release commit, PR #184) or the run that
 last exercised the surface, so the claim is checkable by run id rather than by trusting this table.
+`af492fd` (#182) is the commit before it; the release commit changed only version pins, docs and
+the rebuilt bundle.
 
 | Check | Where it ran | Result |
 |---|---|---|
-| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 36400152608 (`25145fc`) | clean |
+| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 36581101180 (`268c72e`) | clean |
 | `golangci-lint` + config verify, all ten `make guards`, `helm lint` (incl. the dev-kind values), `scripts/repocheck` | CI `lint` + `guards` jobs, same run | 0 issues |
 | `go test ./...` with coverage (testcontainers Postgres) | CI `test` job, same run | green |
-| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job, run 36397116495 (`1c05e52`, PR #162 — the last web change; the release commit only rebuilt the bundle) | clean |
-| Mocked Playwright (`make test-ui`) | CI `test-ui` job, same run (36397116495) | green |
-| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 36400152608 (`25145fc`) | green |
-| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml`, manual dispatch on `25145fc`, run 36401527729 — dispatched because the path filter skipped it after #162 removed the REST shim | green (22 specs) |
-| Kubernetes e2e, kind (`make e2e-k8s`) | `e2e-k8s.yml` on the release PR (#163, `24ebbf2`), run 36397765892 | green |
-| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job, same manual dispatch on `25145fc` (run 36401527729) | green (containment + run lifecycle) |
-| CodeQL (actions, go, javascript-typescript, python; `security-extended`) | `codeql.yml` on `25145fc`, run 36400152824 | green |
-| Release: verify job, goreleaser, image attestations, chart OCI push, `scan-published` | `release.yml`, run 36400183145 | success — chart 0.15.0 / appVersion 0.11.0 pullable, images `0.11.0` + `latest` present for both, SLSA v1 provenance verified (`gh attestation verify`, source `25145fc`), `scan-published` green for both |
+| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job, run 36579412436 (`af492fd`, #182 — the last web change) | clean |
+| Mocked Playwright (`make test-ui`) | CI `test-ui` job, same run (36579412436) | green |
+| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 36581101180 (`268c72e`) | green |
+| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml`, manual dispatch on `af492fd`, run 36579702929 — dispatched because the path filter skips it on push | green |
+| Kubernetes e2e, kind (`make e2e-k8s`) — 12 features incl. tenant-route apply and G10 | `e2e-k8s.yml` on the release PR (#184), run 36579983453 | green |
+| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job, same manual dispatch (run 36579702929) | green (containment + run lifecycle) |
+| CodeQL (actions, go, javascript-typescript, python; `security-extended`) | `codeql.yml` on `268c72e`, run 36581101168 | green |
+| Release: verify job, goreleaser, image attestations, chart OCI push, `scan-published` | `release.yml`, run 36688061602 | success — chart 0.16.0 / appVersion 0.12.0 pullable, image `ghcr.io/procoduck/shepherd:0.12.0` present, SLSA v1 provenance verified (`gh attestation verify --format json`), `scan-published` green for both images |
 
 ### What demonstrably works end to end
 
@@ -102,6 +104,9 @@ the manual end-to-end pass the list above records. Re-walk them on the next rele
 - **v0.11.0** — the Reconciliation tab (#140, migration `0025`); attribute-based pipeline matching
   behind two per-org flags (#142/#144/#158, migration `0026`); the `/api` REST shim removed
   (#160/#161/#162).
+- **v0.12.0** — the receiver tier (opt-in, R3 signed; #169–#172); Shepherd applying tenant routes
+  as HTTPRoutes under receiver-gated RBAC (#175–#178, #180, migration `0027`); Connect an app
+  (#111) and Connect a cluster with the G10 kind proof (#112).
 
 ### History
 
@@ -117,6 +122,8 @@ remediation with its D1–D14 decisions, and the v0.5.0 dependency and toolchain
   release run 35334888511.
 - 2026-09-28 — v0.11.0 (reconciliation, attribute-based matching, REST shim removed), chart 0.15.0,
   release run 36400183145.
+- 2026-09-30 — v0.12.0 (receiver tier, tenant-route apply, Connect an app / a cluster), chart 0.16.0,
+  release run 36688061602.
 
 ---
 
@@ -157,11 +164,11 @@ R1, R2 signed; R6's conditions met in v0.9.0; R3 open. Shipped since the sign-of
 UI (W4, v0.9.0), service accounts UI (W10, v0.9.0), the MCP interface in the release archives (W11,
 v0.9.0), reconciliation (W6, v0.11.0). Still to build, each a GitHub issue:
 
-- **Receiver tier (W4's other half) — #109.** Plan: `docs/plans/2026-09-28-receiver-tier.md`
+- **Receiver tier (W4's other half) — #109.** Plan: `docs/archive/plans/2026-09-28-receiver-tier.md`
   (config rendered at pod start, destinations from chart values, default off; tenant-route apply is
   a separate follow-up). Built: CLI (#169), chart (#170), kind proof (#171), docs + the R3 packet
   (gateway plan §7). **R3 signed 2026-09-29**, receiver kept opt-in. **Tenant-route apply done, unreleased**
-  (`docs/plans/2026-09-29-tenant-route-apply.md`, #175–#178 + the kind proof): Shepherd applies each
+  (`docs/archive/plans/2026-09-29-tenant-route-apply.md`, #175–#178 + the kind proof): Shepherd applies each
   route's HTTPRoute through a background reconciler (`internal/routeapply`) under receiver-gated
   RBAC, and the Tenant routes page shows the result.
 - **Onboarding artifacts page (W7) — #111.** Done, unreleased: `TenantRouteService.RenderConnectApp` renders

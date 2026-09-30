@@ -2,7 +2,7 @@
 // that applies each wanted route's HTTPRoute through gateway.ApplyRoute
 // (verified attachment, never mere creation), deletes the ones no route wants,
 // and records the outcome on the route's row
-// (docs/plans/2026-09-29-tenant-route-apply.md). The RPCs only ever change the
+// (docs/archive/plans/2026-09-29-tenant-route-apply.md). The RPCs only ever change the
 // database; nothing here blocks a request.
 //
 // Desired state per row:

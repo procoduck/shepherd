@@ -33,7 +33,7 @@ import (
 	"shepherd/internal/routeapply"
 )
 
-// TestTenantRouteApply is the full loop of docs/plans/2026-09-29-tenant-route-
+// TestTenantRouteApply is the full loop of docs/archive/plans/2026-09-29-tenant-route-
 // apply.md (PR 5): a tenant route created through Shepherd's Connect API — no
 // hand-written YAML anywhere — is applied to the cluster by the chart-deployed
 // Shepherd's own reconciler, under exactly the RBAC the chart grants, and OTLP

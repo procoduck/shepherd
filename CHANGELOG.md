@@ -57,7 +57,7 @@ additive. Before turning the receiver on, read `deploy/helm/shepherd/UPGRADING.m
   _Shipped._ (#139)
 
 - **Receiver tier in the chart — off by default.** `receiver.enabled` deploys an OTLP/HTTP Alloy
-  that a Gateway API gateway fronts (#109, `docs/plans/2026-09-28-receiver-tier.md`). An init
+  that a Gateway API gateway fronts (#109, `docs/archive/plans/2026-09-28-receiver-tier.md`). An init
   container runs the new `shepherd receiver render`, which validates the receiver config built from
   `receiver.*` values and renders it — nothing is written on failure, so a bad config stops the pod
   at `Init:Error` — and Alloy (the version pinned for the Shepherd image) runs the result, read-only
@@ -87,7 +87,7 @@ additive. Before turning the receiver on, read `deploy/helm/shepherd/UPGRADING.m
   on the Shepherd pod only. With the receiver off, nothing changes. Proven end to end on kind: a
   route created through the API carries its org's tenant through a real gateway and receiver.
   See `UPGRADING.md` if you wrote tenant HTTPRoutes by hand. Uses `k8s.io/client-go`. _Shipped._
-  (`docs/plans/2026-09-29-tenant-route-apply.md`)
+  (`docs/archive/plans/2026-09-29-tenant-route-apply.md`)
 
 - **Connect an app.** Each active OTLP tenant route on **Admin → Tenant routes** has a
   **Connect an app** dialog: enter a service name and get the endpoint plus ready-to-paste

@@ -1,6 +1,6 @@
 # Red–green proofs: the receiver tier (gate R3)
 
-Behavior proved: the chart's receiver tier (#109, `docs/plans/2026-09-28-receiver-tier.md`) — a
+Behavior proved: the chart's receiver tier (#109, `docs/archive/plans/2026-09-28-receiver-tier.md`) — a
 real Alloy rendered at pod start by `shepherd receiver render` — forwards each tenant's data
 carrying exactly the tenant its gateway route injected, accepts traffic only from the gateway, and
 refuses to start on a config the renderer rejects. Cited by `e2e/k8s/receiver_tenancy_test.go`.

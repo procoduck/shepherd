@@ -27,7 +27,7 @@ import (
 )
 
 // TestReceiverPassThroughTenancy is review gate R3's end-to-end proof for the
-// receiver tier (#109, docs/plans/2026-09-28-receiver-tier.md PR 3): the
+// receiver tier (#109, docs/archive/plans/2026-09-28-receiver-tier.md PR 3): the
 // chart's own receiver — a REAL Alloy, rendered at pod start by `shepherd
 // receiver render` — behind a real NGF gateway, with routes applied by the
 // product's own gateway.ApplyRoute, forwarding to a sink that records the
