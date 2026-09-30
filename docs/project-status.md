@@ -8,8 +8,8 @@
 > board is archived at `docs/archive/plans/2026-09-16-outstanding-work.md` — eight of its twelve
 > remaining items shipped in v0.9.0/v0.10.0 and the other four are GitHub issues (§3).
 >
-> Baseline re-verified 2026-09-30 at the v0.12.0 release
-> (`268c72e`, chart 0.16.0) from the CI and release runs on that commit, not from a summary.
+> Baseline re-verified 2026-09-30 at the v0.13.0 release
+> (`0652e9d`, chart 0.17.0) from the CI and release runs on that commit, not from a summary.
 > Completed rounds live in `docs/archive/` — the history this ledger used to carry inline is
 > `docs/archive/completed-2026-09-11.md`. Do not start a second ledger.
 
@@ -33,26 +33,26 @@
 
 ---
 
-## 1. Verified baseline (2026-09-30, v0.12.0)
+## 1. Verified baseline (2026-09-30, v0.13.0)
 
-Every row is a CI or release run on `268c72e` (the v0.12.0 release commit, PR #184) or the run that
+Every row is a CI or release run on `0652e9d` (the v0.13.0 release commit, PR #194) or the run that
 last exercised the surface, so the claim is checkable by run id rather than by trusting this table.
-`af492fd` (#182) is the commit before it; the release commit changed only version pins, docs and
+`30f9a92` (#193) is the commit before it; the release commit changed only version pins, docs and
 the rebuilt bundle.
 
 | Check | Where it ran | Result |
 |---|---|---|
-| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 36581101180 (`268c72e`) | clean |
+| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 36699519723 (`0652e9d`) | clean |
 | `golangci-lint` + config verify, all ten `make guards`, `helm lint` (incl. the dev-kind values), `scripts/repocheck` | CI `lint` + `guards` jobs, same run | 0 issues |
 | `go test ./...` with coverage (testcontainers Postgres) | CI `test` job, same run | green |
-| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job, run 36579412436 (`af492fd`, #182 — the last web change) | clean |
-| Mocked Playwright (`make test-ui`) | CI `test-ui` job, same run (36579412436) | green |
-| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 36581101180 (`268c72e`) | green |
-| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml`, manual dispatch on `af492fd`, run 36579702929 — dispatched because the path filter skips it on push | green |
-| Kubernetes e2e, kind (`make e2e-k8s`) — 12 features incl. tenant-route apply and G10 | `e2e-k8s.yml` on the release PR (#184), run 36579983453 | green |
-| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job, same manual dispatch (run 36579702929) | green (containment + run lifecycle) |
-| CodeQL (actions, go, javascript-typescript, python; `security-extended`) | `codeql.yml` on `268c72e`, run 36581101168 | green |
-| Release: verify job, goreleaser, image attestations, chart OCI push, `scan-published` | `release.yml`, run 36688061602 | success — chart 0.16.0 / appVersion 0.12.0 pullable, image `ghcr.io/procoduck/shepherd:0.12.0` present, SLSA v1 provenance verified (`gh attestation verify --format json`), `scan-published` green for both images |
+| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job, run 36688157159 (`001c0cd`, #189 — the last web change) | clean |
+| Mocked Playwright (`make test-ui`) | CI `test-ui` job, same run (36688157159) | green |
+| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 36699519723 (`0652e9d`) | green |
+| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml`, manual dispatch on `30f9a92`, run 36697824837 — dispatched because the path filter skips it on push | green |
+| Kubernetes e2e, kind (`make e2e-k8s`) — 12 features, tenant-route apply with two replicas | `e2e-k8s.yml` on the release PR (#194), run 36698035840 | green |
+| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job, same manual dispatch (run 36697824837) | green (containment + run lifecycle) |
+| CodeQL (actions, go, javascript-typescript, python; `security-extended`) | `codeql.yml` on `0652e9d`, run 36699519719 | green |
+| Release: verify job, goreleaser, image attestations, chart OCI push, `scan-published` | `release.yml`, run 36700640070 | success — chart 0.17.0 / appVersion 0.13.0 pullable, image `ghcr.io/procoduck/shepherd:0.13.0` present, SLSA v1 provenance verified (`gh attestation verify --format json`), `scan-published` green for both images |
 
 ### What demonstrably works end to end
 
@@ -107,20 +107,9 @@ the manual end-to-end pass the list above records. Re-walk them on the next rele
 - **v0.12.0** — the receiver tier (opt-in, R3 signed; #169–#172); Shepherd applying tenant routes
   as HTTPRoutes under receiver-gated RBAC (#175–#178, #180, migration `0027`); Connect an app
   (#111) and Connect a cluster with the G10 kind proof (#112).
-
-### On `main`, unreleased (next: v0.13.0)
-
-CI-verified on `main`, in `CHANGELOG.md` *Unreleased*:
-
-- **Alloy v1.20.1** (#185, closes #183) — bundled binary and component schema; compose E2E and the
-  kind suite green on the bump.
-- **APPLIED means loaded** (#186, closes #115) — migration `0028`; a rejected config stays FAILED.
-  Proof: `docs/proofs/applied-status.md`.
-- **Tenant-route apply with two replicas** (#192) — an advisory lock so one replica reconciles at a
-  time; before it, the chart's default `replicas: 2` raced and flapped route status. Kind suite now
-  runs this feature with two replicas.
-- Dependency rounds (#157, #188, #189); grpc held (#187); CI's frontend gate now covers the web
-  tests' inputs outside `web/` (#190); the `values.yaml` receiver header corrected (#191).
+- **v0.13.0** — Alloy v1.20.1 (#185); a rejected config stays FAILED instead of APPLIED (#186,
+  migration `0028`, proof `docs/proofs/applied-status.md`); tenant-route apply under the chart's
+  default two replicas, one reconciler at a time (#192).
 
 ### History
 
@@ -138,6 +127,8 @@ remediation with its D1–D14 decisions, and the v0.5.0 dependency and toolchain
   release run 36400183145.
 - 2026-09-30 — v0.12.0 (receiver tier, tenant-route apply, Connect an app / a cluster), chart 0.16.0,
   release run 36688061602.
+- 2026-09-30 — v0.13.0 (Alloy v1.20.1, rejected-config status, two-replica route apply), chart 0.17.0,
+  release run 36700640070.
 
 ---
 
