@@ -112,8 +112,8 @@ func TestValidate(t *testing.T) {
 			wantErr: true, wantIn: "ClusterName",
 		},
 		{
-			name:    "dotted, dashed and underscored cluster name",
-			mutate:  func(s chartvalues.Spec) chartvalues.Spec { s.ClusterName = "prod-eu_1.a"; return s },
+			name:   "dotted, dashed and underscored cluster name",
+			mutate: func(s chartvalues.Spec) chartvalues.Spec { s.ClusterName = "prod-eu_1.a"; return s },
 		},
 		{
 			name:    "missing shepherd URL",
