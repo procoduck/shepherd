@@ -10,23 +10,36 @@
         Matchers use Alertmanager syntax against a collector's keys —
         <code>cluster="prod-eu-1"</code>, <code>role="metrics"</code>, <code>role=~"metrics|logs"</code>.
         Every collector has <code>cluster</code> and <code>role</code>; an organisation can opt in to
-        more (below). A pipeline with no matchers reaches nothing. The editor previews how many
-        collectors currently match before you save, so "this matches nothing" is visible rather than
-        discovered later, and the matcher input suggests the <code>key="value"</code> pairs your
-        collectors actually carry &mdash; only keys that matching will evaluate.
+        more (below). A pipeline with no matchers reaches nothing. The matcher input suggests the
+        <code>key="value"</code> pairs your collectors actually carry &mdash; only keys that
+        matching will evaluate &mdash; and a wizard shows how many collectors its matchers select
+        before you commit.
       </p>
       <p><img src="../img/pipelines.jpg" alt="The Pipelines list showing name, source, matchers and an enabled toggle for each pipeline" loading="lazy"></p>
       <p>
         The <strong>Source</strong> column is worth reading: <code>ui</code>, <code>wizard</code>,
         <code>visual</code> and <code>git</code> pipelines all merge identically, but a
         <code>git</code> one is owned by its repository and will be overwritten on the next sync.
+        A <code>git</code> pipeline also ignores matchers: it goes to the collector its repository
+        link targets (see <a href="gitops.html">GitOps</a>).
+      </p>
+
+      <h2 id="roles">A collector&rsquo;s role limits what it runs</h2>
+      <p>
+        A match is not the last word. Each role accepts only the signals it is for: a
+        <code>metrics</code> collector takes metrics pipelines, a <code>logs</code> collector takes
+        logs pipelines, a <code>receiver</code> takes metrics, logs and traces, and a
+        <code>singleton</code> takes anything. A pipeline that matches a collector but carries a
+        signal its role does not accept is left out of that collector&rsquo;s config &mdash; not
+        an error, so enabling it still works everywhere else. The served config&rsquo;s header
+        names every pipeline left out and why.
       </p>
 
       <h2 id="matching-on-labels">Matching on labels and agent attributes</h2>
       <p>
         Two per-organisation settings, both <strong>off by default</strong>, let matchers use more than
         <code>cluster</code> and <code>role</code>. An app admin turns them on under
-        <strong>Admin &rarr; Organisations &rarr; Edit</strong>:
+        <strong>Admin &rarr; Orgs &rarr; Edit</strong>:
       </p>
       <ul>
         <li><strong>Match pipelines on collector labels</strong> &mdash; the labels an org admin sets on
@@ -69,6 +82,14 @@
             sees it.</li>
       </ol>
 
+      <p>
+        The gate proves a config is well formed and fits with the rest; it cannot run it. Alloy can
+        still reject a config at load time for reasons only the running agent knows &mdash; a
+        <code>local.file</code> whose path does not exist on that host, or a Kubernetes discovery
+        component on a collector that is not in Kubernetes. The collector then shows
+        <strong>FAILED</strong> with Alloy&rsquo;s own error and keeps running its previous config
+        (see <a href="collectors.html#status">Collector status</a>).
+      </p>
       <p>
         A collector&rsquo;s own page shows the exact merged config it is being served right now, which
         is the fastest way to confirm a matcher selected what you meant it to.

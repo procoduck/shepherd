@@ -95,7 +95,9 @@
         Instead of authoring in the UI, point Shepherd at a git repository and it will poll for
         <code>*.alloy</code> files and sync them onto a target collector as pipelines. Any git server
         works — the credential kinds are personal access token, basic auth, SSH deploy key, an Entra
-        service principal for Azure DevOps, and GitHub App installation tokens.
+        service principal for Azure DevOps, and GitHub App installation tokens. Set it up under
+        <strong>Git</strong> in the sidebar: add a credential, then a repository link naming the
+        branch, the path and the collector its files are served to.
       </p>
       <p class="note">
         <strong>This page is about Shepherd&rsquo;s own git sync, not about deploying Shepherd with

@@ -91,15 +91,36 @@
       <nav class="crumbs" aria-label="Breadcrumb"><a href="index.html">Docs</a><span aria-hidden="true">/</span><span>Fleet</span><span aria-hidden="true">/</span><span class="crumb-here">Agent tokens</span></nav>
       <div class="docs-content">
 <h1>Agent tokens</h1>
-      <p>Collectors authenticate to the <code>collector.v1</code> protocol with HTTP Basic auth. Mint a token once — the secret is shown exactly once.</p>
+      <p>Collectors authenticate to Shepherd with an agent token over HTTP Basic auth: the
+        token&rsquo;s ID is the username, its secret the password.</p>
+      <ol>
+        <li>As an app admin, open <strong>Admin &rarr; Agent Tokens</strong> and create one. Copy
+            the secret straight away &mdash; it is shown exactly once.</li>
+        <li>Put both into the collector&rsquo;s <code>remotecfg</code> block (keep the secret in
+            an environment variable or a Kubernetes Secret, not in the file):</li>
+      </ol>
+      <div class="code-block" data-lang="alloy">
+        <div class="code-head"><span>config.alloy</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>remotecfg {
+  url = "https://shepherd.example.com"
+  basic_auth {
+    username = "&lt;token-id&gt;"
+    password = sys.env("SHEPHERD_AGENT_TOKEN_SECRET")
+  }
+  attributes = { cluster = "prod-eu-1", role = "metrics" }
+  poll_frequency = "60s"
+}</code></pre>
+      </div>
+      <p>A token is not tied to an organisation: which org a collector belongs to is decided by
+        claiming its cluster (<strong>Admin &rarr; Clusters</strong>). Revoke a token on the same
+        page; collectors using it are refused on their next poll. On Grafana&rsquo;s
+        k8s-monitoring chart, <a href="collectors.html#k8s-monitoring">Connect a cluster</a>
+        writes this wiring for you.</p>
+      <p>To create tokens from a script instead, run the CLI inside the Shepherd pod, which
+        already has the database settings:</p>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-        <pre><code># Needs BOTH required variables — `token create` loads the same config as
-# `serve` and exits on a missing encryption key.
-export SHEPHERD_DATABASE_URL=postgres://shepherd:shepherd@localhost:5432/shepherd
-export SHEPHERD_SECURITY_ENCRYPTION_KEY=...   # the same key you used above
-
-./bin/shepherd token create --name dev</code></pre>
+        <pre><code>kubectl -n shepherd exec deploy/shepherd -- /usr/local/bin/shepherd token create --name ci</code></pre>
       </div>
 
       <h2 id="oidc">Authenticate with OIDC instead of a shared token</h2>

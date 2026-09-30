@@ -17,6 +17,32 @@
       </div>
       <p>On first poll, an unclaimed cluster gets served an empty config so it keeps running whatever it already has locally — nothing is disrupted until an app admin claims the cluster for an organisation (<a href="roles.html">Roles</a>) and one of that organisation's admins enables pipelines that match it.</p>
 
+      <h2 id="status">Collector status</h2>
+      <p>
+        Each collector shows the status its Alloy last reported for the config it was served:
+      </p>
+      <ul>
+        <li><strong>APPLIED</strong> &mdash; Alloy loaded the config it was served.</li>
+        <li><strong>FAILED</strong> &mdash; Alloy rejected it, and the collector page shows
+            Alloy&rsquo;s own error. The collector keeps running its previous config. A config can
+            pass Shepherd&rsquo;s validation and still fail here, for reasons only the host knows
+            (a file path that does not exist there, Kubernetes discovery outside Kubernetes).</li>
+        <li><strong>APPLYING</strong> &mdash; Alloy is loading it right now.</li>
+        <li><strong>UNKNOWN</strong> &mdash; nothing reported yet, for example a collector that
+            has not polled since it was created.</li>
+      </ul>
+      <p>
+        With <code>agent.inactive_after</code> set, a collector that stops polling is marked
+        <strong>inactive</strong> until it comes back.
+      </p>
+      <p>
+        A collector&rsquo;s page also has its <strong>Served config</strong> (the exact merged
+        config it receives), the <strong>Reconciliation</strong> tab (whether what its role
+        declares, what it is served and what its beacon reports agree), and
+        <strong>Attributes &amp; labels</strong>, where an org admin sets labels that pipelines can
+        match on (<a href="matchers.html#matching-on-labels">Matchers</a>).
+      </p>
+
       <h2 id="k8s-monitoring">With Grafana's k8s-monitoring chart</h2>
       <p>If your clusters run Grafana's <code>k8s-monitoring</code> Helm chart, Shepherd writes the values for you. On <strong>Collectors</strong>, an organisation admin chooses <strong>Connect a cluster</strong>, names the cluster and picks its collectors (metrics, logs, singleton, receiver). Shepherd returns:</p>
       <ul>

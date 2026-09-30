@@ -23,9 +23,8 @@ helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.17.0 \
       <p>
         Shepherd needs an ordinary database and an ordinary role that owns it. No superuser, no
         extensions beyond what a stock PostgreSQL ships, and no manual schema step &mdash;
-        migrations run themselves on install and upgrade. PostgreSQL 16 is the only major every
-        test, testcontainers run, and the compose stacks pin (<code>postgres:16-alpine</code>);
-        older majors are untested.
+        migrations run themselves on install and upgrade. Use PostgreSQL 16 or newer: the test
+        suites run 16 and the dev and e2e stacks run 18; older majors are untested.
       </p>
 
       <h3 id="managed-identity">Without a static password (IRSA, Workload Identity)</h3>

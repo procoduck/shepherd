@@ -11,9 +11,17 @@
       <p>The server exposes a read-plus-propose slice of the management API as MCP tools:</p>
       <ul>
         <li><code>list_pipelines</code>, <code>get_pipeline</code> &mdash; read the org&rsquo;s pipelines.</li>
-        <li><code>list_collectors</code>, <code>list_fleet_attributes</code> &mdash; read the fleet.</li>
+        <li><code>list_collectors</code>, <code>get_collector</code>,
+          <code>list_fleet_attributes</code> &mdash; read the fleet, including each
+          collector&rsquo;s per-instance health.</li>
         <li><code>validate_pipeline</code>, <code>preview_matches</code> &mdash; check a candidate
           without saving it: does it parse, and which collectors would it match.</li>
+        <li><code>simulate_relabel</code>, <code>simulate_logs</code> &mdash; trace sample targets
+          through relabel rules, or sample log lines through <code>loki.process</code> stages, step
+          by step.</li>
+        <li><code>create_sandbox_run</code>, <code>get_sandbox_run</code> &mdash; run a
+          visual-builder graph in the <a href="simulation.html">sandbox</a> against a real Alloy and
+          read back what it captured.</li>
         <li><code>propose_pipeline_revision</code> &mdash; produce a fully-formed, validated revision
           <em>proposal</em>. It writes nothing; a human applies it through the usual path.</li>
       </ul>

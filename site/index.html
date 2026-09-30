@@ -47,7 +47,7 @@
     </div>
     <div class="hero-facts">
       <div class="hero-fact">
-        <span class="num">184</span>
+        <span class="num">180+</span>
         <span class="label">Alloy components in the palette</span>
       </div>
       <div class="hero-fact">
@@ -97,7 +97,7 @@
         </div>
         <h3>Visual pipeline builder</h3>
         <p>
-          A schema-driven canvas covering all 184 registered Alloy components. Drag components onto
+          A schema-driven canvas covering every registered Alloy component. Drag components onto
           the canvas, wire them by typed ports, and undo/redo freely — the graph compiles to
           deterministic Alloy config through the same gate as everything else.
         </p>
@@ -164,16 +164,15 @@
         <div class="icon">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M4 12h10"/><path d="M4 17h6"/><circle cx="18" cy="15" r="3"/></svg>
         </div>
-        <h3>Tenant-aware gateway tier <em>(in development)</em></h3>
+        <h3>A receiver for your apps, one tenant per route</h3>
         <p>
-          Renders Gateway API routes that rewrite a per-tenant prefix and <em>set</em> the tenant
-          header, so a client can never choose its own tenant. Proven against a real controller in
-          the Kubernetes test suite &mdash; but nothing applies these routes to a cluster yet, so
-          treat it as a design you can read rather than a feature you can use. What <em>is</em>
-          live today: tenant identity belongs to the org and is assigned by an application
-          administrator.
+          An optional OTLP/HTTP endpoint behind your Gateway API gateway. Shepherd applies a route
+          per tenant that <em>sets</em> the tenant header &mdash; a client can never choose its
+          own tenant &mdash; and shows whether the gateway attached it. Each route comes with
+          ready-to-paste SDK and IaC snippets for connecting an app. Off by default; turn it on
+          with <code>receiver.enabled</code>.
         </p>
-        <span class="tag">built &amp; tested, not yet wired</span>
+        <span class="tag">opt-in &middot; Gateway API</span>
       </article>
 
       <article class="feature-card">
@@ -194,15 +193,15 @@
         <div class="icon">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 10h6"/><path d="M9 14h3"/></svg>
         </div>
-        <h3>An agent interface that cannot apply <em>(in development)</em></h3>
+        <h3>An agent interface that cannot apply</h3>
         <p>
           An MCP server exposes the fleet to AI agents in read-plus-propose mode. The limit is
           enforced by the credential, not by which tools were registered: a propose-scoped service
           account is refused at every mutating endpoint, so a tool that does not exist yet would be
-          refused too. A machine action records both the agent and the human it acts for. Not in
-          the release archives &mdash; build it from source while its review gate is open.
+          refused too. A machine action records both the agent and the human it acts for.
+          <code>shepherd-mcp</code> ships in the release archives for Linux, macOS and Windows.
         </p>
-        <span class="tag">source-only until reviewed</span>
+        <span class="tag">read + propose only</span>
       </article>
     </div>
   </div>
@@ -262,7 +261,7 @@
 
         <rect x="16" y="298" width="150" height="42" rx="8" class="dg-box"/>
         <text x="91" y="316" text-anchor="middle" class="dg-text" font-size="12.5" font-weight="600">Visual builder</text>
-        <text x="91" y="331" text-anchor="middle" class="dg-text-sub" font-size="10.5">184 components</text>
+        <text x="91" y="331" text-anchor="middle" class="dg-text-sub" font-size="10.5">180+ components</text>
 
         <rect x="16" y="348" width="150" height="42" rx="8" class="dg-box"/>
         <text x="91" y="366" text-anchor="middle" class="dg-text" font-size="12.5" font-weight="600">Git repo</text>
@@ -346,7 +345,7 @@
         <div class="qs-num">2</div>
         <div>
           <h3>Point an Alloy collector at it</h3>
-          <p>Add a <code>remotecfg</code> block to each collector's <code>config.alloy</code>, using a token minted with <code>shepherd token create</code>.</p>
+          <p>Add a <code>remotecfg</code> block to each collector's <code>config.alloy</code>, using an agent token created at <strong>Admin &rarr; Agent Tokens</strong>.</p>
           <div class="code-block" data-lang="alloy">
             <div class="code-head"><span>config.alloy</span><button class="copy-btn" type="button">Copy</button></div>
             <pre><code>remotecfg {

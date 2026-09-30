@@ -201,7 +201,12 @@ kubectl -n shepherd rollout status deploy/shepherd</code></pre>
         deliberately &mdash; see <a href="matchers.html">Matchers and validation</a>. Within one poll
         interval the collector appears under <strong>Collectors</strong>.
       </p>
-      <p><img src="../img/collectors.jpg" alt="The Collectors list: each collector with its cluster, role, health and last-seen time" loading="lazy"></p>
+      <p>
+        Running Grafana&rsquo;s k8s-monitoring chart? Skip the hand-written block: on
+        <strong>Collectors</strong>, <a href="collectors.html#k8s-monitoring">Connect a cluster</a>
+        generates the values for it.
+      </p>
+      <p><img src="../img/collectors.jpg" alt="The Collectors list: each collector with its cluster, role, status, Alloy version and labels" loading="lazy"></p>
 
       <h2 id="serve-a-pipeline">6. Serve it a pipeline</h2>
       <p>

@@ -8,32 +8,34 @@
         <tbody>
           <tr>
             <td><strong>Deploy on Kubernetes</strong><br><span class="req-note">the intended way</span></td>
-            <td><strong>Kubernetes 1.29+</strong> and Helm 3, plus a <strong>PostgreSQL 16</strong>
-                the cluster can reach &mdash; the only major every test, testcontainers run, and the
-                compose stacks pin (<code>postgres:16-alpine</code>); older majors are untested. The
-                chart declares the Kubernetes floor in
-                <code>kubeVersion</code>, so an older cluster is refused at install rather than
-                failing later on a kind it does not have &mdash; and because <code>helm template</code>
-                takes its Kubernetes version from the <code>helm</code> binary's own defaults, a
-                sufficiently old <code>helm</code> will refuse to render the chart offline too. The
-                chart needs <strong>no CRDs</strong> by default. Two optional extras do add
-                requirements:
-                <code>metrics.serviceMonitor.enabled</code> needs the Prometheus Operator's CRDs, and
-                <code>route.enabled</code> needs the Gateway API CRDs. The core features are stable
-                from 1.25 (autoscaling/v2, policy/v1, batch/v1 seccomp), so a default install on
-                external Postgres works from 1.25 in practice; the floor is set to 1.29 because the
-                optional CloudNativePG database path (<code>cnpg.enabled=true</code>, see
-                <a href="database.html#cloudnativepg">Database</a>) needs it &mdash; the pinned
-                operator chart (<code>0.29.0</code>) refuses older nodes &mdash; and Helm cannot make a
-                floor conditional on a value. Rather than enforce 1.25 and leave the operator path's
-                higher requirement to documentation alone, the chart commits to a single global
-                <code>kubeVersion</code> of 1.29.</td>
+            <td><strong>Kubernetes 1.29+</strong>, Helm 3, and <strong>PostgreSQL 16 or newer</strong>
+                that the cluster can reach (the test suites run 16, the dev and e2e stacks 18; older
+                majors are untested). The chart needs <strong>no CRDs</strong> by default.
+                <ul>
+                  <li>An older cluster is refused at install: the chart declares the floor in
+                      <code>kubeVersion</code>. A very old <code>helm</code> refuses to render it
+                      offline too, because <code>helm template</code> takes its Kubernetes version
+                      from the binary.</li>
+                  <li>Why 1.29 and not lower: the optional CloudNativePG database path
+                      (<a href="database.html#cloudnativepg">Database</a>) needs it, and Helm cannot
+                      make the floor depend on a value. Everything else works from 1.25.</li>
+                  <li><code>metrics.serviceMonitor.enabled</code> needs the Prometheus Operator's
+                      CRDs; <code>route.enabled</code> needs the Gateway API CRDs.</li>
+                </ul></td>
           </tr>
           <tr>
             <td>Run Shepherd anywhere else</td>
             <td>The same PostgreSQL and somewhere to run one container. Shepherd is stateless, so
                 nothing else is needed — but the fleet it manages is a Kubernetes concern, so this is
                 mainly useful for development.</td>
+          </tr>
+          <tr>
+            <td>Run the receiver tier<br><span class="req-note">optional</span></td>
+            <td>The <a href="https://gateway-api.sigs.k8s.io/">Gateway API</a> CRDs, v1.4 or newer on
+                the Standard channel, and an implementation that runs a Gateway (tested with NGINX
+                Gateway Fabric). A CNI that enforces NetworkPolicy &mdash; the receiver accepts
+                traffic only from your gateway's pods, and without enforcement that rule does
+                nothing. See <a href="receiver.html">Receiver tier</a>.</td>
           </tr>
           <tr>
             <td>Run collectors</td>

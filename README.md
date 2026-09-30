@@ -39,6 +39,9 @@ access into the clusters it manages.
 - **Multi-tenant by design.** Collectors are claimed into organisations, and
   roles are granted per organisation — from your identity provider's groups, from
   local accounts, or both.
+- **Onboarding built in.** *Connect a cluster* writes the values for Grafana's
+  k8s-monitoring chart; an optional receiver tier gives apps an OTLP endpoint per
+  tenant behind your Gateway API gateway, with *Connect an app* snippets for it.
 
 It is **not** a telemetry backend. Shepherd never receives your metrics, logs or
 traces; it configures the collectors that ship them.
@@ -47,7 +50,7 @@ traces; it configures the collectors that ship them.
 
 | To | You need |
 |---|---|
-| Run Shepherd | A Kubernetes cluster, Helm 3, and a **PostgreSQL 16** it can reach — the only major every test, testcontainers run, and the compose stacks pin (`postgres:16-alpine`); older majors are untested. The chart needs no CRDs by default. |
+| Run Shepherd | A Kubernetes cluster (1.29+), Helm 3, and **PostgreSQL 16 or newer** it can reach — the test suites run 16, the dev and e2e stacks 18; older majors are untested. The chart needs no CRDs by default. |
 | Run collectors | [Grafana Alloy](https://grafana.com/docs/alloy/) **v1.20.1** — the version whose component schema this build validates against, pinned in `deploy/versions.env`. |
 | Build from source | Go (see `go.mod`), Node 24 with pnpm, Docker (tests start real PostgreSQL via testcontainers), and Helm. |
 
@@ -180,13 +183,10 @@ reach this surface.
 Shepherd is in active development and pre-1.0; expect breaking changes, which
 the [changelog](CHANGELOG.md) calls out explicitly.
 
-Nothing is currently **built but not wired**: the onboarding artifacts and the
-k8s-monitoring chart-values generator were the last, both shipped with their UI.
-`docs/gateway-tier-plan.md` §9 tracks what stands between each one and being
-usable. Do not plan against them yet. (Reconciliation — declared vs served vs
-observed — shipped in v0.11.0, and the read-plus-propose MCP interface,
-`shepherd-mcp`, ships in the release archives since v0.9.0. The receiver tier
-and tenant-route apply are shipped but off by default: `receiver.enabled`.)
+Everything described here is shipped. The receiver tier is off by default
+(`receiver.enabled`); the read-plus-propose MCP server, `shepherd-mcp`, ships in
+the release archives. `docs/project-status.md` is the live ledger of what is
+verified and what is still open.
 
 ## Development
 
