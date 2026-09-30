@@ -81,10 +81,16 @@ export function PipelineEditorPage() {
     setMatchers(pipeline.matchers);
   }, [pipeline]);
 
-  // Debounced validation
+  // Debounced validation. Requests overlap (debounce, the Validate button,
+  // Format), and only the newest one's answer may land: a slow answer for an
+  // older buffer used to overwrite a newer "valid" — the editor then showed
+  // errors at lines the text no longer had, kept Save disabled and the gutter
+  // red, and nothing re-validated (#201).
+  const validateSeq = useRef(0);
   const validate = useCallback(
     async (c: string) => {
       if (!orgId || !c.trim()) return;
+      const seq = ++validateSeq.current;
       setValidating(true);
       try {
         const result = await clients.pipeline.validatePipeline({
@@ -92,11 +98,11 @@ export function PipelineEditorPage() {
           name: name || 'preview',
           contents: c,
         });
-        setDiagnostics(result.diagnostics ?? []);
+        if (seq === validateSeq.current) setDiagnostics(result.diagnostics ?? []);
       } catch (_) {
         /* ignore */
       } finally {
-        setValidating(false);
+        if (seq === validateSeq.current) setValidating(false);
       }
     },
     [name, orgId],
