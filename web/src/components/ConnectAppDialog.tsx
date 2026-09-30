@@ -94,7 +94,7 @@ export function ConnectAppDialog({
           <Field
             label='Gateway URL'
             optional
-            hint='Your gateway’s public https address. Empty uses the one your operator configured.'
+            hint='Your gateway’s public https address. Leave it empty to use the one your operator configured, if there is one.'
           >
             <Input
               id='connect-app-gateway'
@@ -123,7 +123,8 @@ export function ConnectAppDialog({
               onChange={(e) => setForm((f) => ({ ...f, includeAdotLayer: e.target.checked }))}
               data-testid='connect-app-adot'
             />
-            Add the AWS Lambda OpenTelemetry layer (you supply its ARN)
+            Add the AWS Lambda OpenTelemetry layer (the snippets leave a placeholder for its
+            region-specific ARN)
           </label>
           <div className='sm:col-span-2 flex justify-end'>
             <button
@@ -174,12 +175,12 @@ export function ConnectAppDialog({
                 </button>
               ))}
             </div>
-            <div className='relative'>
-              <div className='absolute right-2 top-2'>
+            <div className='space-y-1'>
+              <div className='flex justify-end'>
                 <CopyButton text={artifact} label={tab} />
               </div>
               <pre
-                className='max-h-96 overflow-auto rounded-md bg-card p-3 pr-20 font-mono text-xs'
+                className='max-h-96 overflow-auto rounded-md bg-card p-3 font-mono text-xs'
                 data-testid='connect-app-artifact'
               >
                 {artifact}

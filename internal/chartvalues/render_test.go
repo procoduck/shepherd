@@ -106,6 +106,16 @@ func TestValidate(t *testing.T) {
 			wantErr: true, wantIn: "ClusterName",
 		},
 		{
+			// #205: the walkthrough rendered cluster.name: "Bad Name_!".
+			name:    "cluster name with spaces and punctuation",
+			mutate:  func(s chartvalues.Spec) chartvalues.Spec { s.ClusterName = "Bad Name_!"; return s },
+			wantErr: true, wantIn: "ClusterName",
+		},
+		{
+			name:    "dotted, dashed and underscored cluster name",
+			mutate:  func(s chartvalues.Spec) chartvalues.Spec { s.ClusterName = "prod-eu_1.a"; return s },
+		},
+		{
 			name:    "missing shepherd URL",
 			mutate:  func(s chartvalues.Spec) chartvalues.Spec { s.ShepherdURL = ""; return s },
 			wantErr: true, wantIn: "ShepherdURL",

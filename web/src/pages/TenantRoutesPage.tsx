@@ -63,6 +63,20 @@ const APPLY: Record<string, { label: string; tone: string; hint: string }> = {
 };
 
 function ApplyStatus({ route }: { route: TenantRoute }) {
+  // A revoked route no longer routes whatever the reconciler has done yet;
+  // "pending" would read as "about to be applied" (#205).
+  if (route.status === 'revoked' && route.applyStatus !== 'removed') {
+    return (
+      <span className='block max-w-sm' data-testid={`route-apply-${route.segment}`}>
+        <span
+          className='rounded bg-border px-1.5 py-0.5 text-xs font-medium text-muted-2'
+          title='Revoked: this route no longer routes. With route apply on, Shepherd removes its HTTPRoute.'
+        >
+          not routed
+        </span>
+      </span>
+    );
+  }
   const a = APPLY[route.applyStatus] ?? APPLY.pending;
   const title = route.appliedAt
     ? `${a.hint} Last verified ${timestampDate(route.appliedAt).toLocaleString()}.`
@@ -109,7 +123,7 @@ function routeColumns(
       header: 'Valid until',
       cellClassName: 'px-4 py-2.5 text-muted',
       render: (r) =>
-        r.validUntil ? (
+        r.validUntil && r.status !== 'revoked' ? (
           timestampDate(r.validUntil).toLocaleString()
         ) : (
           <span className='text-muted-3'>—</span>

@@ -32,6 +32,6 @@ func writeEnvFileHeader(sb *strings.Builder, spec ConnectAppSpec) {
 	_, _ = fmt.Fprintf(sb, "# used exactly as given, with nothing appended.\n")
 	_, _ = fmt.Fprintf(sb, "#\n")
 	_, _ = fmt.Fprintf(sb, "# The route segment in this endpoint identifies your tenant to the gateway;\n")
-	_, _ = fmt.Fprintf(sb, "# it is not a secret credential (docs/gateway-tier-plan.md §3) — treat it\n")
+	_, _ = fmt.Fprintf(sb, "# it is not a secret credential — treat it\n")
 	_, _ = fmt.Fprintf(sb, "# like any other endpoint URL in your config, not like an API key.\n")
 }

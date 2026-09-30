@@ -18,7 +18,7 @@ the same env vars.
 
 Several SDKs (the Go, Java, and Python SDKs among them) default to
 OTLP/gRPC when this variable is unset. This gateway's tenant routing is
-path-prefix based (docs/gateway-tier-plan.md D9) and gRPC's request path
+path-prefix based, and gRPC's request path
 is fixed by the service definition, not configurable — so a client left on
 its gRPC default will never reach a route this package's endpoint
 describes; it dials the right host but sends a request path no HTTPRoute
@@ -45,7 +45,7 @@ three.
 
 ## The route segment is an identifier, not a secret
 
-docs/gateway-tier-plan.md §3: the segment in this URL identifies your
+The segment in this URL identifies your
 tenant to the gateway; it is not an authorization token. The gateway's
 real controls are origin allowlists, rate limits, and rotation — treat
 the endpoint like any other config value, and rotate it (ask your
@@ -53,9 +53,9 @@ platform team) if you believe it has leaked somewhere sensitive.
 
 ## Browser RUM (Grafana Faro)
 
-Shepherd does not yet run a Faro receiver (docs/gateway-tier-plan.md D10
-— it is demand-driven, not built). If you want browser RUM (error
-capture, Web Vitals, session tracking) today, D10 documents a hybrid that
+Shepherd does not yet run a Faro receiver
+(it is built on demand). If you want browser RUM (error
+capture, Web Vitals, session tracking) today, a hybrid
 works without it: use the Faro Web SDK for the RUM batteries, but
 configure ITS trace exporter (`@grafana/faro-web-tracing`, which already
 speaks OTLP) to point at the OTLP endpoint above instead of a Faro

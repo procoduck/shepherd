@@ -246,3 +246,31 @@ test('connect-an-app warns when the route is not applied, and explains a missing
   await dialog.getByTestId('connect-app-render').click();
   await expect(dialog.getByTestId('connect-app-error')).toContainText('gateway URL');
 });
+
+test('a revoked route reads "not routed", not "pending" (#205)', async ({ page, api }) => {
+  const s = basicScenario();
+  api.seed({
+    orgs: [s.org],
+    tenantRoutes: [
+      {
+        id: 'tr-gone',
+        org_id: s.org.id,
+        tenant_id: 'tenant-x',
+        kind: 'otlp',
+        segment: 'otlp-gone',
+        status: 'revoked',
+        apply_status: 'pending',
+        valid_until: '2099-01-01T00:00:00Z',
+        gateway_mode: 'operator',
+        gateway_name: 'edge',
+        gateway_namespace: '',
+        created_at: '2026-09-29T09:00:00Z',
+        updated_at: '2026-09-29T09:00:00Z',
+      },
+    ],
+  });
+  await api.loginAs(reader);
+  await page.goto('/tenant-routes');
+  await expect(page.getByTestId('route-apply-otlp-gone')).toHaveText('not routed');
+  await expect(page.getByTestId('tenant-routes')).not.toContainText('2099');
+});

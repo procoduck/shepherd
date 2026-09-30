@@ -3,6 +3,7 @@ package chartvalues
 import (
 	"fmt"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -80,6 +81,11 @@ type Spec struct {
 	PollFrequency string
 }
 
+// clusterNameRE keeps cluster.name to what every place it lands accepts: a
+// Kubernetes label value in the chart's own resources and a matcher value in
+// Shepherd (a name with spaces renders, then fails downstream).
+var clusterNameRE = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$`)
+
 // bounded mirrors internal/gateway/segment.go's charset discipline for
 // anything that ends up quoted into generated config: printable ASCII,
 // no control characters, no characters that could break out of a YAML
@@ -112,8 +118,8 @@ const (
 func Validate(spec Spec) error {
 	var problems []string
 
-	if !bounded(spec.ClusterName, maxClusterNameLen) {
-		problems = append(problems, "ClusterName must be 1-253 printable ASCII characters with no quote or backslash")
+	if !bounded(spec.ClusterName, maxClusterNameLen) || !clusterNameRE.MatchString(spec.ClusterName) {
+		problems = append(problems, "ClusterName must be 1-253 characters of letters, digits, '-', '_' or '.', starting and ending with a letter or digit")
 	}
 
 	if spec.ShepherdURL == "" {
