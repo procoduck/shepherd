@@ -87,7 +87,12 @@ test.describe('roles: editor', () => {
     // also the indicator's default (diagnostics starts as []) and would
     // otherwise pass vacuously before real validation ever ran.
     await validateResponse;
-    await expect(page.getByText(/No problems/i)).toBeVisible({ timeout: 5000 });
+    // A clean verdict either way: "No problems", or — on a stack with no
+    // validate.alloy_binary, like the compose dev stack CI runs — the amber
+    // "alloy validate skipped" note (#209), which still means stage 1 passed.
+    await expect(
+      page.getByText(/No problems/i).or(page.getByTestId('validate-skipped-note')),
+    ).toBeVisible({ timeout: 5000 });
 
     const saveButton = page.getByRole('button', { name: /Save/i });
     await expect(saveButton).toBeEnabled();
