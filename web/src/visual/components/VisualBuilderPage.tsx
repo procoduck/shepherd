@@ -1,9 +1,9 @@
 import { useParams } from '@tanstack/react-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { graphView } from '../../api/client';
 import { clients, toApiError } from '../../api/transport';
-import { useOrg } from '../../hooks/useOrg';
+import { useCanWrite, useOrg } from '../../hooks/useOrg';
 import {
   clearDraft,
   loadDraft,
@@ -53,6 +53,15 @@ export function VisualBuilderPage() {
   const pipelineId = id ?? 'new';
   const { orgId, orgs, setOrgId } = useOrg();
   const prevPipelineIdRef = useRef<string | null>(null);
+
+  // #226: a viewer may pan, zoom and select, but not edit. The canvas and
+  // inspector read this flag to stop offering edits; the store also refuses
+  // every graph mutation while it holds. A layout effect, so the first paint
+  // a viewer sees is already read-only.
+  const canWrite = useCanWrite();
+  useLayoutEffect(() => {
+    useVisualStore.getState().setReadOnly(!canWrite);
+  }, [canWrite]);
 
   // Use a ref to the store action to avoid including it in the effect deps
   // (Zustand action references are stable but the selector creates new refs each render)

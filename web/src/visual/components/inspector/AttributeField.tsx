@@ -26,6 +26,7 @@ import {
   setMapRow,
   widgetFor,
 } from './attributeOps';
+import { useInspectorReadOnly } from './readOnly';
 import type { AttrLike } from './schemaShapes';
 
 export interface AttributeFieldProps {
@@ -117,6 +118,7 @@ function WiredRow({
   // The minimal fan-in reorder control (W5-08): one row per incoming wire,
   // in its current order, each with up/down buttons that swap it with the
   // neighboring wire. Only shown once there is more than one wire to order.
+  const readOnly = useInspectorReadOnly();
   const showReorder = onMoveEdge && wireEdges && wireEdges.length > 1;
   return (
     <div>
@@ -141,7 +143,7 @@ function WiredRow({
                 aria-label={`move wire ${i + 1} up`}
                 data-testid={`attr-wire-up-${attr.name}-${i}`}
                 className='disabled:opacity-30'
-                disabled={i === 0}
+                disabled={readOnly || i === 0}
                 onClick={() => onMoveEdge(e.id, 'up')}
               >
                 ▲
@@ -151,7 +153,7 @@ function WiredRow({
                 aria-label={`move wire ${i + 1} down`}
                 data-testid={`attr-wire-down-${attr.name}-${i}`}
                 className='disabled:opacity-30'
-                disabled={i === wireEdges.length - 1}
+                disabled={readOnly || i === wireEdges.length - 1}
                 onClick={() => onMoveEdge(e.id, 'down')}
               >
                 ▼
@@ -278,6 +280,7 @@ function SecretField({
   instancePath?: string[];
 }) {
   const removeBinding = useVisualStore((s) => s.removeBinding);
+  const readOnly = useInspectorReadOnly();
   const literal = typeof value === 'string' && value.trim() !== '';
   const propExpr = exprOf(value);
   const boundExpr = propExpr ?? binding?.ref.expr;
@@ -293,7 +296,7 @@ function SecretField({
           <span>
             Bound: <span className='font-mono'>{boundExpr}</span>
           </span>
-          {propExpr && nodeId && instancePath && (
+          {propExpr && nodeId && instancePath && !readOnly && (
             <button
               type='button'
               data-testid={`attr-binding-unbind-${attr.name}`}
@@ -306,7 +309,11 @@ function SecretField({
         </div>
       ) : (
         <div id={fieldId(schemaPath)} data-testid={`attr-secret-${attr.name}`}>
-          {nodeId && instancePath ? (
+          {readOnly ? (
+            <div className='w-full border rounded px-2 py-1 border-border-strong text-muted italic'>
+              Not bound
+            </div>
+          ) : nodeId && instancePath ? (
             <BindingPicker attr={attr} nodeId={nodeId} instancePath={instancePath} />
           ) : (
             <div className='w-full border rounded px-2 py-1 border-border-strong text-muted italic'>
@@ -321,14 +328,16 @@ function SecretField({
             name={attr.name}
             message='A literal value is stored here — secrets are never sent as a literal.'
           />
-          <button
-            type='button'
-            data-testid={`attr-secret-clear-${attr.name}`}
-            className='text-[11px] underline text-muted shrink-0'
-            onClick={() => onChange(undefined)}
-          >
-            Clear
-          </button>
+          {!readOnly && (
+            <button
+              type='button'
+              data-testid={`attr-secret-clear-${attr.name}`}
+              className='text-[11px] underline text-muted shrink-0'
+              onClick={() => onChange(undefined)}
+            >
+              Clear
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -346,11 +355,13 @@ function BoolField({
   value: unknown;
   onChange: (next: unknown) => void;
 }) {
+  const readOnly = useInspectorReadOnly();
   const set = isSet(value);
   return (
     <div>
       <label className='flex items-center gap-2 text-xs' htmlFor={fieldId(schemaPath)}>
         <input
+          disabled={readOnly}
           id={fieldId(schemaPath)}
           data-testid={`attr-bool-${attr.name}`}
           type='checkbox'
@@ -384,10 +395,12 @@ function EnumField({
   onChange: (next: unknown) => void;
   hasError: boolean;
 }) {
+  const readOnly = useInspectorReadOnly();
   return (
     <div>
       <FieldLabel attr={attr} htmlFor={fieldId(schemaPath)} />
       <select
+        disabled={readOnly}
         id={fieldId(schemaPath)}
         data-testid={`attr-select-${attr.name}`}
         className={`${inputClass} ${hasError ? errorInputClass : ''}`}
@@ -422,6 +435,7 @@ function TextLikeField({
   hasError: boolean;
   kind: 'string' | 'number' | 'duration' | 'capsule';
 }) {
+  const readOnly = useInspectorReadOnly();
   const placeholder =
     attr.default !== undefined
       ? formatDefault(attr.default)
@@ -437,6 +451,7 @@ function TextLikeField({
         id={fieldId(schemaPath)}
         data-testid={`attr-input-${attr.name}`}
         type={kind === 'number' ? 'number' : 'text'}
+        readOnly={readOnly}
         className={`${inputClass} ${hasError ? errorInputClass : ''} ${kind === 'capsule' ? 'font-mono' : ''}`}
         value={formatScalar(value)}
         placeholder={placeholder}
@@ -467,6 +482,7 @@ function ListField({
   onChange: (next: unknown) => void;
   hasError: boolean;
 }) {
+  const readOnly = useInspectorReadOnly();
   const items = listValue(value);
   return (
     <div>
@@ -482,35 +498,40 @@ function ListField({
             className='inline-flex items-center gap-1 bg-panel border border-border rounded px-1.5 text-xs'
           >
             <span
-              contentEditable
+              contentEditable={!readOnly}
               suppressContentEditableWarning
               className='outline-none min-w-[1ch]'
               onBlur={(e) => onChange(replaceListItem(items, i, e.currentTarget.textContent ?? ''))}
             >
               {item}
             </span>
-            <button
-              type='button'
-              aria-label={`remove ${item}`}
-              className='text-muted-2 hover:text-red-400'
-              onClick={() => onChange(removeListItem(items, i))}
-            >
-              ×
-            </button>
+            {!readOnly && (
+              <button
+                type='button'
+                aria-label={`remove ${item}`}
+                className='text-muted-2 hover:text-red-400'
+                onClick={() => onChange(removeListItem(items, i))}
+              >
+                ×
+              </button>
+            )}
           </span>
         ))}
-        <input
-          data-testid={`attr-list-add-${attr.name}`}
-          className='flex-1 min-w-[6ch] bg-transparent text-xs outline-none'
-          placeholder={items.length === 0 ? '+ add item, Enter' : '+'}
-          onKeyDown={(e) => {
-            if (e.key !== 'Enter') return;
-            e.preventDefault();
-            const input = e.currentTarget;
-            onChange(addListItem(items, input.value));
-            input.value = '';
-          }}
-        />
+        {!readOnly && (
+          <input
+            data-testid={`attr-list-add-${attr.name}`}
+            className='flex-1 min-w-[6ch] bg-transparent text-xs outline-none'
+            placeholder={items.length === 0 ? '+ add item, Enter' : '+'}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return;
+              e.preventDefault();
+              const input = e.currentTarget;
+              onChange(addListItem(items, input.value));
+              input.value = '';
+            }}
+          />
+        )}
+        {readOnly && items.length === 0 && <span className='text-xs text-muted-2'>—</span>}
       </div>
       {attr.default !== undefined && items.length === 0 && (
         <Hint>not set — component default is {formatDefault(attr.default)}</Hint>
@@ -532,6 +553,7 @@ function MapField({
   onChange: (next: unknown) => void;
   hasError: boolean;
 }) {
+  const readOnly = useInspectorReadOnly();
   const rows = mapValue(value);
   return (
     <div>
@@ -547,6 +569,7 @@ function MapField({
               className='w-1/3 min-w-0 bg-panel border border-border rounded px-1 py-0.5 text-xs'
               placeholder='key'
               data-testid={`attr-map-key-${attr.name}-${i}`}
+              readOnly={readOnly}
               value={row.key}
               onChange={(e) => onChange(mapFromRows(setMapRow(rows, i, { key: e.target.value })))}
             />
@@ -554,27 +577,34 @@ function MapField({
               className='flex-1 min-w-0 bg-panel border border-border rounded px-1 py-0.5 text-xs'
               placeholder='value'
               data-testid={`attr-map-value-${attr.name}-${i}`}
+              readOnly={readOnly}
               value={row.value}
               onChange={(e) => onChange(mapFromRows(setMapRow(rows, i, { value: e.target.value })))}
             />
-            <button
-              type='button'
-              aria-label={`remove ${row.key || 'row'}`}
-              className='text-muted-2 hover:text-red-400 shrink-0'
-              onClick={() => onChange(mapFromRows(removeMapRow(rows, i)))}
-            >
-              ×
-            </button>
+            {!readOnly && (
+              <button
+                type='button'
+                aria-label={`remove ${row.key || 'row'}`}
+                className='text-muted-2 hover:text-red-400 shrink-0'
+                onClick={() => onChange(mapFromRows(removeMapRow(rows, i)))}
+              >
+                ×
+              </button>
+            )}
           </div>
         ))}
-        <button
-          type='button'
-          data-testid={`attr-map-add-${attr.name}`}
-          className='text-[11px] underline text-muted'
-          onClick={() => onChange(mapFromRows(addMapRow(rows)))}
-        >
-          + add entry
-        </button>
+        {readOnly ? (
+          rows.length === 0 && <span className='text-xs text-muted-2'>—</span>
+        ) : (
+          <button
+            type='button'
+            data-testid={`attr-map-add-${attr.name}`}
+            className='text-[11px] underline text-muted'
+            onClick={() => onChange(mapFromRows(addMapRow(rows)))}
+          >
+            + add entry
+          </button>
+        )}
       </div>
       {attr.default !== undefined && rows.length === 0 && (
         <Hint>not set — component default is {formatDefault(attr.default)}</Hint>

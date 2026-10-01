@@ -236,6 +236,10 @@ export const PipelineNode = memo(function PipelineNode({
 }: NodeProps<PipelineFlowNode>) {
   const node = data;
   const setLabel = useVisualStore((s) => s.setLabel);
+  // A node is read-only on the graph view (its own flag) and, #226, in a
+  // viewer's builder (the store's).
+  const builderReadOnly = useVisualStore((s) => s.readOnly);
+  const readOnly = node.readOnly || builderReadOnly;
   const schema = useVisualStore((s) => s.schema);
   const theme = useTheme();
   const [editing, setEditing] = useState(false);
@@ -387,14 +391,14 @@ export const PipelineNode = memo(function PipelineNode({
           <span
             data-testid='node-label'
             onDoubleClick={
-              node.readOnly
+              readOnly
                 ? undefined
                 : () => {
                     setEditing(true);
                     setValue(node.label);
                   }
             }
-            className='cursor-text'
+            className={readOnly ? undefined : 'cursor-text'}
           >
             &ldquo;{node.label}&rdquo;
           </span>

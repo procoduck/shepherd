@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { shallow } from 'zustand/shallow';
 import {
   type ConnectingFrom,
@@ -6,7 +6,7 @@ import {
   selectSelectedNode,
   useVisualStore,
 } from './store';
-import type { ComponentDef, SchemaPayload } from './types';
+import type { ComponentDef, GraphDocument, SchemaPayload } from './types';
 
 describe('visual store', () => {
   beforeEach(() => {
@@ -748,5 +748,89 @@ describe('schema_version follows the served schema, never a literal', () => {
     useVisualStore.getState().importGraph(emptyGraphAt('alloy-v1.12.0'));
     useVisualStore.getState().setSchema(schemaAt('1.19.2'));
     expect(useVisualStore.getState().doc.schema_version).toBe('alloy-v1.12.0');
+  });
+});
+
+describe('readOnly (#226): a viewer cannot change the graph by any store path', () => {
+  const doc: GraphDocument = {
+    kind: 'alloy-graph/v1',
+    schema_version: 'alloy-v1.18.1',
+    nodes: [
+      {
+        id: 'a',
+        component: 'x',
+        label: 'a',
+        position: { x: 0, y: 0 },
+        props: { p: 'v' },
+        disabled: false,
+        notes: '',
+      },
+      {
+        id: 'b',
+        component: 'y',
+        label: 'b',
+        position: { x: 300, y: 0 },
+        props: {},
+        disabled: false,
+        notes: '',
+      },
+    ],
+    edges: [{ id: 'e1', from: { node: 'a', port: 'out' }, to: { node: 'b', port: 'in' } }],
+    bindings: [],
+    viewport: { x: 0, y: 0, zoom: 1 },
+    meta: { created_with: 'test' },
+  };
+
+  beforeEach(() => {
+    useVisualStore.setState({
+      doc,
+      selected: ['a', 'e1'],
+      diagnostics: [],
+      schema: null,
+      readOnly: false,
+    });
+    useVisualStore.temporal.getState().clear();
+    // One real edit while writable, so undo has something it could restore.
+    useVisualStore.getState().setLabel('a', 'renamed');
+    useVisualStore.getState().setReadOnly(true);
+  });
+
+  afterEach(() => {
+    useVisualStore.getState().setReadOnly(false);
+  });
+
+  it('refuses every graph mutation and leaves the document untouched', () => {
+    const s = useVisualStore.getState();
+    const before = s.doc;
+    s.addNode('z', { x: 1, y: 1 });
+    s.addNodeWithId('n9', 'z', { x: 1, y: 1 }, 'z');
+    s.updateNode('a', { position: { x: 99, y: 99 } });
+    s.setBinding('a', ['p'], 'x.y');
+    s.removeBinding('a', ['p']);
+    s.removeNode('a');
+    expect(s.addEdge({ node: 'b', port: 'out' }, { node: 'a', port: 'in' })).toEqual({
+      added: false,
+      replaced: [],
+    });
+    s.moveEdge('e1', 'down');
+    s.pasteNodesAndEdges([{ ...doc.nodes[0], id: 'c' }], []);
+    s.removeEdge('e1');
+    s.removeSelected();
+    s.setLabel('a', 'again');
+    s.setDisabled('a', true);
+    s.undo();
+    s.redo();
+    expect(useVisualStore.getState().doc).toBe(before);
+    expect(useVisualStore.getState().doc.nodes[0].label).toBe('renamed');
+  });
+
+  it('still allows selection, the viewport and loading a document', () => {
+    const s = useVisualStore.getState();
+    s.setSelected(['b']);
+    expect(useVisualStore.getState().selected).toEqual(['b']);
+    s.updateViewport({ x: 10, y: 20, zoom: 1.5 });
+    expect(useVisualStore.getState().doc.viewport).toEqual({ x: 10, y: 20, zoom: 1.5 });
+    s.importGraph({ ...doc, nodes: [doc.nodes[1]], edges: [] });
+    expect(useVisualStore.getState().doc.nodes.map((n) => n.id)).toEqual(['b']);
   });
 });

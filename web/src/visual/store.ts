@@ -129,6 +129,15 @@ interface VisualStore {
   /** Toolbar matcher chips (B4) — `key="value"` / `key=~"regex"` strings,
    * seeded from the loaded pipeline; required (non-empty) to save. */
   matchers: string[];
+  /** #226: the viewer's builder is read-only. Set by VisualBuilderPage from
+   * `useCanWrite()`; every action that changes the graph (nodes, edges,
+   * props, bindings, labels, the disabled flag, undo/redo) is a no-op while it
+   * holds. The canvas and inspector also stop offering those gestures — this
+   * is the backstop for any path they miss. Loading a document (importGraph,
+   * resetDoc), selection and the viewport are deliberately NOT gated: a
+   * viewer still opens, selects in, pans and zooms a pipeline. */
+  readOnly: boolean;
+  setReadOnly: (readOnly: boolean) => void;
 
   setSchema: (s: SchemaPayload) => void;
   /** `refitView` asks the canvas to re-fit after placing, so a click-placed node is
@@ -283,6 +292,8 @@ export const useVisualStore = create<VisualStore>()(
       pipelineName: '',
       matchers: [],
       simHealthByNode: null,
+      readOnly: false,
+      setReadOnly: (readOnly) => set({ readOnly }),
 
       setSchema: (schema) =>
         set((state) => {
@@ -301,6 +312,7 @@ export const useVisualStore = create<VisualStore>()(
 
       addNode: (component, position, opts) =>
         set((state) => {
+          if (state.readOnly) return state;
           const node: GraphNode = {
             id: `n_${nanoid(8)}`,
             component,
@@ -323,6 +335,7 @@ export const useVisualStore = create<VisualStore>()(
 
       addNodeWithId: (id, component, position, label) =>
         set((state) => {
+          if (state.readOnly) return state;
           const node: GraphNode = {
             id,
             component,
@@ -338,6 +351,7 @@ export const useVisualStore = create<VisualStore>()(
 
       updateNode: (id, patch) =>
         set((state) => {
+          if (state.readOnly) return state;
           // Spreading an explicitly-undefined patch value (e.g. the
           // block_order InspectorPanel passes through for plain attributes)
           // would plant an own `key: undefined` on the node — which the
@@ -355,6 +369,7 @@ export const useVisualStore = create<VisualStore>()(
 
       setBinding: (nodeId, path, expr) =>
         set((state) => {
+          if (state.readOnly) return state;
           const doc = {
             ...state.doc,
             nodes: state.doc.nodes.map((n) =>
@@ -368,6 +383,7 @@ export const useVisualStore = create<VisualStore>()(
 
       removeBinding: (nodeId, path) =>
         set((state) => {
+          if (state.readOnly) return state;
           const doc = {
             ...state.doc,
             nodes: state.doc.nodes.map((n) =>
@@ -379,6 +395,7 @@ export const useVisualStore = create<VisualStore>()(
 
       removeNode: (id) =>
         set((state) => {
+          if (state.readOnly) return state;
           const doc = {
             ...state.doc,
             nodes: state.doc.nodes.filter((n) => n.id !== id),
@@ -395,6 +412,7 @@ export const useVisualStore = create<VisualStore>()(
         let result: { added: boolean; replaced: GraphEdge[] } = { added: false, replaced: [] };
         set((state) => {
           if (
+            state.readOnly ||
             from.node === to.node ||
             state.doc.edges.some(
               (e) =>
@@ -440,6 +458,7 @@ export const useVisualStore = create<VisualStore>()(
 
       moveEdge: (edgeId, direction) =>
         set((state) => {
+          if (state.readOnly) return state;
           const edge = state.doc.edges.find((e) => e.id === edgeId);
           if (!edge) return state;
           const siblings = [...state.doc.edges]
@@ -462,6 +481,7 @@ export const useVisualStore = create<VisualStore>()(
 
       pasteNodesAndEdges: (nodes, edges) =>
         set((state) => {
+          if (state.readOnly) return state;
           const doc = {
             ...state.doc,
             nodes: [...state.doc.nodes, ...nodes],
@@ -496,6 +516,7 @@ export const useVisualStore = create<VisualStore>()(
 
       removeEdge: (id) =>
         set((state) => {
+          if (state.readOnly) return state;
           const doc = { ...state.doc, edges: state.doc.edges.filter((e) => e.id !== id) };
           return {
             doc,
@@ -506,7 +527,7 @@ export const useVisualStore = create<VisualStore>()(
 
       removeSelected: () =>
         set((state) => {
-          if (state.selected.length === 0) return state;
+          if (state.readOnly || state.selected.length === 0) return state;
           const selIds = new Set(state.selected);
           const doc = {
             ...state.doc,
@@ -528,6 +549,7 @@ export const useVisualStore = create<VisualStore>()(
 
       setLabel: (id, label) =>
         set((state) => {
+          if (state.readOnly) return state;
           const doc = {
             ...state.doc,
             nodes: state.doc.nodes.map((n) => (n.id === id ? { ...n, label } : n)),
@@ -545,10 +567,12 @@ export const useVisualStore = create<VisualStore>()(
       // the graph is whole again while the drawer still says 2. The toolbar,
       // which re-renders server-side, said Valid at the same time.
       undo: () => {
+        if (get().readOnly) return;
         useVisualStore.temporal.getState().undo();
         set((state) => ({ diagnostics: revalidate(state) }));
       },
       redo: () => {
+        if (get().readOnly) return;
         useVisualStore.temporal.getState().redo();
         set((state) => ({ diagnostics: revalidate(state) }));
       },
@@ -560,6 +584,7 @@ export const useVisualStore = create<VisualStore>()(
 
       setDisabled: (id, disabled) =>
         set((state) => {
+          if (state.readOnly) return state;
           const doc = {
             ...state.doc,
             nodes: state.doc.nodes.map((n) => (n.id === id ? { ...n, disabled } : n)),

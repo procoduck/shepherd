@@ -158,15 +158,10 @@ developer who needs containment to be real locally uses `make dev-kind`, which i
 the chart's NetworkPolicy is enforced (`docs/kind-test-environment-plan.md` §11). B-CONTAIN-2 is
 compose-only.
 
-### B-VIEWER-CANVAS — the visual builder is not fully read-only for viewers · **low** (#226)
-
-Since #206 a viewer's builder toolbar, palette and simulate are disabled, but the canvas still lets
-them drag nodes, draw wires and edit inspector fields. Nothing can be saved and no RPC fires; the
-builder should match the text editor (`useCanWrite()`): nodes not draggable or connectable,
-inspector fields disabled.
-
 Fixed bugs (B-CONTAIN-1, B-CONCAT, B-STAGEORDER, F9-a) are in
-`docs/archive/completed-2026-09-11.md` with their red-run evidence.
+`docs/archive/completed-2026-09-11.md` with their red-run evidence. B-VIEWER-CANVAS (#226, a
+viewer's canvas and inspector stayed editable) is fixed on `main`, unreleased — `CHANGELOG.md`
+Unreleased.
 
 ---
 

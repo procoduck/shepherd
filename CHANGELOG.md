@@ -13,6 +13,14 @@ Categories used here:
 
 ## Unreleased
 
+### Fixed
+
+- **A viewer's visual builder is read-only on the canvas and in the inspector too** (#226). Since
+  v0.14.0 a viewer's toolbar and palette were disabled, but the canvas still let them drag nodes,
+  draw and delete wires, delete or rename nodes and type into the inspector — none of which could be
+  saved. A viewer now pans, zooms, fits the view and selects a node to read its properties
+  (inspector fields shown read-only, marked "Read only"); nothing else. Server RBAC is unchanged.
+
 ## v0.14.0
 
 Chart 0.18.0. A correctness release from a full walkthrough of v0.13.0 and the kind dev stack:

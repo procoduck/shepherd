@@ -237,6 +237,10 @@ export function CanvasPane() {
   // it back out without all re-rendering together.
   const connectingFrom = useVisualStore((s) => s.connectingFrom);
   const setConnectingFrom = useVisualStore((s) => s.setConnectingFrom);
+  // #226: a viewer pans, zooms and selects; nothing here may change the graph.
+  const readOnly = useVisualStore((s) => s.readOnly);
+  const readOnlyRef = useRef(readOnly);
+  readOnlyRef.current = readOnly;
   const clipboardRef = useRef<Clipboard | null>(null);
   const pasteOffsetRef = useRef(0);
   const screenToFlowRef = useRef<((position: XYPosition) => XYPosition) | null>(null);
@@ -368,7 +372,12 @@ export function CanvasPane() {
   // After applying, we mirror the subset that is DOCUMENT state back into the
   // store. Anything not mirrored here is view state and stays view state.
   const onNodesChange = useCallback(
-    (changes: NodeChange<PipelineFlowNode>[]) => {
+    (incoming: NodeChange<PipelineFlowNode>[]) => {
+      // Read-only: only view-state changes (selection, measurement) apply —
+      // never a move, a removal or an addition, from whatever path.
+      const changes = readOnlyRef.current
+        ? incoming.filter((c) => c.type === 'select' || c.type === 'dimensions')
+        : incoming;
       setRfNodes((cur) => applyNodeChanges<PipelineFlowNode>(changes, cur));
       for (const c of changes) {
         // Position is committed once per gesture, at drag end. React Flow emits
@@ -390,7 +399,8 @@ export function CanvasPane() {
   );
 
   const onEdgesChange = useCallback(
-    (changes: EdgeChange[]) => {
+    (incoming: EdgeChange[]) => {
+      const changes = readOnlyRef.current ? incoming.filter((c) => c.type === 'select') : incoming;
       setRfEdges((cur) => applyEdgeChanges<Edge>(changes, cur));
       for (const c of changes) {
         if (c.type === 'remove') {
@@ -491,7 +501,7 @@ export function CanvasPane() {
   // then assume `from`=produces/`to`=accepts always.
   const onConnect = useCallback(
     (c: Connection) => {
-      if (!c.source || !c.target) return;
+      if (readOnlyRef.current || !c.source || !c.target) return;
       const d = docRef.current;
       const oriented = orientConnection(schemaRef.current, d, {
         source: c.source,
@@ -586,6 +596,7 @@ export function CanvasPane() {
   const onDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault();
+      if (readOnlyRef.current) return;
       const name = e.dataTransfer.getData('application/vb-component');
       if (!name) return;
       const position = screenToFlowRef.current?.({ x: e.clientX, y: e.clientY });
@@ -609,15 +620,23 @@ export function CanvasPane() {
         return;
       }
 
+      const ro = readOnlyRef.current;
       if (e.key === 'Backspace' || e.key === 'Delete') {
         e.preventDefault();
-        removeSelected();
+        if (!ro) removeSelected();
         return;
       }
 
       const isMeta = e.metaKey || e.ctrlKey;
       if (!isMeta) return;
       const key = e.key.toLowerCase();
+
+      // Read-only: copy and select-all only read; paste, undo and redo would
+      // change the graph, so they are swallowed (not left to the browser).
+      if (ro && (key === 'v' || key === 'z')) {
+        e.preventDefault();
+        return;
+      }
 
       if (key === 'c') {
         e.preventDefault();
@@ -716,6 +735,14 @@ export function CanvasPane() {
         onEdgesChange={onEdgesChange}
         onSelectionChange={onSelectionChange}
         onMoveEnd={(_, vp) => updateViewport(vp)}
+        // #226: a viewer may pan, zoom and select — nothing that edits. RF's
+        // own gestures for moving a node, drawing a wire or dragging a wire's
+        // end elsewhere are switched off; selection stays on so the inspector
+        // can show the selected node's properties.
+        nodesDraggable={!readOnly}
+        nodesConnectable={!readOnly}
+        edgesReconnectable={false}
+        elementsSelectable
         // A2: snap the wire to a compatible handle within 30px, not just on exact hover.
         connectionRadius={30}
         connectionLineStyle={connectionLineStyle}

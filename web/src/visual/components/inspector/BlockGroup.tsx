@@ -12,6 +12,7 @@ import {
   withAttr,
 } from './blockOps';
 import { wireEdgesFor } from './portWiring';
+import { useInspectorReadOnly } from './readOnly';
 import type { AttrLike, BlockLike } from './schemaShapes';
 
 export interface BlockGroupProps {
@@ -145,6 +146,7 @@ export function BlockGroup({
   onMoveEdge,
   depth,
 }: BlockGroupProps) {
+  const readOnly = useInspectorReadOnly();
   const instances = blockInstances(value);
   const attrs = block.attributes ?? [];
   const blocks = block.blocks ?? [];
@@ -185,14 +187,16 @@ export function BlockGroup({
             <div key={`${schemaPath.join('.')}-${i}`} className={groupBorder}>
               <div className={headerClass}>
                 <span className='text-muted-2'>#{i + 1}</span>
-                <button
-                  type='button'
-                  data-testid={`block-remove-${schemaPath.join('.')}-${i}`}
-                  className='text-muted-2 hover:text-red-400'
-                  onClick={() => onChange(commitInstances(removeAt(instances, i), true))}
-                >
-                  Remove
-                </button>
+                {!readOnly && (
+                  <button
+                    type='button'
+                    data-testid={`block-remove-${schemaPath.join('.')}-${i}`}
+                    className='text-muted-2 hover:text-red-400'
+                    onClick={() => onChange(commitInstances(removeAt(instances, i), true))}
+                  >
+                    Remove
+                  </button>
+                )}
               </div>
               <InstanceFields
                 attrs={attrs}
@@ -214,14 +218,16 @@ export function BlockGroup({
               />
             </div>
           ))}
-          <button
-            type='button'
-            data-testid={`block-add-${schemaPath.join('.')}`}
-            className='text-[11px] underline text-muted'
-            onClick={add}
-          >
-            + add {block.name}
-          </button>
+          {!readOnly && (
+            <button
+              type='button'
+              data-testid={`block-add-${schemaPath.join('.')}`}
+              className='text-[11px] underline text-muted'
+              onClick={add}
+            >
+              + add {block.name}
+            </button>
+          )}
         </div>
       </div>
     );
@@ -235,7 +241,7 @@ export function BlockGroup({
     return (
       <div className={groupBorder} style={{ marginLeft: depth > 0 ? 4 : 0 }}>
         {header(
-          !block.required && (
+          !block.required && !readOnly && (
             <button
               type='button'
               data-testid={`block-remove-${schemaPath.join('.')}`}
@@ -272,14 +278,18 @@ export function BlockGroup({
   return (
     <div className={groupBorder} style={{ marginLeft: depth > 0 ? 4 : 0 }}>
       {header(
-        <button
-          type='button'
-          data-testid={`block-add-${schemaPath.join('.')}`}
-          className='text-[11px] underline text-muted'
-          onClick={() => onChange(commitInstances([{}], false))}
-        >
-          + configure
-        </button>,
+        readOnly ? (
+          <span className='text-[11px] text-muted-2'>not configured</span>
+        ) : (
+          <button
+            type='button'
+            data-testid={`block-add-${schemaPath.join('.')}`}
+            className='text-[11px] underline text-muted'
+            onClick={() => onChange(commitInstances([{}], false))}
+          >
+            + configure
+          </button>
+        ),
       )}
     </div>
   );

@@ -9,7 +9,9 @@ import { AttributeField } from './inspector/AttributeField';
 import { BlockGroup } from './inspector/BlockGroup';
 import { nextBlockOrder, withAttr } from './inspector/blockOps';
 import { buildPortWireIndex, wireCountsFor, wireEdgesFor } from './inspector/portWiring';
+import { InspectorReadOnlyContext } from './inspector/readOnly';
 import type { AttrLike, BlockLike } from './inspector/schemaShapes';
+import { READ_ONLY_REASON } from './Toolbar';
 import { UpgradeReview } from './UpgradeReview';
 
 const diagAt = (diags: L1DiagnosticEx[], path: string[]): string | undefined =>
@@ -63,6 +65,9 @@ export function InspectorPanel() {
   const setDisabled = useVisualStore((s) => s.setDisabled);
   const updateNode = useVisualStore((s) => s.updateNode);
   const moveEdge = useVisualStore((s) => s.moveEdge);
+  // #226: a viewer reads the selected node's properties but cannot change
+  // them. Set from useCanWrite() by VisualBuilderPage.
+  const readOnly = useVisualStore((s) => s.readOnly);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [showOptional, setShowOptional] = useState(false);
   const def: ComponentDef | undefined = node && schema?.components[node.component];
@@ -100,7 +105,9 @@ export function InspectorPanel() {
               </span>
               <button
                 data-testid='upgrade-review-open'
-                className='underline font-medium'
+                className='underline font-medium disabled:no-underline disabled:opacity-60'
+                disabled={readOnly}
+                title={readOnly ? READ_ONLY_REASON : undefined}
                 onClick={() => setReviewOpen(true)}
               >
                 Review upgrade
@@ -172,6 +179,15 @@ export function InspectorPanel() {
           <h3 className='font-semibold font-mono text-xs' data-testid='inspector-component'>
             {node.component}
           </h3>
+          {readOnly && (
+            <p
+              data-testid='inspector-read-only'
+              className='mt-1 inline-block rounded border border-border px-1.5 py-0.5 text-[11px] text-muted'
+              title={READ_ONLY_REASON}
+            >
+              Read only
+            </p>
+          )}
           {def.doc && <p className='mt-1 text-xs text-muted'>{def.doc}</p>}
           {nodeDiagnostics.length > 0 && (
             <p className='mt-1 text-xs text-red-500' data-testid='inspector-diagnostic-count'>
@@ -180,70 +196,72 @@ export function InspectorPanel() {
           )}
         </div>
 
-        <div className='p-4 space-y-3'>
-          {required.length > 0 && (
-            <div className='space-y-3'>
-              <h4 className='text-[11px] uppercase tracking-wide text-muted-2'>Required</h4>
-              {required.map(renderAttr)}
-            </div>
-          )}
-
-          {optional.length > 0 &&
-            (showOptional ? (
+        <InspectorReadOnlyContext value={readOnly}>
+          <div className='p-4 space-y-3'>
+            {required.length > 0 && (
               <div className='space-y-3'>
-                <div className='flex items-center justify-between'>
-                  <h4 className='text-[11px] uppercase tracking-wide text-muted-2'>
-                    Optional ({optional.length})
-                  </h4>
-                  <button
-                    type='button'
-                    className='text-[11px] underline text-muted'
-                    onClick={() => setShowOptional(false)}
-                  >
-                    hide
-                  </button>
-                </div>
-                {optional.map(renderAttr)}
+                <h4 className='text-[11px] uppercase tracking-wide text-muted-2'>Required</h4>
+                {required.map(renderAttr)}
               </div>
-            ) : (
-              <button
-                type='button'
-                data-testid='inspector-show-optional'
-                className='text-xs underline text-muted'
-                onClick={() => setShowOptional(true)}
-              >
-                Show {optional.length} optional attribute{optional.length === 1 ? '' : 's'}
-              </button>
-            ))}
+            )}
 
-          {blocks.length > 0 && (
-            <div className='space-y-3 pt-1'>
-              <h4 className='text-[11px] uppercase tracking-wide text-muted-2'>Blocks</h4>
-              {blocks.map((block) => (
-                <BlockGroup
-                  key={block.name}
-                  block={block}
-                  value={node.props?.[block.name]}
-                  onChange={(v) => setProp(block.name, v)}
-                  schemaPath={[block.name]}
-                  instancePath={[block.name]}
-                  nodeId={node.id}
-                  diagnostics={nodeDiagnostics}
-                  bindings={bindings}
-                  portByPath={portIndex.byPath}
-                  wireCounts={wireCounts}
-                  edges={edges}
-                  onMoveEdge={moveEdge}
-                  depth={0}
-                />
+            {optional.length > 0 &&
+              (showOptional ? (
+                <div className='space-y-3'>
+                  <div className='flex items-center justify-between'>
+                    <h4 className='text-[11px] uppercase tracking-wide text-muted-2'>
+                      Optional ({optional.length})
+                    </h4>
+                    <button
+                      type='button'
+                      className='text-[11px] underline text-muted'
+                      onClick={() => setShowOptional(false)}
+                    >
+                      hide
+                    </button>
+                  </div>
+                  {optional.map(renderAttr)}
+                </div>
+              ) : (
+                <button
+                  type='button'
+                  data-testid='inspector-show-optional'
+                  className='text-xs underline text-muted'
+                  onClick={() => setShowOptional(true)}
+                >
+                  Show {optional.length} optional attribute{optional.length === 1 ? '' : 's'}
+                </button>
               ))}
-            </div>
-          )}
 
-          {attrs.length === 0 && blocks.length === 0 && (
-            <p className='text-xs text-muted-2'>This component has no configurable fields.</p>
-          )}
-        </div>
+            {blocks.length > 0 && (
+              <div className='space-y-3 pt-1'>
+                <h4 className='text-[11px] uppercase tracking-wide text-muted-2'>Blocks</h4>
+                {blocks.map((block) => (
+                  <BlockGroup
+                    key={block.name}
+                    block={block}
+                    value={node.props?.[block.name]}
+                    onChange={(v) => setProp(block.name, v)}
+                    schemaPath={[block.name]}
+                    instancePath={[block.name]}
+                    nodeId={node.id}
+                    diagnostics={nodeDiagnostics}
+                    bindings={bindings}
+                    portByPath={portIndex.byPath}
+                    wireCounts={wireCounts}
+                    edges={edges}
+                    onMoveEdge={moveEdge}
+                    depth={0}
+                  />
+                ))}
+              </div>
+            )}
+
+            {attrs.length === 0 && blocks.length === 0 && (
+              <p className='text-xs text-muted-2'>This component has no configurable fields.</p>
+            )}
+          </div>
+        </InspectorReadOnlyContext>
 
         <div className='px-4 pb-4 pt-2 border-t'>
           <h4 className='text-xs font-semibold mb-2'>Danger</h4>
@@ -251,6 +269,7 @@ export function InspectorPanel() {
             <input
               data-testid='node-disable-toggle'
               type='checkbox'
+              disabled={readOnly}
               checked={node.disabled}
               onChange={(e) => setDisabled(node.id, e.target.checked)}
             />
