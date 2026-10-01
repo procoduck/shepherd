@@ -589,27 +589,65 @@ prometheus.scrape "app" {
   forward_to      = [prometheus.remote_write.dest.receiver]
 }
 {{ if extra keep-regex }}/* prometheus.relabel stage between scrape and write */{{ end }}
-remote.kubernetes.secret "dest" {
-  name      = "{{ destination.secret_name }}"
+// remote.kubernetes.secret + the writer: rendered by wizard.RenderWriter, §11.4
+remote.kubernetes.secret "metrics_auth" {          // only for a Secret auth_mode
   namespace = "{{ destination.secret_namespace }}"
+  name      = "{{ destination.secret_name }}"
 }
-prometheus.remote_write "dest" {
+prometheus.remote_write "metrics" {
   endpoint {
-    url = convert.nonsensitive(remote.kubernetes.secret.dest.data["url"]) + "/api/v1/push"
-    headers = { "X-Scope-OrgID" = "{{ destination.tenant_id }}" }
-    // auth block per destination.auth_mode, credentials from the secret's keys
-    tls_config { insecure_skip_verify = true }
+    name = "{{ destination.name }}"
+    url  = "{{ destination.url }}"                  // the full push URL, verbatim
+    basic_auth {                                    // auth_mode = basic_secret
+      username = convert.nonsensitive(remote.kubernetes.secret.metrics_auth.data["username"])
+      password = remote.kubernetes.secret.metrics_auth.data["password"]
+    }
   }
 }
 ```
 
+As built, every wizard writer (`prometheus.remote_write`, `loki.write`) is emitted by one function,
+`internal/wizard.RenderWriter`, from the org's destination row the wizard's `*_dest_name` field
+names. A name the org does not have, or a destination of the wrong type, is refused
+(`failed_precondition`). Tenant headers and TLS options are not rendered.
+
 ### 11.3 Logs template (shape)
 
-`discovery.kubernetes` (role pod, namespaces) → `discovery.relabel` (namespace include/exclude, container regex, standard k8s label mapping) → `loki.source.kubernetes` → optional `loki.process` (multiline / JSON level stage) → `remote.kubernetes.secret` + `loki.write` with `url = convert.nonsensitive(...data["url"]) + "/loki/api/v1/push"`, `tenant_id`, auth per destination.
+`discovery.kubernetes` (role pod, namespaces) → `discovery.relabel` (namespace include/exclude, container regex, standard k8s label mapping) → `loki.source.kubernetes` → optional `loki.process` (multiline / JSON level stage) → `remote.kubernetes.secret` (Secret modes only) + `loki.write` with the destination's `url` verbatim and the auth block per §11.4.
 
-### 11.4 Destination credential convention (document in README)
+### 11.4 Destination credential convention
 
-Destinations reference a Kubernetes Secret that must already exist on every spoke cluster (the platform already distributes such secrets — e.g. `mimir`/`loki` secrets containing `url` and OAuth client credentials). Shepherd stores only the secret's name/namespace and non-sensitive metadata. Rendered configs read it at runtime via `remote.kubernetes.secret`, so **no telemetry-backend credential ever enters Shepherd's database or the served config text**.
+Destinations reference a Kubernetes Secret that must already exist on every spoke cluster (the
+platform already distributes such secrets). Shepherd stores only the Secret's name/namespace and
+non-sensitive metadata. Rendered configs read it at runtime via `remote.kubernetes.secret`, so **no
+telemetry-backend credential ever enters Shepherd's database or the served config text**.
+
+**URL.** The destination's `url` is the writer's full endpoint URL (e.g. `…/api/v1/push`,
+`…/loki/api/v1/push`). It is rendered verbatim as a string literal. A URL is not a credential, so it
+is not read from the Secret. (The earlier sketch above read `url` from the Secret and appended a
+path. Pre-#229 wizards emitted `sys.env("SHEPHERD_DEST_<NAME>_URL")`, which nothing set.)
+
+**Key contract (#229)** — `internal/wizard.SecretKeys`:
+
+| `auth_mode` | Secret keys | Rendered into the writer's `endpoint` |
+|---|---|---|
+| `none` | — | nothing |
+| `basic_secret` | `username`, `password` | `basic_auth { username = convert.nonsensitive(data["username"]), password = data["password"] }` |
+| `oauth2_secret` | `client_id`, `client_secret`, `token_url` | `oauth2 { client_id = convert.nonsensitive(…), client_secret = data["client_secret"], token_url = convert.nonsensitive(…) [, scopes] }` |
+
+OAuth2 scopes are not a Secret key. Shepherd never reads the Secret, so it cannot render an optional
+key conditionally. Scopes are non-sensitive destination metadata, `extra.oauth2_scopes` (a list of
+strings). The API refuses (`invalid_argument`) an unknown `auth_mode`, and a Secret mode without a
+valid Kubernetes namespace and name.
+
+**When it is rendered.** At wizard render/commit time (`RenderWizard`/`CommitWizard` load the org's
+destinations), so the auth block is part of the stored pipeline and passes Stages 1–3 like any other
+line. A later destination edit reaches a pipeline when its wizard is next committed.
+
+**RBAC.** The collector's ServiceAccount needs `get`, `list` and `watch` on `secrets` in the
+Secret's namespace. The `grafana/alloy` chart's default ClusterRole grants this cluster-wide. A
+collector with restricted RBAC needs a Role and RoleBinding in that namespace
+(`e2e/k8s/destination_auth_test.go` runs with exactly that).
 
 ---
 

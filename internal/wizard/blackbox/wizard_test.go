@@ -10,6 +10,7 @@ import (
 	"shepherd/internal/validate"
 	"shepherd/internal/wizard"
 	_ "shepherd/internal/wizard/blackbox"
+	"shepherd/internal/wizard/wizardtest"
 )
 
 func TestWizard(t *testing.T) {
@@ -23,7 +24,7 @@ var _ = Describe("BlackboxWizard golden files", func() {
 
 	DescribeTable("rendered output matches golden file, passes Stage 1, and is checked to role=metrics",
 		func(fixtureName string, state map[string]any) {
-			result, err := wiz.Commit(state)
+			result, err := wiz.Commit(state, wizardtest.Destinations())
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.Role).To(Equal("metrics"))
 
@@ -52,22 +53,31 @@ var _ = Describe("BlackboxWizard golden files", func() {
 			"metrics_dest_name": "prom-staging",
 			"cluster_pattern":   "staging-.*",
 		}),
+		// A basic_secret destination (#229): auth read from a spoke Secret.
+		Entry("secret-auth", "secret-auth", map[string]any{
+			"probe_targets":     "https://example.com",
+			"module":            "http_2xx",
+			"job_name":          "blackbox-http",
+			"scrape_interval":   "60s",
+			"metrics_dest_name": "prom-basic",
+			"cluster_pattern":   "prod-.*",
+		}),
 	)
 
 	It("requires probe_targets", func() {
-		_, err := wiz.Commit(map[string]any{"metrics_dest_name": "prom-prod"})
+		_, err := wiz.Commit(map[string]any{"metrics_dest_name": "prom-prod"}, wizardtest.Destinations())
 		Expect(err).To(HaveOccurred())
 	})
 
 	It("requires metrics_dest_name", func() {
-		_, err := wiz.Commit(map[string]any{"probe_targets": "https://example.com"})
+		_, err := wiz.Commit(map[string]any{"probe_targets": "https://example.com"}, wizardtest.Destinations())
 		Expect(err).To(HaveOccurred())
 	})
 
 	It("refuses an unsupported module", func() {
 		_, err := wiz.Commit(map[string]any{
 			"probe_targets": "https://example.com", "module": "icmp", "metrics_dest_name": "prom-prod",
-		})
+		}, wizardtest.Destinations())
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("module"))
 	})
@@ -75,7 +85,7 @@ var _ = Describe("BlackboxWizard golden files", func() {
 	It("treats an all-punctuation target as an unnamed probe rather than an empty block name", func() {
 		result, err := wiz.Commit(map[string]any{
 			"probe_targets": "://", "metrics_dest_name": "prom-prod",
-		})
+		}, wizardtest.Destinations())
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result.Contents).To(ContainSubstring(`name    = "probe-1"`))
 	})

@@ -4,10 +4,17 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { clients, toApiError } from '@/api/transport';
 import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
+import {
+  authModeLabel,
+  DestinationFormDialog,
+  type DestinationFormState,
+  EMPTY_FORM,
+  extraWithScopes,
+  isSecretMode,
+  scopesFromExtra,
+} from '@/components/DestinationFormDialog';
 import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
-import { Field, Input, Select } from '@/components/ui/Field';
-import { Modal, ModalActions } from '@/components/ui/Modal';
 import type { Destination } from '@/gen/shepherd/mgmt/v1/destination_pb';
 import { useCanAdminister, useOrgId } from '@/hooks/useOrg';
 
@@ -47,52 +54,6 @@ function DestinationUrl({ url }: { url: string }) {
       {host}
       <ExternalLink size={10} />
     </a>
-  );
-}
-
-/**
- * Human labels for the auth modes the schema admits (0001_init: `none`,
- * `oauth2_secret`, `basic_secret`). An unknown value — possible, since the API
- * stores whatever it is sent — is shown verbatim rather than hidden.
- */
-const AUTH_MODE_LABELS: Record<string, string> = {
-  none: 'None',
-  basic_secret: 'Basic auth (Kubernetes Secret)',
-  oauth2_secret: 'OAuth2 (Kubernetes Secret)',
-};
-
-function authModeLabel(mode: string): string {
-  return AUTH_MODE_LABELS[mode] ?? mode;
-}
-
-function isSecretMode(mode: string): boolean {
-  return mode === 'basic_secret' || mode === 'oauth2_secret';
-}
-
-/**
- * What a secret-based auth mode does today. This text states what the code
- * does, not what docs/spec.md §11 intends: the server stores the mode and the
- * Secret reference, but no pipeline renderer reads them — the wizards emit
- * `url = sys.env("SHEPHERD_DEST_<NAME>_URL")` and no auth block — and nothing
- * defines which keys the Secret must hold. Change this text when that changes.
- */
-function SecretModeExplanation({ mode }: { mode: string }) {
-  const kind = mode === 'basic_secret' ? 'HTTP basic auth' : 'OAuth2 client credentials';
-  return (
-    <div
-      data-testid='auth-mode-explanation'
-      className='rounded-md border border-border bg-card/40 px-3 py-2 text-2xs text-muted'
-    >
-      <p>
-        For {kind} kept in a Kubernetes Secret that already exists on each spoke cluster. Shepherd
-        stores only the Secret's namespace and name &mdash; never the credential itself.
-      </p>
-      <p className='mt-1'>
-        Not applied yet: generated pipelines do not read this Secret or add an auth block, and the
-        keys the Secret must hold are not defined. Until they are, configure the credentials on the
-        collector itself.
-      </p>
-    </div>
   );
 }
 
@@ -157,154 +118,6 @@ function destinationColumns(
   ];
 }
 
-interface DestinationFormState {
-  name: string;
-  type: string;
-  url: string;
-  authMode: string;
-  secretNamespace: string;
-  secretName: string;
-}
-
-const EMPTY_FORM: DestinationFormState = {
-  name: '',
-  type: 'prometheus',
-  url: '',
-  authMode: 'none',
-  secretNamespace: '',
-  secretName: '',
-};
-
-function validateUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    // new URL() accepts javascript: and data: quite happily, so parsing is
-    // not validation. Only http(s) is a destination Shepherd can ship to.
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return 'Only http:// and https:// destinations are supported';
-    }
-    return '';
-  } catch {
-    return 'Enter a valid URL (e.g. http://prometheus:9090)';
-  }
-}
-
-/**
- * The create and edit dialog share one form. The secret reference fields only
- * appear for a secret-based auth mode; the parent decides what to send for
- * them when the mode is `none`.
- */
-function DestinationFormDialog({
-  title,
-  initial,
-  submitLabel,
-  pendingLabel,
-  pending,
-  onCancel,
-  onSubmit,
-}: {
-  title: string;
-  initial: DestinationFormState;
-  submitLabel: string;
-  pendingLabel: string;
-  pending: boolean;
-  onCancel: () => void;
-  onSubmit: (form: DestinationFormState) => void;
-}) {
-  const [form, setForm] = useState(initial);
-  const [urlError, setUrlError] = useState('');
-  const secretMode = isSecretMode(form.authMode);
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const err = validateUrl(form.url);
-    setUrlError(err);
-    if (!err) onSubmit(form);
-  }
-
-  return (
-    <Modal title={title} onClose={onCancel}>
-      <form onSubmit={handleSubmit} className='space-y-4'>
-        <Field label='Name'>
-          <Input
-            value={form.name}
-            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-            required
-            placeholder='prom-prod'
-          />
-        </Field>
-        <Field label='Type'>
-          <Select
-            value={form.type}
-            onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
-          >
-            <option value='prometheus'>Prometheus</option>
-            <option value='loki'>Loki</option>
-            <option value='otlp'>Tempo (OTLP)</option>
-          </Select>
-        </Field>
-        <Field label='URL' error={urlError}>
-          <Input
-            value={form.url}
-            onChange={(e) => {
-              setForm((f) => ({ ...f, url: e.target.value }));
-              setUrlError('');
-            }}
-            onBlur={() => form.url && setUrlError(validateUrl(form.url))}
-            required
-            mono
-            placeholder='http://prometheus:9090'
-          />
-        </Field>
-        <Field label='Auth mode'>
-          <Select
-            value={form.authMode}
-            onChange={(e) => setForm((f) => ({ ...f, authMode: e.target.value }))}
-          >
-            {!(form.authMode in AUTH_MODE_LABELS) && (
-              <option value={form.authMode}>{form.authMode}</option>
-            )}
-            <option value='none'>{AUTH_MODE_LABELS.none}</option>
-            <option value='basic_secret'>{AUTH_MODE_LABELS.basic_secret}</option>
-            <option value='oauth2_secret'>{AUTH_MODE_LABELS.oauth2_secret}</option>
-          </Select>
-        </Field>
-        {secretMode && (
-          <>
-            <SecretModeExplanation mode={form.authMode} />
-            <div className='flex gap-3'>
-              <Field label='Secret namespace' className='flex-1'>
-                <Input
-                  value={form.secretNamespace}
-                  onChange={(e) => setForm((f) => ({ ...f, secretNamespace: e.target.value }))}
-                  required
-                  mono
-                  placeholder='monitoring'
-                />
-              </Field>
-              <Field label='Secret name' className='flex-1'>
-                <Input
-                  value={form.secretName}
-                  onChange={(e) => setForm((f) => ({ ...f, secretName: e.target.value }))}
-                  required
-                  mono
-                  placeholder='mimir-credentials'
-                />
-              </Field>
-            </div>
-          </>
-        )}
-        <ModalActions
-          onCancel={onCancel}
-          submitLabel={submitLabel}
-          pendingLabel={pendingLabel}
-          pending={pending}
-        />
-      </form>
-    </Modal>
-  );
-}
-
 export function DestinationsPage() {
   const orgId = useOrgId();
   // Destinations decide where telemetry ships, so the server requires org
@@ -334,6 +147,7 @@ export function DestinationsPage() {
         tenantId: '',
         secretName: secret ? form.secretName.trim() : '',
         secretNamespace: secret ? form.secretNamespace.trim() : '',
+        extra: extraWithScopes(undefined, form),
       });
     },
     onSuccess: () => {
@@ -363,7 +177,7 @@ export function DestinationsPage() {
         tenantId: d.tenantId,
         secretName: secret ? form.secretName.trim() : d.secretName,
         secretNamespace: secret ? form.secretNamespace.trim() : d.secretNamespace,
-        extra: d.extra,
+        extra: extraWithScopes(d.extra, form),
       });
     },
     onSuccess: () => {
@@ -468,6 +282,7 @@ export function DestinationsPage() {
             authMode: editing.authMode,
             secretNamespace: editing.secretNamespace,
             secretName: editing.secretName,
+            scopes: scopesFromExtra(editing.extra),
           }}
           submitLabel='Save'
           pendingLabel='Saving…'

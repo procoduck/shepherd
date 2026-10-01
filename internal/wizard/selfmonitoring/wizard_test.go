@@ -14,6 +14,7 @@ import (
 	"shepherd/internal/version"
 	"shepherd/internal/wizard"
 	_ "shepherd/internal/wizard/selfmonitoring"
+	"shepherd/internal/wizard/wizardtest"
 )
 
 func TestWizard(t *testing.T) {
@@ -27,7 +28,7 @@ var _ = Describe("SelfMonitoringWizard golden files", func() {
 
 	DescribeTable("rendered output matches golden file, passes Stage 1, and is checked to role=singleton",
 		func(fixtureName string, state map[string]any) {
-			result, err := wiz.Commit(state)
+			result, err := wiz.Commit(state, wizardtest.Destinations())
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.Role).To(Equal("singleton"))
 
@@ -56,10 +57,20 @@ var _ = Describe("SelfMonitoringWizard golden files", func() {
 			"logs_dest_name":    "loki-prod",
 			"cluster_pattern":   "prod-.*",
 		}),
+		// Secret-mode destinations (#229) on both writers.
+		Entry("secret-auth", "secret-auth", map[string]any{
+			"job_name":          "alloy-self",
+			"scrape_interval":   "60s",
+			"metrics_dest_name": "prom-basic",
+			"logs_enabled":      true,
+			"log_path":          "/var/log/alloy/*.log",
+			"logs_dest_name":    "loki-oauth",
+			"cluster_pattern":   "prod-.*",
+		}),
 	)
 
 	It("requires metrics_dest_name", func() {
-		_, err := wiz.Commit(map[string]any{})
+		_, err := wiz.Commit(map[string]any{}, wizardtest.Destinations())
 		Expect(err).To(HaveOccurred())
 	})
 
@@ -73,7 +84,7 @@ var _ = Describe("SelfMonitoringWizard golden files", func() {
 			"metrics_dest_name": "prom-prod",
 			"logs_enabled":      true,
 			"logs_dest_name":    "loki-prod",
-		})
+		}, wizardtest.Destinations())
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result.Role).To(Equal("singleton"))
 		Expect(result.Contents).To(ContainSubstring("loki.source.file"))
@@ -88,7 +99,7 @@ var _ = Describe("SelfMonitoringWizard golden files", func() {
 		result, err := wiz.Commit(map[string]any{
 			"metrics_dest_name": "prom-prod",
 			"logs_enabled":      true,
-		})
+		}, wizardtest.Destinations())
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result.Contents).NotTo(ContainSubstring("loki.source.file"), "logs are dropped with no destination")
 		Expect(result.Warnings).To(ContainElement(ContainSubstring("no logs destination")))
@@ -100,7 +111,7 @@ var _ = Describe("SelfMonitoringWizard golden files", func() {
 			"logs_enabled":      true,
 			"logs_dest_name":    "loki-prod",
 			"log_path":          "/var/log/app/*.log",
-		})
+		}, wizardtest.Destinations())
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result.Warnings).To(BeEmpty())
 	})

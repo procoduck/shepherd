@@ -173,14 +173,6 @@ Served config is shown, but nothing links back to the pipelines that produced it
 to get from "this collector runs X" to "because pipeline Y matched". The merge engine already knows
 the contributing set.
 
-### F-DEST-AUTH — destination Secret auth modes are stored, never applied · **medium** (#229)
-
-`auth_mode` `basic_secret` / `oauth2_secret` with a Secret reference are saved and returned by the
-Destinations API, but nothing renders an auth block into collector config: wizards emit only
-`url = sys.env("SHEPHERD_DEST_<NAME>_URL")`. A destination in a Secret mode ships **no auth**. The UI
-labels both modes *Not applied yet* (v0.14.0, #207). Needs the Secret's key contract
-(`docs/spec.md` §11.2/§11.4 name only `url`) and the rendering.
-
 All gateway-tier workstreams (W1–W11) and attribute-based matching (#139) have shipped — the last
 of them in v0.12.0: the receiver tier (#109, opt-in, R3 signed), tenant-route apply, onboarding
 artifacts (#111) and the chart-values generator with G10 (#112). See `docs/gateway-tier-plan.md` §9.
@@ -188,6 +180,10 @@ artifacts (#111) and the chart-values generator with G10 (#112). See `docs/gatew
 Closed features (F5 sandbox simulation, F-SIGNAL-SERVE) are in `docs/archive/completed-2026-09-11.md`.
 F-REVISIONS closed — see `CHANGELOG.md` v0.6.0 "Pipelines — Shipped"; its plan is archived at
 `docs/archive/plans/2026-09-11-f-revisions.md`.
+F-DEST-AUTH closed (#229): wizard writers render a `basic_secret` / `oauth2_secret` destination's
+auth from its Kubernetes Secret (`remote.kubernetes.secret`, key contract in `docs/spec.md` §11.4),
+proven end to end by `e2e/k8s/destination_auth_test.go`. See `CHANGELOG.md` Unreleased; plan in
+`docs/plans/2026-10-01-destination-auth.md`.
 
 ---
 

@@ -87,7 +87,11 @@ type Wizard interface {
 	Role(state map[string]any) string
 	// Commit generates the pipeline contents from the wizard state.
 	// state is the user-provided JSON blob (map of fieldName → value).
-	Commit(state map[string]any) (CommitResult, error)
+	// dests is the org's destinations by name: every `*_dest_name` field is
+	// resolved against it, and every writer is rendered through
+	// RenderWriter (destination.go) — a name dests does not hold is an
+	// error, never a writer with a guessed URL and no auth.
+	Commit(state map[string]any, dests Destinations) (CommitResult, error)
 }
 
 // Registry maps wizard kinds to their implementations.

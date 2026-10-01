@@ -2,6 +2,7 @@ package mgmtapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/structpb"
 
@@ -18,6 +20,7 @@ import (
 	"shepherd/internal/gateway"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
+	"shepherd/internal/wizard"
 )
 
 // DestinationService implements mgmtv1connect.DestinationServiceHandler.
@@ -152,6 +155,72 @@ func validateDestinationType(t string) error {
 		fmt.Errorf("invalid destination type %q: expected one of %s", t, strings.Join(validDestinationTypes, ", ")))
 }
 
+// destinationScopes reads an oauth2_secret destination's scopes from its
+// extra JSON (wizard.ExtraKeyOAuth2Scopes): absent means none, anything but
+// a list of non-empty strings is an error.
+func destinationScopes(extra []byte) ([]string, error) {
+	if len(extra) == 0 {
+		return nil, nil
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(extra, &m); err != nil {
+		return nil, fmt.Errorf("extra is not a JSON object: %w", err)
+	}
+	raw, ok := m[wizard.ExtraKeyOAuth2Scopes]
+	if !ok || string(raw) == "null" {
+		return nil, nil
+	}
+	var scopes []string
+	if err := json.Unmarshal(raw, &scopes); err != nil {
+		return nil, fmt.Errorf("extra.%s must be a list of strings", wizard.ExtraKeyOAuth2Scopes)
+	}
+	for _, sc := range scopes {
+		if strings.TrimSpace(sc) == "" {
+			return nil, fmt.Errorf("extra.%s must not contain an empty scope", wizard.ExtraKeyOAuth2Scopes)
+		}
+	}
+	return scopes, nil
+}
+
+// validateDestinationAuth refuses an auth_mode the destinations table does
+// not admit, a Secret mode without a valid Secret reference, and malformed
+// OAuth2 scopes — at the API, as invalid_argument, rather than as a CHECK
+// violation (an internal error) or a wizard render failure much later. The
+// Secret's key contract itself is wizard.SecretKeys.
+func validateDestinationAuth(mode, secretNamespace, secretName string, extra []byte) error {
+	if err := wizard.ValidateSecretRef(wizard.AuthMode(mode), secretNamespace, secretName); err != nil {
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if _, err := destinationScopes(extra); err != nil {
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	return nil
+}
+
+// wizardDestinations loads an org's destinations as the set a wizard's
+// `*_dest_name` fields resolve against (wizard.Destinations). Only the
+// non-sensitive columns are carried: a Secret mode names the Secret, the
+// collector reads its values at runtime.
+func wizardDestinations(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID) (wizard.Destinations, error) {
+	rows, err := q.ListDestinationsByOrg(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("listing destinations: %w", err)
+	}
+	out := make(wizard.Destinations, len(rows))
+	for i := range rows {
+		d := rows[i]
+		scopes, err := destinationScopes(d.Extra)
+		if err != nil {
+			return nil, fmt.Errorf("destination %q: %w", d.Name, err)
+		}
+		out[d.Name] = wizard.Destination{
+			Name: d.Name, Type: d.Type, URL: d.Url, AuthMode: wizard.AuthMode(d.AuthMode),
+			SecretNamespace: d.SecretNamespace, SecretName: d.SecretName, OAuth2Scopes: scopes,
+		}
+	}
+	return out, nil
+}
+
 // CreateDestination creates a destination.
 func (s *DestinationService) CreateDestination(ctx context.Context, req *connect.Request[mgmtv1.CreateDestinationRequest]) (*connect.Response[mgmtv1.Destination], error) {
 	if err := requireWriteAuthorized(ctx); err != nil {
@@ -167,6 +236,9 @@ func (s *DestinationService) CreateDestination(ctx context.Context, req *connect
 	extraJSON, err := destinationExtraJSON(req.Msg.GetExtra())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid extra"))
+	}
+	if err := validateDestinationAuth(req.Msg.GetAuthMode(), req.Msg.GetSecretNamespace(), req.Msg.GetSecretName(), extraJSON); err != nil {
+		return nil, err
 	}
 	d, err := s.store.Queries.CreateDestination(ctx, sqlc.CreateDestinationParams{
 		OrgID:           orgID,
@@ -217,6 +289,9 @@ func (s *DestinationService) UpdateDestination(ctx context.Context, req *connect
 	extraJSON, err := destinationExtraJSON(req.Msg.GetExtra())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid extra"))
+	}
+	if err := validateDestinationAuth(req.Msg.GetAuthMode(), req.Msg.GetSecretNamespace(), req.Msg.GetSecretName(), extraJSON); err != nil {
+		return nil, err
 	}
 	d, err := s.store.Queries.UpdateDestination(ctx, sqlc.UpdateDestinationParams{
 		ID:              id,

@@ -1,0 +1,16 @@
+remote.kubernetes.secret "logs_auth" {
+  namespace = "monitoring"
+  name      = "loki-credentials"
+}
+
+loki.write "logs" {
+  endpoint {
+    name = "loki-prod"
+    url  = "https://loki.example.com/loki/api/v1/push"
+
+    basic_auth {
+      username = convert.nonsensitive(remote.kubernetes.secret.logs_auth.data["username"])
+      password = remote.kubernetes.secret.logs_auth.data["password"]
+    }
+  }
+}

@@ -119,7 +119,7 @@ func (w *Wizard) Schema() wizard.Schema {
 }
 
 // Commit generates an Alloy pipeline from the wizard state.
-func (w *Wizard) Commit(state map[string]any) (wizard.CommitResult, error) {
+func (w *Wizard) Commit(state map[string]any, dests wizard.Destinations) (wizard.CommitResult, error) {
 	get := func(key string) string {
 		v, _ := state[key].(string) //nolint:errcheck // type assert ok flag; empty string is safe default
 		return v
@@ -166,14 +166,11 @@ func (w *Wizard) Commit(state map[string]any) (wizard.CommitResult, error) {
 }
 `, scrapeURL, scrapeInterval, jobName)
 
-	_, _ = fmt.Fprintf(&sb, `prometheus.remote_write "metrics" {
-  endpoint {
-    name = "%s"
-    url  = sys.env("SHEPHERD_DEST_%s_URL")
-    // auth injected by Shepherd at serve time
-  }
-}
-`, metricsDest, strings.ToUpper(strings.ReplaceAll(metricsDest, "-", "_")))
+	metricsWriter, err := wizard.RenderWriter(wizard.WriterPrometheus, "metrics", dests, metricsDest)
+	if err != nil {
+		return wizard.CommitResult{}, fmt.Errorf("metrics_dest_name: %w", err)
+	}
+	_, _ = sb.WriteString(metricsWriter)
 
 	// Optional log collection.
 	if logsEnabled && logPath != "" {
@@ -189,13 +186,12 @@ loki.process "app_process" {
   stage.%s {}
 }
 
-loki.write "logs" {
-  endpoint {
-    name = "%s"
-    url  = sys.env("SHEPHERD_DEST_%s_URL")
-  }
-}
-`, logPath, jobName, logFormat, logsDest, strings.ToUpper(strings.ReplaceAll(logsDest, "-", "_")))
+`, logPath, jobName, logFormat)
+		logsWriter, err := wizard.RenderWriter(wizard.WriterLoki, "logs", dests, logsDest)
+		if err != nil {
+			return wizard.CommitResult{}, fmt.Errorf("logs_dest_name: %w", err)
+		}
+		_, _ = sb.WriteString(logsWriter)
 	}
 
 	// Build matchers.

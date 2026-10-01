@@ -1,0 +1,6 @@
+loki.write "logs" {
+  endpoint {
+    name = "loki-prod"
+    url  = "https://loki.example.com/loki/api/v1/push"
+  }
+}

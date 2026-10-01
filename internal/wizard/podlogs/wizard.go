@@ -103,7 +103,7 @@ func (w *Wizard) Schema() wizard.Schema {
 }
 
 // Commit generates an Alloy pipeline from the wizard state.
-func (w *Wizard) Commit(state map[string]any) (wizard.CommitResult, error) {
+func (w *Wizard) Commit(state map[string]any, dests wizard.Destinations) (wizard.CommitResult, error) {
 	get := func(key string) string {
 		v, _ := state[key].(string) //nolint:errcheck // type assert ok flag; empty string is safe default
 		return v
@@ -164,15 +164,11 @@ loki.process "pods" {
 `)
 	}
 
-	_, _ = fmt.Fprintf(&sb, `
-loki.write "logs" {
-  endpoint {
-    name = "%s"
-    url  = sys.env("SHEPHERD_DEST_%s_URL")
-    // auth injected by Shepherd at serve time
-  }
-}
-`, logsDest, strings.ToUpper(strings.ReplaceAll(logsDest, "-", "_")))
+	writer, err := wizard.RenderWriter(wizard.WriterLoki, "logs", dests, logsDest)
+	if err != nil {
+		return wizard.CommitResult{}, fmt.Errorf("logs_dest_name: %w", err)
+	}
+	_, _ = sb.WriteString("\n" + writer)
 
 	var matchers []string
 	if cp := get("cluster_pattern"); cp != "" {

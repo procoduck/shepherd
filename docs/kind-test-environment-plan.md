@@ -19,7 +19,11 @@
 > CNI control — see §8b for what building it taught us about probe observability); Layer C and the
 > remaining steps proposed.
 >
-> **Now twelve** (re-counted 2026-09-30): since the nine below, the receiver tier's pass-through
+> **Now thirteen** (2026-10-01): destination Secret auth (`destination_auth_test.go`, #229) — a
+> real Alloy with namespace-scoped Secret RBAC sends remote-write requests carrying a
+> `basic_secret` destination's credentials.
+>
+> **Twelve** (re-counted 2026-09-30): since the nine below, the receiver tier's pass-through
 > tenancy (`receiver_tenancy_test.go`, R3), tenant-route apply through the Connect API with two
 > replicas (`tenant_route_apply_test.go`) and G10's real k8s-monitoring install
 > (`chart_values_test.go`) were added. `e2e/k8s/README.md` carries the current list and timing.
@@ -208,7 +212,7 @@ roughly 2–4 minutes before a single assertion runs; the LGTM layer adds more. 
   `deploy/helm/**`, `internal/simsvc/**`, `internal/simulate/**` — the containment surface. This
   mirrors how `e2e-egress` is already gated. Layer C runs nightly and on `main`, not per-PR.
 - **As built** (`.github/workflows/e2e-k8s.yml`): the layer split above was not carried into CI —
-  the whole suite (twelve features as of v0.14.0) runs as one job, gated by one `pull_request` paths filter
+  the whole suite (thirteen features since #229) runs as one job, gated by one `pull_request` paths filter
   (`deploy/helm/**`, `e2e/k8s/**`, the workflow file itself, and `deploy/Dockerfile*` /
   `deploy/versions.env` — the suite builds and installs `shepherd:local`, and a base-image change
   once broke `alloy validate` in the shipped image without ever triggering this job, per the note

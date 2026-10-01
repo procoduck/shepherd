@@ -1,0 +1,18 @@
+remote.kubernetes.secret "logs_auth" {
+  namespace = "monitoring"
+  name      = "loki-oauth"
+}
+
+loki.write "logs" {
+  endpoint {
+    name = "loki-prod"
+    url  = "https://loki.example.com/loki/api/v1/push"
+
+    oauth2 {
+      client_id     = convert.nonsensitive(remote.kubernetes.secret.logs_auth.data["client_id"])
+      client_secret = remote.kubernetes.secret.logs_auth.data["client_secret"]
+      token_url     = convert.nonsensitive(remote.kubernetes.secret.logs_auth.data["token_url"])
+      scopes        = ["api://loki/.default", "logs.write"]
+    }
+  }
+}

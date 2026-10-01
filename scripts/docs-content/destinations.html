@@ -1,0 +1,107 @@
+<h1>Destinations</h1>
+      <p>A <strong>destination</strong> is where an organisation&rsquo;s telemetry is written: a
+        Prometheus remote-write endpoint (Mimir), a Loki push endpoint, or an OTLP endpoint. Org
+        admins manage them on the <strong>Destinations</strong> page. Wizards ship to them by name:
+        the destination a wizard step picks becomes that pipeline&rsquo;s writer
+        (<code>prometheus.remote_write</code> or <code>loki.write</code>), including its
+        authentication.</p>
+
+      <h2 id="url">The URL</h2>
+      <p>Enter the <strong>full endpoint URL</strong> the collector writes to, for example
+        <code>https://mimir.example.com/api/v1/push</code> or
+        <code>https://loki.example.com/loki/api/v1/push</code>. Shepherd puts it into the writer
+        exactly as written and adds no path.</p>
+
+      <h2 id="auth">Authentication from a Kubernetes Secret</h2>
+      <p>Shepherd never holds a telemetry backend&rsquo;s credentials. For an authenticated
+        destination you name a Kubernetes <strong>Secret</strong> that already exists on every
+        cluster whose collectors ship there, and the collector reads it at runtime with
+        <code>remote.kubernetes.secret</code>. The served config contains the Secret&rsquo;s
+        namespace, its name and the key names below, never the values.</p>
+      <table>
+        <thead>
+          <tr><th>Auth mode</th><th>Keys the Secret must hold</th><th>What the writer gets</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>None</td><td>&mdash;</td><td>no auth block</td></tr>
+          <tr><td>Basic auth (Kubernetes Secret)</td><td><code>username</code>, <code>password</code></td>
+            <td><code>basic_auth</code></td></tr>
+          <tr><td>OAuth2 (Kubernetes Secret)</td>
+            <td><code>client_id</code>, <code>client_secret</code>, <code>token_url</code></td>
+            <td><code>oauth2</code> (client credentials)</td></tr>
+        </tbody>
+      </table>
+      <p>OAuth2 <strong>scopes</strong> are set on the destination itself (the <em>OAuth2
+        scopes</em> field, stored as <code>extra.oauth2_scopes</code>), not in the Secret. They are
+        not sensitive, and because Shepherd never reads the Secret it could not tell whether an
+        optional key is there.</p>
+      <p>Create the Secret in the namespace you name on the destination:</p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>kubectl -n monitoring create secret generic mimir-credentials \
+  --from-literal=username=&lt;user&gt; \
+  --from-literal=password=&lt;password&gt;</code></pre>
+      </div>
+      <p>A basic-auth destination named <code>prom-prod</code> pointing at that Secret gives a wizard
+        pipeline this writer:</p>
+      <div class="code-block" data-lang="alloy">
+        <div class="code-head"><span>generated</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>remote.kubernetes.secret "metrics_auth" {
+  namespace = "monitoring"
+  name      = "mimir-credentials"
+}
+
+prometheus.remote_write "metrics" {
+  endpoint {
+    name = "prom-prod"
+    url  = "https://mimir.example.com/api/v1/push"
+
+    basic_auth {
+      username = convert.nonsensitive(remote.kubernetes.secret.metrics_auth.data["username"])
+      password = remote.kubernetes.secret.metrics_auth.data["password"]
+    }
+  }
+}</code></pre>
+      </div>
+
+      <h2 id="rbac">What the collector needs to read the Secret</h2>
+      <p>The collector&rsquo;s service account needs <code>get</code>, <code>list</code> and
+        <code>watch</code> on Secrets in the Secret&rsquo;s namespace. The Grafana Alloy Helm chart,
+        and so k8s-monitoring&rsquo;s collectors, grants this cluster-wide by default. If your
+        collectors run with narrower RBAC, grant it in that one namespace:</p>
+      <div class="code-block" data-lang="yaml">
+        <div class="code-head"><span>rbac.yaml</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: alloy-read-destination-secrets
+  namespace: monitoring
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: alloy-read-destination-secrets
+  namespace: monitoring
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: alloy-read-destination-secrets
+subjects:
+  - kind: ServiceAccount
+    name: &lt;collector service account&gt;
+    namespace: &lt;collector namespace&gt;</code></pre>
+      </div>
+      <p>Shepherd&rsquo;s Kubernetes test suite runs a real Alloy with exactly this Role and checks
+        that its remote-write requests carry the Secret&rsquo;s credentials.</p>
+
+      <h2 id="changes">When a change takes effect</h2>
+      <p>The writer, auth block included, is generated when a wizard is previewed or committed. It
+        is stored as part of the pipeline, so it passes the same validation as any other line and
+        shows in the editor and its revision history. Editing a destination does not rewrite
+        pipelines already committed: they keep the writer they were generated with until they are
+        generated again by re-running the wizard. A wizard that names a destination the organisation does not
+        have, or one of the wrong type, is refused with a message saying which.</p>

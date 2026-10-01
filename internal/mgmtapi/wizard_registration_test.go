@@ -39,7 +39,9 @@ func TestEveryWizardPackageIsRegistered(t *testing.T) {
 
 	var pkgs []string
 	for _, e := range entries {
-		if !e.IsDir() || e.Name() == "wizardtest" {
+		// testdata holds package wizard's own writer goldens (#229); Go
+		// ignores it as a package, and so does this check.
+		if !e.IsDir() || e.Name() == "wizardtest" || e.Name() == "testdata" {
 			continue
 		}
 		pkgs = append(pkgs, e.Name())

@@ -92,7 +92,18 @@ func (s *WizardService) RenderWizard(ctx context.Context, req *connect.Request[m
 		state = req.Msg.GetState().AsMap()
 	}
 
-	result, err := wiz.Commit(state)
+	orgID, err := scanUUID(req.Msg.GetOrgId())
+	if err != nil {
+		orgID = pgtype.UUID{}
+	}
+	// The org's destinations are what the wizard's `*_dest_name` fields
+	// resolve against — the same load CommitWizard does, so the preview
+	// shows exactly the writer, auth block included, a commit would store.
+	dests, err := wizardDestinations(ctx, s.store.Queries, orgID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+	}
+	result, err := wiz.Commit(state, dests)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 	}
@@ -104,10 +115,6 @@ func (s *WizardService) RenderWizard(ctx context.Context, req *connect.Request[m
 	wrapped := validate.WrapForValidation(name, result.Contents)
 	valResult := s.validator.Stages12(ctx, wrapped)
 
-	orgID, err := scanUUID(req.Msg.GetOrgId())
-	if err != nil {
-		orgID = pgtype.UUID{}
-	}
 	matched, matchErr := s.previewMatchedCollectors(ctx, merge.Pipeline{
 		ID:       name,
 		Name:     name,
@@ -178,7 +185,14 @@ func (s *WizardService) CommitWizard(ctx context.Context, req *connect.Request[m
 		state = req.Msg.GetState().AsMap()
 	}
 
-	result, err := wiz.Commit(state)
+	// The org's destinations are what the wizard's `*_dest_name` fields
+	// resolve against — the same load RenderWizard does, so the preview and
+	// the stored pipeline render the same writer, auth block included.
+	dests, err := wizardDestinations(ctx, s.store.Queries, orgID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+	}
+	result, err := wiz.Commit(state, dests)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 	}

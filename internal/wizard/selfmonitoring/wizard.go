@@ -101,7 +101,7 @@ func (w *Wizard) Schema() wizard.Schema {
 }
 
 // Commit generates an Alloy pipeline from the wizard state.
-func (w *Wizard) Commit(state map[string]any) (wizard.CommitResult, error) {
+func (w *Wizard) Commit(state map[string]any, dests wizard.Destinations) (wizard.CommitResult, error) {
 	get := func(key string) string {
 		v, _ := state[key].(string) //nolint:errcheck // type assert ok flag; empty string is safe default
 		return v
@@ -169,15 +169,11 @@ prometheus.scrape "self" {
 }
 `, scrapeInterval, jobName)
 
-	_, _ = fmt.Fprintf(&sb, `
-prometheus.remote_write "metrics" {
-  endpoint {
-    name = "%s"
-    url  = sys.env("SHEPHERD_DEST_%s_URL")
-    // auth injected by Shepherd at serve time
-  }
-}
-`, metricsDest, strings.ToUpper(strings.ReplaceAll(metricsDest, "-", "_")))
+	writer, err := wizard.RenderWriter(wizard.WriterPrometheus, "metrics", dests, metricsDest)
+	if err != nil {
+		return wizard.CommitResult{}, fmt.Errorf("metrics_dest_name: %w", err)
+	}
+	_, _ = sb.WriteString("\n" + writer)
 
 	// This block is the whole reason role="singleton" instead of "metrics":
 	// once it renders, the pipeline provably carries Logs alongside Metrics
@@ -194,15 +190,11 @@ loki.source.file "self" {
 }
 `, logPath, jobName)
 
-		_, _ = fmt.Fprintf(&sb, `
-loki.write "logs" {
-  endpoint {
-    name = "%s"
-    url  = sys.env("SHEPHERD_DEST_%s_URL")
-    // auth injected by Shepherd at serve time
-  }
-}
-`, logsDest, strings.ToUpper(strings.ReplaceAll(logsDest, "-", "_")))
+		logsWriter, err := wizard.RenderWriter(wizard.WriterLoki, "logs", dests, logsDest)
+		if err != nil {
+			return wizard.CommitResult{}, fmt.Errorf("logs_dest_name: %w", err)
+		}
+		_, _ = sb.WriteString("\n" + logsWriter)
 	}
 
 	var matchers []string

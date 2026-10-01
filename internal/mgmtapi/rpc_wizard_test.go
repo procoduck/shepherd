@@ -51,6 +51,14 @@ var _ = Describe("shepherd.mgmt.v1.WizardService", Label("integration"), func() 
 		Expect(err).NotTo(HaveOccurred())
 		orgID = o.ID.String()
 
+		// The destination the specs' metrics_dest_name names: wizards resolve
+		// it against the org's rows (#229), so it must exist.
+		_, err = st.Queries.CreateDestination(ctx, sqlc.CreateDestinationParams{
+			OrgID: o.ID, Name: "mimir", Type: "prometheus", Url: "http://mimir:9009/api/v1/push",
+			AuthMode: "none", Extra: json.RawMessage(`{}`),
+		})
+		Expect(err).NotTo(HaveOccurred())
+
 		adminCookie = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "wizard-admin-grp")}
 		readerCookie = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "wizard-reader-grp")}
 

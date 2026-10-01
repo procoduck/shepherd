@@ -78,7 +78,7 @@ func checkRole(role, contents string) error {
 
 // roleEnforced wraps a registered Wizard so every Commit call is checked
 // against Role's declared collector role before the caller — including
-// internal/mgmtapi's WizardService, which calls wiz.Commit(state) directly —
+// internal/mgmtapi's WizardService, which calls wiz.Commit(state, dests) directly —
 // ever sees a result. This is what turns "a wizard cannot generate a
 // pipeline that lands on the wrong collector role"
 // (docs/gateway-tier-plan.md W8) into a property of the registry rather than
@@ -95,8 +95,8 @@ type roleEnforced struct {
 // refusal here discards the whole result rather than returning a partial
 // one: an operator seeing a role mismatch needs to fix wizard input, not
 // receive a pipeline this package already knows is wrong.
-func (r roleEnforced) Commit(state map[string]any) (CommitResult, error) {
-	result, err := r.Wizard.Commit(state)
+func (r roleEnforced) Commit(state map[string]any, dests Destinations) (CommitResult, error) {
+	result, err := r.Wizard.Commit(state, dests)
 	if err != nil {
 		return CommitResult{}, err
 	}

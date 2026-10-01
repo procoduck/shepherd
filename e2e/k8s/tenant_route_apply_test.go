@@ -300,6 +300,8 @@ type shepherdAPI struct {
 	routes    mgmtv1connect.TenantRouteServiceClient
 	fleet     mgmtv1connect.FleetServiceClient
 	pipelines mgmtv1connect.PipelineServiceClient
+	dests     mgmtv1connect.DestinationServiceClient
+	wizards   mgmtv1connect.WizardServiceClient
 }
 
 var forwardingRE = regexp.MustCompile(`Forwarding from 127\.0\.0\.1:(\d+)`)
@@ -338,6 +340,8 @@ func newShepherdAPI(t *testing.T, cfg *envconf.Config, ns, svc string) *shepherd
 	a.routes = mgmtv1connect.NewTenantRouteServiceClient(client, a.base)
 	a.fleet = mgmtv1connect.NewFleetServiceClient(client, a.base)
 	a.pipelines = mgmtv1connect.NewPipelineServiceClient(client, a.base)
+	a.dests = mgmtv1connect.NewDestinationServiceClient(client, a.base)
+	a.wizards = mgmtv1connect.NewWizardServiceClient(client, a.base)
 	return a
 }
 

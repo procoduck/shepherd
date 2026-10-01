@@ -82,7 +82,7 @@ type fakeMismatchedWizard struct{}
 func (fakeMismatchedWizard) Kind() string               { return "test-fake-mismatched" }
 func (fakeMismatchedWizard) Schema() Schema             { return Schema{Kind: "test-fake-mismatched"} }
 func (fakeMismatchedWizard) Role(map[string]any) string { return "metrics" }
-func (fakeMismatchedWizard) Commit(map[string]any) (CommitResult, error) {
+func (fakeMismatchedWizard) Commit(map[string]any, Destinations) (CommitResult, error) {
 	return CommitResult{Contents: logsOnlyPipeline}, nil
 }
 
@@ -95,7 +95,7 @@ func (fakeMismatchedWizard) Commit(map[string]any) (CommitResult, error) {
 // block in role.go's roleEnforced.Commit (leaving `result.Role = role;
 // return result, nil` unconditional) and rerunning this test fails it —
 //
-//	registry.Get("test-fake-mismatched").Commit(nil) = {Contents: "loki.source.file...", Role: "metrics"}, <nil>, want a signals.ErrSignalMismatch error
+//	registry.Get("test-fake-mismatched").Commit(nil, nil) = {Contents: "loki.source.file...", Role: "metrics"}, <nil>, want a signals.ErrSignalMismatch error
 //
 // i.e. the mismatched pipeline is served with no error and role "metrics"
 // stamped on it, exactly the silent-mismatch failure class G6 exists to
@@ -109,7 +109,7 @@ func TestRegisterRefusesRoleMismatch(t *testing.T) {
 		t.Fatalf("Get: %v", err)
 	}
 
-	result, err := wiz.Commit(nil)
+	result, err := wiz.Commit(nil, nil)
 	if err == nil {
 		t.Fatalf("Commit = %+v, <nil>, want a signals.ErrSignalMismatch error", result)
 	}
@@ -130,7 +130,7 @@ type fakeUnparseableWizard struct{}
 func (fakeUnparseableWizard) Kind() string               { return "test-fake-unparseable" }
 func (fakeUnparseableWizard) Schema() Schema             { return Schema{Kind: "test-fake-unparseable"} }
 func (fakeUnparseableWizard) Role(map[string]any) string { return "metrics" }
-func (fakeUnparseableWizard) Commit(map[string]any) (CommitResult, error) {
+func (fakeUnparseableWizard) Commit(map[string]any, Destinations) (CommitResult, error) {
 	// An unterminated string: the shape a quote in operator input produces.
 	return CommitResult{Contents: `prometheus.scrape "app" { job_name = "oops`}, nil
 }
@@ -158,7 +158,7 @@ func TestRoleEnforcedPassesThroughUnparseableContents(t *testing.T) {
 		t.Fatalf("Get: %v", err)
 	}
 
-	result, err := wiz.Commit(nil)
+	result, err := wiz.Commit(nil, nil)
 	if err != nil {
 		t.Fatalf("Commit returned an error for unparseable contents (%v) — the syntax error belongs "+
 			"to Stage 1, which reports it with actionable diagnostics; reporting it here replaces "+
@@ -184,7 +184,7 @@ func TestRoleEnforcedStillRefusesParseableMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if _, err := wiz.Commit(nil); !errors.Is(err, signals.ErrSignalMismatch) {
+	if _, err := wiz.Commit(nil, nil); !errors.Is(err, signals.ErrSignalMismatch) {
 		t.Fatalf("Commit error = %v, want a still-enforced signals.ErrSignalMismatch — the "+
 			"unparseable-contents exemption must not have widened into ignoring role mismatches", err)
 	}

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	cm "shepherd/internal/wizard/clustermetrics"
+	"shepherd/internal/wizard/wizardtest"
 )
 
 func TestGenGoldens(t *testing.T) {
@@ -36,7 +37,7 @@ func TestGenGoldens(t *testing.T) {
 		}},
 	}
 	for _, c := range cases {
-		res, err := w.Commit(c.state)
+		res, err := w.Commit(c.state, wizardtest.Destinations())
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -10,6 +10,7 @@ import (
 	"shepherd/internal/validate"
 	"shepherd/internal/wizard"
 	_ "shepherd/internal/wizard/podlogs"
+	"shepherd/internal/wizard/wizardtest"
 )
 
 func TestWizard(t *testing.T) {
@@ -23,7 +24,7 @@ var _ = Describe("PodLogsWizard golden files", func() {
 
 	DescribeTable("rendered output matches golden file, passes Stage 1, and is checked to role=logs",
 		func(fixtureName string, state map[string]any) {
-			result, err := wiz.Commit(state)
+			result, err := wiz.Commit(state, wizardtest.Destinations())
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.Role).To(Equal("logs"))
 
@@ -47,15 +48,21 @@ var _ = Describe("PodLogsWizard golden files", func() {
 			"logs_dest_name":    "loki-staging",
 			"cluster_pattern":   "staging-.*",
 		}),
+		// An oauth2_secret destination (#229): auth read from a spoke Secret.
+		Entry("secret-auth", "secret-auth", map[string]any{
+			"namespace_pattern": "prod-.*",
+			"logs_dest_name":    "loki-oauth",
+			"cluster_pattern":   "prod-.*",
+		}),
 	)
 
 	It("requires namespace_pattern", func() {
-		_, err := wiz.Commit(map[string]any{"logs_dest_name": "loki-prod"})
+		_, err := wiz.Commit(map[string]any{"logs_dest_name": "loki-prod"}, wizardtest.Destinations())
 		Expect(err).To(HaveOccurred())
 	})
 
 	It("requires logs_dest_name", func() {
-		_, err := wiz.Commit(map[string]any{"namespace_pattern": "prod-.*"})
+		_, err := wiz.Commit(map[string]any{"namespace_pattern": "prod-.*"}, wizardtest.Destinations())
 		Expect(err).To(HaveOccurred())
 	})
 
@@ -64,7 +71,7 @@ var _ = Describe("PodLogsWizard golden files", func() {
 			"namespace_pattern": "prod-.*",
 			"logs_dest_name":    "loki-prod",
 			"log_format":        "raw", // not a real loki.process stage name
-		})
+		}, wizardtest.Destinations())
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("log_format"))
 	})

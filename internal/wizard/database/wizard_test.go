@@ -10,6 +10,7 @@ import (
 	"shepherd/internal/validate"
 	"shepherd/internal/wizard"
 	_ "shepherd/internal/wizard/database"
+	"shepherd/internal/wizard/wizardtest"
 )
 
 func TestWizard(t *testing.T) {
@@ -23,7 +24,7 @@ var _ = Describe("DatabaseWizard golden files", func() {
 
 	DescribeTable("rendered output matches golden file, passes Stage 1, and is checked to role=metrics",
 		func(fixtureName string, state map[string]any) {
-			result, err := wiz.Commit(state)
+			result, err := wiz.Commit(state, wizardtest.Destinations())
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.Role).To(Equal("metrics"))
 
@@ -60,22 +61,31 @@ var _ = Describe("DatabaseWizard golden files", func() {
 			"metrics_dest_name": "prom-prod",
 			"cluster_pattern":   "prod-.*",
 		}),
+		// A basic_secret destination (#229): auth read from a spoke Secret.
+		Entry("secret-auth", "secret-auth", map[string]any{
+			"engine":            "postgres",
+			"connection_env":    "APP_PG_DSN",
+			"job_name":          "app-db",
+			"scrape_interval":   "60s",
+			"metrics_dest_name": "prom-basic",
+			"cluster_pattern":   "prod-.*",
+		}),
 	)
 
 	It("requires connection_env", func() {
-		_, err := wiz.Commit(map[string]any{"engine": "postgres", "metrics_dest_name": "prom-prod"})
+		_, err := wiz.Commit(map[string]any{"engine": "postgres", "metrics_dest_name": "prom-prod"}, wizardtest.Destinations())
 		Expect(err).To(HaveOccurred())
 	})
 
 	It("requires metrics_dest_name", func() {
-		_, err := wiz.Commit(map[string]any{"engine": "postgres", "connection_env": "APP_PG_DSN"})
+		_, err := wiz.Commit(map[string]any{"engine": "postgres", "connection_env": "APP_PG_DSN"}, wizardtest.Destinations())
 		Expect(err).To(HaveOccurred())
 	})
 
 	It("refuses an unsupported engine", func() {
 		_, err := wiz.Commit(map[string]any{
 			"engine": "mongodb", "connection_env": "APP_DSN", "metrics_dest_name": "prom-prod",
-		})
+		}, wizardtest.Destinations())
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("engine"))
 	})

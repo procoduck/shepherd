@@ -69,6 +69,8 @@ NAV = [
     ("Pipelines", [
         ("authoring", "Authoring pipelines", "Authoring pipelines",
          "Three ways to write a pipeline \u2014 a wizard, the visual builder, or raw Alloy \u2014 all landing in one merge engine."),
+        ("destinations", "Destinations", "Destinations",
+         "Where wizard pipelines write, and how a collector authenticates with credentials from a Kubernetes Secret Shepherd never sees."),
         ("matchers", "Matchers and validation", "Matchers and validation",
          "How Shepherd decides which collectors receive a pipeline, and what it refuses to serve."),
         ("gitops", "GitOps", "GitOps",

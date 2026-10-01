@@ -10,6 +10,7 @@ import (
 	"shepherd/internal/validate"
 	"shepherd/internal/wizard"
 	_ "shepherd/internal/wizard/appobservability"
+	"shepherd/internal/wizard/wizardtest"
 )
 
 func TestWizard(t *testing.T) {
@@ -23,7 +24,7 @@ var _ = Describe("AppObservabilityWizard golden files", func() {
 
 	DescribeTable("rendered output matches golden file and passes Stage 1",
 		func(fixtureName string, state map[string]any) {
-			result, err := wiz.Commit(state)
+			result, err := wiz.Commit(state, wizardtest.Destinations())
 			Expect(err).NotTo(HaveOccurred())
 
 			goldenPath := "testdata/" + fixtureName + ".golden.alloy"
@@ -66,6 +67,21 @@ var _ = Describe("AppObservabilityWizard golden files", func() {
 			// (internal/signals/policy.go); "metrics" here would have been the
 			// exact silent role/signal mismatch the gate exists to catch.
 			"role": "singleton",
+		}),
+		// Secret-mode destinations (#229): the metrics writer reads basic
+		// auth, the logs writer OAuth2 client credentials, from Secrets on
+		// the spoke — wizardtest.Destinations' prom-basic and loki-oauth.
+		Entry("secret-auth", "secret-auth", map[string]any{
+			"scrape_url":        "http://app:9090/metrics",
+			"job_name":          "app",
+			"scrape_interval":   "30s",
+			"logs_enabled":      true,
+			"log_path":          "/var/log/app/*.log",
+			"log_format":        "json",
+			"metrics_dest_name": "prom-basic",
+			"logs_dest_name":    "loki-oauth",
+			"cluster_pattern":   "prod-.*",
+			"role":              "singleton",
 		}),
 	)
 })
@@ -124,7 +140,7 @@ var _ = Describe("every offered role is satisfiable", func() {
 				for k, v := range shape {
 					state[k] = v
 				}
-				if _, commitErr := wiz.Commit(state); commitErr == nil {
+				if _, commitErr := wiz.Commit(state, wizardtest.Destinations()); commitErr == nil {
 					satisfiable = true
 					break
 				} else {

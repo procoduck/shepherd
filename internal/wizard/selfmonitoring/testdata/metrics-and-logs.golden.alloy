@@ -10,8 +10,7 @@ prometheus.scrape "self" {
 prometheus.remote_write "metrics" {
   endpoint {
     name = "prom-prod"
-    url  = sys.env("SHEPHERD_DEST_PROM_PROD_URL")
-    // auth injected by Shepherd at serve time
+    url  = "https://mimir.prod.example.com/api/v1/push"
   }
 }
 
@@ -25,7 +24,6 @@ loki.source.file "self" {
 loki.write "logs" {
   endpoint {
     name = "loki-prod"
-    url  = sys.env("SHEPHERD_DEST_LOKI_PROD_URL")
-    // auth injected by Shepherd at serve time
+    url  = "https://loki.prod.example.com/loki/api/v1/push"
   }
 }

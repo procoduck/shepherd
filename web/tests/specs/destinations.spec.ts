@@ -188,7 +188,11 @@ test('a secret auth mode explains the Secret and asks for its reference', async 
   const explanation = dialog.getByTestId('auth-mode-explanation');
   await expect(explanation).toContainText('Kubernetes Secret');
   await expect(explanation).toContainText('never the credential itself');
-  await expect(explanation).toContainText('Not applied yet');
+  // #229: the modes are applied now, and the Secret's key contract is stated.
+  await expect(explanation).not.toContainText('Not applied yet');
+  await expect(explanation).toContainText('The Secret must hold the keys username, password.');
+  await expect(explanation).toContainText('get, list and watch');
+  await expect(dialog.getByLabel('OAuth2 scopes')).toHaveCount(0);
 
   await dialog.getByLabel('Name', { exact: true }).pressSequentially('mimir');
   await dialog.getByLabel('URL', { exact: true }).pressSequentially('https://mimir.example.com');
@@ -247,5 +251,48 @@ test('editing a destination sends UpdateDestination and the row updates', async 
     secretName: 'oauth-creds',
     // A field the form does not show survives the full-replace update.
     tenantId: 'acme',
+  });
+});
+
+// #229: OAuth2 names its own three Secret keys, and its scopes (not a Secret
+// key — Shepherd never reads the Secret, so an optional key could not be
+// rendered conditionally) are sent as extra.oauth2_scopes.
+test('oauth2 lists its Secret keys and sends scopes as extra.oauth2_scopes', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(orgAdmin);
+  const s = basicScenario();
+  api.seed({ orgs: [s.org], destinations: [] });
+  await page.goto('/destinations');
+
+  await page.getByRole('button', { name: /new destination/i }).click();
+  const dialog = page.getByRole('dialog', { name: 'New destination' });
+  await dialog.locator('select').first().selectOption({ label: 'Loki' });
+  await expect(dialog.getByLabel('URL', { exact: true })).toHaveAttribute(
+    'placeholder',
+    'https://loki.example.com/loki/api/v1/push',
+  );
+  await dialog.getByLabel('Auth mode').selectOption({ label: 'OAuth2 (Kubernetes Secret)' });
+  await expect(dialog.getByTestId('auth-mode-explanation')).toContainText(
+    'The Secret must hold the keys client_id, client_secret, token_url.',
+  );
+
+  await dialog.getByLabel('Name', { exact: true }).pressSequentially('loki-oauth');
+  await dialog
+    .getByLabel('URL', { exact: true })
+    .pressSequentially('https://loki.example.com/loki/api/v1/push');
+  await dialog.getByLabel('Secret namespace').pressSequentially('monitoring');
+  await dialog.getByLabel('Secret name', { exact: true }).pressSequentially('loki-oauth');
+  await dialog.getByLabel('OAuth2 scopes').pressSequentially('api://loki/.default logs.write');
+  await dialog.getByRole('button', { name: 'Create' }).click();
+
+  await expect(page.getByText('monitoring/loki-oauth')).toBeVisible();
+  const creates = api.calls('DestinationService/CreateDestination');
+  expect(creates).toHaveLength(1);
+  expect(creates[0].body).toMatchObject({
+    type: 'loki',
+    authMode: 'oauth2_secret',
+    extra: { oauth2_scopes: ['api://loki/.default', 'logs.write'] },
   });
 });

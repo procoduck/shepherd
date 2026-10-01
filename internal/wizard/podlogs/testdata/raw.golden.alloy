@@ -24,7 +24,6 @@ loki.process "pods" {
 loki.write "logs" {
   endpoint {
     name = "loki-prod"
-    url  = sys.env("SHEPHERD_DEST_LOKI_PROD_URL")
-    // auth injected by Shepherd at serve time
+    url  = "https://loki.prod.example.com/loki/api/v1/push"
   }
 }

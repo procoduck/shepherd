@@ -13,10 +13,38 @@ Categories used here:
 
 ## Unreleased
 
+### Added
+
+- **Destination auth modes are applied (#229).** A destination set to *Basic auth (Kubernetes
+  Secret)* or *OAuth2 (Kubernetes Secret)* used to ship with no auth at all: the mode and the
+  Secret reference were stored, and nothing rendered them. Every wizard writer
+  (`prometheus.remote_write`, `loki.write`) now reads the named Secret on the collector's own
+  cluster with `remote.kubernetes.secret` and gets a `basic_auth` or `oauth2` block. The Secret
+  must hold `username` and `password` (basic) or `client_id`, `client_secret` and `token_url`
+  (OAuth2). OAuth2 scopes are a destination field (`extra.oauth2_scopes`). Shepherd stores and
+  serves only the Secret's namespace, its name and the key names, never the values. The
+  collector's service account needs `get`/`list`/`watch` on Secrets in that namespace. The
+  `grafana/alloy` chart grants this by default, and the new *Destinations* docs page shows the
+  Role for narrower RBAC. The *Destinations* page lists each mode's keys and no longer says *Not
+  applied yet*. A new `e2e-k8s` feature runs a real Alloy with exactly that Role and checks its
+  remote-write requests carry the Secret's credentials. **Shipped.**
+
 ### Changed
 
 - **Built with Go 1.27.** `go.mod` moves to `go 1.27.1` and every image builds on
   `golang:1.27-alpine` (`GO_IMAGE` in `deploy/versions.env`). Building from source needs Go 1.27.
+
+- **A wizard writes to its destination's URL.** Wizards emitted
+  `url = sys.env("SHEPHERD_DEST_<NAME>_URL")`, an environment variable nothing in Shepherd set, so
+  the URL typed into the destination was never used. The writer now carries the destination's
+  `url` verbatim: enter the full push URL (`…/api/v1/push`, `…/loki/api/v1/push`). A wizard naming
+  a destination the org does not have, or one of the wrong type, is now refused with
+  `failed_precondition` instead of rendering that variable. `CreateDestination`/`UpdateDestination`
+  refuse an unknown `auth_mode`, a Secret mode without a valid Secret namespace and name, and
+  malformed scopes (`invalid_argument`). **Upgrade note:** pipelines already committed from a
+  wizard keep their old `sys.env(...)` writer and no auth until they are generated again from the
+  wizard. Likewise, a later edit to a destination reaches a pipeline only when it is next
+  generated.
 
 ### Fixed
 
