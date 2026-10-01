@@ -13,6 +13,26 @@ Categories used here:
 
 ## Unreleased
 
+## v0.14.0
+
+Chart 0.18.0. A correctness release from a full walkthrough of v0.13.0 and the kind dev stack:
+collector status can be trusted again (a failing collector never reads APPLIED, a replaced pod no
+longer lingers as FAILED, an unchanged config no longer reloads the fleet), the validation gate
+refuses two wiring mistakes `alloy validate` lets through, the chart's server selectors stop
+catching the sandbox, and a round of UI fixes. One migration (`0029`).
+
+**Upgrade:** `helm upgrade` to chart 0.18.0 — read its `UPGRADING.md` section first. Three things
+happen once:
+
+- The `shepherd` Services have no endpoints until the first new server pod is Ready (a few
+  seconds), unless you pre-label the running pods as `UPGRADING.md` shows. (#234)
+- Every collector's served hash changes once, so the fleet re-fetches and reloads one time. (#213)
+- A pipeline already stored with a list-of-lists or bare-receiver wire is refused at its next save
+  or sync, and blocks saves of other pipelines on the same collectors until fixed. Those collectors
+  already fail to load it. (#233)
+
+Migration `0029` clears the old stored `inactive` markers; no action needed.
+
 ### Fixed
 
 - **The validation gate refuses two wiring mistakes that `alloy validate` accepts and Alloy
@@ -66,6 +86,61 @@ Categories used here:
   selector uses it; the Deployment's immutable `spec.selector` is unchanged. **On upgrade** the
   Services have no endpoints until the first new pod is Ready (a few seconds) unless you pre-label
   the running pods — see the chart's `UPGRADING.md`. (#234)
+
+- **A collector with an unset `agent.delete_after` no longer loses its instances every five
+  minutes.** The setting has no server default (the chart sets it), and the sweeper read an unset
+  value as "older than now": every sweep deleted every live instance, and the re-registered rows'
+  missing status was promoted to APPLIED — a failing collector read APPLIED within five minutes on
+  any install without the chart. Unset now turns the delete off. Chart installs were not affected.
+  (#230)
+
+- **Git sync runs on one replica at a time.** Each replica ran its own sync loop, so a new commit
+  seen by both at once could be synced twice, writing duplicate revisions and audit rows. Passes
+  now take a Postgres advisory lock, as tenant-route apply already did. (#210)
+
+- **Every mutating action is audited.** Fourteen write procedures wrote no audit row — editing or
+  deleting an org, claiming or unclaiming a cluster, agent tokens, group assignments, git
+  credentials and repository links, tenant routes. They do now, and a test fails if a new write
+  procedure has no audit call. (#199)
+
+- **Restoring a revision says when it changes the pipeline's enabled state,** and audits the flip
+  as `pipeline.enable`/`pipeline.disable`. (#200)
+
+- **Reconciliation no longer says "In sync" for a FAILED collector.** (#198)
+
+- **The editor says when `alloy validate` did not run.** With no Alloy binary configured, Stage 2
+  is skipped; the editor said *No problems* anyway. `ValidatePipeline` now returns
+  `skipped_stages`, the editor shows *Syntax checked — alloy validate skipped*, and `shepherd
+  validate` prints the same. (#209)
+
+- **The text editor no longer shows stale problems after a fix.** A slow validation of older text
+  could overwrite a newer *No problems*, leaving errors at lines the text no longer had and Save
+  disabled. Only the newest request's answer is applied. (#201)
+
+- **Visual builder:** an edit made while the *unsaved draft* banner shows now becomes the draft
+  instead of being lost (#202); revision history matches nodes by component and label, so an
+  unchanged graph no longer diffs as every node removed and re-added, and wires read by name (#203).
+
+- **Viewers see only what they can use.** Nav links a role cannot use are hidden, a denied URL
+  says *You don't have access* instead of redirecting silently, and the visual builder's Save,
+  Simulate and palette are disabled for viewers. (#206)
+
+- **An org created without a tenant ID can be given one** from its Edit dialog (set once). (#204)
+
+- **Destinations:** auth modes read as *None*, *Basic auth (Kubernetes Secret)* and *OAuth2
+  (Kubernetes Secret)*, and destinations can be edited. The two Secret modes are labelled *Not
+  applied yet*: their Secret reference is stored but not yet rendered into collector config
+  (#229). (#207)
+
+- **Smaller UI fixes:** dialogs taller than the window scroll instead of clipping their Save
+  button; the pipelines enable switch is a real switch with an anchored knob (#208); Connect-dialog
+  copy buttons and hints, revoked tenant routes shown as *not routed* (#205); Admin → Users
+  defaults a new org membership to viewer, labels its selects and warns before you delete your own
+  or the last app admin account; the team member picker offers only people in the organisation;
+  the audit Resource column shows type and a shortened id; error messages lose the server's
+  internal `auth:` prefix (#212).
+
+- **CLI:** `shepherd migrate`, `serve` and `version` have help text. (#212)
 
 ## v0.13.0
 
