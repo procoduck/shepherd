@@ -71,7 +71,7 @@ services:
   # hand-written ADO REST mock. shepherd-gitea-seed pushes .alloy fixtures to it via real git
   # and wires up a git credential + repo link so GitPage has something real to show.
   gitea:
-    image: gitea/gitea:1-rootless
+    image: gitea/gitea:28-rootless
     environment:
       INSTALL_LOCK: "true"
       HTTP_PORT: "3000"
@@ -99,7 +99,7 @@ services:
   # user already exists — swallow exactly that so `docker compose up --wait` doesn't fail on a
   # second run, matching shepherd-seed's own idempotency.
   gitea-init:
-    image: gitea/gitea:1-rootless
+    image: gitea/gitea:28-rootless
     depends_on:
       gitea:
         condition: service_healthy

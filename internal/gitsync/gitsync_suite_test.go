@@ -25,7 +25,7 @@ func TestGitsync(t *testing.T) {
 // giteaImage matches internal/gitrepo's suite (docs/git-provider-design.md
 // §4): reconciler tests exercise a real git server, not a hand-written REST
 // mock.
-const giteaImage = "gitea/gitea:1-rootless"
+const giteaImage = "gitea/gitea:28-rootless"
 
 const (
 	giteaAdminUser = "shepherd-admin"

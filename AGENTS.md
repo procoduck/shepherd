@@ -87,7 +87,7 @@ Images in Dockerfiles, compose files, kind manifests, Go pod specs and testconta
 | `postgres:18-alpine` / `postgres:16-alpine` | 18: the dev and e2e compose files (#154; Renovate-managed). 16: `Makefile` (smoke), `internal/testutil/postgres.go`, `e2e/k8s/fixtures_test.go` — the supported floor. NOT versions.env |
 | `busybox:1.36`, `curlimages/curl:8.11.1` | `e2e/k8s/*_test.go` pod specs — NOT versions.env, NOT Renovate-managed |
 | `ghcr.io/navikt/mock-oauth2-server:6.0.1` | compose files and `dev/kind/oidc.yaml` — NOT versions.env |
-| `gitea/gitea:1-rootless` | compose files (e2e + dev) and `dev/kind/gitea.yaml` — NOT versions.env |
+| `gitea/gitea:28-rootless` | compose files (e2e + dev) and `dev/kind/gitea.yaml` — NOT versions.env |
 | `alpine:3.22` | `e2e/docker-compose.e2e.yaml` (egress canary) and `e2e/sandbox_egress_test.go` (`probeImage`) — NOT versions.env; Renovate reaches only the compose copy |
 | `kindest/node:v1.31.4` | `deploy/versions.env` (KIND_NODE_IMAGE) — tag only, no digest, Renovate-excluded (`renovate.json`); shared by `e2e/k8s` (`E2E_K8S_NODE_IMAGE` overrides it there only) and `scripts/dev-kind.sh` |
 | `projectcalico/calico` manifest `v3.28.2` | `deploy/versions.env` (CALICO_VERSION) — applied after cluster creation by both `e2e/k8s` and `scripts/dev-kind.sh` |

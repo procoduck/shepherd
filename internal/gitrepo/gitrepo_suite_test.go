@@ -22,7 +22,7 @@ func TestGitrepo(t *testing.T) {
 
 // giteaImage is pinned per docs/git-provider-design.md §4: a real git
 // server, not a hand-written REST mock.
-const giteaImage = "gitea/gitea:1-rootless"
+const giteaImage = "gitea/gitea:28-rootless"
 
 const (
 	giteaAdminUser = "shepherd-admin"

@@ -68,7 +68,7 @@ services:
   # directly over the host-published ports to seed repos and push real commits; shepherd talks
   # to it over the compose network as http://gitea:3000 / ssh://git@gitea:2222.
   gitea:
-    image: gitea/gitea:1-rootless
+    image: gitea/gitea:28-rootless
     environment:
       INSTALL_LOCK: "true"
       HTTP_PORT: "3000"
@@ -96,7 +96,7 @@ services:
   # no idempotency guard is needed here; a non-zero exit on a genuine failure should fail
   # the run.
   gitea-init:
-    image: gitea/gitea:1-rootless
+    image: gitea/gitea:28-rootless
     depends_on:
       gitea:
         condition: service_healthy

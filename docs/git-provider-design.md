@@ -232,7 +232,7 @@ change.
 
 Replace the ADO REST mock with a **real git server** so the tests exercise real git.
 
-- **Compose service** (dev and e2e): `gitea/gitea:1-rootless`, SQLite backend, install lock
+- **Compose service** (dev and e2e): `gitea/gitea:28-rootless`, SQLite backend, install lock
   set, admin user and access token created at first boot by an init step.
 - **Fixtures**: a seed step creates a repo and pushes `.alloy` files — real commits, real refs.
   Mutating a fixture means pushing a commit, which is what production does. This replaces

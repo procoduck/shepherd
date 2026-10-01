@@ -7,7 +7,7 @@
 # leave that row pointing at a repository that no longer exists. The PVC and the CNPG PV
 # share the same lifecycle — both die together on `make dev-kind-down` (kind delete).
 #
-# The Gitea image pin (gitea/gitea:1-rootless) stays in this manifest, not in
+# The Gitea image pin (gitea/gitea:28-rootless) stays in this manifest, not in
 # deploy/versions.env (D2 of the plan) — it never bills e2e-k8s.
 #
 # Admin bootstrap is NOT done here: the script execs `gitea admin user create` after this
@@ -49,7 +49,7 @@ spec:
     spec:
       containers:
         - name: gitea
-          image: gitea/gitea:1-rootless
+          image: gitea/gitea:28-rootless
           env:
             - name: INSTALL_LOCK
               value: "true"
