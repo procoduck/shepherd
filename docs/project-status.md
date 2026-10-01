@@ -8,8 +8,8 @@
 > board is archived at `docs/archive/plans/2026-09-16-outstanding-work.md` — eight of its twelve
 > remaining items shipped in v0.9.0/v0.10.0 and the other four are GitHub issues (§3).
 >
-> Baseline re-verified 2026-09-30 at the v0.13.0 release
-> (`0652e9d`, chart 0.17.0) from the CI and release runs on that commit, not from a summary.
+> Baseline re-verified 2026-10-01 at the v0.14.0 release
+> (`42c5725`, chart 0.18.0) from the CI and release runs on that commit, not from a summary.
 > Completed rounds live in `docs/archive/` — the history this ledger used to carry inline is
 > `docs/archive/completed-2026-09-11.md`. Do not start a second ledger.
 
@@ -33,26 +33,26 @@
 
 ---
 
-## 1. Verified baseline (2026-09-30, v0.13.0)
+## 1. Verified baseline (2026-10-01, v0.14.0)
 
-Every row is a CI or release run on `0652e9d` (the v0.13.0 release commit, PR #194) or the run that
+Every row is a CI or release run on `42c5725` (the v0.14.0 release commit, PR #242) or the run that
 last exercised the surface, so the claim is checkable by run id rather than by trusting this table.
-`30f9a92` (#193) is the commit before it; the release commit changed only version pins, docs and
+`f16cf85` (#241) is the commit before it; the release commit changed only version pins, docs and
 the rebuilt bundle.
 
 | Check | Where it ran | Result |
 |---|---|---|
-| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 36699519723 (`0652e9d`) | clean |
+| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 36846689076 (`42c5725`) | clean |
 | `golangci-lint` + config verify, all ten `make guards`, `helm lint` (incl. the dev-kind values), `scripts/repocheck` | CI `lint` + `guards` jobs, same run | 0 issues |
 | `go test ./...` with coverage (testcontainers Postgres) | CI `test` job, same run | green |
-| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job, run 36688157159 (`001c0cd`, #189 — the last web change) | clean |
-| Mocked Playwright (`make test-ui`) | CI `test-ui` job, same run (36688157159) | green |
-| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 36699519723 (`0652e9d`) | green |
-| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml`, manual dispatch on `30f9a92`, run 36697824837 — dispatched because the path filter skips it on push | green |
-| Kubernetes e2e, kind (`make e2e-k8s`) — 12 features, tenant-route apply with two replicas | `e2e-k8s.yml` on the release PR (#194), run 36698035840 | green |
-| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job, same manual dispatch (run 36697824837) | green (containment + run lifecycle) |
-| CodeQL (actions, go, javascript-typescript, python; `security-extended`) | `codeql.yml` on `0652e9d`, run 36699519719 | green |
-| Release: verify job, goreleaser, image attestations, chart OCI push, `scan-published` | `release.yml`, run 36700640070 | success — chart 0.17.0 / appVersion 0.13.0 pullable, image `ghcr.io/procoduck/shepherd:0.13.0` present, SLSA v1 provenance verified (`gh attestation verify --format json`), `scan-published` green for both images |
+| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job, run 36844426016 (`f16cf85`, #241 — the last web change) | clean |
+| Mocked Playwright (`make test-ui`) | CI `test-ui` job, same run (36844426016) | green |
+| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 36846689076 (`42c5725`) | green |
+| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml`, manual dispatch on `42c5725`, run 36846756199 — dispatched because the path filter skips it on push | green |
+| Kubernetes e2e, kind (`make e2e-k8s`) — incl. the server-only Service EndpointSlices check (#239) | `e2e-k8s.yml` on the release PR (#242), run 36845733118 | green |
+| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job, same manual dispatch (run 36846756199) | green (containment + run lifecycle) |
+| CodeQL (actions, go, javascript-typescript, python; `security-extended`) | `codeql.yml` on `42c5725`, run 36846689169 | green |
+| Release: verify job, goreleaser, image attestations, chart OCI push, `scan-published` | `release.yml`, run 36850745268 | success — chart 0.18.0 / appVersion 0.14.0 pullable, images `ghcr.io/procoduck/shepherd:0.14.0` and `shepherd-simulator:0.14.0` present, SLSA v1 provenance verified (`gh attestation verify --format json`), `scan-published` green for both images |
 
 ### What demonstrably works end to end
 
@@ -110,6 +110,11 @@ the manual end-to-end pass the list above records. Re-walk them on the next rele
 - **v0.13.0** — Alloy v1.20.1 (#185); a rejected config stays FAILED instead of APPLIED (#186,
   migration `0028`, proof `docs/proofs/applied-status.md`); tenant-route apply under the chart's
   default two replicas, one reconciler at a time (#192).
+- **v0.14.0** — collector status trustworthy: a failing collector never reads APPLIED (#197, #230),
+  inactive derived at read time (#240, migration `0029`), no fleet reload on an unchanged config
+  (#231); the gate refuses list-shape wires `alloy validate` accepts (#241) and reports a skipped
+  stage (#235); chart server selectors exclude the sandbox (#239, chart 0.18.0); git sync single
+  leader (#220); every write audited (#215); walkthrough UI fixes (#214–#228).
 
 ### History
 
@@ -129,6 +134,8 @@ remediation with its D1–D14 decisions, and the v0.5.0 dependency and toolchain
   release run 36688061602.
 - 2026-09-30 — v0.13.0 (Alloy v1.20.1, rejected-config status, two-replica route apply), chart 0.17.0,
   release run 36700640070.
+- 2026-10-01 — v0.14.0 (walkthrough round: trustworthy collector status, stricter gate, chart
+  selectors), chart 0.18.0, release run 36850745268.
 
 ---
 
@@ -162,6 +169,14 @@ Fixed bugs (B-CONTAIN-1, B-CONCAT, B-STAGEORDER, F9-a) are in
 Served config is shown, but nothing links back to the pipelines that produced it, so there is no way
 to get from "this collector runs X" to "because pipeline Y matched". The merge engine already knows
 the contributing set.
+
+### F-DEST-AUTH — destination Secret auth modes are stored, never applied · **medium** (#229)
+
+`auth_mode` `basic_secret` / `oauth2_secret` with a Secret reference are saved and returned by the
+Destinations API, but nothing renders an auth block into collector config: wizards emit only
+`url = sys.env("SHEPHERD_DEST_<NAME>_URL")`. A destination in a Secret mode ships **no auth**. The UI
+labels both modes *Not applied yet* (v0.14.0, #207). Needs the Secret's key contract
+(`docs/spec.md` §11.2/§11.4 name only `url`) and the rendering.
 
 All gateway-tier workstreams (W1–W11) and attribute-based matching (#139) have shipped — the last
 of them in v0.12.0: the receiver tier (#109, opt-in, R3 signed), tenant-route apply, onboarding
