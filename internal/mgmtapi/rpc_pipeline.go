@@ -133,6 +133,19 @@ func diagnosticsToProto(diags []validate.Diagnostic) []*mgmtv1.Diagnostic {
 	return out
 }
 
+// skippedStagesToProto converts validate.Result.Skipped (#209). nil in, nil
+// out, so a response where every stage ran carries no skipped_stages at all.
+func skippedStagesToProto(stages []int) []int32 {
+	if len(stages) == 0 {
+		return nil
+	}
+	out := make([]int32, len(stages))
+	for i, s := range stages {
+		out[i] = int32(s) //nolint:gosec // stage is 1..3
+	}
+	return out
+}
+
 // pipelineToProto never populates Revision
 // (always 0) and only populates Revisions when the caller (GetPipeline)
 // explicitly attaches them.
@@ -715,8 +728,9 @@ func (s *PipelineService) ValidatePipeline(ctx context.Context, req *connect.Req
 	result := s.validator.Stages12(ctx, wrapped)
 
 	resp := &mgmtv1.ValidatePipelineResponse{
-		Valid:       result.Valid,
-		Diagnostics: diagnosticsToProto(result.Diagnostics),
+		Valid:         result.Valid,
+		Diagnostics:   diagnosticsToProto(result.Diagnostics),
+		SkippedStages: skippedStagesToProto(result.Skipped),
 	}
 
 	// Surface derived signals at authoring time (docs/gateway-tier-plan.md

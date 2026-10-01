@@ -30,7 +30,9 @@ export interface MockState {
   auditRows: unknown[];
   attributes: Record<string, string[]>;
   previewResult: { count: number; collector_ids: string[] };
-  validateResult: { valid: boolean; diagnostics: unknown[] };
+  // skipped_stages mirrors ValidatePipelineResponse.skipped_stages (#209):
+  // [2] models a server with no Alloy binary configured.
+  validateResult: { valid: boolean; diagnostics: unknown[]; skipped_stages?: number[] };
   servedConfig: { content: string; hash: string };
   unmatched: string[];
   authMethods?: {

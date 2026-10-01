@@ -1034,8 +1034,15 @@ type ValidatePipelineResponse struct {
 	// the pinned schema artifact has no entry for. Never silently dropped —
 	// signals may be missing signals these could carry.
 	UnknownComponents []string `protobuf:"bytes,5,rep,name=unknown_components,json=unknownComponents,proto3" json:"unknown_components,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// skipped_stages lists the validation stages that did not run (#209).
+	// Today that is only 2 (`alloy validate`), skipped when the server has no
+	// validate.alloy_binary configured. valid=true with a non-empty
+	// skipped_stages means only the stages that ran found nothing — a client
+	// must not present it as a full pass. A stage not reached because an
+	// earlier one failed is not listed.
+	SkippedStages []int32 `protobuf:"varint,6,rep,packed,name=skipped_stages,json=skippedStages,proto3" json:"skipped_stages,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ValidatePipelineResponse) Reset() {
@@ -1099,6 +1106,13 @@ func (x *ValidatePipelineResponse) GetSignalsProven() bool {
 func (x *ValidatePipelineResponse) GetUnknownComponents() []string {
 	if x != nil {
 		return x.UnknownComponents
+	}
+	return nil
+}
+
+func (x *ValidatePipelineResponse) GetSkippedStages() []int32 {
+	if x != nil {
+		return x.SkippedStages
 	}
 	return nil
 }
@@ -1637,13 +1651,14 @@ const file_shepherd_mgmt_v1_pipeline_proto_rawDesc = "" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x1a\n" +
 	"\bcontents\x18\x02 \x01(\tR\bcontents\"6\n" +
 	"\x16FormatPipelineResponse\x12\x1c\n" +
-	"\tformatted\x18\x01 \x01(\tR\tformatted\"\xe0\x01\n" +
+	"\tformatted\x18\x01 \x01(\tR\tformatted\"\x87\x02\n" +
 	"\x18ValidatePipelineResponse\x12\x14\n" +
 	"\x05valid\x18\x01 \x01(\bR\x05valid\x12>\n" +
 	"\vdiagnostics\x18\x02 \x03(\v2\x1c.shepherd.mgmt.v1.DiagnosticR\vdiagnostics\x12\x18\n" +
 	"\asignals\x18\x03 \x03(\tR\asignals\x12%\n" +
 	"\x0esignals_proven\x18\x04 \x01(\bR\rsignalsProven\x12-\n" +
-	"\x12unknown_components\x18\x05 \x03(\tR\x11unknownComponents\">\n" +
+	"\x12unknown_components\x18\x05 \x03(\tR\x11unknownComponents\x12%\n" +
+	"\x0eskipped_stages\x18\x06 \x03(\x05R\rskippedStages\">\n" +
 	"\x15PreviewMatchesRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\"P\n" +

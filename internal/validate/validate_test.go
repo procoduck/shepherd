@@ -1,13 +1,57 @@
 package validate_test
 
 import (
+	"context"
+	"os/exec"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"shepherd/internal/config"
 	"shepherd/internal/validate"
 )
+
+// #209: with no Alloy binary configured Stage 2 cannot run. The result must
+// still say so — a bare Valid=true let the editor render "No problems" for
+// config `alloy validate` would reject.
+var _ = Describe("Skipped stages", func() {
+	const content = `prometheus.scrape "test" {
+  targets = []
+  forward_to = []
+}`
+	newValidator := func(bin string) *validate.Validator {
+		return validate.New(&config.ValidateConfig{
+			AlloyBinary: bin, StabilityLevel: "generally-available", Timeout: 10 * time.Second,
+		})
+	}
+
+	It("records stage 2 as skipped when no alloy binary is configured", func() {
+		v := newValidator("")
+		r := v.Stage2(context.Background(), content)
+		Expect(r.Valid).To(BeTrue())
+		Expect(r.Skipped).To(Equal([]int{2}))
+
+		r12 := v.Stages12(context.Background(), content)
+		Expect(r12.Valid).To(BeTrue())
+		Expect(r12.Skipped).To(Equal([]int{2}))
+	})
+
+	It("records nothing as skipped when stage 2 actually runs", func() {
+		bin, err := exec.LookPath("true")
+		Expect(err).NotTo(HaveOccurred())
+		r := newValidator(bin).Stages12(context.Background(), content)
+		Expect(r.Valid).To(BeTrue())
+		Expect(r.Skipped).To(BeEmpty())
+	})
+
+	It("does not claim stage 2 was skipped when stage 1 already failed", func() {
+		r := newValidator("").Stages12(context.Background(), `prometheus.scrape "x" {`)
+		Expect(r.Valid).To(BeFalse())
+		Expect(r.Skipped).To(BeEmpty())
+	})
+})
 
 func TestValidate(t *testing.T) {
 	RegisterFailHandler(Fail)

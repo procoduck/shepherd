@@ -204,6 +204,9 @@ type validatePipelineOut struct {
 	Signals           []string         `json:"signals,omitempty"`
 	SignalsProven     bool             `json:"signals_proven"`
 	UnknownComponents []string         `json:"unknown_components,omitempty"`
+	// SkippedStages lists validation stages that did not run (#209) — 2
+	// when the server has no Alloy binary, so valid=true is syntax-only.
+	SkippedStages []int32 `json:"skipped_stages,omitempty" jsonschema:"validation stages that did not run; 2 means alloy validate was skipped, so valid=true only covers syntax"`
 }
 
 func (b *Backend) validatePipeline(ctx context.Context, _ *mcp.CallToolRequest, in validatePipelineIn) (*mcp.CallToolResult, validatePipelineOut, error) {
@@ -219,6 +222,7 @@ func (b *Backend) validatePipeline(ctx context.Context, _ *mcp.CallToolRequest, 
 		Signals:           resp.Msg.GetSignals(),
 		SignalsProven:     resp.Msg.GetSignalsProven(),
 		UnknownComponents: resp.Msg.GetUnknownComponents(),
+		SkippedStages:     resp.Msg.GetSkippedStages(),
 	}, nil
 }
 

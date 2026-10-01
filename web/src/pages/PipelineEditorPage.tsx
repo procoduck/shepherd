@@ -2,6 +2,7 @@ import { timestampDate } from '@bufbuild/protobuf/wkt';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import {
+  AlertTriangle,
   ArrowLeft,
   CheckCircle2,
   ChevronDown,
@@ -34,6 +35,9 @@ export function PipelineEditorPage() {
   const [matchers, setMatchers] = useState<string[]>([]);
   const [newMatcher, setNewMatcher] = useState('');
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
+  // Stages the server could not run (#209) — 2 when it has no Alloy binary.
+  // A clean result with a skipped stage is a syntax check, not "No problems".
+  const [skippedStages, setSkippedStages] = useState<number[]>([]);
   const [validating, setValidating] = useState(false);
   const [showRevisions, setShowRevisions] = useState(false);
   const [selectedRevision, setSelectedRevision] = useState<number | null>(null);
@@ -98,7 +102,10 @@ export function PipelineEditorPage() {
           name: name || 'preview',
           contents: c,
         });
-        if (seq === validateSeq.current) setDiagnostics(result.diagnostics ?? []);
+        if (seq === validateSeq.current) {
+          setDiagnostics(result.diagnostics ?? []);
+          setSkippedStages(result.skippedStages ?? []);
+        }
       } catch (_) {
         /* ignore */
       } finally {
@@ -363,6 +370,15 @@ export function PipelineEditorPage() {
                     <span className='flex items-center gap-1 text-red-400'>
                       <XCircle size={14} /> {diagnostics.length} problem
                       {diagnostics.length > 1 ? 's' : ''}
+                    </span>
+                  ) : skippedStages.includes(2) ? (
+                    <span
+                      className='flex items-center gap-1 text-amber-400'
+                      data-testid='validate-skipped-note'
+                      title='The server has no validate.alloy_binary configured, so only the Alloy syntax was checked. Component and argument errors will not show here.'
+                    >
+                      <AlertTriangle size={14} /> Syntax checked — alloy validate skipped (no Alloy
+                      binary configured)
                     </span>
                   ) : (
                     <span className='flex items-center gap-1 text-emerald-500'>

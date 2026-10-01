@@ -78,6 +78,34 @@ test('validate shows no problems for valid syntax', async ({ page, api }) => {
   await expect(page.getByText(/No problems/i)).toBeVisible();
 });
 
+// #209: a server with no Alloy binary skips Stage 2 and still answers
+// valid=true. That is a syntax check, not a pass — the editor must say which
+// check ran instead of the green "No problems".
+test('validate says alloy validate was skipped instead of "No problems"', async ({ page, api }) => {
+  await api.loginAs(orgEditor);
+  const s = basicScenario();
+  const p = pipeline({ id: 'pip-skip', org_id: s.org.id, name: 'skip', contents: '// ok' });
+  api.seed({
+    orgs: [s.org],
+    pipelines: [p],
+    validateResult: { valid: true, diagnostics: [], skipped_stages: [2] },
+  });
+  await page.goto('/pipelines/pip-skip');
+  await expect(page.locator('.cm-editor')).toBeVisible();
+  await expect
+    .poll(() => api.calls('/shepherd.mgmt.v1.PipelineService/ValidatePipeline').length)
+    .toBeGreaterThan(0);
+
+  const note = page.getByTestId('validate-skipped-note');
+  await expect(note).toBeVisible();
+  await expect(note).toHaveText(
+    'Syntax checked — alloy validate skipped (no Alloy binary configured)',
+  );
+  await expect(page.getByText(/No problems/i)).toHaveCount(0);
+  // A skipped stage is not an error: Save stays available.
+  await expect(page.getByRole('button', { name: 'Save' })).toBeEnabled();
+});
+
 test('validates and shows problems panel for syntax errors', async ({ page, api }) => {
   await api.loginAs(appAdmin);
   const s = basicScenario();

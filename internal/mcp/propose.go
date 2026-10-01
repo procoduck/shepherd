@@ -89,6 +89,7 @@ type proposePipelineRevisionOut struct {
 	Signals           []string               `json:"signals,omitempty"`
 	SignalsProven     bool                   `json:"signals_proven"`
 	UnknownComponents []string               `json:"unknown_components,omitempty"`
+	SkippedStages     []int32                `json:"skipped_stages,omitempty" jsonschema:"validation stages that did not run; 2 means alloy validate was skipped, so valid=true only covers syntax"`
 	BlastRadius       []MatchedCollectorView `json:"blast_radius,omitempty"`
 	BlastRadiusNote   string                 `json:"blast_radius_note"`
 	Instructions      string                 `json:"instructions"`
@@ -114,6 +115,7 @@ func (b *Backend) proposePipelineRevision(ctx context.Context, _ *mcp.CallToolRe
 		Signals:           vresp.Msg.GetSignals(),
 		SignalsProven:     vresp.Msg.GetSignalsProven(),
 		UnknownComponents: vresp.Msg.GetUnknownComponents(),
+		SkippedStages:     vresp.Msg.GetSkippedStages(),
 		Instructions:      applyInstructions,
 	}
 

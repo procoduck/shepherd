@@ -59,6 +59,11 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("validation failed (stage 2: semantic)")
 	}
 
+	// #209: a skipped stage 2 is not a pass — say which check actually ran.
+	if len(r2.Skipped) > 0 {
+		fmt.Printf("%s: syntax OK — alloy validate skipped (no Alloy binary configured)\n", filePath)
+		return nil
+	}
 	fmt.Printf("%s: OK\n", filePath)
 	return nil
 }

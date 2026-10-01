@@ -1197,9 +1197,10 @@ export function installDefaultHandlers(router: Router) {
     st.pipelines.push(p);
     return json(r, 200, pipelineToWire(p));
   });
-  router.register('POST', '/shepherd.mgmt.v1.PipelineService/ValidatePipeline', (r) =>
-    json(r, 200, st.validateResult),
-  );
+  router.register('POST', '/shepherd.mgmt.v1.PipelineService/ValidatePipeline', (r) => {
+    const { skipped_stages, ...rest } = st.validateResult;
+    return json(r, 200, skipped_stages?.length ? { ...rest, skippedStages: skipped_stages } : rest);
+  });
   router.register('POST', '/shepherd.mgmt.v1.PipelineService/FormatPipeline', async (r) => {
     const req = await body(r);
     // Deterministic stand-in for `alloy fmt`: a recognisable canonical form so a

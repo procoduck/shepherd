@@ -41,6 +41,12 @@ type Result struct {
 	Valid bool
 	// Diagnostics holds all errors and warnings.
 	Diagnostics []Diagnostic
+	// Skipped lists the stages that did not run (today only 2, when no
+	// Alloy binary is configured). Valid=true with a non-empty Skipped means
+	// "nothing the stages that ran could find" — not that the content passed
+	// every stage (#209). A stage that was never reached because an earlier
+	// one failed is not listed: that is a failure, not a skip.
+	Skipped []int
 }
 
 // Validator holds configuration for running validation.
@@ -101,16 +107,18 @@ func Stage1(content string) (res Result) {
 
 // Stage2 runs `alloy validate` on the given content (declare-wrapped as it will
 // be served) and returns structured diagnostics.
-// If AlloyBinary is empty, Stage 2 is skipped and returns valid.
+// If AlloyBinary is empty, Stage 2 is skipped: it returns valid with
+// Skipped=[2], so callers can tell the operator the stage never ran.
 func (v *Validator) Stage2(ctx context.Context, content string) (res Result) {
 	if v.alloyBinary == "" {
 		// Counted as "skipped", not "valid". The distinction is the whole
 		// point: v0.0.2 shipped an image where `alloy validate` could not run
 		// at all, and every deployment silently skipped this stage while
 		// reporting success. A dashboard where stage 2 is 100% skipped in
-		// production is that bug, visible.
+		// production is that bug, visible — and Skipped carries the same
+		// distinction to the API response (#209).
 		metrics.ValidationTotal.WithLabelValues("2", "skipped").Inc()
-		return Result{Valid: true}
+		return Result{Valid: true, Skipped: []int{2}}
 	}
 	defer func() { metrics.ObserveValidation("2", res.Valid) }()
 
