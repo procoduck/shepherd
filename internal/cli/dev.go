@@ -461,6 +461,7 @@ func dataEngPipelineItems() []seedPipelineItem {
 // PipelineService.CreatePipeline does in internal/mgmtapi/rpc_pipeline.go (R3-H4).
 func seedPipelines(ctx context.Context, st *store.Store, orgID pgtype.UUID, items []seedPipelineItem) error {
 	summary := make([]string, 0, len(items))
+	created := false
 	for _, item := range items {
 		if _, err := st.Queries.GetPipelineByOrgAndName(ctx, sqlc.GetPipelineByOrgAndNameParams{OrgID: orgID, Name: item.name}); err == nil {
 			summary = append(summary, item.name+"(exists)")
@@ -508,6 +509,16 @@ func seedPipelines(ctx context.Context, st *store.Store, orgID pgtype.UUID, item
 			state = "enabled"
 		}
 		summary = append(summary, fmt.Sprintf("%s(%s)", item.name, state))
+		created = true
+	}
+	// The seed writes pipelines straight to the database, so nothing else
+	// marks the org's served configs stale. On a fresh stack there is no
+	// cache yet; re-seeding a running one (`make dev-kind-seed` after a
+	// pipeline was deleted) left collectors on the old served config.
+	if created {
+		if err := st.Queries.MarkServeCacheDirtyByOrg(ctx, orgID); err != nil {
+			return fmt.Errorf("marking served configs stale: %w", err)
+		}
 	}
 	fmt.Printf("pipelines: %s\n", strings.Join(summary, ", "))
 	return nil

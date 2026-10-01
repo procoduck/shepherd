@@ -110,3 +110,35 @@ var _ = Describe("seedLocalUsers", Label("integration"), func() {
 		Expect(editorRoleAgain).To(Equal(auth.OrgRoleEditor))
 	})
 })
+
+// Re-seeding a running stack: the seed writes pipelines straight to the
+// database, so it must mark the org's served configs stale itself, or a
+// collector keeps serving the config from before the pipeline existed.
+var _ = Describe("seedPipelines", Label("integration"), func() {
+	It("marks the org's served configs stale when it creates a pipeline", func() {
+		ctx := context.Background()
+		st, err := store.New(ctx, &config.DatabaseConfig{URL: devUsersPG.IsolatedDB(ctx, GinkgoTB()), MaxConns: 5})
+		Expect(err).NotTo(HaveOccurred())
+		defer st.Close()
+
+		org, err := upsertSeedOrg(ctx, st, seedOrgPlatformID, "platform-org", "Platform Engineering",
+			seedPlatformAdminGroupID, seedPlatformReaderGroupID, "platform-org")
+		Expect(err).NotTo(HaveOccurred())
+		cluster, err := st.Queries.UpsertCluster(ctx, "seed-cluster")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: org.ID})).To(Succeed())
+		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+		Expect(err).NotTo(HaveOccurred())
+		_, err = st.Pool().Exec(ctx, `INSERT INTO serve_cache (collector_id, dirty) VALUES ($1, false)`, collector.ID)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(seedPipelines(ctx, st, org.ID, []seedPipelineItem{{
+			name: "reseeded", contents: "prometheus.exporter.self \"x\" { }\n", source: "ui",
+			matchers: []string{`role="metrics"`}, enabled: true,
+		}})).To(Succeed())
+
+		var dirty bool
+		Expect(st.Pool().QueryRow(ctx, `SELECT dirty FROM serve_cache WHERE collector_id = $1`, collector.ID).Scan(&dirty)).To(Succeed())
+		Expect(dirty).To(BeTrue())
+	})
+})
