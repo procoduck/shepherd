@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 
 	"connectrpc.com/connect"
@@ -42,6 +43,12 @@ type FleetService struct {
 	// baseURL is server.base_url, the address RenderChartValues points
 	// collectors at.
 	baseURL string
+	// inactiveAfter is agent.inactive_after: an instance whose last_seen is
+	// older than this is presented with status "inactive" (see
+	// presentInstanceStatus). Zero disables it.
+	inactiveAfter time.Duration
+	// now is the clock presentInstanceStatus reads; time.Now outside tests.
+	now func() time.Time
 }
 
 // FleetServiceOption configures optional FleetService behavior.
@@ -59,9 +66,37 @@ func WithFleetBaseURL(u string) FleetServiceOption {
 	return func(s *FleetService) { s.baseURL = u }
 }
 
+// WithFleetInactiveAfter sets agent.inactive_after, the staleness threshold
+// past which an instance is presented as "inactive". Zero (the unset default)
+// never presents an instance as inactive.
+func WithFleetInactiveAfter(d time.Duration) FleetServiceOption {
+	return func(s *FleetService) { s.inactiveAfter = d }
+}
+
+// instanceStatusInactive is the status an instance is presented with once its
+// last check-in is older than agent.inactive_after. It is never stored (#237).
+const instanceStatusInactive = "inactive"
+
+// presentInstanceStatus returns the status and error an instance is shown
+// with. Staleness and the agent's outcome are independent (#237): the stored
+// remote_config_status is the agent's last reported outcome and is never
+// overwritten for staleness, while "inactive" is derived here, at read time,
+// from last_seen. A stale instance presents as inactive whatever its stored
+// outcome — a replaced pod's FAILED row stops reading FAILED — and the stored
+// outcome is shown again unchanged the moment the instance checks in. The
+// error is withheld while inactive: it describes the last outcome, not the
+// presented state. CountActiveInstances applies the same rule for the
+// shepherd_active_collectors gauge.
+func presentInstanceStatus(status, errMsg pgtype.Text, lastSeen pgtype.Timestamptz, inactiveAfter time.Duration, now time.Time) (string, string) {
+	if inactiveAfter > 0 && lastSeen.Valid && lastSeen.Time.Before(now.Add(-inactiveAfter)) {
+		return instanceStatusInactive, ""
+	}
+	return status.String, errMsg.String
+}
+
 // NewFleetService constructs a FleetService.
 func NewFleetService(st *store.Store, logger *slog.Logger, opts ...FleetServiceOption) *FleetService {
-	s := &FleetService{store: st, logger: logger}
+	s := &FleetService{store: st, logger: logger, now: time.Now}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -127,6 +162,7 @@ func (s *FleetService) ListCollectors(ctx context.Context, req *connect.Request[
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to list collectors"))
 	}
 	items := make([]*mgmtv1.Collector, len(collectors))
+	now := s.now()
 	for i := range collectors {
 		c := &collectors[i]
 		cluster, _ := s.store.Queries.GetClusterByID(ctx, c.ClusterID)             //nolint:errcheck // empty name is safe
@@ -136,12 +172,15 @@ func (s *FleetService) ListCollectors(ctx context.Context, req *connect.Request[
 			s.logger.Warn("list collectors: decoding inventory labels", "collector_id", c.ID.String(), "err", labelErr)
 			labels = map[string]string{}
 		}
+		// The summary is the most recently seen live instance, so it is
+		// inactive only when every instance of the collector is.
+		status, _ := presentInstanceStatus(summary.RemoteConfigStatus, pgtype.Text{}, summary.LastSeen, s.inactiveAfter, now)
 		items[i] = &mgmtv1.Collector{
 			Id:                 c.ID.String(),
 			ClusterId:          c.ClusterID.String(),
 			Cluster:            cluster.Name,
 			Role:               c.Role,
-			RemoteConfigStatus: summary.RemoteConfigStatus.String,
+			RemoteConfigStatus: status,
 			LastSeen:           timestampFromPg(summary.LastSeen),
 			AlloyVersion:       summary.AlloyVersion.String,
 			Labels:             labels,
@@ -210,8 +249,10 @@ func (s *FleetService) getCollector(ctx context.Context, orgIDStr, idStr string)
 		rows = nil
 	}
 	instances := make([]*mgmtv1.CollectorInstance, len(rows))
+	now := s.now()
 	for i := range rows {
 		row := &rows[i]
+		status, errMsg := presentInstanceStatus(row.RemoteConfigStatus, row.RemoteConfigError, row.LastSeen, s.inactiveAfter, now)
 		attrs, attrErr := structFromJSON(row.LocalAttributes)
 		if attrErr != nil {
 			s.logger.Warn("get collector: decoding instance local_attributes", "err", attrErr)
@@ -221,8 +262,8 @@ func (s *FleetService) getCollector(ctx context.Context, orgIDStr, idStr string)
 			AlloyVersion:       row.AlloyVersion.String,
 			Os:                 row.Os.String,
 			LastSeen:           timestampFromPg(row.LastSeen),
-			RemoteConfigStatus: row.RemoteConfigStatus.String,
-			RemoteConfigError:  row.RemoteConfigError.String,
+			RemoteConfigStatus: status,
+			RemoteConfigError:  errMsg,
 			LocalAttributes:    attrs,
 		}
 	}

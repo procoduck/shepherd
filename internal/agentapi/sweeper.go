@@ -33,9 +33,14 @@ var tableRowsGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
 // than an independent operator-tunable knob.
 const beaconInventoryExpireAfter = 5 * time.Minute
 
-// Sweeper marks collector instances inactive after inactiveAfter and hard-deletes
-// them after deleteAfter; a zero duration disables that step. It runs on a
-// background goroutine.
+// Sweeper hard-deletes collector instances after deleteAfter and keeps the
+// shepherd_active_collectors gauge current. It runs on a background goroutine.
+//
+// It no longer marks instances inactive (#237): "inactive" is derived at read
+// time from last_seen and inactiveAfter (mgmtapi's FleetService and
+// CountActiveInstances), so it never overwrites the agent's reported outcome
+// in remote_config_status. inactiveAfter is kept here only for the gauge.
+// A zero deleteAfter (unset — there is no viper default) disables the delete.
 type Sweeper struct {
 	store         *store.Store
 	logger        *slog.Logger
@@ -86,19 +91,10 @@ func (sw *Sweeper) run(ctx context.Context) {
 func (sw *Sweeper) sweep(ctx context.Context) {
 	now := time.Now()
 
-	// An unset threshold (0 — there is no viper default; the chart supplies
-	// 5m / 24h) turns that sweep off. It used to mean "older than now": every
-	// sweep deleted every live instance, the re-registered rows started with
-	// no status, and ApplySilentPoll promoted them to APPLIED — a failing
-	// collector read APPLIED within five minutes of any start without the
-	// chart (the dev stack, a bare binary).
-	if sw.inactiveAfter > 0 {
-		inactiveBefore := pgtype.Timestamptz{Time: now.Add(-sw.inactiveAfter), Valid: true}
-		if err := sw.store.Queries.MarkStaleInstancesInactive(ctx, inactiveBefore); err != nil {
-			sw.logger.Error("sweeper: failed to mark stale instances inactive", "err", err)
-		}
-	}
-
+	// An unset delete_after (0 — there is no viper default; the chart supplies
+	// 24h) turns the delete off. It used to mean "older than now": every sweep
+	// deleted every live instance, the re-registered rows started with no
+	// status, and ApplySilentPoll promoted them to APPLIED (#230).
 	if sw.deleteAfter > 0 {
 		deleteBefore := pgtype.Timestamptz{Time: now.Add(-sw.deleteAfter), Valid: true}
 		if err := sw.store.Queries.DeleteOldInstances(ctx, deleteBefore); err != nil {
@@ -133,10 +129,11 @@ func (sw *Sweeper) sweep(ctx context.Context) {
 // so /metrics reported a flat 0 while collectors were polling steadily. A
 // gauge that is always zero is worse than a missing one: it cannot be alerted
 // on, and an alert written against it looks like coverage while being
-// incapable of firing. The sweeper owns it because the sweeper is already the
-// thing that decides which instances count as inactive.
+// incapable of firing. The sweeper owns it because it already runs on a
+// timer; which instances count as inactive is the read-time rule in
+// CountActiveInstances (last_seen older than agent.inactive_after, when set).
 func (sw *Sweeper) refreshActiveCollectors(ctx context.Context) {
-	n, err := sw.store.Queries.CountActiveInstances(ctx)
+	n, err := sw.store.Queries.CountActiveInstances(ctx, inactiveBefore(sw.inactiveAfter, time.Now()))
 	if err != nil {
 		// Left at its previous value rather than zeroed: reporting 0 because a
 		// count failed is the same lie the gauge used to tell.
@@ -166,4 +163,15 @@ func (sw *Sweeper) refreshTableGauges(ctx context.Context) {
 		}
 		tableRowsGauge.WithLabelValues(table).Set(count)
 	}
+}
+
+// inactiveBefore is the last_seen cutoff below which an instance counts as
+// inactive: now minus agent.inactive_after. An unset (zero or negative)
+// inactive_after yields a NULL cutoff, which CountActiveInstances reads as
+// "nothing is inactive".
+func inactiveBefore(inactiveAfter time.Duration, now time.Time) pgtype.Timestamptz {
+	if inactiveAfter <= 0 {
+		return pgtype.Timestamptz{}
+	}
+	return pgtype.Timestamptz{Time: now.Add(-inactiveAfter), Valid: true}
 }

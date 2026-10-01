@@ -13,3 +13,6 @@ import (
 func ContextWithOIDCPrincipal(ctx context.Context, claims auth.AgentClaims) context.Context {
 	return context.WithValue(ctx, principalKey, Principal{Kind: AuthKindOIDC, Claims: &claims})
 }
+
+// SweepOnce runs one lifecycle sweep synchronously, as a tick would. Test-only.
+func (sw *Sweeper) SweepOnce(ctx context.Context) { sw.sweep(ctx) }

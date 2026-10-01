@@ -32,8 +32,12 @@
             has not polled since it was created.</li>
       </ul>
       <p>
-        With <code>agent.inactive_after</code> set, a collector that stops polling is marked
-        <strong>inactive</strong> until it comes back.
+        With <code>agent.inactive_after</code> set, an instance that has not polled for that
+        long shows as <strong>inactive</strong>, whatever it last reported, and a collector shows
+        inactive once all its instances are. Its last reported status is kept, not reset: when
+        it comes back it shows that status again (a FAILED collector stays FAILED) until Alloy
+        reports something new. On Kubernetes each Alloy restart registers a new instance, so the
+        replaced pod&rsquo;s row turns inactive while the new one carries the status.
       </p>
       <p>
         A collector&rsquo;s page also has its <strong>Served config</strong> (the exact merged

@@ -11,11 +11,13 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"shepherd/internal/auth"
 	"shepherd/internal/config"
+	"shepherd/internal/metrics"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/testutil"
@@ -84,7 +86,7 @@ var _ = Describe("Sweeper", Label("integration"), func() {
 		Expect(inst.RemoteConfigStatus.String).To(Equal("FAILED"))
 	})
 
-	It("still marks and deletes stale instances when the thresholds are set", func() {
+	It("deletes instances past delete_after and leaves a stale one's outcome alone", func() {
 		cluster, err := st.Queries.UpsertCluster(ctx, "sweep-cluster-2")
 		Expect(err).NotTo(HaveOccurred())
 		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
@@ -102,9 +104,11 @@ var _ = Describe("Sweeper", Label("integration"), func() {
 
 		NewSweeper(st, &config.AgentConfig{InactiveAfter: 5 * time.Minute, DeleteAfter: 24 * time.Hour, SweepInterval: time.Minute}, slog.Default()).sweep(ctx)
 
+		// Stale but not past delete_after: kept, and its stored outcome is not
+		// overwritten — "inactive" is derived at read time (#237).
 		idle, err := st.Queries.GetCollectorInstanceByID(ctx, "inst-idle")
 		Expect(err).NotTo(HaveOccurred())
-		Expect(idle.RemoteConfigStatus.String).To(Equal("inactive"))
+		Expect(idle.RemoteConfigStatus.Valid).To(BeFalse())
 		_, err = st.Queries.GetCollectorInstanceByID(ctx, "inst-gone")
 		Expect(err).To(HaveOccurred(), "an instance past delete_after is deleted")
 	})
@@ -156,6 +160,68 @@ var _ = Describe("Sweeper", Label("integration"), func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(rows).To(HaveLen(1))
 		Expect(rows[0].InstanceLabel).To(Equal("fresh-instance"))
+	})
+
+	// #237: the sweeper no longer writes 'inactive' into remote_config_status;
+	// staleness is derived from last_seen at read time.
+	Describe("collector instances", func() {
+		instanceAt := func(id, status string, ago time.Duration) {
+			cluster, err := st.Queries.UpsertCluster(ctx, "sweeper-cluster")
+			Expect(err).NotTo(HaveOccurred())
+			coll, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+			Expect(err).NotTo(HaveOccurred())
+			_, err = st.Queries.UpsertCollectorInstance(ctx, sqlc.UpsertCollectorInstanceParams{
+				ID: id, CollectorID: coll.ID, Name: id, LocalAttributes: json.RawMessage(`{}`),
+			})
+			Expect(err).NotTo(HaveOccurred())
+			if status != "" {
+				Expect(st.Queries.UpdateInstanceStatus(ctx, sqlc.UpdateInstanceStatusParams{
+					ID: id, RemoteConfigStatus: pgtype.Text{String: status, Valid: true},
+				})).To(Succeed())
+			}
+			// RAW-SQL-OK: backdating last_seen — UpsertCollectorInstance always
+			// writes now(); this is a _test.go file.
+			_, err = st.Pool().Exec(ctx,
+				`UPDATE collector_instances SET last_seen = now() - make_interval(secs => $2) WHERE id = $1`, id, ago.Seconds())
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		It("leaves stale instances' outcomes untouched and hard-deletes only past delete_after", func() {
+			instanceAt("fresh", "APPLIED", 0)
+			instanceAt("stale-failed", "FAILED", time.Hour)
+			instanceAt("stale-applied", "APPLIED", time.Hour)
+			instanceAt("stale-unset", "", time.Hour)
+			instanceAt("ancient", "FAILED", 48*time.Hour)
+
+			sw := NewSweeper(st, &config.AgentConfig{InactiveAfter: 5 * time.Minute, DeleteAfter: 24 * time.Hour, SweepInterval: time.Minute}, slog.Default())
+			sw.sweep(ctx)
+
+			for id, want := range map[string]string{"fresh": "APPLIED", "stale-failed": "FAILED", "stale-applied": "APPLIED"} {
+				inst, err := st.Queries.GetCollectorInstanceByID(ctx, id)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(inst.RemoteConfigStatus.String).To(Equal(want), id)
+			}
+			inst, err := st.Queries.GetCollectorInstanceByID(ctx, "stale-unset")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(inst.RemoteConfigStatus.Valid).To(BeFalse(), "no sentinel is written into an unset outcome")
+			_, err = st.Queries.GetCollectorInstanceByID(ctx, "ancient")
+			Expect(err).To(HaveOccurred(), "past delete_after the row is gone")
+		})
+
+		It("counts active collectors by last_seen, and every registered instance when inactive_after is unset", func() {
+			instanceAt("live", "FAILED", 0)
+			instanceAt("stale", "APPLIED", time.Hour)
+			instanceAt("gone", "APPLIED", 0)
+			Expect(st.Queries.UnregisterInstance(ctx, "gone")).To(Succeed())
+
+			NewSweeper(st, &config.AgentConfig{InactiveAfter: 5 * time.Minute}, slog.Default()).refreshActiveCollectors(ctx)
+			Expect(promtestutil.ToFloat64(metrics.ActiveCollectors)).To(Equal(1.0),
+				"a stale instance is inactive whatever its outcome; a live FAILED one is active")
+
+			NewSweeper(st, &config.AgentConfig{}, slog.Default()).refreshActiveCollectors(ctx)
+			Expect(promtestutil.ToFloat64(metrics.ActiveCollectors)).To(Equal(2.0),
+				"inactive_after unset: nothing is inactive, only unregistered instances are excluded")
+		})
 	})
 
 	It("an expired but undeleted session is rejected by middleware", func() {

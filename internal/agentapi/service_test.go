@@ -898,25 +898,30 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 			Expect(instance.Name).To(Equal("my-hostname"), "GetConfig must not overwrite the display name with the wire id")
 		})
 
-		It("clears an 'inactive' remote_config_status on reconnect", func() {
+		It("leaves the stored outcome alone when a stale instance reconnects", func() {
 			_, err := client.RegisterCollector(ctx, connect.NewRequest(&collectorv1.RegisterCollectorRequest{
 				Id:              "reconnect-instance",
 				Name:            "reconnect-instance",
 				LocalAttributes: map[string]string{"cluster": "reconnect-cluster", "role": "metrics"},
 			}))
 			Expect(err).NotTo(HaveOccurred())
-
-			// Simulate the lifecycle sweeper marking the instance inactive.
-			Expect(st.Queries.MarkStaleInstancesInactive(ctx, pgtype.Timestamptz{
-				Time:  time.Now().Add(time.Hour),
-				Valid: true,
+			Expect(st.Queries.UpdateInstanceStatus(ctx, sqlc.UpdateInstanceStatusParams{
+				ID:                 "reconnect-instance",
+				RemoteConfigStatus: pgtype.Text{String: "APPLYING", Valid: true},
 			})).To(Succeed())
+
+			// RAW-SQL-OK: backdate last_seen past inactive_after; no sqlc query
+			// takes an explicit last_seen.
+			_, err = st.Pool().Exec(ctx,
+				`UPDATE collector_instances SET last_seen = now() - interval '1 hour' WHERE id = 'reconnect-instance'`)
+			Expect(err).NotTo(HaveOccurred())
+			agentapi.NewSweeper(st, &config.AgentConfig{InactiveAfter: 5 * time.Minute, DeleteAfter: 24 * time.Hour, SweepInterval: time.Minute}, slog.Default()).SweepOnce(ctx)
 
 			instance, err := st.Queries.GetCollectorInstanceByID(ctx, "reconnect-instance")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(instance.RemoteConfigStatus.String).To(Equal("inactive"))
+			Expect(instance.RemoteConfigStatus.String).To(Equal("APPLYING"),
+				"the sweeper no longer writes staleness into the outcome column (#237)")
 
-			// Reconnect via a plain poll carrying no RemoteConfigStatus payload.
 			_, err = client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
 				Id:              "reconnect-instance",
 				LocalAttributes: map[string]string{"cluster": "reconnect-cluster", "role": "metrics"},
@@ -925,7 +930,8 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 
 			instance, err = st.Queries.GetCollectorInstanceByID(ctx, "reconnect-instance")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(instance.RemoteConfigStatus.Valid).To(BeFalse(), "reconnect should clear the stale inactive marker")
+			Expect(instance.RemoteConfigStatus.String).To(Equal("APPLYING"))
+			Expect(instance.LastSeen.Time).To(BeTemporally("~", time.Now(), time.Minute), "reconnect is liveness: last_seen moves")
 		})
 
 		Describe("B1: stale FAILED status clearing", func() {
@@ -1094,15 +1100,36 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 				Expect(instance.RemoteConfigStatusHash.String).To(Equal(servedHash))
 			})
 
-			It("does not let the sweeper's inactive marker erase a FAILED", func() {
-				failClaimed()
-				Expect(st.Queries.MarkStaleInstancesInactive(ctx,
-					pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true})).To(Succeed())
+			// #237 / F1: a FAILED instance that went stale and then comes back
+			// polling silently with the served hash is still failing — Alloy
+			// re-sends a status only when it changes. Staleness must not reset
+			// the outcome on the way (the old sweeper's 'inactive' marker was
+			// cleared to NULL on reconnect and NULL is promoted to APPLIED).
+			It("keeps a FAILED instance FAILED through staleness, a sweep and a silent reconnect", func() {
+				servedHash := failClaimed()
+				// RAW-SQL-OK: backdate last_seen past inactive_after; no sqlc
+				// query takes an explicit last_seen.
+				_, err := st.Pool().Exec(ctx,
+					`UPDATE collector_instances SET last_seen = now() - interval '1 hour' WHERE id = 'recompute-instance'`)
+				Expect(err).NotTo(HaveOccurred())
+				agentapi.NewSweeper(st, &config.AgentConfig{InactiveAfter: 5 * time.Minute, DeleteAfter: 24 * time.Hour, SweepInterval: time.Minute}, slog.Default()).SweepOnce(ctx)
 
 				instance, err := st.Queries.GetCollectorInstanceByID(ctx, "recompute-instance")
 				Expect(err).NotTo(HaveOccurred())
+				Expect(instance.RemoteConfigStatus.String).To(Equal("FAILED"), "the sweep leaves the outcome alone")
+
+				_, err = client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+					Id:              "recompute-instance",
+					Hash:            servedHash,
+					LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"},
+				}))
+				Expect(err).NotTo(HaveOccurred())
+
+				instance, err = st.Queries.GetCollectorInstanceByID(ctx, "recompute-instance")
+				Expect(err).NotTo(HaveOccurred())
 				Expect(instance.RemoteConfigStatus.String).To(Equal("FAILED"),
-					"inactive is cleared on reconnect and then promoted to APPLIED; a failure must survive that")
+					"a silent poll after reconnecting must not promote a failure to APPLIED")
+				Expect(instance.RemoteConfigError.String).To(Equal("dial tcp: lookup shepherd: no such host"))
 			})
 
 			It("still promotes a never-reported status to APPLIED on a served-hash poll", func() {

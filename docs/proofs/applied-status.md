@@ -71,16 +71,32 @@ agent polls the served hash" — encoded the bug and was replaced.
 `ApplySilentPoll` (`internal/store/queries/collector_instances.sql`) replaces it: a status-less
 poll with the served hash
 - carrying `effective_config` → APPLIED (a verified load);
-- on a row that never had a status (NULL, `''`, the sweeper's cleared `inactive`) → APPLIED;
+- on a row that never had a status (NULL, `''`) → APPLIED;
 - otherwise → the status stands, and its `remote_config_status_hash` follows the polled hash.
 
-`MarkStaleInstancesInactive` no longer overwrites a FAILED: `inactive` is cleared on reconnect and
-a cleared status is promoted, so it would have turned a failure into APPLIED.
+Staleness never touches the outcome (#237). "Inactive" is derived when status is read — an
+instance whose `last_seen` is older than `agent.inactive_after` is *presented* as `inactive` by the
+management API (`presentInstanceStatus`, `internal/mgmtapi/rpc_fleet.go`) and left out of
+`CountActiveInstances` — and is never written to `remote_config_status`. The lifecycle sweeper only
+hard-deletes past `agent.delete_after`, and a reconnect (`UpsertCollectorInstance`) only moves
+`last_seen`. So a stale FAILED instance that comes back and polls silently is still FAILED, and
+the "never had a status → APPLIED" branch above can only be reached by a row that genuinely never
+reported. (Until #237 the sweeper wrote an `inactive` sentinel that reconnect cleared to NULL —
+which that branch then promoted to APPLIED — so the sweeper had to skip FAILED rows, and a
+replaced Kubernetes pod's FAILED row, never reconnected under its old id, stayed FAILED until
+`delete_after`. Migration `0029` turned leftover sentinels into NULL, the value reconnect used to
+give them.)
 
 Specs (`internal/agentapi/service_test.go`, "B1: stale FAILED status clearing"): (a) and (b) stay
 FAILED with the hash following; `effective_config` on a failing and on an applied row both give
-APPLIED; the sweeper leaves FAILED alone. Mutation checks, each run and each failing exactly one
-spec: promoting FAILED again; ignoring `effective_config`; letting the sweeper overwrite FAILED.
+APPLIED; a FAILED instance that goes stale, is swept and reconnects with a silent poll stays FAILED.
+`internal/agentapi/sweeper_test.go` asserts the sweep leaves every stale outcome as it was;
+`internal/mgmtapi/collectors_metadata_test.go` ("inactive at read time (#237)") asserts the
+presentation. Mutation checks, each run and each failing exactly one spec: promoting FAILED again;
+ignoring `effective_config`; (pre-#237) letting the sweeper overwrite FAILED. Since #237, making a
+reconnect reset a stale row's status to NULL fails the stale-reconnect FAILED spec above, its
+agentapi sibling and the mgmtapi reconnect spec — and the #237 specs themselves were red before
+the change (a stale FAILED instance read FAILED; the sweep wrote `inactive` over APPLIED).
 
 Live, on the dev stack with the fix: after restarting `dev-alloy-metrics-1` the row went
 `FAILED 47841195`; a label edit then served `ae0b4366`, Alloy failed to load it and sent no status,

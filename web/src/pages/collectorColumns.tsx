@@ -13,6 +13,17 @@ export const STATUS_COLORS: Record<string, string> = {
   FAILED: 'text-red-400 bg-red-400/10 border-red-400/20',
 };
 
+/**
+ * Hover text for a status badge. INACTIVE is derived by the server from the
+ * last check-in (agent.inactive_after), not reported by Alloy, so it says so
+ * (#237).
+ */
+export function statusTitle(status: string): string | undefined {
+  return status === 'INACTIVE'
+    ? 'No check-in within agent.inactive_after. Its last reported status shows again when it checks back in.'
+    : undefined;
+}
+
 export const instanceColumns: DataTableColumn<CollectorInstance>[] = [
   {
     key: 'name',
@@ -50,7 +61,10 @@ export const instanceColumns: DataTableColumn<CollectorInstance>[] = [
       const instStatus = i.remoteConfigStatus?.toUpperCase() ?? '';
       const instColor = STATUS_COLORS[instStatus] ?? 'text-muted bg-border border-border-strong';
       return (
-        <span className={`text-xs font-medium px-2 py-0.5 rounded border ${instColor}`}>
+        <span
+          title={statusTitle(instStatus)}
+          className={`text-xs font-medium px-2 py-0.5 rounded border ${instColor}`}
+        >
           {instStatus || 'UNKNOWN'}
         </span>
       );

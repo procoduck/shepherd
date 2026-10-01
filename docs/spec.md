@@ -236,7 +236,9 @@ Mount the generated handler at `POST /collector.v1.CollectorService/{Method}` on
 
 **`UnregisterCollector`:** mark the instance row `unregistered_at = now()`. Do not delete.
 
-**Lifecycle sweeper** (background goroutine, interval from config): mark instances *inactive* if `last_seen` older than `agent.inactive_after`; hard-delete instance rows older than `agent.delete_after`. Neither has a server default — the chart supplies `5m` / `24h` — and an unset (zero) value turns that step off. Logical collectors with zero instances remain (they hold assignments) but display as "no live instances".
+**Inactive** is derived when status is read, never stored (#237): an instance whose `last_seen` is older than `agent.inactive_after` is presented with status `inactive` (and no error) by the management API and is not counted by `shepherd_active_collectors`; `remote_config_status` keeps the agent's last reported outcome, which is presented again once the instance checks in. A collector's status is its most recently seen instance's, so it reads `inactive` only when every instance is stale. Unset or zero `agent.inactive_after` → nothing is ever inactive.
+
+**Lifecycle sweeper** (background goroutine, interval from config): hard-delete instance rows older than `agent.delete_after` (no viper default; the chart sets `24h`; unset or zero turns the delete off), and refresh `shepherd_active_collectors`. Logical collectors with zero instances remain (they hold assignments) but display as "no live instances".
 
 ### 4.2 Hashing
 

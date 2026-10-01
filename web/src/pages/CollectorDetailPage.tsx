@@ -12,7 +12,7 @@ import { Field, Input } from '@/components/ui/Field';
 import { useMe } from '@/hooks/useMe';
 import { useOrgId } from '@/hooks/useOrg';
 import { formatTimestampRelative } from '@/lib/utils';
-import { assignmentColumns, instanceColumns, STATUS_COLORS } from './collectorColumns';
+import { assignmentColumns, instanceColumns, STATUS_COLORS, statusTitle } from './collectorColumns';
 
 type Tab = 'config' | 'reconciliation' | 'info' | 'attributes' | 'access';
 
@@ -172,6 +172,7 @@ export function CollectorDetailPage() {
           <CollectorLabelsButton canEdit={isOrgAdmin} onClick={() => setTab('attributes')} />
           <span
             data-testid='collector-status'
+            title={statusTitle(status)}
             className={`text-xs font-medium px-2 py-0.5 rounded border ${statusColor}`}
           >
             {status || 'UNKNOWN'}

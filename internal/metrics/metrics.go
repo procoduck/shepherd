@@ -62,7 +62,7 @@ var (
 	ActiveCollectors = promauto.NewGauge(prometheus.GaugeOpts{
 		Namespace: "shepherd",
 		Name:      "active_collectors",
-		Help:      "Current number of non-inactive, non-unregistered collector instances.",
+		Help:      "Current number of registered collector instances that checked in within agent.inactive_after (every registered instance when it is unset).",
 	})
 
 	// HTTPRequestsTotal counts HTTP requests to the management surface.

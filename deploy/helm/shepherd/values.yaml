@@ -232,8 +232,10 @@ config:
     # graph.microsoft.us) whose API root differs from the public cloud.
     base_url: "https://graph.microsoft.com"
   agent:
-    # inactive_after: mark a collector instance inactive once this long has
-    # passed with no check-in.
+    # inactive_after: show a collector instance as inactive once this long has
+    # passed with no check-in (derived from its last check-in when read; its
+    # last reported status is kept and shows again when it comes back).
+    # Empty or 0: never shown inactive.
     inactive_after: "5m"
     # delete_after: hard-delete a collector instance once this long has
     # passed with no check-in. Longer than inactive_after, so an instance

@@ -9,6 +9,7 @@ import { Field, Input, Select } from '@/components/ui/Field';
 import type { Collector } from '@/gen/shepherd/mgmt/v1/fleet_pb';
 import { useCanAdminister, useOrgId } from '@/hooks/useOrg';
 import { formatTimestampRelative } from '@/lib/utils';
+import { statusTitle } from './collectorColumns';
 
 const STATUS_COLORS: Record<string, string> = {
   APPLIED: 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20',
@@ -34,7 +35,10 @@ const collectorColumns: DataTableColumn<Collector>[] = [
       const status = c.remoteConfigStatus?.toUpperCase() ?? '';
       const statusColor = STATUS_COLORS[status] ?? 'text-muted bg-border border-border-strong';
       return (
-        <span className={`text-xs font-medium px-2 py-0.5 rounded border ${statusColor}`}>
+        <span
+          title={statusTitle(status)}
+          className={`text-xs font-medium px-2 py-0.5 rounded border ${statusColor}`}
+        >
           {status || 'UNKNOWN'}
         </span>
       );

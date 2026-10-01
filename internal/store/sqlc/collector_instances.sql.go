@@ -17,13 +17,13 @@ UPDATE collector_instances
 SET remote_config_status = CASE
         WHEN $1::bool
           OR remote_config_status IS NULL
-          OR remote_config_status IN ('inactive', '') THEN 'APPLIED'
+          OR remote_config_status = '' THEN 'APPLIED'
         ELSE remote_config_status
     END,
     remote_config_error = CASE
         WHEN $1::bool
           OR remote_config_status IS NULL
-          OR remote_config_status IN ('inactive', '') THEN NULL
+          OR remote_config_status = '' THEN NULL
         ELSE remote_config_error
     END,
     remote_config_status_hash = $2,
@@ -31,7 +31,7 @@ SET remote_config_status = CASE
 WHERE id = $3
   AND ($1::bool
        OR remote_config_status IS NULL
-       OR remote_config_status IN ('inactive', '')
+       OR remote_config_status = ''
        OR remote_config_status_hash IS DISTINCT FROM $2)
 `
 
@@ -50,8 +50,7 @@ type ApplySilentPollParams struct {
 //   - loaded = the poll carries effective_config: Alloy sets it only after a
 //     successful load, and sends it whenever the loaded config changes, so
 //     this is a verified load of the polled hash → APPLIED.
-//   - no status ever reported (NULL, ”, or the sweeper's cleared 'inactive')
-//     → APPLIED, so a healthy collector that applied before its row was reset
+//   - no status ever reported (NULL or ”) → APPLIED, so a healthy collector that applied before its row was reset
 //     does not sit at UNKNOWN forever.
 //   - anything else → the status stands: Alloy said nothing because its
 //     outcome is unchanged. A FAILED stays FAILED — a new config that fails
@@ -70,15 +69,21 @@ const countActiveInstances = `-- name: CountActiveInstances :one
 SELECT COUNT(*)::bigint AS total
 FROM collector_instances
 WHERE unregistered_at IS NULL
-  AND (remote_config_status IS NULL OR remote_config_status != 'inactive')
+  AND ($1::timestamptz IS NULL
+       OR last_seen IS NULL
+       OR last_seen >= $1::timestamptz)
 `
 
-// Feeds the shepherd_active_collectors gauge. "Active" is the definition the
-// gauge's help text already claimed: registered, not swept to 'inactive'.
-// Written as a query rather than derived from a list so the sweeper does not
-// pull every instance row once a tick just to count them.
-func (q *Queries) CountActiveInstances(ctx context.Context) (int64, error) {
-	row := q.db.QueryRow(ctx, countActiveInstances)
+// Feeds the shepherd_active_collectors gauge: registered instances that are
+// not inactive. Inactive is derived at read time (#237), never stored: an
+// instance whose last_seen is older than inactive_before (now minus
+// agent.inactive_after) — the same rule mgmtapi's FleetService presents as
+// status "inactive". A NULL inactive_before (agent.inactive_after unset)
+// counts every registered instance. Written as a query rather than derived
+// from a list so the sweeper does not pull every instance row once a tick
+// just to count them.
+func (q *Queries) CountActiveInstances(ctx context.Context, inactiveBefore pgtype.Timestamptz) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveInstances, inactiveBefore)
 	var total int64
 	err := row.Scan(&total)
 	return total, err
@@ -253,22 +258,6 @@ func (q *Queries) ListLatestLocalAttributesByOrg(ctx context.Context, orgID pgty
 	return items, nil
 }
 
-const markStaleInstancesInactive = `-- name: MarkStaleInstancesInactive :exec
-UPDATE collector_instances
-SET remote_config_status = 'inactive', updated_at = now()
-WHERE last_seen < $1
-  AND unregistered_at IS NULL
-  AND (remote_config_status IS NULL OR remote_config_status NOT IN ('inactive', 'FAILED'))
-`
-
-// A FAILED is left alone: 'inactive' is cleared on reconnect and a cleared
-// status is promoted to APPLIED by ApplySilentPoll, so marking a failing
-// instance inactive would turn its failure into APPLIED once it came back.
-func (q *Queries) MarkStaleInstancesInactive(ctx context.Context, lastSeen pgtype.Timestamptz) error {
-	_, err := q.db.Exec(ctx, markStaleInstancesInactive, lastSeen)
-	return err
-}
-
 const unregisterInstance = `-- name: UnregisterInstance :exec
 UPDATE collector_instances
 SET unregistered_at = now(), updated_at = now()
@@ -322,10 +311,6 @@ ON CONFLICT (id) DO UPDATE SET
     alloy_version = EXCLUDED.alloy_version,
     os           = EXCLUDED.os,
     last_seen    = now(),
-    remote_config_status = CASE
-                                WHEN collector_instances.remote_config_status = 'inactive' THEN NULL
-                                ELSE collector_instances.remote_config_status
-                            END,
     updated_at   = now()
 RETURNING id, collector_id, name, local_attributes, alloy_version, os, last_seen, unregistered_at, remote_config_status, remote_config_error, created_at, updated_at, remote_config_status_hash
 `
@@ -345,9 +330,10 @@ type UpsertCollectorInstanceParams struct {
 // name — but only when a real display name is actually stored. Otherwise
 // (first insert, or a row still carrying an empty name from before this
 // fallback existed) fall back to the wire id rather than persist an empty
-// name. A successful upsert also counts as liveness recovery: it clears a
-// stale 'inactive' status marker left by the lifecycle sweeper so a
-// reconnecting instance shows live again.
+// name. remote_config_status is not touched: it is the agent's last reported
+// outcome, and liveness is last_seen alone — "inactive" is derived from it at
+// read time (#237), so a reconnecting instance shows live again simply by
+// bumping last_seen, with its outcome intact.
 func (q *Queries) UpsertCollectorInstance(ctx context.Context, arg UpsertCollectorInstanceParams) (CollectorInstance, error) {
 	row := q.db.QueryRow(ctx, upsertCollectorInstance,
 		arg.ID,
