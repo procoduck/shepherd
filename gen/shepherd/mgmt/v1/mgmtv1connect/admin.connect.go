@@ -106,7 +106,7 @@ type AdminServiceClient interface {
 	ListAgentTokens(context.Context, *connect.Request[v1.ListAgentTokensRequest]) (*connect.Response[v1.ListAgentTokensResponse], error)
 	CreateAgentToken(context.Context, *connect.Request[v1.CreateAgentTokenRequest]) (*connect.Response[v1.CreateAgentTokenResponse], error)
 	RevokeAgentToken(context.Context, *connect.Request[v1.RevokeAgentTokenRequest]) (*connect.Response[v1.RevokeAgentTokenResponse], error)
-	// Collector OIDC identity bindings (docs/plans/2026-09-16-agent-oidc-auth.md):
+	// Collector OIDC identity bindings (docs/archive/plans/2026-09-16-agent-oidc-auth.md):
 	// map a collector's OIDC identity (issuer + app id) to an organisation.
 	ListAgentIdentities(context.Context, *connect.Request[v1.ListAgentIdentitiesRequest]) (*connect.Response[v1.ListAgentIdentitiesResponse], error)
 	CreateAgentIdentity(context.Context, *connect.Request[v1.CreateAgentIdentityRequest]) (*connect.Response[v1.AgentIdentity], error)
@@ -405,7 +405,7 @@ type AdminServiceHandler interface {
 	ListAgentTokens(context.Context, *connect.Request[v1.ListAgentTokensRequest]) (*connect.Response[v1.ListAgentTokensResponse], error)
 	CreateAgentToken(context.Context, *connect.Request[v1.CreateAgentTokenRequest]) (*connect.Response[v1.CreateAgentTokenResponse], error)
 	RevokeAgentToken(context.Context, *connect.Request[v1.RevokeAgentTokenRequest]) (*connect.Response[v1.RevokeAgentTokenResponse], error)
-	// Collector OIDC identity bindings (docs/plans/2026-09-16-agent-oidc-auth.md):
+	// Collector OIDC identity bindings (docs/archive/plans/2026-09-16-agent-oidc-auth.md):
 	// map a collector's OIDC identity (issuer + app id) to an organisation.
 	ListAgentIdentities(context.Context, *connect.Request[v1.ListAgentIdentitiesRequest]) (*connect.Response[v1.ListAgentIdentitiesResponse], error)
 	CreateAgentIdentity(context.Context, *connect.Request[v1.CreateAgentIdentityRequest]) (*connect.Response[v1.AgentIdentity], error)

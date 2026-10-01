@@ -1529,7 +1529,7 @@ export const AdminService: GenService<{
     output: typeof RevokeAgentTokenResponseSchema;
   },
   /**
-   * Collector OIDC identity bindings (docs/plans/2026-09-16-agent-oidc-auth.md):
+   * Collector OIDC identity bindings (docs/archive/plans/2026-09-16-agent-oidc-auth.md):
    * map a collector's OIDC identity (issuer + app id) to an organisation.
    *
    * @generated from rpc shepherd.mgmt.v1.AdminService.ListAgentIdentities
