@@ -213,14 +213,15 @@
       <p class="kicker">// how it fits together</p>
       <h2>One merge engine, three ways in.</h2>
       <p class="section-sub">
-        Pipelines built by hand, drawn on the visual canvas, or synced from Git all become the same
-        kind of row — matched to collectors, validated, and merged into one served config per
-        collector.
+        Pipelines written by hand, drawn on the visual canvas, or synced from Git all pass the same
+        validation gate before they are stored. When a collector polls, Shepherd matches the stored
+        pipelines to it by label, merges them into one config and serves it &mdash; or answers
+        &ldquo;not modified&rdquo;.
       </p>
     </div>
 
     <div class="diagram-frame">
-      <svg viewBox="0 0 920 400" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Diagram: Alloy collectors poll Shepherd over remotecfg; the UI, visual builder, and Git sync feed pipelines into a merge engine and validation gate, which serves merged, validated config back to collectors.">
+      <svg viewBox="0 0 920 390" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Diagram: pipelines from the UI editor, the visual builder and a Git repository pass a three-stage validation gate and are stored in PostgreSQL. When an Alloy collector polls, the merge engine matches pipelines to it by label, merges them into one config and serves it, or answers not modified. A sandbox can run a draft before it is saved.">
         <defs>
           <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0 0L10 5L0 10z" class="dg-line" style="fill:var(--text-faint);stroke:none" />
@@ -230,79 +231,79 @@
           </marker>
         </defs>
 
-        <!-- Alloy collectors -->
-        <rect x="16" y="40" width="150" height="46" rx="8" class="dg-box"/>
-        <text x="91" y="60" text-anchor="middle" class="dg-text" font-size="13" font-weight="600">Alloy · metrics</text>
-        <text x="91" y="76" text-anchor="middle" class="dg-text-mono" font-size="11">cluster=prod-eu-1</text>
+        <!-- column headings -->
+        <text x="204" y="44" text-anchor="middle" class="dg-text-sub" font-size="10.5" letter-spacing="1.2">WRITE &amp; VALIDATE</text>
+        <text x="480" y="44" text-anchor="middle" class="dg-text-sub" font-size="10.5" letter-spacing="1.2">STORE</text>
+        <text x="736" y="44" text-anchor="middle" class="dg-text-sub" font-size="10.5" letter-spacing="1.2">MATCH &amp; SERVE</text>
 
-        <rect x="16" y="102" width="150" height="46" rx="8" class="dg-box"/>
-        <text x="91" y="122" text-anchor="middle" class="dg-text" font-size="13" font-weight="600">Alloy · logs</text>
-        <text x="91" y="138" text-anchor="middle" class="dg-text-mono" font-size="11">cluster=prod-eu-1</text>
+        <!-- three ways in -->
+        <rect x="16" y="80" width="150" height="46" rx="8" class="dg-box"/>
+        <text x="91" y="100" text-anchor="middle" class="dg-text" font-size="12.5" font-weight="600">UI editor</text>
+        <text x="91" y="115" text-anchor="middle" class="dg-text-sub" font-size="10.5">Alloy text</text>
+        <rect x="16" y="140" width="150" height="46" rx="8" class="dg-box"/>
+        <text x="91" y="160" text-anchor="middle" class="dg-text" font-size="12.5" font-weight="600">Visual builder</text>
+        <text x="91" y="175" text-anchor="middle" class="dg-text-sub" font-size="10.5">renders to Alloy</text>
+        <rect x="16" y="200" width="150" height="46" rx="8" class="dg-box"/>
+        <text x="91" y="220" text-anchor="middle" class="dg-text" font-size="12.5" font-weight="600">Git repository</text>
+        <text x="91" y="235" text-anchor="middle" class="dg-text-sub" font-size="10.5">PAT · SSH · GitHub App</text>
+        <path d="M166 103 C 186 103, 186 140, 204 140" class="dg-line" marker-end="url(#arrow)"/>
+        <path d="M166 163 H 204" class="dg-line" marker-end="url(#arrow)"/>
+        <path d="M166 223 C 186 223, 186 186, 204 186" class="dg-line" marker-end="url(#arrow)"/>
 
-        <rect x="16" y="164" width="150" height="46" rx="8" class="dg-box"/>
-        <text x="91" y="184" text-anchor="middle" class="dg-text" font-size="13" font-weight="600">Alloy · singleton</text>
-        <text x="91" y="200" text-anchor="middle" class="dg-text-mono" font-size="11">cluster=staging-eu-1</text>
+        <!-- validation gate -->
+        <rect x="206" y="80" width="186" height="166" rx="10" class="dg-box-accent"/>
+        <text x="299" y="104" text-anchor="middle" class="dg-text" font-size="13" font-weight="650">Validation gate</text>
+        <text x="222" y="136" class="dg-text" font-size="11.5">1 · Syntax</text>
+        <text x="222" y="160" class="dg-text" font-size="11.5">2 · alloy validate + wiring</text>
+        <text x="222" y="184" class="dg-text" font-size="11.5">3 · Merge dry-run per</text>
+        <text x="234" y="199" class="dg-text" font-size="11.5">affected collector</text>
+        <text x="299" y="230" text-anchor="middle" class="dg-text-sub" font-size="10.5">refused here = never stored</text>
 
-        <!-- poll arrows -->
-        <path d="M166 63 C 210 63, 210 200, 258 200" class="dg-line" marker-end="url(#arrow)"/>
-        <path d="M166 125 C 210 125, 210 205, 258 205" class="dg-line" marker-end="url(#arrow)"/>
-        <path d="M166 187 C 200 187, 200 210, 258 210" class="dg-line" marker-end="url(#arrow)"/>
-        <text x="178" y="149" class="dg-text-mono" font-size="10">GetConfig</text>
-        <text x="178" y="162" class="dg-text-mono" font-size="10">hash/not-mod</text>
+        <!-- sandbox: optional, before saving -->
+        <rect x="206" y="282" width="186" height="50" rx="8" class="dg-box" stroke-dasharray="4 3"/>
+        <text x="299" y="303" text-anchor="middle" class="dg-text" font-size="12.5" font-weight="600">Sandbox (optional)</text>
+        <text x="299" y="320" text-anchor="middle" class="dg-text-sub" font-size="10.5">run a draft on synthetic data</text>
+        <path d="M299 282 V 248" class="dg-line" stroke-dasharray="3 3"/>
 
-        <!-- return arrow -->
-        <path d="M258 222 C 205 250, 205 250, 166 222" class="dg-line-accent" marker-end="url(#arrow-accent)"/>
-        <text x="212" y="262" text-anchor="middle" class="dg-text-mono" font-size="10.5" fill="var(--accent)">merged config</text>
+        <!-- store -->
+        <path d="M392 163 H 418" class="dg-line" marker-end="url(#arrow)"/>
+        <rect x="420" y="118" width="120" height="90" rx="8" class="dg-box"/>
+        <text x="480" y="146" text-anchor="middle" class="dg-text" font-size="12.5" font-weight="600">PostgreSQL</text>
+        <text x="480" y="166" text-anchor="middle" class="dg-text-sub" font-size="10.5">pipelines,</text>
+        <text x="480" y="180" text-anchor="middle" class="dg-text-sub" font-size="10.5">revisions,</text>
+        <text x="480" y="194" text-anchor="middle" class="dg-text-sub" font-size="10.5">audit log</text>
+        <path d="M540 163 H 566" class="dg-line" marker-end="url(#arrow)"/>
 
-        <!-- inputs -->
-        <rect x="16" y="248" width="150" height="42" rx="8" class="dg-box"/>
-        <text x="91" y="266" text-anchor="middle" class="dg-text" font-size="12.5" font-weight="600">UI editor</text>
-        <text x="91" y="281" text-anchor="middle" class="dg-text-sub" font-size="10.5">source = ui</text>
+        <!-- merge engine -->
+        <rect x="568" y="80" width="170" height="166" rx="10" class="dg-box-accent"/>
+        <text x="653" y="104" text-anchor="middle" class="dg-text" font-size="13" font-weight="650">Merge engine</text>
+        <text x="584" y="136" class="dg-text" font-size="11.5">Match pipelines by label</text>
+        <text x="584" y="160" class="dg-text" font-size="11.5">Merge into one config</text>
+        <text x="584" y="184" class="dg-text" font-size="11.5">Hash and cache it</text>
+        <text x="653" y="230" text-anchor="middle" class="dg-text-sub" font-size="10.5">per collector, on each poll</text>
 
-        <rect x="16" y="298" width="150" height="42" rx="8" class="dg-box"/>
-        <text x="91" y="316" text-anchor="middle" class="dg-text" font-size="12.5" font-weight="600">Visual builder</text>
-        <text x="91" y="331" text-anchor="middle" class="dg-text-sub" font-size="10.5">180+ components</text>
+        <!-- collectors -->
+        <rect x="790" y="80" width="114" height="46" rx="8" class="dg-box"/>
+        <text x="847" y="100" text-anchor="middle" class="dg-text" font-size="12.5" font-weight="600">prod-eu-1</text>
+        <text x="847" y="115" text-anchor="middle" class="dg-text-mono" font-size="10.5">role=metrics</text>
+        <path d="M790 97 H 740" class="dg-line" marker-end="url(#arrow)"/>
+        <path d="M738 109 H 788" class="dg-line-accent" marker-end="url(#arrow-accent)"/>
+        <rect x="790" y="140" width="114" height="46" rx="8" class="dg-box"/>
+        <text x="847" y="160" text-anchor="middle" class="dg-text" font-size="12.5" font-weight="600">prod-eu-1</text>
+        <text x="847" y="175" text-anchor="middle" class="dg-text-mono" font-size="10.5">role=logs</text>
+        <path d="M790 157 H 740" class="dg-line" marker-end="url(#arrow)"/>
+        <path d="M738 169 H 788" class="dg-line-accent" marker-end="url(#arrow-accent)"/>
+        <rect x="790" y="200" width="114" height="46" rx="8" class="dg-box"/>
+        <text x="847" y="220" text-anchor="middle" class="dg-text" font-size="12.5" font-weight="600">staging-eu-1</text>
+        <text x="847" y="235" text-anchor="middle" class="dg-text-mono" font-size="10.5">role=metrics</text>
+        <path d="M790 217 H 740" class="dg-line" marker-end="url(#arrow)"/>
+        <path d="M738 229 H 788" class="dg-line-accent" marker-end="url(#arrow-accent)"/>
 
-        <rect x="16" y="348" width="150" height="42" rx="8" class="dg-box"/>
-        <text x="91" y="366" text-anchor="middle" class="dg-text" font-size="12.5" font-weight="600">Git repo</text>
-        <text x="91" y="381" text-anchor="middle" class="dg-text-sub" font-size="10.5">PAT / SSH / GitHub App</text>
-
-        <path d="M166 269 C 220 269, 220 250, 260 236" class="dg-line" marker-end="url(#arrow)"/>
-        <path d="M166 319 C 220 319, 220 250, 260 244" class="dg-line" marker-end="url(#arrow)"/>
-        <path d="M166 369 C 220 369, 220 260, 260 252" class="dg-line" marker-end="url(#arrow)"/>
-
-        <!-- Shepherd core -->
-        <rect x="260" y="150" width="290" height="130" rx="10" class="dg-box-accent"/>
-        <text x="405" y="174" text-anchor="middle" class="dg-text" font-size="13.5" font-weight="650">Shepherd</text>
-
-        <rect x="278" y="188" width="254" height="36" rx="6" class="dg-box"/>
-        <text x="405" y="210" text-anchor="middle" class="dg-text" font-size="12">Merge engine (matchers)</text>
-
-        <path d="M405 224 V 236" class="dg-line" marker-end="url(#arrow)"/>
-
-        <rect x="278" y="236" width="254" height="36" rx="6" class="dg-box"/>
-        <text x="405" y="258" text-anchor="middle" class="dg-text" font-size="11.5">Validation gate (syntax → alloy validate → dry-run)</text>
-
-        <!-- to postgres -->
-        <rect x="590" y="150" width="150" height="60" rx="8" class="dg-box"/>
-        <text x="665" y="176" text-anchor="middle" class="dg-text" font-size="12.5" font-weight="600">PostgreSQL</text>
-        <text x="665" y="193" text-anchor="middle" class="dg-text-sub" font-size="10.5">pipelines, orgs,</text>
-        <text x="665" y="206" text-anchor="middle" class="dg-text-sub" font-size="10.5">audit log</text>
-        <path d="M550 180 H 590" class="dg-line" marker-end="url(#arrow)"/>
-        <path d="M590 195 H 550" class="dg-line"/>
-
-        <!-- sandbox -->
-        <rect x="590" y="230" width="150" height="60" rx="8" class="dg-box"/>
-        <text x="665" y="256" text-anchor="middle" class="dg-text" font-size="12.5" font-weight="600">Sandbox</text>
-        <text x="665" y="273" text-anchor="middle" class="dg-text-sub" font-size="10.5">on by default</text>
-        <text x="665" y="286" text-anchor="middle" class="dg-text-sub" font-size="10.5">network-contained</text>
-        <path d="M550 260 H 590" class="dg-line" stroke-dasharray="3 3"/>
-
-        <!-- output back to top -->
-        <path d="M550 165 C 640 100, 640 100, 725 100 C 780 100, 780 63, 730 63" class="dg-line-accent" marker-end="url(#arrow-accent)" fill="none"/>
-        <text x="700" y="88" text-anchor="middle" class="dg-text-mono" font-size="10.5" fill="var(--accent)">serve_cache</text>
-
-        <rect x="16" y="40" width="0" height="0" fill="none"/>
+        <!-- legend -->
+        <path d="M576 292 H 606" class="dg-line" marker-end="url(#arrow)"/>
+        <text x="614" y="296" class="dg-text-mono" font-size="10.5">collector polls (remotecfg GetConfig)</text>
+        <path d="M576 316 H 606" class="dg-line-accent" marker-end="url(#arrow-accent)"/>
+        <text x="614" y="320" class="dg-text-mono" font-size="10.5" fill="var(--accent)">its config, or &ldquo;not modified&rdquo;</text>
       </svg>
     </div>
   </div>
