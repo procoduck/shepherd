@@ -1,4 +1,4 @@
-# Mock OIDC provider (navikt mock-oauth2-server) for the OIDC login walk (docs/plans/
+# Mock OIDC provider (navikt mock-oauth2-server) for the OIDC login walk (docs/archive/plans/
 # 2026-09-14-kind-dev-stack.md §1, D2, C7). The image tag is a deliberate pin kept HERE, not in
 # deploy/versions.env: it is a dev-only fixture, not part of the production image set, and a bump
 # should not bill e2e-k8s (see the versions.env decision, D2). It must track

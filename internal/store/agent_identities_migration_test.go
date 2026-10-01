@@ -13,7 +13,7 @@ import (
 	"shepherd/internal/store/sqlc"
 )
 
-// Migration 0021_agent_identities (docs/plans/2026-09-16-agent-oidc-auth.md,
+// Migration 0021_agent_identities (docs/archive/plans/2026-09-16-agent-oidc-auth.md,
 // resolution mode 1): binds a collector's OIDC identity (issuer + app id) to
 // an org, so org assignment stays in Shepherd. Pin the constraints the
 // enforcement path will lean on — unique (issuer, app_id), the org FK, the

@@ -10,7 +10,7 @@ import (
 	"shepherd/internal/store"
 )
 
-// Migration 0022_beacon_principal (docs/plans/2026-09-16-agent-oidc-auth.md,
+// Migration 0022_beacon_principal (docs/archive/plans/2026-09-16-agent-oidc-auth.md,
 // Phase 2): generalises the beacon inventory's identity from an agent-token
 // UUID (0010's token_id, FK to agent_tokens) to a free-form text principal, so
 // an OIDC collector — which has no agent_tokens row — can report too. Pin the

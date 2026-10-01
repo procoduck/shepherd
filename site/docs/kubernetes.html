@@ -248,6 +248,30 @@ kubectl -n shepherd port-forward svc/shepherd 8080:8080</code></pre>
         run ahead of the new pods automatically.
       </p>
 
+      <h3 id="upgrading-to-0-18">Upgrading to chart 0.18.0: a few seconds without endpoints</h3>
+      <p>
+        Chart 0.18.0 labels the server pods <code>app.kubernetes.io/component: server</code> and
+        points the <code>shepherd</code> Services, the PodDisruptionBudget and the NetworkPolicies at
+        that label, so they no longer catch the sandbox simulator. The running pods do not have the
+        label yet, so the Services have no endpoints until the first new pod is Ready &mdash;
+        typically a few seconds; collectors keep their last config meanwhile. To avoid even that,
+        label the running server pods right before the upgrade:
+      </p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>kubectl -n shepherd label pod \
+  -l 'app.kubernetes.io/instance=shepherd,app.kubernetes.io/name=shepherd,!app.kubernetes.io/component' \
+  app.kubernetes.io/component=server
+helm upgrade shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.18.0 \
+  --namespace shepherd --reuse-values</code></pre>
+      </div>
+      <p>
+        Reach a server pod through the Service (<code>kubectl exec svc/shepherd</code>), not
+        <code>deploy/shepherd</code>, whose selector cannot change and still matches the simulator.
+        Details in
+        <a href="https://github.com/procoduck/shepherd/blob/main/deploy/helm/shepherd/UPGRADING.md">UPGRADING.md</a>.
+      </p>
+
       <h3 id="upgrading-to-0-9">Upgrading to chart 0.9.0 needs one manual step</h3>
       <p>
         Up to 0.8.x the runtime <code>ConfigMap</code>, <code>Secret</code> and
@@ -365,6 +389,7 @@ kubectl -n shepherd logs job/shepherd-migrate     # if the release failed</code>
         <li><a href="#migrations">Migrations run before the new code</a></li>
         <li><a href="#exposing-shepherd">Exposing Shepherd</a></li>
         <li><a href="#upgrading">Upgrading</a></li>
+        <li class="sub"><a href="#upgrading-to-0-18">Upgrading to chart 0.18.0: a few seconds without endpoints</a></li>
         <li class="sub"><a href="#upgrading-to-0-9">Upgrading to chart 0.9.0 needs one manual step</a></li>
         <li><a href="#high-availability">High availability</a></li>
         <li><a href="#verifying">Verifying the install</a></li>

@@ -19,7 +19,7 @@ import (
 	"shepherd/internal/store/sqlc"
 )
 
-// Collector-OIDC enforcement (docs/plans/2026-09-16-agent-oidc-auth.md, D1):
+// Collector-OIDC enforcement (docs/archive/plans/2026-09-16-agent-oidc-auth.md, D1):
 // an OIDC-authenticated collector's org comes from an agent_identities binding
 // on its (issuer, app_id), which auto-claims the cluster to that org and
 // enforces the binding's cluster/role allowlists. A principal with no binding

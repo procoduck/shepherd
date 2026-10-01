@@ -69,7 +69,7 @@ type Settings struct {
 
 	// Collector (agent) OIDC. AgentAudience is the master switch (empty = off);
 	// the rest describe how a collector's access token is verified and read.
-	// See config.OIDCConfig and docs/plans/2026-09-16-agent-oidc-auth.md.
+	// See config.OIDCConfig and docs/archive/plans/2026-09-16-agent-oidc-auth.md.
 	AgentAudience      string
 	AgentRequiredRole  string
 	AgentRequiredScope string

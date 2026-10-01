@@ -88,7 +88,7 @@ type BaselineConfig struct {
 
 	// OAuth2, when non-nil, makes the rendered remote_write authenticate with
 	// an OAuth2 client-credentials `oauth2` block instead of basic_auth — the
-	// beacon half of collector OIDC (docs/plans/2026-09-16-agent-oidc-auth.md,
+	// beacon half of collector OIDC (docs/archive/plans/2026-09-16-agent-oidc-auth.md,
 	// Phase 2). The collector fetches its own access token from the IdP and
 	// presents it to Shepherd's beacon endpoint, exactly as its remotecfg poll
 	// already does. Whole-fleet: the served config is shared across a

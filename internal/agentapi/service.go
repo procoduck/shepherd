@@ -454,7 +454,7 @@ func (s *Service) emitLocalAttrsMatchDrift(ctx context.Context, orgID pgtype.UUI
 
 // effectiveAttrs returns local_attributes, falling back to deprecated attributes if empty.
 // resolveOrg decides which org a request's config is served for, applying the
-// collector-OIDC resolution chain (docs/plans/2026-09-16-agent-oidc-auth.md D1):
+// collector-OIDC resolution chain (docs/archive/plans/2026-09-16-agent-oidc-auth.md D1):
 //
 //  1. An OIDC principal with an agent_identities binding on its (issuer,
 //     app_id): the binding's org, after enforcing its optional cluster/role

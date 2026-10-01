@@ -1,4 +1,4 @@
-# The two hand-written HTTPRoutes (docs/plans/2026-09-14-kind-dev-stack.md §1, K5). The
+# The two hand-written HTTPRoutes (docs/archive/plans/2026-09-14-kind-dev-stack.md §1, K5). The
 # shepherd app's own HTTPRoute is deliberately NOT in this file: it is rendered by the chart
 # itself from dev/kind/values.yaml's `route.*` (K3), so shepherd stays entirely chart-managed.
 # Both routes below attach to the shared Gateway `dev` (gateway.yaml) and match every path, the

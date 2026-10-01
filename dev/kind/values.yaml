@@ -3,7 +3,7 @@
 # (`helm upgrade --install shepherd deploy/helm/shepherd -f dev/kind/values.yaml`).
 #
 # Names, hostnames and secret names here are fixed by
-# docs/plans/2026-09-14-kind-dev-stack.md §1 (the contract every slice reads
+# docs/archive/plans/2026-09-14-kind-dev-stack.md §1 (the contract every slice reads
 # from) — do not rename anything without updating that table and the other
 # slices that reference it (the script applies the manifests this file's
 # route.parentRefs and existingSecret point at).

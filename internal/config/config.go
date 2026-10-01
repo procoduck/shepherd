@@ -99,7 +99,7 @@ type OIDCConfig struct {
 
 	// Collector (agent) OIDC — an Alloy collector authenticates by presenting
 	// an OAuth2 access token from this same issuer instead of the shared agent
-	// token. See docs/plans/2026-09-16-agent-oidc-auth.md.
+	// token. See docs/archive/plans/2026-09-16-agent-oidc-auth.md.
 	//
 	// AgentAudience is the resource identifier a collector's access token must
 	// carry in `aud`. It is what separates a machine token from a user login

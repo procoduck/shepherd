@@ -14,7 +14,7 @@ import (
 
 // agent-identity manages the bindings that map a collector's OIDC identity
 // (issuer + app id) to an organisation — resolution mode 1 of
-// docs/plans/2026-09-16-agent-oidc-auth.md. It is the operator surface for
+// docs/archive/plans/2026-09-16-agent-oidc-auth.md. It is the operator surface for
 // collector OIDC until the admin UI lands, and mirrors `shepherd token`.
 
 var agentIdentityCmd = &cobra.Command{

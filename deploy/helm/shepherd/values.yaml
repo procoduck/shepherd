@@ -133,7 +133,7 @@ config:
     # once a user is in more than ~200 groups.
     # use_graph_groups: true
     #
-    # --- Collector (agent) OIDC (docs/plans/2026-09-16-agent-oidc-auth.md) ---
+    # --- Collector (agent) OIDC (docs/archive/plans/2026-09-16-agent-oidc-auth.md) ---
     # Let an Alloy collector authenticate with an OIDC access token from this
     # same issuer instead of the shared agent token. Off until agent_audience
     # is set.

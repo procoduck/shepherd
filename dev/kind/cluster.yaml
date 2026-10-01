@@ -4,7 +4,7 @@
 # One control-plane node, not e2e/k8s/testdata/kind-cluster.yaml's three:
 # that file needs a node boundary to prove Calico enforces NetworkPolicy
 # across one (see its own header). The dev stack does not test the CNI, it
-# just needs it real (docs/plans/2026-09-14-kind-dev-stack.md D1) so the
+# just needs it real (docs/archive/plans/2026-09-14-kind-dev-stack.md D1) so the
 # simulator's default-deny policy behaves the same as in production — a
 # single node is enough for that and starts faster.
 #

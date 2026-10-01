@@ -20,8 +20,9 @@ name: CI
 # the two targets share the same docker-build-local/docker-build-init
 # prerequisites, so it costs only the ~30-60s smoke run itself.
 
-# Actions minutes are a budgeted resource (3000/month on this plan) and GitHub
-# bills EVERY JOB separately, ROUNDED UP TO THE MINUTE. Measured over 20 recent
+# Actions minutes were a budgeted resource while the repo was private (3000/month);
+# it is public now, so standard runners cost nothing, but the rules below still
+# keep CI fast. GitHub meters EVERY JOB separately, ROUNDED UP TO THE MINUTE. Measured over 20 recent
 # runs, a full CI pass is ~26 billed minutes for ~9 minutes of wall clock:
 #
 #   test-fullstack 9.0   generated-drift 4.0   test 3.9   test-ui 3.0

@@ -689,7 +689,7 @@ generate-corpus: ## Regenerate visual-builder goldens (web tests read internal/v
 # test-fullstack): the images the cluster loads must be built from THIS working
 # tree, not whatever the daemon happens to be holding. The suite also checks
 # this itself, for anyone running `go test -tags e2ek8s` directly.
-e2e-k8s: preflight-k8s docker-build-local docker-build-simulator ## Kubernetes e2e suite on a fresh kind cluster (~3-5 min; 45m timeout budget)
+e2e-k8s: preflight-k8s docker-build-local docker-build-simulator ## Kubernetes e2e suite on a fresh kind cluster (~20-25 min in CI for 12 features; 45m timeout budget)
 	go test -tags e2ek8s -count=1 -timeout 45m -v ./e2e/k8s/...
 
 # Removes clusters a killed run (SIGKILL) left behind — the one case the
@@ -821,7 +821,7 @@ dev-sim: docker-build-simulator ## Start the dev stack with the S3 sandbox simul
 # config-scan's Trivy misconfig pass covers deploy/ only (make config-scan,
 # security-scan.yml); dev/kind/ manifests are dev-only fixtures for services
 # that are not production workloads (Gitea, mock-oauth2) and are deliberately
-# out of that scan's scope (plan docs/plans/2026-09-14-kind-dev-stack.md C9).
+# out of that scan's scope (plan docs/archive/plans/2026-09-14-kind-dev-stack.md C9).
 # All five targets go through scripts/dev-kind.sh; no target here calls
 # kubectl/helm/kind directly.
 dev-kind: preflight-k8s docker-build-local docker-build-simulator ## Kind dev stack: cluster shepherd-dev with Calico, CNPG, Gateway API + NGF, the chart, Gitea, mock OIDC and three Alloy agents (http://shepherd.localtest.me)
@@ -833,7 +833,7 @@ dev-kind-reload: docker-build-local ## Rebuild shepherd:local, load it into shep
 dev-kind-seed: ## Re-run the dev seed inside shepherd-dev (idempotent)
 	./scripts/dev-kind.sh seed
 
-dev-kind-status: ## Show shepherd-dev's workloads, routes, DNS rewrite and URLs
+dev-kind-status: ## Show shepherd-dev's workloads, routes and DNS rewrite; check /healthz, /readyz, each Alloy agent's config, OIDC and Gitea
 	./scripts/dev-kind.sh status
 
 dev-kind-down: ## Delete the shepherd-dev cluster and all its data (the dev-reset equivalent)

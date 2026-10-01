@@ -45,7 +45,7 @@ func renderConfigYaml(extraValues string) map[string]any {
 	return nil
 }
 
-// Collector-OIDC values (docs/plans/2026-09-16-agent-oidc-auth.md, Phase 3):
+// Collector-OIDC values (docs/archive/plans/2026-09-16-agent-oidc-auth.md, Phase 3):
 // the chart must let an operator set the agent-OIDC and beacon-auth keys, and
 // they must reach the server config. values.schema.json has
 // additionalProperties:false, so an unlisted key would make `helm template`

@@ -8,7 +8,7 @@ import (
 )
 
 // AgentClaims is the validated result of a collector's OAuth2 access token.
-// See docs/plans/2026-09-16-agent-oidc-auth.md. It carries only what the gate
+// See docs/archive/plans/2026-09-16-agent-oidc-auth.md. It carries only what the gate
 // and the enforcement step need; org resolution (a Shepherd binding on AppID,
 // or the admin cluster-claim) happens in internal/agentapi, not here.
 type AgentClaims struct {

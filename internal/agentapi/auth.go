@@ -22,7 +22,7 @@ const principalKey contextKey = iota
 
 // AuthKind is how a collector authenticated. A token proves liveness only; an
 // OIDC principal additionally carries claims that scope which org, cluster and
-// role it may act for (agent OIDC, docs/plans/2026-09-16-agent-oidc-auth.md).
+// role it may act for (agent OIDC, docs/archive/plans/2026-09-16-agent-oidc-auth.md).
 type AuthKind int
 
 const (
