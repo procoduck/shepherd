@@ -72,9 +72,11 @@ Consequences:
   `failed_precondition` and says which. Before, it rendered an env-var URL nothing set.
 - A destination edit reaches a pipeline when its wizard is next committed. Pipelines already
   stored keep the auth they were rendered with. Nothing re-renders them automatically (left open, see
-  the PR).
+  the PR). **Decided 2026-10-01, built in #262:** `UpdateDestination` re-renders them through the
+  full gate in the same transaction (spec §11.4).
 - Pipelines committed before this change keep their `sys.env(...)` URL and no auth until they are
-  re-created.
+  re-created. **#262:** `shepherd admin rerender-destinations` converts them once
+  (`deploy/helm/shepherd/UPGRADING.md`).
 
 ### 4. RBAC on the spoke
 

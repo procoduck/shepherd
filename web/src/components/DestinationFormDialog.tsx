@@ -75,8 +75,8 @@ function SecretModeExplanation({ mode }: { mode: string }) {
         . Wizard pipelines that ship here read it when the collector runs and add the auth block.
         The collector's service account needs <code className='font-mono'>get</code>,{' '}
         <code className='font-mono'>list</code> and <code className='font-mono'>watch</code> on
-        Secrets in that namespace. Pipelines already generated keep the auth they were generated
-        with; re-run their wizard to pick up a change here.
+        Secrets in that namespace. Saving a change here regenerates every wizard pipeline that ships
+        to this destination; if any of them would fail validation, nothing is saved.
       </p>
     </div>
   );

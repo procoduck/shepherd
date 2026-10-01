@@ -194,10 +194,31 @@ subjects:
       <h2 id="changes">When a change takes effect</h2>
       <p>The writer, auth block included, is generated when a wizard is previewed or committed. It
         is stored as part of the pipeline, so it passes the same validation as any other line and
-        shows in the editor and its revision history. Editing a destination does not rewrite
-        pipelines already committed: they keep the writer they were generated with until they are
-        generated again by re-running the wizard. A wizard that names a destination the organisation does not
-        have, or one of the wrong type, is refused with a message saying which.</p>
+        shows in the editor and its revision history. A wizard that names a destination the
+        organisation does not have, or one of the wrong type, is refused with a message saying
+        which.</p>
+      <p>Saving a change to a destination regenerates every wizard pipeline in the organisation
+        that ships to it, from the answers stored with the pipeline, in the same step. Each
+        regenerated pipeline passes the full validation gate, gets a new revision and an audit
+        entry under your name, and collectors receive it on their next poll. Renaming a
+        destination renames it in those pipelines too. If any of them would fail validation, nothing
+        is saved and the message names the pipeline and the reason. A pipeline whose wizard output
+        you edited by hand is regenerated as well; the edit stays in its revision history.</p>
+      <p>A destination a wizard pipeline still ships to cannot be deleted. The refusal lists the
+        pipelines; point them at another destination, or delete them, first.</p>
+      <h3 id="upgrade">Pipelines generated before destination auth</h3>
+      <p>Wizard pipelines committed before destination auth was rendered read their URL from
+        <code>sys.env("SHEPHERD_DEST_&lt;NAME&gt;_URL")</code>, which nothing sets, and carry no
+        auth. Convert them once with <code>shepherd admin rerender-destinations</code>, run with
+        the server's own configuration, <code>--dry-run</code> first:</p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>kubectl exec svc/shepherd -- /usr/local/bin/shepherd admin rerender-destinations \
+  --config /etc/shepherd/shepherd.yaml --dry-run</code></pre>
+      </div>
+      <p>It lists every pipeline it converts and every one it cannot (for example, one naming a
+        destination that was deleted), and is safe to run again. Saving a destination also
+        regenerates the pipelines that use it.</p>
         <nav class="page-nav" aria-label="Pagination">
           <a class="page-nav-prev" href="authoring.html"><span>Previous</span><strong>Authoring pipelines</strong></a>
           <a class="page-nav-next" href="matchers.html"><span>Next</span><strong>Matchers and validation</strong></a>
@@ -212,6 +233,7 @@ subjects:
         <li><a href="#auth">Authentication from a Kubernetes Secret</a></li>
         <li><a href="#rbac">What the collector needs to read the Secret</a></li>
         <li><a href="#changes">When a change takes effect</a></li>
+        <li class="sub"><a href="#upgrade">Pipelines generated before destination auth</a></li>
       </ul>
     </aside>
   </div>

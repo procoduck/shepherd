@@ -26,13 +26,20 @@ import (
 // DestinationService implements mgmtv1connect.DestinationServiceHandler.
 // See docs/archive/api-contract-design.md, "Server wiring".
 type DestinationService struct {
-	store  *store.Store
-	logger *slog.Logger
+	store *store.Store
+	// pipelines is the pipeline write path UpdateDestination re-renders a
+	// destination's wizard pipelines through (#262): its validation gate,
+	// Stage 3 and eager serve-cache recompute. Required, not optional — a
+	// DestinationService that could be built without it would be a second
+	// update path on which a destination change silently reaches nothing.
+	pipelines *PipelineService
+	logger    *slog.Logger
 }
 
-// NewDestinationService constructs a DestinationService.
-func NewDestinationService(st *store.Store, logger *slog.Logger) *DestinationService {
-	return &DestinationService{store: st, logger: logger}
+// NewDestinationService constructs a DestinationService. pipelines is the
+// PipelineService whose gate re-rendered wizard pipelines pass.
+func NewDestinationService(st *store.Store, pipelines *PipelineService, logger *slog.Logger) *DestinationService {
+	return &DestinationService{store: st, pipelines: pipelines, logger: logger}
 }
 
 var _ mgmtv1connect.DestinationServiceHandler = (*DestinationService)(nil)
@@ -270,10 +277,9 @@ func (s *DestinationService) CreateDestination(ctx context.Context, req *connect
 	return connect.NewResponse(item), nil
 }
 
-// UpdateDestination updates a destination. Matches
-// the pre-Connect REST handler's behavior: any store error
-// (including a unique-name violation) maps to a generic internal error — the
-// legacy handler never special-cased conflicts here the way Create does.
+// UpdateDestination updates a destination and, in the same transaction,
+// re-renders every wizard pipeline in the org that names it (#262; see
+// rerenderForUpdate). A rename onto a name already in use is already_exists.
 func (s *DestinationService) UpdateDestination(ctx context.Context, req *connect.Request[mgmtv1.UpdateDestinationRequest]) (*connect.Response[mgmtv1.Destination], error) {
 	if err := requireWriteAuthorized(ctx); err != nil {
 		return nil, err
@@ -293,7 +299,19 @@ func (s *DestinationService) UpdateDestination(ctx context.Context, req *connect
 	if err := validateDestinationAuth(req.Msg.GetAuthMode(), req.Msg.GetSecretNamespace(), req.Msg.GetSecretName(), extraJSON); err != nil {
 		return nil, err
 	}
-	d, err := s.store.Queries.UpdateDestination(ctx, sqlc.UpdateDestinationParams{
+
+	// The destination row and every wizard pipeline rendered from it change
+	// in ONE transaction (#262): a re-render the gate refuses rolls the
+	// destination update back with it, so no pipeline is ever left rendered
+	// from a destination that no longer looks like that.
+	tx, err := s.store.Pool().Begin(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to update destination"))
+	}
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed; rollback error on the success path is expected and harmless
+	txQ := s.store.Queries.WithTx(tx)
+
+	d, err := txQ.UpdateDestination(ctx, sqlc.UpdateDestinationParams{
 		ID:              id,
 		Name:            req.Msg.GetName(),
 		Type:            req.Msg.GetType(),
@@ -305,20 +323,92 @@ func (s *DestinationService) UpdateDestination(ctx context.Context, req *connect
 		Extra:           extraJSON,
 	})
 	if err != nil {
+		if isUniqueViolation(err) {
+			// A rename onto a name the org already uses. Reported now that a
+			// rename is a supported, pipeline-rewriting operation (#262).
+			return nil, connect.NewError(connect.CodeAlreadyExists, errors.New("destination name already exists"))
+		}
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to update destination"))
 	}
+
+	rerendered, dirtied, err := s.rerenderForUpdate(ctx, txQ, owned, d)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		s.logger.Error("update destination: commit", "err", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to update destination"))
+	}
+	if dirtied {
+		go s.pipelines.recomputeOrgCaches(context.Background(), owned.OrgID) //nolint:contextcheck,gosec // G118+contextcheck: intentional detached context, as UpdatePipeline
+	}
+
 	item, err := toDestinationProto(d)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to decode destination"))
 	}
-	auditLog(ctx, s.store, actorFromCtx(ctx), owned.OrgID, "destination.update", "destination", id.String())
+	var detail any
+	if len(rerendered) > 0 {
+		detail = map[string]any{"rerendered_pipelines": rerendered}
+	}
+	auditLogDetail(ctx, s.store, actorFromCtx(ctx), "user", owned.OrgID, "destination.update", "destination", id.String(), detail)
 	return connect.NewResponse(item), nil
 }
 
-// DeleteDestination deletes a destination, refusing with already_exists
-// (naming the referencing pipelines) when a wizard-managed pipeline's
-// wizard_state still references it — a JSONB containment check
-// (ListPipelineNamesReferencingDestination).
+// rerenderForUpdate re-renders, inside txQ, every wizard pipeline in the org
+// that names the destination before (the stored name, `owned`) — through
+// planWizardRerenders' Stage 1-3 gate — against the org's destinations as
+// they stand after the update (`updated`, already written to txQ). A rename
+// rewrites the name in each pipeline's wizard state too, so the pipeline
+// keeps resolving to this destination rather than to nothing. It returns
+// the names of the pipelines it rewrote and whether it marked the serve
+// cache dirty; any refusal is failed_precondition naming every pipeline and
+// why, and the caller's rollback undoes the destination update with it.
+func (s *DestinationService) rerenderForUpdate(ctx context.Context, txQ *sqlc.Queries, owned, updated sqlc.Destination) (names []string, dirtied bool, err error) {
+	pipelines, err := txQ.ListWizardPipelinesReferencingDestination(ctx, sqlc.ListWizardPipelinesReferencingDestinationParams{
+		OrgID: owned.OrgID, DestinationName: owned.Name,
+	})
+	if err != nil {
+		s.logger.Error("update destination: list wizard pipelines", "err", err)
+		return nil, false, connect.NewError(connect.CodeInternal, errors.New("failed to load the pipelines using this destination"))
+	}
+	if len(pipelines) == 0 {
+		return nil, false, nil
+	}
+	dests, err := wizardDestinations(ctx, txQ, owned.OrgID)
+	if err != nil {
+		return nil, false, connect.NewError(connect.CodeFailedPrecondition, err)
+	}
+	var rename *destinationRename
+	if updated.Name != owned.Name {
+		rename = &destinationRename{from: owned.Name, to: updated.Name}
+	}
+	changes, failures := s.pipelines.planWizardRerenders(ctx, owned.OrgID, pipelines, dests, rename)
+	if len(failures) > 0 {
+		return nil, false, connect.NewError(connect.CodeFailedPrecondition,
+			fmt.Errorf("destination %q was not updated: %w", owned.Name, failures))
+	}
+	detail := rerenderAudit{Reason: "destination.update", DestinationID: owned.ID.String(), DestinationName: updated.Name}
+	if rename != nil {
+		detail.RenamedFrom = rename.from
+	}
+	note := fmt.Sprintf("re-rendered: destination %q updated", updated.Name)
+	dirtied, err = applyWizardRerenders(ctx, txQ, owned.OrgID, changes, actorFromCtx(ctx), "user", note, detail)
+	if err != nil {
+		s.logger.Error("update destination: write re-rendered pipelines", "err", err)
+		return nil, false, connect.NewError(connect.CodeInternal, errors.New("failed to update destination"))
+	}
+	for i := range changes {
+		names = append(names, changes[i].row.Name)
+	}
+	return names, dirtied, nil
+}
+
+// DeleteDestination deletes a destination, refusing with failed_precondition
+// (naming the pipelines) while a wizard pipeline in the org still names it
+// in its wizard state (ListWizardPipelinesReferencingDestination) — deleting
+// it would leave that pipeline unable to re-render (#262: this used to match
+// a `destination_id` key no wizard ever stored, so it never refused).
 func (s *DestinationService) DeleteDestination(ctx context.Context, req *connect.Request[mgmtv1.DeleteDestinationRequest]) (*connect.Response[mgmtv1.DeleteDestinationResponse], error) {
 	if err := requireWriteAuthorized(ctx); err != nil {
 		return nil, err
@@ -329,13 +419,20 @@ func (s *DestinationService) DeleteDestination(ctx context.Context, req *connect
 	}
 	id := owned.ID
 
-	refNames, err := s.store.Queries.ListPipelineNamesReferencingDestination(ctx, id.String())
+	refs, err := s.store.Queries.ListWizardPipelinesReferencingDestination(ctx, sqlc.ListWizardPipelinesReferencingDestinationParams{
+		OrgID: owned.OrgID, DestinationName: owned.Name,
+	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to check destination references"))
 	}
-	if len(refNames) > 0 {
-		msg := fmt.Sprintf("referenced by %d wizard pipeline(s): %s", len(refNames), strings.Join(refNames, ", "))
-		return nil, connect.NewError(connect.CodeAlreadyExists, errors.New(msg))
+	if len(refs) > 0 {
+		names := make([]string, len(refs))
+		for i := range refs {
+			names[i] = refs[i].Name
+		}
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
+			"destination %q is used by %d wizard pipeline(s): %s — point them at another destination or delete them first",
+			owned.Name, len(names), strings.Join(names, ", ")))
 	}
 
 	if err := s.store.Queries.DeleteDestination(ctx, id); err != nil {

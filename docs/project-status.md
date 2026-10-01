@@ -183,7 +183,10 @@ F-REVISIONS closed — see `CHANGELOG.md` v0.6.0 "Pipelines — Shipped"; its pl
 F-DEST-AUTH closed (#229): wizard writers render a `basic_secret` / `oauth2_secret` destination's
 auth from its Kubernetes Secret (`remote.kubernetes.secret`, key contract in `docs/spec.md` §11.4),
 proven end to end by `e2e/k8s/destination_auth_test.go`. See `CHANGELOG.md` Unreleased; plan in
-`docs/plans/2026-10-01-destination-auth.md`.
+`docs/plans/2026-10-01-destination-auth.md`. Its follow-up #262 is built: a destination update
+re-renders the wizard pipelines that name it (same transaction, full gate), `DeleteDestination`'s
+in-use guard matches the stored name, and `shepherd admin rerender-destinations` converts pre-#229
+pipelines once (operator step, `UPGRADING.md` 0.18.x → 0.19.0).
 
 ---
 

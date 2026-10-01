@@ -1096,8 +1096,16 @@ func (s *PipelineService) createRevision(ctx context.Context, p sqlc.Pipeline, n
 // "created" row an editor-created one does, through the identical store
 // path (S4: wizard commits skipped this entirely before).
 func createPipelineRevision(ctx context.Context, st *store.Store, p sqlc.Pipeline, note, actor string) error {
-	maxRev, _ := st.Queries.GetMaxPipelineRevision(ctx, p.ID) //nolint:errcheck // returns 0 on err, which is the safe default
-	_, err := st.Queries.CreatePipelineRevision(ctx, sqlc.CreatePipelineRevisionParams{
+	_, err := createPipelineRevisionQ(ctx, st.Queries, p, note, actor)
+	return err
+}
+
+// createPipelineRevisionQ is createPipelineRevision against any
+// *sqlc.Queries — a transaction's, for applyWizardRerenders — returning the
+// revision number it wrote.
+func createPipelineRevisionQ(ctx context.Context, q *sqlc.Queries, p sqlc.Pipeline, note, actor string) (int32, error) {
+	maxRev, _ := q.GetMaxPipelineRevision(ctx, p.ID) //nolint:errcheck // returns 0 on err, which is the safe default
+	rv, err := q.CreatePipelineRevision(ctx, sqlc.CreatePipelineRevisionParams{
 		PipelineID: p.ID,
 		Revision:   maxRev + 1,
 		Contents:   p.Contents,
@@ -1110,22 +1118,32 @@ func createPipelineRevision(ctx context.Context, st *store.Store, p sqlc.Pipelin
 		// that revision was made.
 		WizardState: p.WizardState,
 	})
-	return err
+	return rv.Revision, err
 }
 
 // stage3Check runs Stage 3 validation: assembles merged configs for all affected collectors,
 // deduplicates by content hash, then runs Stages 1 and 2 on each unique content
 // with concurrency=4 and a configurable timeout (validate.stage3_timeout).
-func (s *PipelineService) stage3Check(ctx context.Context, p sqlc.Pipeline, orgID pgtype.UUID, includeCandidate bool) (stage3Err error) {
+// includeCandidate=true adds/replaces p in the merge set (enable, edit);
+// false removes it (disable).
+func (s *PipelineService) stage3Check(ctx context.Context, p sqlc.Pipeline, orgID pgtype.UUID, includeCandidate bool) error {
+	if includeCandidate {
+		return s.stage3CheckSet(ctx, orgID, []sqlc.Pipeline{p}, "")
+	}
+	return s.stage3CheckSet(ctx, orgID, nil, p.ID.String())
+}
+
+// stage3CheckSet is stage3Check over a SET of candidates: every enabled
+// pipeline in the org, with each of candidates added or replacing its stored
+// row and excludeID (if non-empty) removed. A destination update re-renders
+// several pipelines at once (rerenderWizardPipelines), and the merged config
+// a collector would receive has all of them changed together — validating
+// them one at a time would check combinations no collector is ever served.
+func (s *PipelineService) stage3CheckSet(ctx context.Context, orgID pgtype.UUID, candidates []sqlc.Pipeline, excludeID string) (stage3Err error) {
 	// Stage 3 is the only gate that validates the MERGED config every affected
 	// collector would actually receive, so "did it pass" is the number an
 	// operator wants when a rollout starts failing.
 	defer func() { metrics.ObserveValidation("3", stage3Err == nil) }()
-
-	var matchers []string
-	if err := json.Unmarshal(p.Matchers, &matchers); err != nil {
-		s.logger.Debug("stage3: unmarshal matchers", "err", err)
-	}
 
 	timeout := s.validator.Stage3Timeout()
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -1145,6 +1163,10 @@ func (s *PipelineService) stage3Check(ctx context.Context, p sqlc.Pipeline, orgI
 	var mergePipelines []merge.Pipeline
 	for i := range enabledPipelines {
 		ep := enabledPipelines[i]
+		if excludeID != "" && ep.ID.String() == excludeID {
+			// On disable: remove candidate from merge set (validate remaining pipelines).
+			continue
+		}
 		var m []string
 		if jsonErr := json.Unmarshal(ep.Matchers, &m); jsonErr != nil {
 			continue
@@ -1158,31 +1180,25 @@ func (s *PipelineService) stage3Check(ctx context.Context, p sqlc.Pipeline, orgI
 			RepoLinkCollectorID: repoLinkCollectorID(ep.RepoLinkCollectorID),
 		})
 	}
-	pID := p.ID.String()
-	if includeCandidate {
-		// On enable: add/replace candidate in the merge set.
+	for i := range candidates {
+		p := candidates[i]
+		var matchers []string
+		if err := json.Unmarshal(p.Matchers, &matchers); err != nil {
+			s.logger.Debug("stage3: unmarshal matchers", "err", err)
+		}
+		cand := merge.Pipeline{ID: p.ID.String(), Name: p.Name, Contents: p.Contents, Matchers: matchers, Source: p.Source}
+		// Add/replace the candidate in the merge set.
 		found := false
-		for i, mp := range mergePipelines {
-			if mp.ID == pID {
-				mergePipelines[i] = merge.Pipeline{ID: pID, Name: p.Name, Contents: p.Contents, Matchers: matchers, Source: p.Source}
+		for j, mp := range mergePipelines {
+			if mp.ID == cand.ID {
+				mergePipelines[j] = cand
 				found = true
 				break
 			}
 		}
 		if !found {
-			mergePipelines = append(mergePipelines, merge.Pipeline{
-				ID: pID, Name: p.Name, Contents: p.Contents, Matchers: matchers, Source: p.Source,
-			})
+			mergePipelines = append(mergePipelines, cand)
 		}
-	} else {
-		// On disable: remove candidate from merge set (validate remaining pipelines).
-		filtered := mergePipelines[:0]
-		for _, mp := range mergePipelines {
-			if mp.ID != pID {
-				filtered = append(filtered, mp)
-			}
-		}
-		mergePipelines = filtered
 	}
 
 	collectors, err := s.store.Queries.ListCollectorsByOrg(ctx, orgID)

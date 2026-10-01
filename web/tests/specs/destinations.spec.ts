@@ -296,3 +296,78 @@ test('oauth2 lists its Secret keys and sends scopes as extra.oauth2_scopes', asy
     extra: { oauth2_scopes: ['api://loki/.default', 'logs.write'] },
   });
 });
+
+// #262: UpdateDestination re-renders the wizard pipelines that ship to the
+// destination and refuses the whole change when one would fail validation.
+// The refusal names the pipeline; the dialog stays open so nothing typed is
+// lost.
+test('an update a wizard pipeline cannot take is refused with the pipeline named', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(orgAdmin);
+  const s = basicScenario();
+  api.seed({
+    orgs: [s.org],
+    destinations: [destination({ id: 'dst-r', name: 'prom-prod', auth_mode: 'none' })],
+  });
+  const refusal =
+    'destination "prom-prod" was not updated: 1 wizard pipeline(s) would fail validation after ' +
+    're-rendering — "self-mon": metrics_dest_name: destination "prom-prod" is type loki; ' +
+    'prometheus.remote_write needs a prometheus destination';
+  api.override('POST', '/shepherd.mgmt.v1.DestinationService/UpdateDestination', (route) =>
+    route.fulfill({
+      status: 400,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 'failed_precondition', message: refusal }),
+    }),
+  );
+  await page.goto('/destinations');
+
+  await page.getByRole('button', { name: 'Edit prom-prod' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Edit prom-prod' });
+  await dialog.locator('select').first().selectOption({ label: 'Loki' });
+  await dialog.getByRole('button', { name: 'Save' }).click();
+
+  await expect(page.locator('[data-sonner-toast]').filter({ hasText: '"self-mon"' })).toContainText(
+    'was not updated',
+  );
+  await expect(dialog).toBeVisible();
+});
+
+// #262: deleting a destination a wizard pipeline still names is refused
+// with failed_precondition listing the pipelines. The toast used to prefix
+// "Cannot delete" only for already_exists (a tenant binding), so this
+// refusal read as a bare error.
+test('deleting a destination a wizard pipeline uses says it cannot be deleted and why', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(orgAdmin);
+  const s = basicScenario();
+  api.seed({
+    orgs: [s.org],
+    destinations: [destination({ id: 'dst-d', name: 'prom-prod', auth_mode: 'none' })],
+  });
+  api.override('POST', '/shepherd.mgmt.v1.DestinationService/DeleteDestination', (route) =>
+    route.fulfill({
+      status: 400,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        code: 'failed_precondition',
+        message:
+          'destination "prom-prod" is used by 2 wizard pipeline(s): self-mon, app-obs — point ' +
+          'them at another destination or delete them first',
+      }),
+    }),
+  );
+  await page.goto('/destinations');
+
+  await page.getByRole('button', { name: 'Delete destination' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click();
+
+  await expect(
+    page.locator('[data-sonner-toast]').filter({ hasText: 'self-mon, app-obs' }),
+  ).toContainText('Cannot delete:');
+  await expect(page.getByRole('cell', { name: 'prom-prod', exact: true })).toBeVisible();
+});

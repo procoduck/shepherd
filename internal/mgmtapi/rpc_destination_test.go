@@ -149,24 +149,31 @@ var _ = Describe("shepherd.mgmt.v1.DestinationService RPC", Label("integration")
 		Expect(payload["code"]).To(Equal("permission_denied"))
 	})
 
-	It("maps a destination still referenced by a wizard pipeline to the Connect already_exists code (409)", func() {
+	// Wizards store the destination by name under a `*_dest_name` key
+	// (#262); this used to seed a `destination_id` key no wizard writes,
+	// which is how the guard passed its test and refused nothing in the
+	// product. destination_rerender_test.go covers it through CommitWizard.
+	It("maps a destination still named by a wizard pipeline to failed_precondition, naming the pipeline", func() {
 		destination, err := st.Queries.CreateDestination(ctx, sqlc.CreateDestinationParams{
 			OrgID: orgID, Name: "referenced-destination", Type: "prometheus", Url: "http://prometheus",
 			SecretName: "secret", SecretNamespace: "default", AuthMode: "none", Extra: json.RawMessage("{}"),
 		})
 		Expect(err).NotTo(HaveOccurred())
-		_, err = st.Pool().Exec(ctx, `INSERT INTO pipelines (org_id, name, contents, source, wizard_state) VALUES ($1, $2, '', 'wizard', $3)`,
-			orgID, "destination-pipeline", json.RawMessage(fmt.Sprintf(`{"destination_id":%q}`, destination.ID.String())))
+		_, err = st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: orgID, Name: "destination-pipeline", Matchers: json.RawMessage(`[]`), Source: "wizard",
+			WizardKind:  pgtype.Text{String: "self-monitoring", Valid: true},
+			WizardState: json.RawMessage(`{"metrics_dest_name":"referenced-destination"}`),
+		})
 		Expect(err).NotTo(HaveOccurred())
 
 		admin := createSession(false, []string{"destination-admin-group"})
 		resp := postConnect("/shepherd.mgmt.v1.DestinationService/DeleteDestination", map[string]any{
 			"orgId": orgID.String(), "id": destination.ID.String(),
 		}, admin)
-		Expect(resp.StatusCode).To(Equal(http.StatusConflict))
+		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
 
 		payload := decodeBody(resp)
-		Expect(payload["code"]).To(Equal("already_exists"))
+		Expect(payload["code"]).To(Equal("failed_precondition"))
 		Expect(payload["message"]).To(ContainSubstring("destination-pipeline"))
 	})
 

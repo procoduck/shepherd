@@ -199,9 +199,11 @@ export function DestinationsPage() {
     },
     onError: (e) => {
       const err = toApiError(e);
+      // failed_precondition: a wizard pipeline still names it (#262, the
+      // message lists them); already_exists: a tenant binding points at it.
       toast.error(
-        err.code === 'already_exists'
-          ? `Cannot delete: ${err.message || 'referenced by a pipeline'}`
+        err.code === 'failed_precondition' || err.code === 'already_exists'
+          ? `Cannot delete: ${err.message || 'it is still in use'}`
           : err.message || 'Failed to delete destination',
       );
     },
@@ -224,7 +226,7 @@ export function DestinationsPage() {
       {pendingDelete && (
         <AdminConfirmDialog
           title='Delete destination'
-          body={`Delete "${pendingDelete.name}"? Pipelines that ship to it will stop resolving this destination.`}
+          body={`Delete "${pendingDelete.name}"? A destination a wizard pipeline still ships to cannot be deleted; point those pipelines elsewhere first.`}
           confirmLabel='Delete'
           pendingLabel='Deleting…'
           pending={deleteMut.isPending}

@@ -642,7 +642,15 @@ valid Kubernetes namespace and name.
 
 **When it is rendered.** At wizard render/commit time (`RenderWizard`/`CommitWizard` load the org's
 destinations), so the auth block is part of the stored pipeline and passes Stages 1–3 like any other
-line. A later destination edit reaches a pipeline when its wizard is next committed.
+line. `UpdateDestination` re-renders every wizard pipeline in the org whose `wizard_state` names
+the destination under a `*_dest_name` key, from that stored state, in the same transaction as the
+destination update (#262): Stages 1–2 per pipeline, Stage 3 over the merged config with all of them
+swapped in, then a revision, a `pipeline.rerender` audit row (the editing user) and the org's serve
+cache marked dirty. Any refusal fails the update (`failed_precondition`, naming each pipeline) and
+nothing changes. A rename rewrites the name in those pipelines' `wizard_state` as well.
+`DeleteDestination` refuses (`failed_precondition`, listing them) while any wizard pipeline in the
+org names the destination. Pipelines rendered before #229 (the `sys.env` writer) are converted
+once by `shepherd admin rerender-destinations`.
 
 **RBAC.** The collector's ServiceAccount needs `get`, `list` and `watch` on `secrets` in the
 Secret's namespace. The `grafana/alloy` chart's default ClusterRole grants this cluster-wide. A

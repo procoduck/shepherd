@@ -259,30 +259,41 @@ func (q *Queries) ListEnabledPipelinesForMerge(ctx context.Context, orgID pgtype
 	return items, nil
 }
 
-const listPipelineNamesReferencingDestination = `-- name: ListPipelineNamesReferencingDestination :many
-SELECT name FROM pipelines
-WHERE wizard_state IS NOT NULL
-AND wizard_state @> jsonb_build_object('destination_id', $1::text)
-ORDER BY name
+const listPipelinesByOrg = `-- name: ListPipelinesByOrg :many
+SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id FROM pipelines WHERE org_id = $1 ORDER BY name
 `
 
-// Backs DeleteDestination's in-use check: a wizard-managed pipeline records
-// the destination it targets as {"destination_id": "<uuid>"} inside its
-// wizard_state JSONB, and deleting the destination out from under it would
-// leave the pipeline pointing at nothing.
-func (q *Queries) ListPipelineNamesReferencingDestination(ctx context.Context, destinationID string) ([]string, error) {
-	rows, err := q.db.Query(ctx, listPipelineNamesReferencingDestination, destinationID)
+func (q *Queries) ListPipelinesByOrg(ctx context.Context, orgID pgtype.UUID) ([]Pipeline, error) {
+	rows, err := q.db.Query(ctx, listPipelinesByOrg, orgID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []string
+	var items []Pipeline
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+		var i Pipeline
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.Name,
+			&i.Contents,
+			&i.Matchers,
+			&i.Enabled,
+			&i.Source,
+			&i.WizardKind,
+			&i.WizardState,
+			&i.RepoLinkID,
+			&i.GitPath,
+			&i.CreatedBy,
+			&i.UpdatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.SanitizedName,
+			&i.OwnerTeamID,
+		); err != nil {
 			return nil, err
 		}
-		items = append(items, name)
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -290,12 +301,83 @@ func (q *Queries) ListPipelineNamesReferencingDestination(ctx context.Context, d
 	return items, nil
 }
 
-const listPipelinesByOrg = `-- name: ListPipelinesByOrg :many
-SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id FROM pipelines WHERE org_id = $1 ORDER BY name
+const listWizardPipelinesByOrgForUpdate = `-- name: ListWizardPipelinesByOrgForUpdate :many
+SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id FROM pipelines
+WHERE org_id = $1 AND wizard_kind IS NOT NULL
+ORDER BY name
+FOR UPDATE
 `
 
-func (q *Queries) ListPipelinesByOrg(ctx context.Context, orgID pgtype.UUID) ([]Pipeline, error) {
-	rows, err := q.db.Query(ctx, listPipelinesByOrg, orgID)
+// Every wizard pipeline in one org, row-locked for a re-render in the same
+// transaction (`shepherd admin rerender-destinations`, #262).
+func (q *Queries) ListWizardPipelinesByOrgForUpdate(ctx context.Context, orgID pgtype.UUID) ([]Pipeline, error) {
+	rows, err := q.db.Query(ctx, listWizardPipelinesByOrgForUpdate, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Pipeline
+	for rows.Next() {
+		var i Pipeline
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.Name,
+			&i.Contents,
+			&i.Matchers,
+			&i.Enabled,
+			&i.Source,
+			&i.WizardKind,
+			&i.WizardState,
+			&i.RepoLinkID,
+			&i.GitPath,
+			&i.CreatedBy,
+			&i.UpdatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.SanitizedName,
+			&i.OwnerTeamID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listWizardPipelinesReferencingDestination = `-- name: ListWizardPipelinesReferencingDestination :many
+SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id FROM pipelines
+WHERE org_id = $1
+AND wizard_kind IS NOT NULL
+AND CASE WHEN jsonb_typeof(wizard_state) = 'object' THEN EXISTS (
+    SELECT 1 FROM jsonb_each(wizard_state) AS kv
+    WHERE kv.key LIKE '%\_dest\_name'
+    AND kv.value = to_jsonb($2::text)
+) ELSE false END
+ORDER BY name
+FOR UPDATE
+`
+
+type ListWizardPipelinesReferencingDestinationParams struct {
+	OrgID           pgtype.UUID `json:"org_id"`
+	DestinationName string      `json:"destination_name"`
+}
+
+// The wizard pipelines in one org that name a destination (#262). A wizard
+// stores the destination by NAME, under a `<signal>_dest_name` key of its
+// wizard_state object (metrics_dest_name, logs_dest_name — every wizard in
+// internal/wizard), never by id: matching any `*_dest_name` key rather than a
+// fixed list keeps a future wizard's field in scope without a query change.
+// Backs DeleteDestination's in-use check and UpdateDestination's re-render.
+// FOR UPDATE: UpdateDestination re-renders these rows in the same
+// transaction that updates the destination, so a concurrent pipeline edit
+// waits instead of being overwritten by a render of the state it replaced.
+// The CASE keeps jsonb_each from ever seeing a non-object wizard_state.
+func (q *Queries) ListWizardPipelinesReferencingDestination(ctx context.Context, arg ListWizardPipelinesReferencingDestinationParams) ([]Pipeline, error) {
+	rows, err := q.db.Query(ctx, listWizardPipelinesReferencingDestination, arg.OrgID, arg.DestinationName)
 	if err != nil {
 		return nil, err
 	}

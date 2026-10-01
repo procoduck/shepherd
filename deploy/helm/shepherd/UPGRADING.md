@@ -1,5 +1,49 @@
 # Upgrading the Shepherd chart
 
+## 0.18.x → 0.19.0
+
+An ordinary `helm upgrade`, then **one command to convert wizard pipelines
+generated before destination auth (#229)**.
+
+### What changed
+
+Wizards now write a destination's URL and auth (`basic_secret` /
+`oauth2_secret`, read from the Kubernetes Secret on each spoke cluster) into
+the pipeline they generate. Pipelines generated earlier still carry the old
+writer, `url = sys.env("SHEPHERD_DEST_<NAME>_URL")` with no auth: nothing sets
+that variable, so unless you set it on your collectors yourself, those writers
+have never shipped anything. From this release, saving a destination also
+regenerates every wizard pipeline that uses it.
+
+### What to do
+
+After the upgrade, from a server pod (it needs the server's configuration —
+database URL and Alloy binary), list what would change:
+
+```sh
+kubectl exec svc/<release> -- /usr/local/bin/shepherd admin rerender-destinations \
+  --config /etc/shepherd/shepherd.yaml --dry-run
+```
+
+Then run it without `--dry-run`. For each organisation it regenerates every
+wizard pipeline still carrying the `sys.env(...)` writer from its stored
+wizard answers and the organisation's current destinations, validates the
+result like any pipeline edit (Stages 1–3), and stores it with a new revision
+and a `pipeline.rerender` audit row (actor `system:rerender-destinations`).
+Pipelines it cannot regenerate — most often one naming a destination that has
+since been deleted — are listed and left unchanged; fix them (create the
+destination, or re-run the wizard) and run the command again. It is safe to
+repeat.
+
+**Expect a reload:** every collector served one of the converted pipelines
+receives a new config on its next poll and reloads once. If you had set
+`SHEPHERD_DEST_<NAME>_URL` on your collectors as a workaround, check that each
+destination's URL in Shepherd is the full push URL (`…/api/v1/push`,
+`…/loki/api/v1/push`) before running it.
+
+Nothing runs this at startup: it changes what the fleet is served, so it is
+your step to take.
+
 ## 0.17.x → 0.18.0
 
 An ordinary `helm upgrade` with no values to change, but **the Shepherd Service

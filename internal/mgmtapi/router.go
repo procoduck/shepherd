@@ -119,6 +119,8 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 		connect.WithInterceptors(telemetry.Interceptor(), newAuthzInterceptor(st)),
 	}
 
+	pipelineSvc := NewPipelineService(st, v, schemaReg, logger, WithBeaconRemoteWrite(cfg.Server.BaseURL, beacon.OAuth2ForBeacon(cfg.OIDC.BeaconAuth, cfg.OIDC.AgentTokenURL, cfg.OIDC.AgentScopes)))
+
 	mounts := []func() (string, http.Handler){
 		func() (string, http.Handler) {
 			return mgmtv1connect.NewMeServiceHandler(NewMeService(st, logger), authz...)
@@ -137,10 +139,13 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 			return mgmtv1connect.NewFleetServiceHandler(NewFleetService(st, logger, WithFleetSchema(schemaReg), WithFleetBaseURL(cfg.Server.BaseURL), WithFleetInactiveAfter(cfg.Agent.InactiveAfter)), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewPipelineServiceHandler(NewPipelineService(st, v, schemaReg, logger, WithBeaconRemoteWrite(cfg.Server.BaseURL, beacon.OAuth2ForBeacon(cfg.OIDC.BeaconAuth, cfg.OIDC.AgentTokenURL, cfg.OIDC.AgentScopes))), authz...)
+			return mgmtv1connect.NewPipelineServiceHandler(pipelineSvc, authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewDestinationServiceHandler(NewDestinationService(st, logger), authz...)
+			// The same PipelineService instance: a destination update
+			// re-renders its wizard pipelines through that service's gate
+			// and eager recompute (#262).
+			return mgmtv1connect.NewDestinationServiceHandler(NewDestinationService(st, pipelineSvc, logger), authz...)
 		},
 		func() (string, http.Handler) {
 			return mgmtv1connect.NewGitOpsServiceHandler(NewGitOpsService(st, enc, logger), authz...)

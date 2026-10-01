@@ -208,10 +208,17 @@ var _ = Describe("Pipelines API", Label("integration"), func() {
 				SecretName: "secret", SecretNamespace: "default", AuthMode: "none", Extra: json.RawMessage("{}"),
 			})
 			Expect(err).NotTo(HaveOccurred())
-			var pipelineID pgtype.UUID
-			err = st.Pool().QueryRow(ctx, `INSERT INTO pipelines (org_id, name, contents, source, wizard_state) VALUES ($1, $2, '', 'wizard', $3) RETURNING id`,
-				orgUUID(orgID), "deletable-destination-pipeline", json.RawMessage(fmt.Sprintf(`{"destination_id":%q}`, destination.ID.String()))).Scan(&pipelineID)
+			p, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+				OrgID: orgUUID(orgID), Name: "deletable-destination-pipeline", Matchers: json.RawMessage(`[]`), Source: "wizard",
+				WizardKind:  pgtype.Text{String: "self-monitoring", Valid: true},
+				WizardState: json.RawMessage(`{"metrics_dest_name":"deletable-destination"}`),
+			})
 			Expect(err).NotTo(HaveOccurred())
+			pipelineID := p.ID
+
+			refused := rpc("DestinationService/DeleteDestination", map[string]any{"orgId": orgID, "id": destination.ID.String()})
+			refused.Body.Close() //nolint:errcheck // test cleanup
+			Expect(refused.StatusCode).To(Equal(http.StatusBadRequest), "refused while the pipeline names it")
 
 			pipelineResp := rpc("PipelineService/DeletePipeline", map[string]any{"orgId": orgID, "id": pipelineID.String()})
 			pipelineResp.Body.Close() //nolint:errcheck // test cleanup

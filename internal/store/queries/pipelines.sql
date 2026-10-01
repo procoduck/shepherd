@@ -57,15 +57,35 @@ RETURNING *;
 -- name: DeletePipeline :exec
 DELETE FROM pipelines WHERE id = $1;
 
--- name: ListPipelineNamesReferencingDestination :many
--- Backs DeleteDestination's in-use check: a wizard-managed pipeline records
--- the destination it targets as {"destination_id": "<uuid>"} inside its
--- wizard_state JSONB, and deleting the destination out from under it would
--- leave the pipeline pointing at nothing.
-SELECT name FROM pipelines
-WHERE wizard_state IS NOT NULL
-AND wizard_state @> jsonb_build_object('destination_id', sqlc.arg(destination_id)::text)
-ORDER BY name;
+-- name: ListWizardPipelinesReferencingDestination :many
+-- The wizard pipelines in one org that name a destination (#262). A wizard
+-- stores the destination by NAME, under a `<signal>_dest_name` key of its
+-- wizard_state object (metrics_dest_name, logs_dest_name — every wizard in
+-- internal/wizard), never by id: matching any `*_dest_name` key rather than a
+-- fixed list keeps a future wizard's field in scope without a query change.
+-- Backs DeleteDestination's in-use check and UpdateDestination's re-render.
+-- FOR UPDATE: UpdateDestination re-renders these rows in the same
+-- transaction that updates the destination, so a concurrent pipeline edit
+-- waits instead of being overwritten by a render of the state it replaced.
+-- The CASE keeps jsonb_each from ever seeing a non-object wizard_state.
+SELECT * FROM pipelines
+WHERE org_id = sqlc.arg(org_id)
+AND wizard_kind IS NOT NULL
+AND CASE WHEN jsonb_typeof(wizard_state) = 'object' THEN EXISTS (
+    SELECT 1 FROM jsonb_each(wizard_state) AS kv
+    WHERE kv.key LIKE '%\_dest\_name'
+    AND kv.value = to_jsonb(sqlc.arg(destination_name)::text)
+) ELSE false END
+ORDER BY name
+FOR UPDATE;
+
+-- name: ListWizardPipelinesByOrgForUpdate :many
+-- Every wizard pipeline in one org, row-locked for a re-render in the same
+-- transaction (`shepherd admin rerender-destinations`, #262).
+SELECT * FROM pipelines
+WHERE org_id = $1 AND wizard_kind IS NOT NULL
+ORDER BY name
+FOR UPDATE;
 
 -- name: ListEnabledPipelinesByOrg :many
 SELECT * FROM pipelines WHERE org_id = $1 AND enabled = true ORDER BY name;

@@ -46,11 +46,34 @@ Categories used here:
   `failed_precondition` instead of rendering that variable. `CreateDestination`/`UpdateDestination`
   refuse an unknown `auth_mode`, a Secret mode without a valid Secret namespace and name, and
   malformed scopes (`invalid_argument`). **Upgrade note:** pipelines already committed from a
-  wizard keep their old `sys.env(...)` writer and no auth until they are generated again from the
-  wizard. Likewise, a later edit to a destination reaches a pipeline only when it is next
-  generated.
+  wizard keep their old `sys.env(...)` writer and no auth until they are regenerated: run
+  `shepherd admin rerender-destinations` once (below, and `deploy/helm/shepherd/UPGRADING.md`).
+- **Editing a destination regenerates the wizard pipelines that use it (#262).** The writer is
+  rendered into the stored pipeline, so an edit to a destination used to reach no existing
+  pipeline. `UpdateDestination` now re-runs the wizard of every pipeline in the org whose stored
+  wizard answers name the destination, in the same transaction as the destination update. Each
+  regenerated pipeline passes the full gate (Stages 1–2, then Stage 3 over the merged config with
+  all of them swapped in), gets a revision and a `pipeline.rerender` audit row attributed to the
+  user who edited the destination, and the org's serve cache is marked dirty and recomputed. If
+  any would fail, the destination update is refused with `failed_precondition` naming each
+  pipeline and why, and nothing changes. A rename is carried into those pipelines' wizard answers
+  too. A pipeline whose generated text was edited by hand is regenerated as well; the edit stays in
+  its revision history. Collectors whose pipelines change reload once. **Shipped.**
+- **`shepherd admin rerender-destinations`** converts the wizard pipelines that still carry the
+  pre-#229 `sys.env(...)` writer, through the same gate, one transaction per org, with a revision
+  and a `pipeline.rerender` audit row (actor `system:rerender-destinations`). Pipelines it cannot
+  regenerate (one naming a deleted destination, say) are listed and left as they were. `--dry-run`
+  lists without writing; a second run finds nothing to do. Not run automatically: it changes what
+  collectors are served, so it is an operator's step. **Shipped.**
 
 ### Fixed
+
+- **A destination a wizard pipeline uses can no longer be deleted (#262).** `DeleteDestination`'s
+  in-use check looked for a `destination_id` key that no wizard stores (wizards store the
+  destination's name), so it never refused. It now matches the name under any `*_dest_name` answer
+  of a wizard pipeline in the same org and refuses with `failed_precondition` listing the pipelines
+  (it was `already_exists`; a destination a tenant binding still references is still
+  `already_exists`). The *Destinations* page shows both as "Cannot delete: …".
 
 - **A viewer's visual builder is read-only on the canvas and in the inspector too** (#226). Since
   v0.14.0 a viewer's toolbar and palette were disabled, but the canvas still let them drag nodes,
