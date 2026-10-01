@@ -6,7 +6,7 @@
 # the existing dev seed, Gitea, the navikt mock OIDC provider, and the three
 # dev/*.alloy agents — everything reachable on host port 80 under
 # *.localtest.me. See docs/kind-test-environment-plan.md §11 for the design
-# and docs/plans/2026-09-14-kind-dev-stack.md for how this was built.
+# and docs/archive/plans/2026-09-14-kind-dev-stack.md for how this was built.
 #
 # Every kubectl/helm call in this file goes through the kc()/hm() wrappers
 # below so the target context is always explicit — several dev/e2e kube
@@ -311,8 +311,24 @@ cmd_reload() {
 	kc -n "$NAMESPACE" rollout status deploy/shepherd
 }
 
+# app_pod names one running Shepherd server pod. Not `exec deploy/shepherd`:
+# the app Deployment's selector also matches the simulator pods (#234), so
+# kubectl could pick a simulator pod, which has no shepherd binary
+# ("stat /usr/local/bin/shepherd: no such file or directory").
+app_pod() {
+	local pod
+	pod=$(kc -n "$NAMESPACE" get pods \
+		-l 'app.kubernetes.io/instance=shepherd,app.kubernetes.io/name=shepherd,app.kubernetes.io/component!=simulator' \
+		--field-selector=status.phase=Running -o name | head -1)
+	if [ -z "$pod" ]; then
+		echo "dev-kind.sh: no running Shepherd server pod in ${NAMESPACE}" >&2
+		exit 1
+	fi
+	echo "$pod"
+}
+
 cmd_seed() {
-	kc -n "$NAMESPACE" exec deploy/shepherd -- /usr/local/bin/shepherd dev seed
+	kc -n "$NAMESPACE" exec "$(app_pod)" -- /usr/local/bin/shepherd dev seed
 }
 
 cmd_status() {
@@ -321,6 +337,16 @@ cmd_status() {
 	kc -n kube-system get cm coredns -o jsonpath='{.data.Corefile}' | grep -i localtest \
 		|| echo "dev-kind.sh: no CoreDNS rewrite found — run '$0 up'"
 	curl -sf http://shepherd.localtest.me/healthz >/dev/null && echo "shepherd: ok" || echo "shepherd: unreachable"
+	# /readyz also fails while a migration is pending or the DB is unreachable.
+	curl -sf http://shepherd.localtest.me/readyz >/dev/null && echo "shepherd ready: ok" || echo "shepherd ready: NOT READY"
+	local a
+	for a in alloy-metrics alloy-logs alloy-staging; do
+		if kc -n "$NAMESPACE" logs "deploy/${a}" --since=2m 2>/dev/null | grep -q 'failed to .*remote config'; then
+			echo "${a}: rejecting its served config (kc -n ${NAMESPACE} logs deploy/${a})"
+		else
+			echo "${a}: ok"
+		fi
+	done
 	curl -sf http://oidc.localtest.me/default/.well-known/openid-configuration >/dev/null && echo "oidc: ok" || echo "oidc: unreachable"
 	curl -sf http://gitea.localtest.me/api/healthz >/dev/null && echo "gitea: ok" || echo "gitea: unreachable"
 }
