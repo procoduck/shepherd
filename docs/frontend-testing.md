@@ -70,9 +70,9 @@ web/
 │   └── specs/               # the mocked suite
 ```
 
-`tests/specs/` holds 50 spec files (`ls web/tests/specs/*.spec.ts | wc -l`); `tests/fullstack/`
-holds 16 (the newest, `revisions.spec.ts`, round-trips GetRevision/RestoreRevision and the
-diff-and-restore UI). By group rather than exhaustively:
+`tests/specs/` holds 64 spec files (`ls web/tests/specs/*.spec.ts | wc -l`); `tests/fullstack/`
+holds 17 (the newest is `collector-labels.spec.ts`; `revisions.spec.ts` round-trips
+GetRevision/RestoreRevision and the diff-and-restore UI). By group rather than exhaustively:
 
 - **Screens** — auth, local-login, overview, collectors, collector-access, pipelines-list,
   pipeline-editor, editor-autocomplete, editor-role, revisions, served-config, wizard,

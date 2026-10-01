@@ -1,5 +1,13 @@
 # Kubernetes test environment — plan
 
+> **Re-checked 2026-10-01 (v0.14.0 / chart 0.18.0):** twelve `func Test*` features, green on the
+> release PR (`e2e-k8s.yml` run 36845733118), including the check that the app Services' EndpointSlices
+> list only server pods (#239, `helm_install_test.go`). Steps 1, 2, 4 and 6 done; step 3 partial (full-values
+> install and the previous-version upgrade spec still unwritten — charts 0.9.0 through 0.18.0 are
+> published to upgrade from); step 5 not done (`NOTES.txt` still carries no CNI warning); step 7 not
+> started. The ~500s runtime below is superseded by `e2e/k8s/README.md`'s CI measurement (14 min for
+> the `make e2e-k8s` step, 2026-09-15). The dated paragraphs that follow are the history.
+>
 > Status (2026-08-22, re-checked 2026-09-15 — PR #69 moved the suite's node-image, Calico and NGF pins
 > to `deploy/versions.env` and the suite ran green on it, `e2e-k8s.yml` run 34945312764): **steps
 > 1–2 implemented** (`e2e/k8s/`, `make e2e-k8s`); **step 3 partially done** (default-values Helm
@@ -194,7 +202,7 @@ roughly 2–4 minutes before a single assertion runs; the LGTM layer adds more. 
   `deploy/helm/**`, `internal/simsvc/**`, `internal/simulate/**` — the containment surface. This
   mirrors how `e2e-egress` is already gated. Layer C runs nightly and on `main`, not per-PR.
 - **As built** (`.github/workflows/e2e-k8s.yml`): the layer split above was not carried into CI —
-  the whole nine-feature suite runs as one job, gated by one `pull_request` paths filter
+  the whole suite (twelve features as of v0.14.0) runs as one job, gated by one `pull_request` paths filter
   (`deploy/helm/**`, `e2e/k8s/**`, the workflow file itself, and `deploy/Dockerfile*` /
   `deploy/versions.env` — the suite builds and installs `shepherd:local`, and a base-image change
   once broke `alloy validate` in the shipped image without ever triggering this job, per the note
@@ -294,7 +302,7 @@ fails for reasons unrelated to policy.
    universal guarantee.
 4. **Chart upgrade coverage** needs a previous version to upgrade from. **No longer blocked**:
    `v0.3.5` (tagged 2026-08-27) is a released chart version 0.9.0
-   (`git show v0.3.5:deploy/helm/shepherd/Chart.yaml`); 0.10.0, 0.10.1 and 0.10.2 are all
+   (`git show v0.3.5:deploy/helm/shepherd/Chart.yaml`); every chart through 0.18.0 is
    published since — step 3's true previous-version upgrade spec has plenty to install first. Still
    not written (see the status header and §8 step 3); this only removes the reason it was deferred.
 

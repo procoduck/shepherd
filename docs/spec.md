@@ -370,7 +370,8 @@ for each p in selected:
           <p.contents, indented one level>
         }
         <block_name> "default" { }
-content := header comment (shepherd version, collector id, generated-at RFC3339, list of pipeline names+revisions)
+content := header comment (shepherd version, collector name + id, list of pipeline names+revisions, role-enforcement exclusions;
+                           no generation timestamp — the bytes and hash depend only on the merged config, #213)
          + concatenation of all emitted blocks separated by blank lines
 hash := hex(sha256(content))
 ```
@@ -505,7 +506,7 @@ The check flags a reference only when it resolves to a component block declared 
 
 **Stage 3 — Merge dry-run.** For a pipeline save/toggle: compute the set of logical collectors the new matcher set would affect (plus those affected by the *old* version), assemble each collector's full merged config with the candidate change applied, and run stages 1–2 on each merged result. If ANY merged config fails, **reject the save** with a response listing the failing collectors and diagnostics. This prevents the "one bad pipeline poisons the whole merge" failure mode.
 
-API: `PipelineService.ValidatePipeline` (§12) runs stages 1–2 only (fast, used by the editor's Validate button and on-type debounce); the actual save/update/enable endpoints run all three stages server-side regardless of what the client did.
+API: `PipelineService.ValidatePipeline` (§12) runs stages 1–2 only (fast, used by the editor's Validate button and on-type debounce); the actual save/update/enable endpoints run all three stages server-side regardless of what the client did. With no Alloy binary configured, the `alloy validate` half of Stage 2 is skipped and reported, not passed: `ValidatePipelineResponse.skipped_stages` lists `2` (#209), the editor shows *Syntax checked — alloy validate skipped*, and `shepherd validate` prints the same.
 
 Git-synced files that fail validation: keep the previous good pipeline revision, set `repo_links.sync_status='error'` with details, surface in UI. Never partially apply a commit: a sync applies all files of a commit transactionally or none.
 
@@ -876,6 +877,8 @@ Chart `apiVersion: v2`, `name: shepherd`; `appVersion` tracks the image tag. She
 | `servicemonitor.yaml` | Toggle `metrics.serviceMonitor.enabled`; scrapes `/metrics` on the metrics port; configurable labels for Prometheus-operator selector matching. |
 | `networkpolicy.yaml` | Toggle `networkPolicy.enabled` (default off — only meaningful on a CNI that enforces policies): ingress from any namespace to the API and metrics ports, egress unrestricted (Shepherd's database/IdP/git remotes are operator-supplied and not something the chart can enumerate; restrict at the CNI level for FQDN policies). |
 | `deployment-simulator.yaml`, `service-simulator.yaml`, `serviceaccount-simulator.yaml`, `networkpolicy-simulator.yaml`, `secret-simulator-token.yaml` | S3 sandbox simulator (VB-1 §6.4), toggle `simulator.enabled` (**default `true` since v0.0.1** — see F5, `docs/project-status.md`). Every one of these is load-bearing and asserted by `deploy/helm/chart_test.go`: `automountServiceAccountToken: false` on the ServiceAccount (defense in depth — `internal/simsvc.Config.SATokenPath` also refuses to start if a token is mounted anyway); a bearer token on the control API from one of three sources in precedence order — `simulator.token.existingSecret`, else `externalSecrets.enabled`, else the chart's own generated Secret (`value` pins a literal, empty generates one random token reused across upgrades via `lookup`); a **default-deny egress** NetworkPolicy scoped to this Pod's own harness ports only — no cluster DNS, no rest-of-cluster, no internet, since the sandboxed Alloy is a child process of shepherd-simulator (not a sibling container), so this Pod's network boundary IS the sandbox boundary; non-root, all capabilities dropped, read-only rootfs, CPU/memory limits. What the chart cannot set: a per-Pod PID limit (no PodSpec field exists for one — it is a kubelet `podPidsLimit`/`--pod-max-pids` setting). |
+
+**Server selectors (#234).** Every pod the chart runs (server, simulator, receiver, migration Job) shares `app.kubernetes.io/name` + `app.kubernetes.io/instance`, so a selector on that pair alone also matches the sandbox. The server pod template therefore adds `app.kubernetes.io/component: server`, and everything that means "the server pods" — `service.yaml`, `service-metrics.yaml`, `pdb.yaml`, `networkpolicy.yaml` and the simulator NetworkPolicy's ingress rule — selects on `shepherd.serverSelectorLabels` (`_helpers.tpl`). The Deployment's own `spec.selector` keeps the release-wide pair because it is immutable on a live Deployment; it still matches simulator pods, so tooling reaches a server pod through `svc/<release>` or the `component=server` label, never `deploy/<release>`.
 
 ### 17.2 `values.yaml` shape (top level)
 
@@ -1363,6 +1366,8 @@ Sessions table gains `source text NOT NULL DEFAULT 'oidc'`. `id_token_expires` i
 ## Amendments from FS-1 Full-Stack Integration Tests + Local Dev Stack (2026-08-17)
 
 ### §12 (amended) — /api/me canonical contract
+
+The REST path was removed in v0.11.0; the same contract is `MeService.GetMe` (an unauthenticated call answers Connect `unauthenticated`).
 
 **Unauthenticated:** `401 {"error":{"code":"unauthenticated","message":"not authenticated"}}`
 

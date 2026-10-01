@@ -5,8 +5,9 @@
 > working tracker — status, assignment, and what's next. This document stays the human-readable
 > **verified-baseline snapshot** (what demonstrably works, at which release/run), refreshed at each
 > release; day-to-day item status moves to the board. The outstanding-work sequence that seeded the
-> board is archived at `docs/archive/plans/2026-09-16-outstanding-work.md` — eight of its twelve
-> remaining items shipped in v0.9.0/v0.10.0 and the other four are GitHub issues (§3).
+> board is archived at `docs/archive/plans/2026-09-16-outstanding-work.md` — every item in it has
+> since shipped (issues #100–#118 are all closed; the last, B1, in v0.13.0). Open work is the open
+> GitHub issues (bar Renovate's Dependency Dashboard, #87), each represented in §2–§4 below.
 >
 > Baseline re-verified 2026-10-01 at the v0.14.0 release
 > (`42c5725`, chart 0.18.0) from the CI and release runs on that commit, not from a summary.
@@ -19,14 +20,14 @@
 |---|---|
 | `docs/project-status.md` | this ledger — verified baseline, open bugs, unbuilt features, open follow-ups |
 | `docs/spec.md` | authoritative product/build specification (§ numbers referenced below) |
-| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. Empty since v0.12.0 (both September plans shipped and are archived) |
+| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. Empty (not even present) since v0.12.0 — every plan so far has shipped and is archived |
 | `docs/visual-builder-design-VB1.md` | visual builder design — M1–M8 built; §6.4 (S3) is the live spec for the sandbox feature (enabled by default in the Helm chart since v0.0.1) |
 | `docs/reviews/` | **live decision records only**: `canvas-framework-evaluation.md` (the React Flow decision and the controlled-mode contract `CanvasPane` depends on). Closed reviews move to `docs/archive/reviews/` |
 | `docs/dev-guide.md` | running the dev stack |
 | `docs/frontend-testing.md` | three-layer frontend test strategy |
 | `docs/git-provider-design.md` | GitOps provider-auth design; live at top level because Go source cites its § numbers |
 | `docs/platform-monitoring-architecture.md` | target-fleet reference notes |
-| `docs/kind-test-environment-plan.md` | kind-based Kubernetes test environment (`make e2e-k8s`, weekly + path-filtered on qualifying PRs) plus §11 the reusable dev stack it shares pins with (`make dev-kind`, the Kubernetes flavour of `make dev`). Steps 1, 2, 4, 6 done; step 3 (full-values install, true previous-version upgrade spec) and step 5 (`NOTES.txt` CNI warning) still open — see its status header |
+| `docs/kind-test-environment-plan.md` | kind-based Kubernetes test environment (`make e2e-k8s`, weekly + path-filtered on qualifying PRs) plus §11 the reusable dev stack it shares pins with (`make dev-kind`, the Kubernetes flavour of `make dev`). Steps 1, 2, 4, 6 done; step 3 (full-values install, true previous-version upgrade spec) and step 5 (`NOTES.txt` CNI warning) still open, step 7 (Layer C, LGTM) not started — see its status header |
 | `docs/gateway-tier-plan.md` | **all 11 workstreams shipped** as of v0.12.0; every review gate signed (R1, R2, R3, R5, R6). Kept live for its decisions (D1–D11), §9 step ledger and the open questions in §11 (beacon retention, team scope/ownership, proposal shape) |
 | `docs/proofs/` | red–green proofs for shipped controls. Not archived: Go source and CI workflows cite these paths |
 | `docs/archive/` | finished work, kept as the record of why things are the way they are |
@@ -64,9 +65,9 @@ Verified on the running stack and in the browser, not inferred:
 - **Merge engine + validation gate** — served config carries both seeded pipelines, declare-wrapped,
   matchers resolving against real collector labels; role enforcement covers both the write-time
   and the live agent serve path (`internal/serve.ComputeServed`, one code path).
-- **Management API** — `shepherd.mgmt.v1` Connect contract generated for Go and TypeScript; every
-  legacy REST route preserved as a wire-compatible shim; fail-closed per-procedure authz with the
-  org-editor tier; service-account auth as a request gate.
+- **Management API** — `shepherd.mgmt.v1` Connect contract generated for Go and TypeScript (the
+  legacy `/api` REST shim was removed in v0.11.0; `/api` serves only the schema artifacts);
+  fail-closed per-procedure authz with the org-editor tier; service-account auth as a request gate.
 - **All 21 SPA routes** (`web/src/routes/router.tsx`) — the walkthrough fullstack spec visits every
   route asserting no console errors, failed requests or blank pages; `route-guard.spec.ts` covers
   the client-side `requiredRole` guards (the server stays authoritative). Light mode follows the
@@ -157,6 +158,13 @@ developer who needs containment to be real locally uses `make dev-kind`, which i
 the chart's NetworkPolicy is enforced (`docs/kind-test-environment-plan.md` §11). B-CONTAIN-2 is
 compose-only.
 
+### B-VIEWER-CANVAS — the visual builder is not fully read-only for viewers · **low** (#226)
+
+Since #206 a viewer's builder toolbar, palette and simulate are disabled, but the canvas still lets
+them drag nodes, draw wires and edit inspector fields. Nothing can be saved and no RPC fires; the
+builder should match the text editor (`useCanWrite()`): nodes not draggable or connectable,
+inspector fields disabled.
+
 Fixed bugs (B-CONTAIN-1, B-CONCAT, B-STAGEORDER, F9-a) are in
 `docs/archive/completed-2026-09-11.md` with their red-run evidence.
 
@@ -234,11 +242,18 @@ answer and the ledger item it produced is below.
 ### Smaller follow-ups
 
 B1–B3 come from the v0.6.0 manual UI walkthrough (`docs/archive/plans/2026-09-14-walkthrough-fixes.md`,
-§3 "Blocked") — B2 and B3 have since shipped, B1 is still open — and two items from the kind dev stack's
+§3 "Blocked") — all three have since shipped (B1 in v0.13.0, #115) — and two items from the kind dev stack's
 first live bring-up (`docs/archive/plans/2026-09-14-kind-dev-stack.md`); every other finding from both
 was closed in the same batches (`CHANGELOG.md` v0.7.0).
 
 In rough priority order; closed items stay in place, marked with the release that shipped them:
+
+- [ ] **UX polish from the 2026-09-30 walkthrough** (#212) — the lower-severity findings batched
+      in one issue. Part shipped in v0.14.0 (CLI help text, the demo-visual seed render, Admin →
+      Users defaults and labels, the Teams member picker; #219/#223/#225/#227). Still open: builder
+      toolbar wrapping, no UI for a pipeline's owning team (`SetPipelineOwner` API only), toast-only
+      form errors and unvalidated matcher chips, no heading or enable/delete on the pipeline pages,
+      the post-login redirect, and naming/contrast nits. The issue's latest comment has the list.
 
 - [x] **`ValidatePipeline` stays open to org readers** (decided 2026-09-28). Its Connect interceptor
       row is `auth.RoleOrgReader`: a reader can validate pipeline text, which writes nothing apart
@@ -287,8 +302,8 @@ In rough priority order; closed items stay in place, marked with the release tha
       stays flat-top-level-prop-only by design, not yet extended.
 - [ ] **Kind suite, plan steps 3 and 5** (`docs/kind-test-environment-plan.md`): the full-values
       install and the true previous-version Helm upgrade spec (no longer blocked — charts 0.9.0
-      through 0.14.0 are published), and the `NOTES.txt` CNI/NetworkPolicy warning (G10 is
-      scheduled with the chart-values UI above).
+      through 0.18.0 are published), and the `NOTES.txt` CNI/NetworkPolicy warning. (G10 shipped
+      with the chart-values UI in v0.12.0, #112.)
 - [ ] Overlay entries scaffolded by `make schema` carry `needs_review: true` and need an editorial
       pass on the next Alloy bump.
 - [ ] `go.mod` carries a vestigial `github.com/lib/pq` indirect line via testcontainers' own test
@@ -332,24 +347,30 @@ logout; horizontal-scale coordination beyond stateless replicas + Postgres.
 - **Cross-cutting**: shared Go↔TS golden corpus, read directly from `internal/visual/testdata/corpus/`
   by both sides (`web/src/visual/renderTS.test.ts` resolves the Go directory by relative path, so
   the two cannot drift by construction); the ten Makefile `guards`; `scripts/repocheck` (Ginkgo
-  specs over the Makefile, workflows, `versions.env` pins, `renovate.json`, the chart's
-  `values.yaml`, `scripts/dev-kind.sh` and `dev/kind/*`, `.goreleaser.yaml`)
+  specs over the Makefile, workflows, `versions.env` pins, `renovate.json`/`dependabot.yml`, the
+  chart's `values.yaml`, `scripts/dev-kind.sh` and `dev/kind/*`, `.goreleaser.yaml`,
+  `scripts/build-docs.py`, `.gitignore`, web lockfiles)
 - **CI** (`ci.yml`, SHA-pinned actions): `changes` gates the expensive jobs on their inputs; `lint`,
   `build` (incl. `govulncheck` and the `e2ek8s`-tagged vet), `guards` (incl. `helm lint` and
   repocheck), `generated-drift`, `test` (`make test-cover`, coverage artifact), `web`, `test-ui`,
-  `test-fullstack` (incl. `make smoke`). `e2e.yml` runs on push to main, path-filtered.
+  `test-fullstack` (incl. `make smoke`). `e2e.yml`'s `e2e` job runs on push to main, path-filtered, and on manual dispatch.
   `e2e-k8s.yml` weekly and on qualifying PRs. Scheduled: `schema-verify` and `govulncheck` weekly.
   `release.yml` on `v*` tags: verify job (incl. the Trivy image gate), goreleaser, provenance
   attestations, chart OCI push (refuses an appVersion/tag mismatch and an already-published
   chart version), then a report-only scan of the published images. `security-scan.yml` on every
-  PR/push: gitleaks over the full history, Trivy over the two built images (gate on Shepherd's
-  binary + base, report on the vendored Alloy binary) and Trivy misconfig over `deploy/`; weekly:
-  the last released images and OpenSSF Scorecard. `main` requires the CI checks for everyone.
+  PR/push: gitleaks over the full history and Trivy misconfig over `deploy/`; Trivy over the two
+  built images (gate on Shepherd's binary + base, report on the vendored Alloy binary) on every
+  push and on PRs touching `deploy/`, the Go/npm manifests, `.goreleaser.yaml` or `.trivyignore`;
+  weekly: the last released images; OpenSSF Scorecard weekly and on push to main. Branch
+  protection on `main` applies to admins too and requires `guards`, `lint`, `build`, `test`, `web`,
+  `test-ui`, `test-fullstack`, `CodeQL`, `secrets` and `config-scan`.
 - **The repository is public, so standard-runner Actions minutes are not billed; GitHub still
   runs every job separately**, so a slow, noisy CI costs signal even when it costs no money.
-  Three controls keep it in range — `paths-ignore` so a docs-only change never starts CI, the
-  sub-minute `changes` job gating the two most expensive jobs on whether their own inputs moved,
-  and weekly rather than nightly scheduling for the kind suite. **Reduce redundant executions,
+  Three controls keep it in range — the sub-minute `changes` job gating every expensive `ci.yml`
+  job on whether its own inputs moved (a docs-only PR runs only `changes` and `guards`; there is no
+  `paths-ignore`, because a required check from a workflow that never starts would block the PR
+  forever), path filters on `e2e.yml` and `e2e-k8s.yml`, and weekly rather than nightly
+  scheduling for the kind suite. **Reduce redundant executions,
   never coverage**: every gate still runs when its inputs change, and everything runs locally.
 
 ### A standard this repo holds itself to

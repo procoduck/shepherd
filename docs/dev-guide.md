@@ -68,8 +68,16 @@ Kubernetes counterpart to `make dev` above, not a test suite — see
   offers behind the `oidc` profile: here the mock issuer is declared in the chart values, so it's
   on by default.
 - **Seed parity:** `make dev-kind` runs the identical `shepherd dev seed` as `make dev`
-  (`kubectl exec svc/shepherd -- /usr/local/bin/shepherd dev seed`, which reaches a server pod) — same orgs, users, Gitea
-  repo and agent token as the Seed contents table below.
+  (`scripts/dev-kind.sh` execs `/usr/local/bin/shepherd dev seed` in a running pod labelled
+  `app.kubernetes.io/component=server` — never `deploy/shepherd`, whose selector also matches the
+  simulator pod) — same orgs, users, Gitea repo and agent token as the Seed contents table below.
+  `demo-visual` is seeded disabled here too; this is the stack to enable it on (from `/pipelines`),
+  since its `discovery.kubernetes` needs a cluster.
+- **Health check:** `make dev-kind-status` lists the pods, Services, PVCs, Gateway and HTTPRoutes and
+  the Helm release, confirms the CoreDNS rewrite, probes Shepherd's `/healthz` and `/readyz` (the
+  latter fails while a migration is pending or the DB is unreachable), reports any of the three
+  agents whose last two minutes of logs show it rejecting its served config, and checks the OIDC and
+  Gitea endpoints.
 - **The OIDC walk, briefly:** sign in with the "Mock SSO" button, enter a username and a JSON
   `groups` claim on mock-oauth2-server's login page. A group matching the seeded app-admin group
   id signs in as an app admin; a group matching a seeded org's admin/reader group id signs in with
@@ -231,7 +239,7 @@ Full list (`make help` prints the same, plus the `E2E_*` env knobs each test tar
 | `make dev-kind` | Kubernetes flavour: kind cluster `shepherd-dev` with Calico, CNPG, Gateway API + NGF, the chart, Gitea and mock OIDC (`http://shepherd.localtest.me`) — see Kubernetes flavour above |
 | `make dev-kind-reload` | Rebuild `shepherd:local`, load it into `shepherd-dev` and roll the pods (migrations run first) |
 | `make dev-kind-seed` | Re-run the dev seed inside `shepherd-dev` (idempotent) |
-| `make dev-kind-status` | Show `shepherd-dev`'s workloads, routes, DNS rewrite and URLs |
+| `make dev-kind-status` | Show `shepherd-dev`'s workloads, routes and DNS rewrite; probe Shepherd's `/healthz` + `/readyz`, flag any agent rejecting its served config, check OIDC and Gitea |
 | `make dev-kind-down` | Delete the `shepherd-dev` cluster and all its data — the `dev-reset` equivalent |
 
 **Build**
@@ -303,8 +311,9 @@ one checks.
 in `dev/shepherd.dev.env`. Without it, the `Secure` flag prevents the cookie from being
 set on non-HTTPS origins.
 
-**Login redirects in a loop:** The server's `/api/me` returns `401` for unauthenticated
-requests. The SPA redirects to `/login`. If you see a redirect loop, clear all `localhost`
+**Login redirects in a loop:** Without a session the SPA's `MeService.GetMe` call
+(`/shepherd.mgmt.v1.MeService/GetMe`) answers Connect `unauthenticated`, and the SPA redirects
+to `/login`. If you see a redirect loop, clear all `localhost`
 cookies in the browser.
 
 **Seed fails:** If `shepherd dev seed` fails with a connection error, the postgres

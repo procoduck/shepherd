@@ -131,10 +131,12 @@ export SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD=choose-a-password
       <h2 id="the-full-dev-stack">The full dev stack</h2>
       <p>
         <code>make dev</code> boots a whole environment in Docker &mdash; PostgreSQL, a seeded
-        database, a mock identity provider, a git server, and live Alloy collectors already polling
-        Shepherd at <a href="http://localhost:8080">localhost:8080</a> with
+        database, a mock Microsoft Graph for group search, a git server, and live Alloy collectors
+        already polling Shepherd at <a href="http://localhost:8080">localhost:8080</a> with
         <code>admin</code>/<code>admin</code>. It is the fastest way to see the product working
-        without a cluster, and the environment the end-to-end suites run against.
+        without a cluster, and the environment the full-stack browser suite
+        (<code>make test-fullstack</code>) runs against. For a single sign-on login locally, use
+        <code>make dev-kind</code>, whose mock identity provider is declared in the chart values.
       </p>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>

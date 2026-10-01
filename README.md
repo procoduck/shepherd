@@ -26,9 +26,10 @@ access into the clusters it manages.
   collector that matches nothing gets an empty config, not an error, so it keeps
   running what it already had.
 - **Refuses to serve config that would not run.** Three gates: syntax,
-  `alloy validate`, and a merge dry-run against each affected collector's *full*
-  merged config — so a pipeline that is valid alone but conflicts with an
-  enabled one is caught before any agent sees it.
+  `alloy validate` plus a schema check for component wiring it lets through, and
+  a merge dry-run against each affected collector's *full* merged config — so a
+  pipeline that is valid alone but conflicts with an enabled one is caught
+  before any agent sees it.
 - **Three ways to author.** Guided wizards for six common jobs, a visual builder
   that generates Alloy as you wire components together, or raw Alloy pasted in.
   All three land in the same merge engine and the same gate.
@@ -201,7 +202,7 @@ make help       # every target, and the env knobs the suites honour
 | Command | What it runs |
 |---|---|
 | `make e2e` | Compose end-to-end suite (~10 min, Docker) |
-| `make e2e-k8s` | Kubernetes suite: a kind cluster, Gateway API, NGINX Gateway Fabric, CloudNativePG and External Secrets, then the chart — 9 features (`e2e/k8s/README.md`); ~14 min in CI including both image builds (run 34973037471, 2026-09-15) |
+| `make e2e-k8s` | Kubernetes suite: a kind cluster, Gateway API, NGINX Gateway Fabric, CloudNativePG and External Secrets, then the chart — 12 features (`e2e/k8s/README.md`); ~14 min in CI including both image builds (run 34973037471, 2026-09-15, at 9 features) |
 | `make dev-kind` | Kubernetes flavour of `make dev`: a persistent kind cluster (`shepherd-dev`) running the real chart, Gitea and mock OIDC at `http://shepherd.localtest.me` (`docs/kind-test-environment-plan.md` §11) |
 | `make test-ui` | Mocked Playwright suite, no backend required |
 | `make generate` | buf + sqlc + version codegen |
