@@ -213,7 +213,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
-          version: v2.12.2
+          version: v2.14.0
           args: --timeout=5m
 
   build:
@@ -299,7 +299,7 @@ jobs:
       - name: Install golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
-          version: v2.12.2
+          version: v2.14.0
           install-only: true
       - name: golangci-lint config verify
         run: golangci-lint config verify
@@ -345,7 +345,7 @@ jobs:
       # web/node_modules — hence the pnpm install below.
       - name: Install buf, sqlc, and protoc plugins
         run: |
-          go install github.com/bufbuild/buf/cmd/buf@v1.72.0
+          go install github.com/bufbuild/buf/cmd/buf@v1.73.0
           go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
           go install "google.golang.org/protobuf/cmd/protoc-gen-go@$(go list -m -f '{{.Version}}' google.golang.org/protobuf)"
           go install "connectrpc.com/connect/cmd/protoc-gen-connect-go@$(go list -m -f '{{.Version}}' connectrpc.com/connect)"

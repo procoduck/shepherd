@@ -73,7 +73,7 @@ help: ## List targets and the env knobs the test suites honor
 tools: ## Install the Go-installable CLIs the targets here shell out to
 	go install github.com/onsi/ginkgo/v2/ginkgo@$$(go list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)
 	go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
-	go install github.com/bufbuild/buf/cmd/buf@v1.72.0
+	go install github.com/bufbuild/buf/cmd/buf@v1.73.0
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@$$(go list -m -f '{{.Version}}' google.golang.org/protobuf)
 	go install connectrpc.com/connect/cmd/protoc-gen-connect-go@$$(go list -m -f '{{.Version}}' connectrpc.com/connect)
 	go install golang.org/x/vuln/cmd/govulncheck@v1.8.0

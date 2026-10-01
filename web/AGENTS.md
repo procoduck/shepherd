@@ -16,7 +16,7 @@ React 19 + TypeScript + Vite SPA, embedded into the Go binary via `go:embed`.
 
 ## Tooling
 - **Package manager**: pnpm v11 via corepack; the pin is `package.json` `packageManager` (CI reads it) and `deploy/versions.env` PNPM_VERSION must match
-- Activate on a new machine: `corepack prepare pnpm@11.22.0 --activate` (or `brew install pnpm` if your registry lacks v11)
+- Activate on a new machine: `corepack prepare pnpm@11.28.3 --activate` (or `brew install pnpm` if your registry lacks v11)
 - **Linter/formatter**: Biome (`biome.json`) — replaces ESLint + Prettier entirely
 - **Build**: Vite 8 (rolldown bundler) with `@tailwindcss/vite` plugin. Heavy code is behind lazy boundaries — the visual builder and graph view as routes (`src/routes/router.tsx`), CodeMirror behind `src/editor/LazyAlloyEditor.tsx` — all through `src/lib/lazyNamed.ts`, which rejects readably when a chunk lacks its export. `chunkSizeWarningLimit` in `vite.config.ts` sits just above the measured entry so a new static import trips it
 - **Registry**: public npm by default; configure a mirror in `web/.npmrc` if your organisation uses one
