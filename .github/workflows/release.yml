@@ -119,8 +119,16 @@ jobs:
       - name: go test
         run: go test ./...
 
-      # ubuntu-latest ships helm; seconds-cheap and the chart has shipped
-      # uninstallable before (commit ec0130f).
+      # Pinned rather than whatever helm ubuntu-latest ships, and to the same
+      # version the release job packages and pushes with, so the lint that
+      # gates a release is the lint of the helm that publishes it.
+      # Seconds-cheap, and the chart has shipped uninstallable before
+      # (commit ec0130f).
+      - name: Set up Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.0
+
       - name: Helm lint
         run: make helm-lint
 
@@ -244,10 +252,16 @@ jobs:
         env:
           IMAGE_REGISTRY: ${{ vars.IMAGE_REGISTRY }}
 
+      # Helm 4: packages and pushes the chart (apiVersion v2, which Helm 4
+      # keeps supporting). Proven against a throwaway OCI registry before the
+      # move: login (domain only, as Helm 4 requires), the "already published"
+      # probe's not-found message, package, push, show chart, pull back, and a
+      # Helm 3 client consuming the pushed chart. Keep in step with the
+      # verify job's and ci.yml's pin.
       - name: Set up Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
-          version: v3.22.0
+          version: v4.3.0
 
       # Runs before goreleaser (and therefore before either image is built or
       # pushed, and before the GitHub release is cut) so a chart that fails
