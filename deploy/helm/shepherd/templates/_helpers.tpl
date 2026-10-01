@@ -26,9 +26,31 @@ app.kubernetes.io/version: {{ .Values.image.tag | default .Chart.AppVersion | qu
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
+{{/*
+The release-wide labels every pod of this chart carries: the app server, the
+simulator, the receiver and the migrate Job alike. Not a selector for "the
+app" on its own -- it matches all of them (#234). The only object that may
+still select by exactly this pair is the app Deployment's spec.selector, which
+is immutable (see deployment.yaml); everything that means "the Shepherd
+server pods" uses shepherd.serverSelectorLabels below.
+*/}}
 {{- define "shepherd.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "shepherd.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
+The Shepherd SERVER pods only (#234). The simulator and receiver pods carry
+shepherd.selectorLabels plus their own component label, so a selector of
+shepherd.selectorLabels alone also matched them: both app Services'
+EndpointSlices listed the simulator pod, `kubectl exec|logs|port-forward
+svc/shepherd` could land on it, the app PDB counted it, and the app
+NetworkPolicy (allow-all egress) applied to the sandbox too. The server's own
+component label makes every app-only selector exclusive.
+*/}}
+{{- define "shepherd.serverSelectorLabels" -}}
+{{ include "shepherd.selectorLabels" . }}
+app.kubernetes.io/component: server
 {{- end }}
 
 {{/*

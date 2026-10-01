@@ -68,7 +68,7 @@ Kubernetes counterpart to `make dev` above, not a test suite — see
   offers behind the `oidc` profile: here the mock issuer is declared in the chart values, so it's
   on by default.
 - **Seed parity:** `make dev-kind` runs the identical `shepherd dev seed` as `make dev`
-  (`kubectl exec deploy/shepherd -- /usr/local/bin/shepherd dev seed`) — same orgs, users, Gitea
+  (`kubectl exec svc/shepherd -- /usr/local/bin/shepherd dev seed`, which reaches a server pod) — same orgs, users, Gitea
   repo and agent token as the Seed contents table below.
 - **The OIDC walk, briefly:** sign in with the "Mock SSO" button, enter a username and a JSON
   `groups` claim on mock-oauth2-server's login page. A group matching the seeded app-admin group

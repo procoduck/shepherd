@@ -14,5 +14,5 @@ spec:
   minAvailable: 1
   selector:
     matchLabels:
-      {{- include "shepherd.selectorLabels" . | nindent 6 }}
+      {{- include "shepherd.serverSelectorLabels" . | nindent 6 }}
 {{- end }}

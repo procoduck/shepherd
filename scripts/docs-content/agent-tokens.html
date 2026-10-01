@@ -28,7 +28,7 @@
         already has the database settings:</p>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-        <pre><code>kubectl -n shepherd exec deploy/shepherd -- /usr/local/bin/shepherd token create --name ci</code></pre>
+        <pre><code>kubectl -n shepherd exec svc/shepherd -- /usr/local/bin/shepherd token create --name ci</code></pre>
       </div>
 
       <h2 id="oidc">Authenticate with OIDC instead of a shared token</h2>

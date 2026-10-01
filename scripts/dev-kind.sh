@@ -312,13 +312,14 @@ cmd_reload() {
 }
 
 # app_pod names one running Shepherd server pod. Not `exec deploy/shepherd`:
-# the app Deployment's selector also matches the simulator pods (#234), so
-# kubectl could pick a simulator pod, which has no shepherd binary
-# ("stat /usr/local/bin/shepherd: no such file or directory").
+# the app Deployment's selector (immutable, so it keeps the release-wide pair)
+# also matches the simulator pods (#234), so kubectl could pick a simulator
+# pod, which has no shepherd binary ("stat /usr/local/bin/shepherd: no such
+# file or directory"). The chart labels the server pods component=server.
 app_pod() {
 	local pod
 	pod=$(kc -n "$NAMESPACE" get pods \
-		-l 'app.kubernetes.io/instance=shepherd,app.kubernetes.io/name=shepherd,app.kubernetes.io/component!=simulator' \
+		-l 'app.kubernetes.io/instance=shepherd,app.kubernetes.io/name=shepherd,app.kubernetes.io/component=server' \
 		--field-selector=status.phase=Running -o name | head -1)
 	if [ -z "$pod" ]; then
 		echo "dev-kind.sh: no running Shepherd server pod in ${NAMESPACE}" >&2

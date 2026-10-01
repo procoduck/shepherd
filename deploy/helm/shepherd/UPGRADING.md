@@ -1,5 +1,66 @@
 # Upgrading the Shepherd chart
 
+## 0.17.x → 0.18.0
+
+An ordinary `helm upgrade` with no values to change, but **the Shepherd Service
+has no endpoints for a few seconds while the upgrade rolls** unless you pre-label
+the running pods first (below).
+
+### What changed
+
+Every pod this chart runs — the Shepherd server, the sandbox simulator, the
+receiver, the migration Job — carries the same `app.kubernetes.io/name` and
+`app.kubernetes.io/instance` labels, and the objects meant for the server alone
+selected on just that pair. So the simulator (and, with the receiver on, the
+receiver) pod sat in the `shepherd` and `shepherd-metrics` Services'
+EndpointSlices, `kubectl port-forward|exec svc/shepherd` could pick it, the
+PodDisruptionBudget counted it, and with `networkPolicy.enabled: true` the app
+NetworkPolicy — whose egress allows everything — applied to the simulator too,
+opening the sandbox's otherwise default-deny egress.
+
+The server pods now carry `app.kubernetes.io/component: server`, and these
+select on it:
+
+- the `<release>` and `<release>-metrics` Services;
+- the PodDisruptionBudget (rendered with two or more replicas);
+- the app NetworkPolicy (`networkPolicy.enabled`);
+- the simulator NetworkPolicy's ingress rule (only the server may reach the
+  simulator's control port).
+
+The Deployment's own `spec.selector` is **unchanged**: Kubernetes forbids
+changing it on a live Deployment, so changing it would make this upgrade fail
+outright. It still matches the simulator pods, so reach a server pod through
+the Service (`kubectl exec svc/<release> -- …`), not `deploy/<release>`.
+
+### The no-endpoints window
+
+Helm applies the new Service selector and the new pod template together. The
+running pods were created from the old template and lack the new label, so from
+that moment until the first new pod is Ready no pod matches: the UI, the API and
+collectors' polls through the Service get no answer. With the default rolling
+update (`maxSurge: 1`, `maxUnavailable: 0`) that is as long as one new pod takes
+to start and pass its readiness probe — typically a few seconds. Collectors
+keep running their last config and pick up on their next poll; a sandbox run
+the old pods were submitting may fail, because the simulator's ingress rule no
+longer admits them. For the rest of the roll only the new pods serve, so
+capacity ramps up from one pod to `replicas`.
+
+**To avoid it,** label the running server pods just before the upgrade, so the
+new selector already matches them. The server pods are the release's only pods
+without a component label:
+
+```sh
+kubectl -n <namespace> label pod \
+  -l 'app.kubernetes.io/instance=<release>,app.kubernetes.io/name=shepherd,!app.kubernetes.io/component' \
+  app.kubernetes.io/component=server
+helm upgrade <release> oci://ghcr.io/procoduck/charts/shepherd --version 0.18.0 …
+```
+
+(`app.kubernetes.io/name` is your `nameOverride` if you set one.) The label does
+not change which ReplicaSet owns the pods, and the roll then replaces them as
+usual. A pod recreated between the two commands will not have it, so run them
+together. Otherwise, upgrade in a maintenance window.
+
 ## 0.15.x → 0.16.0
 
 An ordinary `helm upgrade`, with nothing to do: the new receiver tier is off

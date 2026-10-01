@@ -10,7 +10,10 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/e2e-framework/klient/k8s/resources"
 	"sigs.k8s.io/e2e-framework/klient/wait"
 	"sigs.k8s.io/e2e-framework/klient/wait/conditions"
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
@@ -79,6 +82,20 @@ func TestHelmChartInstalls(t *testing.T) {
 				ok, out := dialUntilIn(ctx, cfg, f.ns, "chart-health", release, 8080, true, connectDeadline)
 				if !ok {
 					t.Fatalf("shepherd Service never accepted a connection in %s: %s", connectDeadline, out)
+				}
+				return ctx
+			}).
+		Assess("the shepherd Services' endpoints are server pods only (#234)",
+			func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
+				// Every pod of the release carries the release-wide
+				// name+instance pair, and both app Services used to select by
+				// that pair alone: the simulator pod sat in their
+				// EndpointSlices (in a port-less slice, so no traffic yet, but
+				// port-forward/exec svc/shepherd could land on it). Read the
+				// slices the cluster actually built, not the rendered selector.
+				simPod, _ := simulatorPodNameAndIP(t, ctx, cfg, f.ns, release)
+				for _, svc := range []string{release, release + "-metrics"} {
+					assertEndpointsOnlyServerPods(ctx, t, cfg, f.ns, svc, simPod)
 				}
 				return ctx
 			}).
@@ -193,4 +210,52 @@ func waitDeploymentAvailable(t *testing.T, cfg *envconf.Config, ns, name string)
 			cfg.KubeconfigFile(), ns, name))
 		t.Fatalf("deployment %q never became Available: %v\n%s", dep.Name, err, diag.Result())
 	}
+}
+
+// assertEndpointsOnlyServerPods polls the Service's EndpointSlices until they
+// list at least one pod, then fails if any listed pod is not a Shepherd server
+// pod (app.kubernetes.io/component=server) or is the simulator pod by name.
+// Non-ready endpoints count: a pod the selector matches is listed whether or
+// not it is ready or exposes the Service's port, and that listing is what the
+// #234 leak looked like (the simulator pod in a port-less slice).
+func assertEndpointsOnlyServerPods(ctx context.Context, t *testing.T, cfg *envconf.Config, ns, svc, simPod string) {
+	t.Helper()
+	sel := discoveryv1.LabelServiceName + "=" + svc
+	deadline := time.Now().Add(2 * time.Minute)
+	var pods []string
+	for {
+		var slices discoveryv1.EndpointSliceList
+		if err := cfg.Client().Resources(ns).List(ctx, &slices, resources.WithLabelSelector(sel)); err != nil {
+			t.Fatalf("listing EndpointSlices of Service %s/%s: %v", ns, svc, err)
+		}
+		pods = pods[:0]
+		for i := range slices.Items {
+			for _, ep := range slices.Items[i].Endpoints {
+				if ep.TargetRef != nil && ep.TargetRef.Kind == "Pod" {
+					pods = append(pods, ep.TargetRef.Name)
+				}
+			}
+		}
+		if len(pods) > 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(3 * time.Second)
+	}
+	if len(pods) == 0 {
+		t.Fatalf("Service %s/%s has no pod endpoints after 2m\n%s", ns, svc, describeNS(cfg, ns))
+	}
+	for _, name := range pods {
+		if name == simPod {
+			t.Fatalf("Service %s/%s lists the simulator pod %s as an endpoint (#234)", ns, svc, name)
+		}
+		var p corev1.Pod
+		if err := cfg.Client().Resources(ns).Get(ctx, name, ns, &p); err != nil {
+			t.Fatalf("reading endpoint pod %s/%s of Service %s: %v", ns, name, svc, err)
+		}
+		if got := p.Labels["app.kubernetes.io/component"]; got != "server" {
+			t.Fatalf("Service %s/%s lists pod %s (component=%q): its selector reaches past the server pods (#234)",
+				ns, svc, name, got)
+		}
+	}
+	t.Logf("Service %s endpoints: %v (all component=server)", svc, pods)
 }

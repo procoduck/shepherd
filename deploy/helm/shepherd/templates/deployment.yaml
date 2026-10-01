@@ -11,6 +11,16 @@ spec:
   # the autoscaler had decided -- a downscale from 10 to 2 in one step.
   replicas: {{ .Values.replicas }}
   {{- end }}
+  # Deliberately the OLD release-wide pair, not shepherd.serverSelectorLabels:
+  # a Deployment's spec.selector is immutable, so adding the component label
+  # here would make every `helm upgrade` from an earlier chart fail ("field is
+  # immutable") and force a delete-and-recreate. It is harmless as it stands --
+  # the ReplicaSets add pod-template-hash, so the Deployment never adopts the
+  # simulator or receiver pods it also matches. The pod template below carries
+  # app.kubernetes.io/component: server, and everything else that means "the
+  # server pods" (both Services, the PDB, the NetworkPolicies) selects on it
+  # (#234). Never use `kubectl ... deploy/shepherd` to reach a server pod:
+  # kubectl resolves it through this selector and can pick a simulator pod.
   selector:
     matchLabels:
       {{- include "shepherd.selectorLabels" . | nindent 6 }}
@@ -40,7 +50,7 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
       labels:
-        {{- include "shepherd.selectorLabels" . | nindent 8 }}
+        {{- include "shepherd.serverSelectorLabels" . | nindent 8 }}
     spec:
       {{- with .Values.image.pullSecrets }}
       imagePullSecrets:

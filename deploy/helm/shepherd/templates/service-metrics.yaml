@@ -25,5 +25,5 @@ spec:
       targetPort: metrics
       protocol: TCP
   selector:
-    {{- include "shepherd.selectorLabels" . | nindent 4 }}
+    {{- include "shepherd.serverSelectorLabels" . | nindent 4 }}
 {{- end }}

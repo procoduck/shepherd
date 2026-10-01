@@ -14,12 +14,13 @@ spec:
     - Egress
   # Only the main shepherd Deployment submits runs (POST /v1/runs on the
   # control port); nothing else in the cluster has a reason to reach this Pod
-  # at all.
+  # at all. Selected by the server's component label (#234): the release-wide
+  # pair alone also matches the receiver, the migrate Job and this very pod.
   ingress:
     - from:
         - podSelector:
             matchLabels:
-              {{- include "shepherd.selectorLabels" . | nindent 14 }}
+              {{- include "shepherd.serverSelectorLabels" . | nindent 14 }}
       ports:
         - port: control
           protocol: TCP

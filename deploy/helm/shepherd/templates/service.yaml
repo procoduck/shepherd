@@ -18,4 +18,4 @@ spec:
       nodePort: {{ .Values.service.nodePort }}
       {{- end }}
   selector:
-    {{- include "shepherd.selectorLabels" . | nindent 4 }}
+    {{- include "shepherd.serverSelectorLabels" . | nindent 4 }}

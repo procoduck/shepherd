@@ -6,9 +6,13 @@ metadata:
   labels:
     {{- include "shepherd.labels" . | nindent 4 }}
 spec:
+  # The server pods only (#234). With the release-wide pair this policy also
+  # selected the simulator and receiver pods, and NetworkPolicies are additive:
+  # its allow-all egress rule below then overrode the sandbox's default-deny
+  # egress the moment networkPolicy.enabled was turned on.
   podSelector:
     matchLabels:
-      {{- include "shepherd.selectorLabels" . | nindent 6 }}
+      {{- include "shepherd.serverSelectorLabels" . | nindent 6 }}
   policyTypes:
     - Ingress
     - Egress

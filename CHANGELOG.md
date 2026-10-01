@@ -32,6 +32,16 @@ Categories used here:
   every collector's served hash changes once (the header line changed), so the fleet re-fetches
   and reloads one time; nothing to do. (#213)
 
+- **The chart's server Services, PDB and NetworkPolicies no longer select the simulator or
+  receiver pods.** They selected on the release-wide `app.kubernetes.io/name`/`instance` labels,
+  which every pod of the release carries: the simulator pod sat in the `shepherd` Services'
+  EndpointSlices, `kubectl exec|port-forward svc/shepherd` could land on it, the PDB counted it,
+  and with `networkPolicy.enabled: true` the app policy's allow-all egress applied to the sandbox
+  too. The server pods are now labelled `app.kubernetes.io/component: server` and every app-only
+  selector uses it; the Deployment's immutable `spec.selector` is unchanged. **On upgrade** the
+  Services have no endpoints until the first new pod is Ready (a few seconds) unless you pre-label
+  the running pods — see the chart's `UPGRADING.md`. (#234)
+
 ## v0.13.0
 
 Chart 0.17.0. Moves validation and the bundled Alloy to **v1.20.1**, and fixes two things v0.12.0
