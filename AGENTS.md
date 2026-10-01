@@ -83,7 +83,7 @@ Images in Dockerfiles, compose files, kind manifests, Go pod specs and testconta
 | `gcr.io/distroless/base-nossl-debian12:nonroot` | `deploy/versions.env` (DISTROLESS_BASE_IMAGE) — app and simulator images (`make check-docker` guards `deploy/Dockerfile.*`; the init image's runtime base is GO_IMAGE); `e2e/mockmsft/Dockerfile:6` hardcodes `static-debian12:nonroot` — not in `check-docker`, but Renovate refreshes its digest |
 | `grafana/alloy:v1.20.1` | `deploy/versions.env` (ALLOY_IMAGE); compose files restate it as a `${ALLOY_IMAGE:-…}` fallback, `dev/kind/alloy.yaml` takes it via `__ALLOY_IMAGE__` |
 | `golang:1.27-alpine` | `deploy/versions.env` (GO_IMAGE); also the init image's runtime base; `e2e/mockmsft/Dockerfile:1` hardcodes it — not in `check-docker`, Renovate-refreshed |
-| `node:24-slim` | `deploy/versions.env` (NODE_IMAGE) |
+| `node:26-slim` | `deploy/versions.env` (NODE_IMAGE) |
 | `postgres:18-alpine` / `postgres:16-alpine` | 18: the dev and e2e compose files (#154; Renovate-managed). 16: `Makefile` (smoke), `internal/testutil/postgres.go`, `e2e/k8s/fixtures_test.go` — the supported floor. NOT versions.env |
 | `busybox:1.36`, `curlimages/curl:8.11.1` | `e2e/k8s/*_test.go` pod specs — NOT versions.env, NOT Renovate-managed |
 | `ghcr.io/navikt/mock-oauth2-server:6.0.1` | compose files and `dev/kind/oidc.yaml` — NOT versions.env |

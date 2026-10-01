@@ -17,7 +17,7 @@ rebuilds the image and recreates the container after a Go change. If you would
 rather run the SPA with hot reload against that backend, `make dev-frontend`
 (Vite proxies `/api`, `/auth` and the Connect procedures to `:8080`).
 
-Building by hand needs Go (version per `go.mod`), Node 24 with pnpm, Docker, and
+Building by hand needs Go (version per `go.mod`), Node 26 with pnpm, Docker, and
 Helm. `make tools` installs the Go-side generators at their pinned versions.
 
 ## Before you open a pull request

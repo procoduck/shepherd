@@ -61,7 +61,7 @@ export default defineConfig({
     // uses features its upcoming default `configLoader: 'native'` cannot
     // provide — under that loader Node imports this file as plain ESM, where
     // the CommonJS `__dirname` shim does not exist. `import.meta.dirname` is
-    // the ESM equivalent (Node 20.11+; this repo runs Node 24) and works under
+    // the ESM equivalent (Node 20.11+; this repo runs Node 26) and works under
     // the bundled loader too, so there is nothing to suppress.
     alias: { '@': path.resolve(import.meta.dirname, './src') },
   },

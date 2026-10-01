@@ -17,6 +17,10 @@ Categories used here:
 
 - **Built with Go 1.27.** `go.mod` moves to `go 1.27.1` and every image builds on
   `golang:1.27-alpine` (`GO_IMAGE` in `deploy/versions.env`). Building from source needs Go 1.27.
+- **The SPA builds on Node 26 with pnpm 12.** `NODE_IMAGE` is `node:26-slim`, `PNPM_VERSION` and
+  `packageManager` are `12.8.1`, `@types/node` is 26, and `web/package.json` declares
+  `engines.node >=26` (with `engineStrict`, an install on an older Node is refused). Node 26 no longer
+  bundles corepack, so the image builds install pnpm with `npm install -g pnpm@<pin>`.
 
 ### Fixed
 
