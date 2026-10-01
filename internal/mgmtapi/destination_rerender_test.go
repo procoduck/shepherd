@@ -256,12 +256,23 @@ var _ = Describe("Destination changes reach wizard pipelines (#262)", Label("int
 			// Alloy (app-observability puts scrape_url inside a string
 			// literal unquoted; CommitWizard's Stage 1 gate would refuse it
 			// today, a row from before that gate need not have been).
-			state, err := json.Marshal(map[string]any{
+			brokenState := map[string]any{
 				"scrape_url": `app:8080"broken`, "metrics_dest_name": "mimir", "logs_enabled": false,
-			})
+			}
+			state, err := json.Marshal(brokenState)
 			Expect(err).NotTo(HaveOccurred())
+			// Stored exactly as the wizard renders it (RenderWizard returns
+			// the contents even when they fail the gate), so it is not
+			// mistaken for a hand edit.
+			code, render := call("WizardService/RenderWizard", map[string]any{
+				"org_id": org.String(), "kind": "app-observability", "name": "broken-app", "state": brokenState,
+			})
+			Expect(code).To(Equal(http.StatusOK), "%v", render)
+			Expect(render["valid"]).NotTo(Equal(true), "the stored state must render to text that fails the gate")
+			storedBroken, _ := render["contents"].(string) //nolint:errcheck // asserted non-empty below
+			Expect(storedBroken).NotTo(BeEmpty())
 			broken, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
-				OrgID: org, Name: "broken-app", Contents: "// stored before the gate", Matchers: json.RawMessage(`[]`),
+				OrgID: org, Name: "broken-app", Contents: storedBroken, Matchers: json.RawMessage(`[]`),
 				Source: "wizard", WizardKind: pgtype.Text{String: "app-observability", Valid: true}, WizardState: state,
 			})
 			Expect(err).NotTo(HaveOccurred())
@@ -271,13 +282,66 @@ var _ = Describe("Destination changes reach wizard pipelines (#262)", Label("int
 			Expect(out["code"]).To(Equal("failed_precondition"))
 			Expect(out["message"]).To(ContainSubstring(`"broken-app"`))
 			Expect(out["message"]).To(ContainSubstring("stage 1"))
+			Expect(out["message"]).NotTo(ContainSubstring("edited by hand"))
 
 			d, err := st.Queries.GetDestinationByID(ctx, mimir.ID)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(d.Url).To(Equal(oldURL))
 			Expect(pipeline(good.ID).Contents).To(Equal(good.Contents), "no partial state: the pipeline that did render is not written either")
 			Expect(revisions(good.ID)).To(HaveLen(1))
-			Expect(pipeline(broken.ID).Contents).To(Equal("// stored before the gate"))
+			Expect(pipeline(broken.ID).Contents).To(Equal(storedBroken))
+		})
+	})
+
+	// Maintainer decision 2026-10-01: a re-render must never overwrite a
+	// wizard pipeline whose stored text was edited by hand. Detected by
+	// rendering it from its stored state against the destinations as they
+	// were BEFORE the update: a difference is a hand edit. Red run: on the
+	// first #262 build the update succeeded and replaced the edit.
+	Describe("hand-edited wizard pipelines", func() {
+		It("refuses the update, naming the pipeline and what to do, and changes nothing", func() {
+			mimir := createDest(org, "mimir", "prometheus", oldURL)
+			used := commitSelfMonitoring(org, "self-mon", "mimir")
+			edited := used.Contents + "\n// tuned by hand\n"
+			code, out := call("PipelineService/UpdatePipeline", map[string]any{
+				"orgId": org.String(), "id": used.ID.String(), "name": used.Name,
+				"contents": edited, "matchers": []string{`role="singleton"`},
+			})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			Expect(pipeline(used.ID).Source).To(Equal("wizard"), "an editor save keeps the pipeline a wizard pipeline")
+
+			code, out = updateDest(mimir, map[string]any{"url": newURL})
+			Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
+			Expect(out["code"]).To(Equal("failed_precondition"))
+			Expect(out["message"]).To(ContainSubstring(`"self-mon"`))
+			Expect(out["message"]).To(ContainSubstring("edited by hand"))
+			Expect(out["message"]).To(ContainSubstring("re-run its wizard"))
+
+			d, err := st.Queries.GetDestinationByID(ctx, mimir.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(d.Url).To(Equal(oldURL))
+			Expect(pipeline(used.ID).Contents).To(Equal(edited))
+			Expect(revisions(used.ID)).To(HaveLen(2), "created + the hand edit, nothing more")
+			Expect(auditRows(org, "pipeline.rerender")).To(BeEmpty())
+			Expect(auditRows(org, "destination.update")).To(BeEmpty())
+		})
+
+		It("still converts a pre-#260 sys.env pipeline: its text came from the old renderer, not a hand", func() {
+			mimir := createDest(org, "mimir", "prometheus", oldURL)
+			state, err := json.Marshal(map[string]any{"metrics_dest_name": "mimir", "logs_enabled": false})
+			Expect(err).NotTo(HaveOccurred())
+			legacy, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+				OrgID: org, Name: "legacy-self-mon", Contents: legacySelfMonitoringContents,
+				Matchers: json.RawMessage(`["role=\"singleton\""]`), Source: "wizard",
+				WizardKind: pgtype.Text{String: "self-monitoring", Valid: true}, WizardState: state,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			code, out := updateDest(mimir, map[string]any{"url": newURL})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			got := pipeline(legacy.ID)
+			Expect(got.Contents).NotTo(ContainSubstring("sys.env"))
+			Expect(got.Contents).To(ContainSubstring(`url  = "` + newURL + `"`))
 		})
 	})
 

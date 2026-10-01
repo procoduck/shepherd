@@ -647,7 +647,9 @@ the destination under a `*_dest_name` key, from that stored state, in the same t
 destination update (#262): Stages 1–2 per pipeline, Stage 3 over the merged config with all of them
 swapped in, then a revision, a `pipeline.rerender` audit row (the editing user) and the org's serve
 cache marked dirty. Any refusal fails the update (`failed_precondition`, naming each pipeline) and
-nothing changes. A rename rewrites the name in those pipelines' `wizard_state` as well.
+nothing changes. A pipeline whose stored contents differ (exact bytes) from its render against the
+destinations as they stood before the update was edited by hand and is refused the same way, never
+overwritten — except a pre-#229 `sys.env` pipeline, which is converted. A rename rewrites the name in those pipelines' `wizard_state` as well.
 `DeleteDestination` refuses (`failed_precondition`, listing them) while any wizard pipeline in the
 org names the destination. Pipelines rendered before #229 (the `sys.env` writer) are converted
 once by `shepherd admin rerender-destinations`.

@@ -57,8 +57,12 @@ Categories used here:
   user who edited the destination, and the org's serve cache is marked dirty and recomputed. If
   any would fail, the destination update is refused with `failed_precondition` naming each
   pipeline and why, and nothing changes. A rename is carried into those pipelines' wizard answers
-  too. A pipeline whose generated text was edited by hand is regenerated as well; the edit stays in
-  its revision history. Collectors whose pipelines change reload once. **Shipped.**
+  too. A pipeline whose generated text was edited by hand is never overwritten: the update is
+  refused naming it, with what to do (re-run its wizard, or move its text into a UI pipeline). A
+  hand edit is detected by rendering the pipeline from its stored answers against the destinations
+  as they were before the update and comparing the exact bytes; a pre-#229 `sys.env(...)`
+  pipeline is not treated as one and is converted. Collectors whose pipelines change reload once.
+  **Shipped.**
 - **`shepherd admin rerender-destinations`** converts the wizard pipelines that still carry the
   pre-#229 `sys.env(...)` writer, through the same gate, one transaction per org, with a revision
   and a `pipeline.rerender` audit row (actor `system:rerender-destinations`). Pipelines it cannot

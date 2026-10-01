@@ -76,7 +76,8 @@ function SecretModeExplanation({ mode }: { mode: string }) {
         The collector's service account needs <code className='font-mono'>get</code>,{' '}
         <code className='font-mono'>list</code> and <code className='font-mono'>watch</code> on
         Secrets in that namespace. Saving a change here regenerates every wizard pipeline that ships
-        to this destination; if any of them would fail validation, nothing is saved.
+        to this destination; if any of them would fail validation or was edited by hand, nothing is
+        saved.
       </p>
     </div>
   );

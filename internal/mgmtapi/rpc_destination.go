@@ -311,6 +311,14 @@ func (s *DestinationService) UpdateDestination(ctx context.Context, req *connect
 	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed; rollback error on the success path is expected and harmless
 	txQ := s.store.Queries.WithTx(tx)
 
+	// The destinations as they stand BEFORE this update — what every
+	// affected wizard pipeline's stored text was rendered from, so the
+	// hand-edit check (handEdited) compares against the right render.
+	before, err := wizardDestinations(ctx, txQ, owned.OrgID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+	}
+
 	d, err := txQ.UpdateDestination(ctx, sqlc.UpdateDestinationParams{
 		ID:              id,
 		Name:            req.Msg.GetName(),
@@ -331,7 +339,7 @@ func (s *DestinationService) UpdateDestination(ctx context.Context, req *connect
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to update destination"))
 	}
 
-	rerendered, dirtied, err := s.rerenderForUpdate(ctx, txQ, owned, d)
+	rerendered, dirtied, err := s.rerenderForUpdate(ctx, txQ, owned, d, before)
 	if err != nil {
 		return nil, err
 	}
@@ -364,7 +372,12 @@ func (s *DestinationService) UpdateDestination(ctx context.Context, req *connect
 // the names of the pipelines it rewrote and whether it marked the serve
 // cache dirty; any refusal is failed_precondition naming every pipeline and
 // why, and the caller's rollback undoes the destination update with it.
-func (s *DestinationService) rerenderForUpdate(ctx context.Context, txQ *sqlc.Queries, owned, updated sqlc.Destination) (names []string, dirtied bool, err error) {
+//
+// before is the org's destinations as they stood before the update (read in
+// the same transaction, ahead of the destination write): a pipeline whose
+// stored contents differ from its render against them was edited by hand,
+// and is refused rather than overwritten (handEdited).
+func (s *DestinationService) rerenderForUpdate(ctx context.Context, txQ *sqlc.Queries, owned, updated sqlc.Destination, before wizard.Destinations) (names []string, dirtied bool, err error) {
 	pipelines, err := txQ.ListWizardPipelinesReferencingDestination(ctx, sqlc.ListWizardPipelinesReferencingDestinationParams{
 		OrgID: owned.OrgID, DestinationName: owned.Name,
 	})
@@ -383,7 +396,7 @@ func (s *DestinationService) rerenderForUpdate(ctx context.Context, txQ *sqlc.Qu
 	if updated.Name != owned.Name {
 		rename = &destinationRename{from: owned.Name, to: updated.Name}
 	}
-	changes, failures := s.pipelines.planWizardRerenders(ctx, owned.OrgID, pipelines, dests, rename)
+	changes, failures := s.pipelines.planWizardRerenders(ctx, owned.OrgID, pipelines, before, dests, rename)
 	if len(failures) > 0 {
 		return nil, false, connect.NewError(connect.CodeFailedPrecondition,
 			fmt.Errorf("destination %q was not updated: %w", owned.Name, failures))

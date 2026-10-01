@@ -109,8 +109,11 @@ subjects:
         regenerated pipeline passes the full validation gate, gets a new revision and an audit
         entry under your name, and collectors receive it on their next poll. Renaming a
         destination renames it in those pipelines too. If any of them would fail validation, nothing
-        is saved and the message names the pipeline and the reason. A pipeline whose wizard output
-        you edited by hand is regenerated as well; the edit stays in its revision history.</p>
+        is saved and the message names the pipeline and the reason. The same happens when one of
+        them was edited by hand after its wizard generated it: Shepherd never overwrites the edit.
+        Re-run that pipeline&rsquo;s wizard (folding the edit into its answers), or copy its text
+        into a new pipeline of your own and delete the wizard one, then save the destination
+        again.</p>
       <p>A destination a wizard pipeline still ships to cannot be deleted. The refusal lists the
         pipelines; point them at another destination, or delete them, first.</p>
       <h3 id="upgrade">Pipelines generated before destination auth</h3>

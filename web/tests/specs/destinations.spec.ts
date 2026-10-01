@@ -312,8 +312,8 @@ test('an update a wizard pipeline cannot take is refused with the pipeline named
     destinations: [destination({ id: 'dst-r', name: 'prom-prod', auth_mode: 'none' })],
   });
   const refusal =
-    'destination "prom-prod" was not updated: 1 wizard pipeline(s) would fail validation after ' +
-    're-rendering — "self-mon": metrics_dest_name: destination "prom-prod" is type loki; ' +
+    'destination "prom-prod" was not updated: 1 wizard pipeline(s) using it cannot be ' +
+    'regenerated — "self-mon": metrics_dest_name: destination "prom-prod" is type loki; ' +
     'prometheus.remote_write needs a prometheus destination';
   api.override('POST', '/shepherd.mgmt.v1.DestinationService/UpdateDestination', (route) =>
     route.fulfill({

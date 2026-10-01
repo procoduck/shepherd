@@ -56,7 +56,7 @@ func (f rerenderFailures) Error() string {
 	for i, x := range f {
 		parts[i] = fmt.Sprintf("%q: %s", x.pipeline, x.reason)
 	}
-	return fmt.Sprintf("%d wizard pipeline(s) would fail validation after re-rendering — %s", len(f), strings.Join(parts, "; "))
+	return fmt.Sprintf("%d wizard pipeline(s) using it cannot be regenerated — %s", len(f), strings.Join(parts, "; "))
 }
 
 // legacyDestinationWriterMarker is the writer every wizard emitted before
@@ -132,17 +132,66 @@ func summarizeDiagnostics(diags []validate.Diagnostic) string {
 	return strings.Join(parts, "; ")
 }
 
+// errHandEdited is the reason a hand-edited wizard pipeline is refused.
+const errHandEdited = "its contents were edited by hand after its wizard generated them, and " +
+	"regenerating it would discard that edit — re-run its wizard, or convert it to a UI pipeline " +
+	"(copy its contents into a new pipeline and delete this one)"
+
+// handEdited reports a wizard pipeline whose stored contents are not what
+// its wizard renders from its stored state against before — the org's
+// destinations as they stood when the stored text was last generated
+// (maintainer decision 2026-10-01: refuse and name it, never overwrite a
+// hand edit). The comparison is exact bytes: a wizard's render is a pure
+// function of (state, destinations), CommitWizard stores it verbatim and no
+// write path normalises stored contents, so there is nothing to normalise.
+// A pipeline still carrying the pre-#260 `sys.env(...)` writer is exempt:
+// its text came from the old renderer, and converting it is the point. A
+// render error against before (its wizard, or another destination it names,
+// already broken) is reported as such.
+func handEdited(p sqlc.Pipeline, before wizard.Destinations) *rerenderFailure {
+	if strings.Contains(p.Contents, legacyDestinationWriterMarker) {
+		return nil
+	}
+	wiz, err := wizard.Default().Get(p.WizardKind.String)
+	if err != nil {
+		return &rerenderFailure{pipeline: p.Name, reason: err.Error()}
+	}
+	state := map[string]any{}
+	if err := json.Unmarshal(p.WizardState, &state); err != nil {
+		return &rerenderFailure{pipeline: p.Name, reason: fmt.Sprintf("stored wizard state is not a JSON object: %v", err)}
+	}
+	result, err := wiz.Commit(state, before)
+	if err != nil {
+		return &rerenderFailure{pipeline: p.Name, reason: fmt.Sprintf("it no longer renders from its wizard state: %v", err)}
+	}
+	if result.Contents != p.Contents {
+		return &rerenderFailure{pipeline: p.Name, reason: errHandEdited}
+	}
+	return nil
+}
+
 // planWizardRerenders re-renders pipelines (all in orgID) and runs Stage 3
 // over the merged config with every enabled one swapped in together. It
 // returns the pipelines whose stored form changes and every pipeline that
 // was refused; a Stage 3 refusal is reported against all the enabled
 // re-rendered pipelines, since the merged config is what failed.
-func (s *PipelineService) planWizardRerenders(ctx context.Context, orgID pgtype.UUID, pipelines []sqlc.Pipeline, dests wizard.Destinations, rename *destinationRename) ([]wizardRerender, rerenderFailures) {
+//
+// before, when non-nil, is the org's destinations as they stood before the
+// change: every pipeline is first checked for a hand edit against it
+// (handEdited) and refused if it has one. The legacy-writer CLI passes nil —
+// it only touches pre-#260 pipelines, which are exempt anyway.
+func (s *PipelineService) planWizardRerenders(ctx context.Context, orgID pgtype.UUID, pipelines []sqlc.Pipeline, before, dests wizard.Destinations, rename *destinationRename) ([]wizardRerender, rerenderFailures) {
 	var (
 		changes  []wizardRerender
 		failures rerenderFailures
 	)
 	for i := range pipelines {
+		if before != nil {
+			if failure := handEdited(pipelines[i], before); failure != nil {
+				failures = append(failures, *failure)
+				continue
+			}
+		}
 		out, changed, failure := s.renderWizardPipeline(ctx, pipelines[i], dests, rename)
 		switch {
 		case failure != nil:
@@ -295,7 +344,7 @@ func (s *PipelineService) rerenderLegacyOrg(ctx context.Context, org sqlc.Org, d
 		}
 		return res, nil
 	}
-	changes, failures := s.planWizardRerenders(ctx, org.ID, legacy, dests, nil)
+	changes, failures := s.planWizardRerenders(ctx, org.ID, legacy, nil, dests, nil)
 	for _, f := range failures {
 		res.Failed = append(res.Failed, fmt.Sprintf("%s: %s", f.pipeline, f.reason))
 	}
