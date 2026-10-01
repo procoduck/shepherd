@@ -416,7 +416,8 @@ const targetsPortType = "targets"
 //
 // So: bare reference for a single targets wire, `array.concat(...)` for
 // several — both confirmed against real grafana/alloy:v1.18.1 with `alloy
-// run`, not just `validate`.
+// run`, not just `validate`. CheckPortShapes (portshape.go) enforces the same
+// two facts on hand-written config in the validation gate's Stage 2 (#233).
 func refValue(in PortSchema, texts []string) string {
 	if in.Type == targetsPortType {
 		if len(texts) == 1 {

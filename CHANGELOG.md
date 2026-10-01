@@ -15,6 +15,22 @@ Categories used here:
 
 ### Fixed
 
+- **The validation gate refuses two wiring mistakes that `alloy validate` accepts and Alloy
+  refuses at load (#233).** `alloy validate` does not evaluate references between components,
+  so it passed `targets = [discovery.kubernetes.pods.targets]`. That wire is a list of lists and
+  fails on every collector with `conversion from '[]discovery.Target' is not supported`. It also
+  passed `forward_to = prometheus.remote_write.x.receiver`, a single receiver where a list is
+  required. Stage 2 now also checks each wire against the component schema and refuses both, with
+  the line, column and the fix ("drop the brackets" / "wrap it in brackets"). The check runs on
+  every path that validates config: UI and API saves, the editor's Validate, wizard and visual
+  saves, the Stage 3 dry-run, git sync, sandbox runs and `shepherd validate`. It runs even when no
+  Alloy binary is configured. It is deliberately narrow and flags only references it can type with
+  certainty. Run over every Alloy config in the repository (goldens, seeds, fixtures, docs), it
+  finds nothing new. **Upgrade note:** stored pipelines are not re-checked on upgrade. A pipeline
+  already written in the bracketed form is refused at its next save or sync. Stage 3 validates
+  each affected collector's whole merged config, so until it is fixed it also blocks saves of other
+  pipelines that land on the same collectors. Those collectors already fail to load it.
+
 - **A failing collector no longer turns APPLIED when Shepherd serves it a new config.** v0.13.0's
   fix (#115) covered a rejected config followed by silent polls, but Alloy re-sends a status only
   when the error *message* changes: when a label edit or any other change served a new config that

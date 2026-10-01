@@ -1,7 +1,8 @@
 // Package validate implements the 3-stage validation gate for Alloy pipeline content.
 //
 // Stage 1: Syntax parsing via github.com/grafana/alloy/syntax/parser.
-// Stage 2: Semantic validation via exec of the bundled alloy binary.
+// Stage 2: Semantic validation — an in-process port-shape check against the
+// component schema (PortShapes, #233), then exec of the bundled alloy binary.
 // Stage 3: Merge dry-run — validate every affected collector's merged config.
 package validate
 
@@ -105,23 +106,48 @@ func Stage1(content string) (res Result) {
 	return Result{Diagnostics: out}
 }
 
-// Stage2 runs `alloy validate` on the given content (declare-wrapped as it will
-// be served) and returns structured diagnostics.
-// If AlloyBinary is empty, Stage 2 is skipped: it returns valid with
-// Skipped=[2], so callers can tell the operator the stage never ran.
+// Stage2 runs the semantic checks on the given content (declare-wrapped as it
+// will be served) and returns structured diagnostics:
+//
+//  1. PortShapes — in-process, against the embedded component schema. It
+//     catches wires `alloy validate` accepts but Alloy refuses at load (a
+//     targets list wrapped in another list, a single receiver where a list is
+//     required). It needs no binary, so it runs even when (2) is skipped.
+//  2. `alloy validate` via the bundled binary. If AlloyBinary is empty, this
+//     half is skipped and the result carries Skipped=[2] (#209), so callers
+//     can tell the operator it never ran.
+//
+// Diagnostics from both are returned together, so one save reports everything.
 func (v *Validator) Stage2(ctx context.Context, content string) (res Result) {
+	shapes := PortShapes(content)
 	if v.alloyBinary == "" {
 		// Counted as "skipped", not "valid". The distinction is the whole
 		// point: v0.0.2 shipped an image where `alloy validate` could not run
 		// at all, and every deployment silently skipped this stage while
 		// reporting success. A dashboard where stage 2 is 100% skipped in
 		// production is that bug, visible — and Skipped carries the same
-		// distinction to the API response (#209).
+		// distinction to the API response (#209). A port-shape refusal is a
+		// real stage-2 verdict, though, and is counted as one; `alloy validate`
+		// still did not run, so the result says so.
+		if len(shapes) > 0 {
+			metrics.ObserveValidation("2", false)
+			return Result{Diagnostics: shapes, Skipped: []int{2}}
+		}
 		metrics.ValidationTotal.WithLabelValues("2", "skipped").Inc()
 		return Result{Valid: true, Skipped: []int{2}}
 	}
 	defer func() { metrics.ObserveValidation("2", res.Valid) }()
 
+	res = v.alloyValidate(ctx, content)
+	if len(shapes) > 0 {
+		res.Valid = false
+		res.Diagnostics = append(res.Diagnostics, shapes...)
+	}
+	return res
+}
+
+// alloyValidate execs `alloy validate` on content.
+func (v *Validator) alloyValidate(ctx context.Context, content string) Result {
 	tmp, err := os.CreateTemp("", "shepherd-validate-*.alloy")
 	if err != nil {
 		return Result{Diagnostics: []Diagnostic{{Line: 1, Message: fmt.Sprintf("creating temp file: %v", err), Stage: 2}}}

@@ -182,6 +182,34 @@ var _ = Describe("PipelineService Connect RPC", Label("integration"), func() {
 		Expect(payload.Code).To(Equal("invalid_argument"))
 	})
 
+	// #233: `alloy validate` accepts a list-of-lists targets wire that Alloy
+	// refuses at load. The save path must refuse it and store nothing.
+	It("refuses to create a pipeline whose targets wire is a list of lists", func() {
+		cookie := sessionCookie(true)
+		resp := postConnect("/shepherd.mgmt.v1.PipelineService/CreatePipeline", map[string]any{
+			"org_id": orgID, "name": "list-of-lists", "contents": issue233Contents, "matchers": []string{},
+		}, cookie)
+		var payload struct {
+			Code string `json:"code"`
+		}
+		decodeBody(resp, &payload)
+		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+		Expect(payload.Code).To(Equal("failed_precondition"))
+
+		pipes, err := st.Queries.ListPipelinesByOrg(ctx, mustUUID(orgID))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(pipes).To(BeEmpty(), "a refused save must store nothing")
+
+		// The corrected wire saves.
+		fixed := strings.Replace(issue233Contents, "[discovery.kubernetes.pods.targets]", "discovery.kubernetes.pods.targets", 1)
+		resp = postConnect("/shepherd.mgmt.v1.PipelineService/CreatePipeline", map[string]any{
+			"org_id": orgID, "name": "list-of-lists", "contents": fixed, "matchers": []string{},
+		}, cookie)
+		var created map[string]any
+		decodeBody(resp, &created)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+	})
+
 	It("denies CreatePipeline for a session without org-admin access", func() {
 		cookie := sessionCookie(false) // no group memberships: fails the org-admin requirement
 		resp := postConnect("/shepherd.mgmt.v1.PipelineService/CreatePipeline", map[string]any{

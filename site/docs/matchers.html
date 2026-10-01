@@ -167,7 +167,13 @@
       <ol>
         <li><strong>Syntax</strong> — the Alloy parser, with errors mapped back to line and column.</li>
         <li><strong>Semantics</strong> — the real <code>alloy validate</code> binary, against the
-            pinned Alloy version.</li>
+            pinned Alloy version, plus a check of how components are wired to each other against
+            the component schema. <code>alloy validate</code> does not evaluate references between
+            components, so it accepts two mistakes that Alloy then refuses at load. One is a list
+            of targets wrapped in another list (<code>targets = [discovery.kubernetes.pods.targets]</code>;
+            drop the brackets). The other is a single receiver where a list is required
+            (<code>forward_to = prometheus.remote_write.main.receiver</code>; add the brackets). Shepherd
+            refuses both, with the line and column.</li>
         <li><strong>Merge dry-run</strong> — the whole merged config for every affected collector.
             This is the stage that earns its keep: a pipeline can be perfectly valid on its own and
             still collide with one that is already running, and this catches that before any agent

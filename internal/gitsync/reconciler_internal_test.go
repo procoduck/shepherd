@@ -343,6 +343,40 @@ var _ = Describe("Reconciler.reconcileLink", Label("integration"), func() {
 		Expect(updatedLink.SyncError.String).To(ContainSubstring("validation errors"))
 	})
 
+	// #233: the real `alloy validate` (this suite runs the pinned binary)
+	// accepts a list-of-lists targets wire that Alloy refuses at load. A sync
+	// must refuse it the same way a UI save does, through Stage 2's port-shape
+	// check, and leave nothing synced.
+	It("rejects a file whose targets wire is a list of lists (stage 2 port shape)", func() {
+		push(`// #233 reproduction: a list of lists
+discovery.kubernetes "pods" {
+  role = "pod"
+}
+
+prometheus.scrape "demo" {
+  targets    = [discovery.kubernetes.pods.targets]
+  forward_to = [prometheus.remote_write.demo.receiver]
+}
+
+prometheus.remote_write "demo" {
+  endpoint {
+    url = "https://prom.example.com/api/v1/push"
+  }
+}
+`)
+
+		err := r.reconcileLink(ctx, link)
+		Expect(err).To(HaveOccurred())
+
+		_, lookupErr := st.Queries.GetPipelineByOrgAndName(ctx, sqlc.GetPipelineByOrgAndNameParams{OrgID: link.OrgID, Name: pipelineName})
+		Expect(lookupErr).To(HaveOccurred(), "a list-of-lists file must never be synced as a pipeline")
+
+		updatedLink, linkErr := st.Queries.GetRepoLinkByID(ctx, link.ID)
+		Expect(linkErr).NotTo(HaveOccurred())
+		Expect(updatedLink.SyncStatus.String).To(Equal("error"))
+		Expect(updatedLink.SyncError.String).To(ContainSubstring("validation errors"))
+	})
+
 	// W2-S1's stage-3 dry-run: this file is individually valid, but merging
 	// it against the linked collector's other enabled pipelines produces a
 	// declare-block-name collision — the same failure mode
