@@ -1,4 +1,4 @@
-FROM golang:1.26-alpine@sha256:ce864e7223ac17b1775e6fd0b4c0db580c2eb50e7953a427916379e4b92a1628 AS builder
+FROM golang:1.27-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS builder
 WORKDIR /app
 COPY main.go .
 RUN go mod init mockmsft && CGO_ENABLED=0 GOOS=linux go build -o /mockmsft .

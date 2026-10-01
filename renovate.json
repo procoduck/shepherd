@@ -30,7 +30,7 @@
       "enabled": false
     },
     {
-      "description": "A Go tag bump is a toolchain decision at MINOR too: docker versioning calls golang 1.26-alpine -> 1.27-alpine a minor, but it is a Go release that must move with go.mod's go directive and ci.yml. Digests behind the pinned tag stay routine.",
+      "description": "A Go tag bump is a toolchain decision at MINOR too: docker versioning calls golang 1.27-alpine -> 1.28-alpine a minor, but it is a Go release that must move with go.mod's go directive and ci.yml. Digests behind the pinned tag stay routine.",
       "matchManagers": ["custom.regex"],
       "matchPackageNames": ["golang"],
       "matchUpdateTypes": ["major", "minor"],

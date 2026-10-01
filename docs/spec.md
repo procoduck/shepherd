@@ -12,7 +12,7 @@ You are implementing a production-grade fleet manager for Grafana Alloy collecto
 4. **All SQL goes through sqlc.** No string-built SQL, no ORM. All schema changes go through golang-migrate migration files. Never edit an already-committed migration; add a new one.
 5. **Secrets are never logged, never returned by any API, and encrypted at rest** (§7.4).
 6. **Small commits per milestone** (§14). After each milestone, all tests must pass: `go build ./... && ginkgo -r`.
-7. Go 1.26+, formatted and lint-clean per the **exact** golangci-lint v2 config in §20 (`make lint` green at every milestone). Frontend: TypeScript strict mode, no `any`.
+7. Go 1.27+, formatted and lint-clean per the **exact** golangci-lint v2 config in §20 (`make lint` green at every milestone). Frontend: TypeScript strict mode, no `any`.
 8. Releases are built exclusively through GoReleaser per §21 — no hand-rolled build scripts, no `docker build` outside the GoReleaser flow except the local dev target.
 
 ---
@@ -61,7 +61,7 @@ Spoke clusters already run local chart-generated config (clusterMetrics, podLogs
 
 | Concern | Choice |
 |---|---|
-| Language | Go 1.26+ |
+| Language | Go 1.27+ |
 | CLI | `github.com/spf13/cobra` |
 | Config | `github.com/spf13/viper` (file + env, prefix `SHEPHERD_`) |
 | Agent API | `connectrpc.com/connect` (Connect protocol, h2c via `golang.org/x/net/http2/h2c`) |
@@ -1190,7 +1190,7 @@ Create THREE files. Root `AGENTS.md`, verbatim (substitute the real module path)
 ```markdown
 # Shepherd
 
-Self-hosted Grafana Alloy fleet manager. Go 1.26 backend (Connect RPC agent API + chi REST),
+Self-hosted Grafana Alloy fleet manager. Go 1.27 backend (Connect RPC agent API + chi REST),
 React 19/TS/Vite SPA embedded via go:embed, PostgreSQL 16. Spec: docs/spec.md (authoritative).
 
 ## Commands

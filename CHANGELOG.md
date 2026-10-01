@@ -13,6 +13,11 @@ Categories used here:
 
 ## Unreleased
 
+### Changed
+
+- **Built with Go 1.27.** `go.mod` moves to `go 1.27.1` and every image builds on
+  `golang:1.27-alpine` (`GO_IMAGE` in `deploy/versions.env`). Building from source needs Go 1.27.
+
 ### Fixed
 
 - **A viewer's visual builder is read-only on the canvas and in the inspector too** (#226). Since

@@ -69,7 +69,7 @@ echo "==> Running extractor (linux container)..."
 # The host module cache is mounted so nothing re-downloads; the container runs
 # as the invoking user so cached files stay owned by them (GOCACHE/HOME point
 # into /tmp because that user has no home inside the image).
-GO_CONTAINER_IMAGE="${GO_IMAGE:-golang:1.26}"
+GO_CONTAINER_IMAGE="${GO_IMAGE:-golang:1.27}"
 mkdir -p "${OUT_DIR}"
 # Pre-create the cache dirs: if one does not exist when docker mounts it
 # (e.g. a fresh CI runner on a cache miss), docker creates the mount point as
