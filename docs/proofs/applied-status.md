@@ -47,6 +47,11 @@ Captured requests from a real `grafana/alloy:v1.20.1` polling a recording collec
 A passive capture of the dev stack's own agent (tcpdump in its network namespace) matched (b):
 after a label edit changed the served hash, every poll carried the new hash and no status.
 
+(Since #213 the served header carries no generation timestamp, so a recompute of an unchanged
+config no longer moves the hash as it did in the captures above. (b) stays reachable: any real
+change to the served config that leaves the failing component's line and message alone — a
+pipeline edited below it, say — produces the same new-hash-no-status sequence.)
+
 What this means for a status-less poll with the served hash: **the agent's outcome is unchanged**
 — unless the poll carries `effective_config`, which proves a load.
 

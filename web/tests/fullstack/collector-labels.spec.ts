@@ -1,4 +1,4 @@
-import { expect, forceRecompute, loginAsAdmin, normalizeServedConfig, test } from './fixtures';
+import { expect, forceRecompute, loginAsAdmin, test } from './fixtures';
 
 test('collector labels persist through agent polling and group inventory without changing config', async ({
   page,
@@ -77,16 +77,12 @@ test('collector labels persist through agent polling and group inventory without
     const whileLabelPresent = await served();
     // The label edits above each mark this collector's serve cache dirty
     // (see rpc_fleet.go's SetCollectorLabel/DeleteCollectorLabel), so this
-    // forceRecompute genuinely re-renders — unlike `before`'s baseline
-    // recompute, it stamps a new "generated at" timestamp even though
-    // nothing matching-relevant changed. Compare with that line normalized
-    // away, the same way internal/serve/compute_test.go does for the Go
-    // suite; a raw hash/content equality check here would really be
-    // asserting "the cache was never invalidated", not "labels don't affect
-    // matching".
-    expect(normalizeServedConfig(whileLabelPresent.content)).toBe(
-      normalizeServedConfig(before.content),
-    );
+    // forceRecompute genuinely re-renders. The served header carries no
+    // generation timestamp (procoduck/shepherd#213), so a re-render of a
+    // config whose matching is unaffected by the label must be byte-identical
+    // to `before` — no normalization needed.
+    expect(whileLabelPresent.content).toBe(before.content);
+    expect(whileLabelPresent.hash).toBe(before.hash);
     await page.goto('/collectors');
     await page.getByLabel('Group by').selectOption(key);
     await expect(page.getByRole('heading', { name: `${key}=platform (1)` })).toBeVisible();

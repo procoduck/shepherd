@@ -1,17 +1,21 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"shepherd/internal/config"
 	"shepherd/internal/merge"
 	"shepherd/internal/schema"
 	"shepherd/internal/validate"
 	"shepherd/internal/version"
 	"shepherd/internal/visual"
+	"shepherd/internal/wizard/wizardtest"
 )
 
 func TestDevSeed(t *testing.T) {
@@ -22,7 +26,9 @@ func TestDevSeed(t *testing.T) {
 // allSeedPipelineItems returns every pipeline the dev seed creates, across
 // both orgs.
 func allSeedPipelineItems() []seedPipelineItem {
-	items := append([]seedPipelineItem{}, platformPipelineItems()...)
+	platformItems, err := platformPipelineItems()
+	Expect(err).NotTo(HaveOccurred())
+	items := append([]seedPipelineItem{}, platformItems...)
 	return append(items, dataEngPipelineItems()...)
 }
 
@@ -88,7 +94,9 @@ var _ = Describe("seed pipeline contents", func() {
 
 	It("assembles a non-empty, stage-1-valid served config for the seeded prod metrics collector", func() {
 		var mergePipelines []merge.Pipeline
-		for _, item := range platformPipelineItems() {
+		platformItems, err := platformPipelineItems()
+		Expect(err).NotTo(HaveOccurred())
+		for _, item := range platformItems {
 			if !item.enabled {
 				continue
 			}
@@ -102,13 +110,38 @@ var _ = Describe("seed pipeline contents", func() {
 			CollectorID: "prod-metrics-collector",
 			Labels:      map[string]string{"cluster": seedClusterPlatformName, "role": "metrics"},
 		}
-		result, err := merge.Assemble("prod-metrics-collector", "prod-eu-1/metrics", cl, mergePipelines, "test", "2024-01-01T00:00:00Z")
+		result, err := merge.Assemble("prod-metrics-collector", "prod-eu-1/metrics", cl, mergePipelines, "test")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result.Content).To(ContainSubstring("prometheus.remote_write"))
 		Expect(result.Content).NotTo(ContainSubstring("No pipelines matched"))
 
 		stage1 := validate.Stage1(result.Content)
 		Expect(stage1.Valid).To(BeTrue(), "assembled config failed stage 1: %+v", stage1.Diagnostics)
+	})
+
+	// The seed writes contents straight to the database, past the gate, so
+	// nothing else stops it shipping a pipeline the gate would refuse. Stage 1
+	// above is syntax only; this runs what the gate runs. It does NOT catch
+	// every load failure: `alloy validate` accepted demo-visual's stale
+	// `targets = [discovery.kubernetes.pods.targets]`, which Alloy only rejects
+	// when it builds the component — that drift is prevented by rendering
+	// demo-visual from its graph (renderDemoVisual), not by this spec.
+	It("seeds only pipelines that pass alloy validate (stage 2)", func() {
+		bin := wizardtest.AlloyBinary()
+		if bin == "" {
+			Skip("no alloy binary and no usable docker image for stage 2")
+		}
+		v := validate.New(&config.ValidateConfig{
+			AlloyBinary: bin, StabilityLevel: "experimental",
+			Timeout: 60 * time.Second, Stage3Timeout: 60 * time.Second,
+		})
+		for _, item := range allSeedPipelineItems() {
+			if !item.enabled {
+				continue
+			}
+			res := v.Stages12(context.Background(), validate.WrapForValidation(item.name, item.contents))
+			Expect(res.Valid).To(BeTrue(), "seed pipeline %s fails validation: %+v", item.name, res.Diagnostics)
+		}
 	})
 
 	It("seeds a visual-source demo pipeline with a valid alloy-graph/v1 wizard_state (D1/R3-H5)", func() {
@@ -246,7 +279,9 @@ var _ = Describe("demoVisualGraph", func() {
 		var payload visual.SchemaPayload
 		Expect(json.Unmarshal(b, &payload)).To(Succeed())
 
-		parsed := visual.ParseAlloy(demoVisualContents, reg.CurrentVersion(), payload)
+		contents, err := renderDemoVisual()
+		Expect(err).NotTo(HaveOccurred())
+		parsed := visual.ParseAlloy(contents, reg.CurrentVersion(), payload)
 		Expect(parsed.Opaque).To(BeFalse(), "warning: %s", parsed.Warning)
 		var saved visual.GraphDocument
 		Expect(json.Unmarshal([]byte(demoVisualGraph), &saved)).To(Succeed())

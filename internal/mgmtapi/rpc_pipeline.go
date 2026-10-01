@@ -1207,7 +1207,7 @@ func (s *PipelineService) stage3Check(ctx context.Context, p sqlc.Pipeline, orgI
 		cl := merge.BuildCollectorLabels(c.ID.String(), cluster.Name, c.Role, adminLabelsIfAllowed(org.AllowLabelMatching, c.Labels), localAttrs[c.ID.String()])
 		key := cluster.Name + "/" + c.Role
 
-		result, assembleErr := merge.Assemble(c.ID.String(), key, cl, mergePipelines, "dev", "", merge.WithRoleEnforcement(s.schema))
+		result, assembleErr := merge.Assemble(c.ID.String(), key, cl, mergePipelines, "dev", merge.WithRoleEnforcement(s.schema))
 		if assembleErr != nil {
 			failures = append(failures, fmt.Sprintf("%s: merge error: %v", key, assembleErr))
 			continue
