@@ -168,12 +168,12 @@ helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.18.0 \
       </p>
       <p class="note">
         <strong>This path needs Kubernetes 1.29+.</strong> The pinned CloudNativePG operator chart
-        (<code>0.29.0</code>, see <code>deploy/versions.env</code>) refuses older nodes. Because Helm
+        (<code>0.29.1</code>, see <code>deploy/versions.env</code>) refuses older nodes. Because Helm
         cannot express a floor that only applies when <code>cnpg.enabled=true</code>, the chart&rsquo;s
         <code>kubeVersion</code> states a single global floor of <code>1.29</code> for everyone &mdash;
         see <a href="requirements.html">Requirements</a>. A default install on external Postgres
         works from 1.25 in practice, but the chart commits to one supported floor rather than a
-        conditional one. A cluster running <code>kindest/node:v1.31.4</code>, the version the
+        conditional one. A cluster running <code>kindest/node:v1.37.0</code>, the version the
         chart&rsquo;s own CI pins for this exact path, is known good.
       </p>
 

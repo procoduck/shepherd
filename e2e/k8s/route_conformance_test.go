@@ -275,12 +275,14 @@ const (
 	//     reconciles over the pinned ones) is exactly the kind of
 	//     "I believe this would work" this repo's rule 2 rejects without a
 	//     red run to prove it.
-	//  2. Chart version compatibility: NGF's chart pins
-	//     `kubeVersion: ">= 1.31.0-0"` at v2.6.0, matching the
-	//     KIND_NODE_IMAGE pin exactly (verified against the chart's own
-	//     Chart.yaml at each tag, not recalled). v2.6.7 (latest at the time
-	//     of writing) already requires >= 1.32.0-0 and would refuse to
-	//     install here.
+	//  2. Chart version compatibility: NGF's chart declares a kubeVersion
+	//     floor (`>= 1.32.0-0` at v2.7.2, verified against the chart's own
+	//     Chart.yaml, not recalled) that KIND_NODE_IMAGE must stay above,
+	//     and NGF tolerates a Gateway API bundle older than the one it was
+	//     built against (2.7.x is built against 1.6.1; it reports
+	//     SupportedVersion as best-effort for a different minor rather than
+	//     refusing), which is what lets the 1.4.1 floor stay pinned while
+	//     the controller moves.
 	//  3. Verified live end-to-end while building this suite, on a throwaway
 	//     kind cluster with this exact CRD pin: CRD install -> `helm install`
 	//     -> Gateway -> HTTPRoute (by hand, then via RenderHTTPRoute) -> a

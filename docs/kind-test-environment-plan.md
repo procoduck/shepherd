@@ -42,6 +42,12 @@
 > way it always read the other operator pins (`E2E_K8S_NODE_IMAGE` still overrides the node image
 > for this suite alone), and they are shared with the new §11 reusable dev stack (`make dev-kind`),
 > so a version bump is one commit reviewed once instead of two drifting copies.
+> **Pins, as of 2026-10-01** (all moved together, proven by an `e2e-k8s` run on the PR):
+> `KIND_NODE_IMAGE=kindest/node:v1.37.0` (kind v0.33.0's default; was v1.31.4),
+> `CALICO_VERSION=v3.32.2` (was v3.28.2), `NGF_CHART_VERSION=2.7.2` (was 2.6.0; kubeVersion floor
+> now 1.32), `CNPG_CHART_VERSION=0.29.1` (was 0.29.0), `EXTERNAL_SECRETS_CHART_VERSION=2.11.0`
+> (was 2.9.0; still serves `external-secrets.io/v1`). `GATEWAY_API_VERSION` stays v1.4.1 — it is
+> the product's floor, not a test-environment pin; NGF 2.7 runs against it as "best effort".
 > Goal: a repeatable, self-tearing-down Kubernetes environment that verifies the things
 > `docker compose` structurally cannot — NetworkPolicy enforcement, the Helm chart as deployed,
 > and Shepherd's behaviour against a realistic LGTM stack.

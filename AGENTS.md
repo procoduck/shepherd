@@ -89,8 +89,8 @@ Images in Dockerfiles, compose files, kind manifests, Go pod specs and testconta
 | `ghcr.io/navikt/mock-oauth2-server:6.0.1` | compose files and `dev/kind/oidc.yaml` — NOT versions.env |
 | `gitea/gitea:1-rootless` | compose files (e2e + dev) and `dev/kind/gitea.yaml` — NOT versions.env |
 | `alpine:3.22` | `e2e/docker-compose.e2e.yaml` (egress canary) and `e2e/sandbox_egress_test.go` (`probeImage`) — NOT versions.env; Renovate reaches only the compose copy |
-| `kindest/node:v1.31.4` | `deploy/versions.env` (KIND_NODE_IMAGE) — tag only, no digest, Renovate-excluded (`renovate.json`); shared by `e2e/k8s` (`E2E_K8S_NODE_IMAGE` overrides it there only) and `scripts/dev-kind.sh` |
-| `projectcalico/calico` manifest `v3.28.2` | `deploy/versions.env` (CALICO_VERSION) — applied after cluster creation by both `e2e/k8s` and `scripts/dev-kind.sh` |
+| `kindest/node:v1.37.0` | `deploy/versions.env` (KIND_NODE_IMAGE) — tag only, no digest, Renovate-excluded (`renovate.json`); shared by `e2e/k8s` (`E2E_K8S_NODE_IMAGE` overrides it there only) and `scripts/dev-kind.sh` |
+| `projectcalico/calico` manifest `v3.32.2` | `deploy/versions.env` (CALICO_VERSION) — applied after cluster creation by both `e2e/k8s` and `scripts/dev-kind.sh` |
 | `ghcr.io/gitleaks/gitleaks:v8.30.0` (by digest) | `deploy/versions.env` (GITLEAKS_IMAGE) — `make secrets-scan`, `security-scan.yml` |
 | `aquasec/trivy:0.74.0` (by digest) | `deploy/versions.env` (TRIVY_IMAGE) — `make image-scan` / `make config-scan`; the workflows use `aquasecurity/trivy-action` SHA-pinned instead |
 
