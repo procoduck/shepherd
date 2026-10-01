@@ -411,11 +411,19 @@ func platformPipelineItems() ([]seedPipelineItem, error) {
 			// by name and by mechanism — discovery.kubernetes scrape rather
 			// than base-metrics' self-exporter — so it doesn't collide with
 			// base-metrics' name or purpose.
+			//
+			// Seeded DISABLED: discovery.kubernetes only loads inside a
+			// cluster. On the compose stack the agent refuses the whole served
+			// config ("KUBERNETES_SERVICE_HOST and KUBERNETES_SERVICE_PORT
+			// must be defined"), so prod-eu-1/metrics sat FAILED — hidden only
+			// while the sweeper wiped statuses every five minutes (#230). The
+			// builder, its graph and sandbox runs do not need it enabled; on
+			// the kind stack (`make dev-kind`) enable it from /pipelines.
 			name:        "demo-visual",
 			contents:    demoVisual,
 			source:      "visual",
 			matchers:    []string{fmt.Sprintf("cluster=%q", seedClusterPlatformName), `role="metrics"`},
-			enabled:     true,
+			enabled:     false,
 			wizardState: demoVisualGraph,
 		},
 		{

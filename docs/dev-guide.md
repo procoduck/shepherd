@@ -156,7 +156,7 @@ The dev seed (`shepherd dev seed`) creates:
 | Local users | Bootstrap admin (§ Credentials below) plus two more on `platform-org`: `editor` / `editor-dev-pass` (`org_members.role = editor`) and `viewer` / `viewer-dev-pass` (`role = viewer`) — deterministic fixtures for exercising the org-editor/viewer tiers without an OIDC provider (`internal/cli/dev.go`'s `seedLocalUsers`) |
 | Clusters | `prod-eu-1`, `staging-eu-1` (both claimed by platform-org), `data-eng-eu-1` (claimed by data-eng) |
 | Collectors | `metrics`, `logs`, `singleton` on prod-eu-1; `metrics` on data-eng-eu-1. Collector rows only — instances register themselves from the compose Alloy containers; `singleton` shows zero instances until something registers, which is expected |
-| Pipelines (platform-org) | `base-metrics` (ui, enabled), `demo-visual` (visual, enabled — real `alloy-graph/v1` wizard_state so the visual builder opens with an editable example), `loki-logs` (ui, disabled), `app-obs-wizard` (wizard, disabled) |
+| Pipelines (platform-org) | `base-metrics` (ui, enabled), `demo-visual` (visual, disabled — real `alloy-graph/v1` wizard_state so the visual builder opens with an editable example; its `discovery.kubernetes` only loads in a cluster, so enable it on the kind stack, not compose), `loki-logs` (ui, disabled), `app-obs-wizard` (wizard, disabled) |
 | Pipelines (data-eng) | `example-metrics` (ui, disabled) |
 | Destinations | `prom-prod` (prometheus), `loki-prod` (loki) — platform-org |
 | GitOps | Gitea repo `shepherd-demo-config` + `pat` credential `gitea-demo` + repo link → git-sourced `demo-git.alloy` pipeline (skipped with a notice if Gitea is unreachable) |
