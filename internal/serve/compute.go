@@ -108,7 +108,7 @@ func ComputeServed(_ context.Context, deps Deps, coll Collector, pipelines []mer
 	if deps.EnforceRoles || deps.Schema != nil {
 		opts = append(opts, merge.WithRoleEnforcement(deps.Schema))
 	}
-	assembled, err := merge.Assemble(coll.ID, coll.Cluster+"/"+coll.Role, cl, pipelines, "prod", "", opts...)
+	assembled, err := merge.Assemble(coll.ID, coll.Cluster+"/"+coll.Role, cl, pipelines, "prod", opts...)
 	if err != nil {
 		return Result{}, fmt.Errorf("assembling config: %w", err)
 	}

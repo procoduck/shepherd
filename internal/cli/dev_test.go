@@ -102,7 +102,7 @@ var _ = Describe("seed pipeline contents", func() {
 			CollectorID: "prod-metrics-collector",
 			Labels:      map[string]string{"cluster": seedClusterPlatformName, "role": "metrics"},
 		}
-		result, err := merge.Assemble("prod-metrics-collector", "prod-eu-1/metrics", cl, mergePipelines, "test", "2024-01-01T00:00:00Z")
+		result, err := merge.Assemble("prod-metrics-collector", "prod-eu-1/metrics", cl, mergePipelines, "test")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result.Content).To(ContainSubstring("prometheus.remote_write"))
 		Expect(result.Content).NotTo(ContainSubstring("No pipelines matched"))

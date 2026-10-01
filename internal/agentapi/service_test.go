@@ -1006,8 +1006,9 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 			// F1 (the #115 walkthrough follow-up): Alloy re-sends a status only
 			// when its (status, error) pair changes — remotecfg's
 			// getRemoteConfigStatusForRequest. A NEW config that fails with a
-			// byte-identical error (the served header's timestamp changes the
-			// hash, the failing line does not move) is therefore never
+			// byte-identical error (any content change below the failing line moves
+			// the hash, the failing line does not -- before #213 the served header's
+			// timestamp alone did it on every recompute) is therefore never
 			// re-reported: the agent polls silently with the new hash. That
 			// must stay FAILED — and follow the new hash — not read as recovery.
 			It("stays FAILED when a new config fails with the same error, and follows the new hash", func() {

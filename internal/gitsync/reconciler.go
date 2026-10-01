@@ -543,7 +543,7 @@ func (r *Reconciler) stage3DryRun(ctx context.Context, link sqlc.RepoLink, candi
 	cl := merge.BuildCollectorLabels(link.CollectorID.String(), cluster.Name, coll.Role, adminLabels, localAttrs)
 	// No WithRoleEnforcement option: gitsync has no schema registry, so this
 	// deliberately validates the unenforced superset (see doc comment above).
-	assembled, err := merge.Assemble(link.CollectorID.String(), cluster.Name+"/"+coll.Role, cl, mergePipelines, "dev", "")
+	assembled, err := merge.Assemble(link.CollectorID.String(), cluster.Name+"/"+coll.Role, cl, mergePipelines, "dev")
 	if err != nil {
 		return fmt.Errorf("merge: %w", err)
 	}
