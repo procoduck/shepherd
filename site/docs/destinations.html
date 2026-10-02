@@ -204,9 +204,14 @@ subjects:
         destination renames it in those pipelines too. If any of them would fail validation, nothing
         is saved and the message names the pipeline and the reason. The same happens when one of
         them was edited by hand after its wizard generated it: Shepherd never overwrites the edit.
-        Re-run that pipeline&rsquo;s wizard (folding the edit into its answers), or copy its text
-        into a new pipeline of your own and delete the wizard one, then save the destination
-        again.</p>
+        Re-run that pipeline&rsquo;s wizard (folding the edit into its answers), or open the
+        pipeline and choose <strong>Detach from wizard</strong>: it keeps its text, matchers, owner
+        and history, becomes an ordinary pipeline, and no longer follows destination changes. Then
+        save the destination again.</p>
+      <p>Shepherd recognises a hand edit by a fingerprint of the text the wizard last wrote, so a
+        newer version of a wizard does not make older pipelines look edited. A wizard pipeline
+        generated before that fingerprint existed is compared with what its wizard would generate
+        today instead, until its next regeneration records one.</p>
       <p>A destination a wizard pipeline still ships to cannot be deleted. The refusal lists the
         pipelines; point them at another destination, or delete them, first.</p>
       <h3 id="upgrade">Pipelines generated before destination auth</h3>

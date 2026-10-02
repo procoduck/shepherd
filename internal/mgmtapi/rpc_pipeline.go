@@ -603,6 +603,9 @@ func (s *PipelineService) UpdatePipeline(ctx context.Context, req *connect.Reque
 		Matchers:    matchersJSON,
 		WizardState: wsJSON,
 		UpdatedBy:   actor,
+		// An editor write: keeps a wizard pipeline's render fingerprint only
+		// while the text is still what the wizard wrote (0030).
+		WizardRenderSha256: fingerprintAfterEdit(p, msg.GetContents()),
 	})
 	if err != nil {
 		s.logger.Error("update pipeline", "err", err)
@@ -1029,6 +1032,10 @@ func (s *PipelineService) RestoreRevision(ctx context.Context, req *connect.Requ
 		Matchers:    rv.Matchers,
 		WizardState: rv.WizardState,
 		UpdatedBy:   actor,
+		// Not a wizard write: the fingerprint survives only if the restored
+		// text is the text it was taken of (0030). A restored wizard revision
+		// with no fingerprint falls back to the fresh-render check.
+		WizardRenderSha256: fingerprintAfterEdit(p, rv.Contents),
 	})
 	if err != nil {
 		s.logger.Error("restore revision: update pipeline", "err", err)

@@ -2,6 +2,8 @@ package mgmtapi_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -18,6 +20,12 @@ import (
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 )
+
+// sha256Hex is the render fingerprint of contents (0030).
+func sha256Hex(contents string) string {
+	sum := sha256.Sum256([]byte(contents))
+	return hex.EncodeToString(sum[:])
+}
 
 // #262: a destination's URL and auth are rendered into a wizard pipeline's
 // stored contents at commit time, so before this an UpdateDestination reached
@@ -298,6 +306,76 @@ var _ = Describe("Destination changes reach wizard pipelines (#262)", Label("int
 	// rendering it from its stored state against the destinations as they
 	// were BEFORE the update: a difference is a hand edit. Red run: on the
 	// first #262 build the update succeeded and replaced the edit.
+	// The render fingerprint (0030): sha256 of the exact contents a wizard
+	// last wrote. The hand-edit check reads it rather than re-rendering, so a
+	// later change to a wizard's template does not make every older pipeline
+	// look hand-edited. Red run (on #264): CommitWizard set no fingerprint,
+	// and the template-change pipeline was refused as hand-edited.
+	Describe("render fingerprint", func() {
+		It("is the sha256 of what CommitWizard and a re-render stored", func() {
+			mimir := createDest(org, "mimir", "prometheus", oldURL)
+			used := commitSelfMonitoring(org, "self-mon", "mimir")
+			Expect(used.WizardRenderSha256.Valid).To(BeTrue())
+			Expect(used.WizardRenderSha256.String).To(Equal(sha256Hex(used.Contents)))
+
+			code, out := updateDest(mimir, map[string]any{"url": newURL})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			got := pipeline(used.ID)
+			Expect(got.WizardRenderSha256.String).To(Equal(sha256Hex(got.Contents)))
+		})
+
+		It("re-renders a pipeline an older wizard template produced: its text matches its fingerprint, not a fresh render", func() {
+			mimir := createDest(org, "mimir", "prometheus", oldURL)
+			used := commitSelfMonitoring(org, "self-mon", "mimir")
+			older := used.Contents + "\n// as an older template rendered it\n"
+			_, err := st.Pool().Exec(ctx, `UPDATE pipelines SET contents = $2, wizard_render_sha256 = $3 WHERE id = $1`,
+				used.ID, older, sha256Hex(older))
+			Expect(err).NotTo(HaveOccurred())
+
+			code, out := updateDest(mimir, map[string]any{"url": newURL})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			got := pipeline(used.ID)
+			Expect(got.Contents).To(ContainSubstring(newURL))
+			Expect(got.Contents).NotTo(ContainSubstring("older template"))
+		})
+
+		It("with no fingerprint (written before 0030), falls back to a fresh render and records one", func() {
+			mimir := createDest(org, "mimir", "prometheus", oldURL)
+			used := commitSelfMonitoring(org, "self-mon", "mimir")
+			_, err := st.Pool().Exec(ctx, `UPDATE pipelines SET wizard_render_sha256 = NULL WHERE id = $1`, used.ID)
+			Expect(err).NotTo(HaveOccurred())
+
+			code, out := updateDest(mimir, map[string]any{"url": newURL})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			got := pipeline(used.ID)
+			Expect(got.Contents).To(ContainSubstring(newURL))
+			Expect(got.WizardRenderSha256.String).To(Equal(sha256Hex(got.Contents)))
+		})
+
+		It("with no fingerprint and text that differs from a fresh render, refuses it as hand-edited", func() {
+			mimir := createDest(org, "mimir", "prometheus", oldURL)
+			used := commitSelfMonitoring(org, "self-mon", "mimir")
+			_, err := st.Pool().Exec(ctx, `UPDATE pipelines SET contents = contents || '// edit', wizard_render_sha256 = NULL WHERE id = $1`, used.ID)
+			Expect(err).NotTo(HaveOccurred())
+
+			code, out := updateDest(mimir, map[string]any{"url": newURL})
+			Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
+			Expect(out["message"]).To(ContainSubstring("edited by hand"))
+		})
+
+		It("survives an editor save that leaves the contents as the wizard wrote them", func() {
+			createDest(org, "mimir", "prometheus", oldURL)
+			used := commitSelfMonitoring(org, "self-mon", "mimir")
+			code, out := call("PipelineService/UpdatePipeline", map[string]any{
+				"orgId": org.String(), "id": used.ID.String(), "name": used.Name,
+				"contents": used.Contents, "matchers": []string{`role="singleton"`, `cluster=~"prod-.*"`},
+			})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			Expect(pipeline(used.ID).WizardRenderSha256).To(Equal(used.WizardRenderSha256),
+				"a matchers-only save is not a hand edit of the text")
+		})
+	})
+
 	Describe("hand-edited wizard pipelines", func() {
 		It("refuses the update, naming the pipeline and what to do, and changes nothing", func() {
 			mimir := createDest(org, "mimir", "prometheus", oldURL)
@@ -309,6 +387,7 @@ var _ = Describe("Destination changes reach wizard pipelines (#262)", Label("int
 			})
 			Expect(code).To(Equal(http.StatusOK), "%v", out)
 			Expect(pipeline(used.ID).Source).To(Equal("wizard"), "an editor save keeps the pipeline a wizard pipeline")
+			Expect(pipeline(used.ID).WizardRenderSha256.Valid).To(BeFalse(), "an editor edit clears the render fingerprint")
 
 			code, out = updateDest(mimir, map[string]any{"url": newURL})
 			Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
@@ -316,6 +395,7 @@ var _ = Describe("Destination changes reach wizard pipelines (#262)", Label("int
 			Expect(out["message"]).To(ContainSubstring(`"self-mon"`))
 			Expect(out["message"]).To(ContainSubstring("edited by hand"))
 			Expect(out["message"]).To(ContainSubstring("re-run its wizard"))
+			Expect(out["message"]).To(ContainSubstring(`"Detach from wizard"`))
 
 			d, err := st.Queries.GetDestinationByID(ctx, mimir.ID)
 			Expect(err).NotTo(HaveOccurred())

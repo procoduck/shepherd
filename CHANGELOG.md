@@ -58,10 +58,21 @@ Categories used here:
   any would fail, the destination update is refused with `failed_precondition` naming each
   pipeline and why, and nothing changes. A rename is carried into those pipelines' wizard answers
   too. A pipeline whose generated text was edited by hand is never overwritten: the update is
-  refused naming it, with what to do (re-run its wizard, or move its text into a UI pipeline). A
-  hand edit is detected by rendering the pipeline from its stored answers against the destinations
-  as they were before the update and comparing the exact bytes; a pre-#229 `sys.env(...)`
-  pipeline is not treated as one and is converted. Collectors whose pipelines change reload once.
+  refused naming it, with what to do (re-run its wizard, or *Detach from wizard*, below). A hand
+  edit is detected by a render fingerprint: every wizard write stores the sha256 of the text it
+  wrote (`pipelines.wizard_render_sha256`, migration `0030`, additive and nullable), an editor
+  save or a revision restore that changes the text clears it, and a pipeline whose text no longer
+  matches its fingerprint is a hand edit. A newer wizard template therefore does not make older
+  pipelines look edited. A pipeline with no fingerprint (every wizard pipeline written before this
+  release, until its next regeneration) is compared byte for byte with its render against the
+  destinations as they were before the update. A pre-#229 `sys.env(...)` pipeline is not treated
+  as one and is converted. Collectors whose pipelines change reload once. **Shipped.**
+- **Detach from wizard.** `PipelineService.DetachFromWizard` (new RPC) turns a wizard pipeline
+  into an ordinary pipeline in place: same id, revision history, owner team, matchers and enabled
+  state; `source` becomes `ui` and its wizard kind, answers and render fingerprint are dropped. It
+  writes a *detached from wizard* revision and a `pipeline.detach` audit row, and needs the same
+  rights as editing the pipeline. A detached pipeline no longer follows destination changes. The
+  pipeline page has a *Detach from wizard* action behind a confirmation, hidden from viewers.
   **Shipped.**
 - **`shepherd admin rerender-destinations`** converts the wizard pipelines that still carry the
   pre-#229 `sys.env(...)` writer, through the same gate, one transaction per org, with a revision

@@ -451,6 +451,8 @@ func (r *Reconciler) syncFile(ctx context.Context, link sqlc.RepoLink, file gitr
 		Contents:  contents,
 		Matchers:  existing.Matchers,
 		UpdatedBy: "gitsync",
+		// WizardRenderSha256 left NULL: only a wizard write sets it, and the
+		// source check above means gitsync only ever writes git pipelines.
 	})
 	if err != nil {
 		return fmt.Errorf("updating pipeline %s: %w", name, err)

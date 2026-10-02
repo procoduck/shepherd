@@ -1,6 +1,8 @@
 -- name: CreatePipeline :one
-INSERT INTO pipelines (org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, created_by, updated_by, repo_link_id, git_path, owner_team_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+-- wizard_render_sha256 ($14): sha256 of contents when a wizard wrote them
+-- (CommitWizard), NULL from every other creator — see 0030's comment.
+INSERT INTO pipelines (org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, created_by, updated_by, repo_link_id, git_path, owner_team_id, wizard_render_sha256)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 RETURNING *;
 
 -- name: GetPipelineByID :one
@@ -36,13 +38,36 @@ RETURNING *;
 -- discarding it. wizard_kind is intentionally left out of the SET list: it
 -- is fixed at creation by the wizard registry (CommitWizard) and there is no
 -- request field that legitimately changes it on update.
+--
+-- wizard_render_sha256 ($7) is set, never COALESCE'd: every caller decides
+-- it. A wizard write passes the sha256 of the contents it rendered; any
+-- other writer passes the stored value only when the contents it writes
+-- still hash to it, NULL otherwise (mgmtapi.fingerprintAfterEdit) — so a
+-- hand edit can never inherit a wizard's fingerprint (0030).
 UPDATE pipelines
-SET name         = $2,
-    contents     = $3,
-    matchers     = $4,
-    wizard_state = COALESCE($5, wizard_state),
-    updated_by   = $6,
-    updated_at   = now()
+SET name                 = $2,
+    contents             = $3,
+    matchers             = $4,
+    wizard_state         = COALESCE($5, wizard_state),
+    updated_by           = $6,
+    wizard_render_sha256 = $7,
+    updated_at           = now()
+WHERE id = $1
+RETURNING *;
+
+-- name: DetachPipelineFromWizard :one
+-- "Detach from wizard" (#262 follow-up): the pipeline becomes an ordinary
+-- editor pipeline in place — same id, revisions, owner, matchers, enabled —
+-- with no wizard kind, state or render fingerprint, so a destination update
+-- no longer finds it (ListWizardPipelinesReferencingDestination keys on
+-- wizard_kind) and its text is the operator's from now on.
+UPDATE pipelines
+SET source               = 'ui',
+    wizard_kind          = NULL,
+    wizard_state         = NULL,
+    wizard_render_sha256 = NULL,
+    updated_by           = $2,
+    updated_at           = now()
 WHERE id = $1
 RETURNING *;
 

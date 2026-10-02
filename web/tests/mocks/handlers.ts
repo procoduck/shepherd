@@ -1334,6 +1334,36 @@ export function installDefaultHandlers(router: Router) {
     p['revisions'] = revisions;
     return json(r, 200, pipelineToWire(p));
   });
+  // DetachFromWizard: in place — same id, contents, matchers, enabled, owner
+  // and history; source becomes "ui", wizard state is dropped, and a
+  // "detached from wizard" revision is written.
+  router.register('POST', '/shepherd.mgmt.v1.PipelineService/DetachFromWizard', async (r) => {
+    const pBody = (await r.request().postDataJSON()) as Obj;
+    const pDenied = requireOrgRole(r, String(pBody.orgId ?? ''), 'editor');
+    if (pDenied) return pDenied;
+    const req = await body(r);
+    const p = (st.pipelines as Obj[]).find((x) => x['id'] === req['id']);
+    if (!p) return connectError(r, 404, 'not_found', 'pipeline not found');
+    if (p['source'] !== 'wizard') {
+      return connectError(r, 400, 'failed_precondition', 'not a wizard pipeline');
+    }
+    const revisions = arr<Obj>(p, 'revisions');
+    const me = st.me as { email?: string } | null | undefined;
+    const nextRevision = revisions.reduce((max, x) => Math.max(max, n(x, 'revision')), 0) + 1;
+    Object.assign(p, { source: 'ui', wizard_state: null });
+    revisions.unshift({
+      revision: nextRevision,
+      changed_by: me?.email ?? '',
+      changed_at: '2026-08-17T09:00:00Z',
+      change_note: 'detached from wizard',
+      contents: p['contents'],
+      matchers: p['matchers'],
+      enabled: p['enabled'],
+      wizard_state: null,
+    });
+    p['revisions'] = revisions;
+    return json(r, 200, pipelineToWire(p));
+  });
 
   // ── DestinationService ───────────────────────────────────────────────────
   router.register('POST', '/shepherd.mgmt.v1.TenantRouteService/ListTenantRoutes', (r) =>

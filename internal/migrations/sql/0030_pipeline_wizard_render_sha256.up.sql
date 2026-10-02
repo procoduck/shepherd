@@ -1,0 +1,14 @@
+-- #262 follow-up: the render fingerprint of a wizard pipeline.
+--
+-- sha256 (hex) of the exact contents a wizard last wrote for this pipeline:
+-- CommitWizard, a destination update's re-render, `shepherd admin
+-- rerender-destinations`. A write by any other path that changes the
+-- contents (the editor's UpdatePipeline, RestoreRevision) clears it.
+-- UpdateDestination's hand-edit check reads it: a wizard pipeline whose
+-- contents no longer hash to it was edited by hand and is not overwritten.
+--
+-- Nullable with no default and no backfill: computing it needs the Go
+-- wizard renderer, which SQL cannot run. NULL on a wizard pipeline means
+-- "unknown" — written before this column, or edited since — and the
+-- hand-edit check falls back to comparing against a fresh render.
+ALTER TABLE pipelines ADD COLUMN wizard_render_sha256 text;

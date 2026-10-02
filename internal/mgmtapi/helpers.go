@@ -122,14 +122,14 @@ func auditLog(ctx context.Context, st *store.Store, actor string, orgID pgtype.U
 // is therefore never missing on_behalf_of on any path that reaches this
 // function after that guard, which is every write path in this package.
 func auditLogDetail(ctx context.Context, st *store.Store, actor, actorType string, orgID pgtype.UUID, action, resType, resID string, detail any) { //nolint:unparam // actorType is a deliberate seam: every current caller is a human session, and a background component auditing as "system" (gitsync/reconciler.go's direct InsertAuditLog today) is the case it exists for
-	_ = insertAudit(ctx, st.Queries, actor, actorType, orgID, action, resType, resID, detail) //nolint:errcheck // best-effort side effect
+	_ = auditInsert(ctx, st.Queries, actor, actorType, orgID, action, resType, resID, detail) //nolint:errcheck // best-effort side effect
 }
 
-// insertAudit is auditLogDetail's body, against any *sqlc.Queries and with
+// auditInsert is auditLogDetail's body, against any *sqlc.Queries and with
 // the insert error returned: a caller writing audit rows inside a
 // transaction (rerenderWizardPipelines) needs the row to commit or roll back
 // with the change it records, and needs to know when it did not.
-func insertAudit(ctx context.Context, q *sqlc.Queries, actor, actorType string, orgID pgtype.UUID, action, resType, resID string, detail any) error {
+func auditInsert(ctx context.Context, q *sqlc.Queries, actor, actorType string, orgID pgtype.UUID, action, resType, resID string, detail any) error {
 	var onBehalfOf pgtype.Text
 	if sa, ok := serviceAccountFromCtx(ctx); ok {
 		actorType = "service_account"

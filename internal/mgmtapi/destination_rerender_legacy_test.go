@@ -121,6 +121,7 @@ var _ = Describe("RerenderLegacyDestinationWriters (#262 upgrade path)", Label("
 		Expect(p.Contents).To(ContainSubstring(`url  = "` + url + `"`))
 		Expect(p.Contents).To(ContainSubstring(`remote.kubernetes.secret "metrics_auth"`))
 		Expect(p.Enabled).To(BeTrue())
+		Expect(p.WizardRenderSha256.String).To(Equal(sha256Hex(p.Contents)), "a wizard write records its render fingerprint")
 		revs, err := st.Queries.ListPipelineRevisions(ctx, legacy.ID)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(revs).To(HaveLen(1))

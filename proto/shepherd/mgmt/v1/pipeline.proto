@@ -48,6 +48,16 @@ service PipelineService {
   // current ownership — a team can write what it owns, but granting or
   // revoking ownership is a platform decision, not a delegated one.
   rpc SetPipelineOwner(SetPipelineOwnerRequest) returns (Pipeline) {}
+  // DetachFromWizard turns a wizard pipeline into an ordinary editor
+  // pipeline, in place: same id, revisions, owner team, matchers and enabled
+  // state; source becomes "ui" and its wizard kind, wizard state and render
+  // fingerprint are cleared, so a destination update no longer regenerates it
+  // and its text is the operator's to edit. Writes a revision ("detached
+  // from wizard") and a pipeline.detach audit row. Same authorization as
+  // UpdatePipeline. failed_precondition on a pipeline that is not a wizard
+  // pipeline. The contents are unchanged, so no validation or serve-cache
+  // change is involved.
+  rpc DetachFromWizard(DetachFromWizardRequest) returns (Pipeline) {}
 }
 
 // PipelineRevision is one saved revision of a pipeline.
@@ -268,4 +278,9 @@ message SetPipelineOwnerRequest {
   string id = 2;
   // owner_team_id, empty to clear (demote to unowned/admin-only).
   string owner_team_id = 3;
+}
+
+message DetachFromWizardRequest {
+  string org_id = 1;
+  string id = 2;
 }

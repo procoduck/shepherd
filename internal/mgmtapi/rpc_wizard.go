@@ -229,8 +229,11 @@ func (s *WizardService) CommitWizard(ctx context.Context, req *connect.Request[m
 		Source:      "wizard",
 		WizardKind:  pgtype.Text{String: req.Msg.GetKind(), Valid: true},
 		WizardState: stateJSON,
-		CreatedBy:   actor,
-		UpdatedBy:   actor,
+		// The render fingerprint (0030): what this wizard wrote, so a later
+		// destination update can tell its output from a hand edit.
+		WizardRenderSha256: renderFingerprint(result.Contents),
+		CreatedBy:          actor,
+		UpdatedBy:          actor,
 	})
 	if err != nil {
 		if isUniqueViolation(err) {

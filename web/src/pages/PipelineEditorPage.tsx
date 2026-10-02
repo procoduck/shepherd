@@ -14,6 +14,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { clients, toApiError } from '@/api/transport';
+import { DetachFromWizard } from '@/components/DetachFromWizard';
 import { MatcherSuggestions } from '@/components/MatcherSuggestions';
 import { Input } from '@/components/ui/Field';
 import { Modal, ModalActions } from '@/components/ui/Modal';
@@ -299,6 +300,9 @@ export function PipelineEditorPage() {
             <p>
               Source: <span className='text-zinc-300'>{pipeline.source}</span>
             </p>
+            {canWrite && pipeline.source === 'wizard' && (
+              <DetachFromWizard pipeline={pipeline} orgId={pipeline.orgId || orgId} />
+            )}
             <p>
               Updated by: <span className='text-zinc-300'>{pipeline.updatedBy}</span>
             </p>

@@ -13,27 +13,30 @@ import (
 )
 
 const createPipeline = `-- name: CreatePipeline :one
-INSERT INTO pipelines (org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, created_by, updated_by, repo_link_id, git_path, owner_team_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-RETURNING id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id
+INSERT INTO pipelines (org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, created_by, updated_by, repo_link_id, git_path, owner_team_id, wizard_render_sha256)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+RETURNING id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id, wizard_render_sha256
 `
 
 type CreatePipelineParams struct {
-	OrgID       pgtype.UUID     `json:"org_id"`
-	Name        string          `json:"name"`
-	Contents    string          `json:"contents"`
-	Matchers    json.RawMessage `json:"matchers"`
-	Enabled     bool            `json:"enabled"`
-	Source      string          `json:"source"`
-	WizardKind  pgtype.Text     `json:"wizard_kind"`
-	WizardState json.RawMessage `json:"wizard_state"`
-	CreatedBy   string          `json:"created_by"`
-	UpdatedBy   string          `json:"updated_by"`
-	RepoLinkID  pgtype.UUID     `json:"repo_link_id"`
-	GitPath     pgtype.Text     `json:"git_path"`
-	OwnerTeamID pgtype.UUID     `json:"owner_team_id"`
+	OrgID              pgtype.UUID     `json:"org_id"`
+	Name               string          `json:"name"`
+	Contents           string          `json:"contents"`
+	Matchers           json.RawMessage `json:"matchers"`
+	Enabled            bool            `json:"enabled"`
+	Source             string          `json:"source"`
+	WizardKind         pgtype.Text     `json:"wizard_kind"`
+	WizardState        json.RawMessage `json:"wizard_state"`
+	CreatedBy          string          `json:"created_by"`
+	UpdatedBy          string          `json:"updated_by"`
+	RepoLinkID         pgtype.UUID     `json:"repo_link_id"`
+	GitPath            pgtype.Text     `json:"git_path"`
+	OwnerTeamID        pgtype.UUID     `json:"owner_team_id"`
+	WizardRenderSha256 pgtype.Text     `json:"wizard_render_sha256"`
 }
 
+// wizard_render_sha256 ($14): sha256 of contents when a wizard wrote them
+// (CommitWizard), NULL from every other creator — see 0030's comment.
 func (q *Queries) CreatePipeline(ctx context.Context, arg CreatePipelineParams) (Pipeline, error) {
 	row := q.db.QueryRow(ctx, createPipeline,
 		arg.OrgID,
@@ -49,6 +52,7 @@ func (q *Queries) CreatePipeline(ctx context.Context, arg CreatePipelineParams) 
 		arg.RepoLinkID,
 		arg.GitPath,
 		arg.OwnerTeamID,
+		arg.WizardRenderSha256,
 	)
 	var i Pipeline
 	err := row.Scan(
@@ -69,6 +73,7 @@ func (q *Queries) CreatePipeline(ctx context.Context, arg CreatePipelineParams) 
 		&i.UpdatedAt,
 		&i.SanitizedName,
 		&i.OwnerTeamID,
+		&i.WizardRenderSha256,
 	)
 	return i, err
 }
@@ -82,8 +87,56 @@ func (q *Queries) DeletePipeline(ctx context.Context, id pgtype.UUID) error {
 	return err
 }
 
+const detachPipelineFromWizard = `-- name: DetachPipelineFromWizard :one
+UPDATE pipelines
+SET source               = 'ui',
+    wizard_kind          = NULL,
+    wizard_state         = NULL,
+    wizard_render_sha256 = NULL,
+    updated_by           = $2,
+    updated_at           = now()
+WHERE id = $1
+RETURNING id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id, wizard_render_sha256
+`
+
+type DetachPipelineFromWizardParams struct {
+	ID        pgtype.UUID `json:"id"`
+	UpdatedBy string      `json:"updated_by"`
+}
+
+// "Detach from wizard" (#262 follow-up): the pipeline becomes an ordinary
+// editor pipeline in place — same id, revisions, owner, matchers, enabled —
+// with no wizard kind, state or render fingerprint, so a destination update
+// no longer finds it (ListWizardPipelinesReferencingDestination keys on
+// wizard_kind) and its text is the operator's from now on.
+func (q *Queries) DetachPipelineFromWizard(ctx context.Context, arg DetachPipelineFromWizardParams) (Pipeline, error) {
+	row := q.db.QueryRow(ctx, detachPipelineFromWizard, arg.ID, arg.UpdatedBy)
+	var i Pipeline
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Name,
+		&i.Contents,
+		&i.Matchers,
+		&i.Enabled,
+		&i.Source,
+		&i.WizardKind,
+		&i.WizardState,
+		&i.RepoLinkID,
+		&i.GitPath,
+		&i.CreatedBy,
+		&i.UpdatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.SanitizedName,
+		&i.OwnerTeamID,
+		&i.WizardRenderSha256,
+	)
+	return i, err
+}
+
 const getPipelineByID = `-- name: GetPipelineByID :one
-SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id FROM pipelines WHERE id = $1
+SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id, wizard_render_sha256 FROM pipelines WHERE id = $1
 `
 
 func (q *Queries) GetPipelineByID(ctx context.Context, id pgtype.UUID) (Pipeline, error) {
@@ -107,12 +160,13 @@ func (q *Queries) GetPipelineByID(ctx context.Context, id pgtype.UUID) (Pipeline
 		&i.UpdatedAt,
 		&i.SanitizedName,
 		&i.OwnerTeamID,
+		&i.WizardRenderSha256,
 	)
 	return i, err
 }
 
 const getPipelineByOrgAndName = `-- name: GetPipelineByOrgAndName :one
-SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id FROM pipelines WHERE org_id = $1 AND name = $2
+SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id, wizard_render_sha256 FROM pipelines WHERE org_id = $1 AND name = $2
 `
 
 type GetPipelineByOrgAndNameParams struct {
@@ -141,12 +195,13 @@ func (q *Queries) GetPipelineByOrgAndName(ctx context.Context, arg GetPipelineBy
 		&i.UpdatedAt,
 		&i.SanitizedName,
 		&i.OwnerTeamID,
+		&i.WizardRenderSha256,
 	)
 	return i, err
 }
 
 const listEnabledPipelinesByOrg = `-- name: ListEnabledPipelinesByOrg :many
-SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id FROM pipelines WHERE org_id = $1 AND enabled = true ORDER BY name
+SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id, wizard_render_sha256 FROM pipelines WHERE org_id = $1 AND enabled = true ORDER BY name
 `
 
 func (q *Queries) ListEnabledPipelinesByOrg(ctx context.Context, orgID pgtype.UUID) ([]Pipeline, error) {
@@ -176,6 +231,7 @@ func (q *Queries) ListEnabledPipelinesByOrg(ctx context.Context, orgID pgtype.UU
 			&i.UpdatedAt,
 			&i.SanitizedName,
 			&i.OwnerTeamID,
+			&i.WizardRenderSha256,
 		); err != nil {
 			return nil, err
 		}
@@ -188,7 +244,7 @@ func (q *Queries) ListEnabledPipelinesByOrg(ctx context.Context, orgID pgtype.UU
 }
 
 const listEnabledPipelinesForMerge = `-- name: ListEnabledPipelinesForMerge :many
-SELECT p.id, p.org_id, p.name, p.contents, p.matchers, p.enabled, p.source, p.wizard_kind, p.wizard_state, p.repo_link_id, p.git_path, p.created_by, p.updated_by, p.created_at, p.updated_at, p.sanitized_name, p.owner_team_id, rl.collector_id AS repo_link_collector_id
+SELECT p.id, p.org_id, p.name, p.contents, p.matchers, p.enabled, p.source, p.wizard_kind, p.wizard_state, p.repo_link_id, p.git_path, p.created_by, p.updated_by, p.created_at, p.updated_at, p.sanitized_name, p.owner_team_id, p.wizard_render_sha256, rl.collector_id AS repo_link_collector_id
 FROM pipelines p
 LEFT JOIN repo_links rl ON rl.id = p.repo_link_id
 WHERE p.org_id = $1 AND p.enabled = true
@@ -213,6 +269,7 @@ type ListEnabledPipelinesForMergeRow struct {
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 	SanitizedName       pgtype.Text        `json:"sanitized_name"`
 	OwnerTeamID         pgtype.UUID        `json:"owner_team_id"`
+	WizardRenderSha256  pgtype.Text        `json:"wizard_render_sha256"`
 	RepoLinkCollectorID pgtype.UUID        `json:"repo_link_collector_id"`
 }
 
@@ -247,6 +304,7 @@ func (q *Queries) ListEnabledPipelinesForMerge(ctx context.Context, orgID pgtype
 			&i.UpdatedAt,
 			&i.SanitizedName,
 			&i.OwnerTeamID,
+			&i.WizardRenderSha256,
 			&i.RepoLinkCollectorID,
 		); err != nil {
 			return nil, err
@@ -260,7 +318,7 @@ func (q *Queries) ListEnabledPipelinesForMerge(ctx context.Context, orgID pgtype
 }
 
 const listPipelinesByOrg = `-- name: ListPipelinesByOrg :many
-SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id FROM pipelines WHERE org_id = $1 ORDER BY name
+SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id, wizard_render_sha256 FROM pipelines WHERE org_id = $1 ORDER BY name
 `
 
 func (q *Queries) ListPipelinesByOrg(ctx context.Context, orgID pgtype.UUID) ([]Pipeline, error) {
@@ -290,6 +348,7 @@ func (q *Queries) ListPipelinesByOrg(ctx context.Context, orgID pgtype.UUID) ([]
 			&i.UpdatedAt,
 			&i.SanitizedName,
 			&i.OwnerTeamID,
+			&i.WizardRenderSha256,
 		); err != nil {
 			return nil, err
 		}
@@ -302,7 +361,7 @@ func (q *Queries) ListPipelinesByOrg(ctx context.Context, orgID pgtype.UUID) ([]
 }
 
 const listWizardPipelinesByOrgForUpdate = `-- name: ListWizardPipelinesByOrgForUpdate :many
-SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id FROM pipelines
+SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id, wizard_render_sha256 FROM pipelines
 WHERE org_id = $1 AND wizard_kind IS NOT NULL
 ORDER BY name
 FOR UPDATE
@@ -337,6 +396,7 @@ func (q *Queries) ListWizardPipelinesByOrgForUpdate(ctx context.Context, orgID p
 			&i.UpdatedAt,
 			&i.SanitizedName,
 			&i.OwnerTeamID,
+			&i.WizardRenderSha256,
 		); err != nil {
 			return nil, err
 		}
@@ -349,7 +409,7 @@ func (q *Queries) ListWizardPipelinesByOrgForUpdate(ctx context.Context, orgID p
 }
 
 const listWizardPipelinesReferencingDestination = `-- name: ListWizardPipelinesReferencingDestination :many
-SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id FROM pipelines
+SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id, wizard_render_sha256 FROM pipelines
 WHERE org_id = $1
 AND wizard_kind IS NOT NULL
 AND CASE WHEN jsonb_typeof(wizard_state) = 'object' THEN EXISTS (
@@ -403,6 +463,7 @@ func (q *Queries) ListWizardPipelinesReferencingDestination(ctx context.Context,
 			&i.UpdatedAt,
 			&i.SanitizedName,
 			&i.OwnerTeamID,
+			&i.WizardRenderSha256,
 		); err != nil {
 			return nil, err
 		}
@@ -420,7 +481,7 @@ SET enabled    = $2,
     updated_by = $3,
     updated_at = now()
 WHERE id = $1
-RETURNING id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id
+RETURNING id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id, wizard_render_sha256
 `
 
 type SetPipelineEnabledParams struct {
@@ -450,6 +511,7 @@ func (q *Queries) SetPipelineEnabled(ctx context.Context, arg SetPipelineEnabled
 		&i.UpdatedAt,
 		&i.SanitizedName,
 		&i.OwnerTeamID,
+		&i.WizardRenderSha256,
 	)
 	return i, err
 }
@@ -459,7 +521,7 @@ UPDATE pipelines
 SET owner_team_id = $2,
     updated_at     = now()
 WHERE id = $1
-RETURNING id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id
+RETURNING id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id, wizard_render_sha256
 `
 
 type SetPipelineOwnerTeamParams struct {
@@ -496,29 +558,32 @@ func (q *Queries) SetPipelineOwnerTeam(ctx context.Context, arg SetPipelineOwner
 		&i.UpdatedAt,
 		&i.SanitizedName,
 		&i.OwnerTeamID,
+		&i.WizardRenderSha256,
 	)
 	return i, err
 }
 
 const updatePipeline = `-- name: UpdatePipeline :one
 UPDATE pipelines
-SET name         = $2,
-    contents     = $3,
-    matchers     = $4,
-    wizard_state = COALESCE($5, wizard_state),
-    updated_by   = $6,
-    updated_at   = now()
+SET name                 = $2,
+    contents             = $3,
+    matchers             = $4,
+    wizard_state         = COALESCE($5, wizard_state),
+    updated_by           = $6,
+    wizard_render_sha256 = $7,
+    updated_at           = now()
 WHERE id = $1
-RETURNING id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id
+RETURNING id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id, wizard_render_sha256
 `
 
 type UpdatePipelineParams struct {
-	ID          pgtype.UUID     `json:"id"`
-	Name        string          `json:"name"`
-	Contents    string          `json:"contents"`
-	Matchers    json.RawMessage `json:"matchers"`
-	WizardState json.RawMessage `json:"wizard_state"`
-	UpdatedBy   string          `json:"updated_by"`
+	ID                 pgtype.UUID     `json:"id"`
+	Name               string          `json:"name"`
+	Contents           string          `json:"contents"`
+	Matchers           json.RawMessage `json:"matchers"`
+	WizardState        json.RawMessage `json:"wizard_state"`
+	UpdatedBy          string          `json:"updated_by"`
+	WizardRenderSha256 pgtype.Text     `json:"wizard_render_sha256"`
 }
 
 // wizard_state is COALESCE'd against the existing column value: the caller
@@ -529,6 +594,12 @@ type UpdatePipelineParams struct {
 // discarding it. wizard_kind is intentionally left out of the SET list: it
 // is fixed at creation by the wizard registry (CommitWizard) and there is no
 // request field that legitimately changes it on update.
+//
+// wizard_render_sha256 ($7) is set, never COALESCE'd: every caller decides
+// it. A wizard write passes the sha256 of the contents it rendered; any
+// other writer passes the stored value only when the contents it writes
+// still hash to it, NULL otherwise (mgmtapi.fingerprintAfterEdit) — so a
+// hand edit can never inherit a wizard's fingerprint (0030).
 func (q *Queries) UpdatePipeline(ctx context.Context, arg UpdatePipelineParams) (Pipeline, error) {
 	row := q.db.QueryRow(ctx, updatePipeline,
 		arg.ID,
@@ -537,6 +608,7 @@ func (q *Queries) UpdatePipeline(ctx context.Context, arg UpdatePipelineParams) 
 		arg.Matchers,
 		arg.WizardState,
 		arg.UpdatedBy,
+		arg.WizardRenderSha256,
 	)
 	var i Pipeline
 	err := row.Scan(
@@ -557,6 +629,7 @@ func (q *Queries) UpdatePipeline(ctx context.Context, arg UpdatePipelineParams) 
 		&i.UpdatedAt,
 		&i.SanitizedName,
 		&i.OwnerTeamID,
+		&i.WizardRenderSha256,
 	)
 	return i, err
 }

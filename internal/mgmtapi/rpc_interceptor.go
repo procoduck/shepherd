@@ -116,6 +116,10 @@ var procedureRequirements = map[string]string{
 	mgmtv1connect.PipelineServiceValidatePipelineProcedure: auth.RoleOrgReader,
 	mgmtv1connect.PipelineServiceFormatPipelineProcedure:   auth.RoleOrgReader,
 	mgmtv1connect.PipelineServiceSetPipelineOwnerProcedure: auth.RoleOrgAdmin,
+	// DetachFromWizard: same row as UpdatePipeline — detaching is an edit of
+	// the pipeline, and authorizeOwnership inside the handler makes the same
+	// org-editor-or-owning-team decision UpdatePipeline makes.
+	mgmtv1connect.PipelineServiceDetachFromWizardProcedure: auth.RoleOrgReader,
 
 	// DestinationService — org reader for reads, org admin for writes.
 	mgmtv1connect.DestinationServiceListDestinationsProcedure:  auth.RoleOrgReader,
@@ -248,6 +252,7 @@ var capabilityRequirements = map[string]string{
 	mgmtv1connect.PipelineServiceDisablePipelineProcedure:  capabilityApply,
 	mgmtv1connect.PipelineServiceRestoreRevisionProcedure:  capabilityApply,
 	mgmtv1connect.PipelineServiceSetPipelineOwnerProcedure: capabilityApply,
+	mgmtv1connect.PipelineServiceDetachFromWizardProcedure: capabilityApply,
 
 	mgmtv1connect.DestinationServiceCreateDestinationProcedure: capabilityApply,
 	mgmtv1connect.DestinationServiceUpdateDestinationProcedure: capabilityApply,

@@ -2,6 +2,8 @@ package mgmtapi
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -132,10 +134,31 @@ func summarizeDiagnostics(diags []validate.Diagnostic) string {
 	return strings.Join(parts, "; ")
 }
 
+// renderFingerprint is the wizard render fingerprint of contents
+// (pipelines.wizard_render_sha256, 0030): hex sha256 of the exact bytes.
+// Every wizard write stores it — CommitWizard, applyWizardRerenders (a
+// destination update and `shepherd admin rerender-destinations`).
+func renderFingerprint(contents string) pgtype.Text {
+	sum := sha256.Sum256([]byte(contents))
+	return pgtype.Text{String: hex.EncodeToString(sum[:]), Valid: true}
+}
+
+// fingerprintAfterEdit is the fingerprint a NON-wizard write of contents to
+// p stores: p's own, kept only while contents still hash to it (a
+// matchers-only or rename save is not a hand edit of the text), NULL as soon
+// as the text changes. UpdatePipeline (the editor) and RestoreRevision use
+// it; gitsync writes only git pipelines, which never have one.
+func fingerprintAfterEdit(p sqlc.Pipeline, contents string) pgtype.Text {
+	if p.WizardRenderSha256.Valid && p.WizardRenderSha256 == renderFingerprint(contents) {
+		return p.WizardRenderSha256
+	}
+	return pgtype.Text{}
+}
+
 // errHandEdited is the reason a hand-edited wizard pipeline is refused.
 const errHandEdited = "its contents were edited by hand after its wizard generated them, and " +
-	"regenerating it would discard that edit — re-run its wizard, or convert it to a UI pipeline " +
-	"(copy its contents into a new pipeline and delete this one)"
+	"regenerating it would discard that edit — re-run its wizard, or use \"Detach from wizard\" " +
+	"on the pipeline's page to keep the edit and stop it following destination changes"
 
 // handEdited reports a wizard pipeline whose stored contents are not what
 // its wizard renders from its stored state against before — the org's
@@ -148,9 +171,22 @@ const errHandEdited = "its contents were edited by hand after its wizard generat
 // its text came from the old renderer, and converting it is the point. A
 // render error against before (its wizard, or another destination it names,
 // already broken) is reported as such.
+//
+// The render fingerprint (0030) decides first: a pipeline with one was
+// hand-edited exactly when its contents no longer hash to it — no re-render,
+// so a later change to the wizard's template does not make every older
+// pipeline look edited. Only a pipeline with no fingerprint (written before
+// 0030, or since cleared by an editor write) falls back to the fresh-render
+// comparison below.
 func handEdited(p sqlc.Pipeline, before wizard.Destinations) *rerenderFailure {
 	if strings.Contains(p.Contents, legacyDestinationWriterMarker) {
 		return nil
+	}
+	if p.WizardRenderSha256.Valid {
+		if p.WizardRenderSha256 == renderFingerprint(p.Contents) {
+			return nil
+		}
+		return &rerenderFailure{pipeline: p.Name, reason: errHandEdited}
 	}
 	wiz, err := wizard.Default().Get(p.WizardKind.String)
 	if err != nil {
@@ -241,6 +277,8 @@ func applyWizardRerenders(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUI
 		updated, err := q.UpdatePipeline(ctx, sqlc.UpdatePipelineParams{
 			ID: c.ID, Name: c.Name, Contents: c.Contents, Matchers: c.Matchers,
 			WizardState: state, UpdatedBy: actor,
+			// A wizard write: record what it rendered (0030).
+			WizardRenderSha256: renderFingerprint(c.Contents),
 		})
 		if err != nil {
 			return false, fmt.Errorf("updating pipeline %q: %w", c.Name, err)
@@ -251,7 +289,7 @@ func applyWizardRerenders(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUI
 		}
 		d := detail
 		d.Revision = rev
-		if err := insertAudit(ctx, q, actor, actorType, orgID, "pipeline.rerender", "pipeline", c.ID.String(), d); err != nil {
+		if err := auditInsert(ctx, q, actor, actorType, orgID, "pipeline.rerender", "pipeline", c.ID.String(), d); err != nil {
 			return false, fmt.Errorf("auditing the re-render of pipeline %q: %w", c.Name, err)
 		}
 		anyEnabled = anyEnabled || updated.Enabled

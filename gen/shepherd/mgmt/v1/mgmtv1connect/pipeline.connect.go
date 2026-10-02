@@ -75,6 +75,9 @@ const (
 	// PipelineServiceSetPipelineOwnerProcedure is the fully-qualified name of the PipelineService's
 	// SetPipelineOwner RPC.
 	PipelineServiceSetPipelineOwnerProcedure = "/shepherd.mgmt.v1.PipelineService/SetPipelineOwner"
+	// PipelineServiceDetachFromWizardProcedure is the fully-qualified name of the PipelineService's
+	// DetachFromWizard RPC.
+	PipelineServiceDetachFromWizardProcedure = "/shepherd.mgmt.v1.PipelineService/DetachFromWizard"
 )
 
 // PipelineServiceClient is a client for the shepherd.mgmt.v1.PipelineService service.
@@ -109,6 +112,16 @@ type PipelineServiceClient interface {
 	// current ownership — a team can write what it owns, but granting or
 	// revoking ownership is a platform decision, not a delegated one.
 	SetPipelineOwner(context.Context, *connect.Request[v1.SetPipelineOwnerRequest]) (*connect.Response[v1.Pipeline], error)
+	// DetachFromWizard turns a wizard pipeline into an ordinary editor
+	// pipeline, in place: same id, revisions, owner team, matchers and enabled
+	// state; source becomes "ui" and its wizard kind, wizard state and render
+	// fingerprint are cleared, so a destination update no longer regenerates it
+	// and its text is the operator's to edit. Writes a revision ("detached
+	// from wizard") and a pipeline.detach audit row. Same authorization as
+	// UpdatePipeline. failed_precondition on a pipeline that is not a wizard
+	// pipeline. The contents are unchanged, so no validation or serve-cache
+	// change is involved.
+	DetachFromWizard(context.Context, *connect.Request[v1.DetachFromWizardRequest]) (*connect.Response[v1.Pipeline], error)
 }
 
 // NewPipelineServiceClient constructs a client for the shepherd.mgmt.v1.PipelineService service. By
@@ -206,6 +219,12 @@ func NewPipelineServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(pipelineServiceMethods.ByName("SetPipelineOwner")),
 			connect.WithClientOptions(opts...),
 		),
+		detachFromWizard: connect.NewClient[v1.DetachFromWizardRequest, v1.Pipeline](
+			httpClient,
+			baseURL+PipelineServiceDetachFromWizardProcedure,
+			connect.WithSchema(pipelineServiceMethods.ByName("DetachFromWizard")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -225,6 +244,7 @@ type pipelineServiceClient struct {
 	getRevision      *connect.Client[v1.GetRevisionRequest, v1.PipelineRevision]
 	restoreRevision  *connect.Client[v1.RestoreRevisionRequest, v1.Pipeline]
 	setPipelineOwner *connect.Client[v1.SetPipelineOwnerRequest, v1.Pipeline]
+	detachFromWizard *connect.Client[v1.DetachFromWizardRequest, v1.Pipeline]
 }
 
 // ListPipelines calls shepherd.mgmt.v1.PipelineService.ListPipelines.
@@ -297,6 +317,11 @@ func (c *pipelineServiceClient) SetPipelineOwner(ctx context.Context, req *conne
 	return c.setPipelineOwner.CallUnary(ctx, req)
 }
 
+// DetachFromWizard calls shepherd.mgmt.v1.PipelineService.DetachFromWizard.
+func (c *pipelineServiceClient) DetachFromWizard(ctx context.Context, req *connect.Request[v1.DetachFromWizardRequest]) (*connect.Response[v1.Pipeline], error) {
+	return c.detachFromWizard.CallUnary(ctx, req)
+}
+
 // PipelineServiceHandler is an implementation of the shepherd.mgmt.v1.PipelineService service.
 type PipelineServiceHandler interface {
 	ListPipelines(context.Context, *connect.Request[v1.ListPipelinesRequest]) (*connect.Response[v1.ListPipelinesResponse], error)
@@ -329,6 +354,16 @@ type PipelineServiceHandler interface {
 	// current ownership — a team can write what it owns, but granting or
 	// revoking ownership is a platform decision, not a delegated one.
 	SetPipelineOwner(context.Context, *connect.Request[v1.SetPipelineOwnerRequest]) (*connect.Response[v1.Pipeline], error)
+	// DetachFromWizard turns a wizard pipeline into an ordinary editor
+	// pipeline, in place: same id, revisions, owner team, matchers and enabled
+	// state; source becomes "ui" and its wizard kind, wizard state and render
+	// fingerprint are cleared, so a destination update no longer regenerates it
+	// and its text is the operator's to edit. Writes a revision ("detached
+	// from wizard") and a pipeline.detach audit row. Same authorization as
+	// UpdatePipeline. failed_precondition on a pipeline that is not a wizard
+	// pipeline. The contents are unchanged, so no validation or serve-cache
+	// change is involved.
+	DetachFromWizard(context.Context, *connect.Request[v1.DetachFromWizardRequest]) (*connect.Response[v1.Pipeline], error)
 }
 
 // NewPipelineServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -422,6 +457,12 @@ func NewPipelineServiceHandler(svc PipelineServiceHandler, opts ...connect.Handl
 		connect.WithSchema(pipelineServiceMethods.ByName("SetPipelineOwner")),
 		connect.WithHandlerOptions(opts...),
 	)
+	pipelineServiceDetachFromWizardHandler := connect.NewUnaryHandler(
+		PipelineServiceDetachFromWizardProcedure,
+		svc.DetachFromWizard,
+		connect.WithSchema(pipelineServiceMethods.ByName("DetachFromWizard")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/shepherd.mgmt.v1.PipelineService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PipelineServiceListPipelinesProcedure:
@@ -452,6 +493,8 @@ func NewPipelineServiceHandler(svc PipelineServiceHandler, opts ...connect.Handl
 			pipelineServiceRestoreRevisionHandler.ServeHTTP(w, r)
 		case PipelineServiceSetPipelineOwnerProcedure:
 			pipelineServiceSetPipelineOwnerHandler.ServeHTTP(w, r)
+		case PipelineServiceDetachFromWizardProcedure:
+			pipelineServiceDetachFromWizardHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -515,4 +558,8 @@ func (UnimplementedPipelineServiceHandler) RestoreRevision(context.Context, *con
 
 func (UnimplementedPipelineServiceHandler) SetPipelineOwner(context.Context, *connect.Request[v1.SetPipelineOwnerRequest]) (*connect.Response[v1.Pipeline], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.PipelineService.SetPipelineOwner is not implemented"))
+}
+
+func (UnimplementedPipelineServiceHandler) DetachFromWizard(context.Context, *connect.Request[v1.DetachFromWizardRequest]) (*connect.Response[v1.Pipeline], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.PipelineService.DetachFromWizard is not implemented"))
 }
