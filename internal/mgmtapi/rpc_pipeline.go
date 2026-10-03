@@ -832,6 +832,18 @@ func (s *PipelineService) PreviewMatches(ctx context.Context, req *connect.Reque
 		Matchers: matchers,
 		Source:   p.Source,
 	}
+	// A git pipeline matches by its linked collector, not by matchers
+	// (merge.MatchesPipeline compares RepoLinkCollectorID when Source is
+	// "git"). The row only carries RepoLinkID; the target collector is on the
+	// repo_link row. Left empty, the preview of any git pipeline was empty.
+	if p.Source == "git" && p.RepoLinkID.Valid {
+		link, linkErr := s.store.Queries.GetRepoLinkByID(ctx, p.RepoLinkID)
+		if linkErr != nil {
+			s.logger.Debug("preview matches: load repo link", "err", linkErr)
+		} else {
+			mp.RepoLinkCollectorID = repoLinkCollectorID(link.CollectorID)
+		}
+	}
 
 	matched, matchErr := s.previewMatchedCollectors(ctx, mp, orgID)
 	if matchErr != nil {
