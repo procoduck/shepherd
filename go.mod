@@ -6,7 +6,7 @@ require (
 	connectrpc.com/connect v1.21.0
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/go-chi/chi/v5 v5.3.2
-	github.com/go-git/go-billy/v6 v6.0.0-alpha.2
+	github.com/go-git/go-billy/v6 v6.0.0-beta.1
 	github.com/go-git/go-git/v6 v6.0.0-alpha.5
 	github.com/golang-migrate/migrate/v4 v4.20.1
 	github.com/golang/snappy v1.0.0
