@@ -83,6 +83,12 @@ Categories used here:
 
 ### Fixed
 
+- **`PreviewMatches` finds the collector of a git-sourced pipeline.** A git pipeline is
+  served to the collector its repo link names, but the preview never looked the link up, so
+  `PreviewMatches` returned no collectors for every git-sourced pipeline. The MCP `preview_matches`
+  tool calls the same RPC and showed the same empty result.
+  What collectors are actually served was already correct. **Shipped.**
+
 - **A destination a wizard pipeline uses can no longer be deleted (#262).** `DeleteDestination`'s
   in-use check looked for a `destination_id` key that no wizard stores (wizards store the
   destination's name), so it never refused. It now matches the name under any `*_dest_name` answer
