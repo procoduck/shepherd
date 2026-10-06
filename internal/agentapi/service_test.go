@@ -26,9 +26,11 @@ import (
 
 	collectorv1 "shepherd/gen/collector/v1"
 	"shepherd/gen/collector/v1/collectorv1connect"
+	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/internal/agentapi"
 	"shepherd/internal/config"
 	"shepherd/internal/metrics"
+	"shepherd/internal/mgmtapi"
 	"shepherd/internal/schema"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
@@ -1184,6 +1186,150 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 				instance, err := st.Queries.GetCollectorInstanceByID(ctx, "recompute-instance")
 				Expect(err).NotTo(HaveOccurred())
 				Expect(instance.RemoteConfigStatus.String).To(Equal("FAILED"), "agent has not applied the newly served config yet")
+			})
+		})
+
+		// An APPLIED is about the config it was reported for. These replay,
+		// request by request, what a real Alloy v1.20.1 sent a recording
+		// server (docs/proofs/applied-status.md, captures (d)–(f)) and read
+		// the result where it is consumed: the management API's collector
+		// view. Between Shepherd serving a new config and the agent's next
+		// report — a full poll interval, and the window #281's e2e-k8s spec
+		// fell into while Alloy refused the new config — the stored row
+		// still says APPLIED, about the previous config.
+		Describe("APPLIED is about the config being served", func() {
+			attrs := map[string]string{"cluster": "recompute-cluster", "role": "metrics"}
+			poll := func(hash string, status *collectorv1.RemoteConfigStatus, eff *collectorv1.EffectiveConfig) *collectorv1.GetConfigResponse {
+				GinkgoHelper()
+				resp, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+					Id: "recompute-instance", Hash: hash, LocalAttributes: attrs,
+					RemoteConfigStatus: status, EffectiveConfig: eff,
+				}))
+				Expect(err).NotTo(HaveOccurred())
+				return resp.Msg
+			}
+			applied := &collectorv1.RemoteConfigStatus{Status: collectorv1.RemoteConfigStatuses_RemoteConfigStatuses_APPLIED}
+			unset := &collectorv1.RemoteConfigStatus{Status: collectorv1.RemoteConfigStatuses_RemoteConfigStatuses_UNSET}
+			const refusal = "1:1: Failed to build component: building component: invalid stage config logfmt mapping or regex is required"
+			failed := &collectorv1.RemoteConfigStatus{
+				Status:       collectorv1.RemoteConfigStatuses_RemoteConfigStatuses_FAILED,
+				ErrorMessage: refusal,
+			}
+			loaded := func(body string) *collectorv1.EffectiveConfig {
+				return &collectorv1.EffectiveConfig{ConfigMap: &collectorv1.AgentConfigMap{
+					ConfigMap: map[string]*collectorv1.AgentConfigFile{"": {Body: []byte(body)}},
+				}}
+			}
+			// presented is what the management API shows for the collector
+			// and for its one instance.
+			presented := func(collector sqlc.Collector) (string, string) {
+				GinkgoHelper()
+				orgID, err := st.Queries.GetCollectorOrgID(ctx, collector.ID)
+				Expect(err).NotTo(HaveOccurred())
+				fleet := mgmtapi.NewFleetService(st, slog.Default())
+				got, err := fleet.GetCollector(ctx, connect.NewRequest(&mgmtv1.GetCollectorRequest{
+					OrgId: orgID.String(), Id: collector.ID.String(),
+				}))
+				Expect(err).NotTo(HaveOccurred())
+				Expect(got.Msg.GetInstances()).To(HaveLen(1))
+				Expect(got.Msg.GetInstances()[0].GetRemoteConfigStatus()).To(Equal(got.Msg.GetRemoteConfigStatus()))
+				list, err := fleet.ListCollectors(ctx, connect.NewRequest(&mgmtv1.ListCollectorsRequest{OrgId: orgID.String()}))
+				Expect(err).NotTo(HaveOccurred())
+				Expect(list.Msg.GetItems()).To(HaveLen(1))
+				Expect(list.Msg.GetItems()[0].GetRemoteConfigStatus()).To(Equal(got.Msg.GetRemoteConfigStatus()),
+					"the list and the detail view present the same status")
+				return got.Msg.GetRemoteConfigStatus(), got.Msg.GetRemoteConfigError()
+			}
+			addPipeline := func(collector sqlc.Collector, name string) {
+				GinkgoHelper()
+				orgID, err := st.Queries.GetCollectorOrgID(ctx, collector.ID)
+				Expect(err).NotTo(HaveOccurred())
+				_, err = st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+					OrgID: orgID, Name: name, Contents: "// " + name,
+					Matchers: json.RawMessage(`["cluster=\"recompute-cluster\""]`), Enabled: true, Source: "ui",
+					WizardState: json.RawMessage(`{}`), CreatedBy: "test", UpdatedBy: "test",
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(st.Queries.MarkServeCacheDirty(ctx, collector.ID)).To(Succeed())
+			}
+
+			// Capture (d): Alloy applied an empty config (a claimed cluster
+			// with no pipeline yet), then refused the first real one.
+			It("does not read APPLIED for an empty config once a config Alloy refuses is served", func() {
+				org, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "recompute-org", DisplayName: "Recompute org", AdminGroupID: "admins"})
+				Expect(err).NotTo(HaveOccurred())
+				first := poll("", unset, nil)
+				cluster, err := st.Queries.GetClusterByName(ctx, "recompute-cluster")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: org.ID})).To(Succeed())
+				collector, err := st.Queries.GetCollectorByClusterAndRole(ctx, sqlc.GetCollectorByClusterAndRoleParams{Name: "recompute-cluster", Role: "metrics"})
+				Expect(err).NotTo(HaveOccurred())
+				empty := poll(first.GetHash(), nil, nil).GetHash()
+				poll(empty, applied, nil) // an empty config loads and sets no effective_config
+				poll(empty, nil, nil)
+				status, _ := presented(collector)
+				Expect(status).To(Equal("APPLIED"))
+
+				addPipeline(collector, "refused")
+				refused := poll(empty, nil, nil) // Alloy is served the new config with this poll
+				Expect(refused.GetHash()).NotTo(Equal(empty))
+				status, _ = presented(collector)
+				Expect(status).NotTo(Equal("APPLIED"),
+					"Alloy has not reported on the served config yet; the APPLIED is about the empty one")
+				Expect(status).To(Equal("APPLYING"))
+
+				poll(refused.GetHash(), failed, nil) // the immediate notify after the refused load
+				for range 2 {
+					poll(refused.GetHash(), nil, nil)
+				}
+				status, errMsg := presented(collector)
+				Expect(status).To(Equal("FAILED"))
+				Expect(errMsg).To(Equal(refusal))
+			})
+
+			// Capture (e): Alloy applied config A, then refused B. It restores
+			// A from its cache — and A's effective_config was already sent,
+			// so none is sent again.
+			It("does not read APPLIED for config A once a config B that Alloy refuses is served", func() {
+				collector, _ := setupClaimedPipeline()
+				a := poll("", unset, nil).GetHash()
+				poll(a, applied, loaded("// recompute-pipeline"))
+				status, _ := presented(collector)
+				Expect(status).To(Equal("APPLIED"))
+
+				addPipeline(collector, "refused")
+				b := poll(a, nil, nil).GetHash()
+				Expect(b).NotTo(Equal(a))
+				status, _ = presented(collector)
+				Expect(status).To(Equal("APPLYING"), "the APPLIED is about A, and B is being served")
+
+				poll(b, failed, nil)
+				poll(b, nil, nil)
+				status, errMsg := presented(collector)
+				Expect(status).To(Equal("FAILED"))
+				Expect(errMsg).To(Equal(refusal))
+
+				instance, err := st.Queries.GetCollectorInstanceByID(ctx, "recompute-instance")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(instance.RemoteConfigStatusHash.String).To(Equal(b))
+			})
+
+			// Capture (c)/(f): a good config replacing a good one is reported
+			// with effective_config and no status — that is a load of the
+			// served config, and reads APPLIED again.
+			It("reads APPLIED again once the agent proves it loaded the served config", func() {
+				collector, _ := setupClaimedPipeline()
+				a := poll("", unset, nil).GetHash()
+				poll(a, applied, loaded("// recompute-pipeline"))
+
+				addPipeline(collector, "accepted")
+				b := poll(a, nil, nil).GetHash()
+				status, _ := presented(collector)
+				Expect(status).To(Equal("APPLYING"))
+
+				poll(b, nil, loaded("// accepted"))
+				status, _ = presented(collector)
+				Expect(status).To(Equal("APPLIED"))
 			})
 		})
 	})

@@ -77,6 +77,20 @@ func WithFleetInactiveAfter(d time.Duration) FleetServiceOption {
 // last check-in is older than agent.inactive_after. It is never stored (#237).
 const instanceStatusInactive = "inactive"
 
+// instanceStatusApplying is how a stored APPLIED is presented while it is
+// about an earlier config than the one now served: Alloy's own word for a
+// config it has been sent and not yet reported on. Never stored.
+const instanceStatusApplying = "APPLYING"
+
+// instanceOutcome is what presentInstanceStatus reads from a stored instance
+// row: the agent's last reported outcome, which config it was about
+// (remote_config_status_hash), and the config the collector is served now.
+type instanceOutcome struct {
+	status, errMsg         pgtype.Text
+	statusHash, servedHash pgtype.Text
+	lastSeen               pgtype.Timestamptz
+}
+
 // presentInstanceStatus returns the status and error an instance is shown
 // with. Staleness and the agent's outcome are independent (#237): the stored
 // remote_config_status is the agent's last reported outcome and is never
@@ -87,11 +101,25 @@ const instanceStatusInactive = "inactive"
 // error is withheld while inactive: it describes the last outcome, not the
 // presented state. CountActiveInstances applies the same rule for the
 // shepherd_active_collectors gauge.
-func presentInstanceStatus(status, errMsg pgtype.Text, lastSeen pgtype.Timestamptz, inactiveAfter time.Duration, now time.Time) (string, string) {
-	if inactiveAfter > 0 && lastSeen.Valid && lastSeen.Time.Before(now.Add(-inactiveAfter)) {
+//
+// APPLIED is a claim about one config — the hash it was reported with — so a
+// stored APPLIED about an earlier config than the one served now is presented
+// as APPLYING: Shepherd has served a new config and the agent has not
+// reported on it yet. Without this an instance read APPLIED for a full poll
+// interval after a change, including while Alloy refused the new config
+// (docs/proofs/applied-status.md, captures (d) and (e)). Only APPLIED is
+// qualified: a FAILED stays FAILED until the agent reports otherwise (F1),
+// and a status with no recorded hash, or a collector with nothing served
+// yet, is shown as stored.
+func presentInstanceStatus(o instanceOutcome, inactiveAfter time.Duration, now time.Time) (string, string) {
+	if inactiveAfter > 0 && o.lastSeen.Valid && o.lastSeen.Time.Before(now.Add(-inactiveAfter)) {
 		return instanceStatusInactive, ""
 	}
-	return status.String, errMsg.String
+	if o.status.String == "APPLIED" && o.statusHash.String != "" && o.servedHash.String != "" &&
+		o.statusHash.String != o.servedHash.String {
+		return instanceStatusApplying, ""
+	}
+	return o.status.String, o.errMsg.String
 }
 
 // NewFleetService constructs a FleetService.
@@ -174,7 +202,10 @@ func (s *FleetService) ListCollectors(ctx context.Context, req *connect.Request[
 		}
 		// The summary is the most recently seen live instance, so it is
 		// inactive only when every instance of the collector is.
-		status, _ := presentInstanceStatus(summary.RemoteConfigStatus, pgtype.Text{}, summary.LastSeen, s.inactiveAfter, now)
+		status, _ := presentInstanceStatus(instanceOutcome{
+			status: summary.RemoteConfigStatus, statusHash: summary.StatusHash, servedHash: summary.ServedHash,
+			lastSeen: summary.LastSeen,
+		}, s.inactiveAfter, now)
 		items[i] = &mgmtv1.Collector{
 			Id:                 c.ID.String(),
 			ClusterId:          c.ClusterID.String(),
@@ -252,7 +283,10 @@ func (s *FleetService) getCollector(ctx context.Context, orgIDStr, idStr string)
 	now := s.now()
 	for i := range rows {
 		row := &rows[i]
-		status, errMsg := presentInstanceStatus(row.RemoteConfigStatus, row.RemoteConfigError, row.LastSeen, s.inactiveAfter, now)
+		status, errMsg := presentInstanceStatus(instanceOutcome{
+			status: row.RemoteConfigStatus, errMsg: row.RemoteConfigError,
+			statusHash: row.StatusHash, servedHash: row.ServedHash, lastSeen: row.LastSeen,
+		}, s.inactiveAfter, now)
 		attrs, attrErr := structFromJSON(row.LocalAttributes)
 		if attrErr != nil {
 			s.logger.Warn("get collector: decoding instance local_attributes", "err", attrErr)

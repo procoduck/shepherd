@@ -124,9 +124,12 @@ func (q *Queries) GetCollectorInstanceByID(ctx context.Context, id string) (Coll
 }
 
 const getLatestCollectorInstanceSummary = `-- name: GetLatestCollectorInstanceSummary :one
-SELECT remote_config_status, last_seen, alloy_version, local_attributes FROM collector_instances
-WHERE collector_id = $1 AND unregistered_at IS NULL
-ORDER BY last_seen DESC
+SELECT ci.remote_config_status, ci.last_seen, ci.alloy_version, ci.local_attributes,
+       ci.remote_config_status_hash AS status_hash, sc.hash AS served_hash
+FROM collector_instances ci
+LEFT JOIN serve_cache sc ON sc.collector_id = ci.collector_id
+WHERE ci.collector_id = $1 AND ci.unregistered_at IS NULL
+ORDER BY ci.last_seen DESC
 LIMIT 1
 `
 
@@ -135,11 +138,15 @@ type GetLatestCollectorInstanceSummaryRow struct {
 	LastSeen           pgtype.Timestamptz `json:"last_seen"`
 	AlloyVersion       pgtype.Text        `json:"alloy_version"`
 	LocalAttributes    json.RawMessage    `json:"local_attributes"`
+	StatusHash         pgtype.Text        `json:"status_hash"`
+	ServedHash         pgtype.Text        `json:"served_hash"`
 }
 
 // Status, last-seen, and version of the most recently reporting live
 // instance for a collector, in a single round trip (used by the collector
-// list endpoint instead of N per-row status-only lookups).
+// list endpoint instead of N per-row status-only lookups). status_hash and
+// served_hash let the reader tell an outcome about the config being served
+// from one about an earlier config (docs/proofs/applied-status.md).
 func (q *Queries) GetLatestCollectorInstanceSummary(ctx context.Context, collectorID pgtype.UUID) (GetLatestCollectorInstanceSummaryRow, error) {
 	row := q.db.QueryRow(ctx, getLatestCollectorInstanceSummary, collectorID)
 	var i GetLatestCollectorInstanceSummaryRow
@@ -148,15 +155,19 @@ func (q *Queries) GetLatestCollectorInstanceSummary(ctx context.Context, collect
 		&i.LastSeen,
 		&i.AlloyVersion,
 		&i.LocalAttributes,
+		&i.StatusHash,
+		&i.ServedHash,
 	)
 	return i, err
 }
 
 const listCollectorInstancesByCollector = `-- name: ListCollectorInstancesByCollector :many
-SELECT name, alloy_version, os, last_seen, remote_config_status, remote_config_error, local_attributes
-FROM collector_instances
-WHERE collector_id = $1 AND unregistered_at IS NULL
-ORDER BY last_seen DESC NULLS LAST
+SELECT ci.name, ci.alloy_version, ci.os, ci.last_seen, ci.remote_config_status, ci.remote_config_error,
+       ci.local_attributes, ci.remote_config_status_hash AS status_hash, sc.hash AS served_hash
+FROM collector_instances ci
+LEFT JOIN serve_cache sc ON sc.collector_id = ci.collector_id
+WHERE ci.collector_id = $1 AND ci.unregistered_at IS NULL
+ORDER BY ci.last_seen DESC NULLS LAST
 `
 
 type ListCollectorInstancesByCollectorRow struct {
@@ -167,10 +178,13 @@ type ListCollectorInstancesByCollectorRow struct {
 	RemoteConfigStatus pgtype.Text        `json:"remote_config_status"`
 	RemoteConfigError  pgtype.Text        `json:"remote_config_error"`
 	LocalAttributes    json.RawMessage    `json:"local_attributes"`
+	StatusHash         pgtype.Text        `json:"status_hash"`
+	ServedHash         pgtype.Text        `json:"served_hash"`
 }
 
 // All live (still-registered) instances reporting under a collector,
-// newest last_seen first, for the collector detail view.
+// newest last_seen first, for the collector detail view. status_hash and
+// served_hash: see GetLatestCollectorInstanceSummary.
 func (q *Queries) ListCollectorInstancesByCollector(ctx context.Context, collectorID pgtype.UUID) ([]ListCollectorInstancesByCollectorRow, error) {
 	rows, err := q.db.Query(ctx, listCollectorInstancesByCollector, collectorID)
 	if err != nil {
@@ -188,6 +202,8 @@ func (q *Queries) ListCollectorInstancesByCollector(ctx context.Context, collect
 			&i.RemoteConfigStatus,
 			&i.RemoteConfigError,
 			&i.LocalAttributes,
+			&i.StatusHash,
+			&i.ServedHash,
 		); err != nil {
 			return nil, err
 		}
