@@ -12,7 +12,7 @@ import { Field, Input } from '@/components/ui/Field';
 import { useMe } from '@/hooks/useMe';
 import { useOrgId } from '@/hooks/useOrg';
 import { formatTimestampRelative } from '@/lib/utils';
-import { assignmentColumns, instanceColumns, STATUS_COLORS, statusTitle } from './collectorColumns';
+import { assignmentColumns, instanceColumns, statusColor, statusTitle } from './collectorColumns';
 
 type Tab = 'config' | 'reconciliation' | 'info' | 'attributes' | 'access';
 
@@ -141,7 +141,7 @@ export function CollectorDetailPage() {
 
   const detail = collector;
   const status = detail?.remoteConfigStatus?.toUpperCase() ?? '';
-  const statusColor = STATUS_COLORS[status] ?? 'text-muted bg-border border-border-strong';
+  const statusTone = statusColor(status);
   const instances = detail?.instances ?? [];
   const latestOs = instances[0]?.os;
   const tabs: Tab[] = isOrgAdmin
@@ -173,7 +173,7 @@ export function CollectorDetailPage() {
           <span
             data-testid='collector-status'
             title={statusTitle(status)}
-            className={`text-xs font-medium px-2 py-0.5 rounded border ${statusColor}`}
+            className={`text-xs font-medium px-2 py-0.5 rounded border ${statusTone}`}
           >
             {status || 'UNKNOWN'}
           </span>
@@ -181,7 +181,7 @@ export function CollectorDetailPage() {
       </div>
 
       {detail?.remoteConfigError && (
-        <div className='rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400'>
+        <div className='rounded-lg border border-danger/30 bg-danger-surface px-4 py-3 text-sm text-danger'>
           <span className='font-medium'>Config error: </span>
           {detail.remoteConfigError}
         </div>

@@ -253,7 +253,7 @@ export function AdminOrgsPage() {
                 placeholder='33333333-3333-3333-3333-333333333333'
               />
             </Field>
-            <Field label='Reader group ID' optional>
+            <Field label='Viewer group ID' optional>
               <Input
                 value={createForm.readerGroupId}
                 onChange={(e) => setCreateForm((f) => ({ ...f, readerGroupId: e.target.value }))}
@@ -348,7 +348,7 @@ export function AdminOrgsPage() {
                 mono
               />
             </Field>
-            <Field label='Reader group ID' optional>
+            <Field label='Viewer group ID' optional>
               <Input
                 value={editForm.readerGroupId}
                 onChange={(e) => setEditForm((f) => ({ ...f, readerGroupId: e.target.value }))}

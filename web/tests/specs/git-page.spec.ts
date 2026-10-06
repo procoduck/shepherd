@@ -224,3 +224,38 @@ test('deletes a repo link after confirmation', async ({ page, api }) => {
   const calls = api.calls('GitOpsService/DeleteRepoLink');
   expect(calls).toHaveLength(1);
 });
+
+// #253: a link at the repo root used to render "<url> /" — a stray slash glued
+// onto the URL. The root path now shows nothing; a subdirectory gets its own
+// labelled line.
+test('repository cell shows no stray slash for a root path, and labels a subdirectory', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(orgAdmin);
+  const s = basicScenario();
+  const link = (id: string, repo: string, path: string) => ({
+    id,
+    repo_url: repo,
+    branch: 'main',
+    path,
+    collector_id: 'col-0001',
+    credential_id: 'cred-0001',
+    sync_status: 'ok',
+  });
+  api.seed({
+    orgs: [s.org],
+    collectors: s.collectors,
+    gitCredentials: [{ id: 'cred-0001', name: 'gitea-pat', kind: 'pat', username: 'oauth2' }],
+    repoLinks: [
+      link('rl-0001', 'https://gitea.internal/team/root.git', '/'),
+      link('rl-0002', 'https://gitea.internal/team/sub.git', '/alloy/prod/'),
+    ],
+  });
+  await page.goto('/git');
+
+  const rootCell = page.getByRole('cell').filter({ hasText: 'team/root.git' });
+  await expect(rootCell).toHaveText('https://gitea.internal/team/root.git');
+  const subCell = page.getByRole('cell').filter({ hasText: 'team/sub.git' });
+  await expect(subCell.getByTestId('repo-link-path')).toHaveText('path: alloy/prod');
+});

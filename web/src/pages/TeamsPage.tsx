@@ -9,6 +9,7 @@ import { QueryError } from '@/components/QueryError';
 import { Banner } from '@/components/ui/Banner';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Field, Input, Select } from '@/components/ui/Field';
+import { toneClass } from '@/components/ui/statusTone';
 import type { Team } from '@/gen/shepherd/mgmt/v1/team_pb';
 import { useMe } from '@/hooks/useMe';
 import { useOrg } from '@/hooks/useOrg';
@@ -46,7 +47,7 @@ function teamColumns(
           {t.idpGroupId && (
             <span
               data-testid={`team-source-group-${t.name}`}
-              className='inline-flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-xs text-sky-300'
+              className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs ${toneClass('info')}`}
               title='Anyone whose identity provider token carries this group is a member'
             >
               group <span className='font-mono'>{t.idpGroupId}</span>
@@ -55,7 +56,7 @@ function teamColumns(
           {t.memberCount > 0 && (
             <span
               data-testid={`team-source-members-${t.name}`}
-              className='inline-flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-xs text-emerald-300'
+              className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs ${toneClass('ok')}`}
             >
               {t.memberCount} {t.memberCount === 1 ? 'member' : 'members'}
             </span>
@@ -356,7 +357,7 @@ function TeamMembersModal({
                     <span className='ml-2 text-xs text-muted-2'>{m.displayName}</span>
                   )}
                   {m.disabled && (
-                    <span className='ml-2 rounded bg-red-500/15 px-1.5 py-0.5 text-2xs text-red-400'>
+                    <span className={`ml-2 rounded px-1.5 py-0.5 text-2xs ${toneClass('danger')}`}>
                       disabled
                     </span>
                   )}

@@ -26,6 +26,24 @@
    */
   --color-muted-3: #52525b;
   --color-accent: #6366f1;
+  /*
+   * Status tones (#253) for badges and pills: text colour + an OPAQUE tinted
+   * surface, so the contrast is a fixed pair rather than a translucent
+   * overlay whose result depends on what it sits on. The old badges used
+   * Tailwind's emerald/yellow/red/amber-400 over a 10-15% tint of the same
+   * hue: fine on the dark surfaces, but 1.4-2.5:1 on light ones. Every
+   * pair below clears WCAG AA (4.5:1) against its surface and against
+   * --color-card/--color-background, in both themes — theme.test.ts
+   * computes it. Utilities: text-ok bg-ok-surface border-ok/30, etc.
+   */
+  --color-ok: #6ee7b7;
+  --color-ok-surface: #052e22;
+  --color-warn: #fcd34d;
+  --color-warn-surface: #3a2306;
+  --color-danger: #fca5a5;
+  --color-danger-surface: #3f1212;
+  --color-info: #7dd3fc;
+  --color-info-surface: #0b2a3f;
 }
 
 /*
@@ -64,6 +82,15 @@
     --color-muted-2: #52525b;
     --color-muted-3: #71717a;
     --color-accent: #4f46e5;
+    /* Status tones (#253): see the dark @theme block. */
+    --color-ok: #065f46;
+    --color-ok-surface: #ecfdf5;
+    --color-warn: #92400e;
+    --color-warn-surface: #fffbeb;
+    --color-danger: #b91c1c;
+    --color-danger-surface: #fef2f2;
+    --color-info: #075985;
+    --color-info-surface: #f0f9ff;
     /*
      * F2 (2026-09-14 walkthrough fixes). --color-zinc-100/200/300 are
      * Tailwind's own @theme tokens (not ours), used raw by <body>
@@ -95,6 +122,15 @@ html.light {
   --color-muted-2: #52525b;
   --color-muted-3: #71717a;
   --color-accent: #4f46e5;
+  /* Status tones (#253): see the dark @theme block. */
+  --color-ok: #065f46;
+  --color-ok-surface: #ecfdf5;
+  --color-warn: #92400e;
+  --color-warn-surface: #fffbeb;
+  --color-danger: #b91c1c;
+  --color-danger-surface: #fef2f2;
+  --color-info: #075985;
+  --color-info-surface: #f0f9ff;
   /* F2: see the matching comment in the media-query block above. */
   --color-zinc-100: #18181b;
   --color-zinc-200: #27272a;

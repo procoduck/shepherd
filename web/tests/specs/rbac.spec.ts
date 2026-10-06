@@ -15,7 +15,7 @@ test('orgAdmin does not see admin nav group', async ({ page, api }) => {
   const s = basicScenario();
   api.seed({ orgs: [s.org] });
   await page.goto('/');
-  await expect(page.getByRole('link', { name: 'Orgs' })).not.toBeVisible();
+  await expect(page.getByRole('link', { name: 'Organisations' })).not.toBeVisible();
 });
 
 test('appAdmin sees New pipeline button', async ({ page, api }) => {
@@ -69,7 +69,7 @@ test('orgEditor does not see admin nav group', async ({ page, api }) => {
   api.seed({ orgs: [s.org] });
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Orgs' })).not.toBeVisible();
+  await expect(page.getByRole('link', { name: 'Organisations' })).not.toBeVisible();
 });
 
 test('reader does not see admin nav group', async ({ page, api }) => {
@@ -78,7 +78,7 @@ test('reader does not see admin nav group', async ({ page, api }) => {
   api.seed({ orgs: [s.org] });
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Orgs' })).not.toBeVisible();
+  await expect(page.getByRole('link', { name: 'Organisations' })).not.toBeVisible();
 });
 
 test('nobody does not see admin nav group', async ({ page, api }) => {
@@ -88,7 +88,7 @@ test('nobody does not see admin nav group', async ({ page, api }) => {
   api.seed({});
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Orgs' })).not.toBeVisible();
+  await expect(page.getByRole('link', { name: 'Organisations' })).not.toBeVisible();
 });
 
 // Every persona still sees the non-admin nav groups — only the Admin group
@@ -123,7 +123,7 @@ test('orgAdmin sees the Fleet, Delivery and Access nav groups', async ({ page, a
   api.seed({ orgs: [s.org] });
   await page.goto('/');
   await expect(page.getByRole('link', { name: 'Collectors' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Git' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Git sync' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Teams' })).toBeVisible();
 });
 
@@ -190,7 +190,7 @@ test('nobody sees zero orgs on the overview page', async ({ page, api }) => {
   await api.loginAs(nobody);
   api.seed({});
   await page.goto('/');
-  const orgsTile = page.getByText('Orgs').locator('..');
+  const orgsTile = page.getByText('Organisations', { exact: true }).locator('..');
   await expect(orgsTile).toContainText('0');
 });
 

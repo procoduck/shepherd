@@ -150,6 +150,60 @@ test.describe('visual simulate S3 — sandbox run', () => {
     await expect(page.locator('[data-testid="node-health-badge"]')).toHaveCount(0);
   });
 
+  // #253: a stubbed discovery node used to come back "healthy" and get a green
+  // badge, although the authored component never ran — the sandbox measured
+  // the stand-in. The server now reports it as "stubbed"; the UI must show
+  // that as its own state, not fall back to green or to "unknown" grey.
+  test('a stubbed discovery node shows as stubbed, not healthy, in the table and on the canvas', async ({
+    page,
+    api,
+  }) => {
+    await page.click('[data-component="discovery.kubernetes"]');
+    await expect(page.locator('[data-testid="pipeline-node"]')).toHaveCount(1);
+    const nodeId = await page.locator('[data-testid="pipeline-node"]').getAttribute('data-node-id');
+    if (!nodeId) throw new Error('placed node did not get an id');
+
+    api.seed({
+      simulateRunResult: {
+        status: 'completed',
+        requested_duration_seconds: 1,
+        rewrites: [],
+        captured_series: [],
+        captured_log_lines: [],
+        component_health: [
+          {
+            node_id: nodeId,
+            node_label: 'kubernetes',
+            component: 'discovery.kubernetes',
+            health_state: 'stubbed',
+            message: 'stubbed: discovery.kubernetes did not run in the sandbox',
+          },
+        ],
+        fidelity_note: 'S3 stubs discovery.',
+      },
+    });
+
+    await page.getByTestId('simulate-menu-trigger').click();
+    await expect(page.getByTestId('simulate-menu-sandbox-run')).toHaveText(
+      'Sandbox run (30s capture, ~45s total)…',
+    );
+    await page.getByTestId('simulate-menu-sandbox-run').click();
+    await expect(page.getByTestId('sandbox-run-results')).toBeVisible({ timeout: RESULTS_TIMEOUT });
+
+    await page.getByTestId('sim-results-tab-health').click();
+    const row = page.getByTestId('sim-health-row');
+    await expect(row).toHaveAttribute('data-health-state', 'stubbed');
+    await expect(row).toContainText('stubbed');
+    await expect(row).toContainText('did not run');
+
+    const badge = page.locator(`[data-node-id="${nodeId}"] [data-testid="node-health-badge"]`);
+    await expect(badge).toHaveAttribute('data-health-state', 'stubbed');
+    const color = await badge.evaluate((el) => getComputedStyle(el).backgroundColor);
+    // Not healthy green (#22c55e) and not the unknown grey (#71717a).
+    expect(color).not.toBe('rgb(34, 197, 94)');
+    expect(color).not.toBe('rgb(113, 113, 122)');
+  });
+
   test('7.6.8.2 — failed run surfaces the error, not a fake success view', async ({
     page,
     api,

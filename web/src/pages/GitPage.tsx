@@ -17,6 +17,7 @@ import { RepoLinkForm } from '@/components/git/RepoLinkForm';
 import { TestCredentialDialog } from '@/components/git/TestCredentialDialog';
 import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
+import { toneClass } from '@/components/ui/statusTone';
 import type {
   GitCredential,
   RepoLink,
@@ -86,12 +87,22 @@ function repoLinkColumns(
       key: 'repo',
       header: 'Repository',
       cellClassName: 'px-4 py-2.5 font-mono text-xs',
-      render: (rl) => (
-        <>
-          {rl.repoUrl}
-          <span className='ml-1 text-muted-3'>{rl.path}</span>
-        </>
-      ),
+      render: (rl) => {
+        // The repo root ('/', '' or '.') is the default and says nothing; it
+        // used to render as a stray " /" after the URL (#253). A subdirectory
+        // gets its own labelled line instead of being glued onto the URL.
+        const sub = rl.path === '.' ? '' : rl.path.replace(/^(\.?\/)+/, '').replace(/\/+$/, '');
+        return (
+          <>
+            <span className='break-all'>{rl.repoUrl}</span>
+            {sub && (
+              <span className='block text-muted-2' data-testid='repo-link-path'>
+                path: {sub}
+              </span>
+            )}
+          </>
+        );
+      },
     },
     {
       key: 'branch',
@@ -117,11 +128,9 @@ function repoLinkColumns(
       render: (rl) => (
         <span
           data-testid={rl.syncStatus === 'error' ? 'sync-status-error' : undefined}
-          className={`text-xs px-1.5 py-0.5 rounded ${
-            rl.syncStatus === 'error'
-              ? 'text-red-400 bg-red-400/10'
-              : 'text-emerald-400 bg-emerald-400/10'
-          }`}
+          className={`text-xs px-1.5 py-0.5 rounded ${toneClass(
+            rl.syncStatus === 'error' ? 'danger' : rl.syncStatus ? 'ok' : 'neutral',
+          )}`}
         >
           {rl.syncStatus || 'pending'}
         </span>

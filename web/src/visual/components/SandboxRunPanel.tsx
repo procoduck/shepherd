@@ -1,6 +1,6 @@
 // SandboxRunPanel — S3 sandbox run UI (VB-1 design doc §6.4 step 4).
 //
-// Owns the whole "Simulate ▾ -> Sandbox run (30s)…" flow: submits the
+// Owns the whole "Simulate ▾ -> Sandbox run (30s capture, ~45s total)…" flow: submits the
 // current graph, polls GetRun until terminal, and renders the progress and
 // results views. Health results are pushed into the shared store
 // (`simHealthByNode`) rather than kept local, because CanvasPane — a
@@ -21,6 +21,18 @@ import { useVisualStore } from '../store';
 // countdown actually reads (see `remainingSeconds` below).
 const REQUESTED_DURATION_SECONDS = 30;
 const POLL_INTERVAL_MS = 500;
+// #253: the menu used to say "Sandbox run (30s)" and a run took ~45s. The 30s
+// is only the capture window — how long the sandbox Alloy runs. Around it the
+// simulator transforms and validates the graph and starts Alloy (a few
+// seconds), and afterwards stops Alloy with SIGTERM and gives it up to
+// internal/simsvc's killGrace (15s) to flush its last remote_write batch
+// before results are assembled. That flush is what turns "30s" into 45s, and
+// cutting it would truncate the capture, so the label names the capture
+// window and the end-to-end estimate instead of promising 30s total.
+const SHUTDOWN_GRACE_SECONDS = 15;
+const SANDBOX_RUN_LABEL = `Sandbox run (${REQUESTED_DURATION_SECONDS}s capture, ~${
+  REQUESTED_DURATION_SECONDS + SHUTDOWN_GRACE_SECONDS
+}s total)…`;
 
 // UI progress states per §6.4 step 4: "validating -> transforming -> running
 // (30s countdown) -> collecting". These don't map onto RunStatus 1:1 — the
@@ -440,7 +452,7 @@ export function SandboxRunPanel({
             onClick={start}
             className='block w-full text-left px-3 py-2 hover:bg-accent/10'
           >
-            Sandbox run (30s)…
+            {SANDBOX_RUN_LABEL}
           </button>
         </div>
       )}
@@ -471,6 +483,15 @@ export function SandboxRunPanel({
                     >
                       {collecting ? 'Collecting…' : `${remainingSeconds}s`}
                     </div>
+                  )}
+                  {phase === 'running' && collecting && (
+                    <p
+                      data-testid='sandbox-run-collecting-note'
+                      className='mt-2 text-center text-muted'
+                    >
+                      Capture finished. Stopping the sandbox and letting Alloy flush its last batch
+                      (up to {SHUTDOWN_GRACE_SECONDS}s).
+                    </p>
                   )}
                 </div>
               )}

@@ -10,10 +10,10 @@ import type { ReactNode } from 'react';
 type BannerVariant = 'info' | 'warning' | 'error' | 'success';
 
 const VARIANT_CLASSES: Record<BannerVariant, string> = {
-  info: 'border-sky-500/30 bg-sky-500/10 text-sky-200',
-  warning: 'border-yellow-500/30 bg-yellow-500/10 text-yellow-300',
-  error: 'border-red-500/30 bg-red-500/10 text-red-400',
-  success: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
+  info: 'border-info/30 bg-info-surface text-info',
+  warning: 'border-warn/30 bg-warn-surface text-warn',
+  error: 'border-danger/30 bg-danger-surface text-danger',
+  success: 'border-ok/30 bg-ok-surface text-ok',
 };
 
 export function Banner({

@@ -408,8 +408,8 @@ var _ = Describe("platform audit visibility", Label("integration"), func() {
 		cancel()
 	})
 
-	listFor := func(cookie *http.Cookie) (string, float64) {
-		resp := postJSON(server, procListAudit, map[string]any{"orgId": orgIDStr}, cookie)
+	listScoped := func(cookie *http.Cookie, orgID string) (string, float64) {
+		resp := postJSON(server, procListAudit, map[string]any{"orgId": orgID}, cookie)
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
 		raw, err := io.ReadAll(resp.Body)
 		Expect(err).NotTo(HaveOccurred())
@@ -420,11 +420,26 @@ var _ = Describe("platform audit visibility", Label("integration"), func() {
 		Expect(ok).To(BeTrue(), "response carried no numeric total: %s", raw)
 		return string(raw), total
 	}
+	listFor := func(cookie *http.Cookie) (string, float64) { return listScoped(cookie, orgIDStr) }
 
-	It("shows an app admin platform events alongside the org's own", func() {
+	// #253: platform events used to be folded into whichever org an app admin
+	// was looking at, so an org's audit view showed user and SSO events that
+	// belong to no org. The org view is now that org's trail for everyone; the
+	// platform events are read in the app admin's global view (no org), which
+	// the Audit page offers app admins as its "All organisations and
+	// platform events" scope.
+	It("shows an app admin only the org's own events in an org's view", func() {
 		raw, total := listFor(newAppAdminSession(ctx, st))
+		Expect(raw).To(ContainSubstring("pipeline.create"))
+		Expect(raw).NotTo(ContainSubstring("oidc_settings.update"),
+			"an org's audit view must not include platform events, even for an app admin")
+		Expect(total).To(BeNumerically("==", 1))
+	})
+
+	It("shows an app admin platform events in the global view (no org)", func() {
+		raw, total := listScoped(newAppAdminSession(ctx, st), "")
 		Expect(raw).To(ContainSubstring("oidc_settings.update"),
-			"an app admin viewing an org must still see platform-level events, or the SSO audit trail is unreadable in the product")
+			"the SSO audit trail must stay readable in the product, in the app admin's global view")
 		Expect(raw).To(ContainSubstring("pipeline.create"))
 		// The count labels the same set the page returns.
 		Expect(total).To(BeNumerically("==", 2))
@@ -437,6 +452,16 @@ var _ = Describe("platform audit visibility", Label("integration"), func() {
 		Expect(raw).NotTo(ContainSubstring("oidc_settings.update"),
 			"platform configuration is app-admin business; an org admin's trail must not start showing it")
 		Expect(total).To(BeNumerically("==", 1))
+	})
+
+	It("refuses the global view (no org) to an org admin", func() {
+		cookie := newOrgScopedAdminSession(ctx, st, "audit-vis-admins")
+		resp := postJSON(server, procListAudit, map[string]any{"orgId": ""}, cookie)
+		raw, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.Body.Close()).To(Succeed())
+		Expect(resp.StatusCode).NotTo(Equal(http.StatusOK), "an org admin got the global audit view: %s", raw)
+		Expect(string(raw)).NotTo(ContainSubstring("oidc_settings.update"))
 	})
 })
 

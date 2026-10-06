@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"unicode/utf8"
 
@@ -135,13 +136,35 @@ func toRunLogLines(in []simulate.ClientLogLine) []simulate.RunLogLine {
 	return out
 }
 
-func toRunComponentHealth(in []simulate.ClientComponentHealth, nodeInfo map[string]originalNodeInfo) []simulate.RunComponentHealth {
+// toRunComponentHealth converts the sandbox's per-component health into the
+// stored shape. A node the transform replaced with a stub (rewrites of kind
+// discovery_stubbed / log_source_stubbed) is reported as
+// simulate.HealthStateStubbed rather than with the sandbox's state: what the
+// sandbox measured is the stand-in (a discovery.relabel or loki.source.file),
+// and "healthy" on the user's discovery.kubernetes node claimed something the
+// run never tested (#253). The stand-in's own state stays in the message,
+// since a stand-in that failed is still worth knowing about.
+func toRunComponentHealth(in []simulate.ClientComponentHealth, nodeInfo map[string]originalNodeInfo, rewrites []simulate.Rewrite) []simulate.RunComponentHealth {
+	stubbed := make(map[string]simulate.Rewrite)
+	for i := range rewrites {
+		if k := rewrites[i].Kind; k == simulate.RewriteDiscoveryStubbed || k == simulate.RewriteLogSourceStubbed {
+			stubbed[rewrites[i].NodeID] = rewrites[i]
+		}
+	}
 	out := make([]simulate.RunComponentHealth, 0, len(in))
 	for _, c := range in {
 		info := nodeInfo[c.NodeID]
+		state, msg := c.Health, c.Message
+		if rw, ok := stubbed[c.NodeID]; ok {
+			state = simulate.HealthStateStubbed
+			msg = fmt.Sprintf("stubbed: %s did not run in the sandbox (%s). The stand-in reported %q", info.Component, rw.Detail, c.Health)
+			if c.Message != "" {
+				msg += ": " + c.Message
+			}
+		}
 		out = append(out, simulate.RunComponentHealth{
 			NodeID: c.NodeID, NodeLabel: info.Label, Component: info.Component,
-			HealthState: c.Health, Message: c.Message,
+			HealthState: state, Message: msg,
 		})
 	}
 	return out

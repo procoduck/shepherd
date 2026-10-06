@@ -12,6 +12,7 @@ import type { CreateUserFormState } from '@/components/admin/UserForms';
 import { QueryError } from '@/components/QueryError';
 import { Banner } from '@/components/ui/Banner';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
+import { toneClass } from '@/components/ui/statusTone';
 import type { User } from '@/gen/shepherd/mgmt/v1/user_pb';
 import { useMe } from '@/hooks/useMe';
 
@@ -68,17 +69,17 @@ function userColumns(
       render: (u) => (
         <div className='flex flex-wrap gap-1'>
           {u.isAppAdmin && (
-            <span className='inline-flex items-center gap-1 rounded bg-indigo-500/15 px-1.5 py-0.5 text-xs text-indigo-300'>
+            <span
+              className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs ${toneClass('info')}`}
+            >
               <ShieldCheck size={11} /> app admin
             </span>
           )}
           {u.disabled && (
-            <span className='rounded bg-red-500/15 px-1.5 py-0.5 text-xs text-red-400'>
-              disabled
-            </span>
+            <span className={`rounded px-1.5 py-0.5 text-xs ${toneClass('danger')}`}>disabled</span>
           )}
           {u.mustChangePassword && (
-            <span className='rounded bg-amber-500/15 px-1.5 py-0.5 text-xs text-amber-300'>
+            <span className={`rounded px-1.5 py-0.5 text-xs ${toneClass('warn')}`}>
               must change password
             </span>
           )}

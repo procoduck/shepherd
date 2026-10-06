@@ -10,18 +10,14 @@ import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Field, Input, Select } from '@/components/ui/Field';
 import { Modal, ModalActions } from '@/components/ui/Modal';
+import { type StatusTone, toneClass } from '@/components/ui/statusTone';
 import type { TenantRoute } from '@/gen/shepherd/mgmt/v1/tenant_route_pb';
 import { useCanAdminister, useOrgId } from '@/hooks/useOrg';
 
 // A route's lifecycle state, coloured so "active" reads apart from a route
 // that is mid-rotation or already revoked at a glance.
 function StatusBadge({ status }: { status: string }) {
-  const tone =
-    status === 'active'
-      ? 'bg-emerald-500/15 text-emerald-400'
-      : status === 'deprecated'
-        ? 'bg-amber-500/15 text-amber-400'
-        : 'bg-border text-muted-2';
+  const tone = toneClass(status === 'active' ? 'ok' : status === 'deprecated' ? 'warn' : 'neutral');
   return <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${tone}`}>{status}</span>;
 }
 
@@ -29,35 +25,35 @@ function StatusBadge({ status }: { status: string }) {
 // tenant-route reconciler last recorded. A refusal or error carries the
 // gateway's or apiserver's reason, shown under the badge so it is not lost in
 // a tooltip.
-const APPLY: Record<string, { label: string; tone: string; hint: string }> = {
+const APPLY: Record<string, { label: string; tone: StatusTone; hint: string }> = {
   pending: {
     label: 'pending',
-    tone: 'bg-border text-muted-2',
+    tone: 'neutral',
     hint: 'Not applied yet. Shepherd applies routes when the receiver tier is on with tenant-route apply enabled.',
   },
   applied: {
     label: 'applied',
-    tone: 'bg-emerald-500/15 text-emerald-400',
+    tone: 'ok',
     hint: 'In the cluster and attached to the gateway.',
   },
   refused: {
     label: 'refused',
-    tone: 'bg-red-500/15 text-red-400',
+    tone: 'danger',
     hint: 'The gateway refused to attach the route — check its listeners and allowedRoutes.',
   },
   error: {
     label: 'error',
-    tone: 'bg-amber-500/15 text-amber-400',
+    tone: 'warn',
     hint: 'Applying the route failed; Shepherd retries with backoff.',
   },
   removed: {
     label: 'removed',
-    tone: 'bg-border text-muted-2',
+    tone: 'neutral',
     hint: 'The route no longer routes and its HTTPRoute has been deleted.',
   },
   not_applicable: {
     label: 'not applied',
-    tone: 'bg-border text-muted-2',
+    tone: 'neutral',
     hint: 'Shepherd does not apply this kind of route.',
   },
 };
@@ -69,7 +65,7 @@ function ApplyStatus({ route }: { route: TenantRoute }) {
     return (
       <span className='block max-w-sm' data-testid={`route-apply-${route.segment}`}>
         <span
-          className='rounded bg-border px-1.5 py-0.5 text-xs font-medium text-muted-2'
+          className={`rounded px-1.5 py-0.5 text-xs font-medium ${toneClass('neutral')}`}
           title='Revoked: this route no longer routes. With route apply on, Shepherd removes its HTTPRoute.'
         >
           not routed
@@ -84,7 +80,10 @@ function ApplyStatus({ route }: { route: TenantRoute }) {
   const showMessage = route.applyStatus === 'refused' || route.applyStatus === 'error';
   return (
     <span className='block max-w-sm' data-testid={`route-apply-${route.segment}`}>
-      <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${a.tone}`} title={title}>
+      <span
+        className={`rounded px-1.5 py-0.5 text-xs font-medium ${toneClass(a.tone)}`}
+        title={title}
+      >
         {a.label}
       </span>
       {showMessage && route.applyMessage && (

@@ -5,9 +5,10 @@ import { useState } from 'react';
 import { clients } from '@/api/transport';
 import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
-import { Field, Input } from '@/components/ui/Field';
+import { Field, Input, Select } from '@/components/ui/Field';
 import type { AuditEntry } from '@/gen/shepherd/mgmt/v1/audit_pb';
-import { useOrgId } from '@/hooks/useOrg';
+import { useMe } from '@/hooks/useMe';
+import { useOrg } from '@/hooks/useOrg';
 import { formatTimestampRelative } from '@/lib/utils';
 
 const PAGE_SIZE = 25;
@@ -75,8 +76,19 @@ const auditColumns: DataTableColumn<AuditEntry>[] = [
   },
 ];
 
+// #253: the org view is that org's trail only. Platform events (rows with no
+// org: local user management, single sign-on) are read in the app admin's
+// global scope, which asks the server for every org by sending no org id —
+// the server admits that only for an app admin.
+type Scope = 'org' | 'all';
+
 export function AuditPage() {
-  const orgId = useOrgId();
+  const { orgId, orgs } = useOrg();
+  const { data: me } = useMe();
+  const isAppAdmin = !!me?.isAppAdmin;
+  const [scopeChoice, setScope] = useState<Scope>('org');
+  const scope: Scope = isAppAdmin ? scopeChoice : 'org';
+  const queryOrgId = scope === 'all' ? '' : orgId;
 
   // Draft filter inputs vs. applied filters: typing doesn't refetch on every
   // keystroke — Filter/Clear commits the draft and resets to page 1.
@@ -87,10 +99,24 @@ export function AuditPage() {
   const [offset, setOffset] = useState(0);
 
   const { data, isLoading, isFetching, isError, error } = useQuery({
-    queryKey: ['audit', orgId, actor, action, offset],
-    queryFn: () => clients.audit.listAudit({ orgId, actor, action, limit: PAGE_SIZE, offset }),
-    enabled: !!orgId,
+    queryKey: ['audit', queryOrgId, scope, actor, action, offset],
+    queryFn: () =>
+      clients.audit.listAudit({ orgId: queryOrgId, actor, action, limit: PAGE_SIZE, offset }),
+    enabled: scope === 'all' || !!orgId,
   });
+
+  // Only in the global scope, where rows come from several orgs and from none.
+  const orgColumn: DataTableColumn<AuditEntry> = {
+    key: 'org',
+    header: 'Organisation',
+    cellClassName: 'px-4 py-2.5 text-muted text-xs',
+    render: (entry) =>
+      entry.orgId ? (
+        (orgs.find((o) => o.id === entry.orgId)?.name ?? entry.orgId)
+      ) : (
+        <span className='italic'>Platform</span>
+      ),
+  };
 
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
@@ -118,10 +144,30 @@ export function AuditPage() {
     <div className='space-y-4'>
       <div>
         <h1 className='text-xl font-semibold'>Audit log</h1>
-        <p className='text-sm text-muted'>Org-scoped audit trail, newest first.</p>
+        <p className='text-sm text-muted'>
+          {scope === 'all'
+            ? 'Every organisation plus platform events (users, single sign-on), newest first.'
+            : 'This organisation’s audit trail, newest first.'}
+        </p>
       </div>
 
       <form onSubmit={applyFilters} className='flex flex-wrap items-end gap-3'>
+        {isAppAdmin && (
+          <div className='w-64'>
+            <Field label='Scope'>
+              <Select
+                value={scope}
+                onChange={(e) => {
+                  setScope(e.target.value as Scope);
+                  setOffset(0);
+                }}
+              >
+                <option value='org'>This organisation</option>
+                <option value='all'>All organisations and platform events</option>
+              </Select>
+            </Field>
+          </div>
+        )}
         <div className='w-56'>
           <Field label='Actor'>
             <Input
@@ -157,7 +203,7 @@ export function AuditPage() {
         )}
       </form>
 
-      {!orgId ? (
+      {scope === 'org' && !orgId ? (
         <p className='text-sm text-muted'>No organisation context.</p>
       ) : isError ? (
         <QueryError error={error} noun='the audit log' />
@@ -172,7 +218,7 @@ export function AuditPage() {
       ) : (
         <>
           <DataTable
-            columns={auditColumns}
+            columns={scope === 'all' ? [orgColumn, ...auditColumns] : auditColumns}
             rows={items}
             rowKey={(entry) => String(entry.id)}
             scrollX

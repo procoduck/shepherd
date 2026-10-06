@@ -42,7 +42,7 @@ const ROUTES = [
   { path: '/pipelines/new', name: 'Pipeline editor (new)' },
   { path: '/destinations', name: 'Destinations' },
   { path: '/wizards', name: 'Wizards' },
-  { path: '/git', name: 'Git' },
+  { path: '/git', name: 'Git sync' },
   { path: '/audit', name: 'Audit' },
   { path: '/admin/orgs', name: 'Admin: orgs' },
   { path: '/admin/clusters', name: 'Admin: clusters' },
