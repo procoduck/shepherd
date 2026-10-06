@@ -722,7 +722,7 @@ watches (`list`/`watch` are harmless extras). The `grafana/alloy` chart's defaul
 Secret access cluster-wide. A collector with restricted RBAC needs a Role and RoleBinding in that
 namespace (`e2e/k8s/destination_auth_test.go` runs with get/list/watch on secrets). A TLS CA in a
 ConfigMap needs `get` on `configmaps` in its namespace (`remote.kubernetes.configmap` reads the same
-way).
+way; `e2e/k8s/destination_tls_test.go` grants get/list/watch on configmaps).
 
 **Missing data keys.** A key the Secret or ConfigMap does not hold reads as null, which Alloy takes
 as "not set". A missing `tls.crt` or `tls.key` still refuses the load (the other half of the pair
