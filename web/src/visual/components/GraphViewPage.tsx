@@ -17,6 +17,7 @@ import '@xyflow/react/dist/base.css';
 import { type GraphViewResult, graphView } from '../../api/client';
 import { Modal } from '../../components/ui/Modal';
 import { useOrg } from '../../hooks/useOrg';
+import { loadCurrentSchema } from '../schemaCache';
 import { useVisualStore } from '../store';
 import type { PipelineNodeData } from './PipelineNode';
 import { PipelineNode } from './PipelineNode';
@@ -39,10 +40,8 @@ export function GraphViewPage() {
   // Load schema if not already loaded
   useEffect(() => {
     if (!schema) {
-      fetch('/api/schema/current', { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-        .then((r) => r.json())
-        .then(setSchema)
-        .catch(console.error);
+      // The shared copy (schemaCache.ts) — the route started the fetch.
+      loadCurrentSchema().then(setSchema).catch(console.error);
     }
   }, [schema, setSchema]);
 

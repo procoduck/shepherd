@@ -4,11 +4,13 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { CheckCircle2, XCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { clients, toApiError } from '@/api/transport';
+import { clients } from '@/api/transport';
 import { Input } from '@/components/ui/Field';
+import { FormError } from '@/components/ui/FormError';
 import { AlloyEditor } from '@/editor/LazyAlloyEditor';
 import type { MatchedCollector } from '@/gen/shepherd/mgmt/v1/pipeline_pb';
 import { useOrgId } from '@/hooks/useOrg';
+import { formError } from '@/lib/formError';
 import {
   defaultFieldValue,
   isStepValid,
@@ -129,11 +131,8 @@ export function WizardRunnerPage() {
     onSuccess: (pipeline) => {
       toast.success('Pipeline created from wizard');
       qc.invalidateQueries({ queryKey: ['pipelines', orgId] });
-      navigate({ to: '/pipelines/$id', params: { id: pipeline.id } });
-    },
-    onError: (e) => {
-      const err = toApiError(e);
-      toast.error(err.message || 'Failed to create pipeline');
+      // The result opens in the text editor; `from` makes it say so (#251).
+      navigate({ to: '/pipelines/$id', params: { id: pipeline.id }, search: { from: 'wizard' } });
     },
   });
 
@@ -290,10 +289,16 @@ export function WizardRunnerPage() {
             )}
           </div>
 
+          {isReview && (
+            <FormError message={formError(commitMut.error, 'Failed to create pipeline')} />
+          )}
           <div className='flex justify-end gap-2'>
             <button
               type='button'
-              onClick={() => setStepIndex((i) => Math.max(0, i - 1))}
+              onClick={() => {
+                commitMut.reset();
+                setStepIndex((i) => Math.max(0, i - 1));
+              }}
               disabled={stepIndex === 0}
               className='px-4 py-1.5 text-sm text-muted hover:text-zinc-200 disabled:opacity-40'
             >

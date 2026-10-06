@@ -17,6 +17,7 @@ import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import type { Destination } from '@/gen/shepherd/mgmt/v1/destination_pb';
 import { useCanAdminister, useOrgId } from '@/hooks/useOrg';
+import { errorText, formError } from '@/lib/formError';
 
 /**
  * A destination URL, rendered as a link only when it is safe to click.
@@ -155,10 +156,6 @@ export function DestinationsPage() {
       qc.invalidateQueries({ queryKey: ['destinations', orgId] });
       setShowCreate(false);
     },
-    onError: (e) => {
-      const err = toApiError(e);
-      toast.error(err.message || 'Failed to create destination');
-    },
   });
 
   // UpdateDestination replaces every field, so the ones this form does not
@@ -185,10 +182,6 @@ export function DestinationsPage() {
       qc.invalidateQueries({ queryKey: ['destinations', orgId] });
       setEditing(null);
     },
-    onError: (e) => {
-      const err = toApiError(e);
-      toast.error(err.message || 'Failed to update destination');
-    },
   });
 
   const deleteMut = useMutation({
@@ -204,7 +197,7 @@ export function DestinationsPage() {
       toast.error(
         err.code === 'failed_precondition' || err.code === 'already_exists'
           ? `Cannot delete: ${err.message || 'it is still in use'}`
-          : err.message || 'Failed to delete destination',
+          : errorText(e, 'Failed to delete destination'),
       );
     },
   });
@@ -269,7 +262,11 @@ export function DestinationsPage() {
           submitLabel='Create'
           pendingLabel='Creating…'
           pending={createMut.isPending}
-          onCancel={() => setShowCreate(false)}
+          error={formError(createMut.error, 'Failed to create destination')}
+          onCancel={() => {
+            setShowCreate(false);
+            createMut.reset();
+          }}
           onSubmit={(form) => createMut.mutate(form)}
         />
       )}
@@ -289,7 +286,11 @@ export function DestinationsPage() {
           submitLabel='Save'
           pendingLabel='Saving…'
           pending={updateMut.isPending}
-          onCancel={() => setEditing(null)}
+          error={formError(updateMut.error, 'Failed to update destination')}
+          onCancel={() => {
+            setEditing(null);
+            updateMut.reset();
+          }}
           onSubmit={(form) => updateMut.mutate({ d: editing, form })}
         />
       )}

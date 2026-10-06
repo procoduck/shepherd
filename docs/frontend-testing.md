@@ -70,7 +70,7 @@ web/
 │   └── specs/               # the mocked suite
 ```
 
-`tests/specs/` holds 65 spec files (`ls web/tests/specs/*.spec.ts | wc -l`); `tests/fullstack/`
+`tests/specs/` holds 67 spec files (`ls web/tests/specs/*.spec.ts | wc -l`); `tests/fullstack/`
 holds 17 (the newest is `collector-labels.spec.ts`; `revisions.spec.ts` round-trips
 GetRevision/RestoreRevision and the diff-and-restore UI). By group rather than exhaustively:
 

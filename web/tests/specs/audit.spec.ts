@@ -134,3 +134,44 @@ test('the resource column shows the type and a shortened id, full id on hover', 
   await expect(id).toHaveText('0b3e9a4c…');
   await expect(id).toHaveAttribute('title', uuid);
 });
+
+// #253: an org's audit view used to include platform events (local user
+// management, SSO — rows with no org) for app admins. The org view is now that
+// org's trail only; app admins read platform events in an explicit global
+// scope, which asks the server for every org (no orgId).
+test('an app admin reads platform events in the global scope, not in the org view', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(appAdmin);
+  api.seed({
+    orgs: [org({ id: 'org-0001', name: 'prod-org' })],
+    auditRows: [
+      auditRow({ id: 1, action: 'pipeline.update' }),
+      auditRow({ id: 2, org_id: '', action: 'user.create', resource_type: 'user' }),
+    ],
+  });
+  await page.goto('/audit');
+
+  await expect(page.locator('tbody tr')).toHaveCount(1);
+  await expect(page.locator('tbody')).not.toContainText('user.create');
+
+  await page.getByLabel('Scope').selectOption('all');
+  await expect(page.locator('tbody tr')).toHaveCount(2);
+  const platformRow = page.locator('tbody tr').filter({ hasText: 'user.create' });
+  await expect(platformRow).toContainText('Platform');
+  await expect(page.locator('tbody tr').filter({ hasText: 'pipeline.update' })).toContainText(
+    'prod-org',
+  );
+  // proto3 JSON omits an empty string, so "no org" arrives as a missing orgId.
+  const calls = api.calls('AuditService/ListAudit');
+  expect(calls.some((c) => !(c.body as { orgId?: string }).orgId)).toBe(true);
+});
+
+test('an org admin gets no global audit scope', async ({ page, api }) => {
+  await api.loginAs(orgAdmin);
+  api.seed({ orgs: [org({ id: 'org-0001' })], auditRows: [auditRow()] });
+  await page.goto('/audit');
+  await expect(page.locator('tbody tr')).toHaveCount(1);
+  await expect(page.getByLabel('Scope')).toHaveCount(0);
+});

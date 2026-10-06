@@ -5,6 +5,7 @@ import { basicScenario, pipeline } from '../fixtures/factories';
 import { appAdmin } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
 import { test } from '../fixtures/test';
+import { toolbarAction } from '../fixtures/toolbar';
 
 const mockGraph = {
   kind: 'alloy-graph/v1',
@@ -103,7 +104,7 @@ test.describe('visual builder toolbar — new pipeline', () => {
   // F15: toggling flow check used to change only the canvas's edge
   // animation, with no textual outcome anywhere on screen.
   test('flow check shows a textual outcome', async ({ page }) => {
-    await page.click('[data-testid="flow-check-toggle"]');
+    await (await toolbarAction(page, 'flow-check-toggle')).click();
     await expect(page.getByTestId('flow-check-result')).toBeVisible();
     await expect(page.getByTestId('flow-check-result')).toHaveText(/Flow OK/);
   });
@@ -119,7 +120,8 @@ test.describe('visual builder toolbar — new pipeline', () => {
 
     await page.locator('[data-testid="toolbar-save"]').click();
 
-    await expect(page).toHaveURL(/\/pipelines\/pip-\d+$/, { timeout: 5_000 });
+    // ?from=visual: the editor it lands in says so (#251).
+    await expect(page).toHaveURL(/\/pipelines\/pip-\d+\?from=visual$/, { timeout: 5_000 });
 
     const creates = api.calls('PipelineService/CreatePipeline');
     expect(creates).toHaveLength(1);
@@ -131,7 +133,10 @@ test.describe('visual builder toolbar — new pipeline', () => {
     expect((body.wizardState as Record<string, unknown>).kind).toBe('alloy-graph/v1');
   });
 
-  test('surfaces server render diagnostics as a toast and does not save', async ({ page, api }) => {
+  test('surfaces server render diagnostics under the toolbar and does not save', async ({
+    page,
+    api,
+  }) => {
     api.seed({
       visualRenderResult: {
         content: '',
@@ -144,9 +149,7 @@ test.describe('visual builder toolbar — new pipeline', () => {
     await input.press('Enter');
     await page.locator('[data-testid="toolbar-save"]').click();
 
-    await expect(page.locator('[data-sonner-toast]').filter({ hasText: 'boom' })).toBeVisible({
-      timeout: 5_000,
-    });
+    await expect(page.getByTestId('form-error')).toHaveText('Boom', { timeout: 5_000 });
     expect(api.calls('PipelineService/CreatePipeline')).toHaveLength(0);
   });
 });
@@ -180,7 +183,9 @@ test.describe('visual builder toolbar — editing an existing pipeline', () => {
     await expect(page.locator('[data-testid="matcher-chip"]')).toContainText('cluster="prod-eu-1"');
 
     await page.locator('[data-testid="toolbar-save"]').click();
-    await expect(page).toHaveURL(new RegExp(`/pipelines/${visualPipe.id}$`), { timeout: 5_000 });
+    await expect(page).toHaveURL(new RegExp(`/pipelines/${visualPipe.id}\\?from=visual$`), {
+      timeout: 5_000,
+    });
 
     const updates = api.calls('PipelineService/UpdatePipeline');
     expect(updates).toHaveLength(1);

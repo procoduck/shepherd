@@ -33,6 +33,7 @@ import (
 type fakeSimulator struct {
 	mu          sync.Mutex
 	runs        map[string]string // run id -> state
+	results     map[string]*simulate.ClientResults
 	current     int32
 	maxSeen     int32
 	release     chan struct{}
@@ -40,7 +41,7 @@ type fakeSimulator struct {
 }
 
 func newFakeSimulator() *fakeSimulator {
-	return &fakeSimulator{runs: map[string]string{}, release: make(chan struct{})}
+	return &fakeSimulator{runs: map[string]string{}, results: map[string]*simulate.ClientResults{}, release: make(chan struct{})}
 }
 
 // unblock releases every start blocked on f.release, exactly once. Safe to
@@ -72,24 +73,35 @@ func (f *fakeSimulator) handler() http.Handler {
 
 		atomic.AddInt32(&f.current, -1)
 		id := fmt.Sprintf("fake-run-%p-%d", r, time.Now().UnixNano())
+		// Every rendered component reports healthy, the way a real sandbox
+		// reports a stub that ran fine: the stand-in for a stubbed discovery
+		// node is a working discovery.relabel, so Alloy says "healthy".
+		results := &simulate.ClientResults{}
+		for local, node := range req.ComponentIndex {
+			results.Components = append(results.Components, simulate.ClientComponentHealth{
+				LocalID: local, NodeID: node, Health: "healthy", Message: "started component",
+			})
+		}
 		f.mu.Lock()
 		f.runs[id] = "completed"
+		f.results[id] = results
 		f.mu.Unlock()
 
 		w.WriteHeader(http.StatusAccepted)
-		_ = json.NewEncoder(w).Encode(simulate.ClientRun{ID: id, State: "completed", Results: &simulate.ClientResults{}}) //nolint:errcheck // test double
+		_ = json.NewEncoder(w).Encode(simulate.ClientRun{ID: id, State: "completed", Results: results}) //nolint:errcheck // test double
 	})
 	mux.HandleFunc("GET /v1/runs/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		f.mu.Lock()
 		state, ok := f.runs[id]
+		results := f.results[id]
 		f.mu.Unlock()
 		if !ok {
 			w.WriteHeader(http.StatusNotFound)
 			_ = json.NewEncoder(w).Encode(simulate.ClientAPIError{Code: "run_not_found", Message: "no such run"}) //nolint:errcheck // test double
 			return
 		}
-		_ = json.NewEncoder(w).Encode(simulate.ClientRun{ID: id, State: state, Results: &simulate.ClientResults{}}) //nolint:errcheck // test double
+		_ = json.NewEncoder(w).Encode(simulate.ClientRun{ID: id, State: state, Results: results}) //nolint:errcheck // test double
 	})
 	return mux
 }
@@ -228,6 +240,56 @@ var _ = Describe("RunWorker", Label("integration"), func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(row.ErrorCode).To(Equal(simulate.RunErrorCannotStub))
 		Expect(row.ErrorMessage).To(ContainSubstring("cannot stub discovery.process"))
+	})
+
+	// #253: a stubbed discovery node used to come back "healthy" — the health
+	// of the discovery.relabel stand-in, not of the component the user drew,
+	// which never ran. The stored health now says "stubbed" and names the
+	// stand-in; a node that really ran keeps its sandbox-reported state.
+	It("reports a stubbed discovery node as stubbed, not healthy, while a real node keeps its health", func() {
+		graph := visual.GraphDocument{
+			Kind:          "alloy-graph/v1",
+			SchemaVersion: "alloy-v1.18.1",
+			Nodes: []visual.GraphNode{
+				{ID: "k8s", Component: "discovery.kubernetes", Label: "pods", Props: map[string]interface{}{"role": "pod"}},
+				{ID: "rl", Component: "prometheus.relabel", Label: "sink", Props: map[string]interface{}{}},
+			},
+		}
+		graphJSON, err := json.Marshal(graph)
+		Expect(err).NotTo(HaveOccurred())
+		run, err := st.Queries.CreateSimulateRun(ctx, sqlc.CreateSimulateRunParams{
+			OrgID: orgID, Graph: graphJSON, RequestedDurationSeconds: 15, CreatedBy: "worker-test",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		fakeSim.unblock()
+
+		cfg := workerCfg()
+		cfg.TargetAddress = "shepherd-simulator:9111" // the config default; stubs need it
+		w := worker.New(st, reg, v, cfg, slog.Default().With("worker", "solo"))
+		w.Start(ctx)
+
+		Eventually(func() string {
+			row, err := st.Queries.GetSimulateRunByID(ctx, run.ID)
+			Expect(err).NotTo(HaveOccurred())
+			return row.Status
+		}, 5*time.Second, 50*time.Millisecond).Should(BeElementOf(simulate.RunStatusCompleted, simulate.RunStatusFailed))
+
+		row, err := st.Queries.GetSimulateRunByID(ctx, run.ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(row.Status).To(Equal(simulate.RunStatusCompleted), "%s: %s", row.ErrorCode, row.ErrorMessage)
+		var health []simulate.RunComponentHealth
+		Expect(json.Unmarshal(row.ComponentHealth, &health)).To(Succeed())
+		byNode := map[string]simulate.RunComponentHealth{}
+		for _, h := range health {
+			byNode[h.NodeID] = h
+		}
+		Expect(byNode).To(HaveKey("k8s"))
+		Expect(byNode["k8s"].HealthState).To(Equal(simulate.HealthStateStubbed))
+		Expect(byNode["k8s"].Component).To(Equal("discovery.kubernetes"))
+		Expect(byNode["k8s"].Message).To(ContainSubstring("did not run"))
+		Expect(byNode["k8s"].Message).To(ContainSubstring("k8s-pod-targets"))
+		Expect(byNode).To(HaveKey("rl"))
+		Expect(byNode["rl"].HealthState).To(Equal("healthy"))
 	})
 })
 

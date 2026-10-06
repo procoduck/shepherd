@@ -1,5 +1,6 @@
 import { Trash2 } from 'lucide-react';
 import type { DataTableColumn } from '@/components/ui/DataTable';
+import { collectorStatusTone, toneClass } from '@/components/ui/statusTone';
 import type { Assignment, CollectorInstance } from '@/gen/shepherd/mgmt/v1/fleet_pb';
 import { formatTimestampRelative } from '@/lib/utils';
 
@@ -7,11 +8,10 @@ import { formatTimestampRelative } from '@/lib/utils';
 // (assignments) tables. Split out to keep CollectorDetailPage under the
 // file-size guard; no behavior of its own.
 
-export const STATUS_COLORS: Record<string, string> = {
-  APPLIED: 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20',
-  APPLYING: 'text-yellow-400 bg-yellow-400/10 border-yellow-400/20',
-  FAILED: 'text-red-400 bg-red-400/10 border-red-400/20',
-};
+/** Badge colour classes for a collector/instance remote-config status. */
+export function statusColor(status: string): string {
+  return toneClass(collectorStatusTone(status));
+}
 
 /**
  * Hover text for a status badge. INACTIVE is derived by the server from the
@@ -59,7 +59,7 @@ export const instanceColumns: DataTableColumn<CollectorInstance>[] = [
     headerClassName: 'px-4 py-2 text-left font-medium',
     render: (i) => {
       const instStatus = i.remoteConfigStatus?.toUpperCase() ?? '';
-      const instColor = STATUS_COLORS[instStatus] ?? 'text-muted bg-border border-border-strong';
+      const instColor = statusColor(instStatus);
       return (
         <span
           title={statusTitle(instStatus)}

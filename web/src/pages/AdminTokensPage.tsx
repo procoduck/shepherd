@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Copy, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { clients, toApiError } from '@/api/transport';
+import { clients } from '@/api/transport';
 import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
 import { AdminModal, AdminModalActions } from '@/components/admin/AdminModal';
 import { QueryError } from '@/components/QueryError';
@@ -10,6 +10,7 @@ import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Field, Input } from '@/components/ui/Field';
 import type { AgentToken } from '@/gen/shepherd/mgmt/v1/admin_pb';
 import { useMe } from '@/hooks/useMe';
+import { formError } from '@/lib/formError';
 
 // Shared by the ID column's copy button and the created-token dialog's ID
 // copy button below — neither carries the "just copied" checkmark the
@@ -120,7 +121,6 @@ export function AdminTokensPage() {
       setNewSecret({ id: resp.id, name: resp.name, secret: resp.secret });
       setCopied(false);
     },
-    onError: (e) => toast.error(toApiError(e).message || 'Failed to create token'),
   });
 
   const revokeMut = useMutation({
@@ -130,8 +130,11 @@ export function AdminTokensPage() {
       invalidate();
       setRevokeToken(null);
     },
-    onError: (e) => toast.error(toApiError(e).message || 'Failed to revoke token'),
   });
+  const closeCreate = () => {
+    setShowCreate(false);
+    createMut.reset();
+  };
 
   async function copySecret() {
     if (!newSecret) return;
@@ -174,7 +177,7 @@ export function AdminTokensPage() {
       )}
 
       {showCreate && (
-        <AdminModal title='New agent token' onClose={() => setShowCreate(false)}>
+        <AdminModal title='New agent token' onClose={closeCreate}>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -191,7 +194,8 @@ export function AdminTokensPage() {
               />
             </Field>
             <AdminModalActions
-              onCancel={() => setShowCreate(false)}
+              onCancel={closeCreate}
+              error={formError(createMut.error, 'Failed to create token')}
               submitLabel='Create'
               pendingLabel='Creating…'
               pending={createMut.isPending}
@@ -267,7 +271,11 @@ export function AdminTokensPage() {
           pendingLabel='Revoking…'
           pending={revokeMut.isPending}
           onConfirm={() => revokeMut.mutate()}
-          onCancel={() => setRevokeToken(null)}
+          onCancel={() => {
+            setRevokeToken(null);
+            revokeMut.reset();
+          }}
+          error={formError(revokeMut.error, 'Failed to revoke token')}
         />
       )}
     </div>

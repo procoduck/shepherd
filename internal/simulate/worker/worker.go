@@ -289,7 +289,7 @@ func (w *RunWorker) execute(ctx context.Context, q *sqlc.Queries, run sqlc.Simul
 	if final.Results != nil {
 		outcome.series = toRunSeries(final.Results.Series)
 		outcome.logLines = toRunLogLines(final.Results.LogLines)
-		outcome.componentHealth = toRunComponentHealth(final.Results.Components, nodeInfo)
+		outcome.componentHealth = toRunComponentHealth(final.Results.Components, nodeInfo, result.Rewrites)
 		outcome.stderrTail = joinStderr(final.Results.StderrTail)
 	}
 	if final.State == "failed" {

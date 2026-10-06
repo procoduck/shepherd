@@ -3,7 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { KeyRound, Plus, ShieldCheck, Trash2, UserCog } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { clients, toApiError } from '@/api/transport';
+import { clients } from '@/api/transport';
 import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
 import { CreateUserModal } from '@/components/admin/CreateUserModal';
 import { EditUserModal } from '@/components/admin/EditUserModal';
@@ -12,8 +12,10 @@ import type { CreateUserFormState } from '@/components/admin/UserForms';
 import { QueryError } from '@/components/QueryError';
 import { Banner } from '@/components/ui/Banner';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
+import { toneClass } from '@/components/ui/statusTone';
 import type { User } from '@/gen/shepherd/mgmt/v1/user_pb';
 import { useMe } from '@/hooks/useMe';
+import { formError } from '@/lib/formError';
 
 /**
  * Admin → Users.
@@ -68,17 +70,17 @@ function userColumns(
       render: (u) => (
         <div className='flex flex-wrap gap-1'>
           {u.isAppAdmin && (
-            <span className='inline-flex items-center gap-1 rounded bg-indigo-500/15 px-1.5 py-0.5 text-xs text-indigo-300'>
+            <span
+              className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs ${toneClass('info')}`}
+            >
               <ShieldCheck size={11} /> app admin
             </span>
           )}
           {u.disabled && (
-            <span className='rounded bg-red-500/15 px-1.5 py-0.5 text-xs text-red-400'>
-              disabled
-            </span>
+            <span className={`rounded px-1.5 py-0.5 text-xs ${toneClass('danger')}`}>disabled</span>
           )}
           {u.mustChangePassword && (
-            <span className='rounded bg-amber-500/15 px-1.5 py-0.5 text-xs text-amber-300'>
+            <span className={`rounded px-1.5 py-0.5 text-xs ${toneClass('warn')}`}>
               must change password
             </span>
           )}
@@ -141,8 +143,6 @@ export function AdminUsersPage() {
   });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['users'] });
-  const fail = (verb: string) => (e: unknown) =>
-    toast.error(toApiError(e).message || `Failed to ${verb}`);
 
   const createMut = useMutation({
     mutationFn: (v: CreateUserFormState) =>
@@ -161,7 +161,6 @@ export function AdminUsersPage() {
       setShowCreate(false);
       toast.success('User created');
     },
-    onError: fail('create the user'),
   });
 
   const updateMut = useMutation({
@@ -177,7 +176,6 @@ export function AdminUsersPage() {
       setEditUser(null);
       toast.success('User updated');
     },
-    onError: fail('update the user'),
   });
 
   const resetMut = useMutation({
@@ -187,7 +185,6 @@ export function AdminUsersPage() {
       setResetUser(null);
       toast.success('Password reset — the user must change it at next sign-in');
     },
-    onError: fail('reset the password'),
   });
 
   // An account with no org membership can sign in and see nothing, so
@@ -201,7 +198,6 @@ export function AdminUsersPage() {
       invalidate();
       toast.success('Organisation role updated');
     },
-    onError: fail('set the organisation role'),
   });
 
   const removeOrgMut = useMutation({
@@ -210,7 +206,6 @@ export function AdminUsersPage() {
       invalidate();
       toast.success('Removed from the organisation');
     },
-    onError: fail('remove the organisation membership'),
   });
 
   const deleteMut = useMutation({
@@ -220,7 +215,6 @@ export function AdminUsersPage() {
       setDeleteUser(null);
       toast.success('User deleted');
     },
-    onError: fail('delete the user'),
   });
 
   if (!isAppAdmin) {
@@ -298,7 +292,11 @@ export function AdminUsersPage() {
       {showCreate && (
         <CreateUserModal
           pending={createMut.isPending}
-          onCancel={() => setShowCreate(false)}
+          error={formError(createMut.error, 'Failed to create the user')}
+          onCancel={() => {
+            setShowCreate(false);
+            createMut.reset();
+          }}
           onSubmit={(v) => createMut.mutate(v)}
         />
       )}
@@ -311,7 +309,19 @@ export function AdminUsersPage() {
           key={editUser.id}
           user={users.find((u) => u.id === editUser.id) ?? editUser}
           pending={updateMut.isPending}
-          onCancel={() => setEditUser(null)}
+          // The org-membership controls live in the same dialog, so their
+          // refusals show there too.
+          error={
+            formError(updateMut.error, 'Failed to update the user') ??
+            formError(setOrgRoleMut.error, 'Failed to set the organisation role') ??
+            formError(removeOrgMut.error, 'Failed to remove the organisation membership')
+          }
+          onCancel={() => {
+            setEditUser(null);
+            updateMut.reset();
+            setOrgRoleMut.reset();
+            removeOrgMut.reset();
+          }}
           onSubmit={(v) => updateMut.mutate({ id: editUser.id, ...v })}
           onSetOrgRole={(orgId, role) => setOrgRoleMut.mutate({ orgId, userId: editUser.id, role })}
           onRemoveOrg={(orgId) => removeOrgMut.mutate({ orgId, userId: editUser.id })}
@@ -323,7 +333,11 @@ export function AdminUsersPage() {
         <ResetPasswordModal
           login={resetUser.login}
           pending={resetMut.isPending}
-          onCancel={() => setResetUser(null)}
+          error={formError(resetMut.error, 'Failed to reset the password')}
+          onCancel={() => {
+            setResetUser(null);
+            resetMut.reset();
+          }}
           onSubmit={(pw) => resetMut.mutate({ id: resetUser.id, newPassword: pw })}
         />
       )}
@@ -335,7 +349,11 @@ export function AdminUsersPage() {
           confirmLabel='Delete'
           pendingLabel='Deleting…'
           pending={deleteMut.isPending}
-          onCancel={() => setDeleteUser(null)}
+          error={formError(deleteMut.error, 'Failed to delete the user')}
+          onCancel={() => {
+            setDeleteUser(null);
+            deleteMut.reset();
+          }}
           onConfirm={() => deleteMut.mutate(deleteUser.id)}
         />
       )}

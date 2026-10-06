@@ -152,6 +152,7 @@ export function DestinationFormDialog({
   submitLabel,
   pendingLabel,
   pending,
+  error,
   onCancel,
   onSubmit,
 }: {
@@ -160,6 +161,8 @@ export function DestinationFormDialog({
   submitLabel: string;
   pendingLabel: string;
   pending: boolean;
+  /** The server's refusal of the last submit, shown in the dialog (#249). */
+  error?: string | null;
   onCancel: () => void;
   onSubmit: (form: DestinationFormState) => void;
 }) {
@@ -264,6 +267,7 @@ export function DestinationFormDialog({
           submitLabel={submitLabel}
           pendingLabel={pendingLabel}
           pending={pending}
+          error={error}
         />
       </form>
     </Modal>

@@ -46,6 +46,15 @@ const EXPECTED_TOKENS_DARK: Record<string, string> = {
   '--color-muted-2': '#71717a',
   '--color-muted-3': '#52525b',
   '--color-accent': '#6366f1',
+  // #253 status tones (see STATUS_PAIRS below for the contrast check).
+  '--color-ok': '#6ee7b7',
+  '--color-ok-surface': '#052e22',
+  '--color-warn': '#fcd34d',
+  '--color-warn-surface': '#3a2306',
+  '--color-danger': '#fca5a5',
+  '--color-danger-surface': '#3f1212',
+  '--color-info': '#7dd3fc',
+  '--color-info-surface': '#0b2a3f',
 };
 
 // Light palette (D8). Contrast-checked (WCAG relative-luminance formula)
@@ -69,6 +78,14 @@ const EXPECTED_TOKENS_LIGHT: Record<string, string> = {
   '--color-muted-2': '#52525b',
   '--color-muted-3': '#71717a',
   '--color-accent': '#4f46e5',
+  '--color-ok': '#065f46',
+  '--color-ok-surface': '#ecfdf5',
+  '--color-warn': '#92400e',
+  '--color-warn-surface': '#fffbeb',
+  '--color-danger': '#b91c1c',
+  '--color-danger-surface': '#fef2f2',
+  '--color-info': '#075985',
+  '--color-info-surface': '#f0f9ff',
   '--color-zinc-100': '#18181b',
   '--color-zinc-200': '#27272a',
   '--color-zinc-300': '#3f3f46',
@@ -195,6 +212,73 @@ describe('design token layer (index.css light overrides)', () => {
       const re = new RegExp(`${name}\\s*:\\s*${hex}\\b`, 'i');
       expect(block).toMatch(re);
     });
+  });
+});
+
+// #253: status badges must clear WCAG AA (4.5:1) in both themes. Each tone's
+// text colour is checked against its own surface (the badge) and against the
+// page background and card (where the tone colour is used as plain text, e.g.
+// a banner's border-less text). `neutral` is text-muted on bg-border.
+function luminance(hex: string): number {
+  const n = hex.replace('#', '');
+  const [r, g, b] = [0, 2, 4].map((i) => {
+    const c = Number.parseInt(n.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function contrastRatio(a: string, b: string): number {
+  const [la, lb] = [luminance(a), luminance(b)];
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+const STATUS_PAIRS: Array<[string, string]> = [
+  ['--color-ok', '--color-ok-surface'],
+  ['--color-warn', '--color-warn-surface'],
+  ['--color-danger', '--color-danger-surface'],
+  ['--color-info', '--color-info-surface'],
+  ['--color-muted', '--color-border'],
+];
+
+describe.each([
+  ['dark', EXPECTED_TOKENS_DARK],
+  ['light', EXPECTED_TOKENS_LIGHT],
+] as const)('status badge tokens meet WCAG AA (%s)', (_theme, tokens) => {
+  const t = { ...EXPECTED_TOKENS_DARK, ...tokens };
+  it.each(STATUS_PAIRS)('%s on %s, the page background and the card is >= 4.5:1', (fg, bg) => {
+    for (const surface of [bg, '--color-background', '--color-card']) {
+      expect(
+        contrastRatio(t[fg], t[surface]),
+        `${fg} (${t[fg]}) on ${surface} (${t[surface]})`,
+      ).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+});
+
+describe('status badges use the tone tokens, not translucent raw hues', () => {
+  // The badge signature #253 removed: a raw hue over a translucent tint of
+  // itself (`text-emerald-400 bg-emerald-400/10`). Its contrast depends on the
+  // surface under it and collapsed on light surfaces. These files' badges now
+  // come from components/ui/statusTone.ts.
+  const RAW_TINT = /\bbg-(?:emerald|green|yellow|amber|red|sky|indigo)-\d{2,3}\/\d{1,3}\b/g;
+  const files = [
+    'pages/CollectorsPage.tsx',
+    'pages/CollectorDetailPage.tsx',
+    'pages/collectorColumns.tsx',
+    'pages/TenantRoutesPage.tsx',
+    'pages/GitPage.tsx',
+    'pages/TeamsPage.tsx',
+    'pages/AdminUsersPage.tsx',
+    'components/ui/Banner.tsx',
+  ];
+  it.each(files)('%s has no translucent raw-hue badge', (rel) => {
+    const src = readFileSync(join(__dirname, rel), 'utf8');
+    // hover: tints on buttons are not badges.
+    const hits = [...src.matchAll(RAW_TINT)]
+      .filter((m) => !src.slice(Math.max(0, m.index - 6), m.index).endsWith('hover:'))
+      .map((m) => m[0]);
+    expect(hits, `translucent raw-hue badge class(es) in ${rel}`).toEqual([]);
   });
 });
 

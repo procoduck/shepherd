@@ -11,6 +11,7 @@ import { ORG_ROLES } from './UserForms';
 export function EditUserModal({
   user,
   pending,
+  error,
   onCancel,
   onSubmit,
   onSetOrgRole,
@@ -19,6 +20,8 @@ export function EditUserModal({
 }: {
   user: User;
   pending: boolean;
+  /** The server's refusal, shown above the buttons (#249). */
+  error?: string | null;
   onCancel: () => void;
   onSubmit: (v: {
     email: string;
@@ -193,6 +196,7 @@ export function EditUserModal({
           submitLabel='Save'
           pendingLabel='Saving…'
           pending={pending}
+          error={error}
         />
       </form>
     </Modal>

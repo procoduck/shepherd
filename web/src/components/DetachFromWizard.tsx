@@ -2,9 +2,10 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Unlink } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { clients, toApiError } from '@/api/transport';
+import { clients } from '@/api/transport';
 import { Modal, ModalActions } from '@/components/ui/Modal';
 import type { Pipeline } from '@/gen/shepherd/mgmt/v1/pipeline_pb';
+import { formError } from '@/lib/formError';
 
 /**
  * "Detach from wizard" (#262 follow-up): turns a wizard pipeline into an
@@ -36,11 +37,11 @@ export function DetachFromWizard({
       setConfirming(false);
       onDetached?.(p);
     },
-    onError: (e) => {
-      const err = toApiError(e);
-      toast.error(err.message || 'Detach failed');
-    },
   });
+  const close = () => {
+    setConfirming(false);
+    mutation.reset();
+  };
 
   return (
     <>
@@ -53,11 +54,7 @@ export function DetachFromWizard({
         <Unlink size={12} /> Detach from wizard
       </button>
       {confirming && (
-        <Modal
-          title='Detach from wizard'
-          onClose={() => setConfirming(false)}
-          testId='detach-wizard-dialog'
-        >
+        <Modal title='Detach from wizard' onClose={close} testId='detach-wizard-dialog'>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -75,12 +72,13 @@ export function DetachFromWizard({
               undone.
             </p>
             <ModalActions
-              onCancel={() => setConfirming(false)}
+              onCancel={close}
               submitLabel='Detach'
               pendingLabel='Detaching…'
               pending={mutation.isPending}
               danger
               submitTestId='confirm-detach-btn'
+              error={formError(mutation.error, 'Detach failed')}
             />
           </form>
         </Modal>

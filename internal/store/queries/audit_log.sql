@@ -10,29 +10,28 @@ INSERT INTO audit_log (actor, actor_type, org_id, action, resource_type, resourc
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
 
 -- name: ListAuditLog :many
--- include_global ($6) widens an org-scoped query to also return rows with a
--- NULL org_id: platform-level events that belong to no org. Single sign-on
--- configuration is the first of these (internal/mgmtapi/rpc_admin_oidc.go),
--- and without this they were WRITTEN but unreachable — every caller of this
--- query passes an org, so `org_id = $1` silently excluded them and the audit
--- trail for repointing the identity provider could only be read with psql.
+-- An org-scoped query ($1 set) returns exactly that org's rows, for every
+-- caller. A NULL $1 is the app admin's global view: every row, including the
+-- platform-level events that belong to no org (NULL org_id — local user
+-- management, single sign-on configuration). The interceptor admits a call
+-- with no org only for an app admin (internal/auth.Authorize).
 --
--- It is a parameter rather than an unconditional OR because these rows are
--- app-admin business: an org admin looking at their own org's trail should not
--- start seeing platform events. The handler passes the caller's app-admin
--- status, so the gate is an authorization decision, not a UI preference.
+-- Until #253 an include_global parameter folded those platform rows into
+-- whichever org an app admin was viewing, so an org's audit view showed user
+-- and SSO events that are not that org's. The platform trail stays readable
+-- in the product through the global view, which the Audit page offers app
+-- admins as a scope.
 SELECT * FROM audit_log
-WHERE (($1::uuid IS NULL OR org_id = $1) OR ($6::bool AND org_id IS NULL))
+WHERE ($1::uuid IS NULL OR org_id = $1)
   AND (NULLIF($2::text, '') IS NULL OR actor ILIKE '%' || $2 || '%')
   AND (NULLIF($3::text, '') IS NULL OR action = $3)
 ORDER BY at DESC
 LIMIT $4 OFFSET $5;
 
 -- name: CountAuditLog :one
--- Predicate kept identical to ListAuditLog, include_global included: a total
--- that counted a different set than the page it labels is a paginator that
--- lies.
+-- Predicate kept identical to ListAuditLog: a total that counted a different
+-- set than the page it labels is a paginator that lies.
 SELECT COUNT(*)::int AS total FROM audit_log
-WHERE (($1::uuid IS NULL OR org_id = $1) OR ($4::bool AND org_id IS NULL))
+WHERE ($1::uuid IS NULL OR org_id = $1)
   AND (NULLIF($2::text, '') IS NULL OR actor ILIKE '%' || $2 || '%')
   AND (NULLIF($3::text, '') IS NULL OR action = $3);

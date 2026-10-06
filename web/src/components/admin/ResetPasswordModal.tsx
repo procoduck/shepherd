@@ -6,11 +6,14 @@ import { Modal, ModalActions } from '@/components/ui/Modal';
 export function ResetPasswordModal({
   login,
   pending,
+  error,
   onCancel,
   onSubmit,
 }: {
   login: string;
   pending: boolean;
+  /** The server's refusal, shown above the buttons (#249). */
+  error?: string | null;
   onCancel: () => void;
   onSubmit: (pw: string) => void;
 }) {
@@ -41,6 +44,7 @@ export function ResetPasswordModal({
           submitLabel='Reset password'
           pendingLabel='Resetting…'
           pending={pending}
+          error={error}
           danger
         />
       </form>

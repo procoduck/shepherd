@@ -7,6 +7,7 @@ import { basicScenario, pipeline } from '../fixtures/factories';
 import { appAdmin } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
 import { test } from '../fixtures/test';
+import { toolbarAction } from '../fixtures/toolbar';
 
 const mockGraph = {
   kind: 'alloy-graph/v1',
@@ -109,7 +110,7 @@ test.describe('visual builder — graph revision diff (#118)', () => {
   }) => {
     api.seed({ graphDiffResult: richDiff });
 
-    await page.click('[data-testid="toolbar-history"]');
+    await (await toolbarAction(page, 'toolbar-history')).click();
     const modal = page.getByTestId('revision-compare');
     await expect(modal).toBeVisible();
 
@@ -158,7 +159,7 @@ test.describe('visual builder — graph revision diff (#118)', () => {
 
   test('reports when a revision is identical to the current graph', async ({ page }) => {
     // No graphDiffResult seeded → the mock returns an empty diff.
-    await page.click('[data-testid="toolbar-history"]');
+    await (await toolbarAction(page, 'toolbar-history')).click();
     await page.click('[data-testid="compare-revision-1"]');
     await expect(page.getByTestId('compare-no-changes')).toBeVisible();
   });

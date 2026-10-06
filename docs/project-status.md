@@ -173,6 +173,16 @@ Served config is shown, but nothing links back to the pipelines that produced it
 to get from "this collector runs X" to "because pipeline Y matched". The merge engine already knows
 the contributing set.
 
+### F-DEST-TLS — wizard writers render no tenant header and no TLS options · **medium**
+
+#261. `wizard.RenderWriter` emits a destination's URL and Secret auth only: `destinations.tenant_id`
+is stored and ignored (the #229 bug class), and there is no way to trust a private CA or present a
+client certificate, so multi-tenant Mimir/Loki and private-CA backends need hand-written pipelines.
+Design approved 2026-10-06, being built in five PRs: `docs/plans/2026-10-06-destination-tenant-tls.md`
+(§9 decisions, §10 sequence) — tenant from the destination (refused if it is another org's), TLS
+material read on the collector from a Secret/ConfigMap (`ca.crt` or an overridden CA key, `tls.crt`,
+`tls.key`), no `insecure_skip_verify`, operator-triggered rollout of stored tenants.
+
 All gateway-tier workstreams (W1–W11) and attribute-based matching (#139) have shipped — the last
 of them in v0.12.0: the receiver tier (#109, opt-in, R3 signed), tenant-route apply, onboarding
 artifacts (#111) and the chart-values generator with G10 (#112). See `docs/gateway-tier-plan.md` §9.
