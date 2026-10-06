@@ -16,6 +16,13 @@ export interface DataTableColumn<T> {
   header: ReactNode;
   headerClassName?: string;
   cellClassName?: string;
+  /**
+   * A fixed column width (any CSS length, e.g. '12%' or '8rem'). When any
+   * column sets one the table switches to `table-layout: fixed`, so several
+   * DataTables rendered one under another with the same columns (grouped
+   * views) line their columns up instead of each sizing to its own content.
+   */
+  width?: string;
   render: (row: T) => ReactNode;
 }
 
@@ -40,12 +47,23 @@ export function DataTable<T>({
   testId?: string;
   ariaLabelledBy?: string;
 }) {
+  const fixed = columns.some((c) => c.width !== undefined);
   return (
     <div
       data-testid={testId}
       className={`rounded-lg border border-border overflow-hidden${scrollX ? ' overflow-x-auto' : ''}`}
     >
-      <table className='w-full text-sm' aria-labelledby={ariaLabelledBy}>
+      <table
+        className={`w-full text-sm${fixed ? ' table-fixed' : ''}`}
+        aria-labelledby={ariaLabelledBy}
+      >
+        {fixed && (
+          <colgroup>
+            {columns.map((c) => (
+              <col key={c.key} style={c.width ? { width: c.width } : undefined} />
+            ))}
+          </colgroup>
+        )}
         <thead className='bg-card text-muted'>
           <tr>
             {columns.map((c) => (

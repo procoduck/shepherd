@@ -136,9 +136,17 @@ export function WizardStepFields({
                 onChange={(e) => onChange(field.name, e.target.value)}
                 className={inputClassName}
               >
-                <option value='' disabled>
-                  Select…
-                </option>
+                {/* An optional destination ("Leave blank to skip") keeps its
+                    empty choice selectable, so picking one is not a one-way
+                    door back from the skipped state (#252). A required one
+                    keeps the disabled placeholder. */}
+                {field.required ? (
+                  <option value='' disabled>
+                    Select…
+                  </option>
+                ) : (
+                  <option value=''>None — skip</option>
+                )}
                 {destMatches.map((d) => (
                   <option key={d.name} value={d.name}>
                     {d.name}

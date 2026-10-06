@@ -65,9 +65,10 @@ test('deleting a non-empty org surfaces the server error', async ({ page, api })
   await page.getByRole('button', { name: 'Delete test-org' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click();
 
-  await expect(page.getByText(/cannot delete/i)).toBeVisible();
+  // The refusal stays in the dialog (#249).
+  await expect(page.getByRole('dialog').getByText(/cannot delete/i)).toBeVisible();
   // The org is still listed — delete did not go through.
-  await expect(page.getByText('test-org')).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'test-org', exact: true })).toBeVisible();
 });
 
 test('non-app-admin is denied /admin/orgs by direct navigation', async ({ page, api }) => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isValidMatcher } from '@/visual/matcher';
+import { isValidMatcher } from '@/lib/matcher';
 import { MAX_MATCHER_SUGGESTIONS, matcherSuggestions } from './useMatcherSuggestions';
 
 describe('matcherSuggestions', () => {

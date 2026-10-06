@@ -6,13 +6,13 @@ version: 0.18.0
 appVersion: "0.14.0"
 # The chart renders autoscaling/v2 (HPA), policy/v1 (PodDisruptionBudget) and
 # batch/v1 Jobs with a pod-level seccompProfile — all stable since 1.25. The
-# floor is 1.29 rather than 1.25 because the optional CloudNativePG database
-# path (cnpg.enabled=true) needs it, and Helm cannot express a floor that only
-# applies when a value is set; a single global floor is the honest contract, so
-# it is set to the higher of the two. A default install (external Postgres) is
-# happy on anything from 1.25, but the chart states one supported floor rather
-# than a conditional one.
-kubeVersion: ">=1.29.0-0"
+# floor is what the Kubernetes e2e suite actually proves: 1.32, the lowest
+# version the suite's NGF (Gateway API router, chart 2.7.x) supports, and above
+# CloudNativePG's 1.29 (cnpg.enabled=true). 1.29–1.31 were claimed until chart
+# 0.19.0 but no longer exercised; all three are end-of-life upstream. Helm
+# cannot express a floor that only applies when a value is set, so the chart
+# states one supported floor rather than a conditional one.
+kubeVersion: ">=1.32.0-0"
 keywords:
   - alloy
   - grafana

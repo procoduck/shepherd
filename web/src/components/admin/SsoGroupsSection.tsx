@@ -28,7 +28,7 @@ export function SsoGroupsSection({
 
       <Field
         label='Groups claim'
-        hint='The ID token claim carrying group membership. Its values are what you enter below and in each organisation&apos;s admin/reader group.'
+        hint='The ID token claim carrying group membership. Its values are what you enter below and in each organisation&apos;s admin/editor/viewer group.'
       >
         <Input
           data-testid='sso-groups-claim'

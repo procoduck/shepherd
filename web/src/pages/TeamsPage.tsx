@@ -2,16 +2,19 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, UserPlus, Users2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { clients, toApiError } from '@/api/transport';
+import { clients } from '@/api/transport';
 import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
 import { AdminModal, AdminModalActions } from '@/components/admin/AdminModal';
 import { QueryError } from '@/components/QueryError';
 import { Banner } from '@/components/ui/Banner';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Field, Input, Select } from '@/components/ui/Field';
+import { FormError } from '@/components/ui/FormError';
+import { toneClass } from '@/components/ui/statusTone';
 import type { Team } from '@/gen/shepherd/mgmt/v1/team_pb';
 import { useMe } from '@/hooks/useMe';
 import { useOrg } from '@/hooks/useOrg';
+import { formError } from '@/lib/formError';
 
 /**
  * Teams.
@@ -46,7 +49,7 @@ function teamColumns(
           {t.idpGroupId && (
             <span
               data-testid={`team-source-group-${t.name}`}
-              className='inline-flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-xs text-sky-300'
+              className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs ${toneClass('info')}`}
               title='Anyone whose identity provider token carries this group is a member'
             >
               group <span className='font-mono'>{t.idpGroupId}</span>
@@ -55,7 +58,7 @@ function teamColumns(
           {t.memberCount > 0 && (
             <span
               data-testid={`team-source-members-${t.name}`}
-              className='inline-flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-xs text-emerald-300'
+              className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs ${toneClass('ok')}`}
             >
               {t.memberCount} {t.memberCount === 1 ? 'member' : 'members'}
             </span>
@@ -116,8 +119,6 @@ export function TeamsPage() {
   });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['teams', orgId] });
-  const fail = (verb: string) => (e: unknown) =>
-    toast.error(toApiError(e).message || `Failed to ${verb}`);
 
   const createMut = useMutation({
     mutationFn: () =>
@@ -132,7 +133,6 @@ export function TeamsPage() {
       setCreateForm({ name: '', idpGroupId: '' });
       toast.success('Team created');
     },
-    onError: fail('create the team'),
   });
 
   const deleteMut = useMutation({
@@ -142,8 +142,11 @@ export function TeamsPage() {
       setDeleteTeam(null);
       toast.success('Team deleted');
     },
-    onError: fail('delete the team'),
   });
+  const closeCreate = () => {
+    setShowCreate(false);
+    createMut.reset();
+  };
 
   if (!orgId) {
     return <p className='text-sm text-muted'>Select an organisation to manage its teams.</p>;
@@ -199,7 +202,7 @@ export function TeamsPage() {
       )}
 
       {showCreate && (
-        <AdminModal title='New team' onClose={() => setShowCreate(false)}>
+        <AdminModal title='New team' onClose={closeCreate}>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -230,10 +233,11 @@ export function TeamsPage() {
               />
             </Field>
             <AdminModalActions
-              onCancel={() => setShowCreate(false)}
+              onCancel={closeCreate}
               submitLabel='Create'
               pendingLabel='Creating…'
               pending={createMut.isPending}
+              error={formError(createMut.error, 'Failed to create the team')}
             />
           </form>
         </AdminModal>
@@ -250,7 +254,11 @@ export function TeamsPage() {
           confirmLabel='Delete'
           pendingLabel='Deleting…'
           pending={deleteMut.isPending}
-          onCancel={() => setDeleteTeam(null)}
+          onCancel={() => {
+            setDeleteTeam(null);
+            deleteMut.reset();
+          }}
+          error={formError(deleteMut.error, 'Failed to delete the team')}
           onConfirm={() => deleteMut.mutate(deleteTeam.id)}
         />
       )}
@@ -294,8 +302,6 @@ function TeamMembersModal({
     qc.invalidateQueries({ queryKey: ['team-members', team.id] });
     qc.invalidateQueries({ queryKey: ['teams', orgId] });
   };
-  const fail = (verb: string) => (e: unknown) =>
-    toast.error(toApiError(e).message || `Failed to ${verb}`);
 
   const addMut = useMutation({
     mutationFn: (userId: string) => clients.team.addTeamMember({ orgId, teamId: team.id, userId }),
@@ -304,7 +310,6 @@ function TeamMembersModal({
       setAddUserId('');
       toast.success('Member added');
     },
-    onError: fail('add the member'),
   });
 
   const removeMut = useMutation({
@@ -314,7 +319,6 @@ function TeamMembersModal({
       invalidate();
       toast.success('Member removed');
     },
-    onError: fail('remove the member'),
   });
 
   const members = data?.items ?? [];
@@ -356,14 +360,17 @@ function TeamMembersModal({
                     <span className='ml-2 text-xs text-muted-2'>{m.displayName}</span>
                   )}
                   {m.disabled && (
-                    <span className='ml-2 rounded bg-red-500/15 px-1.5 py-0.5 text-2xs text-red-400'>
+                    <span className={`ml-2 rounded px-1.5 py-0.5 text-2xs ${toneClass('danger')}`}>
                       disabled
                     </span>
                   )}
                 </span>
                 <button
                   data-testid={`team-member-remove-${m.login}`}
-                  onClick={() => removeMut.mutate(m.userId)}
+                  onClick={() => {
+                    addMut.reset();
+                    removeMut.mutate(m.userId);
+                  }}
                   disabled={removeMut.isPending}
                   title='Remove from team'
                   className='text-muted-3 hover:text-red-400 disabled:opacity-50'
@@ -378,6 +385,7 @@ function TeamMembersModal({
         <form
           onSubmit={(e) => {
             e.preventDefault();
+            removeMut.reset();
             if (addUserId) addMut.mutate(addUserId);
           }}
           className='flex items-end gap-2'
@@ -416,6 +424,12 @@ function TeamMembersModal({
             {addMut.isPending ? 'Adding…' : 'Add'}
           </button>
         </form>
+        <FormError
+          message={
+            formError(addMut.error, 'Failed to add the member') ??
+            formError(removeMut.error, 'Failed to remove the member')
+          }
+        />
       </div>
     </AdminModal>
   );

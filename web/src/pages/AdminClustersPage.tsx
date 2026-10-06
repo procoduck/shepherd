@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { clients, toApiError } from '@/api/transport';
+import { clients } from '@/api/transport';
 import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
 import { AdminModal, AdminModalActions } from '@/components/admin/AdminModal';
 import { QueryError } from '@/components/QueryError';
@@ -9,6 +9,7 @@ import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Field, Select } from '@/components/ui/Field';
 import type { Cluster } from '@/gen/shepherd/mgmt/v1/admin_pb';
 import { useMe } from '@/hooks/useMe';
+import { formError } from '@/lib/formError';
 
 function clusterColumns(
   isAppAdmin: boolean,
@@ -85,7 +86,6 @@ export function AdminClustersPage() {
       setClaimCluster(null);
       setClaimOrgId('');
     },
-    onError: (e) => toast.error(toApiError(e).message || 'Failed to claim cluster'),
   });
 
   const unclaimMut = useMutation({
@@ -95,8 +95,15 @@ export function AdminClustersPage() {
       invalidate();
       setUnclaimCluster(null);
     },
-    onError: (e) => toast.error(toApiError(e).message || 'Failed to unclaim cluster'),
   });
+  const closeClaim = () => {
+    setClaimCluster(null);
+    claimMut.reset();
+  };
+  const closeUnclaim = () => {
+    setUnclaimCluster(null);
+    unclaimMut.reset();
+  };
 
   function orgLabel(orgId: string): string {
     const o = orgsData?.items.find((org) => org.id === orgId);
@@ -140,7 +147,7 @@ export function AdminClustersPage() {
       )}
 
       {claimCluster && (
-        <AdminModal title={`Claim ${claimCluster.name}`} onClose={() => setClaimCluster(null)}>
+        <AdminModal title={`Claim ${claimCluster.name}`} onClose={closeClaim}>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -161,10 +168,11 @@ export function AdminClustersPage() {
               </Select>
             </Field>
             <AdminModalActions
-              onCancel={() => setClaimCluster(null)}
+              onCancel={closeClaim}
               submitLabel='Claim'
               pendingLabel='Claiming…'
               pending={claimMut.isPending}
+              error={formError(claimMut.error, 'Failed to claim cluster')}
             />
           </form>
         </AdminModal>
@@ -178,7 +186,8 @@ export function AdminClustersPage() {
           pendingLabel='Unclaiming…'
           pending={unclaimMut.isPending}
           onConfirm={() => unclaimMut.mutate()}
-          onCancel={() => setUnclaimCluster(null)}
+          onCancel={closeUnclaim}
+          error={formError(unclaimMut.error, 'Failed to unclaim cluster')}
         />
       )}
     </div>

@@ -128,7 +128,7 @@
       </ol>
       <p class="note">
         <strong>Groups decide access.</strong> Whatever your provider puts in the groups claim is matched
-        against <code>auth.app_admin_group_ids</code> and each org's admin/editor/reader group. For Entra those are
+        against <code>auth.app_admin_group_ids</code> and each org's admin/editor/viewer group. For Entra those are
         object GUIDs; for every other provider they are whatever your IdP emits &mdash; usually a group name
         or a path like <code>acme/platform</code>. Keep at least one local administrator until you have
         confirmed an SSO sign-in lands you with app-admin rights &mdash; local accounts are not a

@@ -9,7 +9,6 @@ import (
 
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
-	"shepherd/internal/auth"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 )
@@ -36,22 +35,17 @@ const (
 )
 
 // ListAudit lists audit log entries, optionally scoped to an org and
-// filtered by actor/action substring match. A malformed/empty org_id
-// resolves to SQL NULL (matching legacy orgIDFromParam, which never
-// rejected it), returning entries across all orgs. limit outside (0, 200]
+// filtered by actor/action substring match. An org-scoped call returns that
+// org's entries only — platform-level events (NULL org_id: local users, single
+// sign-on) are not part of any org's trail, for an app admin either (#253). A
+// malformed/empty org_id resolves to SQL NULL (matching legacy
+// orgIDFromParam, which never rejected it), returning entries across all orgs
+// plus the platform events: the app admin's global view. Only an app admin
+// reaches it — the interceptor refuses an org-less call to anyone else. limit outside (0, 200]
 // resets to the default of 25 (not clamped to 200 — mirroring
 // the pre-Connect REST handler's pagination exactly); offset below 0 resets to 0.
 func (s *AuditService) ListAudit(ctx context.Context, req *connect.Request[mgmtv1.ListAuditRequest]) (*connect.Response[mgmtv1.ListAuditResponse], error) {
 	orgID, _ := parseUUID(req.Msg.GetOrgId()) // invalid/empty org id resolves to NULL, matching legacy orgIDFromParam
-
-	// Platform-level entries (NULL org_id) belong to no org, so an org-scoped
-	// query excludes them. Single sign-on configuration is the first such
-	// event, and it was being written where nobody could read it. App admins
-	// get them folded into whichever org they are looking at; an org admin's
-	// view is unchanged, because these are platform decisions rather than
-	// anything about their org.
-	sess := auth.SessionFromCtx(ctx)
-	includeGlobal := sess != nil && sess.IsAppAdmin
 
 	limit := req.Msg.GetLimit()
 	if limit <= 0 || limit > maxAuditLimit {
@@ -71,7 +65,6 @@ func (s *AuditService) ListAudit(ctx context.Context, req *connect.Request[mgmtv
 		Column3: action,
 		Limit:   limit,
 		Offset:  offset,
-		Column6: includeGlobal,
 	})
 	if err != nil {
 		s.logger.Error("list audit log", "err", err)
@@ -82,7 +75,6 @@ func (s *AuditService) ListAudit(ctx context.Context, req *connect.Request[mgmtv
 		Column1: orgID,
 		Column2: actor,
 		Column3: action,
-		Column4: includeGlobal,
 	})
 
 	items := make([]*mgmtv1.AuditEntry, len(rows))

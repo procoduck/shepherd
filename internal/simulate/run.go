@@ -65,6 +65,13 @@ type RunComponentHealth struct {
 	Message     string `json:"message"`
 }
 
+// HealthStateStubbed is the health_state a component-health entry carries
+// when the node was replaced by a stub for the sandbox run (rules G: a
+// discovery or log-source stub). The sandbox's own report for that node is the
+// stand-in's health, not the authored component's — the authored component
+// never ran — so it must not read as "healthy" (#253).
+const HealthStateStubbed = "stubbed"
+
 // RunGateDiagnostic is the JSONB-stored shape of one
 // simulate_runs.gate_diagnostics entry (mgmtv1.VisualNodeDiagnostic).
 type RunGateDiagnostic struct {

@@ -9,6 +9,7 @@ export function AdminConfirmDialog({
   pending,
   onConfirm,
   onCancel,
+  error,
 }: {
   title: string;
   body: string;
@@ -17,6 +18,8 @@ export function AdminConfirmDialog({
   pending: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  /** The refusal, shown in the dialog (#249) — keep it open on error. */
+  error?: string | null;
 }) {
   return (
     <AdminModal title={title} onClose={onCancel}>
@@ -34,6 +37,7 @@ export function AdminConfirmDialog({
           pendingLabel={pendingLabel}
           pending={pending}
           danger
+          error={error}
         />
       </form>
     </AdminModal>

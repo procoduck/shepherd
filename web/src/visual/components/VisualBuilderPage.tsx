@@ -11,7 +11,7 @@ import {
   shouldOfferRestore,
   subscribeDraftAutosave,
 } from '../draft';
-import { fetchSchema } from '../schemaAdapter';
+import { cachedCurrentSchema, loadCurrentSchema } from '../schemaCache';
 import { useVisualStore } from '../store';
 import type { GraphDocument } from '../types';
 import { BottomDrawer } from './BottomDrawer';
@@ -93,9 +93,17 @@ export function VisualBuilderPage() {
   const [draftChecked, setDraftChecked] = useState(false);
   const [discardingDraft, setDiscardingDraft] = useState(false);
 
+  // #251: the route started this fetch as it was entered (router.tsx), so it
+  // is usually done or nearly done by now. A copy held from an earlier visit
+  // renders the canvas at once; the fetch only replaces it when the served
+  // schema actually changed (same ETag → the same object).
   useEffect(() => {
-    fetchSchema()
-      .then((schema) => setSchemaRef.current(schema))
+    const held = cachedCurrentSchema();
+    if (held && useVisualStore.getState().schema !== held) setSchemaRef.current(held);
+    loadCurrentSchema()
+      .then((schema) => {
+        if (schema !== held) setSchemaRef.current(schema);
+      })
       .catch(console.error);
   }, []); // run once on mount
 

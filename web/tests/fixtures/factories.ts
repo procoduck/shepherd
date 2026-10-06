@@ -44,6 +44,8 @@ interface Pipeline {
   created_at: string;
   updated_at: string;
   revisions?: PipelineRevision[];
+  /** The owning team's id; absent/empty means unowned. */
+  owner_team_id?: string;
 }
 interface PipelineRevision {
   id?: string;

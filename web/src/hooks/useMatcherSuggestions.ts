@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { clients } from '@/api/transport';
 
 // Matcher key names the server's parser accepts (Prometheus label-name
-// syntax — see internal/merge and web/src/visual/matcher.ts). An attribute
+// syntax — see internal/merge and web/src/lib/matcher.ts). An attribute
 // whose key falls outside it (e.g. an agent-reported "k8s.namespace") cannot
 // be written as a matcher at all, so it is never suggested.
 const MATCHER_KEY_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;

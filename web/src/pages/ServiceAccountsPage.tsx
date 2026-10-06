@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Copy, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { clients, toApiError } from '@/api/transport';
+import { clients } from '@/api/transport';
 import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
 import { AdminModal, AdminModalActions } from '@/components/admin/AdminModal';
 import { QueryError } from '@/components/QueryError';
@@ -10,6 +10,7 @@ import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Field, Input, Select } from '@/components/ui/Field';
 import type { ServiceAccount } from '@/gen/shepherd/mgmt/v1/service_account_pb';
 import { useCanAdminister, useOrgId } from '@/hooks/useOrg';
+import { formError } from '@/lib/formError';
 
 async function copyText(text: string) {
   try {
@@ -154,7 +155,6 @@ export function ServiceAccountsPage() {
       });
       setCopied(false);
     },
-    onError: (e) => toast.error(toApiError(e).message || 'Failed to create service account'),
   });
 
   const revokeMut = useMutation({
@@ -165,8 +165,11 @@ export function ServiceAccountsPage() {
       invalidate();
       setToRevoke(null);
     },
-    onError: (e) => toast.error(toApiError(e).message || 'Failed to revoke service account'),
   });
+  const closeCreate = () => {
+    setShowCreate(false);
+    createMut.reset();
+  };
 
   async function copySecret() {
     if (!newSecret) return;
@@ -218,7 +221,7 @@ export function ServiceAccountsPage() {
       )}
 
       {showCreate && (
-        <AdminModal title='New service account' onClose={() => setShowCreate(false)}>
+        <AdminModal title='New service account' onClose={closeCreate}>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -259,7 +262,8 @@ export function ServiceAccountsPage() {
               </Select>
             </Field>
             <AdminModalActions
-              onCancel={() => setShowCreate(false)}
+              onCancel={closeCreate}
+              error={formError(createMut.error, 'Failed to create service account')}
               submitLabel='Create'
               pendingLabel='Creating…'
               pending={createMut.isPending}
@@ -343,7 +347,11 @@ export function ServiceAccountsPage() {
           pendingLabel='Revoking…'
           pending={revokeMut.isPending}
           onConfirm={() => revokeMut.mutate()}
-          onCancel={() => setToRevoke(null)}
+          onCancel={() => {
+            setToRevoke(null);
+            revokeMut.reset();
+          }}
+          error={formError(revokeMut.error, 'Failed to revoke service account')}
         />
       )}
     </div>

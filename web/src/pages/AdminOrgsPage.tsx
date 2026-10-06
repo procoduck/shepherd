@@ -10,6 +10,7 @@ import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Field, Input } from '@/components/ui/Field';
 import type { Org } from '@/gen/shepherd/mgmt/v1/admin_pb';
 import { useMe } from '@/hooks/useMe';
+import { errorText, formError } from '@/lib/formError';
 
 const emptyCreateForm = {
   name: '',
@@ -115,7 +116,6 @@ export function AdminOrgsPage() {
       setShowCreate(false);
       setCreateForm(emptyCreateForm);
     },
-    onError: (e) => toast.error(toApiError(e).message || 'Failed to create organisation'),
   });
 
   const updateMut = useMutation({
@@ -133,7 +133,6 @@ export function AdminOrgsPage() {
       invalidate();
       setEditOrg(null);
     },
-    onError: (e) => toast.error(toApiError(e).message || 'Failed to update organisation'),
   });
 
   const deleteMut = useMutation({
@@ -143,16 +142,22 @@ export function AdminOrgsPage() {
       invalidate();
       setDeleteOrg(null);
     },
-    onError: (e) => {
-      const err = toApiError(e);
-      toast.error(
-        err.code === 'already_exists'
-          ? `Cannot delete: ${err.message || 'organisation is not empty'}`
-          : err.message || 'Failed to delete organisation',
-      );
-      setDeleteOrg(null);
-    },
   });
+  // A refused delete keeps the dialog open with the reason (#249) rather
+  // than closing it behind a toast.
+  const deleteError = !deleteMut.error
+    ? null
+    : toApiError(deleteMut.error).code === 'already_exists'
+      ? `Cannot delete: ${toApiError(deleteMut.error).message || 'organisation is not empty'}`
+      : errorText(deleteMut.error, 'Failed to delete organisation');
+  const closeCreate = () => {
+    setShowCreate(false);
+    createMut.reset();
+  };
+  const closeEdit = () => {
+    setEditOrg(null);
+    updateMut.reset();
+  };
 
   function openEdit(o: Org) {
     setEditOrg(o);
@@ -207,7 +212,7 @@ export function AdminOrgsPage() {
       )}
 
       {showCreate && (
-        <AdminModal title='New organisation' onClose={() => setShowCreate(false)}>
+        <AdminModal title='New organisation' onClose={closeCreate}>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -253,7 +258,7 @@ export function AdminOrgsPage() {
                 placeholder='33333333-3333-3333-3333-333333333333'
               />
             </Field>
-            <Field label='Reader group ID' optional>
+            <Field label='Viewer group ID' optional>
               <Input
                 value={createForm.readerGroupId}
                 onChange={(e) => setCreateForm((f) => ({ ...f, readerGroupId: e.target.value }))}
@@ -282,7 +287,8 @@ export function AdminOrgsPage() {
               />
             </Field>
             <AdminModalActions
-              onCancel={() => setShowCreate(false)}
+              onCancel={closeCreate}
+              error={formError(createMut.error, 'Failed to create organisation')}
               submitLabel='Create'
               pendingLabel='Creating…'
               pending={createMut.isPending}
@@ -292,7 +298,7 @@ export function AdminOrgsPage() {
       )}
 
       {editOrg && (
-        <AdminModal title={`Edit ${editOrg.name}`} onClose={() => setEditOrg(null)}>
+        <AdminModal title={`Edit ${editOrg.name}`} onClose={closeEdit}>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -348,7 +354,7 @@ export function AdminOrgsPage() {
                 mono
               />
             </Field>
-            <Field label='Reader group ID' optional>
+            <Field label='Viewer group ID' optional>
               <Input
                 value={editForm.readerGroupId}
                 onChange={(e) => setEditForm((f) => ({ ...f, readerGroupId: e.target.value }))}
@@ -417,7 +423,8 @@ export function AdminOrgsPage() {
               </span>
             </label>
             <AdminModalActions
-              onCancel={() => setEditOrg(null)}
+              onCancel={closeEdit}
+              error={formError(updateMut.error, 'Failed to update organisation')}
               submitLabel='Save'
               pendingLabel='Saving…'
               pending={updateMut.isPending}
@@ -434,7 +441,11 @@ export function AdminOrgsPage() {
           pendingLabel='Deleting…'
           pending={deleteMut.isPending}
           onConfirm={() => deleteMut.mutate()}
-          onCancel={() => setDeleteOrg(null)}
+          onCancel={() => {
+            setDeleteOrg(null);
+            deleteMut.reset();
+          }}
+          error={deleteError}
         />
       )}
     </div>

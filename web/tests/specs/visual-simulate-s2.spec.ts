@@ -3,6 +3,7 @@ import { basicScenario, org } from '../fixtures/factories';
 import { appAdmin } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
 import { test } from '../fixtures/test';
+import { toolbarAction } from '../fixtures/toolbar';
 
 test.describe('visual simulate S2', () => {
   test.beforeEach(async ({ page, api }) => {
@@ -140,7 +141,7 @@ test.describe('visual simulate S2', () => {
   });
 
   test('7.6.7.7 — flow check toggle activates overlay', async ({ page }) => {
-    await page.getByTestId('flow-check-toggle').click();
+    await (await toolbarAction(page, 'flow-check-toggle')).click();
     await expect(page.getByTestId('flow-check-active')).toBeVisible();
   });
 });

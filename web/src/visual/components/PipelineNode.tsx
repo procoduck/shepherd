@@ -209,11 +209,15 @@ export interface PipelineNodeData extends GraphNode {
 type PipelineFlowNode = Node<PipelineNodeData, 'pipeline'>;
 
 // health_state values mirror Alloy's own /api/v0/web/components verbatim
-// (VB-1 §6.4) — this is the closed set that endpoint actually emits.
+// (VB-1 §6.4) — the set that endpoint actually emits — plus Shepherd's own
+// `stubbed` (#253): the node was replaced by a stub for the run, so the
+// sandbox measured the stand-in and the authored component never ran. It gets
+// its own colour so it reads neither as healthy nor as "no data".
 const HEALTH_BADGE_COLOR: Record<string, string> = {
   healthy: '#22c55e',
   unhealthy: '#ef4444',
   exited: '#f59e0b',
+  stubbed: '#38bdf8',
   unknown: '#71717a',
 };
 

@@ -35,7 +35,7 @@ export function OverviewPage() {
   const activePipelineCount = (pipelinesQuery.data?.items ?? []).filter((p) => p.enabled).length;
 
   const stats: Array<{ label: string; value: string; loading: boolean }> = [
-    { label: 'Orgs', value: String(orgCount), loading: false },
+    { label: 'Organisations', value: String(orgCount), loading: false },
     {
       label: 'Collectors',
       value: String(collectorsQuery.data?.total ?? collectorsQuery.data?.items?.length ?? 0),

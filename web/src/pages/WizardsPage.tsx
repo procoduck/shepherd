@@ -1,9 +1,35 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { AppWindow } from 'lucide-react';
+import {
+  Activity,
+  AppWindow,
+  Boxes,
+  Database,
+  type LucideIcon,
+  Radar,
+  ScrollText,
+  Wand2,
+} from 'lucide-react';
 import { clients } from '@/api/transport';
 import { QueryError } from '@/components/QueryError';
 import { useOrgId } from '@/hooks/useOrg';
+
+// One icon per registered wizard kind, so the cards are tellable apart at a
+// glance. This is presentation only — the catalog itself still comes from the
+// backend (see below), and a kind missing here falls back to the generic wand
+// rather than being hidden.
+const WIZARD_ICONS: Record<string, LucideIcon> = {
+  'app-observability': AppWindow,
+  blackbox: Radar,
+  'cluster-metrics': Boxes,
+  database: Database,
+  'pod-logs': ScrollText,
+  'self-monitoring': Activity,
+};
+
+function wizardIcon(kind: string): LucideIcon {
+  return WIZARD_ICONS[kind] ?? Wand2;
+}
 
 // The catalog is whatever the backend registry serves — title and description
 // come from the wizard itself.
@@ -44,23 +70,26 @@ export function WizardsPage() {
         <p className='text-sm text-muted'>No wizards are registered on this server.</p>
       ) : (
         <div className='grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3'>
-          {wizards.map((w) => (
-            <div
-              key={w.kind}
-              className='flex flex-col rounded-lg border border-border bg-card/40 p-5'
-            >
-              <AppWindow size={20} className='mb-3 text-indigo-400' />
-              <h2 className='text-sm font-semibold text-zinc-100'>{w.title}</h2>
-              <p className='mt-1 flex-1 text-xs text-muted'>{w.description}</p>
-              <Link
-                to='/wizards/$kind'
-                params={{ kind: w.kind }}
-                className='mt-4 self-start rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500'
+          {wizards.map((w) => {
+            const Icon = wizardIcon(w.kind);
+            return (
+              <div
+                key={w.kind}
+                className='flex flex-col rounded-lg border border-border bg-card/40 p-5'
               >
-                Start
-              </Link>
-            </div>
-          ))}
+                <Icon size={20} aria-hidden='true' className='mb-3 text-indigo-400' />
+                <h2 className='text-sm font-semibold text-zinc-100'>{w.title}</h2>
+                <p className='mt-1 flex-1 text-xs text-muted'>{w.description}</p>
+                <Link
+                  to='/wizards/$kind'
+                  params={{ kind: w.kind }}
+                  className='mt-4 self-start rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500'
+                >
+                  Start
+                </Link>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

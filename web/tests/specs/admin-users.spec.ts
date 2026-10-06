@@ -69,13 +69,12 @@ test('refuses a duplicate login and a short password', async ({ page, api }) => 
   await page.getByTestId('user-login').fill('dave');
   await page.getByTestId('user-password').fill('short');
   await page.getByRole('button', { name: /create user/i }).click();
-  // Match the server's message exactly rather than the phrase: the form's own
-  // hint says "At least 8 characters" too, so a loose locator resolves to both
-  // and fails strict mode -- but only once a toast from the assertion above is
-  // still on screen, which is why it survived running this file alone.
-  await expect(
-    page.getByText('password must be at least 8 characters', { exact: true }),
-  ).toBeVisible();
+  // The refusal replaces the previous one inside the dialog (#249), in
+  // sentence case. Asserted on the inline error rather than by text: the
+  // form's own hint says "At least 8 characters" too.
+  await expect(page.getByRole('dialog').getByTestId('form-error')).toHaveText(
+    'Password must be at least 8 characters',
+  );
 });
 
 test('a non-app-admin is refused', async ({ page, api }) => {

@@ -329,9 +329,9 @@ test('an update a wizard pipeline cannot take is refused with the pipeline named
   await dialog.locator('select').first().selectOption({ label: 'Loki' });
   await dialog.getByRole('button', { name: 'Save' }).click();
 
-  await expect(page.locator('[data-sonner-toast]').filter({ hasText: '"self-mon"' })).toContainText(
-    'was not updated',
-  );
+  // The refusal stays in the dialog, beside the change it refused (#249).
+  await expect(dialog.getByTestId('form-error')).toContainText('"self-mon"');
+  await expect(dialog.getByTestId('form-error')).toContainText('was not updated');
   await expect(dialog).toBeVisible();
 });
 

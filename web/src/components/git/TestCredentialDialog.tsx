@@ -10,6 +10,7 @@ export function TestCredentialDialog({
   result,
   onSubmit,
   pending,
+  error,
   onClose,
 }: {
   credential: GitCredential;
@@ -23,6 +24,8 @@ export function TestCredentialDialog({
   result: TestCredentialResponse | null;
   onSubmit: () => void;
   pending: boolean;
+  /** Why the test could not run at all (#249); a failed test is `result`. */
+  error?: string | null;
   onClose: () => void;
 }) {
   return (
@@ -78,6 +81,7 @@ export function TestCredentialDialog({
           submitLabel='Run test'
           pendingLabel='Testing…'
           pending={pending}
+          error={error}
         />
       </form>
     </Modal>

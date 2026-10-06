@@ -2,10 +2,12 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Plus, Save, Tags, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { clients, toApiError } from '@/api/transport';
+import { clients } from '@/api/transport';
 import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
 import { Field, Input } from '@/components/ui/Field';
+import { FormError } from '@/components/ui/FormError';
 import type { Collector } from '@/gen/shepherd/mgmt/v1/fleet_pb';
+import { formError } from '@/lib/formError';
 
 export function CollectorLabelsButton({
   canEdit,
@@ -84,6 +86,7 @@ export function CollectorLabels({
     setKey('');
     setValue('');
     setEditing(false);
+    change.reset();
   };
   const change = useMutation({
     mutationFn: (input: { key: string; value?: string }) =>
@@ -104,8 +107,10 @@ export function CollectorLabels({
       ]);
       toast.success('Labels saved');
     },
-    onError: (e) => toast.error(toApiError(e).message),
   });
+  // The refusal shows in the confirmation dialog while one is open, and
+  // beside the form otherwise (#249).
+  const changeError = formError(change.error, 'Failed to save the label');
 
   return (
     <section className='space-y-3' aria-label='Collector labels'>
@@ -217,6 +222,7 @@ export function CollectorLabels({
           )}
         </form>
       )}
+      {canEdit && !confirmation && <FormError message={changeError} />}
       {canEdit && keyInvalid && (
         <p role='alert' className='text-xs text-red-400'>
           Key must contain 1-128 ASCII letters, digits, dots, underscores, slashes or hyphens.
@@ -244,8 +250,11 @@ export function CollectorLabels({
           pending={change.isPending}
           onConfirm={() => change.mutate(confirmation)}
           onCancel={() => {
-            if (!change.isPending) setConfirmation(null);
+            if (change.isPending) return;
+            setConfirmation(null);
+            change.reset();
           }}
+          error={changeError}
         />
       )}
     </section>

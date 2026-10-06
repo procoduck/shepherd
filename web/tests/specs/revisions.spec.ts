@@ -173,7 +173,18 @@ test('git-sourced warning', async ({ page, api }) => {
         updated_by: 'test@example.com',
         created_at: '2026-08-17T09:00:00Z',
         updated_at: '2026-08-17T09:00:00Z',
+        // Two revisions: Restore is offered for an OLDER one only — the
+        // newest is what the pipeline already is (#252).
         revisions: [
+          {
+            revision: 2,
+            changed_by: 'grace@example.com',
+            changed_at: '2026-08-18T10:00:00Z',
+            change_note: 'edited',
+            contents: 'current',
+            matchers: [],
+            enabled: true,
+          },
           {
             revision: 1,
             changed_by: 'grace@example.com',
@@ -197,7 +208,18 @@ test('git-sourced warning', async ({ page, api }) => {
         updated_by: 'test@example.com',
         created_at: '2026-08-17T09:00:00Z',
         updated_at: '2026-08-17T09:00:00Z',
+        // Two revisions: Restore is offered for an OLDER one only — the
+        // newest is what the pipeline already is (#252).
         revisions: [
+          {
+            revision: 2,
+            changed_by: 'grace@example.com',
+            changed_at: '2026-08-18T10:00:00Z',
+            change_note: 'edited',
+            contents: 'current',
+            matchers: [],
+            enabled: true,
+          },
           {
             revision: 1,
             changed_by: 'grace@example.com',
@@ -215,8 +237,8 @@ test('git-sourced warning', async ({ page, api }) => {
   // Git-sourced: no Save, but Restore is present, and the dialog warns.
   await page.goto('/pipelines/pip-git');
   await expect(page.getByRole('button', { name: /save/i })).toHaveCount(0);
-  await page.getByRole('button', { name: /revision history \(1\)/i }).click();
-  await page.getByTestId('view-revision-btn').click();
+  await page.getByRole('button', { name: /revision history \(2\)/i }).click();
+  await viewRevision(page, 1);
   await expect(page.getByTestId('restore-btn')).toBeVisible();
   await page.getByTestId('restore-btn').click();
   await expect(page.getByTestId('restore-dialog')).toBeVisible();
@@ -225,8 +247,8 @@ test('git-sourced warning', async ({ page, api }) => {
 
   // UI-sourced: dialog has no git warning.
   await page.goto('/pipelines/pip-ui');
-  await page.getByRole('button', { name: /revision history \(1\)/i }).click();
-  await page.getByTestId('view-revision-btn').click();
+  await page.getByRole('button', { name: /revision history \(2\)/i }).click();
+  await viewRevision(page, 1);
   await page.getByTestId('restore-btn').click();
   await expect(page.getByTestId('restore-dialog')).toBeVisible();
   await expect(page.getByTestId('restore-git-warning')).toHaveCount(0);

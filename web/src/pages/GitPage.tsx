@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { PlugZap, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { clients, toApiError } from '@/api/transport';
+import { clients } from '@/api/transport';
 import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
 import { CredentialForm } from '@/components/git/CredentialForm';
 import {
@@ -17,12 +17,14 @@ import { RepoLinkForm } from '@/components/git/RepoLinkForm';
 import { TestCredentialDialog } from '@/components/git/TestCredentialDialog';
 import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
+import { toneClass } from '@/components/ui/statusTone';
 import type {
   GitCredential,
   RepoLink,
   TestCredentialResponse,
 } from '@/gen/shepherd/mgmt/v1/gitops_pb';
 import { useOrgId } from '@/hooks/useOrg';
+import { formError } from '@/lib/formError';
 
 function credentialColumns(
   openTest: (c: GitCredential) => void,
@@ -86,12 +88,22 @@ function repoLinkColumns(
       key: 'repo',
       header: 'Repository',
       cellClassName: 'px-4 py-2.5 font-mono text-xs',
-      render: (rl) => (
-        <>
-          {rl.repoUrl}
-          <span className='ml-1 text-muted-3'>{rl.path}</span>
-        </>
-      ),
+      render: (rl) => {
+        // The repo root ('/', '' or '.') is the default and says nothing; it
+        // used to render as a stray " /" after the URL (#253). A subdirectory
+        // gets its own labelled line instead of being glued onto the URL.
+        const sub = rl.path === '.' ? '' : rl.path.replace(/^(\.?\/)+/, '').replace(/\/+$/, '');
+        return (
+          <>
+            <span className='break-all'>{rl.repoUrl}</span>
+            {sub && (
+              <span className='block text-muted-2' data-testid='repo-link-path'>
+                path: {sub}
+              </span>
+            )}
+          </>
+        );
+      },
     },
     {
       key: 'branch',
@@ -117,11 +129,9 @@ function repoLinkColumns(
       render: (rl) => (
         <span
           data-testid={rl.syncStatus === 'error' ? 'sync-status-error' : undefined}
-          className={`text-xs px-1.5 py-0.5 rounded ${
-            rl.syncStatus === 'error'
-              ? 'text-red-400 bg-red-400/10'
-              : 'text-emerald-400 bg-emerald-400/10'
-          }`}
+          className={`text-xs px-1.5 py-0.5 rounded ${toneClass(
+            rl.syncStatus === 'error' ? 'danger' : rl.syncStatus ? 'ok' : 'neutral',
+          )}`}
         >
           {rl.syncStatus || 'pending'}
         </span>
@@ -232,7 +242,6 @@ export function GitPage() {
       setShowCreateCred(false);
       setCredForm(emptyCredentialForm);
     },
-    onError: (e) => toast.error(toApiError(e).message || 'Failed to create credential'),
   });
 
   const deleteCredMut = useMutation({
@@ -240,10 +249,6 @@ export function GitPage() {
     onSuccess: () => {
       toast.success('Credential deleted');
       invalidateCreds();
-      setDeleteCred(null);
-    },
-    onError: (e) => {
-      toast.error(toApiError(e).message || 'Failed to delete credential');
       setDeleteCred(null);
     },
   });
@@ -257,7 +262,6 @@ export function GitPage() {
         branch: testForm.branch,
       }),
     onSuccess: (res) => setTestResult(res),
-    onError: (e) => toast.error(toApiError(e).message || 'Test failed to run'),
   });
 
   const createLinkMut = useMutation({
@@ -276,7 +280,6 @@ export function GitPage() {
       setShowCreateLink(false);
       setLinkForm(emptyLinkForm);
     },
-    onError: (e) => toast.error(toApiError(e).message || 'Failed to create repository link'),
   });
 
   const deleteLinkMut = useMutation({
@@ -286,13 +289,10 @@ export function GitPage() {
       invalidateLinks();
       setDeleteLink(null);
     },
-    onError: (e) => {
-      toast.error(toApiError(e).message || 'Failed to delete repository link');
-      setDeleteLink(null);
-    },
   });
 
   function openTest(c: GitCredential) {
+    testCredMut.reset();
     setTestCred(c);
     setTestForm({ repoUrl: '', branch: '' });
     setTestResult(null);
@@ -406,7 +406,11 @@ export function GitPage() {
           onChange={setCredForm}
           onSubmit={() => createCredMut.mutate()}
           pending={createCredMut.isPending}
-          onCancel={() => setShowCreateCred(false)}
+          error={formError(createCredMut.error, 'Failed to create credential')}
+          onCancel={() => {
+            setShowCreateCred(false);
+            createCredMut.reset();
+          }}
         />
       )}
 
@@ -421,6 +425,7 @@ export function GitPage() {
             testCredMut.mutate();
           }}
           pending={testCredMut.isPending}
+          error={formError(testCredMut.error, 'Test failed to run')}
           onClose={() => {
             setTestCred(null);
             setTestResult(null);
@@ -436,7 +441,11 @@ export function GitPage() {
           pendingLabel='Deleting…'
           pending={deleteCredMut.isPending}
           onConfirm={() => deleteCredMut.mutate(deleteCred.id)}
-          onCancel={() => setDeleteCred(null)}
+          onCancel={() => {
+            setDeleteCred(null);
+            deleteCredMut.reset();
+          }}
+          error={formError(deleteCredMut.error, 'Failed to delete credential')}
         />
       )}
 
@@ -446,7 +455,11 @@ export function GitPage() {
           onChange={setLinkForm}
           onSubmit={() => createLinkMut.mutate()}
           pending={createLinkMut.isPending}
-          onCancel={() => setShowCreateLink(false)}
+          error={formError(createLinkMut.error, 'Failed to create repository link')}
+          onCancel={() => {
+            setShowCreateLink(false);
+            createLinkMut.reset();
+          }}
           collectors={collectors}
           credentials={credentials}
         />
@@ -460,7 +473,11 @@ export function GitPage() {
           pendingLabel='Deleting…'
           pending={deleteLinkMut.isPending}
           onConfirm={() => deleteLinkMut.mutate(deleteLink.id)}
-          onCancel={() => setDeleteLink(null)}
+          onCancel={() => {
+            setDeleteLink(null);
+            deleteLinkMut.reset();
+          }}
+          error={formError(deleteLinkMut.error, 'Failed to delete repository link')}
         />
       )}
     </div>

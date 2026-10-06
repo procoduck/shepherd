@@ -108,8 +108,6 @@ const UNMOCKED_PROCEDURES: Record<string, string> = {
     'destination bindings: no default handler yet',
   '/shepherd.mgmt.v1.FleetService/SetCollectorLabel': 'collector labels: no default handler yet',
   '/shepherd.mgmt.v1.FleetService/DeleteCollectorLabel': 'collector labels: no default handler yet',
-  '/shepherd.mgmt.v1.PipelineService/SetPipelineOwner':
-    'pipeline ownership: no default handler yet',
   '/shepherd.mgmt.v1.UserService/ListOrgMembers': 'org members list: no default handler yet',
 };
 

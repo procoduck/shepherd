@@ -54,7 +54,7 @@ const navGroups: Array<{ label?: string; items: NavItem[] }> = [
     label: 'Delivery',
     items: [
       { label: 'Destinations', href: '/destinations', icon: <Send size={16} /> },
-      { label: 'Git', href: '/git', icon: <GitBranch size={16} /> },
+      { label: 'Git sync', href: '/git', icon: <GitBranch size={16} /> },
       { label: 'Tenant routes', href: '/tenant-routes', icon: <Route size={16} /> },
     ],
   },
@@ -68,7 +68,12 @@ const navGroups: Array<{ label?: string; items: NavItem[] }> = [
   {
     label: 'Admin',
     items: [
-      { label: 'Orgs', href: '/admin/orgs', icon: <Building2 size={16} />, adminOnly: true },
+      {
+        label: 'Organisations',
+        href: '/admin/orgs',
+        icon: <Building2 size={16} />,
+        adminOnly: true,
+      },
       { label: 'Clusters', href: '/admin/clusters', icon: <Radio size={16} />, adminOnly: true },
       { label: 'Agent Tokens', href: '/admin/tokens', icon: <Key size={16} />, adminOnly: true },
       { label: 'Users', href: '/admin/users', icon: <Users size={16} />, adminOnly: true },

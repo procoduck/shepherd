@@ -20,7 +20,7 @@ import { orgAdmin, orgEditor, reader } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
 import { test } from '../fixtures/test';
 
-const RESTRICTED_FOR_VIEWER = ['Git', 'Service accounts', 'Audit', 'Wizards'];
+const RESTRICTED_FOR_VIEWER = ['Git sync', 'Service accounts', 'Audit', 'Wizards'];
 
 test('a viewer sees no nav links to Git, Service accounts, Audit or Wizards', async ({
   page,
@@ -45,7 +45,7 @@ test('an editor sees Wizards but not Git, Service accounts or Audit', async ({ p
   await page.goto('/');
   const nav = page.getByTestId('app-sidebar');
   await expect(nav.getByRole('link', { name: 'Wizards' })).toBeVisible();
-  for (const name of ['Git', 'Service accounts', 'Audit']) {
+  for (const name of ['Git sync', 'Service accounts', 'Audit']) {
     await expect(nav.getByRole('link', { name, exact: true })).toHaveCount(0);
   }
 });
