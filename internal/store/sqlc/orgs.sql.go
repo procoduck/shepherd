@@ -211,6 +211,28 @@ func (q *Queries) SetOrgTenantID(ctx context.Context, arg SetOrgTenantIDParams) 
 	return i, err
 }
 
+const tenantIDHeldByOtherOrg = `-- name: TenantIDHeldByOtherOrg :one
+SELECT EXISTS (
+    SELECT 1 FROM orgs WHERE tenant_id = $1::text AND id <> $2
+)
+`
+
+type TenantIDHeldByOtherOrgParams struct {
+	TenantID string      `json:"tenant_id"`
+	OrgID    pgtype.UUID `json:"org_id"`
+}
+
+// Whether an org other than org_id holds tenant_id (#261). A destination may
+// send any valid tenant, except another org's: D11's one-tenant-one-org
+// property, kept on every path Shepherd renders. The caller answers with a
+// generic refusal, so this is at most a weak existence oracle.
+func (q *Queries) TenantIDHeldByOtherOrg(ctx context.Context, arg TenantIDHeldByOtherOrgParams) (bool, error) {
+	row := q.db.QueryRow(ctx, tenantIDHeldByOtherOrg, arg.TenantID, arg.OrgID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const updateOrg = `-- name: UpdateOrg :one
 UPDATE orgs
 SET display_name    = $2,

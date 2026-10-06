@@ -12,6 +12,19 @@
         <code>https://loki.example.com/loki/api/v1/push</code>. Shepherd puts it into the writer
         exactly as written and adds no path.</p>
 
+      <h2 id="tenant">Tenant</h2>
+      <p>For a multi-tenant Mimir or Loki, set the destination&rsquo;s <strong>Tenant ID</strong>.
+        Wizard pipelines that ship there send it as <code>X-Scope-OrgID</code>: as a header on
+        <code>prometheus.remote_write</code>, and as <code>loki.write</code>&rsquo;s own
+        <code>tenant_id</code>. Leave it empty to send no tenant. It follows Mimir&rsquo;s rule:
+        letters, digits and <code>! - _ . * ' ( )</code>, at most 150 characters, no slashes or
+        spaces.</p>
+      <p>Any tenant your backend expects is allowed except one that belongs to
+        <strong>another organisation</strong> in Shepherd (the tenant ID an application
+        administrator gave it). That is refused when you save, and refused again when a wizard
+        pipeline is generated, in case the other organisation was given that tenant ID later.
+        Shepherd never lets one organisation write under another&rsquo;s tenant ID.</p>
+
       <h2 id="auth">Authentication from a Kubernetes Secret</h2>
       <p>Shepherd never holds a telemetry backend&rsquo;s credentials. For an authenticated
         destination you name a Kubernetes <strong>Secret</strong> that already exists on every

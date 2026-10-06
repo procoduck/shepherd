@@ -79,6 +79,12 @@ function destinationColumns(
       render: (d) => <DestinationUrl url={d.url} />,
     },
     {
+      key: 'tenant',
+      header: 'Tenant',
+      cellClassName: 'px-4 py-2.5 font-mono text-xs text-muted',
+      render: (d) => d.tenantId || <span className='text-muted-3'>&mdash;</span>,
+    },
+    {
       key: 'auth',
       header: 'Auth',
       cellClassName: 'px-4 py-2.5 text-xs text-muted',
@@ -146,7 +152,7 @@ export function DestinationsPage() {
         type: form.type,
         url: form.url,
         authMode: form.authMode,
-        tenantId: '',
+        tenantId: form.tenantId.trim(),
         secretName: secret ? form.secretName.trim() : '',
         secretNamespace: secret ? form.secretNamespace.trim() : '',
         extra: extraWithScopes(undefined, form),
@@ -160,8 +166,8 @@ export function DestinationsPage() {
   });
 
   // UpdateDestination replaces every field, so the ones this form does not
-  // show (tenant ID, extra, and the Secret reference while the mode is
-  // `none`) are sent back unchanged rather than wiped.
+  // show (extra, and the Secret reference while the mode is `none`) are
+  // sent back unchanged rather than wiped.
   // The server re-renders every wizard pipeline that ships to a changed
   // destination (destination_rerender.go), so their cached copies — each
   // pipeline, its revisions, the list — are now behind. Prefix keys: all of
@@ -182,7 +188,7 @@ export function DestinationsPage() {
         type: form.type,
         url: form.url,
         authMode: form.authMode,
-        tenantId: d.tenantId,
+        tenantId: form.tenantId.trim(),
         secretName: secret ? form.secretName.trim() : d.secretName,
         secretNamespace: secret ? form.secretNamespace.trim() : d.secretNamespace,
         extra: extraWithScopes(d.extra, form),
@@ -303,6 +309,7 @@ export function DestinationsPage() {
             secretNamespace: editing.secretNamespace,
             secretName: editing.secretName,
             scopes: scopesFromExtra(editing.extra),
+            tenantId: editing.tenantId,
           }}
           submitLabel='Save'
           pendingLabel='Saving…'

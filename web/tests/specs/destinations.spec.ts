@@ -373,3 +373,53 @@ test('deleting a destination a wizard pipeline uses says it cannot be deleted an
   await expect(dialog.getByTestId('form-error')).toContainText('"self-mon", "app-obs"');
   await expect(page.getByRole('cell', { name: 'prom-prod', exact: true })).toBeVisible();
 });
+
+// #261: a destination's tenant is editable, sent on create and update, and
+// shown in the table. Before, create always sent tenantId '' and the form
+// had no field for it.
+test('the tenant ID is sent on create and edit and shown in the table', async ({ page, api }) => {
+  await api.loginAs(orgAdmin);
+  const s = basicScenario();
+  api.seed({ orgs: [s.org], destinations: [] });
+  await page.goto('/destinations');
+
+  await page.getByRole('button', { name: /new|create|add destination/i }).click();
+  const dialog = page.getByRole('dialog', { name: 'New destination' });
+  await dialog.getByLabel('Name', { exact: true }).fill('mimir-mt');
+  await dialog.getByLabel('URL', { exact: true }).fill('https://mimir.example.com/api/v1/push');
+  await dialog.getByLabel(/Tenant ID/).fill('acme');
+  await dialog.getByRole('button', { name: /create/i }).click();
+
+  await expect(page.getByRole('cell', { name: 'acme', exact: true })).toBeVisible();
+  const creates = api.calls('DestinationService/CreateDestination');
+  expect((creates[0].body as Record<string, unknown>).tenantId).toBe('acme');
+
+  await page.getByRole('button', { name: /^Edit / }).click();
+  const edit = page.getByRole('dialog', { name: 'Edit mimir-mt' });
+  await expect(edit.getByLabel(/Tenant ID/)).toHaveValue('acme');
+  await edit.getByLabel(/Tenant ID/).fill('globex-prod');
+  await edit.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByRole('cell', { name: 'globex-prod', exact: true })).toBeVisible();
+  const updates = api.calls('DestinationService/UpdateDestination');
+  expect((updates[0].body as Record<string, unknown>).tenantId).toBe('globex-prod');
+});
+
+test('a tenant ID outside the allowed characters is refused before submit', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(orgAdmin);
+  const s = basicScenario();
+  api.seed({ orgs: [s.org], destinations: [] });
+  await page.goto('/destinations');
+
+  await page.getByRole('button', { name: /new|create|add destination/i }).click();
+  const dialog = page.getByRole('dialog', { name: 'New destination' });
+  await dialog.getByLabel('Name', { exact: true }).fill('mimir-mt');
+  await dialog.getByLabel('URL', { exact: true }).fill('https://mimir.example.com/api/v1/push');
+  await dialog.getByLabel(/Tenant ID/).fill('acme/prod');
+  await dialog.getByRole('button', { name: /create/i }).click();
+
+  await expect(dialog.getByText(/no slashes or spaces/)).toBeVisible();
+  expect(api.calls('DestinationService/CreateDestination')).toHaveLength(0);
+});

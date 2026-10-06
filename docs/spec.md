@@ -611,7 +611,8 @@ prometheus.remote_write "metrics" {
 As built, every wizard writer (`prometheus.remote_write`, `loki.write`) is emitted by one function,
 `internal/wizard.RenderWriter`, from the org's destination row the wizard's `*_dest_name` field
 names. A name the org does not have, or a destination of the wrong type, is refused
-(`failed_precondition`). Tenant headers and TLS options are not rendered.
+(`failed_precondition`). The destination's `tenant_id` is rendered (§11.4); TLS options are not
+rendered yet (#261).
 
 ### 11.3 Logs template (shape)
 
@@ -628,6 +629,17 @@ telemetry-backend credential ever enters Shepherd's database or the served confi
 `…/loki/api/v1/push`). It is rendered verbatim as a string literal. A URL is not a credential, so it
 is not read from the Secret. (The earlier sketch above read `url` from the Secret and appended a
 path. Pre-#229 wizards emitted `sys.env("SHEPHERD_DEST_<NAME>_URL")`, which nothing set.)
+
+**Tenant (#261).** A non-empty `tenant_id` is sent as `X-Scope-OrgID`:
+`headers = { "X-Scope-OrgID" = "<tenant>" }` in a `prometheus.remote_write` endpoint, `tenant_id =
+"<tenant>"` in a `loki.write` endpoint. Empty sends none. The API refuses (`invalid_argument`) a
+value outside `gateway.ValidateTenantID`'s rule, and one another org holds as its `orgs.tenant_id`
+with the generic message `tenant_id is not available to this org`. `wizardDestinations` applies the
+cross-org check again at render time (an app admin may give another org that tenant later), so such
+a destination is refused only by the renders that name it. This is egress from the org's own
+collectors, which an org editor could already tag with any header in a raw pipeline; it does not
+touch the gateway tier's ingress tenancy (D10/D11, `docs/plans/2026-10-06-destination-tenant-tls.md`
+§2). A tenant already stored before #261 reaches a pipeline on its next regeneration.
 
 **Key contract (#229)** — `internal/wizard.SecretKeys`:
 
@@ -659,7 +671,8 @@ or deleting. Running the wizard again is never suggested: it creates a new pipel
 hand-edited when its contents no longer hash to its render fingerprint
 (`wizard_render_sha256`); with no fingerprint (written before migration 0030, or cleared by an
 editor write) the check falls back to comparing it, byte for byte, with its render against the
-destinations as they stood before the update. A pre-#229 `sys.env` pipeline is never treated as
+destinations as they stood before the update, or with that render with every destination's tenant
+cleared (the pre-#261 renderer did not render a tenant). A pre-#229 `sys.env` pipeline is never treated as
 hand-edited; it is converted. A rename rewrites the name in those pipelines' `wizard_state` as well.
 `DeleteDestination` refuses (`failed_precondition`, listing them quoted, and saying to detach them
 from the wizard or delete them first) while any wizard pipeline in the org names the destination.
