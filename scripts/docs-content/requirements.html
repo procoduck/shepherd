@@ -8,7 +8,7 @@
         <tbody>
           <tr>
             <td><strong>Deploy on Kubernetes</strong><br><span class="req-note">the intended way</span></td>
-            <td><strong>Kubernetes 1.29+</strong>, Helm 3 or 4, and <strong>PostgreSQL 16 or newer</strong>
+            <td><strong>Kubernetes 1.32+</strong>, Helm 3 or 4, and <strong>PostgreSQL 16 or newer</strong>
                 that the cluster can reach (the test suites run 16, the dev and e2e stacks 18; older
                 majors are untested). The chart needs <strong>no CRDs</strong> by default.
                 <ul>
@@ -16,9 +16,10 @@
                       <code>kubeVersion</code>. A very old <code>helm</code> refuses to render it
                       offline too, because <code>helm template</code> takes its Kubernetes version
                       from the binary.</li>
-                  <li>Why 1.29 and not lower: the optional CloudNativePG database path
-                      (<a href="database.html#cloudnativepg">Database</a>) needs it, and Helm cannot
-                      make the floor depend on a value. Everything else works from 1.25.</li>
+                  <li>Why 1.32: it is the lowest version the chart&rsquo;s Kubernetes test suite
+                      proves (its Gateway API router needs 1.32), and it covers the optional
+                      CloudNativePG path (<a href="database.html#cloudnativepg">Database</a>, 1.29+).
+                      Chart 0.18 and older accepted 1.29.</li>
                   <li><code>metrics.serviceMonitor.enabled</code> needs the Prometheus Operator's
                       CRDs; <code>route.enabled</code> needs the Gateway API CRDs.</li>
                 </ul></td>

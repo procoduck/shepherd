@@ -44,6 +44,13 @@ destination's URL in Shepherd is the full push URL (`…/api/v1/push`,
 Nothing runs this at startup: it changes what the fleet is served, so it is
 your step to take.
 
+### Kubernetes 1.32 or newer
+
+The chart's `kubeVersion` floor moves from 1.29 to **1.32**, the lowest version
+its Kubernetes test suite proves. On a 1.29–1.31 cluster `helm upgrade` stops
+with a `kubeVersion` error before changing anything; upgrade the cluster first
+(all three are end-of-life upstream), or stay on chart 0.18.x.
+
 ## 0.17.x → 0.18.0
 
 An ordinary `helm upgrade` with no values to change, but **the Shepherd Service
