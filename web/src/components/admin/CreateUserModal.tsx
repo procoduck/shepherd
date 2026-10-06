@@ -6,10 +6,13 @@ import { type CreateUserFormState, emptyCreateUserForm } from './UserForms';
 /** Admin → Users → "New user" (S9b). */
 export function CreateUserModal({
   pending,
+  error,
   onCancel,
   onSubmit,
 }: {
   pending: boolean;
+  /** The server's refusal, shown above the buttons (#249). */
+  error?: string | null;
   onCancel: () => void;
   onSubmit: (v: CreateUserFormState) => void;
 }) {
@@ -94,6 +97,7 @@ export function CreateUserModal({
           submitLabel='Create user'
           pendingLabel='Creating…'
           pending={pending}
+          error={error}
         />
       </form>
     </Modal>

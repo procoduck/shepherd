@@ -19,6 +19,7 @@ export function RepoLinkForm({
   onChange,
   onSubmit,
   pending,
+  error,
   onCancel,
   collectors,
   credentials,
@@ -27,6 +28,8 @@ export function RepoLinkForm({
   onChange: (updater: (f: RepoLinkFormState) => RepoLinkFormState) => void;
   onSubmit: () => void;
   pending: boolean;
+  /** The server's refusal, shown above the buttons (#249). */
+  error?: string | null;
   onCancel: () => void;
   collectors: CollectorOption[];
   credentials: Pick<GitCredential, 'id' | 'name' | 'kind'>[];
@@ -102,6 +105,7 @@ export function RepoLinkForm({
           submitLabel='Create'
           pendingLabel='Creating…'
           pending={pending}
+          error={error}
         />
       </form>
     </Modal>

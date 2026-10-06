@@ -12,7 +12,7 @@ test('empty pipelines shows empty state', async ({ page, api }) => {
   await expect(page.getByText(/no pipelines yet/i)).toBeVisible();
 });
 
-test('mutation failure shows toast with error content', async ({ page, api }) => {
+test('mutation failure shows the server reason inline', async ({ page, api }) => {
   await api.loginAs(appAdmin);
   const s = basicScenario();
   api.seed({ orgs: [s.org], pipelines: [s.pipelines[0]] });
@@ -20,8 +20,10 @@ test('mutation failure shows toast with error content', async ({ page, api }) =>
   await page.goto(`/pipelines/${s.pipelines[0].id}`);
   // A save that fails must say so: silently keeping the editor's content while
   // the server rejected it is how a user loses work believing it was stored.
+  // It says so inline, above the editor (#249) — a toast was gone before a
+  // long reason could be read.
   await page.getByRole('button', { name: /save|update/i }).click();
-  await expect(page.locator('[data-sonner-toast]').first()).toBeVisible({ timeout: 5000 });
+  await expect(page.getByTestId('form-error')).toHaveText('Simulated 500', { timeout: 5000 });
 });
 
 test('load failure shows inline Alert or error indicator with server message', async ({

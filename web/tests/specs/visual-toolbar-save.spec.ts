@@ -133,7 +133,10 @@ test.describe('visual builder toolbar — new pipeline', () => {
     expect((body.wizardState as Record<string, unknown>).kind).toBe('alloy-graph/v1');
   });
 
-  test('surfaces server render diagnostics as a toast and does not save', async ({ page, api }) => {
+  test('surfaces server render diagnostics under the toolbar and does not save', async ({
+    page,
+    api,
+  }) => {
     api.seed({
       visualRenderResult: {
         content: '',
@@ -146,9 +149,7 @@ test.describe('visual builder toolbar — new pipeline', () => {
     await input.press('Enter');
     await page.locator('[data-testid="toolbar-save"]').click();
 
-    await expect(page.locator('[data-sonner-toast]').filter({ hasText: 'boom' })).toBeVisible({
-      timeout: 5_000,
-    });
+    await expect(page.getByTestId('form-error')).toHaveText('Boom', { timeout: 5_000 });
     expect(api.calls('PipelineService/CreatePipeline')).toHaveLength(0);
   });
 });

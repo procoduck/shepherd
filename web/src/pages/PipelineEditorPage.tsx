@@ -11,19 +11,21 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { clients, toApiError } from '@/api/transport';
+import { clients } from '@/api/transport';
 import { DetachFromWizard } from '@/components/DetachFromWizard';
-import { MatcherSuggestions } from '@/components/MatcherSuggestions';
 import { PipelineActions } from '@/components/PipelineActions';
 import { OpenInVisualBuilder, PipelineLandingBanner } from '@/components/PipelineLandingBanner';
+import { PipelineMatchers } from '@/components/PipelineMatchers';
 import { PipelineOwner } from '@/components/PipelineOwner';
 import { RevisionHistory } from '@/components/RevisionHistory';
 import { Input } from '@/components/ui/Field';
+import { FormError } from '@/components/ui/FormError';
 import { Modal, ModalActions } from '@/components/ui/Modal';
 import { diffStats } from '@/editor/diffStats';
 import { AlloyEditor, RevisionDiff } from '@/editor/LazyAlloyEditor';
 import type { Diagnostic } from '@/gen/shepherd/mgmt/v1/common_pb';
 import { useCanAdminister, useCanWrite, useOrgId } from '@/hooks/useOrg';
+import { formError } from '@/lib/formError';
 
 export function PipelineEditorPage() {
   const { id } = useParams({ strict: false }) as { id?: string };
@@ -38,7 +40,6 @@ export function PipelineEditorPage() {
   const [name, setName] = useState('');
   const [contents, setContents] = useState('');
   const [matchers, setMatchers] = useState<string[]>([]);
-  const [newMatcher, setNewMatcher] = useState('');
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
   // Stages the server could not run (#209) — 2 when it has no Alloy binary.
   // A clean result with a skipped stage is a syntax check, not "No problems".
@@ -145,8 +146,6 @@ export function PipelineEditorPage() {
       setContents(result.formatted);
       validate(result.formatted);
     },
-    onError: (e) =>
-      toast.error(toApiError(e).message || 'Cannot format — fix the syntax errors first'),
   });
 
   const saveMutation = useMutation({
@@ -170,10 +169,6 @@ export function PipelineEditorPage() {
         qc.invalidateQueries({ queryKey: ['revisions', orgId, id] });
       }
       if (isNew) navigate({ to: '/pipelines/$id', params: { id: p.id } });
-    },
-    onError: (e) => {
-      const err = toApiError(e);
-      toast.error(err.message || 'Save failed');
     },
   });
 
@@ -199,11 +194,16 @@ export function PipelineEditorPage() {
       setConfirmingRestore(false);
       setSelectedRevision(null);
     },
-    onError: (e) => {
-      const err = toApiError(e);
-      toast.error(err.message || 'Restore failed');
-    },
   });
+  const closeRestore = () => {
+    setConfirmingRestore(false);
+    restoreMutation.reset();
+  };
+
+  // Save and Format refusals, shown above the editor (#249).
+  const editorError =
+    formError(saveMutation.error, 'Save failed') ??
+    formError(formatMutation.error, 'Cannot format — fix the syntax errors first');
 
   const hasErrors = diagnostics.length > 0;
   // Read-only for viewers; admins and editors both author (see useCanWrite)
@@ -239,38 +239,12 @@ export function PipelineEditorPage() {
           />
         </div>
 
-        <div className='space-y-2'>
-          <label className='text-xs font-medium text-muted'>Matchers</label>
-          {matchers.map((m, i) => (
-            <div key={i} className='flex items-center gap-2'>
-              <span className='flex-1 font-mono text-xs bg-border px-2 py-1 rounded'>{m}</span>
-              <button
-                onClick={() => setMatchers((ms) => ms.filter((_, j) => j !== i))}
-                disabled={readOnly}
-                className='text-muted-2 hover:text-red-400 text-xs'
-              >
-                ×
-              </button>
-            </div>
-          ))}
-          <div className='flex gap-2'>
-            <input
-              list='pipeline-matcher-suggestions'
-              value={newMatcher}
-              onChange={(e) => setNewMatcher(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && newMatcher.trim()) {
-                  setMatchers((ms) => [...ms, newMatcher.trim()]);
-                  setNewMatcher('');
-                }
-              }}
-              className='flex-1 font-mono text-xs rounded border border-border-strong bg-card px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500'
-              placeholder='cluster="prod"  (Enter to add)'
-              disabled={readOnly}
-            />
-            <MatcherSuggestions id='pipeline-matcher-suggestions' orgId={orgId} />
-          </div>
-        </div>
+        <PipelineMatchers
+          matchers={matchers}
+          onChange={setMatchers}
+          orgId={orgId}
+          readOnly={readOnly}
+        />
 
         {pipeline?.source === 'git' && (
           <div className='rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400'>
@@ -408,7 +382,10 @@ export function PipelineEditorPage() {
                   </button>
                   <button
                     type='button'
-                    onClick={() => formatMutation.mutate()}
+                    onClick={() => {
+                      saveMutation.reset();
+                      formatMutation.mutate();
+                    }}
                     disabled={formatMutation.isPending || !contents.trim()}
                     className='flex items-center gap-1.5 rounded border border-border px-3 py-1 text-xs font-medium text-muted hover:text-zinc-100 disabled:opacity-50'
                     data-testid='format-btn'
@@ -416,7 +393,10 @@ export function PipelineEditorPage() {
                     <Wand2 size={13} /> Format
                   </button>
                   <button
-                    onClick={() => saveMutation.mutate()}
+                    onClick={() => {
+                      formatMutation.reset();
+                      saveMutation.mutate();
+                    }}
                     disabled={saveMutation.isPending || hasErrors}
                     className='flex items-center gap-1.5 rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50'
                   >
@@ -425,6 +405,12 @@ export function PipelineEditorPage() {
                 </div>
               )}
             </div>
+
+            {editorError && (
+              <div className='border-b border-border p-2'>
+                <FormError message={editorError} />
+              </div>
+            )}
 
             {/* Editor */}
             <div className='flex-1 overflow-hidden'>
@@ -452,11 +438,7 @@ export function PipelineEditorPage() {
       </div>
 
       {confirmingRestore && selectedRevision != null && (
-        <Modal
-          title='Restore revision'
-          onClose={() => setConfirmingRestore(false)}
-          testId='restore-dialog'
-        >
+        <Modal title='Restore revision' onClose={closeRestore} testId='restore-dialog'>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -483,11 +465,12 @@ export function PipelineEditorPage() {
               </p>
             )}
             <ModalActions
-              onCancel={() => setConfirmingRestore(false)}
+              onCancel={closeRestore}
               submitLabel='Restore'
               pendingLabel='Restoring…'
               pending={restoreMutation.isPending}
               submitTestId='confirm-restore-btn'
+              error={formError(restoreMutation.error, 'Restore failed')}
             />
           </form>
         </Modal>

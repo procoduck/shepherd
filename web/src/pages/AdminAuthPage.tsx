@@ -18,8 +18,10 @@ import {
   toLines,
 } from '@/components/admin/ssoForm';
 import { QueryError } from '@/components/QueryError';
+import { FormError } from '@/components/ui/FormError';
 import type { OidcProviderPreset, TestOidcSettingsResponse } from '@/gen/shepherd/mgmt/v1/admin_pb';
 import { useMe } from '@/hooks/useMe';
+import { formError } from '@/lib/formError';
 
 /**
  * Admin → Single sign-on.
@@ -131,7 +133,6 @@ export function AdminAuthPage() {
       setForm((current) => ({ ...current, clientSecret: '' }));
       toast.success(resp.active ? 'Single sign-on saved and active' : 'Single sign-on saved');
     },
-    onError: (e) => toast.error(toApiError(e).message || 'Failed to save single sign-on settings'),
   });
 
   const testMut = useMutation({
@@ -144,7 +145,6 @@ export function AdminAuthPage() {
         scopes: fromLines(form.scopes),
       }),
     onSuccess: (resp) => setTestResult(resp),
-    onError: (e) => toast.error(toApiError(e).message || 'Test failed'),
   });
 
   const removeMut = useMutation({
@@ -156,7 +156,6 @@ export function AdminAuthPage() {
       qc.invalidateQueries({ queryKey: ['oidc-settings'] });
       toast.success('Single sign-on configuration removed');
     },
-    onError: (e) => toast.error(toApiError(e).message || 'Failed to remove configuration'),
   });
 
   if (settingsQuery.isLoading) {
@@ -187,7 +186,7 @@ export function AdminAuthPage() {
   const disabled = readOnly || saveMut.isPending;
 
   return (
-    <div className='space-y-5 max-w-3xl'>
+    <div className='space-y-5 max-w-3xl' data-testid='sso-form'>
       <div>
         <h1 className='text-xl font-semibold'>Single sign-on</h1>
         <p className='mt-1 text-sm text-muted'>
@@ -250,7 +249,10 @@ export function AdminAuthPage() {
           data-testid='sso-test'
           type='button'
           disabled={readOnly || testMut.isPending || !form.issuer}
-          onClick={() => testMut.mutate()}
+          onClick={() => {
+            saveMut.reset();
+            testMut.mutate();
+          }}
           className='flex items-center gap-1.5 rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium hover:bg-border disabled:opacity-50'
         >
           {testMut.isPending ? <Loader2 size={14} className='animate-spin' /> : <Plug size={14} />}
@@ -272,13 +274,23 @@ export function AdminAuthPage() {
           data-testid='sso-save'
           type='button'
           disabled={disabled}
-          onClick={() => saveMut.mutate()}
+          onClick={() => {
+            testMut.reset();
+            saveMut.mutate();
+          }}
           className='flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50'
         >
           {saveMut.isPending && <Loader2 size={14} className='animate-spin' />}
           Save
         </button>
       </div>
+      {/* Save and Test refusals sit under the buttons that caused them (#249). */}
+      <FormError
+        message={
+          formError(saveMut.error, 'Failed to save single sign-on settings') ??
+          formError(testMut.error, 'Test failed')
+        }
+      />
 
       {settings?.updatedBy && (
         <p className='text-xs text-muted-2'>Last changed by {settings.updatedBy}.</p>
@@ -339,7 +351,11 @@ export function AdminAuthPage() {
           confirmLabel='Remove'
           pendingLabel='Removing…'
           pending={removeMut.isPending}
-          onCancel={() => setConfirmRemove(false)}
+          onCancel={() => {
+            setConfirmRemove(false);
+            removeMut.reset();
+          }}
+          error={formError(removeMut.error, 'Failed to remove configuration')}
           onConfirm={() => removeMut.mutate()}
         />
       )}

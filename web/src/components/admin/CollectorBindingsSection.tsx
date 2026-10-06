@@ -2,13 +2,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { clients, toApiError } from '@/api/transport';
+import { clients } from '@/api/transport';
 import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
 import { AdminModal, AdminModalActions } from '@/components/admin/AdminModal';
 import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Field, Input } from '@/components/ui/Field';
 import type { AgentIdentity } from '@/gen/shepherd/mgmt/v1/admin_pb';
+import { formError } from '@/lib/formError';
 
 // A comma/space-separated allowlist, shown as chips or an em dash for "any".
 function AllowlistCell({ values }: { values: string[] }) {
@@ -113,7 +114,6 @@ export function CollectorBindingsSection({ isAppAdmin }: { isAppAdmin: boolean }
       setClusters('');
       setRoles('');
     },
-    onError: (e) => toast.error(toApiError(e).message || 'Failed to create binding'),
   });
 
   const deleteMut = useMutation({
@@ -127,8 +127,11 @@ export function CollectorBindingsSection({ isAppAdmin }: { isAppAdmin: boolean }
       invalidate();
       setToDelete(null);
     },
-    onError: (e) => toast.error(toApiError(e).message || 'Failed to remove binding'),
   });
+  const closeCreate = () => {
+    setShowCreate(false);
+    createMut.reset();
+  };
 
   return (
     <section className='space-y-3' data-testid='collector-bindings'>
@@ -169,7 +172,7 @@ export function CollectorBindingsSection({ isAppAdmin }: { isAppAdmin: boolean }
       )}
 
       {showCreate && (
-        <AdminModal title='New collector binding' onClose={() => setShowCreate(false)}>
+        <AdminModal title='New collector binding' onClose={closeCreate}>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -217,11 +220,12 @@ export function CollectorBindingsSection({ isAppAdmin }: { isAppAdmin: boolean }
               />
             </Field>
             <AdminModalActions
-              onCancel={() => setShowCreate(false)}
+              onCancel={closeCreate}
               submitLabel='Create binding'
               pendingLabel='Creating…'
               pending={createMut.isPending}
               submitTestId='binding-submit'
+              error={formError(createMut.error, 'Failed to create binding')}
             />
           </form>
         </AdminModal>
@@ -235,7 +239,11 @@ export function CollectorBindingsSection({ isAppAdmin }: { isAppAdmin: boolean }
           pendingLabel='Removing…'
           pending={deleteMut.isPending}
           onConfirm={() => deleteMut.mutate()}
-          onCancel={() => setToDelete(null)}
+          onCancel={() => {
+            setToDelete(null);
+            deleteMut.reset();
+          }}
+          error={formError(deleteMut.error, 'Failed to remove binding')}
         />
       )}
     </section>

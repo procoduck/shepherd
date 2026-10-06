@@ -3,14 +3,16 @@ import { useParams } from '@tanstack/react-router';
 import { CheckCircle, Copy, Plus, Search } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { clients, toApiError } from '@/api/transport';
+import { clients } from '@/api/transport';
 import { CollectorAttributes, CollectorLabelsButton } from '@/components/CollectorLabels';
 import { CollectorReconciliation } from '@/components/CollectorReconciliation';
 import { QueryError } from '@/components/QueryError';
 import { DataTable } from '@/components/ui/DataTable';
 import { Field, Input } from '@/components/ui/Field';
+import { FormError } from '@/components/ui/FormError';
 import { useMe } from '@/hooks/useMe';
 import { useOrgId } from '@/hooks/useOrg';
+import { errorText, formError } from '@/lib/formError';
 import { formatTimestampRelative } from '@/lib/utils';
 import { assignmentColumns, instanceColumns, statusColor, statusTitle } from './collectorColumns';
 
@@ -94,7 +96,6 @@ export function CollectorDetailPage() {
       setGroupQuery('');
       invalidateAssignments();
     },
-    onError: (e) => toast.error(toApiError(e).message || 'Failed to add group'),
   });
 
   const removeAssignment = useMutation({
@@ -104,7 +105,8 @@ export function CollectorDetailPage() {
       toast.success('Group removed');
       invalidateAssignments();
     },
-    onError: (e) => toast.error(toApiError(e).message || 'Failed to remove group'),
+    // A row action, not a form: nowhere inline to put the refusal.
+    onError: (e) => toast.error(errorText(e, 'Failed to remove group')),
   });
 
   function addByPaste(e: React.FormEvent) {
@@ -373,6 +375,10 @@ export function CollectorDetailPage() {
                 <Plus size={14} /> Add
               </button>
             </form>
+            <FormError
+              className='max-w-md'
+              message={formError(addAssignment.error, 'Failed to add group')}
+            />
           </div>
 
           <div className='space-y-2'>

@@ -8,12 +8,15 @@ export function CredentialForm({
   onChange,
   onSubmit,
   pending,
+  error,
   onCancel,
 }: {
   value: CredentialFormState;
   onChange: (updater: (f: CredentialFormState) => CredentialFormState) => void;
   onSubmit: () => void;
   pending: boolean;
+  /** The server's refusal, shown above the buttons (#249). */
+  error?: string | null;
   onCancel: () => void;
 }) {
   return (
@@ -219,6 +222,7 @@ export function CredentialForm({
           submitLabel='Create'
           pendingLabel='Creating…'
           pending={pending}
+          error={error}
         />
       </form>
     </Modal>

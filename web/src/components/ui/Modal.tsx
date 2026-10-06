@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { FormError } from './FormError';
 
 /**
  * Shared modal shell for every overlay in the app — originally
@@ -120,7 +121,11 @@ export function Modal({
   );
 }
 
-/** Shared Cancel/Submit button row for modal forms. */
+/**
+ * Shared Cancel/Submit button row for modal forms. `error` is the form's
+ * refusal (#249), shown just above the buttons so it sits where the person
+ * is looking when they submit — see lib/formError for the text.
+ */
 export function ModalActions({
   onCancel,
   submitLabel,
@@ -128,6 +133,7 @@ export function ModalActions({
   pending,
   danger,
   submitTestId,
+  error,
 }: {
   onCancel: () => void;
   submitLabel: string;
@@ -135,26 +141,30 @@ export function ModalActions({
   pending: boolean;
   danger?: boolean;
   submitTestId?: string;
+  error?: string | null;
 }) {
   return (
-    <div className='flex justify-end gap-2 pt-2'>
-      <button
-        type='button'
-        onClick={onCancel}
-        className='px-4 py-1.5 text-sm text-muted hover:text-zinc-200'
-      >
-        Cancel
-      </button>
-      <button
-        type='submit'
-        disabled={pending}
-        data-testid={submitTestId}
-        className={`rounded-md px-4 py-1.5 text-sm text-white disabled:opacity-50 ${
-          danger ? 'bg-red-600 hover:bg-red-500' : 'bg-indigo-600 hover:bg-indigo-500'
-        }`}
-      >
-        {pending ? pendingLabel : submitLabel}
-      </button>
-    </div>
+    <>
+      <FormError message={error} />
+      <div className='flex justify-end gap-2 pt-2'>
+        <button
+          type='button'
+          onClick={onCancel}
+          className='px-4 py-1.5 text-sm text-muted hover:text-zinc-200'
+        >
+          Cancel
+        </button>
+        <button
+          type='submit'
+          disabled={pending}
+          data-testid={submitTestId}
+          className={`rounded-md px-4 py-1.5 text-sm text-white disabled:opacity-50 ${
+            danger ? 'bg-red-600 hover:bg-red-500' : 'bg-indigo-600 hover:bg-indigo-500'
+          }`}
+        >
+          {pending ? pendingLabel : submitLabel}
+        </button>
+      </div>
+    </>
   );
 }

@@ -13,6 +13,7 @@ import { Modal, ModalActions } from '@/components/ui/Modal';
 import { type StatusTone, toneClass } from '@/components/ui/statusTone';
 import type { TenantRoute } from '@/gen/shepherd/mgmt/v1/tenant_route_pb';
 import { useCanAdminister, useOrgId } from '@/hooks/useOrg';
+import { errorText, formError } from '@/lib/formError';
 
 // A route's lifecycle state, coloured so "active" reads apart from a route
 // that is mid-rotation or already revoked at a glance.
@@ -206,6 +207,9 @@ export function TenantRoutesPage() {
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState(EMPTY_CREATE);
+  // Set when Create is pressed with no gateway name (#249): the field's
+  // native `required` bubble only focused it, without saying what was wrong.
+  const [gatewayNameMissing, setGatewayNameMissing] = useState(false);
   const [toRotate, setToRotate] = useState<TenantRoute | null>(null);
   const [overlapHours, setOverlapHours] = useState('24');
   const [toRevoke, setToRevoke] = useState<TenantRoute | null>(null);
@@ -237,15 +241,25 @@ export function TenantRoutesPage() {
       setShowCreate(false);
       setCreateForm(EMPTY_CREATE);
     },
-    onError: (e) => {
-      const err = toApiError(e);
-      toast.error(
-        err.code === 'failed_precondition'
-          ? 'This organisation has no tenant identity yet — an app admin sets it on the Organisations page.'
-          : err.message || 'Failed to create tenant route',
-      );
-    },
   });
+  const createError = !createMut.error
+    ? null
+    : toApiError(createMut.error).code === 'failed_precondition'
+      ? 'This organisation has no tenant identity yet — an app admin sets it on the Organisations page.'
+      : errorText(createMut.error, 'Failed to create tenant route');
+  const closeCreate = () => {
+    setShowCreate(false);
+    setGatewayNameMissing(false);
+    createMut.reset();
+  };
+  const closeRotate = () => {
+    setToRotate(null);
+    rotateMut.reset();
+  };
+  const closeRevoke = () => {
+    setToRevoke(null);
+    revokeMut.reset();
+  };
 
   const rotateMut = useMutation({
     mutationFn: () => {
@@ -263,7 +277,6 @@ export function TenantRoutesPage() {
       setToRotate(null);
       setOverlapHours('24');
     },
-    onError: (e) => toast.error(toApiError(e).message || 'Failed to rotate route'),
   });
 
   const revokeMut = useMutation({
@@ -273,7 +286,6 @@ export function TenantRoutesPage() {
       invalidate();
       setToRevoke(null);
     },
-    onError: (e) => toast.error(toApiError(e).message || 'Failed to revoke route'),
   });
 
   return (
@@ -316,10 +328,15 @@ export function TenantRoutesPage() {
       )}
 
       {showCreate && (
-        <Modal title='New tenant route' onClose={() => setShowCreate(false)}>
+        <Modal title='New tenant route' onClose={closeCreate}>
           <form
+            noValidate
             onSubmit={(e) => {
               e.preventDefault();
+              if (!createForm.gatewayName.trim()) {
+                setGatewayNameMissing(true);
+                return;
+              }
               createMut.mutate();
             }}
             className='space-y-4'
@@ -364,11 +381,24 @@ export function TenantRoutesPage() {
                   ? 'The name Shepherd gives the Gateway it creates.'
                   : 'The name of your existing Gateway to attach to.'
               }
+              error={
+                gatewayNameMissing && (
+                  <span data-testid='route-gateway-name-error'>
+                    {createForm.gatewayMode === 'managed'
+                      ? 'Enter a gateway name: the Gateway Shepherd creates for this route.'
+                      : 'Enter a gateway name: your existing Gateway this route attaches to.'}
+                  </span>
+                )
+              }
             >
               <Input
                 value={createForm.gatewayName}
-                onChange={(e) => setCreateForm((f) => ({ ...f, gatewayName: e.target.value }))}
+                onChange={(e) => {
+                  setCreateForm((f) => ({ ...f, gatewayName: e.target.value }));
+                  setGatewayNameMissing(false);
+                }}
                 required
+                aria-invalid={gatewayNameMissing}
                 data-testid='route-gateway-name'
                 placeholder='shepherd-receiver-gw'
               />
@@ -386,20 +416,18 @@ export function TenantRoutesPage() {
               />
             </Field>
             <ModalActions
-              onCancel={() => setShowCreate(false)}
+              onCancel={closeCreate}
               submitLabel='Create route'
               pendingLabel='Creating…'
               pending={createMut.isPending}
+              error={createError}
             />
           </form>
         </Modal>
       )}
 
       {toRotate && (
-        <Modal
-          title={`Rotate /${toRotate.kind}/${toRotate.segment}`}
-          onClose={() => setToRotate(null)}
-        >
+        <Modal title={`Rotate /${toRotate.kind}/${toRotate.segment}`} onClose={closeRotate}>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -424,10 +452,11 @@ export function TenantRoutesPage() {
               />
             </Field>
             <ModalActions
-              onCancel={() => setToRotate(null)}
+              onCancel={closeRotate}
               submitLabel='Rotate'
               pendingLabel='Rotating…'
               pending={rotateMut.isPending}
+              error={formError(rotateMut.error, 'Failed to rotate route')}
             />
           </form>
         </Modal>
@@ -445,7 +474,8 @@ export function TenantRoutesPage() {
           pendingLabel='Revoking…'
           pending={revokeMut.isPending}
           onConfirm={() => revokeMut.mutate()}
-          onCancel={() => setToRevoke(null)}
+          onCancel={closeRevoke}
+          error={formError(revokeMut.error, 'Failed to revoke route')}
         />
       )}
     </div>
