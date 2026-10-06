@@ -4,6 +4,7 @@ package e2e_test
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -149,12 +150,23 @@ var _ = Describe("Scenario sandbox-sim: S3 sandbox run against the real simulato
 		Expect(match.Labels["instance"]).NotTo(BeEmpty())
 	})
 
-	It("component health is all-green", func() {
+	// A discovery or log-source node the sandbox replaced with a stub reports
+	// "stubbed" (internal/simulate HealthStateStubbed, #253), not "healthy":
+	// its real component never ran. Every other component must be healthy,
+	// and at least one must have run for real.
+	It("component health is all-green (stubbed sources reported as stubbed)", func() {
 		run := getRun(simOrgID, runID)
 		Expect(run.ComponentHealth).NotTo(BeEmpty())
+		healthy := 0
 		for _, c := range run.ComponentHealth {
+			if strings.HasPrefix(c.Component, "discovery.") || strings.HasPrefix(c.Component, "loki.source.") {
+				Expect(c.HealthState).To(BeElementOf("stubbed", "healthy"), "source %s (%s) reported %q: %s", c.NodeLabel, c.Component, c.HealthState, c.Message)
+				continue
+			}
 			Expect(c.HealthState).To(Equal("healthy"), "component %s (%s) reported %q: %s", c.NodeLabel, c.Component, c.HealthState, c.Message)
+			healthy++
 		}
+		Expect(healthy).To(BeNumerically(">", 0), "at least one component must have run for real")
 	})
 
 	// The stderr tail is the only place a user can see what the sandbox Alloy
