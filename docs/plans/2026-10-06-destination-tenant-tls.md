@@ -1,7 +1,6 @@
 # Destination tenant header and TLS options (#261, F-DEST-TLS)
 
-Status: **design, for maintainer review. Nothing is built.** Maintainer decision 2026-10-06: design
-first. Follows #229 (`docs/plans/2026-10-01-destination-auth.md`, shipped in #260) and #262
+Status: **design approved 2026-10-06** (decisions in §9); building in the §10 order, one PR per step. Follows #229 (`docs/plans/2026-10-01-destination-auth.md`, shipped in #260) and #262
 (#263/#264/#265). Line references are to `main` at 3e10234.
 
 ## Problem
@@ -36,7 +35,7 @@ Non-goals:
 - The receiver tier. It renders from an operator file (`shepherd receiver render`,
   `internal/cli/receiver.go:37`), not from destination rows, and keeps D10 pass-through untouched.
 - `min_version`, cipher suites, TLS for the OAuth2 token endpoint (`oauth2.tls_config`), per-entry
-  Loki tenancy (`stage.tenant`), and `insecure_skip_verify` (see Q3).
+  Loki tenancy (`stage.tenant`), and `insecure_skip_verify` (Q3: not offered).
 - Checking that the Secret/ConfigMap exists or that the certificates are valid: Shepherd never reads
   them (§5).
 
@@ -58,7 +57,8 @@ exporters of the same receiver pipeline (`otelcol.auth.headers` with `from_conte
 request whose context could carry a tenant.
 
 **Decision: render `destinations.tenant_id`** (the field already on the API), validated, with a
-cross-org guard whose exact form is Q2. The form pre-fills it from the org's tenant.
+cross-org guard (Q2): refused if it equals **another** org's `orgs.tenant_id`. The form pre-fills it
+from the org's own tenant.
 
 ### Does an egress tenant header weaken the gateway tier? No.
 
@@ -79,7 +79,7 @@ their data lands in. A destination tenant is **egress** from the org's own colle
    the gateway overwrites whatever it sent.
 
 What *is* worth closing is D11's **one tenant, one org** property on Shepherd-managed paths: an org
-admin naming another org's `orgs.tenant_id` on a shared backend. That is Q2.
+admin naming another org's `orgs.tenant_id` on a shared backend. Q2 closes it.
 
 ### Validation
 
@@ -107,12 +107,13 @@ nothing a workload controls reaches it. A wizard that adds `stage.tenant` later 
 ### Key contract
 
 Material lives in objects on each spoke cluster, read with `remote.kubernetes.secret` /
-`remote.kubernetes.configmap`. Key names are **fixed** and follow `kubernetes.io/tls` (and what
-cert-manager writes):
+`remote.kubernetes.configmap`. Key names follow `kubernetes.io/tls` (and what cert-manager writes).
+`tls.crt`/`tls.key` are fixed; the CA key defaults to `ca.crt` and can be overridden per destination
+(Q5), because trust-manager `Bundle`s write a configurable key:
 
 | Part | Object | Keys | Alloy attribute |
 |---|---|---|---|
-| Trusted CA | Secret **or** ConfigMap | `ca.crt` | `tls_config.ca_pem` |
+| Trusted CA | Secret **or** ConfigMap | `ca.key`, default `ca.crt` | `tls_config.ca_pem` |
 | Client certificate | Secret (`kubernetes.io/tls` or Opaque) | `tls.crt`, `tls.key` | `cert_pem`, `key_pem` |
 | Server name | — (destination metadata) | — | `server_name` |
 
@@ -129,16 +130,18 @@ cert-manager writes):
 
 ```json
 {"tls": {
-  "ca":          {"kind": "configmap", "namespace": "monitoring", "name": "backend-ca"},
+  "ca":          {"kind": "configmap", "namespace": "monitoring", "name": "backend-ca", "key": "trust-bundle.pem"},
   "client_cert": {"namespace": "monitoring", "name": "collector-mtls"},
   "server_name": "mimir.internal.example"
 }}
 ```
 
 All three are optional; `{}` or an absent `tls` means "system trust store, no client cert", which is
-today's behaviour. `ca.kind` is `secret` or `configmap`.
+today's behaviour. `ca.kind` is `secret` or `configmap`; `ca.key` is optional (absent or empty means
+`ca.crt`) and must be a legal ConfigMap/Secret data key (`[-._a-zA-Z0-9]+`, at most 253 characters,
+not `.` or `..` — Kubernetes' `IsConfigMapKey`).
 
-### `insecure_skip_verify`: not offered (Q3)
+### `insecure_skip_verify`: not offered (Q3, decided)
 
 It would let a Secret-backed password or OAuth2 client secret (#229) be sent to anyone on the path,
 undoing what #229 bought. The common reason to want it — a private CA — is exactly what this change
@@ -163,7 +166,7 @@ prometheus.remote_write "<l>" {                        // or loki.write
     headers = { "X-Scope-OrgID" = "acme" }            // §2 (loki.write: tenant_id = "acme")
     basic_auth { … }                                   // #229, unchanged
     tls_config {
-      ca_pem      = remote.kubernetes.configmap.<l>_tls_ca.data["ca.crt"]
+      ca_pem      = remote.kubernetes.configmap.<l>_tls_ca.data["trust-bundle.pem"]  // ca.key, default "ca.crt"
       cert_pem    = convert.nonsensitive(remote.kubernetes.secret.<l>_tls_client.data["tls.crt"])
       key_pem     = remote.kubernetes.secret.<l>_tls_client.data["tls.key"]
       server_name = "mimir.internal.example"
@@ -173,7 +176,7 @@ prometheus.remote_write "<l>" {                        // or loki.write
 ```
 
 - Types (pinned `alloy-v1.20.1` schema): `ca_pem`, `cert_pem`, `server_name` are `string`;
-  `key_pem` is `secret`. A Secret's `data` is `map(secret)`, so `ca.crt` from a Secret and `tls.crt`
+  `key_pem` is `secret`. A Secret's `data` is `map(secret)`, so the CA key from a Secret and `tls.crt`
   go through `convert.nonsensitive` (as #229 does for `username`); a ConfigMap's `data` is
   `map(string)` and needs none. `tls.key` is never converted.
 - Component labels: `<l>_auth` (#229), `<l>_tls_ca`, `<l>_tls_client`. When two references name the
@@ -189,29 +192,12 @@ prometheus.remote_write "<l>" {                        // or loki.write
 **Tenant:** no change. `tenant_id` is already field 6 on `Destination` and field 5/6 on
 Create/UpdateDestinationRequest.
 
-**TLS: recommend `extra.tls` (no proto change)**, as #229 did for `extra.oauth2_scopes` (`extra` is a
+**TLS: `extra.tls`, no proto change (Q4, decided)**, as #229 did for `extra.oauth2_scopes` (`extra` is a
 `Struct`, `destination.proto:53`). `wizard` gains `ExtraKeyTLS = "tls"` and a `TLS` struct on
-`wizard.Destination`; `rpc_destination.go` decodes it next to `destinationScopes` (`:168`).
+`wizard.Destination`; `rpc_destination.go` decodes it next to `destinationScopes` (`:168`). The
+binding requests already refuse any `extra` (`rpc_destination.go:480`), so a binding cannot set it.
 
-If the maintainer prefers typed fields (Q4), the exact change — needs approval under "Ask first":
-
-```proto
-message DestinationTLS {
-  message ObjectRef { string kind = 1; string namespace = 2; string name = 3; } // kind: "secret" | "configmap"
-  ObjectRef ca = 1;          // key ca.crt
-  ObjectRef client_cert = 2; // keys tls.crt, tls.key; kind must be "secret"
-  string server_name = 3;
-}
-// Destination:                DestinationTLS tls = 13;
-// CreateDestinationRequest:   DestinationTLS tls = 10;
-// UpdateDestinationRequest:   DestinationTLS tls = 11;
-// ResolvedDestination:        DestinationTLS tls = 13;
-```
-
-plus a migration adding `destinations.tls jsonb`. Either way the binding requests must refuse it like
-the other template fields (`rpc_destination.go:480`).
-
-**Robustness fix that ships with either choice.** `wizardDestinations` returns an error for the
+**Robustness fix that ships first.** `wizardDestinations` returns an error for the
 whole org if *any* destination's `extra` fails to decode (`rpc_destination.go:219-222`), so one bad
 row breaks every wizard render and every destination update in the org. `extra` has always been
 free-form ("arbitrary shape", `destination.proto:52`), so a caller may already hold an `extra.tls` of
@@ -222,7 +208,7 @@ another shape. Change it to record a per-destination decode error and refuse onl
 
 | Where | What |
 |---|---|
-| `CreateDestination` / `UpdateDestination` (`invalid_argument`) | `tenant_id` empty or `ValidateTenantID`, plus Q2's guard; `extra.tls` decoded strictly (unknown keys refused, so `insecure_skip_verify` or a typo is an error, not silently dropped); every ref's namespace/name matches `k8sNamespaceRE`/`k8sNameRE` (`destination.go:105-108`); `ca.kind` ∈ {secret, configmap}; `server_name` an RFC 1123 hostname; any TLS part requires an `https://` URL (`validateURL` accepts `http`, `:211`) |
+| `CreateDestination` / `UpdateDestination` (`invalid_argument`) | `tenant_id` empty or `ValidateTenantID`, plus Q2's guard; `extra.tls` decoded strictly (unknown keys refused, so `insecure_skip_verify` or a typo is an error, not silently dropped); every ref's namespace/name matches `k8sNamespaceRE`/`k8sNameRE` (`destination.go:105-108`); `ca.kind` ∈ {secret, configmap}; `ca.key` a legal data key when set; `server_name` an RFC 1123 hostname; any TLS part requires an `https://` URL (`validateURL` accepts `http`, `:211`) |
 | `RenderWriter` | the same checks again (rows written before this change, or by a path that skipped the API) — refuse, naming the destination |
 | Gate Stage 1–2 | the rendered text parses; component, block and attribute names exist in the pinned schema; `alloy validate` on the result. Goldens run through the real pinned Alloy, as #229's do |
 | Gate Stage 3 | merged config valid with the re-rendered pipelines swapped in (unchanged, #262) |
@@ -252,7 +238,8 @@ Whether Stage 2 catches a `secret` passed where a `string` is expected (a missin
 - **Delete guard, rename, Detach from wizard:** unchanged.
 - **Existing tenant values start being sent** when each pipeline is next regenerated (a wizard
   commit, a destination update, or the CLI). That is a served-config content change for existing
-  data — Q1.
+  data. Approved for this feature (Q1); operators trigger it with
+  `shepherd admin rerender-destinations --all`.
 
 ## 7. Collector RBAC; docs and onboarding
 
@@ -264,7 +251,7 @@ Whether Stage 2 catches a `secret` passed where a `string` is expected (a missin
 - **Docs:** `scripts/docs-content/destinations.html` gains "Tenant" and "TLS from a Secret or
   ConfigMap" sections (key table, cert-manager and `kube-root-ca.crt` examples, the RBAC rule, why
   there is no skip-verify); `make docs`. Spec §11.2 line 614 and §11.4 updated with the contract.
-  `UPGRADING.md` gets a section only if Q1 lands on an operator step.
+  `UPGRADING.md` gets a section for the `--all` operator step (Q1).
 - **Onboarding (`internal/onboarding`):** no change. It renders *ingress* artifacts for apps sending
   to a tenant route; the gateway injects the tenant there.
 - **SPA:** the destination form gets a Tenant input (pre-filled with the org's tenant ID when the org
@@ -273,12 +260,12 @@ Whether Stage 2 catches a `secret` passed where a `string` is expected (a missin
 
 ## 8. Test plan
 
-- `internal/wizard` (red first): goldens per writer for tenant only; CA from ConfigMap; CA from
+- `internal/wizard` (red first): goldens per writer for tenant only; CA from ConfigMap (default key and an overridden `ca.key`); CA from
   Secret; mTLS with CA and client cert in one Secret (one component); mTLS + `basic_secret` + tenant
   + `server_name`; all through the real pinned Alloy (Stage 1-2 incl. port shapes). Refusals:
   invalid tenant, TLS on `http://`, bad refs, unknown `extra.tls` keys, `insecure_skip_verify`. Every
   existing golden byte-identical (no tenant, no TLS ⇒ no change).
-- `internal/mgmtapi`: Create/Update `invalid_argument` cases; Q2's guard; a tenant edit re-renders and
+- `internal/mgmtapi`: Create/Update `invalid_argument` cases; the cross-org tenant guard; a tenant edit re-renders and
   writes a revision; the hand-edit fallback accepts a pre-#261 render (§6); one destination with a bad
   `extra` no longer breaks renders that do not name it.
 - Web: unit tests for the form's extra/tenant mapping; a mocked Playwright spec for the TLS section.
@@ -300,54 +287,27 @@ Whether Stage 2 catches a `secret` passed where a `string` is expected (a missin
     CA reference is what decides trust, not the system pool). Red run: drop `tls_config` from the
     renderer ⇒ the positive assertions fail.
 
-## 9. Open questions for the maintainer (by blast radius)
+## 9. Decisions (maintainer, 2026-10-06)
 
-**Q1. Rollout of tenants already stored.** *Problem:* `destinations.tenant_id` has been accepted and
-ignored since 0001; any API caller who set it will, once this ships, have that value sent as
-`X-Scope-OrgID`, moving their data into a different backend tenant. Rendering it is also a
-served-config content change, which needs approval (as #229's did). *Options:* (a) render on next
-regeneration (wizard commit, destination update) — simplest, but the fleet drifts silently, some
-pipelines tagged and some not; (b) as (a), plus `shepherd admin rerender-destinations --all` (dry run
-by default, lists destinations with a non-empty tenant and the pipelines that would change) and an
-`UPGRADING.md` section — operators choose when the move happens; (c) a migration that clears existing
-`tenant_id` values — no surprise moves, but silently discards data someone set on purpose.
-*Recommendation:* (b), and approve the content change for this feature only.
+The design PR (#271) put five questions; the answers:
 
-**Q2. Who may choose the egress tenant.** *Problem:* D11 keeps "one tenant, one org" for ingress; a
-free destination tenant lets an org admin tag data with another org's `orgs.tenant_id` on a shared
-backend. It is not a new capability (raw pipelines can already), but it would be Shepherd-blessed.
-*Options:* (a) any valid tenant ID — maximal flexibility, no guard; (b) any valid ID, but refused if
-it equals **another** org's `orgs.tenant_id` (generic message, so it is a weak existence oracle at
-most) — keeps D11's property on every Shepherd-rendered path while allowing external backends'
-own tenants; (c) only the org's own `orgs.tenant_id` (a boolean "send my org's tenant") — strongest,
-but breaks backends whose tenant is not the org's and orgs without a tenant ID. *Recommendation:* (b),
-with the form pre-filling the org's tenant.
-
-**Q3. `insecure_skip_verify`.** *Problem:* users ask for it, and it defeats the Secret-backed auth
-#229 shipped. *Options:* (a) not offered (refused as an unknown key); (b) offered only with
-`auth_mode = none`, behind a warning — still lets telemetry be redirected; (c) offered freely.
-*Recommendation:* (a); a private CA is supported, and raw pipelines remain for the exceptions.
-
-**Q4. `extra.tls` or typed proto fields.** *Problem:* `extra` is untyped, so the TS client and the
-API docs do not show the shape; typed fields need a proto change and a migration. *Options:*
-(a) `extra.tls` — no proto change, consistent with `extra.oauth2_scopes`, validated server-side;
-(b) the `DestinationTLS` message in §4 — typed clients and docs, an approval and a migration.
-*Recommendation:* (a) now; (b) if a third structured field joins `extra`.
-
-**Q5. Fixed CA key name.** *Problem:* trust-manager `Bundle`s write a configurable key, often not
-`ca.crt`. *Options:* (a) fixed `ca.crt` — one contract, the operator sets the Bundle's target key;
-(b) an optional `ca.key` override — fits any existing ConfigMap, one more field to validate and test.
-*Recommendation:* (a); revisit on demand.
+| # | Question | Decision |
+|---|---|---|
+| Q1 | Rollout of tenants already stored | **Operator-triggered.** A stored tenant is rendered on the pipeline's next regeneration (wizard commit, destination update), plus `shepherd admin rerender-destinations --all` (dry run by default; lists destinations with a non-empty tenant and the pipelines that would change) and an `UPGRADING.md` note. The served-config content change is **approved** for this feature. |
+| Q2 | Who may choose the egress tenant | Any valid tenant ID, **refused with a generic message if it equals another org's `orgs.tenant_id`**. The form pre-fills the org's own tenant. |
+| Q3 | `insecure_skip_verify` | **Not offered**: refused as an unknown `extra.tls` key. |
+| Q4 | `extra.tls` or typed proto fields | **`extra.tls`**, no proto change. |
+| Q5 | CA key name | **Optional per-destination override** `extra.tls.ca.key`, default `ca.crt`, validated as a legal ConfigMap/Secret key; tested with the default and an override. |
 
 ## 10. Effort and sequence
 
 | Step | Content | Size | Depends on |
 |---|---|---|---|
 | 1 | Per-destination `extra` decode errors (§4) | S | — (independent bug fix) |
-| 2 | Tenant: validation, rendering, hand-edit fallback, spec/docs, form field | S | Q1, Q2 |
-| 3 | TLS: contract, validation, rendering, goldens, spec/docs, form section | M | Q3, Q4, Q5; step 1 |
+| 2 | Tenant: validation, cross-org guard, rendering, hand-edit fallback, spec/docs, form field | S | — |
+| 3 | TLS: contract (incl. `ca.key`), validation, rendering, goldens, spec/docs, form section | M | step 1 |
 | 4 | `TestDestinationTenantTLS` (e2e-k8s) | M | 2, 3 |
-| 5 | `rerender-destinations --all` + `UPGRADING.md` (if Q1 = b) | S | 2 |
+| 5 | `rerender-destinations --all` + `UPGRADING.md` | S | 2 |
 
 Steps 1, 2 and 3 can each ship alone; 2 and 3 carry their own unit and real-Alloy proofs, and step 4
 is the deployed-artifact proof AGENTS.md requires before the CHANGELOG lists either as Shipped.
