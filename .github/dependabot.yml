@@ -41,6 +41,11 @@ updates:
       # fixed; the next fixed line is 1.85. Drop this at the first stable 1.85.
       - dependency-name: "google.golang.org/grpc"
         versions: [">= 1.84.0, < 1.85.0"]
+      # otlp 1.11.1 requires grpc >= 1.84, so a grouped update that takes it
+      # drags grpc 1.84.0 in transitively and the ignore above does not stop
+      # it (#267). Hold otlp with grpc; drop both at the first stable 1.85.
+      - dependency-name: "go.opentelemetry.io/proto/otlp"
+        versions: [">= 1.11.1"]
 
   # Dependabot's npm ecosystem understands pnpm lockfiles (web/pnpm-lock.yaml);
   # there is no separate "pnpm" ecosystem value.
