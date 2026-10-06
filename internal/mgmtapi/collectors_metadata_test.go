@@ -189,54 +189,54 @@ var _ = Describe("Collector instance metadata", Label("integration"), func() {
 	// NEW instance id, so a replaced pod's FAILED row is never reconnected —
 	// it must stop reading FAILED once it is stale, without the outcome being
 	// overwritten (which would let a reconnect promote it to APPLIED).
-	Describe("inactive at read time (#237)", func() {
-		setStatus := func(id, status, errMsg string) {
-			Expect(st.Queries.UpdateInstanceStatus(ctx, sqlc.UpdateInstanceStatusParams{
-				ID:                 id,
-				RemoteConfigStatus: pgtype.Text{String: status, Valid: true},
-				RemoteConfigError:  pgtype.Text{String: errMsg, Valid: errMsg != ""},
-			})).To(Succeed())
+	setStatus := func(id, status, errMsg string) {
+		Expect(st.Queries.UpdateInstanceStatus(ctx, sqlc.UpdateInstanceStatusParams{
+			ID:                 id,
+			RemoteConfigStatus: pgtype.Text{String: status, Valid: true},
+			RemoteConfigError:  pgtype.Text{String: errMsg, Valid: errMsg != ""},
+		})).To(Succeed())
+	}
+	// RAW-SQL-OK: backdating last_seen to make an instance stale — no sqlc
+	// query takes an explicit last_seen (UpsertCollectorInstance writes
+	// now()), and this is a _test.go file.
+	backdate := func(id string, ago time.Duration) {
+		_, err := st.Pool().Exec(ctx,
+			`UPDATE collector_instances SET last_seen = now() - make_interval(secs => $2) WHERE id = $1`,
+			id, ago.Seconds())
+		Expect(err).NotTo(HaveOccurred())
+	}
+	listItem := func(collectorID pgtype.UUID) map[string]any {
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.FleetService/ListCollectors", adminCookie,
+			map[string]any{"orgId": orgID})
+		defer resp.Body.Close() //nolint:errcheck // test cleanup
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		var result struct {
+			Items []map[string]any `json:"items"`
 		}
-		// RAW-SQL-OK: backdating last_seen to make an instance stale — no sqlc
-		// query takes an explicit last_seen (UpsertCollectorInstance writes
-		// now()), and this is a _test.go file.
-		backdate := func(id string, ago time.Duration) {
-			_, err := st.Pool().Exec(ctx,
-				`UPDATE collector_instances SET last_seen = now() - make_interval(secs => $2) WHERE id = $1`,
-				id, ago.Seconds())
-			Expect(err).NotTo(HaveOccurred())
-		}
-		listItem := func(collectorID pgtype.UUID) map[string]any {
-			resp := postConnectJSON(server, "/shepherd.mgmt.v1.FleetService/ListCollectors", adminCookie,
-				map[string]any{"orgId": orgID})
-			defer resp.Body.Close() //nolint:errcheck // test cleanup
-			Expect(resp.StatusCode).To(Equal(http.StatusOK))
-			var result struct {
-				Items []map[string]any `json:"items"`
+		Expect(json.NewDecoder(resp.Body).Decode(&result)).To(Succeed())
+		for _, item := range result.Items {
+			if item["id"] == collectorID.String() {
+				return item
 			}
-			Expect(json.NewDecoder(resp.Body).Decode(&result)).To(Succeed())
-			for _, item := range result.Items {
-				if item["id"] == collectorID.String() {
-					return item
-				}
-			}
-			Fail("collector missing from the list response")
-			return nil
 		}
-		instanceByName := func(result map[string]any, name string) map[string]any {
-			instances, ok := result["instances"].([]any)
-			Expect(ok).To(BeTrue(), "expected an instances array")
-			for _, raw := range instances {
-				inst, ok := raw.(map[string]any)
-				Expect(ok).To(BeTrue())
-				if inst["name"] == name {
-					return inst
-				}
+		Fail("collector missing from the list response")
+		return nil
+	}
+	instanceByName := func(result map[string]any, name string) map[string]any {
+		instances, ok := result["instances"].([]any)
+		Expect(ok).To(BeTrue(), "expected an instances array")
+		for _, raw := range instances {
+			inst, ok := raw.(map[string]any)
+			Expect(ok).To(BeTrue())
+			if inst["name"] == name {
+				return inst
 			}
-			Fail("instance " + name + " missing")
-			return nil
 		}
+		Fail("instance " + name + " missing")
+		return nil
+	}
 
+	Describe("inactive at read time (#237)", func() {
 		It("presents a replaced pod's stale FAILED instance as inactive while the collector reads its live instance", func() {
 			collector := createCollector("inactive-replaced-pod")
 			upsertInstance("pod-a", collector.ID, "alloy-0-a", "v1.20.1", "linux", `{}`)
@@ -296,6 +296,105 @@ var _ = Describe("Collector instance metadata", Label("integration"), func() {
 			Expect(instanceByName(result, "old")["remoteConfigStatus"]).To(Equal("FAILED"))
 			Expect(result["remoteConfigStatus"]).To(Equal("FAILED"))
 			Expect(listItem(collector.ID)["remoteConfigStatus"]).To(Equal("FAILED"))
+		})
+	})
+
+	// An APPLIED is a claim about the config it was reported with
+	// (remote_config_status_hash). docs/proofs/applied-status.md (d)/(e): for
+	// a poll interval after Shepherd serves a new config the stored row still
+	// says APPLIED about the previous one, including while Alloy refuses the
+	// new config. The agentapi suite replays the captured sequences end to
+	// end; these pin the presentation rule itself.
+	Describe("APPLIED about an earlier config than the one served", func() {
+		setStatusFor := func(id, status, errMsg, hash string) {
+			Expect(st.Queries.UpdateInstanceStatus(ctx, sqlc.UpdateInstanceStatusParams{
+				ID:                 id,
+				RemoteConfigStatus: pgtype.Text{String: status, Valid: true},
+				RemoteConfigError:  pgtype.Text{String: errMsg, Valid: errMsg != ""},
+				StatusHash:         pgtype.Text{String: hash, Valid: hash != ""},
+			})).To(Succeed())
+		}
+		// serve makes hash the collector's served config the way a
+		// recompute does: mark dirty, then the compare-and-swap write.
+		serve := func(collectorID pgtype.UUID, hash string) {
+			Expect(st.Queries.MarkServeCacheDirty(ctx, collectorID)).To(Succeed())
+			cache, err := st.Queries.GetServeCache(ctx, collectorID)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = st.Queries.UpsertServeCacheConditional(ctx, sqlc.UpsertServeCacheConditionalParams{
+				CollectorID: collectorID, Content: "// " + hash, Hash: hash, DirtySeq: cache.DirtySeq,
+			})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		presented := func(collectorID pgtype.UUID, instance string) (string, any) {
+			result := getCollector(collectorID)
+			inst := instanceByName(result, instance)
+			Expect(result["remoteConfigStatus"]).To(Equal(inst["remoteConfigStatus"]))
+			Expect(listItem(collectorID)["remoteConfigStatus"]).To(Equal(inst["remoteConfigStatus"]))
+			status, ok := inst["remoteConfigStatus"].(string)
+			Expect(ok).To(BeTrue(), "expected a remoteConfigStatus string")
+			return status, inst["remoteConfigError"]
+		}
+
+		It("presents APPLIED as APPLYING until the agent reports on the newly served config", func() {
+			collector := createCollector("applied-earlier")
+			upsertInstance("agent", collector.ID, "agent", "v1.20.1", "linux", `{}`)
+			serve(collector.ID, "hash-a")
+			setStatusFor("agent", "APPLIED", "", "hash-a")
+			status, _ := presented(collector.ID, "agent")
+			Expect(status).To(Equal("APPLIED"))
+
+			serve(collector.ID, "hash-b")
+			status, _ = presented(collector.ID, "agent")
+			Expect(status).To(Equal("APPLYING"), "the APPLIED is about hash-a; hash-b is served")
+
+			setStatusFor("agent", "FAILED", "1:1: invalid stage config logfmt mapping or regex is required", "hash-b")
+			status, errMsg := presented(collector.ID, "agent")
+			Expect(status).To(Equal("FAILED"))
+			Expect(errMsg).To(Equal("1:1: invalid stage config logfmt mapping or regex is required"))
+
+			serve(collector.ID, "hash-c")
+			setStatusFor("agent", "APPLIED", "", "hash-c")
+			status, _ = presented(collector.ID, "agent")
+			Expect(status).To(Equal("APPLIED"))
+
+			// Presented, never rewritten: the stored row still says APPLIED.
+			serve(collector.ID, "hash-d")
+			status, _ = presented(collector.ID, "agent")
+			Expect(status).To(Equal("APPLYING"))
+			stored, err := st.Queries.GetCollectorInstanceByID(ctx, "agent")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stored.RemoteConfigStatus.String).To(Equal("APPLIED"))
+		})
+
+		It("keeps a FAILED about an earlier config FAILED (F1)", func() {
+			collector := createCollector("failed-earlier")
+			upsertInstance("agent", collector.ID, "agent", "v1.20.1", "linux", `{}`)
+			serve(collector.ID, "hash-a")
+			setStatusFor("agent", "FAILED", "40:3: Failed to build component", "hash-a")
+			serve(collector.ID, "hash-b")
+
+			status, errMsg := presented(collector.ID, "agent")
+			Expect(status).To(Equal("FAILED"))
+			Expect(errMsg).To(Equal("40:3: Failed to build component"))
+		})
+
+		It("shows APPLIED as stored when it cannot tell which config it was about", func() {
+			collector := createCollector("applied-unknown")
+			upsertInstance("no-hash", collector.ID, "no-hash", "v1.20.1", "linux", `{}`)
+			serve(collector.ID, "hash-a")
+			setStatusFor("no-hash", "APPLIED", "", "") // a row from before 0028
+			status, _ := presented(collector.ID, "no-hash")
+			Expect(status).To(Equal("APPLIED"))
+
+			other := createCollector("applied-nothing-served")
+			upsertInstance("unserved", other.ID, "unserved", "v1.20.1", "linux", `{}`)
+			setStatusFor("unserved", "APPLIED", "", "hash-a")
+			status, _ = presented(other.ID, "unserved")
+			Expect(status).To(Equal("APPLIED"), "no serve_cache row: nothing to compare against")
+
+			Expect(st.Queries.MarkServeCacheDirty(ctx, other.ID)).To(Succeed()) // a '' placeholder row
+			status, _ = presented(other.ID, "unserved")
+			Expect(status).To(Equal("APPLIED"), "a dirty placeholder's empty hash is not a served config")
 		})
 	})
 

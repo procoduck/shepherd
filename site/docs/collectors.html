@@ -120,7 +120,9 @@
             Alloy&rsquo;s own error. The collector keeps running its previous config. A config can
             pass Shepherd&rsquo;s validation and still fail here, for reasons only the host knows
             (a file path that does not exist there, Kubernetes discovery outside Kubernetes).</li>
-        <li><strong>APPLYING</strong> &mdash; Alloy is loading it right now.</li>
+        <li><strong>APPLYING</strong> &mdash; Shepherd is serving a new config and Alloy has not
+            reported on it yet. It lasts until the collector&rsquo;s next poll, then turns APPLIED or
+            FAILED. An APPLIED is always about the config being served now, never an earlier one.</li>
         <li><strong>UNKNOWN</strong> &mdash; nothing reported yet, for example a collector that
             has not polled since it was created.</li>
       </ul>

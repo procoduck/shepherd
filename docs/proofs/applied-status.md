@@ -3,7 +3,8 @@
 **Claim.** A collector whose agent rejected the config it was served shows **FAILED**, with Alloy's
 error, until the agent reports a different outcome — including when Shepherd serves it a *new*
 config that fails the same way. A collector shows **APPLIED** only after Alloy reported it or
-proved it (see below).
+proved it (see below) — and only while it is about the config being served now: from the
+moment Shepherd serves a new config until the agent reports on it, the collector shows APPLYING.
 
 This file supersedes its first version (#186), whose model of Alloy's reporting was incomplete: it
 fixed the case below marked (a) and missed (b), which a UI walkthrough then found as F1.
@@ -55,6 +56,75 @@ pipeline edited below it, say — produces the same new-hash-no-status sequence.
 What this means for a status-less poll with the served hash: **the agent's outcome is unchanged**
 — unless the poll carries `effective_config`, which proves a load.
 
+### Refused after APPLIED (2026-10-06, before v0.15.0)
+
+#281's e2e-k8s run 37448835299 read the collector as APPLIED while its Alloy logged
+`failed to parse and load new remote configuration … received_hash=339c1c85 loaded_hash=811c9dc5`
+(`811c9dc5` is Alloy's FNV hash of the empty config: the claimed cluster had no pipeline yet) for
+a `stage.logfmt {}` it refused. Re-captured the same way as (a)–(c): a real
+`grafana/alloy:v1.20.1` (by the `deploy/versions.env` digest, `poll_frequency = "10s"`) polling a
+throwaway recording collector.v1 server that serves a scripted sequence, answers `not_modified`
+when the polled hash is the served one, and logs each request. Hashes are sha256 of the content,
+as Shepherd's are; `effective_config` is shown as the sha256 of its body, so it names the config
+it describes. `BAD1` is `loki.process "p" { forward_to = [] stage.logfmt { } }`, `BAD2` adds a
+good component below it (same message), `BAD3` one above it (message moves to `2:1`).
+
+```
+(d) APPLIED for an empty config, then a config Alloy refuses (the #281 sequence)
+    hash=(empty)  status=UNSET                                   → served EMPTY
+    hash=EMPTY    status=APPLIED  effective_config=unset         ← an empty config sets none
+    hash=EMPTY    status=nil
+    hash=EMPTY    status=nil                                     → served BAD1
+    hash=BAD1     status=FAILED "1:1: … logfmt mapping or regex is required"   (same second:
+                                                                   the notify after the load)
+    hash=BAD1     status=nil   (every later poll)
+    alloy: failed to parse and load new remote configuration received_hash=ed34c73c
+           loaded_hash=811c9dc5 … successfully restored cached configuration
+
+(e) APPLIED for config A, then a config B Alloy refuses; an outage; F1; recovery
+    hash=(empty)  status=UNSET                                   → served A
+    hash=A        status=APPLIED  effective_config=A
+    hash=A        status=nil                                     → served BAD1
+    hash=BAD1     status=FAILED "1:1: …"   effective_config=unset   ← A was restored from cache;
+                                                                       A's was already sent
+    hash=BAD1     status=nil  (x2)
+    hash=BAD1     (request answered with an error)
+    hash=BAD1     status=FAILED "unavailable: …"  effective_config=A ← a failed request resets
+                                                                       BOTH; they travel together
+    hash=BAD1     status=nil  (x2)                               → served BAD2
+    hash=BAD2     status=FAILED "1:1: …"   ← re-sent only because the outage changed the message
+    hash=BAD2     status=nil  (x2)                               → served BAD3
+    hash=BAD3     status=FAILED "2:1: …"
+    hash=BAD3     status=nil  (x2)                               → served C
+    hash=C        status=APPLIED  effective_config=C
+
+(f) a good config replacing a good one — (c) again
+    hash=A        status=nil                                     → served C
+    hash=C        status=nil  effective_config=C
+
+(g) Alloy restarts while served a config it refuses (cache holds A)
+    hash=(empty)  status=UNSET                                   → served BAD1
+    hash=BAD1     status=FAILED "1:1: …"  effective_config=A     ← A loaded from the on-disk cache
+    hash=BAD1     status=nil  (every later poll)
+```
+
+So Alloy does report the refusal, at once and with the new hash (`fetchLoadConfig` →
+`notifyStatusUpdate` makes an extra GetConfig right after a load attempt), and Shepherd records
+FAILED for it. Checked and ruled out: `effective_config` describing the *previous* config arriving
+on a status-less poll. After a refused load Alloy restores its cached config and `effective_config`
+is that config again — but it was already sent, so nothing is sent; and when a request fails Alloy
+resets the last-sent status *and* effective config together (`getConfig` in `remotecfg.go`), so a
+re-sent stale `effective_config` always travels with a status, and a status always wins
+(`applySilentPoll` is a no-op). Neither (d), (e) nor (g) ever has a status-less poll carrying an
+`effective_config` that is not the served config.
+
+The hole was in reading: the row is the agent's last outcome **and the hash it was about**
+(`remote_config_status_hash`), and the management API presented the outcome without the hash.
+From the moment Shepherd serves a new config until the agent's next request — up to a full
+`poll_frequency` — the row still says APPLIED about the previous config. In run 37448835299 the
+spec read APPLIED at 10:30:41.259; Alloy received the new config at 10:30:41.380 and refused it
+at 10:30:41.420.
+
 ## Red
 
 Before this change, `ClearStaleFailedStatus` promoted a FAILED to APPLIED on any status-less poll
@@ -101,3 +171,22 @@ the change (a stale FAILED instance read FAILED; the sweep wrote `inactive` over
 Live, on the dev stack with the fix: after restarting `dev-alloy-metrics-1` the row went
 `FAILED 47841195`; a label edit then served `ae0b4366`, Alloy failed to load it and sent no status,
 and the row read `FAILED ae0b4366` — failed, on the config it had just been served.
+
+## Green: APPLIED is about the served config
+
+`presentInstanceStatus` (`internal/mgmtapi/rpc_fleet.go`) presents a stored APPLIED whose `remote_config_status_hash` is
+not the collector's current `serve_cache.hash` as **APPLYING** — Alloy's own word for a config it
+has been sent and not reported on. `ListCollectorInstancesByCollector` and
+`GetLatestCollectorInstanceSummary` return both hashes (a `LEFT JOIN serve_cache`). Only APPLIED is
+qualified: a FAILED about an earlier config stays FAILED (F1 above). A status with no recorded hash
+(a row from before `0028`), a collector with no `serve_cache` row and a dirty placeholder's empty
+hash are shown as stored. Nothing is written: the stored row is unchanged, and the next report
+(the notify right after the load) turns it APPLIED or FAILED. Specs:
+`internal/agentapi/service_test.go` "APPLIED is about the config being served" replays (d), (e)
+and (c)/(f) request by request through `GetConfig` and reads `FleetService.GetCollector` and
+`ListCollectors`; `internal/mgmtapi/collectors_metadata_test.go` "APPLIED about an earlier config
+than the one served" pins the rule. Red before the change: the three agentapi specs and the first
+mgmtapi spec read APPLIED where APPLYING was expected. Mutation checks, each failing exactly one
+spec group: dropping the APPLYING branch (the three agentapi specs and the mgmtapi APPLYING spec);
+dropping the empty-served-hash guard (the "cannot tell" spec); qualifying every status, not only
+APPLIED (the F1 spec).
