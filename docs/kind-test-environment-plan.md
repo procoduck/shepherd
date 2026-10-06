@@ -19,7 +19,11 @@
 > CNI control — see §8b for what building it taught us about probe observability); Layer C and the
 > remaining steps proposed.
 >
-> **Now thirteen** (2026-10-01): destination Secret auth (`destination_auth_test.go`, #229) — a
+> **Now fourteen** (2026-10-06): destination tenant and TLS (`destination_tls_test.go`, #261) — a
+> real Alloy with namespace-scoped Secret and ConfigMap RBAC trusts a private CA, presents a client
+> certificate to a sink that requires one, and sends each destination's tenant.
+>
+> **Thirteen** (2026-10-01): destination Secret auth (`destination_auth_test.go`, #229) — a
 > real Alloy with namespace-scoped Secret RBAC sends remote-write requests carrying a
 > `basic_secret` destination's credentials.
 >

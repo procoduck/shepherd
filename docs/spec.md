@@ -709,7 +709,7 @@ once by `shepherd admin rerender-destinations`.
 Secret's namespace. The `grafana/alloy` chart's default ClusterRole grants this cluster-wide. A
 collector with restricted RBAC needs a Role and RoleBinding in that namespace
 (`e2e/k8s/destination_auth_test.go` runs with exactly that). A TLS CA in a ConfigMap needs the same
-verbs on `configmaps` in its namespace.
+verbs on `configmaps` in its namespace (`e2e/k8s/destination_tls_test.go` grants exactly that).
 
 ---
 
