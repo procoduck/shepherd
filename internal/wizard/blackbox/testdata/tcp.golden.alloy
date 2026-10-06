@@ -1,4 +1,6 @@
 prometheus.exporter.blackbox "probes" {
+  config = "{ modules: { tcp_connect: { prober: tcp, timeout: 5s } } }"
+
   target {
     name    = "db-internal-5432"
     address = "db.internal:5432"

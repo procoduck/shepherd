@@ -48,6 +48,28 @@ var _ = Describe("PodLogsWizard golden files", func() {
 			"logs_dest_name":    "loki-staging",
 			"cluster_pattern":   "staging-.*",
 		}),
+		// logfmt and cri: with json above and raw, every log_format option
+		// has a golden, so TestGoldensLoadInRealAlloy loads each stage shape
+		// this wizard can emit. A bare `stage.logfmt {}` / `stage.json {}`
+		// passed `alloy validate` and was refused by a running Alloy.
+		Entry("logfmt-format", "logfmt-format", map[string]any{
+			"namespace_pattern": "prod-.*",
+			"log_format":        "logfmt",
+			"logs_dest_name":    "loki-prod",
+			"cluster_pattern":   "prod-.*",
+		}),
+		Entry("cri-format", "cri-format", map[string]any{
+			"namespace_pattern": "prod-.*",
+			"log_format":        "cri",
+			"logs_dest_name":    "loki-prod",
+			"cluster_pattern":   "prod-.*",
+		}),
+		Entry("docker-format", "docker-format", map[string]any{
+			"namespace_pattern": "prod-.*",
+			"log_format":        "docker",
+			"logs_dest_name":    "loki-prod",
+			"cluster_pattern":   "prod-.*",
+		}),
 		// An oauth2_secret destination (#229): auth read from a spoke Secret.
 		Entry("secret-auth", "secret-auth", map[string]any{
 			"namespace_pattern": "prod-.*",

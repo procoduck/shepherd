@@ -48,7 +48,9 @@ func (w *Wizard) Role(map[string]any) string { return role }
 // typo become an unparseable `stage.<garbage> {}` block that Stage 1 syntax
 // checking cannot catch (block names aren't schema-checked until the real
 // binary runs) — validated against the pinned artifact by
-// schema_conformance_test.go, not memory.
+// schema_conformance_test.go, not memory. The stage bodies themselves come
+// from wizard.LogParseStages: a bare `stage.logfmt {}` / `stage.json {}`
+// passes `alloy validate` but a running Alloy refuses to build it.
 var logFormats = map[string]bool{
 	"logfmt": true,
 	"json":   true,
@@ -149,13 +151,17 @@ loki.source.kubernetes "pods" {
 }
 `)
 
-	if logFormat != "" {
+	stages, err := wizard.LogParseStages(logFormat)
+	if err != nil {
+		return wizard.CommitResult{}, fmt.Errorf("log_format: %w", err)
+	}
+	if stages != "" {
 		_, _ = fmt.Fprintf(&sb, `
 loki.process "pods" {
   forward_to = [loki.write.logs.receiver]
-  stage.%s {}
-}
-`, logFormat)
+
+%s}
+`, stages)
 	} else {
 		_, _ = sb.WriteString(`
 loki.process "pods" {
