@@ -425,6 +425,11 @@ type LegacyRerenderResult struct {
 	// A Stage 3 refusal lists every enabled pipeline of the org and leaves
 	// the whole org untouched.
 	Failed []string
+	// TenantDestinations is one "destination: tenant" line per destination
+	// of the org with a non-empty tenant_id. Only RerenderAllWizardPipelines
+	// fills it: a tenant stored before #261 was never sent, and regenerating
+	// starts sending it, moving that data into the named backend tenant.
+	TenantDestinations []string
 }
 
 // LegacyRerenderActor is the audit actor of the one-time re-render.
@@ -447,6 +452,29 @@ const LegacyRerenderActor = "system:rerender-destinations"
 // rerender-destinations`; collectors pick the new config up on their next
 // poll (the agent API recomputes a dirty serve cache lazily).
 func RerenderLegacyDestinationWriters(ctx context.Context, st *store.Store, v *validate.Validator, reg *schema.Registry, logger *slog.Logger, dryRun bool) ([]LegacyRerenderResult, error) {
+	return rerenderEveryOrg(ctx, st, v, reg, logger, false, dryRun)
+}
+
+// RerenderAllWizardPipelines regenerates every wizard pipeline in every org
+// whose render from its stored state against the org's current destinations
+// differs from what is stored: `shepherd admin rerender-destinations --all`
+// (#261, maintainer decision Q1). It is the operator-triggered rollout of
+// what the renderer gained after a pipeline was last written: a
+// destination's tenant_id, stored and ignored before #261, is sent once its
+// pipelines are regenerated. Each org's result lists its destinations with a
+// tenant, so a dry run shows whose data would move to which tenant.
+//
+// Same gate and write path as a destination update: a hand-edited pipeline
+// is refused and left as it was (handEdited, against the current
+// destinations), Stages 1-2 per pipeline, Stage 3 over the org's merged
+// config, then revision, pipeline.rerender audit row as LegacyRerenderActor
+// and the serve cache marked dirty. Pre-#260 sys.env pipelines are converted
+// too. Idempotent: a second run finds nothing that differs.
+func RerenderAllWizardPipelines(ctx context.Context, st *store.Store, v *validate.Validator, reg *schema.Registry, logger *slog.Logger, dryRun bool) ([]LegacyRerenderResult, error) {
+	return rerenderEveryOrg(ctx, st, v, reg, logger, true, dryRun)
+}
+
+func rerenderEveryOrg(ctx context.Context, st *store.Store, v *validate.Validator, reg *schema.Registry, logger *slog.Logger, all, dryRun bool) ([]LegacyRerenderResult, error) {
 	ps := NewPipelineService(st, v, reg, logger)
 	orgs, err := st.Queries.ListOrgs(ctx)
 	if err != nil {
@@ -454,18 +482,20 @@ func RerenderLegacyDestinationWriters(ctx context.Context, st *store.Store, v *v
 	}
 	var results []LegacyRerenderResult
 	for i := range orgs {
-		res, err := ps.rerenderLegacyOrg(ctx, orgs[i], dryRun)
+		res, err := ps.rerenderOrg(ctx, orgs[i], all, dryRun)
 		if err != nil {
 			return results, fmt.Errorf("org %q: %w", orgs[i].Name, err)
 		}
-		if len(res.Rerendered) > 0 || len(res.Failed) > 0 {
+		if len(res.Rerendered) > 0 || len(res.Failed) > 0 || len(res.TenantDestinations) > 0 {
 			results = append(results, res)
 		}
 	}
 	return results, nil
 }
 
-func (s *PipelineService) rerenderLegacyOrg(ctx context.Context, org sqlc.Org, dryRun bool) (LegacyRerenderResult, error) {
+// rerenderOrg re-renders org's pre-#260 wizard pipelines or, with all, every
+// wizard pipeline (see RerenderAllWizardPipelines).
+func (s *PipelineService) rerenderOrg(ctx context.Context, org sqlc.Org, all, dryRun bool) (LegacyRerenderResult, error) {
 	res := LegacyRerenderResult{OrgID: org.ID.String(), OrgName: org.Name}
 	tx, err := s.store.Pool().Begin(ctx)
 	if err != nil {
@@ -474,14 +504,25 @@ func (s *PipelineService) rerenderLegacyOrg(ctx context.Context, org sqlc.Org, d
 	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
 	txQ := s.store.Queries.WithTx(tx)
 
-	all, err := txQ.ListWizardPipelinesByOrgForUpdate(ctx, org.ID)
+	wizardPipelines, err := txQ.ListWizardPipelinesByOrgForUpdate(ctx, org.ID)
 	if err != nil {
 		return res, fmt.Errorf("listing wizard pipelines: %w", err)
 	}
 	var legacy []sqlc.Pipeline
-	for i := range all {
-		if strings.Contains(all[i].Contents, legacyDestinationWriterMarker) {
-			legacy = append(legacy, all[i])
+	for i := range wizardPipelines {
+		if all || strings.Contains(wizardPipelines[i].Contents, legacyDestinationWriterMarker) {
+			legacy = append(legacy, wizardPipelines[i])
+		}
+	}
+	if all {
+		rows, err := txQ.ListDestinationsByOrg(ctx, org.ID)
+		if err != nil {
+			return res, fmt.Errorf("listing destinations: %w", err)
+		}
+		for i := range rows {
+			if rows[i].TenantID != "" {
+				res.TenantDestinations = append(res.TenantDestinations, fmt.Sprintf("%s: %s", rows[i].Name, rows[i].TenantID))
+			}
 		}
 	}
 	if len(legacy) == 0 {
@@ -494,7 +535,14 @@ func (s *PipelineService) rerenderLegacyOrg(ctx context.Context, org sqlc.Org, d
 		}
 		return res, nil
 	}
-	changes, failures := s.planWizardRerenders(ctx, org.ID, legacy, nil, dests, nil)
+	// --all checks every pipeline for a hand edit against the current
+	// destinations (with the pre-#261 fallback); the legacy run touches only
+	// sys.env pipelines, which are exempt.
+	var before wizard.Destinations
+	if all {
+		before = dests
+	}
+	changes, failures := s.planWizardRerenders(ctx, org.ID, legacy, before, dests, nil)
 	for _, f := range failures {
 		res.Failed = append(res.Failed, f.describe(remedyLegacyRerender))
 	}
@@ -505,7 +553,12 @@ func (s *PipelineService) rerenderLegacyOrg(ctx context.Context, org sqlc.Org, d
 		return res, nil
 	}
 	detail := rerenderAudit{Reason: "legacy destination writer (pre-#260 sys.env URL, no auth)"}
-	if _, err := applyWizardRerenders(ctx, txQ, org.ID, changes, LegacyRerenderActor, "system", "re-rendered: pre-#260 destination writer", detail); err != nil {
+	note := "re-rendered: pre-#260 destination writer"
+	if all {
+		detail = rerenderAudit{Reason: "regenerated from the org's current destinations (rerender-destinations --all, #261)"}
+		note = "re-rendered: rerender-destinations --all"
+	}
+	if _, err := applyWizardRerenders(ctx, txQ, org.ID, changes, LegacyRerenderActor, "system", note, detail); err != nil {
 		return res, err
 	}
 	if err := tx.Commit(ctx); err != nil {

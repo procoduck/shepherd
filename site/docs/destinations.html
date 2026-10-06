@@ -309,6 +309,17 @@ subjects:
       <p>It lists every pipeline it converts and every one it cannot (for example, one naming a
         destination that was deleted), and is safe to run again. Saving a destination also
         regenerates the pipelines that use it.</p>
+      <h3 id="upgrade-tenant">Tenant IDs stored before they were sent</h3>
+      <p>A destination&rsquo;s tenant ID was stored but not sent before Shepherd rendered it. Such a
+        tenant reaches a pipeline when the pipeline is next regenerated, which moves that data into
+        the named backend tenant. To see which destinations carry a tenant and which pipelines would
+        change, run the same command with <code>--all</code>; it writes nothing until you add
+        <code>--apply</code>, and never overwrites a pipeline edited by hand:</p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>kubectl exec svc/shepherd -- /usr/local/bin/shepherd admin rerender-destinations \
+  --config /etc/shepherd/shepherd.yaml --all</code></pre>
+      </div>
         <nav class="page-nav" aria-label="Pagination">
           <a class="page-nav-prev" href="authoring.html"><span>Previous</span><strong>Authoring pipelines</strong></a>
           <a class="page-nav-next" href="matchers.html"><span>Next</span><strong>Matchers and validation</strong></a>
@@ -326,6 +337,7 @@ subjects:
         <li><a href="#rbac">What the collector needs to read the Secret</a></li>
         <li><a href="#changes">When a change takes effect</a></li>
         <li class="sub"><a href="#upgrade">Pipelines generated before destination auth</a></li>
+        <li class="sub"><a href="#upgrade-tenant">Tenant IDs stored before they were sent</a></li>
       </ul>
     </aside>
   </div>
