@@ -252,7 +252,8 @@ export function DestinationFormDialog({
         </Field>
         <p className='-mt-2 text-2xs text-muted-3'>
           For a multi-tenant Mimir or Loki: wizard pipelines send it as{' '}
-          <code className='font-mono'>X-Scope-OrgID</code>. Leave empty to send no tenant.
+          <code className='font-mono'>X-Scope-OrgID</code>. A new destination starts with your
+          organisation&rsquo;s tenant ID, if it has one; leave it empty to send no tenant.
         </p>
         <Field label='Auth mode'>
           <Select

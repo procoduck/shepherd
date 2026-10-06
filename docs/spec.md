@@ -636,7 +636,9 @@ path. Pre-#229 wizards emitted `sys.env("SHEPHERD_DEST_<NAME>_URL")`, which noth
 value outside `gateway.ValidateTenantID`'s rule, and one another org holds as its `orgs.tenant_id`
 with the generic message `tenant_id is not available to this org`. `wizardDestinations` applies the
 cross-org check again at render time (an app admin may give another org that tenant later), so such
-a destination is refused only by the renders that name it. This is egress from the org's own
+a destination is refused only by the renders that name it. `MeService.GetMe` returns each org's own
+`orgs.tenant_id` on `OrgMembership.tenant_id` (read-only, empty when unset), and the destination
+form pre-fills a new destination's tenant from it. This is egress from the org's own
 collectors, which an org editor could already tag with any header in a raw pipeline; it does not
 touch the gateway tier's ingress tenancy (D10/D11, `docs/plans/2026-10-06-destination-tenant-tls.md`
 §2). A tenant already stored before #261 reaches a pipeline on its next regeneration.

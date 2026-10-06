@@ -404,6 +404,50 @@ test('the tenant ID is sent on create and edit and shown in the table', async ({
   expect((updates[0].body as Record<string, unknown>).tenantId).toBe('globex-prod');
 });
 
+// #261 (maintainer decision 2026-10-06): GetMe carries the org's own tenant,
+// and a new destination starts with it. Red run: before OrgMembership had
+// tenant_id the field started empty.
+test("a new destination's tenant ID is pre-filled with the org's own tenant", async ({
+  page,
+  api,
+}) => {
+  // The persona is GetMe's response (loginAs pre-seeds it as useMe's
+  // initialData); the seeded org row carries the same tenant, as on the server.
+  await api.loginAs({
+    ...orgAdmin,
+    orgs: orgAdmin.orgs.map((o) => ({ ...o, tenantId: 'acme-org' })),
+  });
+  const s = basicScenario();
+  api.seed({ orgs: [{ ...s.org, tenant_id: 'acme-org' }], destinations: [] });
+  await page.goto('/destinations');
+
+  await page.getByRole('button', { name: /new|create|add destination/i }).click();
+  const dialog = page.getByRole('dialog', { name: 'New destination' });
+  await expect(dialog.getByLabel(/Tenant ID/)).toHaveValue('acme-org');
+  await dialog.getByLabel('Name', { exact: true }).fill('mimir-org');
+  await dialog.getByLabel('URL', { exact: true }).fill('https://mimir.example.com/api/v1/push');
+  await dialog.getByRole('button', { name: /create/i }).click();
+
+  await expect(page.getByRole('cell', { name: 'acme-org', exact: true })).toBeVisible();
+  const creates = api.calls('DestinationService/CreateDestination');
+  expect((creates[0].body as Record<string, unknown>).tenantId).toBe('acme-org');
+});
+
+test("an org without a tenant leaves a new destination's tenant ID empty", async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(orgAdmin);
+  const s = basicScenario();
+  api.seed({ orgs: [s.org], destinations: [] });
+  await page.goto('/destinations');
+
+  await page.getByRole('button', { name: /new|create|add destination/i }).click();
+  await expect(
+    page.getByRole('dialog', { name: 'New destination' }).getByLabel(/Tenant ID/),
+  ).toHaveValue('');
+});
+
 test('a tenant ID outside the allowed characters is refused before submit', async ({
   page,
   api,
