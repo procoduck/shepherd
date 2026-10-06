@@ -1,12 +1,5 @@
 import { currentTheme, type Theme } from '../theme';
 import type { ComponentDef, SchemaPayload, WireTypeDef } from './types';
-export async function fetchSchema(version = 'current'): Promise<SchemaPayload> {
-  const res = await fetch(`/api/schema/${version}`, {
-    headers: { 'X-Requested-With': 'XMLHttpRequest' },
-  });
-  if (!res.ok) throw new Error(`Failed to load schema: ${res.status}`);
-  return res.json() as Promise<SchemaPayload>;
-}
 export function getComponent(schema: SchemaPayload, name: string): ComponentDef | undefined {
   return schema.components[name];
 }

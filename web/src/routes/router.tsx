@@ -1,5 +1,6 @@
 import { createRootRoute, createRoute, createRouter, Outlet } from '@tanstack/react-router';
 import { type JSX, Suspense } from 'react';
+import type { PipelineLandedFrom } from '@/components/PipelineLandingBanner';
 import { RequireRole } from '@/components/RequireRole';
 import { RouteErrorFallback } from '@/components/RouteErrorFallback';
 import { Shell } from '@/components/Shell';
@@ -23,6 +24,7 @@ import { ServiceAccountsPage } from '@/pages/ServiceAccountsPage';
 import { TeamsPage } from '@/pages/TeamsPage';
 import { TenantRoutesPage } from '@/pages/TenantRoutesPage';
 import { WizardsPage } from '@/pages/WizardsPage';
+import { prefetchCurrentSchema } from '@/visual/schemaCache';
 import { WizardRunnerPage } from '@/wizard/WizardRunnerPage';
 import { requiredRoleFor } from './routeManifest';
 
@@ -132,6 +134,10 @@ const pipelineNewRoute = createRoute({
 const pipelineEditRoute = createRoute({
   getParentRoute: () => contentRoute,
   path: '/pipelines/$id',
+  // `from` names the flow that just landed here — a builder Save or a
+  // finished wizard — so the editor can say where the user now is (#251).
+  validateSearch: (search: Record<string, unknown>): { from?: PipelineLandedFrom } =>
+    search.from === 'visual' || search.from === 'wizard' ? { from: search.from } : {},
   component: PipelineEditorPage,
 });
 
@@ -147,9 +153,21 @@ const GraphViewPageLazy = lazyNamed(
   () => import('@/visual/components/GraphViewPage'),
   'GraphViewPage',
 );
+// #251: entering a builder route starts its two big downloads at once — the
+// component schema and the builder chunk — instead of the schema waiting until
+// the chunk has loaded, evaluated and rendered once. Not awaited: the route
+// renders its Suspense fallback straight away, exactly as before. A failure
+// here is dropped on purpose: the page's own load of the same thing retries
+// and reports it.
+const ignoreEarlyLoadFailure = () => undefined;
+const startBuilderLoad = () => {
+  void prefetchCurrentSchema().catch(ignoreEarlyLoadFailure);
+  void import('@/visual/components/VisualBuilderPage').catch(ignoreEarlyLoadFailure);
+};
 const visualNewRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/pipelines/visual/new',
+  loader: startBuilderLoad,
   component: withRequiredRole('/pipelines/visual/new', () => (
     <Suspense fallback={<div className='h-full p-4 text-sm'>Loading visual builder…</div>}>
       <VisualBuilderPageLazy />
@@ -159,6 +177,7 @@ const visualNewRoute = createRoute({
 const visualEditRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/pipelines/$id/visual',
+  loader: startBuilderLoad,
   component: () => (
     <Suspense fallback={<div className='h-full p-4 text-sm'>Loading visual builder…</div>}>
       <VisualBuilderPageLazy />
@@ -168,6 +187,9 @@ const visualEditRoute = createRoute({
 const graphViewRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/pipelines/$id/graph',
+  loader: () => {
+    void prefetchCurrentSchema().catch(ignoreEarlyLoadFailure);
+  },
   component: () => (
     <Suspense fallback={<div className='h-full p-4 text-sm'>Loading graph view…</div>}>
       <GraphViewPageLazy />

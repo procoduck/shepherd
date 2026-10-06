@@ -129,7 +129,8 @@ export function WizardRunnerPage() {
     onSuccess: (pipeline) => {
       toast.success('Pipeline created from wizard');
       qc.invalidateQueries({ queryKey: ['pipelines', orgId] });
-      navigate({ to: '/pipelines/$id', params: { id: pipeline.id } });
+      // The result opens in the text editor; `from` makes it say so (#251).
+      navigate({ to: '/pipelines/$id', params: { id: pipeline.id }, search: { from: 'wizard' } });
     },
     onError: (e) => {
       const err = toApiError(e);

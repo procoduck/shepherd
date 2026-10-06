@@ -15,6 +15,7 @@ import { clients, toApiError } from '@/api/transport';
 import { DetachFromWizard } from '@/components/DetachFromWizard';
 import { MatcherSuggestions } from '@/components/MatcherSuggestions';
 import { PipelineActions } from '@/components/PipelineActions';
+import { OpenInVisualBuilder, PipelineLandingBanner } from '@/components/PipelineLandingBanner';
 import { PipelineOwner } from '@/components/PipelineOwner';
 import { RevisionHistory } from '@/components/RevisionHistory';
 import { Input } from '@/components/ui/Field';
@@ -290,6 +291,7 @@ export function PipelineEditorPage() {
             <p>
               Source: <span className='text-zinc-300'>{pipeline.source}</span>
             </p>
+            {pipeline.source === 'visual' && <OpenInVisualBuilder pipelineId={pipeline.id} />}
             {canWrite && pipeline.source === 'wizard' && (
               <DetachFromWizard pipeline={pipeline} orgId={pipelineOrgId} />
             )}
@@ -308,6 +310,7 @@ export function PipelineEditorPage() {
 
       {/* Right pane */}
       <div className='flex flex-1 flex-col overflow-hidden'>
+        {id && <PipelineLandingBanner pipelineId={id} />}
         {selectedRevision != null ? (
           <>
             {/* Diff header — replaces the editor toolbar while a revision is

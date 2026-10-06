@@ -8,7 +8,7 @@
 // badges (see PipelineNode's `health` field and CanvasPane's "controlled-mode
 // contract" for why that has to go through the document-side projection
 // rather than touching React Flow's own node objects).
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type Ref, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { createSandboxRun, getSandboxRun, type SimulateRunResult } from '../../api/client';
 import { toApiError } from '../../api/transport';
 import { DataTable } from '../../components/ui/DataTable';
@@ -305,14 +305,26 @@ function ResultsView({
   );
 }
 
+/** Lets a caller start a run without this panel's own trigger — the
+ *  toolbar's overflow menu on a narrow window (#251). */
+export interface SandboxRunHandle {
+  start: () => void;
+}
+
 export function SandboxRunPanel({
   orgId,
   disabledReason,
+  hideTrigger = false,
+  ref,
 }: {
   orgId: string | undefined;
   /** Set when the user may not run simulations (a viewer, #206): the trigger
    *  renders disabled with this as its tooltip. */
   disabledReason?: string;
+  /** Render no "Simulate ▾" trigger; the run is started through `ref`. The
+   *  panel itself stays mounted either way — it owns the run dialog. */
+  hideTrigger?: boolean;
+  ref?: Ref<SandboxRunHandle>;
 }) {
   const doc = useVisualStore((s) => s.doc);
   const setSimHealthByNode = useVisualStore((s) => s.setSimHealthByNode);
@@ -411,6 +423,18 @@ export function SandboxRunPanel({
     }
   }, [orgId, doc, poll, stopPolling, setSimHealthByNode]);
 
+  // The same guard the trigger's `disabled` applies, for a caller starting
+  // the run through the handle.
+  useImperativeHandle(
+    ref,
+    () => ({
+      start: () => {
+        if (!disabledReason) void start();
+      },
+    }),
+    [start, disabledReason],
+  );
+
   // Ticks once a second while running, purely to re-render the countdown —
   // the source of truth for elapsed time is always `run.started_at`, never
   // this timer's own count.
@@ -430,18 +454,20 @@ export function SandboxRunPanel({
   const collecting = phase === 'running' && remainingSeconds <= 0;
 
   return (
-    <div className='relative'>
-      <button
-        type='button'
-        data-testid='simulate-menu-trigger'
-        onClick={() => setMenuOpen((v) => !v)}
-        disabled={!orgId || !!disabledReason}
-        title={disabledReason}
-        className='text-sm px-3 py-1 rounded border shrink-0 disabled:opacity-50 disabled:cursor-not-allowed'
-      >
-        Simulate ▾
-      </button>
-      {menuOpen && (
+    <div className={hideTrigger ? 'contents' : 'relative shrink-0'}>
+      {!hideTrigger && (
+        <button
+          type='button'
+          data-testid='simulate-menu-trigger'
+          onClick={() => setMenuOpen((v) => !v)}
+          disabled={!orgId || !!disabledReason}
+          title={disabledReason}
+          className='text-sm px-3 py-1 rounded border shrink-0 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed'
+        >
+          Simulate ▾
+        </button>
+      )}
+      {!hideTrigger && menuOpen && (
         <div
           data-testid='simulate-menu'
           className='absolute z-20 top-full left-0 mt-1 bg-card border border-border rounded shadow-md text-xs whitespace-nowrap'

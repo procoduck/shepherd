@@ -63,6 +63,13 @@ test('wizard walks its schema-driven steps, previews, and commits', async ({ pag
       .or(page.getByRole('alert'))
       .or(page.locator('[data-testid="toast"]')),
   ).toBeVisible();
+  // #251: the wizard's result opens in the text editor — the page says so,
+  // and why the pipeline is still tied to the wizard.
+  await expect(page).toHaveURL(/\/pipelines\/[^/]+$/);
+  const banner = page.getByTestId('editor-landing-banner');
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText(/created from the wizard/i);
+  await expect(banner).toContainText(/text editor/i);
 });
 
 test('destination fields pick from the org’s destinations by type, not free text', async ({

@@ -198,7 +198,7 @@ test.describe('visual builder drafts', () => {
     await input.fill('cluster="prod-eu-1"');
     await input.press('Enter');
     await page.locator('[data-testid="toolbar-save"]').click();
-    await expect(page).toHaveURL(/\/pipelines\/pip-\d+$/, { timeout: 5_000 });
+    await expect(page).toHaveURL(/\/pipelines\/pip-\d+\?from=visual$/, { timeout: 5_000 });
 
     // A crash mid-authoring of a NEXT new pipeline must not resurrect the
     // just-saved one's draft — it was cleared on the successful create.
