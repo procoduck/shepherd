@@ -292,9 +292,9 @@ func handEdited(p sqlc.Pipeline, before wizard.Destinations) *rerenderFailure {
 		return nil
 	}
 	// The stored text may come from the renderer before #261, which did not
-	// render a destination's tenant_id. That renderer's output is exactly
-	// today's with every tenant zeroed, so an untouched pipeline matches
-	// that render instead. Without this, every unfingerprinted pipeline whose
+	// render a destination's tenant_id or TLS. That renderer's output is
+	// exactly today's with every tenant and TLS option zeroed, so an
+	// untouched pipeline matches that render instead. Without this, every unfingerprinted pipeline whose
 	// destination already had a tenant would be refused as hand-edited.
 	if old, err := wiz.Commit(state, withoutPre261Fields(before)); err == nil && old.Contents == p.Contents {
 		return nil
@@ -311,6 +311,7 @@ func withoutPre261Fields(dests wizard.Destinations) wizard.Destinations {
 	for name := range dests {
 		d := dests[name]
 		d.TenantID = ""
+		d.TLS = nil
 		out[name] = d
 	}
 	return out

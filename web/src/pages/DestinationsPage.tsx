@@ -13,6 +13,7 @@ import {
   isSecretMode,
   scopesFromExtra,
 } from '@/components/DestinationFormDialog';
+import { extraWithTLS, tlsFromExtra } from '@/components/DestinationTLSFields';
 import { withPipelineLinks } from '@/components/PipelineNameLinks';
 import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
@@ -156,7 +157,7 @@ export function DestinationsPage() {
         tenantId: form.tenantId.trim(),
         secretName: secret ? form.secretName.trim() : '',
         secretNamespace: secret ? form.secretNamespace.trim() : '',
-        extra: extraWithScopes(undefined, form),
+        extra: extraWithTLS(extraWithScopes(undefined, form), form.tls),
       });
     },
     onSuccess: () => {
@@ -192,7 +193,7 @@ export function DestinationsPage() {
         tenantId: form.tenantId.trim(),
         secretName: secret ? form.secretName.trim() : d.secretName,
         secretNamespace: secret ? form.secretNamespace.trim() : d.secretNamespace,
-        extra: extraWithScopes(d.extra, form),
+        extra: extraWithTLS(extraWithScopes(d.extra, form), form.tls),
       });
     },
     onSuccess: () => {
@@ -313,6 +314,7 @@ export function DestinationsPage() {
             secretName: editing.secretName,
             scopes: scopesFromExtra(editing.extra),
             tenantId: editing.tenantId,
+            tls: tlsFromExtra(editing.extra),
           }}
           submitLabel='Save'
           pendingLabel='Saving…'

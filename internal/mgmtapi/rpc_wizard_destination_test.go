@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	. "github.com/onsi/ginkgo/v2"
@@ -212,7 +213,52 @@ var _ = Describe("WizardService renders destination auth (#229)", Label("integra
 		}, "oauth2_scopes"),
 		Entry("a tenant outside Mimir's charset (#261)", map[string]any{"authMode": "none", "tenantId": "acme/prod"}, "tenant_id"),
 		Entry("a reserved tenant (#261)", map[string]any{"authMode": "none", "tenantId": "__mimir_cluster"}, "tenant_id"),
+		Entry("insecure_skip_verify, which is not offered (#261)", map[string]any{
+			"authMode": "none", "extra": map[string]any{"tls": map[string]any{"insecure_skip_verify": true}},
+		}, "insecure_skip_verify"),
+		Entry("TLS options on an http:// URL (#261)", map[string]any{
+			"authMode": "none", "url": "http://m.example.com/api/v1/push",
+			"extra": map[string]any{"tls": map[string]any{"server_name": "m.example.com"}},
+		}, "https://"),
+		Entry("a client certificate in a ConfigMap (#261)", map[string]any{
+			"authMode": "none",
+			"extra":    map[string]any{"tls": map[string]any{"client_cert": map[string]any{"kind": "configmap", "namespace": "m", "name": "c"}}},
+		}, "client_cert"),
+		Entry("an illegal CA key (#261)", map[string]any{
+			"authMode": "none",
+			"extra": map[string]any{"tls": map[string]any{"ca": map[string]any{
+				"kind": "configmap", "namespace": "m", "name": "ca", "key": "../ca.crt",
+			}}},
+		}, "ca.key"),
 	)
+
+	// #261: a destination's extra.tls reaches the committed writer, the CA
+	// read from a ConfigMap under an overridden key and the client
+	// certificate from the auth Secret (one read of it). Red run: before
+	// #261 the contents carry no tls_config.
+	It("commits a writer with the destination's TLS options", func() {
+		code, out := call("/shepherd.mgmt.v1.DestinationService/CreateDestination", map[string]any{
+			"orgId": orgID, "name": "mimir-mtls", "type": "prometheus", "url": "https://mimir.example.com/api/v1/push",
+			"authMode": "basic_secret", "secretNamespace": "monitoring", "secretName": "mimir-credentials",
+			"extra": map[string]any{"tls": map[string]any{
+				"ca":          map[string]any{"kind": "configmap", "namespace": "monitoring", "name": "org-trust", "key": "trust-bundle.pem"},
+				"client_cert": map[string]any{"namespace": "monitoring", "name": "mimir-credentials"},
+				"server_name": "mimir.internal.example",
+			}},
+		})
+		Expect(code).To(Equal(http.StatusOK), "%v", out)
+
+		code, pipeline := call("/shepherd.mgmt.v1.WizardService/CommitWizard",
+			wizardBody("tls", map[string]any{"metrics_dest_name": "mimir-mtls", "logs_enabled": false}))
+		Expect(code).To(Equal(http.StatusOK), "%v", pipeline)
+		contents, _ := pipeline["contents"].(string) //nolint:errcheck // asserted below
+		Expect(contents).To(ContainSubstring(`remote.kubernetes.configmap "metrics_tls_ca"`))
+		Expect(contents).To(ContainSubstring(`ca_pem      = remote.kubernetes.configmap.metrics_tls_ca.data["trust-bundle.pem"]`))
+		Expect(contents).To(ContainSubstring(`cert_pem    = convert.nonsensitive(remote.kubernetes.secret.metrics_auth.data["tls.crt"])`))
+		Expect(contents).To(ContainSubstring(`key_pem     = remote.kubernetes.secret.metrics_auth.data["tls.key"]`))
+		Expect(contents).To(ContainSubstring(`server_name = "mimir.internal.example"`))
+		Expect(strings.Count(contents, `remote.kubernetes.secret "`)).To(Equal(1), "the auth Secret is read once")
+	})
 
 	It("UpdateDestination applies the same refusal", func() {
 		var id string

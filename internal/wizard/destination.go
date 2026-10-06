@@ -28,6 +28,10 @@ type Destination struct {
 	// it as the tenant (gateway.TenantHeader): a header on
 	// prometheus.remote_write, loki.write's own tenant_id attribute (#261).
 	TenantID string
+	// TLS comes from the destination's extra.tls (ExtraKeyTLS, #261): the
+	// CA, client certificate and server name the writer's tls_config gets.
+	// Nil renders no tls_config.
+	TLS *TLS
 	// OAuth2Scopes comes from the destination's extra.oauth2_scopes
 	// (ExtraKeyOAuth2Scopes). Only rendered for AuthOAuth2Secret.
 	OAuth2Scopes []string
@@ -192,21 +196,25 @@ func RenderWriter(kind WriterKind, label string, dests Destinations, destName st
 	if err := ValidateTenant(d.TenantID); err != nil {
 		return "", fmt.Errorf("destination %q: %w", destName, err)
 	}
+	if err := d.TLS.Validate(); err != nil {
+		return "", fmt.Errorf("destination %q: %w", destName, err)
+	}
+	if err := ValidateTLSForURL(d.TLS, d.URL); err != nil {
+		return "", fmt.Errorf("destination %q: %w", destName, err)
+	}
 
+	// The objects the writer reads come first, in a fixed order — auth
+	// Secret, CA, client certificate — one component per distinct object.
+	var reads objectReads
 	secretLabel := label + "_auth"
+	if d.AuthMode != AuthNone {
+		secretLabel = reads.add(ObjectSecret, d.SecretNamespace, d.SecretName, secretLabel)
+	}
 	data := func(key string) string {
-		return fmt.Sprintf("remote.kubernetes.secret.%s.data[%s]", secretLabel, Quote(key))
+		return dataRef(ObjectSecret, secretLabel, key)
 	}
 
 	var sb strings.Builder
-	if d.AuthMode != AuthNone {
-		fmt.Fprintf(&sb, `remote.kubernetes.secret %s {
-  namespace = %s
-  name      = %s
-}
-
-`, Quote(secretLabel), Quote(d.SecretNamespace), Quote(d.SecretName))
-	}
 
 	fmt.Fprintf(&sb, `%s %s {
   endpoint {
@@ -240,9 +248,10 @@ func RenderWriter(kind WriterKind, label string, dests Destinations, destName st
 		}
 		sb.WriteString("    }\n")
 	}
+	renderTLS(&sb, &reads, label, d.TLS)
 
 	sb.WriteString("  }\n}\n")
-	return sb.String(), nil
+	return reads.sb.String() + sb.String(), nil
 }
 
 // ValidateTenant checks a destination's tenant_id: empty (no tenant is

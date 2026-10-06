@@ -204,6 +204,21 @@ func validateDestinationAuth(mode, secretNamespace, secretName string, extra []b
 	return nil
 }
 
+// validateDestinationTLS refuses, as invalid_argument, an extra.tls that
+// does not decode strictly or validate (wizard.ParseTLS: unknown keys such
+// as insecure_skip_verify, bad references, an illegal CA key), and TLS
+// options on a URL that is not https:// (#261).
+func validateDestinationTLS(url string, extra []byte) error {
+	tls, err := wizard.ParseTLS(extra)
+	if err != nil {
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if err := wizard.ValidateTLSForURL(tls, url); err != nil {
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	return nil
+}
+
 // wizardDestinations loads an org's destinations as the set a wizard's
 // `*_dest_name` fields resolve against (wizard.Destinations). Only the
 // non-sensitive columns are carried: a Secret mode names the Secret, the
@@ -230,6 +245,13 @@ func wizardDestinations(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID)
 			dest.LoadErr = err
 		} else {
 			dest.OAuth2Scopes = scopes
+		}
+		if tls, err := wizard.ParseTLS(d.Extra); err != nil {
+			if dest.LoadErr == nil {
+				dest.LoadErr = err
+			}
+		} else {
+			dest.TLS = tls
 		}
 		// The cross-org tenant guard holds at render time too, not only at
 		// save: an app admin can give another org this tenant after the
@@ -297,6 +319,9 @@ func (s *DestinationService) CreateDestination(ctx context.Context, req *connect
 	if err := validateDestinationTenant(ctx, s.store.Queries, orgID, req.Msg.GetTenantId()); err != nil {
 		return nil, err
 	}
+	if err := validateDestinationTLS(req.Msg.GetUrl(), extraJSON); err != nil {
+		return nil, err
+	}
 	d, err := s.store.Queries.CreateDestination(ctx, sqlc.CreateDestinationParams{
 		OrgID:           orgID,
 		Name:            req.Msg.GetName(),
@@ -350,6 +375,9 @@ func (s *DestinationService) UpdateDestination(ctx context.Context, req *connect
 		return nil, err
 	}
 	if err := validateDestinationTenant(ctx, s.store.Queries, owned.OrgID, req.Msg.GetTenantId()); err != nil {
+		return nil, err
+	}
+	if err := validateDestinationTLS(req.Msg.GetUrl(), extraJSON); err != nil {
 		return nil, err
 	}
 

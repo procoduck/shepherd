@@ -1,0 +1,31 @@
+remote.kubernetes.secret "metrics_auth" {
+  namespace = "monitoring"
+  name      = "mimir-credentials"
+}
+
+remote.kubernetes.secret "metrics_tls_ca" {
+  namespace = "monitoring"
+  name      = "collector-mtls"
+}
+
+prometheus.remote_write "metrics" {
+  endpoint {
+    name = "prom-prod"
+    url  = "https://mimir.example.com/api/v1/push"
+    headers = {
+      "X-Scope-OrgID" = "acme",
+    }
+
+    basic_auth {
+      username = convert.nonsensitive(remote.kubernetes.secret.metrics_auth.data["username"])
+      password = remote.kubernetes.secret.metrics_auth.data["password"]
+    }
+
+    tls_config {
+      ca_pem      = convert.nonsensitive(remote.kubernetes.secret.metrics_tls_ca.data["ca.crt"])
+      cert_pem    = convert.nonsensitive(remote.kubernetes.secret.metrics_tls_ca.data["tls.crt"])
+      key_pem     = remote.kubernetes.secret.metrics_tls_ca.data["tls.key"]
+      server_name = "mimir.internal.example"
+    }
+  }
+}

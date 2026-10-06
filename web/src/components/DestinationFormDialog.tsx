@@ -2,6 +2,12 @@ import type { JsonObject } from '@bufbuild/protobuf';
 import { type ReactNode, useState } from 'react';
 import { Field, Input, Select } from '@/components/ui/Field';
 import { Modal, ModalActions } from '@/components/ui/Modal';
+import {
+  DestinationTLSFields,
+  EMPTY_TLS,
+  type TLSFormState,
+  tlsIsSet,
+} from './DestinationTLSFields';
 
 /*
  * The destination create/edit dialog and the auth-mode helpers it shares with
@@ -101,6 +107,8 @@ export interface DestinationFormState {
   scopes: string;
   /** destinations.tenant_id: sent as X-Scope-OrgID when set (#261). */
   tenantId: string;
+  /** extra.tls (#261). */
+  tls: TLSFormState;
 }
 
 export const EMPTY_FORM: DestinationFormState = {
@@ -112,6 +120,7 @@ export const EMPTY_FORM: DestinationFormState = {
   secretName: '',
   scopes: '',
   tenantId: '',
+  tls: EMPTY_TLS,
 };
 
 /**
@@ -194,7 +203,10 @@ export function DestinationFormDialog({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const err = validateUrl(form.url);
+    let err = validateUrl(form.url);
+    if (!err && tlsIsSet(form.tls) && !form.url.toLowerCase().startsWith('https://')) {
+      err = 'TLS options need an https:// URL';
+    }
     setUrlError(err);
     const tErr = validateTenant(form.tenantId.trim());
     setTenantError(tErr);
@@ -303,6 +315,10 @@ export function DestinationFormDialog({
             )}
           </>
         )}
+        <DestinationTLSFields
+          value={form.tls}
+          onChange={(tls) => setForm((f) => ({ ...f, tls }))}
+        />
         <ModalActions
           onCancel={onCancel}
           submitLabel={submitLabel}

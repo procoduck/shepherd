@@ -1640,6 +1640,7 @@ export function installDefaultHandlers(router: Router) {
       secret_name: req['secretName'],
       secret_namespace: req['secretNamespace'],
       auth_mode: req['authMode'],
+      extra: req['extra'] ?? {},
       created_at: '2026-08-17T09:00:00Z',
       updated_at: '2026-08-17T09:00:00Z',
     };

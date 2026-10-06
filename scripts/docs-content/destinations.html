@@ -77,14 +77,67 @@ prometheus.remote_write "metrics" {
 }</code></pre>
       </div>
 
+      <h2 id="tls">TLS from a Secret or ConfigMap</h2>
+      <p>For a backend behind a private CA, or one that requires a client certificate, open
+        <strong>TLS options</strong> on the destination. As with authentication, the certificates
+        stay on the spoke clusters: you name the objects, and the collector reads them at runtime
+        with <code>remote.kubernetes.secret</code> or <code>remote.kubernetes.configmap</code>. TLS
+        options need an <code>https://</code> URL.</p>
+      <table>
+        <thead>
+          <tr><th>Option</th><th>Object</th><th>Keys</th><th>What the writer gets</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Trusted CA</td><td>a ConfigMap or a Secret</td>
+            <td><code>ca.crt</code>, or the key you name</td><td><code>tls_config.ca_pem</code></td></tr>
+          <tr><td>Client certificate</td><td>a Secret</td>
+            <td><code>tls.crt</code>, <code>tls.key</code></td>
+            <td><code>cert_pem</code>, <code>key_pem</code></td></tr>
+          <tr><td>Server name</td><td>&mdash;</td><td>&mdash;</td><td><code>server_name</code></td></tr>
+        </tbody>
+      </table>
+      <ul>
+        <li>The client certificate keys are those of a <code>kubernetes.io/tls</code> Secret, which
+          is what cert-manager writes. A cert-manager Secret also carries <code>ca.crt</code>, so it
+          can serve as both CA and client certificate; the collector then reads it once.</li>
+        <li>Name a different <strong>CA key</strong> for a bundle published under another key, for
+          example a trust-manager <code>Bundle</code> target.</li>
+        <li>The <code>kube-root-ca.crt</code> ConfigMap in every namespace works as the CA when the
+          backend&rsquo;s certificate was issued by the cluster CA.</li>
+        <li>There is no option to skip certificate verification: it would let the Secret-backed
+          credentials above be sent to anyone on the path. Trust the backend&rsquo;s CA
+          instead.</li>
+      </ul>
+      <p>The served config holds only the references and key names:</p>
+      <div class="code-block" data-lang="alloy">
+        <div class="code-head"><span>generated</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>remote.kubernetes.configmap "metrics_tls_ca" {
+  namespace = "monitoring"
+  name      = "backend-ca"
+}
+
+prometheus.remote_write "metrics" {
+  endpoint {
+    name = "prom-prod"
+    url  = "https://mimir.example.com/api/v1/push"
+
+    tls_config {
+      ca_pem      = remote.kubernetes.configmap.metrics_tls_ca.data["ca.crt"]
+      server_name = "mimir.internal.example"
+    }
+  }
+}</code></pre>
+      </div>
+
       <h2 id="rbac">What the collector needs to read the Secret</h2>
       <p>The collector&rsquo;s service account needs <code>get</code> on Secrets in the
         Secret&rsquo;s namespace: <code>remote.kubernetes.secret</code> reads the one named Secret
         with a GET when the config loads and again every minute, and never lists or watches. The
         Grafana Alloy Helm chart, and so k8s-monitoring&rsquo;s collectors, grants Secret access
         cluster-wide by default. If your collectors run with narrower RBAC, grant it in that one
-        namespace; the Role below also grants <code>list</code> and <code>watch</code>, which are
-        not needed:</p>
+        namespace. A destination whose CA is in a ConfigMap needs the same on
+        <code>configmaps</code> in that namespace. The Role below also grants <code>list</code>
+        and <code>watch</code>, which are not needed:</p>
       <div class="code-block" data-lang="yaml">
         <div class="code-head"><span>rbac.yaml</span><button class="copy-btn" type="button">Copy</button></div>
         <pre><code>apiVersion: rbac.authorization.k8s.io/v1

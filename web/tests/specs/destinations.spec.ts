@@ -448,6 +448,73 @@ test("an org without a tenant leaves a new destination's tenant ID empty", async
   ).toHaveValue('');
 });
 
+// #261: the TLS section writes extra.tls — references and key names only —
+// and an edit reads it back.
+test('TLS options are sent as extra.tls and read back on edit', async ({ page, api }) => {
+  await api.loginAs(orgAdmin);
+  const s = basicScenario();
+  api.seed({ orgs: [s.org], destinations: [] });
+  await page.goto('/destinations');
+
+  await page.getByRole('button', { name: /new|create|add destination/i }).click();
+  const dialog = page.getByRole('dialog', { name: 'New destination' });
+  await dialog.getByLabel('Name', { exact: true }).fill('mimir-mtls');
+  await dialog.getByLabel('URL', { exact: true }).fill('https://mimir.example.com/api/v1/push');
+  await dialog.getByRole('button', { name: /TLS options/ }).click();
+  await dialog.getByLabel('Trusted CA').selectOption({ label: 'From a ConfigMap' });
+  await dialog.getByLabel('CA namespace', { exact: true }).fill('cert-manager');
+  await dialog.getByLabel('CA name', { exact: true }).fill('org-trust');
+  await dialog.getByLabel(/CA key/).fill('trust-bundle.pem');
+  await dialog.getByLabel('Present a client certificate').check();
+  await dialog
+    .getByLabel('Client certificate Secret namespace', { exact: true })
+    .fill('monitoring');
+  await dialog.getByLabel('Client certificate Secret name', { exact: true }).fill('collector-mtls');
+  await dialog.getByLabel(/Server name/).fill('mimir.internal.example');
+  await dialog.getByRole('button', { name: /create/i }).click();
+
+  await expect(page.getByRole('cell', { name: 'mimir-mtls', exact: true })).toBeVisible();
+  const creates = api.calls('DestinationService/CreateDestination');
+  expect((creates[0].body as Record<string, unknown>).extra).toEqual({
+    tls: {
+      ca: {
+        kind: 'configmap',
+        namespace: 'cert-manager',
+        name: 'org-trust',
+        key: 'trust-bundle.pem',
+      },
+      client_cert: { namespace: 'monitoring', name: 'collector-mtls' },
+      server_name: 'mimir.internal.example',
+    },
+  });
+
+  await page.getByRole('button', { name: /^Edit / }).click();
+  const edit = page.getByRole('dialog', { name: 'Edit mimir-mtls' });
+  await expect(edit.getByLabel('CA name', { exact: true })).toHaveValue('org-trust');
+  await expect(edit.getByLabel(/CA key/)).toHaveValue('trust-bundle.pem');
+  await expect(edit.getByLabel('Client certificate Secret name', { exact: true })).toHaveValue(
+    'collector-mtls',
+  );
+});
+
+test('TLS options on an http:// URL are refused before submit', async ({ page, api }) => {
+  await api.loginAs(orgAdmin);
+  const s = basicScenario();
+  api.seed({ orgs: [s.org], destinations: [] });
+  await page.goto('/destinations');
+
+  await page.getByRole('button', { name: /new|create|add destination/i }).click();
+  const dialog = page.getByRole('dialog', { name: 'New destination' });
+  await dialog.getByLabel('Name', { exact: true }).fill('mimir-plain');
+  await dialog.getByLabel('URL', { exact: true }).fill('http://mimir.example.com/api/v1/push');
+  await dialog.getByRole('button', { name: /TLS options/ }).click();
+  await dialog.getByLabel(/Server name/).fill('mimir.internal.example');
+  await dialog.getByRole('button', { name: /create/i }).click();
+
+  await expect(dialog.getByText('TLS options need an https:// URL')).toBeVisible();
+  expect(api.calls('DestinationService/CreateDestination')).toHaveLength(0);
+});
+
 test('a tenant ID outside the allowed characters is refused before submit', async ({
   page,
   api,
