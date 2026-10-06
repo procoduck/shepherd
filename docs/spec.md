@@ -648,7 +648,10 @@ whole, so saving any one of them also starts sending a tenant stored earlier on 
 form pre-fills a new destination's tenant from it. This is egress from the org's own
 collectors, which an org editor could already tag with any header in a raw pipeline; it does not
 touch the gateway tier's ingress tenancy (D10/D11, `docs/plans/2026-10-06-destination-tenant-tls.md`
-§2). A tenant already stored before #261 reaches a pipeline on its next regeneration.
+§2). A tenant already stored before #261 reaches a pipeline on its next regeneration, or when an
+operator runs `shepherd admin rerender-destinations --all` (dry run unless `--apply`; lists each
+org's destinations with a tenant and the wizard pipelines whose render differs, regenerates them
+through the same gate, never overwrites a hand edit; `UPGRADING.md` 0.19.x → 0.20.0).
 
 **TLS (#261).** `extra.tls` (`wizard.ExtraKeyTLS`, no proto change) names objects on the spoke,
 never certificate material: `{"ca": {"kind": "configmap"|"secret", "namespace", "name", "key"?},
