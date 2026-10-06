@@ -20,6 +20,9 @@ var renderedAttrs = []wizardtest.AttrPath{
 	{Component: "loki.source.kubernetes", Path: []string{"forward_to"}},
 
 	{Component: "loki.process", Path: []string{"forward_to"}},
+	{Component: "loki.process", Path: []string{"stage.logfmt", "mapping"}},
+	{Component: "loki.process", Path: []string{"stage.json", "expressions"}},
+	{Component: "loki.process", Path: []string{"stage.labels", "values"}},
 
 	{Component: "loki.write", Path: []string{"endpoint", "name"}},
 	{Component: "loki.write", Path: []string{"endpoint", "url"}},

@@ -63,16 +63,9 @@ func dockerAlloyShim() string {
 	if err != nil {
 		return ""
 	}
-	image := "grafana/alloy:" + strings.TrimPrefix(version.AlloySchemaVersion, "alloy-")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-	//nolint:gosec // docker's path comes from exec.LookPath, not user input;
-	// image is grafana/alloy:<pinned version constant>, never operator text.
-	if err := exec.CommandContext(ctx, docker, "image", "inspect", image).Run(); err != nil {
-		//nolint:gosec // same docker/image provenance as the inspect call above.
-		if err := exec.CommandContext(ctx, docker, "pull", "--quiet", image).Run(); err != nil {
-			return ""
-		}
+	image, ok := ensurePinnedImage(docker)
+	if !ok {
+		return ""
 	}
 	dir, err := os.MkdirTemp("", "shepherd-wizard-alloy-")
 	if err != nil {
@@ -93,4 +86,28 @@ exec %q run --rm -v "$dir:/work:ro" %s validate --stability.level=experimental "
 		return ""
 	}
 	return path
+}
+
+// pinnedImage is the grafana/alloy image tag matching the schema this build
+// serves: version.AlloySchemaVersion stripped of its "alloy-" prefix, the
+// same derivation internal/visual/render_test.go uses.
+func pinnedImage() string {
+	return "grafana/alloy:" + strings.TrimPrefix(version.AlloySchemaVersion, "alloy-")
+}
+
+// ensurePinnedImage makes sure the pinned image is present locally, pulling
+// it when it is not. It reports false when neither works.
+func ensurePinnedImage(docker string) (string, bool) {
+	image := pinnedImage()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	//nolint:gosec // docker's path comes from exec.LookPath, not user input;
+	// image is grafana/alloy:<pinned version constant>, never operator text.
+	if err := exec.CommandContext(ctx, docker, "image", "inspect", image).Run(); err != nil {
+		//nolint:gosec // same docker/image provenance as the inspect call above.
+		if err := exec.CommandContext(ctx, docker, "pull", "--quiet", image).Run(); err != nil {
+			return "", false
+		}
+	}
+	return image, true
 }

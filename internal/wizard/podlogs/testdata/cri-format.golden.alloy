@@ -7,7 +7,7 @@ discovery.relabel "pods" {
 
   rule {
     source_labels = ["__meta_kubernetes_namespace"]
-    regex         = "staging-.*"
+    regex         = "prod-.*"
     action        = "keep"
   }
 }
@@ -20,18 +20,12 @@ loki.source.kubernetes "pods" {
 loki.process "pods" {
   forward_to = [loki.write.logs.receiver]
 
-  stage.json {
-    expressions = { level = "" }
-  }
-
-  stage.labels {
-    values = { level = "" }
-  }
+  stage.cri {}
 }
 
 loki.write "logs" {
   endpoint {
-    name = "loki-staging"
-    url  = "https://loki.staging.example.com/loki/api/v1/push"
+    name = "loki-prod"
+    url  = "https://loki.prod.example.com/loki/api/v1/push"
   }
 }

@@ -17,6 +17,15 @@ func init() {
 	wizard.Register(&Wizard{})
 }
 
+// logFormats is the log_format select's option set. Anything else is refused
+// rather than rendered: this wizard once interpolated the value straight into
+// `stage.<format> {}`, so "raw" became a stage.raw block no Alloy has.
+var logFormats = map[string]bool{
+	"logfmt":            true,
+	"json":              true,
+	wizard.LogFormatRaw: true,
+}
+
 // Wizard generates a full-stack observability pipeline.
 type Wizard struct{}
 
@@ -174,19 +183,38 @@ func (w *Wizard) Commit(state map[string]any, dests wizard.Destinations) (wizard
 
 	// Optional log collection.
 	if logsEnabled && logPath != "" {
+		if !logFormats[logFormat] {
+			return wizard.CommitResult{}, fmt.Errorf(
+				"log_format %q is not supported, want one of: logfmt|json|raw", logFormat)
+		}
+		stages, err := wizard.LogParseStages(logFormat)
+		if err != nil {
+			return wizard.CommitResult{}, fmt.Errorf("log_format: %w", err)
+		}
+		// The file source feeds the parser when there is something to parse,
+		// the writer directly when there is not ("raw"). This wizard once
+		// always forwarded the source straight to the writer, so the
+		// loki.process block it emitted alongside never received a line.
+		sourceTo := "loki.write.logs.receiver"
+		if stages != "" {
+			sourceTo = "loki.process.app_process.receiver"
+		}
 		_, _ = fmt.Fprintf(&sb, `loki.source.file "app_logs" {
   targets = [
     {__path__ = "%s", job = "%s"},
   ]
-  forward_to = [loki.write.logs.receiver]
+  forward_to = [%s]
 }
 
-loki.process "app_process" {
+`, logPath, jobName, sourceTo)
+		if stages != "" {
+			_, _ = fmt.Fprintf(&sb, `loki.process "app_process" {
   forward_to = [loki.write.logs.receiver]
-  stage.%s {}
-}
 
-`, logPath, jobName, logFormat)
+%s}
+
+`, stages)
+		}
 		logsWriter, err := wizard.RenderWriter(wizard.WriterLoki, "logs", dests, logsDest)
 		if err != nil {
 			return wizard.CommitResult{}, fmt.Errorf("logs_dest_name: %w", err)

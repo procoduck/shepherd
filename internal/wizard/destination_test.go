@@ -73,6 +73,14 @@ func TestWriterGoldensAgainstRealAlloy(t *testing.T) {
 	wizardtest.AssertGoldensAgainstRealAlloy(t, "testdata")
 }
 
+// TestWriterGoldensLoadInRealAlloy starts the pinned Alloy image on every
+// writer golden and requires the initial load to succeed: remote.kubernetes.secret
+// fetches its Secret while being built, which `alloy validate` never does —
+// see wizardtest.AssertGoldensLoadInRealAlloy's doc.
+func TestWriterGoldensLoadInRealAlloy(t *testing.T) {
+	wizardtest.AssertGoldensLoadInRealAlloy(t, "testdata")
+}
+
 // TestRenderWriterAuthShape pins the security property of the contract
 // rather than the bytes: a Secret mode references the Secret by namespace/name
 // and its keys only, a credential value can never be in the output (there is

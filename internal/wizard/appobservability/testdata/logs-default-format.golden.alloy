@@ -20,8 +20,8 @@ loki.source.file "app_logs" {
 loki.process "app_process" {
   forward_to = [loki.write.logs.receiver]
 
-  stage.json {
-    expressions = { level = "" }
+  stage.logfmt {
+    mapping = { level = "" }
   }
 
   stage.labels {

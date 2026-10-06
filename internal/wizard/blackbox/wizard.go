@@ -37,24 +37,25 @@ func (w *Wizard) Kind() string { return Kind }
 // is prom.metrics, regardless of state.
 func (w *Wizard) Role(map[string]any) string { return role }
 
-// modules lists the blackbox exporter's built-in default modules this
-// wizard is willing to select. The blackbox_exporter binary Alloy embeds
-// ships built-in default modules when no config_file/config override is
-// given (this wizard deliberately never sets either), but WHICH names those
-// defaults carry is a fact about prometheus/blackbox_exporter's own
-// modules.yml — not something internal/schema/artifacts' Alloy component
-// schema declares or the pinned `alloy validate` binary checks (a bad
-// module name is a probe-time failure, invisible to config validation). Per
-// docs/gateway-tier-plan.md §8 rule 6 ("verify version-dependent facts
-// against pinned artifacts... never memory"), this list is deliberately
-// kept to the two module names documented and used verbatim in Grafana's
-// own published k8s-monitoring/blackbox examples (http_2xx, tcp_connect)
-// rather than a longer list this package cannot verify the same way it
-// verifies component/attribute names. Widen it only alongside a citable
-// source for the additional name.
-var modules = map[string]bool{
-	"http_2xx":    true,
-	"tcp_connect": true,
+// modules maps each probe module this wizard offers to the blackbox_exporter
+// module definition it renders into the exporter's `config` attribute.
+//
+// The definition is not optional. This wizard once set neither `config` nor
+// `config_file`, on the belief that the embedded exporter falls back to
+// built-in default modules. It does not: prometheus.exporter.blackbox's
+// Validate refuses that ("config or config_file must be set", Alloy v1.20.1
+// prometheus/exporter/blackbox/blackbox.go) — but only while the component
+// is built, so `alloy validate` accepted every golden and every collector
+// serving the pipeline refused it. wizardtest.AssertGoldensLoadInRealAlloy
+// (a real `alloy run`) is what pins this now; it also strict-parses the YAML
+// below, so a malformed definition fails there, not on a collector.
+//
+// The two definitions are blackbox_exporter's own example modules
+// (example.yml: http_2xx = prober http, tcp_connect = prober tcp) with a 5s
+// probe timeout, which is also the Alloy docs' inline `config` example.
+var modules = map[string]string{
+	"http_2xx":    "http_2xx: { prober: http, timeout: 5s }",
+	"tcp_connect": "tcp_connect: { prober: tcp, timeout: 5s }",
 }
 
 // Schema returns the wizard's input schema.
@@ -131,7 +132,8 @@ func (w *Wizard) Commit(state map[string]any, dests wizard.Destinations) (wizard
 	if module == "" {
 		module = "http_2xx"
 	}
-	if !modules[module] {
+	moduleDef, ok := modules[module]
+	if !ok {
 		return wizard.CommitResult{}, fmt.Errorf(
 			"module %q is not a built-in blackbox_exporter module this wizard supports, want one of: http_2xx|tcp_connect", module)
 	}
@@ -150,8 +152,10 @@ func (w *Wizard) Commit(state map[string]any, dests wizard.Destinations) (wizard
 
 	var sb strings.Builder
 
-	_, _ = sb.WriteString(`prometheus.exporter.blackbox "probes" {
-`)
+	_, _ = fmt.Fprintf(&sb, `prometheus.exporter.blackbox "probes" {
+  config = %q
+
+`, "{ modules: { "+moduleDef+" } }")
 	for i, addr := range targets {
 		_, _ = fmt.Fprintf(&sb, `  target {
     name    = %q

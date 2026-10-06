@@ -1,4 +1,6 @@
 prometheus.exporter.blackbox "probes" {
+  config = "{ modules: { http_2xx: { prober: http, timeout: 5s } } }"
+
   target {
     name    = "https-example-com"
     address = "https://example.com"

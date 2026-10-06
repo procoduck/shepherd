@@ -11,3 +11,11 @@ import (
 func TestGoldensAgainstRealAlloy(t *testing.T) {
 	wizardtest.AssertGoldensAgainstRealAlloy(t, "testdata")
 }
+
+// TestGoldensLoadInRealAlloy starts the pinned Alloy image on every golden
+// and requires the initial load to succeed — the component-construction
+// rules `alloy validate` never reaches; see
+// wizardtest.AssertGoldensLoadInRealAlloy's doc.
+func TestGoldensLoadInRealAlloy(t *testing.T) {
+	wizardtest.AssertGoldensLoadInRealAlloy(t, "testdata")
+}

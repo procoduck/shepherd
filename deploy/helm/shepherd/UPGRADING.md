@@ -44,6 +44,19 @@ destination's URL in Shepherd is the full push URL (`…/api/v1/push`,
 Nothing runs this at startup: it changes what the fleet is served, so it is
 your step to take.
 
+**The same command repairs three wizard templates.** Before this release some
+wizard output passed validation but was refused by a running Alloy when it
+loaded the config: App Observability with log collection on (`stage.logfmt {}`
+/ `stage.json {}`, plus a `loki.process` stage nothing fed), Pod Logs with the
+`logfmt` or `json` format, and every Blackbox pipeline (no module `config`). A
+collector served one of these refuses the config with a `Failed to build
+component` error. Every pipeline generated before this release carries the
+`sys.env(...)` writer, so `rerender-destinations` regenerates it with the fixed
+templates too — there is no separate step. If you had hand-fixed one of these
+pipelines in the editor, the regeneration replaces your edit with the wizard's
+output (a `level` label for logfmt/json, the module's definition for Blackbox);
+your version stays in the pipeline's revisions if you want to restore it.
+
 ### Kubernetes 1.32 or newer
 
 The chart's `kubeVersion` floor moves from 1.29 to **1.32**, the lowest version

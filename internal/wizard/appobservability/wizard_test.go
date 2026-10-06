@@ -68,6 +68,36 @@ var _ = Describe("AppObservabilityWizard golden files", func() {
 			// exact silent role/signal mismatch the gate exists to catch.
 			"role": "singleton",
 		}),
+		// log_format omitted: the schema's default, logfmt. This is the
+		// shape that shipped as a bare `stage.logfmt {}` — accepted by
+		// `alloy validate`, refused by a running Alloy ("logfmt mapping or
+		// regex is required"). TestGoldensLoadInRealAlloy now loads it.
+		Entry("logs-default-format", "logs-default-format", map[string]any{
+			"scrape_url":        "http://app:9090/metrics",
+			"job_name":          "app",
+			"scrape_interval":   "30s",
+			"logs_enabled":      true,
+			"log_path":          "/var/log/app/*.log",
+			"metrics_dest_name": "prom-prod",
+			"logs_dest_name":    "loki-prod",
+			"cluster_pattern":   "prod-.*",
+			"role":              "singleton",
+		}),
+		// raw: nothing to parse, so no loki.process at all — the file source
+		// forwards straight to the writer (it once rendered `stage.raw {}`,
+		// a block no Alloy has).
+		Entry("logs-raw", "logs-raw", map[string]any{
+			"scrape_url":        "http://app:9090/metrics",
+			"job_name":          "app",
+			"scrape_interval":   "30s",
+			"logs_enabled":      true,
+			"log_path":          "/var/log/app/*.log",
+			"log_format":        "raw",
+			"metrics_dest_name": "prom-prod",
+			"logs_dest_name":    "loki-prod",
+			"cluster_pattern":   "prod-.*",
+			"role":              "singleton",
+		}),
 		// Secret-mode destinations (#229): the metrics writer reads basic
 		// auth, the logs writer OAuth2 client credentials, from Secrets on
 		// the spoke — wizardtest.Destinations' prom-basic and loki-oauth.
@@ -84,6 +114,36 @@ var _ = Describe("AppObservabilityWizard golden files", func() {
 			"role":              "singleton",
 		}),
 	)
+
+	It("refuses a log_format outside the select's options rather than rendering it as a stage", func() {
+		_, err := wiz.Commit(map[string]any{
+			"scrape_url": "http://app:9090/metrics", "metrics_dest_name": "prom-prod",
+			"logs_enabled": true, "log_path": "/var/log/app/*.log", "log_format": "yaml",
+			"logs_dest_name": "loki-prod", "role": "singleton",
+		}, wizardtest.Destinations())
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("log_format"))
+	})
+
+	It("offers exactly the log formats Commit accepts", func() {
+		var options []string
+		for _, step := range wiz.Schema().Steps {
+			for _, f := range step.Fields {
+				if f.Name == "log_format" {
+					options = f.Options
+				}
+			}
+		}
+		Expect(options).NotTo(BeEmpty(), "the log_format field disappeared — this spec would pass vacuously")
+		for _, format := range options {
+			_, err := wiz.Commit(map[string]any{
+				"scrape_url": "http://app:9090/metrics", "metrics_dest_name": "prom-prod",
+				"logs_enabled": true, "log_path": "/var/log/app/*.log", "log_format": format,
+				"logs_dest_name": "loki-prod", "role": "singleton",
+			}, wizardtest.Destinations())
+			Expect(err).NotTo(HaveOccurred(), "log_format option %q is offered but Commit refuses it", format)
+		}
+	})
 })
 
 // A select field that offers a choice no valid state can commit is a dead end
