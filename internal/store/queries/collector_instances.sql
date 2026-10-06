@@ -89,10 +89,15 @@ SELECT * FROM collector_instances WHERE id = $1;
 -- name: GetLatestCollectorInstanceSummary :one
 -- Status, last-seen, and version of the most recently reporting live
 -- instance for a collector, in a single round trip (used by the collector
--- list endpoint instead of N per-row status-only lookups).
-SELECT remote_config_status, last_seen, alloy_version, local_attributes FROM collector_instances
-WHERE collector_id = $1 AND unregistered_at IS NULL
-ORDER BY last_seen DESC
+-- list endpoint instead of N per-row status-only lookups). status_hash and
+-- served_hash let the reader tell an outcome about the config being served
+-- from one about an earlier config (docs/proofs/applied-status.md).
+SELECT ci.remote_config_status, ci.last_seen, ci.alloy_version, ci.local_attributes,
+       ci.remote_config_status_hash AS status_hash, sc.hash AS served_hash
+FROM collector_instances ci
+LEFT JOIN serve_cache sc ON sc.collector_id = ci.collector_id
+WHERE ci.collector_id = $1 AND ci.unregistered_at IS NULL
+ORDER BY ci.last_seen DESC
 LIMIT 1;
 
 -- name: ListLatestLocalAttributesByOrg :many
@@ -130,11 +135,14 @@ ORDER BY ci.collector_id, ci.last_seen DESC NULLS LAST;
 
 -- name: ListCollectorInstancesByCollector :many
 -- All live (still-registered) instances reporting under a collector,
--- newest last_seen first, for the collector detail view.
-SELECT name, alloy_version, os, last_seen, remote_config_status, remote_config_error, local_attributes
-FROM collector_instances
-WHERE collector_id = $1 AND unregistered_at IS NULL
-ORDER BY last_seen DESC NULLS LAST;
+-- newest last_seen first, for the collector detail view. status_hash and
+-- served_hash: see GetLatestCollectorInstanceSummary.
+SELECT ci.name, ci.alloy_version, ci.os, ci.last_seen, ci.remote_config_status, ci.remote_config_error,
+       ci.local_attributes, ci.remote_config_status_hash AS status_hash, sc.hash AS served_hash
+FROM collector_instances ci
+LEFT JOIN serve_cache sc ON sc.collector_id = ci.collector_id
+WHERE ci.collector_id = $1 AND ci.unregistered_at IS NULL
+ORDER BY ci.last_seen DESC NULLS LAST;
 
 -- name: CountActiveInstances :one
 -- Feeds the shepherd_active_collectors gauge: registered instances that are
