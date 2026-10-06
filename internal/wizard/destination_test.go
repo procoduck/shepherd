@@ -1,6 +1,7 @@
 package wizard_test
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -166,6 +167,9 @@ func TestRenderWriterRefusals(t *testing.T) {
 		{"secret mode without namespace", wizard.WriterPrometheus, with(func(d *wizard.Destination) { d.SecretNamespace = "" }), "d", "secret_namespace"},
 		{"secret mode without name", wizard.WriterPrometheus, with(func(d *wizard.Destination) { d.SecretName = "" }), "d", "secret_name"},
 		{"secret name injection", wizard.WriterPrometheus, with(func(d *wizard.Destination) { d.SecretName = `x" }` }), "d", "secret_name"},
+		{"stored row did not load", wizard.WriterPrometheus, with(func(d *wizard.Destination) {
+			d.LoadErr = errors.New("extra.oauth2_scopes must be a list of strings")
+		}), "d", `destination "d": extra.oauth2_scopes`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

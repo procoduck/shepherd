@@ -640,7 +640,9 @@ path. Pre-#229 wizards emitted `sys.env("SHEPHERD_DEST_<NAME>_URL")`, which noth
 OAuth2 scopes are not a Secret key. Shepherd never reads the Secret, so it cannot render an optional
 key conditionally. Scopes are non-sensitive destination metadata, `extra.oauth2_scopes` (a list of
 strings). The API refuses (`invalid_argument`) an unknown `auth_mode`, and a Secret mode without a
-valid Kubernetes namespace and name.
+valid Kubernetes namespace and name. A stored row whose `extra` does not decode (written before that
+validation, or by a path that skipped the API) is refused only by the wizard renders that name it,
+never by every render in the org (#261).
 
 **When it is rendered.** At wizard render/commit time (`RenderWizard`/`CommitWizard` load the org's
 destinations), so the auth block is part of the stored pipeline and passes Stages 1–3 like any other
