@@ -8,6 +8,8 @@ interface Org {
   display_name: string;
   admin_group_id: string;
   reader_group_id?: string;
+  // orgs.tenant_id (D11); GetMe returns it on the membership (#261).
+  tenant_id?: string;
   created_at: string;
   updated_at: string;
 }

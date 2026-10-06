@@ -183,4 +183,48 @@ var _ = Describe("MeService GetMe role resolution", Label("integration"), func()
 		}
 		Expect(found).To(BeTrue(), "org membership by team should have appeared in GetMe's org list")
 	})
+
+	// #261 (maintainer decision 2026-10-06): OrgMembership carries the org's
+	// own orgs.tenant_id so the destination form can pre-fill it for a
+	// member who cannot read the org row. Red run: before the field existed
+	// the membership had no tenantId.
+	It("returns the org's own tenant to a member, and none for an org without one", func() {
+		withTenant, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
+			Name: "me-tenant-acme", DisplayName: "Acme", AdminGroupID: "me-tenant-admins",
+			ReaderGroupID: pgtype.Text{String: "me-tenant-readers", Valid: true},
+			TenantID:      pgtype.Text{String: "acme", Valid: true},
+		})
+		Expect(err).NotTo(HaveOccurred())
+		without, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
+			Name: "me-tenant-none", DisplayName: "No tenant", AdminGroupID: "me-tenant-none-admins",
+			ReaderGroupID: pgtype.Text{String: "me-tenant-readers", Valid: true},
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		groupsJSON, err := json.Marshal([]string{"me-tenant-readers"})
+		Expect(err).NotTo(HaveOccurred())
+		sessionID := fmt.Sprintf("me-tenant-session-%d", time.Now().UnixNano())
+		_, err = st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
+			ID: sessionID, UserOid: "me-tenant-user", Email: "me-tenant@example.com", DisplayName: "Reader",
+			GroupIds: groupsJSON, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
+			Source: "test",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		resp := postConnect("/shepherd.mgmt.v1.MeService/GetMe", map[string]any{}, &http.Cookie{Name: "shepherd_session", Value: sessionID})
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		orgs, ok := decodeBody(resp)["orgs"].([]any)
+		Expect(ok).To(BeTrue())
+		byID := map[string]map[string]any{}
+		for _, e := range orgs {
+			entry, ok := e.(map[string]any)
+			Expect(ok).To(BeTrue())
+			id, _ := entry["id"].(string) //nolint:errcheck // asserted via the map lookups below
+			byID[id] = entry
+		}
+		Expect(byID).To(HaveKey(withTenant.ID.String()))
+		Expect(byID).To(HaveKey(without.ID.String()))
+		Expect(byID[withTenant.ID.String()]).To(HaveKeyWithValue("tenantId", "acme"))
+		Expect(byID[without.ID.String()]).NotTo(HaveKey("tenantId"), "an org without a tenant reports none")
+	})
 })
