@@ -64,5 +64,14 @@ test.describe('auth-journey', () => {
     await context.clearCookies();
     await page.goto('/pipelines');
     await expect(page).toHaveURL(/\/login/);
+
+    // #250: the deep link survives the sign-in round trip — the shell sent
+    // the user to /login?next=/pipelines, and signing in returns there
+    // rather than to the overview.
+    expect(new URL(page.url()).searchParams.get('next')).toBe('/pipelines');
+    await page.getByTestId('local-username').fill('admin');
+    await page.getByTestId('local-password').fill('admin');
+    await page.getByTestId('local-login-submit').click();
+    await expect(page).toHaveURL('/pipelines');
   });
 });

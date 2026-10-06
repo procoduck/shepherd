@@ -23,8 +23,10 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { buildCrumbs } from '@/components/breadcrumb';
+import { useCrumbNames } from '@/components/useCrumbNames';
 import { useMe } from '@/hooks/useMe';
 import { useOrg } from '@/hooks/useOrg';
+import { currentReturnPath, loginHref } from '@/lib/returnPath';
 import { cn } from '@/lib/utils';
 import { requiredRoleFor, roleSatisfied, routeManifest } from '@/routes/routeManifest';
 import { applyTheme, resolveTheme, setStoredTheme, type Theme } from '@/theme';
@@ -103,7 +105,8 @@ export function Shell() {
   // All effects must be before any conditional return (Rules of Hooks)
   useEffect(() => {
     if (!isLoading && me === null) {
-      window.location.href = '/login';
+      // #250: remember where the user was going, so signing in returns there.
+      window.location.href = loginHref(currentReturnPath());
     }
   }, [me, isLoading]);
 
@@ -153,24 +156,9 @@ export function Shell() {
     navigate({ to: '/login' });
   }
 
-  // Reads whatever's already cached rather than fetching — a breadcrumb is
-  // not worth a network round trip. Only the pipeline id routes specialize
-  // today; every other dynamic segment falls back to buildCrumbs' generic
-  // route label (e.g. 'Collector').
-  function resolveCrumbName(
-    route: { path: string },
-    params: Record<string, string>,
-  ): string | undefined {
-    if (
-      route.path === '/pipelines/$id' ||
-      route.path === '/pipelines/$id/visual' ||
-      route.path === '/pipelines/$id/graph'
-    ) {
-      const pipeline = queryClient.getQueryData<{ name?: string }>(['pipeline', orgId, params.id]);
-      return pipeline?.name;
-    }
-    return undefined;
-  }
+  // #250: detail routes name their item (the pipeline, collector or wizard)
+  // instead of the generic "Pipeline" / "Collector" / "Wizard" label.
+  const resolveCrumbName = useCrumbNames(location.pathname, orgId);
   const crumbs = buildCrumbs(location.pathname, routeManifest, resolveCrumbName);
 
   if (isLoading) return null;
@@ -269,6 +257,18 @@ export function Shell() {
             </span>
           </nav>
           <div className='flex items-center gap-2'>
+            {/* #250: a user in one org has nothing to switch, but should
+                still see which org they are working in. */}
+            {orgs.length === 1 && (
+              <span
+                data-testid='org-name'
+                title='Organization'
+                className='flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted'
+              >
+                <Building2 size={12} className='shrink-0' aria-hidden='true' />
+                {orgs[0].displayName || orgs[0].name}
+              </span>
+            )}
             {orgs.length > 1 && (
               <select
                 data-testid='org-switcher'

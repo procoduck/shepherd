@@ -4,6 +4,7 @@ import { Shield } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useAuthMethods } from '@/hooks/useAuthMethods';
 import { useMe } from '@/hooks/useMe';
+import { nextFromLocation, oidcLoginHref } from '@/lib/returnPath';
 
 export function LoginPage() {
   const { data: me, isLoading } = useMe();
@@ -13,12 +14,15 @@ export function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState(false);
+  // #250: where the user was headed when the shell sent them here. Validated
+  // (safeReturnPath) before it is used for anything; null means "/".
+  const [next] = useState(nextFromLocation);
 
   useEffect(() => {
     if (!isLoading && me !== null && me !== undefined) {
-      navigate({ to: '/' });
+      navigate({ href: next ?? '/' });
     }
-  }, [me, isLoading, navigate]);
+  }, [me, isLoading, navigate, next]);
 
   async function handleLocalLogin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -44,7 +48,7 @@ export function LoginPage() {
       navigate({ to: '/change-password', search: { required: true } });
       return;
     }
-    navigate({ to: '/' });
+    navigate({ href: next ?? '/' });
   }
 
   if (methodsLoading) {
@@ -85,7 +89,7 @@ export function LoginPage() {
           <>
             <a
               data-testid='oidc-login-btn'
-              href='/auth/login'
+              href={oidcLoginHref(next)}
               className='flex w-full items-center justify-center gap-2 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 transition-colors'
             >
               Continue with {providerName}

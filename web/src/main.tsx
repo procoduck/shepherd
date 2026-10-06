@@ -36,7 +36,9 @@ ReactDOM.createRoot(document.getElementById('root')!, {
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
-      <Toaster richColors position='top-right' />
+      {/* Bottom-right, not top-right: at the top they sat over the header's
+          org switcher and sign-out (#250). */}
+      <Toaster richColors position='bottom-right' />
     </QueryClientProvider>
   </React.StrictMode>,
 );

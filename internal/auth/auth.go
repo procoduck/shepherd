@@ -425,10 +425,15 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		Secure:   !h.cfg.Auth.InsecureCookies,
 	})
+	// #250: the page the user was sent here from, carried to the callback.
+	// Validated before it is stored and again when it is read back.
+	h.setReturnCookie(w, r.URL.Query().Get("next"))
 	http.Redirect(w, r, rt.oauth2.AuthCodeURL(state, oauth2.S256ChallengeOption(verifierStr), oidc.Nonce(nonce)), http.StatusFound)
 }
 
-// CallbackHandler handles the OIDC callback, creates a session, and redirects to /.
+// CallbackHandler handles the OIDC callback, creates a session, and redirects
+// to the page the sign-in started from (oidcReturnPath), or / when there is
+// none.
 func (h *Handler) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	// Refreshed here as well as in LoginHandler: with more than one replica,
 	// the callback can land on a process that has never served /auth/login and
@@ -455,6 +460,8 @@ func (h *Handler) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	nonce := parts[2]
 
 	http.SetCookie(w, &http.Cookie{Name: "oidc_state", MaxAge: -1, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: !h.cfg.Auth.InsecureCookies}) //nolint:gosec // G124: all attributes set
+	returnTo := oidcReturnPath(r)
+	h.clearReturnCookie(w)
 
 	// The code exchange posts to the token endpoint the discovery document
 	// named, so it goes through the issuer source's client like the JWKS
@@ -543,7 +550,7 @@ func (h *Handler) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/?auth_error=1", http.StatusFound)
 		return
 	}
-	http.Redirect(w, r, "/", http.StatusFound)
+	http.Redirect(w, r, returnTo, http.StatusFound) //nolint:gosec // G710: oidcReturnPath only returns "/" or a SafeReturnPath-validated same-origin relative path (returnpath.go, returnpath_test.go)
 }
 
 // resolveGroups produces the group list a session is authorized from.
