@@ -13,6 +13,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -262,9 +263,9 @@ func TestDestinationTenantTLS(t *testing.T) {
 					}
 				}
 
-				commit := func(name string, state map[string]any) {
+				commit := func(kind, name string, state map[string]any) {
 					p, err := api.wizards.CommitWizard(ctx, connect.NewRequest(&mgmtv1.CommitWizardRequest{
-						OrgId: orgID, Kind: "app-observability", Name: name, State: mustStruct(state),
+						OrgId: orgID, Kind: kind, Name: name, State: mustStruct(state),
 					}))
 					if err != nil {
 						t.Fatalf("CommitWizard %s: %v", name, err)
@@ -275,15 +276,17 @@ func TestDestinationTenantTLS(t *testing.T) {
 						t.Fatalf("EnablePipeline %s: %v", name, err)
 					}
 				}
-				// Alloy's own metrics endpoint is something real to scrape;
-				// the sidecar appends to logPath every second.
-				commit(appPipeline, map[string]any{
-					"scrape_url": "localhost:12345", "job_name": "dest-tls", "scrape_interval": "10s",
+				// self-monitoring: Alloy's own metrics, plus loki.source.file
+				// on logPath, which the sidecar appends to every second. (Not
+				// app-observability's logs path: its default `stage.logfmt {}`
+				// fails to build in a real Alloy — a separate, pre-existing bug.)
+				commit("self-monitoring", appPipeline, map[string]any{
+					"job_name": "dest-tls", "scrape_interval": "10s",
 					"metrics_dest_name": "sink-prom",
 					"logs_enabled":      true, "log_path": logPath, "logs_dest_name": "sink-loki",
-					"cluster_pattern": cluster, "role": "singleton",
+					"cluster_pattern": cluster,
 				})
-				commit(wrongCAPipeline, map[string]any{
+				commit("app-observability", wrongCAPipeline, map[string]any{
 					"scrape_url": "localhost:12345", "job_name": "dest-tls-wrong", "scrape_interval": "10s",
 					"metrics_dest_name": "sink-wrong-ca", "logs_enabled": false,
 					"cluster_pattern": cluster, "role": "singleton",
@@ -291,10 +294,22 @@ func TestDestinationTenantTLS(t *testing.T) {
 
 				end := time.Now().Add(3 * time.Minute)
 				var content, status string
+				// remote_config_status alone is not enough: it can still say
+				// APPLIED for the previous (empty) config while Alloy refuses
+				// the new one. Alloy's own log must show the non-empty config
+				// loaded, and no refusal.
 				applied := func() bool {
-					return status == "APPLIED" &&
-						strings.Contains(content, `declare "pipe_dest_tls_app"`) &&
-						strings.Contains(content, `declare "pipe_dest_tls_wrong_ca"`)
+					if status != "APPLIED" ||
+						!strings.Contains(content, `declare "pipe_dest_tls_app"`) ||
+						!strings.Contains(content, `declare "pipe_dest_tls_wrong_ca"`) {
+						return false
+					}
+					logs := kubectlArgv(cfg, "-n", alloyNS, "logs", "deploy/"+alloyName, "-c", "alloy")
+					if strings.Contains(logs, "failed to parse and load new remote configuration") {
+						t.Fatalf("Alloy refused the served config\n--- served ---\n%s\n--- alloy logs ---\n%s", content,
+							kubectlArgv(cfg, "-n", alloyNS, "logs", "deploy/"+alloyName, "-c", "alloy", "--tail=40"))
+					}
+					return loadedNonEmptyRemoteConfigRE.MatchString(logs)
 				}
 				for time.Now().Before(end) {
 					if sc, err := api.fleet.GetServedConfig(ctx, connect.NewRequest(&mgmtv1.GetServedConfigRequest{OrgId: orgID, Id: collectorID})); err == nil {
@@ -400,6 +415,10 @@ func TestDestinationTenantTLS(t *testing.T) {
 
 	testenv.Test(t, feat)
 }
+
+// loadedNonEmptyRemoteConfigRE is Alloy's log line for a remote config it
+// loaded that is not the empty one it starts with.
+var loadedNonEmptyRemoteConfigRE = regexp.MustCompile(`successfully loaded remote configuration.*config_size=[1-9]`)
 
 // destTLSPKI is the test's private PKI: a CA, the sink's server certificate
 // and the collector's client certificate issued by it, and an unrelated CA.
