@@ -1,11 +1,9 @@
-import { timestampDate } from '@bufbuild/protobuf/wkt';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import {
   AlertTriangle,
   ArrowLeft,
   CheckCircle2,
-  ChevronDown,
   PlayCircle,
   Save,
   Wand2,
@@ -16,12 +14,15 @@ import { toast } from 'sonner';
 import { clients, toApiError } from '@/api/transport';
 import { DetachFromWizard } from '@/components/DetachFromWizard';
 import { MatcherSuggestions } from '@/components/MatcherSuggestions';
+import { PipelineActions } from '@/components/PipelineActions';
+import { PipelineOwner } from '@/components/PipelineOwner';
+import { RevisionHistory } from '@/components/RevisionHistory';
 import { Input } from '@/components/ui/Field';
 import { Modal, ModalActions } from '@/components/ui/Modal';
 import { diffStats } from '@/editor/diffStats';
 import { AlloyEditor, RevisionDiff } from '@/editor/LazyAlloyEditor';
 import type { Diagnostic } from '@/gen/shepherd/mgmt/v1/common_pb';
-import { useCanWrite, useOrgId } from '@/hooks/useOrg';
+import { useCanAdminister, useCanWrite, useOrgId } from '@/hooks/useOrg';
 
 export function PipelineEditorPage() {
   const { id } = useParams({ strict: false }) as { id?: string };
@@ -30,6 +31,8 @@ export function PipelineEditorPage() {
   const qc = useQueryClient();
   const orgId = useOrgId();
   const canWrite = useCanWrite();
+  // Gates the owning-team picker: SetPipelineOwner is org admin only.
+  const canAdminister = useCanAdminister();
 
   const [name, setName] = useState('');
   const [contents, setContents] = useState('');
@@ -40,7 +43,6 @@ export function PipelineEditorPage() {
   // A clean result with a skipped stage is a syntax check, not "No problems".
   const [skippedStages, setSkippedStages] = useState<number[]>([]);
   const [validating, setValidating] = useState(false);
-  const [showRevisions, setShowRevisions] = useState(false);
   const [selectedRevision, setSelectedRevision] = useState<number | null>(null);
   const [confirmingRestore, setConfirmingRestore] = useState(false);
 
@@ -49,13 +51,21 @@ export function PipelineEditorPage() {
     queryFn: () => clients.pipeline.getPipeline({ orgId, id: id! }),
     enabled: !!id && !!orgId,
   });
+  // `||`, not `??`: an empty org id on the pipeline must fall back to the
+  // selected org, not disable every query keyed on it.
+  const pipelineOrgId = pipeline?.orgId || orgId;
 
   const { data: revisionsData } = useQuery({
     queryKey: ['revisions', orgId, id],
-    queryFn: () => clients.pipeline.listRevisions({ orgId: pipeline?.orgId ?? orgId, id: id! }),
-    enabled: !!id && !!(pipeline?.orgId ?? orgId),
+    queryFn: () => clients.pipeline.listRevisions({ orgId: pipelineOrgId, id: id! }),
+    enabled: !!id && !!pipelineOrgId,
   });
   const revisions = revisionsData?.items ?? [];
+  // The newest revision is what the pipeline already is — every content,
+  // matcher, restore and detach change writes one — so restoring it would be
+  // a no-op revision (#252). Pipeline.revision is not populated by the
+  // server, hence the max over the history.
+  const currentRevision = revisions.reduce((max, r) => Math.max(max, r.revision), 0);
 
   // GetRevision is org-reader, so any signed-in viewer can open a diff —
   // only Restore is gated on canWrite below.
@@ -63,11 +73,11 @@ export function PipelineEditorPage() {
     queryKey: ['revision', orgId, id, selectedRevision],
     queryFn: () =>
       clients.pipeline.getRevision({
-        orgId: pipeline?.orgId ?? orgId,
+        orgId: pipelineOrgId,
         id: id!,
         revision: selectedRevision!,
       }),
-    enabled: !!id && !!(pipeline?.orgId ?? orgId) && selectedRevision != null,
+    enabled: !!id && !!pipelineOrgId && selectedRevision != null,
   });
 
   // Seed the form ONCE per pipeline, keyed on its id rather than on the query
@@ -168,7 +178,7 @@ export function PipelineEditorPage() {
 
   const restoreMutation = useMutation({
     mutationFn: (revision: number) =>
-      clients.pipeline.restoreRevision({ orgId: pipeline?.orgId ?? orgId, id: id!, revision }),
+      clients.pipeline.restoreRevision({ orgId: pipelineOrgId, id: id!, revision }),
     onSuccess: (p, revision) => {
       toast.success(`Restored revision #${revision}`);
       // The form is seeded from the restore response right here, so the
@@ -203,6 +213,20 @@ export function PipelineEditorPage() {
     <div className='flex h-[calc(100vh-7rem)] gap-0'>
       {/* Left pane */}
       <div className='w-[380px] shrink-0 border-r border-border overflow-y-auto p-6 space-y-5'>
+        <div className='space-y-3'>
+          <h1 className='text-xl font-semibold break-words'>
+            {isNew ? 'New pipeline' : (pipeline?.name ?? 'Pipeline')}
+          </h1>
+          {!isNew && pipeline && (
+            <PipelineActions
+              pipeline={pipeline}
+              orgId={pipelineOrgId}
+              queryOrgId={orgId}
+              canWrite={canWrite}
+            />
+          )}
+        </div>
+
         <div className='space-y-1'>
           <label className='text-xs font-medium text-muted'>Name</label>
           <Input
@@ -254,45 +278,11 @@ export function PipelineEditorPage() {
         )}
 
         {!isNew && revisions.length > 0 && (
-          <div className='space-y-2'>
-            <button
-              onClick={() => setShowRevisions((r) => !r)}
-              className='flex items-center gap-1 text-xs font-medium text-muted hover:text-zinc-200'
-            >
-              <ChevronDown
-                size={12}
-                className={`transition-transform ${showRevisions ? '' : '-rotate-90'}`}
-              />
-              Revision history ({revisions.length})
-            </button>
-            {showRevisions && (
-              <div className='space-y-1 max-h-52 overflow-y-auto pr-1'>
-                {revisions.map((r, i) => (
-                  <div
-                    key={i}
-                    className='rounded border border-border bg-card/40 p-2 text-xs space-y-1'
-                  >
-                    <div className='flex items-center justify-between'>
-                      <span className='font-medium text-zinc-300'>#{r.revision}</span>
-                      <span className='text-muted-3'>
-                        {r.changedAt ? timestampDate(r.changedAt).toLocaleDateString() : ''}
-                      </span>
-                    </div>
-                    <div className='text-muted-2'>{r.changedBy}</div>
-                    {r.changeNote && <div className='text-muted italic'>{r.changeNote}</div>}
-                    <button
-                      onClick={() => setSelectedRevision(r.revision)}
-                      className='text-indigo-400 hover:text-indigo-300 text-xs'
-                      data-testid='view-revision-btn'
-                      data-revision={r.revision}
-                    >
-                      View diff
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <RevisionHistory
+            revisions={revisions}
+            currentRevision={currentRevision}
+            onView={setSelectedRevision}
+          />
         )}
 
         {pipeline && (
@@ -301,11 +291,17 @@ export function PipelineEditorPage() {
               Source: <span className='text-zinc-300'>{pipeline.source}</span>
             </p>
             {canWrite && pipeline.source === 'wizard' && (
-              <DetachFromWizard pipeline={pipeline} orgId={pipeline.orgId || orgId} />
+              <DetachFromWizard pipeline={pipeline} orgId={pipelineOrgId} />
             )}
             <p>
               Updated by: <span className='text-zinc-300'>{pipeline.updatedBy}</span>
             </p>
+            <PipelineOwner
+              pipeline={pipeline}
+              orgId={pipelineOrgId}
+              queryOrgId={orgId}
+              canAdminister={canAdminister}
+            />
           </div>
         )}
       </div>
@@ -341,15 +337,21 @@ export function PipelineEditorPage() {
                   )}
                 </span>
               </div>
-              {canWrite && (
-                <button
-                  onClick={() => setConfirmingRestore(true)}
-                  disabled={!revisionDetail}
-                  className='rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50'
-                  data-testid='restore-btn'
-                >
-                  Restore this revision
-                </button>
+              {selectedRevision === currentRevision ? (
+                <span className='text-xs text-muted-2' data-testid='current-revision-note'>
+                  This is the current revision
+                </span>
+              ) : (
+                canWrite && (
+                  <button
+                    onClick={() => setConfirmingRestore(true)}
+                    disabled={!revisionDetail}
+                    className='rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50'
+                    data-testid='restore-btn'
+                  >
+                    Restore this revision
+                  </button>
+                )
               )}
             </div>
 

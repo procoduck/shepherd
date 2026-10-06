@@ -133,6 +133,7 @@ function pipelineToWire(p: Obj) {
     updatedAt: p['updated_at'],
     revisions: arr<Obj>(p, 'revisions').map(pipelineRevisionMetaToWire),
     wizardState: p['wizard_state'] ?? undefined,
+    ownerTeamId: s(p, 'owner_team_id'),
   };
 }
 
@@ -1332,6 +1333,18 @@ export function installDefaultHandlers(router: Router) {
       wizard_state: rev['wizard_state'],
     });
     p['revisions'] = revisions;
+    return json(r, 200, pipelineToWire(p));
+  });
+  // SetPipelineOwner: org admin only on the real server
+  // (rpc_interceptor.go) — an editor authors pipelines but does not decide
+  // who owns them. An empty owner_team_id clears the owner.
+  router.register('POST', '/shepherd.mgmt.v1.PipelineService/SetPipelineOwner', async (r) => {
+    const pBody = (await r.request().postDataJSON()) as Obj;
+    const pDenied = requireOrgRole(r, String(pBody.orgId ?? ''), 'admin');
+    if (pDenied) return pDenied;
+    const p = (st.pipelines as Obj[]).find((x) => x['id'] === pBody['id']);
+    if (!p) return connectError(r, 404, 'not_found', 'pipeline not found');
+    p['owner_team_id'] = String(pBody['ownerTeamId'] ?? '');
     return json(r, 200, pipelineToWire(p));
   });
   // DetachFromWizard: in place — same id, contents, matchers, enabled, owner
