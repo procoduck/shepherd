@@ -314,9 +314,9 @@ func handEditFailure(p sqlc.Pipeline) *rerenderFailure {
 }
 
 // matchesPre261Render reports whether p's text is what the renderer before
-// #261 wrote: that renderer did not render a destination's tenant_id, so its
-// output is exactly today's render with every tenant cleared
-// (withoutPre261Fields). Without this every unfingerprinted pipeline whose
+// #261 wrote: that renderer did not render a destination's tenant_id or TLS
+// options, so its output is exactly today's render with every tenant and TLS
+// option cleared (withoutPre261Fields). Without this every unfingerprinted pipeline whose
 // destination already had a tenant would be refused as hand-edited.
 //
 // Matching that render is not enough on its own: an editor write that
@@ -343,9 +343,9 @@ func matchesPre261Render(ctx context.Context, q *sqlc.Queries, p sqlc.Pipeline, 
 }
 
 // withoutPre261Fields returns dests as the pre-#261 renderer saw them, as
-// far as its output goes: every tenant cleared, and with it the render-time
-// refusal of a tenant another org holds (errTenantNotAvailable), which only
-// exists because the tenant is rendered.
+// far as its output goes: every tenant and TLS option cleared, and with the
+// tenant the render-time refusal of one another org holds
+// (errTenantNotAvailable), which only exists because the tenant is rendered.
 func withoutPre261Fields(dests wizard.Destinations) wizard.Destinations {
 	out := make(wizard.Destinations, len(dests))
 	for name := range dests {
@@ -354,6 +354,7 @@ func withoutPre261Fields(dests wizard.Destinations) wizard.Destinations {
 		if errors.Is(d.LoadErr, errTenantNotAvailable) {
 			d.LoadErr = nil
 		}
+		d.TLS = nil
 		out[name] = d
 	}
 	return out

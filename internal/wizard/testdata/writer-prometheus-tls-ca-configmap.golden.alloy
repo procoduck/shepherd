@@ -1,0 +1,16 @@
+remote.kubernetes.configmap "metrics_tls_ca" {
+  namespace = "monitoring"
+  name      = "backend-ca"
+}
+
+prometheus.remote_write "metrics" {
+  endpoint {
+    name = "prom-prod"
+    url  = "https://mimir.example.com/api/v1/push"
+
+    tls_config {
+      ca_pem      = remote.kubernetes.configmap.metrics_tls_ca.data["ca.crt"]
+      server_name = "mimir.internal.example"
+    }
+  }
+}

@@ -3,6 +3,7 @@ package wizard_test
 import (
 	"errors"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -52,6 +53,120 @@ var writerGoldenCases = []struct {
 		Name: "loki-prod", Type: "loki", URL: "https://loki.example.com/loki/api/v1/push", AuthMode: wizard.AuthNone,
 		TenantID: "acme",
 	}},
+	// #261: TLS from Secrets/ConfigMaps on the spoke.
+	{"writer-prometheus-tls-ca-configmap", wizard.WriterPrometheus, "metrics", wizard.Destination{
+		Name: "prom-prod", Type: "prometheus", URL: "https://mimir.example.com/api/v1/push", AuthMode: wizard.AuthNone,
+		TLS: &wizard.TLS{
+			CA:         &wizard.TLSCA{Kind: wizard.ObjectConfigMap, Namespace: "monitoring", Name: "backend-ca"},
+			ServerName: "mimir.internal.example",
+		},
+	}},
+	{"writer-loki-tls-ca-key-override", wizard.WriterLoki, "logs", wizard.Destination{
+		Name: "loki-prod", Type: "loki", URL: "https://loki.example.com/loki/api/v1/push", AuthMode: wizard.AuthNone,
+		TenantID: "acme",
+		TLS: &wizard.TLS{
+			CA: &wizard.TLSCA{Kind: wizard.ObjectConfigMap, Namespace: "cert-manager", Name: "org-trust", Key: "trust-bundle.pem"},
+		},
+	}},
+	{"writer-prometheus-mtls-cert-manager", wizard.WriterPrometheus, "metrics", wizard.Destination{
+		Name: "prom-prod", Type: "prometheus", URL: "https://mimir.example.com/api/v1/push", AuthMode: wizard.AuthBasicSecret,
+		SecretNamespace: "monitoring", SecretName: "mimir-credentials", TenantID: "acme",
+		TLS: &wizard.TLS{
+			CA:         &wizard.TLSCA{Kind: wizard.ObjectSecret, Namespace: "monitoring", Name: "collector-mtls"},
+			ClientCert: &wizard.TLSClientCert{Namespace: "monitoring", Name: "collector-mtls"},
+			ServerName: "mimir.internal.example",
+		},
+	}},
+	{"writer-loki-mtls-shared-auth-secret", wizard.WriterLoki, "logs", wizard.Destination{
+		Name: "loki-prod", Type: "loki", URL: "https://loki.example.com/loki/api/v1/push", AuthMode: wizard.AuthBasicSecret,
+		SecretNamespace: "monitoring", SecretName: "loki-credentials",
+		TLS: &wizard.TLS{ClientCert: &wizard.TLSClientCert{Kind: wizard.ObjectSecret, Namespace: "monitoring", Name: "loki-credentials"}},
+	}},
+}
+
+// TestRenderWriterTLSShape pins the TLS contract (#261) rather than the
+// bytes: no PEM-shaped value can reach the output (there is no field to carry
+// one), the key is read as a secret and never converted, every reference is
+// read through remote.kubernetes.*, and no TLS means no tls_config.
+var convertedKeyRE = regexp.MustCompile(`convert\.nonsensitive\([^)]*"tls\.key"`)
+
+func TestRenderWriterTLSShape(t *testing.T) {
+	for _, tc := range writerGoldenCases {
+		t.Run(tc.golden, func(t *testing.T) {
+			got, err := wizard.RenderWriter(tc.kind, tc.label, wizard.Destinations{tc.dest.Name: tc.dest}, tc.dest.Name)
+			if err != nil {
+				t.Fatalf("RenderWriter: %v", err)
+			}
+			if tc.dest.TLS.Empty() {
+				if strings.Contains(got, "tls_config") || strings.Contains(got, "remote.kubernetes.configmap") {
+					t.Fatalf("no TLS, but TLS was rendered:\n%s", got)
+				}
+				return
+			}
+			if strings.Contains(got, "BEGIN") || strings.Contains(got, "insecure_skip_verify") {
+				t.Fatalf("rendered PEM material or skip-verify:\n%s", got)
+			}
+			if tls := tc.dest.TLS; tls.ClientCert != nil {
+				if !strings.Contains(got, `key_pem     = remote.kubernetes.secret.`) || convertedKeyRE.MatchString(got) {
+					t.Fatalf("tls.key must be read from a Secret and never converted:\n%s", got)
+				}
+			}
+			if ca := tc.dest.TLS.CA; ca != nil && !strings.Contains(got, `.data["`+ca.CAKey()+`"]`) {
+				t.Fatalf("CA key %q not read:\n%s", ca.CAKey(), got)
+			}
+		})
+	}
+}
+
+func TestParseTLS(t *testing.T) {
+	ok := []struct{ name, extra string }{
+		{"absent", `{}`},
+		{"null", `{"tls":null}`},
+		{"empty", `{"tls":{}}`},
+		{"ca configmap default key", `{"tls":{"ca":{"kind":"configmap","namespace":"monitoring","name":"ca"}}}`},
+		{"ca secret with key override", `{"tls":{"ca":{"kind":"secret","namespace":"monitoring","name":"ca","key":"trust-bundle.pem"}}}`},
+		{"client cert without kind", `{"tls":{"client_cert":{"namespace":"monitoring","name":"mtls"}}}`},
+		{"server name", `{"tls":{"server_name":"Mimir.Internal.example"}}`},
+		{"other extra keys untouched", `{"oauth2_scopes":["a"],"owner":"x"}`},
+	}
+	for _, tc := range ok {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := wizard.ParseTLS([]byte(tc.extra)); err != nil {
+				t.Fatalf("ParseTLS(%s): %v", tc.extra, err)
+			}
+		})
+	}
+	tlsDefault, err := wizard.ParseTLS([]byte(`{"tls":{"ca":{"kind":"configmap","namespace":"m","name":"ca"}}}`))
+	if err != nil || tlsDefault.CA.CAKey() != "ca.crt" {
+		t.Fatalf("default CA key: got %+v, %v; want ca.crt", tlsDefault, err)
+	}
+
+	bad := []struct{ name, extra, wantMsg string }{
+		{"insecure_skip_verify is not offered", `{"tls":{"insecure_skip_verify":true}}`, "insecure_skip_verify"},
+		{"unknown key in ca", `{"tls":{"ca":{"kind":"configmap","namespace":"m","name":"ca","file":"/x"}}}`, "file"},
+		{"ca kind missing", `{"tls":{"ca":{"namespace":"m","name":"ca"}}}`, "ca.kind"},
+		{"ca kind unknown", `{"tls":{"ca":{"kind":"file","namespace":"m","name":"ca"}}}`, "ca.kind"},
+		{"ca namespace invalid", `{"tls":{"ca":{"kind":"secret","namespace":"Mon","name":"ca"}}}`, "ca.namespace"},
+		{"ca name injection", `{"tls":{"ca":{"kind":"secret","namespace":"m","name":"x\" }"}}}`, "ca.name"},
+		{"ca key with slash", `{"tls":{"ca":{"kind":"secret","namespace":"m","name":"ca","key":"a/b"}}}`, "ca.key"},
+		{"ca key dot-dot", `{"tls":{"ca":{"kind":"secret","namespace":"m","name":"ca","key":".."}}}`, "ca.key"},
+		{"ca key quote", `{"tls":{"ca":{"kind":"secret","namespace":"m","name":"ca","key":"a\"b"}}}`, "ca.key"},
+		{"client cert in a configmap", `{"tls":{"client_cert":{"kind":"configmap","namespace":"m","name":"c"}}}`, "client_cert"},
+		{"client cert without name", `{"tls":{"client_cert":{"namespace":"m"}}}`, "client_cert.name"},
+		{"server name with a path", `{"tls":{"server_name":"mimir/x"}}`, "server_name"},
+		{"tls is not an object", `{"tls":"yes"}`, "extra.tls"},
+	}
+	for _, tc := range bad {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := wizard.ParseTLS([]byte(tc.extra))
+			if err == nil {
+				t.Fatalf("ParseTLS(%s) accepted it", tc.extra)
+			}
+			if !strings.Contains(err.Error(), tc.wantMsg) {
+				t.Fatalf("error %q does not mention %q", err, tc.wantMsg)
+			}
+		})
+	}
 }
 
 // TestRenderWriterTenant pins the tenant contract (#261) rather than the
@@ -208,6 +323,13 @@ func TestRenderWriterRefusals(t *testing.T) {
 		{"tenant injection", wizard.WriterLoki, with(func(d *wizard.Destination) {
 			d.Type, d.TenantID = "loki", `a" }`
 		}), "d", "tenant_id"},
+		{"TLS on an http:// URL", wizard.WriterPrometheus, with(func(d *wizard.Destination) {
+			d.URL = "http://mimir.example.com/api/v1/push"
+			d.TLS = &wizard.TLS{ServerName: "mimir"}
+		}), "d", "https://"},
+		{"TLS reference invalid", wizard.WriterPrometheus, with(func(d *wizard.Destination) {
+			d.TLS = &wizard.TLS{ClientCert: &wizard.TLSClientCert{Namespace: "m", Name: `x" }`}}
+		}), "d", "client_cert.name"},
 		{"reserved tenant", wizard.WriterPrometheus, with(func(d *wizard.Destination) { d.TenantID = "__mimir_cluster" }), "d", "tenant_id"},
 		{"stored row did not load", wizard.WriterPrometheus, with(func(d *wizard.Destination) {
 			d.LoadErr = errors.New("extra.oauth2_scopes must be a list of strings")
