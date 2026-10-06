@@ -138,8 +138,8 @@ func isDestNameKey(k string) bool { return strings.HasSuffix(k, "_dest_name") }
 // renderWizardPipeline re-runs p's wizard from its stored state against
 // dests, renaming the destination first if rename is set. It returns
 // changed=false when the result is byte-identical to what is stored, so an
-// edit that does not touch the rendered writer (a tenant_id, say) writes no
-// revision. A non-nil failure means the re-render was refused: the wizard
+// edit that does not touch the rendered writer writes no revision. (Since
+// #261 a tenant_id edit does touch it: the tenant is rendered.) A non-nil failure means the re-render was refused: the wizard
 // could not render it, or the result fails Stages 1-2.
 func (s *PipelineService) renderWizardPipeline(ctx context.Context, p sqlc.Pipeline, dests wizard.Destinations, rename *destinationRename) (out wizardRerender, changed bool, failure *rerenderFailure) {
 	fail := func(format string, args ...any) (wizardRerender, bool, *rerenderFailure) {
@@ -288,12 +288,32 @@ func handEdited(p sqlc.Pipeline, before wizard.Destinations) *rerenderFailure {
 	if err != nil {
 		return failureFor(p, fmt.Sprintf("it no longer renders from its wizard state: %v", err))
 	}
-	if result.Contents != p.Contents {
-		f := failureFor(p, errHandEdited)
-		f.handEdited = true
-		return f
+	if result.Contents == p.Contents {
+		return nil
 	}
-	return nil
+	// The stored text may come from the renderer before #261, which did not
+	// render a destination's tenant_id. That renderer's output is exactly
+	// today's with every tenant zeroed, so an untouched pipeline matches
+	// that render instead. Without this, every unfingerprinted pipeline whose
+	// destination already had a tenant would be refused as hand-edited.
+	if old, err := wiz.Commit(state, withoutPre261Fields(before)); err == nil && old.Contents == p.Contents {
+		return nil
+	}
+	f := failureFor(p, errHandEdited)
+	f.handEdited = true
+	return f
+}
+
+// withoutPre261Fields returns dests with every field the pre-#261 renderer
+// did not render cleared: what that renderer saw, as far as the output goes.
+func withoutPre261Fields(dests wizard.Destinations) wizard.Destinations {
+	out := make(wizard.Destinations, len(dests))
+	for name := range dests {
+		d := dests[name]
+		d.TenantID = ""
+		out[name] = d
+	}
+	return out
 }
 
 // planWizardRerenders re-renders pipelines (all in orgID) and runs Stage 3

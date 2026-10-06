@@ -45,6 +45,15 @@ WHERE id = $1
   AND tenant_id IS NULL
 RETURNING *;
 
+-- name: TenantIDHeldByOtherOrg :one
+-- Whether an org other than org_id holds tenant_id (#261). A destination may
+-- send any valid tenant, except another org's: D11's one-tenant-one-org
+-- property, kept on every path Shepherd renders. The caller answers with a
+-- generic refusal, so this is at most a weak existence oracle.
+SELECT EXISTS (
+    SELECT 1 FROM orgs WHERE tenant_id = sqlc.arg(tenant_id)::text AND id <> sqlc.arg(org_id)
+);
+
 -- name: DeleteOrg :exec
 DELETE FROM orgs WHERE id = $1;
 

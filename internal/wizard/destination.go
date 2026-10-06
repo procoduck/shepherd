@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+
+	"shepherd/internal/gateway"
 )
 
 // Destination is the non-sensitive part of an org destination (the
@@ -22,6 +24,10 @@ type Destination struct {
 	AuthMode        AuthMode
 	SecretNamespace string
 	SecretName      string
+	// TenantID is destinations.tenant_id. When non-empty the writer sends
+	// it as the tenant (gateway.TenantHeader): a header on
+	// prometheus.remote_write, loki.write's own tenant_id attribute (#261).
+	TenantID string
 	// OAuth2Scopes comes from the destination's extra.oauth2_scopes
 	// (ExtraKeyOAuth2Scopes). Only rendered for AuthOAuth2Secret.
 	OAuth2Scopes []string
@@ -183,6 +189,9 @@ func RenderWriter(kind WriterKind, label string, dests Destinations, destName st
 	if err := ValidateSecretRef(d.AuthMode, d.SecretNamespace, d.SecretName); err != nil {
 		return "", fmt.Errorf("destination %q: %w", destName, err)
 	}
+	if err := ValidateTenant(d.TenantID); err != nil {
+		return "", fmt.Errorf("destination %q: %w", destName, err)
+	}
 
 	secretLabel := label + "_auth"
 	data := func(key string) string {
@@ -204,6 +213,7 @@ func RenderWriter(kind WriterKind, label string, dests Destinations, destName st
     name = %s
     url  = %s
 `, kind, Quote(label), Quote(d.Name), Quote(d.URL))
+	renderTenant(&sb, kind, d.TenantID)
 
 	switch d.AuthMode {
 	case AuthNone:
@@ -233,6 +243,37 @@ func RenderWriter(kind WriterKind, label string, dests Destinations, destName st
 
 	sb.WriteString("  }\n}\n")
 	return sb.String(), nil
+}
+
+// ValidateTenant checks a destination's tenant_id: empty (no tenant is
+// sent) or gateway.ValidateTenantID, Grafana Mimir's documented rule, which
+// orgs.tenant_id and destination bindings already use.
+func ValidateTenant(tenant string) error {
+	if tenant == "" {
+		return nil
+	}
+	if err := gateway.ValidateTenantID(tenant); err != nil {
+		return fmt.Errorf("tenant_id: %w", err)
+	}
+	return nil
+}
+
+// renderTenant writes the writer's tenant, if any, into its endpoint block.
+// prometheus.remote_write has no tenant attribute, so the tenant header is
+// set directly; loki.write's tenant_id is the documented attribute (the Loki
+// client sets the header from it and batches per tenant). No wizard emits
+// the per-entry `__tenant_id__` label (stage.tenant) that would override it,
+// and Kubernetes label names cannot begin with `__`.
+func renderTenant(sb *strings.Builder, kind WriterKind, tenant string) {
+	if tenant == "" {
+		return
+	}
+	switch kind {
+	case WriterPrometheus:
+		fmt.Fprintf(sb, "    headers = {\n      %s = %s,\n    }\n", Quote(gateway.TenantHeader), Quote(tenant))
+	case WriterLoki:
+		fmt.Fprintf(sb, "    tenant_id = %s\n", Quote(tenant))
+	}
 }
 
 // validateURL accepts only an absolute http(s) URL with a host — the same
