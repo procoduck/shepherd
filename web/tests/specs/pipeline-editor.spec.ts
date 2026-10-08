@@ -164,3 +164,47 @@ test('Validate button triggers an on-demand validation', async ({ page, api }) =
     .poll(() => api.calls('/shepherd.mgmt.v1.PipelineService/ValidatePipeline').length)
     .toBeGreaterThan(before);
 });
+
+// H1 follow-through: the form follows the server copy until it is edited. A
+// refetch bringing newer data replaces an untouched form (the editor used to
+// seed once per id and ignore it, so a stale first copy stuck), and never
+// replaces one with edits in it. The enable switch invalidates the pipeline
+// query, which is the refetch on demand here.
+test.describe('editor form vs a refetch', () => {
+  test.beforeEach(async ({ page, api }) => {
+    await api.loginAs(orgEditor);
+    const s = basicScenario();
+    const p = pipeline({
+      id: 'pip-sync',
+      org_id: s.org.id,
+      name: 'sync-me',
+      contents: '// v1',
+      matchers: ['env="prod"', 'team="core"'],
+      enabled: false,
+    });
+    api.seed({ orgs: [s.org], pipelines: [p] });
+    await page.goto('/pipelines/pip-sync');
+    await expect(page.getByTestId('pipeline-matcher-chip')).toHaveCount(2);
+    // Someone else changes the matchers on the server.
+    Object.assign(api.state.pipelines[0] as Record<string, unknown>, {
+      matchers: ['env="prod"'],
+    });
+  });
+
+  test('an untouched form takes the newer server copy', async ({ page }) => {
+    await page.getByRole('switch', { name: /Enabled: sync-me/ }).click();
+    await expect(page.getByTestId('pipeline-matcher-chip')).toHaveCount(1);
+  });
+
+  test('an edited form keeps its edits', async ({ page }) => {
+    const nameInput = page.getByPlaceholder('my-pipeline');
+    await nameInput.fill('renamed');
+    await page.getByRole('switch', { name: /Enabled: sync-me/ }).click();
+    await expect(page.getByRole('switch', { name: /Enabled: sync-me/ })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    await expect(nameInput).toHaveValue('renamed');
+    await expect(page.getByTestId('pipeline-matcher-chip')).toHaveCount(2);
+  });
+});

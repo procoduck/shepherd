@@ -11,6 +11,7 @@ import { FormError } from '../../components/ui/FormError';
 import { useCanWrite, useOrgId } from '../../hooks/useOrg';
 import { formError } from '../../lib/formError';
 import { matcherError as matcherProblem } from '../../lib/matcher';
+import { primePipelineCache } from '../../lib/pipelineCache';
 import { clearDraft } from '../draft';
 import { useVisualStore } from '../store';
 import { useElementWidth } from '../useElementWidth';
@@ -150,14 +151,20 @@ export function Toolbar({ pipelineId }: { pipelineId: string }) {
         ? clients.pipeline.createPipeline(body)
         : clients.pipeline.updatePipeline({ ...body, id: pipelineId });
     },
-    onSuccess: (p) => {
+    onSuccess: async (p) => {
       toast.success(pipelineId === 'new' ? 'Pipeline created' : 'Pipeline saved');
       useVisualStore.getState().markSaved();
-      qc.invalidateQueries({ queryKey: ['pipelines', orgId] });
       // The graph just saved is now durable on the server — the local draft
       // (keyed by the id this save was made under, 'new' for a create) no
       // longer has anything to protect against losing.
       void clearDraft(pipelineId);
+      // The editor this lands on reads the pipeline, its revisions and the
+      // list from the query cache, and the builder's breadcrumb had already
+      // cached the PRE-save pipeline under the editor's key: it showed the
+      // old matchers and a plain Save there wrote them back (H1). Seed the
+      // pipeline entry with the save's response and mark the rest stale
+      // before navigating.
+      await primePipelineCache(qc, orgId, p);
       // Save lands on the pipeline's page, which is the text editor; `from`
       // makes it say so and offer the way back into the builder (#251).
       navigate({ to: '/pipelines/$id', params: { id: p.id }, search: { from: 'visual' } });
