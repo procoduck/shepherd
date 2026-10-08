@@ -1,6 +1,6 @@
 module shepherd
 
-go 1.27.1
+go 1.27.2
 
 require (
 	connectrpc.com/connect v1.21.0
@@ -35,7 +35,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.47.0
 	go.opentelemetry.io/proto/otlp v1.11.0
 	golang.org/x/crypto v0.57.0
-	golang.org/x/net v0.59.0
+	golang.org/x/net v0.60.0
 	golang.org/x/oauth2 v0.37.0
 	golang.org/x/sync v0.23.0
 	golang.org/x/time v0.16.0
