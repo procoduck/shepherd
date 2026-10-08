@@ -85,7 +85,8 @@ type LoadFixtures struct {
 	// Env gives each sys.env(...) variable a golden reads a representative
 	// value, set in the container. On a real collector the operator sets
 	// them. Every variable a golden reads must be here — a missing one fails
-	// the test rather than quietly loading an empty value.
+	// the test rather than quietly loading an empty value — and every entry
+	// must be read by some golden, so a fixture cannot outlive its golden.
 	Env map[string]string
 	// SecretData overrides what the fake API serves for one Secret, keyed
 	// "namespace/name" and then by data key; keys not overridden still get
@@ -118,6 +119,7 @@ func AssertGoldensLoadInRealAlloyWith(t *testing.T, testdataDir string, fx LoadF
 		t.Fatalf("no goldens found in %s — the guard would pass vacuously", testdataDir)
 	}
 	contents := make(map[string]string, len(goldens))
+	envRead := map[string]bool{}
 	for _, g := range goldens {
 		b, readErr := os.ReadFile(g) //nolint:gosec // g comes from filepath.Glob over a caller-fixed testdataDir, not external input
 		if readErr != nil {
@@ -129,6 +131,12 @@ func AssertGoldensLoadInRealAlloyWith(t *testing.T, testdataDir string, fx LoadF
 				t.Fatalf("%s reads sys.env(%q) but the load test has no value for it — "+
 					"pass a representative one in LoadFixtures.Env", g, m[1])
 			}
+			envRead[m[1]] = true
+		}
+	}
+	for k := range env {
+		if !envRead[k] {
+			t.Fatalf("LoadFixtures.Env sets %s, which no golden reads", k)
 		}
 	}
 	envArgs := make([]string, 0, 2*len(env))

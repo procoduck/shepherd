@@ -76,12 +76,19 @@ collector where you did set the variable keeps working);
 `rerender-destinations` does not touch them. To move one to a Secret:
 
 1. On every cluster the pipeline matches, create a Secret holding the DSN
-   (key `dsn`) or, for Redis, the password (key `password`).
-2. Give the collector's ServiceAccount `get`, `list` and `watch` on Secrets in
-   that namespace.
-3. Re-run the pipeline's Database Metrics wizard, choose
-   **Kubernetes Secret**, enter the Secret's namespace, name and key (and the
+   (key `dsn`) or, for Redis, the password (key `password` — a Redis Secret
+   without that key makes the collector connect with no password).
+2. Give the collector's ServiceAccount `get` on Secrets in that namespace
+   (Alloy GETs the one Secret at load and every minute; it never lists or
+   watches).
+3. Re-run the pipeline's Database Metrics wizard, set **Credential source** to
+   `kubernetes_secret`, enter the Secret's namespace, name and key (and the
    Redis address), and commit.
+
+Only collectors running in Kubernetes can read the Secret: a collector on a
+host or VM that the pipeline matches would refuse its whole config. Keep such a
+pipeline's matchers to Kubernetes clusters, or leave those collectors on
+`env` (set the variable on them yourself).
 
 A collector that is refusing its config recovers on its next poll after the
 commit, or as soon as you disable the pipeline.

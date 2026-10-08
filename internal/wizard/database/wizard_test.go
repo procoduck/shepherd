@@ -2,6 +2,7 @@ package database_test
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -74,9 +75,18 @@ var _ = Describe("DatabaseWizard golden files", func() {
 		It("tells the Review step which Secret, key and RBAC the collector needs", func() {
 			result, err := wiz.Commit(base(nil), wizardtest.Destinations())
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result.Warnings).To(HaveLen(1))
+			Expect(result.Warnings).To(HaveLen(2))
 			Expect(result.Warnings[0]).To(ContainSubstring(`key "dsn" of Secret databases/app-pg`))
-			Expect(result.Warnings[0]).To(ContainSubstring("get, list and watch on Secrets in databases"))
+			Expect(result.Warnings[0]).To(ContainSubstring("needs get on Secrets in databases"))
+			Expect(result.Warnings[1]).To(ContainSubstring("must run in Kubernetes"))
+		})
+
+		It("warns that a redis Secret without the key connects without a password", func() {
+			result, err := wiz.Commit(base(map[string]any{
+				"engine": "redis", "redis_addr": "redis.example.com:6379",
+			}), wizardtest.Destinations())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.Warnings).To(ContainElement(ContainSubstring("without a password")))
 		})
 
 		It("defaults the Secret key to password for redis", func() {
@@ -108,6 +118,14 @@ var _ = Describe("DatabaseWizard golden files", func() {
 				"engine": "redis", "redis_addr": "redis://:hunter2@redis.example.com:6379",
 			}), wizardtest.Destinations())
 			Expect(err).To(MatchError(ContainSubstring("must not carry credentials")))
+			_, err = wiz.Commit(base(map[string]any{
+				"engine": "redis", "redis_addr": "redis://redis.example.com:6379?Password=hunter2",
+			}), wizardtest.Destinations())
+			Expect(err).To(MatchError(ContainSubstring("must not carry credentials")))
+			_, err = wiz.Commit(base(map[string]any{
+				"engine": "redis", "redis_addr": "redis://redis.example.com:6379?db=1",
+			}), wizardtest.Destinations())
+			Expect(err).To(MatchError(ContainSubstring("query string")))
 		})
 	})
 
@@ -128,6 +146,43 @@ var _ = Describe("DatabaseWizard golden files", func() {
 			Expect(err).To(MatchError(ContainSubstring("connection_env")))
 			_, err = wiz.Commit(map[string]any{
 				"engine": "postgres", "credential_source": "env", "connection_env": `X")] }`,
+				"metrics_dest_name": "prom-prod",
+			}, wizardtest.Destinations())
+			Expect(err).To(MatchError(ContainSubstring("not an environment variable name")))
+		})
+
+		// A state stored before credential_source existed was never checked.
+		// Refusing its name now would refuse every destination save that
+		// regenerates it, so it keeps rendering the bytes it always did.
+		It("renders a legacy state with a non-POSIX name exactly as before", func() {
+			golden, err := os.ReadFile("testdata/legacy-env-postgres.golden.alloy")
+			Expect(err).NotTo(HaveOccurred())
+			for _, name := range []string{"APP-PG-DSN", "app.pg.dsn"} {
+				result, err := wiz.Commit(map[string]any{
+					"engine":            "postgres",
+					"connection_env":    name,
+					"job_name":          "app-db",
+					"scrape_interval":   "60s",
+					"metrics_dest_name": "prom-prod",
+					"cluster_pattern":   "prod-.*",
+				}, wizardtest.Destinations())
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result.Contents).To(Equal(strings.Replace(string(golden), "APP_PG_DSN", name, 1)))
+			}
+		})
+
+		It("still refuses a legacy name that would end the string literal", func() {
+			for _, name := range []string{`X")] }`, `X\`, "X\nY"} {
+				_, err := wiz.Commit(map[string]any{
+					"engine": "postgres", "connection_env": name, "metrics_dest_name": "prom-prod",
+				}, wizardtest.Destinations())
+				Expect(err).To(MatchError(ContainSubstring("quote, backslash or control")), name)
+			}
+		})
+
+		It("holds an explicitly chosen env source to a POSIX name", func() {
+			_, err := wiz.Commit(map[string]any{
+				"engine": "postgres", "credential_source": "env", "connection_env": "APP-PG-DSN",
 				"metrics_dest_name": "prom-prod",
 			}, wizardtest.Destinations())
 			Expect(err).To(MatchError(ContainSubstring("not an environment variable name")))

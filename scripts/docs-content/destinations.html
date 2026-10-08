@@ -65,10 +65,13 @@ prometheus.remote_write "metrics" {
       </div>
 
       <h2 id="rbac">What the collector needs to read the Secret</h2>
-      <p>The collector&rsquo;s service account needs <code>get</code>, <code>list</code> and
-        <code>watch</code> on Secrets in the Secret&rsquo;s namespace. The Grafana Alloy Helm chart,
-        and so k8s-monitoring&rsquo;s collectors, grants this cluster-wide by default. If your
-        collectors run with narrower RBAC, grant it in that one namespace:</p>
+      <p>The collector&rsquo;s service account needs <code>get</code> on Secrets in the
+        Secret&rsquo;s namespace: <code>remote.kubernetes.secret</code> reads the one named Secret
+        with a GET when the config loads and again every minute, and never lists or watches. The
+        Grafana Alloy Helm chart, and so k8s-monitoring&rsquo;s collectors, grants Secret access
+        cluster-wide by default. If your collectors run with narrower RBAC, grant it in that one
+        namespace; the Role below also grants <code>list</code> and <code>watch</code>, which are
+        not needed:</p>
       <div class="code-block" data-lang="yaml">
         <div class="code-head"><span>rbac.yaml</span><button class="copy-btn" type="button">Copy</button></div>
         <pre><code>apiVersion: rbac.authorization.k8s.io/v1

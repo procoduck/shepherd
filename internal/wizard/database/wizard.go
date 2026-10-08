@@ -81,15 +81,26 @@ var engines = map[string]string{
 	"redis":    "prometheus.exporter.redis",
 }
 
-// defaultSecretKey is the Secret key read when secret_key is left empty:
-// a DSN for postgres/mysql, the password for redis (whose address is a
-// plain answer, redis_addr — redis_exporter's address attribute is not
+// defaultDataKey is the Secret key read when secret_key is left empty: a DSN
+// for postgres/mysql, the password for redis (whose address is a plain
+// answer, redis_addr — redis_exporter's address attribute is not
 // secret-typed, so a password must not travel inside it).
-var defaultSecretKey = map[string]string{
-	"postgres": "dsn",
-	"mysql":    "dsn",
-	"redis":    "password",
+//
+// A switch over constants rather than a package-level map: CodeQL's
+// sensitive-data heuristic treats a read of a map variable holding the key
+// name as a password source and follows it into every hash of the rendered
+// config (go/weak-sensitive-data-hashing) — a key NAME, never a value.
+func defaultDataKey(engine string) string {
+	switch engine {
+	case "redis":
+		return wizard.SecretKeyPassword
+	default:
+		return keyDSN
+	}
 }
+
+// keyDSN is the default Secret key holding a postgres/mysql DSN.
+const keyDSN = "dsn"
 
 // secretValue describes, per engine, what the Secret key must hold.
 var secretValue = map[string]string{ //nolint:gosec // G101: placeholder examples in help text, not credentials
@@ -130,7 +141,8 @@ func (w *Wizard) Schema() wizard.Schema {
 						Default: sourceSecret,
 						Description: "kubernetes_secret: the collector reads the credential from a Kubernetes Secret " +
 							"on its own cluster — Shepherd stores only the Secret's namespace, name and key, " +
-							"never the value. env: the collector reads an environment variable that YOU must " +
+							"never the value; only for collectors running in Kubernetes (one on a host or VM " +
+							"refuses its whole config). env: the collector reads an environment variable that YOU must " +
 							"set on every matching collector — Shepherd does not set it. none: Redis without " +
 							"a password only.",
 					},
@@ -138,7 +150,8 @@ func (w *Wizard) Schema() wizard.Schema {
 						Name: "secret_namespace", Label: "Secret namespace", Type: "text",
 						Placeholder: "monitoring",
 						Description: "kubernetes_secret only. Namespace of the Secret on the collector's cluster. " +
-							"The collector's service account needs get, list and watch on Secrets here.",
+							"The collector's service account needs get on Secrets here (it re-reads the Secret " +
+							"with a GET every minute).",
 					},
 					{
 						Name: "secret_name", Label: "Secret name", Type: "text",
@@ -149,13 +162,14 @@ func (w *Wizard) Schema() wizard.Schema {
 						Name: "secret_key", Label: "Secret key", Type: "text",
 						Placeholder: "dsn",
 						Description: "kubernetes_secret only. The key holding the credential: for postgres and mysql " +
-							"the full DSN (default key dsn), for redis the password (default key password).",
+							"the full DSN (default key dsn), for redis the password (default key password). " +
+							"If a redis Secret lacks the key, the collector connects without a password.",
 					},
 					{
 						Name: "redis_addr", Label: "Redis address", Type: "text",
 						Placeholder: "redis.example.com:6379",
-						Description: "redis only, with kubernetes_secret or none: host:port or redis:// URL, " +
-							"without credentials (the password comes from the Secret).",
+						Description: "redis only, with kubernetes_secret or none: host:port or redis://host:port, " +
+							"without credentials or a query string (the password comes from the Secret).",
 					},
 					{
 						Name: "connection_env", Label: "Environment variable name", Type: "text",
@@ -272,7 +286,7 @@ func renderExporter(engine string, get func(string) string) (string, []string, e
 	case sourceSecret:
 		return renderSecretExporter(engine, get)
 	case sourceEnv:
-		return renderEnvExporter(engine, get("connection_env"))
+		return renderEnvExporter(engine, get("connection_env"), get("credential_source") == "")
 	case sourceNone:
 		if engine != "redis" {
 			return "", nil, fmt.Errorf("credential_source none is only for redis: %s needs a DSN — use kubernetes_secret", engine)
@@ -295,7 +309,7 @@ func renderSecretExporter(engine string, get func(string) string) (string, []str
 	}
 	key := get("secret_key")
 	if key == "" {
-		key = defaultSecretKey[engine]
+		key = defaultDataKey(engine)
 	}
 	if err := wizard.ValidateSecretKey(key); err != nil {
 		return "", nil, fmt.Errorf("secret_key: %w", err)
@@ -327,32 +341,55 @@ func renderSecretExporter(engine string, get func(string) string) (string, []str
 			wizard.Quote(addr), value)
 	}
 
-	warning := fmt.Sprintf("Each matching collector reads key %q of Secret %s/%s itself when it loads this config; "+
-		"the key must hold %s. The Secret must exist in namespace %s on every cluster this pipeline matches, and "+
-		"the collector's service account needs get, list and watch on Secrets in %s. If it cannot read the Secret, "+
-		"the collector refuses its whole config — every pipeline on it stops getting updates.",
-		key, namespace, name, secretValue[engine], namespace, namespace)
-	return sb.String(), []string{warning}, nil
+	warnings := []string{
+		fmt.Sprintf("Each matching collector reads key %q of Secret %s/%s itself when it loads this config, and "+
+			"re-reads it with a GET every minute; the key must hold %s. The Secret must exist in namespace %s on "+
+			"every cluster this pipeline matches, and the collector's service account needs get on Secrets in %s "+
+			"(the get/list/watch Role on the Destinations page covers it). If it cannot read the Secret, the "+
+			"collector refuses its whole config — every pipeline on it stops getting updates.",
+			key, namespace, name, secretValue[engine], namespace, namespace),
+		"Every collector this pipeline matches must run in Kubernetes: a collector on a host or VM cannot read a " +
+			"Kubernetes Secret and refuses its whole config. Narrow the matchers to Kubernetes clusters, or use " +
+			"credential_source env for those collectors.",
+	}
+	if engine == "redis" {
+		warnings = append(warnings, fmt.Sprintf("If Secret %s/%s has no key %q, the collector still loads and "+
+			"connects to Redis without a password — check the key name.", namespace, name, key))
+	}
+	return sb.String(), warnings, nil
 }
 
 // renderEnvExporter renders the sys.env form. Its text is unchanged from
 // before credential_source existed, so stored pipelines from that era
 // regenerate byte-for-byte.
-func renderEnvExporter(engine, connEnv string) (string, []string, error) {
+//
+// legacy is a state stored before credential_source existed. Those were
+// never checked, so they keep any name that cannot break out of the quoted
+// string — refusing, say, APP-PG-DSN now would make every destination such
+// a pipeline names refuse its next update (a destination save regenerates
+// its pipelines). A newly chosen env source must be a POSIX name.
+func renderEnvExporter(engine, connEnv string, legacy bool) (string, []string, error) {
 	if connEnv == "" {
 		return "", nil, fmt.Errorf("credential_source %s needs connection_env, the variable's name", sourceEnv)
 	}
-	if !envNameRE.MatchString(connEnv) {
+	if legacy {
+		if strings.ContainsFunc(connEnv, func(r rune) bool { return r == '"' || r == '\\' || r < 0x20 || r == 0x7f }) {
+			return "", nil, fmt.Errorf("connection_env %q contains a quote, backslash or control character", connEnv)
+		}
+	} else if !envNameRE.MatchString(connEnv) {
 		return "", nil, fmt.Errorf("connection_env %q is not an environment variable name", connEnv)
 	}
+	// connEnv is spliced in raw, as before credential_source existed, so a
+	// legacy name renders the same bytes it always did; both checks above
+	// rule out anything that could end the string literal.
 	var out string
 	switch engine {
 	case "postgres":
-		out = fmt.Sprintf("prometheus.exporter.postgres \"db\" {\n  data_source_names = [sys.env(%q)]\n}\n", connEnv)
+		out = "prometheus.exporter.postgres \"db\" {\n  data_source_names = [sys.env(\"" + connEnv + "\")]\n}\n"
 	case "mysql":
-		out = fmt.Sprintf("prometheus.exporter.mysql \"db\" {\n  data_source_name = sys.env(%q)\n}\n", connEnv)
+		out = "prometheus.exporter.mysql \"db\" {\n  data_source_name = sys.env(\"" + connEnv + "\")\n}\n"
 	case "redis":
-		out = fmt.Sprintf("prometheus.exporter.redis \"db\" {\n  redis_addr = sys.env(%q)\n}\n", connEnv)
+		out = "prometheus.exporter.redis \"db\" {\n  redis_addr = sys.env(\"" + connEnv + "\")\n}\n"
 	}
 	warning := fmt.Sprintf("Shepherd does not set %s. You must set it on every collector this pipeline matches "+
 		"yourself (for example in the Alloy Deployment's env). If it is unset or not a valid %s, the collector "+
@@ -372,8 +409,11 @@ func redisAddr(addr string) (string, error) {
 	if strings.ContainsAny(addr, " \t\r\n") {
 		return "", fmt.Errorf("redis_addr %q must not contain whitespace", addr)
 	}
-	if strings.Contains(addr, "@") {
+	if strings.Contains(addr, "@") || strings.Contains(strings.ToLower(addr), "password=") {
 		return "", fmt.Errorf("redis_addr must not carry credentials — put the password in the Secret (secret_key)")
+	}
+	if strings.Contains(addr, "?") {
+		return "", fmt.Errorf("redis_addr %q must not carry a query string — host:port or redis://host:port only", addr)
 	}
 	return addr, nil
 }

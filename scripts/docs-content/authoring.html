@@ -21,13 +21,19 @@
         credentials are read. For PostgreSQL and MySQL the key (default <code>dsn</code>) holds the
         whole connection string &mdash; <code>postgresql://user:password@host:5432/db?sslmode=require</code>,
         or <code>user:password@tcp(host:3306)/</code>; for Redis the address is a plain answer and the
-        key (default <code>password</code>) holds the password. The Secret must exist on every cluster
-        the pipeline matches, and the collector needs
-        <a href="destinations.html#rbac"><code>get</code>, <code>list</code> and <code>watch</code> on
-        Secrets in its namespace</a>. If a collector cannot read the Secret, or the value is not a valid
-        DSN, it refuses its whole config, so create the Secret before you commit. The
-        <strong>env</strong> credential source instead reads an environment variable that you must
-        set on the collectors yourself &mdash; Shepherd does not set it.
+        key (default <code>password</code>) holds the password &mdash; if the Secret lacks that key,
+        the collector still loads and connects to Redis without a password. The Secret must exist on
+        every cluster the pipeline matches, and the collector needs
+        <a href="destinations.html#rbac"><code>get</code> on Secrets in the Secret&rsquo;s
+        namespace</a>. If a collector cannot read the Secret, or the value is not a valid DSN, it
+        refuses its whole config, so create the Secret before you commit.
+      </p>
+      <p>
+        <strong>The Secret source is for collectors running in Kubernetes.</strong> A collector on a
+        host or VM cannot read a Kubernetes Secret and refuses its whole config, so keep the
+        pipeline&rsquo;s matchers to Kubernetes clusters. For other collectors choose the
+        <code>env</code> credential source, which reads an environment variable that you must set on
+        those collectors yourself &mdash; Shepherd does not set it.
       </p>
 
       <h2 id="2-the-visual-builder-when-you-want-to-see-the-graph">2. The visual builder, when you want to see the graph</h2>
