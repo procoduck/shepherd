@@ -25,14 +25,20 @@ WHERE r.pipeline_id = p.id
   AND r.revision = (SELECT max(revision) FROM pipeline_revisions WHERE pipeline_id = p.id)
   AND encode(sha256(convert_to(r.contents, 'UTF8')), 'hex') = p.wizard_render_sha256;
 
--- 2. Revision 1 of a wizard pipeline: only CommitWizard sets wizard_kind,
---    and it writes revision 1 itself (RestoreRevision always writes max+1).
+-- 2. Revision 1 of a wizard pipeline when CommitWizard wrote it: only
+--    CommitWizard sets wizard_kind, and since #67 (v0.7.0) it writes
+--    revision 1 itself with the note "created". Before that it wrote no
+--    revision, so an older wizard pipeline's revision 1 is its first editor
+--    save ("updated") — possibly a hand edit — and is left unstamped. The
+--    note is not forgeable here: RestoreRevision always writes max+1, and
+--    CreatePipeline's "created" is never on a wizard_kind pipeline.
 UPDATE pipeline_revisions r
 SET wizard_render_sha256 = encode(sha256(convert_to(r.contents, 'UTF8')), 'hex')
 FROM pipelines p
 WHERE r.pipeline_id = p.id
   AND p.wizard_kind IS NOT NULL
   AND r.revision = 1
+  AND r.change_note = 'created'
   AND r.wizard_render_sha256 IS NULL;
 
 -- 3. Revisions a destination re-render or `shepherd admin

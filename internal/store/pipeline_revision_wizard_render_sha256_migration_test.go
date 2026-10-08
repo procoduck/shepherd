@@ -89,6 +89,10 @@ var _ = Describe("Migration: 0031_pipeline_revision_wizard_render_sha256", Label
 		// Not a wizard pipeline (no wizard_kind): revision 1 is not a wizard's.
 		plain := pipeline("plain", "x", nil, nil)
 		revision(plain, 1, "x", "created")
+		// Before #67 (v0.7.0) CommitWizard wrote no revision: a wizard
+		// pipeline's revision 1 is its first editor save — maybe a hand edit.
+		preV07 := pipeline("pre-v0.7", "rendered + edit", &kind, nil)
+		revision(preV07, 1, "rendered + edit", "updated")
 
 		db.Close()
 		Expect(store.MigrateUp(ctx, url)).To(Succeed())
@@ -102,6 +106,7 @@ var _ = Describe("Migration: 0031_pipeline_revision_wizard_render_sha256", Label
 		Expect(stamp(edited, 3)).To(BeNil(), "a hand edit")
 		Expect(stamp(edited, 4)).To(BeNil(), "a re-rendered note with no audit row is not trusted")
 		Expect(stamp(plain, 1)).To(BeNil())
+		Expect(stamp(preV07, 1)).To(BeNil(), "a pre-v0.7 revision 1 is an editor save, not the wizard's")
 	})
 
 	It("drops the column on MigrateTo(30)", func(ctx context.Context) {

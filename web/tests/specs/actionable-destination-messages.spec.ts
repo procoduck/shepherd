@@ -170,10 +170,12 @@ const CURRENT_MATCHERS = [`cluster="prod-eu-1"`, `team="payments"`];
 function seedHandEdited(
   api: { seed: (partial: Record<string, unknown>) => void },
   contents = EDITED_TEXT,
+  rev2State: Record<string, unknown> = { metrics_dest_name: 'prom-prod' },
 ) {
   const s = basicScenario();
   api.seed({
     orgs: [s.org],
+    destinations: [destination({ id: 'dst-r', name: 'prom-prod', auth_mode: 'none' })],
     pipelines: [
       pipeline({
         id: 'pip-hand',
@@ -200,6 +202,7 @@ function seedHandEdited(
             contents: WIZARD_TEXT,
             matchers: [`cluster="prod-eu-1"`],
             enabled: true,
+            wizard_state: rev2State,
           },
           {
             revision: 1,
@@ -235,6 +238,8 @@ test('a hand-edited wizard pipeline offers "Restore last wizard version", which 
   const dialog = page.getByTestId('restore-dialog');
   await expect(dialog).toContainText('Restore revision #2');
   await expect(dialog.getByTestId('restore-wizard-note')).toContainText('last version');
+  // Its destination still exists: no warning about it.
+  await expect(dialog.getByTestId('restore-missing-destination')).toHaveCount(0);
   // Restore also puts back the revision's matchers (review of #291).
   const matchers = dialog.getByTestId('restore-matchers-change');
   await expect(matchers).toContainText('team="payments"');
@@ -266,6 +271,49 @@ test('cancelling "Restore last wizard version" returns to the editor', async ({ 
   await expect(page.getByRole('button', { name: 'Back to editor' })).toHaveCount(0);
   await expect(page.getByTestId('validate-btn')).toBeVisible();
   expect(api.calls('PipelineService/RestoreRevision')).toHaveLength(0);
+});
+
+// Re-review of #291: the confirmation must not be submittable before
+// GetRevision answers, or its matcher/enabled warnings go unseen. The offer
+// itself renders from that same query, so while it is held there is nothing
+// to click; once it answers the dialog opens with its warnings and Restore
+// enabled. (The dialog's submit is also gated on the revision, both ways in.)
+test('nothing restores before the wizard revision has loaded', async ({ page, api }) => {
+  await api.loginAs(orgEditor);
+  seedHandEdited(api);
+  api.delay('POST', '/shepherd.mgmt.v1.PipelineService/GetRevision', 2500);
+  await page.goto('/pipelines/pip-hand');
+
+  await expect(page.getByText('Source:').locator('span')).toHaveText('wizard');
+  await expect(page.getByTestId('restore-wizard-version')).toHaveCount(0);
+  await expect(page.getByTestId('confirm-restore-btn')).toHaveCount(0);
+
+  await page
+    .getByTestId('restore-wizard-version')
+    .getByRole('button', { name: 'Restore last wizard version' })
+    .click();
+  const dialog = page.getByTestId('restore-dialog');
+  await expect(dialog.getByTestId('restore-matchers-change')).toBeVisible();
+  await expect(dialog.getByTestId('confirm-restore-btn')).toBeEnabled();
+});
+
+// Re-review of #291 (optional nit): a wizard version naming a destination
+// that has since been deleted is restorable, but says so.
+test('restoring a wizard version whose destination is gone says it will not follow destination changes', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(orgEditor);
+  seedHandEdited(api, EDITED_TEXT, { metrics_dest_name: 'deleted-dest', logs_enabled: false });
+  await page.goto('/pipelines/pip-hand');
+
+  await page
+    .getByTestId('restore-wizard-version')
+    .getByRole('button', { name: 'Restore last wizard version' })
+    .click();
+  const note = page.getByTestId('restore-dialog').getByTestId('restore-missing-destination');
+  await expect(note).toContainText('“deleted-dest”');
+  await expect(note).toContainText('no longer exists');
 });
 
 test('no "Restore last wizard version" while the text is what the wizard wrote, or for a viewer', async ({

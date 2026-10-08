@@ -418,7 +418,7 @@ export function PipelineEditorPage() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              restoreMutation.mutate(selectedRevision);
+              if (revisionDetail) restoreMutation.mutate(selectedRevision);
             }}
             className='space-y-4'
           >
@@ -428,6 +428,7 @@ export function PipelineEditorPage() {
             </p>
             {pipeline && (
               <RestoreRevisionNotes
+                orgId={orgId}
                 pipeline={pipeline}
                 revisions={revisions}
                 revision={selectedRevision}
@@ -439,6 +440,9 @@ export function PipelineEditorPage() {
               submitLabel='Restore'
               pendingLabel='Restoring…'
               pending={restoreMutation.isPending}
+              // Not before GetRevision answers: its matcher and enabled
+              // warnings must be seen first (both ways in, M4 review).
+              submitDisabled={!revisionDetail}
               submitTestId='confirm-restore-btn'
               error={formError(restoreMutation.error, 'Restore failed')}
             />
