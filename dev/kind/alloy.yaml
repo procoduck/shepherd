@@ -15,6 +15,75 @@
 # alloy-logs, alloy-staging — created by the script from dev/alloy-<name>.alloy, key
 # config.alloy) read-only at /etc/alloy, matching compose's read-only bind mount of the
 # same file. An emptyDir at /tmp gives Alloy's WAL/cache a writable, ephemeral home.
+#
+# RBAC: the agents run as ServiceAccount `alloy` with what a real collector needs for
+# the features this stack demonstrates — reading Secrets in this namespace
+# (`remote.kubernetes.secret`, used by destination Secret auth #229 and the database
+# wizard) and cluster-wide pod/endpoint discovery (`discovery.kubernetes`, used by
+# demo-visual and Pod Logs). Without it both fail at runtime with "forbidden" while the
+# collector still reads APPLIED (found by the 2026-10-08 walkthrough). The namespace in
+# the ClusterRoleBinding subject is the script's fixed NAMESPACE (shepherd-dev).
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alloy
+  labels:
+    shepherd.dev/component: alloy
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: alloy-read-secrets
+  labels:
+    shepherd.dev/component: alloy
+rules:
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: alloy-read-secrets
+  labels:
+    shepherd.dev/component: alloy
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: alloy-read-secrets
+subjects:
+  - kind: ServiceAccount
+    name: alloy
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: shepherd-dev-alloy-discovery
+  labels:
+    shepherd.dev/component: alloy
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints", "nodes", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: shepherd-dev-alloy-discovery
+  labels:
+    shepherd.dev/component: alloy
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: shepherd-dev-alloy-discovery
+subjects:
+  - kind: ServiceAccount
+    name: alloy
+    namespace: shepherd-dev
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -34,6 +103,7 @@ spec:
         app: alloy-metrics
         shepherd.dev/component: alloy
     spec:
+      serviceAccountName: alloy
       containers:
         - name: alloy
           image: __ALLOY_IMAGE__
@@ -77,6 +147,7 @@ spec:
         app: alloy-logs
         shepherd.dev/component: alloy
     spec:
+      serviceAccountName: alloy
       containers:
         - name: alloy
           image: __ALLOY_IMAGE__
@@ -120,6 +191,7 @@ spec:
         app: alloy-staging
         shepherd.dev/component: alloy
     spec:
+      serviceAccountName: alloy
       containers:
         - name: alloy
           image: __ALLOY_IMAGE__
