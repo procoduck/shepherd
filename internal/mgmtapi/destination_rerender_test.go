@@ -261,11 +261,11 @@ var _ = Describe("Destination changes reach wizard pipelines (#262)", Label("int
 			mimir := createDest(org, "mimir", "prometheus", oldURL)
 			good := commitSelfMonitoring(org, "self-mon", "mimir")
 			// A wizard pipeline whose stored state no longer renders to valid
-			// Alloy (app-observability puts scrape_url inside a string
+			// Alloy (app-observability puts job_name inside a string
 			// literal unquoted; CommitWizard's Stage 1 gate would refuse it
 			// today, a row from before that gate need not have been).
 			brokenState := map[string]any{
-				"scrape_url": `app:8080"broken`, "metrics_dest_name": "mimir", "logs_enabled": false,
+				"scrape_url": "app:8080", "job_name": `app"broken`, "metrics_dest_name": "mimir", "logs_enabled": false,
 			}
 			state, err := json.Marshal(brokenState)
 			Expect(err).NotTo(HaveOccurred())

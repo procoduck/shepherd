@@ -17,6 +17,8 @@ var renderedAttrs = []wizardtest.AttrPath{
 	{Component: "prometheus.remote_write", Path: []string{"endpoint", "name"}},
 	{Component: "prometheus.remote_write", Path: []string{"endpoint", "url"}},
 
+	{Component: "local.file_match", Path: []string{"path_targets"}},
+
 	{Component: "loki.source.file", Path: []string{"targets"}},
 	{Component: "loki.source.file", Path: []string{"forward_to"}},
 

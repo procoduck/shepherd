@@ -14,10 +14,14 @@ prometheus.remote_write "metrics" {
   }
 }
 
-loki.source.file "self" {
-  targets = [
+local.file_match "self" {
+  path_targets = [
     {__path__ = "/var/log/alloy/*.log", job = "alloy-self"},
   ]
+}
+
+loki.source.file "self" {
+  targets    = local.file_match.self.targets
   forward_to = [loki.write.logs.receiver]
 }
 

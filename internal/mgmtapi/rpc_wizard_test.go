@@ -163,8 +163,11 @@ var _ = Describe("shepherd.mgmt.v1.WizardService", Label("integration"), func() 
 			"name":   "wizard-render-invalid",
 			"state": map[string]any{
 				// job_name containing a quote breaks the generated Alloy syntax,
-				// giving Stage 1 something concrete to reject.
-				"scrape_url":        `http://myapp:9090/metrics" broken = "x`,
+				// giving Stage 1 something concrete to reject. (scrape_url
+				// used to carry the quote; the wizard now parses the URL and
+				// refuses one that is not a scrape target.)
+				"scrape_url":        "http://myapp:9090/metrics",
+				"job_name":          `myapp" broken = "x`,
 				"metrics_dest_name": "mimir",
 			},
 		}
@@ -180,6 +183,27 @@ var _ = Describe("shepherd.mgmt.v1.WizardService", Label("integration"), func() 
 		// failing render looks like; the diagnostics list is the real signal.
 		Expect(render["valid"]).To(Or(BeNil(), BeFalse()))
 		Expect(render["diagnostics"]).NotTo(BeEmpty())
+	})
+
+	// The Review step shows this refusal inline (WizardRunnerPage), so its
+	// message has to name the field and the fix.
+	It("refuses a RenderWizard whose scrape_url is not a scrape target, naming the field", func() {
+		body := map[string]any{
+			"org_id": orgID,
+			"kind":   "app-observability",
+			"name":   "wizard-render-bad-url",
+			"state": map[string]any{
+				"scrape_url":        "ftp://myapp/metrics",
+				"metrics_dest_name": "mimir",
+			},
+		}
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.WizardService/RenderWizard", adminCookie, body)
+		defer resp.Body.Close() //nolint:errcheck // test cleanup
+		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+		var payload struct{ Code, Message string }
+		Expect(json.NewDecoder(resp.Body).Decode(&payload)).To(Succeed())
+		Expect(payload.Code).To(Equal("failed_precondition"))
+		Expect(payload.Message).To(ContainSubstring(`scrape_url "ftp://myapp/metrics": scheme must be http or https`))
 	})
 })
 

@@ -125,12 +125,13 @@ var _ = Describe("WizardService.CommitWizard editor parity", Label("integration"
 	// (c) CommitWizard now runs the same Stage 1/2 gate CreatePipeline runs
 	// (validateSaveInput's Stages12 call, rpc_pipeline.go) — a wizard state
 	// that renders unparsable Alloy must not reach the store at all. The
-	// quote-in-scrape_url state is the one rpc_wizard_test.go's
+	// quote-in-job_name state is the one rpc_wizard_test.go's
 	// "surfaces stage-1 syntax diagnostics from RenderWizard" spec uses to
 	// break Stage 1.
 	It("refuses to commit a pipeline whose rendered contents fail stage 1/2", func() {
 		badState := map[string]any{
-			"scrape_url":        `http://myapp:9090/metrics" broken = "x`,
+			"scrape_url":        "http://myapp:9090/metrics",
+			"job_name":          `myapp" broken = "x`,
 			"metrics_dest_name": "mimir",
 		}
 		resp := commitWizard("wizard-commit-invalid", badState)

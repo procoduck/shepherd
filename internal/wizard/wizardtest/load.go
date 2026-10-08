@@ -49,6 +49,14 @@ const loadReadyTimeout = 90 * time.Second
 // builds every component, so this catches that whole class for every
 // wizard.
 //
+// Loading is not collecting, so a golden that reaches ready is then kept
+// running for a few seconds and must run cleanly too: no runtime error of
+// the kinds in runtimeErrors in its log, and every component healthy in
+// Alloy's components API (assertRuntimeHealthy). A full URL in a scrape
+// target's __address__ and a glob in loki.source.file's __path__ both
+// loaded, reported ready and left the collector APPLIED while collecting
+// nothing; only the log said so.
+//
 // Some components reach outside the process while being built, and a test
 // container has none of those surroundings. remote.kubernetes.secret
 // fetches its Secret in its constructor and fails the load when it cannot;
@@ -208,13 +216,105 @@ func loadInAlloy(t *testing.T, docker, image string, apiPort int, saDir string, 
 			if resp, getErr := client.Do(req); getErr == nil {
 				_ = resp.Body.Close() //nolint:errcheck // body unused
 				if resp.StatusCode == http.StatusOK {
-					return nil
+					return assertRuntimeHealthy(ctx, client, addr, logs)
 				}
 			}
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 	return fmt.Errorf("alloy did not report ready within %s\n--- alloy log ---\n%s", loadReadyTimeout, logs())
+}
+
+// runtimeSettleWindow is how long a golden keeps running after /-/ready
+// before its log and component health are read. Loading is not collecting:
+// prometheus.scrape builds its targets on the scrape manager's first reload
+// tick (every 5s), so a refused target only shows up a few seconds after
+// the initial load finished. The window covers two ticks.
+const runtimeSettleWindow = 12 * time.Second
+
+// runtimeErrors are log messages a running Alloy emits for a pipeline that
+// loaded — every component built, /-/ready answering 200, the collector
+// reporting APPLIED — but collects nothing. Component health stays
+// "healthy" through every one of them (Alloy only logs them), so
+// AssertGoldensLoadInRealAlloy's ready check and the components API are
+// both blind to this class; only the log says so. Both shipped from the
+// App Observability wizard (2026-10-08 walkthrough):
+//
+//   - a full URL in a scrape target's __address__: the scrape manager
+//     refuses the target ("Creating target failed … is not a valid
+//     hostname") and the job scrapes nothing;
+//   - a glob in loki.source.file's __path__: the source stats the literal
+//     pattern and gives up ("failed to create source, skipping … stat
+//     /var/log/app/*.log: no such file or directory"). Globs belong in
+//     local.file_match.
+var runtimeErrors = []string{
+	"Creating target failed",
+	"is not a valid hostname",
+	"failed to create source",
+}
+
+// componentHealth is the part of one /api/v0/web/components entry this
+// check reads.
+type componentHealth struct {
+	LocalID string `json:"localID"`
+	Health  struct {
+		State   string `json:"state"`
+		Message string `json:"message"`
+	} `json:"health"`
+}
+
+// assertRuntimeHealthy lets a golden that has finished its initial load run
+// for runtimeSettleWindow, then requires its log to carry none of
+// runtimeErrors and every component the components API lists to report
+// "healthy". A nil return means the pipeline is, as far as a container with
+// no real sources can tell, collecting: its targets were accepted and its
+// sources created.
+func assertRuntimeHealthy(ctx context.Context, client *http.Client, addr string, logs func() string) error {
+	select {
+	case <-time.After(runtimeSettleWindow):
+	case <-ctx.Done():
+		return fmt.Errorf("waiting for the runtime settle window: %w", ctx.Err())
+	}
+	log := logs()
+	var problems []string
+	for _, line := range strings.Split(log, "\n") {
+		for _, pattern := range runtimeErrors {
+			if strings.Contains(line, pattern) {
+				problems = append(problems, "runtime error in the log: "+line)
+				break
+			}
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/api/v0/web/components", http.NoBody)
+	if err != nil {
+		return fmt.Errorf("build components request: %w", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("read component health: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }() //nolint:errcheck // read-only body
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("read component health: HTTP %d", resp.StatusCode)
+	}
+	var components []componentHealth
+	if err := json.NewDecoder(resp.Body).Decode(&components); err != nil {
+		return fmt.Errorf("decode component health: %w", err)
+	}
+	if len(components) == 0 {
+		return errors.New("the components API listed no components — the health check would pass vacuously")
+	}
+	for _, c := range components {
+		if c.Health.State != "healthy" {
+			problems = append(problems, fmt.Sprintf("component %s is %q: %s", c.LocalID, c.Health.State, c.Health.Message))
+		}
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("alloy loaded the config but it does not run cleanly:\n  %s\n--- alloy log ---\n%s",
+			strings.Join(problems, "\n  "), log)
+	}
+	return nil
 }
 
 // secretDataRef matches `<component>.data["key"]`, the only way a golden
