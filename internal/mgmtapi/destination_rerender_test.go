@@ -246,6 +246,10 @@ var _ = Describe("Destination changes reach wizard pipelines (#262)", Label("int
 			Expect(out["code"]).To(Equal("failed_precondition"))
 			Expect(out["message"]).To(ContainSubstring(`"self-mon"`))
 			Expect(out["message"]).To(ContainSubstring("needs a prometheus destination"))
+			// M4 (2026-10-08 walkthrough): the refusal names actions that exist.
+			Expect(out["message"]).To(ContainSubstring("change the destination so it can be regenerated"))
+			Expect(out["message"]).To(ContainSubstring("detach it from the wizard or delete it"))
+			Expect(out["message"]).NotTo(ContainSubstring("re-run"))
 
 			d, err := st.Queries.GetDestinationByID(ctx, mimir.ID)
 			Expect(err).NotTo(HaveOccurred())
@@ -291,6 +295,7 @@ var _ = Describe("Destination changes reach wizard pipelines (#262)", Label("int
 			Expect(out["message"]).To(ContainSubstring(`"broken-app"`))
 			Expect(out["message"]).To(ContainSubstring("stage 1"))
 			Expect(out["message"]).NotTo(ContainSubstring("edited by hand"))
+			Expect(out["message"]).To(ContainSubstring("detach it from the wizard or delete it"))
 
 			d, err := st.Queries.GetDestinationByID(ctx, mimir.ID)
 			Expect(err).NotTo(HaveOccurred())
@@ -394,8 +399,11 @@ var _ = Describe("Destination changes reach wizard pipelines (#262)", Label("int
 			Expect(out["code"]).To(Equal("failed_precondition"))
 			Expect(out["message"]).To(ContainSubstring(`"self-mon"`))
 			Expect(out["message"]).To(ContainSubstring("edited by hand"))
-			Expect(out["message"]).To(ContainSubstring("re-run its wizard"))
-			Expect(out["message"]).To(ContainSubstring(`"Detach from wizard"`))
+			// M4 (2026-10-08 walkthrough): it used to say "re-run its wizard",
+			// which the UI cannot do (running the wizard again creates a NEW
+			// pipeline). It names the three actions the pipeline page offers.
+			Expect(out["message"]).To(ContainSubstring("restore its last wizard-generated revision, detach it from the wizard, or delete it"))
+			Expect(out["message"]).NotTo(ContainSubstring("re-run"))
 
 			d, err := st.Queries.GetDestinationByID(ctx, mimir.ID)
 			Expect(err).NotTo(HaveOccurred())
@@ -404,6 +412,33 @@ var _ = Describe("Destination changes reach wizard pipelines (#262)", Label("int
 			Expect(revisions(used.ID)).To(HaveLen(2), "created + the hand edit, nothing more")
 			Expect(auditRows(org, "pipeline.rerender")).To(BeEmpty())
 			Expect(auditRows(org, "destination.update")).To(BeEmpty())
+		})
+
+		// M4: the first action the refusal names must actually clear it.
+		// Restoring the last wizard-generated revision (here #1, "created")
+		// through the existing RestoreRevision puts back the text the
+		// wizard wrote, and the same destination update then goes through.
+		It("is cleared by restoring the last wizard-generated revision, as the refusal says", func() {
+			mimir := createDest(org, "mimir", "prometheus", oldURL)
+			used := commitSelfMonitoring(org, "self-mon", "mimir")
+			code, out := call("PipelineService/UpdatePipeline", map[string]any{
+				"orgId": org.String(), "id": used.ID.String(), "name": used.Name,
+				"contents": used.Contents + "\n// tuned by hand\n", "matchers": []string{`role="singleton"`},
+			})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			code, out = updateDest(mimir, map[string]any{"url": newURL})
+			Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
+			Expect(out["message"]).To(ContainSubstring("restore its last wizard-generated revision"))
+
+			code, out = call("PipelineService/RestoreRevision", map[string]any{
+				"orgId": org.String(), "id": used.ID.String(), "revision": 1,
+			})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			Expect(pipeline(used.ID).Contents).To(Equal(used.Contents))
+
+			code, out = updateDest(mimir, map[string]any{"url": newURL})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			Expect(pipeline(used.ID).Contents).To(ContainSubstring(newURL))
 		})
 
 		It("still converts a pre-#260 sys.env pipeline: its text came from the old renderer, not a hand", func() {
@@ -434,7 +469,12 @@ var _ = Describe("Destination changes reach wizard pipelines (#262)", Label("int
 			code, out := call("DestinationService/DeleteDestination", map[string]any{"orgId": org.String(), "id": mimir.ID.String()})
 			Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
 			Expect(out["code"]).To(Equal("failed_precondition"))
-			Expect(out["message"]).To(ContainSubstring("self-mon-a, self-mon-b"))
+			// M4: each name quoted (the UI links them to their pages), and
+			// actions that exist — a wizard pipeline cannot be "pointed at
+			// another destination" from the UI.
+			Expect(out["message"]).To(ContainSubstring(`"self-mon-a", "self-mon-b"`))
+			Expect(out["message"]).To(ContainSubstring("detach them from the wizard or delete them first"))
+			Expect(out["message"]).NotTo(ContainSubstring("another destination"))
 			_, err := st.Queries.GetDestinationByID(ctx, mimir.ID)
 			Expect(err).NotTo(HaveOccurred(), "the destination must still exist")
 		})

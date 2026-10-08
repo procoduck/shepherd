@@ -18,6 +18,7 @@ import { OpenInVisualBuilder, PipelineLandingBanner } from '@/components/Pipelin
 import { PipelineMatchers } from '@/components/PipelineMatchers';
 import { PipelineMatchPreview } from '@/components/PipelineMatchPreview';
 import { PipelineOwner } from '@/components/PipelineOwner';
+import { RestoreWizardNote, RestoreWizardVersion } from '@/components/RestoreWizardVersion';
 import { RevisionHistory } from '@/components/RevisionHistory';
 import { Input } from '@/components/ui/Field';
 import { FormError } from '@/components/ui/FormError';
@@ -210,11 +211,23 @@ export function PipelineEditorPage() {
           </div>
         )}
 
+        <RestoreWizardVersion
+          pipeline={canWrite ? pipeline : undefined}
+          revisions={revisions}
+          orgId={pipelineOrgId}
+          queryOrgId={orgId}
+          onRestore={(revision) => {
+            setSelectedRevision(revision);
+            setConfirmingRestore(true);
+          }}
+        />
+
         {!isNew && revisions.length > 0 && (
           <RevisionHistory
             revisions={revisions}
             currentRevision={currentRevision}
             onView={setSelectedRevision}
+            pipelineSource={pipeline?.source ?? ''}
           />
         )}
 
@@ -409,6 +422,11 @@ export function PipelineEditorPage() {
               Restore revision #{selectedRevision}? This creates a new revision from its contents,
               matchers and enabled state; the current text is kept in history.
             </p>
+            <RestoreWizardNote
+              source={pipeline?.source}
+              revisions={revisions}
+              revision={selectedRevision}
+            />
             {revisionDetail && pipeline && revisionDetail.enabled !== pipeline.enabled && (
               <p data-testid='restore-enabled-change' className='text-sm text-amber-400'>
                 {revisionDetail.enabled

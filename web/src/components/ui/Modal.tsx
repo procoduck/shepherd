@@ -141,7 +141,7 @@ export function ModalActions({
   pending: boolean;
   danger?: boolean;
   submitTestId?: string;
-  error?: string | null;
+  error?: ReactNode;
 }) {
   return (
     <>

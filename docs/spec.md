@@ -649,15 +649,22 @@ the destination under a `*_dest_name` key, from that stored state, in the same t
 destination update (#262): Stages 1–2 per pipeline, Stage 3 over the merged config with all of them
 swapped in, then a revision, a `pipeline.rerender` audit row (the editing user) and the org's serve
 cache marked dirty. Any refusal fails the update (`failed_precondition`, naming each pipeline) and
-nothing changes. A wizard pipeline that was edited by hand is refused the same way, never
-overwritten, and the message points at re-running its wizard or "Detach from wizard" (§11). It is
+nothing changes. Each refused pipeline is named in quotes, with what to do: a wizard pipeline
+that was edited by hand is refused the same way, never overwritten, and the message names the
+three actions its page offers: restore its last wizard-generated revision, detach it from the
+wizard (§11), or delete it; a render or validation failure names changing the destination, detaching
+or deleting. Running the wizard again is never suggested: it creates a new pipeline. It is
 hand-edited when its contents no longer hash to its render fingerprint
 (`wizard_render_sha256`); with no fingerprint (written before migration 0030, or cleared by an
 editor write) the check falls back to comparing it, byte for byte, with its render against the
 destinations as they stood before the update. A pre-#229 `sys.env` pipeline is never treated as
 hand-edited; it is converted. A rename rewrites the name in those pipelines' `wizard_state` as well.
-`DeleteDestination` refuses (`failed_precondition`, listing them) while any wizard pipeline in the
-org names the destination. Pipelines rendered before #229 (the `sys.env` writer) are converted
+`DeleteDestination` refuses (`failed_precondition`, listing them quoted, and saying to detach them
+from the wizard or delete them first) while any wizard pipeline in the org names the destination.
+The destinations page links each pipeline a refusal names to its page; the pipeline page marks the
+revisions its wizard wrote (change note `created` on a wizard pipeline, or `re-rendered: …`) and,
+while a wizard pipeline's text differs from the last of them, offers "Restore last wizard version"
+(`RestoreRevision` of that revision). Pipelines rendered before #229 (the `sys.env` writer) are converted
 once by `shepherd admin rerender-destinations`.
 
 **RBAC.** The collector's ServiceAccount needs `get`, `list` and `watch` on `secrets` in the

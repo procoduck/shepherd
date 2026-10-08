@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { AdminModal, AdminModalActions } from './AdminModal';
 
 /** Shared yes/no confirmation dialog for destructive admin actions (delete org, revoke token, unclaim cluster). */
@@ -19,7 +20,7 @@ export function AdminConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
   /** The refusal, shown in the dialog (#249) — keep it open on error. */
-  error?: string | null;
+  error?: ReactNode;
 }) {
   return (
     <AdminModal title={title} onClose={onCancel}>

@@ -46,19 +46,61 @@ type wizardRerender struct {
 	stateChanged bool
 }
 
-// rerenderFailure is one pipeline whose re-render could not be stored.
-type rerenderFailure struct{ pipeline, reason string }
+// rerenderFailure is one re-render that could not be stored: usually one
+// pipeline, every enabled re-rendered pipeline when Stage 3 refused the
+// merged config. handEdited marks the hand-edit refusal (errHandEdited),
+// whose remedies differ from a render or validation failure's.
+type rerenderFailure struct {
+	pipelines  []string
+	reason     string
+	handEdited bool
+}
+
+// names is the failure's pipelines, each quoted (%q) — the UI finds them in
+// the message by their quoted names and links each to its page (M4).
+func (f rerenderFailure) names() string {
+	q := make([]string, len(f.pipelines))
+	for i, n := range f.pipelines {
+		q[i] = fmt.Sprintf("%q", n)
+	}
+	return strings.Join(q, ", ")
+}
+
+// The remedies a refusal names (M4, 2026-10-08 walkthrough). Only actions
+// the product offers: the pipeline page's revision history (Restore), its
+// "Detach from wizard", and Delete. Running a wizard again creates a NEW
+// pipeline, so "re-run its wizard" is never one of them.
+const (
+	// remedyHandEdited: restoring the last wizard-generated revision puts
+	// back the text the wizard wrote, which a re-render may replace.
+	remedyHandEdited = "on the pipeline's page, restore its last wizard-generated revision, detach it from the wizard, or delete it"
+	// remedyDestinationUpdate: the destination change itself is what the
+	// wizard could not take, so changing it is the first way out.
+	remedyDestinationUpdate = "change the destination so it can be regenerated, or, on the pipeline's page, detach it from the wizard or delete it"
+	// remedyLegacyRerender: `shepherd admin rerender-destinations`.
+	remedyLegacyRerender = "fix what the error names, or, on the pipeline's page in Shepherd, detach it from the wizard or delete it; then run this command again"
+)
+
+// describe is the failure as one clause of a refusal, ending in what to do
+// about it: remedy for a render or validation failure, remedyHandEdited
+// for a hand edit.
+func (f rerenderFailure) describe(remedy string) string {
+	if f.handEdited {
+		remedy = remedyHandEdited
+	}
+	return fmt.Sprintf("%s: %s — %s", f.names(), f.reason, remedy)
+}
 
 // rerenderFailures is the error UpdateDestination refuses with: every
-// pipeline that would not survive the change, and why.
+// pipeline that would not survive the change, why, and what to do.
 type rerenderFailures []rerenderFailure
 
 func (f rerenderFailures) Error() string {
 	parts := make([]string, len(f))
 	for i, x := range f {
-		parts[i] = fmt.Sprintf("%q: %s", x.pipeline, x.reason)
+		parts[i] = x.describe(remedyDestinationUpdate)
 	}
-	return fmt.Sprintf("%d wizard pipeline(s) using it cannot be regenerated — %s", len(f), strings.Join(parts, "; "))
+	return fmt.Sprintf("%d wizard pipeline(s) using it cannot be regenerated: %s", len(f), strings.Join(parts, "; "))
 }
 
 // legacyDestinationWriterMarker is the writer every wizard emitted before
@@ -78,7 +120,7 @@ func isDestNameKey(k string) bool { return strings.HasSuffix(k, "_dest_name") }
 // could not render it, or the result fails Stages 1-2.
 func (s *PipelineService) renderWizardPipeline(ctx context.Context, p sqlc.Pipeline, dests wizard.Destinations, rename *destinationRename) (out wizardRerender, changed bool, failure *rerenderFailure) {
 	fail := func(format string, args ...any) (wizardRerender, bool, *rerenderFailure) {
-		return wizardRerender{}, false, &rerenderFailure{pipeline: p.Name, reason: fmt.Sprintf(format, args...)}
+		return wizardRerender{}, false, &rerenderFailure{pipelines: []string{p.Name}, reason: fmt.Sprintf(format, args...)}
 	}
 	wiz, err := wizard.Default().Get(p.WizardKind.String)
 	if err != nil {
@@ -155,10 +197,12 @@ func fingerprintAfterEdit(p sqlc.Pipeline, contents string) pgtype.Text {
 	return pgtype.Text{}
 }
 
-// errHandEdited is the reason a hand-edited wizard pipeline is refused.
+// errHandEdited is the reason a hand-edited wizard pipeline is refused;
+// describe adds remedyHandEdited. "Detach from wizard" keeps the edit and
+// stops the pipeline following destination changes; restoring the last
+// wizard-generated revision drops the edit and lets the change through.
 const errHandEdited = "its contents were edited by hand after its wizard generated them, and " +
-	"regenerating it would discard that edit — re-run its wizard, or use \"Detach from wizard\" " +
-	"on the pipeline's page to keep the edit and stop it following destination changes"
+	"regenerating it would discard that edit"
 
 // handEdited reports a wizard pipeline whose stored contents are not what
 // its wizard renders from its stored state against before — the org's
@@ -186,22 +230,22 @@ func handEdited(p sqlc.Pipeline, before wizard.Destinations) *rerenderFailure {
 		if p.WizardRenderSha256 == renderFingerprint(p.Contents) {
 			return nil
 		}
-		return &rerenderFailure{pipeline: p.Name, reason: errHandEdited}
+		return &rerenderFailure{pipelines: []string{p.Name}, reason: errHandEdited, handEdited: true}
 	}
 	wiz, err := wizard.Default().Get(p.WizardKind.String)
 	if err != nil {
-		return &rerenderFailure{pipeline: p.Name, reason: err.Error()}
+		return &rerenderFailure{pipelines: []string{p.Name}, reason: err.Error()}
 	}
 	state := map[string]any{}
 	if err := json.Unmarshal(p.WizardState, &state); err != nil {
-		return &rerenderFailure{pipeline: p.Name, reason: fmt.Sprintf("stored wizard state is not a JSON object: %v", err)}
+		return &rerenderFailure{pipelines: []string{p.Name}, reason: fmt.Sprintf("stored wizard state is not a JSON object: %v", err)}
 	}
 	result, err := wiz.Commit(state, before)
 	if err != nil {
-		return &rerenderFailure{pipeline: p.Name, reason: fmt.Sprintf("it no longer renders from its wizard state: %v", err)}
+		return &rerenderFailure{pipelines: []string{p.Name}, reason: fmt.Sprintf("it no longer renders from its wizard state: %v", err)}
 	}
 	if result.Contents != p.Contents {
-		return &rerenderFailure{pipeline: p.Name, reason: errHandEdited}
+		return &rerenderFailure{pipelines: []string{p.Name}, reason: errHandEdited, handEdited: true}
 	}
 	return nil
 }
@@ -246,7 +290,7 @@ func (s *PipelineService) planWizardRerenders(ctx context.Context, orgID pgtype.
 	}
 	if len(enabled) > 0 {
 		if err := s.stage3CheckSet(ctx, orgID, enabled, ""); err != nil {
-			failures = append(failures, rerenderFailure{pipeline: strings.Join(enabledNames, ", "), reason: err.Error()})
+			failures = append(failures, rerenderFailure{pipelines: enabledNames, reason: err.Error()})
 			changes = nil
 		}
 	}
@@ -309,7 +353,7 @@ type LegacyRerenderResult struct {
 	// Rerendered names the pipelines rewritten (or, on a dry run, that
 	// would be).
 	Rerendered []string
-	// Failed is one "pipeline: reason" line per pipeline left as it was.
+	// Failed is one `"pipeline": reason — what to do` line per pipeline left as it was.
 	// A Stage 3 refusal lists every enabled pipeline of the org and leaves
 	// the whole org untouched.
 	Failed []string
@@ -378,13 +422,13 @@ func (s *PipelineService) rerenderLegacyOrg(ctx context.Context, org sqlc.Org, d
 	dests, err := wizardDestinations(ctx, txQ, org.ID)
 	if err != nil {
 		for i := range legacy {
-			res.Failed = append(res.Failed, fmt.Sprintf("%s: %v", legacy[i].Name, err))
+			res.Failed = append(res.Failed, rerenderFailure{pipelines: []string{legacy[i].Name}, reason: err.Error()}.describe(remedyLegacyRerender))
 		}
 		return res, nil
 	}
 	changes, failures := s.planWizardRerenders(ctx, org.ID, legacy, nil, dests, nil)
 	for _, f := range failures {
-		res.Failed = append(res.Failed, fmt.Sprintf("%s: %s", f.pipeline, f.reason))
+		res.Failed = append(res.Failed, f.describe(remedyLegacyRerender))
 	}
 	for i := range changes {
 		res.Rerendered = append(res.Rerendered, changes[i].row.Name)

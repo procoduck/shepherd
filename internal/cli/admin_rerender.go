@@ -31,8 +31,11 @@ pipeline.rerender audit row. Collectors pick the new config up on their next
 poll.
 
 A pipeline that cannot be re-rendered (for example, its destination was
-deleted) is listed and left unchanged. Safe to run more than once: a
-re-rendered pipeline no longer matches. Run it with --dry-run first.`,
+deleted) is listed with the reason and what to do — fix what the reason
+names (create the destination again, say), or, on the pipeline's page,
+detach it from the wizard or delete it — and left unchanged. Safe to run
+more than once: a re-rendered pipeline no longer matches. Run it with
+--dry-run first.`,
 	RunE: runAdminRerenderDestinations,
 }
 

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ExternalLink, Pencil, Plus, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import { toast } from 'sonner';
 import { clients, toApiError } from '@/api/transport';
 import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
@@ -13,11 +13,12 @@ import {
   isSecretMode,
   scopesFromExtra,
 } from '@/components/DestinationFormDialog';
+import { linkPipelineNames } from '@/components/PipelineNameLinks';
 import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import type { Destination } from '@/gen/shepherd/mgmt/v1/destination_pb';
 import { useCanAdminister, useOrgId } from '@/hooks/useOrg';
-import { errorText, formError } from '@/lib/formError';
+import { formError } from '@/lib/formError';
 
 /**
  * A destination URL, rendered as a link only when it is safe to click.
@@ -201,18 +202,36 @@ export function DestinationsPage() {
       toast.success('Destination deleted');
       qc.invalidateQueries({ queryKey: ['destinations', orgId] });
       invalidatePipelines();
-    },
-    onError: (e) => {
-      const err = toApiError(e);
-      // failed_precondition: a wizard pipeline still names it (#262, the
-      // message lists them); already_exists: a tenant binding points at it.
-      toast.error(
-        err.code === 'failed_precondition' || err.code === 'already_exists'
-          ? `Cannot delete: ${err.message || 'it is still in use'}`
-          : errorText(e, 'Failed to delete destination'),
-      );
+      setPendingDelete(null);
     },
   });
+  const closeDelete = () => {
+    setPendingDelete(null);
+    deleteMut.reset();
+  };
+
+  // The wizard pipelines a refusal names (#262) are quoted in its message;
+  // each becomes a link to its page, where it can be restored to its last
+  // wizard version, detached or deleted (M4). Fetched only once there is a
+  // refusal to link — the same query (and cache) as the pipelines list.
+  const refused = updateMut.isError || deleteMut.isError;
+  const { data: pipelinesData } = useQuery({
+    queryKey: ['pipelines', orgId],
+    queryFn: () => clients.pipeline.listPipelines({ orgId }),
+    enabled: !!orgId && refused,
+  });
+  const linked = (message: string | null): ReactNode =>
+    message && linkPipelineNames(message, pipelinesData?.items ?? []);
+  // failed_precondition: a wizard pipeline still names it (#262, the
+  // message lists them); already_exists: a tenant binding points at it.
+  const deleteError = (() => {
+    if (!deleteMut.error) return null;
+    const err = toApiError(deleteMut.error);
+    if (err.code === 'failed_precondition' || err.code === 'already_exists') {
+      return `Cannot delete: ${err.message || 'it is still in use'}`;
+    }
+    return formError(deleteMut.error, 'Failed to delete destination');
+  })();
 
   return (
     <div className='space-y-4'>
@@ -231,15 +250,15 @@ export function DestinationsPage() {
       {pendingDelete && (
         <AdminConfirmDialog
           title='Delete destination'
-          body={`Delete "${pendingDelete.name}"? A destination a wizard pipeline still ships to cannot be deleted; point those pipelines elsewhere first.`}
+          body={`Delete "${pendingDelete.name}"? A destination a wizard pipeline still ships to cannot be deleted until each such pipeline is detached from its wizard or deleted.`}
           confirmLabel='Delete'
           pendingLabel='Deleting…'
           pending={deleteMut.isPending}
-          onCancel={() => setPendingDelete(null)}
-          onConfirm={() => {
-            deleteMut.mutate(pendingDelete.id);
-            setPendingDelete(null);
-          }}
+          onCancel={closeDelete}
+          // Stays open on a refusal, which shows in the dialog with each
+          // pipeline it names linked (#249, M4).
+          onConfirm={() => deleteMut.mutate(pendingDelete.id)}
+          error={linked(deleteError)}
         />
       )}
 
@@ -298,7 +317,7 @@ export function DestinationsPage() {
           submitLabel='Save'
           pendingLabel='Saving…'
           pending={updateMut.isPending}
-          error={formError(updateMut.error, 'Failed to update destination')}
+          error={linked(formError(updateMut.error, 'Failed to update destination'))}
           onCancel={() => {
             setEditing(null);
             updateMut.reset();
