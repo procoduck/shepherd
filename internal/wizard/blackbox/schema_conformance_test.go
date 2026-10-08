@@ -9,6 +9,7 @@ import (
 // renderedAttrs is every attribute wizard.go's Commit sets, one entry per
 // line it emits — see wizardtest.AssertSchemaConformance's doc.
 var renderedAttrs = []wizardtest.AttrPath{
+	{Component: "prometheus.exporter.blackbox", Path: []string{"config"}},
 	{Component: "prometheus.exporter.blackbox", Path: []string{"target", "name"}},
 	{Component: "prometheus.exporter.blackbox", Path: []string{"target", "address"}},
 	{Component: "prometheus.exporter.blackbox", Path: []string{"target", "module"}},

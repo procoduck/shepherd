@@ -33,6 +33,24 @@ func TestGenGoldens(t *testing.T) {
 			"logs_dest_name":    "loki-staging",
 			"cluster_pattern":   "staging-.*",
 		}},
+		{"logfmt-format", map[string]any{
+			"namespace_pattern": "prod-.*",
+			"log_format":        "logfmt",
+			"logs_dest_name":    "loki-prod",
+			"cluster_pattern":   "prod-.*",
+		}},
+		{"cri-format", map[string]any{
+			"namespace_pattern": "prod-.*",
+			"log_format":        "cri",
+			"logs_dest_name":    "loki-prod",
+			"cluster_pattern":   "prod-.*",
+		}},
+		{"docker-format", map[string]any{
+			"namespace_pattern": "prod-.*",
+			"log_format":        "docker",
+			"logs_dest_name":    "loki-prod",
+			"cluster_pattern":   "prod-.*",
+		}},
 	}
 	for _, c := range cases {
 		res, err := w.Commit(c.state, wizardtest.Destinations())
