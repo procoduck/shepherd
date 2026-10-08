@@ -82,7 +82,14 @@ func SafeReturnPath(raw string) string {
 // returnPathShapeOK is the layer-independent part of SafeReturnPath: one
 // leading slash, never two, no backslash anywhere and no control character.
 func returnPathShapeOK(p string) bool {
-	if !strings.HasPrefix(p, "/") || strings.HasPrefix(p, "//") {
+	// A single leading "/" whose next character is neither "/" nor "\": the
+	// form CodeQL's go/bad-redirect-check recognises, since a browser reads
+	// both "//host" and "/\host" as protocol-relative. The loop below also
+	// refuses a backslash anywhere else.
+	if len(p) == 0 || p[0] != '/' {
+		return false
+	}
+	if len(p) > 1 && (p[1] == '/' || p[1] == '\\') {
 		return false
 	}
 	for i := 0; i < len(p); i++ {
