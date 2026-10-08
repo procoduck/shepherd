@@ -20,6 +20,7 @@ export function RepoLinkForm({
   onSubmit,
   pending,
   error,
+  urlError,
   onCancel,
   collectors,
   credentials,
@@ -30,6 +31,8 @@ export function RepoLinkForm({
   pending: boolean;
   /** The server's refusal, shown above the buttons (#249). */
   error?: string | null;
+  /** A refusal about the clone URL itself, shown under that field (M6). */
+  urlError?: string | null;
   onCancel: () => void;
   collectors: CollectorOption[];
   credentials: Pick<GitCredential, 'id' | 'name' | 'kind'>[];
@@ -43,12 +46,23 @@ export function RepoLinkForm({
         }}
         className='space-y-4'
       >
-        <Field label='Clone URL'>
+        <Field
+          label='Clone URL'
+          hint='https://… for a token, password, app or anonymous credential; ssh://… or git@host:path for an SSH key.'
+          error={
+            urlError && (
+              <span data-testid='repo-url-error' role='alert'>
+                {urlError}
+              </span>
+            )
+          }
+        >
           <Input
             mono
             value={value.repoUrl}
             onChange={(e) => onChange((f) => ({ ...f, repoUrl: e.target.value }))}
             required
+            aria-invalid={!!urlError}
             placeholder='https://gitea.internal/team/configs.git'
           />
         </Field>

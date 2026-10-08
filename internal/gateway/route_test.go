@@ -214,6 +214,8 @@ func TestRenderHTTPRoute_Validation(t *testing.T) {
 		{"empty namespace", func(s gateway.RouteSpec) gateway.RouteSpec { s.Namespace = ""; return s }},
 		{"empty tenant id", func(s gateway.RouteSpec) gateway.RouteSpec { s.TenantID = ""; return s }},
 		{"empty gateway name", func(s gateway.RouteSpec) gateway.RouteSpec { s.GatewayName = ""; return s }},
+		{"gateway name no object could have", func(s gateway.RouteSpec) gateway.RouteSpec { s.GatewayName = "Bad Name!"; return s }},
+		{"gateway namespace with a dot", func(s gateway.RouteSpec) gateway.RouteSpec { s.GatewayNamespace = "gw.system"; return s }},
 		{"empty backend name", func(s gateway.RouteSpec) gateway.RouteSpec { s.BackendName = ""; return s }},
 		{"route segment with slash", func(s gateway.RouteSpec) gateway.RouteSpec {
 			s.RouteSegment = "acme/../other"

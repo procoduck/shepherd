@@ -3,6 +3,8 @@ package signals
 import (
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 )
 
 // RolePolicy is one row of the role -> allowed-signals table: what a
@@ -154,4 +156,28 @@ func Disallowed(role string, sig Set) Set {
 		}
 	}
 	return NewSet(out...)
+}
+
+// Roles is Policies' key set, sorted: the collector roles that exist. A
+// collector registering with any other role is refused by internal/agentapi,
+// so anywhere a person types a role (a collector identity binding's role
+// allowlist, chart values) is checked against this list, never a copy of it.
+func Roles() []string {
+	roles := make([]string, 0, len(Policies))
+	for r := range Policies {
+		roles = append(roles, r)
+	}
+	sort.Strings(roles)
+	return roles
+}
+
+// ValidateRole refuses a role Policies has no row for, naming the roles that
+// do exist.
+func ValidateRole(role string) error {
+	if _, ok := Policies[role]; ok {
+		return nil
+	}
+	roles := Roles()
+	return fmt.Errorf("role %q is not a collector role: use %s or %s",
+		role, strings.Join(roles[:len(roles)-1], ", "), roles[len(roles)-1])
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -450,8 +451,13 @@ func (s *GitOpsService) CreateRepoLink(ctx context.Context, req *connect.Request
 		return nil, connect.NewError(connect.CodeUnavailable, errEncryptionUnavailable)
 	}
 	msg := req.Msg
-	if msg.GetRepoUrl() == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("repo_url required"))
+	// The clone URL's shape is checked here, at write time: a URL gitsync can
+	// never fetch would otherwise be stored and then fail on every poll,
+	// where nobody filling in the form ever sees it (M6).
+	repoURL := strings.TrimSpace(msg.GetRepoUrl())
+	urlTransport, err := gitrepo.RemoteTransport(repoURL)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	orgID, err := scanUUID(msg.GetOrgId())
 	if err != nil {
@@ -477,6 +483,9 @@ func (s *GitOpsService) CreateRepoLink(ctx context.Context, req *connect.Request
 	if err != nil || cred.OrgID != orgID {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("credential not found"))
 	}
+	if err := repoURLMatchesCredential(repoURL, urlTransport, cred); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
 	branch := msg.GetBranch()
 	if branch == "" {
 		branch = "main"
@@ -491,13 +500,46 @@ func (s *GitOpsService) CreateRepoLink(ctx context.Context, req *connect.Request
 	}
 	l, err := s.store.Queries.CreateRepoLink(ctx, sqlc.CreateRepoLinkParams{
 		OrgID: orgID, CollectorID: collID, CredentialID: credID,
-		RepoUrl: msg.GetRepoUrl(), Branch: branch, Path: path, PollIntervalSeconds: poll,
+		RepoUrl: repoURL, Branch: branch, Path: path, PollIntervalSeconds: poll,
 	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create repo link"))
 	}
 	auditLog(ctx, s.store, actorFromCtx(ctx), orgID, "repo_link.create", "repo_link", l.ID.String())
 	return connect.NewResponse(toRepoLinkProto(l)), nil
+}
+
+// credentialTransport is the one transport each credential kind's
+// gitrepo.Auth strategy speaks (see buildAuth): an SSH key never answers an
+// HTTPS challenge, and no HTTPS strategy offers an SSH signer. "none" is
+// anonymous HTTPS — over SSH it would offer no key and the server would
+// refuse it. ok is false for a kind this table does not know, which the
+// git_credentials CHECK constraint makes unreachable.
+func credentialTransport(kind string) (t gitrepo.Transport, ok bool) {
+	switch kind {
+	case "ssh":
+		return gitrepo.TransportSSH, true
+	case "none", "basic", "pat", "ado_sp", "github_app":
+		return gitrepo.TransportHTTP, true
+	default:
+		return "", false
+	}
+}
+
+// repoURLMatchesCredential refuses a clone URL whose transport the link's
+// credential cannot authenticate over: the link would be stored and then
+// fail every sync with an authentication error that names neither cause.
+func repoURLMatchesCredential(repoURL string, urlTransport gitrepo.Transport, cred sqlc.GitCredential) error {
+	want, ok := credentialTransport(cred.Kind)
+	if !ok || want == urlTransport {
+		return nil
+	}
+	if urlTransport == gitrepo.TransportSSH {
+		return fmt.Errorf("clone URL %q is an SSH URL, but credential %q authenticates over HTTPS: "+
+			"use the repository's https:// clone URL, or pick an SSH credential", repoURL, cred.Name)
+	}
+	return fmt.Errorf("clone URL %q is an HTTPS URL, but credential %q is an SSH key: "+
+		"use the repository's ssh:// or git@host:path clone URL, or pick an HTTPS credential", repoURL, cred.Name)
 }
 
 // DeleteRepoLink deletes a repo link.

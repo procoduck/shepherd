@@ -367,6 +367,81 @@ var _ = Describe("GitOpsService (Connect RPC)", Label("integration"), func() {
 				Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
 			})
 		})
+
+		// M6 (2026-10-08 walkthrough): clone URL "not a url" was stored, and
+		// only failed later, on every gitsync poll. The URL must be one
+		// internal/gitrepo can clone, over the transport the credential speaks.
+		Describe("CreateRepoLink clone URL", func() {
+			var collectorID string
+
+			BeforeEach(func() {
+				cluster, err := st.Queries.UpsertCluster(ctx, "repo-link-url-cluster")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgUUID(orgID)})).To(Succeed())
+				coll, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+				Expect(err).NotTo(HaveOccurred())
+				collectorID = coll.ID.String()
+			})
+
+			createLink := func(credID, repoURL string) *http.Response {
+				body, err := json.Marshal(map[string]any{
+					"orgId": orgID, "collectorId": collectorID, "credentialId": credID, "repoUrl": repoURL,
+				})
+				Expect(err).NotTo(HaveOccurred())
+				return postConnect("/shepherd.mgmt.v1.GitOpsService/CreateRepoLink", string(body), admin)
+			}
+			credOfKind := func(kind string) string {
+				w := createCredWire{Name: "url-" + kind, Kind: kind}
+				switch kind {
+				case "pat":
+					w.Username, w.ClientSecret = "oauth2", "tok"
+				case "ssh":
+					w.Username, w.ClientSecret, w.SSHKnownHosts = "git", string(newRSAPrivateKeyPEM()), "example.com ssh-ed25519 AAAA"
+				}
+				created := createCredential(w)
+				id, ok := created["id"].(string)
+				Expect(ok).To(BeTrue())
+				return id
+			}
+
+			DescribeTable("refuses a clone URL that cannot be cloned with the link's credential",
+				func(kind, repoURL, wantMsg string) {
+					resp := createLink(credOfKind(kind), repoURL)
+					Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+					var payload struct {
+						Code    string `json:"code"`
+						Message string `json:"message"`
+					}
+					decodeBody(resp, &payload)
+					Expect(payload.Code).To(Equal("invalid_argument"))
+					Expect(payload.Message).To(HavePrefix(wantMsg))
+
+					links, err := st.Queries.ListRepoLinksByOrg(ctx, orgUUID(orgID))
+					Expect(err).NotTo(HaveOccurred())
+					Expect(links).To(BeEmpty(), "a refused link must not be stored")
+				},
+				Entry("plain words", "pat", "not a url", `clone URL "not a url" is not a git remote URL`),
+				Entry("a local path", "none", "/srv/git/configs.git", `clone URL "/srv/git/configs.git" is not a git remote URL`),
+				Entry("an https URL with no host", "pat", "https:///team/configs.git", `clone URL "https:///team/configs.git" has no host`),
+				Entry("an unsupported scheme", "none", "git://gitea.internal/team/configs.git", `clone URL "git://gitea.internal/team/configs.git" is not a git remote URL`),
+				Entry("an ssh URL with an https credential", "pat", "git@gitea.internal:team/configs.git", `clone URL "git@gitea.internal:team/configs.git" is an SSH URL, but credential "url-pat" authenticates over HTTPS`),
+				Entry("an https URL with an ssh credential", "ssh", "https://gitea.internal/team/configs.git", `clone URL "https://gitea.internal/team/configs.git" is an HTTPS URL, but credential "url-ssh" is an SSH key`),
+			)
+
+			DescribeTable("accepts a clone URL the credential's transport can clone",
+				func(kind, repoURL string) {
+					resp := createLink(credOfKind(kind), repoURL)
+					Expect(resp.StatusCode).To(Equal(http.StatusOK))
+					var link map[string]any
+					decodeBody(resp, &link)
+					Expect(link["repoUrl"]).To(Equal(repoURL))
+				},
+				Entry("https with a PAT", "pat", "https://gitea.internal/team/configs.git"),
+				Entry("plain http with no credential", "none", "http://gitea:3000/team/configs.git"),
+				Entry("ssh:// with an SSH key", "ssh", "ssh://git@gitea.internal:2222/team/configs.git"),
+				Entry("scp-like with an SSH key", "ssh", "git@gitea.internal:team/configs.git"),
+			)
+		})
 	})
 
 	Context("without encryption configured", func() {

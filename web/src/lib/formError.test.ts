@@ -1,6 +1,6 @@
 import { Code, ConnectError } from '@connectrpc/connect';
 import { describe, expect, it } from 'vitest';
-import { errorText, formError, sentenceCase } from './formError';
+import { errorText, formError, formErrors, sentenceCase } from './formError';
 
 describe('sentenceCase', () => {
   it.each([
@@ -36,5 +36,38 @@ describe('errorText / formError', () => {
     expect(formError(null, 'Failed')).toBeNull();
     expect(formError(undefined, 'Failed')).toBeNull();
     expect(formError(new Error('render failed'), 'Failed')).toBe('Render failed');
+  });
+});
+
+describe('formErrors', () => {
+  const fields = { name: 'gateway name ', namespace: 'gateway namespace ' };
+
+  it('places an invalid_argument naming a field beside that field, not at the form', () => {
+    const e = new ConnectError(
+      'gateway namespace "a.b" is not a valid Kubernetes namespace',
+      Code.InvalidArgument,
+    );
+    expect(formErrors(e, 'Failed', fields)).toEqual({
+      form: null,
+      field: { namespace: 'Gateway namespace "a.b" is not a valid Kubernetes namespace' },
+    });
+  });
+
+  it('does not mistake a longer field name for a shorter one sharing its prefix', () => {
+    const e = new ConnectError('gateway name "Bad Name!" is not valid', Code.InvalidArgument);
+    expect(formErrors(e, 'Failed', fields).field).toEqual({
+      name: 'Gateway name "Bad Name!" is not valid',
+    });
+  });
+
+  it('keeps everything else at the form level', () => {
+    const conflict = new ConnectError('gateway name already used', Code.AlreadyExists);
+    expect(formErrors(conflict, 'Failed', fields)).toEqual({
+      form: 'Gateway name already used',
+      field: {},
+    });
+    const other = new ConnectError('org not found', Code.InvalidArgument);
+    expect(formErrors(other, 'Failed', fields).form).toBe('Org not found');
+    expect(formErrors(null, 'Failed', fields)).toEqual({ form: null, field: {} });
   });
 });

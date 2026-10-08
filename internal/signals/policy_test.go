@@ -102,3 +102,19 @@ func TestDisallowed(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateRole(t *testing.T) {
+	for _, role := range Roles() {
+		if err := ValidateRole(role); err != nil {
+			t.Errorf("ValidateRole(%q) = %v, want nil", role, err)
+		}
+	}
+	err := ValidateRole("bogusrole")
+	const want = `role "bogusrole" is not a collector role: use logs, metrics, receiver or singleton`
+	if err == nil || err.Error() != want {
+		t.Fatalf("ValidateRole(bogusrole) = %v, want %q", err, want)
+	}
+	if err := ValidateRole(""); err == nil {
+		t.Fatal(`ValidateRole("") = nil, want a refusal`)
+	}
+}

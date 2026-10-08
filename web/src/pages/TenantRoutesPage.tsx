@@ -13,7 +13,7 @@ import { Modal, ModalActions } from '@/components/ui/Modal';
 import { type StatusTone, toneClass } from '@/components/ui/statusTone';
 import type { TenantRoute } from '@/gen/shepherd/mgmt/v1/tenant_route_pb';
 import { useCanAdminister, useOrgId } from '@/hooks/useOrg';
-import { errorText, formError } from '@/lib/formError';
+import { formError, formErrors } from '@/lib/formError';
 
 // A route's lifecycle state, coloured so "active" reads apart from a route
 // that is mid-rotation or already revoked at a glance.
@@ -242,11 +242,21 @@ export function TenantRoutesPage() {
       setCreateForm(EMPTY_CREATE);
     },
   });
+  // A refused gateway name or namespace lands under its field (M6).
+  const createErrors = formErrors(createMut.error, 'Failed to create tenant route', {
+    gatewayName: 'gateway name ',
+    gatewayNamespace: 'gateway namespace ',
+  });
+  const gatewayNameError = gatewayNameMissing
+    ? createForm.gatewayMode === 'managed'
+      ? 'Enter a gateway name: the Gateway Shepherd creates for this route.'
+      : 'Enter a gateway name: your existing Gateway this route attaches to.'
+    : createErrors.field.gatewayName;
   const createError = !createMut.error
     ? null
     : toApiError(createMut.error).code === 'failed_precondition'
       ? 'This organisation has no tenant identity yet — an app admin sets it on the Organisations page.'
-      : errorText(createMut.error, 'Failed to create tenant route');
+      : createErrors.form;
   const closeCreate = () => {
     setShowCreate(false);
     setGatewayNameMissing(false);
@@ -382,11 +392,9 @@ export function TenantRoutesPage() {
                   : 'The name of your existing Gateway to attach to.'
               }
               error={
-                gatewayNameMissing && (
-                  <span data-testid='route-gateway-name-error'>
-                    {createForm.gatewayMode === 'managed'
-                      ? 'Enter a gateway name: the Gateway Shepherd creates for this route.'
-                      : 'Enter a gateway name: your existing Gateway this route attaches to.'}
+                gatewayNameError && (
+                  <span data-testid='route-gateway-name-error' role='alert'>
+                    {gatewayNameError}
                   </span>
                 )
               }
@@ -398,7 +406,7 @@ export function TenantRoutesPage() {
                   setGatewayNameMissing(false);
                 }}
                 required
-                aria-invalid={gatewayNameMissing}
+                aria-invalid={!!gatewayNameError}
                 data-testid='route-gateway-name'
                 placeholder='shepherd-receiver-gw'
               />
@@ -407,9 +415,17 @@ export function TenantRoutesPage() {
               label='Gateway namespace'
               optional
               hint='Empty means the route&rsquo;s own namespace.'
+              error={
+                createErrors.field.gatewayNamespace && (
+                  <span data-testid='route-gateway-namespace-error' role='alert'>
+                    {createErrors.field.gatewayNamespace}
+                  </span>
+                )
+              }
             >
               <Input
                 value={createForm.gatewayNamespace}
+                aria-invalid={!!createErrors.field.gatewayNamespace}
                 onChange={(e) => setCreateForm((f) => ({ ...f, gatewayNamespace: e.target.value }))}
                 data-testid='route-gateway-namespace'
                 placeholder='gateway-system'

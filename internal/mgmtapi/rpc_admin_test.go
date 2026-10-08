@@ -387,6 +387,37 @@ var _ = Describe("shepherd.mgmt.v1 AdminService and MeService RPC", Label("integ
 			denied := postConnect("/shepherd.mgmt.v1.AdminService/ListAgentIdentities", map[string]any{}, nonAdmin)
 			Expect(denied.StatusCode).To(Equal(http.StatusForbidden))
 		})
+
+		// M6 (2026-10-08 walkthrough): role "bogusrole" was stored, and a
+		// collector can never register with it (internal/agentapi refuses any
+		// role outside signals.Policies), so the binding silently admitted
+		// nobody on that role.
+		It("refuses a role allowlist entry that is not a collector role", func() {
+			appAdmin := createSession(true, nil)
+			resp := postConnect("/shepherd.mgmt.v1.AdminService/CreateAgentIdentity", map[string]any{
+				"issuer": "https://idp.example/", "appId": "client-roles", "org": "admin-rpc-org",
+				"roles": []string{"metrics", "bogusrole"},
+			}, appAdmin)
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+			body := decodeBody(resp)
+			Expect(body["code"]).To(Equal("invalid_argument"))
+			Expect(body["message"]).To(Equal(
+				`role "bogusrole" is not a collector role: use logs, metrics, receiver or singleton`))
+
+			listResp := postConnect("/shepherd.mgmt.v1.AdminService/ListAgentIdentities", map[string]any{}, appAdmin)
+			items, _ := decodeBody(listResp)["items"].([]any) //nolint:errcheck // shape known
+			Expect(items).To(BeEmpty(), "a refused binding must not be stored")
+		})
+
+		It("accepts every collector role in the allowlist", func() {
+			appAdmin := createSession(true, nil)
+			resp := postConnect("/shepherd.mgmt.v1.AdminService/CreateAgentIdentity", map[string]any{
+				"issuer": "https://idp.example/", "appId": "client-all-roles", "org": "admin-rpc-org",
+				"roles": []string{"metrics", "logs", "receiver", " singleton "},
+			}, appAdmin)
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(decodeBody(resp)["roles"]).To(ConsistOf("metrics", "logs", "receiver", "singleton"))
+		})
 	})
 
 	Describe("MeService", func() {

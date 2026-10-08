@@ -24,7 +24,7 @@ import type {
   TestCredentialResponse,
 } from '@/gen/shepherd/mgmt/v1/gitops_pb';
 import { useOrgId } from '@/hooks/useOrg';
-import { formError } from '@/lib/formError';
+import { formError, formErrors } from '@/lib/formError';
 
 function credentialColumns(
   openTest: (c: GitCredential) => void,
@@ -282,6 +282,11 @@ export function GitPage() {
     },
   });
 
+  // A refused clone URL lands under its field; anything else above the buttons.
+  const linkErrors = formErrors(createLinkMut.error, 'Failed to create repository link', {
+    repoUrl: 'clone URL',
+  });
+
   const deleteLinkMut = useMutation({
     mutationFn: (id: string) => clients.gitOps.deleteRepoLink({ orgId, id }),
     onSuccess: () => {
@@ -455,7 +460,8 @@ export function GitPage() {
           onChange={setLinkForm}
           onSubmit={() => createLinkMut.mutate()}
           pending={createLinkMut.isPending}
-          error={formError(createLinkMut.error, 'Failed to create repository link')}
+          error={linkErrors.form}
+          urlError={linkErrors.field.repoUrl}
           onCancel={() => {
             setShowCreateLink(false);
             createLinkMut.reset();

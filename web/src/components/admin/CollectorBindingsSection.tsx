@@ -9,7 +9,7 @@ import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Field, Input } from '@/components/ui/Field';
 import type { AgentIdentity } from '@/gen/shepherd/mgmt/v1/admin_pb';
-import { formError } from '@/lib/formError';
+import { formError, formErrors } from '@/lib/formError';
 
 // A comma/space-separated allowlist, shown as chips or an em dash for "any".
 function AllowlistCell({ values }: { values: string[] }) {
@@ -128,6 +128,11 @@ export function CollectorBindingsSection({ isAppAdmin }: { isAppAdmin: boolean }
       setToDelete(null);
     },
   });
+  // A refused role or unknown organisation lands under its field (M6).
+  const createErrors = formErrors(createMut.error, 'Failed to create binding', {
+    roles: 'role ',
+    org: 'unknown organisation',
+  });
   const closeCreate = () => {
     setShowCreate(false);
     createMut.reset();
@@ -194,9 +199,20 @@ export function CollectorBindingsSection({ isAppAdmin }: { isAppAdmin: boolean }
                 data-testid='binding-app-id'
               />
             </Field>
-            <Field label='Organisation' hint='The organisation slug to bind to.'>
+            <Field
+              label='Organisation'
+              hint='The organisation slug to bind to.'
+              error={
+                createErrors.field.org && (
+                  <span data-testid='binding-org-error' role='alert'>
+                    {createErrors.field.org}
+                  </span>
+                )
+              }
+            >
               <Input
                 value={org}
+                aria-invalid={!!createErrors.field.org}
                 onChange={(e) => setOrg(e.target.value)}
                 data-testid='binding-org'
               />
@@ -212,10 +228,22 @@ export function CollectorBindingsSection({ isAppAdmin }: { isAppAdmin: boolean }
                 data-testid='binding-clusters'
               />
             </Field>
-            <Field label='Roles' optional hint='Comma-separated allowlist; empty means any role.'>
+            <Field
+              label='Roles'
+              optional
+              hint='Comma-separated allowlist of collector roles: metrics, logs, receiver, singleton. Empty means any role.'
+              error={
+                createErrors.field.roles && (
+                  <span data-testid='binding-roles-error' role='alert'>
+                    {createErrors.field.roles}
+                  </span>
+                )
+              }
+            >
               <Input
                 value={roles}
                 onChange={(e) => setRoles(e.target.value)}
+                aria-invalid={!!createErrors.field.roles}
                 data-testid='binding-roles'
               />
             </Field>
@@ -225,7 +253,7 @@ export function CollectorBindingsSection({ isAppAdmin }: { isAppAdmin: boolean }
               pendingLabel='Creating…'
               pending={createMut.isPending}
               submitTestId='binding-submit'
-              error={formError(createMut.error, 'Failed to create binding')}
+              error={createErrors.form}
             />
           </form>
         </AdminModal>
