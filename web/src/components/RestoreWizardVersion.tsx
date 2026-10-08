@@ -72,23 +72,3 @@ export function RestoreWizardVersion({
     </Banner>
   );
 }
-
-/** The restore dialog's note when the revision being restored is the last wizard version. */
-export function RestoreWizardNote({
-  source,
-  revisions,
-  revision,
-}: {
-  /** The pipeline's source; undefined while it loads. */
-  source: string | undefined;
-  revisions: readonly PipelineRevision[];
-  revision: number;
-}) {
-  if (!source || lastWizardRevision(revisions, source) !== revision) return null;
-  return (
-    <p data-testid='restore-wizard-note' className='text-sm text-muted'>
-      It is the last version this pipeline&rsquo;s wizard generated: restoring it drops the hand
-      edits since, so destination changes can regenerate it again.
-    </p>
-  );
-}

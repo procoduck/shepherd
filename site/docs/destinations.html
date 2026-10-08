@@ -213,7 +213,11 @@ subjects:
         <li><strong>Restore last wizard version</strong> drops the hand edit. The pipeline page
           offers it whenever a wizard pipeline&rsquo;s text differs from the last revision its
           wizard wrote; the revision history marks those revisions <em>wizard</em>. It restores
-          that revision as a new one, so the edit stays in the history.</li>
+          that revision as a new one, so the edit stays in the history, and puts back that
+          revision&rsquo;s matchers and enabled state too (the confirmation says so when they
+          differ). A wizard revision from before Shepherd 0.15.0 that it cannot vouch for may not
+          re-attach the pipeline; if the destination change is still refused, detach or delete
+          it.</li>
         <li><strong>Detach from wizard</strong> keeps the edit: the pipeline keeps its text,
           matchers, owner and history, becomes an ordinary pipeline, and no longer follows
           destination changes.</li>

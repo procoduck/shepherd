@@ -13,20 +13,21 @@ import (
 )
 
 const createPipelineRevision = `-- name: CreatePipelineRevision :one
-INSERT INTO pipeline_revisions (pipeline_id, revision, contents, matchers, enabled, changed_by, change_note, wizard_state)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, pipeline_id, revision, contents, matchers, enabled, changed_by, changed_at, change_note, wizard_state
+INSERT INTO pipeline_revisions (pipeline_id, revision, contents, matchers, enabled, changed_by, change_note, wizard_state, wizard_render_sha256)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING id, pipeline_id, revision, contents, matchers, enabled, changed_by, changed_at, change_note, wizard_state, wizard_render_sha256
 `
 
 type CreatePipelineRevisionParams struct {
-	PipelineID  pgtype.UUID     `json:"pipeline_id"`
-	Revision    int32           `json:"revision"`
-	Contents    string          `json:"contents"`
-	Matchers    json.RawMessage `json:"matchers"`
-	Enabled     bool            `json:"enabled"`
-	ChangedBy   string          `json:"changed_by"`
-	ChangeNote  string          `json:"change_note"`
-	WizardState json.RawMessage `json:"wizard_state"`
+	PipelineID         pgtype.UUID     `json:"pipeline_id"`
+	Revision           int32           `json:"revision"`
+	Contents           string          `json:"contents"`
+	Matchers           json.RawMessage `json:"matchers"`
+	Enabled            bool            `json:"enabled"`
+	ChangedBy          string          `json:"changed_by"`
+	ChangeNote         string          `json:"change_note"`
+	WizardState        json.RawMessage `json:"wizard_state"`
+	WizardRenderSha256 pgtype.Text     `json:"wizard_render_sha256"`
 }
 
 func (q *Queries) CreatePipelineRevision(ctx context.Context, arg CreatePipelineRevisionParams) (PipelineRevision, error) {
@@ -39,6 +40,7 @@ func (q *Queries) CreatePipelineRevision(ctx context.Context, arg CreatePipeline
 		arg.ChangedBy,
 		arg.ChangeNote,
 		arg.WizardState,
+		arg.WizardRenderSha256,
 	)
 	var i PipelineRevision
 	err := row.Scan(
@@ -52,6 +54,7 @@ func (q *Queries) CreatePipelineRevision(ctx context.Context, arg CreatePipeline
 		&i.ChangedAt,
 		&i.ChangeNote,
 		&i.WizardState,
+		&i.WizardRenderSha256,
 	)
 	return i, err
 }
@@ -68,7 +71,7 @@ func (q *Queries) GetMaxPipelineRevision(ctx context.Context, pipelineID pgtype.
 }
 
 const getPipelineRevision = `-- name: GetPipelineRevision :one
-SELECT id, pipeline_id, revision, contents, matchers, enabled, changed_by, changed_at, change_note, wizard_state FROM pipeline_revisions WHERE pipeline_id = $1 AND revision = $2
+SELECT id, pipeline_id, revision, contents, matchers, enabled, changed_by, changed_at, change_note, wizard_state, wizard_render_sha256 FROM pipeline_revisions WHERE pipeline_id = $1 AND revision = $2
 `
 
 type GetPipelineRevisionParams struct {
@@ -90,12 +93,13 @@ func (q *Queries) GetPipelineRevision(ctx context.Context, arg GetPipelineRevisi
 		&i.ChangedAt,
 		&i.ChangeNote,
 		&i.WizardState,
+		&i.WizardRenderSha256,
 	)
 	return i, err
 }
 
 const listPipelineRevisions = `-- name: ListPipelineRevisions :many
-SELECT id, pipeline_id, revision, contents, matchers, enabled, changed_by, changed_at, change_note, wizard_state FROM pipeline_revisions WHERE pipeline_id = $1 ORDER BY revision DESC
+SELECT id, pipeline_id, revision, contents, matchers, enabled, changed_by, changed_at, change_note, wizard_state, wizard_render_sha256 FROM pipeline_revisions WHERE pipeline_id = $1 ORDER BY revision DESC
 `
 
 func (q *Queries) ListPipelineRevisions(ctx context.Context, pipelineID pgtype.UUID) ([]PipelineRevision, error) {
@@ -118,6 +122,7 @@ func (q *Queries) ListPipelineRevisions(ctx context.Context, pipelineID pgtype.U
 			&i.ChangedAt,
 			&i.ChangeNote,
 			&i.WizardState,
+			&i.WizardRenderSha256,
 		); err != nil {
 			return nil, err
 		}

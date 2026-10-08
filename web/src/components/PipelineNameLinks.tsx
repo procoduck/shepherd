@@ -1,64 +1,63 @@
+import { toJson } from '@bufbuild/protobuf';
+import { StructSchema } from '@bufbuild/protobuf/wkt';
+import { ConnectError } from '@connectrpc/connect';
 import { Link } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
 
-/** A pipeline the message may name: only id and name are read. */
+/** A pipeline a refusal names. */
 export interface PipelineRef {
   id: string;
   name: string;
 }
 
-// A Go %q string: what the server quotes every pipeline name with in a
-// destination refusal (internal/mgmtapi destination_rerender.go and
-// rpc_destination.go).
-const QUOTED = /"(?:[^"\\]|\\.)*"/g;
+/**
+ * The pipelines a destination refusal is about (M4), read from its Connect
+ * error detail — a google.protobuf.Struct `{"pipelines": [{id, name}]}` the
+ * server attaches (internal/mgmtapi pipelines_detail.go). Never parsed out
+ * of the message: it also quotes the destination's name and Alloy labels
+ * from validation diagnostics, any of which can equal a pipeline's name.
+ * Empty when the error carries no such detail.
+ */
+export function refusedPipelines(e: unknown): PipelineRef[] {
+  if (!e) return [];
+  const refs: PipelineRef[] = [];
+  for (const st of ConnectError.from(e).findDetails(StructSchema)) {
+    const json = toJson(StructSchema, st) as { pipelines?: unknown };
+    if (!Array.isArray(json.pipelines)) continue;
+    for (const p of json.pipelines) {
+      const { id, name } = (p ?? {}) as { id?: unknown; name?: unknown };
+      if (typeof id === 'string' && id && typeof name === 'string') refs.push({ id, name });
+    }
+  }
+  return refs;
+}
 
 /**
- * `message` with every quoted pipeline name turned into a link to that
- * pipeline's page (M4, 2026-10-08 walkthrough). A destination refusal names
- * the wizard pipelines it is about and tells the person to act on each one
- * — restore, detach or delete, all on the pipeline's page — so each name is
- * one click from where that happens.
- *
- * Only a quoted name of a pipeline in `pipelines` becomes a link, and never
- * one that follows "destination " — a refusal quotes the destination's
- * own name too, and a pipeline may share it. Anything that does not parse
- * as a quoted string stays text, so the worst case is the message as the
- * server wrote it.
+ * `message` followed by a link to each pipeline the refusal names, so the
+ * person is one click from where they can restore, detach or delete it.
  */
-export function linkPipelineNames(message: string, pipelines: readonly PipelineRef[]): ReactNode {
-  if (pipelines.length === 0) return message;
-  const byName = new Map(pipelines.map((p) => [p.name, p.id]));
-  const out: ReactNode[] = [];
-  let last = 0;
-  for (const m of message.matchAll(QUOTED)) {
-    const start = m.index ?? 0;
-    // Case-insensitive: formError raises the refusal's first letter.
-    if (/destination $/i.test(message.slice(0, start))) continue;
-    let name: string;
-    try {
-      name = JSON.parse(m[0]) as string;
-    } catch {
-      continue;
-    }
-    const id = byName.get(name);
-    if (!id) continue;
-    out.push(message.slice(last, start));
-    out.push(
-      <span key={start}>
-        &ldquo;
-        <Link
-          to='/pipelines/$id'
-          params={{ id }}
-          className='font-medium underline underline-offset-2 hover:opacity-80'
-        >
-          {name}
-        </Link>
-        &rdquo;
-      </span>,
-    );
-    last = start + m[0].length;
-  }
-  if (out.length === 0) return message;
-  out.push(message.slice(last));
-  return out;
+export function withPipelineLinks(message: string | null, e: unknown): ReactNode {
+  if (!message) return null;
+  const refs = refusedPipelines(e);
+  if (refs.length === 0) return message;
+  return (
+    <>
+      {message}
+      <span className='mt-1.5 block' data-testid='refused-pipelines'>
+        Open {refs.length === 1 ? 'the pipeline' : 'each pipeline'}:{' '}
+        {refs.map((r, i) => (
+          <span key={r.id}>
+            {i > 0 && ', '}
+            <Link
+              to='/pipelines/$id'
+              params={{ id: r.id }}
+              className='font-medium underline underline-offset-2 hover:opacity-80'
+            >
+              {r.name}
+            </Link>
+          </span>
+        ))}
+      </span>
+    </>
+  );
 }

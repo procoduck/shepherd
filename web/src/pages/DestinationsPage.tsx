@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ExternalLink, Pencil, Plus, Trash2 } from 'lucide-react';
-import { type ReactNode, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 import { clients, toApiError } from '@/api/transport';
 import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
@@ -13,7 +13,7 @@ import {
   isSecretMode,
   scopesFromExtra,
 } from '@/components/DestinationFormDialog';
-import { linkPipelineNames } from '@/components/PipelineNameLinks';
+import { withPipelineLinks } from '@/components/PipelineNameLinks';
 import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import type { Destination } from '@/gen/shepherd/mgmt/v1/destination_pb';
@@ -210,18 +210,6 @@ export function DestinationsPage() {
     deleteMut.reset();
   };
 
-  // The wizard pipelines a refusal names (#262) are quoted in its message;
-  // each becomes a link to its page, where it can be restored to its last
-  // wizard version, detached or deleted (M4). Fetched only once there is a
-  // refusal to link — the same query (and cache) as the pipelines list.
-  const refused = updateMut.isError || deleteMut.isError;
-  const { data: pipelinesData } = useQuery({
-    queryKey: ['pipelines', orgId],
-    queryFn: () => clients.pipeline.listPipelines({ orgId }),
-    enabled: !!orgId && refused,
-  });
-  const linked = (message: string | null): ReactNode =>
-    message && linkPipelineNames(message, pipelinesData?.items ?? []);
   // failed_precondition: a wizard pipeline still names it (#262, the
   // message lists them); already_exists: a tenant binding points at it.
   const deleteError = (() => {
@@ -258,7 +246,9 @@ export function DestinationsPage() {
           // Stays open on a refusal, which shows in the dialog with each
           // pipeline it names linked (#249, M4).
           onConfirm={() => deleteMut.mutate(pendingDelete.id)}
-          error={linked(deleteError)}
+          // The wizard pipelines a refusal names (#262) are linked to
+          // their pages, where each can be restored, detached or deleted.
+          error={withPipelineLinks(deleteError, deleteMut.error)}
         />
       )}
 
@@ -317,7 +307,10 @@ export function DestinationsPage() {
           submitLabel='Save'
           pendingLabel='Saving…'
           pending={updateMut.isPending}
-          error={linked(formError(updateMut.error, 'Failed to update destination'))}
+          error={withPipelineLinks(
+            formError(updateMut.error, 'Failed to update destination'),
+            updateMut.error,
+          )}
           onCancel={() => {
             setEditing(null);
             updateMut.reset();

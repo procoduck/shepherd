@@ -1,3 +1,5 @@
+import { fromJson, toBinary } from '@bufbuild/protobuf';
+import { StructSchema } from '@bufbuild/protobuf/wkt';
 import { basicScenario, destination, pipeline } from '../fixtures/factories';
 import { orgAdmin, orgEditor, reader } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
@@ -10,14 +12,35 @@ import { expect, test } from '../fixtures/test';
  * them one click away: every pipeline a refusal names links to its page, and
  * a hand-edited wizard pipeline's page offers "Restore last wizard version".
  *
- * Red run (before the UI change): the link specs found no link named after
- * the pipeline in the form error, the delete spec found the refusal in a
- * toast with the dialog closed, and the restore specs found no
- * restore-wizard-version button and no wizard badge in the revision history.
+ * The pipelines come from the refusal's Connect error detail (a
+ * google.protobuf.Struct, internal/mgmtapi pipelines_detail.go), never from
+ * the message text, which also quotes the destination and Alloy labels.
+ *
+ * Red runs: before the UI change the link specs found no link in the form
+ * error, the delete spec found the refusal in a toast with the dialog closed,
+ * and the restore specs found no restore-wizard-version button and no wizard
+ * badge. After the review of #291: with links parsed from the message, the
+ * diagnostic-label spec linked "default"; the matcher-warning and
+ * cancel-leaves-no-diff specs failed before their fixes.
  */
 
 const WIZARD_TEXT = 'prometheus.remote_write "metrics" { endpoint { url = "https://old" } }';
 const EDITED_TEXT = `${WIZARD_TEXT}\n// tuned by hand`;
+
+/** A Connect JSON error carrying the server's pipelines detail. */
+function refusal(message: string, pipelines: { id: string; name: string }[]) {
+  const st = fromJson(StructSchema, { pipelines });
+  return JSON.stringify({
+    code: 'failed_precondition',
+    message,
+    details: [
+      {
+        type: 'google.protobuf.Struct',
+        value: Buffer.from(toBinary(StructSchema, st)).toString('base64'),
+      },
+    ],
+  });
+}
 
 function seedWithPipelines(api: { seed: (partial: Record<string, unknown>) => void }) {
   const s = basicScenario();
@@ -27,9 +50,10 @@ function seedWithPipelines(api: { seed: (partial: Record<string, unknown>) => vo
     pipelines: [
       pipeline({ id: 'pip-self', name: 'self-mon', source: 'wizard' }),
       pipeline({ id: 'pip-app', name: 'app-obs', source: 'wizard' }),
-      // Same name as the destination: a quoted destination name in the
-      // refusal must not become a pipeline link.
+      // Names the message also quotes, for other reasons: neither may
+      // become a link.
       pipeline({ id: 'pip-clash', name: 'prom-prod', source: 'ui' }),
+      pipeline({ id: 'pip-default', name: 'default', source: 'ui' }),
     ],
   });
 }
@@ -40,7 +64,7 @@ test('an update refused for a hand-edited wizard pipeline links the pipeline to 
 }) => {
   await api.loginAs(orgAdmin);
   seedWithPipelines(api);
-  const refusal =
+  const message =
     'destination "prom-prod" was not updated: 1 wizard pipeline(s) using it cannot be ' +
     'regenerated: "self-mon": its contents were edited by hand after its wizard generated ' +
     "them, and regenerating it would discard that edit — on the pipeline's page, restore its " +
@@ -49,7 +73,7 @@ test('an update refused for a hand-edited wizard pipeline links the pipeline to 
     route.fulfill({
       status: 400,
       contentType: 'application/json',
-      body: JSON.stringify({ code: 'failed_precondition', message: refusal }),
+      body: refusal(message, [{ id: 'pip-self', name: 'self-mon' }]),
     }),
   );
   await page.goto('/destinations');
@@ -62,12 +86,43 @@ test('an update refused for a hand-edited wizard pipeline links the pipeline to 
   await expect(error).toContainText('restore its last wizard-generated revision');
   const link = error.getByRole('link', { name: 'self-mon', exact: true });
   await expect(link).toHaveAttribute('href', '/pipelines/pip-self');
-  // The destination's own quoted name is not a pipeline link, even when a
-  // pipeline happens to share it.
-  await expect(error.getByRole('link', { name: 'prom-prod' })).toHaveCount(0);
+  await expect(error.getByRole('link')).toHaveCount(1);
 
   await link.click();
   await expect(page).toHaveURL(/\/pipelines\/pip-self$/);
+});
+
+// Review of #291: a Stage diagnostic quotes Alloy labels, and one may equal
+// a pipeline's name. Only the pipelines the server lists are linked.
+test('a quoted Alloy label in a refusal is not linked, even when a pipeline has that name', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(orgAdmin);
+  seedWithPipelines(api);
+  const message =
+    'destination "prom-prod" was not updated: 1 wizard pipeline(s) using it cannot be ' +
+    'regenerated: "self-mon": stage 2, line 4: prometheus.remote_write "default": endpoint ' +
+    "url is invalid — change the destination so it can be regenerated, or, on the pipeline's " +
+    'page, detach it from the wizard or delete it';
+  api.override('POST', '/shepherd.mgmt.v1.DestinationService/UpdateDestination', (route) =>
+    route.fulfill({
+      status: 400,
+      contentType: 'application/json',
+      body: refusal(message, [{ id: 'pip-self', name: 'self-mon' }]),
+    }),
+  );
+  await page.goto('/destinations');
+
+  await page.getByRole('button', { name: 'Edit prom-prod' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Edit prom-prod' });
+  await dialog.getByRole('button', { name: 'Save' }).click();
+
+  const error = dialog.getByTestId('form-error');
+  await expect(error).toContainText('prometheus.remote_write "default"');
+  await expect(error.getByRole('link', { name: 'self-mon', exact: true })).toBeVisible();
+  await expect(error.getByRole('link', { name: 'default' })).toHaveCount(0);
+  await expect(error.getByRole('link', { name: 'prom-prod' })).toHaveCount(0);
 });
 
 test('a delete refused because wizard pipelines use it stays in the dialog with each pipeline linked', async ({
@@ -80,12 +135,14 @@ test('a delete refused because wizard pipelines use it stays in the dialog with 
     route.fulfill({
       status: 400,
       contentType: 'application/json',
-      body: JSON.stringify({
-        code: 'failed_precondition',
-        message:
-          'destination "prom-prod" is used by 2 wizard pipeline(s): "self-mon", "app-obs" — ' +
+      body: refusal(
+        'destination "prom-prod" is used by 2 wizard pipeline(s): "self-mon", "app-obs" — ' +
           "detach them from the wizard or delete them first, each on its pipeline's page",
-      }),
+        [
+          { id: 'pip-self', name: 'self-mon' },
+          { id: 'pip-app', name: 'app-obs' },
+        ],
+      ),
     }),
   );
   await page.goto('/destinations');
@@ -108,6 +165,8 @@ test('a delete refused because wizard pipelines use it stays in the dialog with 
   await expect(page.getByRole('cell', { name: 'prom-prod', exact: true })).toBeVisible();
 });
 
+const CURRENT_MATCHERS = [`cluster="prod-eu-1"`, `team="payments"`];
+
 function seedHandEdited(
   api: { seed: (partial: Record<string, unknown>) => void },
   contents = EDITED_TEXT,
@@ -121,6 +180,7 @@ function seedHandEdited(
         name: 'self-mon',
         source: 'wizard',
         contents,
+        matchers: CURRENT_MATCHERS,
         enabled: true,
         revisions: [
           {
@@ -129,7 +189,7 @@ function seedHandEdited(
             changed_at: '2026-10-02T10:00:00Z',
             change_note: 'updated',
             contents: EDITED_TEXT,
-            matchers: [`cluster="prod-eu-1"`],
+            matchers: CURRENT_MATCHERS,
             enabled: true,
           },
           {
@@ -175,6 +235,10 @@ test('a hand-edited wizard pipeline offers "Restore last wizard version", which 
   const dialog = page.getByTestId('restore-dialog');
   await expect(dialog).toContainText('Restore revision #2');
   await expect(dialog.getByTestId('restore-wizard-note')).toContainText('last version');
+  // Restore also puts back the revision's matchers (review of #291).
+  const matchers = dialog.getByTestId('restore-matchers-change');
+  await expect(matchers).toContainText('team="payments"');
+  await expect(matchers).toContainText('restored: cluster="prod-eu-1"');
   await dialog.getByTestId('confirm-restore-btn').click();
 
   await expect(page.locator('[data-sonner-toast]').filter({ hasText: 'Restored' })).toBeVisible();
@@ -183,6 +247,25 @@ test('a hand-edited wizard pipeline offers "Restore last wizard version", which 
   expect(calls[0].body).toMatchObject({ id: 'pip-hand', revision: 2 });
   // Its text is the wizard's again: nothing left to restore.
   await expect(page.getByTestId('restore-wizard-version')).toHaveCount(0);
+});
+
+// Review of #291 (nit 7): the offer opens the confirmation without the diff
+// view; cancelling must return to the editor, not strand the diff of #2.
+test('cancelling "Restore last wizard version" returns to the editor', async ({ page, api }) => {
+  await api.loginAs(orgEditor);
+  seedHandEdited(api);
+  await page.goto('/pipelines/pip-hand');
+
+  await page
+    .getByTestId('restore-wizard-version')
+    .getByRole('button', { name: 'Restore last wizard version' })
+    .click();
+  await page.getByTestId('restore-dialog').getByRole('button', { name: 'Cancel' }).click();
+
+  await expect(page.getByTestId('restore-dialog')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Back to editor' })).toHaveCount(0);
+  await expect(page.getByTestId('validate-btn')).toBeVisible();
+  expect(api.calls('PipelineService/RestoreRevision')).toHaveLength(0);
 });
 
 test('no "Restore last wizard version" while the text is what the wizard wrote, or for a viewer', async ({

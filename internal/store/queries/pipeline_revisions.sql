@@ -1,6 +1,6 @@
 -- name: CreatePipelineRevision :one
-INSERT INTO pipeline_revisions (pipeline_id, revision, contents, matchers, enabled, changed_by, change_note, wizard_state)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO pipeline_revisions (pipeline_id, revision, contents, matchers, enabled, changed_by, change_note, wizard_state, wizard_render_sha256)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING *;
 
 -- name: ListPipelineRevisions :many

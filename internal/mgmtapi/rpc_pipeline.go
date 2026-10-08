@@ -104,6 +104,7 @@ var (
 	errWizardStateInvalid   = errors.New("invalid wizard_state")
 	errRevisionNotFound     = errors.New("revision not found")
 	errRevisionInvalid      = errors.New("revision must be a positive integer")
+	errReservedChangeNote   = errors.New(`change_note may not be "created" or start with "re-rendered:" — those notes mark revisions a wizard wrote`)
 )
 
 // pipelineValidationError carries Stage1/2 diagnostics for a CreatePipeline
@@ -993,6 +994,9 @@ func (s *PipelineService) RestoreRevision(ctx context.Context, req *connect.Requ
 	if msg.GetRevision() <= 0 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errRevisionInvalid)
 	}
+	if isWizardChangeNote(msg.GetChangeNote()) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errReservedChangeNote)
+	}
 	rv, err := s.store.Queries.GetPipelineRevision(ctx, sqlc.GetPipelineRevisionParams{
 		PipelineID: p.ID, Revision: msg.GetRevision(),
 	})
@@ -1047,10 +1051,13 @@ func (s *PipelineService) RestoreRevision(ctx context.Context, req *connect.Requ
 		Matchers:    rv.Matchers,
 		WizardState: rv.WizardState,
 		UpdatedBy:   actor,
-		// Not a wizard write: the fingerprint survives only if the restored
-		// text is the text it was taken of (0030). A restored wizard revision
-		// with no fingerprint falls back to the fresh-render check.
-		WizardRenderSha256: fingerprintAfterEdit(p, rv.Contents),
+		// A revision a wizard wrote carries its fingerprint (0031), and
+		// restoring it re-attaches the pipeline to its wizard — even when
+		// the wizard renders that state differently today. Otherwise the
+		// pipeline's fingerprint survives only if the restored text is the
+		// text it was taken of (0030); a restored revision with none falls
+		// back to the fresh-render check.
+		WizardRenderSha256: fingerprintAfterRestore(p, rv),
 	})
 	if err != nil {
 		s.logger.Error("restore revision: update pipeline", "err", err)
@@ -1139,6 +1146,10 @@ func createPipelineRevisionQ(ctx context.Context, q *sqlc.Queries, p sqlc.Pipeli
 		// revision from 0019 forward carries the graph as it stood when
 		// that revision was made.
 		WizardState: p.WizardState,
+		// The row's render fingerprint as written (0031): set exactly when
+		// this revision's text is what a wizard wrote, which is what lets
+		// RestoreRevision re-attach a restored wizard revision.
+		WizardRenderSha256: p.WizardRenderSha256,
 	})
 	return rv.Revision, err
 }

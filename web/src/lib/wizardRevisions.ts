@@ -9,7 +9,11 @@
  *   rerender-destinations` regenerating it (applyWizardRerenders).
  *
  * Everything else — an editor save (`updated`), a restore (`Restored from
- * revision N`) — is not the wizard's, even when its text is.
+ * revision N`) — is not the wizard's, even when its text is. RestoreRevision
+ * refuses those two notes from a caller, so they stay the wizard's. The
+ * server's own record is the revision's render fingerprint (migration 0031),
+ * which the API does not expose; it is what makes restoring one re-attach
+ * the pipeline to its wizard.
  */
 export function isWizardRevision(changeNote: string, pipelineSource: string): boolean {
   return (

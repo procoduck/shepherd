@@ -661,10 +661,18 @@ destinations as they stood before the update. A pre-#229 `sys.env` pipeline is n
 hand-edited; it is converted. A rename rewrites the name in those pipelines' `wizard_state` as well.
 `DeleteDestination` refuses (`failed_precondition`, listing them quoted, and saying to detach them
 from the wizard or delete them first) while any wizard pipeline in the org names the destination.
-The destinations page links each pipeline a refusal names to its page; the pipeline page marks the
-revisions its wizard wrote (change note `created` on a wizard pipeline, or `re-rendered: …`) and,
-while a wizard pipeline's text differs from the last of them, offers "Restore last wizard version"
-(`RestoreRevision` of that revision). Pipelines rendered before #229 (the `sys.env` writer) are converted
+Both refusals also carry the pipelines as a Connect error detail, a `google.protobuf.Struct`
+`{"pipelines": [{"id", "name"}]}` (no new proto message); the destinations page links each one to
+its page from it, never by parsing the message. Every revision records the pipeline's render
+fingerprint as it stood when written (`pipeline_revisions.wizard_render_sha256`, migration 0031),
+so it is set exactly on revisions whose text a wizard wrote; `RestoreRevision` of such a revision
+copies it back to the pipeline, re-attaching it to its wizard even when the wizard renders that
+state differently today (a restored revision without one falls back to the fresh-render check
+above). `RestoreRevision` refuses (`invalid_argument`) a caller change note of `created` or one
+starting `re-rendered:`, the notes only wizard writes use. The pipeline page marks the revisions
+its wizard wrote by those notes and, while a wizard pipeline's text differs from the last of
+them, offers "Restore last wizard version" (`RestoreRevision` of that revision; the confirmation
+says when it also changes the matchers or the enabled state). Pipelines rendered before #229 (the `sys.env` writer) are converted
 once by `shepherd admin rerender-destinations`.
 
 **RBAC.** The collector's ServiceAccount needs `get`, `list` and `watch` on `secrets` in the
