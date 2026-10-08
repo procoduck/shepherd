@@ -63,3 +63,11 @@ func NewOIDCTestHandler(cfg *config.Config, o *oauth2.Config) *Handler {
 func NewChartOIDCTestHandler(cfg *config.Config) *Handler {
 	return &Handler{cfg: cfg, logger: slog.New(slog.DiscardHandler)}
 }
+
+// OIDCReturnPath and EncodeReturnCookie expose the callback's read of the
+// remembered return path (#250), so the forged-cookie cases can be driven
+// without a live token exchange.
+var (
+	OIDCReturnPath     = oidcReturnPath
+	EncodeReturnCookie = encodeReturnCookie
+)

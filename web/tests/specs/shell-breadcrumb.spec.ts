@@ -3,6 +3,7 @@
  * (breadcrumb.ts's buildCrumbs), not the raw pathname — '/admin/users' used
  * to render literally as "admin / users".
  */
+import { basicScenario } from '../fixtures/factories';
 import { appAdmin } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
 
@@ -29,14 +30,14 @@ test('breadcrumb reads Overview on /, the text other specs locate by', async ({ 
   await expect(page.getByRole('navigation', { name: 'breadcrumb' })).toHaveText('Overview');
 });
 
-test('breadcrumb reads Collectors / Collector on a collector detail page', async ({
-  page,
-  api,
-}) => {
+test('breadcrumb names the collector on a collector detail page (#250)', async ({ page, api }) => {
   await api.loginAs(appAdmin);
+  api.seed({ collectors: basicScenario().collectors });
   await page.goto('/collectors/col-0001');
 
-  const breadcrumb = page.getByRole('navigation', { name: 'breadcrumb' });
-  await expect(breadcrumb).toContainText('Collectors');
-  await expect(breadcrumb).toContainText('Collector');
+  // The item's own name (cluster · role, as its heading shows it), not the
+  // generic "Collector" route label.
+  await expect(page.getByRole('navigation', { name: 'breadcrumb' })).toHaveText(
+    'Collectors / prod-eu-1 · metrics',
+  );
 });

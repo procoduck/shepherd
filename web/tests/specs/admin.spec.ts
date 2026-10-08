@@ -107,7 +107,8 @@ test('claiming an unclaimed cluster assigns it to an org', async ({ page, api })
   await dialog.getByLabel('Organisation').selectOption('org-0001');
   await dialog.getByRole('button', { name: 'Claim' }).click();
 
-  await expect(page.getByText('Production Org')).toBeVisible();
+  // Scoped to the page: the header names a single-org user's org too (#250).
+  await expect(page.getByRole('main').getByText('Production Org')).toBeVisible();
   const calls = api.calls('AdminService/ClaimCluster');
   expect(calls).toHaveLength(1);
   expect(calls[0].body).toMatchObject({ cluster: 'prod-eu-1', orgId: 'org-0001' });
