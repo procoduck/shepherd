@@ -20,6 +20,19 @@ type Exclusion struct {
 	// "// " header comment line (never contains a raw newline — see
 	// buildHeader).
 	Reason string
+	// Role is the collector role the pipeline was checked against.
+	Role string
+	// Disallowed is the set of the pipeline's signals Role does not allow.
+	// Empty when the exclusion is not a plain mismatch (signal derivation
+	// failed, or the role is unknown) — Reason then carries the why. When the
+	// signal set could not be proven, this is the worst-case set the check
+	// assumed, not a proof the pipeline carries every one of them.
+	//
+	// Role and Disallowed exist for callers that surface an exclusion to a
+	// person (the pipeline editor, a collector's reconciliation tab); the
+	// served header prints only PipelineName and Reason, so they never change
+	// served bytes.
+	Disallowed signals.Set
 }
 
 // AssembleOption configures optional Assemble behavior. The zero value (no
@@ -98,33 +111,49 @@ func enforceRoles(selected []Pipeline, cl CollectorLabels, reg *schema.Registry)
 	var exclusions []Exclusion
 
 	for _, p := range selected {
-		sig, err := signals.Derive(p.Contents, reg)
-		if err != nil {
-			exclusions = append(exclusions, Exclusion{
-				PipelineName: p.Name,
-				Reason:       commentSafe(fmt.Sprintf("signal derivation failed, excluded fail-safe: %v", err)),
-			})
-			continue
-		}
-
-		checkSet := sig.Combined
-		var unprovenNote string
-		if !sig.Proven() {
-			checkSet = signals.NewSet(signals.All...)
-			unprovenNote = fmt.Sprintf(" (signal set not provable: unknown components %v, unclassified wire types %v — assumed worst-case)",
-				unknownComponentNames(sig.Unknown), sig.Unclassified)
-		}
-
-		if enforceErr := signals.Enforce(role, checkSet); enforceErr != nil {
-			exclusions = append(exclusions, Exclusion{
-				PipelineName: p.Name,
-				Reason:       commentSafe(enforceErr.Error() + unprovenNote),
-			})
+		if ex, excluded := RoleExclusion(p, role, reg); excluded {
+			exclusions = append(exclusions, ex)
 			continue
 		}
 		kept = append(kept, p)
 	}
 	return kept, exclusions
+}
+
+// RoleExclusion reports whether role enforcement excludes p from a collector
+// of the given role, and if so the Exclusion it records. It is the one
+// per-pipeline check enforceRoles runs, exported so the surfaces that warn an
+// operator about an exclusion (the pipeline's matched-collector preview, a
+// collector's reconciliation) ask the same question the served config was
+// assembled with, rather than re-deriving the policy a second way.
+func RoleExclusion(p Pipeline, role string, reg *schema.Registry) (Exclusion, bool) {
+	sig, err := signals.Derive(p.Contents, reg)
+	if err != nil {
+		return Exclusion{
+			PipelineName: p.Name,
+			Role:         role,
+			Reason:       commentSafe(fmt.Sprintf("signal derivation failed, excluded fail-safe: %v", err)),
+		}, true
+	}
+
+	checkSet := sig.Combined
+	var unprovenNote string
+	if !sig.Proven() {
+		checkSet = signals.NewSet(signals.All...)
+		unprovenNote = fmt.Sprintf(" (signal set not provable: unknown components %v, unclassified wire types %v — assumed worst-case)",
+			unknownComponentNames(sig.Unknown), sig.Unclassified)
+	}
+
+	enforceErr := signals.Enforce(role, checkSet)
+	if enforceErr == nil {
+		return Exclusion{}, false
+	}
+	return Exclusion{
+		PipelineName: p.Name,
+		Role:         role,
+		Reason:       commentSafe(enforceErr.Error() + unprovenNote),
+		Disallowed:   signals.Disallowed(role, checkSet),
+	}, true
 }
 
 // unknownComponentNames extracts just the component names from a

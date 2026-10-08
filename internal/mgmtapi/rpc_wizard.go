@@ -15,6 +15,7 @@ import (
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
 	"shepherd/internal/merge"
+	"shepherd/internal/schema"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/validate"
@@ -44,11 +45,29 @@ type WizardService struct {
 	registry  *wizard.Registry
 	validator *validate.Validator
 	logger    *slog.Logger
+	// schema drives the role-exclusion warning RenderWizard adds for a matched
+	// collector whose role refuses the pipeline's signals (M2). Nil means no
+	// such warning, never a guessed one.
+	schema *schema.Registry
+}
+
+// WizardServiceOption configures optional WizardService dependencies.
+type WizardServiceOption func(*WizardService)
+
+// WithWizardSchema supplies the schema registry RenderWizard needs to warn
+// about matched collectors that role enforcement would exclude the pipeline
+// from.
+func WithWizardSchema(reg *schema.Registry) WizardServiceOption {
+	return func(s *WizardService) { s.schema = reg }
 }
 
 // NewWizardService constructs a WizardService.
-func NewWizardService(st *store.Store, v *validate.Validator, logger *slog.Logger) *WizardService {
-	return &WizardService{store: st, registry: wizard.Default(), validator: v, logger: logger}
+func NewWizardService(st *store.Store, v *validate.Validator, logger *slog.Logger, opts ...WizardServiceOption) *WizardService {
+	s := &WizardService{store: st, registry: wizard.Default(), validator: v, logger: logger}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 var _ mgmtv1connect.WizardServiceHandler = (*WizardService)(nil)
@@ -115,12 +134,14 @@ func (s *WizardService) RenderWizard(ctx context.Context, req *connect.Request[m
 	wrapped := validate.WrapForValidation(name, result.Contents)
 	valResult := s.validator.Stages12(ctx, wrapped)
 
-	matched, matchErr := s.previewMatchedCollectors(ctx, merge.Pipeline{
+	candidate := merge.Pipeline{
 		ID:       name,
 		Name:     name,
+		Contents: result.Contents,
 		Matchers: result.Matchers,
 		Source:   "wizard",
-	}, orgID)
+	}
+	matched, matchErr := s.previewMatchedCollectors(ctx, candidate, orgID)
 	if matchErr != nil {
 		s.logger.Debug("wizard render: match preview failed", "err", matchErr)
 		matched = nil
@@ -136,7 +157,9 @@ func (s *WizardService) RenderWizard(ctx context.Context, req *connect.Request[m
 		Valid:             valResult.Valid,
 		Diagnostics:       diagnosticsToProto(valResult.Diagnostics),
 		MatchedCollectors: items,
-		Warnings:          result.Warnings,
+		// The wizard's own notes, then any matched collector whose role would
+		// exclude this pipeline from its served config (M2) — non-blocking.
+		Warnings: append(result.Warnings, roleExclusionWarnings(s.schema, candidate, matched)...),
 	}), nil
 }
 

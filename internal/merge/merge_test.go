@@ -9,6 +9,7 @@ import (
 
 	"shepherd/internal/merge"
 	"shepherd/internal/schema"
+	"shepherd/internal/signals"
 	"shepherd/internal/validate"
 	"shepherd/internal/version"
 )
@@ -458,6 +459,27 @@ totally.bogus.component "x" {
 		// the metrics pipeline would be INCLUDED instead of excluded.
 		Expect(r.Content).NotTo(ContainSubstring("pipe_metrics_pipe"))
 		Expect(r.Exclusions).To(HaveLen(1))
+	})
+
+	// M2 (2026-10-08 walkthrough): the exclusion is surfaced outside the served
+	// header (pipeline editor, reconciliation tab), so it carries the role and
+	// the offending signals as data — and RoleExclusion, the per-pipeline check
+	// those surfaces call, must agree with what Assemble records.
+	It("records the role and the disallowed signals on each exclusion, matching RoleExclusion", func() {
+		cl := merge.BuildCollectorLabels("coll-uuid-1", "test", "metrics", nil, nil)
+		p := merge.Pipeline{Name: "app-logs", Contents: logsOnlyPipeline, Matchers: []string{`cluster="test"`}, Source: "ui"}
+		r, err := merge.Assemble("coll-uuid-1", "test/metrics", cl, []merge.Pipeline{p}, "dev", merge.WithRoleEnforcement(reg))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(r.Exclusions).To(HaveLen(1))
+		Expect(r.Exclusions[0].Role).To(Equal("metrics"))
+		Expect(r.Exclusions[0].Disallowed.Sorted()).To(Equal([]signals.Signal{signals.Logs}))
+
+		ex, excluded := merge.RoleExclusion(p, "metrics", reg)
+		Expect(excluded).To(BeTrue())
+		Expect(ex).To(Equal(r.Exclusions[0]))
+
+		_, excluded = merge.RoleExclusion(p, "logs", reg)
+		Expect(excluded).To(BeFalse(), "a logs pipeline is allowed on a logs collector")
 	})
 })
 

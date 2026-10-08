@@ -130,19 +130,28 @@ func Enforce(role string, sig Set) error {
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrUnknownRole, role)
 	}
-	if policy.Unrestricted {
-		return nil
-	}
-
-	var disallowed []Signal
-	for _, s := range sig.Sorted() {
-		if !policy.Allowed.Has(s) {
-			disallowed = append(disallowed, s)
-		}
-	}
-	if len(disallowed) == 0 {
+	disallowed := Disallowed(role, sig)
+	if disallowed.Empty() {
 		return nil
 	}
 	return fmt.Errorf("%w: role %q allows %s, pipeline carries %s",
-		ErrSignalMismatch, role, policy.Allowed, NewSet(disallowed...))
+		ErrSignalMismatch, role, policy.Allowed, disallowed)
+}
+
+// Disallowed returns the signals in sig that role's policy row does not
+// allow — the set Enforce's ErrSignalMismatch names. It is empty for an
+// Unrestricted role and for a role Policies has no row for: whether a role
+// is known at all is Enforce's question (ErrUnknownRole), not this one's.
+func Disallowed(role string, sig Set) Set {
+	policy, ok := Policies[role]
+	if !ok || policy.Unrestricted {
+		return Set{}
+	}
+	var out []Signal
+	for _, s := range sig.Sorted() {
+		if !policy.Allowed.Has(s) {
+			out = append(out, s)
+		}
+	}
+	return NewSet(out...)
 }
