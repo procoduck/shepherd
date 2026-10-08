@@ -13,7 +13,6 @@ import (
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/internal/merge"
 	"shepherd/internal/reconcile"
-	"shepherd/internal/signals"
 )
 
 // beaconStaleAfter mirrors internal/agentapi's beaconInventoryExpireAfter (5m,
@@ -127,15 +126,14 @@ func (s *FleetService) reconcileServed(ctx context.Context, orgID pgtype.UUID, c
 		// The enforcement merge.Assemble applies, per pipeline: an excluded
 		// pipeline (signals the role refuses, or signals that could not be
 		// derived — fail-safe) is not served, and is reported as excluded.
-		if ex, isExcluded := merge.RoleExclusion(p, role, s.schema); isExcluded {
+		// RoleCheck also hands back the signal set it derived, so a served
+		// pipeline's signals are not derived a second time.
+		sig, ex, isExcluded := merge.RoleCheck(p, role, s.schema)
+		if isExcluded {
 			excluded = append(excluded, reconcile.ExcludedPipeline{
-				Name: ex.PipelineName, Reason: ex.Reason, Disallowed: ex.Disallowed,
+				Name: ex.PipelineName, Reason: ex.Reason, Disallowed: ex.Disallowed, Unproven: ex.Unproven,
 			})
 			continue
-		}
-		sig, derErr := signals.Derive(p.Contents, s.schema)
-		if derErr != nil {
-			continue // unreachable: RoleExclusion excludes an underivable pipeline
 		}
 		served = append(served, reconcile.ServedPipeline{
 			Name:           p.Name,

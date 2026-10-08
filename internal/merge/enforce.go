@@ -33,6 +33,14 @@ type Exclusion struct {
 	// served header prints only PipelineName and Reason, so they never change
 	// served bytes.
 	Disallowed signals.Set
+	// Unproven is set when the pipeline's signal set could not be proven (an
+	// unknown component or an unclassified wire type), so Disallowed is the
+	// worst case assumed rather than what the pipeline was shown to carry:
+	// "signal set not provable: unknown components [...], unclassified wire
+	// types [...] — assumed worst-case". Reason already ends with it in
+	// parentheses; it is carried separately so operator-facing prose built
+	// from Disallowed never drops it.
+	Unproven string
 }
 
 // AssembleOption configures optional Assemble behavior. The zero value (no
@@ -127,9 +135,18 @@ func enforceRoles(selected []Pipeline, cl CollectorLabels, reg *schema.Registry)
 // collector's reconciliation) ask the same question the served config was
 // assembled with, rather than re-deriving the policy a second way.
 func RoleExclusion(p Pipeline, role string, reg *schema.Registry) (Exclusion, bool) {
+	_, ex, excluded := RoleCheck(p, role, reg)
+	return ex, excluded
+}
+
+// RoleCheck is RoleExclusion that also returns the signal set it derived, for
+// a caller that needs the signals of a pipeline that IS served (the
+// reconciliation tab) — so it does not derive them a second time. sig is the
+// zero value when derivation failed (the pipeline is then excluded).
+func RoleCheck(p Pipeline, role string, reg *schema.Registry) (signals.Signals, Exclusion, bool) {
 	sig, err := signals.Derive(p.Contents, reg)
 	if err != nil {
-		return Exclusion{
+		return signals.Signals{}, Exclusion{
 			PipelineName: p.Name,
 			Role:         role,
 			Reason:       commentSafe(fmt.Sprintf("signal derivation failed, excluded fail-safe: %v", err)),
@@ -137,22 +154,27 @@ func RoleExclusion(p Pipeline, role string, reg *schema.Registry) (Exclusion, bo
 	}
 
 	checkSet := sig.Combined
-	var unprovenNote string
+	var unproven string
 	if !sig.Proven() {
 		checkSet = signals.NewSet(signals.All...)
-		unprovenNote = fmt.Sprintf(" (signal set not provable: unknown components %v, unclassified wire types %v — assumed worst-case)",
+		unproven = fmt.Sprintf("signal set not provable: unknown components %v, unclassified wire types %v — assumed worst-case",
 			unknownComponentNames(sig.Unknown), sig.Unclassified)
 	}
 
 	enforceErr := signals.Enforce(role, checkSet)
 	if enforceErr == nil {
-		return Exclusion{}, false
+		return sig, Exclusion{}, false
 	}
-	return Exclusion{
+	reason := enforceErr.Error()
+	if unproven != "" {
+		reason += " (" + unproven + ")"
+	}
+	return sig, Exclusion{
 		PipelineName: p.Name,
 		Role:         role,
-		Reason:       commentSafe(enforceErr.Error() + unprovenNote),
+		Reason:       commentSafe(reason),
 		Disallowed:   signals.Disallowed(role, checkSet),
+		Unproven:     commentSafe(unproven),
 	}, true
 }
 

@@ -16,6 +16,7 @@ import { DetachFromWizard } from '@/components/DetachFromWizard';
 import { PipelineActions } from '@/components/PipelineActions';
 import { OpenInVisualBuilder, PipelineLandingBanner } from '@/components/PipelineLandingBanner';
 import { PipelineMatchers } from '@/components/PipelineMatchers';
+import { PipelineMatchPreview } from '@/components/PipelineMatchPreview';
 import { PipelineOwner } from '@/components/PipelineOwner';
 import { RevisionHistory } from '@/components/RevisionHistory';
 import { Input } from '@/components/ui/Field';
@@ -245,6 +246,10 @@ export function PipelineEditorPage() {
           orgId={orgId}
           readOnly={readOnly}
         />
+
+        {!isNew && pipeline && (
+          <PipelineMatchPreview pipeline={pipeline} orgId={pipelineOrgId} queryOrgId={orgId} />
+        )}
 
         {pipeline?.source === 'git' && (
           <div className='rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400'>

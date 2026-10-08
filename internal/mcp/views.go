@@ -145,12 +145,18 @@ type MatchedCollectorView struct {
 	Cluster string `json:"cluster"`
 	Role    string `json:"role"`
 	ID      string `json:"id"`
+	// ExcludedReason is set when role enforcement leaves the pipeline out of
+	// this collector's served config even though its matchers select it.
+	ExcludedReason string `json:"excluded_reason,omitempty"`
 }
 
 func toMatchedCollectorViews(ms []*mgmtv1.MatchedCollector) []MatchedCollectorView {
 	out := make([]MatchedCollectorView, 0, len(ms))
 	for _, m := range ms {
-		out = append(out, MatchedCollectorView{Cluster: m.GetCluster(), Role: m.GetRole(), ID: m.GetId()})
+		out = append(out, MatchedCollectorView{
+			Cluster: m.GetCluster(), Role: m.GetRole(), ID: m.GetId(),
+			ExcludedReason: m.GetExcludedReason(),
+		})
 	}
 	return out
 }

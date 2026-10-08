@@ -365,7 +365,9 @@ export const GetReconciliationRequestSchema: GenMessage<GetReconciliationRequest
  */
 export type Finding = Message<"shepherd.mgmt.v1.Finding"> & {
   /**
-   * kind is "role_signal_mismatch" (declared<->served) or
+   * kind is "role_signal_mismatch" (declared<->served),
+   * "role_signal_excluded" (declared<->served: role enforcement kept a
+   * matched pipeline out of the served config) or
    * "unserved_component_observed" (served<->observed). A string, per this
    * repo's enum-like-field rule.
    *
@@ -390,8 +392,9 @@ export type Finding = Message<"shepherd.mgmt.v1.Finding"> & {
   summary: string;
 
   /**
-   * pipeline_name is set for role_signal_mismatch: the served pipeline whose
-   * signals violated the declared role.
+   * pipeline_name is set for role_signal_mismatch (the served pipeline whose
+   * signals violated the declared role) and role_signal_excluded (the matched
+   * pipeline role enforcement left out).
    *
    * @generated from field: string pipeline_name = 4;
    */

@@ -256,6 +256,17 @@ export function WizardRunnerPage() {
                           {(renderQuery.data.matchedCollectors ?? []).map((c: MatchedCollector) => (
                             <li key={c.id}>
                               {c.cluster} / {c.role}
+                              {/* Role enforcement (G6) keeps the pipeline out of
+                                  this collector's served config (M2). */}
+                              {c.excludedReason && (
+                                <span
+                                  data-testid='wizard-excluded-collector'
+                                  title={c.excludedReason}
+                                  className='ml-1.5 text-amber-300'
+                                >
+                                  — excluded: {c.excludedReason}
+                                </span>
+                              )}
                             </li>
                           ))}
                         </ul>

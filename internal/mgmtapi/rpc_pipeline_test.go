@@ -554,6 +554,63 @@ var _ = Describe("PipelineService Connect RPC", Label("integration"), func() {
 		Expect(payload.Collectors[0].ID).To(Equal(collector.ID.String()))
 	})
 
+	// Walkthrough finding M2: a pipeline saved through the editor carries
+	// whatever matchers the operator typed — nothing forces a role matcher —
+	// so a cluster-only matcher can select a collector whose role refuses the
+	// pipeline's signals. Gate G6 then leaves it out of that collector's
+	// served config; the preview must say so per collector, from the same
+	// merge.RoleExclusion check the served config is assembled with.
+	It("PreviewMatches marks a matched collector whose role excludes the pipeline's signals (M2)", func() {
+		cookie := sessionCookie(true)
+
+		cluster, err := st.Queries.UpsertCluster(ctx, "m2-prod")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgUUID(orgID)})).To(Succeed())
+		logsCollector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "logs"})
+		Expect(err).NotTo(HaveOccurred())
+		metricsCollector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+		Expect(err).NotTo(HaveOccurred())
+
+		createResp := postConnect("/shepherd.mgmt.v1.PipelineService/CreatePipeline", map[string]any{
+			"org_id": orgID, "name": "m2-logs-pipe",
+			"contents": `loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+`,
+			"matchers": []string{`cluster="m2-prod"`},
+		}, cookie)
+		Expect(createResp.StatusCode).To(Equal(http.StatusOK))
+		var created struct {
+			ID string `json:"id"`
+		}
+		decodeBody(createResp, &created)
+
+		resp := postConnect("/shepherd.mgmt.v1.PipelineService/PreviewMatches", map[string]any{
+			"org_id": orgID, "id": created.ID,
+		}, cookie)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		var payload struct {
+			Collectors []struct {
+				ID             string `json:"id"`
+				Role           string `json:"role"`
+				ExcludedReason string `json:"excludedReason"`
+			} `json:"collectors"`
+		}
+		decodeBody(resp, &payload)
+		Expect(payload.Collectors).To(HaveLen(2), "a cluster-only matcher selects both collectors")
+
+		reasons := map[string]string{}
+		for _, c := range payload.Collectors {
+			reasons[c.ID] = c.ExcludedReason
+		}
+		Expect(reasons).To(HaveKeyWithValue(logsCollector.ID.String(), ""),
+			"a logs collector serves a logs pipeline: nothing to report")
+		Expect(reasons).To(HaveKeyWithValue(metricsCollector.ID.String(),
+			"its signals (logs) are not allowed on role metrics"))
+	})
+
 	// Red run that caught a real gap: recomputeOrgCaches (the eager
 	// background recompute EnablePipeline/DisablePipeline/UpdatePipeline/
 	// DeletePipeline kick off via `go s.recomputeOrgCaches(...)`) built its

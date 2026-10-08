@@ -146,17 +146,14 @@ func (s *WizardService) RenderWizard(ctx context.Context, req *connect.Request[m
 		s.logger.Debug("wizard render: match preview failed", "err", matchErr)
 		matched = nil
 	}
-	items := make([]*mgmtv1.MatchedCollector, len(matched))
-	for i, m := range matched {
-		items[i] = &mgmtv1.MatchedCollector{Cluster: m["cluster"], Role: m["role"], Id: m["id"]}
-	}
-
 	return connect.NewResponse(&mgmtv1.RenderWizardResponse{
-		Contents:          result.Contents,
-		Matchers:          result.Matchers,
-		Valid:             valResult.Valid,
-		Diagnostics:       diagnosticsToProto(valResult.Diagnostics),
-		MatchedCollectors: items,
+		Contents:    result.Contents,
+		Matchers:    result.Matchers,
+		Valid:       valResult.Valid,
+		Diagnostics: diagnosticsToProto(valResult.Diagnostics),
+		// excluded_reason per collector comes from the same check as the
+		// warnings below (and as the served config) — see roleExclusionChecker.
+		MatchedCollectors: matchedCollectorsProto(s.schema, candidate, matched),
 		// The wizard's own notes, then any matched collector whose role would
 		// exclude this pipeline from its served config (M2) — non-blocking.
 		Warnings: append(result.Warnings, roleExclusionWarnings(s.schema, candidate, matched)...),

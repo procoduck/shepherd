@@ -423,6 +423,9 @@ totally.bogus.component "x" {
 		Expect(r.Content).NotTo(ContainSubstring("pipe_mystery_pipe"))
 		Expect(r.Exclusions).To(HaveLen(1))
 		Expect(r.Exclusions[0].Reason).To(ContainSubstring("not provable"))
+		// Carried on its own too, so prose built from Disallowed (the
+		// assumed worst case here) cannot drop it.
+		Expect(r.Exclusions[0].Unproven).To(ContainSubstring("unknown components [totally.bogus.component]"))
 	})
 
 	It("still lists an exclusion in the header even when it is the only pipeline that matched", func() {
@@ -480,6 +483,28 @@ totally.bogus.component "x" {
 
 		_, excluded = merge.RoleExclusion(p, "logs", reg)
 		Expect(excluded).To(BeFalse(), "a logs pipeline is allowed on a logs collector")
+	})
+
+	// The exclusion lines are served bytes: they feed the config hash, so a
+	// change to their text reloads every collector carrying an exclusion. The
+	// operator-facing prose (preview, warnings, reconciliation) is built from
+	// Exclusion's fields elsewhere; this pins that none of that work moved the
+	// header.
+	It("pins the served header's exclusion lines byte for byte", func() {
+		cl := merge.BuildCollectorLabels("coll-uuid-1", "test", "metrics", nil, nil)
+		withUnknown := "totally.bogus.component \"x\" {\n  foo = \"bar\"\n}\n" + metricsOnlyPipeline
+		pipelines := []merge.Pipeline{
+			{Name: "app-logs", Contents: logsOnlyPipeline, Matchers: []string{`cluster="test"`}, Source: "ui"},
+			{Name: "mystery-pipe", Contents: withUnknown, Matchers: []string{`cluster="test"`}, Source: "ui"},
+		}
+		r, err := merge.Assemble("coll-uuid-1", "test/metrics", cl, pipelines, "dev", merge.WithRoleEnforcement(reg))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(r.Content).To(ContainSubstring(
+			"// Excluded (2) - signal/role mismatch (docs/gateway-tier-plan.md W1, gate G6):\n" +
+				"//   - app-logs: signals: pipeline signal not allowed for role: role \"metrics\" allows [metrics], pipeline carries [logs]\n" +
+				"//   - mystery-pipe: signals: pipeline signal not allowed for role: role \"metrics\" allows [metrics], pipeline carries [logs,traces,profiles]" +
+				" (signal set not provable: unknown components [totally.bogus.component], unclassified wire types [] — assumed worst-case)\n",
+		))
 	})
 })
 
