@@ -291,6 +291,30 @@ var _ = Describe("GitOpsService (Connect RPC)", Label("integration"), func() {
 				return got
 			}
 
+			// Same clone-URL rules as CreateRepoLink (M6), so a URL "Test"
+			// accepts is one the link form accepts too.
+			DescribeTable("refuses a clone URL CreateRepoLink would refuse",
+				func(repoURL, wantMsg string) {
+					created := createCredential(createCredWire{Name: "test-url-pat", Kind: "pat", Username: "x", ClientSecret: "tok"})
+					credID, ok := created["id"].(string)
+					Expect(ok).To(BeTrue())
+					body, err := json.Marshal(testCredWire{OrgID: orgID, ID: credID, RepoURL: repoURL})
+					Expect(err).NotTo(HaveOccurred())
+					resp := postConnect("/shepherd.mgmt.v1.GitOpsService/TestCredential", string(body), admin)
+					Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+					var payload struct {
+						Code    string `json:"code"`
+						Message string `json:"message"`
+					}
+					decodeBody(resp, &payload)
+					Expect(payload.Code).To(Equal("invalid_argument"))
+					Expect(payload.Message).To(HavePrefix(wantMsg))
+				},
+				Entry("plain words", "not a url", `clone URL "not a url" is not a git remote URL`),
+				Entry("an ssh URL with an https credential", "git@gitea.internal:team/configs.git",
+					`clone URL "git@gitea.internal:team/configs.git" is an SSH URL, but credential "test-url-pat" authenticates over HTTPS`),
+			)
+
 			It("reports a git reachability failure (connection refused) as reachable=false with no token exchange involved", func() {
 				created := createCredential(createCredWire{Name: "test-pat", Kind: "pat", Username: "x", ClientSecret: "tok"})
 				credID, ok := created["id"].(string)

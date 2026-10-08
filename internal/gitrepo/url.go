@@ -40,8 +40,23 @@ func RemoteTransport(raw string) (Transport, error) {
 	if raw == "" {
 		return "", fmt.Errorf("clone URL is required: %s", remoteURLHelp)
 	}
-	if strings.IndexFunc(raw, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
-		return "", fmt.Errorf("clone URL %q is not a git remote URL: it contains spaces or control characters; %s", raw, remoteURLHelp)
+	// Interior spaces are allowed: an Azure DevOps project name may contain
+	// one ("https://dev.azure.com/org/My Project/_git/repo"), and net/url
+	// escapes it on the wire, so such a URL has always cloned. A space in the
+	// host still fails below (url.Parse refuses it; the scp-like form cannot
+	// match it). Leading/trailing whitespace and control characters (a pasted
+	// newline or tab) are never part of a URL.
+	if raw != strings.TrimSpace(raw) || strings.IndexFunc(raw, unicode.IsControl) >= 0 {
+		return "", fmt.Errorf("clone URL %q is not a git remote URL: it has leading or trailing whitespace or a control character; %s", raw, remoteURLHelp)
+	}
+	// go-git's scp-like pattern takes the host as everything up to the first
+	// ':', so "git@[2001:db8::1]:owner/repo.git" parses with host "[2001" and
+	// would dial nonsense. The ssh:// form brackets IPv6 hosts correctly.
+	if !strings.Contains(raw, "://") {
+		if _, hostPart, _ := strings.Cut(raw, "@"); strings.HasPrefix(raw, "[") || strings.HasPrefix(hostPart, "[") {
+			return "", fmt.Errorf("clone URL %q puts an IPv6 address in the git@host:path form, which git "+
+				"clients misread: use ssh://git@[address]/owner/repo.git instead", raw)
+		}
 	}
 	u, err := transport.ParseURL(raw)
 	if err != nil {

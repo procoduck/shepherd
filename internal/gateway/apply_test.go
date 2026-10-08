@@ -172,8 +172,9 @@ type fakeApplier struct {
 	applyCalls int
 	getCalls   int
 
-	ann    map[string]string
-	annErr error
+	ann      map[string]string
+	annErr   error
+	annCalls int
 
 	applyErr error
 
@@ -220,6 +221,7 @@ func (f *fakeApplier) Get(_ context.Context, namespace, name string) (*gatewayv1
 func (f *fakeApplier) HTTPRouteCRDAnnotations(_ context.Context) (map[string]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.annCalls++
 	if f.annErr != nil {
 		return nil, f.annErr
 	}
@@ -413,6 +415,23 @@ func TestApplyRoute_RefusesUnsupportedClusterBeforeApplying(t *testing.T) {
 	}
 	if fa.applyCalls != 0 {
 		t.Fatalf("want zero Apply calls when the cluster is refused up front, got %d", fa.applyCalls)
+	}
+}
+
+// TestApplyRoute_InvalidSpecCostsNoClusterCall: a stored route whose gateway
+// name no Kubernetes object can have (M6) is refused before any API call, so
+// the reconciler's retries of it never touch the cluster.
+func TestApplyRoute_InvalidSpecCostsNoClusterCall(t *testing.T) {
+	spec := testSpec()
+	spec.GatewayName = "Bad Name!"
+	fa := &fakeApplier{ann: supportedAnnotations()}
+	_, err := ApplyRoute(context.Background(), fa, spec, ApplyOptions{})
+	if err == nil || !strings.Contains(err.Error(), `gateway name "Bad Name!" is not a valid Kubernetes object name`) {
+		t.Fatalf("want the gateway-name refusal, got %v", err)
+	}
+	if fa.annCalls != 0 || fa.applyCalls != 0 || fa.getCalls != 0 {
+		t.Fatalf("want zero cluster calls for an invalid spec, got annotations=%d apply=%d get=%d",
+			fa.annCalls, fa.applyCalls, fa.getCalls)
 	}
 }
 

@@ -42,14 +42,10 @@ func TestEnforce(t *testing.T) {
 	}
 }
 
-// TestPolicies_CoverKnownRoles guards against the policy table silently
-// falling out of sync with internal/agentapi's validRoles (internal/agentapi/
-// service.go). The role list is a literal here, not an import, because W1's
-// territory (docs/gateway-tier-plan.md §8) is internal/signals/** only and
-// this package must not depend on internal/agentapi — but that means drift
-// between the two lists is exactly the failure mode Enforce's ErrUnknownRole
-// exists to catch, so this test pins the list this package was built against
-// and fails if a row goes missing.
+// TestPolicies_CoverKnownRoles pins the four collector roles. Policies' keys
+// are the role set internal/agentapi registers collectors against (Roles),
+// so a row going missing would silently retire a role fleet-wide; this test
+// makes that a deliberate, visible change.
 func TestPolicies_CoverKnownRoles(t *testing.T) {
 	knownRoles := []string{"metrics", "logs", "singleton", "receiver"}
 	for _, role := range knownRoles {

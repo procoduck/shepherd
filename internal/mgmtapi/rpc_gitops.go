@@ -260,8 +260,12 @@ func (s *GitOpsService) TestCredential(ctx context.Context, req *connect.Request
 		return nil, connect.NewError(connect.CodeUnavailable, errEncryptionUnavailable)
 	}
 	msg := req.Msg
-	if msg.GetRepoUrl() == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("repo_url required"))
+	// Same URL rules as CreateRepoLink, so "Test" never passes a URL the
+	// link form would then refuse (or the reverse).
+	repoURL := strings.TrimSpace(msg.GetRepoUrl())
+	urlTransport, err := gitrepo.RemoteTransport(repoURL)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	id, err := scanUUID(msg.GetId())
 	if err != nil {
@@ -274,6 +278,9 @@ func (s *GitOpsService) TestCredential(ctx context.Context, req *connect.Request
 	}
 	if orgID := msg.GetOrgId(); orgID != "" && cred.OrgID.String() != orgID {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("credential not found"))
+	}
+	if err := repoURLMatchesCredential(repoURL, urlTransport, cred); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
 	required := isTokenExchangeKind(cred.Kind)
@@ -308,7 +315,7 @@ func (s *GitOpsService) TestCredential(ctx context.Context, req *connect.Request
 		branch = "main"
 	}
 	repo := gitrepo.Repo{
-		URL:    msg.GetRepoUrl(),
+		URL:    repoURL,
 		Branch: branch,
 		Auth:   auth,
 		TLS: gitrepo.TLSOptions{

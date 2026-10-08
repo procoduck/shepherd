@@ -24,13 +24,11 @@ import (
 	"shepherd/internal/metrics"
 	"shepherd/internal/schema"
 	"shepherd/internal/serve"
+	"shepherd/internal/signals"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/validate"
 )
-
-// validRoles is the set of allowed collector roles.
-var validRoles = []string{"metrics", "logs", "singleton", "receiver"}
 
 // EmptyHash is sha256hex(""). Exported for use in tests.
 const EmptyHash = "e3b0c44298fc1c149afbf4c8996fb924" +
@@ -588,8 +586,10 @@ func requireClusterRole(attrs map[string]string) (cluster, role string, err erro
 	}
 	if role == "" {
 		missing = append(missing, "role")
-	} else if !slices.Contains(validRoles, role) {
-		return "", "", fmt.Errorf("role %q must be one of: %s", role, strings.Join(validRoles, "|"))
+	} else if signals.ValidateRole(role) != nil {
+		// Collectors keep this message shape; the role set is signals.Roles(),
+		// the same table mgmtapi checks binding allowlists against.
+		return "", "", fmt.Errorf("role %q must be one of: %s", role, strings.Join(signals.Roles(), "|"))
 	}
 	if len(missing) > 0 {
 		return "", "", fmt.Errorf("missing required attributes: %s", strings.Join(missing, ", "))

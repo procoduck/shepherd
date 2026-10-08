@@ -480,11 +480,12 @@ func (s *AdminService) CreateAgentIdentity(ctx context.Context, req *connect.Req
 	if issuer == "" || appID == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("issuer and app_id are required"))
 	}
-	// The role allowlist is checked against the roles that exist
-	// (signals.Policies, the table internal/agentapi registers collectors
-	// against): a binding naming "bogusrole" would be stored and then admit
-	// no collector on it, silently (M6). Cluster names are free-form — any
-	// string a collector reports — so they are not checked here.
+	// The role allowlist is checked with signals.ValidateRole, the same check
+	// internal/agentapi's requireClusterRole applies when a collector
+	// registers: a role outside signals.Policies can never register, so a
+	// binding naming "bogusrole" would be stored and then admit no collector
+	// on it, silently (M6). Cluster names are free-form — any string a
+	// collector reports — so they are not checked here.
 	for _, role := range req.Msg.GetRoles() {
 		if role = strings.TrimSpace(role); role == "" {
 			continue

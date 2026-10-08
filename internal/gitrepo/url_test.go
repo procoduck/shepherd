@@ -20,6 +20,9 @@ var _ = Describe("RemoteTransport", func() {
 		Entry("ssh:// with user and port", "ssh://git@gitea.internal:2222/team/configs.git", gitrepo.TransportSSH),
 		Entry("scp-like", "git@gitea.internal:team/configs.git", gitrepo.TransportSSH),
 		Entry("scp-like without a user", "gitea.internal:team/configs.git", gitrepo.TransportSSH),
+		// Cloned before M6 (net/url escapes the space), so it must still save.
+		Entry("Azure DevOps project with a space", "https://dev.azure.com/org/My Project/_git/repo", gitrepo.TransportHTTP),
+		Entry("ssh:// with a bracketed IPv6 host", "ssh://git@[2001:db8::1]:2222/team/configs.git", gitrepo.TransportSSH),
 	)
 
 	DescribeTable("refuses what no clone could fetch, saying why",
@@ -36,5 +39,9 @@ var _ = Describe("RemoteTransport", func() {
 		Entry("no host", "https:///team/configs.git", `clone URL "https:///team/configs.git" has no host`),
 		Entry("no repository path", "https://gitea.internal/", `clone URL "https://gitea.internal/" names no repository`),
 		Entry("a trailing newline", "https://gitea.internal/team/configs.git\n", `clone URL "https://gitea.internal/team/configs.git\n" is not a git remote URL`),
+		Entry("a leading space", " https://gitea.internal/team/configs.git", `clone URL " https://gitea.internal/team/configs.git" is not a git remote URL`),
+		Entry("an interior tab", "https://gitea.internal/team\tconfigs.git", `clone URL "https://gitea.internal/team\tconfigs.git" is not a git remote URL`),
+		Entry("a space in the host", "https://gitea internal/team/configs.git", `clone URL "https://gitea internal/team/configs.git" is not a git remote URL`),
+		Entry("scp-like with an IPv6 host", "git@[2001:db8::1]:team/configs.git", `clone URL "git@[2001:db8::1]:team/configs.git" puts an IPv6 address in the git@host:path form`),
 	)
 })

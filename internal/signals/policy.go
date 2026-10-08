@@ -10,8 +10,9 @@ import (
 // RolePolicy is one row of the role -> allowed-signals table: what a
 // collector role legitimately handles, and why.
 type RolePolicy struct {
-	// Role is the collector role name, matching internal/agentapi's
-	// validRoles ("metrics", "logs", "singleton", "receiver").
+	// Role is the collector role name ("metrics", "logs", "singleton",
+	// "receiver"). Policies' keys ARE the role set: internal/agentapi
+	// registers collectors against Roles/ValidateRole.
 	Role string
 	// Allowed is the set of signals a pipeline served to this role may
 	// carry. Ignored when Unrestricted is true.
@@ -63,8 +64,8 @@ type RolePolicy struct {
 //     receiver-role collector is exactly the kind of role/signal mismatch
 //     this table exists to catch, not a gap in this row.
 //
-//   - "singleton": Unrestricted = true. Per internal/agentapi's validRoles
-//     comment and docs/gateway-tier-plan.md, singleton is the one-per-fleet
+//   - "singleton": Unrestricted = true. Per docs/gateway-tier-plan.md,
+//     singleton is the one-per-fleet
 //     role reserved for self-monitoring and other cross-cutting pipelines
 //     that legitimately mix signal kinds (e.g. a self-monitoring pipeline
 //     that scrapes Alloy's own /metrics AND tails its own log output).
@@ -106,10 +107,9 @@ var Policies = map[string]RolePolicy{
 
 // ErrUnknownRole is returned by Enforce for a role Policies has no row for.
 // An unrecognized role is refused, not waved through: "unrestricted" is a
-// deliberate row in this table, never what an absent row defaults to. This
-// also means a new role added to internal/agentapi's validRoles without a
-// matching row here fails closed, loudly, the first time Enforce is called
-// for it — rather than silently allowing everything.
+// deliberate row in this table, never what an absent row defaults to. Since
+// the table is also the role set collectors register against (Roles), a role
+// only exists once it has a row here.
 var ErrUnknownRole = errors.New("signals: unknown collector role")
 
 // ErrSignalMismatch is returned by Enforce when sig contains a signal the
