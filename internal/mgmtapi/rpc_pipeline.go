@@ -827,8 +827,11 @@ func (s *PipelineService) PreviewMatches(ctx context.Context, req *connect.Reque
 	}
 
 	mp := merge.Pipeline{
-		ID:       p.ID.String(),
-		Name:     p.Name,
+		ID:   p.ID.String(),
+		Name: p.Name,
+		// Contents is what role enforcement derives the signal set from;
+		// matching itself ignores it.
+		Contents: p.Contents,
 		Matchers: matchers,
 		Source:   p.Source,
 	}
@@ -854,10 +857,10 @@ func (s *PipelineService) PreviewMatches(ctx context.Context, req *connect.Reque
 		// default case, substitutes its own message instead.
 		return nil, mapError(matchErr)
 	}
-	items := make([]*mgmtv1.MatchedCollector, len(matched))
-	for i, m := range matched {
-		items[i] = &mgmtv1.MatchedCollector{Cluster: m["cluster"], Role: m["role"], Id: m["id"]}
-	}
+	// excluded_reason marks every matched collector whose role refuses the
+	// pipeline's signals (gate G6, finding M2) — merge.RoleExclusion, the
+	// check the served config is assembled with.
+	items := matchedCollectorsProto(s.schema, mp, matched)
 	return connect.NewResponse(&mgmtv1.PreviewMatchesResponse{Collectors: items}), nil
 }
 

@@ -241,6 +241,9 @@ message MatchedCollector {
   string cluster = 1;
   string role = 2;
   string id = 3;
+  // excluded_reason is non-empty when role enforcement (gate G6) leaves the
+  // pipeline out of this collector's served config.
+  string excluded_reason = 4;
 }
 
 // PreviewMatchesResponse lists the collectors a pipeline's matchers currently select.

@@ -156,6 +156,9 @@ type ExcludedPipeline struct {
 	// Disallowed is merge.Exclusion.Disallowed: the pipeline's signals the
 	// role does not allow.
 	Disallowed signals.Set
+	// Unproven is merge.Exclusion.Unproven: set when the signal set could not
+	// be proven, so Disallowed is an assumed worst case, not a proof.
+	Unproven string
 }
 
 // Finding is one contradiction Compare proved between exactly two of the

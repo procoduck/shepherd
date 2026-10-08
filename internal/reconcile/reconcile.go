@@ -128,10 +128,7 @@ func servedVsObserved(declared Declared, served []ServedPipeline, observed Obser
 func ExclusionFindings(declared Declared, excluded []ExcludedPipeline) []Finding {
 	findings := make([]Finding, 0, len(excluded))
 	for _, ex := range excluded {
-		why := ex.Reason
-		if !ex.Disallowed.Empty() {
-			why = fmt.Sprintf("its signals (%s) are not allowed on role %s", signalList(ex.Disallowed), declared.Role)
-		}
+		why := ex.Why(declared.Role)
 		findings = append(findings, Finding{
 			Kind:    KindRoleSignalExcluded,
 			Sources: [2]Source{SourceDeclared, SourceServed},
@@ -143,6 +140,24 @@ func ExclusionFindings(declared Declared, excluded []ExcludedPipeline) []Finding
 		})
 	}
 	return findings
+}
+
+// Why phrases why the pipeline is excluded from a collector of role, for an
+// operator: "its signals (logs) are not allowed on role metrics" — with the
+// unproven-signal-set note appended when Disallowed is only the assumed worst
+// case — or Reason verbatim when there is no plain mismatch to name. It is
+// the one phrasing every operator-facing surface uses: this package's
+// findings, and internal/mgmtapi's match preview (excluded_reason) and wizard
+// warnings.
+func (e ExcludedPipeline) Why(role string) string {
+	if e.Disallowed.Empty() {
+		return e.Reason
+	}
+	why := fmt.Sprintf("its signals (%s) are not allowed on role %s", signalList(e.Disallowed), role)
+	if e.Unproven != "" {
+		why += " (" + e.Unproven + ")"
+	}
+	return why
 }
 
 // signalList renders a set as "logs, traces" — prose, unlike Set.String's

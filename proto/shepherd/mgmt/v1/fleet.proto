@@ -115,7 +115,9 @@ message GetReconciliationRequest {
 // Finding is one reconciliation contradiction (internal/reconcile.Finding).
 // A finding always names exactly two disagreeing sources.
 message Finding {
-  // kind is "role_signal_mismatch" (declared<->served) or
+  // kind is "role_signal_mismatch" (declared<->served),
+  // "role_signal_excluded" (declared<->served: role enforcement kept a
+  // matched pipeline out of the served config) or
   // "unserved_component_observed" (served<->observed). A string, per this
   // repo's enum-like-field rule.
   string kind = 1;
@@ -125,8 +127,9 @@ message Finding {
   // summary is a human-readable sentence naming both sides' claims — safe to
   // show verbatim.
   string summary = 3;
-  // pipeline_name is set for role_signal_mismatch: the served pipeline whose
-  // signals violated the declared role.
+  // pipeline_name is set for role_signal_mismatch (the served pipeline whose
+  // signals violated the declared role) and role_signal_excluded (the matched
+  // pipeline role enforcement left out).
   string pipeline_name = 4;
   // controller_path is set for unserved_component_observed: the beacon-reported
   // identity that matched no served pipeline.

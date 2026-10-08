@@ -745,7 +745,9 @@ func (x *GetReconciliationRequest) GetId() string {
 // A finding always names exactly two disagreeing sources.
 type Finding struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// kind is "role_signal_mismatch" (declared<->served) or
+	// kind is "role_signal_mismatch" (declared<->served),
+	// "role_signal_excluded" (declared<->served: role enforcement kept a
+	// matched pipeline out of the served config) or
 	// "unserved_component_observed" (served<->observed). A string, per this
 	// repo's enum-like-field rule.
 	Kind string `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
@@ -755,8 +757,9 @@ type Finding struct {
 	// summary is a human-readable sentence naming both sides' claims — safe to
 	// show verbatim.
 	Summary string `protobuf:"bytes,3,opt,name=summary,proto3" json:"summary,omitempty"`
-	// pipeline_name is set for role_signal_mismatch: the served pipeline whose
-	// signals violated the declared role.
+	// pipeline_name is set for role_signal_mismatch (the served pipeline whose
+	// signals violated the declared role) and role_signal_excluded (the matched
+	// pipeline role enforcement left out).
 	PipelineName string `protobuf:"bytes,4,opt,name=pipeline_name,json=pipelineName,proto3" json:"pipeline_name,omitempty"`
 	// controller_path is set for unserved_component_observed: the beacon-reported
 	// identity that matched no served pipeline.

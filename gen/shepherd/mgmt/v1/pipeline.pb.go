@@ -1171,12 +1171,15 @@ func (x *PreviewMatchesRequest) GetId() string {
 
 // MatchedCollector mirrors the per-item shape returned by previewMatchedCollectors.
 type MatchedCollector struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Cluster       string                 `protobuf:"bytes,1,opt,name=cluster,proto3" json:"cluster,omitempty"`
-	Role          string                 `protobuf:"bytes,2,opt,name=role,proto3" json:"role,omitempty"`
-	Id            string                 `protobuf:"bytes,3,opt,name=id,proto3" json:"id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Cluster string                 `protobuf:"bytes,1,opt,name=cluster,proto3" json:"cluster,omitempty"`
+	Role    string                 `protobuf:"bytes,2,opt,name=role,proto3" json:"role,omitempty"`
+	Id      string                 `protobuf:"bytes,3,opt,name=id,proto3" json:"id,omitempty"`
+	// excluded_reason is non-empty when role enforcement (gate G6) leaves the
+	// pipeline out of this collector's served config.
+	ExcludedReason string `protobuf:"bytes,4,opt,name=excluded_reason,json=excludedReason,proto3" json:"excluded_reason,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *MatchedCollector) Reset() {
@@ -1226,6 +1229,13 @@ func (x *MatchedCollector) GetRole() string {
 func (x *MatchedCollector) GetId() string {
 	if x != nil {
 		return x.Id
+	}
+	return ""
+}
+
+func (x *MatchedCollector) GetExcludedReason() string {
+	if x != nil {
+		return x.ExcludedReason
 	}
 	return ""
 }
@@ -1713,11 +1723,12 @@ const file_shepherd_mgmt_v1_pipeline_proto_rawDesc = "" +
 	"\x0eskipped_stages\x18\x06 \x03(\x05R\rskippedStages\">\n" +
 	"\x15PreviewMatchesRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x0e\n" +
-	"\x02id\x18\x02 \x01(\tR\x02id\"P\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\"y\n" +
 	"\x10MatchedCollector\x12\x18\n" +
 	"\acluster\x18\x01 \x01(\tR\acluster\x12\x12\n" +
 	"\x04role\x18\x02 \x01(\tR\x04role\x12\x0e\n" +
-	"\x02id\x18\x03 \x01(\tR\x02id\"\\\n" +
+	"\x02id\x18\x03 \x01(\tR\x02id\x12'\n" +
+	"\x0fexcluded_reason\x18\x04 \x01(\tR\x0eexcludedReason\"\\\n" +
 	"\x16PreviewMatchesResponse\x12B\n" +
 	"\n" +
 	"collectors\x18\x01 \x03(\v2\".shepherd.mgmt.v1.MatchedCollectorR\n" +
