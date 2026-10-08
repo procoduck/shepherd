@@ -3,7 +3,7 @@ import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { bracketMatching, foldGutter, indentOnInput } from '@codemirror/language';
 import { type Diagnostic as CmDiagnostic, lintGutter, setDiagnostics } from '@codemirror/lint';
 import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
-import { EditorState, type Text } from '@codemirror/state';
+import { EditorState, type Text, Transaction } from '@codemirror/state';
 import { EditorView, highlightActiveLine, keymap, lineNumbers, ViewUpdate } from '@codemirror/view';
 import { useEffect, useRef } from 'react';
 import type { Diagnostic } from '@/gen/shepherd/mgmt/v1/common_pb';
@@ -14,9 +14,20 @@ export interface AlloyEditorProps {
   value: string;
   onChange?: (value: string) => void;
   readOnly?: boolean;
-  diagnostics?: Diagnostic[];
+  diagnostics?: readonly Diagnostic[];
   height?: string;
+  /**
+   * Whether replacing the document from `value` is an undoable step. True
+   * (the default) for the user's own actions — Format, a restore; false for
+   * background syncs (loading or re-syncing the server copy), which undo must
+   * not take back to the text they replaced.
+   */
+  replaceIsEdit?: boolean;
 }
+
+// One frozen default, so a caller that omits `diagnostics` does not hand the
+// sync effect a new array (and a setDiagnostics dispatch) on every render.
+const NO_DIAGNOSTICS: readonly Diagnostic[] = Object.freeze([]);
 
 // Zinc dark theme matching spec §13.1
 export const alloyTheme = EditorView.theme(
@@ -66,8 +77,9 @@ export function AlloyEditor({
   value,
   onChange,
   readOnly = false,
-  diagnostics = [],
+  diagnostics = NO_DIAGNOSTICS,
   height = '100%',
+  replaceIsEdit = true,
 }: AlloyEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -80,8 +92,11 @@ export function AlloyEditor({
   // A source also re-ran on every document change and applied diagnostics
   // computed for the OLD text to the new one — past the end of a shorter
   // buffer that threw `RangeError: Invalid position` (M5). Pushed diagnostics
-  // are instead mapped through the user's edits by CodeMirror itself, and
-  // dropped on a wholesale replacement (see the value effect below).
+  // stay where CodeMirror puts them as the user types (their ranges shift
+  // with the text around them; whether the problem still applies is only
+  // known when the next validation answers), are clamped into the document
+  // whenever they are set, and are dropped on a wholesale replacement (see
+  // the value effect below).
   const diagnosticsRef = useRef(diagnostics);
   diagnosticsRef.current = diagnostics;
 
@@ -157,6 +172,7 @@ export function AlloyEditor({
       // until the next validation answers.
       view.dispatch(setDiagnostics(view.state, []), {
         changes: { from: 0, to: current.length, insert: value },
+        annotations: replaceIsEdit ? undefined : Transaction.addToHistory.of(false),
       });
     }
   }, [value]);

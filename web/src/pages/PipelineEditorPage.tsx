@@ -45,6 +45,11 @@ export function PipelineEditorPage() {
     queryKey: ['pipeline', orgId, id],
     queryFn: () => clients.pipeline.getPipeline({ orgId, id: id! }),
     enabled: !!id && !!orgId,
+    // Every landing here reads the server copy, whatever the cache holds:
+    // other surfaces change pipelines too (the visual builder, a wizard, a
+    // destination change re-rendering wizard pipelines server-side), and a
+    // copy still inside staleTime would otherwise be shown — and saved back.
+    refetchOnMount: 'always',
   });
   // `||`, not `??`: an empty org id on the pipeline must fall back to the
   // selected org, not disable every query keyed on it.
@@ -84,6 +89,8 @@ export function PipelineEditorPage() {
     matchers,
     setMatchers,
     diagnostics,
+    blockingErrors,
+    replaceIsEdit,
     skippedStages,
     validating,
     validate,
@@ -99,7 +106,7 @@ export function PipelineEditorPage() {
   const formatMutation = useMutation({
     mutationFn: () => clients.pipeline.formatPipeline({ orgId, contents }),
     onSuccess: (result) => {
-      replaceContents(result.formatted);
+      replaceContents(result.formatted, true);
       validate(result.formatted);
     },
   });
@@ -134,7 +141,7 @@ export function PipelineEditorPage() {
       toast.success(`Restored revision #${revision}`);
       // The server copy wins a restore: load it into the form (which also
       // makes it the snapshot later refetches compare against).
-      loadForm(p);
+      loadForm(p, true);
       qc.invalidateQueries({ queryKey: ['pipeline', orgId, id] });
       qc.invalidateQueries({ queryKey: ['revisions', orgId, id] });
       qc.invalidateQueries({ queryKey: ['pipelines', orgId] });
@@ -218,7 +225,7 @@ export function PipelineEditorPage() {
             </p>
             {pipeline.source === 'visual' && <OpenInVisualBuilder pipelineId={pipeline.id} />}
             {canWrite && pipeline.source === 'wizard' && (
-              <DetachFromWizard pipeline={pipeline} orgId={pipelineOrgId} />
+              <DetachFromWizard pipeline={pipeline} orgId={pipelineOrgId} queryOrgId={orgId} />
             )}
             <p>
               Updated by: <span className='text-zinc-300'>{pipeline.updatedBy}</span>
@@ -348,7 +355,7 @@ export function PipelineEditorPage() {
                       formatMutation.reset();
                       saveMutation.mutate();
                     }}
-                    disabled={saveMutation.isPending || hasErrors}
+                    disabled={saveMutation.isPending || blockingErrors}
                     className='flex items-center gap-1.5 rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50'
                   >
                     <Save size={13} /> Save
@@ -370,6 +377,7 @@ export function PipelineEditorPage() {
                 onChange={setContents}
                 readOnly={readOnly}
                 diagnostics={diagnostics}
+                replaceIsEdit={replaceIsEdit}
                 height='100%'
               />
             </div>

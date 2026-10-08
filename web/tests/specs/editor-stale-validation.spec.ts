@@ -61,3 +61,59 @@ test('a slow validation of an older buffer does not overwrite a newer result', a
   await expect(page.getByRole('button', { name: 'Save' })).toBeEnabled();
   await expect(page.locator('.cm-lint-marker-error')).toHaveCount(0);
 });
+
+// The newest-request rule above is not enough: an answer for text the user
+// has typed past since — before the debounce sent anything newer — used to
+// land too, showing problems for text that no longer exists and keeping
+// Save disabled on them. An answer only lands for the buffer it was asked of.
+test('a validation answer for text typed past since does not land', async ({ page, api }) => {
+  await api.loginAs(orgEditor);
+  const s = basicScenario();
+  const p = pipeline({ id: 'pip-past', org_id: s.org.id, name: 'past', contents: '// ok' });
+  api.seed({ orgs: [s.org], pipelines: [p] });
+
+  // `broken` answers when released; every other buffer's answer is held
+  // for the rest of the test, so nothing newer can mask the stale one.
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((r) => {
+    release = r;
+  });
+  const never = new Promise<void>(() => undefined);
+  let staleServed = false;
+  api.override('POST', '/shepherd.mgmt.v1.PipelineService/ValidatePipeline', async (route) => {
+    const req = route.request().postDataJSON() as { contents?: string };
+    if (req.contents !== 'broken') {
+      await never;
+      return;
+    }
+    await gate;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        valid: false,
+        diagnostics: [{ line: 1, col: 8, message: 'unexpected identifier', stage: 1 }],
+      }),
+    });
+    staleServed = true;
+  });
+
+  await page.goto('/pipelines/pip-past');
+  const editor = page.locator('.cm-content');
+  await expect(editor).toBeVisible();
+  const calls = () => api.calls('/shepherd.mgmt.v1.PipelineService/ValidatePipeline').length;
+  const before = calls();
+  await editor.click();
+  await page.keyboard.press('ControlOrMeta+A');
+  await page.keyboard.type('broken');
+  await expect.poll(calls).toBeGreaterThan(before);
+  // Type on, then let the answer for the old text arrive at once — inside
+  // the 800ms debounce, so no newer request has been sent.
+  await page.keyboard.type(' no more');
+  release();
+  await expect.poll(() => staleServed).toBe(true);
+
+  await expect(page.getByText('unexpected identifier')).toHaveCount(0);
+  await expect(page.locator('.cm-lint-marker-error')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Save' })).toBeEnabled();
+});

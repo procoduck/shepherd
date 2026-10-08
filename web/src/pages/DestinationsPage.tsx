@@ -161,6 +161,16 @@ export function DestinationsPage() {
   // UpdateDestination replaces every field, so the ones this form does not
   // show (tenant ID, extra, and the Secret reference while the mode is
   // `none`) are sent back unchanged rather than wiped.
+  // The server re-renders every wizard pipeline that ships to a changed
+  // destination (destination_rerender.go), so their cached copies — each
+  // pipeline, its revisions, the list — are now behind. Prefix keys: all of
+  // this org's pipelines.
+  const invalidatePipelines = () => {
+    qc.invalidateQueries({ queryKey: ['pipeline', orgId] });
+    qc.invalidateQueries({ queryKey: ['revisions', orgId] });
+    qc.invalidateQueries({ queryKey: ['pipelines', orgId] });
+  };
+
   const updateMut = useMutation({
     mutationFn: ({ d, form }: { d: Destination; form: DestinationFormState }) => {
       const secret = isSecretMode(form.authMode);
@@ -180,6 +190,7 @@ export function DestinationsPage() {
     onSuccess: () => {
       toast.success('Destination updated');
       qc.invalidateQueries({ queryKey: ['destinations', orgId] });
+      invalidatePipelines();
       setEditing(null);
     },
   });
@@ -189,6 +200,7 @@ export function DestinationsPage() {
     onSuccess: () => {
       toast.success('Destination deleted');
       qc.invalidateQueries({ queryKey: ['destinations', orgId] });
+      invalidatePipelines();
     },
     onError: (e) => {
       const err = toApiError(e);

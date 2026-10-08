@@ -121,4 +121,99 @@ test.describe('visual builder save → text editor landing', () => {
       (api.calls('PipelineService/UpdatePipeline')[1].body as Record<string, unknown>).matchers,
     ).toEqual(['team="core"']);
   });
+
+  // A GetPipeline the breadcrumb sent BEFORE the save (here: a window-focus
+  // refetch) can answer AFTER the cache was primed with the save's response.
+  // Unless it is cancelled it overwrites the primed entry with the pre-save
+  // copy, and the editor — whose untouched form follows server data — shows
+  // the old matchers again.
+  test('a pre-save fetch answering late does not bring the old copy back', async ({
+    page,
+    api,
+  }) => {
+    await api.loginAs(appAdmin);
+    const s = basicScenario();
+    const demo = pipeline({
+      id: 'pip-demo-visual',
+      org_id: s.org.id,
+      name: 'demo-visual',
+      source: 'visual',
+      contents: '// generated\n',
+      matchers: ['env="prod"', 'team="core"'],
+      updated_by: 'seed',
+    });
+    api.seed({
+      orgs: [s.org],
+      schema: schemaFixture,
+      pipelines: [demo],
+      graphViewResult: { graph: mockGraph, opaque: false, warning: '' },
+      visualRenderResult: { content: '// generated\n', node_map: {}, diagnostics: [] },
+    });
+
+    // Every GetPipeline answers with the server copy as it was when the
+    // request ARRIVED; while `hold` is armed the answer is also kept back.
+    let hold = false;
+    let held = false;
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    api.override('POST', '/shepherd.mgmt.v1.PipelineService/GetPipeline', async (route, _p, st) => {
+      const p = (st.pipelines as Record<string, unknown>[])[0];
+      const wire = {
+        id: p.id,
+        orgId: p.org_id,
+        name: p.name,
+        contents: p.contents,
+        matchers: [...(p.matchers as string[])],
+        source: p.source,
+        enabled: p.enabled,
+        updatedBy: p.updated_by,
+      };
+      if (hold) {
+        hold = false;
+        held = true;
+        await gate;
+      }
+      await route
+        .fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(wire) })
+        .catch(() => undefined); // the page may have aborted it
+    });
+
+    await page.clock.install();
+    await page.goto(`/pipelines/${demo.id}/visual`);
+    await page.waitForSelector('[data-testid="visual-builder"]', { timeout: 10_000 });
+    await expect(page.getByTestId('matcher-chip')).toHaveCount(2);
+
+    // Make the breadcrumb's cached copy stale and refocus the window: it
+    // refetches, and that (pre-save) answer is held.
+    hold = true;
+    await page.clock.fastForward(31_000);
+    await page.evaluate(() => window.dispatchEvent(new Event('visibilitychange')));
+    await expect.poll(() => held).toBe(true);
+
+    await page.getByTestId('matcher-remove-1').click();
+    await page.getByTestId('toolbar-save').click();
+    await expect(page).toHaveURL(new RegExp(`/pipelines/${demo.id}\\?from=visual$`), {
+      timeout: 5_000,
+    });
+    const chips = page.getByTestId('pipeline-matcher-chip');
+    await expect(chips).toHaveCount(1);
+
+    // Now the pre-save answer arrives.
+    release();
+    await expect(page.getByText(`Updated by: ${appAdmin.email}`)).toBeVisible();
+    // Give the late answer every chance to land, then check it did not win.
+    await expect
+      .poll(() => api.calls('PipelineService/GetPipeline').length)
+      .toBeGreaterThanOrEqual(2);
+    await page.clock.runFor(1_000);
+    await expect(chips).toHaveCount(1);
+    await expect(chips).toContainText('env="prod"');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect.poll(() => api.calls('PipelineService/UpdatePipeline').length).toBe(2);
+    expect(
+      (api.calls('PipelineService/UpdatePipeline')[1].body as Record<string, unknown>).matchers,
+    ).toEqual(['env="prod"']);
+  });
 });

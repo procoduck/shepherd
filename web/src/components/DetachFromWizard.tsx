@@ -19,10 +19,18 @@ import { formError } from '@/lib/formError';
 export function DetachFromWizard({
   pipeline,
   orgId,
+  queryOrgId = orgId,
   onDetached,
 }: {
   pipeline: Pipeline;
+  /** The org the RPC runs against (the pipeline's own). */
   orgId: string;
+  /**
+   * The org id the page keys its queries on (useOrgId), when it differs from
+   * the RPC's — as PipelineActions does: invalidating under the RPC org id
+   * missed the editor's ['pipeline', orgId, id] entry entirely.
+   */
+  queryOrgId?: string;
   onDetached?: (p: Pipeline) => void;
 }) {
   const qc = useQueryClient();
@@ -31,9 +39,9 @@ export function DetachFromWizard({
     mutationFn: () => clients.pipeline.detachFromWizard({ orgId, id: pipeline.id }),
     onSuccess: (p) => {
       toast.success('Detached from wizard');
-      qc.invalidateQueries({ queryKey: ['pipeline', orgId, pipeline.id] });
-      qc.invalidateQueries({ queryKey: ['revisions', orgId, pipeline.id] });
-      qc.invalidateQueries({ queryKey: ['pipelines', orgId] });
+      qc.invalidateQueries({ queryKey: ['pipeline', queryOrgId, pipeline.id] });
+      qc.invalidateQueries({ queryKey: ['revisions', queryOrgId, pipeline.id] });
+      qc.invalidateQueries({ queryKey: ['pipelines', queryOrgId] });
       setConfirming(false);
       onDetached?.(p);
     },

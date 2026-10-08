@@ -50,6 +50,13 @@ export function usePipelineForm({
   const [contents, setContents] = useState('');
   const [matchers, setMatchers] = useState<string[]>([]);
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
+  // The buffer the diagnostics were reported for. Typing on from there keeps
+  // them on screen (they still point near the problem) but they no longer
+  // gate Save: only the answer for the current text may.
+  const [diagnosticsFor, setDiagnosticsFor] = useState('');
+  // Whether the last wholesale replacement was the user's own action (Format,
+  // restore — undoable) or a background sync of the server copy (not).
+  const [replaceIsEdit, setReplaceIsEdit] = useState(false);
   // Stages the server could not run (#209) — 2 when it has no Alloy binary.
   // A clean result with a skipped stage is a syntax check, not "No problems".
   const [skippedStages, setSkippedStages] = useState<number[]>([]);
@@ -64,22 +71,24 @@ export function usePipelineForm({
   // reported for the old text no longer apply — their positions may not even
   // exist in the new one (M5) — so they are dropped, and an answer still in
   // flight for the old text is discarded; the new text is validated afresh.
-  const replaceContents = useCallback((next: string) => {
+  const replaceContents = useCallback((next: string, asEdit: boolean) => {
     if (next === formRef.current.contents) return;
     validateSeq.current++;
     setValidating(false);
     setDiagnostics([]);
     setSkippedStages([]);
+    setReplaceIsEdit(asEdit);
     setContents(next);
   }, []);
 
   // Loads a server copy into the form; it becomes the snapshot later
-  // refetches compare against.
+  // refetches compare against. `asEdit` is true for a restore (the user's
+  // action), false for a seed or re-sync.
   const loadForm = useCallback(
-    (p: ServerPipeline) => {
+    (p: ServerPipeline, asEdit = false) => {
       seeded.current = { id: p.id, name: p.name, contents: p.contents, matchers: [...p.matchers] };
       setName(p.name);
-      replaceContents(p.contents);
+      replaceContents(p.contents, asEdit);
       setMatchers([...p.matchers]);
     },
     [replaceContents],
@@ -118,8 +127,14 @@ export function usePipelineForm({
           name: name || 'preview',
           contents: c,
         });
-        if (seq === validateSeq.current) {
+        // Only the newest request's answer, and only while the buffer is
+        // still the text it was asked about: an answer for text typed past
+        // since (before the debounce sent anything newer) would show
+        // problems for text that no longer exists. The debounce re-validates
+        // the current text.
+        if (seq === validateSeq.current && c === formRef.current.contents) {
           setDiagnostics(result.diagnostics ?? []);
+          setDiagnosticsFor(c);
           setSkippedStages(result.skippedStages ?? []);
         }
       } catch (_) {
@@ -147,6 +162,9 @@ export function usePipelineForm({
     matchers,
     setMatchers,
     diagnostics,
+    // Problems that block Save: those reported for the text as it is now.
+    blockingErrors: diagnostics.length > 0 && diagnosticsFor === contents,
+    replaceIsEdit,
     skippedStages,
     validating,
     validate,

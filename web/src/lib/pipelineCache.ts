@@ -16,7 +16,12 @@ export async function primePipelineCache(
   orgId: string,
   p: Pipeline,
 ): Promise<void> {
-  qc.setQueryData(['pipeline', orgId, p.id], p);
+  const key = ['pipeline', orgId, p.id];
+  // A GetPipeline sent before the write (the breadcrumb's focus refetch, say)
+  // may still be in flight; answering after the seed below, it would put the
+  // pre-write copy back. Cancel it first.
+  await qc.cancelQueries({ queryKey: key });
+  qc.setQueryData(key, p);
   await Promise.all([
     qc.invalidateQueries({ queryKey: ['revisions', orgId, p.id] }),
     qc.invalidateQueries({ queryKey: ['pipelines', orgId] }),
