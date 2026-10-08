@@ -83,6 +83,49 @@ test.describe('tenant routes', () => {
     await expectInline(page, dialog(page), 'Gateway_namespace "x y" is not valid');
   });
 
+  test('a refused gateway name or namespace shows under that field (M6)', async ({ page, api }) => {
+    const s = basicScenario();
+    api.seed({ orgs: [s.org], tenantRoutes: [] });
+    refuse(
+      api,
+      'TenantRouteService/CreateTenantRoute',
+      'gateway name "Bad Name!" is not a valid Kubernetes object name',
+    );
+    await api.loginAs(orgAdmin);
+    await page.goto('/tenant-routes');
+
+    await page.getByTestId('route-new').click();
+    await page.getByTestId('route-gateway-name').pressSequentially('Bad Name!');
+    await page.getByRole('button', { name: 'Create route' }).click();
+
+    const nameError = dialog(page).getByTestId('route-gateway-name-error');
+    await expect(nameError).toHaveText(
+      'Gateway name "Bad Name!" is not a valid Kubernetes object name',
+    );
+    await expect(nameError).toHaveAttribute('role', 'alert');
+    await expect(page.getByTestId('route-gateway-name')).toHaveAttribute('aria-invalid', 'true');
+    // Shown once, beside the field — not repeated above the buttons.
+    await expect(dialog(page).getByTestId('form-error')).toHaveCount(0);
+
+    refuse(
+      api,
+      'TenantRouteService/CreateTenantRoute',
+      'gateway namespace "gw.system" is not a valid Kubernetes namespace',
+    );
+    await page.getByTestId('route-gateway-name').fill('edge');
+    await page.getByTestId('route-gateway-namespace').fill('gw.system');
+    await page.getByRole('button', { name: 'Create route' }).click();
+    await expect(dialog(page).getByTestId('route-gateway-namespace-error')).toHaveText(
+      'Gateway namespace "gw.system" is not a valid Kubernetes namespace',
+    );
+    await expect(page.getByTestId('route-gateway-namespace')).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    );
+    await expect(dialog(page).getByTestId('route-gateway-name-error')).toHaveCount(0);
+    await expect(dialog(page).getByTestId('form-error')).toHaveCount(0);
+  });
+
   test('a refused rotate and revoke stay in their dialogs', async ({ page, api }) => {
     const s = basicScenario();
     api.seed({
@@ -190,6 +233,37 @@ test('collector bindings: a refused binding shows in the dialog', async ({ page,
   await page.getByTestId('binding-submit').click();
 
   await expectInline(page, dialog(page), 'Issuer must be an https url');
+});
+
+test('collector bindings: a refused role shows under the roles field (M6)', async ({
+  page,
+  api,
+}) => {
+  const s = basicScenario();
+  api.seed({ orgs: [s.org], agentIdentities: [] });
+  refuse(
+    api,
+    'AdminService/CreateAgentIdentity',
+    'role "bogusrole" is not a collector role: use logs, metrics, receiver or singleton',
+  );
+  await api.loginAs(appAdmin);
+  await page.goto('/admin/auth');
+  await page.getByTestId('binding-new').click();
+  // The hint names the roles that exist, so the person need not guess.
+  await expect(dialog(page)).toContainText('metrics, logs, receiver, singleton');
+  await page.getByTestId('binding-issuer').fill('https://idp/');
+  await page.getByTestId('binding-app-id').fill('c');
+  await page.getByTestId('binding-org').fill('prod-org');
+  await page.getByTestId('binding-roles').fill('bogusrole');
+  await page.getByTestId('binding-submit').click();
+
+  const rolesError = dialog(page).getByTestId('binding-roles-error');
+  await expect(rolesError).toHaveText(
+    'Role "bogusrole" is not a collector role: use logs, metrics, receiver or singleton',
+  );
+  await expect(rolesError).toHaveAttribute('role', 'alert');
+  await expect(page.getByTestId('binding-roles')).toHaveAttribute('aria-invalid', 'true');
+  await expect(dialog(page).getByTestId('form-error')).toHaveCount(0);
 });
 
 test('single sign-on: a refused save and test show beside the buttons', async ({ page, api }) => {
@@ -335,6 +409,39 @@ test.describe('git', () => {
       .getByRole('button', { name: /run test/i })
       .click();
     await expectInline(page, dialog(page), 'Credential could not be decrypted');
+  });
+
+  test('a refused clone URL shows under the clone URL field (M6)', async ({ page, api }) => {
+    await api.loginAs(orgAdmin);
+    const s = basicScenario();
+    api.seed({
+      orgs: [s.org],
+      collectors: s.collectors,
+      gitCredentials: [{ id: 'cred-0001', name: 'gitea-pat', kind: 'pat', username: 'oauth2' }],
+    });
+    refuse(
+      api,
+      'GitOpsService/CreateRepoLink',
+      'clone URL "not a url" is not a git remote URL: use https://host/owner/repo.git',
+    );
+    await page.goto('/git');
+
+    await page.getByRole('button', { name: /new repository link/i }).click();
+    await page.getByRole('textbox', { name: /clone url/i }).fill('not a url');
+    await page.getByRole('combobox', { name: /target collector/i }).selectOption('col-0001');
+    await page.getByRole('combobox', { name: 'Credential' }).selectOption('cred-0001');
+    await dialog(page).getByRole('button', { name: 'Create', exact: true }).click();
+
+    const urlError = dialog(page).getByTestId('repo-url-error');
+    await expect(urlError).toHaveText(
+      'Clone URL "not a url" is not a git remote URL: use https://host/owner/repo.git',
+    );
+    await expect(urlError).toHaveAttribute('role', 'alert');
+    await expect(page.getByRole('textbox', { name: /clone url/i })).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    );
+    await expect(dialog(page).getByTestId('form-error')).toHaveCount(0);
   });
 });
 

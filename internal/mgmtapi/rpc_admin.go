@@ -19,6 +19,7 @@ import (
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
 	"shepherd/internal/auth"
 	"shepherd/internal/gateway"
+	"shepherd/internal/signals"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 )
@@ -478,6 +479,20 @@ func (s *AdminService) CreateAgentIdentity(ctx context.Context, req *connect.Req
 	appID := strings.TrimSpace(req.Msg.GetAppId())
 	if issuer == "" || appID == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("issuer and app_id are required"))
+	}
+	// The role allowlist is checked with signals.ValidateRole, the same check
+	// internal/agentapi's requireClusterRole applies when a collector
+	// registers: a role outside signals.Policies can never register, so a
+	// binding naming "bogusrole" would be stored and then admit no collector
+	// on it, silently (M6). Cluster names are free-form — any string a
+	// collector reports — so they are not checked here.
+	for _, role := range req.Msg.GetRoles() {
+		if role = strings.TrimSpace(role); role == "" {
+			continue
+		}
+		if err := signals.ValidateRole(role); err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
 	}
 	org, err := s.store.Queries.GetOrgByName(ctx, strings.TrimSpace(req.Msg.GetOrg()))
 	if err != nil {

@@ -224,8 +224,13 @@ func (s *TenantRouteService) CreateTenantRoute(ctx context.Context, req *connect
 	if err := validateGatewayMode(req.Msg.GetGatewayMode()); err != nil {
 		return nil, err
 	}
-	if req.Msg.GetGatewayName() == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("gateway_name must not be empty"))
+	// Kubernetes' own name rules (gateway.ValidateGatewayRef): a name no
+	// Gateway object can have renders into an HTTPRoute the API server
+	// accepts and that then never attaches (M6).
+	gatewayName := strings.TrimSpace(req.Msg.GetGatewayName())
+	gatewayNamespace := strings.TrimSpace(req.Msg.GetGatewayNamespace())
+	if err := gateway.ValidateGatewayRef(gatewayName, gatewayNamespace); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	format, err := segmentFormatOrDefault(req.Msg.GetFormat())
 	if err != nil {
@@ -244,8 +249,8 @@ func (s *TenantRouteService) CreateTenantRoute(ctx context.Context, req *connect
 		Kind:             string(kind),
 		Segment:          segment,
 		GatewayMode:      req.Msg.GetGatewayMode(),
-		GatewayName:      req.Msg.GetGatewayName(),
-		GatewayNamespace: req.Msg.GetGatewayNamespace(),
+		GatewayName:      gatewayName,
+		GatewayNamespace: gatewayNamespace,
 	})
 	if err != nil {
 		if isUniqueViolation(err) {

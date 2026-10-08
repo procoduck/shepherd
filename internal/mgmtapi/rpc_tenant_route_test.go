@@ -440,4 +440,43 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 		Expect(msg).To(ContainSubstring("SetOrgTenantID"),
 			"the refusal must name the app-admin action that fixes it")
 	})
+
+	// M6 (2026-10-08 walkthrough): "Bad Name!" was accepted and stored, and a
+	// route naming a Gateway that cannot exist renders, applies, and never
+	// attaches. Gateway names are Kubernetes object names (DNS-1123
+	// subdomain), namespaces DNS-1123 labels -- internal/gateway owns the rule.
+	DescribeTable("refuses a gateway reference no Kubernetes object could have",
+		func(name, namespace, wantMsg string) {
+			admin := createSession(false, []string{"tenant-route-admin-group"})
+			resp := postConnect("/shepherd.mgmt.v1.TenantRouteService/CreateTenantRoute", map[string]any{
+				"orgId": orgID.String(), "kind": "otlp", "gatewayMode": "operator",
+				"gatewayName": name, "gatewayNamespace": namespace,
+			}, admin)
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+			body := decodeBody(resp)
+			Expect(body["code"]).To(Equal("invalid_argument"))
+			Expect(body["message"]).To(HavePrefix(wantMsg))
+
+			routes, err := st.Queries.ListTenantRoutesByOrg(ctx, orgID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(routes).To(BeEmpty(), "a refused route must not be stored")
+		},
+		Entry("spaces and punctuation in the name", "Bad Name!", "", "gateway name \"Bad Name!\" is not a valid Kubernetes object name"),
+		Entry("upper case in the name", "Edge", "", "gateway name \"Edge\" is not a valid Kubernetes object name"),
+		Entry("a name over 253 characters", strings.Repeat("a", 254), "", "gateway name"),
+		Entry("a dotted namespace", "edge", "gateway.system", "gateway namespace \"gateway.system\" is not a valid Kubernetes namespace"),
+		Entry("an underscore in the namespace", "edge", "gateway_system", "gateway namespace \"gateway_system\" is not a valid Kubernetes namespace"),
+	)
+
+	It("accepts a dotted gateway name and a DNS-label namespace", func() {
+		admin := createSession(false, []string{"tenant-route-admin-group"})
+		resp := postConnect("/shepherd.mgmt.v1.TenantRouteService/CreateTenantRoute", map[string]any{
+			"orgId": orgID.String(), "kind": "otlp", "gatewayMode": "operator",
+			"gatewayName": "edge.gw-1", "gatewayNamespace": "gateway-system",
+		}, admin)
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		created := decodeBody(resp)
+		Expect(created["gatewayName"]).To(Equal("edge.gw-1"))
+		Expect(created["gatewayNamespace"]).To(Equal("gateway-system"))
+	})
 })

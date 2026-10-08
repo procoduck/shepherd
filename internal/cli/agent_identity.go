@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"shepherd/internal/config"
+	"shepherd/internal/signals"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 )
@@ -103,6 +104,15 @@ func jsonStringArray(in []string) (json.RawMessage, error) {
 }
 
 func runAgentIdentityCreate(cmd *cobra.Command, _ []string) error {
+	// Same rule as AdminService.CreateAgentIdentity: a role no collector can
+	// register with would make the binding admit nobody on it.
+	for _, role := range aiRoles {
+		if role = strings.TrimSpace(role); role != "" {
+			if err := signals.ValidateRole(role); err != nil {
+				return err
+			}
+		}
+	}
 	st, err := openStore(cmd)
 	if err != nil {
 		return err

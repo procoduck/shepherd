@@ -354,7 +354,7 @@ export function CollectorDetailPage() {
                 <Input
                   value={pastedGroupId}
                   onChange={(e) => setPastedGroupId(e.target.value)}
-                  placeholder='11111111-1111-1111-1111-111111111111'
+                  placeholder='Group object ID or name'
                   mono
                   data-testid='group-id-input'
                 />

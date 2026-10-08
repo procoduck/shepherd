@@ -184,10 +184,11 @@ const (
 	defaultDeadline     = 60 * time.Second
 )
 
-// ApplyRoute is the R1 obligation in one call: refuse if the cluster's
+// ApplyRoute is the R1 obligation in one call: render spec (route.go, which
+// validates it without touching the cluster), refuse if the cluster's
 // Gateway API is not new enough or on the wrong channel (D3, checked against
-// the cluster's ACTUAL installed CRD annotations, not an assumption), render
-// spec (route.go), apply the HTTPRoute, then poll status.parents until the
+// the cluster's ACTUAL installed CRD annotations, not an assumption), apply
+// the HTTPRoute, then poll status.parents until the
 // route is verified ATTACHED — never merely created.
 //
 // A bounded deadline, not indefinite polling, because status is written
@@ -209,16 +210,19 @@ func ApplyRoute(ctx context.Context, cl Applier, spec RouteSpec, opts ApplyOptio
 		opts.Deadline = defaultDeadline
 	}
 
+	// Render first: it is pure, so a spec that can never apply (a stored
+	// gateway name no Kubernetes object can have, M6) is refused without an
+	// API call — the reconciler retries it with backoff, forever.
+	route, err := RenderHTTPRoute(spec)
+	if err != nil {
+		return nil, err
+	}
+
 	ann, err := cl.HTTPRouteCRDAnnotations(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("gateway: reading the cluster's installed HTTPRoute CRD annotations: %w", err)
 	}
 	if err := CheckSupport(ann[BundleVersionAnnotation], ann[ChannelAnnotation]); err != nil {
-		return nil, err
-	}
-
-	route, err := RenderHTTPRoute(spec)
-	if err != nil {
 		return nil, err
 	}
 	if err := cl.Apply(ctx, route); err != nil {

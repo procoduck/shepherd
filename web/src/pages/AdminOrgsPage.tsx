@@ -12,6 +12,13 @@ import type { Org } from '@/gen/shepherd/mgmt/v1/admin_pb';
 import { useMe } from '@/hooks/useMe';
 import { errorText, formError } from '@/lib/formError';
 
+// Group values are whatever the identity provider emits in the groups claim
+// (docs/spec.md §7.1a): an object ID (GUID) for Entra, and for other providers
+// usually a group name or path. The server deliberately accepts any non-empty
+// value, so the form must not suggest that only a GUID works (M6).
+const GROUP_VALUE_HINT =
+  'Exactly as your identity provider sends it in the groups claim: the group’s object ID on Entra, usually its name or path on other providers.';
+
 const emptyCreateForm = {
   name: '',
   displayName: '',
@@ -237,13 +244,13 @@ export function AdminOrgsPage() {
                 placeholder='Production Org'
               />
             </Field>
-            <Field label='Admin group ID'>
+            <Field label='Admin group ID' hint={GROUP_VALUE_HINT}>
               <Input
                 value={createForm.adminGroupId}
                 onChange={(e) => setCreateForm((f) => ({ ...f, adminGroupId: e.target.value }))}
                 required
                 mono
-                placeholder='11111111-1111-1111-1111-111111111111'
+                placeholder='platform-admins'
               />
             </Field>
             <Field
@@ -255,7 +262,7 @@ export function AdminOrgsPage() {
                 value={createForm.editorGroupId}
                 onChange={(e) => setCreateForm((f) => ({ ...f, editorGroupId: e.target.value }))}
                 mono
-                placeholder='33333333-3333-3333-3333-333333333333'
+                placeholder='platform-editors'
               />
             </Field>
             <Field label='Viewer group ID' optional>
@@ -263,7 +270,7 @@ export function AdminOrgsPage() {
                 value={createForm.readerGroupId}
                 onChange={(e) => setCreateForm((f) => ({ ...f, readerGroupId: e.target.value }))}
                 mono
-                placeholder='22222222-2222-2222-2222-222222222222'
+                placeholder='platform-viewers'
               />
             </Field>
             <Field
@@ -335,7 +342,7 @@ export function AdminOrgsPage() {
                 />
               </Field>
             )}
-            <Field label='Admin group ID'>
+            <Field label='Admin group ID' hint={GROUP_VALUE_HINT}>
               <Input
                 value={editForm.adminGroupId}
                 onChange={(e) => setEditForm((f) => ({ ...f, adminGroupId: e.target.value }))}

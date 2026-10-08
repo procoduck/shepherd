@@ -120,6 +120,9 @@ func (s RouteSpec) validate() error {
 			return fmt.Errorf("gateway: RouteSpec.%s must not be empty", field)
 		}
 	}
+	if err := ValidateGatewayRef(s.GatewayName, s.GatewayNamespace); err != nil {
+		return fmt.Errorf("gateway: RouteSpec: %w", err)
+	}
 	if !routeSegmentRE.MatchString(s.RouteSegment) {
 		return fmt.Errorf("gateway: RouteSpec.RouteSegment %q is not a single safe path segment "+
 			"(want %s)", s.RouteSegment, routeSegmentRE.String())

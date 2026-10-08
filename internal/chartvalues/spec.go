@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -18,14 +17,7 @@ import (
 // AppendBaseline (share the implementation so "stays in sync" is a property
 // of the code, not of two people remembering to edit two lists) applied to a
 // validation table instead of a render function.
-func validRoles() []string {
-	roles := make([]string, 0, len(signals.Policies))
-	for r := range signals.Policies {
-		roles = append(roles, r)
-	}
-	sort.Strings(roles)
-	return roles
-}
+func validRoles() []string { return signals.Roles() }
 
 // collectorName is the k8s-monitoring chart's own naming convention for a
 // role's Alloy collector, confirmed against docs/spec.md's already-verified
