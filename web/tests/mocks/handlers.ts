@@ -1682,7 +1682,8 @@ export function installDefaultHandlers(router: Router) {
           label: 'Log file path(s)',
           type: 'text',
           placeholder: '/var/log/my-app/*.log',
-          description: 'Glob pattern for log files.',
+          description:
+            'Glob pattern for the log files, e.g. /var/log/my-app/*.log. Every matching file is tailed, including ones created later.',
         },
         {
           name: 'log_format',
@@ -1727,8 +1728,9 @@ export function installDefaultHandlers(router: Router) {
           name: 'role',
           label: 'Collector role',
           type: 'select',
-          options: ['metrics', 'logs', 'singleton'],
-          default: 'metrics',
+          // Mirrors the server: no static default, the wizard picks the
+          // role from the pipeline's signals when it is left unset.
+          options: ['metrics', 'singleton'],
         },
       ],
     },

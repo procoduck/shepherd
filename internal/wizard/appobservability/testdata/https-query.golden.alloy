@@ -1,0 +1,18 @@
+prometheus.scrape "app" {
+  targets = [{
+    "__address__"      = "app.example.internal:443",
+    "__scheme__"       = "https",
+    "__metrics_path__" = "/stats/prometheus",
+    "__param_format"   = "prometheus",
+    "__param_module"   = "app",
+  }]
+  forward_to = [prometheus.remote_write.metrics.receiver]
+  scrape_interval = "30s"
+  job_name = "app"
+}
+prometheus.remote_write "metrics" {
+  endpoint {
+    name = "prom-prod"
+    url  = "https://mimir.prod.example.com/api/v1/push"
+  }
+}

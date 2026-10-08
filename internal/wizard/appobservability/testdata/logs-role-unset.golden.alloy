@@ -5,7 +5,7 @@ prometheus.scrape "app" {
     "__metrics_path__" = "/metrics",
   }]
   forward_to = [prometheus.remote_write.metrics.receiver]
-  scrape_interval = "30s"
+  scrape_interval = "60s"
   job_name = "app"
 }
 prometheus.remote_write "metrics" {
@@ -28,8 +28,8 @@ loki.source.file "app_logs" {
 loki.process "app_process" {
   forward_to = [loki.write.logs.receiver]
 
-  stage.json {
-    expressions = { level = "" }
+  stage.logfmt {
+    mapping = { level = "" }
   }
 
   stage.labels {

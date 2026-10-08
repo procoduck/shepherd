@@ -123,6 +123,9 @@ export function WizardRunnerPage() {
     queryFn: () =>
       clients.wizard.renderWizard({ orgId, kind: KIND, name, state: form as JsonObject }),
     enabled: !!orgId && isReview && !!name,
+    // A refused render is a verdict on this input, not a transient fault:
+    // retrying only delays the inline error below.
+    retry: false,
   });
 
   const commitMut = useMutation({
@@ -210,7 +213,19 @@ export function WizardRunnerPage() {
                   />
                 </label>
 
-                {renderQuery.data && (
+                {/* A refused preview (an input the wizard cannot render, a
+                    role that cannot carry the pipeline's signals) used to
+                    leave this step showing only the name field: the reason
+                    was in the browser console, and surfaced only after
+                    Create pipeline failed the same way. */}
+                {renderQuery.error && !renderQuery.isFetching && (
+                  <FormError
+                    testId='wizard-render-error'
+                    message={formError(renderQuery.error, 'Could not render this pipeline')}
+                  />
+                )}
+
+                {renderQuery.data && !renderQuery.error && (
                   <>
                     <div className='space-y-1'>
                       <p className='text-xs font-medium text-muted'>Matchers</p>
@@ -317,7 +332,13 @@ export function WizardRunnerPage() {
               <button
                 type='button'
                 onClick={() => commitMut.mutate()}
-                disabled={!name || hasErrors || commitMut.isPending || renderQuery.isFetching}
+                disabled={
+                  !name ||
+                  hasErrors ||
+                  !!renderQuery.error ||
+                  commitMut.isPending ||
+                  renderQuery.isFetching
+                }
                 className='rounded-md bg-indigo-600 px-4 py-1.5 text-sm text-white hover:bg-indigo-500 disabled:opacity-50'
               >
                 {commitMut.isPending ? 'Creating…' : 'Create pipeline'}

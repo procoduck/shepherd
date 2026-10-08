@@ -76,7 +76,8 @@ func (w *Wizard) Schema() wizard.Schema {
 					{
 						Name: "log_path", Label: "Alloy log file path", Type: "text",
 						Default: "/var/log/alloy/*.log", Placeholder: "/var/log/alloy/*.log",
-						Description: "Glob pattern for Alloy's own log file(s).",
+						Description: "Glob pattern for Alloy's own log file(s), e.g. /var/log/alloy/*.log. " +
+							"Every matching file is tailed, including ones created later.",
 					},
 					{
 						Name: "logs_dest_name", Label: "Logs destination (Loki)", Type: "text",
@@ -181,14 +182,9 @@ prometheus.scrape "self" {
 	// wire type), and wizard.Register's role check would refuse this exact
 	// output under any restricted role — see this package's doc comment.
 	if logsEnabled {
-		_, _ = fmt.Fprintf(&sb, `
-loki.source.file "self" {
-  targets = [
-    {__path__ = "%s", job = "%s"},
-  ]
-  forward_to = [loki.write.logs.receiver]
-}
-`, logPath, jobName)
+		// log_path is a glob: local.file_match expands it, loki.source.file
+		// tails what it matched (wizard.RenderFileSource's doc).
+		_, _ = sb.WriteString("\n" + wizard.RenderFileSource("self", logPath, jobName, "loki.write.logs.receiver"))
 
 		logsWriter, err := wizard.RenderWriter(wizard.WriterLoki, "logs", dests, logsDest)
 		if err != nil {

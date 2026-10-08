@@ -42,12 +42,36 @@ func (w *Wizard) Kind() string { return Kind }
 // wizard's Commit and checks its result against whatever Role reports, so a
 // mismatch between the two would either wrongly refuse a valid pipeline or
 // wrongly wave through an invalid one.
+//
+// The field has no static default. It used to default to "metrics" while the
+// logs step defaulted to on, so the form's untouched path produced a
+// metrics+logs pipeline declared for a metrics-only role — refused by the
+// role check, and visible only as a failed preview on the Review step
+// (2026-10-08 walkthrough). Left unset, the role follows what the pipeline
+// carries: "singleton" (the one unrestricted row in internal/signals.Policies)
+// when logs are collected, "metrics" otherwise.
 func (w *Wizard) Role(state map[string]any) string {
 	role, _ := state["role"].(string) //nolint:errcheck // type assert ok flag; empty string falls through to the default below
-	if role == "" {
-		return "metrics"
+	if role != "" {
+		return role
 	}
-	return role
+	if collectsLogs(state) {
+		return "singleton"
+	}
+	return "metrics"
+}
+
+// collectsLogs reports whether Commit renders the log-collection blocks for
+// state: logs on (the toggle defaults to on), a Loki destination named and a
+// path given. Role and Commit both read it, so the two cannot disagree.
+func collectsLogs(state map[string]any) bool {
+	enabled := true
+	if v, ok := state["logs_enabled"].(bool); ok {
+		enabled = v
+	}
+	dest, _ := state["logs_dest_name"].(string) //nolint:errcheck // type assert ok flag; empty string means no destination
+	path, _ := state["log_path"].(string)       //nolint:errcheck // type assert ok flag; empty string means no path
+	return enabled && dest != "" && path != ""
 }
 
 // Schema returns the wizard's input schema.
@@ -63,7 +87,10 @@ func (w *Wizard) Schema() wizard.Schema {
 				Fields: []wizard.StepField{
 					{
 						Name: "scrape_url", Label: "Metrics endpoint URL", Type: "text", Required: true,
-						Placeholder: "http://myapp:9090/metrics", Description: "Prometheus /metrics URL exposed by your app.",
+						Placeholder: "http://myapp:9090/metrics",
+						Description: "Full http(s) URL of your app's Prometheus metrics endpoint, e.g. " +
+							"http://myapp:9090/metrics. Query parameters are sent with each scrape. " +
+							"A bare host:port is scraped over http at /metrics.",
 					},
 					{Name: "scrape_interval", Label: "Scrape interval", Type: "text", Default: "60s"},
 					{Name: "job_name", Label: "Job label", Type: "text", Required: true, Placeholder: "my-app"},
@@ -76,7 +103,9 @@ func (w *Wizard) Schema() wizard.Schema {
 					{Name: "logs_enabled", Label: "Collect logs", Type: "toggle", Default: true},
 					{
 						Name: "log_path", Label: "Log file path(s)", Type: "text",
-						Placeholder: "/var/log/my-app/*.log", Description: "Glob pattern for log files.",
+						Placeholder: "/var/log/my-app/*.log",
+						Description: "Glob pattern for the log files, e.g. /var/log/my-app/*.log. Every " +
+							"matching file is tailed, including ones created later.",
 					},
 					{Name: "log_format", Label: "Log format", Type: "select", Options: []string{"logfmt", "json", "raw"}, Default: "logfmt"},
 				},
@@ -116,10 +145,13 @@ func (w *Wizard) Schema() wizard.Schema {
 						// dropdown should not have led anyone there.
 						// The Ginkgo spec "every offered role is satisfiable"
 						// (wizard_test.go) pins this.
-						Options: []string{"metrics", "singleton"}, Default: "metrics",
-						Description: "Pick \"singleton\" when collecting logs as well: a role=metrics " +
-							"collector may only carry metrics, so a metrics+logs pipeline belongs on an " +
-							"unrestricted collector.",
+						//
+						// No Default: left unset, the wizard picks the role
+						// from what the pipeline carries (see Role).
+						Options: []string{"metrics", "singleton"},
+						Description: "Leave unset to let the wizard choose: \"singleton\" when logs are " +
+							"collected, \"metrics\" otherwise. A role=metrics collector may only carry " +
+							"metrics, so a metrics+logs pipeline belongs on a singleton collector.",
 					},
 				},
 			},
@@ -132,12 +164,6 @@ func (w *Wizard) Commit(state map[string]any, dests wizard.Destinations) (wizard
 	get := func(key string) string {
 		v, _ := state[key].(string) //nolint:errcheck // type assert ok flag; empty string is safe default
 		return v
-	}
-	getBool := func(key string, def bool) bool {
-		if v, ok := state[key].(bool); ok {
-			return v
-		}
-		return def
 	}
 
 	scrapeURL := get("scrape_url")
@@ -157,23 +183,40 @@ func (w *Wizard) Commit(state map[string]any, dests wizard.Destinations) (wizard
 		return wizard.CommitResult{}, fmt.Errorf("metrics_dest_name is required")
 	}
 	logsDest := get("logs_dest_name")
-	logsEnabled := getBool("logs_enabled", true) && logsDest != ""
 	logPath := get("log_path")
 	logFormat := get("log_format")
 	if logFormat == "" {
 		logFormat = "logfmt"
 	}
 
+	target, err := parseScrapeURL(scrapeURL)
+	if err != nil {
+		return wizard.CommitResult{}, err
+	}
+	logsRender := collectsLogs(state)
+	if role := get("role"); role == "metrics" && logsRender {
+		// Caught here, by name, rather than left to wizard.Register's role
+		// check: that refusal ("generated pipeline does not match its
+		// declared role") is correct but tells the operator nothing about
+		// which input to change.
+		return wizard.CommitResult{}, fmt.Errorf(
+			"role %q collectors carry metrics only, but this pipeline also collects logs from %q — "+
+				"pick the \"singleton\" role, or turn off log collection", role, logPath)
+	}
+
 	var sb strings.Builder
 
-	// Prometheus scrape → remote write.
+	// Prometheus scrape → remote write. The URL is split into the target
+	// labels Prometheus builds a scrape URL from: __address__ is host:port
+	// only — a full URL there is refused at run time ("… is not a valid
+	// hostname") while the config loads and the collector reports APPLIED.
 	_, _ = fmt.Fprintf(&sb, `prometheus.scrape "app" {
-  targets = [{"__address__" = "%s"}]
+  targets = [{%s}]
   forward_to = [prometheus.remote_write.metrics.receiver]
   scrape_interval = "%s"
   job_name = "%s"
 }
-`, scrapeURL, scrapeInterval, jobName)
+`, target.labels(), scrapeInterval, jobName)
 
 	metricsWriter, err := wizard.RenderWriter(wizard.WriterPrometheus, "metrics", dests, metricsDest)
 	if err != nil {
@@ -182,7 +225,7 @@ func (w *Wizard) Commit(state map[string]any, dests wizard.Destinations) (wizard
 	_, _ = sb.WriteString(metricsWriter)
 
 	// Optional log collection.
-	if logsEnabled && logPath != "" {
+	if logsRender {
 		if !logFormats[logFormat] {
 			return wizard.CommitResult{}, fmt.Errorf(
 				"log_format %q is not supported, want one of: logfmt|json|raw", logFormat)
@@ -199,14 +242,9 @@ func (w *Wizard) Commit(state map[string]any, dests wizard.Destinations) (wizard
 		if stages != "" {
 			sourceTo = "loki.process.app_process.receiver"
 		}
-		_, _ = fmt.Fprintf(&sb, `loki.source.file "app_logs" {
-  targets = [
-    {__path__ = "%s", job = "%s"},
-  ]
-  forward_to = [%s]
-}
-
-`, logPath, jobName, sourceTo)
+		// log_path is a glob: local.file_match expands it, loki.source.file
+		// tails what it matched (wizard.RenderFileSource's doc).
+		_, _ = sb.WriteString(wizard.RenderFileSource("app_logs", logPath, jobName, sourceTo) + "\n")
 		if stages != "" {
 			_, _ = fmt.Fprintf(&sb, `loki.process "app_process" {
   forward_to = [loki.write.logs.receiver]
@@ -227,9 +265,10 @@ func (w *Wizard) Commit(state map[string]any, dests wizard.Destinations) (wizard
 	if cp := get("cluster_pattern"); cp != "" {
 		matchers = append(matchers, fmt.Sprintf(`cluster=~%q`, cp))
 	}
-	if role := get("role"); role != "" {
-		matchers = append(matchers, fmt.Sprintf(`role=%q`, role))
-	}
+	// Always the role the output was checked against (Role), so a pipeline
+	// is only served to the collectors it was proven fit for — an unset role
+	// field used to leave the matcher out entirely.
+	matchers = append(matchers, fmt.Sprintf(`role=%q`, w.Role(state)))
 
 	return wizard.CommitResult{
 		Contents: sb.String(),

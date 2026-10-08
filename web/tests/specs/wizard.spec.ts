@@ -147,8 +147,8 @@ test('a matcher the wizard added silently is labelled on Review; one the user ch
 
   // Step 4 (Collector matching): type the same value the override's cluster
   // matcher carries, so that chip is recognised as the user's own input;
-  // leave role at its schema default so the override's role="singleton"
-  // does not match anything the user actually picked.
+  // leave role unset so the override's role="singleton" does not match
+  // anything the user actually picked.
   await page.getByLabel('Cluster pattern (regex)').fill('prod-.*');
   await page.getByRole('button', { name: /next|continue/i }).click();
 
@@ -196,4 +196,49 @@ test('the preview surfaces wizard warnings from the render response', async ({ p
   await page.getByRole('button', { name: /next|continue/i }).click();
 
   await expect(page.getByTestId('wizard-warnings')).toContainText('no logs destination was set');
+});
+
+// A refused render used to leave the Review step showing only the name field:
+// the reason (here the app-observability wizard's refusal of a role=metrics
+// collector for a metrics+logs pipeline) sat in the browser console, and only
+// surfaced after Create pipeline failed the same way.
+test('the Review step shows a refused render inline and blocks Create', async ({ page, api }) => {
+  await api.loginAs(appAdmin);
+  const s = basicScenario();
+  api.seed({
+    orgs: [s.org],
+    destinations: [destination({ id: 'dst-prom', name: 'prom-prod', type: 'prometheus' })],
+  });
+  const reason =
+    'role "metrics" collectors carry metrics only, but this pipeline also collects logs from ' +
+    '"/var/log/app/*.log" — pick the "singleton" role, or turn off log collection';
+  let renders = 0;
+  api.override('POST', '/shepherd.mgmt.v1.WizardService/RenderWizard', async (route) => {
+    renders++;
+    await route.fulfill({
+      status: 400,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 'failed_precondition', message: reason }),
+    });
+  });
+
+  await page.goto('/wizards');
+  await page.getByRole('link', { name: /app observability|start|begin/i }).click();
+  await page.getByLabel('Metrics endpoint URL').fill('http://myapp:9090/metrics');
+  await page.getByLabel('Job label').fill('my-app');
+  await page.getByRole('button', { name: /next|continue/i }).click();
+  await page.getByRole('button', { name: /next|continue/i }).click();
+  await page.getByLabel('Metrics destination').selectOption('prom-prod');
+  await page.getByRole('button', { name: /next|continue/i }).click();
+  await page.getByLabel('Collector role').selectOption('metrics');
+  await page.getByRole('button', { name: /next|continue/i }).click();
+
+  const error = page.getByTestId('wizard-render-error');
+  await expect(error).toBeVisible();
+  await expect(error).toHaveAttribute('role', 'alert');
+  await expect(error).toContainText('Role "metrics" collectors carry metrics only');
+  await expect(error).toContainText('pick the "singleton" role');
+  await expect(page.getByRole('button', { name: /create pipeline/i })).toBeDisabled();
+  // A deterministic refusal is not retried.
+  expect(renders).toBe(1);
 });

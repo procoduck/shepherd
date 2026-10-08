@@ -1,12 +1,12 @@
 prometheus.scrape "app" {
   targets = [{
-    "__address__"      = "myapp:9090",
+    "__address__"      = "localhost:12345",
     "__scheme__"       = "http",
     "__metrics_path__" = "/metrics",
   }]
   forward_to = [prometheus.remote_write.metrics.receiver]
-  scrape_interval = "60s"
-  job_name = "myapp"
+  scrape_interval = "10s"
+  job_name = "self"
 }
 prometheus.remote_write "metrics" {
   endpoint {
