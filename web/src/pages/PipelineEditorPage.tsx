@@ -9,7 +9,7 @@ import {
   Wand2,
   XCircle,
 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { clients } from '@/api/transport';
 import { DetachFromWizard } from '@/components/DetachFromWizard';
@@ -24,8 +24,8 @@ import { FormError } from '@/components/ui/FormError';
 import { Modal, ModalActions } from '@/components/ui/Modal';
 import { diffStats } from '@/editor/diffStats';
 import { AlloyEditor, RevisionDiff } from '@/editor/LazyAlloyEditor';
-import type { Diagnostic } from '@/gen/shepherd/mgmt/v1/common_pb';
 import { useCanAdminister, useCanWrite, useOrgId } from '@/hooks/useOrg';
+import { type PipelineFormValues, usePipelineForm } from '@/hooks/usePipelineForm';
 import { formError } from '@/lib/formError';
 
 export function PipelineEditorPage() {
@@ -38,14 +38,6 @@ export function PipelineEditorPage() {
   // Gates the owning-team picker: SetPipelineOwner is org admin only.
   const canAdminister = useCanAdminister();
 
-  const [name, setName] = useState('');
-  const [contents, setContents] = useState('');
-  const [matchers, setMatchers] = useState<string[]>([]);
-  const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
-  // Stages the server could not run (#209) — 2 when it has no Alloy binary.
-  // A clean result with a skipped stage is a syntax check, not "No problems".
-  const [skippedStages, setSkippedStages] = useState<number[]>([]);
-  const [validating, setValidating] = useState(false);
   const [selectedRevision, setSelectedRevision] = useState<number | null>(null);
   const [confirmingRestore, setConfirmingRestore] = useState(false);
 
@@ -53,6 +45,11 @@ export function PipelineEditorPage() {
     queryKey: ['pipeline', orgId, id],
     queryFn: () => clients.pipeline.getPipeline({ orgId, id: id! }),
     enabled: !!id && !!orgId,
+    // Every landing here reads the server copy, whatever the cache holds:
+    // other surfaces change pipelines too (the visual builder, a wizard, a
+    // destination change re-rendering wizard pipelines server-side), and a
+    // copy still inside staleTime would otherwise be shown — and saved back.
+    refetchOnMount: 'always',
   });
   // `||`, not `??`: an empty org id on the pipeline must fall back to the
   // selected org, not disable every query keyed on it.
@@ -83,59 +80,24 @@ export function PipelineEditorPage() {
     enabled: !!id && !!pipelineOrgId && selectedRevision != null,
   });
 
-  // Seed the form ONCE per pipeline, keyed on its id rather than on the query
-  // object.
-  //
-  // Depending on `pipeline` meant every refetch overwrote the form with the
-  // server copy: staleTime is 30s and refetchOnWindowFocus defaults to true, so
-  // editing for a couple of minutes and alt-tabbing away and back silently
-  // discarded the work. Any cache invalidation elsewhere did the same.
-  const seededFor = useRef<string | null>(null);
-  useEffect(() => {
-    if (!pipeline || seededFor.current === pipeline.id) return;
-    seededFor.current = pipeline.id;
-    setName(pipeline.name);
-    setContents(pipeline.contents);
-    setMatchers(pipeline.matchers);
-  }, [pipeline]);
-
-  // Debounced validation. Requests overlap (debounce, the Validate button,
-  // Format), and only the newest one's answer may land: a slow answer for an
-  // older buffer used to overwrite a newer "valid" — the editor then showed
-  // errors at lines the text no longer had, kept Save disabled and the gutter
-  // red, and nothing re-validated (#201).
-  const validateSeq = useRef(0);
-  const validate = useCallback(
-    async (c: string) => {
-      if (!orgId || !c.trim()) return;
-      const seq = ++validateSeq.current;
-      setValidating(true);
-      try {
-        const result = await clients.pipeline.validatePipeline({
-          orgId,
-          name: name || 'preview',
-          contents: c,
-        });
-        if (seq === validateSeq.current) {
-          setDiagnostics(result.diagnostics ?? []);
-          setSkippedStages(result.skippedStages ?? []);
-        }
-      } catch (_) {
-        /* ignore */
-      } finally {
-        if (seq === validateSeq.current) setValidating(false);
-      }
-    },
-    [name, orgId],
-  );
-
-  useEffect(() => {
-    // Readers never validate: the server gates ValidatePipeline at org admin
-    // (internal/mgmtapi/rpc_interceptor.go), so the call could only fail.
-    if (!canWrite) return;
-    const t = setTimeout(() => validate(contents), 800);
-    return () => clearTimeout(t);
-  }, [contents, validate, canWrite]);
+  // Form state, its server re-sync (H1) and validation: see the hook.
+  const {
+    name,
+    setName,
+    contents,
+    setContents,
+    matchers,
+    setMatchers,
+    diagnostics,
+    blockingErrors,
+    replaceIsEdit,
+    skippedStages,
+    validating,
+    validate,
+    replaceContents,
+    loadForm,
+    markSaved,
+  } = usePipelineForm({ pipeline, orgId, canWrite });
 
   // Format runs the server-side `alloy fmt` equivalent and replaces the buffer
   // with the canonical form, then re-validates it. Unparseable input comes back
@@ -144,13 +106,15 @@ export function PipelineEditorPage() {
   const formatMutation = useMutation({
     mutationFn: () => clients.pipeline.formatPipeline({ orgId, contents }),
     onSuccess: (result) => {
-      setContents(result.formatted);
+      replaceContents(result.formatted, true);
       validate(result.formatted);
     },
   });
 
+  const submitted = useRef<PipelineFormValues>({ name, contents, matchers });
   const saveMutation = useMutation({
     mutationFn: () => {
+      submitted.current = { name, contents, matchers: [...matchers] };
       const body = { orgId, name, contents, matchers };
       return isNew
         ? clients.pipeline.createPipeline(body)
@@ -158,10 +122,7 @@ export function PipelineEditorPage() {
     },
     onSuccess: (p) => {
       toast.success(isNew ? 'Pipeline created' : 'Pipeline saved');
-      // Re-arm the seed guard for THIS pipeline id before the refetches
-      // land, exactly like restoreMutation below — the form already holds
-      // what was just submitted, so a refetch must not overwrite it.
-      seededFor.current = p.id;
+      markSaved(p.id, submitted.current);
       qc.invalidateQueries({ queryKey: ['pipelines', orgId] });
       if (!isNew) {
         // Mirror restoreMutation's invalidation set below so the new
@@ -178,17 +139,9 @@ export function PipelineEditorPage() {
       clients.pipeline.restoreRevision({ orgId: pipelineOrgId, id: id!, revision }),
     onSuccess: (p, revision) => {
       toast.success(`Restored revision #${revision}`);
-      // The form is seeded from the restore response right here, so the
-      // guard is re-armed for THIS pipeline id rather than cleared: the
-      // server copy has already won, and a later routine refetch (window
-      // focus, a cache invalidation) must go back to protecting in-progress
-      // edits. Nulling it would leave the guard disarmed whenever the
-      // refetch returned a structurally identical pipeline and the seed
-      // effect never re-ran.
-      seededFor.current = p.id;
-      setName(p.name);
-      setContents(p.contents);
-      setMatchers(p.matchers);
+      // The server copy wins a restore: load it into the form (which also
+      // makes it the snapshot later refetches compare against).
+      loadForm(p, true);
       qc.invalidateQueries({ queryKey: ['pipeline', orgId, id] });
       qc.invalidateQueries({ queryKey: ['revisions', orgId, id] });
       qc.invalidateQueries({ queryKey: ['pipelines', orgId] });
@@ -272,7 +225,7 @@ export function PipelineEditorPage() {
             </p>
             {pipeline.source === 'visual' && <OpenInVisualBuilder pipelineId={pipeline.id} />}
             {canWrite && pipeline.source === 'wizard' && (
-              <DetachFromWizard pipeline={pipeline} orgId={pipelineOrgId} />
+              <DetachFromWizard pipeline={pipeline} orgId={pipelineOrgId} queryOrgId={orgId} />
             )}
             <p>
               Updated by: <span className='text-zinc-300'>{pipeline.updatedBy}</span>
@@ -402,7 +355,7 @@ export function PipelineEditorPage() {
                       formatMutation.reset();
                       saveMutation.mutate();
                     }}
-                    disabled={saveMutation.isPending || hasErrors}
+                    disabled={saveMutation.isPending || blockingErrors}
                     className='flex items-center gap-1.5 rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50'
                   >
                     <Save size={13} /> Save
@@ -424,6 +377,7 @@ export function PipelineEditorPage() {
                 onChange={setContents}
                 readOnly={readOnly}
                 diagnostics={diagnostics}
+                replaceIsEdit={replaceIsEdit}
                 height='100%'
               />
             </div>

@@ -12,6 +12,7 @@ import { AlloyEditor } from '@/editor/LazyAlloyEditor';
 import type { MatchedCollector } from '@/gen/shepherd/mgmt/v1/pipeline_pb';
 import { useOrgId } from '@/hooks/useOrg';
 import { formError } from '@/lib/formError';
+import { primePipelineCache } from '@/lib/pipelineCache';
 import {
   defaultFieldValue,
   isStepValid,
@@ -149,9 +150,11 @@ export function WizardRunnerPage() {
   const commitMut = useMutation({
     mutationFn: () =>
       clients.wizard.commitWizard({ orgId, kind: KIND, name, state: form as JsonObject }),
-    onSuccess: (pipeline) => {
+    onSuccess: async (pipeline) => {
       toast.success('Pipeline created from wizard');
-      qc.invalidateQueries({ queryKey: ['pipelines', orgId] });
+      // Same landing as the visual builder's save: the editor must render
+      // what was just committed, not whatever the cache held (H1).
+      await primePipelineCache(qc, orgId, pipeline);
       // The result opens in the text editor; `from` makes it say so (#251).
       navigate({ to: '/pipelines/$id', params: { id: pipeline.id }, search: { from: 'wizard' } });
     },
