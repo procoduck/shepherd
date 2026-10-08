@@ -111,18 +111,22 @@ func parseScrapeURL(raw string) (scrapeTarget, error) {
 	}
 
 	// __metrics_path__ takes the DECODED path: Prometheus sets it as
-	// url.URL.Path and escapes it again when it builds the request. So an
-	// escape whose decoding changes the path's meaning — %2F, an encoded
-	// slash, is the case that matters — cannot be sent as written either
-	// way: given decoded, /a%2Fb goes out as /a/b; given escaped, as
-	// /a%252Fb (both observed in Alloy v1.20.1's target debug info). url
-	// sets RawPath exactly when the path's escaping is not the default one,
-	// so that is the case refused, rather than scraping a different URL.
+	// url.URL.Path and escapes it again, Go's default way, when it builds the
+	// request. So an escape that the default escaping does not reproduce —
+	// %2F, an encoded slash, is the case that matters — cannot be sent as
+	// written either way: given decoded, /a%2Fb goes out as /a/b; given
+	// escaped, as /a%252Fb (both observed in Alloy v1.20.1's target debug
+	// info). Only those escapes are refused (lostEscape). url also keeps a
+	// RawPath for a path with nothing encoded at all — /metrics!x, /m(1) —
+	// because it would escape those sub-delims itself; that changes no
+	// character the app receives once decoded, so it is accepted.
 	if !printable(u.Path) {
 		return fail("path decodes to a control character or invalid UTF-8")
 	}
-	if u.RawPath != "" {
-		return fail("path %q holds an encoded character (such as %%2F) that Prometheus cannot send as written", u.EscapedPath())
+	if esc, ok := lostEscape(u.RawPath); ok {
+		dec, _ := url.PathUnescape(esc) //nolint:errcheck // lostEscape only returns a valid %XX
+		return fail("path %q encodes %q as %s, which Prometheus sends unencoded — a different path; "+
+			"there is no way to scrape it as written", u.RawPath, dec, esc)
 	}
 	path := u.Path
 	if path == "" {
@@ -159,6 +163,31 @@ func parseScrapeURL(raw string) (scrapeTarget, error) {
 		metricsPath: path,
 		params:      params,
 	}, nil
+}
+
+// lostEscape returns the first %XX escape in rawPath that decoding loses:
+// one for a character Go's default path escaping — what Prometheus applies
+// to __metrics_path__ — leaves literal ("/" and the sub-delims it keeps), so
+// the request would carry the bare character instead of the escape. An
+// escape the default escaping reproduces (%21, %20) or one for an
+// unreserved character (%41) reaches the app meaning the same thing.
+// rawPath is url.URL.RawPath; empty means the default escaping already
+// matches what was typed.
+func lostEscape(rawPath string) (string, bool) {
+	for i := 0; i+2 < len(rawPath); i++ {
+		if rawPath[i] != '%' {
+			continue
+		}
+		esc := rawPath[i : i+3]
+		dec, err := url.PathUnescape(esc)
+		if err != nil {
+			continue
+		}
+		if (&url.URL{Path: dec}).EscapedPath() == dec && strings.ContainsAny(dec, "/$&+,:;=@") {
+			return esc, true
+		}
+	}
+	return "", false
 }
 
 // printable reports whether s is valid UTF-8 with no control characters —

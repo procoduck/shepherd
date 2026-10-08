@@ -143,7 +143,7 @@ func (s *WizardService) RenderWizard(ctx context.Context, req *connect.Request[m
 		Matchers: result.Matchers,
 		Source:   "wizard",
 	}
-	matched, matchErr := s.previewMatchedCollectors(ctx, candidate, orgID)
+	matched, orgCollectors, matchErr := s.previewMatchedCollectors(ctx, candidate, orgID)
 	if matchErr != nil {
 		s.logger.Debug("wizard render: match preview failed", "err", matchErr)
 		matched = nil
@@ -159,7 +159,7 @@ func (s *WizardService) RenderWizard(ctx context.Context, req *connect.Request[m
 		// The wizard's own notes, then any matched collector whose role would
 		// exclude this pipeline from its served config (M2) — non-blocking.
 		Warnings: append(append(result.Warnings, roleExclusionWarnings(s.schema, candidate, matched)...),
-			zeroMatchWarnings(candidate.Matchers, matched, matchErr)...),
+			zeroMatchWarnings(candidate.Matchers, matched, orgCollectors, matchErr)...),
 	}), nil
 }
 
@@ -169,10 +169,15 @@ func (s *WizardService) RenderWizard(ctx context.Context, req *connect.Request[m
 // pipeline declared for a role the fleet does not run (App Observability's
 // singleton default for metrics+logs, in a metrics/logs split fleet) was
 // saved and served nowhere. Nothing is said when the preview itself failed:
-// an unknown match count is not a zero one.
-func zeroMatchWarnings(matchers []string, matched []map[string]string, matchErr error) []string {
+// an unknown match count is not a zero one. An org with no collectors at all
+// gets its own message: there is no pattern to check yet.
+func zeroMatchWarnings(matchers []string, matched []map[string]string, orgCollectors int, matchErr error) []string {
 	if matchErr != nil || len(matched) > 0 {
 		return nil
+	}
+	if orgCollectors == 0 {
+		return []string{"Matches no collector yet: this org has no collectors yet. The pipeline can " +
+			"still be saved, and is served once a collector it matches connects."}
 	}
 	target := "its matchers"
 	if len(matchers) > 0 {
@@ -185,11 +190,13 @@ func zeroMatchWarnings(matchers []string, matched []map[string]string, matchErr 
 
 // previewMatchedCollectors mirrors PipelineService.previewMatchedCollectors
 // (rpc_pipeline.go) — kept as its own copy here since WizardService renders
-// a candidate pipeline that has no row in the pipelines table to load.
-func (s *WizardService) previewMatchedCollectors(ctx context.Context, p merge.Pipeline, orgID pgtype.UUID) ([]map[string]string, error) {
+// a candidate pipeline that has no row in the pipelines table to load. It
+// also returns how many collectors the org has at all, so a zero match can
+// tell "none match" from "there are none" (zeroMatchWarnings).
+func (s *WizardService) previewMatchedCollectors(ctx context.Context, p merge.Pipeline, orgID pgtype.UUID) ([]map[string]string, int, error) {
 	collectors, err := s.store.Queries.ListCollectorsByOrg(ctx, orgID)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	org, _ := s.store.Queries.GetOrgByID(ctx, orgID) //nolint:errcheck // an org lookup failure degrades to no admin labels below
 	localAttrs := localAttrsByOrg(ctx, s.store.Queries, orgID, org.AllowLocalAttributeMatching)
@@ -205,7 +212,7 @@ func (s *WizardService) previewMatchedCollectors(ctx context.Context, p merge.Pi
 		}
 		matched = append(matched, map[string]string{"cluster": cluster.Name, "role": c.Role, "id": c.ID.String()})
 	}
-	return matched, nil
+	return matched, len(collectors), nil
 }
 
 // CommitWizard generates a pipeline from wizard state and creates it.

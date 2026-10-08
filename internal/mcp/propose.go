@@ -139,8 +139,26 @@ func (b *Backend) proposePipelineRevision(ctx context.Context, _ *mcp.CallToolRe
 		out.BlastRadius = toMatchedCollectorViews(mresp.Msg.GetCollectors())
 		out.BlastRadiusNote = "reflects the pipeline's currently-stored matchers (unchanged by this proposal)."
 	}
+	if in.PipelineID != "" {
+		// PreviewMatches judges role exclusion (gate G6) against the STORED
+		// contents; this proposal's contents may carry different signals, so
+		// that verdict would describe the wrong pipeline text. Drop it rather
+		// than present it as the proposal's.
+		out.BlastRadius = withoutExclusions(out.BlastRadius)
+		out.BlastRadiusNote += " excluded_reason is omitted: which collectors' roles would refuse this " +
+			"pipeline depends on its contents, and only the stored contents can be previewed. Run " +
+			"preview_matches after a human applies this proposal to see any role exclusions."
+	}
 
 	return nil, out, nil
+}
+
+// withoutExclusions blanks ExcludedReason on every view (see its caller).
+func withoutExclusions(views []MatchedCollectorView) []MatchedCollectorView {
+	for i := range views {
+		views[i].ExcludedReason = ""
+	}
+	return views
 }
 
 // previewMatchesFor is a best-effort helper for the "matchers also changing"
