@@ -86,6 +86,7 @@ func AssertGoldensLoadInRealAlloy(t *testing.T, testdataDir string) {
 // missing one fails the test rather than quietly loading an empty value.
 func AssertGoldensLoadInRealAlloyWithEnv(t *testing.T, testdataDir string, env map[string]string) {
 	t.Helper()
+	checkRuntimeErrorsPin(t)
 	docker, err := exec.LookPath("docker")
 	if err != nil {
 		t.Fatal("no docker to run the pinned Alloy image — this guard must not silently pass")
@@ -232,6 +233,26 @@ func loadInAlloy(t *testing.T, docker, image string, apiPort int, saDir string, 
 // the initial load finished. The window covers two ticks.
 const runtimeSettleWindow = 12 * time.Second
 
+// runtimeErrorsCapturedOn is the Alloy schema version runtimeErrors' strings
+// were taken from. Bumping the Alloy pin (version.AlloySchemaVersion) fails
+// every load test until this is bumped with it — after re-running the broken
+// configs those strings come from (see runtimeErrors) against the new image
+// and confirming each message still appears word for word.
+const runtimeErrorsCapturedOn = "alloy-v1.20.1"
+
+// checkRuntimeErrorsPin fails t when the Alloy pin has moved since
+// runtimeErrors was last confirmed.
+func checkRuntimeErrorsPin(t *testing.T) {
+	t.Helper()
+	if version.AlloySchemaVersion != runtimeErrorsCapturedOn {
+		t.Fatalf("the Alloy pin is %s but wizardtest.runtimeErrors was captured on %s: re-verify those "+
+			"log strings against the new image (run a full URL as a scrape __address__ and a glob as a "+
+			"loki.source.file __path__, and check each message still appears verbatim), update them if "+
+			"Alloy reworded any, then set runtimeErrorsCapturedOn to %s — otherwise the runtime health "+
+			"check can pass silently", version.AlloySchemaVersion, runtimeErrorsCapturedOn, version.AlloySchemaVersion)
+	}
+}
+
 // runtimeErrors are log messages a running Alloy emits for a pipeline that
 // loaded — every component built, /-/ready answering 200, the collector
 // reporting APPLIED — but collects nothing. Component health stays
@@ -247,6 +268,11 @@ const runtimeSettleWindow = 12 * time.Second
 //     pattern and gives up ("failed to create source, skipping … stat
 //     /var/log/app/*.log: no such file or directory"). Globs belong in
 //     local.file_match.
+//
+// These are literal Alloy log strings, captured from grafana/alloy v1.20.1
+// (runtimeErrorsCapturedOn). A newer Alloy that rewords one would turn this
+// check into a silent pass, so AssertGoldensLoadInRealAlloyWithEnv refuses
+// to run against any other pin until someone re-confirms them.
 var runtimeErrors = []string{
 	"Creating target failed",
 	"is not a valid hostname",

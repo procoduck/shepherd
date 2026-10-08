@@ -46,8 +46,10 @@ var paramName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // credentials in the URL (they would be stored in the pipeline as plain
 // text, and the wizard has no scrape-auth option to put them in instead), a
 // fragment (never sent to a server, so almost certainly a mistake), a query
-// parameter that repeats or whose name cannot be a label, and any control or
-// whitespace character.
+// parameter that repeats, has no value or whose name cannot be a label, a
+// path escape Prometheus cannot reproduce (%2F), a mistyped scheme separator
+// ("http:/host"), an unbracketed IPv6 host, and any control or whitespace
+// character.
 func parseScrapeURL(raw string) (scrapeTarget, error) {
 	s := strings.TrimSpace(raw)
 	fail := func(format string, args ...any) (scrapeTarget, error) {
@@ -57,7 +59,25 @@ func parseScrapeURL(raw string) (scrapeTarget, error) {
 		return fail("must not contain spaces or control characters")
 	}
 	if !strings.Contains(s, "://") {
+		// "http:/host" is a scheme typo, not a bare host: prefixing it
+		// would parse as host "http" with a garbage port, or worse, as
+		// something valid that is not what was meant.
+		if strings.Contains(s, ":/") {
+			return fail("looks like a mistyped scheme separator (want e.g. http://myapp:9090/metrics)")
+		}
 		s = "http://" + s
+	}
+	// An IPv6 literal must be bracketed in a URL: "::1:9090" cannot say
+	// where the address ends and the port begins.
+	hostPort := strings.SplitN(s, "://", 2)[1]
+	if i := strings.IndexAny(hostPort, "/?#"); i >= 0 {
+		hostPort = hostPort[:i]
+	}
+	if i := strings.LastIndex(hostPort, "@"); i >= 0 {
+		hostPort = hostPort[i+1:]
+	}
+	if strings.Count(hostPort, ":") > 1 && !strings.HasPrefix(hostPort, "[") {
+		return fail("an IPv6 address must be in brackets, e.g. http://[::1]:9090/metrics")
 	}
 	u, err := url.Parse(s)
 	if err != nil {
@@ -90,12 +110,23 @@ func parseScrapeURL(raw string) (scrapeTarget, error) {
 		return fail("port %q is not a number from 1 to 65535", port)
 	}
 
+	// __metrics_path__ takes the DECODED path: Prometheus sets it as
+	// url.URL.Path and escapes it again when it builds the request. So an
+	// escape whose decoding changes the path's meaning — %2F, an encoded
+	// slash, is the case that matters — cannot be sent as written either
+	// way: given decoded, /a%2Fb goes out as /a/b; given escaped, as
+	// /a%252Fb (both observed in Alloy v1.20.1's target debug info). url
+	// sets RawPath exactly when the path's escaping is not the default one,
+	// so that is the case refused, rather than scraping a different URL.
+	if !printable(u.Path) {
+		return fail("path decodes to a control character or invalid UTF-8")
+	}
+	if u.RawPath != "" {
+		return fail("path %q holds an encoded character (such as %%2F) that Prometheus cannot send as written", u.EscapedPath())
+	}
 	path := u.Path
 	if path == "" {
 		path = "/metrics"
-	}
-	if !printable(path) {
-		return fail("path decodes to a control character or invalid UTF-8")
 	}
 
 	query, err := url.ParseQuery(u.RawQuery)
@@ -109,6 +140,12 @@ func parseScrapeURL(raw string) (scrapeTarget, error) {
 		}
 		if len(values) != 1 {
 			return fail("query parameter %q is given %d times; give it once", name, len(values))
+		}
+		// Prometheus leaves an empty __param_* out of the scrape URL
+		// (Alloy v1.20.1: `__param_debug = ""` scrapes /m, not /m?debug),
+		// so a flag-style parameter would silently vanish.
+		if values[0] == "" {
+			return fail("query parameter %q has no value, and Prometheus drops an empty parameter from the scrape URL — give it one (e.g. %s=1)", name, name)
 		}
 		if !printable(values[0]) {
 			return fail("query parameter %q decodes to a control character or invalid UTF-8", name)

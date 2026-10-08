@@ -19,7 +19,7 @@ import "fmt"
 func RenderFileSource(name, glob, job, forwardTo string) string {
 	return fmt.Sprintf(`local.file_match "%[1]s" {
   path_targets = [
-    {__path__ = "%[2]s", job = "%[3]s"},
+    {__path__ = %[2]s, job = %[3]s},
   ]
 }
 
@@ -27,5 +27,5 @@ loki.source.file "%[1]s" {
   targets    = local.file_match.%[1]s.targets
   forward_to = [%[4]s]
 }
-`, name, glob, job, forwardTo)
+`, name, Quote(glob), Quote(job), forwardTo)
 }

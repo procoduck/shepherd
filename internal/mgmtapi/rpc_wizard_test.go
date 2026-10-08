@@ -191,6 +191,46 @@ var _ = Describe("shepherd.mgmt.v1.WizardService", Label("integration"), func() 
 		Expect(fmt.Sprint(render["warnings"])).NotTo(ContainSubstring("Excluded from"))
 	})
 
+	// S2: with the defaults (logs on, role unset) App Observability declares
+	// role="singleton". A fleet split into metrics and logs collectors (make
+	// dev, dev-kind) has none, so the preview said "Matches 0 collectors" and
+	// nothing else, and the saved pipeline served nowhere. The zero match is
+	// now named — generically, for every wizard — without blocking the save.
+	It("warns, without blocking, when the preview matches no collector", func() {
+		oid := mustUUID(orgID)
+		cluster, err := st.Queries.UpsertCluster(ctx, "prod-eu")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: oid})).To(Succeed())
+		for _, role := range []string{"metrics", "logs"} {
+			_, err = st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: role})
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		render := func(state map[string]any) map[string]any {
+			resp := postConnectJSON(server, "/shepherd.mgmt.v1.WizardService/RenderWizard", adminCookie, map[string]any{
+				"org_id": orgID, "kind": "self-monitoring", "name": "wizard-render-zero", "state": state,
+			})
+			defer resp.Body.Close() //nolint:errcheck // test cleanup
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			var out map[string]any
+			Expect(json.NewDecoder(resp.Body).Decode(&out)).To(Succeed())
+			return out
+		}
+
+		// Self-monitoring always declares role="singleton": no collector here has it.
+		out := render(map[string]any{"metrics_dest_name": "mimir", "logs_enabled": false, "cluster_pattern": "prod-.*"})
+		Expect(out["matchedCollectors"]).To(BeNil())
+		Expect(fmt.Sprint(out["warnings"])).To(ContainSubstring(
+			`Matches no collector yet: no collector in this org matches cluster=~"prod-.*", role="singleton"`))
+
+		// A matching collector: no such warning.
+		_, err = st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "singleton"})
+		Expect(err).NotTo(HaveOccurred())
+		out = render(map[string]any{"metrics_dest_name": "mimir", "logs_enabled": false, "cluster_pattern": "prod-.*"})
+		Expect(out["matchedCollectors"]).To(HaveLen(1))
+		Expect(fmt.Sprint(out["warnings"])).NotTo(ContainSubstring("Matches no collector"))
+	})
+
 	It("surfaces stage-1 syntax diagnostics from RenderWizard without failing the RPC", func() {
 		body := map[string]any{
 			"org_id": orgID,

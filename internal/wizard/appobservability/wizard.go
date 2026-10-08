@@ -149,9 +149,11 @@ func (w *Wizard) Schema() wizard.Schema {
 						// No Default: left unset, the wizard picks the role
 						// from what the pipeline carries (see Role).
 						Options: []string{"metrics", "singleton"},
-						Description: "Leave unset to let the wizard choose: \"singleton\" when logs are " +
-							"collected, \"metrics\" otherwise. A role=metrics collector may only carry " +
-							"metrics, so a metrics+logs pipeline belongs on a singleton collector.",
+						Description: "Leave on Auto to let the wizard choose: \"singleton\" when logs are " +
+							"collected, \"metrics\" otherwise. Collecting metrics and logs together needs a " +
+							"singleton collector — a role=metrics collector may only carry metrics. If your " +
+							"fleet has only metrics and logs collectors, turn log collection off to use role " +
+							"\"metrics\" (and collect the logs with the Pod Logs wizard).",
 					},
 				},
 			},

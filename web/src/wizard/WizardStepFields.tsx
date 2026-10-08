@@ -112,9 +112,17 @@ export function WizardStepFields({
                 onChange={(e) => onChange(field.name, e.target.value)}
                 className={inputClassName}
               >
-                <option value='' disabled>
-                  Select…
-                </option>
+                {/* An optional select with no default means "let the wizard
+                    choose" (App Observability's collector role), so the
+                    empty choice stays selectable: picking an option must not
+                    be a one-way door away from it. */}
+                {!field.required && defaultFieldValue(field) === undefined ? (
+                  <option value=''>Auto — let the wizard choose</option>
+                ) : (
+                  <option value='' disabled>
+                    Select…
+                  </option>
+                )}
                 {field.options.map((o) => (
                   <option key={o} value={o}>
                     {o}
