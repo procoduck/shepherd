@@ -64,6 +64,35 @@ its Kubernetes test suite proves. On a 1.29–1.31 cluster `helm upgrade` stops
 with a `kubeVersion` error before changing anything; upgrade the cluster first
 (all three are end-of-life upstream), or stay on chart 0.18.x.
 
+### Database Metrics pipelines
+
+The Database Metrics wizard now has the collector read the connection string
+from a Kubernetes Secret (`remote.kubernetes.secret`; key `dsn` for PostgreSQL
+and MySQL, key `password` plus a plain address for Redis). Earlier versions
+rendered `sys.env("<VAR>")` and said Shepherd would set the variable — nothing
+did, and on a collector without it the whole config is refused
+(`cannot parse DSN`). Existing pipelines keep rendering exactly as before (so a
+collector where you did set the variable keeps working);
+`rerender-destinations` does not touch them. To move one to a Secret:
+
+1. On every cluster the pipeline matches, create a Secret holding the DSN
+   (key `dsn`) or, for Redis, the password (key `password` — a Redis Secret
+   without that key makes the collector connect with no password).
+2. Give the collector's ServiceAccount `get` on Secrets in that namespace
+   (Alloy GETs the one Secret at load and every minute; it never lists or
+   watches).
+3. Re-run the pipeline's Database Metrics wizard, set **Credential source** to
+   `kubernetes_secret`, enter the Secret's namespace, name and key (and the
+   Redis address), and commit.
+
+Only collectors running in Kubernetes can read the Secret: a collector on a
+host or VM that the pipeline matches would refuse its whole config. Keep such a
+pipeline's matchers to Kubernetes clusters, or leave those collectors on
+`env` (set the variable on them yourself).
+
+A collector that is refusing its config recovers on its next poll after the
+commit, or as soon as you disable the pipeline.
+
 ## 0.17.x → 0.18.0
 
 An ordinary `helm upgrade` with no values to change, but **the Shepherd Service

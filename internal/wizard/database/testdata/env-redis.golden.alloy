@@ -1,11 +1,5 @@
-remote.kubernetes.secret "db_credentials" {
-  namespace = "databases"
-  name      = "app-redis"
-}
-
 prometheus.exporter.redis "db" {
-  redis_addr     = "redis.example.com:6379"
-  redis_password = remote.kubernetes.secret.db_credentials.data["password"]
+  redis_addr = sys.env("APP_REDIS_ADDR")
 }
 
 prometheus.scrape "database" {

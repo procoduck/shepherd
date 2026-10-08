@@ -1,10 +1,5 @@
-remote.kubernetes.secret "db_credentials" {
-  namespace = "databases"
-  name      = "app-pg"
-}
-
 prometheus.exporter.postgres "db" {
-  data_source_names = [remote.kubernetes.secret.db_credentials.data["dsn"]]
+  data_source_names = [sys.env("APP_PG_DSN")]
 }
 
 prometheus.scrape "database" {

@@ -74,19 +74,34 @@ const loadReadyTimeout = 90 * time.Second
 // image (a host `alloy` binary cannot be given the in-cluster files).
 func AssertGoldensLoadInRealAlloy(t *testing.T, testdataDir string) {
 	t.Helper()
-	AssertGoldensLoadInRealAlloyWithEnv(t, testdataDir, nil)
+	AssertGoldensLoadInRealAlloyWith(t, testdataDir, LoadFixtures{})
 }
 
-// AssertGoldensLoadInRealAlloyWithEnv is AssertGoldensLoadInRealAlloy for
-// goldens that read the collector's environment with sys.env(...): env gives
-// each variable a representative value, set in the container. On a real
-// collector the operator sets them; an exporter that parses its DSN while
-// being built would otherwise fail on an empty string, a refusal that only
-// exists in the test. Every variable a golden reads must be in env — a
-// missing one fails the test rather than quietly loading an empty value.
-func AssertGoldensLoadInRealAlloyWithEnv(t *testing.T, testdataDir string, env map[string]string) {
+// LoadFixtures is what a collector's surroundings hold for goldens whose
+// components parse a value while being built: a database exporter refuses an
+// empty or malformed DSN at load time, so a placeholder would fail the load
+// for a reason that only exists in the test.
+type LoadFixtures struct {
+	// Env gives each sys.env(...) variable a golden reads a representative
+	// value, set in the container. On a real collector the operator sets
+	// them. Every variable a golden reads must be here — a missing one fails
+	// the test rather than quietly loading an empty value — and every entry
+	// must be read by some golden, so a fixture cannot outlive its golden.
+	Env map[string]string
+	// SecretData overrides what the fake API serves for one Secret, keyed
+	// "namespace/name" and then by data key; keys not overridden still get
+	// the default placeholder. Every entry must name a Secret some golden
+	// reads through remote.kubernetes.secret, and a key that golden reads
+	// from it, so a fixture cannot silently stop proving anything.
+	SecretData map[string]map[string]string
+}
+
+// AssertGoldensLoadInRealAlloyWith is AssertGoldensLoadInRealAlloy with the
+// collector-side values in fx.
+func AssertGoldensLoadInRealAlloyWith(t *testing.T, testdataDir string, fx LoadFixtures) {
 	t.Helper()
 	checkRuntimeErrorsPin(t)
+	env := fx.Env
 	docker, err := exec.LookPath("docker")
 	if err != nil {
 		t.Fatal("no docker to run the pinned Alloy image — this guard must not silently pass")
@@ -104,6 +119,7 @@ func AssertGoldensLoadInRealAlloyWithEnv(t *testing.T, testdataDir string, env m
 		t.Fatalf("no goldens found in %s — the guard would pass vacuously", testdataDir)
 	}
 	contents := make(map[string]string, len(goldens))
+	envRead := map[string]bool{}
 	for _, g := range goldens {
 		b, readErr := os.ReadFile(g) //nolint:gosec // g comes from filepath.Glob over a caller-fixed testdataDir, not external input
 		if readErr != nil {
@@ -113,8 +129,14 @@ func AssertGoldensLoadInRealAlloyWithEnv(t *testing.T, testdataDir string, env m
 		for _, m := range sysEnvRef.FindAllStringSubmatch(string(b), -1) {
 			if _, ok := env[m[1]]; !ok {
 				t.Fatalf("%s reads sys.env(%q) but the load test has no value for it — "+
-					"pass a representative one via AssertGoldensLoadInRealAlloyWithEnv", g, m[1])
+					"pass a representative one in LoadFixtures.Env", g, m[1])
 			}
+			envRead[m[1]] = true
+		}
+	}
+	for k := range env {
+		if !envRead[k] {
+			t.Fatalf("LoadFixtures.Env sets %s, which no golden reads", k)
 		}
 	}
 	envArgs := make([]string, 0, 2*len(env))
@@ -122,7 +144,8 @@ func AssertGoldensLoadInRealAlloyWithEnv(t *testing.T, testdataDir string, env m
 		envArgs = append(envArgs, "-e", k+"="+v)
 	}
 
-	api := startFakeKubeAPI(t, secretKeysReferenced(contents))
+	checkSecretFixtures(t, contents, fx.SecretData)
+	api := startFakeKubeAPI(t, secretKeysReferenced(contents), fx.SecretData)
 	sa := writeServiceAccount(t, api.caPEM)
 
 	for _, g := range goldens {
@@ -271,7 +294,7 @@ func checkRuntimeErrorsPin(t *testing.T) {
 //
 // These are literal Alloy log strings, captured from grafana/alloy v1.20.1
 // (runtimeErrorsCapturedOn). A newer Alloy that rewords one would turn this
-// check into a silent pass, so AssertGoldensLoadInRealAlloyWithEnv refuses
+// check into a silent pass, so AssertGoldensLoadInRealAlloyWith refuses
 // to run against any other pin until someone re-confirms them.
 var runtimeErrors = []string{
 	"Creating target failed",
@@ -369,6 +392,40 @@ func secretKeysReferenced(contents map[string]string) []string {
 	return keys
 }
 
+// secretBlockRef matches a remote.kubernetes.secret block as wizards render
+// it, capturing its label, namespace and name.
+var secretBlockRef = regexp.MustCompile(
+	`remote\.kubernetes\.secret "([^"]+)" \{\s*namespace\s*=\s*"([^"]+)"\s*name\s*=\s*"([^"]+)"`)
+
+// checkSecretFixtures fails the test when a SecretData entry names a Secret
+// no golden reads, or a key no golden reads from that Secret.
+func checkSecretFixtures(t *testing.T, contents map[string]string, fixtures map[string]map[string]string) {
+	t.Helper()
+	read := map[string]map[string]bool{} // "namespace/name" -> keys read
+	for _, c := range contents {
+		for _, b := range secretBlockRef.FindAllStringSubmatch(c, -1) {
+			ref := b[2] + "/" + b[3]
+			if read[ref] == nil {
+				read[ref] = map[string]bool{}
+			}
+			keyRef := regexp.MustCompile(`remote\.kubernetes\.secret\.` + regexp.QuoteMeta(b[1]) + `\.data\["([^"]+)"\]`)
+			for _, m := range keyRef.FindAllStringSubmatch(c, -1) {
+				read[ref][m[1]] = true
+			}
+		}
+	}
+	for ref, keys := range fixtures {
+		if read[ref] == nil {
+			t.Fatalf("LoadFixtures.SecretData names Secret %s, which no golden reads", ref)
+		}
+		for k := range keys {
+			if !read[ref][k] {
+				t.Fatalf("LoadFixtures.SecretData sets key %q of Secret %s, which no golden reads from it", k, ref)
+			}
+		}
+	}
+}
+
 type fakeKubeAPI struct {
 	port  int
 	caPEM []byte
@@ -381,7 +438,7 @@ var secretPath = regexp.MustCompile(`^/api/v1/namespaces/([^/]+)/secrets/([^/]+)
 // valid for the name the container reaches this process by. It listens on
 // every interface because on Linux host.docker.internal resolves to the
 // docker bridge address, not loopback.
-func startFakeKubeAPI(t *testing.T, keys []string) fakeKubeAPI {
+func startFakeKubeAPI(t *testing.T, keys []string, overrides map[string]map[string]string) fakeKubeAPI {
 	t.Helper()
 	certPEM, keyPEM := selfSignedCert(t)
 	cert, err := tls.X509KeyPair(certPEM, keyPEM)
@@ -402,12 +459,19 @@ func startFakeKubeAPI(t *testing.T, keys []string) fakeKubeAPI {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if m := secretPath.FindStringSubmatch(r.URL.Path); m != nil && r.Method == http.MethodGet {
+			served := make(map[string]string, len(data))
+			for k, v := range data {
+				served[k] = v
+			}
+			for k, v := range overrides[m[1]+"/"+m[2]] {
+				served[k] = base64.StdEncoding.EncodeToString([]byte(v))
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck // test fake; a write error surfaces as the client's failure
 				"apiVersion": "v1",
 				"kind":       "Secret",
 				"metadata":   map[string]any{"namespace": m[1], "name": m[2]},
 				"type":       "Opaque",
-				"data":       data,
+				"data":       served,
 			})
 			return
 		}
