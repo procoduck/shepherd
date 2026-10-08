@@ -204,6 +204,19 @@ var _ = Describe("AppObservabilityWizard golden files", func() {
 			Entry("a space", "http://myapp:9090/my metrics", "spaces"),
 			Entry("a quote", `http://myapp:9090/metrics" broken = "x`, "spaces"),
 			Entry("a decoded control character", "http://myapp:9090/m%0a", "control character"),
+			// Prometheus drops an empty __param_* from the scrape URL (checked
+			// in Alloy v1.20.1: `__param_debug = ""` scrapes /m, not /m?debug).
+			Entry("a query parameter with no value", "http://myapp:9090/m?debug", `query parameter "debug" has no value`),
+			Entry("a query parameter with an empty value", "http://myapp:9090/m?debug=", `query parameter "debug" has no value`),
+			// Prometheus re-escapes __metrics_path__, so an escape that
+			// decoding loses cannot be sent as written: "/a%2Fb" given
+			// decoded goes out as /a/b, given escaped as /a%252Fb (Alloy
+			// v1.20.1).
+			Entry("an encoded slash in the path", "http://myapp:9090/a%2Fb", "encoded"),
+			Entry("a mistyped scheme separator", "http:/myapp:9090/metrics", "mistyped"),
+			Entry("a scheme with one slash missing, https", "https:/myapp/metrics", "mistyped"),
+			Entry("an unbracketed IPv6 host, bare", "::1:9090", "[::1]:9090"),
+			Entry("an unbracketed IPv6 host, with scheme", "http://fe80::1:9090/metrics", "brackets"),
 		)
 	})
 

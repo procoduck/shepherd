@@ -239,6 +239,79 @@ test('the Review step shows a refused render inline and blocks Create', async ({
   await expect(error).toContainText('Role "metrics" collectors carry metrics only');
   await expect(error).toContainText('pick the "singleton" role');
   await expect(page.getByRole('button', { name: /create pipeline/i })).toBeDisabled();
-  // A deterministic refusal is not retried.
+  // A deterministic refusal is not retried, and offers no Retry.
   expect(renders).toBe(1);
+  await expect(page.getByRole('button', { name: 'Retry' })).toHaveCount(0);
+});
+
+// N4: a transient failure (here the server answering 503 unavailable) is not a
+// verdict on the input, so the Review step offers Retry rather than leaving
+// the operator to step back and forward to re-run the preview.
+test('the Review step offers Retry after a transient render failure', async ({ page, api }) => {
+  await api.loginAs(appAdmin);
+  const s = basicScenario();
+  api.seed({
+    orgs: [s.org],
+    destinations: [destination({ id: 'dst-prom', name: 'prom-prod', type: 'prometheus' })],
+  });
+  let down = true;
+  api.override('POST', '/shepherd.mgmt.v1.WizardService/RenderWizard', async (route) => {
+    if (down) {
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 'unavailable', message: 'upstream connect error' }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        contents: 'prometheus.scrape "app" {}\n',
+        matchers: ['role="metrics"'],
+        valid: true,
+        diagnostics: [],
+        matchedCollectors: [],
+      }),
+    });
+  });
+
+  await page.goto('/wizards');
+  await page.getByRole('link', { name: /app observability|start|begin/i }).click();
+  await page.getByLabel('Metrics endpoint URL').fill('http://myapp:9090/metrics');
+  await page.getByLabel('Job label').fill('my-app');
+  await page.getByRole('button', { name: /next|continue/i }).click();
+  await page.getByRole('button', { name: /next|continue/i }).click();
+  await page.getByLabel('Metrics destination').selectOption('prom-prod');
+  await page.getByRole('button', { name: /next|continue/i }).click();
+  await page.getByRole('button', { name: /next|continue/i }).click();
+
+  await expect(page.getByTestId('wizard-render-error')).toContainText('Upstream connect error', {
+    timeout: 15_000,
+  });
+  down = false;
+  await page.getByRole('button', { name: 'Retry' }).click();
+  await expect(page.getByTestId('wizard-render-error')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /create pipeline/i })).toBeEnabled();
+});
+
+// The collector role can be put back to Auto after picking one.
+test('the collector role can return to Auto', async ({ page, api }) => {
+  await api.loginAs(appAdmin);
+  api.seed({ orgs: [basicScenario().org] });
+  await page.goto('/wizards');
+  await page.getByRole('link', { name: /app observability|start|begin/i }).click();
+  await page.getByLabel('Metrics endpoint URL').fill('http://myapp:9090/metrics');
+  await page.getByLabel('Job label').fill('my-app');
+  await page.getByRole('button', { name: /next|continue/i }).click();
+  await page.getByRole('button', { name: /next|continue/i }).click();
+  await page.getByLabel('Metrics destination').fill('prom-prod');
+  await page.getByRole('button', { name: /next|continue/i }).click();
+
+  const role = page.getByLabel('Collector role');
+  await role.selectOption('singleton');
+  await expect(role).toHaveValue('singleton');
+  await role.selectOption({ label: 'Auto — let the wizard choose' });
+  await expect(role).toHaveValue('');
 });

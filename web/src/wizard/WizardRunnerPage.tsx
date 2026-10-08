@@ -1,4 +1,5 @@
 import type { JsonObject } from '@bufbuild/protobuf';
+import { Code, ConnectError } from '@connectrpc/connect';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { CheckCircle2, XCircle } from 'lucide-react';
@@ -26,6 +27,22 @@ function slugify(s: string): string {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '') || 'app'
   );
+}
+
+/** A render the server refused on its merits (the input, the caller's
+ * access): retrying returns the same answer. Anything else (a network
+ * failure, an unavailable server) may succeed on another try. */
+function isRenderRefusal(e: unknown): boolean {
+  switch (ConnectError.from(e).code) {
+    case Code.InvalidArgument:
+    case Code.FailedPrecondition:
+    case Code.NotFound:
+    case Code.PermissionDenied:
+    case Code.Unauthenticated:
+      return true;
+    default:
+      return false;
+  }
 }
 
 /** Pulls the quoted value out of a Prometheus-style label matcher, e.g.
@@ -124,8 +141,9 @@ export function WizardRunnerPage() {
       clients.wizard.renderWizard({ orgId, kind: KIND, name, state: form as JsonObject }),
     enabled: !!orgId && isReview && !!name,
     // A refused render is a verdict on this input, not a transient fault:
-    // retrying only delays the inline error below.
-    retry: false,
+    // retrying it only delays the inline error below. Anything else (a
+    // dropped connection, a 5xx) is retried twice, then offered as Retry.
+    retry: (failureCount, err) => !isRenderRefusal(err) && failureCount < 2,
   });
 
   const commitMut = useMutation({
@@ -219,10 +237,21 @@ export function WizardRunnerPage() {
                     was in the browser console, and surfaced only after
                     Create pipeline failed the same way. */}
                 {renderQuery.error && !renderQuery.isFetching && (
-                  <FormError
-                    testId='wizard-render-error'
-                    message={formError(renderQuery.error, 'Could not render this pipeline')}
-                  />
+                  <div className='space-y-2'>
+                    <FormError
+                      testId='wizard-render-error'
+                      message={formError(renderQuery.error, 'Could not render this pipeline')}
+                    />
+                    {!isRenderRefusal(renderQuery.error) && (
+                      <button
+                        type='button'
+                        onClick={() => renderQuery.refetch()}
+                        className='rounded-md border border-border px-3 py-1 text-xs text-zinc-200 hover:bg-border'
+                      >
+                        Retry
+                      </button>
+                    )}
+                  </div>
                 )}
 
                 {renderQuery.data && !renderQuery.error && (

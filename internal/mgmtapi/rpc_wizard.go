@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -159,8 +161,29 @@ func (s *WizardService) RenderWizard(ctx context.Context, req *connect.Request[m
 		MatchedCollectors: items,
 		// The wizard's own notes, then any matched collector whose role would
 		// exclude this pipeline from its served config (M2) — non-blocking.
-		Warnings: append(result.Warnings, roleExclusionWarnings(s.schema, candidate, matched)...),
+		Warnings: append(append(result.Warnings, roleExclusionWarnings(s.schema, candidate, matched)...),
+			zeroMatchWarnings(candidate.Matchers, matched, matchErr)...),
 	}), nil
+}
+
+// zeroMatchWarnings names a preview that matches no collector in the org
+// (S2). A save is still allowed — the collector may simply not have
+// connected yet — but "Matches 0 collectors" alone read as a detail, and a
+// pipeline declared for a role the fleet does not run (App Observability's
+// singleton default for metrics+logs, in a metrics/logs split fleet) was
+// saved and served nowhere. Nothing is said when the preview itself failed:
+// an unknown match count is not a zero one.
+func zeroMatchWarnings(matchers []string, matched []map[string]string, matchErr error) []string {
+	if matchErr != nil || len(matched) > 0 {
+		return nil
+	}
+	target := "its matchers"
+	if len(matchers) > 0 {
+		target = strings.Join(matchers, ", ")
+	}
+	return []string{fmt.Sprintf("Matches no collector yet: no collector in this org matches %s. "+
+		"The pipeline can still be saved, but it serves nothing until a collector with those labels "+
+		"connects — check the cluster pattern and the collector role.", target)}
 }
 
 // previewMatchedCollectors mirrors PipelineService.previewMatchedCollectors

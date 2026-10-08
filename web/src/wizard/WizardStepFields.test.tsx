@@ -108,12 +108,38 @@ describe('WizardStepFields', () => {
     expect(onChange).toHaveBeenCalledWith('enabled', true);
   });
 
+  // An optional select with no default means "let the wizard choose" (App
+  // Observability's collector role): its empty choice must stay selectable,
+  // or picking an option is a one-way door away from it.
+  it('offers an optional select with no default an Auto choice that can be picked again', () => {
+    const onChange = vi.fn();
+    render(
+      <WizardStepFields
+        fields={[field({ name: 'role', label: 'Role', type: 'select', options: ['a', 'b'] })]}
+        state={{ role: 'a' }}
+        onChange={onChange}
+      />,
+    );
+    const select = screen.getByRole('combobox') as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(['', 'a', 'b']);
+    expect(select.options[0].disabled).toBe(false);
+    expect(select.options[0].textContent).toMatch(/auto/i);
+    fireEvent.change(select, { target: { value: '' } });
+    expect(onChange).toHaveBeenCalledWith('role', '');
+  });
+
   it('renders a select with a disabled placeholder option plus the schema options', () => {
     const onChange = vi.fn();
     render(
       <WizardStepFields
         fields={[
-          field({ name: 'dest', label: 'Destination', type: 'select', options: ['a', 'b'] }),
+          field({
+            name: 'dest',
+            label: 'Destination',
+            type: 'select',
+            options: ['a', 'b'],
+            required: true,
+          }),
         ]}
         state={{}}
         onChange={onChange}
