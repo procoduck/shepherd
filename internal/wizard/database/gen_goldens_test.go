@@ -2,9 +2,11 @@
 
 package database_test
 
-// This file is used to regenerate golden files — see
-// internal/wizard/clustermetrics/gen_goldens_test.go for the exact
-// procedure this repo's toolchain requires.
+// This file is used to regenerate golden files via:
+//   go test -run=TestGenGoldens ./internal/wizard/database/  (after temporarily
+//   stripping this build tag — `-tags ignore` itself breaks this repo's
+//   toolchain, see podlogs' sibling file).
+// Not part of the normal test suite. The cases live in cases_test.go.
 
 import (
 	"os"
@@ -16,36 +18,7 @@ import (
 
 func TestGenGoldens(t *testing.T) {
 	w := &db.Wizard{}
-	cases := []struct {
-		name  string
-		state map[string]any
-	}{
-		{"postgres", map[string]any{
-			"engine":            "postgres",
-			"connection_env":    "APP_PG_DSN",
-			"job_name":          "app-db",
-			"scrape_interval":   "60s",
-			"metrics_dest_name": "prom-prod",
-			"cluster_pattern":   "prod-.*",
-		}},
-		{"mysql", map[string]any{
-			"engine":            "mysql",
-			"connection_env":    "APP_MYSQL_DSN",
-			"job_name":          "app-db",
-			"scrape_interval":   "30s",
-			"metrics_dest_name": "prom-staging",
-			"cluster_pattern":   "staging-.*",
-		}},
-		{"redis", map[string]any{
-			"engine":            "redis",
-			"connection_env":    "APP_REDIS_ADDR",
-			"job_name":          "app-cache",
-			"scrape_interval":   "15s",
-			"metrics_dest_name": "prom-prod",
-			"cluster_pattern":   "prod-.*",
-		}},
-	}
-	for _, c := range cases {
+	for _, c := range goldenCases {
 		res, err := w.Commit(c.state, wizardtest.Destinations())
 		if err != nil {
 			t.Fatal(err)

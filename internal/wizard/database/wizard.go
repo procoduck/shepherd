@@ -10,15 +10,30 @@
 // wizard.Register still checks that claim against the actual generated
 // output on every commit (internal/wizard/role.go).
 //
-// The connection string is never accepted as wizard state: only the NAME of
-// an env var Shepherd (or the operator's own secret injection) resolves at
-// serve time, the same "no secret crosses the wire" posture
-// docs/gateway-tier-plan.md D6 documents for the beacon and
-// appobservability's destination URLs already follow via sys.env(...).
+// The connection credential is never accepted as wizard state. By default
+// (credential_source=kubernetes_secret) the wizard takes a Kubernetes
+// Secret's namespace, name and key, and the collector reads the value itself
+// at load time through `remote.kubernetes.secret` — the same contract
+// destination auth uses (#229/#260, wizard.RenderWriter): Shepherd stores
+// only the reference and the key name. The value is passed straight into a
+// secret-typed exporter attribute (postgres data_source_names, mysql
+// data_source_name, redis redis_password), so it is never converted to a
+// plain string.
+//
+// credential_source=env renders sys.env("<NAME>") and is only correct when
+// the operator sets that variable on the collector themselves — Shepherd
+// sets nothing. Before the Secret option existed every database pipeline
+// rendered sys.env and the help text claimed Shepherd injected it; nothing
+// did, the exporter then failed to parse an empty DSN, and the collector
+// refused its whole config. A stored state from that era (connection_env
+// set, no credential_source) still renders the same text, so a collector
+// whose operator did set the variable keeps working; re-running the wizard
+// moves it to a Secret.
 package database
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"shepherd/internal/wizard"
@@ -30,6 +45,18 @@ const Kind = "database"
 // role is the fixed collector role this wizard's output is always checked
 // against.
 const role = "metrics"
+
+// The credential_source values.
+const (
+	sourceSecret = "kubernetes_secret" //nolint:gosec // G101: a credential_source enum value, not a credential
+	sourceEnv    = "env"
+	sourceNone   = "none"
+)
+
+// secretLabel is the remote.kubernetes.secret component label the
+// connection credential is read through. Distinct from the writer's
+// "<label>_auth" Secret (wizard.RenderWriter).
+const secretLabel = "db_credentials"
 
 func init() {
 	wizard.Register(&Wizard{})
@@ -54,12 +81,32 @@ var engines = map[string]string{
 	"redis":    "prometheus.exporter.redis",
 }
 
+// defaultSecretKey is the Secret key read when secret_key is left empty:
+// a DSN for postgres/mysql, the password for redis (whose address is a
+// plain answer, redis_addr — redis_exporter's address attribute is not
+// secret-typed, so a password must not travel inside it).
+var defaultSecretKey = map[string]string{
+	"postgres": "dsn",
+	"mysql":    "dsn",
+	"redis":    "password",
+}
+
+// secretValue describes, per engine, what the Secret key must hold.
+var secretValue = map[string]string{ //nolint:gosec // G101: placeholder examples in help text, not credentials
+	"postgres": "a PostgreSQL connection URL, e.g. postgresql://user:password@db.example.com:5432/postgres?sslmode=require",
+	"mysql":    "a MySQL DSN, e.g. user:password@tcp(db.example.com:3306)/",
+	"redis":    "the Redis password",
+}
+
+// envNameRE is a POSIX environment variable name.
+var envNameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 // Schema returns the wizard's input schema.
 func (w *Wizard) Schema() wizard.Schema {
 	return wizard.Schema{
 		Kind:        Kind,
 		Title:       "Database Metrics",
-		Description: "Collect metrics from a PostgreSQL, MySQL, Redis or MongoDB instance.",
+		Description: "Collect metrics from a PostgreSQL, MySQL or Redis instance.",
 		Steps: []wizard.Step{
 			{
 				ID:    "engine",
@@ -69,14 +116,55 @@ func (w *Wizard) Schema() wizard.Schema {
 						Name: "engine", Label: "Engine", Type: "select", Required: true,
 						Options: []string{"postgres", "mysql", "redis"},
 					},
-					{
-						Name: "connection_env", Label: "Connection env var name", Type: "text", Required: true,
-						Placeholder: "MYAPP_DB_DSN",
-						Description: "Name of an env var Shepherd injects at serve time holding the connection " +
-							"string/address. The wizard never sees the credential itself.",
-					},
 					{Name: "job_name", Label: "Job label", Type: "text", Default: "database"},
 					{Name: "scrape_interval", Label: "Scrape interval", Type: "text", Default: "60s"},
+				},
+			},
+			{
+				ID:    "connection",
+				Title: "Connection",
+				Fields: []wizard.StepField{
+					{
+						Name: "credential_source", Label: "Credential source", Type: "select", Required: true,
+						Options: []string{sourceSecret, sourceEnv, sourceNone},
+						Default: sourceSecret,
+						Description: "kubernetes_secret: the collector reads the credential from a Kubernetes Secret " +
+							"on its own cluster — Shepherd stores only the Secret's namespace, name and key, " +
+							"never the value. env: the collector reads an environment variable that YOU must " +
+							"set on every matching collector — Shepherd does not set it. none: Redis without " +
+							"a password only.",
+					},
+					{
+						Name: "secret_namespace", Label: "Secret namespace", Type: "text",
+						Placeholder: "monitoring",
+						Description: "kubernetes_secret only. Namespace of the Secret on the collector's cluster. " +
+							"The collector's service account needs get, list and watch on Secrets here.",
+					},
+					{
+						Name: "secret_name", Label: "Secret name", Type: "text",
+						Placeholder: "app-db-credentials",
+						Description: "kubernetes_secret only. It must exist on every cluster this pipeline matches.",
+					},
+					{
+						Name: "secret_key", Label: "Secret key", Type: "text",
+						Placeholder: "dsn",
+						Description: "kubernetes_secret only. The key holding the credential: for postgres and mysql " +
+							"the full DSN (default key dsn), for redis the password (default key password).",
+					},
+					{
+						Name: "redis_addr", Label: "Redis address", Type: "text",
+						Placeholder: "redis.example.com:6379",
+						Description: "redis only, with kubernetes_secret or none: host:port or redis:// URL, " +
+							"without credentials (the password comes from the Secret).",
+					},
+					{
+						Name: "connection_env", Label: "Environment variable name", Type: "text",
+						Placeholder: "MYAPP_DB_DSN",
+						Description: "env only. You must set this variable on every matching collector yourself " +
+							"(e.g. in the Alloy Deployment's env) — Shepherd does not. It holds the DSN " +
+							"(redis: the address). If it is unset or invalid, the collector refuses its whole " +
+							"config, not only this pipeline.",
+					},
 				},
 			},
 			{
@@ -115,10 +203,6 @@ func (w *Wizard) Commit(state map[string]any, dests wizard.Destinations) (wizard
 		return wizard.CommitResult{}, fmt.Errorf(
 			"engine %q is not supported, want one of: postgres|mysql|redis", engine)
 	}
-	connEnv := get("connection_env")
-	if connEnv == "" {
-		return wizard.CommitResult{}, fmt.Errorf("connection_env is required")
-	}
 	metricsDest := get("metrics_dest_name")
 	if metricsDest == "" {
 		return wizard.CommitResult{}, fmt.Errorf("metrics_dest_name is required")
@@ -132,38 +216,21 @@ func (w *Wizard) Commit(state map[string]any, dests wizard.Destinations) (wizard
 		scrapeInterval = "60s"
 	}
 
-	var sb strings.Builder
-
-	// Each engine's exporter takes the connection value under a different
-	// attribute name and shape (postgres wants a list, mysql/redis want a
-	// single string) — see wizard.go's package doc for why the value itself
-	// is always sys.env(...), never a literal.
-	switch engine {
-	case "postgres":
-		_, _ = fmt.Fprintf(&sb, `prometheus.exporter.postgres "db" {
-  data_source_names = [sys.env("%s")]
-}
-`, connEnv)
-	case "mysql":
-		_, _ = fmt.Fprintf(&sb, `prometheus.exporter.mysql "db" {
-  data_source_name = sys.env("%s")
-}
-`, connEnv)
-	case "redis":
-		_, _ = fmt.Fprintf(&sb, `prometheus.exporter.redis "db" {
-  redis_addr = sys.env("%s")
-}
-`, connEnv)
+	exporter, warnings, err := renderExporter(engine, get)
+	if err != nil {
+		return wizard.CommitResult{}, err
 	}
 
+	var sb strings.Builder
+	_, _ = sb.WriteString(exporter)
 	_, _ = fmt.Fprintf(&sb, `
 prometheus.scrape "database" {
   targets         = prometheus.exporter.%s.db.targets
   forward_to      = [prometheus.remote_write.metrics.receiver]
-  scrape_interval = "%s"
-  job_name        = "%s"
+  scrape_interval = %s
+  job_name        = %s
 }
-`, engine, scrapeInterval, jobName)
+`, engine, wizard.Quote(scrapeInterval), wizard.Quote(jobName))
 
 	writer, err := wizard.RenderWriter(wizard.WriterPrometheus, "metrics", dests, metricsDest)
 	if err != nil {
@@ -180,5 +247,133 @@ prometheus.scrape "database" {
 	return wizard.CommitResult{
 		Contents: sb.String(),
 		Matchers: matchers,
+		Warnings: warnings,
 	}, nil
+}
+
+// credentialSource resolves credential_source, defaulting a state stored
+// before the field existed (connection_env set, no source) to env so it
+// renders exactly what it rendered then.
+func credentialSource(get func(string) string) string {
+	if s := get("credential_source"); s != "" {
+		return s
+	}
+	if get("connection_env") != "" {
+		return sourceEnv
+	}
+	return sourceSecret
+}
+
+// renderExporter renders the engine's exporter block — preceded, for a
+// Secret source, by the remote.kubernetes.secret it reads — plus the
+// warnings the Review step shows about what the collector needs.
+func renderExporter(engine string, get func(string) string) (string, []string, error) {
+	switch source := credentialSource(get); source {
+	case sourceSecret:
+		return renderSecretExporter(engine, get)
+	case sourceEnv:
+		return renderEnvExporter(engine, get("connection_env"))
+	case sourceNone:
+		if engine != "redis" {
+			return "", nil, fmt.Errorf("credential_source none is only for redis: %s needs a DSN — use kubernetes_secret", engine)
+		}
+		addr, err := redisAddr(get("redis_addr"))
+		if err != nil {
+			return "", nil, err
+		}
+		return fmt.Sprintf("prometheus.exporter.redis \"db\" {\n  redis_addr = %s\n}\n", wizard.Quote(addr)), nil, nil
+	default:
+		return "", nil, fmt.Errorf("credential_source %q is not supported, want one of: %s|%s|%s",
+			source, sourceSecret, sourceEnv, sourceNone)
+	}
+}
+
+func renderSecretExporter(engine string, get func(string) string) (string, []string, error) {
+	namespace, name := get("secret_namespace"), get("secret_name")
+	if err := wizard.ValidateSecretName(namespace, name); err != nil {
+		return "", nil, fmt.Errorf("credential_source %s needs %w", sourceSecret, err)
+	}
+	key := get("secret_key")
+	if key == "" {
+		key = defaultSecretKey[engine]
+	}
+	if err := wizard.ValidateSecretKey(key); err != nil {
+		return "", nil, fmt.Errorf("secret_key: %w", err)
+	}
+
+	value := fmt.Sprintf("remote.kubernetes.secret.%s.data[%s]", secretLabel, wizard.Quote(key))
+	var sb strings.Builder
+	_, _ = fmt.Fprintf(&sb, `remote.kubernetes.secret %s {
+  namespace = %s
+  name      = %s
+}
+
+`, wizard.Quote(secretLabel), wizard.Quote(namespace), wizard.Quote(name))
+
+	// Every attribute the Secret value lands in is secret-typed in the
+	// pinned schema (schema_conformance_test.go), so it is passed as is —
+	// never through convert.nonsensitive.
+	switch engine {
+	case "postgres":
+		_, _ = fmt.Fprintf(&sb, "prometheus.exporter.postgres \"db\" {\n  data_source_names = [%s]\n}\n", value)
+	case "mysql":
+		_, _ = fmt.Fprintf(&sb, "prometheus.exporter.mysql \"db\" {\n  data_source_name = %s\n}\n", value)
+	case "redis":
+		addr, err := redisAddr(get("redis_addr"))
+		if err != nil {
+			return "", nil, err
+		}
+		_, _ = fmt.Fprintf(&sb, "prometheus.exporter.redis \"db\" {\n  redis_addr     = %s\n  redis_password = %s\n}\n",
+			wizard.Quote(addr), value)
+	}
+
+	warning := fmt.Sprintf("Each matching collector reads key %q of Secret %s/%s itself when it loads this config; "+
+		"the key must hold %s. The Secret must exist in namespace %s on every cluster this pipeline matches, and "+
+		"the collector's service account needs get, list and watch on Secrets in %s. If it cannot read the Secret, "+
+		"the collector refuses its whole config — every pipeline on it stops getting updates.",
+		key, namespace, name, secretValue[engine], namespace, namespace)
+	return sb.String(), []string{warning}, nil
+}
+
+// renderEnvExporter renders the sys.env form. Its text is unchanged from
+// before credential_source existed, so stored pipelines from that era
+// regenerate byte-for-byte.
+func renderEnvExporter(engine, connEnv string) (string, []string, error) {
+	if connEnv == "" {
+		return "", nil, fmt.Errorf("credential_source %s needs connection_env, the variable's name", sourceEnv)
+	}
+	if !envNameRE.MatchString(connEnv) {
+		return "", nil, fmt.Errorf("connection_env %q is not an environment variable name", connEnv)
+	}
+	var out string
+	switch engine {
+	case "postgres":
+		out = fmt.Sprintf("prometheus.exporter.postgres \"db\" {\n  data_source_names = [sys.env(%q)]\n}\n", connEnv)
+	case "mysql":
+		out = fmt.Sprintf("prometheus.exporter.mysql \"db\" {\n  data_source_name = sys.env(%q)\n}\n", connEnv)
+	case "redis":
+		out = fmt.Sprintf("prometheus.exporter.redis \"db\" {\n  redis_addr = sys.env(%q)\n}\n", connEnv)
+	}
+	warning := fmt.Sprintf("Shepherd does not set %s. You must set it on every collector this pipeline matches "+
+		"yourself (for example in the Alloy Deployment's env). If it is unset or not a valid %s, the collector "+
+		"refuses its whole config — every pipeline on it stops getting updates. Prefer credential_source "+
+		"kubernetes_secret on Kubernetes.", connEnv, map[string]string{
+		"postgres": "PostgreSQL DSN", "mysql": "MySQL DSN", "redis": "Redis address",
+	}[engine])
+	return out, []string{warning}, nil
+}
+
+// redisAddr checks the plain-text Redis address: required, and free of
+// credentials — a password belongs in the Secret.
+func redisAddr(addr string) (string, error) {
+	if addr == "" {
+		return "", fmt.Errorf("redis_addr is required for redis (host:port or redis:// URL)")
+	}
+	if strings.ContainsAny(addr, " \t\r\n") {
+		return "", fmt.Errorf("redis_addr %q must not contain whitespace", addr)
+	}
+	if strings.Contains(addr, "@") {
+		return "", fmt.Errorf("redis_addr must not carry credentials — put the password in the Secret (secret_key)")
+	}
+	return addr, nil
 }

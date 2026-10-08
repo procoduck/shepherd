@@ -1,10 +1,5 @@
-remote.kubernetes.secret "db_credentials" {
-  namespace = "databases"
-  name      = "app-mysql"
-}
-
 prometheus.exporter.mysql "db" {
-  data_source_name = remote.kubernetes.secret.db_credentials.data["mysql-dsn"]
+  data_source_name = sys.env("APP_MYSQL_DSN")
 }
 
 prometheus.scrape "database" {

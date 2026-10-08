@@ -116,11 +116,32 @@ func ValidateSecretRef(mode AuthMode, namespace, name string) error {
 	if mode == AuthNone {
 		return nil
 	}
+	if err := ValidateSecretName(namespace, name); err != nil {
+		return fmt.Errorf("auth_mode %s needs %w", mode, err)
+	}
+	return nil
+}
+
+// ValidateSecretName checks namespace is a valid Kubernetes namespace name
+// and name a valid Secret name — the reference a wizard renders into a
+// `remote.kubernetes.secret` block.
+func ValidateSecretName(namespace, name string) error {
 	if !k8sNamespaceRE.MatchString(namespace) {
-		return fmt.Errorf("auth_mode %s needs secret_namespace, a Kubernetes namespace name (got %q)", mode, namespace)
+		return fmt.Errorf("secret_namespace, a Kubernetes namespace name (got %q)", namespace)
 	}
 	if !k8sNameRE.MatchString(name) {
-		return fmt.Errorf("auth_mode %s needs secret_name, a Kubernetes Secret name (got %q)", mode, name)
+		return fmt.Errorf("secret_name, a Kubernetes Secret name (got %q)", name)
+	}
+	return nil
+}
+
+// k8sSecretKeyRE is a key of a Kubernetes Secret's data map.
+var k8sSecretKeyRE = regexp.MustCompile(`^[-._a-zA-Z0-9]{1,253}$`)
+
+// ValidateSecretKey checks key is a legal Kubernetes Secret data key.
+func ValidateSecretKey(key string) error {
+	if !k8sSecretKeyRE.MatchString(key) || key == "." || key == ".." {
+		return fmt.Errorf("%q is not a Kubernetes Secret key (letters, digits, '-', '_' and '.', at most 253)", key)
 	}
 	return nil
 }
