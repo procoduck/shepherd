@@ -49,7 +49,7 @@ func (s *FleetService) GetReconciliation(ctx context.Context, req *connect.Reque
 	}
 	cluster, _ := s.store.Queries.GetClusterByID(ctx, coll.ClusterID) //nolint:errcheck // empty cluster name only affects matcher matching, degrades safely
 
-	served, err := s.reconcileServed(ctx, orgID, coll.ID.String(), coll.Role, cluster.Name, coll.Labels)
+	served, excluded, err := s.reconcileServed(ctx, orgID, coll.ID.String(), coll.Role, cluster.Name, coll.Labels)
 	if err != nil {
 		s.logger.Warn("reconcile: building served set failed", "collector_id", id.String(), "err", err)
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to reconcile served pipelines"))
@@ -68,6 +68,10 @@ func (s *FleetService) GetReconciliation(ctx context.Context, req *connect.Reque
 		s.logger.Error("reconcile: comparing failed", "collector_id", id.String(), "role", coll.Role, "err", err)
 		return nil, connect.NewError(connect.CodeInternal, errors.New("collector has an unrecognized role"))
 	}
+	// Exclusions first: a pipeline aimed at this collector that is not running
+	// on it is the finding an operator most needs, and before M2 it was
+	// visible only as a comment in the served config.
+	findings = append(reconcile.ExclusionFindings(reconcile.Declared{Role: coll.Role}, excluded), findings...)
 	return connect.NewResponse(&mgmtv1.GetReconciliationResponse{Findings: findingsToProto(findings)}), nil
 }
 
@@ -85,20 +89,26 @@ func (s *FleetService) GetReconciliation(ctx context.Context, req *connect.Reque
 // managed pipeline that its desired served set no longer contains (a disabled or
 // deleted pipeline it has not yet dropped).
 //
+// Pipelines that match but that enforcement excludes are returned separately
+// (excluded), each as merge.RoleExclusion reports it — the same per-pipeline
+// check merge.Assemble ran when it wrote the served config — so the
+// reconciliation tab can name them (M2) instead of reading "in sync".
+//
 // The label set is built exactly as the serve paths build it (#139): admin
 // labels and local_attributes join cluster/role only when the org's matching
 // flags allow it. Using cluster/role alone here would leave out a pipeline the
 // collector reaches through a label — one it is correctly running — and report
 // it as drift.
-func (s *FleetService) reconcileServed(ctx context.Context, orgID pgtype.UUID, collectorID, role, cluster string, rawLabels json.RawMessage) ([]reconcile.ServedPipeline, error) {
+func (s *FleetService) reconcileServed(ctx context.Context, orgID pgtype.UUID, collectorID, role, cluster string, rawLabels json.RawMessage) ([]reconcile.ServedPipeline, []reconcile.ExcludedPipeline, error) {
 	eps, err := s.store.Queries.ListEnabledPipelinesForMerge(ctx, orgID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	org, _ := s.store.Queries.GetOrgByID(ctx, orgID) //nolint:errcheck // an org lookup failure degrades to cluster/role-only matching, as on the serve paths
 	localAttrs := localAttrsByOrg(ctx, s.store.Queries, orgID, org.AllowLocalAttributeMatching)
 	cl := merge.BuildCollectorLabels(collectorID, cluster, role, adminLabelsIfAllowed(org.AllowLabelMatching, rawLabels), localAttrs[collectorID])
 	var served []reconcile.ServedPipeline
+	var excluded []reconcile.ExcludedPipeline
 	for i := range eps {
 		ep := eps[i]
 		var m []string
@@ -114,19 +124,18 @@ func (s *FleetService) reconcileServed(ctx context.Context, orgID pgtype.UUID, c
 		if matchErr != nil || !matched {
 			continue
 		}
-		// Mirror enforce.go: a pipeline whose signals can't be derived is
-		// fail-safe excluded from the served config, so it is not a served
-		// pipeline here either.
-		sig, derErr := signals.Derive(p.Contents, s.schema)
-		if derErr != nil {
+		// The enforcement merge.Assemble applies, per pipeline: an excluded
+		// pipeline (signals the role refuses, or signals that could not be
+		// derived — fail-safe) is not served, and is reported as excluded.
+		if ex, isExcluded := merge.RoleExclusion(p, role, s.schema); isExcluded {
+			excluded = append(excluded, reconcile.ExcludedPipeline{
+				Name: ex.PipelineName, Reason: ex.Reason, Disallowed: ex.Disallowed,
+			})
 			continue
 		}
-		checkSet := sig.Combined
-		if !sig.Proven() {
-			checkSet = signals.NewSet(signals.All...)
-		}
-		if signals.Enforce(role, checkSet) != nil {
-			continue // excluded by role/signal enforcement — not served
+		sig, derErr := signals.Derive(p.Contents, s.schema)
+		if derErr != nil {
+			continue // unreachable: RoleExclusion excludes an underivable pipeline
 		}
 		served = append(served, reconcile.ServedPipeline{
 			Name:           p.Name,
@@ -134,7 +143,7 @@ func (s *FleetService) reconcileServed(ctx context.Context, orgID pgtype.UUID, c
 			Signals:        sig,
 		})
 	}
-	return served, nil
+	return served, excluded, nil
 }
 
 // reconcileObserved reads the collector's beacon inventory (attributed via the

@@ -89,8 +89,8 @@ var _ = Describe("shepherd.mgmt.v1.FleetService/GetReconciliation", Label("integ
 		Expect(err).NotTo(HaveOccurred())
 	}
 
-	findings := func() []map[string]any {
-		body := map[string]any{"org_id": orgID.String(), "id": collID.String()}
+	findingsFor := func(id pgtype.UUID) []map[string]any {
+		body := map[string]any{"org_id": orgID.String(), "id": id.String()}
 		resp := postConnectJSON(server, "/shepherd.mgmt.v1.FleetService/GetReconciliation", reader, body)
 		defer resp.Body.Close() //nolint:errcheck // test cleanup
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
@@ -108,6 +108,37 @@ var _ = Describe("shepherd.mgmt.v1.FleetService/GetReconciliation", Label("integ
 		}
 		return fs
 	}
+	findings := func() []map[string]any { return findingsFor(collID) }
+
+	// M2 (2026-10-08 walkthrough): a pipeline whose matchers select a collector
+	// but whose signals the collector's role does not allow is excluded from
+	// its served config. That used to leave only a comment in the served
+	// config — this tab said "in sync". It must name the pipeline and why.
+	It("reports a pipeline excluded by role enforcement, naming its signals and the role", func() {
+		cluster, err := st.Queries.UpsertCluster(ctx, "recon-cluster")
+		Expect(err).NotTo(HaveOccurred())
+		metricsColl, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+		Expect(err).NotTo(HaveOccurred())
+
+		// keep-me (loki.write — logs) matches cluster="recon-cluster", so it
+		// matches the metrics collector too, and role metrics refuses logs.
+		fs := findingsFor(metricsColl.ID)
+		Expect(fs).To(HaveLen(1))
+		Expect(fs[0]["kind"]).To(Equal("role_signal_excluded"))
+		Expect(fs[0]["pipelineName"]).To(Equal(pipeName))
+		sources, ok := fs[0]["sources"].([]any)
+		Expect(ok).To(BeTrue())
+		Expect(sources).To(Equal([]any{"declared", "served"}))
+		Expect(fs[0]["summary"]).To(And(
+			ContainSubstring(`"keep-me"`),
+			ContainSubstring("excluded"),
+			ContainSubstring("(logs)"),
+			ContainSubstring("role metrics"),
+		))
+
+		// The singleton collector it IS served to has nothing to report.
+		Expect(findings()).To(BeEmpty())
+	})
 
 	It("reports no findings when the observed pipeline is the served one", func() {
 		observe("pipe_keep_me", true)

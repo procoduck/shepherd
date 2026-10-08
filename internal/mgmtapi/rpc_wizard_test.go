@@ -156,6 +156,44 @@ var _ = Describe("shepherd.mgmt.v1.WizardService", Label("integration"), func() 
 		Expect(list["items"]).To(Or(BeNil(), BeEmpty()))
 	})
 
+	// M2 (2026-10-08 walkthrough): a pipeline whose signals a matched
+	// collector's role refuses is excluded from that collector's served config.
+	// The preview must say so (non-blocking) instead of counting the collector
+	// as a plain match.
+	It("warns in the RenderWizard preview when a matched collector's role would exclude the pipeline", func() {
+		oid := mustUUID(orgID)
+		cluster, err := st.Queries.UpsertCluster(ctx, "prod-eu")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: oid})).To(Succeed())
+		_, err = st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "logs"})
+		Expect(err).NotTo(HaveOccurred())
+		_, err = st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+		Expect(err).NotTo(HaveOccurred())
+
+		// No "role" in state: the wizard emits only the cluster matcher, so its
+		// metrics pipeline matches the logs collector too.
+		body := map[string]any{
+			"org_id": orgID,
+			"kind":   "app-observability",
+			"name":   "wizard-render-excluded",
+			"state": map[string]any{
+				"scrape_url":        "http://myapp:9090/metrics",
+				"metrics_dest_name": "mimir",
+				"cluster_pattern":   "prod-.*",
+			},
+		}
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.WizardService/RenderWizard", adminCookie, body)
+		defer resp.Body.Close() //nolint:errcheck // test cleanup
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		var render map[string]any
+		Expect(json.NewDecoder(resp.Body).Decode(&render)).To(Succeed())
+		Expect(render["matchedCollectors"]).To(HaveLen(2))
+		Expect(render["warnings"]).To(ContainElement(
+			"Excluded from 1 collector(s): prod-eu/logs — its signals (metrics) are not allowed on role logs.",
+		))
+	})
+
 	It("surfaces stage-1 syntax diagnostics from RenderWizard without failing the RPC", func() {
 		body := map[string]any{
 			"org_id": orgID,

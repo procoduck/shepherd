@@ -132,7 +132,31 @@ const (
 	// by a served pipeline's mere absence from Observed (see the package
 	// doc's "absence is never disagreement").
 	KindUnservedComponentObserved Kind = "unserved_component_observed"
+
+	// KindRoleSignalExcluded fires for a pipeline whose matchers select this
+	// collector but which role enforcement (internal/merge.WithRoleEnforcement,
+	// gate G6) kept out of its served config, because its signals are not
+	// allowed on the collector's declared role. Unlike KindRoleSignalMismatch
+	// this is enforcement working — but a pipeline the operator aimed at this
+	// collector is not running on it, and the only other trace is a comment
+	// in the served config, so reconciliation names it (Declared-then-Served:
+	// the role refused what the matchers selected).
+	KindRoleSignalExcluded Kind = "role_signal_excluded"
 )
+
+// ExcludedPipeline is one pipeline that matched the collector's labels but
+// that role enforcement left out of its served config — internal/merge's
+// Exclusion for it, carried here without this package importing merge.
+type ExcludedPipeline struct {
+	// Name is the pipeline's display name.
+	Name string
+	// Reason is merge.Exclusion.Reason verbatim — used when Disallowed is
+	// empty (signal derivation failed, or the role is unknown).
+	Reason string
+	// Disallowed is merge.Exclusion.Disallowed: the pipeline's signals the
+	// role does not allow.
+	Disallowed signals.Set
+}
 
 // Finding is one contradiction Compare proved between exactly two of the
 // three reconciliation sources.

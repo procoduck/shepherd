@@ -80,3 +80,25 @@ func TestEnforce_UnrestrictedIsExplicitNotDefault(t *testing.T) {
 		t.Fatalf("Enforce on an unregistered role = %v, want ErrUnknownRole (never a silent allow)", err)
 	}
 }
+
+func TestDisallowed(t *testing.T) {
+	cases := []struct {
+		name string
+		role string
+		sig  Set
+		want Set
+	}{
+		{"metrics role, metrics+logs: logs disallowed", "metrics", NewSet(Metrics, Logs), NewSet(Logs)},
+		{"metrics role, metrics only: nothing", "metrics", NewSet(Metrics), NewSet()},
+		{"receiver role, all four: profiles", "receiver", NewSet(All...), NewSet(Profiles)},
+		{"singleton is unrestricted", "singleton", NewSet(All...), NewSet()},
+		{"unknown role is Enforce's question, not this one's", "nope", NewSet(Logs), NewSet()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := Disallowed(tc.role, tc.sig); !got.Equal(tc.want) {
+				t.Fatalf("Disallowed(%q, %s) = %s, want %s", tc.role, tc.sig, got, tc.want)
+			}
+		})
+	}
+}

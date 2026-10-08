@@ -2,6 +2,23 @@ import { useQuery } from '@tanstack/react-query';
 import { clients } from '@/api/transport';
 
 /**
+ * The heading for one finding kind (internal/reconcile's Kind values).
+ * role_signal_excluded (M2) is a pipeline whose matchers select this collector
+ * but whose signals its role refuses, so the served config leaves it out —
+ * enforcement working, but a pipeline the operator aimed here is not running.
+ */
+function findingLabel(kind: string): string {
+  switch (kind) {
+    case 'unserved_component_observed':
+      return 'Running, not served';
+    case 'role_signal_excluded':
+      return 'Matched, excluded by role';
+    default:
+      return 'Role / signal mismatch';
+  }
+}
+
+/**
  * The CollectorDetailPage "Reconciliation" tab (#110): declared-vs-served-vs-
  * observed drift for one collector, from FleetService.GetReconciliation. Split
  * out of CollectorDetailPage to keep that page under the file-size guard and to
@@ -30,7 +47,8 @@ export function CollectorReconciliation({
       <p className='text-xs text-muted-2'>
         Drift between what this collector's role declares, what Shepherd serves it, and what it is
         observed running. A managed pipeline running that is no longer served is drift the collector
-        will clear on its next config reload.
+        will clear on its next config reload. A pipeline matched but excluded by role is not served
+        here until its signals or its matchers change.
       </p>
       {status === 'FAILED' && (
         // Reconciliation compares signals; it cannot see that the agent
@@ -65,9 +83,7 @@ export function CollectorReconciliation({
             >
               <div className='flex items-center gap-2'>
                 <span className='text-xs font-medium uppercase tracking-wide text-amber-400'>
-                  {f.kind === 'unserved_component_observed'
-                    ? 'Running, not served'
-                    : 'Role / signal mismatch'}
+                  {findingLabel(f.kind)}
                 </span>
                 {f.stale && (
                   <span className='rounded border border-border-strong px-1.5 py-0.5 text-[10px] text-muted-2'>

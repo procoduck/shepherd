@@ -2,6 +2,7 @@ package reconcile
 
 import (
 	"fmt"
+	"strings"
 
 	"shepherd/internal/signals"
 )
@@ -117,4 +118,40 @@ func servedVsObserved(declared Declared, served []ServedPipeline, observed Obser
 		})
 	}
 	return findings
+}
+
+// ExclusionFindings reports every pipeline role enforcement excluded from the
+// collector's served config (KindRoleSignalExcluded), one Finding each, in
+// excluded's order. Pure, like Compare: the caller computes excluded with
+// internal/merge.RoleExclusion — the same check the served config was
+// assembled with — and this only phrases it.
+func ExclusionFindings(declared Declared, excluded []ExcludedPipeline) []Finding {
+	findings := make([]Finding, 0, len(excluded))
+	for _, ex := range excluded {
+		why := ex.Reason
+		if !ex.Disallowed.Empty() {
+			why = fmt.Sprintf("its signals (%s) are not allowed on role %s", signalList(ex.Disallowed), declared.Role)
+		}
+		findings = append(findings, Finding{
+			Kind:    KindRoleSignalExcluded,
+			Sources: [2]Source{SourceDeclared, SourceServed},
+			Summary: fmt.Sprintf(
+				"pipeline %q matches this collector but is excluded from its served config: %s",
+				ex.Name, why,
+			),
+			PipelineName: ex.Name,
+		})
+	}
+	return findings
+}
+
+// signalList renders a set as "logs, traces" — prose, unlike Set.String's
+// bracketed debug form.
+func signalList(set signals.Set) string {
+	sorted := set.Sorted()
+	parts := make([]string, len(sorted))
+	for i, s := range sorted {
+		parts[i] = string(s)
+	}
+	return strings.Join(parts, ", ")
 }
