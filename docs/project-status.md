@@ -8,6 +8,8 @@
 > board is archived at `docs/archive/plans/2026-09-16-outstanding-work.md` — every item in it has
 > since shipped (issues #100–#118 are all closed; the last, B1, in v0.13.0). Open work is the open
 > GitHub issues (bar Renovate's Dependency Dashboard, #87), each represented in §2–§4 below.
+> The 2026-10-08 pre-release walkthrough's low-severity findings and nits are filed as
+> #296–#310 (on the board, waves 1–3); they are listed only there, not repeated below.
 >
 > Baseline re-verified 2026-10-01 at the v0.14.0 release
 > (`42c5725`, chart 0.18.0) from the CI and release runs on that commit, not from a summary.
@@ -20,7 +22,7 @@
 |---|---|
 | `docs/project-status.md` | this ledger — verified baseline, open bugs, unbuilt features, open follow-ups |
 | `docs/spec.md` | authoritative product/build specification (§ numbers referenced below) |
-| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. Empty (not even present) since v0.12.0 — every plan so far has shipped and is archived |
+| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. Holds `2026-10-01-destination-auth.md` (#229/#262, built, ships in v0.15.0) and `2026-10-06-destination-tenant-tls.md` (#261, in progress) |
 | `docs/visual-builder-design-VB1.md` | visual builder design — M1–M8 built; §6.4 (S3) is the live spec for the sandbox feature (enabled by default in the Helm chart since v0.0.1) |
 | `docs/reviews/` | **live decision records only**: `canvas-framework-evaluation.md` (the React Flow decision and the controlled-mode contract `CanvasPane` depends on). Closed reviews move to `docs/archive/reviews/` |
 | `docs/dev-guide.md` | running the dev stack |
@@ -163,6 +165,14 @@ Fixed bugs (B-CONTAIN-1, B-CONCAT, B-STAGEORDER, F9-a) are in
 viewer's canvas and inspector stayed editable) is fixed on `main`, unreleased — `CHANGELOG.md`
 Unreleased.
 
+**2026-10-08 pre-release walkthrough** (kind dev stack, Playwright MCP): four high and six medium
+findings, all fixed before v0.15.0 is tagged — the builder save landing on stale data (H1), App
+Observability scrape targets and log globs that collected nothing (H2, H3), the Database Metrics DSN
+read from an environment variable nothing set (H4), and M1–M6 (Review-step errors, role-excluded
+pipelines surfaced, actionable destination refusals, the kind agents' RBAC, editor diagnostics,
+server-side form validation). PRs #288–#295 and follow-ups; `CHANGELOG.md` v0.15.0 has the list.
+The low findings and nits are issues #296–#310.
+
 ---
 
 ## 3. Unbuilt / gated features
@@ -252,12 +262,10 @@ was closed in the same batches (`CHANGELOG.md` v0.7.0).
 
 In rough priority order; closed items stay in place, marked with the release that shipped them:
 
-- [ ] **UX polish from the 2026-09-30 walkthrough** (#212) — the lower-severity findings batched
-      in one issue. Part shipped in v0.14.0 (CLI help text, the demo-visual seed render, Admin →
-      Users defaults and labels, the Teams member picker; #219/#223/#225/#227). Still open: builder
-      toolbar wrapping, no UI for a pipeline's owning team (`SetPipelineOwner` API only), toast-only
-      form errors and unvalidated matcher chips, no heading or enable/delete on the pipeline pages,
-      the post-login redirect, and naming/contrast nits. The issue's latest comment has the list.
+- [x] **UX polish from the 2026-09-30 walkthrough** (#212, closed 2026-10-01) — part shipped in
+      v0.14.0 (#219/#223/#225/#227); the rest was split into #249–#253 (inline form errors, the
+      post-login redirect, the builder toolbar, pipeline heading/enable/delete/owner team, nits),
+      all closed and shipping in v0.15.0.
 
 - [x] **`ValidatePipeline` stays open to org readers** (decided 2026-09-28). Its Connect interceptor
       row is `auth.RoleOrgReader`: a reader can validate pipeline text, which writes nothing apart
