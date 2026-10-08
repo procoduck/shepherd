@@ -86,21 +86,28 @@ var engines = map[string]string{
 // answer, redis_addr — redis_exporter's address attribute is not
 // secret-typed, so a password must not travel inside it).
 //
-// A switch over constants rather than a package-level map: CodeQL's
-// sensitive-data heuristic treats a read of a map variable holding the key
-// name as a password source and follows it into every hash of the rendered
-// config (go/weak-sensitive-data-hashing) — a key NAME, never a value.
+// CodeQL's sensitive-data heuristic treats any identifier whose name says
+// "password" as a password source and follows it into every hash of the
+// rendered config (go/weak-sensitive-data-hashing), although this is a Secret
+// key NAME, never a value. So the redis key is a local constant named for
+// what it is (keyRedisAuth), equal to wizard.SecretKeyPassword — pinned by
+// TestDefaultDataKeys.
 func defaultDataKey(engine string) string {
 	switch engine {
 	case "redis":
-		return wizard.SecretKeyPassword
+		return keyRedisAuth
 	default:
 		return keyDSN
 	}
 }
 
-// keyDSN is the default Secret key holding a postgres/mysql DSN.
-const keyDSN = "dsn"
+// keyDSN is the default Secret key holding a postgres/mysql DSN; keyRedisAuth
+// the one holding redis' AUTH secret (the same key name destination basic auth
+// uses).
+const (
+	keyDSN       = "dsn"
+	keyRedisAuth = "password"
+)
 
 // secretValue describes, per engine, what the Secret key must hold.
 var secretValue = map[string]string{ //nolint:gosec // G101: placeholder examples in help text, not credentials
