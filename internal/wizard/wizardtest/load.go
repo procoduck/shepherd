@@ -294,7 +294,7 @@ func checkRuntimeErrorsPin(t *testing.T) {
 //
 // These are literal Alloy log strings, captured from grafana/alloy v1.20.1
 // (runtimeErrorsCapturedOn). A newer Alloy that rewords one would turn this
-// check into a silent pass, so AssertGoldensLoadInRealAlloyWithEnv refuses
+// check into a silent pass, so AssertGoldensLoadInRealAlloyWith refuses
 // to run against any other pin until someone re-confirms them.
 var runtimeErrors = []string{
 	"Creating target failed",
