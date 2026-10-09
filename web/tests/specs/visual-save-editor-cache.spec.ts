@@ -169,6 +169,8 @@ test.describe('visual builder save → text editor landing', () => {
         source: p.source,
         enabled: p.enabled,
         updatedBy: p.updated_by,
+        // What the server reports to an app admin (Pipeline.can_edit, F3).
+        canEdit: true,
       };
       if (hold) {
         hold = false;

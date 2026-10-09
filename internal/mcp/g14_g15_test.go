@@ -366,7 +366,7 @@ func TestG15_ProposalRoundTrips(t *testing.T) {
 	// Only 1, not 2: the seed pipeline above was inserted directly via
 	// st.Queries.CreatePipeline (bypassing the RPC layer, which is what
 	// actually writes a pipeline_revisions row on save — see
-	// rpc_pipeline.go's createRevision) precisely so this fixture starts
+	// rpc_pipeline.go's createPipelineRevisionQ) precisely so this fixture starts
 	// from a known baseline without the seed step itself becoming a third,
 	// confusing audit-log actor.
 	if len(got.Revisions) != 1 {

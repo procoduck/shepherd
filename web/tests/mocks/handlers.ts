@@ -117,6 +117,16 @@ function pipelineRevisionToWire(r: Obj) {
   };
 }
 
+// The newest revision, which is what the real server reports as
+// Pipeline.revision (GetPipelineWithRevision); a seeded `revision` wins when
+// a fixture has no history to derive it from.
+function currentRevision(p: Obj): number {
+  return arr<Obj>(p, 'revisions').reduce(
+    (max, r) => Math.max(max, n(r, 'revision')),
+    n(p, 'revision'),
+  );
+}
+
 function pipelineToWire(p: Obj) {
   return {
     id: s(p, 'id'),
@@ -126,7 +136,7 @@ function pipelineToWire(p: Obj) {
     matchers: arr<string>(p, 'matchers'),
     enabled: b(p, 'enabled'),
     source: s(p, 'source'),
-    revision: n(p, 'revision'),
+    revision: currentRevision(p),
     createdBy: s(p, 'created_by'),
     updatedBy: s(p, 'updated_by'),
     createdAt: p['created_at'],
@@ -776,6 +786,36 @@ export function installDefaultHandlers(router: Router) {
     return null;
   };
 
+  // Pipeline.can_edit (F3) — auth.AuthorizeOwnership's rule: an app admin,
+  // an org editor or admin, or a member of the owning team (st.myTeamIds).
+  // Fixture pipelines often carry no org_id; the request's org stands in,
+  // as the server checks ownership against the org named in the request.
+  const canEditPipeline = (p: Obj, orgId: unknown): boolean => {
+    const me = st.me as
+      | { isAppAdmin?: boolean; orgs?: { id: string; role: string }[] }
+      | null
+      | undefined;
+    if (!me) return false;
+    if (me.isAppAdmin) return true;
+    const org = s(p, 'org_id') || String(orgId ?? '');
+    const membership = (me.orgs ?? []).find((o) => o.id === org);
+    if (membership && orgRank(membership.role) >= orgRank('editor')) return true;
+    const owner = s(p, 'owner_team_id');
+    return !!owner && (st.myTeamIds ?? []).includes(owner);
+  };
+  // A pipeline write's gate, as on the server: any org member reaches the
+  // handler, and the ownership check decides.
+  const requirePipelineWrite = (r: Route, p: Obj, orgId: unknown) => {
+    if (!st.me) return connectError(r, 401, 'unauthenticated', 'not authenticated');
+    return canEditPipeline(p, orgId)
+      ? null
+      : connectError(r, 403, 'permission_denied', 'auth: forbidden');
+  };
+  const pipelineOut = (p: Obj, orgId: unknown) => ({
+    ...pipelineToWire(p),
+    canEdit: canEditPipeline(p, orgId),
+  });
+
   const requireAppAdmin = (r: Route) => {
     const me = st.me as { isAppAdmin?: boolean } | null | undefined;
     if (!me) return connectError(r, 401, 'unauthenticated', 'not authenticated');
@@ -1177,7 +1217,15 @@ export function installDefaultHandlers(router: Router) {
           return !!version && version !== mockCurrentSchemaVersion(st);
         })
       : (st.pipelines as Obj[]);
-    return json(r, 200, list(items.map(pipelineToWire)));
+    return json(
+      r,
+      200,
+      list(
+        // The real ListPipelines leaves revision at 0 (only single-pipeline
+        // responses carry it), so the mock does too.
+        items.map((p) => ({ ...pipelineOut(p, req['orgId']), revision: 0 })),
+      ),
+    );
   });
   router.register('POST', '/shepherd.mgmt.v1.PipelineService/CreatePipeline', async (r) => {
     const pBody = (await r.request().postDataJSON()) as Obj;
@@ -1196,7 +1244,7 @@ export function installDefaultHandlers(router: Router) {
       updated_at: '2026-08-17T09:00:00Z',
     };
     st.pipelines.push(p);
-    return json(r, 200, pipelineToWire(p));
+    return json(r, 200, pipelineOut(p, req['orgId']));
   });
   router.register('POST', '/shepherd.mgmt.v1.PipelineService/ValidatePipeline', (r) => {
     const { skipped_stages, ...rest } = st.validateResult;
@@ -1214,23 +1262,52 @@ export function installDefaultHandlers(router: Router) {
     const req = await body(r);
     const p = (st.pipelines as Obj[]).find((x) => x['id'] === req['id']);
     return p
-      ? json(r, 200, pipelineToWire(p))
+      ? json(r, 200, pipelineOut(p, req['orgId']))
       : connectError(r, 404, 'not_found', 'pipeline not found');
   });
   router.register('POST', '/shepherd.mgmt.v1.PipelineService/UpdatePipeline', async (r) => {
-    const pBody = (await r.request().postDataJSON()) as Obj;
-    const pDenied = requireOrgRole(r, String(pBody.orgId ?? ''), 'editor');
-    if (pDenied) return pDenied;
     const req = await body(r);
     const idx = (st.pipelines as Obj[]).findIndex((x) => x['id'] === req['id']);
+    if (idx < 0) {
+      const pDenied = requireOrgRole(r, String(req['orgId'] ?? ''), 'editor');
+      if (pDenied) return pDenied;
+    }
     if (idx >= 0) {
       const p = st.pipelines[idx] as Obj;
+      const pDenied = requirePipelineWrite(r, p, req['orgId']);
+      if (pDenied) return pDenied;
+      // F1: a save made from an older revision is refused, as the server's
+      // row-locked expected_revision check does.
+      const expected = req['expectedRevision'];
+      if (expected !== undefined && Number(expected) !== currentRevision(p)) {
+        return connectError(
+          r,
+          409,
+          'aborted',
+          `pipeline changed since you loaded it (revision ${Number(expected)}, now ${currentRevision(p)}) — reload to see the changes`,
+        );
+      }
+      // A save that changes nothing writes nothing (no revision), as on the
+      // server (updateIsNoop).
+      const sameMatchers =
+        JSON.stringify(arr<string>(p, 'matchers')) === JSON.stringify(req['matchers'] ?? []);
+      const sameGraph =
+        req['wizardState'] === undefined ||
+        JSON.stringify(req['wizardState']) === JSON.stringify(p['wizard_state']);
+      if (
+        req['name'] === p['name'] &&
+        req['contents'] === p['contents'] &&
+        sameMatchers &&
+        sameGraph
+      ) {
+        return json(r, 200, pipelineOut(p, req['orgId']));
+      }
       const me = st.me as { email?: string } | null | undefined;
-      // Mirrors the real server (S3/S6): every save records a new revision
+      // Mirrors the real server (S3/S6): every save that changes something records a new revision
       // and stamps who made it, the same way RestoreRevision does above —
       // additive, never mutating an existing revision row.
       const revisions = arr<Obj>(p, 'revisions');
-      const nextRevision = revisions.reduce((max, x) => Math.max(max, n(x, 'revision')), 0) + 1;
+      const nextRevision = currentRevision(p) + 1;
       revisions.unshift({
         revision: nextRevision,
         changed_by: me?.email ?? '',
@@ -1247,35 +1324,41 @@ export function installDefaultHandlers(router: Router) {
         matchers: req['matchers'] ?? [],
         updated_by: me?.email ?? '',
         revisions,
+        // An absent wizard_state keeps the stored graph (the server's COALESCE).
+        ...(req['wizardState'] !== undefined ? { wizard_state: req['wizardState'] } : {}),
       });
     }
-    return json(r, 200, pipelineToWire((st.pipelines[idx] as Obj) ?? req));
+    return json(r, 200, pipelineOut((st.pipelines[idx] as Obj) ?? req, req['orgId']));
   });
   router.register('POST', '/shepherd.mgmt.v1.PipelineService/DeletePipeline', async (r) => {
-    const pBody = (await r.request().postDataJSON()) as Obj;
-    const pDenied = requireOrgRole(r, String(pBody.orgId ?? ''), 'editor');
-    if (pDenied) return pDenied;
     const req = await body(r);
+    const target = (st.pipelines as Obj[]).find((x) => x['id'] === req['id']);
+    const pDenied = target
+      ? requirePipelineWrite(r, target, req['orgId'])
+      : requireOrgRole(r, String(req['orgId'] ?? ''), 'editor');
+    if (pDenied) return pDenied;
     st.pipelines = (st.pipelines as Obj[]).filter((x) => x['id'] !== req['id']);
     return json(r, 200, {});
   });
   router.register('POST', '/shepherd.mgmt.v1.PipelineService/EnablePipeline', async (r) => {
-    const pBody = (await r.request().postDataJSON()) as Obj;
-    const pDenied = requireOrgRole(r, String(pBody.orgId ?? ''), 'editor');
-    if (pDenied) return pDenied;
     const req = await body(r);
     const p = (st.pipelines as Obj[]).find((x) => x['id'] === req['id']);
+    const pDenied = p
+      ? requirePipelineWrite(r, p, req['orgId'])
+      : requireOrgRole(r, String(req['orgId'] ?? ''), 'editor');
+    if (pDenied) return pDenied;
     if (p) p['enabled'] = true;
-    return json(r, 200, pipelineToWire(p ?? {}));
+    return json(r, 200, pipelineOut(p ?? {}, req['orgId']));
   });
   router.register('POST', '/shepherd.mgmt.v1.PipelineService/DisablePipeline', async (r) => {
-    const pBody = (await r.request().postDataJSON()) as Obj;
-    const pDenied = requireOrgRole(r, String(pBody.orgId ?? ''), 'editor');
-    if (pDenied) return pDenied;
     const req = await body(r);
     const p = (st.pipelines as Obj[]).find((x) => x['id'] === req['id']);
+    const pDenied = p
+      ? requirePipelineWrite(r, p, req['orgId'])
+      : requireOrgRole(r, String(req['orgId'] ?? ''), 'editor');
+    if (pDenied) return pDenied;
     if (p) p['enabled'] = false;
-    return json(r, 200, pipelineToWire(p ?? {}));
+    return json(r, 200, pipelineOut(p ?? {}, req['orgId']));
   });
   router.register('POST', '/shepherd.mgmt.v1.PipelineService/PreviewMatches', (r) => {
     const pr = st.previewResult as unknown as { collector_ids: string[] };
@@ -1301,12 +1384,14 @@ export function installDefaultHandlers(router: Router) {
       : connectError(r, 404, 'not_found', 'revision not found');
   });
   router.register('POST', '/shepherd.mgmt.v1.PipelineService/RestoreRevision', async (r) => {
-    const pBody = (await r.request().postDataJSON()) as Obj;
-    const pDenied = requireOrgRole(r, String(pBody.orgId ?? ''), 'editor');
-    if (pDenied) return pDenied;
     const req = await body(r);
     const p = (st.pipelines as Obj[]).find((x) => x['id'] === req['id']);
-    if (!p) return connectError(r, 404, 'not_found', 'pipeline not found');
+    if (!p) {
+      const pDenied = requireOrgRole(r, String(req['orgId'] ?? ''), 'editor');
+      return pDenied ?? connectError(r, 404, 'not_found', 'pipeline not found');
+    }
+    const pDenied = requirePipelineWrite(r, p, req['orgId']);
+    if (pDenied) return pDenied;
     const revisions = arr<Obj>(p, 'revisions');
     const rev = revisions.find((x) => n(x, 'revision') === Number(req['revision']));
     if (!rev) return connectError(r, 404, 'not_found', 'revision not found');
@@ -1320,7 +1405,7 @@ export function installDefaultHandlers(router: Router) {
       wizard_state: rev['wizard_state'],
     });
     const me = st.me as { email?: string } | null | undefined;
-    const nextRevision = revisions.reduce((max, x) => Math.max(max, n(x, 'revision')), 0) + 1;
+    const nextRevision = currentRevision(p) + 1;
     revisions.unshift({
       revision: nextRevision,
       changed_by: me?.email ?? '',
@@ -1333,7 +1418,7 @@ export function installDefaultHandlers(router: Router) {
       wizard_state: rev['wizard_state'],
     });
     p['revisions'] = revisions;
-    return json(r, 200, pipelineToWire(p));
+    return json(r, 200, pipelineOut(p, req['orgId']));
   });
   // SetPipelineOwner: org admin only on the real server
   // (rpc_interceptor.go) — an editor authors pipelines but does not decide
@@ -1345,24 +1430,26 @@ export function installDefaultHandlers(router: Router) {
     const p = (st.pipelines as Obj[]).find((x) => x['id'] === pBody['id']);
     if (!p) return connectError(r, 404, 'not_found', 'pipeline not found');
     p['owner_team_id'] = String(pBody['ownerTeamId'] ?? '');
-    return json(r, 200, pipelineToWire(p));
+    return json(r, 200, pipelineOut(p, pBody['orgId']));
   });
   // DetachFromWizard: in place — same id, contents, matchers, enabled, owner
   // and history; source becomes "ui", wizard state is dropped, and a
   // "detached from wizard" revision is written.
   router.register('POST', '/shepherd.mgmt.v1.PipelineService/DetachFromWizard', async (r) => {
-    const pBody = (await r.request().postDataJSON()) as Obj;
-    const pDenied = requireOrgRole(r, String(pBody.orgId ?? ''), 'editor');
-    if (pDenied) return pDenied;
     const req = await body(r);
     const p = (st.pipelines as Obj[]).find((x) => x['id'] === req['id']);
-    if (!p) return connectError(r, 404, 'not_found', 'pipeline not found');
+    if (!p) {
+      const pDenied = requireOrgRole(r, String(req['orgId'] ?? ''), 'editor');
+      return pDenied ?? connectError(r, 404, 'not_found', 'pipeline not found');
+    }
+    const pDenied = requirePipelineWrite(r, p, req['orgId']);
+    if (pDenied) return pDenied;
     if (p['source'] !== 'wizard') {
       return connectError(r, 400, 'failed_precondition', 'not a wizard pipeline');
     }
     const revisions = arr<Obj>(p, 'revisions');
     const me = st.me as { email?: string } | null | undefined;
-    const nextRevision = revisions.reduce((max, x) => Math.max(max, n(x, 'revision')), 0) + 1;
+    const nextRevision = currentRevision(p) + 1;
     Object.assign(p, { source: 'ui', wizard_state: null });
     revisions.unshift({
       revision: nextRevision,
@@ -1375,7 +1462,7 @@ export function installDefaultHandlers(router: Router) {
       wizard_state: null,
     });
     p['revisions'] = revisions;
-    return json(r, 200, pipelineToWire(p));
+    return json(r, 200, pipelineOut(p, req['orgId']));
   });
 
   // ── DestinationService ───────────────────────────────────────────────────
@@ -1786,7 +1873,7 @@ export function installDefaultHandlers(router: Router) {
       updated_at: '2026-08-17T09:00:00Z',
     };
     st.pipelines.push(p);
-    return json(r, 200, pipelineToWire(p));
+    return json(r, 200, pipelineOut(p, req['orgId']));
   });
 
   // ── VisualService ────────────────────────────────────────────────────────

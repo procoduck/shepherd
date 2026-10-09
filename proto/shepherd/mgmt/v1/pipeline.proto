@@ -75,8 +75,12 @@ message PipelineRevision {
 }
 
 // Pipeline is an Alloy config fragment plus the matchers that decide which
-// collectors receive it. revision is never populated today (always
-// 0/omitted); revisions is populated only on GetPipeline.
+// collectors receive it. revision is the pipeline's current (newest)
+// revision, filled on every single-pipeline response (Get, Create, Update,
+// Enable, Disable, Restore, Detach, SetPipelineOwner, CommitWizard) and 0 on
+// ListPipelines; it is what an editor sends back as
+// UpdatePipelineRequest.expected_revision. revisions is populated only on
+// GetPipeline.
 message Pipeline {
   string id = 1;
   string org_id = 2;
@@ -99,9 +103,19 @@ message Pipeline {
   // missing/invalid, or for the read-only graph view of a non-visual pipeline.
   google.protobuf.Struct wizard_state = 14;
   // owner_team_id is the team (0012_teams_service_accounts) this pipeline
-  // is scoped-write-owned by (G11); empty means unowned — org-admin-only,
-  // matching every pipeline's behavior before W10.
+  // is scoped-write-owned by (G11); empty means unowned — writable only by
+  // an org editor or admin (auth.AuthorizeOwnership).
   string owner_team_id = 15;
+  // can_edit is whether the calling principal may update, enable, disable,
+  // delete or restore this pipeline, computed with the same ownership check
+  // the write paths use (auth.AuthorizeOwnership: an org editor or above, or
+  // a member of the owning team). Informational — the server still enforces
+  // on every write. It answers authorization only: a source="git" pipeline
+  // can report true while Update/Delete still refuse it as read-only (git is
+  // its source of truth) — callers check source separately. For a service
+  // account it is true only for an apply-capability credential whose request
+  // carries a verified On-Behalf-Of header, as for any machine write.
+  bool can_edit = 16;
 }
 
 message ListPipelinesRequest {
@@ -155,6 +169,12 @@ message UpdatePipelineRequest {
   // does not lose its graph. Send an explicit (even empty {}) Struct to
   // replace the stored value.
   google.protobuf.Struct wizard_state = 7;
+  // expected_revision, when set, makes the update conditional: it is refused
+  // with Connect `aborted` (and nothing is written) if the stored pipeline's
+  // current revision differs — optimistic concurrency for an editor that
+  // loaded the pipeline at that revision. Omitted = today's behaviour (the
+  // update applies whatever the current revision is).
+  optional int32 expected_revision = 8;
 }
 
 message DeletePipelineRequest {

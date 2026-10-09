@@ -8,9 +8,9 @@ import { expect, test } from '../fixtures/test';
 // that can be cleared again.
 
 // A team member is an org viewer whose write reach comes from OWNING a
-// pipeline through a team. /api/me cannot say which pipelines that is, so the
-// UI treats them as a viewer (useCanWrite) and the server has the final say —
-// exactly what the list page does.
+// pipeline through a team. Here they are on no team that owns the pipeline
+// (no `myTeamIds`), so Pipeline.can_edit is false and they get a viewer's
+// page; the owning-team case is pipeline-team-edit.spec.ts (F3).
 const teamMember: MeResponse = {
   ...reader,
   userOid: 'u-team-member',
@@ -102,7 +102,7 @@ test('a git-managed pipeline offers enable but no delete (git is the source of t
 
 for (const [label, persona] of [
   ['a viewer', reader],
-  ['a team member of the owning team', teamMember],
+  ['a team member whose team does not own it', teamMember],
 ] as const) {
   test(`${label} sees the enabled state but no enable or delete action`, async ({ page, api }) => {
     await api.loginAs(persona);

@@ -122,12 +122,14 @@ export function useOrgId(): string {
  * mirror the server; it did not, and it made the entire editor role unusable
  * through the UI — the role exists precisely to author pipelines.
  *
- * Team members are deliberately NOT covered here. Their write access is
- * per-pipeline (they may edit only what their team owns) and the client cannot
- * know ownership from /api/me, so they see the same affordances as a viewer and
- * the server has the final say. Widening this to them would offer actions that
- * fail for most pipelines; narrowing it to admins was worse. Fixing it properly
- * needs a per-pipeline capability on the wire.
+ * Team members are deliberately NOT covered here: their write access is
+ * per-pipeline (they may edit only what their team owns), which /api/me cannot
+ * express. Anything about ONE existing pipeline — its page, editor, enable,
+ * delete and restore controls, the list's per-row toggle — reads that
+ * pipeline's own `canEdit` instead (Pipeline.can_edit, F3: the server's
+ * ownership check). This role-only answer is for what no pipeline decides
+ * yet: creating one, the wizards, and the visual builder, whose render and
+ * simulate calls are org-editor on the server.
  */
 export function useCanWrite(): boolean {
   const { data: me } = useMe();

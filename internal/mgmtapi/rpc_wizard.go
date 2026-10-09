@@ -316,7 +316,14 @@ func (s *WizardService) CommitWizard(ctx context.Context, req *connect.Request[m
 	}
 
 	actor := actorFromCtx(ctx)
-	p, err := s.store.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+	// Row and revision-1 row in one transaction, as PipelineService.CreatePipeline.
+	tx, err := s.store.Pool().Begin(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create pipeline"))
+	}
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
+	txQ := s.store.Queries.WithTx(tx)
+	p, err := txQ.CreatePipeline(ctx, sqlc.CreatePipelineParams{
 		OrgID:       orgID,
 		Name:        req.Msg.GetName(),
 		Contents:    result.Contents,
@@ -341,14 +348,23 @@ func (s *WizardService) CommitWizard(ctx context.Context, req *connect.Request[m
 	// Same two side effects PipelineService.CreatePipeline performs after
 	// its insert (rpc_pipeline.go) — a revision-1 "created" row and a
 	// pipeline.create audit row — so a wizard-created pipeline has the same
-	// history and audit trail an editor-created one does. Log-only on
-	// revision failure, matching CreatePipeline's own handling.
-	if revErr := createPipelineRevision(ctx, s.store, p, "created", actor); revErr != nil {
-		s.logger.Error("commit wizard: create revision", "err", revErr, "pipeline_id", p.ID.String())
+	// history and audit trail an editor-created one does. A revision failure
+	// fails the commit (the row is rolled back), matching CreatePipeline.
+	revision, err := createPipelineRevisionQ(ctx, txQ, p, "created", actor)
+	if err != nil {
+		s.logger.Error("commit wizard: create revision", "err", err, "pipeline_id", p.ID.String())
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create pipeline"))
+	}
+	if err := tx.Commit(ctx); err != nil {
+		s.logger.Error("commit wizard: commit", "err", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create pipeline"))
 	}
 	auditLog(ctx, s.store, actor, orgID, "pipeline.create", "pipeline", p.ID.String())
 
-	return connect.NewResponse(wizardPipelineToProto(p)), nil
+	pb := wizardPipelineToProto(p)
+	pb.Revision = revision
+	pb.CanEdit = pipelineCanEdit(ctx, s.store, req.Msg.GetOrgId(), pipelineOwnerTeamID(p))
+	return connect.NewResponse(pb), nil
 }
 
 // -- proto conversions --

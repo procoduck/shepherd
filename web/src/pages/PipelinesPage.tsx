@@ -8,7 +8,6 @@ import type { Pipeline } from '@/gen/shepherd/mgmt/v1/pipeline_pb';
 import { useCanWrite, useOrgId } from '@/hooks/useOrg';
 
 function pipelineColumns(
-  canWrite: boolean,
   onToggle: (p: Pipeline) => void,
   staleVersions: Map<string, string>,
 ): DataTableColumn<Pipeline>[] {
@@ -68,8 +67,11 @@ function pipelineColumns(
     {
       key: 'enabled',
       header: 'Enabled',
+      // Per row (F3): the pipeline's own can_edit — the server's ownership
+      // answer — so a member of the owning team toggles their team's
+      // pipelines even as an org viewer.
       render: (p) =>
-        canWrite ? (
+        p.canEdit ? (
           <button
             type='button'
             role='switch'
@@ -162,7 +164,6 @@ export function PipelinesPage() {
       ) : (
         <DataTable
           columns={pipelineColumns(
-            canWrite,
             (p) => toggle.mutate({ id: p.id, enabled: p.enabled }),
             staleVersions,
           )}

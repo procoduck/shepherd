@@ -6,7 +6,7 @@ import { clients, toApiError } from '../../api/transport';
 import { useCanWrite, useOrg } from '../../hooks/useOrg';
 import {
   clearDraft,
-  loadDraft,
+  loadDraftWithBase,
   saveDraft,
   shouldOfferRestore,
   subscribeDraftAutosave,
@@ -88,10 +88,26 @@ export function VisualBuilderPage() {
   const [loadState, setLoadState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draftToRestore, setDraftToRestore] = useState<GraphDocument | null>(null);
+  // The server revision the offered draft was edited from (F1); null for a
+  // draft saved before that was recorded, whose age is unknown.
+  const [draftBase, setDraftBase] = useState<number | null>(null);
   // Whether the restore check below has run for this pipelineId. Autosave
   // waits for it (see the autosave effect).
   const [draftChecked, setDraftChecked] = useState(false);
   const [discardingDraft, setDiscardingDraft] = useState(false);
+  // Bumped by the save-conflict dialog's Reload (F1): re-runs the load below,
+  // replacing the local graph with the server's current copy.
+  const [reloadKey, setReloadKey] = useState(0);
+  const reloadFromServer = () => {
+    // The local draft is what is being discarded; left on disk it would
+    // offer itself straight back over the copy just loaded.
+    clearDraft(pipelineId)
+      .catch(console.error)
+      .finally(() => {
+        useVisualStore.getState().resetDoc();
+        setReloadKey((k) => k + 1);
+      });
+  };
 
   // #251: the route started this fetch as it was entered (router.tsx), so it
   // is usually done or nearly done by now. A copy held from an earlier visit
@@ -186,7 +202,7 @@ export function VisualBuilderPage() {
         return;
       }
       unsubscribe();
-      saveDraft(pipelineId, doc).catch(console.error);
+      saveDraft(pipelineId, doc, state.pipelineRevision).catch(console.error);
       setDraftToRestore(null);
     });
     return unsubscribe;
@@ -203,11 +219,14 @@ export function VisualBuilderPage() {
   useEffect(() => {
     if (pipelineId !== 'new' && loadState !== 'idle') return;
     let cancelled = false;
-    loadDraft(pipelineId)
+    loadDraftWithBase(pipelineId)
       .then((draft) => {
         if (cancelled) return;
         const current = useVisualStore.getState().doc;
-        if (shouldOfferRestore(draft, current)) setDraftToRestore(draft);
+        if (draft && shouldOfferRestore(draft.doc, current)) {
+          setDraftBase(draft.baseRevision);
+          setDraftToRestore(draft.doc);
+        }
       })
       .catch(console.error)
       .finally(() => {
@@ -289,6 +308,9 @@ export function VisualBuilderPage() {
         // the field the moment the proto/backend gain it, and safely finds
         // nothing (undefined) until then.
         const rawWizardState = (pipeline as unknown as { wizardState?: unknown }).wizardState;
+        // The revision this graph is loaded at, which Save sends back as
+        // expected_revision (F1).
+        useVisualStore.getState().setPipelineRevision(pipeline.revision);
         if (isWellFormedGraphDocument(rawWizardState)) {
           useVisualStore.getState().importGraph(rawWizardState);
           useVisualStore.getState().setPipelineMeta(pipeline.name, pipeline.matchers);
@@ -323,7 +345,8 @@ export function VisualBuilderPage() {
     return () => {
       cancelled = true;
     };
-  }, [pipelineId, orgId, orgs, setOrgId]);
+    // reloadKey: not read inside — bumping it is how Reload re-runs this load.
+  }, [pipelineId, orgId, orgs, setOrgId, reloadKey]);
 
   if (pipelineId !== 'new' && loadState === 'loading') {
     return (
@@ -355,15 +378,30 @@ export function VisualBuilderPage() {
           className='shrink-0 px-4 py-2 bg-yellow-50 border-b border-yellow-300 text-xs flex items-center gap-3'
         >
           <span>An unsaved draft was found for this pipeline — restore it or discard it?</span>
+          {/* A draft from before base revisions were recorded may predate the
+              saved pipeline; restoring it is then the person's explicit call,
+              and its save is checked against the copy loaded now. */}
+          {pipelineId !== 'new' && draftBase === null && (
+            <span data-testid='draft-restore-age-warning' className='font-medium'>
+              This draft may be older than the saved pipeline — restoring and saving it replaces the
+              current version.
+            </span>
+          )}
           <button
             data-testid='draft-restore'
             className='underline font-medium'
             onClick={() => {
+              // F1: the draft's edits started from its base revision, so its
+              // save is checked against that — a server copy that has moved
+              // on since then is a conflict, not an overwrite.
+              if (draftBase !== null && pipelineId !== 'new') {
+                useVisualStore.getState().setPipelineRevision(draftBase);
+              }
               useVisualStore.getState().importGraph(draftToRestore);
               setDraftToRestore(null);
             }}
           >
-            Restore draft
+            {pipelineId !== 'new' && draftBase === null ? 'Restore draft anyway' : 'Restore draft'}
           </button>
           <button
             data-testid='draft-discard'
@@ -389,7 +427,7 @@ export function VisualBuilderPage() {
           </button>
         </div>
       )}
-      <Toolbar pipelineId={pipelineId} />
+      <Toolbar pipelineId={pipelineId} onReload={reloadFromServer} />
       <div className='flex flex-1 min-h-0 overflow-hidden'>
         <Palette />
         <CanvasPane />

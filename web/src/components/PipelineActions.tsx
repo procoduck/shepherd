@@ -8,12 +8,12 @@ import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
 import type { Pipeline } from '@/gen/shepherd/mgmt/v1/pipeline_pb';
 
 /**
- * Enable/Disable and Delete on the pipeline page (#252): the same RPCs and
- * the same `canWrite` gate the Pipelines list uses. A team member, whose
- * write reach comes only from owning a pipeline, sees neither — exactly as on
- * the list: /api/me cannot say what their team owns, and the server
- * (auth.AuthorizeOwnership) has the final say either way. Without write
- * access the enabled state is shown as text.
+ * Enable/Disable and Delete on the pipeline page (#252): the same RPCs the
+ * Pipelines list uses, gated the same way — on `canWrite`, which the page sets
+ * from the pipeline's own can_edit (F3): the server's ownership answer, so a
+ * member of the owning team gets both even as an org viewer. The server
+ * (auth.AuthorizeOwnership) still has the final say. Without write access the
+ * enabled state is shown as text.
  *
  * `queryOrgId` is the org the page's queries are keyed on; `orgId` is the
  * pipeline's own org, sent with the RPCs.
