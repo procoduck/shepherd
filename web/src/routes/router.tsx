@@ -1,5 +1,6 @@
 import { createRootRoute, createRoute, createRouter, Outlet } from '@tanstack/react-router';
 import { type JSX, Suspense } from 'react';
+import { NotFoundPage } from '@/components/NotFoundPage';
 import type { PipelineLandedFrom } from '@/components/PipelineLandingBanner';
 import { RequireRole } from '@/components/RequireRole';
 import { RouteErrorFallback } from '@/components/RouteErrorFallback';
@@ -92,6 +93,11 @@ const shellRoute = createRoute({
 const contentRoute = createRoute({
   getParentRoute: () => shellRoute,
   id: 'content',
+  // A URL that partly matches a route below (an extra segment after
+  // /pipelines/$id, a notFound() thrown by a page) renders its 404 here,
+  // inside the shell (B7). A URL matching nothing at all never reaches this
+  // pathless layout — see notFoundRoute.
+  notFoundComponent: NotFoundPage,
   component: () => (
     <div className='h-full overflow-y-auto'>
       <div className='max-w-[1400px] mx-auto px-6 py-6'>
@@ -99,6 +105,19 @@ const contentRoute = createRoute({
       </div>
     </div>
   ),
+});
+
+// B7 (2026-10-09 walkthrough): a URL no route matches used to render the
+// router's bare "Not Found" in place of the whole app — no header, no
+// navigation, only the address bar as a way back. The router's fuzzy
+// not-found mode cannot help there: with nothing matched beyond the root,
+// the pathless shell and content layouts are not in the match, so their
+// notFoundComponent is never consulted. This catch-all ranks below every
+// real route and renders the 404 inside both layouts instead.
+const notFoundRoute = createRoute({
+  getParentRoute: () => contentRoute,
+  path: '$',
+  component: NotFoundPage,
 });
 
 const overviewRoute = createRoute({
@@ -310,6 +329,7 @@ const routeTree = rootRoute.addChildren([
       adminUsersRoute,
       adminAuthRoute,
       auditRoute,
+      notFoundRoute,
     ]),
     // Full-bleed canvas routes bypass contentRoute (see contentRoute comment).
     visualNewRoute,

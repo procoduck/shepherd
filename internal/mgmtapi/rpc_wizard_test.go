@@ -217,18 +217,74 @@ var _ = Describe("shepherd.mgmt.v1.WizardService", Label("integration"), func() 
 			return out
 		}
 
-		// Self-monitoring always declares role="singleton": no collector here has it.
-		out := render(map[string]any{"metrics_dest_name": "mimir", "logs_enabled": false, "cluster_pattern": "prod-.*"})
+		// role="singleton", chosen explicitly: no collector here has it.
+		state := map[string]any{"metrics_dest_name": "mimir", "logs_enabled": false, "cluster_pattern": "prod-.*", "role": "singleton"}
+		out := render(state)
 		Expect(out["matchedCollectors"]).To(BeNil())
 		Expect(fmt.Sprint(out["warnings"])).To(ContainSubstring(
 			`Matches no collector yet: no collector in this org matches cluster=~"prod-.*", role="singleton"`))
 
-		// A matching collector: no such warning.
-		_, err = st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "singleton"})
+		// A matching collector that has connected: no such warning.
+		singleton, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "singleton"})
 		Expect(err).NotTo(HaveOccurred())
-		out = render(map[string]any{"metrics_dest_name": "mimir", "logs_enabled": false, "cluster_pattern": "prod-.*"})
+		_, err = st.Queries.UpsertCollectorInstance(ctx, sqlc.UpsertCollectorInstanceParams{
+			ID: "singleton-1", CollectorID: singleton.ID, Name: "singleton-1", LocalAttributes: json.RawMessage(`{}`),
+		})
+		Expect(err).NotTo(HaveOccurred())
+		out = render(state)
 		Expect(out["matchedCollectors"]).To(HaveLen(1))
 		Expect(fmt.Sprint(out["warnings"])).NotTo(ContainSubstring("Matches no collector"))
+		Expect(fmt.Sprint(out["warnings"])).NotTo(ContainSubstring("never connected"))
+	})
+
+	// B5 (2026-10-09 walkthrough): "Matches 1 collector: prod-eu-1 /
+	// singleton" counted a collector row nothing had ever connected as (no
+	// instance, status UNKNOWN), and that one row suppressed the zero-match
+	// warning. It still counts — it is matched the moment it connects — but
+	// a preview whose every match has never connected now says so.
+	It("warns when every matched collector has never connected, and stops once one has", func() {
+		oid := mustUUID(orgID)
+		cluster, err := st.Queries.UpsertCluster(ctx, "prod-eu-1")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: oid})).To(Succeed())
+		// Two singleton-matching collectors, neither ever connected: rows only.
+		staging, err := st.Queries.UpsertCluster(ctx, "prod-us-1")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: staging.ID, OrgID: oid})).To(Succeed())
+		eu, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "singleton"})
+		Expect(err).NotTo(HaveOccurred())
+		_, err = st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: staging.ID, Role: "singleton"})
+		Expect(err).NotTo(HaveOccurred())
+
+		render := func() map[string]any {
+			resp := postConnectJSON(server, "/shepherd.mgmt.v1.WizardService/RenderWizard", adminCookie, map[string]any{
+				"org_id": orgID, "kind": "self-monitoring", "name": "wizard-render-unconnected",
+				"state": map[string]any{
+					"metrics_dest_name": "mimir", "logs_enabled": false, "cluster_pattern": "prod-.*", "role": "singleton",
+				},
+			})
+			defer resp.Body.Close() //nolint:errcheck // test cleanup
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			var out map[string]any
+			Expect(json.NewDecoder(resp.Body).Decode(&out)).To(Succeed())
+			return out
+		}
+
+		out := render()
+		Expect(out["matchedCollectors"]).To(HaveLen(2), "a never-connected collector still counts as a match")
+		warnings := fmt.Sprint(out["warnings"])
+		Expect(warnings).To(ContainSubstring(
+			"Matches only collectors that have never connected: prod-eu-1 / singleton, prod-us-1 / singleton."))
+		Expect(warnings).NotTo(ContainSubstring("Matches no collector"))
+
+		// One of them connects: the pipeline is served somewhere, so no warning.
+		_, err = st.Queries.UpsertCollectorInstance(ctx, sqlc.UpsertCollectorInstanceParams{
+			ID: "eu-1", CollectorID: eu.ID, Name: "eu-1", LocalAttributes: json.RawMessage(`{}`),
+		})
+		Expect(err).NotTo(HaveOccurred())
+		out = render()
+		Expect(out["matchedCollectors"]).To(HaveLen(2))
+		Expect(fmt.Sprint(out["warnings"])).NotTo(ContainSubstring("never connected"))
 	})
 
 	// An org with no collectors at all is not a pattern problem: telling the

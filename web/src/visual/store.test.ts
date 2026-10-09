@@ -744,6 +744,25 @@ describe('schema_version follows the served schema, never a literal', () => {
     }
   });
 
+  // B4 (2026-10-09 walkthrough): a brand-new builder asked "leave page?" on
+  // reload with nothing edited — stamping the served version onto the fresh
+  // doc changed its fingerprint away from the one recorded before the schema
+  // arrived, so isDirty() was true for an untouched graph.
+  it('stamping the served version onto an untouched document does not make it dirty', () => {
+    useVisualStore.getState().importGraph(emptyGraphAt(''));
+    expect(useVisualStore.getState().isDirty()).toBe(false);
+    useVisualStore.getState().setSchema(schemaAt('1.19.2'));
+    expect(useVisualStore.getState().doc.schema_version).toBe('alloy-v1.19.2');
+    expect(useVisualStore.getState().isDirty()).toBe(false);
+  });
+
+  it('a document edited before the schema loads is still dirty after the stamp', () => {
+    useVisualStore.getState().importGraph(emptyGraphAt(''));
+    useVisualStore.getState().addNode('x', { x: 1, y: 1 });
+    useVisualStore.getState().setSchema(schemaAt('1.19.2'));
+    expect(useVisualStore.getState().isDirty()).toBe(true);
+  });
+
   it('a loaded graph keeps the version it was authored against, even when empty', () => {
     useVisualStore.getState().importGraph(emptyGraphAt('alloy-v1.12.0'));
     useVisualStore.getState().setSchema(schemaAt('1.19.2'));

@@ -147,6 +147,22 @@ export function WizardRunnerPage() {
     retry: (failureCount, err) => !isRenderRefusal(err) && failureCount < 2,
   });
 
+  // B5: the org's collectors, to mark a matched collector that has no
+  // connected instance. The match preview counts it — it is served the
+  // pipeline once it connects — but nothing said it was not there yet. Same
+  // query key as the Collectors and Overview pages, so it is usually cached.
+  const collectorsQuery = useQuery({
+    queryKey: ['collectors', orgId],
+    queryFn: () => clients.fleet.listCollectors({ orgId }),
+    enabled: !!orgId && isReview,
+  });
+  // A collector the list has, with no last-seen: no instance of it is
+  // connected (never was, or every one unregistered). One the list lacks, or
+  // a list still loading, is left unmarked rather than guessed at.
+  const unconnectedIds = new Set(
+    (collectorsQuery.data?.items ?? []).filter((c) => !c.lastSeen).map((c) => c.id),
+  );
+
   const commitMut = useMutation({
     mutationFn: () =>
       clients.wizard.commitWizard({ orgId, kind: KIND, name, state: form as JsonObject }),
@@ -288,6 +304,15 @@ export function WizardRunnerPage() {
                           {(renderQuery.data.matchedCollectors ?? []).map((c: MatchedCollector) => (
                             <li key={c.id}>
                               {c.cluster} / {c.role}
+                              {unconnectedIds.has(c.id) && (
+                                <span
+                                  data-testid='wizard-unconnected-collector'
+                                  title='No instance of this collector is connected. It receives the pipeline once one connects.'
+                                  className='ml-1.5 text-muted'
+                                >
+                                  — not connected yet
+                                </span>
+                              )}
                               {/* Role enforcement (G6) keeps the pipeline out of
                                   this collector's served config (M2). */}
                               {c.excludedReason && (

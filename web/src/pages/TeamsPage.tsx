@@ -188,7 +188,7 @@ export function TeamsPage() {
           <Users2 size={24} className='mx-auto mb-2 text-muted-3' />
           <p className='font-medium'>No teams</p>
           <p className='mt-1 text-muted-2'>
-            Pipelines with no owning team can be edited only by organisation administrators.
+            Pipelines with no owning team can be edited only by organisation admins and editors.
           </p>
         </div>
       ) : (
@@ -250,7 +250,7 @@ export function TeamsPage() {
       {deleteTeam && (
         <AdminConfirmDialog
           title='Delete team'
-          body={`Delete "${deleteTeam.name}"? Pipelines it owns are not deleted — they become unowned, editable only by organisation administrators.`}
+          body={`Delete "${deleteTeam.name}"? Pipelines it owns are not deleted — they become unowned, editable only by organisation admins and editors.`}
           confirmLabel='Delete'
           pendingLabel='Deleting…'
           pending={deleteMut.isPending}
@@ -356,8 +356,11 @@ function TeamMembersModal({
               >
                 <span className='text-sm'>
                   <span className='font-medium'>{m.login}</span>
-                  {m.displayName && (
-                    <span className='ml-2 text-xs text-muted-2'>{m.displayName}</span>
+                  {/* Named once when the display name is the login ("viewer"
+                      used to read "viewerviewer"), and set apart from it
+                      otherwise, the way the add picker below shows it. */}
+                  {m.displayName && m.displayName !== m.login && (
+                    <span className='text-xs text-muted-2'>{` — ${m.displayName}`}</span>
                   )}
                   {m.disabled && (
                     <span className={`ml-2 rounded px-1.5 py-0.5 text-2xs ${toneClass('danger')}`}>

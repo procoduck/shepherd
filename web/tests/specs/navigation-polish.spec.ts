@@ -179,3 +179,26 @@ test.describe('breadcrumbs name the item', () => {
     );
   });
 });
+
+// B7 (2026-10-09 walkthrough): an unknown route rendered a bare "Not Found"
+// with no header or navigation, so the only way back was the address bar.
+test.describe('an unknown route', () => {
+  for (const path of ['/no-such-page', '/admin/no-such-page', '/pipelines/pip-0001/no-such-view']) {
+    test(`${path} renders a 404 inside the app shell, with a way home`, async ({ page, api }) => {
+      await api.loginAs(reader);
+      const s = basicScenario();
+      api.seed({ orgs: [s.org], pipelines: s.pipelines, collectors: s.collectors });
+      await page.goto(path);
+
+      const notFound = page.getByTestId('not-found');
+      await expect(notFound).toBeVisible();
+      await expect(notFound).toContainText('Page not found');
+      // The shell is there: the header's org name and the sidebar navigation.
+      await expect(page.getByTestId('org-name')).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Pipelines' }).first()).toBeVisible();
+
+      await notFound.getByRole('link', { name: 'Go to the overview' }).click();
+      await expect(page).toHaveURL(/^http:\/\/localhost:\d+\/$/);
+    });
+  }
+});

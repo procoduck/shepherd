@@ -133,6 +133,19 @@ WHERE cl.org_id = $1
   AND ci.unregistered_at IS NULL
 ORDER BY ci.collector_id, ci.last_seen DESC NULLS LAST;
 
+-- name: ListConnectedCollectorIDsByOrg :many
+-- The org's collectors that have ever connected: any instance row at all,
+-- registered or since unregistered. A collector row is created by the agent
+-- path together with its first instance, so one with no instance row never
+-- connected — it was seeded, or every instance it had was swept after
+-- agent.delete_after. RenderWizard's match preview reads this to tell a
+-- match that is served today from one that only will be (B5).
+SELECT DISTINCT ci.collector_id
+FROM collector_instances ci
+JOIN collectors c ON c.id = ci.collector_id
+JOIN clusters cl ON cl.id = c.cluster_id
+WHERE cl.org_id = $1;
+
 -- name: ListCollectorInstancesByCollector :many
 -- All live (still-registered) instances reporting under a collector,
 -- newest last_seen first, for the collector detail view. status_hash and

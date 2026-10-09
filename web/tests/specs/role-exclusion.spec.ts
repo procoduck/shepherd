@@ -1,5 +1,5 @@
 import type { Route } from '@playwright/test';
-import { basicScenario, destination } from '../fixtures/factories';
+import { basicScenario, collector, destination } from '../fixtures/factories';
 import { appAdmin, orgEditor } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
 
@@ -114,4 +114,53 @@ test('the wizard Review step marks a matched collector its role excludes', async
   await expect(marker).toHaveCount(1);
   await expect(page.locator('li', { has: marker })).toContainText('prod-eu-1 / logs');
   await expect(marker).toContainText(REASON);
+});
+
+// B5 (2026-10-09 walkthrough): "Matches 1 collector: prod-eu-1 / singleton"
+// listed a collector nothing had ever connected as, with nothing to say so.
+// It still counts — it receives the pipeline when it connects — but the
+// Review list now marks it, from the collector list's own last-seen.
+test('the wizard Review step marks a matched collector that has no connected instance', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(appAdmin);
+  const s = basicScenario();
+  api.seed({
+    orgs: [s.org],
+    collectors: [
+      collector({ id: 'col-metrics', role: 'metrics', last_seen: '2026-10-09T08:00:00Z' }),
+      collector({ id: 'col-single', role: 'singleton' }),
+    ],
+    destinations: [destination({ id: 'dst-prom', name: 'prom-prod', type: 'prometheus' })],
+  });
+  api.override('POST', '/shepherd.mgmt.v1.WizardService/RenderWizard', (route) =>
+    fulfillJSON(route, {
+      contents: 'prometheus.scrape "app" {}\n',
+      matchers: ['cluster=~"prod-.*"'],
+      valid: true,
+      diagnostics: [],
+      matchedCollectors: [
+        { id: 'col-metrics', cluster: 'prod-eu-1', role: 'metrics' },
+        { id: 'col-single', cluster: 'prod-eu-1', role: 'singleton' },
+      ],
+      warnings: [],
+    }),
+  );
+
+  await page.goto('/wizards');
+  await page.getByRole('link', { name: /app observability|start|begin/i }).click();
+  await page.getByLabel('Metrics endpoint URL').fill('http://myapp:9090/metrics');
+  await page.getByLabel('Job label').fill('my-app');
+  await page.getByRole('button', { name: /next|continue/i }).click();
+  await page.getByRole('button', { name: /next|continue/i }).click();
+  await page.getByLabel('Metrics destination').selectOption('prom-prod');
+  await page.getByRole('button', { name: /next|continue/i }).click();
+  await page.getByRole('button', { name: /next|continue/i }).click();
+
+  await expect(page.getByTestId('wizard-match-preview')).toContainText('Matches 2 collectors');
+  const marker = page.getByTestId('wizard-unconnected-collector');
+  await expect(marker).toHaveCount(1);
+  await expect(page.locator('li', { has: marker })).toContainText('prod-eu-1 / singleton');
+  await expect(marker).toContainText('not connected yet');
 });

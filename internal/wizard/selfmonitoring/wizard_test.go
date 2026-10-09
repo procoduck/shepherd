@@ -2,6 +2,7 @@ package selfmonitoring_test
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 
@@ -26,11 +27,19 @@ var _ = Describe("SelfMonitoringWizard golden files", func() {
 	wiz, getErr := wizard.Default().Get("self-monitoring")
 	Expect(getErr).NotTo(HaveOccurred())
 
-	DescribeTable("rendered output matches golden file, passes Stage 1, and is checked to role=singleton",
+	// The role follows what the pipeline carries when the form leaves it on
+	// Auto (B6): metrics alone is checked to role=metrics, metrics and logs
+	// to role=singleton.
+	DescribeTable("rendered output matches golden file, passes Stage 1, and is checked to the role it carries",
 		func(fixtureName string, state map[string]any) {
 			result, err := wiz.Commit(state, wizardtest.Destinations())
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result.Role).To(Equal("singleton"))
+			wantRole := "singleton"
+			if state["logs_enabled"] == false {
+				wantRole = "metrics"
+			}
+			Expect(result.Role).To(Equal(wantRole))
+			Expect(result.Matchers).To(ContainElement(fmt.Sprintf("role=%q", wantRole)))
 
 			goldenPath := "testdata/" + fixtureName + ".golden.alloy"
 			goldenBytes, readErr := os.ReadFile(goldenPath)
@@ -68,6 +77,111 @@ var _ = Describe("SelfMonitoringWizard golden files", func() {
 			"cluster_pattern":   "prod-.*",
 		}),
 	)
+
+	// B6 (2026-10-09 walkthrough): the wizard forced role="singleton" even
+	// with log collection off, so it could not target a fleet split into
+	// metrics and logs collectors. It now mirrors App Observability (#289):
+	// an optional role field whose Auto choice follows the signals, an
+	// explicit choice checked against them, and the role matcher always
+	// emitted.
+	Describe("collector role", func() {
+		base := func() map[string]any {
+			return map[string]any{
+				"metrics_dest_name": "prom-prod", "logs_enabled": true,
+				"log_path": "/var/log/alloy/*.log", "logs_dest_name": "loki-prod",
+				"cluster_pattern": "prod-.*",
+			}
+		}
+
+		It("left on Auto, is singleton when logs are collected", func() {
+			result, err := wiz.Commit(base(), wizardtest.Destinations())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.Role).To(Equal("singleton"))
+			Expect(result.Matchers).To(Equal([]string{`cluster=~"prod-.*"`, `role="singleton"`}))
+		})
+
+		It("left on Auto, is metrics when log collection is off", func() {
+			state := base()
+			state["logs_enabled"] = false
+			result, err := wiz.Commit(state, wizardtest.Destinations())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.Role).To(Equal("metrics"))
+			Expect(result.Matchers).To(Equal([]string{`cluster=~"prod-.*"`, `role="metrics"`}))
+		})
+
+		It("left on Auto, is metrics when logs are asked for but no logs destination is named", func() {
+			state := base()
+			delete(state, "logs_dest_name")
+			result, err := wiz.Commit(state, wizardtest.Destinations())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.Contents).NotTo(ContainSubstring("loki.source.file"))
+			Expect(result.Role).To(Equal("metrics"))
+		})
+
+		It("keeps an explicit singleton with log collection off", func() {
+			state := base()
+			state["logs_enabled"] = false
+			state["role"] = "singleton"
+			result, err := wiz.Commit(state, wizardtest.Destinations())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.Role).To(Equal("singleton"))
+			Expect(result.Matchers).To(ContainElement(`role="singleton"`))
+		})
+
+		It("refuses role=metrics with logs, naming the fix rather than the role check", func() {
+			state := base()
+			state["role"] = "metrics"
+			_, err := wiz.Commit(state, wizardtest.Destinations())
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(`pick the "singleton" role, or turn off log collection`))
+			Expect(err.Error()).NotTo(ContainSubstring("does not match its declared role"))
+		})
+
+		It("refuses a role it does not offer, by name", func() {
+			state := base()
+			state["logs_enabled"] = false
+			state["role"] = "logs"
+			_, err := wiz.Commit(state, wizardtest.Destinations())
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(`role "logs" is not offered`))
+		})
+
+		It("offers metrics and singleton with no static default, so the form shows Auto", func() {
+			for _, step := range wiz.Schema().Steps {
+				for _, f := range step.Fields {
+					if f.Name == "role" {
+						Expect(f.Required).To(BeFalse())
+						Expect(f.Default).To(BeNil())
+						Expect(f.Options).To(Equal([]string{"metrics", "singleton"}))
+						return
+					}
+				}
+			}
+			Fail("no role field in the schema")
+		})
+
+		// Every offered role must be reachable by some valid state — the
+		// dead-end-option rule appobservability's spec of the same name pins.
+		It("commits at every role it offers", func() {
+			for _, step := range wiz.Schema().Steps {
+				for _, f := range step.Fields {
+					if f.Name != "role" {
+						continue
+					}
+					for _, role := range f.Options {
+						state := base()
+						state["logs_enabled"] = false
+						state["role"] = role
+						result, err := wiz.Commit(state, wizardtest.Destinations())
+						Expect(err).NotTo(HaveOccurred(), "role option %q is offered but nothing commits at it", role)
+						Expect(result.Role).To(Equal(role))
+					}
+					return
+				}
+			}
+			Fail("no role field in the schema")
+		})
+	})
 
 	It("requires metrics_dest_name", func() {
 		_, err := wiz.Commit(map[string]any{}, wizardtest.Destinations())
