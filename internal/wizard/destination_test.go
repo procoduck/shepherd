@@ -43,6 +43,43 @@ var writerGoldenCases = []struct {
 		Name: "loki-prod", Type: "loki", URL: "https://loki.example.com/loki/api/v1/push", AuthMode: wizard.AuthOAuth2Secret,
 		SecretNamespace: "monitoring", SecretName: "loki-oauth", OAuth2Scopes: []string{"api://loki/.default", "logs.write"},
 	}},
+	// #261: the destination's tenant_id.
+	{"writer-prometheus-basic-tenant", wizard.WriterPrometheus, "metrics", wizard.Destination{
+		Name: "prom-prod", Type: "prometheus", URL: "https://mimir.example.com/api/v1/push", AuthMode: wizard.AuthBasicSecret,
+		SecretNamespace: "monitoring", SecretName: "mimir-credentials", TenantID: "acme",
+	}},
+	{"writer-loki-tenant", wizard.WriterLoki, "logs", wizard.Destination{
+		Name: "loki-prod", Type: "loki", URL: "https://loki.example.com/loki/api/v1/push", AuthMode: wizard.AuthNone,
+		TenantID: "acme",
+	}},
+}
+
+// TestRenderWriterTenant pins the tenant contract (#261) rather than the
+// bytes: a tenant reaches the writer as the gateway's tenant header (or
+// loki.write's tenant_id attribute, which sets that header), and no tenant
+// means no tenant construct at all.
+func TestRenderWriterTenant(t *testing.T) {
+	for _, tc := range writerGoldenCases {
+		t.Run(tc.golden, func(t *testing.T) {
+			got, err := wizard.RenderWriter(tc.kind, tc.label, wizard.Destinations{tc.dest.Name: tc.dest}, tc.dest.Name)
+			if err != nil {
+				t.Fatalf("RenderWriter: %v", err)
+			}
+			if tc.dest.TenantID == "" {
+				if strings.Contains(got, "X-Scope-OrgID") || strings.Contains(got, "tenant_id") {
+					t.Fatalf("no tenant, but a tenant construct was rendered:\n%s", got)
+				}
+				return
+			}
+			want := `"X-Scope-OrgID" = "` + tc.dest.TenantID + `",`
+			if tc.kind == wizard.WriterLoki {
+				want = `tenant_id = "` + tc.dest.TenantID + `"`
+			}
+			if !strings.Contains(got, want) {
+				t.Fatalf("tenant %q not rendered as %q in:\n%s", tc.dest.TenantID, want, got)
+			}
+		})
+	}
 }
 
 func TestWriterGoldens(t *testing.T) {
@@ -167,6 +204,11 @@ func TestRenderWriterRefusals(t *testing.T) {
 		{"secret mode without namespace", wizard.WriterPrometheus, with(func(d *wizard.Destination) { d.SecretNamespace = "" }), "d", "secret_namespace"},
 		{"secret mode without name", wizard.WriterPrometheus, with(func(d *wizard.Destination) { d.SecretName = "" }), "d", "secret_name"},
 		{"secret name injection", wizard.WriterPrometheus, with(func(d *wizard.Destination) { d.SecretName = `x" }` }), "d", "secret_name"},
+		{"tenant outside Mimir's charset", wizard.WriterPrometheus, with(func(d *wizard.Destination) { d.TenantID = "acme/prod" }), "d", "tenant_id"},
+		{"tenant injection", wizard.WriterLoki, with(func(d *wizard.Destination) {
+			d.Type, d.TenantID = "loki", `a" }`
+		}), "d", "tenant_id"},
+		{"reserved tenant", wizard.WriterPrometheus, with(func(d *wizard.Destination) { d.TenantID = "__mimir_cluster" }), "d", "tenant_id"},
 		{"stored row did not load", wizard.WriterPrometheus, with(func(d *wizard.Destination) {
 			d.LoadErr = errors.New("extra.oauth2_scopes must be a list of strings")
 		}), "d", `destination "d": extra.oauth2_scopes`},

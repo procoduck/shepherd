@@ -1,0 +1,19 @@
+remote.kubernetes.secret "metrics_auth" {
+  namespace = "monitoring"
+  name      = "mimir-credentials"
+}
+
+prometheus.remote_write "metrics" {
+  endpoint {
+    name = "prom-prod"
+    url  = "https://mimir.example.com/api/v1/push"
+    headers = {
+      "X-Scope-OrgID" = "acme",
+    }
+
+    basic_auth {
+      username = convert.nonsensitive(remote.kubernetes.secret.metrics_auth.data["username"])
+      password = remote.kubernetes.secret.metrics_auth.data["password"]
+    }
+  }
+}

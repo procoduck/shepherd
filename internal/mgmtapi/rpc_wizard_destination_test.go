@@ -210,6 +210,8 @@ var _ = Describe("WizardService renders destination auth (#229)", Label("integra
 			"authMode": "oauth2_secret", "secretNamespace": "monitoring", "secretName": "creds",
 			"extra": map[string]any{"oauth2_scopes": "a b"},
 		}, "oauth2_scopes"),
+		Entry("a tenant outside Mimir's charset (#261)", map[string]any{"authMode": "none", "tenantId": "acme/prod"}, "tenant_id"),
+		Entry("a reserved tenant (#261)", map[string]any{"authMode": "none", "tenantId": "__mimir_cluster"}, "tenant_id"),
 	)
 
 	It("UpdateDestination applies the same refusal", func() {

@@ -99,6 +99,8 @@ export interface DestinationFormState {
   secretName: string;
   /** Space-separated; stored as extra.oauth2_scopes (a list). */
   scopes: string;
+  /** destinations.tenant_id: sent as X-Scope-OrgID when set (#261). */
+  tenantId: string;
 }
 
 export const EMPTY_FORM: DestinationFormState = {
@@ -109,7 +111,26 @@ export const EMPTY_FORM: DestinationFormState = {
   secretNamespace: '',
   secretName: '',
   scopes: '',
+  tenantId: '',
 };
+
+/**
+ * The tenant rule the server applies (gateway.ValidateTenantID, Grafana
+ * Mimir's documented charset): empty, or letters, digits and ! - _ . * ' ( ),
+ * at most 150 bytes, not `.`, `..` or `__mimir_cluster`. The server also
+ * refuses a tenant another org holds; only it can know that.
+ */
+export function validateTenant(tenant: string): string {
+  if (tenant === '') return '';
+  if (new TextEncoder().encode(tenant).length > 150) return 'At most 150 characters';
+  if (tenant === '.' || tenant === '..' || tenant === '__mimir_cluster') {
+    return `"${tenant}" is reserved`;
+  }
+  if (!/^[0-9a-zA-Z!\-_.*'()]+$/.test(tenant)) {
+    return "Letters, digits and ! - _ . * ' ( ) only — no slashes or spaces";
+  }
+  return '';
+}
 
 /**
  * The extra to send: the stored one with oauth2_scopes replaced by the form's
@@ -168,13 +189,16 @@ export function DestinationFormDialog({
 }) {
   const [form, setForm] = useState(initial);
   const [urlError, setUrlError] = useState('');
+  const [tenantError, setTenantError] = useState('');
   const secretMode = isSecretMode(form.authMode);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const err = validateUrl(form.url);
     setUrlError(err);
-    if (!err) onSubmit(form);
+    const tErr = validateTenant(form.tenantId.trim());
+    setTenantError(tErr);
+    if (!err && !tErr) onSubmit(form);
   }
 
   return (
@@ -213,6 +237,23 @@ export function DestinationFormDialog({
         </Field>
         <p className='-mt-2 text-2xs text-muted-3'>
           The full endpoint URL the collector writes to &mdash; Shepherd adds no path.
+        </p>
+        <Field label='Tenant ID' optional error={tenantError}>
+          <Input
+            value={form.tenantId}
+            onChange={(e) => {
+              setForm((f) => ({ ...f, tenantId: e.target.value }));
+              setTenantError('');
+            }}
+            onBlur={() => setTenantError(validateTenant(form.tenantId.trim()))}
+            mono
+            placeholder='acme'
+          />
+        </Field>
+        <p className='-mt-2 text-2xs text-muted-3'>
+          For a multi-tenant Mimir or Loki: wizard pipelines send it as{' '}
+          <code className='font-mono'>X-Scope-OrgID</code>. A new destination starts with your
+          organisation&rsquo;s tenant ID, if it has one; leave it empty to send no tenant.
         </p>
         <Field label='Auth mode'>
           <Select
