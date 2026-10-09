@@ -59,6 +59,20 @@ test('existing pipeline loads content into editor', async ({ page, api }) => {
   await expect(page.getByRole('button', { name: /Save/i })).toBeVisible();
 });
 
+// 2026-10-09 re-check: the "×" had no accessible name; the builder's
+// equivalent button is labelled "Remove matcher <matcher>".
+test('each matcher remove button is named after its matcher', async ({ page, api }) => {
+  await api.loginAs(orgEditor);
+  const s = basicScenario();
+  const p = pipeline({ id: 'pip-m', name: 'm-pipe', matchers: ['env="prod"', 'team="core"'] });
+  api.seed({ orgs: [s.org], pipelines: [p] });
+  await page.goto('/pipelines/pip-m');
+  await expect(page.getByTestId('pipeline-matcher-chip')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Remove matcher team="core"', exact: true }).click();
+  await expect(page.getByTestId('pipeline-matcher-chip')).toHaveCount(1);
+  await expect(page.getByTestId('pipeline-matcher-chip')).toContainText('env="prod"');
+});
+
 test('save button triggers save mutation', async ({ page, api }) => {
   await api.loginAs(appAdmin);
   const s = basicScenario();

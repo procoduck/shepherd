@@ -155,6 +155,10 @@ export function VisualBuilderPage() {
       setDraftToRestore(null);
     }
     prevPipelineIdRef.current = pipelineId;
+    // A fresh mount at /pipelines/new/visual keeps the store from the last
+    // builder visit; a new pipeline has no owning team, so no team-member
+    // edit right (canEdit) may linger from a previously opened one.
+    if (pipelineId === 'new') useVisualStore.getState().setPipelineCanEdit(false);
   }, [pipelineId]);
 
   // Persist the in-memory graph to IndexedDB as it's edited (design §4.4) —
@@ -311,6 +315,9 @@ export function VisualBuilderPage() {
         // The revision this graph is loaded at, which Save sends back as
         // expected_revision (F1).
         useVisualStore.getState().setPipelineRevision(pipeline.revision);
+        // Only what a read-only builder says depends on this (Toolbar's
+        // useReadOnlyReason); the builder itself stays role-gated.
+        useVisualStore.getState().setPipelineCanEdit(pipeline.canEdit);
         if (isWellFormedGraphDocument(rawWizardState)) {
           useVisualStore.getState().importGraph(rawWizardState);
           useVisualStore.getState().setPipelineMeta(pipeline.name, pipeline.matchers);

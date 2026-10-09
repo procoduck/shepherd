@@ -853,3 +853,16 @@ describe('readOnly (#226): a viewer cannot change the graph by any store path', 
     expect(useVisualStore.getState().doc.nodes.map((n) => n.id)).toEqual(['b']);
   });
 });
+
+// 2026-10-09 re-check: the loaded pipeline's own can_edit decides only what a
+// read-only builder says; it must not outlive the pipeline it came from.
+describe('pipelineCanEdit', () => {
+  it('starts false and is cleared by resetDoc', () => {
+    useVisualStore.getState().resetDoc();
+    expect(useVisualStore.getState().pipelineCanEdit).toBe(false);
+    useVisualStore.getState().setPipelineCanEdit(true);
+    expect(useVisualStore.getState().pipelineCanEdit).toBe(true);
+    useVisualStore.getState().resetDoc();
+    expect(useVisualStore.getState().pipelineCanEdit).toBe(false);
+  });
+});

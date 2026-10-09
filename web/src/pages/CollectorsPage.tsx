@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
 import { clients } from '@/api/transport';
 import { ConnectClusterDialog } from '@/components/ConnectClusterDialog';
@@ -83,6 +83,7 @@ const collectorColumns: DataTableColumn<Collector>[] = [
 
 export function CollectorsPage() {
   const orgId = useOrgId();
+  const navigate = useNavigate();
   const canAdminister = useCanAdminister();
   const [showConnect, setShowConnect] = useState(false);
   const [search, setSearch] = useState('');
@@ -183,6 +184,10 @@ export function CollectorsPage() {
                 rows={rows}
                 rowKey={(c) => c.id}
                 rowClassName='border-t border-border hover:bg-card/60 cursor-pointer'
+                rowProps={(c) => ({ 'data-testid': `collector-row-${c.id}` })}
+                // The row looked clickable and was not (2026-10-09 re-check):
+                // the cluster link stays the focusable way in.
+                onRowClick={(c) => navigate({ to: '/collectors/$id', params: { id: c.id } })}
               />
             </section>
           ))
