@@ -11,8 +11,9 @@
 > The 2026-10-08 pre-release walkthrough's low-severity findings and nits are filed as
 > #296–#310 (on the board, waves 1–3); they are listed only there, not repeated below.
 >
-> Baseline re-verified 2026-10-01 at the v0.14.0 release
-> (`42c5725`, chart 0.18.0) from the CI and release runs on that commit, not from a summary.
+> Baseline re-verified 2026-10-09 for v0.15.0 (commit `a367e66`, chart 0.19.0) from the CI runs
+> on that commit plus the 2026-10-09 pre-release walkthrough on the kind dev stack, not from a
+> summary.
 > Completed rounds live in `docs/archive/` — the history this ledger used to carry inline is
 > `docs/archive/completed-2026-09-11.md`. Do not start a second ledger.
 
@@ -22,7 +23,7 @@
 |---|---|
 | `docs/project-status.md` | this ledger — verified baseline, open bugs, unbuilt features, open follow-ups |
 | `docs/spec.md` | authoritative product/build specification (§ numbers referenced below) |
-| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. Holds `2026-10-01-destination-auth.md` (#229/#262, built, ships in v0.15.0) and `2026-10-06-destination-tenant-tls.md` (#261, in progress) |
+| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. Holds `2026-10-06-destination-tenant-tls.md` (#261, in progress; ships in v0.16.0). `2026-10-01-destination-auth.md` (#229/#262) shipped in v0.15.0 and is in `docs/archive/plans/` |
 | `docs/visual-builder-design-VB1.md` | visual builder design — M1–M8 built; §6.4 (S3) is the live spec for the sandbox feature (enabled by default in the Helm chart since v0.0.1) |
 | `docs/reviews/` | **live decision records only**: `canvas-framework-evaluation.md` (the React Flow decision and the controlled-mode contract `CanvasPane` depends on). Closed reviews move to `docs/archive/reviews/` |
 | `docs/dev-guide.md` | running the dev stack |
@@ -36,26 +37,27 @@
 
 ---
 
-## 1. Verified baseline (2026-10-01, v0.14.0)
+## 1. Verified baseline (2026-10-09, v0.15.0)
 
-Every row is a CI or release run on `42c5725` (the v0.14.0 release commit, PR #242) or the run that
-last exercised the surface, so the claim is checkable by run id rather than by trusting this table.
-`f16cf85` (#241) is the commit before it; the release commit changed only version pins, docs and
-the rebuilt bundle.
+Every row is a CI run on `a367e66` (#317, the last merge before the v0.15.0 release PR) or the run
+that last exercised the surface, so the claim is checkable by run id rather than by trusting this
+table. The release PR changes only version pins, docs and the rebuilt bundle; the release run
+(tag `v0.15.0`) is added to *History* below once it has run.
 
 | Check | Where it ran | Result |
 |---|---|---|
-| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 36846689076 (`42c5725`) | clean |
-| `golangci-lint` + config verify, all ten `make guards`, `helm lint` (incl. the dev-kind values), `scripts/repocheck` | CI `lint` + `guards` jobs, same run | 0 issues |
-| `go test ./...` with coverage (testcontainers Postgres) | CI `test` job, same run | green |
-| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job, run 36844426016 (`f16cf85`, #241 — the last web change) | clean |
-| Mocked Playwright (`make test-ui`) | CI `test-ui` job, same run (36844426016) | green |
-| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 36846689076 (`42c5725`) | green |
-| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml`, manual dispatch on `42c5725`, run 36846756199 — dispatched because the path filter skips it on push | green |
-| Kubernetes e2e, kind (`make e2e-k8s`) — incl. the server-only Service EndpointSlices check (#239) | `e2e-k8s.yml` on the release PR (#242), run 36845733118 | green |
-| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job, same manual dispatch (run 36846756199) | green (containment + run lifecycle) |
-| CodeQL (actions, go, javascript-typescript, python; `security-extended`) | `codeql.yml` on `42c5725`, run 36846689169 | green |
-| Release: verify job, goreleaser, image attestations, chart OCI push, `scan-published` | `release.yml`, run 36850745268 | success — chart 0.18.0 / appVersion 0.14.0 pullable, images `ghcr.io/procoduck/shepherd:0.14.0` and `shepherd-simulator:0.14.0` present, SLSA v1 provenance verified (`gh attestation verify --format json`), `scan-published` green for both images |
+| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 37904225712 (`a367e66`) | clean (Go 1.27.2, x/net v0.60.0 — #315) |
+| `golangci-lint` + config verify, all ten `make guards`, `helm lint` (incl. the dev-kind values), `scripts/repocheck`, generated-code drift | CI `lint` + `guards` + `generated-drift` jobs, same run | 0 issues |
+| `go test ./...` with coverage (testcontainers Postgres), incl. every wizard golden loaded by a real Alloy v1.20.1 | CI `test` job, same run | green |
+| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job, same run | clean |
+| Mocked Playwright (`make test-ui`) | CI `test-ui` job, same run | green |
+| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, same run | green |
+| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml` on push of `bbc9f5e` (#316), run 37900766810 — the last commit its path filter selected | green |
+| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job, manual dispatch on `fcb8b17` (#314), run 37865881421 | green (containment + run lifecycle) |
+| Kubernetes e2e, kind (`make e2e-k8s`) — incl. destination Secret auth through a real Alloy (#260) | `e2e-k8s.yml`, manual dispatch on `fcb8b17`, run 37865879292 | green |
+| CodeQL (actions, go, javascript-typescript, python; `security-extended`) | `codeql.yml` on `a367e66`, run 37904225746 | green |
+| gitleaks, Trivy config + image scans, OpenSSF Scorecard | `security-scan.yml` on `a367e66`, run 37904225704 | green |
+| Manual walkthrough on the kind dev stack (Playwright MCP) | 2026-10-09 on `fcb8b17` | its findings (F1–F3, B4–B7) fixed in #316, #317 and #318, all in `a367e66` |
 
 ### What demonstrably works end to end
 
@@ -118,6 +120,13 @@ the manual end-to-end pass the list above records. Re-walk them on the next rele
   (#231); the gate refuses list-shape wires `alloy validate` accepts (#241) and reports a skipped
   stage (#235); chart server selectors exclude the sandbox (#239, chart 0.18.0); git sync single
   leader (#220); every write audited (#215); walkthrough UI fixes (#214–#228).
+- **v0.15.0** — destination Secret auth rendered into wizard writers and proven through a real
+  Alloy (#260); destination edits regenerate wizard pipelines, with a render fingerprint, Detach
+  and Restore last wizard version (#263–#265, #291, migrations `0030`/`0031`); wizard output a
+  running Alloy refused or that collected nothing (#287, #289, #293); APPLYING until the served
+  config is loaded (#286); diagnostics in the user's coordinates (#316); stale-save refusal and
+  per-pipeline `can_edit` (#317); Kubernetes 1.32 floor (#270); Go 1.27.2 (#315). Walked on kind
+  2026-10-08 and 2026-10-09 before the tag.
 
 ### History
 
@@ -139,6 +148,8 @@ remediation with its D1–D14 decisions, and the v0.5.0 dependency and toolchain
   release run 36700640070.
 - 2026-10-01 — v0.14.0 (walkthrough round: trustworthy collector status, stricter gate, chart
   selectors), chart 0.18.0, release run 36850745268.
+- 2026-10-09 — v0.15.0 (destination auth and re-render, two pre-release walkthroughs, Go 1.27.2),
+  chart 0.19.0; release run to be recorded after the tag.
 
 ---
 
@@ -162,16 +173,18 @@ compose-only.
 
 Fixed bugs (B-CONTAIN-1, B-CONCAT, B-STAGEORDER, F9-a) are in
 `docs/archive/completed-2026-09-11.md` with their red-run evidence. B-VIEWER-CANVAS (#226, a
-viewer's canvas and inspector stayed editable) is fixed on `main`, unreleased — `CHANGELOG.md`
-Unreleased.
+viewer's canvas and inspector stayed editable) shipped fixed in v0.15.0 (#256).
 
 **2026-10-08 pre-release walkthrough** (kind dev stack, Playwright MCP): four high and six medium
-findings, all fixed before v0.15.0 is tagged — the builder save landing on stale data (H1), App
+findings, all fixed in v0.15.0 — the builder save landing on stale data (H1), App
 Observability scrape targets and log globs that collected nothing (H2, H3), the Database Metrics DSN
 read from an environment variable nothing set (H4), and M1–M6 (Review-step errors, role-excluded
 pipelines surfaced, actionable destination refusals, the kind agents' RBAC, editor diagnostics,
 server-side form validation). PRs #288–#295 and follow-ups; `CHANGELOG.md` v0.15.0 has the list.
-The low findings and nits are issues #296–#310.
+The low findings and nits are issues #296–#310. A second pass on 2026-10-09 (`fcb8b17`) found
+four lows (an untouched builder graph counted as dirty, never-connected collectors counted as live
+matches, Self Monitoring's fixed role, no in-app 404), fixed in #318, plus the stale-tab overwrite
+and team edit rights fixed in #317 and diagnostics one line off fixed in #316.
 
 ---
 
@@ -188,10 +201,12 @@ the contributing set.
 #261. `wizard.RenderWriter` emits a destination's URL and Secret auth only: `destinations.tenant_id`
 is stored and ignored (the #229 bug class), and there is no way to trust a private CA or present a
 client certificate, so multi-tenant Mimir/Loki and private-CA backends need hand-written pipelines.
-Design approved 2026-10-06, being built in five PRs: `docs/plans/2026-10-06-destination-tenant-tls.md`
-(§9 decisions, §10 sequence) — tenant from the destination (refused if it is another org's), TLS
-material read on the collector from a Secret/ConfigMap (`ca.crt` or an overridden CA key, `tls.crt`,
-`tls.key`), no `insecure_skip_verify`, operator-triggered rollout of stored tenants.
+Design approved 2026-10-06, built in five PRs: `docs/plans/2026-10-06-destination-tenant-tls.md`
+(§9 decisions, §10 sequence). Step 1 (#273, one undecodable destination no longer breaks the org's
+wizard renders) shipped in v0.15.0; the rest ships in v0.16.0 (#277/#280/#281/#282 drafts):
+tenant from the destination (refused if it is another org's), TLS material read on the collector
+from a Secret/ConfigMap (`ca.crt` or an overridden CA key, `tls.crt`, `tls.key`), no
+`insecure_skip_verify`, operator-triggered rollout of stored tenants.
 
 All gateway-tier workstreams (W1–W11) and attribute-based matching (#139) have shipped — the last
 of them in v0.12.0: the receiver tier (#109, opt-in, R3 signed), tenant-route apply, onboarding
@@ -202,8 +217,8 @@ F-REVISIONS closed — see `CHANGELOG.md` v0.6.0 "Pipelines — Shipped"; its pl
 `docs/archive/plans/2026-09-11-f-revisions.md`.
 F-DEST-AUTH closed (#229): wizard writers render a `basic_secret` / `oauth2_secret` destination's
 auth from its Kubernetes Secret (`remote.kubernetes.secret`, key contract in `docs/spec.md` §11.4),
-proven end to end by `e2e/k8s/destination_auth_test.go`. See `CHANGELOG.md` Unreleased; plan in
-`docs/plans/2026-10-01-destination-auth.md`. Its follow-up #262 is built: a destination update
+proven end to end by `e2e/k8s/destination_auth_test.go`. Shipped in v0.15.0 (`CHANGELOG.md`); plan in
+`docs/archive/plans/2026-10-01-destination-auth.md`. Its follow-up #262 shipped with it: a destination update
 re-renders the wizard pipelines that name it (same transaction, full gate), `DeleteDestination`'s
 in-use guard matches the stored name, and `shepherd admin rerender-destinations` converts pre-#229
 pipelines once (operator step, `UPGRADING.md` 0.18.x → 0.19.0).
@@ -265,7 +280,7 @@ In rough priority order; closed items stay in place, marked with the release tha
 - [x] **UX polish from the 2026-09-30 walkthrough** (#212, closed 2026-10-01) — part shipped in
       v0.14.0 (#219/#223/#225/#227); the rest was split into #249–#253 (inline form errors, the
       post-login redirect, the builder toolbar, pipeline heading/enable/delete/owner team, nits),
-      all closed and shipping in v0.15.0.
+      all closed and shipped in v0.15.0.
 
 - [x] **`ValidatePipeline` stays open to org readers** (decided 2026-09-28). Its Connect interceptor
       row is `auth.RoleOrgReader`: a reader can validate pipeline text, which writes nothing apart
