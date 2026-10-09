@@ -367,8 +367,7 @@ func (r *Reconciler) syncFile(ctx context.Context, link sqlc.RepoLink, file gitr
 	// construction (New) but never referenced here before this change —
 	// every synced file passed on Stage 1 syntax alone, regardless of
 	// whether it would actually validate.
-	wrapped := validate.WrapForValidation(name, contents)
-	if result := r.validator.Stages12(ctx, wrapped); !result.Valid {
+	if result := r.validator.ValidatePipeline(ctx, name, contents); !result.Valid {
 		return fmt.Errorf("validation errors in %s: %v", file.Path, result.Diagnostics)
 	}
 

@@ -133,8 +133,7 @@ func (s *WizardService) RenderWizard(ctx context.Context, req *connect.Request[m
 	if name == "" {
 		name = "preview"
 	}
-	wrapped := validate.WrapForValidation(name, result.Contents)
-	valResult := s.validator.Stages12(ctx, wrapped)
+	valResult := s.validator.ValidatePipeline(ctx, name, result.Contents)
 
 	candidate := merge.Pipeline{
 		ID:       name,
@@ -254,8 +253,7 @@ func (s *WizardService) CommitWizard(ctx context.Context, req *connect.Request[m
 	// field value that breaks Alloy syntax, like a quote in a scrape URL)
 	// could be committed straight through. The wizard stays disabled-on-create
 	// (Enabled: false below), so Stage 3 is EnablePipeline's job, same as today.
-	wrapped := validate.WrapForValidation(req.Msg.GetName(), result.Contents)
-	if valResult := s.validator.Stages12(ctx, wrapped); !valResult.Valid {
+	if valResult := s.validator.ValidatePipeline(ctx, req.Msg.GetName(), result.Contents); !valResult.Valid {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, &pipelineValidationError{Diagnostics: valResult.Diagnostics})
 	}
 
