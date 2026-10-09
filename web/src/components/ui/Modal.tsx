@@ -133,6 +133,7 @@ export function ModalActions({
   pending,
   danger,
   submitTestId,
+  submitDisabled,
   error,
 }: {
   onCancel: () => void;
@@ -141,7 +142,9 @@ export function ModalActions({
   pending: boolean;
   danger?: boolean;
   submitTestId?: string;
-  error?: string | null;
+  /** Submit unavailable for a reason other than pending (data still loading). */
+  submitDisabled?: boolean;
+  error?: ReactNode;
 }) {
   return (
     <>
@@ -156,7 +159,7 @@ export function ModalActions({
         </button>
         <button
           type='submit'
-          disabled={pending}
+          disabled={pending || submitDisabled}
           data-testid={submitTestId}
           className={`rounded-md px-4 py-1.5 text-sm text-white disabled:opacity-50 ${
             danger ? 'bg-red-600 hover:bg-red-500' : 'bg-indigo-600 hover:bg-indigo-500'

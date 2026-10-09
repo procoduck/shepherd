@@ -3,23 +3,48 @@ package mgmtapi_test
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	"shepherd/internal/auth"
 	"shepherd/internal/config"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 )
+
+// detailPipelines decodes the pipelines a refusal carries as its
+// google.protobuf.Struct Connect error detail (withPipelinesDetail) into
+// name → id. It fails the spec when the detail is missing.
+func detailPipelines(out map[string]any) map[string]string {
+	details, _ := out["details"].([]any) //nolint:errcheck // asserted below
+	Expect(details).To(HaveLen(1), "%v", out)
+	d, _ := details[0].(map[string]any) //nolint:errcheck // asserted below
+	Expect(d["type"]).To(Equal("google.protobuf.Struct"))
+	value, _ := d["value"].(string) //nolint:errcheck // a missing value fails the decode below
+	raw, err := base64.RawStdEncoding.DecodeString(strings.TrimRight(value, "="))
+	Expect(err).NotTo(HaveOccurred())
+	st := &structpb.Struct{}
+	Expect(proto.Unmarshal(raw, st)).To(Succeed())
+	got := map[string]string{}
+	for _, v := range st.GetFields()["pipelines"].GetListValue().GetValues() {
+		f := v.GetStructValue().GetFields()
+		got[f["name"].GetStringValue()] = f["id"].GetStringValue()
+	}
+	return got
+}
 
 // sha256Hex is the render fingerprint of contents (0030).
 func sha256Hex(contents string) string {
@@ -246,6 +271,11 @@ var _ = Describe("Destination changes reach wizard pipelines (#262)", Label("int
 			Expect(out["code"]).To(Equal("failed_precondition"))
 			Expect(out["message"]).To(ContainSubstring(`"self-mon"`))
 			Expect(out["message"]).To(ContainSubstring("needs a prometheus destination"))
+			// M4 (2026-10-08 walkthrough): the refusal names actions that exist.
+			Expect(out["message"]).To(ContainSubstring("change the destination so it can be regenerated"))
+			Expect(out["message"]).To(ContainSubstring("detach it from the wizard or delete it"))
+			Expect(out["message"]).NotTo(ContainSubstring("re-run"))
+			Expect(detailPipelines(out)).To(Equal(map[string]string{"self-mon": used.ID.String()}))
 
 			d, err := st.Queries.GetDestinationByID(ctx, mimir.ID)
 			Expect(err).NotTo(HaveOccurred())
@@ -291,6 +321,7 @@ var _ = Describe("Destination changes reach wizard pipelines (#262)", Label("int
 			Expect(out["message"]).To(ContainSubstring(`"broken-app"`))
 			Expect(out["message"]).To(ContainSubstring("stage 1"))
 			Expect(out["message"]).NotTo(ContainSubstring("edited by hand"))
+			Expect(out["message"]).To(ContainSubstring("detach it from the wizard or delete it"))
 
 			d, err := st.Queries.GetDestinationByID(ctx, mimir.ID)
 			Expect(err).NotTo(HaveOccurred())
@@ -394,8 +425,13 @@ var _ = Describe("Destination changes reach wizard pipelines (#262)", Label("int
 			Expect(out["code"]).To(Equal("failed_precondition"))
 			Expect(out["message"]).To(ContainSubstring(`"self-mon"`))
 			Expect(out["message"]).To(ContainSubstring("edited by hand"))
-			Expect(out["message"]).To(ContainSubstring("re-run its wizard"))
-			Expect(out["message"]).To(ContainSubstring(`"Detach from wizard"`))
+			// M4 (2026-10-08 walkthrough): it used to say "re-run its wizard",
+			// which the UI cannot do (running the wizard again creates a NEW
+			// pipeline). It names the three actions the pipeline page offers.
+			Expect(out["message"]).To(ContainSubstring("restore its last wizard-generated revision, detach it from the wizard, or delete it"))
+			Expect(out["message"]).NotTo(ContainSubstring("re-run"))
+			// The UI links the pipeline from this detail, not the message.
+			Expect(detailPipelines(out)).To(Equal(map[string]string{"self-mon": used.ID.String()}))
 
 			d, err := st.Queries.GetDestinationByID(ctx, mimir.ID)
 			Expect(err).NotTo(HaveOccurred())
@@ -404,6 +440,108 @@ var _ = Describe("Destination changes reach wizard pipelines (#262)", Label("int
 			Expect(revisions(used.ID)).To(HaveLen(2), "created + the hand edit, nothing more")
 			Expect(auditRows(org, "pipeline.rerender")).To(BeEmpty())
 			Expect(auditRows(org, "destination.update")).To(BeEmpty())
+		})
+
+		// M4: the first action the refusal names must actually clear it.
+		// Restoring the last wizard-generated revision (here #1, "created")
+		// through the existing RestoreRevision puts back the text the
+		// wizard wrote, and the same destination update then goes through.
+		It("is cleared by restoring the last wizard-generated revision, as the refusal says", func() {
+			mimir := createDest(org, "mimir", "prometheus", oldURL)
+			used := commitSelfMonitoring(org, "self-mon", "mimir")
+			code, out := call("PipelineService/UpdatePipeline", map[string]any{
+				"orgId": org.String(), "id": used.ID.String(), "name": used.Name,
+				"contents": used.Contents + "\n// tuned by hand\n", "matchers": []string{`role="singleton"`},
+			})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			code, out = updateDest(mimir, map[string]any{"url": newURL})
+			Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
+			Expect(out["message"]).To(ContainSubstring("restore its last wizard-generated revision"))
+
+			code, out = call("PipelineService/RestoreRevision", map[string]any{
+				"orgId": org.String(), "id": used.ID.String(), "revision": 1,
+			})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			Expect(pipeline(used.ID).Contents).To(Equal(used.Contents))
+
+			code, out = updateDest(mimir, map[string]any{"url": newURL})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			Expect(pipeline(used.ID).Contents).To(ContainSubstring(newURL))
+		})
+
+		// The cross-version case (review of #291): the wizard revision being
+		// restored was rendered by an OLDER wizard template (#289 changed two
+		// wizards' output), so a fresh render today does not reproduce it.
+		// The restore must re-attach the pipeline through the revision's own
+		// fingerprint (0031), not fall back to a fresh-render comparison.
+		// Red run (before 0031): RestoreRevision wrote a NULL fingerprint,
+		// the fallback compared against today's render, and the second
+		// destination update was refused as hand-edited again.
+		It("is cleared by restoring a wizard revision an older template rendered", func() {
+			mimir := createDest(org, "mimir", "prometheus", oldURL)
+			used := commitSelfMonitoring(org, "self-mon", "mimir")
+			older := used.Contents + "\n// as an older template rendered it\n"
+			// Revision 1 and the row as the older wizard wrote them.
+			_, err := st.Pool().Exec(ctx, `UPDATE pipelines SET contents = $2, wizard_render_sha256 = $3 WHERE id = $1`,
+				used.ID, older, sha256Hex(older))
+			Expect(err).NotTo(HaveOccurred())
+			_, err = st.Pool().Exec(ctx, `UPDATE pipeline_revisions SET contents = $2, wizard_render_sha256 = $3 WHERE pipeline_id = $1 AND revision = 1`,
+				used.ID, older, sha256Hex(older))
+			Expect(err).NotTo(HaveOccurred())
+
+			code, out := call("PipelineService/UpdatePipeline", map[string]any{
+				"orgId": org.String(), "id": used.ID.String(), "name": used.Name,
+				"contents": older + "// tuned by hand\n", "matchers": []string{`role="singleton"`},
+			})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			code, out = updateDest(mimir, map[string]any{"url": newURL})
+			Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
+			Expect(out["message"]).To(ContainSubstring("edited by hand"))
+
+			code, out = call("PipelineService/RestoreRevision", map[string]any{
+				"orgId": org.String(), "id": used.ID.String(), "revision": 1,
+			})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			got := pipeline(used.ID)
+			Expect(got.Contents).To(Equal(older))
+
+			code, out = updateDest(mimir, map[string]any{"url": newURL})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			Expect(revisions(used.ID)[1].WizardRenderSha256.String).To(Equal(sha256Hex(older)), "the restore re-attached the wizard fingerprint")
+			got = pipeline(used.ID)
+			Expect(got.Contents).To(ContainSubstring(newURL))
+			Expect(got.Contents).NotTo(ContainSubstring("older template"))
+		})
+
+		It("stamps every revision with the fingerprint its pipeline had when it was written", func() {
+			mimir := createDest(org, "mimir", "prometheus", oldURL)
+			used := commitSelfMonitoring(org, "self-mon", "mimir")
+			code, out := updateDest(mimir, map[string]any{"url": newURL})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			rerendered := pipeline(used.ID)
+			code, out = call("PipelineService/UpdatePipeline", map[string]any{
+				"orgId": org.String(), "id": used.ID.String(), "name": used.Name,
+				"contents": rerendered.Contents + "// edit\n", "matchers": []string{`role="singleton"`},
+			})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+
+			revs := revisions(used.ID) // newest first
+			Expect(revs).To(HaveLen(3))
+			Expect(revs[2].WizardRenderSha256.String).To(Equal(sha256Hex(used.Contents)), "CommitWizard")
+			Expect(revs[1].WizardRenderSha256.String).To(Equal(sha256Hex(rerendered.Contents)), "the re-render")
+			Expect(revs[0].WizardRenderSha256.Valid).To(BeFalse(), "a hand edit")
+		})
+
+		It("refuses a restore note that would pass for a wizard revision", func() {
+			createDest(org, "mimir", "prometheus", oldURL)
+			used := commitSelfMonitoring(org, "self-mon", "mimir")
+			for _, note := range []string{"created", "re-rendered: destination \"mimir\" updated"} {
+				code, out := call("PipelineService/RestoreRevision", map[string]any{
+					"orgId": org.String(), "id": used.ID.String(), "revision": 1, "changeNote": note,
+				})
+				Expect(code).To(Equal(http.StatusBadRequest), "%s: %v", note, out)
+				Expect(out["code"]).To(Equal("invalid_argument"))
+			}
 		})
 
 		It("still converts a pre-#260 sys.env pipeline: its text came from the old renderer, not a hand", func() {
@@ -428,13 +566,21 @@ var _ = Describe("Destination changes reach wizard pipelines (#262)", Label("int
 	Describe("DeleteDestination's in-use guard", func() {
 		It("refuses a destination a wizard pipeline names, listing the pipelines", func() {
 			mimir := createDest(org, "mimir", "prometheus", oldURL)
-			commitSelfMonitoring(org, "self-mon-a", "mimir")
-			commitSelfMonitoring(org, "self-mon-b", "mimir")
+			a := commitSelfMonitoring(org, "self-mon-a", "mimir")
+			b := commitSelfMonitoring(org, "self-mon-b", "mimir")
 
 			code, out := call("DestinationService/DeleteDestination", map[string]any{"orgId": org.String(), "id": mimir.ID.String()})
 			Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
 			Expect(out["code"]).To(Equal("failed_precondition"))
-			Expect(out["message"]).To(ContainSubstring("self-mon-a, self-mon-b"))
+			// M4: each name quoted (the UI links them to their pages), and
+			// actions that exist — a wizard pipeline cannot be "pointed at
+			// another destination" from the UI.
+			Expect(out["message"]).To(ContainSubstring(`"self-mon-a", "self-mon-b"`))
+			Expect(out["message"]).To(ContainSubstring("detach them from the wizard or delete them first"))
+			Expect(out["message"]).NotTo(ContainSubstring("another destination"))
+			Expect(detailPipelines(out)).To(Equal(map[string]string{
+				"self-mon-a": a.ID.String(), "self-mon-b": b.ID.String(),
+			}))
 			_, err := st.Queries.GetDestinationByID(ctx, mimir.ID)
 			Expect(err).NotTo(HaveOccurred(), "the destination must still exist")
 		})

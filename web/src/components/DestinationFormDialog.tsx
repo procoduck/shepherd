@@ -1,5 +1,5 @@
 import type { JsonObject } from '@bufbuild/protobuf';
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import { Field, Input, Select } from '@/components/ui/Field';
 import { Modal, ModalActions } from '@/components/ui/Modal';
 
@@ -162,7 +162,7 @@ export function DestinationFormDialog({
   pendingLabel: string;
   pending: boolean;
   /** The server's refusal of the last submit, shown in the dialog (#249). */
-  error?: string | null;
+  error?: ReactNode;
   onCancel: () => void;
   onSubmit: (form: DestinationFormState) => void;
 }) {

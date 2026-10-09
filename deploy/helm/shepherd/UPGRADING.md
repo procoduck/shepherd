@@ -31,9 +31,9 @@ wizard answers and the organisation's current destinations, validates the
 result like any pipeline edit (Stages 1–3), and stores it with a new revision
 and a `pipeline.rerender` audit row (actor `system:rerender-destinations`).
 Pipelines it cannot regenerate — most often one naming a destination that has
-since been deleted — are listed and left unchanged; fix them (create the
-destination, or re-run the wizard) and run the command again. It is safe to
-repeat.
+since been deleted — are listed, each with what to do, and left unchanged; fix
+them (create the destination again, or on the pipeline's page detach it from
+the wizard or delete it) and run the command again. It is safe to repeat.
 
 **Expect a reload:** every collector served one of the converted pipelines
 receives a new config on its next poll and reloads once. If you had set

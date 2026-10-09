@@ -114,6 +114,12 @@ var _ = Describe("RerenderLegacyDestinationWriters (#262 upgrade path)", Label("
 		Expect(results).To(HaveLen(1))
 		Expect(results[0].Rerendered).To(ConsistOf("legacy-self-mon"))
 		Expect(results[0].Failed).To(ConsistOf(ContainSubstring(`"deleted-long-ago" does not exist`)))
+		// M4: each failure says what to do about it, in actions that exist.
+		Expect(results[0].Failed).To(ConsistOf(And(
+			ContainSubstring(`"legacy-orphan"`),
+			ContainSubstring("detach it from the wizard or delete it"),
+			ContainSubstring("run this command again"),
+		)))
 
 		p, err = st.Queries.GetPipelineByID(ctx, legacy.ID)
 		Expect(err).NotTo(HaveOccurred())

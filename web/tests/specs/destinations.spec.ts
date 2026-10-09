@@ -313,8 +313,9 @@ test('an update a wizard pipeline cannot take is refused with the pipeline named
   });
   const refusal =
     'destination "prom-prod" was not updated: 1 wizard pipeline(s) using it cannot be ' +
-    'regenerated — "self-mon": metrics_dest_name: destination "prom-prod" is type loki; ' +
-    'prometheus.remote_write needs a prometheus destination';
+    'regenerated: "self-mon": metrics_dest_name: destination "prom-prod" is type loki; ' +
+    'prometheus.remote_write needs a prometheus destination — change the destination so it ' +
+    "can be regenerated, or, on the pipeline's page, detach it from the wizard or delete it";
   api.override('POST', '/shepherd.mgmt.v1.DestinationService/UpdateDestination', (route) =>
     route.fulfill({
       status: 400,
@@ -338,7 +339,8 @@ test('an update a wizard pipeline cannot take is refused with the pipeline named
 // #262: deleting a destination a wizard pipeline still names is refused
 // with failed_precondition listing the pipelines. The toast used to prefix
 // "Cannot delete" only for already_exists (a tenant binding), so this
-// refusal read as a bare error.
+// refusal read as a bare error. Since M4 it stays in the dialog (#249), with
+// each pipeline linked — actionable-destination-messages.spec.ts.
 test('deleting a destination a wizard pipeline uses says it cannot be deleted and why', async ({
   page,
   api,
@@ -356,18 +358,18 @@ test('deleting a destination a wizard pipeline uses says it cannot be deleted an
       body: JSON.stringify({
         code: 'failed_precondition',
         message:
-          'destination "prom-prod" is used by 2 wizard pipeline(s): self-mon, app-obs — point ' +
-          'them at another destination or delete them first',
+          'destination "prom-prod" is used by 2 wizard pipeline(s): "self-mon", "app-obs" — ' +
+          "detach them from the wizard or delete them first, each on its pipeline's page",
       }),
     }),
   );
   await page.goto('/destinations');
 
   await page.getByRole('button', { name: 'Delete destination' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
 
-  await expect(
-    page.locator('[data-sonner-toast]').filter({ hasText: 'self-mon, app-obs' }),
-  ).toContainText('Cannot delete:');
+  await expect(dialog.getByTestId('form-error')).toContainText('Cannot delete:');
+  await expect(dialog.getByTestId('form-error')).toContainText('"self-mon", "app-obs"');
   await expect(page.getByRole('cell', { name: 'prom-prod', exact: true })).toBeVisible();
 });

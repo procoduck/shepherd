@@ -43,7 +43,8 @@ export function PipelineLandingBanner({ pipelineId }: { pipelineId: string }) {
             <strong>Pipeline created from the wizard.</strong> You're now in the text editor,
             showing the Alloy config the wizard generated. It stays linked to the wizard: Shepherd
             re-renders it when a destination it ships to changes, and a hand edit here blocks that —
-            use Detach from wizard first if you want to edit it by hand.
+            use Detach from wizard first if you want to edit it by hand. A hand edit can be undone
+            with Restore last wizard version, which this page offers once there is one.
           </>
         )}
       </p>

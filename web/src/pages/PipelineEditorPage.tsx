@@ -18,6 +18,8 @@ import { OpenInVisualBuilder, PipelineLandingBanner } from '@/components/Pipelin
 import { PipelineMatchers } from '@/components/PipelineMatchers';
 import { PipelineMatchPreview } from '@/components/PipelineMatchPreview';
 import { PipelineOwner } from '@/components/PipelineOwner';
+import { RestoreRevisionNotes } from '@/components/RestoreRevisionNotes';
+import { RestoreWizardVersion } from '@/components/RestoreWizardVersion';
 import { RevisionHistory } from '@/components/RevisionHistory';
 import { Input } from '@/components/ui/Field';
 import { FormError } from '@/components/ui/FormError';
@@ -39,7 +41,9 @@ export function PipelineEditorPage() {
   const canAdminister = useCanAdminister();
 
   const [selectedRevision, setSelectedRevision] = useState<number | null>(null);
-  const [confirmingRestore, setConfirmingRestore] = useState(false);
+  // Where the restore confirmation was opened from: the diff view's button,
+  // or "Restore last wizard version" (which leaves no diff to go back to).
+  const [confirmingRestore, setConfirmingRestore] = useState<false | 'diff' | 'offer'>(false);
 
   const { data: pipeline } = useQuery({
     queryKey: ['pipeline', orgId, id],
@@ -150,6 +154,7 @@ export function PipelineEditorPage() {
     },
   });
   const closeRestore = () => {
+    if (confirmingRestore === 'offer') setSelectedRevision(null);
     setConfirmingRestore(false);
     restoreMutation.reset();
   };
@@ -210,11 +215,23 @@ export function PipelineEditorPage() {
           </div>
         )}
 
+        <RestoreWizardVersion
+          pipeline={canWrite ? pipeline : undefined}
+          revisions={revisions}
+          orgId={pipelineOrgId}
+          queryOrgId={orgId}
+          onRestore={(revision) => {
+            setSelectedRevision(revision);
+            setConfirmingRestore('offer');
+          }}
+        />
+
         {!isNew && revisions.length > 0 && (
           <RevisionHistory
             revisions={revisions}
             currentRevision={currentRevision}
             onView={setSelectedRevision}
+            pipelineSource={pipeline?.source ?? ''}
           />
         )}
 
@@ -279,7 +296,7 @@ export function PipelineEditorPage() {
               ) : (
                 canWrite && (
                   <button
-                    onClick={() => setConfirmingRestore(true)}
+                    onClick={() => setConfirmingRestore('diff')}
                     disabled={!revisionDetail}
                     className='rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50'
                     data-testid='restore-btn'
@@ -401,7 +418,7 @@ export function PipelineEditorPage() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              restoreMutation.mutate(selectedRevision);
+              if (revisionDetail) restoreMutation.mutate(selectedRevision);
             }}
             className='space-y-4'
           >
@@ -409,25 +426,23 @@ export function PipelineEditorPage() {
               Restore revision #{selectedRevision}? This creates a new revision from its contents,
               matchers and enabled state; the current text is kept in history.
             </p>
-            {revisionDetail && pipeline && revisionDetail.enabled !== pipeline.enabled && (
-              <p data-testid='restore-enabled-change' className='text-sm text-amber-400'>
-                {revisionDetail.enabled
-                  ? 'This revision was saved while the pipeline was enabled, so restoring it enables the pipeline — it will be served to matching collectors.'
-                  : 'This revision was saved while the pipeline was disabled, so restoring it disables the pipeline — it stops being served.'}
-              </p>
-            )}
-            {pipeline?.source === 'git' && (
-              <p data-testid='restore-git-warning' className='text-sm text-amber-400'>
-                This pipeline is managed by Git. The restore is written as a new revision now, but
-                the next git sync will overwrite it — change the file in the repository to make it
-                stick.
-              </p>
+            {pipeline && (
+              <RestoreRevisionNotes
+                orgId={orgId}
+                pipeline={pipeline}
+                revisions={revisions}
+                revision={selectedRevision}
+                detail={revisionDetail}
+              />
             )}
             <ModalActions
               onCancel={closeRestore}
               submitLabel='Restore'
               pendingLabel='Restoring…'
               pending={restoreMutation.isPending}
+              // Not before GetRevision answers: its matcher and enabled
+              // warnings must be seen first (both ways in, M4 review).
+              submitDisabled={!revisionDetail}
               submitTestId='confirm-restore-btn'
               error={formError(restoreMutation.error, 'Restore failed')}
             />

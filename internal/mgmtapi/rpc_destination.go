@@ -398,8 +398,8 @@ func (s *DestinationService) rerenderForUpdate(ctx context.Context, txQ *sqlc.Qu
 	}
 	changes, failures := s.pipelines.planWizardRerenders(ctx, owned.OrgID, pipelines, before, dests, rename)
 	if len(failures) > 0 {
-		return nil, false, connect.NewError(connect.CodeFailedPrecondition,
-			fmt.Errorf("destination %q was not updated: %w", owned.Name, failures))
+		return nil, false, withPipelinesDetail(connect.NewError(connect.CodeFailedPrecondition,
+			fmt.Errorf("destination %q was not updated: %w", owned.Name, failures)), failures.pipelineRefs())
 	}
 	detail := rerenderAudit{Reason: "destination.update", DestinationID: owned.ID.String(), DestinationName: updated.Name}
 	if rename != nil {
@@ -439,13 +439,19 @@ func (s *DestinationService) DeleteDestination(ctx context.Context, req *connect
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to check destination references"))
 	}
 	if len(refs) > 0 {
+		// The remedies are the two the pipeline page offers — a wizard
+		// pipeline's destination is an answer stored with it, which nothing
+		// in the UI edits in place. The pipelines also ride along as a
+		// detail, which the UI links to their pages (M4).
 		names := make([]string, len(refs))
+		pRefs := make([]pipelineRef, len(refs))
 		for i := range refs {
-			names[i] = refs[i].Name
+			names[i] = fmt.Sprintf("%q", refs[i].Name)
+			pRefs[i] = pipelineRef{id: refs[i].ID.String(), name: refs[i].Name}
 		}
-		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
-			"destination %q is used by %d wizard pipeline(s): %s — point them at another destination or delete them first",
-			owned.Name, len(names), strings.Join(names, ", ")))
+		return nil, withPipelinesDetail(connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
+			"destination %q is used by %d wizard pipeline(s): %s — detach them from the wizard or delete them first, each on its pipeline's page",
+			owned.Name, len(names), strings.Join(names, ", "))), pRefs)
 	}
 
 	if err := s.store.Queries.DeleteDestination(ctx, id); err != nil {

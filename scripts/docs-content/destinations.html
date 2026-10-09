@@ -112,18 +112,31 @@ subjects:
         regenerated pipeline passes the full validation gate, gets a new revision and an audit
         entry under your name, and collectors receive it on their next poll. Renaming a
         destination renames it in those pipelines too. If any of them would fail validation, nothing
-        is saved and the message names the pipeline and the reason. The same happens when one of
-        them was edited by hand after its wizard generated it: Shepherd never overwrites the edit.
-        Re-run that pipeline&rsquo;s wizard (folding the edit into its answers), or open the
-        pipeline and choose <strong>Detach from wizard</strong>: it keeps its text, matchers, owner
-        and history, becomes an ordinary pipeline, and no longer follows destination changes. Then
-        save the destination again.</p>
+        is saved and the message names the pipeline, the reason and what to do; each pipeline it
+        names links to its page. The same happens when one of them was edited by hand after its
+        wizard generated it: Shepherd never overwrites the edit. Open the pipeline and do one of
+        three things, then save the destination again:</p>
+      <ul>
+        <li><strong>Restore last wizard version</strong> drops the hand edit. The pipeline page
+          offers it whenever a wizard pipeline&rsquo;s text differs from the last revision its
+          wizard wrote; the revision history marks those revisions <em>wizard</em>. It restores
+          that revision as a new one, so the edit stays in the history, and puts back that
+          revision&rsquo;s matchers and enabled state too (the confirmation says so when they
+          differ). A wizard revision from before Shepherd 0.15.0 that it cannot vouch for may not
+          re-attach the pipeline; if the destination change is still refused, detach or delete
+          it.</li>
+        <li><strong>Detach from wizard</strong> keeps the edit: the pipeline keeps its text,
+          matchers, owner and history, becomes an ordinary pipeline, and no longer follows
+          destination changes.</li>
+        <li><strong>Delete</strong> the pipeline.</li>
+      </ul>
+      <p>Running the wizard again does not help: it creates a new pipeline.</p>
       <p>Shepherd recognises a hand edit by a fingerprint of the text the wizard last wrote, so a
         newer version of a wizard does not make older pipelines look edited. A wizard pipeline
         generated before that fingerprint existed is compared with what its wizard would generate
         today instead, until its next regeneration records one.</p>
       <p>A destination a wizard pipeline still ships to cannot be deleted. The refusal lists the
-        pipelines; point them at another destination, or delete them, first.</p>
+        pipelines, each linked to its page; detach them from the wizard, or delete them, first.</p>
       <h3 id="upgrade">Pipelines generated before destination auth</h3>
       <p>Wizard pipelines committed before destination auth was rendered read their URL from
         <code>sys.env("SHEPHERD_DEST_&lt;NAME&gt;_URL")</code>, which nothing sets, and carry no
