@@ -31,6 +31,10 @@ message OrgMembership {
   // allow_local_attribute_matching mirrors the org setting (#139). The server
   // match gate is authoritative regardless of this value.
   bool allow_local_attribute_matching = 7;
+  // tenant_id is the org's own tenant identity (orgs.tenant_id, set by an
+  // app admin — D11), empty when it has none. Read-only: the destination form
+  // pre-fills a destination's tenant from it (#261).
+  string tenant_id = 8;
 }
 
 // GetMeResponse is the caller's identity and the orgs they can see.

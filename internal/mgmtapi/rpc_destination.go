@@ -204,6 +204,21 @@ func validateDestinationAuth(mode, secretNamespace, secretName string, extra []b
 	return nil
 }
 
+// validateDestinationTLS refuses, as invalid_argument, an extra.tls that
+// does not decode strictly or validate (wizard.ParseTLS: unknown keys such
+// as insecure_skip_verify, bad references, an illegal CA key), and TLS
+// options on a URL that is not https:// (#261).
+func validateDestinationTLS(url string, extra []byte) error {
+	tls, err := wizard.ParseTLS(extra)
+	if err != nil {
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if err := wizard.ValidateTLSForURL(tls, url); err != nil {
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	return nil
+}
+
 // wizardDestinations loads an org's destinations as the set a wizard's
 // `*_dest_name` fields resolve against (wizard.Destinations). Only the
 // non-sensitive columns are carried: a Secret mode names the Secret, the
@@ -224,16 +239,62 @@ func wizardDestinations(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID)
 		d := rows[i]
 		dest := wizard.Destination{
 			Name: d.Name, Type: d.Type, URL: d.Url, AuthMode: wizard.AuthMode(d.AuthMode),
-			SecretNamespace: d.SecretNamespace, SecretName: d.SecretName,
+			SecretNamespace: d.SecretNamespace, SecretName: d.SecretName, TenantID: d.TenantID,
 		}
 		if scopes, err := destinationScopes(d.Extra); err != nil {
 			dest.LoadErr = err
 		} else {
 			dest.OAuth2Scopes = scopes
 		}
+		if tls, err := wizard.ParseTLS(d.Extra); err != nil {
+			if dest.LoadErr == nil {
+				dest.LoadErr = err
+			}
+		} else {
+			dest.TLS = tls
+		}
+		// The cross-org tenant guard holds at render time too, not only at
+		// save: an app admin can give another org this tenant after the
+		// destination was saved (SetOrgTenantID), and from then on rendering
+		// it would stamp that org's tenant on this org's data.
+		if dest.LoadErr == nil && d.TenantID != "" {
+			held, err := q.TenantIDHeldByOtherOrg(ctx, sqlc.TenantIDHeldByOtherOrgParams{TenantID: d.TenantID, OrgID: orgID})
+			if err != nil {
+				return nil, fmt.Errorf("checking destination %q's tenant: %w", d.Name, err)
+			}
+			if held {
+				dest.LoadErr = errTenantNotAvailable
+			}
+		}
 		out[d.Name] = dest
 	}
 	return out, nil
+}
+
+// errTenantNotAvailable is the cross-org tenant refusal (#261, maintainer
+// decision Q2): a destination may send any valid tenant except one another
+// org holds as its orgs.tenant_id. Deliberately generic — it does not say
+// that another org holds it.
+var errTenantNotAvailable = errors.New("tenant_id is not available to this org")
+
+// validateDestinationTenant refuses, as invalid_argument, a tenant_id
+// outside Mimir's charset (wizard.ValidateTenant) or one another org holds.
+// Empty means no tenant is sent.
+func validateDestinationTenant(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, tenant string) error {
+	if err := wizard.ValidateTenant(tenant); err != nil {
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if tenant == "" {
+		return nil
+	}
+	held, err := q.TenantIDHeldByOtherOrg(ctx, sqlc.TenantIDHeldByOtherOrgParams{TenantID: tenant, OrgID: orgID})
+	if err != nil {
+		return connect.NewError(connect.CodeInternal, errors.New("failed to check tenant_id"))
+	}
+	if held {
+		return connect.NewError(connect.CodeInvalidArgument, errTenantNotAvailable)
+	}
+	return nil
 }
 
 // CreateDestination creates a destination.
@@ -253,6 +314,12 @@ func (s *DestinationService) CreateDestination(ctx context.Context, req *connect
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid extra"))
 	}
 	if err := validateDestinationAuth(req.Msg.GetAuthMode(), req.Msg.GetSecretNamespace(), req.Msg.GetSecretName(), extraJSON); err != nil {
+		return nil, err
+	}
+	if err := validateDestinationTenant(ctx, s.store.Queries, orgID, req.Msg.GetTenantId()); err != nil {
+		return nil, err
+	}
+	if err := validateDestinationTLS(req.Msg.GetUrl(), extraJSON); err != nil {
 		return nil, err
 	}
 	d, err := s.store.Queries.CreateDestination(ctx, sqlc.CreateDestinationParams{
@@ -305,6 +372,12 @@ func (s *DestinationService) UpdateDestination(ctx context.Context, req *connect
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid extra"))
 	}
 	if err := validateDestinationAuth(req.Msg.GetAuthMode(), req.Msg.GetSecretNamespace(), req.Msg.GetSecretName(), extraJSON); err != nil {
+		return nil, err
+	}
+	if err := validateDestinationTenant(ctx, s.store.Queries, owned.OrgID, req.Msg.GetTenantId()); err != nil {
+		return nil, err
+	}
+	if err := validateDestinationTLS(req.Msg.GetUrl(), extraJSON); err != nil {
 		return nil, err
 	}
 

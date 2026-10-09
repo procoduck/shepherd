@@ -13,11 +13,12 @@ import {
   isSecretMode,
   scopesFromExtra,
 } from '@/components/DestinationFormDialog';
+import { extraWithTLS, tlsFromExtra } from '@/components/DestinationTLSFields';
 import { withPipelineLinks } from '@/components/PipelineNameLinks';
 import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import type { Destination } from '@/gen/shepherd/mgmt/v1/destination_pb';
-import { useCanAdminister, useOrgId } from '@/hooks/useOrg';
+import { useCanAdminister, useOrg } from '@/hooks/useOrg';
 import { formError } from '@/lib/formError';
 
 /**
@@ -79,6 +80,12 @@ function destinationColumns(
       render: (d) => <DestinationUrl url={d.url} />,
     },
     {
+      key: 'tenant',
+      header: 'Tenant',
+      cellClassName: 'px-4 py-2.5 font-mono text-xs text-muted',
+      render: (d) => d.tenantId || <span className='text-muted-3'>&mdash;</span>,
+    },
+    {
       key: 'auth',
       header: 'Auth',
       cellClassName: 'px-4 py-2.5 text-xs text-muted',
@@ -121,7 +128,8 @@ function destinationColumns(
 }
 
 export function DestinationsPage() {
-  const orgId = useOrgId();
+  const { orgId, orgs } = useOrg();
+  const orgTenant = orgs.find((o) => o.id === orgId)?.tenantId ?? '';
   // Destinations decide where telemetry ships, so the server requires org
   // admin. Offering the form to an editor or viewer only produces a rejection
   // after they have filled it in. Edit is gated exactly like create.
@@ -146,10 +154,10 @@ export function DestinationsPage() {
         type: form.type,
         url: form.url,
         authMode: form.authMode,
-        tenantId: '',
+        tenantId: form.tenantId.trim(),
         secretName: secret ? form.secretName.trim() : '',
         secretNamespace: secret ? form.secretNamespace.trim() : '',
-        extra: extraWithScopes(undefined, form),
+        extra: extraWithTLS(extraWithScopes(undefined, form), form.tls),
       });
     },
     onSuccess: () => {
@@ -160,8 +168,8 @@ export function DestinationsPage() {
   });
 
   // UpdateDestination replaces every field, so the ones this form does not
-  // show (tenant ID, extra, and the Secret reference while the mode is
-  // `none`) are sent back unchanged rather than wiped.
+  // show (extra, and the Secret reference while the mode is `none`) are
+  // sent back unchanged rather than wiped.
   // The server re-renders every wizard pipeline that ships to a changed
   // destination (destination_rerender.go), so their cached copies — each
   // pipeline, its revisions, the list — are now behind. Prefix keys: all of
@@ -182,10 +190,10 @@ export function DestinationsPage() {
         type: form.type,
         url: form.url,
         authMode: form.authMode,
-        tenantId: d.tenantId,
+        tenantId: form.tenantId.trim(),
         secretName: secret ? form.secretName.trim() : d.secretName,
         secretNamespace: secret ? form.secretNamespace.trim() : d.secretNamespace,
-        extra: extraWithScopes(d.extra, form),
+        extra: extraWithTLS(extraWithScopes(d.extra, form), form.tls),
       });
     },
     onSuccess: () => {
@@ -279,7 +287,9 @@ export function DestinationsPage() {
       {showCreate && (
         <DestinationFormDialog
           title='New destination'
-          initial={EMPTY_FORM}
+          // The org's own tenant pre-fills a new destination (#261); an
+          // external backend's tenant can replace it.
+          initial={{ ...EMPTY_FORM, tenantId: orgTenant }}
           submitLabel='Create'
           pendingLabel='Creating…'
           pending={createMut.isPending}
@@ -303,6 +313,8 @@ export function DestinationsPage() {
             secretNamespace: editing.secretNamespace,
             secretName: editing.secretName,
             scopes: scopesFromExtra(editing.extra),
+            tenantId: editing.tenantId,
+            tls: tlsFromExtra(editing.extra),
           }}
           submitLabel='Save'
           pendingLabel='Saving…'

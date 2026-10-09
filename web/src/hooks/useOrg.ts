@@ -11,6 +11,10 @@ export interface OrgSummary {
   // visual builder may offer experimental Alloy components. The server render
   // gate is authoritative regardless.
   allowExperimentalComponents: boolean;
+  // tenantId is the org's own tenant identity (orgs.tenant_id), '' when it
+  // has none. The destination form pre-fills a new destination's tenant
+  // from it (#261).
+  tenantId?: string;
 }
 
 export const ORG_STORAGE_KEY = 'shepherd.orgId';
