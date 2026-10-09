@@ -184,6 +184,81 @@ func (v *Validator) Stages12(ctx context.Context, content string) Result {
 	return v.Stage2(ctx, content)
 }
 
+// ValidatePipeline runs Stages 1 and 2 on a pipeline's contents exactly as
+// they will be served — declare-wrapped by WrapForValidation — and reports
+// every diagnostic in the coordinates of contents, the text the user wrote
+// (UnwrapDiagnostics). It is the one entry point for any caller that shows a
+// pipeline's diagnostics to a person: the ValidatePipeline RPC (and the MCP
+// tools composed on it), pipeline create/update, the wizard render/commit
+// gate, the destination re-render and repo sync. Validating the wrapped text
+// and reporting its positions as-is put every diagnostic one line down and
+// two columns right (walkthrough F2).
+//
+// Only the positions change: the verdict, Skipped and every message are
+// exactly those of Stages12 on the wrapped document.
+func (v *Validator) ValidatePipeline(ctx context.Context, pipelineName, contents string) Result {
+	r := v.Stages12(ctx, WrapForValidation(pipelineName, contents))
+	r.Diagnostics = UnwrapDiagnostics(contents, r.Diagnostics)
+	return r
+}
+
+// wrapHeaderLines is how many lines WrapForValidation writes before the first
+// line of the contents, and wrapIndent the indent it adds to every non-empty
+// contents line. UnwrapDiagnostics inverts exactly that layout; its specs pin
+// the two together.
+const (
+	wrapHeaderLines = 1
+	wrapIndent      = 2
+)
+
+// UnwrapDiagnostics maps diagnostics positioned in
+// WrapForValidation(_, contents) back to contents:
+//
+//   - a line of contents moves up by the header; its column moves left by the
+//     indent when WrapForValidation indented that line (every non-empty one).
+//     A column inside the indent itself clamps to 1.
+//   - the header line maps to the start of contents (1:1).
+//   - a position in the wrapper's own trailing lines — the closing brace an
+//     unterminated block runs into, the instantiation, end of file — clamps
+//     to the end of contents with its message kept: that is where the text
+//     the user wrote stopped being what the parser needed.
+//   - an unknown line or column (0) stays unknown.
+//
+// The input slice is not modified; nil in, nil out.
+func UnwrapDiagnostics(contents string, diags []Diagnostic) []Diagnostic {
+	if len(diags) == 0 {
+		return nil
+	}
+	lines := strings.Split(contents, "\n")
+	lastLine := len(lines)
+	endCol := len(lines[lastLine-1]) + 1
+
+	out := make([]Diagnostic, len(diags))
+	for i, d := range diags {
+		switch {
+		case d.Line <= 0:
+			// Unknown position: nothing to map.
+		case d.Line <= wrapHeaderLines:
+			d.Line = 1
+			if d.Col > 0 {
+				d.Col = 1
+			}
+		case d.Line-wrapHeaderLines <= lastLine:
+			d.Line -= wrapHeaderLines
+			if lines[d.Line-1] != "" && d.Col > 0 {
+				d.Col = max(1, d.Col-wrapIndent)
+			}
+		default:
+			d.Line = lastLine
+			if d.Col > 0 {
+				d.Col = endCol
+			}
+		}
+		out[i] = d
+	}
+	return out
+}
+
 // WrapForValidation wraps raw pipeline contents in the same declare block the
 // merge engine uses, so Stage 2 validates exactly what will be served.
 func WrapForValidation(pipelineName, contents string) string {

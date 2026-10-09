@@ -171,7 +171,7 @@ func (s *PipelineService) renderWizardPipeline(ctx context.Context, p sqlc.Pipel
 	}
 	// The same Stage 1/2 gate UpdatePipeline (validateSaveInput) and
 	// CommitWizard run before they write.
-	if r := s.validator.Stages12(ctx, validate.WrapForValidation(p.Name, result.Contents)); !r.Valid {
+	if r := s.validator.ValidatePipeline(ctx, p.Name, result.Contents); !r.Valid {
 		return fail("%s", summarizeDiagnostics(r.Diagnostics))
 	}
 	row := p

@@ -469,8 +469,7 @@ func (s *PipelineService) validateSaveInput(ctx context.Context, in pipelineSave
 		return nil, connect.NewError(connect.CodeInvalidArgument, errMatchersInvalid)
 	}
 
-	wrapped := validate.WrapForValidation(in.Name, in.Contents)
-	if result := s.validator.Stages12(ctx, wrapped); !result.Valid {
+	if result := s.validator.ValidatePipeline(ctx, in.Name, in.Contents); !result.Valid {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, &pipelineValidationError{Diagnostics: result.Diagnostics})
 	}
 	return matchersJSON, nil
@@ -728,8 +727,7 @@ func (s *PipelineService) ValidatePipeline(ctx context.Context, req *connect.Req
 	if name == "" {
 		name = "preview"
 	}
-	wrapped := validate.WrapForValidation(name, req.Msg.GetContents())
-	result := s.validator.Stages12(ctx, wrapped)
+	result := s.validator.ValidatePipeline(ctx, name, req.Msg.GetContents())
 
 	resp := &mgmtv1.ValidatePipelineResponse{
 		Valid:         result.Valid,
