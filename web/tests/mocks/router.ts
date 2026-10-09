@@ -51,6 +51,11 @@ export interface MockState {
   // Teams page has to render distinctly from "this team is empty".
   teams?: Record<string, unknown>[];
   teamMembers?: Record<string, Record<string, unknown>[]>;
+  // The team ids the signed-in persona is a member of (F3). The real server
+  // decides write access per pipeline with auth.AuthorizeOwnership — org
+  // editor or above, or a member of the owning team — and reports it as
+  // Pipeline.can_edit; the mock applies the same rule with this list.
+  myTeamIds?: string[];
   oidcSettings?: Record<string, unknown>;
   oidcTestResult?: Record<string, unknown>;
   localAdminCreds?: { username: string; password: string };

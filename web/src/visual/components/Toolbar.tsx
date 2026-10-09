@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { renderVisual } from '../../api/client';
 import { clients } from '../../api/transport';
 import { MatcherSuggestions } from '../../components/MatcherSuggestions';
+import { isSaveConflict, SaveConflictDialog } from '../../components/SaveConflictDialog';
 import { FormError } from '../../components/ui/FormError';
 import { useCanWrite, useOrgId } from '../../hooks/useOrg';
 import { formError } from '../../lib/formError';
@@ -49,7 +50,14 @@ function toolbarLayout(width: number): ToolbarLayout {
   return width >= TOOLBAR_NARROW_BELOW ? 'medium' : 'narrow';
 }
 
-export function Toolbar({ pipelineId }: { pipelineId: string }) {
+export function Toolbar({
+  pipelineId,
+  onReload,
+}: {
+  pipelineId: string;
+  /** Reloads the pipeline from the server, discarding the local graph (F1's conflict). */
+  onReload?: () => void;
+}) {
   const diagnostics = useVisualStore((s) => s.diagnostics);
   const errors = diagnostics.filter((d) => d.severity === 'error').length;
   const doc = useVisualStore((s) => s.doc);
@@ -147,13 +155,20 @@ export function Toolbar({ pipelineId }: { pipelineId: string }) {
         // semantically exact.
         wizardState: JSON.parse(JSON.stringify(doc)) as JsonObject,
       };
-      return pipelineId === 'new'
-        ? clients.pipeline.createPipeline(body)
-        : clients.pipeline.updatePipeline({ ...body, id: pipelineId });
+      if (pipelineId === 'new') return clients.pipeline.createPipeline(body);
+      // F1: the revision the graph was loaded at, so a save over a pipeline
+      // that changed since (another tab, a restore) is refused, not applied.
+      const expected = useVisualStore.getState().pipelineRevision;
+      return clients.pipeline.updatePipeline({
+        ...body,
+        id: pipelineId,
+        ...(expected > 0 ? { expectedRevision: expected } : {}),
+      });
     },
     onSuccess: async (p) => {
       toast.success(pipelineId === 'new' ? 'Pipeline created' : 'Pipeline saved');
       useVisualStore.getState().markSaved();
+      useVisualStore.getState().setPipelineRevision(p.revision);
       // The graph just saved is now durable on the server — the local draft
       // (keyed by the id this save was made under, 'new' for a create) no
       // longer has anything to protect against losing.
@@ -170,8 +185,10 @@ export function Toolbar({ pipelineId }: { pipelineId: string }) {
       navigate({ to: '/pipelines/$id', params: { id: p.id }, search: { from: 'visual' } });
     },
   });
-  // A refused save shows in a strip under the toolbar (#249), not a toast.
-  const saveError = formError(saveMutation.error, 'Save failed');
+  // A refused save shows in a strip under the toolbar (#249), not a toast —
+  // except a conflict (F1), which asks what to do in a dialog.
+  const conflict = isSaveConflict(saveMutation.error) ? saveMutation.error : null;
+  const saveError = conflict ? null : formError(saveMutation.error, 'Save failed');
 
   const matchersRequired = matchers.length === 0;
   // L1 diagnostics of severity 'error' are blocking (see l1.ts) — a
@@ -474,6 +491,19 @@ export function Toolbar({ pipelineId }: { pipelineId: string }) {
         <div className='border-b px-4 py-2 shrink-0'>
           <FormError message={saveError} />
         </div>
+      )}
+      {conflict && (
+        // Reload only: overwriting a graph from here would also need the
+        // builder's render of the newer server copy to be thrown away
+        // unseen — the text editor offers the explicit overwrite.
+        <SaveConflictDialog
+          error={conflict}
+          onClose={() => saveMutation.reset()}
+          onReload={() => {
+            saveMutation.reset();
+            onReload?.();
+          }}
+        />
       )}
     </>
   );

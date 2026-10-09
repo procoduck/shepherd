@@ -226,6 +226,15 @@ interface VisualStore {
   removeMatcher: (index: number) => void;
   /** Seeds name+matchers together, e.g. after loading an existing pipeline. */
   setPipelineMeta: (name: string, matchers: string[]) => void;
+  /**
+   * The server revision the loaded pipeline was at (Pipeline.revision), 0
+   * for a new or not-yet-loaded one. Save sends it as expected_revision (F1)
+   * so a graph edited from a copy that has since changed on the server is
+   * refused instead of overwriting the newer one; set again from each save's
+   * response.
+   */
+  pipelineRevision: number;
+  setPipelineRevision: (revision: number) => void;
   /** Sets whether experimental components are permitted (#114), from the org
    *  setting. Re-runs validation so a graph loaded before the flag arrived is
    *  re-gated against it. */
@@ -519,6 +528,7 @@ export const useVisualStore = create<VisualStore>()(
           diagnostics: [],
           pipelineName: '',
           matchers: [],
+          pipelineRevision: 0,
           simHealthByNode: null,
         }),
 
@@ -611,6 +621,8 @@ export const useVisualStore = create<VisualStore>()(
         set((state) => ({ matchers: state.matchers.filter((_, i) => i !== index) })),
 
       setPipelineMeta: (pipelineName, matchers) => set({ pipelineName, matchers }),
+      pipelineRevision: 0,
+      setPipelineRevision: (pipelineRevision) => set({ pipelineRevision }),
 
       setAllowExperimental: (allowExperimental) =>
         set((state) =>

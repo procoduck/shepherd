@@ -10,6 +10,8 @@ export interface PipelineFormValues {
 
 interface ServerPipeline extends PipelineFormValues {
   id: string;
+  /** The server's current revision for this copy (Pipeline.revision); 0 when unknown. */
+  revision?: number;
 }
 
 function sameForm(a: PipelineFormValues, b: PipelineFormValues): boolean {
@@ -31,6 +33,12 @@ function sameForm(a: PipelineFormValues, b: PipelineFormValues): boolean {
 // overwritten: staleTime is 30s and refetchOnWindowFocus defaults to true, so
 // a refetch that clobbered the form silently discarded minutes of work on an
 // alt-tab.
+//
+// The snapshot also keeps the revision it was taken at, and a save sends
+// that back as expected_revision (F1): a form still holding edits made on an
+// older copy — another tab saved, a destination change re-rendered the
+// wizard pipeline — is refused by the server instead of silently writing the
+// old text over the newer one.
 //
 // Seeding only once per id (the previous guard) did the opposite harm (H1):
 // landing here from the visual builder's or a wizard's save, the first copy
@@ -86,7 +94,13 @@ export function usePipelineForm({
   // action), false for a seed or re-sync.
   const loadForm = useCallback(
     (p: ServerPipeline, asEdit = false) => {
-      seeded.current = { id: p.id, name: p.name, contents: p.contents, matchers: [...p.matchers] };
+      seeded.current = {
+        id: p.id,
+        name: p.name,
+        contents: p.contents,
+        matchers: [...p.matchers],
+        revision: p.revision ?? 0,
+      };
       setName(p.name);
       replaceContents(p.contents, asEdit);
       setMatchers([...p.matchers]);
@@ -94,19 +108,33 @@ export function usePipelineForm({
     [replaceContents],
   );
 
-  // After a save: what was submitted is now the server copy, so the form is
-  // pristine against it — the refetches that follow may refresh it (a
-  // server-side normalisation shows up) while anything typed meanwhile stays.
-  const markSaved = useCallback((id: string, submitted: PipelineFormValues) => {
-    seeded.current = { id, ...submitted, matchers: [...submitted.matchers] };
+  // After a save: what was submitted is now the server copy, at the revision
+  // the save's response reports, so the form is pristine against it — the
+  // refetches that follow may refresh it (a server-side normalisation shows
+  // up) while anything typed meanwhile stays.
+  const markSaved = useCallback((id: string, submitted: PipelineFormValues, revision: number) => {
+    seeded.current = { id, ...submitted, matchers: [...submitted.matchers], revision };
   }, []);
+
+  // The revision the form's base copy was loaded at — what a save sends as
+  // expected_revision. 0 when unknown (a new pipeline, or a copy the server
+  // reported none for), which the caller treats as "send none".
+  const loadedRevision = useCallback(() => seeded.current?.revision ?? 0, []);
 
   useEffect(() => {
     if (!pipeline) return;
     const snap = seeded.current;
     if (snap && snap.id === pipeline.id) {
-      // Unchanged on the server, or edited here since: leave the form alone.
-      if (sameForm(pipeline, snap) || !sameForm(formRef.current, snap)) return;
+      // Unchanged on the server: the form stays, but a newer revision of the
+      // same text (an enable/disable round-trip, a re-render that wrote the
+      // same output) is the base it now stands on.
+      if (sameForm(pipeline, snap)) {
+        if ((pipeline.revision ?? 0) > (snap.revision ?? 0)) snap.revision = pipeline.revision;
+        return;
+      }
+      // Edited here since: leave the form alone — and its base revision with
+      // it, so saving those edits is refused rather than overwriting.
+      if (!sameForm(formRef.current, snap)) return;
     }
     loadForm(pipeline);
   }, [pipeline, loadForm]);
@@ -147,8 +175,9 @@ export function usePipelineForm({
   );
 
   useEffect(() => {
-    // Readers never validate: the server gates ValidatePipeline at org admin
-    // (internal/mgmtapi/rpc_interceptor.go), so the call could only fail.
+    // Only someone who can save this pipeline validates it as they type: a
+    // reader's buffer is never sent anywhere, so its problems are not worth a
+    // request per keystroke.
     if (!canWrite) return;
     const t = setTimeout(() => validate(contents), 800);
     return () => clearTimeout(t);
@@ -171,5 +200,6 @@ export function usePipelineForm({
     replaceContents,
     loadForm,
     markSaved,
+    loadedRevision,
   };
 }

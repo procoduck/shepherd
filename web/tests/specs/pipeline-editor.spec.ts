@@ -27,6 +27,11 @@ test('Save refreshes the revision list and Updated by', async ({ page, api }) =>
   await expect(page.getByText('Updated by:')).toBeVisible();
   await expect(page.getByText('first@example.com')).toBeVisible();
 
+  // A real change: a save that changes nothing writes no revision (F1's
+  // walkthrough nit), on the server and in the mock alike.
+  await page.locator('.cm-content').click();
+  await page.keyboard.press('End');
+  await page.keyboard.type(' // v2');
   await page.getByRole('button', { name: /Save/i }).click();
 
   // Both must update WITHOUT a reload: the mock UpdatePipeline additively

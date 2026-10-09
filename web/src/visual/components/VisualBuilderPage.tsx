@@ -92,6 +92,19 @@ export function VisualBuilderPage() {
   // waits for it (see the autosave effect).
   const [draftChecked, setDraftChecked] = useState(false);
   const [discardingDraft, setDiscardingDraft] = useState(false);
+  // Bumped by the save-conflict dialog's Reload (F1): re-runs the load below,
+  // replacing the local graph with the server's current copy.
+  const [reloadKey, setReloadKey] = useState(0);
+  const reloadFromServer = () => {
+    // The local draft is what is being discarded; left on disk it would
+    // offer itself straight back over the copy just loaded.
+    clearDraft(pipelineId)
+      .catch(console.error)
+      .finally(() => {
+        useVisualStore.getState().resetDoc();
+        setReloadKey((k) => k + 1);
+      });
+  };
 
   // #251: the route started this fetch as it was entered (router.tsx), so it
   // is usually done or nearly done by now. A copy held from an earlier visit
@@ -289,6 +302,9 @@ export function VisualBuilderPage() {
         // the field the moment the proto/backend gain it, and safely finds
         // nothing (undefined) until then.
         const rawWizardState = (pipeline as unknown as { wizardState?: unknown }).wizardState;
+        // The revision this graph is loaded at, which Save sends back as
+        // expected_revision (F1).
+        useVisualStore.getState().setPipelineRevision(pipeline.revision);
         if (isWellFormedGraphDocument(rawWizardState)) {
           useVisualStore.getState().importGraph(rawWizardState);
           useVisualStore.getState().setPipelineMeta(pipeline.name, pipeline.matchers);
@@ -323,7 +339,8 @@ export function VisualBuilderPage() {
     return () => {
       cancelled = true;
     };
-  }, [pipelineId, orgId, orgs, setOrgId]);
+    // reloadKey: not read inside — bumping it is how Reload re-runs this load.
+  }, [pipelineId, orgId, orgs, setOrgId, reloadKey]);
 
   if (pipelineId !== 'new' && loadState === 'loading') {
     return (
@@ -389,7 +406,7 @@ export function VisualBuilderPage() {
           </button>
         </div>
       )}
-      <Toolbar pipelineId={pipelineId} />
+      <Toolbar pipelineId={pipelineId} onReload={reloadFromServer} />
       <div className='flex flex-1 min-h-0 overflow-hidden'>
         <Palette />
         <CanvasPane />

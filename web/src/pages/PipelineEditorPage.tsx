@@ -21,6 +21,7 @@ import { PipelineOwner } from '@/components/PipelineOwner';
 import { RestoreRevisionNotes } from '@/components/RestoreRevisionNotes';
 import { RestoreWizardVersion } from '@/components/RestoreWizardVersion';
 import { RevisionHistory } from '@/components/RevisionHistory';
+import { EditorSaveConflict, isSaveConflict } from '@/components/SaveConflictDialog';
 import { Input } from '@/components/ui/Field';
 import { FormError } from '@/components/ui/FormError';
 import { Modal, ModalActions } from '@/components/ui/Modal';
@@ -36,6 +37,8 @@ export function PipelineEditorPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const orgId = useOrgId();
+  // The org role: what a NEW pipeline needs (creating an unowned one is org
+  // editor or above).
   const canWrite = useCanWrite();
   // Gates the owning-team picker: SetPipelineOwner is org admin only.
   const canAdminister = useCanAdminister();
@@ -58,6 +61,11 @@ export function PipelineEditorPage() {
   // `||`, not `??`: an empty org id on the pipeline must fall back to the
   // selected org, not disable every query keyed on it.
   const pipelineOrgId = pipeline?.orgId || orgId;
+  // Whether this caller may change THIS pipeline (F3): the server's own
+  // answer (Pipeline.can_edit, the ownership check every write runs), so an
+  // org viewer on the owning team edits it and an editor-only check does not
+  // hide that. The org role still decides a new pipeline.
+  const canEdit = isNew ? canWrite : !!pipeline?.canEdit;
 
   const { data: revisionsData } = useQuery({
     queryKey: ['revisions', orgId, id],
@@ -72,7 +80,7 @@ export function PipelineEditorPage() {
   const currentRevision = revisions.reduce((max, r) => Math.max(max, r.revision), 0);
 
   // GetRevision is org-reader, so any signed-in viewer can open a diff —
-  // only Restore is gated on canWrite below.
+  // only Restore is gated on canEdit below.
   const { data: revisionDetail } = useQuery({
     queryKey: ['revision', orgId, id, selectedRevision],
     queryFn: () =>
@@ -101,7 +109,8 @@ export function PipelineEditorPage() {
     replaceContents,
     loadForm,
     markSaved,
-  } = usePipelineForm({ pipeline, orgId, canWrite });
+    loadedRevision,
+  } = usePipelineForm({ pipeline, orgId, canWrite: canEdit });
 
   // Format runs the server-side `alloy fmt` equivalent and replaces the buffer
   // with the canonical form, then re-validates it. Unparseable input comes back
@@ -116,17 +125,25 @@ export function PipelineEditorPage() {
   });
 
   const submitted = useRef<PipelineFormValues>({ name, contents, matchers });
+  // F1: a save carries the revision the form was loaded at, so one made on a
+  // copy that has since changed on the server is refused (aborted) instead
+  // of writing the old text over the new. `overwrite` — only from the
+  // conflict dialog, after the person chose it — sends none.
   const saveMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: ({ overwrite }: { overwrite?: boolean }) => {
       submitted.current = { name, contents, matchers: [...matchers] };
       const body = { orgId, name, contents, matchers };
-      return isNew
-        ? clients.pipeline.createPipeline(body)
-        : clients.pipeline.updatePipeline({ ...body, id: id! });
+      if (isNew) return clients.pipeline.createPipeline(body);
+      const expected = loadedRevision();
+      return clients.pipeline.updatePipeline({
+        ...body,
+        id: id!,
+        ...(!overwrite && expected > 0 ? { expectedRevision: expected } : {}),
+      });
     },
     onSuccess: (p) => {
       toast.success(isNew ? 'Pipeline created' : 'Pipeline saved');
-      markSaved(p.id, submitted.current);
+      markSaved(p.id, submitted.current, p.revision);
       qc.invalidateQueries({ queryKey: ['pipelines', orgId] });
       if (!isNew) {
         // Mirror restoreMutation's invalidation set below so the new
@@ -153,21 +170,25 @@ export function PipelineEditorPage() {
       setSelectedRevision(null);
     },
   });
+  // F1's conflict: the save was refused because the pipeline moved on.
+  const conflict = isSaveConflict(saveMutation.error) ? saveMutation.error : null;
+
   const closeRestore = () => {
     if (confirmingRestore === 'offer') setSelectedRevision(null);
     setConfirmingRestore(false);
     restoreMutation.reset();
   };
 
-  // Save and Format refusals, shown above the editor (#249).
+  // Save and Format refusals, shown above the editor (#249). A conflict has
+  // its own dialog instead.
   const editorError =
-    formError(saveMutation.error, 'Save failed') ??
+    (conflict ? null : formError(saveMutation.error, 'Save failed')) ??
     formError(formatMutation.error, 'Cannot format — fix the syntax errors first');
 
   const hasErrors = diagnostics.length > 0;
-  // Read-only for viewers; admins and editors both author (see useCanWrite)
-  // and for git-managed pipelines (git is the source of truth).
-  const readOnly = !canWrite || pipeline?.source === 'git';
+  // Read-only for whoever may not write this pipeline (canEdit above) and for
+  // git-managed pipelines (git is the source of truth).
+  const readOnly = !canEdit || pipeline?.source === 'git';
 
   return (
     <div className='flex h-[calc(100vh-7rem)] gap-0'>
@@ -182,7 +203,7 @@ export function PipelineEditorPage() {
               pipeline={pipeline}
               orgId={pipelineOrgId}
               queryOrgId={orgId}
-              canWrite={canWrite}
+              canWrite={canEdit}
             />
           )}
         </div>
@@ -216,7 +237,7 @@ export function PipelineEditorPage() {
         )}
 
         <RestoreWizardVersion
-          pipeline={canWrite ? pipeline : undefined}
+          pipeline={canEdit ? pipeline : undefined}
           revisions={revisions}
           orgId={pipelineOrgId}
           queryOrgId={orgId}
@@ -241,7 +262,7 @@ export function PipelineEditorPage() {
               Source: <span className='text-zinc-300'>{pipeline.source}</span>
             </p>
             {pipeline.source === 'visual' && <OpenInVisualBuilder pipelineId={pipeline.id} />}
-            {canWrite && pipeline.source === 'wizard' && (
+            {canEdit && pipeline.source === 'wizard' && (
               <DetachFromWizard pipeline={pipeline} orgId={pipelineOrgId} queryOrgId={orgId} />
             )}
             <p>
@@ -264,7 +285,7 @@ export function PipelineEditorPage() {
           <>
             {/* Diff header — replaces the editor toolbar while a revision is
                 selected. GetRevision is org-reader, so a reader can reach
-                this; Restore is gated on canWrite, same as UpdatePipeline. */}
+                this; Restore is gated on canEdit, same as UpdatePipeline. */}
             <div className='h-11 border-b border-border px-3 flex items-center justify-between shrink-0'>
               <div className='flex items-center gap-3 text-xs'>
                 <button
@@ -294,7 +315,7 @@ export function PipelineEditorPage() {
                   This is the current revision
                 </span>
               ) : (
-                canWrite && (
+                canEdit && (
                   <button
                     onClick={() => setConfirmingRestore('diff')}
                     disabled={!revisionDetail}
@@ -321,7 +342,7 @@ export function PipelineEditorPage() {
                 {/* Readers get no indicator at all: their content is never
                     validated (see the effect above), so "No problems" would be
                     a claim nothing checked. */}
-                {canWrite &&
+                {canEdit &&
                   (validating ? (
                     <span className='text-muted'>Validating…</span>
                   ) : hasErrors ? (
@@ -370,7 +391,7 @@ export function PipelineEditorPage() {
                   <button
                     onClick={() => {
                       formatMutation.reset();
-                      saveMutation.mutate();
+                      saveMutation.mutate({});
                     }}
                     disabled={saveMutation.isPending || blockingErrors}
                     className='flex items-center gap-1.5 rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50'
@@ -412,6 +433,25 @@ export function PipelineEditorPage() {
           </>
         )}
       </div>
+
+      {conflict && id && (
+        <EditorSaveConflict
+          error={conflict}
+          id={id}
+          orgId={pipelineOrgId}
+          queryOrgId={orgId}
+          saving={saveMutation.isPending}
+          onClose={() => saveMutation.reset()}
+          onReloaded={(fresh) => {
+            loadForm(fresh);
+            saveMutation.reset();
+          }}
+          // Only someone who may write the pipeline is offered to overwrite.
+          onOverwrite={
+            pipeline?.canEdit ? () => saveMutation.mutate({ overwrite: true }) : undefined
+          }
+        />
+      )}
 
       {confirmingRestore && selectedRevision != null && (
         <Modal title='Restore revision' onClose={closeRestore} testId='restore-dialog'>
