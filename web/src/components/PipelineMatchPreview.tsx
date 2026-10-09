@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { clients } from '@/api/transport';
+import { QueryError } from '@/components/QueryError';
 import { Banner } from '@/components/ui/Banner';
 import type { MatchedCollector, Pipeline } from '@/gen/shepherd/mgmt/v1/pipeline_pb';
 
@@ -49,19 +50,32 @@ export function PipelineMatchPreview({
   orgId: string;
   queryOrgId: string;
 }) {
-  const { data } = useQuery({
+  const { data, error } = useQuery({
     queryKey: ['pipeline', queryOrgId, pipeline.id, 'matches'],
     queryFn: () => clients.pipeline.previewMatches({ orgId, id: pipeline.id }),
     enabled: !!orgId,
   });
+  // A failed preview is not "matches nothing" and not "nothing to warn
+  // about": say it failed, so a missing exclusion warning is never silent.
+  if (error && !data) {
+    return (
+      <QueryError
+        error={error}
+        noun='the collectors this pipeline matches'
+        testId='pipeline-match-error'
+      />
+    );
+  }
   if (!data) return null;
   const collectors = data.collectors ?? [];
   const lines = exclusionLines(collectors);
 
   return (
     <div className='space-y-2'>
+      {/* The SAVED pipeline: unsaved edits to the matchers or contents are
+          not previewed until they are saved. */}
       <p className='text-xs text-muted-2' data-testid='pipeline-match-count'>
-        Matches {collectors.length} collector{collectors.length === 1 ? '' : 's'}
+        Saved pipeline matches {collectors.length} collector{collectors.length === 1 ? '' : 's'}
         {pipeline.enabled ? '' : ' (when enabled)'}.
       </p>
       {lines.length > 0 && (

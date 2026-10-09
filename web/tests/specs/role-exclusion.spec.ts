@@ -36,7 +36,9 @@ test('the pipeline page counts matched collectors and warns about ones its role 
   );
 
   await page.goto('/pipelines/pip-0001');
-  await expect(page.getByTestId('pipeline-match-count')).toHaveText('Matches 2 collectors.');
+  await expect(page.getByTestId('pipeline-match-count')).toHaveText(
+    'Saved pipeline matches 2 collectors.',
+  );
   await expect(page.getByTestId('pipeline-role-exclusion')).toHaveText(
     `Excluded from 1 collector(s): prod-eu-1/metrics — ${REASON}.`,
   );
@@ -45,7 +47,7 @@ test('the pipeline page counts matched collectors and warns about ones its role 
   const before = api.calls('PipelineService/PreviewMatches').length;
   await page.getByRole('switch', { name: 'Enabled: ui-enabled' }).click();
   await expect(page.getByTestId('pipeline-match-count')).toHaveText(
-    'Matches 2 collectors (when enabled).',
+    'Saved pipeline matches 2 collectors (when enabled).',
   );
   await expect
     .poll(() => api.calls('PipelineService/PreviewMatches').length)
@@ -55,9 +57,22 @@ test('the pipeline page counts matched collectors and warns about ones its role 
   saved = true;
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByTestId('pipeline-match-count')).toHaveText(
-    'Matches 1 collector (when enabled).',
+    'Saved pipeline matches 1 collector (when enabled).',
   );
   await expect(page.getByTestId('pipeline-role-exclusion')).toHaveCount(0);
+});
+
+test('a failed match preview says so instead of showing nothing', async ({ page, api }) => {
+  await api.loginAs(orgEditor);
+  const s = basicScenario();
+  api.seed({ orgs: [s.org], pipelines: s.pipelines });
+  api.failNext('POST', '/shepherd.mgmt.v1.PipelineService/PreviewMatches');
+
+  await page.goto('/pipelines/pip-0001');
+  await expect(page.getByTestId('pipeline-match-error')).toContainText(
+    'Failed to load the collectors this pipeline matches',
+  );
+  await expect(page.getByTestId('pipeline-match-count')).toHaveCount(0);
 });
 
 test('the wizard Review step marks a matched collector its role excludes', async ({

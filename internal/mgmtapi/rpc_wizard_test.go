@@ -231,6 +231,23 @@ var _ = Describe("shepherd.mgmt.v1.WizardService", Label("integration"), func() 
 		Expect(fmt.Sprint(out["warnings"])).NotTo(ContainSubstring("Matches no collector"))
 	})
 
+	// An org with no collectors at all is not a pattern problem: telling the
+	// operator to check the cluster pattern and role would send them looking
+	// for a mistake they did not make.
+	It("says the org has no collectors yet, rather than blaming the matchers, when it has none", func() {
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.WizardService/RenderWizard", adminCookie, map[string]any{
+			"org_id": orgID, "kind": "self-monitoring", "name": "wizard-render-empty-org",
+			"state": map[string]any{"metrics_dest_name": "mimir", "logs_enabled": false, "cluster_pattern": "prod-.*"},
+		})
+		defer resp.Body.Close() //nolint:errcheck // test cleanup
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		var out map[string]any
+		Expect(json.NewDecoder(resp.Body).Decode(&out)).To(Succeed())
+		warnings := fmt.Sprint(out["warnings"])
+		Expect(warnings).To(ContainSubstring("Matches no collector yet: this org has no collectors yet."))
+		Expect(warnings).NotTo(ContainSubstring("check the cluster pattern"))
+	})
+
 	It("surfaces stage-1 syntax diagnostics from RenderWizard without failing the RPC", func() {
 		body := map[string]any{
 			"org_id": orgID,

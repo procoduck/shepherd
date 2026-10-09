@@ -619,7 +619,10 @@ gen-alloy-version: ## Regenerate internal/version/alloy_gen.go from versions.env
 # regardless of host OS. NOT part of `make build` —
 # app builds stay hermetic; this is a deliberate, occasional maintenance step.
 # Bump procedure: edit ALLOY_VERSION in deploy/versions.env -> make schema ->
-# review overlay entries marked "needs_review": true -> commit.
+# review overlay entries marked "needs_review": true -> re-verify the runtime
+# log strings in internal/wizard/wizardtest/load.go (runtimeErrors) against the
+# new image and update runtimeErrorsCapturedOn (the wizard load tests fail until
+# you do) -> commit.
 schema: gen-alloy-version preflight-docker ## Regenerate the Alloy schema artifact (network + docker; occasional)
 	./tools/alloy-schema-gen/run.sh
 

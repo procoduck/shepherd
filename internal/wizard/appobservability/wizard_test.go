@@ -185,6 +185,12 @@ var _ = Describe("AppObservabilityWizard golden files", func() {
 			Entry("query parameters become __param_ labels", "http://myapp:9090/probe?target=db&module=pg",
 				[]string{`"__param_module" = "pg"`, `"__param_target" = "db"`}),
 			Entry("surrounding whitespace is ignored", "  http://myapp:9090/metrics ", []string{`"myapp:9090"`}),
+			// Nothing is encoded in these: Go's url keeps a RawPath for them
+			// only because it would escape the sub-delims differently, and
+			// Prometheus sends the same characters either way.
+			Entry("a sub-delim in the path", "http://myapp:9090/metrics!x", []string{`"__metrics_path__" = "/metrics!x"`}),
+			Entry("parentheses in the path", "http://myapp:9090/m(1)", []string{`"__metrics_path__" = "/m(1)"`}),
+			Entry("an escape decoding keeps", "http://myapp:9090/a%21b!c", []string{`"__metrics_path__" = "/a!b!c"`}),
 		)
 
 		DescribeTable("refuses a URL that cannot be a scrape target, naming the field",
@@ -212,7 +218,9 @@ var _ = Describe("AppObservabilityWizard golden files", func() {
 			// decoding loses cannot be sent as written: "/a%2Fb" given
 			// decoded goes out as /a/b, given escaped as /a%252Fb (Alloy
 			// v1.20.1).
-			Entry("an encoded slash in the path", "http://myapp:9090/a%2Fb", "encoded"),
+			Entry("an encoded slash in the path", "http://myapp:9090/a%2Fb", `encodes "/" as %2F`),
+			Entry("an encoded slash beside a sub-delim", "http://myapp:9090/a!b%2fc", `encodes "/" as %2f`),
+			Entry("an encoded equals sign", "http://myapp:9090/k%3Dv", `encodes "=" as %3D`),
 			Entry("a mistyped scheme separator", "http:/myapp:9090/metrics", "mistyped"),
 			Entry("a scheme with one slash missing, https", "https:/myapp/metrics", "mistyped"),
 			Entry("an unbracketed IPv6 host, bare", "::1:9090", "[::1]:9090"),
