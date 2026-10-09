@@ -16,6 +16,7 @@ import (
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/validate"
 	"shepherd/internal/version"
+	"shepherd/internal/wizard"
 )
 
 // legacySelfMonitoringContents is a self-monitoring pipeline as wizards
@@ -145,7 +146,7 @@ var _ = Describe("RerenderLegacyDestinationWriters (#262 upgrade path)", Label("
 		Expect(err).NotTo(HaveOccurred())
 		Expect(o.Contents).To(Equal(legacySelfMonitoringContents), "a pipeline that cannot render is left as it was")
 
-		By("a second run finds only the pipeline it could not render")
+		By("a second run finds only the pipeline it could not render (legacy run)")
 		results, err = mgmtapi.RerenderLegacyDestinationWriters(ctx, st, v, reg, slog.Default(), false)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(results).To(HaveLen(1))
@@ -153,5 +154,75 @@ var _ = Describe("RerenderLegacyDestinationWriters (#262 upgrade path)", Label("
 		revs, err = st.Queries.ListPipelineRevisions(ctx, legacy.ID)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(revs).To(HaveLen(1))
+	})
+
+	// #261 (maintainer decision Q1): a tenant stored before #261 was never
+	// sent. `rerender-destinations --all` is the operator-triggered rollout:
+	// it lists the destinations with a tenant and regenerates every wizard
+	// pipeline whose render differs, never overwriting a hand edit. Red run:
+	// RerenderAllWizardPipelines did not exist.
+	It("--all regenerates pre-#261 renders with the stored tenant, lists the tenants, and keeps hand edits", func() {
+		state := map[string]any{"metrics_dest_name": "mimir", "logs_enabled": false}
+		wiz, err := wizard.Default().Get("self-monitoring")
+		Expect(err).NotTo(HaveOccurred())
+		pre261, err := wiz.Commit(state, wizard.Destinations{"mimir": {
+			Name: "mimir", Type: "prometheus", URL: url, AuthMode: wizard.AuthBasicSecret,
+			SecretNamespace: "monitoring", SecretName: "mimir-creds",
+		}})
+		Expect(err).NotTo(HaveOccurred())
+		stateJSON, err := json.Marshal(state)
+		Expect(err).NotTo(HaveOccurred())
+		create := func(name, contents string, fingerprint pgtype.Text) sqlc.Pipeline {
+			p, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+				OrgID: org, Name: name, Contents: contents, Matchers: json.RawMessage(`["role=\"singleton\""]`),
+				Source: "wizard", WizardKind: pgtype.Text{String: "self-monitoring", Valid: true},
+				WizardState: stateJSON, CreatedBy: "seed", UpdatedBy: "seed",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			_, err = st.Pool().Exec(ctx, `UPDATE pipelines SET wizard_render_sha256 = $2 WHERE id = $1`, p.ID, fingerprint)
+			Expect(err).NotTo(HaveOccurred())
+			return p
+		}
+		fp := func(s string) pgtype.Text { return pgtype.Text{String: sha256Hex(s), Valid: true} }
+		fingerprinted := create("fingerprinted", pre261.Contents, fp(pre261.Contents))
+		unfingerprinted := create("unfingerprinted", pre261.Contents, pgtype.Text{})
+		edited := create("hand-edited", pre261.Contents+"// my edit\n", fp(pre261.Contents))
+		// Stored and, before #261, ignored.
+		_, err = st.Pool().Exec(ctx, `UPDATE destinations SET tenant_id = 'acme' WHERE org_id = $1 AND name = 'mimir'`, org)
+		Expect(err).NotTo(HaveOccurred())
+
+		By("the dry run lists the tenant and the pipelines, and writes nothing")
+		results, err := mgmtapi.RerenderAllWizardPipelines(ctx, st, v, reg, slog.Default(), true)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(results).To(HaveLen(1))
+		Expect(results[0].TenantDestinations).To(ConsistOf("mimir: acme"))
+		Expect(results[0].Rerendered).To(ConsistOf("fingerprinted", "unfingerprinted"))
+		Expect(results[0].Failed).To(ConsistOf(And(ContainSubstring("hand-edited"), ContainSubstring("edited by hand"))))
+		p, err := st.Queries.GetPipelineByID(ctx, fingerprinted.ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(p.Contents).To(Equal(pre261.Contents))
+
+		By("--apply sends the tenant from the next poll on")
+		results, err = mgmtapi.RerenderAllWizardPipelines(ctx, st, v, reg, slog.Default(), false)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(results[0].Rerendered).To(ConsistOf("fingerprinted", "unfingerprinted"))
+		for _, id := range []pgtype.UUID{fingerprinted.ID, unfingerprinted.ID} {
+			p, err := st.Queries.GetPipelineByID(ctx, id)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(p.Contents).To(ContainSubstring(`"X-Scope-OrgID" = "acme",`))
+			Expect(p.WizardRenderSha256.String).To(Equal(sha256Hex(p.Contents)))
+		}
+		e, err := st.Queries.GetPipelineByID(ctx, edited.ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(e.Contents).To(Equal(pre261.Contents+"// my edit\n"), "a hand edit is never overwritten")
+		audits, err := st.Queries.ListAuditLog(ctx, sqlc.ListAuditLogParams{Column1: org, Column3: "pipeline.rerender", Limit: 10})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(audits).To(HaveLen(2))
+		Expect(audits[0].Actor).To(Equal(mgmtapi.LegacyRerenderActor))
+
+		By("a second run has nothing left to regenerate")
+		results, err = mgmtapi.RerenderAllWizardPipelines(ctx, st, v, reg, slog.Default(), false)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(results[0].Rerendered).To(BeEmpty())
 	})
 })

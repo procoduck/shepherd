@@ -611,7 +611,8 @@ prometheus.remote_write "metrics" {
 As built, every wizard writer (`prometheus.remote_write`, `loki.write`) is emitted by one function,
 `internal/wizard.RenderWriter`, from the org's destination row the wizard's `*_dest_name` field
 names. A name the org does not have, or a destination of the wrong type, is refused
-(`failed_precondition`). Tenant headers and TLS options are not rendered.
+(`failed_precondition`). The destination's `tenant_id` and TLS options are rendered too (§11.4,
+#261).
 
 ### 11.3 Logs template (shape)
 
@@ -628,6 +629,35 @@ telemetry-backend credential ever enters Shepherd's database or the served confi
 `…/loki/api/v1/push`). It is rendered verbatim as a string literal. A URL is not a credential, so it
 is not read from the Secret. (The earlier sketch above read `url` from the Secret and appended a
 path. Pre-#229 wizards emitted `sys.env("SHEPHERD_DEST_<NAME>_URL")`, which nothing set.)
+
+**Tenant (#261).** A non-empty `tenant_id` is sent as `X-Scope-OrgID`:
+`headers = { "X-Scope-OrgID" = "<tenant>" }` in a `prometheus.remote_write` endpoint, `tenant_id =
+"<tenant>"` in a `loki.write` endpoint. Empty sends none. The API refuses (`invalid_argument`) a
+value outside `gateway.ValidateTenantID`'s rule, and one another org holds as its `orgs.tenant_id`
+with the generic message `tenant_id is not available to this org`. `wizardDestinations` applies the
+cross-org check again at render time (an app admin may give another org that tenant later), so such
+a destination is refused only by the renders that name it. `MeService.GetMe` returns each org's own
+`orgs.tenant_id` on `OrgMembership.tenant_id` (read-only, empty when unset), and the destination
+form pre-fills a new destination's tenant from it. This is egress from the org's own
+collectors, which an org editor could already tag with any header in a raw pipeline; it does not
+touch the gateway tier's ingress tenancy (D10/D11, `docs/plans/2026-10-06-destination-tenant-tls.md`
+§2). A tenant already stored before #261 reaches a pipeline on its next regeneration, or when an
+operator runs `shepherd admin rerender-destinations --all` (dry run unless `--apply`; lists each
+org's destinations with a tenant and the wizard pipelines whose render differs, regenerates them
+through the same gate, never overwrites a hand edit; `UPGRADING.md` 0.19.x → 0.20.0).
+
+**TLS (#261).** `extra.tls` (`wizard.ExtraKeyTLS`, no proto change) names objects on the spoke,
+never certificate material: `{"ca": {"kind": "configmap"|"secret", "namespace", "name", "key"?},
+"client_cert": {"namespace", "name"}, "server_name"}`, every part optional. The CA is read from
+`key`, default `ca.crt`; the client certificate Secret holds `tls.crt` and `tls.key`
+(`kubernetes.io/tls`). Rendered into the writer's `tls_config`: `ca_pem` (through
+`convert.nonsensitive` when read from a Secret), `cert_pem = convert.nonsensitive(…["tls.crt"])`,
+`key_pem = …["tls.key"]`, `server_name`, after a `remote.kubernetes.configmap`/`secret` per distinct
+object (an object named twice — auth and client certificate in one Secret — is read once).
+`wizard.ParseTLS` decodes strictly: an unknown key is refused, so there is no
+`insecure_skip_verify`. The API refuses (`invalid_argument`) a malformed `extra.tls`, a reference
+that is not a valid namespace/name, a client certificate that is not a Secret, an illegal CA key,
+a non-hostname `server_name`, and any TLS option on a URL that is not `https://`.
 
 **Key contract (#229)** — `internal/wizard.SecretKeys`:
 
@@ -659,7 +689,8 @@ or deleting. Running the wizard again is never suggested: it creates a new pipel
 hand-edited when its contents no longer hash to its render fingerprint
 (`wizard_render_sha256`); with no fingerprint (written before migration 0030, or cleared by an
 editor write) the check falls back to comparing it, byte for byte, with its render against the
-destinations as they stood before the update. A pre-#229 `sys.env` pipeline is never treated as
+destinations as they stood before the update, or with that render with every destination's tenant
+and TLS option cleared (the pre-#261 renderer rendered neither). A pre-#229 `sys.env` pipeline is never treated as
 hand-edited; it is converted. A rename rewrites the name in those pipelines' `wizard_state` as well.
 `DeleteDestination` refuses (`failed_precondition`, listing them quoted, and saying to detach them
 from the wizard or delete them first) while any wizard pipeline in the org names the destination.
@@ -680,7 +711,8 @@ once by `shepherd admin rerender-destinations`.
 **RBAC.** The collector's ServiceAccount needs `get`, `list` and `watch` on `secrets` in the
 Secret's namespace. The `grafana/alloy` chart's default ClusterRole grants this cluster-wide. A
 collector with restricted RBAC needs a Role and RoleBinding in that namespace
-(`e2e/k8s/destination_auth_test.go` runs with exactly that).
+(`e2e/k8s/destination_auth_test.go` runs with exactly that). A TLS CA in a ConfigMap needs the same
+verbs on `configmaps` in its namespace.
 
 ---
 

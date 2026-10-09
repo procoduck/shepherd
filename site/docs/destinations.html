@@ -105,6 +105,19 @@
         <code>https://loki.example.com/loki/api/v1/push</code>. Shepherd puts it into the writer
         exactly as written and adds no path.</p>
 
+      <h2 id="tenant">Tenant</h2>
+      <p>For a multi-tenant Mimir or Loki, set the destination&rsquo;s <strong>Tenant ID</strong>.
+        Wizard pipelines that ship there send it as <code>X-Scope-OrgID</code>: as a header on
+        <code>prometheus.remote_write</code>, and as <code>loki.write</code>&rsquo;s own
+        <code>tenant_id</code>. Leave it empty to send no tenant. It follows Mimir&rsquo;s rule:
+        letters, digits and <code>! - _ . * ' ( )</code>, at most 150 characters, no slashes or
+        spaces.</p>
+      <p>Any tenant your backend expects is allowed except one that belongs to
+        <strong>another organisation</strong> in Shepherd (the tenant ID an application
+        administrator gave it). That is refused when you save, and refused again when a wizard
+        pipeline is generated, in case the other organisation was given that tenant ID later.
+        Shepherd never lets one organisation write under another&rsquo;s tenant ID.</p>
+
       <h2 id="auth">Authentication from a Kubernetes Secret</h2>
       <p>Shepherd never holds a telemetry backend&rsquo;s credentials. For an authenticated
         destination you name a Kubernetes <strong>Secret</strong> that already exists on every
@@ -157,14 +170,67 @@ prometheus.remote_write "metrics" {
 }</code></pre>
       </div>
 
+      <h2 id="tls">TLS from a Secret or ConfigMap</h2>
+      <p>For a backend behind a private CA, or one that requires a client certificate, open
+        <strong>TLS options</strong> on the destination. As with authentication, the certificates
+        stay on the spoke clusters: you name the objects, and the collector reads them at runtime
+        with <code>remote.kubernetes.secret</code> or <code>remote.kubernetes.configmap</code>. TLS
+        options need an <code>https://</code> URL.</p>
+      <table>
+        <thead>
+          <tr><th>Option</th><th>Object</th><th>Keys</th><th>What the writer gets</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Trusted CA</td><td>a ConfigMap or a Secret</td>
+            <td><code>ca.crt</code>, or the key you name</td><td><code>tls_config.ca_pem</code></td></tr>
+          <tr><td>Client certificate</td><td>a Secret</td>
+            <td><code>tls.crt</code>, <code>tls.key</code></td>
+            <td><code>cert_pem</code>, <code>key_pem</code></td></tr>
+          <tr><td>Server name</td><td>&mdash;</td><td>&mdash;</td><td><code>server_name</code></td></tr>
+        </tbody>
+      </table>
+      <ul>
+        <li>The client certificate keys are those of a <code>kubernetes.io/tls</code> Secret, which
+          is what cert-manager writes. A cert-manager Secret also carries <code>ca.crt</code>, so it
+          can serve as both CA and client certificate; the collector then reads it once.</li>
+        <li>Name a different <strong>CA key</strong> for a bundle published under another key, for
+          example a trust-manager <code>Bundle</code> target.</li>
+        <li>The <code>kube-root-ca.crt</code> ConfigMap in every namespace works as the CA when the
+          backend&rsquo;s certificate was issued by the cluster CA.</li>
+        <li>There is no option to skip certificate verification: it would let the Secret-backed
+          credentials above be sent to anyone on the path. Trust the backend&rsquo;s CA
+          instead.</li>
+      </ul>
+      <p>The served config holds only the references and key names:</p>
+      <div class="code-block" data-lang="alloy">
+        <div class="code-head"><span>generated</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>remote.kubernetes.configmap "metrics_tls_ca" {
+  namespace = "monitoring"
+  name      = "backend-ca"
+}
+
+prometheus.remote_write "metrics" {
+  endpoint {
+    name = "prom-prod"
+    url  = "https://mimir.example.com/api/v1/push"
+
+    tls_config {
+      ca_pem      = remote.kubernetes.configmap.metrics_tls_ca.data["ca.crt"]
+      server_name = "mimir.internal.example"
+    }
+  }
+}</code></pre>
+      </div>
+
       <h2 id="rbac">What the collector needs to read the Secret</h2>
       <p>The collector&rsquo;s service account needs <code>get</code> on Secrets in the
         Secret&rsquo;s namespace: <code>remote.kubernetes.secret</code> reads the one named Secret
         with a GET when the config loads and again every minute, and never lists or watches. The
         Grafana Alloy Helm chart, and so k8s-monitoring&rsquo;s collectors, grants Secret access
         cluster-wide by default. If your collectors run with narrower RBAC, grant it in that one
-        namespace; the Role below also grants <code>list</code> and <code>watch</code>, which are
-        not needed:</p>
+        namespace. A destination whose CA is in a ConfigMap needs the same on
+        <code>configmaps</code> in that namespace. The Role below also grants <code>list</code>
+        and <code>watch</code>, which are not needed:</p>
       <div class="code-block" data-lang="yaml">
         <div class="code-head"><span>rbac.yaml</span><button class="copy-btn" type="button">Copy</button></div>
         <pre><code>apiVersion: rbac.authorization.k8s.io/v1
@@ -243,6 +309,17 @@ subjects:
       <p>It lists every pipeline it converts and every one it cannot (for example, one naming a
         destination that was deleted), and is safe to run again. Saving a destination also
         regenerates the pipelines that use it.</p>
+      <h3 id="upgrade-tenant">Tenant IDs stored before they were sent</h3>
+      <p>A destination&rsquo;s tenant ID was stored but not sent before Shepherd rendered it. Such a
+        tenant reaches a pipeline when the pipeline is next regenerated, which moves that data into
+        the named backend tenant. To see which destinations carry a tenant and which pipelines would
+        change, run the same command with <code>--all</code>; it writes nothing until you add
+        <code>--apply</code>, and never overwrites a pipeline edited by hand:</p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>kubectl exec svc/shepherd -- /usr/local/bin/shepherd admin rerender-destinations \
+  --config /etc/shepherd/shepherd.yaml --all</code></pre>
+      </div>
         <nav class="page-nav" aria-label="Pagination">
           <a class="page-nav-prev" href="authoring.html"><span>Previous</span><strong>Authoring pipelines</strong></a>
           <a class="page-nav-next" href="matchers.html"><span>Next</span><strong>Matchers and validation</strong></a>
@@ -254,10 +331,13 @@ subjects:
       <p class="toc-label">On this page</p>
       <ul>
         <li><a href="#url">The URL</a></li>
+        <li><a href="#tenant">Tenant</a></li>
         <li><a href="#auth">Authentication from a Kubernetes Secret</a></li>
+        <li><a href="#tls">TLS from a Secret or ConfigMap</a></li>
         <li><a href="#rbac">What the collector needs to read the Secret</a></li>
         <li><a href="#changes">When a change takes effect</a></li>
         <li class="sub"><a href="#upgrade">Pipelines generated before destination auth</a></li>
+        <li class="sub"><a href="#upgrade-tenant">Tenant IDs stored before they were sent</a></li>
       </ul>
     </aside>
   </div>

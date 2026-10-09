@@ -1,5 +1,55 @@
 # Upgrading the Shepherd chart
 
+## 0.19.x → 0.20.0
+
+An ordinary `helm upgrade`, then **decide when destinations' tenant IDs start
+being sent (#261)**.
+
+### What changed
+
+A destination's **tenant ID** is now sent by wizard pipelines as
+`X-Scope-OrgID` (a header on `prometheus.remote_write`, `tenant_id` on
+`loki.write`). Before, the field was stored but never sent. Destinations can
+also carry TLS options (a private CA, a client certificate, a server name),
+which nothing could have set before, so they change nothing on upgrade.
+
+A tenant ID that an API caller stored on a destination earlier is sent from the
+next time each of its wizard pipelines is regenerated: when the pipeline's
+wizard is re-run, or when the destination is saved. **Sending it moves that
+data into the named backend tenant**, so a tenant ID that was set but never
+meant to be used would move your data. The destination form never set one, so
+destinations created in the UI have none.
+
+### What to do
+
+After the upgrade, from a server pod, list the destinations with a tenant ID
+and the pipelines that would change. With `--all` the command writes nothing
+unless you add `--apply`:
+
+```sh
+kubectl exec svc/<release> -- /usr/local/bin/shepherd admin rerender-destinations \
+  --config /etc/shepherd/shepherd.yaml --all
+```
+
+For each organisation it prints `tenant  <destination>: <tenant>` for every
+destination with a tenant ID, and `ok  <pipeline>` for every wizard pipeline
+whose regenerated text differs from what is stored. If a tenant ID is wrong,
+clear or correct it on the Destinations page first; saving it regenerates
+that destination's pipelines. When the list is right, run it again with
+`--apply`: each listed pipeline is validated like any pipeline edit and stored
+with a new revision and a `pipeline.rerender` audit row (actor
+`system:rerender-destinations`). A pipeline edited by hand is listed as
+`FAILED` and never overwritten; re-run its wizard or detach it from its wizard.
+It is safe to repeat.
+
+A tenant ID that belongs to another organisation (its app-admin-set tenant ID)
+is now refused, both when a destination is saved and when a pipeline is
+generated. A destination that already holds one fails to regenerate, and the
+message names it.
+
+**Expect a reload:** every collector served a regenerated pipeline reloads once
+on its next poll.
+
 ## 0.18.x → 0.19.0
 
 Needs **Kubernetes 1.32 or newer**. An ordinary `helm upgrade`, then **one

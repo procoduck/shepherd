@@ -64,8 +64,9 @@ const loadReadyTimeout = 90 * time.Second
 // configuration to construct a client at all. So the container gets a
 // fake in-cluster environment: a service-account token and CA, and
 // KUBERNETES_SERVICE_HOST pointing at a small TLS server in this process
-// that answers every Secret GET with each key the goldens reference. Every
-// other request it answers 404, which the discovery components only log at
+// that answers every Secret and ConfigMap GET with each key the goldens
+// reference (real PEM for keys a tls_config reads). Every other request it
+// answers 404, which the discovery components only log at
 // run time — a failure there is environmental, never a load refusal.
 //
 // Like AssertGoldensAgainstRealAlloy this calls t.Fatal, never t.Skip, when
@@ -145,7 +146,7 @@ func AssertGoldensLoadInRealAlloyWith(t *testing.T, testdataDir string, fx LoadF
 	}
 
 	checkSecretFixtures(t, contents, fx.SecretData)
-	api := startFakeKubeAPI(t, secretKeysReferenced(contents), fx.SecretData)
+	api := startFakeKubeAPI(t, secretKeysReferenced(contents), pemKeysReferenced(contents), fx.SecretData)
 	sa := writeServiceAccount(t, api.caPEM)
 
 	for _, g := range goldens {
@@ -392,6 +393,31 @@ func secretKeysReferenced(contents map[string]string) []string {
 	return keys
 }
 
+// pemDataRef matches a tls_config attribute that takes PEM material from a
+// remote.kubernetes.secret or remote.kubernetes.configmap export (#261),
+// capturing the attribute and the data key.
+var pemDataRef = regexp.MustCompile(
+	`\b(ca_pem|cert_pem|key_pem)\s*=\s*(?:convert\.nonsensitive\()?remote\.kubernetes\.(?:secret|configmap)\.[A-Za-z0-9_]+\.data\["([^"]+)"\]`)
+
+// pemKeysReferenced maps every data key a golden reads into a tls_config
+// PEM attribute to the material it must hold: "key" for key_pem, "cert"
+// otherwise. A placeholder there fails the load ("unable to use specified
+// CA cert") for a reason that only exists in this test, so the fake API
+// serves real PEM under those keys.
+func pemKeysReferenced(contents map[string]string) map[string]string {
+	kinds := map[string]string{}
+	for _, c := range contents {
+		for _, m := range pemDataRef.FindAllStringSubmatch(c, -1) {
+			kind := "cert"
+			if m[1] == "key_pem" {
+				kind = "key"
+			}
+			kinds[m[2]] = kind
+		}
+	}
+	return kinds
+}
+
 // secretBlockRef matches a remote.kubernetes.secret block as wizards render
 // it, capturing its label, namespace and name.
 var secretBlockRef = regexp.MustCompile(
@@ -431,14 +457,19 @@ type fakeKubeAPI struct {
 	caPEM []byte
 }
 
-var secretPath = regexp.MustCompile(`^/api/v1/namespaces/([^/]+)/secrets/([^/]+)$`)
+var (
+	secretPath    = regexp.MustCompile(`^/api/v1/namespaces/([^/]+)/secrets/([^/]+)$`)
+	configMapPath = regexp.MustCompile(`^/api/v1/namespaces/([^/]+)/configmaps/([^/]+)$`)
+)
 
-// startFakeKubeAPI serves the one Kubernetes API call a component makes
-// while being built (a Secret GET) over TLS, with a self-signed certificate
-// valid for the name the container reaches this process by. It listens on
-// every interface because on Linux host.docker.internal resolves to the
-// docker bridge address, not loopback.
-func startFakeKubeAPI(t *testing.T, keys []string, overrides map[string]map[string]string) fakeKubeAPI {
+// startFakeKubeAPI serves the Kubernetes API calls a component makes while
+// being built (a Secret or ConfigMap GET) over TLS, with a self-signed
+// certificate valid for the name the container reaches this process by. Its
+// own certificate and key double as the PEM material for pemKeys: a matching
+// pair, so a client certificate loads as well as a CA. It listens on every
+// interface because on Linux host.docker.internal resolves to the docker
+// bridge address, not loopback.
+func startFakeKubeAPI(t *testing.T, keys []string, pemKeys map[string]string, overrides map[string]map[string]string) fakeKubeAPI {
 	t.Helper()
 	certPEM, keyPEM := selfSignedCert(t)
 	cert, err := tls.X509KeyPair(certPEM, keyPEM)
@@ -446,18 +477,37 @@ func startFakeKubeAPI(t *testing.T, keys []string, overrides map[string]map[stri
 		t.Fatalf("load fake kube API certificate: %v", err)
 	}
 
-	data := map[string]string{}
+	plain := map[string]string{}
 	for _, k := range keys {
 		v := "placeholder-" + k
 		if strings.Contains(k, "url") {
 			v = "https://auth.example.com/oauth2/token"
 		}
+		switch pemKeys[k] {
+		case "cert":
+			v = string(certPEM)
+		case "key":
+			v = string(keyPEM)
+		}
+		plain[k] = v
+	}
+	data := make(map[string]string, len(plain))
+	for k, v := range plain {
 		data[k] = base64.StdEncoding.EncodeToString([]byte(v))
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if m := configMapPath.FindStringSubmatch(r.URL.Path); m != nil && r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck // test fake; a write error surfaces as the client's failure
+				"apiVersion": "v1",
+				"kind":       "ConfigMap",
+				"metadata":   map[string]any{"namespace": m[1], "name": m[2]},
+				"data":       plain,
+			})
+			return
+		}
 		if m := secretPath.FindStringSubmatch(r.URL.Path); m != nil && r.Method == http.MethodGet {
 			served := make(map[string]string, len(data))
 			for k, v := range data {
@@ -479,7 +529,7 @@ func startFakeKubeAPI(t *testing.T, keys []string, overrides map[string]map[stri
 		_ = json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck // test fake
 			"apiVersion": "v1", "kind": "Status", "status": "Failure",
 			"reason": "NotFound", "code": http.StatusNotFound,
-			"message": "the wizard load test's fake API serves Secrets only",
+			"message": "the wizard load test's fake API serves Secrets and ConfigMaps only",
 		})
 	})
 
