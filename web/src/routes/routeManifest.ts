@@ -34,6 +34,9 @@ export const routeManifest: RouteEntry[] = [
   // sit behind the session guard; public like /login.
   { path: '/change-password', tag: 'public' },
   { path: '/', tag: 'protected', distinctLocator: 'text=Overview', label: 'Overview' },
+  // The in-shell 404 catch-all (B7): any unknown path. Behind the session
+  // guard like every page in the shell, so it too redirects to /login.
+  { path: '$', tag: 'protected', distinctLocator: 'text=Page not found' },
   {
     path: '/collectors',
     tag: 'protected',
