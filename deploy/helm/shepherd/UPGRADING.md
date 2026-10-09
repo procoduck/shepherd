@@ -15,8 +15,10 @@ with a `kubeVersion` error before changing anything; upgrade the cluster first
 
 ### Migrations 0030 and 0031
 
-The migration Job (a `pre-upgrade` hook) applies both before the new pods
-start; nothing to do. `0030` adds a nullable column to `pipelines` — instant.
+The migration Job (a `pre-upgrade` hook, on by default with
+`migrations.job.enabled: true`) applies both before the new pods start;
+nothing to do. If you turned the Job off, run `shepherd migrate up` against
+the database yourself before upgrading, as for every release. `0030` adds a nullable column to `pipelines` — instant.
 `0031` adds one to `pipeline_revisions` and backfills it in three updates; the
 last joins `audit_log` to find `pipeline.rerender` rows (no 0.18.x install has
 any). No index covers that lookup, so it costs one sequential scan of
@@ -54,9 +56,13 @@ After the upgrade, from a server pod (it needs the server's configuration —
 database URL and Alloy binary), list what would change:
 
 ```sh
-kubectl exec svc/<release> -- /usr/local/bin/shepherd admin rerender-destinations \
+kubectl -n <namespace> exec svc/<service> -- /usr/local/bin/shepherd admin rerender-destinations \
   --config /etc/shepherd/shepherd.yaml --dry-run
 ```
+
+`<service>` is the release name when it contains `shepherd` (a release named
+`shepherd` gives `svc/shepherd`), otherwise `<release>-shepherd`; a
+`fullnameOverride` replaces both.
 
 Then run it without `--dry-run`. For each organisation it regenerates every
 wizard pipeline still carrying the `sys.env(...)` writer from its stored
@@ -74,6 +80,12 @@ a repeated or empty query parameter, an encoded `/`); create the destination
 again, or on the pipeline's page detach it from the wizard or delete it (and
 create it again from the wizard), then run the command again. It is safe to
 repeat.
+
+The organisation's merged config is also checked as a whole (Stage 3). If that
+check fails, **nothing in that organisation is converted**: every enabled
+pipeline it would have converted is listed with the error. Fix what the error
+names and run the command again; other organisations are converted as
+usual.
 
 **Expect a reload:** every collector served one of the converted pipelines
 receives a new config on its next poll and reloads once. If you had set
@@ -112,7 +124,7 @@ Secret:
 3. Run the Database Metrics wizard again with **Credential source**
    `kubernetes_secret`, the Secret's namespace, name and key (and the Redis
    address), and commit it under a new name (names are unique per
-   organisation); then disable or delete the old pipeline. Running a wizard
+   organisation, ignoring case and punctuation); then disable or delete the old pipeline. Running a wizard
    creates a new pipeline; it does not edit the old one.
 
 Only collectors running in Kubernetes can read the Secret: a collector on a
@@ -153,7 +165,9 @@ select on it:
 The Deployment's own `spec.selector` is **unchanged**: Kubernetes forbids
 changing it on a live Deployment, so changing it would make this upgrade fail
 outright. It still matches the simulator pods, so reach a server pod through
-the Service (`kubectl exec svc/<release> -- …`), not `deploy/<release>`.
+the Service (`kubectl -n <namespace> exec svc/<service> -- …`, where
+`<service>` is the release name when it contains `shepherd`, otherwise
+`<release>-shepherd`), not the Deployment.
 
 ### The no-endpoints window
 

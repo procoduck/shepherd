@@ -237,7 +237,7 @@ subjects:
         the server's own configuration, <code>--dry-run</code> first:</p>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-        <pre><code>kubectl exec svc/shepherd -- /usr/local/bin/shepherd admin rerender-destinations \
+        <pre><code>kubectl -n shepherd exec svc/shepherd -- /usr/local/bin/shepherd admin rerender-destinations \
   --config /etc/shepherd/shepherd.yaml --dry-run</code></pre>
       </div>
       <p>It lists every pipeline it converts and every one it cannot (for example, one naming a
