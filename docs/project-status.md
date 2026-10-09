@@ -39,26 +39,28 @@
 
 ## 1. Verified baseline (2026-10-09, v0.15.0)
 
-The baseline commit is `210a397` (#321, the last merge before the v0.15.0 release PR). Its CI,
-CodeQL and security-scan runs (37910223512, 37910223547, 37910223424) were still running when this
-was written — runs pending, recorded after merge. Until then each row cites the run on `a367e66`
-(#317, the commit before; #321 changed only SPA code and its tests) or the run that last exercised
-the surface, so the claim is checkable by run id rather than by trusting this table. The release PR changes only version pins, docs and the rebuilt bundle; the release run
-(tag `v0.15.0`) is added to *History* below once it has run.
+The baseline commit is `210a397` (#321, the last merge before the v0.15.0 release PR); its CI,
+CodeQL and security-scan runs (37910223512, 37910223547, 37910223424) are green. The release PR
+(#320, `8d1722d`) changes only version pins, docs and the rebuilt bundle; its CI, CodeQL and
+security-scan runs on main (37911472097, 37911472058, 37911472093) are green, and the release run
+for tag `v0.15.0` on that commit is 37954890404 (verify, release, image attestations and the
+published-image scans all green). Each row cites the run that last exercised the surface — CI's
+`changes` gate skips the jobs a commit does not touch, so the web rows cite `210a397` and the Go
+rows `8d1722d` — so the claim is checkable by run id rather than by trusting this table.
 
 | Check | Where it ran | Result |
 |---|---|---|
-| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 37904225712 (`a367e66`) | clean (Go 1.27.2, x/net v0.60.0 — #315) |
-| `golangci-lint` + config verify, all ten `make guards`, `helm lint` (incl. the dev-kind values), `scripts/repocheck`, generated-code drift | CI `lint` + `guards` + `generated-drift` jobs, same run | 0 issues |
+| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 37911472097 (`8d1722d`) | clean (Go 1.27.2, x/net v0.60.0 — #315) |
+| `golangci-lint` + config verify, all ten `make guards`, `helm lint` (incl. the dev-kind values), `scripts/repocheck`, generated-code drift | CI `lint` + `guards` jobs, same run; `generated-drift` on `a367e66`, run 37904225712 (the last commit its `changes` gate selected it on) | 0 issues |
 | `go test ./...` with coverage (testcontainers Postgres), incl. every wizard golden loaded by a real Alloy v1.20.1 | CI `test` job, same run | green |
-| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job, same run | clean |
-| Mocked Playwright (`make test-ui`) | CI `test-ui` job, same run | green |
-| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, same run | green |
+| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job, run 37910223512 (`210a397`) | clean |
+| Mocked Playwright (`make test-ui`) | CI `test-ui` job, run 37910223512 (`210a397`) | green |
+| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 37911472097 (`8d1722d`) | green |
 | Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml` on push of `bbc9f5e` (#316), run 37900766810 — the last commit its path filter selected | green |
 | Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job, manual dispatch on `fcb8b17` (#314), run 37865881421 | green (containment + run lifecycle) |
 | Kubernetes e2e, kind (`make e2e-k8s`) — incl. destination Secret auth through a real Alloy (#260) | `e2e-k8s.yml`, manual dispatch on `fcb8b17`, run 37865879292 | green |
-| CodeQL (actions, go, javascript-typescript, python; `security-extended`) | `codeql.yml` on `a367e66`, run 37904225746 | green |
-| gitleaks, Trivy config + image scans, OpenSSF Scorecard | `security-scan.yml` on `a367e66`, run 37904225704 | green |
+| CodeQL (actions, go, javascript-typescript, python; `security-extended`) | `codeql.yml` on `8d1722d`, run 37911472058 | green |
+| gitleaks, Trivy config + image scans, OpenSSF Scorecard | `security-scan.yml` on `8d1722d`, run 37911472093 | green |
 | Manual walkthrough on the kind dev stack (Playwright MCP) | 2026-10-09 on `fcb8b17` | its findings (F1–F3, B4–B7) fixed in #316, #317 and #318, all in `a367e66`; the re-check's UI items fixed in #321 (`210a397`) |
 
 ### What demonstrably works end to end
@@ -151,7 +153,7 @@ remediation with its D1–D14 decisions, and the v0.5.0 dependency and toolchain
 - 2026-10-01 — v0.14.0 (walkthrough round: trustworthy collector status, stricter gate, chart
   selectors), chart 0.18.0, release run 36850745268.
 - 2026-10-09 — v0.15.0 (destination auth and re-render, two pre-release walkthroughs, Go 1.27.2),
-  chart 0.19.0; release run to be recorded after the tag.
+  chart 0.19.0, release run 37954890404.
 
 ---
 
