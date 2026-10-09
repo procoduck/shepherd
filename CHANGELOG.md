@@ -197,6 +197,9 @@ Building from source needs Go 1.27.2, Node 26 and pnpm 12.
   in light and dark mode; grouped collector tables line up; repository links lose the stray "/".
   The organisation form no longer suggests group IDs must be GUIDs: enter what your identity
   provider sends in the groups claim. _Shipped._ (#274, #275, #292)
+- **Collectors and Pipelines lists: clicking a row opens the collector or pipeline.** Links,
+  toggles and text selection inside a row keep their own behaviour, and the row's link stays the
+  keyboard way in. _Shipped._ (#321)
 - **Sandbox:** the run is labelled "30s capture, ~45s total" (Alloy gets up to 15s after the
   capture to flush), and a stubbed discovery or log-source node is reported as `stubbed`, not
   `healthy`. _Shipped._ (#275)
@@ -308,6 +311,12 @@ Building from source needs Go 1.27.2, Node 26 and pnpm 12.
   reload or navigation; a team member whose display name equals their login is no longer shown
   twice; the delete-team dialog and the Teams page say correctly that unowned pipelines are
   editable by organisation admins and editors. _Shipped._ (#318)
+- **The visual builder tells an owning-team member below org editor what they can do.** It said
+  "Viewers can't change pipelines"; it now says the builder needs the org editor role and that
+  they can edit the pipeline's text on its page (linked). The pipeline page marks *Open in visual
+  builder* as read-only for them and explains that a later builder save replaces text edits.
+  The pipeline page's matcher "×" buttons are labelled "Remove matcher <matcher>". _Shipped._
+  (#321)
 
 ### API
 

@@ -11,7 +11,7 @@
 > The 2026-10-08 pre-release walkthrough's low-severity findings and nits are filed as
 > #296–#310 (on the board, waves 1–3); they are listed only there, not repeated below.
 >
-> Baseline re-verified 2026-10-09 for v0.15.0 (commit `a367e66`, chart 0.19.0) from the CI runs
+> Baseline re-verified 2026-10-09 for v0.15.0 (commit `210a397`, chart 0.19.0) from the CI runs
 > on that commit plus the 2026-10-09 pre-release walkthrough on the kind dev stack, not from a
 > summary.
 > Completed rounds live in `docs/archive/` — the history this ledger used to carry inline is
@@ -39,9 +39,11 @@
 
 ## 1. Verified baseline (2026-10-09, v0.15.0)
 
-Every row is a CI run on `a367e66` (#317, the last merge before the v0.15.0 release PR) or the run
-that last exercised the surface, so the claim is checkable by run id rather than by trusting this
-table. The release PR changes only version pins, docs and the rebuilt bundle; the release run
+The baseline commit is `210a397` (#321, the last merge before the v0.15.0 release PR). Its CI,
+CodeQL and security-scan runs (37910223512, 37910223547, 37910223424) were still running when this
+was written — runs pending, recorded after merge. Until then each row cites the run on `a367e66`
+(#317, the commit before; #321 changed only SPA code and its tests) or the run that last exercised
+the surface, so the claim is checkable by run id rather than by trusting this table. The release PR changes only version pins, docs and the rebuilt bundle; the release run
 (tag `v0.15.0`) is added to *History* below once it has run.
 
 | Check | Where it ran | Result |
@@ -57,7 +59,7 @@ table. The release PR changes only version pins, docs and the rebuilt bundle; th
 | Kubernetes e2e, kind (`make e2e-k8s`) — incl. destination Secret auth through a real Alloy (#260) | `e2e-k8s.yml`, manual dispatch on `fcb8b17`, run 37865879292 | green |
 | CodeQL (actions, go, javascript-typescript, python; `security-extended`) | `codeql.yml` on `a367e66`, run 37904225746 | green |
 | gitleaks, Trivy config + image scans, OpenSSF Scorecard | `security-scan.yml` on `a367e66`, run 37904225704 | green |
-| Manual walkthrough on the kind dev stack (Playwright MCP) | 2026-10-09 on `fcb8b17` | its findings (F1–F3, B4–B7) fixed in #316, #317 and #318, all in `a367e66` |
+| Manual walkthrough on the kind dev stack (Playwright MCP) | 2026-10-09 on `fcb8b17` | its findings (F1–F3, B4–B7) fixed in #316, #317 and #318, all in `a367e66`; the re-check's UI items fixed in #321 (`210a397`) |
 
 ### What demonstrably works end to end
 
