@@ -1,0 +1,16 @@
+remote.kubernetes.configmap "logs_tls_ca" {
+  namespace = "cert-manager"
+  name      = "org-trust"
+}
+
+loki.write "logs" {
+  endpoint {
+    name = "loki-prod"
+    url  = "https://loki.example.com/loki/api/v1/push"
+    tenant_id = "acme"
+
+    tls_config {
+      ca_pem      = remote.kubernetes.configmap.logs_tls_ca.data["trust-bundle.pem"]
+    }
+  }
+}

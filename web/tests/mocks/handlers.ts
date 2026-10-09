@@ -560,7 +560,17 @@ export function installDefaultHandlers(router: Router) {
     if (st.me === null || st.me === undefined) {
       return connectError(r, 401, 'unauthenticated', 'not authenticated');
     }
-    return json(r, 200, st.me);
+    // Like the server (rpc_me.go), each membership carries the org's own
+    // tenant_id from the org row, omitted when empty (#261).
+    const me = st.me as Obj & { orgs?: Obj[] };
+    return json(r, 200, {
+      ...me,
+      orgs: (me.orgs ?? []).map((m) => {
+        const o = (st.orgs as Obj[]).find((x) => x['id'] === m['id']);
+        const tenant = o ? s(o, 'tenant_id') : '';
+        return tenant ? { ...m, tenantId: tenant } : m;
+      }),
+    });
   });
 
   // POST /api/auth/local/password: the change endpoint, exempt from the
@@ -1630,6 +1640,7 @@ export function installDefaultHandlers(router: Router) {
       secret_name: req['secretName'],
       secret_namespace: req['secretNamespace'],
       auth_mode: req['authMode'],
+      extra: req['extra'] ?? {},
       created_at: '2026-08-17T09:00:00Z',
       updated_at: '2026-08-17T09:00:00Z',
     };
