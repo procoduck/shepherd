@@ -25,6 +25,11 @@ type Destination struct {
 	// OAuth2Scopes comes from the destination's extra.oauth2_scopes
 	// (ExtraKeyOAuth2Scopes). Only rendered for AuthOAuth2Secret.
 	OAuth2Scopes []string
+	// LoadErr is set when the stored row could not be turned into a
+	// Destination (its extra does not decode). RenderWriter refuses a
+	// destination carrying one, so only the wizards that name it fail —
+	// not every render in the org (#261).
+	LoadErr error
 }
 
 // Destinations is an org's destinations keyed by name — the set a wizard's
@@ -165,6 +170,9 @@ func RenderWriter(kind WriterKind, label string, dests Destinations, destName st
 	d, ok := dests[destName]
 	if !ok {
 		return "", fmt.Errorf("destination %q does not exist in this org — create it on the Destinations page first", destName)
+	}
+	if d.LoadErr != nil {
+		return "", fmt.Errorf("destination %q: %w", destName, d.LoadErr)
 	}
 	if d.Type != wantType {
 		return "", fmt.Errorf("destination %q is type %s; %s needs a %s destination", destName, d.Type, kind, wantType)

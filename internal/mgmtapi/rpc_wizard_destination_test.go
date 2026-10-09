@@ -140,6 +140,58 @@ var _ = Describe("WizardService renders destination auth (#229)", Label("integra
 			"needs a prometheus destination"),
 	)
 
+	// #261 step 1: one destination whose stored extra does not decode (a row
+	// written before the API validated it, or by a path that skipped the
+	// API) used to fail wizardDestinations for the WHOLE org, so every wizard
+	// render and every destination update in it failed. Now only a render
+	// that names that destination is refused. Red run: on the old
+	// wizardDestinations the first spec fails — RenderWizard for a wizard
+	// naming only mimir-basic is refused with failed_precondition
+	// `destination "broken": extra.oauth2_scopes must be a list of strings`.
+	Describe("a destination whose stored extra does not decode", func() {
+		BeforeEach(func() {
+			createDest(orgUUID(orgID), "broken", "prometheus", "https://broken.example.com/api/v1/push",
+				"none", "", "", `{"oauth2_scopes":"not-a-list"}`)
+		})
+
+		It("does not stop wizards that name other destinations, or updates to them", func() {
+			state := map[string]any{"metrics_dest_name": "mimir-basic", "logs_enabled": false}
+			for _, proc := range []string{"RenderWizard", "CommitWizard"} {
+				code, body := call("/shepherd.mgmt.v1.WizardService/"+proc, wizardBody("healthy", state))
+				Expect(code).To(Equal(http.StatusOK), "%s: %v", proc, body)
+			}
+
+			var id string
+			rows, err := st.Queries.ListDestinationsByOrg(ctx, orgUUID(orgID))
+			Expect(err).NotTo(HaveOccurred())
+			for i := range rows {
+				if rows[i].Name == "mimir-basic" {
+					id = rows[i].ID.String()
+				}
+			}
+			code, out := call("/shepherd.mgmt.v1.DestinationService/UpdateDestination", map[string]any{
+				"orgId": orgID, "id": id, "name": "mimir-basic", "type": "prometheus",
+				"url": "https://mimir2.example.com/api/v1/push", "authMode": "basic_secret",
+				"secretNamespace": "monitoring", "secretName": "mimir-credentials",
+			})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			p, err := st.Queries.GetPipelineByOrgAndName(ctx, sqlc.GetPipelineByOrgAndNameParams{OrgID: orgUUID(orgID), Name: "healthy"})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(p.Contents).To(ContainSubstring(`url  = "https://mimir2.example.com/api/v1/push"`))
+		})
+
+		It("refuses a wizard that names it, as failed_precondition naming it", func() {
+			state := map[string]any{"metrics_dest_name": "broken", "logs_enabled": false}
+			for _, proc := range []string{"RenderWizard", "CommitWizard"} {
+				code, body := call("/shepherd.mgmt.v1.WizardService/"+proc, wizardBody("named-broken", state))
+				Expect(code).To(Equal(http.StatusBadRequest), proc)
+				Expect(body["code"]).To(Equal("failed_precondition"), proc)
+				Expect(body["message"]).To(ContainSubstring(`destination "broken"`), proc)
+				Expect(body["message"]).To(ContainSubstring("oauth2_scopes"), proc)
+			}
+		})
+	})
+
 	DescribeTable("CreateDestination refuses an auth setting no writer could render, as invalid_argument",
 		func(fields map[string]any, wantMsg string) {
 			body := map[string]any{"orgId": orgID, "name": "bad", "type": "prometheus", "url": "https://m.example.com/api/v1/push"}

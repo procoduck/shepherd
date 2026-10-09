@@ -208,6 +208,12 @@ func validateDestinationAuth(mode, secretNamespace, secretName string, extra []b
 // `*_dest_name` fields resolve against (wizard.Destinations). Only the
 // non-sensitive columns are carried: a Secret mode names the Secret, the
 // collector reads its values at runtime.
+//
+// A row whose extra does not decode is still loaded, carrying the error in
+// LoadErr, and RenderWriter refuses it only when a wizard names it. Failing
+// the whole load instead made one bad row (written before the API validated
+// extra, or by a path that skipped it) break every wizard render and every
+// destination update in the org (#261).
 func wizardDestinations(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID) (wizard.Destinations, error) {
 	rows, err := q.ListDestinationsByOrg(ctx, orgID)
 	if err != nil {
@@ -216,14 +222,16 @@ func wizardDestinations(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID)
 	out := make(wizard.Destinations, len(rows))
 	for i := range rows {
 		d := rows[i]
-		scopes, err := destinationScopes(d.Extra)
-		if err != nil {
-			return nil, fmt.Errorf("destination %q: %w", d.Name, err)
-		}
-		out[d.Name] = wizard.Destination{
+		dest := wizard.Destination{
 			Name: d.Name, Type: d.Type, URL: d.Url, AuthMode: wizard.AuthMode(d.AuthMode),
-			SecretNamespace: d.SecretNamespace, SecretName: d.SecretName, OAuth2Scopes: scopes,
+			SecretNamespace: d.SecretNamespace, SecretName: d.SecretName,
 		}
+		if scopes, err := destinationScopes(d.Extra); err != nil {
+			dest.LoadErr = err
+		} else {
+			dest.OAuth2Scopes = scopes
+		}
+		out[d.Name] = dest
 	}
 	return out, nil
 }
