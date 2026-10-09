@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { Plus } from 'lucide-react';
 import { clients } from '@/api/transport';
 import { QueryError } from '@/components/QueryError';
@@ -95,6 +95,7 @@ function pipelineColumns(
 
 export function PipelinesPage() {
   const orgId = useOrgId();
+  const navigate = useNavigate();
   const canWrite = useCanWrite();
   const qc = useQueryClient();
   const { data, isLoading, isError, error } = useQuery({
@@ -171,6 +172,10 @@ export function PipelinesPage() {
           rowKey={(p) => p.id}
           rowClassName='border-t border-border hover:bg-card/60 cursor-pointer'
           rowProps={(p) => ({ 'data-testid': `pipeline-row-${p.name}` })}
+          // Same dead affordance as the collectors list had: the pointer row
+          // now opens the pipeline; the name link stays the focusable way in,
+          // and the toggle and source links keep their own clicks.
+          onRowClick={(p) => navigate({ to: '/pipelines/$id', params: { id: p.id } })}
         />
       )}
     </div>

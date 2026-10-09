@@ -235,6 +235,15 @@ interface VisualStore {
    */
   pipelineRevision: number;
   setPipelineRevision: (revision: number) => void;
+  /**
+   * The loaded pipeline's own Pipeline.can_edit (the server's ownership
+   * answer), false for a new or not-yet-loaded one. The builder stays gated on
+   * the org role (its Render call is org-editor), so this only changes what a
+   * read-only builder SAYS: an owning-team member below editor may still edit
+   * the pipeline's text on its page.
+   */
+  pipelineCanEdit: boolean;
+  setPipelineCanEdit: (canEdit: boolean) => void;
   /** Sets whether experimental components are permitted (#114), from the org
    *  setting. Re-runs validation so a graph loaded before the flag arrived is
    *  re-gated against it. */
@@ -529,6 +538,7 @@ export const useVisualStore = create<VisualStore>()(
           pipelineName: '',
           matchers: [],
           pipelineRevision: 0,
+          pipelineCanEdit: false,
           simHealthByNode: null,
         }),
 
@@ -623,6 +633,8 @@ export const useVisualStore = create<VisualStore>()(
       setPipelineMeta: (pipelineName, matchers) => set({ pipelineName, matchers }),
       pipelineRevision: 0,
       setPipelineRevision: (pipelineRevision) => set({ pipelineRevision }),
+      pipelineCanEdit: false,
+      setPipelineCanEdit: (pipelineCanEdit) => set({ pipelineCanEdit }),
 
       setAllowExperimental: (allowExperimental) =>
         set((state) =>

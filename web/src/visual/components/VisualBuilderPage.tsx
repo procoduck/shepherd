@@ -311,6 +311,9 @@ export function VisualBuilderPage() {
         // The revision this graph is loaded at, which Save sends back as
         // expected_revision (F1).
         useVisualStore.getState().setPipelineRevision(pipeline.revision);
+        // Only what a read-only builder says depends on this (Toolbar's
+        // useReadOnlyReason); the builder itself stays role-gated.
+        useVisualStore.getState().setPipelineCanEdit(pipeline.canEdit);
         if (isWellFormedGraphDocument(rawWizardState)) {
           useVisualStore.getState().importGraph(rawWizardState);
           useVisualStore.getState().setPipelineMeta(pipeline.name, pipeline.matchers);

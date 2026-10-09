@@ -190,6 +190,8 @@ export function PipelineEditorPage() {
   // Read-only for whoever may not write this pipeline (canEdit above) and for
   // git-managed pipelines (git is the source of truth).
   const readOnly = !canEdit || pipeline?.source === 'git';
+  // Editable here (owning team) but not in the builder (org role below editor).
+  const textOnlyEditor = pipeline?.source === 'visual' && canEdit && !canWrite;
 
   return (
     <div className='flex h-[calc(100vh-7rem)] gap-0'>
@@ -262,7 +264,9 @@ export function PipelineEditorPage() {
             <p>
               Source: <span className='text-zinc-300'>{pipeline.source}</span>
             </p>
-            {pipeline.source === 'visual' && <OpenInVisualBuilder pipelineId={pipeline.id} />}
+            {pipeline.source === 'visual' && (
+              <OpenInVisualBuilder pipelineId={pipeline.id} readOnly={textOnlyEditor} />
+            )}
             {canEdit && pipeline.source === 'wizard' && (
               <DetachFromWizard pipeline={pipeline} orgId={pipelineOrgId} queryOrgId={orgId} />
             )}

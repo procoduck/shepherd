@@ -11,7 +11,7 @@ import { useCanWrite, useOrgId } from '../../hooks/useOrg';
 import { renderTS } from '../renderTS';
 import { useVisualStore } from '../store';
 import { useDebouncedValue } from '../useDebouncedValue';
-import { READ_ONLY_REASON } from './Toolbar';
+import { useReadOnlyReason } from './Toolbar';
 
 const DRAWER_TABS = ['problems', 'code', 'simulate'] as const;
 type DrawerTab = (typeof DRAWER_TABS)[number];
@@ -37,6 +37,7 @@ export function BottomDrawer() {
   // Server render (Verify) and the simulators are org-editor RPCs; a viewer
   // sees the tabs but cannot run them (#206).
   const readOnly = !useCanWrite();
+  const readOnlyReason = useReadOnlyReason();
   const [simulateTab, setSimulateTab] = useState<'relabel' | 'logs'>('relabel');
   const [relabelResult, setRelabelResult] = useState<{ traces: TargetTrace[] }>();
   const [logsResult, setLogsResult] = useState<{ traces: LineTrace[] }>();
@@ -138,7 +139,7 @@ export function BottomDrawer() {
           data-testid='simulate-relabel-run'
           onClick={runRelabel}
           disabled={readOnly}
-          title={readOnly ? READ_ONLY_REASON : undefined}
+          title={readOnly ? readOnlyReason : undefined}
         >
           Run
         </button>
@@ -182,7 +183,7 @@ export function BottomDrawer() {
           data-testid='simulate-logs-run'
           onClick={runLogs}
           disabled={readOnly}
-          title={readOnly ? READ_ONLY_REASON : undefined}
+          title={readOnly ? readOnlyReason : undefined}
         >
           Run
         </button>
@@ -317,7 +318,7 @@ export function BottomDrawer() {
                 className='border rounded px-2 py-1 text-xs mb-2 disabled:opacity-50 disabled:cursor-not-allowed'
                 onClick={verify}
                 disabled={readOnly}
-                title={readOnly ? READ_ONLY_REASON : undefined}
+                title={readOnly ? readOnlyReason : undefined}
               >
                 Verify render
               </button>

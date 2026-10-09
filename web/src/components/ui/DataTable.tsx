@@ -1,4 +1,25 @@
-import type { Key, ReactNode } from 'react';
+import type { Key, MouseEvent, ReactNode } from 'react';
+
+/** What inside a row handles its own click — a row click never doubles it. */
+const ROW_INNER_CONTROLS =
+  'a, button, input, select, textarea, label, summary, [role="button"], [role="switch"], [role="link"]';
+
+/**
+ * Whether a click on a row means "open this row": a plain primary click that
+ * did not land on a control of its own (a link, a toggle) and did not end a
+ * text selection — someone selecting a cluster name to copy it is not asking
+ * to leave the page. A modified click (new tab, etc.) is left to the row's own
+ * link.
+ */
+export function isRowClickNavigation(e: MouseEvent<HTMLElement>): boolean {
+  if (e.defaultPrevented || e.button !== 0) return false;
+  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return false;
+  const target = e.target as Element | null;
+  if (target?.closest?.(ROW_INNER_CONTROLS)) return false;
+  const selection = typeof window !== 'undefined' ? window.getSelection() : null;
+  if (selection && !selection.isCollapsed && selection.toString().trim() !== '') return false;
+  return true;
+}
 
 /**
  * The one table shell for the app (S3). Every page-level table repeated the
@@ -32,6 +53,7 @@ export function DataTable<T>({
   rowKey,
   rowClassName = 'border-t border-border hover:bg-card/60',
   rowProps,
+  onRowClick,
   scrollX,
   testId,
   ariaLabelledBy,
@@ -43,6 +65,13 @@ export function DataTable<T>({
   rowClassName?: string | ((row: T) => string);
   /** Extra attributes (data-testid, onClick, ...) merged onto each <tr>. */
   rowProps?: (row: T) => Record<string, unknown>;
+  /**
+   * Makes the whole row a click target (e.g. "open this collector"). Mouse
+   * only: the row is not focusable — keyboard users reach the same place
+   * through the link the row already holds, which stays the one focusable
+   * element. See `isRowClickNavigation` for the clicks it leaves alone.
+   */
+  onRowClick?: (row: T) => void;
   scrollX?: boolean;
   testId?: string;
   ariaLabelledBy?: string;
@@ -78,7 +107,18 @@ export function DataTable<T>({
             const extra = rowProps?.(row) ?? {};
             const cls = typeof rowClassName === 'function' ? rowClassName(row) : rowClassName;
             return (
-              <tr key={rowKey(row)} className={cls} {...extra}>
+              <tr
+                key={rowKey(row)}
+                className={cls}
+                onClick={
+                  onRowClick
+                    ? (e) => {
+                        if (isRowClickNavigation(e)) onRowClick(row);
+                      }
+                    : undefined
+                }
+                {...extra}
+              >
                 {columns.map((c) => (
                   <td key={c.key} className={c.cellClassName ?? 'px-4 py-2.5'}>
                     {c.render(row)}

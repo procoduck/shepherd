@@ -63,16 +63,45 @@ export function PipelineLandingBanner({ pipelineId }: { pipelineId: string }) {
   );
 }
 
-/** The way back into the builder from a visual pipeline's text editor. */
-export function OpenInVisualBuilder({ pipelineId }: { pipelineId: string }) {
-  return (
+/** The way back into the builder from a visual pipeline's text editor.
+ *  `readOnly`: the builder is gated on the org role, so for someone who may
+ *  edit this pipeline only as a member of its owning team it opens read-only —
+ *  the link says so before they click, and a note says what editing the
+ *  generated text means — its first line says "do not edit by hand", and for
+ *  them the text is the only way to edit. */
+export function OpenInVisualBuilder({
+  pipelineId,
+  readOnly = false,
+}: {
+  pipelineId: string;
+  readOnly?: boolean;
+}) {
+  const link = (
     <Link
       to='/pipelines/$id/visual'
       params={{ id: pipelineId }}
       data-testid='editor-open-visual'
+      title={
+        readOnly ? 'Opens read-only — the visual builder needs the org editor role' : undefined
+      }
       className='flex items-center gap-1 text-indigo-400 hover:text-indigo-300'
     >
       <Workflow size={12} /> Open in visual builder
+      {readOnly && <span className='text-muted-2'>(read-only)</span>}
     </Link>
+  );
+  if (!readOnly) return link;
+  return (
+    <>
+      {link}
+      <p
+        data-testid='editor-visual-text-only-note'
+        className='rounded-md border border-border bg-card/40 px-2 py-1.5 text-muted'
+      >
+        As a member of the owning team you can edit and save this text here; the visual builder
+        needs the org editor role, so it opens read-only for you. The builder keeps its own graph:
+        the next save from it regenerates this text and replaces edits made here.
+      </p>
+    </>
   );
 }

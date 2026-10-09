@@ -41,6 +41,8 @@ export function PipelineMatchers({
         <div key={i} className='flex items-center gap-2' data-testid='pipeline-matcher-chip'>
           <span className='flex-1 font-mono text-xs bg-border px-2 py-1 rounded'>{m}</span>
           <button
+            type='button'
+            aria-label={`Remove matcher ${m}`}
             onClick={() => onChange((ms) => ms.filter((_, j) => j !== i))}
             disabled={readOnly}
             className='text-muted-2 hover:text-red-400 text-xs'

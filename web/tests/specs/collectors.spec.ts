@@ -54,6 +54,54 @@ test('an org admin generates k8s-monitoring values to connect a cluster', async 
   await expect(dialog.getByTestId('connect-cluster-error')).toContainText('another organisation');
 });
 
+// 2026-10-09 re-check: rows had a pointer cursor and a hover style, and a
+// click anywhere but the cluster link did nothing.
+test.describe('a collector row opens the collector', () => {
+  test('clicking a plain cell of the row navigates to that collector', async ({ page, api }) => {
+    await api.loginAs(reader);
+    const s = basicScenario();
+    api.seed({ orgs: [s.org], collectors: s.collectors });
+    await page.goto('/collectors');
+    const row = page.getByTestId('collector-row-col-0002');
+    await row.getByRole('cell', { name: 'logs', exact: true }).click();
+    await expect(page).toHaveURL(/\/collectors\/col-0002$/);
+  });
+
+  test('selecting text in a row does not navigate', async ({ page, api }) => {
+    await api.loginAs(reader);
+    const s = basicScenario();
+    api.seed({ orgs: [s.org], collectors: s.collectors });
+    await page.goto('/collectors');
+    const cell = page
+      .getByTestId('collector-row-col-0002')
+      .getByRole('cell', { name: 'logs', exact: true });
+    const box = await cell.boundingBox();
+    if (!box) throw new Error('no layout');
+    // Drag across the cell's text, as someone copying it would.
+    await page.mouse.move(box.x + 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2, { steps: 5 });
+    await page.mouse.up();
+    expect(await page.evaluate(() => window.getSelection()?.toString() ?? '')).toContain('logs');
+    await expect(page).toHaveURL(/\/collectors$/);
+  });
+
+  test('the cluster link stays the focusable element: the row takes no focus', async ({
+    page,
+    api,
+  }) => {
+    await api.loginAs(reader);
+    const s = basicScenario();
+    api.seed({ orgs: [s.org], collectors: s.collectors });
+    await page.goto('/collectors');
+    const row = page.getByTestId('collector-row-col-0002');
+    await expect(row).not.toHaveAttribute('tabindex', /.*/);
+    await row.getByRole('link', { name: 'prod-eu-1' }).focus();
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/collectors\/col-0002$/);
+  });
+});
+
 test('a reader is not offered Connect a cluster', async ({ page, api }) => {
   const s = basicScenario();
   api.seed({ orgs: [s.org], collectors: s.collectors });

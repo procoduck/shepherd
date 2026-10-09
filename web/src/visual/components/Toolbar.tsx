@@ -29,6 +29,21 @@ class RenderFailedError extends Error {}
 export const READ_ONLY_REASON = "Viewers can't change pipelines — ask an org editor or admin";
 
 /**
+ * The read-only builder's message for an owning-team member below org editor:
+ * the pipeline's own can_edit is true (F3), so "viewers can't change
+ * pipelines" was false for them — but the builder stays gated on the org role
+ * (VisualService.Render is org-editor), so it still opens read-only.
+ */
+export const TEAM_READ_ONLY_REASON =
+  "The visual builder needs the org editor role. As a member of the owning team you can still edit this pipeline's text on its page, or ask an org editor.";
+
+/** Why the builder is read-only for this user — only meaningful while it is. */
+export function useReadOnlyReason(): string {
+  const pipelineCanEdit = useVisualStore((s) => s.pipelineCanEdit);
+  return pipelineCanEdit ? TEAM_READ_ONLY_REASON : READ_ONLY_REASON;
+}
+
+/**
  * How much of the toolbar fits in one row (#251), by the toolbar's own width
  * — not the window's, so the app nav counts (the builder shows it as a 56px
  * rail; expanding it narrows the row):
@@ -101,6 +116,7 @@ export function Toolbar({
   // action here is org-editor on the server, so offering it only produced a
   // 403 toast (#206).
   const readOnly = !useCanWrite();
+  const readOnlyReason = useReadOnlyReason();
   const navigate = useNavigate();
   const qc = useQueryClient();
 
@@ -198,7 +214,7 @@ export function Toolbar({
   const hasBlockingErrors = errors > 0;
   const canSave = !readOnly && !matchersRequired && !hasBlockingErrors && !saveMutation.isPending;
   const saveDisabledReason = readOnly
-    ? READ_ONLY_REASON
+    ? readOnlyReason
     : matchersRequired
       ? 'Add at least one matcher before saving — format: key="value" or key=~"regex"'
       : hasBlockingErrors
@@ -219,7 +235,7 @@ export function Toolbar({
       ? `Flow OK · ${doc.nodes.filter((n) => !n.disabled).length} nodes, ${doc.edges.length} wires`
       : `Flow broken · ${errors} problem${errors !== 1 ? 's' : ''}`
     : null;
-  const sandboxDisabledReason = readOnly ? READ_ONLY_REASON : undefined;
+  const sandboxDisabledReason = readOnly ? readOnlyReason : undefined;
 
   return (
     <>
@@ -244,7 +260,7 @@ export function Toolbar({
         {readOnly && (
           <span
             data-testid='toolbar-read-only'
-            title={READ_ONLY_REASON}
+            title={readOnlyReason}
             className='shrink-0 whitespace-nowrap text-xs px-2 py-0.5 rounded border border-border text-muted'
           >
             Read only

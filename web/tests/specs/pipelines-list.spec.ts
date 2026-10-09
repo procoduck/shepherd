@@ -51,6 +51,26 @@ test('a visual pipeline rendered under an older schema is badged', async ({ page
   await expect(badge).toHaveAttribute('href', '/pipelines/pip-stale/visual');
 });
 
+// 2026-10-09 re-check: the rows showed a pointer cursor and did nothing when
+// clicked (the collectors list had the same dead affordance).
+test('clicking a row opens the pipeline; its toggle still only toggles', async ({ page, api }) => {
+  await api.loginAs(orgEditor);
+  const s = basicScenario();
+  api.seed({ orgs: [s.org], pipelines: s.pipelines });
+  await page.goto('/pipelines');
+  const row = page.getByTestId('pipeline-row-ui-enabled');
+
+  await row.getByRole('switch', { name: 'Enabled: ui-enabled' }).click();
+  await expect(row.getByRole('switch', { name: 'Enabled: ui-enabled' })).toHaveAttribute(
+    'aria-checked',
+    'false',
+  );
+  await expect(page).toHaveURL(/\/pipelines$/);
+
+  await row.getByText('cluster="prod-eu-1"').click();
+  await expect(page).toHaveURL(/\/pipelines\/pip-0001$/);
+});
+
 test('the enable toggle is a switch whose knob sits at the start when off (#208)', async ({
   page,
   api,

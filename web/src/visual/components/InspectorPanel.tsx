@@ -11,7 +11,7 @@ import { nextBlockOrder, withAttr } from './inspector/blockOps';
 import { buildPortWireIndex, wireCountsFor, wireEdgesFor } from './inspector/portWiring';
 import { InspectorReadOnlyContext } from './inspector/readOnly';
 import type { AttrLike, BlockLike } from './inspector/schemaShapes';
-import { READ_ONLY_REASON } from './Toolbar';
+import { useReadOnlyReason } from './Toolbar';
 import { UpgradeReview } from './UpgradeReview';
 
 const diagAt = (diags: L1DiagnosticEx[], path: string[]): string | undefined =>
@@ -68,6 +68,7 @@ export function InspectorPanel() {
   // #226: a viewer reads the selected node's properties but cannot change
   // them. Set from useCanWrite() by VisualBuilderPage.
   const readOnly = useVisualStore((s) => s.readOnly);
+  const readOnlyReason = useReadOnlyReason();
   const [reviewOpen, setReviewOpen] = useState(false);
   const [showOptional, setShowOptional] = useState(false);
   const def: ComponentDef | undefined = node && schema?.components[node.component];
@@ -107,7 +108,7 @@ export function InspectorPanel() {
                 data-testid='upgrade-review-open'
                 className='underline font-medium disabled:no-underline disabled:opacity-60'
                 disabled={readOnly}
-                title={readOnly ? READ_ONLY_REASON : undefined}
+                title={readOnly ? readOnlyReason : undefined}
                 onClick={() => setReviewOpen(true)}
               >
                 Review upgrade
@@ -183,7 +184,7 @@ export function InspectorPanel() {
             <p
               data-testid='inspector-read-only'
               className='mt-1 inline-block rounded border border-border px-1.5 py-0.5 text-[11px] text-muted'
-              title={READ_ONLY_REASON}
+              title={readOnlyReason}
             >
               Read only
             </p>
