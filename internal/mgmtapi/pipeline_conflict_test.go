@@ -200,6 +200,52 @@ var _ = Describe("F1: UpdatePipeline expected_revision (optimistic concurrency)"
 		Expect(resp.StatusCode).To(Equal(http.StatusOK), "%v", body)
 		Expect(body["revision"]).To(BeEquivalentTo(2))
 	})
+
+	// The handler decides whether Stage 3 applies from the row it read before
+	// the lock. A pipeline enabled in between must not take the update's
+	// content into the served config unchecked.
+	It("refuses an update whose pipeline was enabled after Stage 3 was skipped", func() {
+		id, err := scanTestUUID(pipelineID)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Hold the row lock, so the update reads the (disabled) row, skips
+		// Stage 3, and then waits at GetPipelineForUpdate.
+		tx, err := st.Pool().Begin(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // explicit Commit below is the real end
+		txQ := st.Queries.WithTx(tx)
+		_, err = txQ.GetPipelineForUpdate(ctx, id)
+		Expect(err).NotTo(HaveOccurred())
+
+		type result struct {
+			status int
+			body   map[string]any
+		}
+		done := make(chan result, 1)
+		go func() {
+			defer GinkgoRecover()
+			resp, body := update(map[string]any{"contents": "// unchecked", "expectedRevision": 1})
+			done <- result{resp.StatusCode, body}
+		}()
+		Eventually(func() error {
+			var pid int
+			return st.Pool().QueryRow(ctx,
+				`SELECT pid FROM pg_stat_activity
+				 WHERE datname = current_database() AND wait_event_type = 'Lock' AND query ILIKE '%GetPipelineForUpdate%'`,
+			).Scan(&pid)
+		}, "5s", "20ms").Should(Succeed(), "the update never waited on the row lock")
+
+		_, err = txQ.SetPipelineEnabled(ctx, sqlc.SetPipelineEnabledParams{ID: id, Enabled: true, UpdatedBy: "other"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(tx.Commit(ctx)).To(Succeed())
+
+		r := <-done
+		Expect(r.status).To(Equal(http.StatusConflict), "%v", r.body)
+		Expect(r.body["code"]).To(Equal("aborted"))
+		Expect(r.body["message"]).To(ContainSubstring("enabled while you were saving"))
+		Expect(storedContents()).To(Equal("// v1"))
+		Expect(revisionCount()).To(Equal(1))
+	})
 })
 
 func scanTestUUID(s string) (pgtype.UUID, error) {

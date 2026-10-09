@@ -1,8 +1,10 @@
 import 'fake-indexeddb/auto';
+import { set } from 'idb-keyval';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   clearDraft,
   loadDraft,
+  loadDraftWithBase,
   saveDraft,
   shouldOfferRestore,
   subscribeDraftAutosave,
@@ -32,6 +34,16 @@ describe('draft persistence', () => {
     await saveDraft('test', document);
     await clearDraft('test');
     expect(await loadDraft('test')).toBeNull();
+    expect(await loadDraftWithBase('test')).toBeNull();
+  });
+  it('keeps the server revision the draft was edited from (F1)', async () => {
+    await saveDraft('test', document, 5);
+    expect(await loadDraftWithBase('test')).toEqual({ doc: document, baseRevision: 5 });
+  });
+  it('reports no base for a draft saved before base revisions existed', async () => {
+    await set('vb:draft:legacy', document);
+    expect(await loadDraftWithBase('legacy')).toEqual({ doc: document, baseRevision: null });
+    await clearDraft('legacy');
   });
 });
 

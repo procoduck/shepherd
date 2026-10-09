@@ -75,8 +75,9 @@ export function PipelineEditorPage() {
   const revisions = revisionsData?.items ?? [];
   // The newest revision is what the pipeline already is — every content,
   // matcher, restore and detach change writes one — so restoring it would be
-  // a no-op revision (#252). Pipeline.revision is not populated by the
-  // server, hence the max over the history.
+  // a no-op revision (#252). Taken from the history list rather than
+  // Pipeline.revision so the "current" marker always agrees with the list it
+  // is shown in, even while one of the two queries is refetching.
   const currentRevision = revisions.reduce((max, r) => Math.max(max, r.revision), 0);
 
   // GetRevision is org-reader, so any signed-in viewer can open a diff —

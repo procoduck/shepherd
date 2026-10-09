@@ -1217,7 +1217,15 @@ export function installDefaultHandlers(router: Router) {
           return !!version && version !== mockCurrentSchemaVersion(st);
         })
       : (st.pipelines as Obj[]);
-    return json(r, 200, list(items.map((p) => pipelineOut(p, req['orgId']))));
+    return json(
+      r,
+      200,
+      list(
+        // The real ListPipelines leaves revision at 0 (only single-pipeline
+        // responses carry it), so the mock does too.
+        items.map((p) => ({ ...pipelineOut(p, req['orgId']), revision: 0 })),
+      ),
+    );
   });
   router.register('POST', '/shepherd.mgmt.v1.PipelineService/CreatePipeline', async (r) => {
     const pBody = (await r.request().postDataJSON()) as Obj;

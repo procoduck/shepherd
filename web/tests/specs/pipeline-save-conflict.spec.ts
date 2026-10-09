@@ -190,3 +190,133 @@ test('the visual builder sends the revision it loaded, and offers Reload on a co
   });
   expect(updateBodies(api)[1].expectedRevision).toBe(2);
 });
+
+// A local draft is the other way a stale graph reaches Save: it is restored
+// over a freshly loaded server copy. The draft keeps the revision its edits
+// started from, and restoring it makes that the revision the save is checked
+// against — a draft made at revision 5 cannot be saved over revision 6.
+test('a restored draft saves against the revision it was edited from', async ({ page, api }) => {
+  await api.loginAs(orgEditor);
+  const s = basicScenario();
+  const p = pipeline({
+    id: 'pip-draft-conflict',
+    name: 'draft-conflict',
+    source: 'visual',
+    contents: '// generated\n',
+    matchers: ['env="prod"'],
+    revisions: [5, 4, 3, 2, 1].map((n) =>
+      revision({ pipeline_id: 'pip-draft-conflict', revision: n }),
+    ),
+  });
+  api.seed({
+    orgs: [s.org],
+    schema: schemaFixture,
+    pipelines: [{ ...p, wizard_state: graph }],
+    visualRenderResult: { content: '// generated\n', node_map: {}, diagnostics: [] },
+  });
+
+  await page.goto(`/pipelines/${p.id}/visual`);
+  await page.waitForSelector('[data-testid="palette-search"]', { timeout: 10_000 });
+  await page.click('[data-testid="palette-item-prometheus.remote_write"]');
+  await expect(page.locator('.react-flow__node')).toHaveCount(1);
+  // The autosaved draft carries the base revision it was edited from.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          new Promise<unknown>((resolve) => {
+            const open = indexedDB.open('keyval-store');
+            open.onerror = () => resolve(null);
+            open.onsuccess = () => {
+              const get = open.result
+                .transaction('keyval', 'readonly')
+                .objectStore('keyval')
+                .get('vb:draft-base:pip-draft-conflict');
+              get.onsuccess = () => resolve(get.result ?? null);
+              get.onerror = () => resolve(null);
+            };
+          }),
+      ),
+    )
+    .toBe(5);
+
+  // Another tab saves: the server is at revision 6.
+  const stored = api.state.pipelines[0] as Obj;
+  (stored.revisions as Obj[]).unshift(revision({ pipeline_id: p.id, revision: 6 }));
+
+  page.on('dialog', (d) => {
+    void d.accept();
+  });
+  await page.reload();
+  await expect(page.getByTestId('draft-restore-banner')).toBeVisible();
+  // A draft that knows its base needs no "may be older" warning.
+  await expect(page.getByTestId('draft-restore-age-warning')).toHaveCount(0);
+  await page.getByTestId('draft-restore').click();
+  await expect(page.locator('.react-flow__node')).toHaveCount(1);
+
+  await page.getByTestId('toolbar-save').click();
+  await expect(page.getByTestId('save-conflict')).toBeVisible();
+  await expect(page.getByTestId('save-conflict-message')).toContainText('revision 5, now 6');
+  expect(updateBodies(api).at(-1)?.expectedRevision).toBe(5);
+});
+
+// A draft saved before base revisions were recorded cannot say how old it is:
+// the banner warns, and restoring it is the person's explicit call.
+test('a draft with no recorded base revision is restored only with a warning', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(orgEditor);
+  const s = basicScenario();
+  const p = pipeline({
+    id: 'pip-legacy-draft',
+    name: 'legacy-draft',
+    source: 'visual',
+    contents: '// generated\n',
+    matchers: ['env="prod"'],
+    revisions: [revision({ pipeline_id: 'pip-legacy-draft', revision: 3 })],
+  });
+  api.seed({
+    orgs: [s.org],
+    schema: schemaFixture,
+    pipelines: [{ ...p, wizard_state: graph }],
+    visualRenderResult: { content: '// generated\n', node_map: {}, diagnostics: [] },
+  });
+  await page.goto(`/pipelines/${p.id}/visual`);
+  await page.waitForSelector('[data-testid="visual-builder"]', { timeout: 10_000 });
+  // The old shape: the graph alone under vb:draft:<id>, no base key.
+  await page.evaluate(
+    (doc) =>
+      new Promise<void>((resolve, reject) => {
+        const open = indexedDB.open('keyval-store');
+        open.onupgradeneeded = () => open.result.createObjectStore('keyval');
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const tx = open.result.transaction('keyval', 'readwrite');
+          tx.objectStore('keyval').put(doc, 'vb:draft:pip-legacy-draft');
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        };
+      }),
+    {
+      ...graph,
+      nodes: [
+        {
+          id: 'n1',
+          component: 'prometheus.remote_write',
+          label: 'old draft',
+          position: { x: 0, y: 0 },
+          props: {},
+          disabled: false,
+          notes: '',
+        },
+      ],
+    },
+  );
+  await page.reload();
+  await expect(page.getByTestId('draft-restore-banner')).toBeVisible();
+  await expect(page.getByTestId('draft-restore-age-warning')).toBeVisible();
+  await expect(page.getByTestId('draft-restore')).toHaveText('Restore draft anyway');
+  await page.getByTestId('draft-restore').click();
+  await expect(page.locator('.react-flow__node')).toHaveCount(1);
+});

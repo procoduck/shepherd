@@ -74,8 +74,12 @@ export const PipelineRevisionSchema: GenMessage<PipelineRevision> = /*@__PURE__*
 
 /**
  * Pipeline is an Alloy config fragment plus the matchers that decide which
- * collectors receive it. revision is never populated today (always
- * 0/omitted); revisions is populated only on GetPipeline.
+ * collectors receive it. revision is the pipeline's current (newest)
+ * revision, filled on every single-pipeline response (Get, Create, Update,
+ * Enable, Disable, Restore, Detach, SetPipelineOwner, CommitWizard) and 0 on
+ * ListPipelines; it is what an editor sends back as
+ * UpdatePipelineRequest.expected_revision. revisions is populated only on
+ * GetPipeline.
  *
  * @generated from message shepherd.mgmt.v1.Pipeline
  */
@@ -172,7 +176,11 @@ export type Pipeline = Message<"shepherd.mgmt.v1.Pipeline"> & {
    * delete or restore this pipeline, computed with the same ownership check
    * the write paths use (auth.AuthorizeOwnership: an org editor or above, or
    * a member of the owning team). Informational — the server still enforces
-   * on every write.
+   * on every write. It answers authorization only: a source="git" pipeline
+   * can report true while Update/Delete still refuse it as read-only (git is
+   * its source of truth) — callers check source separately. For a service
+   * account it is true only for an apply-capability credential whose request
+   * carries a verified On-Behalf-Of header, as for any machine write.
    *
    * @generated from field: bool can_edit = 16;
    */

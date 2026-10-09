@@ -127,8 +127,12 @@ func (x *PipelineRevision) GetWizardState() *structpb.Struct {
 }
 
 // Pipeline is an Alloy config fragment plus the matchers that decide which
-// collectors receive it. revision is never populated today (always
-// 0/omitted); revisions is populated only on GetPipeline.
+// collectors receive it. revision is the pipeline's current (newest)
+// revision, filled on every single-pipeline response (Get, Create, Update,
+// Enable, Disable, Restore, Detach, SetPipelineOwner, CommitWizard) and 0 on
+// ListPipelines; it is what an editor sends back as
+// UpdatePipelineRequest.expected_revision. revisions is populated only on
+// GetPipeline.
 type Pipeline struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Id       string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -159,7 +163,11 @@ type Pipeline struct {
 	// delete or restore this pipeline, computed with the same ownership check
 	// the write paths use (auth.AuthorizeOwnership: an org editor or above, or
 	// a member of the owning team). Informational — the server still enforces
-	// on every write.
+	// on every write. It answers authorization only: a source="git" pipeline
+	// can report true while Update/Delete still refuse it as read-only (git is
+	// its source of truth) — callers check source separately. For a service
+	// account it is true only for an apply-capability credential whose request
+	// carries a verified On-Behalf-Of header, as for any machine write.
 	CanEdit       bool `protobuf:"varint,16,opt,name=can_edit,json=canEdit,proto3" json:"can_edit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
