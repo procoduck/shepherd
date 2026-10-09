@@ -76,7 +76,7 @@ test.describe('matcher-edit', () => {
       // Remove the role="metrics" matcher chip, then add role="logs".
       const metricsMatcher = page.getByText('role="metrics"', { exact: true });
       await expect(metricsMatcher).toBeVisible();
-      await metricsMatcher.locator('xpath=..').getByRole('button', { name: '×' }).click();
+      await page.getByRole('button', { name: 'Remove matcher role="metrics"' }).click();
       await expect(metricsMatcher).toHaveCount(0);
 
       const matcherInput = page.getByPlaceholder(/Enter to add/);
