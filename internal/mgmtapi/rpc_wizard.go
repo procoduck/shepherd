@@ -176,7 +176,10 @@ const matchConnected = "connected"
 // connected as (seeded, or created for a cluster/role no Alloy runs yet)
 // used to suppress the zero-match warning on its own, so a pipeline that
 // serves nothing today read as one that does. One connected match is enough
-// to say nothing: the pipeline is served somewhere.
+// to say nothing: the pipeline is served somewhere. The wording is "no
+// instance on record", not "never connected": the lifecycle sweeper deletes
+// instance rows past agent.delete_after, so a long-dead collector reads the
+// same as one that never ran.
 func neverConnectedWarnings(matched []map[string]string) []string {
 	if len(matched) == 0 {
 		return nil
@@ -188,7 +191,7 @@ func neverConnectedWarnings(matched []map[string]string) []string {
 		}
 		names = append(names, m["cluster"]+" / "+m["role"])
 	}
-	return []string{fmt.Sprintf("Matches only collectors that have never connected: %s. "+
+	return []string{fmt.Sprintf("Matches only collectors with no instance on record: %s. "+
 		"The pipeline can still be saved, but it serves nothing until one of them connects — "+
 		"check that an Alloy collector runs with that cluster and role.", strings.Join(names, ", "))}
 }

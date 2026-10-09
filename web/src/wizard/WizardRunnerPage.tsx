@@ -54,8 +54,8 @@ function matcherValue(matcher: string): string | undefined {
 
 /** A matcher chip is flagged as wizard-added when its quoted value isn't
  * anything the user typed or picked on the form -- e.g. self-monitoring's
- * `role="singleton"` appended after the user's own cluster_pattern
- * (wizard.go:180-184). A value the user *did* enter (job_name feeding a
+ * `role="singleton"` (or `"metrics"` on Auto) appended after the user's own
+ * cluster_pattern. A value the user *did* enter (job_name feeding a
  * matcher, or a select they chose) matches one of the form's own string
  * values and stays unlabelled. */
 function isWizardAddedMatcher(matcher: string, form: WizardFormState): boolean {
@@ -310,7 +310,7 @@ export function WizardRunnerPage() {
                                   title='No instance of this collector is connected. It receives the pipeline once one connects.'
                                   className='ml-1.5 text-muted'
                                 >
-                                  — not connected yet
+                                  — no instance connected
                                 </span>
                               )}
                               {/* Role enforcement (G6) keeps the pipeline out of

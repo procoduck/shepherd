@@ -162,5 +162,5 @@ test('the wizard Review step marks a matched collector that has no connected ins
   const marker = page.getByTestId('wizard-unconnected-collector');
   await expect(marker).toHaveCount(1);
   await expect(page.locator('li', { has: marker })).toContainText('prod-eu-1 / singleton');
-  await expect(marker).toContainText('not connected yet');
+  await expect(marker).toContainText('no instance connected');
 });

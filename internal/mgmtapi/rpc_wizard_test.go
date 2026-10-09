@@ -234,7 +234,7 @@ var _ = Describe("shepherd.mgmt.v1.WizardService", Label("integration"), func() 
 		out = render(state)
 		Expect(out["matchedCollectors"]).To(HaveLen(1))
 		Expect(fmt.Sprint(out["warnings"])).NotTo(ContainSubstring("Matches no collector"))
-		Expect(fmt.Sprint(out["warnings"])).NotTo(ContainSubstring("never connected"))
+		Expect(fmt.Sprint(out["warnings"])).NotTo(ContainSubstring("no instance on record"))
 	})
 
 	// B5 (2026-10-09 walkthrough): "Matches 1 collector: prod-eu-1 /
@@ -274,7 +274,7 @@ var _ = Describe("shepherd.mgmt.v1.WizardService", Label("integration"), func() 
 		Expect(out["matchedCollectors"]).To(HaveLen(2), "a never-connected collector still counts as a match")
 		warnings := fmt.Sprint(out["warnings"])
 		Expect(warnings).To(ContainSubstring(
-			"Matches only collectors that have never connected: prod-eu-1 / singleton, prod-us-1 / singleton."))
+			"Matches only collectors with no instance on record: prod-eu-1 / singleton, prod-us-1 / singleton."))
 		Expect(warnings).NotTo(ContainSubstring("Matches no collector"))
 
 		// One of them connects: the pipeline is served somewhere, so no warning.
@@ -284,7 +284,7 @@ var _ = Describe("shepherd.mgmt.v1.WizardService", Label("integration"), func() 
 		Expect(err).NotTo(HaveOccurred())
 		out = render()
 		Expect(out["matchedCollectors"]).To(HaveLen(2))
-		Expect(fmt.Sprint(out["warnings"])).NotTo(ContainSubstring("never connected"))
+		Expect(fmt.Sprint(out["warnings"])).NotTo(ContainSubstring("no instance on record"))
 	})
 
 	// An org with no collectors at all is not a pattern problem: telling the
