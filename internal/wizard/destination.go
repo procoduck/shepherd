@@ -158,7 +158,7 @@ func ValidateSecretKey(key string) error {
 //
 // Every wizard writer goes through this one function, so the URL model and
 // the Secret key contract (SecretKeys) are defined once — see
-// docs/plans/2026-10-01-destination-auth.md.
+// docs/archive/plans/2026-10-01-destination-auth.md.
 func RenderWriter(kind WriterKind, label string, dests Destinations, destName string) (string, error) {
 	wantType, err := kind.destinationType()
 	if err != nil {

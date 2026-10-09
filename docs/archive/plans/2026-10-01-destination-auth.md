@@ -1,6 +1,7 @@
 # Destination Secret auth (#229, F-DEST-AUTH)
 
-Status: building on `feat/destination-secret-auth`. Maintainer decision 2026-10-01: build it, and the
+Status: **shipped in v0.15.0** (#260; follow-up #262 in #263–#265, #291). Archived; not maintained.
+Originally: building on `feat/destination-secret-auth`. Maintainer decision 2026-10-01: build it, and the
 served-config content change (auth rendered into served config) is approved for this change only.
 No proto change.
 
