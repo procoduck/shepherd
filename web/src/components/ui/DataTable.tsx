@@ -9,7 +9,8 @@ const ROW_INNER_CONTROLS =
  * did not land on a control of its own (a link, a toggle) and did not end a
  * text selection — someone selecting a cluster name to copy it is not asking
  * to leave the page. A modified click (new tab, etc.) is left to the row's own
- * link.
+ * link. Known trade-off: a double-click to select a word navigates on its
+ * first click (no selection exists yet); drag-selecting text works.
  */
 export function isRowClickNavigation(e: MouseEvent<HTMLElement>): boolean {
   if (e.defaultPrevented || e.button !== 0) return false;

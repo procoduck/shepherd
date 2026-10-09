@@ -155,6 +155,10 @@ export function VisualBuilderPage() {
       setDraftToRestore(null);
     }
     prevPipelineIdRef.current = pipelineId;
+    // A fresh mount at /pipelines/new/visual keeps the store from the last
+    // builder visit; a new pipeline has no owning team, so no team-member
+    // edit right (canEdit) may linger from a previously opened one.
+    if (pipelineId === 'new') useVisualStore.getState().setPipelineCanEdit(false);
   }, [pipelineId]);
 
   // Persist the in-memory graph to IndexedDB as it's edited (design §4.4) —
