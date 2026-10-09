@@ -36,6 +36,15 @@ func TestGenGoldens(t *testing.T) {
 			"logs_dest_name":    "loki-prod",
 			"cluster_pattern":   "prod-.*",
 		}},
+		{"secret-auth", map[string]any{
+			"job_name":          "alloy-self",
+			"scrape_interval":   "60s",
+			"metrics_dest_name": "prom-basic",
+			"logs_enabled":      true,
+			"log_path":          "/var/log/alloy/*.log",
+			"logs_dest_name":    "loki-oauth",
+			"cluster_pattern":   "prod-.*",
+		}},
 	}
 	for _, c := range cases {
 		res, err := w.Commit(c.state, wizardtest.Destinations())

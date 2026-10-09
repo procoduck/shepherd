@@ -2,10 +2,10 @@
  * Fullstack: self-monitoring wizard -> real pipeline -> enabled -> served
  * config contains its block (W7-10, via the API).
  *
- * internal/wizard/selfmonitoring: role="singleton" is deliberate (the
- * package doc explains why — it is the one wizard allowed to mix Metrics
- * and Logs), which is exactly why this test can target the seeded
- * "singleton" collector on prod-eu-1 without needing a cluster_pattern.
+ * internal/wizard/selfmonitoring: with logs off its Auto role is "metrics"
+ * (B6, 2026-10-09 walkthrough), so this test picks role "singleton"
+ * explicitly to target the seeded "singleton" collector on prod-eu-1
+ * without needing a cluster_pattern.
  */
 import { expect, forceRecompute, getMe, loginAsAdmin, rpc, test } from './fixtures';
 
@@ -36,6 +36,7 @@ test.describe('wizard-commit', () => {
         // this test only needs the pipeline to exist and match, not the
         // mixed-signal detail the wizard package itself already covers.
         logs_enabled: false,
+        role: 'singleton',
       },
     });
     expect(commitResp.status()).toBe(200);

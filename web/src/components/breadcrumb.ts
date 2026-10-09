@@ -64,7 +64,11 @@ export function buildCrumbs(
 
   for (let end = 1; end <= segments.length; end++) {
     const actualSegments = segments.slice(0, end);
-    const route = manifest.find((r) => r.path !== '/' && pathMatches(r.path, actualSegments));
+    // '$' is the router's 404 catch-all (a splat, not a one-segment param):
+    // it names no page, so it never supplies a crumb.
+    const route = manifest.find(
+      (r) => r.path !== '/' && r.path !== '$' && pathMatches(r.path, actualSegments),
+    );
     if (route) {
       const params = extractParams(route.path, actualSegments);
       const resolved = resolveName(route, params);

@@ -67,3 +67,27 @@ test('an untouched loaded graph does not trigger the unsaved-changes guard', asy
 
   expect(await guardWouldPrompt(page)).toBe(true);
 });
+
+// B4 (2026-10-09 walkthrough): a brand-new builder asked "leave page?" on
+// reload with nothing edited. Stamping the served schema version onto the
+// fresh graph read as an edit; it is not one.
+test('an untouched new graph does not trigger the unsaved-changes guard', async ({ page, api }) => {
+  await api.loginAs(orgEditor);
+  const s = basicScenario();
+  api.seed({ orgs: [s.org], schema: schemaFixture, pipelines: [] });
+
+  await page.goto('/pipelines/visual/new');
+  await page.waitForSelector('[data-testid="visual-builder"]', { timeout: 10_000 });
+  // The palette renders from the loaded schema, and setSchema stamps the
+  // served version onto the fresh graph in the same update — so once it is
+  // here, the stamp that used to read as an edit has happened.
+  await page.waitForSelector('[data-testid="palette-item-prometheus.remote_write"]', {
+    timeout: 8_000,
+  });
+
+  expect(await guardWouldPrompt(page)).toBe(false);
+
+  await page.click('[data-testid="palette-item-prometheus.remote_write"]');
+  await expect(page.locator('.react-flow__node')).toHaveCount(1);
+  expect(await guardWouldPrompt(page)).toBe(true);
+});

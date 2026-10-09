@@ -215,6 +215,40 @@ func (q *Queries) ListCollectorInstancesByCollector(ctx context.Context, collect
 	return items, nil
 }
 
+const listConnectedCollectorIDsByOrg = `-- name: ListConnectedCollectorIDsByOrg :many
+SELECT DISTINCT ci.collector_id
+FROM collector_instances ci
+JOIN collectors c ON c.id = ci.collector_id
+JOIN clusters cl ON cl.id = c.cluster_id
+WHERE cl.org_id = $1
+`
+
+// The org's collectors that have ever connected: any instance row at all,
+// registered or since unregistered. A collector row is created by the agent
+// path together with its first instance, so one with no instance row never
+// connected — it was seeded, or every instance it had was swept after
+// agent.delete_after. RenderWizard's match preview reads this to tell a
+// match that is served today from one that only will be (B5).
+func (q *Queries) ListConnectedCollectorIDsByOrg(ctx context.Context, orgID pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, listConnectedCollectorIDsByOrg, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var collector_id pgtype.UUID
+		if err := rows.Scan(&collector_id); err != nil {
+			return nil, err
+		}
+		items = append(items, collector_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLatestLocalAttributesByOrg = `-- name: ListLatestLocalAttributesByOrg :many
 SELECT DISTINCT ON (ci.collector_id) ci.collector_id, ci.local_attributes
 FROM collector_instances ci

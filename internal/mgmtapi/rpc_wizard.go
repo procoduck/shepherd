@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -157,9 +158,42 @@ func (s *WizardService) RenderWizard(ctx context.Context, req *connect.Request[m
 		MatchedCollectors: matchedCollectorsProto(s.schema, candidate, matched),
 		// The wizard's own notes, then any matched collector whose role would
 		// exclude this pipeline from its served config (M2) — non-blocking.
-		Warnings: append(append(result.Warnings, roleExclusionWarnings(s.schema, candidate, matched)...),
+		Warnings: append(append(append(result.Warnings, roleExclusionWarnings(s.schema, candidate, matched)...),
 			zeroMatchWarnings(candidate.Matchers, matched, orgCollectors, matchErr)...),
+			neverConnectedWarnings(matched)...),
 	}), nil
+}
+
+// matchConnected is the previewMatchedCollectors key recording whether a
+// matched collector has ever connected: "true", "false", or absent when that
+// could not be read (an unknown is never reported as "never connected").
+const matchConnected = "connected"
+
+// neverConnectedWarnings names a preview whose every match is a collector
+// that has never connected (B5, 2026-10-09 walkthrough). Such a collector
+// still counts as a match — it receives the pipeline the moment it connects,
+// so "Matches 1 collector" stays true — but a collector row nothing ever
+// connected as (seeded, or created for a cluster/role no Alloy runs yet)
+// used to suppress the zero-match warning on its own, so a pipeline that
+// serves nothing today read as one that does. One connected match is enough
+// to say nothing: the pipeline is served somewhere. The wording is "no
+// instance on record", not "never connected": the lifecycle sweeper deletes
+// instance rows past agent.delete_after, so a long-dead collector reads the
+// same as one that never ran.
+func neverConnectedWarnings(matched []map[string]string) []string {
+	if len(matched) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(matched))
+	for _, m := range matched {
+		if m[matchConnected] != "false" {
+			return nil
+		}
+		names = append(names, m["cluster"]+" / "+m["role"])
+	}
+	return []string{fmt.Sprintf("Matches only collectors with no instance on record: %s. "+
+		"The pipeline can still be saved, but it serves nothing until one of them connects — "+
+		"check that an Alloy collector runs with that cluster and role.", strings.Join(names, ", "))}
 }
 
 // zeroMatchWarnings names a preview that matches no collector in the org
@@ -191,7 +225,9 @@ func zeroMatchWarnings(matchers []string, matched []map[string]string, orgCollec
 // (rpc_pipeline.go) — kept as its own copy here since WizardService renders
 // a candidate pipeline that has no row in the pipelines table to load. It
 // also returns how many collectors the org has at all, so a zero match can
-// tell "none match" from "there are none" (zeroMatchWarnings).
+// tell "none match" from "there are none" (zeroMatchWarnings), and marks
+// each match with whether it has ever connected (matchConnected,
+// neverConnectedWarnings).
 func (s *WizardService) previewMatchedCollectors(ctx context.Context, p merge.Pipeline, orgID pgtype.UUID) ([]map[string]string, int, error) {
 	collectors, err := s.store.Queries.ListCollectorsByOrg(ctx, orgID)
 	if err != nil {
@@ -199,6 +235,14 @@ func (s *WizardService) previewMatchedCollectors(ctx context.Context, p merge.Pi
 	}
 	org, _ := s.store.Queries.GetOrgByID(ctx, orgID) //nolint:errcheck // an org lookup failure degrades to no admin labels below
 	localAttrs := localAttrsByOrg(ctx, s.store.Queries, orgID, org.AllowLocalAttributeMatching)
+	connectedIDs, connErr := s.store.Queries.ListConnectedCollectorIDsByOrg(ctx, orgID)
+	if connErr != nil {
+		s.logger.Debug("wizard render: listing connected collectors failed", "err", connErr)
+	}
+	connected := make(map[pgtype.UUID]bool, len(connectedIDs))
+	for _, id := range connectedIDs {
+		connected[id] = true
+	}
 	var matched []map[string]string
 	for i := range collectors {
 		c := collectors[i]
@@ -209,7 +253,11 @@ func (s *WizardService) previewMatchedCollectors(ctx context.Context, p merge.Pi
 		if matchErr != nil || !ok {
 			continue
 		}
-		matched = append(matched, map[string]string{"cluster": cluster.Name, "role": c.Role, "id": c.ID.String()})
+		m := map[string]string{"cluster": cluster.Name, "role": c.Role, "id": c.ID.String()}
+		if connErr == nil {
+			m[matchConnected] = strconv.FormatBool(connected[c.ID])
+		}
+		matched = append(matched, m)
 	}
 	return matched, len(collectors), nil
 }

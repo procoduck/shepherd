@@ -119,11 +119,13 @@ var _ = Describe("Destination changes reach wizard pipelines (#262)", Label("int
 	}
 
 	// commitSelfMonitoring commits a self-monitoring wizard pipeline (role
-	// singleton) shipping metrics to dest, through the real CommitWizard.
+	// singleton, chosen explicitly: with logs off the wizard's Auto role is
+	// metrics since B6) shipping metrics to dest, through the real
+	// CommitWizard.
 	commitSelfMonitoring := func(o pgtype.UUID, name, dest string) sqlc.Pipeline {
 		code, out := call("WizardService/CommitWizard", map[string]any{
 			"org_id": o.String(), "kind": "self-monitoring", "name": name,
-			"state": map[string]any{"metrics_dest_name": dest, "logs_enabled": false},
+			"state": map[string]any{"metrics_dest_name": dest, "logs_enabled": false, "role": "singleton"},
 		})
 		Expect(code).To(Equal(http.StatusOK), "%v", out)
 		p, err := st.Queries.GetPipelineByOrgAndName(ctx, sqlc.GetPipelineByOrgAndNameParams{OrgID: o, Name: name})
@@ -240,6 +242,47 @@ var _ = Describe("Destination changes reach wizard pipelines (#262)", Label("int
 		Expect(code).To(Equal(http.StatusOK), "%v", out)
 		Expect(revisions(used.ID)).To(HaveLen(1))
 		Expect(auditRows(org, "pipeline.rerender")).To(BeEmpty())
+	})
+
+	// B6 (2026-10-09 walkthrough) made Self Monitoring's role follow its
+	// signals: with logs off and no role in its state it now renders
+	// role="metrics". A pipeline committed before that carries no role in its
+	// stored state and role="singleton" in its stored matchers; a destination
+	// re-render must leave those matchers — and so the collectors it is
+	// served to — exactly as they were.
+	It("keeps a pre-B6 Self Monitoring pipeline's stored role=singleton matcher through a re-render", func() {
+		mimir := createDest(org, "mimir", "prometheus", oldURL)
+		code, out := call("WizardService/CommitWizard", map[string]any{
+			"org_id": org.String(), "kind": "self-monitoring", "name": "pre-b6",
+			"state": map[string]any{"metrics_dest_name": "mimir", "logs_enabled": false},
+		})
+		Expect(code).To(Equal(http.StatusOK), "%v", out)
+		used, err := st.Queries.GetPipelineByOrgAndName(ctx, sqlc.GetPipelineByOrgAndNameParams{OrgID: org, Name: "pre-b6"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(used.Matchers).To(MatchJSON(`["role=\"metrics\""]`), "today's Auto role for metrics only")
+		// What the wizard stored before B6: the same state and text, role=singleton.
+		_, err = st.Pool().Exec(ctx, `UPDATE pipelines SET matchers = '["role=\"singleton\""]'::jsonb WHERE id = $1`, used.ID)
+		Expect(err).NotTo(HaveOccurred())
+
+		cluster, err := st.Queries.UpsertCluster(ctx, "pre-b6-cluster")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: org})).To(Succeed())
+		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "singleton"})
+		Expect(err).NotTo(HaveOccurred())
+		code, out = call("PipelineService/EnablePipeline", map[string]any{"orgId": org.String(), "id": used.ID.String()})
+		Expect(code).To(Equal(http.StatusOK), "%v", out)
+
+		code, out = updateDest(mimir, map[string]any{"url": newURL})
+		Expect(code).To(Equal(http.StatusOK), "%v", out)
+
+		got := pipeline(used.ID)
+		Expect(got.Contents).To(ContainSubstring(newURL))
+		Expect(got.Matchers).To(MatchJSON(`["role=\"singleton\""]`))
+		Expect(got.WizardState).To(MatchJSON(used.WizardState))
+		Eventually(func() string {
+			c, _ := st.Queries.GetServeCache(ctx, collector.ID) //nolint:errcheck // polled
+			return c.Content
+		}).WithTimeout(10 * time.Second).Should(ContainSubstring(newURL))
 	})
 
 	It("renames: rewrites the name in each pipeline's wizard state as well as its contents", func() {

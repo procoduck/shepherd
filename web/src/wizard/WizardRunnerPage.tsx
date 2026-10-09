@@ -54,8 +54,8 @@ function matcherValue(matcher: string): string | undefined {
 
 /** A matcher chip is flagged as wizard-added when its quoted value isn't
  * anything the user typed or picked on the form -- e.g. self-monitoring's
- * `role="singleton"` appended after the user's own cluster_pattern
- * (wizard.go:180-184). A value the user *did* enter (job_name feeding a
+ * `role="singleton"` (or `"metrics"` on Auto) appended after the user's own
+ * cluster_pattern. A value the user *did* enter (job_name feeding a
  * matcher, or a select they chose) matches one of the form's own string
  * values and stays unlabelled. */
 function isWizardAddedMatcher(matcher: string, form: WizardFormState): boolean {
@@ -146,6 +146,22 @@ export function WizardRunnerPage() {
     // dropped connection, a 5xx) is retried twice, then offered as Retry.
     retry: (failureCount, err) => !isRenderRefusal(err) && failureCount < 2,
   });
+
+  // B5: the org's collectors, to mark a matched collector that has no
+  // connected instance. The match preview counts it — it is served the
+  // pipeline once it connects — but nothing said it was not there yet. Same
+  // query key as the Collectors and Overview pages, so it is usually cached.
+  const collectorsQuery = useQuery({
+    queryKey: ['collectors', orgId],
+    queryFn: () => clients.fleet.listCollectors({ orgId }),
+    enabled: !!orgId && isReview,
+  });
+  // A collector the list has, with no last-seen: no instance of it is
+  // connected (never was, or every one unregistered). One the list lacks, or
+  // a list still loading, is left unmarked rather than guessed at.
+  const unconnectedIds = new Set(
+    (collectorsQuery.data?.items ?? []).filter((c) => !c.lastSeen).map((c) => c.id),
+  );
 
   const commitMut = useMutation({
     mutationFn: () =>
@@ -288,6 +304,15 @@ export function WizardRunnerPage() {
                           {(renderQuery.data.matchedCollectors ?? []).map((c: MatchedCollector) => (
                             <li key={c.id}>
                               {c.cluster} / {c.role}
+                              {unconnectedIds.has(c.id) && (
+                                <span
+                                  data-testid='wizard-unconnected-collector'
+                                  title='No instance of this collector is connected. It receives the pipeline once one connects.'
+                                  className='ml-1.5 text-muted'
+                                >
+                                  — no instance connected
+                                </span>
+                              )}
                               {/* Role enforcement (G6) keeps the pipeline out of
                                   this collector's served config (M2). */}
                               {c.excludedReason && (

@@ -99,6 +99,59 @@ test('a viewer sees the teams but is offered no way to change them', async ({ pa
   await expect(page.getByTestId('team-delete-platform')).toHaveCount(0);
 });
 
+// 2026-10-09 walkthrough: a member whose display name equals their login read
+// "viewerviewer" — the two were rendered side by side with no separator.
+test('names each member once, and a different display name apart from the login', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(appAdmin);
+  const orgs = [
+    { id: 'org-0001', name: 'prod-org', display_name: 'Production Org', role: 'editor' },
+  ];
+  const user = (id: string, login: string, displayName: string) => ({
+    id,
+    login,
+    email: `${login}@example.com`,
+    display_name: displayName,
+    is_app_admin: false,
+    must_change_password: false,
+    disabled: false,
+    orgs,
+  });
+  api.seed({ users: [user('user-2', 'alice', 'Alice Smith'), user('user-4', 'viewer', 'viewer')] });
+  await page.goto('/teams');
+
+  await page.getByTestId('team-members-empty-team').click();
+  for (const [id, login] of [
+    ['user-2', 'alice'],
+    ['user-4', 'viewer'],
+  ]) {
+    await page.getByTestId('team-member-add-select').selectOption(id);
+    await page.getByTestId('team-member-add').click();
+    await expect(page.getByTestId(`team-member-${login}`)).toBeVisible();
+  }
+  await expect(page.getByTestId('team-member-viewer')).toHaveText('viewer');
+  await expect(page.getByTestId('team-member-alice')).toHaveText('alice — Alice Smith');
+});
+
+// 2026-10-09 walkthrough: the dialog said unowned pipelines are editable only
+// by organisation administrators; auth.AuthorizeOwnership lets editors write
+// them too, and the pipeline page's owner picker already said so.
+test('the delete dialog says who may edit the pipelines it leaves unowned', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(appAdmin);
+  await page.goto('/teams');
+
+  await page.getByTestId('team-delete-platform').click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText(
+    'they become unowned, editable only by organisation admins and editors',
+  );
+});
+
 // #212: the picker offered every local account on the server, including
 // people who are not in this organisation.
 test('offers only people in this organisation as new members', async ({ page, api }) => {

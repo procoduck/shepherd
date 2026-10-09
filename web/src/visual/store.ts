@@ -303,11 +303,19 @@ export const useVisualStore = create<VisualStore>()(
           // loaded from a save — keeps it, so the upgrade review can still
           // tell what it was authored against.
           const version = currentSchemaVersion(schema);
-          const doc =
-            version && state.doc.schema_version === ''
-              ? { ...state.doc, schema_version: version }
-              : state.doc;
-          return { schema, doc, diagnostics: revalidate({ ...state, schema, doc }) };
+          const stamp = !!version && state.doc.schema_version === '';
+          const doc = stamp ? { ...state.doc, schema_version: version } : state.doc;
+          // The stamp is not an edit (B4, 2026-10-09): a document that was
+          // clean before it is clean after it, so an untouched new graph
+          // never asks "leave page?". One edited before the schema arrived
+          // stays dirty — its baseline is left alone.
+          const clean = docFingerprint(state.doc) === state.savedFingerprint;
+          return {
+            schema,
+            doc,
+            diagnostics: revalidate({ ...state, schema, doc }),
+            ...(stamp && clean ? { savedFingerprint: docFingerprint(doc) } : {}),
+          };
         }),
 
       addNode: (component, position, opts) =>
