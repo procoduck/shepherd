@@ -412,7 +412,7 @@ var _ = Describe("PipelineService Connect RPC", Label("integration"), func() {
 		cookie := sessionCookie(true)
 
 		// Hold an ACCESS EXCLUSIVE lock on pipelines from a separate connection
-		// so loadPipeline's plain SELECT (which a row-level FOR UPDATE lock
+		// so GetPipeline's plain SELECT (loadPipelineWithRevision) (which a row-level FOR UPDATE lock
 		// cannot block) blocks on it, then cancel that backend -- forcing a
 		// real, non-ErrNoRows failure deterministically, without a
 		// fault-injection seam in store.go.
@@ -437,7 +437,7 @@ var _ = Describe("PipelineService Connect RPC", Label("integration"), func() {
 		Eventually(func() error {
 			return st.Pool().QueryRow(ctx,
 				`SELECT pid FROM pg_stat_activity
-				 WHERE datname = current_database() AND wait_event_type = 'Lock' AND query ILIKE '%GetPipelineByID%'`,
+				 WHERE datname = current_database() AND wait_event_type = 'Lock' AND query ILIKE '%GetPipelineWithRevision%'`,
 			).Scan(&pid)
 		}, "5s", "20ms").Should(Succeed(), "GetPipeline's lookup never blocked on the held table lock")
 		_, err = st.Pool().Exec(ctx, `SELECT pg_cancel_backend($1)`, pid)

@@ -33,7 +33,7 @@ import (
 //
 // "Visible as a revision" is satisfied at the point the human applies it:
 // PipelineService.CreatePipeline/UpdatePipeline already writes a
-// pipeline_revisions row for every save (rpc_pipeline.go's createRevision)
+// pipeline_revisions row for every save (rpc_pipeline.go's createPipelineRevisionQ)
 // — the existing revision history IS the record, with no new concept
 // bolted on. What this tool adds is the PRE-apply half: proof the content
 // is valid and where it would land, so the human is applying something

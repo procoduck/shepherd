@@ -58,7 +58,8 @@ func (s *PipelineService) DetachFromWizard(ctx context.Context, req *connect.Req
 		s.logger.Error("detach from wizard: update", "err", err)
 		return nil, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
 	}
-	if _, err := createPipelineRevisionQ(ctx, txQ, updated, detachChangeNote, actor); err != nil {
+	revision, err := createPipelineRevisionQ(ctx, txQ, updated, detachChangeNote, actor)
+	if err != nil {
 		s.logger.Error("detach from wizard: revision", "err", err)
 		return nil, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
 	}
@@ -71,5 +72,5 @@ func (s *PipelineService) DetachFromWizard(ctx context.Context, req *connect.Req
 		s.logger.Error("detach from wizard: commit", "err", err)
 		return nil, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
 	}
-	return connect.NewResponse(pipelineToProto(updated)), nil
+	return connect.NewResponse(pipelineForCaller(ctx, s.store, req.Msg.GetOrgId(), updated, revision)), nil
 }

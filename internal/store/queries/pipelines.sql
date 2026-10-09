@@ -8,6 +8,23 @@ RETURNING *;
 -- name: GetPipelineByID :one
 SELECT * FROM pipelines WHERE id = $1;
 
+-- name: GetPipelineForUpdate :one
+-- Row-locks one pipeline for the rest of the transaction. UpdatePipeline's
+-- expected_revision check reads the current revision under this lock, so a
+-- concurrent writer (another update, a restore, a destination re-render)
+-- waits rather than slipping in between the check and the write.
+SELECT * FROM pipelines WHERE id = $1 FOR UPDATE;
+
+-- name: GetPipelineWithRevision :one
+-- One pipeline and its current revision (the newest pipeline_revisions row,
+-- 0 when it has none) read in ONE statement, so both come from the same
+-- snapshot: the revision an editor sends back as expected_revision must
+-- never be newer than the contents it was shown.
+SELECT sqlc.embed(pipelines),
+       COALESCE((SELECT MAX(r.revision) FROM pipeline_revisions r WHERE r.pipeline_id = pipelines.id), 0)::int AS current_revision
+FROM pipelines
+WHERE pipelines.id = $1;
+
 -- name: GetPipelineByOrgAndName :one
 SELECT * FROM pipelines WHERE org_id = $1 AND name = $2;
 

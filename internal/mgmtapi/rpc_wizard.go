@@ -343,12 +343,16 @@ func (s *WizardService) CommitWizard(ctx context.Context, req *connect.Request[m
 	// pipeline.create audit row — so a wizard-created pipeline has the same
 	// history and audit trail an editor-created one does. Log-only on
 	// revision failure, matching CreatePipeline's own handling.
-	if revErr := createPipelineRevision(ctx, s.store, p, "created", actor); revErr != nil {
+	revision, revErr := createPipelineRevisionQ(ctx, s.store.Queries, p, "created", actor)
+	if revErr != nil {
 		s.logger.Error("commit wizard: create revision", "err", revErr, "pipeline_id", p.ID.String())
 	}
 	auditLog(ctx, s.store, actor, orgID, "pipeline.create", "pipeline", p.ID.String())
 
-	return connect.NewResponse(wizardPipelineToProto(p)), nil
+	pb := wizardPipelineToProto(p)
+	pb.Revision = revision
+	pb.CanEdit = pipelineCanEdit(ctx, s.store, req.Msg.GetOrgId(), pipelineOwnerTeamID(p))
+	return connect.NewResponse(pb), nil
 }
 
 // -- proto conversions --

@@ -200,6 +200,83 @@ func (q *Queries) GetPipelineByOrgAndName(ctx context.Context, arg GetPipelineBy
 	return i, err
 }
 
+const getPipelineForUpdate = `-- name: GetPipelineForUpdate :one
+SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id, wizard_render_sha256 FROM pipelines WHERE id = $1 FOR UPDATE
+`
+
+// Row-locks one pipeline for the rest of the transaction. UpdatePipeline's
+// expected_revision check reads the current revision under this lock, so a
+// concurrent writer (another update, a restore, a destination re-render)
+// waits rather than slipping in between the check and the write.
+func (q *Queries) GetPipelineForUpdate(ctx context.Context, id pgtype.UUID) (Pipeline, error) {
+	row := q.db.QueryRow(ctx, getPipelineForUpdate, id)
+	var i Pipeline
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Name,
+		&i.Contents,
+		&i.Matchers,
+		&i.Enabled,
+		&i.Source,
+		&i.WizardKind,
+		&i.WizardState,
+		&i.RepoLinkID,
+		&i.GitPath,
+		&i.CreatedBy,
+		&i.UpdatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.SanitizedName,
+		&i.OwnerTeamID,
+		&i.WizardRenderSha256,
+	)
+	return i, err
+}
+
+const getPipelineWithRevision = `-- name: GetPipelineWithRevision :one
+SELECT pipelines.id, pipelines.org_id, pipelines.name, pipelines.contents, pipelines.matchers, pipelines.enabled, pipelines.source, pipelines.wizard_kind, pipelines.wizard_state, pipelines.repo_link_id, pipelines.git_path, pipelines.created_by, pipelines.updated_by, pipelines.created_at, pipelines.updated_at, pipelines.sanitized_name, pipelines.owner_team_id, pipelines.wizard_render_sha256,
+       COALESCE((SELECT MAX(r.revision) FROM pipeline_revisions r WHERE r.pipeline_id = pipelines.id), 0)::int AS current_revision
+FROM pipelines
+WHERE pipelines.id = $1
+`
+
+type GetPipelineWithRevisionRow struct {
+	Pipeline        Pipeline `json:"pipeline"`
+	CurrentRevision int32    `json:"current_revision"`
+}
+
+// One pipeline and its current revision (the newest pipeline_revisions row,
+// 0 when it has none) read in ONE statement, so both come from the same
+// snapshot: the revision an editor sends back as expected_revision must
+// never be newer than the contents it was shown.
+func (q *Queries) GetPipelineWithRevision(ctx context.Context, id pgtype.UUID) (GetPipelineWithRevisionRow, error) {
+	row := q.db.QueryRow(ctx, getPipelineWithRevision, id)
+	var i GetPipelineWithRevisionRow
+	err := row.Scan(
+		&i.Pipeline.ID,
+		&i.Pipeline.OrgID,
+		&i.Pipeline.Name,
+		&i.Pipeline.Contents,
+		&i.Pipeline.Matchers,
+		&i.Pipeline.Enabled,
+		&i.Pipeline.Source,
+		&i.Pipeline.WizardKind,
+		&i.Pipeline.WizardState,
+		&i.Pipeline.RepoLinkID,
+		&i.Pipeline.GitPath,
+		&i.Pipeline.CreatedBy,
+		&i.Pipeline.UpdatedBy,
+		&i.Pipeline.CreatedAt,
+		&i.Pipeline.UpdatedAt,
+		&i.Pipeline.SanitizedName,
+		&i.Pipeline.OwnerTeamID,
+		&i.Pipeline.WizardRenderSha256,
+		&i.CurrentRevision,
+	)
+	return i, err
+}
+
 const listEnabledPipelinesByOrg = `-- name: ListEnabledPipelinesByOrg :many
 SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id, wizard_render_sha256 FROM pipelines WHERE org_id = $1 AND enabled = true ORDER BY name
 `

@@ -83,7 +83,7 @@ var _ = Describe("WizardService.CommitWizard editor parity", Label("integration"
 	}
 
 	// (a) CommitWizard writes a revision-1 "created" row, exactly as
-	// CreatePipeline does (createRevision, rpc_pipeline.go).
+	// CreatePipeline does (createPipelineRevisionQ, rpc_pipeline.go).
 	It("writes a revision-1 row when it commits a pipeline", func() {
 		resp := commitWizard("wizard-commit-revision", validState)
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))

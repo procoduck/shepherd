@@ -95,7 +95,7 @@ var _ = Describe("PipelineService GetRevision / RestoreRevision", Label("integra
 	editorEmail := func() string { return editorSess + "@example.com" }
 
 	// createPipeline creates an (unowned, editor-writable) pipeline over the
-	// Connect endpoint, which also writes its first revision (createRevision
+	// Connect endpoint, which also writes its first revision (createPipelineRevisionQ
 	// inside CreatePipeline) — this is rev1 for every spec below unless
 	// noted otherwise.
 	createPipeline := func(name, contents string) map[string]any {

@@ -152,9 +152,15 @@ type Pipeline struct {
 	// missing/invalid, or for the read-only graph view of a non-visual pipeline.
 	WizardState *structpb.Struct `protobuf:"bytes,14,opt,name=wizard_state,json=wizardState,proto3" json:"wizard_state,omitempty"`
 	// owner_team_id is the team (0012_teams_service_accounts) this pipeline
-	// is scoped-write-owned by (G11); empty means unowned — org-admin-only,
-	// matching every pipeline's behavior before W10.
-	OwnerTeamId   string `protobuf:"bytes,15,opt,name=owner_team_id,json=ownerTeamId,proto3" json:"owner_team_id,omitempty"`
+	// is scoped-write-owned by (G11); empty means unowned — writable only by
+	// an org editor or admin (auth.AuthorizeOwnership).
+	OwnerTeamId string `protobuf:"bytes,15,opt,name=owner_team_id,json=ownerTeamId,proto3" json:"owner_team_id,omitempty"`
+	// can_edit is whether the calling principal may update, enable, disable,
+	// delete or restore this pipeline, computed with the same ownership check
+	// the write paths use (auth.AuthorizeOwnership: an org editor or above, or
+	// a member of the owning team). Informational — the server still enforces
+	// on every write.
+	CanEdit       bool `protobuf:"varint,16,opt,name=can_edit,json=canEdit,proto3" json:"can_edit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -292,6 +298,13 @@ func (x *Pipeline) GetOwnerTeamId() string {
 		return x.OwnerTeamId
 	}
 	return ""
+}
+
+func (x *Pipeline) GetCanEdit() bool {
+	if x != nil {
+		return x.CanEdit
+	}
+	return false
 }
 
 type ListPipelinesRequest struct {
@@ -568,9 +581,15 @@ type UpdatePipelineRequest struct {
 	// clearing it — so a text-only edit of a visual pipeline's `contents`
 	// does not lose its graph. Send an explicit (even empty {}) Struct to
 	// replace the stored value.
-	WizardState   *structpb.Struct `protobuf:"bytes,7,opt,name=wizard_state,json=wizardState,proto3" json:"wizard_state,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	WizardState *structpb.Struct `protobuf:"bytes,7,opt,name=wizard_state,json=wizardState,proto3" json:"wizard_state,omitempty"`
+	// expected_revision, when set, makes the update conditional: it is refused
+	// with Connect `aborted` (and nothing is written) if the stored pipeline's
+	// current revision differs — optimistic concurrency for an editor that
+	// loaded the pipeline at that revision. Omitted = today's behaviour (the
+	// update applies whatever the current revision is).
+	ExpectedRevision *int32 `protobuf:"varint,8,opt,name=expected_revision,json=expectedRevision,proto3,oneof" json:"expected_revision,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *UpdatePipelineRequest) Reset() {
@@ -650,6 +669,13 @@ func (x *UpdatePipelineRequest) GetWizardState() *structpb.Struct {
 		return x.WizardState
 	}
 	return nil
+}
+
+func (x *UpdatePipelineRequest) GetExpectedRevision() int32 {
+	if x != nil && x.ExpectedRevision != nil {
+		return *x.ExpectedRevision
+	}
+	return 0
 }
 
 type DeletePipelineRequest struct {
@@ -1648,7 +1674,7 @@ const file_shepherd_mgmt_v1_pipeline_proto_rawDesc = "" +
 	"\bcontents\x18\x05 \x01(\tR\bcontents\x12\x1a\n" +
 	"\bmatchers\x18\x06 \x03(\tR\bmatchers\x12\x18\n" +
 	"\aenabled\x18\a \x01(\bR\aenabled\x12:\n" +
-	"\fwizard_state\x18\b \x01(\v2\x17.google.protobuf.StructR\vwizardState\"\xa1\x04\n" +
+	"\fwizard_state\x18\b \x01(\v2\x17.google.protobuf.StructR\vwizardState\"\xbc\x04\n" +
 	"\bPipeline\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06org_id\x18\x02 \x01(\tR\x05orgId\x12\x12\n" +
@@ -1669,7 +1695,8 @@ const file_shepherd_mgmt_v1_pipeline_proto_rawDesc = "" +
 	"updated_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12@\n" +
 	"\trevisions\x18\r \x03(\v2\".shepherd.mgmt.v1.PipelineRevisionR\trevisions\x12:\n" +
 	"\fwizard_state\x18\x0e \x01(\v2\x17.google.protobuf.StructR\vwizardState\x12\"\n" +
-	"\rowner_team_id\x18\x0f \x01(\tR\vownerTeamId\"R\n" +
+	"\rowner_team_id\x18\x0f \x01(\tR\vownerTeamId\x12\x19\n" +
+	"\bcan_edit\x18\x10 \x01(\bR\acanEdit\"R\n" +
 	"\x14ListPipelinesRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12#\n" +
 	"\rneeds_upgrade\x18\x02 \x01(\bR\fneedsUpgrade\"_\n" +
@@ -1686,7 +1713,7 @@ const file_shepherd_mgmt_v1_pipeline_proto_rawDesc = "" +
 	"\bmatchers\x18\x04 \x03(\tR\bmatchers\x12\x16\n" +
 	"\x06source\x18\x05 \x01(\tR\x06source\x12:\n" +
 	"\fwizard_state\x18\x06 \x01(\v2\x17.google.protobuf.StructR\vwizardState\x12\"\n" +
-	"\rowner_team_id\x18\a \x01(\tR\vownerTeamId\"\xde\x01\n" +
+	"\rowner_team_id\x18\a \x01(\tR\vownerTeamId\"\xa6\x02\n" +
 	"\x15UpdatePipelineRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x12\n" +
@@ -1694,7 +1721,9 @@ const file_shepherd_mgmt_v1_pipeline_proto_rawDesc = "" +
 	"\bcontents\x18\x04 \x01(\tR\bcontents\x12\x1a\n" +
 	"\bmatchers\x18\x05 \x03(\tR\bmatchers\x12\x16\n" +
 	"\x06source\x18\x06 \x01(\tR\x06source\x12:\n" +
-	"\fwizard_state\x18\a \x01(\v2\x17.google.protobuf.StructR\vwizardState\">\n" +
+	"\fwizard_state\x18\a \x01(\v2\x17.google.protobuf.StructR\vwizardState\x120\n" +
+	"\x11expected_revision\x18\b \x01(\x05H\x00R\x10expectedRevision\x88\x01\x01B\x14\n" +
+	"\x12_expected_revision\">\n" +
 	"\x15DeletePipelineRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\"\x18\n" +
@@ -1871,6 +1900,7 @@ func file_shepherd_mgmt_v1_pipeline_proto_init() {
 		return
 	}
 	file_shepherd_mgmt_v1_common_proto_init()
+	file_shepherd_mgmt_v1_pipeline_proto_msgTypes[6].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

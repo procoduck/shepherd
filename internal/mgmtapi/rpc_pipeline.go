@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -107,6 +109,14 @@ var (
 	errReservedChangeNote   = errors.New(`change_note may not be "created" or start with "re-rendered:" — those notes mark revisions a wizard wrote`)
 )
 
+// errRevisionConflict is UpdatePipeline's refusal when expected_revision is
+// set and the stored pipeline has moved on since the caller loaded it (F1):
+// another tab, a restore, or a destination re-render wrote a newer revision.
+func errRevisionConflict(expected, current int32) error {
+	return connect.NewError(connect.CodeAborted, fmt.Errorf(
+		"pipeline changed since you loaded it (revision %d, now %d) — reload to see the changes", expected, current))
+}
+
 // pipelineValidationError carries Stage1/2 diagnostics for a CreatePipeline
 // or UpdatePipeline call that failed the validation gate. Over Connect the
 // caller sees only the failed_precondition code and message; the removed
@@ -147,9 +157,10 @@ func skippedStagesToProto(stages []int) []int32 {
 	return out
 }
 
-// pipelineToProto never populates Revision
-// (always 0) and only populates Revisions when the caller (GetPipeline)
-// explicitly attaches them.
+// pipelineToProto converts the row alone: it leaves Revision (0) and CanEdit
+// (false) unset — both need a query — and only populates Revisions when the
+// caller (GetPipeline) explicitly attaches them. Every handler that returns a
+// Pipeline goes through pipelineForCaller, which fills both.
 func pipelineToProto(p sqlc.Pipeline) *mgmtv1.Pipeline {
 	var matchers []string
 	if err := json.Unmarshal(p.Matchers, &matchers); err != nil {
@@ -186,6 +197,32 @@ func pipelineToProto(p sqlc.Pipeline) *mgmtv1.Pipeline {
 		pb.OwnerTeamId = p.OwnerTeamID.String()
 	}
 	return pb
+}
+
+// pipelineForCaller is pipelineToProto plus the two per-response fields:
+// revision, the pipeline's current revision as of p (what an editor sends
+// back as UpdatePipelineRequest.expected_revision), and can_edit, the
+// caller's write access to it (F3). revision must never be newer than p's
+// contents — callers pass the number from the same transaction or statement
+// that produced p (GetPipelineWithRevision, or the revision they just wrote).
+func pipelineForCaller(ctx context.Context, st *store.Store, orgIDStr string, p sqlc.Pipeline, revision int32) *mgmtv1.Pipeline {
+	pb := pipelineToProto(p)
+	pb.Revision = revision
+	pb.CanEdit = pipelineCanEdit(ctx, st, orgIDStr, pipelineOwnerTeamID(p))
+	return pb
+}
+
+// reloadForCaller re-reads p with its current revision in one statement, for
+// the write paths that do not themselves write a revision (enable, disable,
+// set owner): their response must still carry a revision that matches the
+// contents it shows. If the re-read fails (the pipeline was deleted
+// meanwhile), p goes out with revision 0, which no editor sends back.
+func reloadForCaller(ctx context.Context, st *store.Store, orgIDStr string, p sqlc.Pipeline) *mgmtv1.Pipeline {
+	row, err := st.Queries.GetPipelineWithRevision(ctx, p.ID)
+	if err != nil {
+		return pipelineForCaller(ctx, st, orgIDStr, p, 0)
+	}
+	return pipelineForCaller(ctx, st, orgIDStr, row.Pipeline, row.CurrentRevision)
 }
 
 func revisionToProto(rv sqlc.PipelineRevision) *mgmtv1.PipelineRevision {
@@ -311,6 +348,31 @@ func (s *PipelineService) loadPipeline(ctx context.Context, orgIDStr, idStr stri
 	return p, nil
 }
 
+// loadPipelineWithRevision is loadPipeline that also returns the pipeline's
+// current revision, read in the same statement as the row (see
+// GetPipelineWithRevision) so the two always describe the same state.
+func (s *PipelineService) loadPipelineWithRevision(ctx context.Context, orgIDStr, idStr string) (sqlc.Pipeline, int32, error) {
+	id, err := scanUUID(idStr)
+	if err != nil {
+		return sqlc.Pipeline{}, 0, connect.NewError(connect.CodeInvalidArgument, errPipelineIDInvalid)
+	}
+	orgID, err := scanUUID(orgIDStr)
+	if err != nil {
+		return sqlc.Pipeline{}, 0, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid org id"))
+	}
+	row, err := s.store.Queries.GetPipelineWithRevision(ctx, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return sqlc.Pipeline{}, 0, connect.NewError(connect.CodeNotFound, errPipelineNotFound)
+		}
+		return sqlc.Pipeline{}, 0, mapError(err)
+	}
+	if row.Pipeline.OrgID != orgID {
+		return sqlc.Pipeline{}, 0, connect.NewError(connect.CodeNotFound, errPipelineNotFound)
+	}
+	return row.Pipeline, row.CurrentRevision, nil
+}
+
 // authorizeOwnership enforces G11 (docs/gateway-tier-plan.md): the caller
 // must be an org editor or above, or a member of the team identified by
 // ownerTeamID. Called individually inside every PipelineService write
@@ -319,6 +381,25 @@ func (s *PipelineService) loadPipeline(ctx context.Context, orgIDStr, idStr stri
 // procedureRequirements' comment). ownerTeamID is "" for an unowned
 // pipeline, which auth.AuthorizeOwnership reserves for org editors and above.
 func (s *PipelineService) authorizeOwnership(ctx context.Context, orgIDStr, ownerTeamID string) error {
+	return authorizePipelineOwnership(ctx, s.store, orgIDStr, ownerTeamID)
+}
+
+// pipelineCanEdit is Pipeline.can_edit (F3): whether this caller would pass
+// the checks every pipeline write path runs before touching the row —
+// requireWriteAuthorized, then authorizePipelineOwnership against the
+// pipeline's owner. It calls those two functions rather than restating them,
+// so the flag cannot drift from what a write actually allows. Informational:
+// each write still runs both checks itself.
+func pipelineCanEdit(ctx context.Context, st *store.Store, orgIDStr, ownerTeamID string) bool {
+	if requireWriteAuthorized(ctx) != nil {
+		return false
+	}
+	return authorizePipelineOwnership(ctx, st, orgIDStr, ownerTeamID) == nil
+}
+
+// authorizePipelineOwnership is authorizeOwnership's body, callable without a
+// *PipelineService (WizardService fills can_edit on CommitWizard's response).
+func authorizePipelineOwnership(ctx context.Context, st *store.Store, orgIDStr, ownerTeamID string) error {
 	sess := auth.SessionFromCtx(ctx)
 	if sess == nil {
 		// A machine (service-account) caller has no team membership to check:
@@ -341,7 +422,7 @@ func (s *PipelineService) authorizeOwnership(ctx context.Context, orgIDStr, owne
 		}
 		return connect.NewError(connect.CodeUnauthenticated, auth.ErrUnauthenticated)
 	}
-	switch err := auth.AuthorizeOwnership(ctx, s.store, sess, orgIDStr, ownerTeamID); {
+	switch err := auth.AuthorizeOwnership(ctx, st, sess, orgIDStr, ownerTeamID); {
 	case err == nil:
 		return nil
 	case errors.Is(err, auth.ErrUnauthenticated):
@@ -392,9 +473,19 @@ func (s *PipelineService) ListPipelines(ctx context.Context, req *connect.Reques
 		pipelines = filtered
 	}
 
+	// can_edit depends only on the caller and the pipeline's owner, so it is
+	// decided once per distinct owner ("" = unowned) rather than per row.
+	canEdit := map[string]bool{}
 	items := make([]*mgmtv1.Pipeline, len(pipelines))
 	for i := range pipelines {
 		items[i] = pipelineToProto(pipelines[i])
+		owner := pipelineOwnerTeamID(pipelines[i])
+		allowed, seen := canEdit[owner]
+		if !seen {
+			allowed = pipelineCanEdit(ctx, s.store, req.Msg.GetOrgId(), owner)
+			canEdit[owner] = allowed
+		}
+		items[i].CanEdit = allowed
 	}
 	return connect.NewResponse(&mgmtv1.ListPipelinesResponse{
 		Items: items,
@@ -404,11 +495,11 @@ func (s *PipelineService) ListPipelines(ctx context.Context, req *connect.Reques
 
 // GetPipeline returns one pipeline, including its revision history.
 func (s *PipelineService) GetPipeline(ctx context.Context, req *connect.Request[mgmtv1.GetPipelineRequest]) (*connect.Response[mgmtv1.Pipeline], error) {
-	p, err := s.loadPipeline(ctx, req.Msg.GetOrgId(), req.Msg.GetId())
+	p, current, err := s.loadPipelineWithRevision(ctx, req.Msg.GetOrgId(), req.Msg.GetId())
 	if err != nil {
 		return nil, err
 	}
-	pp := pipelineToProto(p)
+	pp := pipelineForCaller(ctx, s.store, req.Msg.GetOrgId(), p, current)
 
 	revs, revErr := s.store.Queries.ListPipelineRevisions(ctx, p.ID)
 	if revErr != nil {
@@ -535,13 +626,14 @@ func (s *PipelineService) CreatePipeline(ctx context.Context, req *connect.Reque
 		return nil, connect.NewError(connect.CodeInternal, errCreatePipelineFailed)
 	}
 
-	if revErr := s.createRevision(ctx, p, "created", actor); revErr != nil {
+	revision, revErr := createPipelineRevisionQ(ctx, s.store.Queries, p, "created", actor)
+	if revErr != nil {
 		s.logger.Error("create pipeline: create revision", "err", revErr, "pipeline_id", p.ID.String())
 	}
 	auditLog(ctx, s.store, actor, orgID, "pipeline.create", "pipeline", p.ID.String())
 	s.logger.Info("pipeline created", "pipeline_id", p.ID.String(), "org_id", orgID.String(), "name", p.Name, "actor", actor)
 
-	return connect.NewResponse(pipelineToProto(p)), nil
+	return connect.NewResponse(pipelineForCaller(ctx, s.store, msg.GetOrgId(), p, revision)), nil
 }
 
 // UpdatePipeline updates a pipeline.
@@ -593,27 +685,14 @@ func (s *PipelineService) UpdatePipeline(ctx context.Context, req *connect.Reque
 	}
 
 	actor := actorFromCtx(ctx)
-	// WizardState is nil when the request omits the field (proto3 message
-	// fields are nullable), which the query's COALESCE treats as "preserve
-	// the stored graph" rather than clearing it — see pipelines.sql.
-	updated, err := s.store.Queries.UpdatePipeline(ctx, sqlc.UpdatePipelineParams{
-		ID:          p.ID,
-		Name:        msg.GetName(),
-		Contents:    msg.GetContents(),
-		Matchers:    matchersJSON,
-		WizardState: wsJSON,
-		UpdatedBy:   actor,
-		// An editor write: keeps a wizard pipeline's render fingerprint only
-		// while the text is still what the wizard wrote (0030).
-		WizardRenderSha256: fingerprintAfterEdit(p, msg.GetContents()),
-	})
+	updated, revision, changed, err := s.writeUpdate(ctx, p, msg, matchersJSON, wsJSON, actor)
 	if err != nil {
-		s.logger.Error("update pipeline", "err", err)
-		return nil, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
+		return nil, err
 	}
-
-	if revErr := s.createRevision(ctx, updated, "updated", actor); revErr != nil {
-		s.logger.Error("update pipeline: create revision", "err", revErr, "pipeline_id", updated.ID.String())
+	if !changed {
+		// Nothing to record: no revision was written, so no audit row and no
+		// serve-cache work either.
+		return connect.NewResponse(pipelineForCaller(ctx, s.store, msg.GetOrgId(), updated, revision)), nil
 	}
 
 	orgID := looseUUID(msg.GetOrgId())
@@ -626,7 +705,113 @@ func (s *PipelineService) UpdatePipeline(ctx context.Context, req *connect.Reque
 	}
 
 	auditLog(ctx, s.store, actor, orgID, "pipeline.update", "pipeline", p.ID.String())
-	return connect.NewResponse(pipelineToProto(updated)), nil
+	return connect.NewResponse(pipelineForCaller(ctx, s.store, msg.GetOrgId(), updated, revision)), nil
+}
+
+// writeUpdate persists an UpdatePipeline in one transaction: it row-locks the
+// pipeline, reads its current revision under that lock, refuses with aborted
+// when expected_revision is set and differs (F1), and otherwise writes the row
+// and its new revision together. A concurrent writer — another update, a
+// restore, a destination re-render — therefore either commits before the lock
+// is granted (and is seen by the check) or waits until this commit; there is
+// no window between the check and the write.
+//
+// A save that changes nothing (same name, contents, matchers and graph as the
+// locked row) writes nothing and reports changed=false with the current row
+// and revision, so a plain re-save does not grow the history.
+//
+// p is the row the handler authorized and validated against before the lock;
+// if its owner changed meanwhile, ownership is checked again against the
+// locked row.
+func (s *PipelineService) writeUpdate(ctx context.Context, p sqlc.Pipeline, msg *mgmtv1.UpdatePipelineRequest, matchersJSON json.RawMessage, wsJSON []byte, actor string) (sqlc.Pipeline, int32, bool, error) {
+	tx, err := s.store.Pool().Begin(ctx)
+	if err != nil {
+		s.logger.Error("update pipeline: begin", "err", err)
+		return sqlc.Pipeline{}, 0, false, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
+	txQ := s.store.Queries.WithTx(tx)
+
+	locked, err := txQ.GetPipelineForUpdate(ctx, p.ID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return sqlc.Pipeline{}, 0, false, connect.NewError(connect.CodeNotFound, errPipelineNotFound)
+		}
+		return sqlc.Pipeline{}, 0, false, mapError(err)
+	}
+	if locked.OwnerTeamID != p.OwnerTeamID {
+		if err := s.authorizeOwnership(ctx, msg.GetOrgId(), pipelineOwnerTeamID(locked)); err != nil {
+			return sqlc.Pipeline{}, 0, false, err
+		}
+	}
+	current, err := txQ.GetMaxPipelineRevision(ctx, locked.ID)
+	if err != nil {
+		return sqlc.Pipeline{}, 0, false, mapError(err)
+	}
+	if msg.ExpectedRevision != nil && msg.GetExpectedRevision() != current {
+		return sqlc.Pipeline{}, 0, false, errRevisionConflict(msg.GetExpectedRevision(), current)
+	}
+
+	// An editor write: keeps a wizard pipeline's render fingerprint only
+	// while the text is still what the wizard wrote (0030).
+	fingerprint := fingerprintAfterEdit(locked, msg.GetContents())
+	if updateIsNoop(locked, msg.GetName(), msg.GetContents(), msg.GetMatchers(), wsJSON, fingerprint) {
+		return locked, current, false, nil
+	}
+
+	// WizardState is nil when the request omits the field (proto3 message
+	// fields are nullable), which the query's COALESCE treats as "preserve
+	// the stored graph" rather than clearing it — see pipelines.sql.
+	updated, err := txQ.UpdatePipeline(ctx, sqlc.UpdatePipelineParams{
+		ID:                 locked.ID,
+		Name:               msg.GetName(),
+		Contents:           msg.GetContents(),
+		Matchers:           matchersJSON,
+		WizardState:        wsJSON,
+		UpdatedBy:          actor,
+		WizardRenderSha256: fingerprint,
+	})
+	if err != nil {
+		s.logger.Error("update pipeline", "err", err)
+		return sqlc.Pipeline{}, 0, false, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
+	}
+	revision, err := createPipelineRevisionQ(ctx, txQ, updated, "updated", actor)
+	if err != nil {
+		s.logger.Error("update pipeline: create revision", "err", err, "pipeline_id", updated.ID.String())
+		return sqlc.Pipeline{}, 0, false, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		s.logger.Error("update pipeline: commit", "err", err)
+		return sqlc.Pipeline{}, 0, false, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
+	}
+	return updated, revision, true, nil
+}
+
+// updateIsNoop reports whether writing name/contents/matchers/wizard state
+// to p would leave it exactly as it is. wsJSON nil means "keep the stored
+// graph" (UpdatePipeline's COALESCE), so it never counts as a change; a
+// non-nil graph is compared as JSON values, since the stored jsonb does not
+// keep the request's key order or spacing. fingerprint is what the write
+// would store as wizard_render_sha256.
+func updateIsNoop(p sqlc.Pipeline, name, contents string, matchers []string, wsJSON []byte, fingerprint pgtype.Text) bool {
+	if p.Name != name || p.Contents != contents || p.WizardRenderSha256 != fingerprint {
+		return false
+	}
+	var stored []string
+	if err := json.Unmarshal(p.Matchers, &stored); err != nil || !slices.Equal(stored, matchers) {
+		return false
+	}
+	return wsJSON == nil || jsonValuesEqual(p.WizardState, wsJSON)
+}
+
+// jsonValuesEqual compares two JSON documents by value. Anything that fails
+// to decode is unequal, so an unreadable stored value is always rewritten.
+func jsonValuesEqual(a, b []byte) bool {
+	var av, bv any
+	if len(a) == 0 || json.Unmarshal(a, &av) != nil || json.Unmarshal(b, &bv) != nil {
+		return false
+	}
+	return reflect.DeepEqual(av, bv)
 }
 
 // DeletePipeline deletes a pipeline.
@@ -704,7 +889,7 @@ func (s *PipelineService) setEnabled(ctx context.Context, orgIDStr, idStr string
 	}
 	auditLog(ctx, s.store, actor, orgID, action, "pipeline", p.ID.String())
 	s.logger.Info("pipeline enabled/disabled", "pipeline_id", p.ID.String(), "org_id", orgID.String(), "enabled", enable, "actor", actor)
-	return connect.NewResponse(pipelineToProto(updated)), nil
+	return connect.NewResponse(reloadForCaller(ctx, s.store, orgIDStr, updated)), nil
 }
 
 // EnablePipeline enables a pipeline.
@@ -895,7 +1080,7 @@ func (s *PipelineService) SetPipelineOwner(ctx context.Context, req *connect.Req
 		return nil, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
 	}
 	auditLog(ctx, s.store, actorFromCtx(ctx), looseUUID(req.Msg.GetOrgId()), "pipeline.set_owner", "pipeline", p.ID.String())
-	return connect.NewResponse(pipelineToProto(updated)), nil
+	return connect.NewResponse(reloadForCaller(ctx, s.store, req.Msg.GetOrgId(), updated)), nil
 }
 
 // ListRevisions lists a pipeline's revision history.
@@ -1038,11 +1223,28 @@ func (s *PipelineService) RestoreRevision(ctx context.Context, req *connect.Requ
 	}
 
 	actor := actorFromCtx(ctx)
+	note := msg.GetChangeNote()
+	if note == "" {
+		note = fmt.Sprintf("Restored from revision %d", rv.Revision)
+	}
+	// The row, its enabled bit and the new revision are written in one
+	// transaction, as UpdatePipeline's are: the restore's UPDATE holds the
+	// row lock until the revision row exists, so an UpdatePipeline carrying
+	// expected_revision can never check the revision in between and pass on a
+	// stale copy (F1).
+	tx, err := s.store.Pool().Begin(ctx)
+	if err != nil {
+		s.logger.Error("restore revision: begin", "err", err)
+		return nil, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
+	txQ := s.store.Queries.WithTx(tx)
+
 	// WizardState: rv.WizardState (nil when the revision predates 0019 or
 	// carries no graph) — the same COALESCE rule UpdatePipeline relies on:
 	// nil preserves whatever graph is currently stored, a non-nil payload
 	// (even "{}") replaces it (S4).
-	updated, err := s.store.Queries.UpdatePipeline(ctx, sqlc.UpdatePipelineParams{
+	updated, err := txQ.UpdatePipeline(ctx, sqlc.UpdatePipelineParams{
 		ID:          p.ID,
 		Name:        p.Name,
 		Contents:    rv.Contents,
@@ -1067,7 +1269,7 @@ func (s *PipelineService) RestoreRevision(ctx context.Context, req *connect.Requ
 	// validating check for this transition already ran above, before
 	// UpdatePipeline; this is persistence only.
 	if targetEnabled != p.Enabled {
-		updated, err = s.store.Queries.SetPipelineEnabled(ctx, sqlc.SetPipelineEnabledParams{
+		updated, err = txQ.SetPipelineEnabled(ctx, sqlc.SetPipelineEnabledParams{
 			ID: p.ID, Enabled: targetEnabled, UpdatedBy: actor,
 		})
 		if err != nil {
@@ -1075,12 +1277,14 @@ func (s *PipelineService) RestoreRevision(ctx context.Context, req *connect.Requ
 		}
 	}
 
-	note := msg.GetChangeNote()
-	if note == "" {
-		note = fmt.Sprintf("Restored from revision %d", rv.Revision)
+	revision, err := createPipelineRevisionQ(ctx, txQ, updated, note, actor)
+	if err != nil {
+		s.logger.Error("restore revision: create revision", "err", err, "pipeline_id", updated.ID.String())
+		return nil, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
 	}
-	if revErr := s.createRevision(ctx, updated, note, actor); revErr != nil {
-		s.logger.Error("restore revision: create revision", "err", revErr, "pipeline_id", updated.ID.String())
+	if err := tx.Commit(ctx); err != nil {
+		s.logger.Error("restore revision: commit", "err", err)
+		return nil, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
 	}
 
 	// Dirty/recompute whenever the pipeline is enabled now OR was enabled
@@ -1108,28 +1312,16 @@ func (s *PipelineService) RestoreRevision(ctx context.Context, req *connect.Requ
 		}
 		auditLog(ctx, s.store, actor, orgID, action, "pipeline", p.ID.String())
 	}
-	return connect.NewResponse(pipelineToProto(updated)), nil
+	return connect.NewResponse(pipelineForCaller(ctx, s.store, msg.GetOrgId(), updated, revision)), nil
 }
 
 // --- helpers originally written for the pre-Connect REST handler ---
 
-func (s *PipelineService) createRevision(ctx context.Context, p sqlc.Pipeline, note, actor string) error {
-	return createPipelineRevision(ctx, s.store, p, note, actor)
-}
-
-// createPipelineRevision is createRevision's package-level body, callable
-// without a *PipelineService — WizardService.CommitWizard (rpc_wizard.go)
-// uses it directly so a wizard-created pipeline gets the same revision-1
-// "created" row an editor-created one does, through the identical store
-// path (S4: wizard commits skipped this entirely before).
-func createPipelineRevision(ctx context.Context, st *store.Store, p sqlc.Pipeline, note, actor string) error {
-	_, err := createPipelineRevisionQ(ctx, st.Queries, p, note, actor)
-	return err
-}
-
-// createPipelineRevisionQ is createPipelineRevision against any
-// *sqlc.Queries — a transaction's, for applyWizardRerenders — returning the
-// revision number it wrote.
+// createPipelineRevisionQ writes p's next revision (newest + 1) against any
+// *sqlc.Queries — a transaction's for UpdatePipeline, RestoreRevision,
+// DetachFromWizard and applyWizardRerenders, the pool's for the creates
+// (CreatePipeline, WizardService.CommitWizard) — returning the revision
+// number it wrote.
 func createPipelineRevisionQ(ctx context.Context, q *sqlc.Queries, p sqlc.Pipeline, note, actor string) (int32, error) {
 	maxRev, _ := q.GetMaxPipelineRevision(ctx, p.ID) //nolint:errcheck // returns 0 on err, which is the safe default
 	rv, err := q.CreatePipelineRevision(ctx, sqlc.CreatePipelineRevisionParams{
