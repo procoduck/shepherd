@@ -58,7 +58,7 @@ trusting this table.
 | `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 38240264757 (`b8ce639`) | green |
 | Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml` manual dispatch on `b8ce639`, run 38240393208 | green |
 | Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job, same run | green (containment + run lifecycle) |
-| Kubernetes e2e, kind (`make e2e-k8s`) — incl. destination Secret auth (#260) and tenant + TLS (#281) through a real Alloy | `e2e-k8s.yml` on #282's head `c53153d` (pull request), run 38239291244; manual dispatch on `b8ce639`, run 38240396239 | green on `c53153d`; the `b8ce639` dispatch was still running when this was written, recorded after merge |
+| Kubernetes e2e, kind (`make e2e-k8s`) — incl. destination Secret auth (#260) and tenant + TLS (#281) through a real Alloy | `e2e-k8s.yml` on #282's head `c53153d` (pull request), run 38239291244; manual dispatch on `b8ce639`, run 38240396239 | green (both) |
 | CodeQL (actions, go, javascript-typescript, python; `security-extended`) | `codeql.yml` on `b8ce639`, run 38240264821 | green |
 | gitleaks, Trivy config + image scans, OpenSSF Scorecard | `security-scan.yml` on `b8ce639`, run 38240264885 | green |
 | Manual walkthrough on the kind dev stack (Playwright MCP) | last on v0.15.0, 2026-10-09 on `fcb8b17` | v0.16.0 not re-walked; its UI changes are covered by the mocked suite above |
