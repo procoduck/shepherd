@@ -335,5 +335,8 @@ func AppendBaseline(content string, cfg BaselineConfig) (string, error) {
 	if content == "" {
 		return baseline, nil
 	}
-	return content + "\n" + baseline, nil
+	// Exactly one blank line before the baseline, whatever content ends
+	// with: the nothing-matched header already ends in a blank line, and a
+	// fixed "\n" separator after it served a double one (#308).
+	return strings.TrimRight(content, "\n") + "\n\n" + baseline, nil
 }

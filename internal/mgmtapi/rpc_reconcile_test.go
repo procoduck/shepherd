@@ -232,7 +232,7 @@ var _ = Describe("shepherd.mgmt.v1.FleetService/GetReconciliation", Label("integ
 			res, err := merge.Assemble(collID.String(), "recon-cluster/singleton", cl, []merge.Pipeline{{
 				ID: "p", Name: pipeName, Contents: pipeContents, Source: "ui", Revision: 1,
 				Matchers: []string{`cluster="recon-cluster"`},
-			}}, "test")
+			}})
 			Expect(err).NotTo(HaveOccurred())
 			_, err = st.Queries.UpsertServeCacheConditional(ctx, sqlc.UpsertServeCacheConditionalParams{
 				CollectorID: collID, Content: res.Content, Hash: res.Hash, DirtySeq: 0,
