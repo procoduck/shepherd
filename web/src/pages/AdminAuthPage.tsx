@@ -56,6 +56,9 @@ export function AdminAuthPage() {
   const presets = presetsQuery.data?.items ?? [];
   const preset = presets.find((p) => p.key === form.provider);
   const readOnly = settings ? !settings.editable : true;
+  // Chart-managed is known only once settings load: until then the buttons
+  // stay (disabled) rather than vanishing and reappearing.
+  const chartManaged = !!settings && !settings.editable;
 
   // Seed the form from the server once the settings land. Keyed on updatedAt
   // so a save's response re-seeds (picking up server-side normalization the
@@ -217,7 +220,7 @@ export function AdminAuthPage() {
         disabled={disabled}
         onSelectProvider={applyPreset}
         clientSecretSet={!!settings?.clientSecretSet}
-        readOnly={readOnly}
+        readOnly={chartManaged}
       />
 
       <SsoGroupsSection
@@ -248,11 +251,11 @@ export function AdminAuthPage() {
 
         {/* Chart-managed (#309): nothing here can be tested or saved, so the
             buttons are not offered at all rather than shown inert. */}
-        {!readOnly && (
+        {!chartManaged && (
           <button
             data-testid='sso-test'
             type='button'
-            disabled={testMut.isPending || !form.issuer}
+            disabled={readOnly || testMut.isPending || !form.issuer}
             onClick={() => {
               saveMut.reset();
               testMut.mutate();
@@ -279,7 +282,7 @@ export function AdminAuthPage() {
           </button>
         )}
 
-        {!readOnly && (
+        {!chartManaged && (
           <button
             data-testid='sso-save'
             type='button'

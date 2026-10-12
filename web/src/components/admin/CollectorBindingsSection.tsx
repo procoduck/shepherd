@@ -219,11 +219,23 @@ export function CollectorBindingsSection({ isAppAdmin }: { isAppAdmin: boolean }
               label='Organisation'
               hint='The organisation whose config these collectors are served.'
               error={
-                createErrors.field.org && (
+                (createErrors.field.org && (
                   <span data-testid='binding-org-error' role='alert'>
                     {createErrors.field.org}
                   </span>
-                )
+                )) ||
+                (orgsQuery.isError && (
+                  <span data-testid='binding-orgs-error' role='alert'>
+                    Could not load organisations.{' '}
+                    <button
+                      type='button'
+                      onClick={() => orgsQuery.refetch()}
+                      className='underline hover:text-red-300'
+                    >
+                      Retry
+                    </button>
+                  </span>
+                ))
               }
             >
               <Select
@@ -234,7 +246,11 @@ export function CollectorBindingsSection({ isAppAdmin }: { isAppAdmin: boolean }
                 data-testid='binding-org'
               >
                 <option value='' disabled>
-                  {orgsQuery.isLoading ? 'Loading…' : 'Select an organisation…'}
+                  {orgsQuery.isLoading
+                    ? 'Loading…'
+                    : orgsQuery.isError
+                      ? 'Organisations unavailable'
+                      : 'Select an organisation…'}
                 </option>
                 {orgOptions.map((o) => (
                   <option key={o.id} value={o.name}>

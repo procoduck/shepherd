@@ -13,7 +13,12 @@ import type { MatchedCollector } from '@/gen/shepherd/mgmt/v1/pipeline_pb';
 import { useOrgId } from '@/hooks/useOrg';
 import { formError } from '@/lib/formError';
 import { primePipelineCache } from '@/lib/pipelineCache';
-import { suggestPipelineName, uniquePipelineName } from './pipelineName';
+import {
+  isNameTaken,
+  suggestPipelineName,
+  takenNameKeys,
+  uniquePipelineName,
+} from './pipelineName';
 import {
   defaultFieldValue,
   isStepValid,
@@ -124,7 +129,9 @@ export function WizardRunnerPage() {
     queryFn: () => clients.pipeline.listPipelines({ orgId }),
     enabled: !!orgId,
   });
-  const takenNames = new Set((pipelinesQuery.data?.items ?? []).map((p) => p.name));
+  // Compared as the server compares them: its unique index is on the
+  // sanitized name (migration 0002), so "Pod Logs" takes "pod-logs".
+  const takenNames = takenNameKeys((pipelinesQuery.data?.items ?? []).map((p) => p.name));
   const takenKey = [...takenNames].sort().join('\n');
 
   // Suggest a pipeline name until the user edits it directly (#306): every
@@ -181,6 +188,14 @@ export function WizardRunnerPage() {
       // The result opens in the text editor; `from` makes it say so (#251).
       navigate({ to: '/pipelines/$id', params: { id: pipeline.id }, search: { from: 'wizard' } });
     },
+    // Someone took the name between loading the list and committing: refresh
+    // the list so the suggestion moves to the next free suffix (and a typed
+    // name is flagged as taken) instead of offering the same refusal again.
+    onError: (err) => {
+      if (ConnectError.from(err).code === Code.AlreadyExists) {
+        qc.invalidateQueries({ queryKey: ['pipelines', orgId] });
+      }
+    },
   });
 
   if (!orgId) return <p className='text-sm text-muted'>No organisation context.</p>;
@@ -213,7 +228,7 @@ export function WizardRunnerPage() {
   const canContinue = isReview || isStepValid(currentFields, form);
   const diagnostics = renderQuery.data?.diagnostics ?? [];
   const hasErrors = diagnostics.length > 0;
-  const nameTaken = !!name && takenNames.has(name);
+  const nameTaken = !!name && isNameTaken(name, takenNames);
   // Why Create is disabled, when the page does not already show it (#306): a
   // render error and diagnostics are shown above; a pending commit or render
   // says so on its own.

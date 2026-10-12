@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { suggestPipelineName, uniquePipelineName } from './pipelineName';
+import {
+  isNameTaken,
+  sanitizePipelineName,
+  suggestPipelineName,
+  takenNameKeys,
+  uniquePipelineName,
+} from './pipelineName';
 
 // #306: every wizard gets a default pipeline name, unique in the org.
 describe('suggestPipelineName', () => {
@@ -28,5 +34,22 @@ describe('uniquePipelineName', () => {
     expect(uniquePipelineName('pod-logs', ['pod-logs', 'pod-logs-2', 'pod-logs-3'])).toBe(
       'pod-logs-4',
     );
+  });
+});
+
+// The server's unique index is on the sanitized name (migration 0002), so a
+// name that differs only in case or punctuation is taken too.
+describe('the sanitized comparison', () => {
+  it('mirrors sanitize_pipeline_name', () => {
+    expect(sanitizePipelineName('Pod Logs')).toBe('pod_logs');
+    expect(sanitizePipelineName('pod-logs')).toBe('pod_logs');
+    expect(sanitizePipelineName('9lives')).toBe('p9lives');
+  });
+
+  it('treats "Pod Logs" and "pod_logs" as taking "pod-logs"', () => {
+    expect(uniquePipelineName('pod-logs', ['Pod Logs'])).toBe('pod-logs-2');
+    expect(uniquePipelineName('pod-logs', ['pod_logs', 'POD-LOGS-2'])).toBe('pod-logs-3');
+    expect(isNameTaken('pod-logs', takenNameKeys(['pod_logs']))).toBe(true);
+    expect(isNameTaken('pod-logs', takenNameKeys(['pod-logs-x']))).toBe(false);
   });
 });

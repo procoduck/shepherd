@@ -22,12 +22,34 @@ export function suggestPipelineName(kind: string, jobName: string | undefined): 
   return `${base}-${job}`;
 }
 
-/** `name` itself when no pipeline has it, else the first free `name-N` (N ≥ 2). */
+/**
+ * The key the server's uniqueness check compares: migration 0002's
+ * sanitize_pipeline_name, mirroring internal/merge.SanitizeName — lowercase,
+ * every character outside [a-z0-9_] becomes '_', and a leading digit gets a
+ * 'p'. "Pod Logs", "pod_logs" and "pod-logs" are therefore one name.
+ */
+export function sanitizePipelineName(name: string): string {
+  const s = name.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+  return /^[0-9]/.test(s) ? `p${s}` : s;
+}
+
+/** The org's names as the server compares them. */
+export function takenNameKeys(names: Iterable<string>): Set<string> {
+  return new Set([...names].map(sanitizePipelineName));
+}
+
+/** Whether `name` collides with one of `takenKeys` (from takenNameKeys). */
+export function isNameTaken(name: string, takenKeys: Set<string>): boolean {
+  return takenKeys.has(sanitizePipelineName(name));
+}
+
+/** `name` itself when no pipeline has it, else the first free `name-N` (N ≥ 2).
+ *  "Has it" is the server's sanitized comparison, not string equality. */
 export function uniquePipelineName(name: string, taken: Iterable<string>): string {
-  const names = new Set(taken);
-  if (!names.has(name)) return name;
+  const keys = takenNameKeys(taken);
+  if (!isNameTaken(name, keys)) return name;
   for (let n = 2; ; n++) {
     const candidate = `${name}-${n}`;
-    if (!names.has(candidate)) return candidate;
+    if (!isNameTaken(candidate, keys)) return candidate;
   }
 }

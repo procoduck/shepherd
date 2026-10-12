@@ -363,3 +363,51 @@ test('Review suggests a unique pipeline name and says why Create is disabled', a
     'A pipeline named “pod-logs” already exists in this organisation.',
   );
 });
+
+// #306 review: a name taken between loading the list and committing used to
+// leave the same suggestion — and the same refusal — on screen. The refusal
+// refreshes the list, so the suggestion moves to the next free suffix. The
+// competing "Pod Logs" differs only in case and spacing: the server's unique
+// index is on the sanitized name, so it takes "pod-logs" too.
+test('a commit refused because the name was just taken moves the suggestion on', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(appAdmin);
+  const s = basicScenario();
+  api.seed({ orgs: [s.org], pipelines: [] });
+  api.override('POST', '/shepherd.mgmt.v1.WizardService/GetWizardSchema', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        kind: 'pod-logs',
+        title: 'Pod Logs',
+        steps: [
+          {
+            id: 'targets',
+            title: 'Pod selection',
+            fields: [{ name: 'namespace_pattern', label: 'Namespace pattern', type: 'text' }],
+          },
+        ],
+      }),
+    }),
+  );
+  api.override('POST', '/shepherd.mgmt.v1.WizardService/CommitWizard', (route, _params, state) => {
+    (state.pipelines as unknown[]).push(pipeline({ id: 'pip-race', name: 'Pod Logs' }));
+    return route.fulfill({
+      status: 409,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 'already_exists', message: 'pipeline name already exists' }),
+    });
+  });
+  await page.goto('/wizards/pod-logs');
+  await page.getByRole('button', { name: 'Continue' }).click();
+
+  const name = page.getByLabel('Pipeline name');
+  await expect(name).toHaveValue('pod-logs');
+  await page.getByRole('button', { name: 'Create pipeline' }).click();
+
+  await expect(name).toHaveValue('pod-logs-2');
+  await expect(page.getByRole('button', { name: 'Create pipeline' })).toBeEnabled();
+});

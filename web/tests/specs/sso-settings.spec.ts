@@ -126,6 +126,8 @@ test('a chart-managed provider is readable but not editable', async ({ page, api
   await expect(page.getByTestId('sso-test')).toHaveCount(0);
   await expect(page.getByTestId('sso-remove')).toHaveCount(0);
   await expect(page.getByText(/Leave blank to keep it/)).toHaveCount(0);
+  // Whether the chart set a client secret is still worth knowing (never its value).
+  await expect(page.getByTestId('sso-form')).toContainText('A client secret is set by the chart.');
   // Disabled fields look disabled.
   await expect(page.getByTestId('sso-issuer')).toHaveCSS('cursor', 'not-allowed');
 });

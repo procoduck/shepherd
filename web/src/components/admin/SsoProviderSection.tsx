@@ -22,7 +22,8 @@ export function SsoProviderSection({
   onSelectProvider: (preset: OidcProviderPreset) => void;
   clientSecretSet: boolean;
   /** Chart-managed: nothing here can be saved, so no "leave blank to keep
-   *  it" advice about a secret nobody can enter (#309). */
+   *  it" advice about a secret nobody can enter — only whether the chart set
+   *  one, never its value (#309). */
   readOnly?: boolean;
 }) {
   // Advisory only. The server deliberately does not constrain the redirect
@@ -90,7 +91,9 @@ export function SsoProviderSection({
         label='Client secret'
         hint={
           readOnly
-            ? undefined
+            ? clientSecretSet
+              ? 'A client secret is set by the chart.'
+              : 'No client secret is set by the chart.'
             : clientSecretSet
               ? 'A secret is stored. Leave blank to keep it; enter a value to replace it.'
               : 'Stored encrypted. It is never shown again after saving.'

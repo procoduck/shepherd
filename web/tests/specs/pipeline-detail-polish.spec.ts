@@ -269,3 +269,18 @@ test('an optional wizard destination can be set back to "skip" after picking one
   const metricsDest = page.getByLabel('Metrics destination');
   await expect(metricsDest.locator('option[value=""]')).toHaveAttribute('disabled');
 });
+
+// #309 review: disabled controls are now dimmed, but a viewer's pipeline name
+// is there to be read — read-only, not disabled, so it stays at full contrast.
+test('a viewer reads the pipeline name at full contrast but cannot edit it', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(reader);
+  const { p } = seedOne(api);
+  await page.goto(`/pipelines/${p.id}`);
+  const name = page.getByPlaceholder('my-pipeline');
+  await expect(name).toHaveValue(p.name as string);
+  await expect(name).not.toBeEditable();
+  await expect(name).toHaveCSS('opacity', '1');
+});

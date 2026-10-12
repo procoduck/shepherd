@@ -84,3 +84,17 @@ test('a non-app-admin never reaches the section', async ({ page, api }) => {
   // The route guard denies /admin/* to a non-app-admin before the page mounts.
   await expect(page.getByTestId('collector-bindings')).toHaveCount(0);
 });
+
+// #309 review: a failed ListOrgs left an empty picker with no explanation.
+test('the organisation picker says when the list could not be loaded', async ({ page, api }) => {
+  const s = basicScenario();
+  api.seed({ orgs: [s.org], agentIdentities: [] });
+  api.failNext('POST', '/shepherd.mgmt.v1.AdminService/ListOrgs', 503, 'unavailable');
+  await api.loginAs(appAdmin);
+  await page.goto('/admin/auth');
+
+  await page.getByTestId('binding-new').click();
+  await expect(page.getByTestId('binding-orgs-error')).toContainText(
+    'Could not load organisations',
+  );
+});

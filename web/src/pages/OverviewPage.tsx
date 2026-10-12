@@ -13,7 +13,8 @@ import { useOrg } from '@/hooks/useOrg';
  * app-admin-only and unusable from a page every org member can load.
  *
  * Each tile names what it counts across (#298): the organisations tile is
- * every org the user belongs to, the rest are the selected org only.
+ * every org the user belongs to (every org at all, for an app admin), the
+ * rest are the selected org only.
  */
 export function OverviewPage() {
   const { data: me } = useMe();
@@ -40,9 +41,13 @@ export function OverviewPage() {
   const activePipelineCount = (pipelinesQuery.data?.items ?? []).filter((p) => p.enabled).length;
 
   const stats: Array<{ label: string; scope: string; value: string; loading: boolean }> = [
+    // GetMe lists every org for an app admin (rpc_me.go), not just the ones
+    // they belong to, so the tile says which of the two it is counting.
     {
-      label: 'Your organisations',
-      scope: 'Every organisation you belong to',
+      label: me?.isAppAdmin ? 'All organisations' : 'Your organisations',
+      scope: me?.isAppAdmin
+        ? 'Every organisation on this server'
+        : 'Every organisation you belong to',
       value: String(orgCount),
       loading: false,
     },
