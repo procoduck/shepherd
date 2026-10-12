@@ -417,26 +417,28 @@ func (r *Reconciler) syncFile(ctx context.Context, link sqlc.RepoLink, file gitr
 		// Create new.
 		// repo_link_id is what ties a git pipeline to the collector it serves: the merge
 		// engine matches source='git' by that collector, never by matchers.
-		created, err := r.store.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
-			OrgID:      orgID,
-			Name:       name,
-			Contents:   contents,
-			Matchers:   matchersJSON,
-			Enabled:    true,
-			Source:     "git",
-			CreatedBy:  "gitsync",
-			UpdatedBy:  "gitsync",
-			RepoLinkID: link.ID,
-			GitPath:    pgtype.Text{String: file.Path, Valid: true},
+		created, err := r.writeWithRevision(ctx, commit, func(q *sqlc.Queries) (sqlc.Pipeline, error) {
+			return q.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+				OrgID:      orgID,
+				Name:       name,
+				Contents:   contents,
+				Matchers:   matchersJSON,
+				Enabled:    true,
+				Source:     "git",
+				CreatedBy:  "gitsync",
+				UpdatedBy:  "gitsync",
+				RepoLinkID: link.ID,
+				GitPath:    pgtype.Text{String: file.Path, Valid: true},
+			})
 		})
 		if err != nil {
 			return fmt.Errorf("creating pipeline %s: %w", name, err)
 		}
 		// A newly synced pipeline changes what this collector must be served, so the
 		// serve cache has to be invalidated — otherwise the collector keeps receiving
-		// the previously cached config indefinitely. Revision 1 and the audit row
-		// mirror the update path and the API's create path.
-		r.recordPipelineChange(ctx, created, orgID, link.CollectorID, commit, "create")
+		// the previously cached config indefinitely. Revision 1 (written with the row)
+		// and the audit row mirror the update path and the API's create path.
+		r.recordPipelineChange(ctx, created, orgID, link.CollectorID, "create")
 		return nil
 	}
 
@@ -446,20 +448,22 @@ func (r *Reconciler) syncFile(ctx context.Context, link sqlc.RepoLink, file gitr
 		return nil
 	}
 
-	updated, err := r.store.Queries.UpdatePipeline(ctx, sqlc.UpdatePipelineParams{
-		ID:        existing.ID,
-		Name:      existing.Name,
-		Contents:  contents,
-		Matchers:  existing.Matchers,
-		UpdatedBy: "gitsync",
-		// WizardRenderSha256 left NULL: only a wizard write sets it, and the
-		// source check above means gitsync only ever writes git pipelines.
+	updated, err := r.writeWithRevision(ctx, commit, func(q *sqlc.Queries) (sqlc.Pipeline, error) {
+		return q.UpdatePipeline(ctx, sqlc.UpdatePipelineParams{
+			ID:        existing.ID,
+			Name:      existing.Name,
+			Contents:  contents,
+			Matchers:  existing.Matchers,
+			UpdatedBy: "gitsync",
+			// WizardRenderSha256 left NULL: only a wizard write sets it, and the
+			// source check above means gitsync only ever writes git pipelines.
+		})
 	})
 	if err != nil {
 		return fmt.Errorf("updating pipeline %s: %w", name, err)
 	}
 
-	r.recordPipelineChange(ctx, updated, orgID, link.CollectorID, commit, "update")
+	r.recordPipelineChange(ctx, updated, orgID, link.CollectorID, "update")
 	return nil
 }
 
@@ -547,27 +551,33 @@ func (r *Reconciler) stage3DryRun(ctx context.Context, link sqlc.RepoLink, candi
 	return nil
 }
 
-// recordPipelineChange writes the revision + audit trail for a git-sourced pipeline change
-// and invalidates the target collector's serve cache. Both the create and update paths need
-// all three: without the cache invalidation the collector keeps being served the previously
-// cached config, which is how a newly synced pipeline could sync "ok" yet never reach an agent.
-// Every step is best-effort and logged — a bookkeeping failure must not abort the sync.
-func (r *Reconciler) recordPipelineChange(
-	ctx context.Context,
-	p sqlc.Pipeline,
-	orgID, collectorID pgtype.UUID,
-	commit, action string, // action is the audit verb: "create" or "update", matching
-	// the imperative names the management API writes (pipeline.create/pipeline.update).
-) {
-	maxRev, err := r.store.Queries.GetMaxPipelineRevision(ctx, p.ID)
+// writeWithRevision runs write (a pipeline create or update) and records the
+// row's next revision in ONE transaction, so no reader ever sees the new
+// contents beside the old revision: the served header prints the revision
+// next to the contents it describes ("(rev N)", #296), and a recompute that
+// landed between two separate writes would serve new text under the previous
+// number. A failure of either write rolls back both and fails this file's sync.
+func (r *Reconciler) writeWithRevision(ctx context.Context, commit string, write func(q *sqlc.Queries) (sqlc.Pipeline, error)) (sqlc.Pipeline, error) {
+	tx, err := r.store.Pool().Begin(ctx)
 	if err != nil {
-		r.logger.Warn("gitsync: getting max pipeline revision", "pipeline_id", p.ID, "err", err)
+		return sqlc.Pipeline{}, fmt.Errorf("beginning transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
+	q := r.store.Queries.WithTx(tx)
+
+	p, err := write(q)
+	if err != nil {
+		return sqlc.Pipeline{}, err
+	}
+	maxRev, err := q.GetMaxPipelineRevision(ctx, p.ID)
+	if err != nil {
+		return sqlc.Pipeline{}, fmt.Errorf("reading current revision: %w", err)
 	}
 	changeNote := "git sync"
 	if commit != "" {
 		changeNote = "git sync " + commit
 	}
-	if _, revErr := r.store.Queries.CreatePipelineRevision(ctx, sqlc.CreatePipelineRevisionParams{
+	if _, err := q.CreatePipelineRevision(ctx, sqlc.CreatePipelineRevisionParams{
 		PipelineID: p.ID,
 		Revision:   maxRev + 1,
 		Contents:   p.Contents,
@@ -576,10 +586,28 @@ func (r *Reconciler) recordPipelineChange(
 		ChangedBy:  "gitsync",
 		ChangeNote: changeNote,
 		// WizardState left nil (-> NULL): git-sourced pipelines have no wizard_state to carry.
-	}); revErr != nil {
-		r.logger.Error("gitsync: creating pipeline revision", "pipeline_id", p.ID, "err", revErr)
+	}); err != nil {
+		return sqlc.Pipeline{}, fmt.Errorf("recording revision: %w", err)
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return sqlc.Pipeline{}, fmt.Errorf("committing: %w", err)
+	}
+	return p, nil
+}
 
+// recordPipelineChange writes the audit trail for a git-sourced pipeline change (its
+// revision was written with the row, by writeWithRevision) and invalidates the target
+// collector's serve cache. Both the create and update paths need both: without the cache
+// invalidation the collector keeps being served the previously cached config, which is
+// how a newly synced pipeline could sync "ok" yet never reach an agent. Each step is
+// best-effort and logged — a bookkeeping failure must not abort the sync.
+func (r *Reconciler) recordPipelineChange(
+	ctx context.Context,
+	p sqlc.Pipeline,
+	orgID, collectorID pgtype.UUID,
+	action string, // action is the audit verb: "create" or "update", matching
+	// the imperative names the management API writes (pipeline.create/pipeline.update).
+) {
 	if auditErr := r.store.Queries.InsertAuditLog(ctx, sqlc.InsertAuditLogParams{
 		Actor:        "gitsync",
 		ActorType:    "system",

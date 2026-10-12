@@ -27,9 +27,12 @@ const detachChangeNote = "detached from wizard"
 // Authorization is UpdatePipeline's: the interceptor admits an org reader
 // and authorizeOwnership makes the org-editor-or-owning-team decision. The
 // contents and matchers do not change and merge never reads a non-git
-// pipeline's source, so the served config is unchanged: no validation gate
-// and no serve-cache mark are involved. The row, its revision and the
-// pipeline.detach audit row are written in one transaction.
+// pipeline's source, so no validation gate is involved: the merged config
+// differs only in the new revision the served header prints ("(rev N)",
+// #296). That one line does change the served bytes, so an enabled
+// pipeline's org is marked dirty and recomputed, as UpdatePipeline does —
+// the recompute itself still Stage-1-validates what it serves. The row, its
+// revision and the pipeline.detach audit row are written in one transaction.
 func (s *PipelineService) DetachFromWizard(ctx context.Context, req *connect.Request[mgmtv1.DetachFromWizardRequest]) (*connect.Response[mgmtv1.Pipeline], error) {
 	if err := requireWriteAuthorized(ctx); err != nil {
 		return nil, err
@@ -71,6 +74,12 @@ func (s *PipelineService) DetachFromWizard(ctx context.Context, req *connect.Req
 	if err := tx.Commit(ctx); err != nil {
 		s.logger.Error("detach from wizard: commit", "err", err)
 		return nil, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
+	}
+	if updated.Enabled {
+		if dirtyErr := s.store.Queries.MarkServeCacheDirtyByOrg(ctx, updated.OrgID); dirtyErr != nil {
+			s.logger.Error("detach from wizard: mark serve cache dirty", "err", dirtyErr, "org_id", updated.OrgID.String())
+		}
+		go s.recomputeOrgCaches(context.Background(), updated.OrgID) //nolint:contextcheck,gosec // G118+contextcheck: intentional detached context, as UpdatePipeline
 	}
 	return connect.NewResponse(pipelineForCaller(ctx, s.store, req.Msg.GetOrgId(), updated, revision)), nil
 }

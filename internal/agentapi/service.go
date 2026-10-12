@@ -642,7 +642,7 @@ func (s *Service) recomputeServeCache(ctx context.Context, coll sqlc.Collector, 
 	// served header (#296) — byte parity between the two paths depends on it.
 	mergePipelines := serve.PipelinesFromRows(enabledPipelines)
 
-	cluster,clusterErr := s.store.Queries.GetClusterByID(ctx, coll.ClusterID)
+	cluster, clusterErr := s.store.Queries.GetClusterByID(ctx, coll.ClusterID)
 	clusterName := ""
 	if clusterErr == nil {
 		clusterName = cluster.Name
