@@ -17,6 +17,7 @@ import {
   useReactFlow,
   useStore,
   useStoreApi,
+  type Viewport,
   type XYPosition,
 } from '@xyflow/react';
 import {
@@ -114,7 +115,16 @@ const FIT_VIEW_OPTIONS = { padding: FIT_PADDING, maxZoom: 1 };
 // fitted for the old pane leaves nodes off its new edges or under the
 // minimap. Only while the viewport is still a fit: once the user has panned
 // or zoomed (`userMovedRef`), their view is left alone until the next fit.
-function FitOnFirstNodes({ userMovedRef }: { userMovedRef: React.MutableRefObject<boolean> }) {
+function FitOnFirstNodes({
+  userMovedRef,
+  isFitRef,
+}: {
+  userMovedRef: React.MutableRefObject<boolean>;
+  /** Published here: whether a viewport is what a fit of the current graph
+   *  in the current pane gives — how onMoveEnd tells any fit (this one, the
+   *  mount-time fitView, the Controls' fit button) from every other move. */
+  isFitRef: React.MutableRefObject<((vp: Viewport) => boolean) | null>;
+}) {
   const store = useStoreApi();
   const { getNodesBounds, setViewport } = useReactFlow();
   const docNodes = useVisualStore((s) => s.doc.nodes);
@@ -147,22 +157,35 @@ function FitOnFirstNodes({ userMovedRef }: { userMovedRef: React.MutableRefObjec
   const paneHeight = useStore((s) => s.height);
   const paneSizeRef = useRef({ width: paneWidth, height: paneHeight });
 
-  const fit = useCallback(() => {
+  const fitViewport = useCallback(() => {
     const { width, height, minZoom } = store.getState();
-    // Same framing as `fitViewOptions` on <ReactFlow> below. A viewport set
-    // without a duration is applied synchronously; the promise only reports.
-    void setViewport(
-      getViewportForBounds(
-        getNodesBounds(docNodes.map((n) => n.id)),
-        width,
-        height,
-        minZoom,
-        FIT_VIEW_OPTIONS.maxZoom,
-        FIT_PADDING,
-      ),
+    // Same framing as `fitViewOptions` on <ReactFlow> below.
+    return getViewportForBounds(
+      getNodesBounds(docNodes.map((n) => n.id)),
+      width,
+      height,
+      minZoom,
+      FIT_VIEW_OPTIONS.maxZoom,
+      FIT_PADDING,
     );
+  }, [docNodes, store, getNodesBounds]);
+
+  const fit = useCallback(() => {
+    // A viewport set without a duration is applied synchronously; the
+    // promise only reports.
+    void setViewport(fitViewport());
     userMovedRef.current = false;
-  }, [docNodes, store, getNodesBounds, setViewport, userMovedRef]);
+  }, [fitViewport, setViewport, userMovedRef]);
+
+  // Assigned on every render, so it always answers for the graph and pane
+  // as they are now — including for a move made from this commit's effects.
+  isFitRef.current = (vp) => {
+    if (docNodes.length === 0) return false;
+    const f = fitViewport();
+    return (
+      Math.abs(f.x - vp.x) < 1 && Math.abs(f.y - vp.y) < 1 && Math.abs(f.zoom - vp.zoom) < 1e-3
+    );
+  };
 
   useLayoutEffect(() => {
     if (docNodes.length === 0) {
@@ -301,6 +324,7 @@ export function CanvasPane() {
   const canvasWrapperRef = useRef<HTMLDivElement>(null);
   // Whether the user has panned or zoomed since the last fit (#307).
   const userMovedRef = useRef(false);
+  const isFitRef = useRef<((vp: Viewport) => boolean) | null>(null);
   useEffect(() => {
     canvasWrapperRef.current?.focus({ preventScroll: true });
   }, []);
@@ -782,11 +806,14 @@ export function CanvasPane() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onSelectionChange={onSelectionChange}
-        onMoveEnd={(event, vp) => {
+        onMoveEnd={(_, vp) => {
           updateViewport(vp);
-          // A pan or zoom gesture carries its DOM event; a programmatic fit
-          // does not (#307: a user's own view is not refitted on resize).
-          if (event) userMovedRef.current = true;
+          // #307: any move that is not a fit — a pan or zoom gesture, the
+          // zoom buttons, React Flow's auto-pan while dragging a node or a
+          // wire to the pane's edge — is the user's view, which a resize
+          // must not refit over. A move that lands on the fit (FitOnFirstNodes,
+          // the mount-time fitView, the fit button) is not.
+          userMovedRef.current = !isFitRef.current?.(vp);
         }}
         // #226: a viewer may pan, zoom and select — nothing that edits. RF's
         // own gestures for moving a node, drawing a wire or dragging a wire's
@@ -815,21 +842,12 @@ export function CanvasPane() {
         multiSelectionKeyCode='Shift'
       >
         <FlowApiBridge screenToFlowRef={screenToFlowRef} />
-        <FitOnFirstNodes userMovedRef={userMovedRef} />
+        <FitOnFirstNodes userMovedRef={userMovedRef} isFitRef={isFitRef} />
         <Background />
         {/* top-left: the minimap owns bottom-left, and stacking both hid the zoom buttons. */}
         <Controls
           position='top-left'
           fitViewOptions={FIT_VIEW_OPTIONS}
-          onZoomIn={() => {
-            userMovedRef.current = true;
-          }}
-          onZoomOut={() => {
-            userMovedRef.current = true;
-          }}
-          onFitView={() => {
-            userMovedRef.current = false;
-          }}
           className='[&>button]:bg-card [&>button]:border-border [&>button]:fill-zinc-300 [&>button:hover]:bg-accent/20'
         />
         {/* bottom-left, shrunk from React Flow's 200x150 default; FIT_PADDING

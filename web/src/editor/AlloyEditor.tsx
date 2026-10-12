@@ -35,11 +35,6 @@ const NO_DIAGNOSTICS: readonly Diagnostic[] = Object.freeze([]);
 export const alloyTheme = EditorView.theme(
   {
     '&': {
-      // Fill the container so the scroller — and with it the horizontal
-      // scrollbar — ends at the container's bottom edge. Sized to its content
-      // instead, the editor let the container scroll it vertically and put the
-      // only way to reach the rest of a long line below the last line (#307).
-      height: '100%',
       backgroundColor: '#09090b',
       color: '#f4f4f5',
       fontFamily: "'JetBrains Mono Variable', monospace",
@@ -61,6 +56,15 @@ export const alloyTheme = EditorView.theme(
   },
   { dark: true },
 );
+
+// AlloyEditor (not RevisionDiff, whose MergeView lays its two editors out
+// itself) fills its container so the scroller — and with it the horizontal
+// scrollbar — ends at the container's bottom edge. Sized to its content
+// instead, the editor let the container scroll it vertically and put the only
+// way to reach the rest of a long line below the last line (#307). Every
+// AlloyEditor sits in a container of definite height (the pipeline editor's
+// flex pane, the wizard preview's h-64), so 100% never collapses.
+const fillContainer = EditorView.theme({ '&': { height: '100%' } });
 
 // Server diagnostics → CodeMirror ranges, every one kept inside its line and
 // so inside the document. A diagnostic is computed for the text that was
@@ -118,6 +122,7 @@ export function AlloyEditor({
 
     const extensions = [
       alloyTheme,
+      fillContainer,
       // Alloy config identifiers (component names, labels, attribute names)
       // are not English prose, so the browser's native spell-checker just
       // underlines every one of them. @codemirror/view's own contentAttrs

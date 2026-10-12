@@ -113,6 +113,7 @@ function ResultsView({
   // discovery-based pipeline can capture nothing, and "Metrics captured (0)"
   // alone reads as a broken pipeline.
   const stubbedDiscovery = run.rewrites.filter((rw) => rw.kind === 'discovery_stubbed');
+  const stubNoteId = useId();
   return (
     <div data-testid='sandbox-run-results'>
       {failed && (
@@ -133,7 +134,7 @@ function ResultsView({
         <button
           type='button'
           data-testid='sim-results-tab-metrics'
-          aria-describedby={stubbedDiscovery.length > 0 ? 'sim-metrics-stub-note' : undefined}
+          aria-describedby={stubbedDiscovery.length > 0 ? stubNoteId : undefined}
           onClick={() => setTab('metrics')}
           className={
             tab === 'metrics' ? 'font-medium text-accent' : 'text-muted hover:text-muted-2'
@@ -160,7 +161,7 @@ function ResultsView({
       </div>
       {stubbedDiscovery.length > 0 && (
         <p
-          id='sim-metrics-stub-note'
+          id={stubNoteId}
           data-testid='sim-metrics-stub-note'
           className='mb-2 rounded bg-amber-500/10 px-2 py-1.5 text-amber-400'
         >
@@ -513,6 +514,12 @@ export function SandboxRunPanel({
           aria-expanded={menuOpen}
           aria-controls={menuOpen ? menuId : undefined}
           onClick={() => setMenuOpen((v) => !v)}
+          onKeyDown={(e) => {
+            // WAI-ARIA menu button: the arrow keys open the menu too.
+            if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+            e.preventDefault();
+            setMenuOpen(true);
+          }}
           disabled={!orgId || !!disabledReason}
           title={disabledReason}
           className='text-sm px-3 py-1 rounded border shrink-0 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed'
@@ -527,6 +534,10 @@ export function SandboxRunPanel({
           role='menu'
           aria-label='Simulate'
           data-testid='simulate-menu'
+          // Tabbing (or clicking) out of the menu closes it.
+          onBlur={(e) => {
+            if (!menuRootRef.current?.contains(e.relatedTarget as Node | null)) setMenuOpen(false);
+          }}
           onKeyDown={(e) => {
             if (e.key !== 'Escape') return;
             e.preventDefault();

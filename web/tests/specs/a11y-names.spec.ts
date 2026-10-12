@@ -166,5 +166,11 @@ test.describe('visual builder', () => {
     await page.keyboard.press('Escape');
     await expect(menu).toHaveCount(0);
     await expect(trigger).toBeFocused();
+
+    // ArrowDown on the trigger opens it too; tabbing out of it closes it.
+    await page.keyboard.press('ArrowDown');
+    await expect(menu.getByRole('menuitem', { name: /Sandbox run/ })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(menu).toHaveCount(0);
   });
 });

@@ -12,7 +12,7 @@
  */
 import { expect, type Page } from '@playwright/test';
 import { currentSchemaVersion } from '@/visual/schemaVersion';
-import { type Box, waitForViewportSettled } from '../fixtures/canvas';
+import { type Box, settledBox, waitForViewportSettled } from '../fixtures/canvas';
 import { basicScenario, pipeline } from '../fixtures/factories';
 import { orgEditor } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
@@ -130,6 +130,36 @@ test('a canvas the user panned is not refitted under them', async ({ page, api }
   expect(after).toBe(chosen);
 });
 
+// Review of #326: React Flow's auto-pan (dragging a node to the pane's edge)
+// moves the viewport with no DOM event of its own; it is still the user's
+// view, and a later resize must not refit over it.
+test('a canvas auto-panned by a node drag is not refitted on resize', async ({ page, api }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await api.loginAs(orgEditor);
+  await openBuilder(page, api);
+
+  const viewport = page.locator('.react-flow__viewport');
+  const transform = () => viewport.evaluate((el) => (el as HTMLElement).style.transform);
+  const fitted = await transform();
+  const pane = await settledBox(page.locator('.react-flow__pane'));
+  const node = await settledBox(page.locator('.react-flow__node[data-id="n2"]'));
+  await page.mouse.move(node.x + node.width / 2, node.y + 12);
+  await page.mouse.down();
+  await page.mouse.move(pane.x + pane.width - 8, node.y + 12, { steps: 20 });
+  // Held at the edge, React Flow keeps panning.
+  await expect.poll(transform, { timeout: 5_000 }).not.toBe(fitted);
+  await page.mouse.up();
+  await waitForViewportSettled(page);
+  const panned = await transform();
+
+  await page.setViewportSize({ width: 1300, height: 900 });
+  await expect
+    .poll(async () => (await page.locator('.react-flow__pane').boundingBox())?.width)
+    .toBeLessThan(pane.width);
+  await waitForViewportSettled(page);
+  expect(await transform()).toBe(panned);
+});
+
 const LONG_LINE = `prometheus.scrape "default" { targets = [${Array.from(
   { length: 30 },
   (_, i) => `{"__address__" = "host-${i}.example.internal:9100"}`,
@@ -187,4 +217,51 @@ test('at 1024 px the text editor scrolls to the end of a long line, or wraps it'
     'aria-pressed',
     'true',
   );
+});
+
+// Review of #326: the editor's fill-the-container style is AlloyEditor's own,
+// not the shared theme — the revision diff's MergeView keeps its own layout,
+// and neither collapses.
+test('the editor fills its pane and the revision diff still shows both sides', async ({
+  page,
+  api,
+}) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await api.loginAs(orgEditor);
+  const s = basicScenario();
+  const rev = (revision: number, contents: string) => ({
+    revision,
+    changed_by: 'a@example.com',
+    changed_at: `2026-08-17T1${revision}:00:00Z`,
+    change_note: revision === 1 ? 'created' : 'edited',
+    contents,
+    matchers: [],
+    enabled: true,
+  });
+  api.seed({
+    orgs: [s.org],
+    pipelines: [
+      pipeline({
+        id: 'pip-diff',
+        name: 'diff',
+        org_id: s.org.id,
+        contents: CONTENTS,
+        revisions: [rev(1, '// first'), rev(2, CONTENTS)],
+      }),
+    ],
+  });
+  await page.goto('/pipelines/pip-diff');
+  const editor = await settledBox(page.locator('.cm-editor'));
+  // The pane below the 44px toolbar, not a sliver and not the 80-line content.
+  expect(editor.height).toBeGreaterThan(300);
+  expect(editor.y + editor.height).toBeLessThanOrEqual(768);
+
+  await page.getByRole('button', { name: /revision history/i }).click();
+  await page.locator('[data-testid="view-revision-btn"][data-revision="1"]').click();
+  const sides = page.getByTestId('revision-diff').locator('.cm-editor');
+  await expect(sides).toHaveCount(2);
+  for (const side of await sides.all()) {
+    expect((await settledBox(side)).height).toBeGreaterThan(20);
+  }
+  await expect(page.getByTestId('revision-diff')).toContainText('// first');
 });
