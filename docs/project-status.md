@@ -43,8 +43,8 @@
 The baseline commit is `b8ce639` (#282, the last merge before the v0.16.0 release PR); its CI,
 CodeQL and security-scan runs (38240264757, 38240264821, 38240264885) are green, and so is the
 E2E dispatch on it (38240393208: the agent-protocol suite and the sandbox `e2e-sim` job). The
-release PR changes only version pins, docs and the rebuilt bundle; its runs on main are pending,
-recorded after merge. Each row cites the run that last exercised the surface — CI's `changes`
+release PR changes only version pins, docs, the rebuilt bundle and one Go comment (the archived
+plan's path in `internal/wizard/tls.go`); its runs on main are pending, recorded after merge. Each row cites the run that last exercised the surface — CI's `changes`
 gate skips the jobs a commit does not touch — so the claim is checkable by run id rather than by
 trusting this table.
 

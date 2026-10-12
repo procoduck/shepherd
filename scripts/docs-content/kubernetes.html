@@ -158,10 +158,12 @@ kubectl -n shepherd port-forward svc/shepherd 8080:8080</code></pre>
 
       <h3 id="upgrading-to-0-20">Upgrading to chart 0.20.0: one fleet reload, then decide on tenant IDs</h3>
       <p>
-        An ordinary <code>helm upgrade</code>. Every collector reloads its config once, on its next
-        poll after the upgrade: the served config&rsquo;s header now shows each pipeline&rsquo;s
-        real revision, and migration <code>0032</code> marks every served config stale so the
-        change reaches quiet organisations too. Destinations&rsquo; tenant IDs are now sent as
+        An ordinary <code>helm upgrade</code>. Most collectors reload their config once after the
+        upgrade: the served config&rsquo;s header now shows each pipeline&rsquo;s real revision,
+        and migration <code>0032</code> marks every served config stale so the change reaches
+        quiet organisations too. One that polls an old pod while the rollout is still running may
+        keep the old <code>(rev 0)</code> header until the next write in its organisation &mdash;
+        harmless, the header comment is the only stale text. Destinations&rsquo; tenant IDs are now sent as
         <code>X-Scope-OrgID</code>; one stored before this release starts being sent only when its
         pipelines are regenerated, so list them first with
         <code>shepherd admin rerender-destinations --all</code> from a server pod (a dry run) and
@@ -181,7 +183,7 @@ kubectl -n shepherd port-forward svc/shepherd 8080:8080</code></pre>
         <a href="https://github.com/procoduck/shepherd/blob/main/deploy/helm/shepherd/UPGRADING.md">UPGRADING.md</a>.
       </p>
 
-      <h3 id="upgrading-to-0-18">Upgrading from chart 0.17.x or earlier: a few seconds without endpoints</h3>
+      <h3 id="upgrading-to-0-18">Upgrading from before chart 0.18.0: a few seconds without endpoints</h3>
       <p>
         Chart 0.18.0 labels the server pods <code>app.kubernetes.io/component: server</code> and
         points the <code>shepherd</code> Services, the PodDisruptionBudget and the NetworkPolicies at

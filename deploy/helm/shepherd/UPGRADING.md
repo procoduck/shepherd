@@ -3,10 +3,10 @@
 ## 0.19.x → 0.20.0
 
 An ordinary `helm upgrade`, then **decide when destinations' tenant IDs start
-being sent (#261)**. **Every collector reloads its config once** after the
+being sent (#261)**. **Most collectors reload their config once** after the
 upgrade.
 
-### Migration 0032 and one fleet-wide reload
+### Migration 0032 and a one-time fleet reload
 
 The migration Job (a `pre-upgrade` hook, on by default with
 `migrations.job.enabled: true`) applies `0032` before the new pods start;
@@ -18,11 +18,17 @@ migration is a no-op.
 The served config's header now shows each pipeline's real revision
 (`(rev N)`); before, it read `(rev 0)` for every pipeline (#296). That changes
 the served bytes, and so the hash, of every collector's config. `0032` marks
-every cached served config stale, so **every collector reloads its config once,
-on its next poll after the upgrade** — including collectors in organisations
-nobody edits. Nothing in the pipelines themselves changes. Expect one reload
-per collector, spread over one poll interval; plan the upgrade as you would a
+every cached served config stale, so **most collectors reload their config
+once after the upgrade** — including collectors in organisations nobody edits.
+Nothing in the pipelines themselves changes. Plan the upgrade as you would a
 fleet-wide config push.
+
+The migration Job runs while the old pods are still serving. A collector that
+polls an old pod while the rollout is still running gets its config recomputed
+by the old code, which writes the old `(rev 0)` header and clears the stale
+mark; that collector keeps the `(rev 0)` header until the next write in its
+organisation. This is harmless: the header comment is the only stale text, and
+the pipelines it serves are current.
 
 From then on, **any write that bumps a pipeline's revision reloads every
 collector serving it, even when the pipeline's text is unchanged**: a
@@ -40,8 +46,8 @@ now edit and save that pipeline in the visual builder, not only as text (#319).
 (a new, unsaved graph) they need org editor, as before. Starting a new visual
 pipeline and running simulations stay org editor. Nothing to do: an owning
 team's members could already save the pipeline as text (v0.15.0), and the
-builder now follows the same rule. A service account with only the propose capability must leave `pipeline_id`
-empty, as existing callers do.
+builder now follows the same rule. A service account with only the propose
+capability must leave `pipeline_id` empty, as existing callers do.
 
 ### Tenant IDs: what changed
 
@@ -75,9 +81,12 @@ kubectl -n <namespace> exec svc/<service> -- /usr/local/bin/shepherd admin reren
 (`<service>` is the release name when it contains `shepherd`, otherwise
 `<release>-shepherd`; `fullnameOverride` replaces both.)
 
-For each organisation it prints `tenant  <destination>: <tenant>` for every
-destination with a tenant ID, and `ok  <pipeline>` for every wizard pipeline
-whose regenerated text differs from what is stored. If a tenant ID is wrong,
+For each organisation it prints a line
+`org <name> (<id>): would re-render N pipeline(s)` (`re-rendered` with
+`--apply`), then `  tenant  <destination>: <tenant>` for every destination with
+a tenant ID, `  ok      <pipeline>` for every wizard pipeline whose regenerated
+text differs from what is stored, and `  skipped …` / `  FAILED  …` lines for
+the pipelines below. If a tenant ID is wrong,
 clear or correct it on the Destinations page first; saving it regenerates
 that destination's pipelines. When the list is right, run it again with
 `--apply`: each listed pipeline is validated like any pipeline edit and stored
@@ -87,13 +96,18 @@ with a new revision and a `pipeline.rerender` audit row (actor
 wizard-generated revision, detach it from the wizard, or delete it. A pipeline
 that cannot be regenerated is listed as `FAILED` with the reason; if an
 organisation's merged config fails Stage 3, nothing in that organisation is
-changed. The command exits 1 only for `FAILED` pipelines (skipped hand edits do
-not count), so it can run from a script or Job. It is safe to repeat.
+changed. Among pipeline outcomes, only `FAILED` ones make it exit 1 (skipped
+hand edits do not count), so it can run from a script or Job. It is safe to
+repeat.
 
 A tenant ID that belongs to another organisation (its app-admin-set tenant ID)
 is now refused, both when a destination is saved and when a pipeline is
 generated. A destination that already holds one fails to regenerate, and the
-message names it.
+message names it. The other direction is new for app admins: `CreateOrg` and
+`SetOrgTenantID` (the organisation form's tenant ID) now refuse, with
+`failed_precondition`, a tenant ID that another organisation's destination
+sends; the message does not name that organisation. Clear or change the
+destination's tenant ID first.
 
 **Expect a reload:** every collector served a regenerated pipeline reloads once
 on its next poll.
