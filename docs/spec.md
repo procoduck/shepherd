@@ -331,7 +331,8 @@ agent_tokens(id, name text, token_hash bytea,        -- sha256 of secret; secret
 
 serve_cache(collector_id uuid PRIMARY KEY REFERENCES collectors,
            content text, hash text, computed_at timestamptz,
-           dirty boolean DEFAULT true, dirty_seq bigint NOT NULL DEFAULT 0)
+           dirty boolean DEFAULT true, dirty_seq bigint NOT NULL DEFAULT 0,
+           format smallint NOT NULL DEFAULT 0)
 
 sessions(id text PRIMARY KEY,                       -- random 256-bit, base64url
            user_oid text, email text, display_name text,
@@ -380,7 +381,7 @@ hash := hex(sha256(content))
 
 ### 6.3 Serve cache & invalidation
 
-`GetConfig` reads from `serve_cache`. A row is recomputed (and re-validated at stage 3, §8) when `dirty = true` or missing. Mark dirty for all potentially affected collectors whenever: a pipeline is created/updated/deleted/toggled (dirty every collector in the org — cheap and correct), a git sync changes files (dirty that collector), a cluster is claimed/unclaimed, or a matcher-relevant attribute changes on registration. Recomputation happens lazily inside `GetConfig` with a per-collector `singleflight` guard, and eagerly from `mgmtapi` after every write. Both paths read the row's `dirty_seq` **before** loading pipelines and write with a compare-and-swap on it (every mark bumps the generation), so a recompute that raced a newer mark writes nothing and the recompute that observed the newer generation wins — stale content can never clear a newer dirty flag (migration 0020). If recomputation fails validation, KEEP the previous cache entry, log an error, and record the failure in `audit_log` — never serve a broken config and never serve empty because of a merge bug.
+`GetConfig` reads from `serve_cache`. A row is recomputed (and re-validated at stage 3, §8) when `dirty = true`, missing, or its `format` is older than the binary's `serve.Format` (migration 0033; a dirty mark resets `format` to 0, so a recompute by a binary that does not set it never reads as current). Mark dirty for all potentially affected collectors whenever: a pipeline is created/updated/deleted/toggled (dirty every collector in the org — cheap and correct), a git sync changes files (dirty that collector), a cluster is claimed/unclaimed, or a matcher-relevant attribute changes on registration. Recomputation happens lazily inside `GetConfig` with a per-collector `singleflight` guard, and eagerly from `mgmtapi` after every write. Both paths read the row's `dirty_seq` **before** loading pipelines and write with a compare-and-swap on it (every mark bumps the generation), so a recompute that raced a newer mark writes nothing and the recompute that observed the newer generation wins — stale content can never clear a newer dirty flag (migration 0020). If recomputation fails validation, KEEP the previous cache entry, log an error, and record the failure in `audit_log` — never serve a broken config and never serve empty because of a merge bug.
 
 ---
 
@@ -647,7 +648,7 @@ whole, so saving any one of them also starts sending a tenant stored earlier on 
 `orgs.tenant_id` on `OrgMembership.tenant_id` (read-only, empty when unset), and the destination
 form pre-fills a new destination's tenant from it. This is egress from the org's own
 collectors, which an org editor could already tag with any header in a raw pipeline; it does not
-touch the gateway tier's ingress tenancy (D10/D11, `docs/plans/2026-10-06-destination-tenant-tls.md`
+touch the gateway tier's ingress tenancy (D10/D11, `docs/archive/plans/2026-10-06-destination-tenant-tls.md`
 §2). A tenant already stored before #261 reaches a pipeline on its next regeneration, or when an
 operator runs `shepherd admin rerender-destinations --all` (dry run unless `--apply`; lists each
 org's destinations with a tenant and the wizard pipelines whose render differs, regenerates them

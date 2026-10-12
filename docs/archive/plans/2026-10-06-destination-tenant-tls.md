@@ -1,6 +1,7 @@
 # Destination tenant header and TLS options (#261, F-DEST-TLS)
 
-Status: **design approved 2026-10-06** (decisions in §9); building in the §10 order, one PR per step. Follows #229 (`docs/archive/plans/2026-10-01-destination-auth.md`, shipped in #260) and #262
+Status: **shipped in v0.16.0** (#273 in v0.15.0; #277, #280, #281, #282). Archived; not maintained.
+Originally: design approved 2026-10-06 (decisions in §9); built in the §10 order, one PR per step. Follows #229 (`docs/archive/plans/2026-10-01-destination-auth.md`, shipped in #260) and #262
 (#263/#264/#265). Line references are to `main` at 3e10234.
 
 ## Problem

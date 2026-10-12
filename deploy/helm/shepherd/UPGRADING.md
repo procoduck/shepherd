@@ -3,9 +3,58 @@
 ## 0.19.x → 0.20.0
 
 An ordinary `helm upgrade`, then **decide when destinations' tenant IDs start
-being sent (#261)**.
+being sent (#261)**. **Every collector serving a pipeline reloads its config
+once** after the upgrade.
 
-### What changed
+### Migrations 0032 and 0033 and a one-time fleet reload
+
+The migration Job (a `pre-upgrade` hook, on by default with
+`migrations.job.enabled: true`) applies `0032` and `0033` before the new pods start;
+nothing to do. If you turned the Job off, run `shepherd migrate up` against the
+database yourself before upgrading, as for every release. `0032` is a single
+`UPDATE` on `serve_cache` (one row per collector) and takes moments; its down
+migration is a no-op. `0033` adds a `format` column with a default
+(metadata-only, instant) and a small trigger on `serve_cache`; its down
+migration drops both.
+
+The served config's header now shows each pipeline's real revision
+(`(rev N)`); before, it read `(rev 0)` for every pipeline (#296). That changes
+the served bytes, and so the hash, of every collector's config. `0032` marks
+every cached served config stale, so **every collector serving a pipeline
+reloads its config once after the upgrade** — including collectors in organisations nobody edits.
+Nothing in the pipelines themselves changes. Plan the upgrade as you would a
+fleet-wide config push.
+
+The migration Job runs while the old pods are still serving, and an old pod
+that recomputes a collector's config during the rollout writes the old
+`(rev 0)` header. Each cached config records the serve format it was computed
+in (`0033`), and the new pods recompute any config in an older format before
+serving it, so no collector keeps the `(rev 0)` header after the rollout. A
+collector that polls an old pod during the rollout may get the old config until it
+next polls a new pod; if its organisation is edited mid-rollout it may reload
+one extra time. A collector that is offline during the upgrade picks up the new
+header when it next polls.
+
+From then on, **any write that bumps a pipeline's revision reloads every
+collector serving it, even when the pipeline's text is unchanged**: a
+matcher-only edit, a visual-builder save that only moved nodes, restoring a
+revision whose text is identical, and detaching a pipeline from its wizard.
+Saving a pipeline with no change at all still writes no revision and reloads
+nothing.
+
+### Visual builder for a pipeline's owning team
+
+Members of a pipeline's owning team — including org viewers in that team — can
+now edit and save that pipeline in the visual builder, not only as text (#319).
+`VisualService` `Render`, `Validate` and `UpgradeCheck` take an optional
+`pipeline_id` and are then authorized as saving that pipeline is; without one
+(a new, unsaved graph) they need org editor, as before. Starting a new visual
+pipeline and running simulations stay org editor. Nothing to do: an owning
+team's members could already save the pipeline as text (v0.15.0), and the
+builder now follows the same rule. A service account with only the propose
+capability must leave `pipeline_id` empty, as existing callers do.
+
+### Tenant IDs: what changed
 
 A destination's **tenant ID** is now sent by wizard pipelines as
 `X-Scope-OrgID` (a header on `prometheus.remote_write`, `tenant_id` on
@@ -23,7 +72,7 @@ tenant**, so a tenant ID that was set but never meant to be used would move
 your data. The destination form never set one, so destinations created in the
 UI have none.
 
-### What to do
+### Tenant IDs: what to do
 
 After the upgrade, from a server pod, list the destinations with a tenant ID
 and the pipelines that would change. With `--all` the command writes nothing
@@ -37,9 +86,12 @@ kubectl -n <namespace> exec svc/<service> -- /usr/local/bin/shepherd admin reren
 (`<service>` is the release name when it contains `shepherd`, otherwise
 `<release>-shepherd`; `fullnameOverride` replaces both.)
 
-For each organisation it prints `tenant  <destination>: <tenant>` for every
-destination with a tenant ID, and `ok  <pipeline>` for every wizard pipeline
-whose regenerated text differs from what is stored. If a tenant ID is wrong,
+For each organisation it prints a line
+`org <name> (<id>): would re-render N pipeline(s)` (`re-rendered` with
+`--apply`), then `  tenant  <destination>: <tenant>` for every destination with
+a tenant ID, `  ok      <pipeline>` for every wizard pipeline whose regenerated
+text differs from what is stored, and `  skipped …` / `  FAILED  …` lines for
+the pipelines below. If a tenant ID is wrong,
 clear or correct it on the Destinations page first; saving it regenerates
 that destination's pipelines. When the list is right, run it again with
 `--apply`: each listed pipeline is validated like any pipeline edit and stored
@@ -49,16 +101,46 @@ with a new revision and a `pipeline.rerender` audit row (actor
 wizard-generated revision, detach it from the wizard, or delete it. A pipeline
 that cannot be regenerated is listed as `FAILED` with the reason; if an
 organisation's merged config fails Stage 3, nothing in that organisation is
-changed. The command exits 1 only for `FAILED` pipelines (skipped hand edits do
-not count), so it can run from a script or Job. It is safe to repeat.
+changed. Among pipeline outcomes, only `FAILED` ones make it exit 1 (skipped
+hand edits do not count), so it can run from a script or Job. It is safe to
+repeat.
 
 A tenant ID that belongs to another organisation (its app-admin-set tenant ID)
 is now refused, both when a destination is saved and when a pipeline is
 generated. A destination that already holds one fails to regenerate, and the
-message names it.
+message names it. The other direction is new for app admins: `CreateOrg` and
+`SetOrgTenantID` (the organisation form's tenant ID) now refuse, with
+`failed_precondition`, a tenant ID that another organisation's destination
+sends; the message does not name that organisation. Clear or change the
+destination's tenant ID first.
 
 **Expect a reload:** every collector served a regenerated pipeline reloads once
 on its next poll.
+
+### Destination TLS options
+
+Nothing to do on upgrade: no destination has TLS options until you set them.
+When you do, the collector reads the material on its own cluster, so check two
+things first:
+
+- **RBAC.** A CA in a ConfigMap needs `get` on `configmaps` in that namespace
+  for the collector's ServiceAccount (`remote.kubernetes.configmap` GETs the
+  one object at load and every minute; it never lists or watches). A CA or a
+  client certificate in a Secret needs `get` on `secrets`, as Secret auth
+  already does. The `grafana/alloy` chart grants Secret access by default;
+  check what your chart version grants for ConfigMaps. The *Destinations* docs
+  page has a sample Role.
+- **A missing CA key is not caught at load.** If the named Secret or ConfigMap
+  has no data key by the CA key's name (`ca.crt` unless you set another), Alloy
+  treats the CA as unset: the collector loads the config and reports APPLIED,
+  then trusts only its system roots and fails at send time with x509
+  *unknown authority*. Check the key name before relying on the destination. A
+  client-certificate Secret missing `tls.crt` or `tls.key` *is* caught: the
+  collector refuses the whole config and reports FAILED.
+
+Certificate verification cannot be turned off (`insecure_skip_verify` is
+refused), and the TLS options apply to the writer's endpoint only, not to an
+OAuth2 destination's token URL.
 
 ## 0.18.x → 0.19.0
 
