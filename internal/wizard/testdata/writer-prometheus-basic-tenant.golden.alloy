@@ -5,8 +5,8 @@ remote.kubernetes.secret "metrics_auth" {
 
 prometheus.remote_write "metrics" {
   endpoint {
-    name = "prom-prod"
-    url  = "https://mimir.example.com/api/v1/push"
+    name    = "prom-prod"
+    url     = "https://mimir.example.com/api/v1/push"
     headers = {
       "X-Scope-OrgID" = "acme",
     }

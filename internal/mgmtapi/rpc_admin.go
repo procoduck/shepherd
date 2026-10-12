@@ -17,6 +17,7 @@ import (
 
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
+	"shepherd/internal/advisorylock"
 	"shepherd/internal/auth"
 	"shepherd/internal/gateway"
 	"shepherd/internal/signals"
@@ -134,7 +135,21 @@ func (s *AdminService) CreateOrg(ctx context.Context, req *connect.Request[mgmtv
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
 	}
-	o, err := s.store.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
+	// The cross-org tenant guard, org side (#261): the tenant must not be
+	// one another org's destination already sends. The check and the insert
+	// share a transaction holding the tenant's lock (orgTenantGuard).
+	tx, err := s.store.Pool().Begin(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create org"))
+	}
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
+	txQ := s.store.Queries.WithTx(tx)
+	if tenantID != "" {
+		if err := orgTenantGuard(ctx, txQ, pgtype.UUID{Valid: true}, tenantID); err != nil {
+			return nil, err
+		}
+	}
+	o, err := txQ.CreateOrg(ctx, sqlc.CreateOrgParams{
 		Name:          msg.GetName(),
 		DisplayName:   msg.GetDisplayName(),
 		AdminGroupID:  msg.GetAdminGroupId(),
@@ -154,6 +169,9 @@ func (s *AdminService) CreateOrg(ctx context.Context, req *connect.Request[mgmtv
 			}
 			return nil, connect.NewError(connect.CodeAlreadyExists, errors.New("org name already exists"))
 		}
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create org"))
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create org"))
 	}
 	auditLog(ctx, s.store, actorFromCtx(ctx), o.ID, "org.create", "org", o.ID.String())
@@ -181,7 +199,16 @@ func (s *AdminService) SetOrgTenantID(ctx context.Context, req *connect.Request[
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	o, err := s.store.Queries.SetOrgTenantID(ctx, sqlc.SetOrgTenantIDParams{
+	tx, err := s.store.Pool().Begin(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to set org tenant id"))
+	}
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
+	txQ := s.store.Queries.WithTx(tx)
+	if err := orgTenantGuard(ctx, txQ, id, tenantID); err != nil {
+		return nil, err
+	}
+	o, err := txQ.SetOrgTenantID(ctx, sqlc.SetOrgTenantIDParams{
 		ID:       id,
 		TenantID: pgtype.Text{String: tenantID, Valid: true},
 	})
@@ -207,8 +234,38 @@ func (s *AdminService) SetOrgTenantID(ctx context.Context, req *connect.Request[
 		s.logger.Warn("set org tenant id", "err", err)
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to set org tenant id"))
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to set org tenant id"))
+	}
 	auditLog(ctx, s.store, actorFromCtx(ctx), o.ID, "org.set_tenant_id", "org", o.ID.String())
 	return connect.NewResponse(toOrgProto(o)), nil
+}
+
+// errTenantUsedByOtherDestination is the org-side refusal of the cross-org
+// tenant guard (#261, review of #277). It does not say which org: the
+// destination belongs to an org the caller may not otherwise see named here.
+var errTenantUsedByOtherDestination = errors.New("tenant_id is in use by another organisation's " +
+	"destination; an org's tenant identity must not be one another org already writes under")
+
+// orgTenantGuard is the org side of the cross-org tenant guard: it refuses
+// (failed_precondition) giving orgID the tenant when a destination of any
+// other org sends it. q must be the transaction the org is then written in:
+// it takes the tenant's lock first (LockTenantID), the same one
+// validateDestinationTenant takes, so a destination cannot start sending the
+// tenant between this check and the commit. orgID is the zero UUID for an
+// org not created yet.
+func orgTenantGuard(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, tenant string) error {
+	if err := q.LockTenantID(ctx, sqlc.LockTenantIDParams{Namespace: advisorylock.TenantID, TenantID: tenant}); err != nil {
+		return connect.NewError(connect.CodeInternal, errors.New("failed to check tenant_id"))
+	}
+	used, err := q.TenantIDUsedByOtherOrgDestination(ctx, sqlc.TenantIDUsedByOtherOrgDestinationParams{TenantID: tenant, OrgID: orgID})
+	if err != nil {
+		return connect.NewError(connect.CodeInternal, errors.New("failed to check tenant_id"))
+	}
+	if used {
+		return connect.NewError(connect.CodeFailedPrecondition, errTenantUsedByOtherDestination)
+	}
+	return nil
 }
 
 // UpdateOrg updates an org.

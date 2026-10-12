@@ -208,11 +208,16 @@ func RenderWriter(kind WriterKind, label string, dests Destinations, destName st
 `, Quote(secretLabel), Quote(d.SecretNamespace), Quote(d.SecretName))
 	}
 
-	fmt.Fprintf(&sb, `%s %s {
-  endpoint {
-    name = %s
-    url  = %s
-`, kind, Quote(label), Quote(d.Name), Quote(d.URL))
+	// The endpoint's leading attributes are aligned the way `alloy fmt`
+	// aligns them: on the longest key of the run. Without a tenant that run
+	// is name/url, exactly as before #261, so a pipeline with no tenant
+	// renders byte-identically.
+	key := len("name")
+	if tk := tenantKey(kind, d.TenantID); len(tk) > key {
+		key = len(tk)
+	}
+	fmt.Fprintf(&sb, "%s %s {\n  endpoint {\n    %-*s = %s\n    %-*s = %s\n",
+		kind, Quote(label), key, "name", Quote(d.Name), key, "url", Quote(d.URL))
 	renderTenant(&sb, kind, d.TenantID)
 
 	switch d.AuthMode {
@@ -265,15 +270,27 @@ func ValidateTenant(tenant string) error {
 // the per-entry `__tenant_id__` label (stage.tenant) that would override it,
 // and Kubernetes label names cannot begin with `__`.
 func renderTenant(sb *strings.Builder, kind WriterKind, tenant string) {
+	switch tenantKey(kind, tenant) {
+	case "headers":
+		fmt.Fprintf(sb, "    headers = {\n      %s = %s,\n    }\n", Quote(gateway.TenantHeader), Quote(tenant))
+	case "tenant_id":
+		fmt.Fprintf(sb, "    tenant_id = %s\n", Quote(tenant))
+	}
+}
+
+// tenantKey is the endpoint attribute renderTenant writes the tenant under
+// for kind, or "" when there is no tenant.
+func tenantKey(kind WriterKind, tenant string) string {
 	if tenant == "" {
-		return
+		return ""
 	}
 	switch kind {
 	case WriterPrometheus:
-		fmt.Fprintf(sb, "    headers = {\n      %s = %s,\n    }\n", Quote(gateway.TenantHeader), Quote(tenant))
+		return "headers"
 	case WriterLoki:
-		fmt.Fprintf(sb, "    tenant_id = %s\n", Quote(tenant))
+		return "tenant_id"
 	}
+	return ""
 }
 
 // validateURL accepts only an absolute http(s) URL with a host — the same

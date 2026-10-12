@@ -635,8 +635,15 @@ path. Pre-#229 wizards emitted `sys.env("SHEPHERD_DEST_<NAME>_URL")`, which noth
 "<tenant>"` in a `loki.write` endpoint. Empty sends none. The API refuses (`invalid_argument`) a
 value outside `gateway.ValidateTenantID`'s rule, and one another org holds as its `orgs.tenant_id`
 with the generic message `tenant_id is not available to this org`. `wizardDestinations` applies the
-cross-org check again at render time (an app admin may give another org that tenant later), so such
-a destination is refused only by the renders that name it. `MeService.GetMe` returns each org's own
+cross-org check again at render time, so such a destination is refused only by the renders that
+name it. The org side is guarded too: `CreateOrg` and `SetOrgTenantID` refuse
+(`failed_precondition`, "in use by another organisation's destination", not naming the org) a
+tenant another org's destination sends. Both checks run inside the writing transaction under a
+per-tenant `pg_advisory_xact_lock` (`LockTenantID`, class `advisorylock.TenantID`), so the two
+cannot race past each other. The guard covers a destination's tenant only: a hand-written pipeline
+can still set any header. The served config keeps a tenant until the pipeline is regenerated (a
+save of a destination it names); a pipeline naming several destinations is regenerated as a
+whole, so saving any one of them also starts sending a tenant stored earlier on another. `MeService.GetMe` returns each org's own
 `orgs.tenant_id` on `OrgMembership.tenant_id` (read-only, empty when unset), and the destination
 form pre-fills a new destination's tenant from it. This is egress from the org's own
 collectors, which an org editor could already tag with any header in a raw pipeline; it does not
@@ -674,7 +681,11 @@ hand-edited when its contents no longer hash to its render fingerprint
 (`wizard_render_sha256`); with no fingerprint (written before migration 0030, or cleared by an
 editor write) the check falls back to comparing it, byte for byte, with its render against the
 destinations as they stood before the update, or with that render with every destination's tenant
-cleared (the pre-#261 renderer did not render a tenant). A pre-#229 `sys.env` pipeline is never treated as
+cleared (the pre-#261 renderer did not render a tenant) — the latter only while the pipeline's
+latest wizard-written revision (`created` / `re-rendered: …`) still holds exactly its contents, so
+a hand edit that deleted a rendered `X-Scope-OrgID` is not mistaken for old output. That fallback
+is also tried when the render against the old destinations fails on a stored tenant (one outside
+today's rule, or one another org has since been given), so the update that clears it goes through. A pre-#229 `sys.env` pipeline is never treated as
 hand-edited; it is converted. A rename rewrites the name in those pipelines' `wizard_state` as well.
 `DeleteDestination` refuses (`failed_precondition`, listing them quoted, and saying to detach them
 from the wizard or delete them first) while any wizard pipeline in the org names the destination.

@@ -360,6 +360,131 @@ var _ = Describe("Destination changes reach wizard pipelines (#262)", Label("int
 			Expect(got.Contents).To(ContainSubstring(newURL))
 			Expect(got.Contents).To(ContainSubstring(`"X-Scope-OrgID" = "acme",`))
 		})
+
+		// Review of #277: the tenant-zeroed fallback above accepted ANY
+		// unfingerprinted text equal to that render, so a user who deleted
+		// the X-Scope-OrgID header by hand (an editor write, which clears
+		// the fingerprint) had it put back by the next destination update.
+		// The fallback now holds only while the pipeline's last
+		// wizard-written revision is still its text. Red run: 200, and the
+		// header the user deleted was restored.
+		It("does not overwrite a hand edit that deleted the rendered tenant header", func() {
+			mimir := createDest(org, "mimir", "prometheus", oldURL)
+			used := commitSelfMonitoring(org, "self-mon", "mimir")
+			code, out := updateDest(mimir, map[string]any{"tenantId": "acme"})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			Expect(pipeline(used.ID).Contents).To(ContainSubstring(`"X-Scope-OrgID" = "acme",`))
+
+			// The hand edit: the header block deleted, which leaves exactly
+			// the no-tenant render the pre-#261 renderer would have written.
+			code, out = call("PipelineService/UpdatePipeline", map[string]any{
+				"orgId": org.String(), "id": used.ID.String(), "name": used.Name,
+				"contents": used.Contents, "matchers": []string{`role="singleton"`},
+			})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			Expect(pipeline(used.ID).WizardRenderSha256.Valid).To(BeFalse())
+
+			code, out = updateDest(mimir, map[string]any{"url": newURL, "tenantId": "acme"})
+			Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
+			Expect(out["message"]).To(ContainSubstring("edited by hand"))
+			Expect(pipeline(used.ID).Contents).To(Equal(used.Contents), "the hand edit stands")
+		})
+
+		// The refusal's first remedy still clears it for a pre-#261
+		// pipeline: restoring its last wizard revision (written before 0031,
+		// so it carries no fingerprint) makes that revision the text again.
+		It("accepts a pre-#261 render restored from its last wizard revision", func() {
+			mimir := createDest(org, "mimir", "prometheus", oldURL)
+			used := commitSelfMonitoring(org, "self-mon", "mimir")
+			_, err := st.Pool().Exec(ctx, `UPDATE pipeline_revisions SET wizard_render_sha256 = NULL WHERE pipeline_id = $1`, used.ID)
+			Expect(err).NotTo(HaveOccurred())
+			code, out := call("PipelineService/UpdatePipeline", map[string]any{
+				"orgId": org.String(), "id": used.ID.String(), "name": used.Name,
+				"contents": used.Contents + "\n// tuned by hand\n", "matchers": []string{`role="singleton"`},
+			})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			code, out = call("PipelineService/RestoreRevision", map[string]any{
+				"orgId": org.String(), "id": used.ID.String(), "revision": 1,
+			})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			Expect(pipeline(used.ID).WizardRenderSha256.Valid).To(BeFalse())
+			_, err = st.Pool().Exec(ctx, `UPDATE destinations SET tenant_id = 'acme' WHERE id = $1`, mimir.ID)
+			Expect(err).NotTo(HaveOccurred())
+
+			code, out = updateDest(mimir, map[string]any{"url": newURL, "tenantId": "acme"})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			Expect(pipeline(used.ID).Contents).To(ContainSubstring(`"X-Scope-OrgID" = "acme",`))
+		})
+
+		// Review of #277: when the stored tenant no longer renders, the
+		// render against `before` fails, and the fallback used to be
+		// skipped — so the update that clears or fixes the tenant was
+		// refused for every unfingerprinted pipeline. Red run: 400 "no
+		// longer renders from its wizard state" in both.
+		Describe("an update that clears a tenant the pre-#261 render ignored", func() {
+			preTenantPipeline := func(tenant string) (sqlc.Destination, sqlc.Pipeline) {
+				mimir := createDest(org, "mimir", "prometheus", oldURL)
+				used := commitSelfMonitoring(org, "self-mon", "mimir")
+				_, err := st.Pool().Exec(ctx, `UPDATE pipelines SET wizard_render_sha256 = NULL WHERE id = $1`, used.ID)
+				Expect(err).NotTo(HaveOccurred())
+				_, err = st.Pool().Exec(ctx, `UPDATE destinations SET tenant_id = $2 WHERE id = $1`, mimir.ID, tenant)
+				Expect(err).NotTo(HaveOccurred())
+				return mimir, used
+			}
+
+			It("goes through for a stored free-text tenant outside today's rule", func() {
+				mimir, used := preTenantPipeline("acme/prod")
+				code, out := updateDest(mimir, map[string]any{"tenantId": ""})
+				Expect(code).To(Equal(http.StatusOK), "%v", out)
+				Expect(pipeline(used.ID).Contents).NotTo(ContainSubstring("X-Scope-OrgID"))
+			})
+
+			It("goes through for a tenant another org has since been given", func() {
+				mimir, used := preTenantPipeline("globex")
+				setOrgTenant(other, "globex")
+				code, out := updateDest(mimir, map[string]any{"tenantId": "acme-own", "url": newURL})
+				Expect(code).To(Equal(http.StatusOK), "%v", out)
+				got := pipeline(used.ID)
+				Expect(got.Contents).To(ContainSubstring(newURL))
+				Expect(got.Contents).To(ContainSubstring(`"X-Scope-OrgID" = "acme-own",`))
+			})
+		})
+
+		// Review of #277: the cross-org guard ran only on the destination
+		// side, so an app admin could give an org a tenant another org's
+		// destination already sends. Red run: SetOrgTenantID and CreateOrg
+		// both succeeded.
+		Describe("org-side writes", func() {
+			It("refuses SetOrgTenantID and CreateOrg for a tenant another org's destination uses, without naming it", func() {
+				mimir := createDest(org, "mimir", "prometheus", oldURL)
+				code, out := updateDest(mimir, map[string]any{"tenantId": "globex"})
+				Expect(code).To(Equal(http.StatusOK), "%v", out)
+
+				code, out = call("AdminService/SetOrgTenantID", map[string]any{"orgId": other.String(), "tenantId": "globex"})
+				Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
+				Expect(out["code"]).To(Equal("failed_precondition"))
+				Expect(out["message"]).To(ContainSubstring("in use by another organisation's destination"))
+				Expect(out["message"]).NotTo(ContainSubstring("rerender-org"))
+				o, err := st.Queries.GetOrgByID(ctx, other)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(o.TenantID.Valid).To(BeFalse(), "nothing was written")
+
+				code, out = call("AdminService/CreateOrg", map[string]any{
+					"name": "globex", "displayName": "Globex", "adminGroupId": "globex-admins", "tenantId": "globex",
+				})
+				Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
+				Expect(out["code"]).To(Equal("failed_precondition"))
+				Expect(out["message"]).To(ContainSubstring("in use by another organisation's destination"))
+			})
+
+			It("allows an org the tenant its own destination sends", func() {
+				mimir := createDest(org, "mimir", "prometheus", oldURL)
+				code, out := updateDest(mimir, map[string]any{"tenantId": "acme"})
+				Expect(code).To(Equal(http.StatusOK), "%v", out)
+				code, out = call("AdminService/SetOrgTenantID", map[string]any{"orgId": org.String(), "tenantId": "acme"})
+				Expect(code).To(Equal(http.StatusOK), "%v", out)
+			})
+		})
 	})
 
 	It("renames: rewrites the name in each pipeline's wizard state as well as its contents", func() {

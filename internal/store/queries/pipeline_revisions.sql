@@ -11,3 +11,15 @@ SELECT COALESCE(MAX(revision), 0)::int AS max_rev FROM pipeline_revisions WHERE 
 
 -- name: GetPipelineRevision :one
 SELECT * FROM pipeline_revisions WHERE pipeline_id = $1 AND revision = $2;
+
+-- name: GetLatestWizardPipelineRevision :one
+-- The pipeline's most recent revision a wizard wrote: CommitWizard's
+-- "created" and applyWizardRerenders' "re-rendered: …" (mgmtapi's
+-- isWizardChangeNote, which RestoreRevision reserves for wizard writes).
+-- The pre-#261 hand-edit fallback (review of #277) accepts a tenant-zeroed
+-- render only while that revision is still the pipeline's text.
+SELECT * FROM pipeline_revisions
+WHERE pipeline_id = $1
+  AND (btrim(change_note) = 'created' OR btrim(change_note) LIKE 're-rendered:%')
+ORDER BY revision DESC
+LIMIT 1;

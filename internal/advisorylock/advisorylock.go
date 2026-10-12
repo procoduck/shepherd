@@ -18,6 +18,12 @@ import (
 const (
 	RouteApply int32 = 0x52544131 // "RTA1"
 	GitSync    int32 = 0x47495431 // "GIT1"
+	// TenantID is not a pass lock: it is the classid of the
+	// transaction-scoped pg_advisory_xact_lock(TenantID, hashtext(tenant))
+	// the store's LockTenantID takes around the cross-org tenant guard
+	// (#261), so a destination save and an org's tenant assignment for the
+	// same tenant cannot both pass their checks.
+	TenantID int32 = 0x54454E31 // "TEN1"
 )
 
 // Lock is a Postgres session-level advisory lock held on a dedicated pooled

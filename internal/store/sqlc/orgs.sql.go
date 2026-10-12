@@ -171,6 +171,26 @@ func (q *Queries) ListOrgs(ctx context.Context) ([]Org, error) {
 	return items, nil
 }
 
+const lockTenantID = `-- name: LockTenantID :exec
+SELECT pg_advisory_xact_lock($1::int, hashtext($2::text))
+`
+
+type LockTenantIDParams struct {
+	Namespace int32  `json:"namespace"`
+	TenantID  string `json:"tenant_id"`
+}
+
+// Serialises, until the transaction ends, every write that checks the
+// cross-org tenant guard for tenant_id: a destination saving it
+// (TenantIDHeldByOtherOrg) and an org being given it
+// (TenantIDUsedByOtherOrgDestination). Without it the two checks race: each
+// sees the other's row missing, and both commit. namespace is
+// advisorylock.TenantID.
+func (q *Queries) LockTenantID(ctx context.Context, arg LockTenantIDParams) error {
+	_, err := q.db.Exec(ctx, lockTenantID, arg.Namespace, arg.TenantID)
+	return err
+}
+
 const setOrgTenantID = `-- name: SetOrgTenantID :one
 UPDATE orgs
 SET tenant_id  = $2,
@@ -228,6 +248,29 @@ type TenantIDHeldByOtherOrgParams struct {
 // generic refusal, so this is at most a weak existence oracle.
 func (q *Queries) TenantIDHeldByOtherOrg(ctx context.Context, arg TenantIDHeldByOtherOrgParams) (bool, error) {
 	row := q.db.QueryRow(ctx, tenantIDHeldByOtherOrg, arg.TenantID, arg.OrgID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const tenantIDUsedByOtherOrgDestination = `-- name: TenantIDUsedByOtherOrgDestination :one
+SELECT EXISTS (
+    SELECT 1 FROM destinations WHERE tenant_id = $1::text AND org_id <> $2
+)
+`
+
+type TenantIDUsedByOtherOrgDestinationParams struct {
+	TenantID string      `json:"tenant_id"`
+	OrgID    pgtype.UUID `json:"org_id"`
+}
+
+// Whether a destination of an org other than org_id sends tenant_id (#261,
+// review of #277): the org side of the same guard. An app admin may not give
+// an org a tenant another org's destination already writes under. Pass the
+// zero UUID for an org not created yet: every destination is then another
+// org's.
+func (q *Queries) TenantIDUsedByOtherOrgDestination(ctx context.Context, arg TenantIDUsedByOtherOrgDestinationParams) (bool, error) {
+	row := q.db.QueryRow(ctx, tenantIDUsedByOtherOrgDestination, arg.TenantID, arg.OrgID)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
