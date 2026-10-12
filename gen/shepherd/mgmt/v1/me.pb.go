@@ -78,8 +78,12 @@ type OrgMembership struct {
 	// allow_local_attribute_matching mirrors the org setting (#139). The server
 	// match gate is authoritative regardless of this value.
 	AllowLocalAttributeMatching bool `protobuf:"varint,7,opt,name=allow_local_attribute_matching,json=allowLocalAttributeMatching,proto3" json:"allow_local_attribute_matching,omitempty"`
-	unknownFields               protoimpl.UnknownFields
-	sizeCache                   protoimpl.SizeCache
+	// tenant_id is the org's own tenant identity (orgs.tenant_id, set by an
+	// app admin — D11), empty when it has none. Read-only: the destination form
+	// pre-fills a destination's tenant from it (#261).
+	TenantId      string `protobuf:"bytes,8,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *OrgMembership) Reset() {
@@ -159,6 +163,13 @@ func (x *OrgMembership) GetAllowLocalAttributeMatching() bool {
 		return x.AllowLocalAttributeMatching
 	}
 	return false
+}
+
+func (x *OrgMembership) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
 }
 
 // GetMeResponse is the caller's identity and the orgs they can see.
@@ -252,7 +263,7 @@ var File_shepherd_mgmt_v1_me_proto protoreflect.FileDescriptor
 const file_shepherd_mgmt_v1_me_proto_rawDesc = "" +
 	"\n" +
 	"\x19shepherd/mgmt/v1/me.proto\x12\x10shepherd.mgmt.v1\"\x0e\n" +
-	"\fGetMeRequest\"\xa5\x02\n" +
+	"\fGetMeRequest\"\xc2\x02\n" +
 	"\rOrgMembership\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12!\n" +
@@ -260,7 +271,8 @@ const file_shepherd_mgmt_v1_me_proto_rawDesc = "" +
 	"\x04role\x18\x04 \x01(\tR\x04role\x12B\n" +
 	"\x1dallow_experimental_components\x18\x05 \x01(\bR\x1ballowExperimentalComponents\x120\n" +
 	"\x14allow_label_matching\x18\x06 \x01(\bR\x12allowLabelMatching\x12C\n" +
-	"\x1eallow_local_attribute_matching\x18\a \x01(\bR\x1ballowLocalAttributeMatching\"\xdb\x01\n" +
+	"\x1eallow_local_attribute_matching\x18\a \x01(\bR\x1ballowLocalAttributeMatching\x12\x1b\n" +
+	"\ttenant_id\x18\b \x01(\tR\btenantId\"\xdb\x01\n" +
 	"\rGetMeResponse\x12\x19\n" +
 	"\buser_oid\x18\x01 \x01(\tR\auserOid\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12!\n" +

@@ -12,6 +12,27 @@
         <code>https://loki.example.com/loki/api/v1/push</code>. Shepherd puts it into the writer
         exactly as written and adds no path.</p>
 
+      <h2 id="tenant">Tenant</h2>
+      <p>For a multi-tenant Mimir or Loki, set the destination&rsquo;s <strong>Tenant ID</strong>.
+        Wizard pipelines that ship there send it as <code>X-Scope-OrgID</code>: as a header on
+        <code>prometheus.remote_write</code>, and as <code>loki.write</code>&rsquo;s own
+        <code>tenant_id</code>. Leave it empty to send no tenant. It follows Mimir&rsquo;s rule:
+        letters, digits and <code>! - _ . * ' ( )</code>, at most 150 characters, no slashes or
+        spaces.</p>
+      <p>Any tenant your backend expects is allowed except one that belongs to
+        <strong>another organisation</strong> in Shepherd (the tenant ID an application
+        administrator gave it). That is refused when you save, and refused again when a wizard
+        pipeline is generated, in case the other organisation was given that tenant ID later. The
+        other way round, an administrator cannot give an organisation a tenant ID another
+        organisation&rsquo;s destination already sends.</p>
+      <p>This guards a <em>destination&rsquo;s</em> tenant only. A pipeline you write by hand can
+        set any header, <code>X-Scope-OrgID</code> included; Shepherd does not inspect it.</p>
+      <p>A pipeline picks up a tenant change when it is regenerated: saving a destination
+        regenerates every wizard pipeline that names it. Until then the configuration collectors
+        are served keeps the tenant it was generated with. A pipeline that ships to more than one
+        destination is regenerated as a whole, so saving any one of them also starts sending a
+        tenant already stored on the others.</p>
+
       <h2 id="auth">Authentication from a Kubernetes Secret</h2>
       <p>Shepherd never holds a telemetry backend&rsquo;s credentials. For an authenticated
         destination you name a Kubernetes <strong>Secret</strong> that already exists on every

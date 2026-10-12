@@ -17,6 +17,7 @@ import (
 
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
+	"shepherd/internal/advisorylock"
 	"shepherd/internal/gateway"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
@@ -224,16 +225,61 @@ func wizardDestinations(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID)
 		d := rows[i]
 		dest := wizard.Destination{
 			Name: d.Name, Type: d.Type, URL: d.Url, AuthMode: wizard.AuthMode(d.AuthMode),
-			SecretNamespace: d.SecretNamespace, SecretName: d.SecretName,
+			SecretNamespace: d.SecretNamespace, SecretName: d.SecretName, TenantID: d.TenantID,
 		}
 		if scopes, err := destinationScopes(d.Extra); err != nil {
 			dest.LoadErr = err
 		} else {
 			dest.OAuth2Scopes = scopes
 		}
+		// The cross-org tenant guard holds at render time too, not only at
+		// save: an app admin can give another org this tenant after the
+		// destination was saved (SetOrgTenantID), and from then on rendering
+		// it would stamp that org's tenant on this org's data.
+		if dest.LoadErr == nil && d.TenantID != "" {
+			held, err := q.TenantIDHeldByOtherOrg(ctx, sqlc.TenantIDHeldByOtherOrgParams{TenantID: d.TenantID, OrgID: orgID})
+			if err != nil {
+				return nil, fmt.Errorf("checking destination %q's tenant: %w", d.Name, err)
+			}
+			if held {
+				dest.LoadErr = errTenantNotAvailable
+			}
+		}
 		out[d.Name] = dest
 	}
 	return out, nil
+}
+
+// errTenantNotAvailable is the cross-org tenant refusal (#261, maintainer
+// decision Q2): a destination may send any valid tenant except one another
+// org holds as its orgs.tenant_id. Deliberately generic — it does not say
+// that another org holds it.
+var errTenantNotAvailable = errors.New("tenant_id is not available to this org")
+
+// validateDestinationTenant refuses, as invalid_argument, a tenant_id
+// outside Mimir's charset (wizard.ValidateTenant) or one another org holds.
+// Empty means no tenant is sent. q must be the transaction the destination
+// is then written in: it first takes the tenant's lock (LockTenantID), which
+// AdminService's org-side check takes too, so an org cannot be given this
+// tenant between the check and the commit.
+func validateDestinationTenant(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, tenant string) error {
+	if err := wizard.ValidateTenant(tenant); err != nil {
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if tenant == "" {
+		return nil
+	}
+	if err := q.LockTenantID(ctx, sqlc.LockTenantIDParams{Namespace: advisorylock.TenantID, TenantID: tenant}); err != nil {
+		return connect.NewError(connect.CodeInternal, errors.New("failed to check tenant_id"))
+	}
+	held, err := q.TenantIDHeldByOtherOrg(ctx, sqlc.TenantIDHeldByOtherOrgParams{TenantID: tenant, OrgID: orgID})
+	if err != nil {
+		return connect.NewError(connect.CodeInternal, errors.New("failed to check tenant_id"))
+	}
+	if held {
+		return connect.NewError(connect.CodeInvalidArgument, errTenantNotAvailable)
+	}
+	return nil
 }
 
 // CreateDestination creates a destination.
@@ -255,7 +301,18 @@ func (s *DestinationService) CreateDestination(ctx context.Context, req *connect
 	if err := validateDestinationAuth(req.Msg.GetAuthMode(), req.Msg.GetSecretNamespace(), req.Msg.GetSecretName(), extraJSON); err != nil {
 		return nil, err
 	}
-	d, err := s.store.Queries.CreateDestination(ctx, sqlc.CreateDestinationParams{
+	// The tenant check and the insert share one transaction: the check
+	// holds the tenant's lock until the commit (validateDestinationTenant).
+	tx, err := s.store.Pool().Begin(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create destination"))
+	}
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
+	txQ := s.store.Queries.WithTx(tx)
+	if err := validateDestinationTenant(ctx, txQ, orgID, req.Msg.GetTenantId()); err != nil {
+		return nil, err
+	}
+	d, err := txQ.CreateDestination(ctx, sqlc.CreateDestinationParams{
 		OrgID:           orgID,
 		Name:            req.Msg.GetName(),
 		Type:            req.Msg.GetType(),
@@ -270,6 +327,9 @@ func (s *DestinationService) CreateDestination(ctx context.Context, req *connect
 		if isUniqueViolation(err) {
 			return nil, connect.NewError(connect.CodeAlreadyExists, errors.New("destination name already exists"))
 		}
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create destination"))
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create destination"))
 	}
 	item, err := toDestinationProto(d)
@@ -318,6 +378,9 @@ func (s *DestinationService) UpdateDestination(ctx context.Context, req *connect
 	}
 	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed; rollback error on the success path is expected and harmless
 	txQ := s.store.Queries.WithTx(tx)
+	if err := validateDestinationTenant(ctx, txQ, owned.OrgID, req.Msg.GetTenantId()); err != nil {
+		return nil, err
+	}
 
 	// The destinations as they stand BEFORE this update — what every
 	// affected wizard pipeline's stored text was rendered from, so the
@@ -404,7 +467,7 @@ func (s *DestinationService) rerenderForUpdate(ctx context.Context, txQ *sqlc.Qu
 	if updated.Name != owned.Name {
 		rename = &destinationRename{from: owned.Name, to: updated.Name}
 	}
-	changes, failures := s.pipelines.planWizardRerenders(ctx, owned.OrgID, pipelines, before, dests, rename)
+	changes, failures := s.pipelines.planWizardRerenders(ctx, txQ, owned.OrgID, pipelines, before, dests, rename)
 	if len(failures) > 0 {
 		return nil, false, withPipelinesDetail(connect.NewError(connect.CodeFailedPrecondition,
 			fmt.Errorf("destination %q was not updated: %w", owned.Name, failures)), failures.pipelineRefs())

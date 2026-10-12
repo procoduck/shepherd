@@ -45,6 +45,34 @@ WHERE id = $1
   AND tenant_id IS NULL
 RETURNING *;
 
+-- name: TenantIDHeldByOtherOrg :one
+-- Whether an org other than org_id holds tenant_id (#261). A destination may
+-- send any valid tenant, except another org's: D11's one-tenant-one-org
+-- property, kept on every path Shepherd renders. The caller answers with a
+-- generic refusal, so this is at most a weak existence oracle.
+SELECT EXISTS (
+    SELECT 1 FROM orgs WHERE tenant_id = sqlc.arg(tenant_id)::text AND id <> sqlc.arg(org_id)
+);
+
+-- name: TenantIDUsedByOtherOrgDestination :one
+-- Whether a destination of an org other than org_id sends tenant_id (#261,
+-- review of #277): the org side of the same guard. An app admin may not give
+-- an org a tenant another org's destination already writes under. Pass the
+-- zero UUID for an org not created yet: every destination is then another
+-- org's.
+SELECT EXISTS (
+    SELECT 1 FROM destinations WHERE tenant_id = sqlc.arg(tenant_id)::text AND org_id <> sqlc.arg(org_id)
+);
+
+-- name: LockTenantID :exec
+-- Serialises, until the transaction ends, every write that checks the
+-- cross-org tenant guard for tenant_id: a destination saving it
+-- (TenantIDHeldByOtherOrg) and an org being given it
+-- (TenantIDUsedByOtherOrgDestination). Without it the two checks race: each
+-- sees the other's row missing, and both commit. namespace is
+-- advisorylock.TenantID.
+SELECT pg_advisory_xact_lock(sqlc.arg(namespace)::int, hashtext(sqlc.arg(tenant_id)::text));
+
 -- name: DeleteOrg :exec
 DELETE FROM orgs WHERE id = $1;
 

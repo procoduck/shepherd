@@ -59,6 +59,38 @@ func (q *Queries) CreatePipelineRevision(ctx context.Context, arg CreatePipeline
 	return i, err
 }
 
+const getLatestWizardPipelineRevision = `-- name: GetLatestWizardPipelineRevision :one
+SELECT id, pipeline_id, revision, contents, matchers, enabled, changed_by, changed_at, change_note, wizard_state, wizard_render_sha256 FROM pipeline_revisions
+WHERE pipeline_id = $1
+  AND (btrim(change_note) = 'created' OR btrim(change_note) LIKE 're-rendered:%')
+ORDER BY revision DESC
+LIMIT 1
+`
+
+// The pipeline's most recent revision a wizard wrote: CommitWizard's
+// "created" and applyWizardRerenders' "re-rendered: …" (mgmtapi's
+// isWizardChangeNote, which RestoreRevision reserves for wizard writes).
+// The pre-#261 hand-edit fallback (review of #277) accepts a tenant-zeroed
+// render only while that revision is still the pipeline's text.
+func (q *Queries) GetLatestWizardPipelineRevision(ctx context.Context, pipelineID pgtype.UUID) (PipelineRevision, error) {
+	row := q.db.QueryRow(ctx, getLatestWizardPipelineRevision, pipelineID)
+	var i PipelineRevision
+	err := row.Scan(
+		&i.ID,
+		&i.PipelineID,
+		&i.Revision,
+		&i.Contents,
+		&i.Matchers,
+		&i.Enabled,
+		&i.ChangedBy,
+		&i.ChangedAt,
+		&i.ChangeNote,
+		&i.WizardState,
+		&i.WizardRenderSha256,
+	)
+	return i, err
+}
+
 const getMaxPipelineRevision = `-- name: GetMaxPipelineRevision :one
 SELECT COALESCE(MAX(revision), 0)::int AS max_rev FROM pipeline_revisions WHERE pipeline_id = $1
 `

@@ -16,6 +16,8 @@ export interface MeResponse {
     role: string;
     // #114: mirrors the org setting; absent means false (proto3 default).
     allowExperimentalComponents?: boolean;
+    // #261: the org's own tenant; the mock GetMe fills it from the seeded org.
+    tenantId?: string;
   }>;
 }
 

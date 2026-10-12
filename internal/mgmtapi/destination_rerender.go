@@ -5,10 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"shepherd/internal/schema"
@@ -138,9 +140,10 @@ func isDestNameKey(k string) bool { return strings.HasSuffix(k, "_dest_name") }
 // renderWizardPipeline re-runs p's wizard from its stored state against
 // dests, renaming the destination first if rename is set. It returns
 // changed=false when the result is byte-identical to what is stored, so an
-// edit that does not touch the rendered writer (a tenant_id, say) writes no
-// revision. A non-nil failure means the re-render was refused: the wizard
-// could not render it, or the result fails Stages 1-2.
+// edit that does not touch the rendered writer writes no revision. (Since
+// #261 a tenant_id edit does touch it: the tenant is rendered.) A non-nil
+// failure means the re-render was refused: the wizard could not render it,
+// or the result fails Stages 1-2.
 func (s *PipelineService) renderWizardPipeline(ctx context.Context, p sqlc.Pipeline, dests wizard.Destinations, rename *destinationRename) (out wizardRerender, changed bool, failure *rerenderFailure) {
 	fail := func(format string, args ...any) (wizardRerender, bool, *rerenderFailure) {
 		return wizardRerender{}, false, failureFor(p, fmt.Sprintf(format, args...))
@@ -263,8 +266,9 @@ const errHandEdited = "its contents were edited by hand after its wizard generat
 // so a later change to the wizard's template does not make every older
 // pipeline look edited. Only a pipeline with no fingerprint (written before
 // 0030, or since cleared by an editor write) falls back to the fresh-render
-// comparison below.
-func handEdited(p sqlc.Pipeline, before wizard.Destinations) *rerenderFailure {
+// comparison below, and then to the pre-#261 render (matchesPre261Render).
+// q reads the pipeline's revisions; pass the caller's transaction.
+func handEdited(ctx context.Context, q *sqlc.Queries, p sqlc.Pipeline, before wizard.Destinations) *rerenderFailure {
 	if strings.Contains(p.Contents, legacyDestinationWriterMarker) {
 		return nil
 	}
@@ -272,9 +276,7 @@ func handEdited(p sqlc.Pipeline, before wizard.Destinations) *rerenderFailure {
 		if p.WizardRenderSha256 == renderFingerprint(p.Contents) {
 			return nil
 		}
-		f := failureFor(p, errHandEdited)
-		f.handEdited = true
-		return f
+		return handEditFailure(p)
 	}
 	wiz, err := wizard.Default().Get(p.WizardKind.String)
 	if err != nil {
@@ -284,16 +286,77 @@ func handEdited(p sqlc.Pipeline, before wizard.Destinations) *rerenderFailure {
 	if err := json.Unmarshal(p.WizardState, &state); err != nil {
 		return failureFor(p, fmt.Sprintf("stored wizard state is not a JSON object: %v", err))
 	}
-	result, err := wiz.Commit(state, before)
+	result, renderErr := wiz.Commit(state, before)
+	if renderErr == nil && result.Contents == p.Contents {
+		return nil
+	}
+	// Tried even when the render against before failed: a stored tenant
+	// the pre-#261 renderer ignored can be what no longer renders (a
+	// free-text "acme/prod" from before the rule, or a tenant another org
+	// has since been given), and the update that clears it must go through.
+	pre261, err := matchesPre261Render(ctx, q, p, wiz, state, before)
+	switch {
+	case err != nil:
+		return failureFor(p, fmt.Sprintf("checking its revisions: %v", err))
+	case pre261:
+		return nil
+	case renderErr != nil:
+		return failureFor(p, fmt.Sprintf("it no longer renders from its wizard state: %v", renderErr))
+	}
+	return handEditFailure(p)
+}
+
+// handEditFailure is p refused as hand-edited (errHandEdited).
+func handEditFailure(p sqlc.Pipeline) *rerenderFailure {
+	f := failureFor(p, errHandEdited)
+	f.handEdited = true
+	return f
+}
+
+// matchesPre261Render reports whether p's text is what the renderer before
+// #261 wrote: that renderer did not render a destination's tenant_id, so its
+// output is exactly today's render with every tenant cleared
+// (withoutPre261Fields). Without this every unfingerprinted pipeline whose
+// destination already had a tenant would be refused as hand-edited.
+//
+// Matching that render is not enough on its own: an editor write that
+// deletes the rendered X-Scope-OrgID header produces the same text (and
+// clears the fingerprint), and accepting it would put the header back over
+// the user's edit (review of #277). So the text must also still be the
+// pipeline's last wizard-written revision (GetLatestWizardPipelineRevision):
+// the hand edit is a later, non-wizard revision, while an untouched pre-#261
+// pipeline — or one restored from its last wizard revision, the refusal's
+// first remedy — has that revision's text.
+func matchesPre261Render(ctx context.Context, q *sqlc.Queries, p sqlc.Pipeline, wiz wizard.Wizard, state map[string]any, before wizard.Destinations) (bool, error) {
+	old, err := wiz.Commit(state, withoutPre261Fields(before))
+	if err != nil || old.Contents != p.Contents {
+		return false, nil //nolint:nilerr // a pre-#261 render that fails is simply not a match
+	}
+	rv, err := q.GetLatestWizardPipelineRevision(ctx, p.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
 	if err != nil {
-		return failureFor(p, fmt.Sprintf("it no longer renders from its wizard state: %v", err))
+		return false, fmt.Errorf("reading its last wizard revision: %w", err)
 	}
-	if result.Contents != p.Contents {
-		f := failureFor(p, errHandEdited)
-		f.handEdited = true
-		return f
+	return rv.Contents == p.Contents, nil
+}
+
+// withoutPre261Fields returns dests as the pre-#261 renderer saw them, as
+// far as its output goes: every tenant cleared, and with it the render-time
+// refusal of a tenant another org holds (errTenantNotAvailable), which only
+// exists because the tenant is rendered.
+func withoutPre261Fields(dests wizard.Destinations) wizard.Destinations {
+	out := make(wizard.Destinations, len(dests))
+	for name := range dests {
+		d := dests[name]
+		d.TenantID = ""
+		if errors.Is(d.LoadErr, errTenantNotAvailable) {
+			d.LoadErr = nil
+		}
+		out[name] = d
 	}
-	return nil
+	return out
 }
 
 // planWizardRerenders re-renders pipelines (all in orgID) and runs Stage 3
@@ -306,14 +369,14 @@ func handEdited(p sqlc.Pipeline, before wizard.Destinations) *rerenderFailure {
 // change: every pipeline is first checked for a hand edit against it
 // (handEdited) and refused if it has one. The legacy-writer CLI passes nil —
 // it only touches pre-#260 pipelines, which are exempt anyway.
-func (s *PipelineService) planWizardRerenders(ctx context.Context, orgID pgtype.UUID, pipelines []sqlc.Pipeline, before, dests wizard.Destinations, rename *destinationRename) ([]wizardRerender, rerenderFailures) {
+func (s *PipelineService) planWizardRerenders(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, pipelines []sqlc.Pipeline, before, dests wizard.Destinations, rename *destinationRename) ([]wizardRerender, rerenderFailures) {
 	var (
 		changes  []wizardRerender
 		failures rerenderFailures
 	)
 	for i := range pipelines {
 		if before != nil {
-			if failure := handEdited(pipelines[i], before); failure != nil {
+			if failure := handEdited(ctx, q, pipelines[i], before); failure != nil {
 				failures = append(failures, *failure)
 				continue
 			}
@@ -473,7 +536,7 @@ func (s *PipelineService) rerenderLegacyOrg(ctx context.Context, org sqlc.Org, d
 		}
 		return res, nil
 	}
-	changes, failures := s.planWizardRerenders(ctx, org.ID, legacy, nil, dests, nil)
+	changes, failures := s.planWizardRerenders(ctx, txQ, org.ID, legacy, nil, dests, nil)
 	for _, f := range failures {
 		res.Failed = append(res.Failed, f.describe(remedyLegacyRerender))
 	}
