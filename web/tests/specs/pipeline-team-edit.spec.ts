@@ -232,6 +232,45 @@ test.describe('a builder-made pipeline, for its owning team below org editor', (
     await expect(page.getByTestId('editor-visual-text-only-note')).toHaveCount(0);
   });
 
+  // #324 review: moving from an editable pipeline to one the member may not
+  // edit, inside the same builder mount, must not keep the first one's edit
+  // right.
+  test("moving from the team's pipeline to another team's in the builder turns it read-only", async ({
+    page,
+    api,
+  }) => {
+    await api.loginAs(teamMember);
+    const s = basicScenario();
+    const mine = {
+      ...pipeline({ id: 'pip-mine', name: 'mine', source: 'visual' }),
+      owner_team_id: 'team-1',
+      wizard_state: visualGraph,
+    };
+    const theirs = {
+      ...pipeline({ id: 'pip-theirs', name: 'theirs', source: 'visual' }),
+      owner_team_id: 'team-2',
+      wizard_state: visualGraph,
+    };
+    api.seed({
+      orgs: [s.org],
+      schema: schemaFixture,
+      myTeamIds: ['team-1'],
+      pipelines: [mine, theirs],
+    });
+    await page.goto(`/pipelines/${mine.id}/visual`);
+    await expect(page.locator('.react-flow__node')).toHaveCount(1, { timeout: 10_000 });
+    await expect(page.getByTestId('toolbar-read-only')).toHaveCount(0);
+
+    // Client-side, so the builder stays mounted and only its pipelineId changes.
+    await page.evaluate((id) => {
+      window.history.pushState({}, '', `/pipelines/${id}/visual`);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }, theirs.id);
+    await expect(page.getByTestId('toolbar-pipeline-id')).toHaveText(theirs.id);
+    await expect(page.getByTestId('toolbar-read-only')).toBeVisible();
+    await expect(page.getByTestId('toolbar-save')).toBeDisabled();
+  });
+
   test('a viewer on no team keeps the plain viewer message', async ({ page, api }) => {
     await api.loginAs(reader);
     const visual = seedVisual(api, []);

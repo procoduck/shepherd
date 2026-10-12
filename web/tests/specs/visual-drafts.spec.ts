@@ -329,3 +329,46 @@ test.describe('visual builder drafts keep the name and matchers', () => {
     await expect(chips(page)).toContainText(['env="prod"', 'team="draft"']);
   });
 });
+
+// #324 review: drafts live in this browser's IndexedDB, not per account, so
+// the next person to sign in here was offered the last one's unsaved work.
+// Signing out clears them.
+test('signing out clears every builder draft from this browser', async ({ page, api }) => {
+  await api.loginAs(appAdmin);
+  const s = basicScenario();
+  api.seed({ orgs: [s.org], schema: schemaFixture });
+  await page.goto('/pipelines/visual/new');
+  await page.waitForSelector('[data-testid="palette-search"]', { timeout: 10_000 });
+  await page.click('[data-testid="palette-item-prometheus.remote_write"]');
+  await page.getByTestId('toolbar-name').fill('mine');
+  await waitForDraftSaved(page, 'new');
+  await waitForDraftMeta(page, 'new', 'mine');
+
+  page.on('dialog', (d) => {
+    void d.accept();
+  });
+  await page.getByRole('button', { name: 'Sign out' }).click();
+  // The mock keeps the session, so /login bounces on; leaving the builder is enough.
+  await expect(page).not.toHaveURL(/\/visual\/new/);
+
+  const draftKeys = () =>
+    page.evaluate(
+      () =>
+        new Promise<string[]>((resolve) => {
+          const openReq = indexedDB.open('keyval-store');
+          openReq.onerror = () => resolve([]);
+          openReq.onsuccess = () => {
+            const db = openReq.result;
+            if (!db.objectStoreNames.contains('keyval')) {
+              resolve([]);
+              return;
+            }
+            const req = db.transaction('keyval', 'readonly').objectStore('keyval').getAllKeys();
+            req.onsuccess = () =>
+              resolve(req.result.map(String).filter((k) => k.startsWith('vb:draft')));
+            req.onerror = () => resolve([]);
+          };
+        }),
+    );
+  await expect.poll(draftKeys).toEqual([]);
+});

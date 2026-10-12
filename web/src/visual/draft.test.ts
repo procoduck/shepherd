@@ -1,7 +1,8 @@
 import 'fake-indexeddb/auto';
-import { set } from 'idb-keyval';
+import { get, set } from 'idb-keyval';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  clearAllDrafts,
   clearDraft,
   loadDraft,
   loadDraftWithBase,
@@ -207,5 +208,22 @@ describe('subscribeDraftAutosave', () => {
     unsubscribe();
     await sleep(150);
     expect(await loadDraft('auto-test')).toBeNull();
+  });
+});
+
+// #324 review: drafts live in the browser's IndexedDB, not per account, so the
+// next person to sign in on the same browser was offered the last one's
+// unsaved work. Sign-out clears every builder draft and nothing else.
+describe('clearAllDrafts', () => {
+  it('removes every draft key, for every pipeline, and leaves other keys alone', async () => {
+    await saveDraft('a', document, 2, { name: 'a', matchers: [] });
+    await saveDraft('new', document);
+    await set('unrelated', 1);
+    await clearAllDrafts();
+    expect(await loadDraftWithBase('a')).toBeNull();
+    expect(await loadDraftWithBase('new')).toBeNull();
+    expect(await get('vb:draft-meta:a')).toBeUndefined();
+    expect(await get('vb:draft-base:new')).toBeUndefined();
+    expect(await get('unrelated')).toBe(1);
   });
 });

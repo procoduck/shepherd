@@ -775,6 +775,8 @@ type RenderRequest struct {
 	// Set: the caller must be allowed to edit that pipeline (org-editor, or a
 	// team owner per AuthorizeOwnership — the UpdatePipeline check).
 	// Empty: a new, unsaved graph — org-editor required.
+	// Naming a pipeline runs the write-authorization check, so a
+	// propose-capability service account must leave pipeline_id empty.
 	PipelineId    string `protobuf:"bytes,3,opt,name=pipeline_id,json=pipelineId,proto3" json:"pipeline_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

@@ -399,6 +399,8 @@ export type RenderRequest = Message<"shepherd.mgmt.v1.RenderRequest"> & {
    * Set: the caller must be allowed to edit that pipeline (org-editor, or a
    * team owner per AuthorizeOwnership — the UpdatePipeline check).
    * Empty: a new, unsaved graph — org-editor required.
+   * Naming a pipeline runs the write-authorization check, so a
+   * propose-capability service account must leave pipeline_id empty.
    *
    * @generated from field: string pipeline_id = 3;
    */

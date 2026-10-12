@@ -167,6 +167,12 @@ export function Shell() {
       delete (window as unknown as Record<string, unknown>).__initialMe;
     }
     navigate({ to: '/login' });
+    // Builder drafts are per browser, not per account: the next person to sign
+    // in here must not be offered this one's unsaved work (#324 review). After
+    // navigating, so the builder (if open) has unmounted and its autosave
+    // cannot write one back. Loaded on demand — the builder is a lazy chunk.
+    sessionStorage.removeItem('vb:import-graph');
+    await import('@/visual/draft').then((m) => m.clearAllDrafts()).catch(console.error);
   }
 
   // #250: detail routes name their item (the pipeline, collector or wizard)

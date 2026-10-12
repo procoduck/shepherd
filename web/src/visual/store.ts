@@ -248,10 +248,16 @@ interface VisualStore {
   /**
    * The saved pipeline on the canvas, '' for a new one. Sent as pipeline_id
    * on Render/Validate/UpgradeCheck (#319), which the server authorizes
-   * against that pipeline; '' keeps them org-editor. Set by VisualBuilderPage.
+   * against that pipeline; '' keeps them org-editor. Set by openPipeline.
    */
   pipelineId: string;
-  setPipelineId: (pipelineId: string) => void;
+  /**
+   * The builder moved to `pipelineId` (a route id; 'new' for a new graph):
+   * names it, and clears the previous pipeline's can_edit, so the builder is
+   * read-only until this one's own answer loads — and stays so if it fails
+   * to (#324 review).
+   */
+  openPipeline: (pipelineId: string) => void;
   /** Sets whether experimental components are permitted (#114), from the org
    *  setting. Re-runs validation so a graph loaded before the flag arrived is
    *  re-gated against it. */
@@ -644,7 +650,8 @@ export const useVisualStore = create<VisualStore>()(
       pipelineCanEdit: false,
       setPipelineCanEdit: (pipelineCanEdit) => set({ pipelineCanEdit }),
       pipelineId: '',
-      setPipelineId: (pipelineId) => set({ pipelineId }),
+      openPipeline: (pipelineId) =>
+        set({ pipelineId: pipelineId === 'new' ? '' : pipelineId, pipelineCanEdit: false }),
 
       setAllowExperimental: (allowExperimental) =>
         set((state) =>

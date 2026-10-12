@@ -3,6 +3,7 @@ import {
   delMany as idbDelMany,
   get as idbGet,
   getMany as idbGetMany,
+  keys as idbKeys,
   setMany as idbSetMany,
 } from 'idb-keyval';
 import type { GraphDocument } from './types';
@@ -76,6 +77,17 @@ export async function loadDraftWithBase(pipelineId: string): Promise<{
     baseRevision: typeof base === 'number' ? base : null,
     meta: isDraftMeta(meta) ? meta : null,
   };
+}
+/**
+ * Removes every builder draft this browser holds, for every pipeline (#324
+ * review). Drafts are keyed by pipeline, not by account, so without this the
+ * next person to sign in on the same browser was offered the last one's
+ * unsaved work. Called on sign-out; other IndexedDB keys are left alone.
+ */
+export async function clearAllDrafts(): Promise<void> {
+  const all = await idbKeys();
+  const drafts = all.filter((k) => typeof k === 'string' && k.startsWith('vb:draft'));
+  if (drafts.length > 0) await idbDelMany(drafts);
 }
 export async function clearDraft(pipelineId: string): Promise<void> {
   await idbDelMany([draftKey(pipelineId), draftBaseKey(pipelineId), draftMetaKey(pipelineId)]);

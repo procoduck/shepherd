@@ -72,8 +72,12 @@ export function VisualBuilderPage() {
     useVisualStore.getState().setReadOnly(!editable);
   }, [editable]);
   // The pipeline the server authorizes the builder's calls against (#319).
+  // Entering a pipeline — a fresh mount or a move from another one — also
+  // drops the previous pipeline's can_edit, so the builder is read-only until
+  // this one's own answer loads (and stays so if the load fails). A layout
+  // effect, ahead of the load below, which sets it from the server.
   useLayoutEffect(() => {
-    useVisualStore.getState().setPipelineId(pipelineId === 'new' ? '' : pipelineId);
+    useVisualStore.getState().openPipeline(pipelineId);
   }, [pipelineId]);
 
   // Use a ref to the store action to avoid including it in the effect deps
@@ -171,10 +175,6 @@ export function VisualBuilderPage() {
       setDraftToRestore(null);
     }
     prevPipelineIdRef.current = pipelineId;
-    // A fresh mount at /pipelines/new/visual keeps the store from the last
-    // builder visit; a new pipeline has no owning team, so no team-member
-    // edit right (canEdit) may linger from a previously opened one.
-    if (pipelineId === 'new') useVisualStore.getState().setPipelineCanEdit(false);
   }, [pipelineId]);
 
   // Persist the in-memory graph to IndexedDB as it's edited (design §4.4) —
