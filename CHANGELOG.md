@@ -18,20 +18,22 @@ sends its destination's tenant ID as `X-Scope-OrgID` (stored and ignored before)
 private CA, present a client certificate and set a server name, all read on the collector's own
 cluster from a Secret or ConfigMap — proven against a real Alloy and an mTLS sink in the kind
 suite. The served config's header shows each pipeline's real revision instead of `(rev 0)`, so
-**most collectors reload once after the upgrade**. Members of a pipeline's owning team can use
+**every collector serving a pipeline reloads once after the upgrade**. Members of a pipeline's owning team can use
 the visual builder, a collector that rejects its config now says which pipeline it rejected, and
 the 2026-10-08 walkthrough's low findings (#297–#310, bar parts of #301, #308 and #309 that need a
-proto or served-config change) and #279 are fixed. One migration (`0032`).
+proto or served-config change) and #279 are fixed. Two migrations (`0032`, `0033`).
 
 **Upgrade:** `helm upgrade` to chart 0.20.0 — read `deploy/helm/shepherd/UPGRADING.md`
 (0.19.x → 0.20.0) first:
 
-- **Most collectors reload their config once after the upgrade:** migration `0032` (a single
-  `UPDATE` on `serve_cache`; it takes moments) marks every served config stale so the new revision
-  header reaches organisations nobody edits. The migration Job runs while the old pods still
-  serve, so a collector that polls an old pod during the rollout may keep the old `(rev 0)` header
-  until the next write in its organisation — harmless, the header comment is the only stale text.
-  Afterwards, any write that bumps a pipeline's revision reloads the collectors serving it, even
+- **Every collector serving a pipeline reloads its config once after the upgrade:** migration
+  `0032` (a single `UPDATE` on `serve_cache`; it takes moments) marks every served config stale,
+  and `0033` (adds one column with a default; metadata-only, instant) records the serve format
+  each cached config was computed in. A new pod recomputes any config an older pod computed —
+  including one an old pod rewrote while the rollout was still running — before serving it, so
+  the new revision header reaches organisations nobody edits. A collector that polls an old pod
+  during the rollout gets the old config until it next polls a new pod; one whose organisation is
+  edited mid-rollout may reload one extra time. Afterwards, any write that bumps a pipeline's revision reloads the collectors serving it, even
   when its text is unchanged. (#296)
 - **Decide when stored tenant IDs start being sent.** A tenant ID stored on a destination before
   this release is sent only once its wizard pipelines are regenerated. List them with
@@ -158,20 +160,44 @@ proto or served-config change) and #279 are fixed. One migration (`0032`).
 - **The served config's header shows each pipeline's real revision (#296).** It read `(rev 0)`
   for every pipeline, because nothing passed the revision to the merge. Both serve paths and both
   Stage 3 dry runs now take it from one conversion, so they cannot disagree. This changes the
-  served bytes: migration `0032` marks every served config stale, so **most collectors reload
-  once** after the upgrade. One that polls an old pod while the rollout is still running may keep
-  the old `(rev 0)` header until the next write in its organisation — harmless, the header comment
-  is the only stale text. From then on, any write that bumps a
+  served bytes: migration `0032` marks every served config stale, and every cached config now
+  records the serve format it was computed in (`0033`), so a new pod never serves one an older pod
+  computed — even one rewritten by an old pod mid-rollout. **Every collector serving a pipeline
+  reloads once** after the upgrade, on its first poll of a new pod. From then on, any write that bumps a
   pipeline's revision reloads every collector serving it, even when the text is unchanged — a
   matcher-only edit, a visual-builder save that only moved nodes, restoring a revision with
   identical text, detaching from a wizard (which now re-serves an enabled pipeline). Git sync
   writes a pipeline and its revision in one transaction; a failed revision write now fails that
-  file's sync instead of being logged and skipped. _Shipped._ (#323)
+  file's sync instead of being logged and skipped. _Shipped._ (#323, #330)
 - **Editing an organisation with an invalid tenant ID no longer saves its other fields first.**
   The refusable tenant step runs first, and `UpdateOrg` writes the update and its audit row in one
   transaction. _Shipped._ (#302, #327)
 - **The destination dialog clears a server refusal** as soon as you edit the form. _Shipped._
   (#300, #325)
+- **Findings from the v0.16 walkthrough on kind.** _Shipped._ (#329)
+  - The pipeline text editor's toolbar wraps at narrow windows, so Save stays reachable at
+    1024px.
+  - The "rejected by collector" banner shows the collector's load error: `ListCollectors` now
+    carries it, by the same rule as `GetCollector` (withheld for an inactive instance). Before,
+    the banner could read a bare "Error:".
+  - The pipeline page shows a loading or error state instead of an empty form. Saving changed
+    text on a wizard pipeline that still follows its wizard asks first, and a save dismisses the
+    landing banner.
+  - The organisation and destination dialogs clear a server error on the first edit, and errors
+    read as sentences ("Tenant ID is in use…", not `Tenant_id`). New organisation's Cancel resets
+    the form; the destination dialog focuses the first refused field, and the destinations table
+    marks destinations with TLS options.
+  - A wizard's Continue says which required fields are missing, a taken name names the pipeline
+    it collides with, and a viewer on a wizard page no longer triggers a refused
+    `GetWizardSchema` request.
+  - Accessibility: the reasons Simulate and Continue are unavailable reach keyboard and screen
+    reader users, Teams row actions name their team (and the page states that team writes need
+    org admin), and the visual builder has a page heading, palette items that are buttons and a
+    named text editor.
+  - The audit log names the team and the member on team-membership events. Sign-out forgets the
+    selected organisation, "Group by" is hidden when no collector has labels,
+    `/pipelines/new/visual` redirects to the guarded `/pipelines/visual/new`, and
+    `HEAD /api/schema/*` is served behind the same authentication as GET.
 
 ### API
 

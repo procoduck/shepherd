@@ -158,12 +158,12 @@ kubectl -n shepherd port-forward svc/shepherd 8080:8080</code></pre>
 
       <h3 id="upgrading-to-0-20">Upgrading to chart 0.20.0: one fleet reload, then decide on tenant IDs</h3>
       <p>
-        An ordinary <code>helm upgrade</code>. Most collectors reload their config once after the
-        upgrade: the served config&rsquo;s header now shows each pipeline&rsquo;s real revision,
-        and migration <code>0032</code> marks every served config stale so the change reaches
-        quiet organisations too. One that polls an old pod while the rollout is still running may
-        keep the old <code>(rev 0)</code> header until the next write in its organisation &mdash;
-        harmless, the header comment is the only stale text. Destinations&rsquo; tenant IDs are now sent as
+        An ordinary <code>helm upgrade</code>. Every collector serving a pipeline reloads its config
+        once after the upgrade: the served config&rsquo;s header now shows each pipeline&rsquo;s
+        real revision, and migrations <code>0032</code> and <code>0033</code> make the new pods
+        recompute every served config an older pod computed &mdash; including one rewritten while
+        the rollout was still running &mdash; so the change reaches quiet organisations too. A
+        collector whose organisation is edited mid-rollout may reload one extra time. Destinations&rsquo; tenant IDs are now sent as
         <code>X-Scope-OrgID</code>; one stored before this release starts being sent only when its
         pipelines are regenerated, so list them first with
         <code>shepherd admin rerender-destinations --all</code> from a server pod (a dry run) and

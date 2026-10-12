@@ -3,32 +3,37 @@
 ## 0.19.x → 0.20.0
 
 An ordinary `helm upgrade`, then **decide when destinations' tenant IDs start
-being sent (#261)**. **Most collectors reload their config once** after the
-upgrade.
+being sent (#261)**. **Every collector serving a pipeline reloads its config
+once** after the upgrade.
 
-### Migration 0032 and a one-time fleet reload
+### Migrations 0032 and 0033 and a one-time fleet reload
 
 The migration Job (a `pre-upgrade` hook, on by default with
-`migrations.job.enabled: true`) applies `0032` before the new pods start;
+`migrations.job.enabled: true`) applies `0032` and `0033` before the new pods start;
 nothing to do. If you turned the Job off, run `shepherd migrate up` against the
 database yourself before upgrading, as for every release. `0032` is a single
-`UPDATE` on `serve_cache` (one row per collector) and takes moments. Its down
-migration is a no-op.
+`UPDATE` on `serve_cache` (one row per collector) and takes moments; its down
+migration is a no-op. `0033` adds a `format` column with a default
+(metadata-only, instant) and a small trigger on `serve_cache`; its down
+migration drops both.
 
 The served config's header now shows each pipeline's real revision
 (`(rev N)`); before, it read `(rev 0)` for every pipeline (#296). That changes
 the served bytes, and so the hash, of every collector's config. `0032` marks
-every cached served config stale, so **most collectors reload their config
-once after the upgrade** — including collectors in organisations nobody edits.
+every cached served config stale, so **every collector serving a pipeline
+reloads its config once after the upgrade** — including collectors in organisations nobody edits.
 Nothing in the pipelines themselves changes. Plan the upgrade as you would a
 fleet-wide config push.
 
-The migration Job runs while the old pods are still serving. A collector that
-polls an old pod while the rollout is still running gets its config recomputed
-by the old code, which writes the old `(rev 0)` header and clears the stale
-mark; that collector keeps the `(rev 0)` header until the next write in its
-organisation. This is harmless: the header comment is the only stale text, and
-the pipelines it serves are current.
+The migration Job runs while the old pods are still serving, and an old pod
+that recomputes a collector's config during the rollout writes the old
+`(rev 0)` header. Each cached config records the serve format it was computed
+in (`0033`), and the new pods recompute any config in an older format before
+serving it, so no collector keeps the `(rev 0)` header after the rollout. A
+collector that polls an old pod during the rollout gets the old config until it
+next polls a new pod; if its organisation is edited mid-rollout it may reload
+one extra time. A collector that is offline during the upgrade picks up the new
+header when it next polls.
 
 From then on, **any write that bumps a pipeline's revision reloads every
 collector serving it, even when the pipeline's text is unchanged**: a
