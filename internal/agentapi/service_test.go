@@ -32,6 +32,7 @@ import (
 	"shepherd/internal/metrics"
 	"shepherd/internal/mgmtapi"
 	"shepherd/internal/schema"
+	"shepherd/internal/serve"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/testutil"
@@ -599,6 +600,126 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 			Expect(resp.Msg.GetContent()).To(ContainSubstring("//   - recompute-pipeline (rev 3)\n"))
 		})
 
+		// The v0.16 rolling upgrade (#296 follow-up): migration 0032 marks
+		// every row dirty, but v0.15 pods keep serving during the rollout and
+		// their lazy recompute writes the old "(rev 0)" bytes and clears the
+		// flag. The new binary must not trust such a row. These are the exact
+		// v0.15 statements — they name their columns, so they never touch
+		// serve_cache.format.
+		const (
+			v015Mark = `INSERT INTO serve_cache (collector_id, content, hash, dirty, dirty_seq)
+VALUES ($1, '', '', true, 1)
+ON CONFLICT (collector_id) DO UPDATE SET
+    dirty = true,
+    dirty_seq = serve_cache.dirty_seq + 1`
+			v015Write = `INSERT INTO serve_cache (collector_id, content, hash, computed_at, dirty, dirty_seq)
+VALUES ($1, $2, $3, now(), false, 0)
+ON CONFLICT (collector_id) DO UPDATE SET
+    content     = EXCLUDED.content,
+    hash        = EXCLUDED.hash,
+    computed_at = now(),
+    dirty       = false
+WHERE serve_cache.dirty = true AND serve_cache.dirty_seq = $4`
+			oldBytes = "// v0.15 bytes\n//   - recompute-pipeline (rev 0)\n"
+		)
+		attrs := map[string]string{"cluster": "recompute-cluster", "role": "metrics"}
+		seqOf := func(id pgtype.UUID) int64 {
+			var seq int64
+			Expect(st.Pool().QueryRow(ctx, `SELECT dirty_seq FROM serve_cache WHERE collector_id = $1`, id).Scan(&seq)).To(Succeed())
+			return seq
+		}
+		withRevisions := func(pipeline sqlc.Pipeline, n int32) {
+			for rev := int32(1); rev <= n; rev++ {
+				_, err := st.Queries.CreatePipelineRevision(ctx, sqlc.CreatePipelineRevisionParams{
+					PipelineID: pipeline.ID, Revision: rev, Contents: pipeline.Contents,
+					Matchers: pipeline.Matchers, Enabled: true, ChangedBy: "test",
+				})
+				Expect(err).NotTo(HaveOccurred())
+			}
+		}
+
+		// Red run, executed: without the format check in GetConfig the poll
+		// trusted the clean row and answered not-modified for "v015-hash".
+		It("recomputes a clean row a v0.15 pod wrote after migration 0032, and serves the real revision", func() {
+			collector, pipeline := setupClaimedPipeline()
+			withRevisions(pipeline, 3)
+			// Migration 0032's mark, then a v0.15 pod's recompute landing first.
+			Expect(st.Queries.MarkServeCacheDirty(ctx, collector.ID)).To(Succeed())
+			_, err := st.Pool().Exec(ctx, v015Write, collector.ID, oldBytes, "v015-hash", seqOf(collector.ID))
+			Expect(err).NotTo(HaveOccurred())
+
+			resp, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+				Id: "recompute-instance", Hash: "v015-hash", LocalAttributes: attrs,
+			}))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Msg.GetNotModified()).To(BeFalse(), "the v0.15 bytes must not be confirmed as current")
+			Expect(resp.Msg.GetContent()).To(ContainSubstring("//   - recompute-pipeline (rev 3)\n"))
+			Expect(resp.Msg.GetHash()).NotTo(Equal("v015-hash"))
+			cache, err := st.Queries.GetServeCache(ctx, collector.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cache.Content).To(Equal(resp.Msg.GetContent()), "the recompute must be written back")
+			Expect(cache.Format).To(Equal(serve.Format))
+			Expect(cache.Dirty).To(BeFalse())
+		})
+
+		// The residual race: a new pod already wrote the row in the current
+		// format, then a write handled by a v0.15 pod marks it and a v0.15
+		// recompute wins. The old write leaves format alone, so without the
+		// 0033 trigger (a mark resets format) the row would claim the current
+		// format over "(rev 0)" bytes. Red runs, executed: with the trigger
+		// left out of 0033, and separately without the format check in
+		// GetConfig, this poll answered not-modified for "v015-hash".
+		It("does not trust a row a v0.15 pod rewrote after the new binary had upgraded it", func() {
+			collector, pipeline := setupClaimedPipeline()
+			withRevisions(pipeline, 2)
+			first, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{Id: "recompute-instance", LocalAttributes: attrs}))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(first.Msg.GetContent()).To(ContainSubstring("(rev 2)\n"))
+
+			_, err = st.Pool().Exec(ctx, v015Mark, collector.ID)
+			Expect(err).NotTo(HaveOccurred())
+			tag, err := st.Pool().Exec(ctx, v015Write, collector.ID, oldBytes, "v015-hash", seqOf(collector.ID))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tag.RowsAffected()).To(BeEquivalentTo(1), "the v0.15 write must land, as it does mid-rollout")
+
+			resp, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+				Id: "recompute-instance", Hash: "v015-hash", LocalAttributes: attrs,
+			}))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Msg.GetNotModified()).To(BeFalse())
+			Expect(resp.Msg.GetContent()).To(Equal(first.Msg.GetContent()),
+				"the recompute must serve the same bytes the new binary served before the v0.15 write")
+			Expect(resp.Msg.GetHash()).To(Equal(first.Msg.GetHash()))
+		})
+
+		// Steady state: a clean row in the current format is served straight
+		// from the cache — the format check adds no recompute. Proven by
+		// making any recompute fail (the pipelines table is gone) and
+		// asserting the failure counter does not move. Red run, executed:
+		// with the check written as format <= serve.Format every poll
+		// recomputed and this failed.
+		It("serves a clean current-format row without recomputing", func() {
+			collector, _ := setupClaimedPipeline()
+			first, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{Id: "recompute-instance", LocalAttributes: attrs}))
+			Expect(err).NotTo(HaveOccurred())
+			cache, err := st.Queries.GetServeCache(ctx, collector.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cache.Format).To(Equal(serve.Format))
+			Expect(cache.Dirty).To(BeFalse())
+
+			// This spec's database is isolated; nothing renames it back.
+			_, err = st.Pool().Exec(ctx, `ALTER TABLE pipelines RENAME TO pipelines_unavailable`)
+			Expect(err).NotTo(HaveOccurred())
+			failuresBefore := counterValue(metrics.ServeRecomputeFailuresTotal)
+			second, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+				Id: "recompute-instance", Hash: first.Msg.GetHash(), LocalAttributes: attrs,
+			}))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(second.Msg.GetNotModified()).To(BeTrue())
+			Expect(counterValue(metrics.ServeRecomputeFailuresTotal)).To(Equal(failuresBefore),
+				"a clean current-format row must not be recomputed")
+		})
+
 		// A legacy pipeline with no pipeline_revisions row at all (written
 		// before revisions existed, or by a path that never recorded one) has
 		// no revision to show: it keeps "(rev 0)", the same 0 that
@@ -848,6 +969,38 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(updated.Dirty).To(BeFalse())
 			Expect(updated.Content).To(Equal("new"))
+		})
+
+		// 0033: a clean row in an older serve format is stale, so the
+		// conditional write lands on it — but only under the same generation
+		// check, and a mark (which bumps the generation) resets it to format 0.
+		It("conditional upsert lands on a clean old-format row only at its generation", func() {
+			collector, _ := setupClaimedPipeline()
+			_, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{Id: "recompute-instance", LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"}}))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(st.Queries.MarkServeCacheDirty(ctx, collector.ID)).To(Succeed())
+			marked, err := st.Queries.GetServeCache(ctx, collector.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(marked.Format).To(BeEquivalentTo(0), "a mark resets the row's format")
+			// An older binary's write: clean, format untouched (0).
+			_, err = st.Queries.UpsertServeCacheConditional(ctx, sqlc.UpsertServeCacheConditionalParams{CollectorID: collector.ID, Content: "old", Hash: "hash-old", DirtySeq: marked.DirtySeq})
+			Expect(err).NotTo(HaveOccurred())
+			old, err := st.Queries.GetServeCache(ctx, collector.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(old.Dirty).To(BeFalse())
+			Expect(old.Format).To(BeEquivalentTo(0))
+
+			_, err = st.Queries.UpsertServeCacheConditional(ctx, sqlc.UpsertServeCacheConditionalParams{CollectorID: collector.ID, Content: "wrong-gen", Hash: "h", DirtySeq: old.DirtySeq - 1, Format: serve.Format})
+			Expect(err).To(MatchError(pgx.ErrNoRows), "a stale generation never lands, whatever the format")
+
+			updated, err := st.Queries.UpsertServeCacheConditional(ctx, sqlc.UpsertServeCacheConditionalParams{CollectorID: collector.ID, Content: "current", Hash: "hash-current", DirtySeq: old.DirtySeq, Format: serve.Format})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(updated.Content).To(Equal("current"))
+			Expect(updated.Format).To(Equal(serve.Format))
+			Expect(updated.DirtySeq).To(Equal(old.DirtySeq), "a recompute write never moves the generation")
+
+			_, err = st.Queries.UpsertServeCacheConditional(ctx, sqlc.UpsertServeCacheConditionalParams{CollectorID: collector.ID, Content: "again", Hash: "h2", DirtySeq: old.DirtySeq, Format: serve.Format})
+			Expect(err).To(MatchError(pgx.ErrNoRows), "a clean current-format row is not rewritten")
 		})
 
 		It("prewarm and lazy recompute race safely", func() {

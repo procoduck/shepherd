@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -18,6 +19,7 @@ import (
 	"shepherd/internal/beacon"
 	"shepherd/internal/config"
 	"shepherd/internal/schema"
+	"shepherd/internal/serve"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/version"
@@ -169,5 +171,64 @@ var _ = Describe("served header revision (#296)", Label("integration"), func() {
 			"the lazy (agentapi) and eager (mgmtapi) paths must serve byte-identical config for the same fleet")
 		Expect(resp.Msg.GetHash()).To(Equal(eager.Hash))
 		Expect(after.Hash).To(Equal(eager.Hash))
+	})
+
+	// The v0.16 rolling upgrade, replayed over one database: the eager path
+	// (new binary) has served the current bytes; then migration 0032's mark
+	// lands and a v0.15 pod -- still serving during the rollout -- recomputes
+	// first, writing "(rev 0)" bytes with the v0.15 statement (it names its
+	// columns, so serve_cache.format stays where the mark reset it: 0) and
+	// clearing dirty. A poll on a new pod must recompute and serve exactly
+	// the bytes the eager path produced -- the bytes #323 serves, no new
+	// header text -- and write them back in the current format.
+	// Red run, executed: without the format check in agentapi's GetConfig
+	// the poll answered not-modified for the v0.15 hash.
+	It("replaces a v0.15 pod's mid-rollout rewrite with the eager path's bytes on the next poll", func() {
+		matchers := []string{`cluster="` + clusterName + `"`}
+		created := call("CreatePipeline", map[string]any{
+			"orgId": orgID, "name": "rev-probe", "contents": contents, "matchers": matchers,
+		})
+		pipelineID, _ := created["id"].(string) //nolint:errcheck // asserted non-empty below
+		Expect(pipelineID).NotTo(BeEmpty())
+		call("UpdatePipeline", map[string]any{
+			"orgId": orgID, "id": pipelineID, "name": "rev-probe", "contents": contents + "\n// edit 2", "matchers": matchers,
+		})
+		call("EnablePipeline", map[string]any{"orgId": orgID, "id": pipelineID})
+		Eventually(served, "20s", "250ms").Should(ContainSubstring("//   - rev-probe (rev 2)\n"))
+		eager, err := st.Queries.GetServeCache(ctx, collectorID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(eager.Format).To(Equal(serve.Format), "the eager path stamps the current format")
+
+		// Migration 0032's statement, then the v0.15 recompute write.
+		_, err = st.Pool().Exec(ctx, `UPDATE serve_cache SET dirty = true, dirty_seq = dirty_seq + 1`)
+		Expect(err).NotTo(HaveOccurred())
+		oldBytes := strings.Replace(eager.Content, "(rev 2)", "(rev 0)", 1)
+		tag, err := st.Pool().Exec(ctx, `INSERT INTO serve_cache (collector_id, content, hash, computed_at, dirty, dirty_seq)
+VALUES ($1, $2, $3, now(), false, 0)
+ON CONFLICT (collector_id) DO UPDATE SET
+    content     = EXCLUDED.content,
+    hash        = EXCLUDED.hash,
+    computed_at = now(),
+    dirty       = false
+WHERE serve_cache.dirty = true AND serve_cache.dirty_seq = $4`, collectorID, oldBytes, "v015-hash", eager.DirtySeq+1)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(tag.RowsAffected()).To(BeEquivalentTo(1))
+
+		reg, err := schema.New(schema.Embedded, version.AlloySchemaVersion)
+		Expect(err).NotTo(HaveOccurred())
+		lazy := agentapi.New(st, nil, slog.Default(), reg,
+			agentapi.WithBeaconRemoteWrite(cfg.Server.BaseURL, beacon.OAuth2ForBeacon(cfg.OIDC.BeaconAuth, cfg.OIDC.AgentTokenURL, cfg.OIDC.AgentScopes)))
+		resp, err := lazy.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+			Id: "rev-instance", Hash: "v015-hash", LocalAttributes: map[string]string{"cluster": clusterName, "role": "metrics"},
+		}))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.Msg.GetNotModified()).To(BeFalse())
+		Expect(resp.Msg.GetContent()).To(Equal(eager.Content))
+		Expect(resp.Msg.GetHash()).To(Equal(eager.Hash))
+		after, err := st.Queries.GetServeCache(ctx, collectorID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(after.Content).To(Equal(eager.Content))
+		Expect(after.Format).To(Equal(serve.Format))
+		Expect(after.Dirty).To(BeFalse())
 	})
 })

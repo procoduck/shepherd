@@ -212,9 +212,11 @@ func (s *Service) GetConfig(
 
 	s.emitLocalAttrsMatchDrift(ctx, orgID, coll, cluster, role, beforeAttrsJSON, attrs)
 
-	// Claimed: read from serve cache; recompute if dirty.
+	// Claimed: read from serve cache; recompute if dirty, or if the row was
+	// computed in an older serve format (serve.Format, migration 0033) — a
+	// clean row an older binary wrote is as stale as a dirty one.
 	cache, err := s.store.Queries.GetServeCache(ctx, coll.ID)
-	if err != nil || cache.Dirty {
+	if err != nil || cache.Dirty || !serve.Current(cache.Format) {
 		// The generation this poll observed, captured BEFORE the pipelines
 		// are loaded inside recomputeServeCache: the upsert below is a
 		// compare-and-swap on it, so a mark that lands mid-recompute (an
@@ -236,13 +238,27 @@ func (s *Service) GetConfig(
 				Content:     newContent,
 				Hash:        newHash,
 				DirtySeq:    expectedSeq,
+				Format:      serve.Format,
 			})
 			if errors.Is(err, pgx.ErrNoRows) {
 				// Superseded: a newer mark arrived while this recompute ran,
 				// or the eager recompute already served this generation.
 				// Serve whatever the row holds now — if it is still dirty,
 				// the next poll recomputes against the newer generation.
-				return s.store.Queries.GetServeCache(ctx, coll.ID)
+				current, getErr := s.store.Queries.GetServeCache(ctx, coll.ID)
+				if getErr != nil {
+					return nil, getErr
+				}
+				if !serve.Current(current.Format) {
+					// Except a row in an older format (a mark reset it, and
+					// an older binary may since have written old-format
+					// bytes into it): never serve those as current. What this
+					// recompute produced is at least as fresh — it read a
+					// generation no older than the row's content — so serve
+					// it without caching; the next poll recomputes and writes.
+					return sqlc.ServeCache{CollectorID: coll.ID, Content: newContent, Hash: newHash, Dirty: true, Format: serve.Format}, nil
+				}
+				return current, nil
 			}
 			if err != nil {
 				return nil, err
