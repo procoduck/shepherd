@@ -451,10 +451,15 @@ export function WizardRunnerPage() {
             {!isReview ? (
               <button
                 type='button'
-                onClick={() => setStepIndex((i) => Math.min(reviewIndex, i + 1))}
-                disabled={!canContinue}
+                onClick={() => {
+                  // aria-disabled keeps Continue focusable so its reason
+                  // reaches keyboard and screen-reader users; refuse here.
+                  if (!canContinue) return;
+                  setStepIndex((i) => Math.min(reviewIndex, i + 1));
+                }}
+                aria-disabled={canContinue ? undefined : true}
                 aria-describedby={canContinue ? undefined : 'wizard-continue-reason'}
-                className='rounded-md bg-indigo-600 px-4 py-1.5 text-sm text-white hover:bg-indigo-500 disabled:opacity-50'
+                className='rounded-md bg-indigo-600 px-4 py-1.5 text-sm text-white hover:bg-indigo-500 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-indigo-600'
               >
                 Continue
               </button>

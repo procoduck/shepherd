@@ -57,6 +57,8 @@ export function useAuditNames(
       queryKey: ['team-members', teamId],
       queryFn: () => clients.team.listTeamMembers({ orgId, teamId }),
       enabled: !!orgId,
+      // A team deleted since the event 404s; retrying only repeats it.
+      retry: false,
     })),
   });
   const collectors = useQuery({

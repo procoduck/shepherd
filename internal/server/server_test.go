@@ -99,14 +99,17 @@ var _ = Describe("API prefix guard", func() {
 	// (docs/archive/api-contract-design.md): the schema artifacts. They are
 	// still routed — an unauthenticated request is refused, not 404'd.
 	DescribeTable("out-of-contract /api routes are still routed",
-		func(path string) {
-			req := httptest.NewRequest(http.MethodGet, path, nil)
+		func(method, path string) {
+			req := httptest.NewRequest(method, path, nil)
 			rec := httptest.NewRecorder()
 			r.ServeHTTP(rec, req)
-			Expect(rec.Code).To(Equal(http.StatusUnauthorized), path)
+			Expect(rec.Code).To(Equal(http.StatusUnauthorized), method+" "+path)
 		},
-		Entry("GET /api/schema/current", "/api/schema/current"),
-		Entry("GET /api/schema/{version}", "/api/schema/v1.19.2"),
+		Entry("GET /api/schema/current", http.MethodGet, "/api/schema/current"),
+		Entry("GET /api/schema/{version}", http.MethodGet, "/api/schema/v1.19.2"),
+		// HEAD (2026-10-12 walkthrough) sits behind the same auth as GET.
+		Entry("HEAD /api/schema/current", http.MethodHead, "/api/schema/current"),
+		Entry("HEAD /api/schema/{version}", http.MethodHead, "/api/schema/v1.19.2"),
 	)
 
 	It("real routes still respond", func() {

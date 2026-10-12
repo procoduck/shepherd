@@ -7,6 +7,12 @@ import type { Pipeline, PipelineRevision } from '@/gen/shepherd/mgmt/v1/pipeline
  * follows its wizard: one with no hand edit since its wizard last wrote it
  * (HandEditedBadge's query, shared), whose text this save changes. A save
  * that leaves the text as the wizard wrote it asks nothing.
+ *
+ * Known limit: the server decides by the render fingerprint, this by text.
+ * A pipeline hand-edited and then edited back to its wizard text has lost
+ * its fingerprint yet reads here as still following, so it is asked again —
+ * the safe direction. Exact parity needs a per-pipeline "follows wizard"
+ * field on Pipeline (a proto change, ask-first; #301 tracks it).
  */
 export function useWouldHandEdit(
   pipeline: Pipeline | undefined,
