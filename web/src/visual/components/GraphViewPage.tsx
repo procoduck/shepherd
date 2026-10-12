@@ -120,6 +120,8 @@ export function GraphViewPage() {
         } as PipelineNodeData,
       })),
     );
+    // #310: named by node labels, not React Flow's "Edge from <id> to <id>".
+    const label = (id: string) => graphData?.graph.nodes.find((n) => n.id === id)?.label ?? id;
     setRfEdges(
       (graphData?.graph.edges ?? []).map((e) => ({
         id: e.id,
@@ -127,6 +129,7 @@ export function GraphViewPage() {
         sourceHandle: e.from.port,
         target: e.to.node,
         targetHandle: e.to.port,
+        ariaLabel: `Edge from ${label(e.from.node)} to ${label(e.to.node)}`,
       })),
     );
   }, [graphData, schema]);

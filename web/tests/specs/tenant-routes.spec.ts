@@ -124,6 +124,17 @@ test('shows whether each route is in the cluster, with the reason when it is not
         apply_message: 'Accepted=False (reason NotAllowedByListeners)',
       }),
       route('otlp-broken', { apply_status: 'error', apply_message: 'httproutes is forbidden' }),
+      // What the server reports for a route when no reconciler runs (#304).
+      route('otlp-idle', {
+        apply_status: 'not_applicable',
+        apply_message: 'not applied: tenant-route apply is not running on this server',
+      }),
+      route('otlp-managed', {
+        apply_status: 'applied',
+        gateway_mode: 'managed',
+        gateway_name: 'shepherd-receiver-gw',
+        gateway_namespace: '',
+      }),
     ],
   });
   await api.loginAs(reader);
@@ -143,6 +154,16 @@ test('shows whether each route is in the cluster, with the reason when it is not
   await expect(page.getByTestId('route-apply-otlp-broken')).toContainText(
     'httproutes is forbidden',
   );
+  // No reconciler: say so instead of a "pending" that never moves (#304).
+  await expect(page.getByTestId('route-apply-otlp-idle')).toContainText('not applied');
+  await expect(page.getByTestId('route-apply-otlp-idle')).toContainText(
+    'tenant-route apply is not running',
+  );
+  // The Gateway column names the gateway in both modes (#304).
+  await expect(page.getByTestId('route-gateway-otlp-managed')).toHaveText(
+    'managed · shepherd-receiver-gw',
+  );
+  await expect(page.getByTestId('route-gateway-otlp-ok')).toHaveText('operator · gateways/edge');
 });
 
 test('a reader connects an app to an active route: endpoint and snippets from the server', async ({

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { schemaFixture } from '../../tests/fixtures/schema-fixture';
 import {
   type EdgeInputs,
   EMPTY_DIAGNOSTICS,
@@ -162,5 +163,72 @@ describe('getSourceReachableEdges', () => {
     const e1 = edge('e1', 'n1', 'n2');
     const reachable = getSourceReachableEdges([n1, n2], [e1], schema);
     expect(reachable.has('e1')).toBe(true);
+  });
+});
+
+// #310: React Flow's default edge name is "Edge from <rf source id> to <rf
+// target id>" — internal node ids, and for a receiver-kind wire (whose React
+// Flow endpoints are swapped back to export→argument, wireOrient.ts) the
+// reverse of the dataflow. The name is the nodes' labels, in dataflow order.
+describe('reconcileEdges accessible names', () => {
+  it('names a data-kind wire by its node labels, source first', () => {
+    const n1 = node('n1', 'test.source', { label: 'pods' });
+    const n2 = node('n2', 'test.sink', { label: 'relabel' });
+    const out = reconcileEdges(
+      [],
+      [edge('e1', 'n1', 'n2')],
+      [n1, n2],
+      schema,
+      false,
+      new Set(),
+      new Map(),
+      'dark',
+    );
+    expect(out[0].ariaLabel).toBe('Edge from pods to relabel');
+  });
+
+  it('names a receiver-kind wire in dataflow order although React Flow draws it reversed', () => {
+    const scrape = node('n3', 'prometheus.scrape', { label: 'app' });
+    const write = node('n2', 'prometheus.remote_write', { label: 'sink' });
+    const wire: GraphEdge = {
+      id: 'e1',
+      from: { node: 'n3', port: 'forward_to' },
+      to: { node: 'n2', port: 'receiver' },
+    };
+    const out = reconcileEdges(
+      [],
+      [wire],
+      [scrape, write],
+      schemaFixture,
+      false,
+      new Set(),
+      new Map(),
+      'dark',
+    );
+    // React Flow's own endpoints run export→argument (remote_write → scrape)…
+    expect(out[0].source).toBe('n2');
+    expect(out[0].target).toBe('n3');
+    // …but the name follows the data.
+    expect(out[0].ariaLabel).toBe('Edge from app to sink');
+  });
+
+  it('renames the wire when a node is relabelled', () => {
+    const n1 = node('n1', 'test.source', { label: 'pods' });
+    const n2 = node('n2', 'test.sink', { label: 'relabel' });
+    const e1 = edge('e1', 'n1', 'n2');
+    const inputs = new Map<string, EdgeInputs>();
+    const first = reconcileEdges([], [e1], [n1, n2], schema, false, new Set(), inputs, 'dark');
+    const renamed = { ...n2, label: 'keep-prod' };
+    const second = reconcileEdges(
+      first,
+      [e1],
+      [n1, renamed],
+      schema,
+      false,
+      new Set(),
+      inputs,
+      'dark',
+    );
+    expect(second[0].ariaLabel).toBe('Edge from pods to keep-prod');
   });
 });

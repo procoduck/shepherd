@@ -52,6 +52,9 @@ test('wizard walks its schema-driven steps, previews, and commits', async ({ pag
   const commit = page.getByRole('button', { name: /commit|create|finish/i });
   await expect(commit).toBeVisible();
   await expect(commit).toBeEnabled();
+  // The preview editor fills its h-64 box (#307's fill style), not a sliver.
+  const preview = await page.locator('.cm-editor').boundingBox();
+  expect(preview?.height ?? 0).toBeGreaterThan(200);
   await commit.click();
   await expect(page).toHaveURL(/pipelines/);
   // Sonner (web/src/main.tsx's <Toaster>) renders toasts as

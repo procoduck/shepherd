@@ -100,6 +100,7 @@ function userColumns(
             data-testid={`user-edit-${u.login}`}
             onClick={() => setEditUser(u)}
             title='Edit'
+            aria-label={`Edit ${u.login}`}
             className='mr-2 text-muted-3 hover:text-zinc-200'
           >
             <UserCog size={15} />
@@ -108,6 +109,7 @@ function userColumns(
             data-testid={`user-reset-${u.login}`}
             onClick={() => setResetUser(u)}
             title='Reset password'
+            aria-label={`Reset password for ${u.login}`}
             className='mr-2 text-muted-3 hover:text-zinc-200'
           >
             <KeyRound size={15} />
@@ -116,6 +118,7 @@ function userColumns(
             data-testid={`user-delete-${u.login}`}
             onClick={() => setDeleteUser(u)}
             title='Delete'
+            aria-label={`Delete ${u.login}`}
             className='text-muted-3 hover:text-red-400'
           >
             <Trash2 size={15} />

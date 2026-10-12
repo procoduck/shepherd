@@ -110,7 +110,7 @@ function destinationColumns(
             <button
               onClick={() => setPendingDelete({ id: d.id, name: d.name })}
               className='text-muted-3 transition-colors hover:text-red-400'
-              aria-label='Delete destination'
+              aria-label={`Delete ${d.name}`}
             >
               <Trash2 size={14} />
             </button>

@@ -70,8 +70,19 @@ export function ConnectAppDialog({
             className='rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-400'
             data-testid='connect-app-not-applied'
           >
-            This route is not applied to the cluster yet ({route.applyStatus || 'pending'}), so
-            telemetry sent to it will not arrive until it is.
+            {route.applyStatus === 'not_applicable' ? (
+              // #304: no reconciler will apply it — "yet" would promise one.
+              <>
+                This route is not applied to the cluster
+                {route.applyMessage ? ` (${route.applyMessage})` : ''}, so telemetry sent to it will
+                not arrive unless its HTTPRoute is applied some other way.
+              </>
+            ) : (
+              <>
+                This route is not applied to the cluster yet ({route.applyStatus || 'pending'}), so
+                telemetry sent to it will not arrive until it is.
+              </>
+            )}
           </p>
         )}
         <form

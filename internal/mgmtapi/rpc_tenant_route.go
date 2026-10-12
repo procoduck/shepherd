@@ -32,6 +32,11 @@ type TenantRouteService struct {
 	// publicBaseURL is the gateway's public https URL, the default for
 	// RenderConnectApp (gateway.routes.public_base_url). May be empty.
 	publicBaseURL string
+	// applyRunning reports whether this server started the tenant-route
+	// reconciler (internal/routeapply). Nil means it did not. A route the
+	// reconciler never picked up is reported "not_applicable" with the reason
+	// rather than "pending", which would read as "about to be applied" (#304).
+	applyRunning func() bool
 }
 
 // TenantRouteOption configures a TenantRouteService.
@@ -40,6 +45,12 @@ type TenantRouteOption func(*TenantRouteService)
 // WithGatewayPublicBaseURL sets the default gateway URL RenderConnectApp uses.
 func WithGatewayPublicBaseURL(u string) TenantRouteOption {
 	return func(s *TenantRouteService) { s.publicBaseURL = u }
+}
+
+// WithTenantRouteApplyRunning tells the service whether the tenant-route reconciler
+// is running in this process; see TenantRouteService.applyRunning.
+func WithTenantRouteApplyRunning(running func() bool) TenantRouteOption {
+	return func(s *TenantRouteService) { s.applyRunning = running }
 }
 
 // NewTenantRouteService constructs a TenantRouteService.
@@ -66,6 +77,31 @@ const (
 const defaultRotationOverlap = 24 * time.Hour
 
 var errTenantRouteNotFound = errors.New("tenant route not found")
+
+// applyNotRunningMessage is the apply_message of a route reported
+// "not_applicable" because no reconciler runs (#304).
+const applyNotRunningMessage = "not applied: tenant-route apply is not running on this server " +
+	"(gateway.routes.apply.enabled is off, or Shepherd is not running in a Kubernetes cluster)"
+
+// routeProto converts a row for a response, reporting a "pending" route as
+// "not_applicable" when no reconciler is running to apply it — the contract
+// TenantRoute.apply_status documents ("route apply disabled"). The stored row
+// keeps "pending", so a reconciler that starts later still applies it.
+func (s *TenantRouteService) routeProto(r sqlc.TenantRoute) *mgmtv1.TenantRoute {
+	out := toTenantRouteProto(r)
+	if out.GetApplyStatus() == routeApplyPending && (s.applyRunning == nil || !s.applyRunning()) {
+		out.ApplyStatus = routeApplyNotApplicable
+		out.ApplyMessage = applyNotRunningMessage
+	}
+	return out
+}
+
+// apply_status values this service reads (internal/routeapply owns them;
+// mgmtapi does not import it).
+const (
+	routeApplyPending       = "pending"
+	routeApplyNotApplicable = "not_applicable"
+)
 
 // toTenantRouteProto converts a stored tenant_routes row to its proto
 // representation.
@@ -158,7 +194,7 @@ func (s *TenantRouteService) ListTenantRoutes(ctx context.Context, req *connect.
 	}
 	items := make([]*mgmtv1.TenantRoute, len(routes))
 	for i := range routes {
-		items[i] = toTenantRouteProto(routes[i])
+		items[i] = s.routeProto(routes[i])
 	}
 	return connect.NewResponse(&mgmtv1.ListTenantRoutesResponse{Items: items, Total: int32(len(items))}), nil //nolint:gosec // org route counts never approach int32 overflow
 }
@@ -267,7 +303,7 @@ func (s *TenantRouteService) CreateTenantRoute(ctx context.Context, req *connect
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create tenant route"))
 	}
 	auditLog(ctx, s.store, actorFromCtx(ctx), orgID, "tenant_route.create", "tenant_route", r.ID.String())
-	return connect.NewResponse(toTenantRouteProto(r)), nil
+	return connect.NewResponse(s.routeProto(r)), nil
 }
 
 // RotateTenantRoute demotes the currently-active route to "deprecated"
@@ -341,8 +377,8 @@ func (s *TenantRouteService) RotateTenantRoute(ctx context.Context, req *connect
 
 	auditLog(ctx, s.store, actorFromCtx(ctx), current.OrgID, "tenant_route.rotate", "tenant_route", current.ID.String())
 	return connect.NewResponse(&mgmtv1.RotateTenantRouteResponse{
-		Active:     toTenantRouteProto(active),
-		Deprecated: toTenantRouteProto(deprecated),
+		Active:     s.routeProto(active),
+		Deprecated: s.routeProto(deprecated),
 	}), nil
 }
 
@@ -362,7 +398,7 @@ func (s *TenantRouteService) RevokeTenantRoute(ctx context.Context, req *connect
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to revoke tenant route"))
 	}
 	auditLog(ctx, s.store, actorFromCtx(ctx), r.OrgID, "tenant_route.revoke", "tenant_route", r.ID.String())
-	return connect.NewResponse(toTenantRouteProto(r)), nil
+	return connect.NewResponse(s.routeProto(r)), nil
 }
 
 // RenderConnectApp renders internal/onboarding's artifacts for one of the

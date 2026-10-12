@@ -83,6 +83,7 @@ export function WizardsPage() {
                 <Link
                   to='/wizards/$kind'
                   params={{ kind: w.kind }}
+                  aria-label={`Start ${w.title}`}
                   className='mt-4 self-start rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500'
                 >
                   Start

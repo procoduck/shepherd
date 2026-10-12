@@ -147,7 +147,7 @@ test('a delete refused because wizard pipelines use it stays in the dialog with 
   );
   await page.goto('/destinations');
 
-  await page.getByRole('button', { name: 'Delete destination' }).click();
+  await page.getByRole('button', { name: 'Delete prom-prod', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Delete destination' });
   await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
 
@@ -332,4 +332,35 @@ test('no "Restore last wizard version" while the text is what the wizard wrote, 
   await page.goto('/pipelines/pip-hand');
   await expect(page.getByText('Source:').locator('span')).toHaveText('wizard');
   await expect(page.getByTestId('restore-wizard-version')).toHaveCount(0);
+});
+
+// #301: the one-time landing banner was the only lasting word that a hand
+// edit detached a wizard pipeline from destination re-renders. The header now
+// says so for as long as the text differs from the last wizard revision — to
+// every reader, not only to whoever may restore it.
+test('a hand-edited wizard pipeline is badged in its header, for an editor and a viewer', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(orgEditor);
+  seedHandEdited(api);
+  await page.goto('/pipelines/pip-hand');
+  const badge = page.getByTestId('pipeline-hand-edited-badge');
+  await expect(badge).toHaveText('Hand-edited');
+  await expect(badge).toHaveAccessibleDescription(/no longer follows destination changes/);
+
+  await api.loginAs(reader);
+  seedHandEdited(api);
+  await page.goto('/pipelines/pip-hand');
+  await expect(page.getByTestId('pipeline-hand-edited-badge')).toHaveText('Hand-edited');
+});
+
+test('no hand-edited badge while the text is what the wizard wrote', async ({ page, api }) => {
+  await api.loginAs(reader);
+  seedHandEdited(api, WIZARD_TEXT);
+  await page.goto('/pipelines/pip-hand');
+  await expect(page.getByText('Source:').locator('span')).toHaveText('wizard');
+  // The badge renders from GetRevision; wait for it to have answered.
+  await expect.poll(() => api.calls('PipelineService/GetRevision').length).toBeGreaterThan(0);
+  await expect(page.getByTestId('pipeline-hand-edited-badge')).toHaveCount(0);
 });

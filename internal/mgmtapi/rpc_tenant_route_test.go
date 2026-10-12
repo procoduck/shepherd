@@ -58,6 +58,9 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 
 		cfg := &config.Config{Auth: config.AuthConfig{InsecureCookies: true}}
 		cfg.Gateway.Routes.PublicBaseURL = "https://telemetry.example.com"
+		// MountRPC without WithRouteApplyRunning takes the config's word:
+		// these specs read as a server whose reconciler runs.
+		cfg.Gateway.Routes.Apply.Enabled = true
 		authHandler = auth.NewLocalAdmin(cfg, st, slog.Default())
 		server = httptest.NewServer(newRPCWiringRouter(st, authHandler, cfg))
 	})
@@ -216,6 +219,50 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 		Expect(item["applyStatus"]).To(Equal("refused"))
 		Expect(item["applyMessage"]).To(Equal("NotAllowedByListeners"))
 		Expect(item).NotTo(HaveKey("appliedAt"), "a refusal is not a verified apply")
+	})
+
+	It("reports a route no reconciler will apply as not_applicable, with the reason (#304)", func() {
+		off := &config.Config{Auth: config.AuthConfig{InsecureCookies: true}}
+		offServer := httptest.NewServer(newRPCWiringRouter(st, auth.NewLocalAdmin(off, st, slog.Default()), off))
+		defer offServer.Close()
+		post := func(procedure string, body map[string]any, cookie *http.Cookie) map[string]any {
+			buf, err := json.Marshal(body)
+			Expect(err).NotTo(HaveOccurred())
+			req, err := http.NewRequest(http.MethodPost, offServer.URL+procedure, strings.NewReader(string(buf)))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Requested-With", "XMLHttpRequest")
+			req.AddCookie(cookie)
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			return decodeBody(resp)
+		}
+		admin := createSession(false, []string{"tenant-route-admin-group"})
+		body := map[string]any{}
+		for k, v := range createBody {
+			body[k] = v
+		}
+		body["orgId"] = orgID.String()
+		created := post("/shepherd.mgmt.v1.TenantRouteService/CreateTenantRoute", body, admin)
+		Expect(created["applyStatus"]).To(Equal("not_applicable"))
+		Expect(created["applyMessage"]).To(ContainSubstring("tenant-route apply is not running"))
+
+		listed := post("/shepherd.mgmt.v1.TenantRouteService/ListTenantRoutes", map[string]any{"orgId": orgID.String()}, admin)
+		items, ok := listed["items"].([]any)
+		Expect(ok).To(BeTrue())
+		Expect(items).To(HaveLen(1))
+		item, ok := items[0].(map[string]any)
+		Expect(ok).To(BeTrue())
+		Expect(item["applyStatus"]).To(Equal("not_applicable"))
+		Expect(item["applyMessage"]).To(ContainSubstring("gateway.routes.apply.enabled"))
+
+		// The row itself stays pending, so a reconciler started later applies it.
+		var id pgtype.UUID
+		Expect(id.Scan(created["id"])).To(Succeed())
+		row, err := st.Queries.GetTenantRouteByID(ctx, id)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(row.ApplyStatus).To(Equal("pending"))
 	})
 
 	Describe("RenderConnectApp", func() {

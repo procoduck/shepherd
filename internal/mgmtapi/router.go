@@ -64,7 +64,16 @@ func Router() http.Handler {
 type MountOption func(*mountConfig)
 
 type mountConfig struct {
-	oidc *auth.Handler
+	oidc         *auth.Handler
+	routeApplyOn func() bool
+}
+
+// WithRouteApplyRunning supplies whether the tenant-route reconciler is
+// running in this process (internal/server sets it once the reconciler has
+// started). Without it, TenantRouteService assumes it runs exactly when
+// gateway.routes.apply.enabled is set.
+func WithRouteApplyRunning(running func() bool) MountOption {
+	return func(m *mountConfig) { m.routeApplyOn = running }
 }
 
 // WithOIDCSettings supplies the live auth handler that AdminService's OIDC
@@ -119,6 +128,12 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 		connect.WithInterceptors(telemetry.Interceptor(), newAuthzInterceptor(st)),
 	}
 
+	routeApplyOn := mc.routeApplyOn
+	if routeApplyOn == nil {
+		enabled := cfg.Gateway.Routes.Apply.Enabled
+		routeApplyOn = func() bool { return enabled }
+	}
+
 	pipelineSvc := NewPipelineService(st, v, schemaReg, logger, WithBeaconRemoteWrite(cfg.Server.BaseURL, beacon.OAuth2ForBeacon(cfg.OIDC.BeaconAuth, cfg.OIDC.AgentTokenURL, cfg.OIDC.AgentScopes)))
 
 	mounts := []func() (string, http.Handler){
@@ -163,7 +178,7 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 			return mgmtv1connect.NewAuditServiceHandler(NewAuditService(st, logger), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewTenantRouteServiceHandler(NewTenantRouteService(st, logger, WithGatewayPublicBaseURL(cfg.Gateway.Routes.PublicBaseURL)), authz...)
+			return mgmtv1connect.NewTenantRouteServiceHandler(NewTenantRouteService(st, logger, WithGatewayPublicBaseURL(cfg.Gateway.Routes.PublicBaseURL), WithTenantRouteApplyRunning(routeApplyOn)), authz...)
 		},
 		func() (string, http.Handler) {
 			return mgmtv1connect.NewTeamServiceHandler(NewTeamService(st, logger), authz...)

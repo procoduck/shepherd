@@ -167,7 +167,15 @@ test.describe('visual simulate S3 — sandbox run', () => {
       simulateRunResult: {
         status: 'completed',
         requested_duration_seconds: 1,
-        rewrites: [],
+        rewrites: [
+          {
+            node_id: nodeId,
+            node_label: 'kubernetes',
+            component: 'discovery.kubernetes',
+            kind: 'discovery_stubbed',
+            detail: 'replaced by discovery.static emitting the "k8s-pods" fixture',
+          },
+        ],
         captured_series: [],
         captured_log_lines: [],
         component_health: [
@@ -189,6 +197,17 @@ test.describe('visual simulate S3 — sandbox run', () => {
     );
     await page.getByTestId('simulate-menu-sandbox-run').click();
     await expect(page.getByTestId('sandbox-run-results')).toBeVisible({ timeout: RESULTS_TIMEOUT });
+
+    // #305: "Metrics captured (0)" says why — the stubbed discovery
+    // component never found the real targets — and the count's tab is
+    // described by that note.
+    const stubNote = page.getByTestId('sim-metrics-stub-note');
+    await expect(stubNote).toContainText('kubernetes');
+    await expect(stubNote).toContainText(/stubbed/i);
+    await expect(stubNote).toContainText(/real targets/);
+    await expect(page.getByTestId('sim-results-tab-metrics')).toHaveAccessibleDescription(
+      /stubbed/i,
+    );
 
     await page.getByTestId('sim-results-tab-health').click();
     const row = page.getByTestId('sim-health-row');
@@ -233,6 +252,8 @@ test.describe('visual simulate S3 — sandbox run', () => {
     // tabs) rather than a dead end — the design's own point that failures
     // are the signal, not a crash.
     await expect(page.getByTestId('sandbox-run-fidelity-note')).toBeVisible();
+    // Nothing was stubbed, so there is nothing to explain (#305).
+    await expect(page.getByTestId('sim-metrics-stub-note')).toHaveCount(0);
   });
 
   test('7.6.8.3 — CreateRun failure shows the real server error, not a silent hang', async ({

@@ -1,30 +1,24 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from '@tanstack/react-router';
-import {
-  AlertTriangle,
-  ArrowLeft,
-  CheckCircle2,
-  PlayCircle,
-  Save,
-  Wand2,
-  XCircle,
-} from 'lucide-react';
+import { ArrowLeft, PlayCircle, Save, Wand2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { clients } from '@/api/transport';
 import { DetachFromWizard } from '@/components/DetachFromWizard';
+import { EditorValidationStatus } from '@/components/EditorValidationStatus';
 import { PipelineActions } from '@/components/PipelineActions';
 import { OpenInVisualBuilder, PipelineLandingBanner } from '@/components/PipelineLandingBanner';
 import { PipelineMatchers } from '@/components/PipelineMatchers';
 import { PipelineMatchPreview } from '@/components/PipelineMatchPreview';
 import { PipelineOwner } from '@/components/PipelineOwner';
 import { RestoreRevisionNotes } from '@/components/RestoreRevisionNotes';
-import { RestoreWizardVersion } from '@/components/RestoreWizardVersion';
+import { HandEditedBadge, RestoreWizardVersion } from '@/components/RestoreWizardVersion';
 import { RevisionHistory } from '@/components/RevisionHistory';
 import { EditorSaveConflict, isSaveConflict } from '@/components/SaveConflictDialog';
 import { Input } from '@/components/ui/Field';
 import { FormError } from '@/components/ui/FormError';
 import { Modal, ModalActions } from '@/components/ui/Modal';
+import { useWrapLines, WrapLinesToggle } from '@/components/WrapLinesToggle';
 import { diffStats } from '@/editor/diffStats';
 import { AlloyEditor, RevisionDiff } from '@/editor/LazyAlloyEditor';
 import { useCanAdminister, useCanWrite, useOrgId } from '@/hooks/useOrg';
@@ -43,6 +37,7 @@ export function PipelineEditorPage() {
   // Gates the owning-team picker: SetPipelineOwner is org admin only.
   const canAdminister = useCanAdminister();
 
+  const [wrapLines, setWrapLines] = useWrapLines();
   const [selectedRevision, setSelectedRevision] = useState<number | null>(null);
   // Where the restore confirmation was opened from: the diff view's button,
   // or "Restore last wizard version" (which leaves no diff to go back to).
@@ -201,6 +196,12 @@ export function PipelineEditorPage() {
           <h1 className='text-xl font-semibold break-words'>
             {isNew ? 'New pipeline' : (pipeline?.name ?? 'Pipeline')}
           </h1>
+          <HandEditedBadge
+            pipeline={pipeline}
+            revisions={revisions}
+            orgId={pipelineOrgId}
+            queryOrgId={orgId}
+          />
           {!isNew && pipeline && (
             <PipelineActions
               pipeline={pipeline}
@@ -212,8 +213,11 @@ export function PipelineEditorPage() {
         </div>
 
         <div className='space-y-1'>
-          <label className='text-xs font-medium text-muted'>Name</label>
+          <label htmlFor='pipeline-name' className='text-xs font-medium text-muted'>
+            Name
+          </label>
           <Input
+            id='pipeline-name'
             value={name}
             onChange={(e) => setName(e.target.value)}
             readOnly={readOnly} // not disabled: a viewer reads it; disabled is dimmed
@@ -343,68 +347,50 @@ export function PipelineEditorPage() {
           <>
             {/* Toolbar */}
             <div className='h-11 border-b border-border px-3 flex items-center justify-between shrink-0'>
-              <div className='flex items-center gap-2 text-xs' aria-live='polite'>
-                {/* Readers get no indicator at all: their content is never
-                    validated (see the effect above), so "No problems" would be
-                    a claim nothing checked. */}
-                {canEdit &&
-                  (validating ? (
-                    <span className='text-muted'>Validating…</span>
-                  ) : hasErrors ? (
-                    <span className='flex items-center gap-1 text-red-400'>
-                      <XCircle size={14} /> {diagnostics.length} problem
-                      {diagnostics.length > 1 ? 's' : ''}
-                    </span>
-                  ) : skippedStages.includes(2) ? (
-                    <span
-                      className='flex items-center gap-1 text-amber-400'
-                      data-testid='validate-skipped-note'
-                      title='The server has no validate.alloy_binary configured, so only the Alloy syntax was checked. Component and argument errors will not show here.'
+              <EditorValidationStatus
+                show={canEdit}
+                validating={validating}
+                problems={diagnostics.length}
+                alloyValidateSkipped={skippedStages.includes(2)}
+              />
+              <div className='flex items-center gap-2'>
+                <WrapLinesToggle wrap={wrapLines} onChange={setWrapLines} />
+                {!readOnly && (
+                  <>
+                    <button
+                      type='button'
+                      onClick={() => validate(contents)}
+                      disabled={validating || !contents.trim()}
+                      className='flex items-center gap-1.5 rounded border border-border px-3 py-1 text-xs font-medium text-muted hover:text-zinc-100 disabled:opacity-50'
+                      data-testid='validate-btn'
                     >
-                      <AlertTriangle size={14} /> Syntax checked — alloy validate skipped (no Alloy
-                      binary configured)
-                    </span>
-                  ) : (
-                    <span className='flex items-center gap-1 text-emerald-500'>
-                      <CheckCircle2 size={14} /> No problems
-                    </span>
-                  ))}
+                      <PlayCircle size={13} /> Validate
+                    </button>
+                    <button
+                      type='button'
+                      onClick={() => {
+                        saveMutation.reset();
+                        formatMutation.mutate();
+                      }}
+                      disabled={formatMutation.isPending || !contents.trim()}
+                      className='flex items-center gap-1.5 rounded border border-border px-3 py-1 text-xs font-medium text-muted hover:text-zinc-100 disabled:opacity-50'
+                      data-testid='format-btn'
+                    >
+                      <Wand2 size={13} /> Format
+                    </button>
+                    <button
+                      onClick={() => {
+                        formatMutation.reset();
+                        saveMutation.mutate({});
+                      }}
+                      disabled={saveMutation.isPending || blockingErrors}
+                      className='flex items-center gap-1.5 rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50'
+                    >
+                      <Save size={13} /> Save
+                    </button>
+                  </>
+                )}
               </div>
-              {!readOnly && (
-                <div className='flex items-center gap-2'>
-                  <button
-                    type='button'
-                    onClick={() => validate(contents)}
-                    disabled={validating || !contents.trim()}
-                    className='flex items-center gap-1.5 rounded border border-border px-3 py-1 text-xs font-medium text-muted hover:text-zinc-100 disabled:opacity-50'
-                    data-testid='validate-btn'
-                  >
-                    <PlayCircle size={13} /> Validate
-                  </button>
-                  <button
-                    type='button'
-                    onClick={() => {
-                      saveMutation.reset();
-                      formatMutation.mutate();
-                    }}
-                    disabled={formatMutation.isPending || !contents.trim()}
-                    className='flex items-center gap-1.5 rounded border border-border px-3 py-1 text-xs font-medium text-muted hover:text-zinc-100 disabled:opacity-50'
-                    data-testid='format-btn'
-                  >
-                    <Wand2 size={13} /> Format
-                  </button>
-                  <button
-                    onClick={() => {
-                      formatMutation.reset();
-                      saveMutation.mutate({});
-                    }}
-                    disabled={saveMutation.isPending || blockingErrors}
-                    className='flex items-center gap-1.5 rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50'
-                  >
-                    <Save size={13} /> Save
-                  </button>
-                </div>
-              )}
             </div>
 
             {editorError && (
@@ -421,6 +407,7 @@ export function PipelineEditorPage() {
                 readOnly={readOnly}
                 diagnostics={diagnostics}
                 replaceIsEdit={replaceIsEdit}
+                lineWrapping={wrapLines}
                 height='100%'
               />
             </div>

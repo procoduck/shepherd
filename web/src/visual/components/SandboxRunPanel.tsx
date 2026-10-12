@@ -8,7 +8,15 @@
 // badges (see PipelineNode's `health` field and CanvasPane's "controlled-mode
 // contract" for why that has to go through the document-side projection
 // rather than touching React Flow's own node objects).
-import { type Ref, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import {
+  type Ref,
+  useCallback,
+  useEffect,
+  useId,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from 'react';
 import { createSandboxRun, getSandboxRun, type SimulateRunResult } from '../../api/client';
 import { toApiError } from '../../api/transport';
 import { DataTable } from '../../components/ui/DataTable';
@@ -100,6 +108,12 @@ function ResultsView({
   const filteredSeries = run.captured_series.filter((series) =>
     series.name.toLowerCase().includes(seriesFilter.toLowerCase()),
   );
+  // #305: a stubbed discovery component never looks for the real targets, so
+  // whatever scrapes it feeds see only the stub's fixture targets — a run of a
+  // discovery-based pipeline can capture nothing, and "Metrics captured (0)"
+  // alone reads as a broken pipeline.
+  const stubbedDiscovery = run.rewrites.filter((rw) => rw.kind === 'discovery_stubbed');
+  const stubNoteId = useId();
   return (
     <div data-testid='sandbox-run-results'>
       {failed && (
@@ -120,6 +134,7 @@ function ResultsView({
         <button
           type='button'
           data-testid='sim-results-tab-metrics'
+          aria-describedby={stubbedDiscovery.length > 0 ? stubNoteId : undefined}
           onClick={() => setTab('metrics')}
           className={
             tab === 'metrics' ? 'font-medium text-accent' : 'text-muted hover:text-muted-2'
@@ -144,6 +159,24 @@ function ResultsView({
           Component health ({run.component_health.length})
         </button>
       </div>
+      {stubbedDiscovery.length > 0 && (
+        <p
+          id={stubNoteId}
+          data-testid='sim-metrics-stub-note'
+          className='mb-2 rounded bg-amber-500/10 px-2 py-1.5 text-amber-400'
+        >
+          {stubbedDiscovery.length === 1 ? 'Discovery component ' : 'Discovery components '}
+          {stubbedDiscovery.map((rw, i) => (
+            <span key={rw.node_id}>
+              {i > 0 && ', '}
+              <span className='font-mono'>{rw.node_label}</span>
+            </span>
+          ))}{' '}
+          {stubbedDiscovery.length === 1 ? 'was' : 'were'} stubbed: the sandbox never discovers your
+          real targets, so scrapes fed by {stubbedDiscovery.length === 1 ? 'it' : 'them'} see only
+          the stub's fixture targets and may capture no metrics from them.
+        </p>
+      )}
 
       {tab === 'metrics' && (
         <div data-testid='sim-results-metrics'>
@@ -340,6 +373,23 @@ export function SandboxRunPanel({
 
   const pollRef = useRef<number | null>(null);
 
+  // #310: the "Simulate ▾" dropdown is a WAI-ARIA menu button, like the
+  // toolbar's OverflowMenu: the first item takes focus on open, Escape and an
+  // outside click close it, and focus returns to the trigger on Escape.
+  const menuRootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuId = useId();
+  useEffect(() => {
+    if (!menuOpen) return;
+    menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    const onPointerDown = (e: PointerEvent) => {
+      if (!menuRootRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [menuOpen]);
+
   const stopPolling = useCallback(() => {
     if (pollRef.current !== null) {
       window.clearInterval(pollRef.current);
@@ -454,12 +504,22 @@ export function SandboxRunPanel({
   const collecting = phase === 'running' && remainingSeconds <= 0;
 
   return (
-    <div className={hideTrigger ? 'contents' : 'relative shrink-0'}>
+    <div className={hideTrigger ? 'contents' : 'relative shrink-0'} ref={menuRootRef}>
       {!hideTrigger && (
         <button
+          ref={triggerRef}
           type='button'
           data-testid='simulate-menu-trigger'
+          aria-haspopup='menu'
+          aria-expanded={menuOpen}
+          aria-controls={menuOpen ? menuId : undefined}
           onClick={() => setMenuOpen((v) => !v)}
+          onKeyDown={(e) => {
+            // WAI-ARIA menu button: the arrow keys open the menu too.
+            if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+            e.preventDefault();
+            setMenuOpen(true);
+          }}
           disabled={!orgId || !!disabledReason}
           title={disabledReason}
           className='text-sm px-3 py-1 rounded border shrink-0 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed'
@@ -469,14 +529,30 @@ export function SandboxRunPanel({
       )}
       {!hideTrigger && menuOpen && (
         <div
+          ref={menuRef}
+          id={menuId}
+          role='menu'
+          aria-label='Simulate'
           data-testid='simulate-menu'
+          // Tabbing (or clicking) out of the menu closes it.
+          onBlur={(e) => {
+            if (!menuRootRef.current?.contains(e.relatedTarget as Node | null)) setMenuOpen(false);
+          }}
+          onKeyDown={(e) => {
+            if (e.key !== 'Escape') return;
+            e.preventDefault();
+            setMenuOpen(false);
+            triggerRef.current?.focus();
+          }}
           className='absolute z-20 top-full left-0 mt-1 bg-card border border-border rounded shadow-md text-xs whitespace-nowrap'
         >
           <button
             type='button'
+            role='menuitem'
+            tabIndex={-1}
             data-testid='simulate-menu-sandbox-run'
             onClick={start}
-            className='block w-full text-left px-3 py-2 hover:bg-accent/10'
+            className='block w-full text-left px-3 py-2 hover:bg-accent/10 focus:bg-accent/10 focus:outline-none'
           >
             {SANDBOX_RUN_LABEL}
           </button>

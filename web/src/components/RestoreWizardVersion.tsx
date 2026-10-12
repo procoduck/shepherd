@@ -1,7 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { RotateCcw } from 'lucide-react';
+import { useId } from 'react';
 import { clients } from '@/api/transport';
 import { Banner } from '@/components/ui/Banner';
+import { toneClass } from '@/components/ui/statusTone';
 import type { Pipeline, PipelineRevision } from '@/gen/shepherd/mgmt/v1/pipeline_pb';
 import { lastWizardRevision } from '@/lib/wizardRevisions';
 
@@ -14,6 +16,69 @@ function restorableWizardRevision(
   const last = lastWizardRevision(revisions, pipeline.source);
   const current = revisions.reduce((max, r) => Math.max(max, r.revision), 0);
   return last != null && last !== current ? last : null;
+}
+
+/**
+ * The newest wizard-written revision of `pipeline` when its saved text differs
+ * from it — the pipeline was edited by hand since, so a destination change no
+ * longer re-renders it (the server cleared its render fingerprint) — else
+ * null. Null too while that revision loads. Shares its query with the
+ * revision diff view. GetRevision is org-reader, so this works for a viewer.
+ */
+export function useHandEditedWizardRevision(
+  pipeline: Pipeline | undefined,
+  revisions: readonly PipelineRevision[],
+  orgId: string,
+  queryOrgId: string,
+): number | null {
+  const revision = restorableWizardRevision(pipeline, revisions);
+  const { data: wizardRevision } = useQuery({
+    queryKey: ['revision', queryOrgId, pipeline?.id, revision],
+    queryFn: () => clients.pipeline.getRevision({ orgId, id: pipeline!.id, revision: revision! }),
+    enabled: revision != null,
+  });
+  if (revision == null || !wizardRevision || wizardRevision.contents === pipeline?.contents) {
+    return null;
+  }
+  return revision;
+}
+
+/**
+ * #301: the lasting mark, in the pipeline's header, that a wizard pipeline was
+ * edited by hand and stopped following destination changes. The landing
+ * banner says so once; this stays for as long as it is true, for every reader
+ * (the restore offer below is only for whoever may write).
+ */
+export function HandEditedBadge({
+  pipeline,
+  revisions,
+  orgId,
+  queryOrgId,
+}: {
+  pipeline: Pipeline | undefined;
+  revisions: readonly PipelineRevision[];
+  orgId: string;
+  queryOrgId: string;
+}) {
+  const revision = useHandEditedWizardRevision(pipeline, revisions, orgId, queryOrgId);
+  const descId = useId();
+  if (revision == null) return null;
+  const description = `Edited by hand since its wizard last generated it (revision #${revision}): it no longer follows destination changes.`;
+  return (
+    <>
+      <span
+        data-testid='pipeline-hand-edited-badge'
+        aria-describedby={descId}
+        title={description}
+        className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium ${toneClass('warn')}`}
+      >
+        Hand-edited
+      </span>
+      <span id={descId} className='sr-only'>
+        {description}
+      </span>
+    </>
+  );
 }
 
 /**
@@ -46,15 +111,8 @@ export function RestoreWizardVersion({
   queryOrgId: string;
   onRestore: (revision: number) => void;
 }) {
-  const revision = restorableWizardRevision(pipeline, revisions);
-  const { data: wizardRevision } = useQuery({
-    queryKey: ['revision', queryOrgId, pipeline?.id, revision],
-    queryFn: () => clients.pipeline.getRevision({ orgId, id: pipeline!.id, revision: revision! }),
-    enabled: revision != null,
-  });
-  if (revision == null || !wizardRevision || wizardRevision.contents === pipeline?.contents) {
-    return null;
-  }
+  const revision = useHandEditedWizardRevision(pipeline, revisions, orgId, queryOrgId);
+  if (revision == null) return null;
   return (
     <Banner variant='warning' testId='restore-wizard-version'>
       <p>
