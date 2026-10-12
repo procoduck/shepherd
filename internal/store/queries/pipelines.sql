@@ -136,8 +136,13 @@ SELECT * FROM pipelines WHERE org_id = $1 AND enabled = true ORDER BY name;
 -- collector each git-sourced pipeline targets. The merge engine matches source='git'
 -- pipelines by that collector id rather than by matchers, so it must be selected here;
 -- without it every git pipeline compares against an empty id and is silently never served.
+-- current_revision is each pipeline's newest pipeline_revisions row (0 for a legacy
+-- pipeline that has none), read in this same statement so it always describes the
+-- contents beside it; the served header prints it as "(rev N)" (#296). The correlated
+-- MAX is an index-only lookup on UNIQUE (pipeline_id, revision), not an N+1.
 -- name: ListEnabledPipelinesForMerge :many
-SELECT p.*, rl.collector_id AS repo_link_collector_id
+SELECT p.*, rl.collector_id AS repo_link_collector_id,
+       COALESCE((SELECT MAX(r.revision) FROM pipeline_revisions r WHERE r.pipeline_id = p.id), 0)::int AS current_revision
 FROM pipelines p
 LEFT JOIN repo_links rl ON rl.id = p.repo_link_id
 WHERE p.org_id = $1 AND p.enabled = true

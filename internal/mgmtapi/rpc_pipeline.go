@@ -1427,26 +1427,15 @@ func (s *PipelineService) stage3CheckSet(ctx context.Context, orgID pgtype.UUID,
 		return fmt.Errorf("loading pipelines: %w", err)
 	}
 
-	var mergePipelines []merge.Pipeline
-	for i := range enabledPipelines {
-		ep := enabledPipelines[i]
-		if excludeID != "" && ep.ID.String() == excludeID {
-			// On disable: remove candidate from merge set (validate remaining pipelines).
-			continue
-		}
-		var m []string
-		if jsonErr := json.Unmarshal(ep.Matchers, &m); jsonErr != nil {
-			continue
-		}
-		mergePipelines = append(mergePipelines, merge.Pipeline{
-			ID:                  ep.ID.String(),
-			Name:                ep.Name,
-			Contents:            ep.Contents,
-			Matchers:            m,
-			Source:              ep.Source,
-			RepoLinkCollectorID: repoLinkCollectorID(ep.RepoLinkCollectorID),
+	// On disable: remove the candidate from the merge set (validate the
+	// remaining pipelines).
+	if excludeID != "" {
+		enabledPipelines = slices.DeleteFunc(enabledPipelines, func(ep sqlc.ListEnabledPipelinesForMergeRow) bool {
+			return ep.ID.String() == excludeID
 		})
 	}
+	// The serve paths' own conversion, so the dry run models what they serve.
+	mergePipelines := serve.PipelinesFromRows(enabledPipelines)
 	for i := range candidates {
 		p := candidates[i]
 		var matchers []string
@@ -1454,10 +1443,15 @@ func (s *PipelineService) stage3CheckSet(ctx context.Context, orgID pgtype.UUID,
 			s.logger.Debug("stage3: unmarshal matchers", "err", err)
 		}
 		cand := merge.Pipeline{ID: p.ID.String(), Name: p.Name, Contents: p.Contents, Matchers: matchers, Source: p.Source}
-		// Add/replace the candidate in the merge set.
+		// Add/replace the candidate in the merge set. A replaced candidate
+		// keeps its stored row's revision for the header (one being enabled
+		// shows 0): the revision the write may add is not known yet, and it
+		// only changes a "(rev N)" comment line. Stage 3 validates merged
+		// config; it never serves it (its header even names env "dev").
 		found := false
 		for j, mp := range mergePipelines {
 			if mp.ID == cand.ID {
+				cand.Revision = mp.Revision
 				mergePipelines[j] = cand
 				found = true
 				break
@@ -1632,19 +1626,10 @@ func (s *PipelineService) recomputeOrgCaches(ctx context.Context, orgID pgtype.U
 		s.logger.Warn("recomputeOrgCaches: listing pipelines failed", "err", err)
 		return
 	}
-	var mergePipelines []merge.Pipeline
-	for i := range enabledPipelines {
-		ep := enabledPipelines[i]
-		var m []string
-		if jsonErr := json.Unmarshal(ep.Matchers, &m); jsonErr != nil {
-			continue
-		}
-		mergePipelines = append(mergePipelines, merge.Pipeline{
-			ID: ep.ID.String(), Name: ep.Name, Contents: ep.Contents,
-			Matchers: m, Source: ep.Source,
-			RepoLinkCollectorID: repoLinkCollectorID(ep.RepoLinkCollectorID),
-		})
-	}
+	// The same row -> merge.Pipeline conversion agentapi's lazy recompute
+	// uses, current revision included (#296): the two paths must serve
+	// byte-identical config or the hash moves whenever a poll switches path.
+	mergePipelines := serve.PipelinesFromRows(enabledPipelines)
 	for i := range collectors {
 		c := collectors[i]
 

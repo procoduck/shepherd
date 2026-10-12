@@ -29,7 +29,12 @@ type Pipeline struct {
 	Matchers []string
 	// Source is "ui", "wizard", or "git".
 	Source string
-	// Revision is the current revision number.
+	// Revision is the pipeline's current revision (its newest
+	// pipeline_revisions row), printed in the served header as "(rev N)".
+	// It is part of the served bytes and so of the hash: every serve path
+	// must fill it the same way — internal/serve.PipelinesFromRows does — or
+	// the hash moves whenever a poll switches path (#296). A legacy pipeline
+	// with no revision row has 0 and shows "(rev 0)".
 	Revision int
 	// RepoLinkCollectorID is set (non-empty) when Source == "git".
 	// Git pipelines match only their target collector, not via matchers.

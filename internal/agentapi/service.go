@@ -636,28 +636,11 @@ func (s *Service) recomputeServeCache(ctx context.Context, coll sqlc.Collector, 
 		}
 	}
 
-	var mergePipelines []merge.Pipeline
-	for i := range enabledPipelines {
-		ep := enabledPipelines[i]
-		var m []string
-		if jsonErr := json.Unmarshal(ep.Matchers, &m); jsonErr != nil {
-			continue
-		}
-		// Git-sourced pipelines are matched by the collector their repo link targets,
-		// not by matchers; leaving this empty makes them match nothing.
-		repoLinkCollectorID := ""
-		if ep.RepoLinkCollectorID.Valid {
-			repoLinkCollectorID = ep.RepoLinkCollectorID.String()
-		}
-		mergePipelines = append(mergePipelines, merge.Pipeline{
-			ID:                  ep.ID.String(),
-			Name:                ep.Name,
-			Contents:            ep.Contents,
-			Matchers:            m,
-			Source:              ep.Source,
-			RepoLinkCollectorID: repoLinkCollectorID,
-		})
-	}
+	// The same row -> merge.Pipeline conversion mgmtapi's eager recompute
+	// uses: git pipelines carry their repo link's collector (they match by
+	// it, not by matchers) and every pipeline its current revision for the
+	// served header (#296) — byte parity between the two paths depends on it.
+	mergePipelines := serve.PipelinesFromRows(enabledPipelines)
 
 	cluster, clusterErr := s.store.Queries.GetClusterByID(ctx, coll.ClusterID)
 	clusterName := ""

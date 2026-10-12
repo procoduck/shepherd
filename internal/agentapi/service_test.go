@@ -579,6 +579,37 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 			Expect(cache.Dirty).To(BeFalse())
 		})
 
+		// #296: the served header used to list every pipeline as "(rev 0)"
+		// because no caller ever set merge.Pipeline.Revision. The lazy path
+		// must print the pipeline's newest pipeline_revisions row.
+		// Red run, executed: without the CurrentRevision column threaded into
+		// merge.Pipeline this fails with the header reading
+		// "//   - recompute-pipeline (rev 0)".
+		It("serves each pipeline's current revision in the header (#296)", func() {
+			_, pipeline := setupClaimedPipeline()
+			for rev := int32(1); rev <= 3; rev++ {
+				_, err := st.Queries.CreatePipelineRevision(ctx, sqlc.CreatePipelineRevisionParams{
+					PipelineID: pipeline.ID, Revision: rev, Contents: pipeline.Contents,
+					Matchers: pipeline.Matchers, Enabled: true, ChangedBy: "test",
+				})
+				Expect(err).NotTo(HaveOccurred())
+			}
+			resp, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{Id: "recompute-instance", LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"}}))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Msg.GetContent()).To(ContainSubstring("//   - recompute-pipeline (rev 3)\n"))
+		})
+
+		// A legacy pipeline with no pipeline_revisions row at all (written
+		// before revisions existed, or by a path that never recorded one) has
+		// no revision to show: it keeps "(rev 0)", the same 0 that
+		// GetPipelineWithRevision reports to the editor as its current revision.
+		It("serves a pipeline with no revision row as rev 0", func() {
+			setupClaimedPipeline()
+			resp, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{Id: "recompute-instance", LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"}}))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Msg.GetContent()).To(ContainSubstring("//   - recompute-pipeline (rev 0)\n"))
+		})
+
 		It("matching hash → not_modified", func() {
 			setupClaimedPipeline()
 			first, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{Id: "recompute-instance", LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"}}))

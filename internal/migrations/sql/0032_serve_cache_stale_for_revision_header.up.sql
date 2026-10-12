@@ -1,0 +1,13 @@
+-- #296: the served-config header now prints each pipeline's real revision
+-- ("(rev N)") where it printed "(rev 0)" for every pipeline. Nothing else
+-- invalidates a cached served config on upgrade, so without this an org with
+-- no pipeline writes would keep serving the old "(rev 0)" bytes until some
+-- unrelated write — and the fleet would then reload at an arbitrary later
+-- time instead of once, right after the upgrade.
+--
+-- Mark every cached row stale the way MarkServeCacheDirty* does: dirty = true
+-- AND a dirty_seq bump. The bump matters (0020): a recompute that read the
+-- old generation before this ran must not land its pre-upgrade content and
+-- clear the flag. Each collector's next poll recomputes (agentapi's lazy
+-- path) and, because the bytes differ, reloads once.
+UPDATE serve_cache SET dirty = true, dirty_seq = dirty_seq + 1;

@@ -3,6 +3,7 @@ package mgmtapi_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -167,6 +168,37 @@ var _ = Describe("PipelineService.DetachFromWizard", Label("integration"), func(
 		rows := auditRowsFor("pipeline.detach")
 		Expect(rows).To(HaveLen(1))
 		Expect(rows[0].ResourceID).To(Equal(ownedByTeam.ID.String()))
+	})
+
+	// #296: the served header prints each pipeline's revision, and detach
+	// writes one, so an enabled pipeline's collectors must be re-served.
+	// Red run, executed: before detach marked the cache, the served row kept
+	// "(rev N)" and the Eventually below timed out.
+	It("re-serves an enabled pipeline's collectors with the detach revision in the header", func() {
+		cluster, err := st.Queries.UpsertCluster(ctx, "detach-cluster")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: org})).To(Succeed())
+		coll, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+		Expect(err).NotTo(HaveOccurred())
+		served := func() string {
+			c, err := st.Queries.GetServeCache(ctx, coll.ID)
+			if err != nil || c.Dirty {
+				return ""
+			}
+			return c.Content
+		}
+		line := func(rev int32) string { return fmt.Sprintf("//   - owned (rev %d)\n", rev) }
+
+		// Serve the collector once at the pipeline's current revision.
+		code, out := call(admin, "PipelineService/EnablePipeline", map[string]any{"orgId": org.String(), "id": ownedByTeam.ID.String()})
+		Expect(code).To(Equal(http.StatusOK), "%v", out)
+		before := revisionsOf(ownedByTeam.ID)[0].Revision
+		Eventually(served, "20s", "250ms").Should(ContainSubstring(line(before)))
+
+		code, out = detach(admin, org, ownedByTeam)
+		Expect(code).To(Equal(http.StatusOK), "%v", out)
+		Eventually(served, "20s", "250ms").Should(ContainSubstring(line(before+1)),
+			"detach writes a revision, and the served header must show it")
 	})
 
 	It("takes the pipeline out of destination re-renders", func() {

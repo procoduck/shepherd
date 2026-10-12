@@ -321,7 +321,8 @@ func (q *Queries) ListEnabledPipelinesByOrg(ctx context.Context, orgID pgtype.UU
 }
 
 const listEnabledPipelinesForMerge = `-- name: ListEnabledPipelinesForMerge :many
-SELECT p.id, p.org_id, p.name, p.contents, p.matchers, p.enabled, p.source, p.wizard_kind, p.wizard_state, p.repo_link_id, p.git_path, p.created_by, p.updated_by, p.created_at, p.updated_at, p.sanitized_name, p.owner_team_id, p.wizard_render_sha256, rl.collector_id AS repo_link_collector_id
+SELECT p.id, p.org_id, p.name, p.contents, p.matchers, p.enabled, p.source, p.wizard_kind, p.wizard_state, p.repo_link_id, p.git_path, p.created_by, p.updated_by, p.created_at, p.updated_at, p.sanitized_name, p.owner_team_id, p.wizard_render_sha256, rl.collector_id AS repo_link_collector_id,
+       COALESCE((SELECT MAX(r.revision) FROM pipeline_revisions r WHERE r.pipeline_id = p.id), 0)::int AS current_revision
 FROM pipelines p
 LEFT JOIN repo_links rl ON rl.id = p.repo_link_id
 WHERE p.org_id = $1 AND p.enabled = true
@@ -348,12 +349,17 @@ type ListEnabledPipelinesForMergeRow struct {
 	OwnerTeamID         pgtype.UUID        `json:"owner_team_id"`
 	WizardRenderSha256  pgtype.Text        `json:"wizard_render_sha256"`
 	RepoLinkCollectorID pgtype.UUID        `json:"repo_link_collector_id"`
+	CurrentRevision     int32              `json:"current_revision"`
 }
 
 // ListEnabledPipelinesForMerge returns the org's enabled pipelines together with the
 // collector each git-sourced pipeline targets. The merge engine matches source='git'
 // pipelines by that collector id rather than by matchers, so it must be selected here;
 // without it every git pipeline compares against an empty id and is silently never served.
+// current_revision is each pipeline's newest pipeline_revisions row (0 for a legacy
+// pipeline that has none), read in this same statement so it always describes the
+// contents beside it; the served header prints it as "(rev N)" (#296). The correlated
+// MAX is an index-only lookup on UNIQUE (pipeline_id, revision), not an N+1.
 func (q *Queries) ListEnabledPipelinesForMerge(ctx context.Context, orgID pgtype.UUID) ([]ListEnabledPipelinesForMergeRow, error) {
 	rows, err := q.db.Query(ctx, listEnabledPipelinesForMerge, orgID)
 	if err != nil {
@@ -383,6 +389,7 @@ func (q *Queries) ListEnabledPipelinesForMerge(ctx context.Context, orgID pgtype
 			&i.OwnerTeamID,
 			&i.WizardRenderSha256,
 			&i.RepoLinkCollectorID,
+			&i.CurrentRevision,
 		); err != nil {
 			return nil, err
 		}
