@@ -34,7 +34,10 @@ Categories used here:
   question and *Restore last wizard version* now follow the server's own verdict instead of
   comparing the text with the last wizard-written revision. A wizard pipeline hand-edited and
   then edited back to its wizard text is badged (a destination change still refuses it until a
-  wizard revision is restored), and saving it again no longer asks. _Shipped._ (#301)
+  wizard revision is restored), and saving it again no longer asks. A pipeline written before
+  the render fingerprint (migration `0030`) by a wizard whose output has since changed reads *Not following
+  wizard* in its header (nobody edited it), and *Restore last wizard version* offers its current
+  wizard revision, which re-attaches it. _Shipped._ (#301)
 - **"Destination updated" says how many pipelines it regenerated**, e.g. "Destination updated —
   3 pipelines regenerated"; an update that regenerates none keeps the plain message. _Shipped._
   (#309)
@@ -46,7 +49,8 @@ All additive.
 - `Pipeline.follows_wizard` (output-only, field 17): true for a wizard pipeline whose text is
   still what its wizard last wrote — the same check `UpdateDestination` and
   `shepherd admin rerender-destinations --all` make before regenerating a pipeline. Set on every
-  response that returns a `Pipeline`. (#301)
+  response that returns a `Pipeline`. When that check cannot decide (unknown wizard kind, a
+  render that fails, a failed read) it is true, and the server logs why. (#301)
 - `Destination.regenerated_pipelines` (output-only, field 13): the number of wizard pipelines
   the update regenerated. Set only in `UpdateDestination`'s response; zero everywhere else.
   (#309)

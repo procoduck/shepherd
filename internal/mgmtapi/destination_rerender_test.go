@@ -946,6 +946,75 @@ var _ = Describe("Destination changes reach wizard pipelines (#262)", Label("int
 			Expect(get(legacy.ID)).To(BeTrue())
 			Expect(listed(legacy.ID)).To(BeTrue())
 		})
+
+		// Review of #332: a pipeline written before the fingerprint (0030) by a
+		// wizard whose output has changed since (#289) is refused as
+		// hand-edited although nobody edited it — its current revision IS the
+		// wizard's. Restoring that same revision re-attaches it through the
+		// revision's own fingerprint (0031's backfill stamps a CommitWizard
+		// "created" revision 1), so the UI offers it even though it is current.
+		It("is false for an unfingerprinted pipeline an older template rendered, true after restoring its current wizard revision", func() {
+			createDest(org, "mimir", "prometheus", oldURL)
+			used := commitSelfMonitoring(org, "self-mon", "mimir")
+			older := used.Contents + "\n// as an older template rendered it\n"
+			_, err := st.Pool().Exec(ctx, `UPDATE pipelines SET contents = $2, wizard_render_sha256 = NULL WHERE id = $1`,
+				used.ID, older)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = st.Pool().Exec(ctx, `UPDATE pipeline_revisions SET contents = $2, wizard_render_sha256 = $3 WHERE pipeline_id = $1 AND revision = 1`,
+				used.ID, older, sha256Hex(older))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(revisions(used.ID)).To(HaveLen(1), "revision 1 is the current one")
+
+			Expect(get(used.ID)).To(BeFalse())
+			Expect(listed(used.ID)).To(BeFalse())
+
+			code, out := call("PipelineService/RestoreRevision", map[string]any{
+				"orgId": org.String(), "id": used.ID.String(), "revision": 1,
+			})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			Expect(followsIn(out)).To(BeTrue())
+			Expect(get(used.ID)).To(BeTrue())
+			Expect(pipeline(used.ID).Contents).To(Equal(older))
+		})
+
+		// Review of #332: when the hand-edit check cannot decide, the field is
+		// true ("not known to be hand-edited", logged), never false — while a
+		// destination update still refuses the pipeline and says why.
+		Describe("when the hand-edit check cannot decide", func() {
+			It("is true for an unknown wizard kind", func() {
+				createDest(org, "mimir", "prometheus", oldURL)
+				used := commitSelfMonitoring(org, "self-mon", "mimir")
+				_, err := st.Pool().Exec(ctx, `UPDATE pipelines SET wizard_kind = 'no-such-wizard', wizard_render_sha256 = NULL WHERE id = $1`, used.ID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(get(used.ID)).To(BeTrue())
+				Expect(listed(used.ID)).To(BeTrue())
+			})
+
+			It("is true for stored state that does not decode", func() {
+				createDest(org, "mimir", "prometheus", oldURL)
+				used := commitSelfMonitoring(org, "self-mon", "mimir")
+				_, err := st.Pool().Exec(ctx, `UPDATE pipelines SET wizard_state = '[1]'::jsonb, wizard_render_sha256 = NULL WHERE id = $1`, used.ID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(get(used.ID)).To(BeTrue())
+			})
+
+			It("is true for a render that fails against the current destinations, which a destination update refuses", func() {
+				mimir := createDest(org, "mimir", "prometheus", oldURL)
+				used := commitSelfMonitoring(org, "self-mon", "mimir")
+				// A destination extra that no longer loads (LoadErr): its
+				// wizard cannot render, and the update names that, not a hand edit.
+				_, err := st.Pool().Exec(ctx, `UPDATE pipelines SET wizard_render_sha256 = NULL WHERE id = $1`, used.ID)
+				Expect(err).NotTo(HaveOccurred())
+				_, err = st.Pool().Exec(ctx, `UPDATE destinations SET extra = '{"oauth2_scopes": 7}'::jsonb WHERE id = $1`, mimir.ID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(get(used.ID)).To(BeTrue())
+				Expect(listed(used.ID)).To(BeTrue())
+
+				code, out := updateDest(mimir, map[string]any{"url": newURL})
+				Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
+				Expect(out["message"]).NotTo(ContainSubstring("edited by hand"))
+			})
+		})
 	})
 
 	// #309: UpdateDestination says how many wizard pipelines it regenerated,

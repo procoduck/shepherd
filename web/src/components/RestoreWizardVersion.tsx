@@ -19,42 +19,56 @@ export function isHandEditedWizardPipeline(pipeline: Pipeline | undefined): bool
 }
 
 /**
- * The newest revision a hand-edited wizard `pipeline`'s wizard wrote, unless
- * it is already the current one: the revision whose restore re-attaches the
- * pipeline to its wizard (RestoreRevision puts back that revision's render
- * fingerprint). Null for a pipeline that still follows its wizard.
+ * The newest revision a wizard `pipeline` that no longer follows its wizard
+ * had written by that wizard: the revision whose restore re-attaches it
+ * (RestoreRevision puts back that revision's render fingerprint). It can be
+ * the current revision: a pipeline written before Shepherd recorded what its
+ * wizard wrote (migration 0030), by a wizard whose output has changed since,
+ * reads as no longer following although nobody edited it, and restoring its
+ * own current revision re-attaches it. Null for a pipeline that still
+ * follows its wizard.
  */
 function restorableWizardRevision(
   pipeline: Pipeline | undefined,
   revisions: readonly PipelineRevision[],
 ): number | null {
   if (!pipeline || !isHandEditedWizardPipeline(pipeline)) return null;
-  const last = lastWizardRevision(revisions, pipeline.source);
-  const current = revisions.reduce((max, r) => Math.max(max, r.revision), 0);
-  return last != null && last !== current ? last : null;
+  return lastWizardRevision(revisions, pipeline.source);
+}
+
+/** The newest revision in `revisions`: what the pipeline is now. */
+function currentRevisionOf(revisions: readonly PipelineRevision[]): number {
+  return revisions.reduce((max, r) => Math.max(max, r.revision), 0);
 }
 
 /**
- * #301: the lasting mark that a wizard pipeline was edited by hand and stopped
- * following destination changes, in the pipeline's header and in the
- * pipelines list. The landing banner says so once; this stays for as long as
- * it is true, for every reader (the restore offer below is only for whoever
- * may write). `revision`, when the page knows it, is the wizard's last version.
+ * #301: the lasting mark that a wizard pipeline stopped following destination
+ * changes, in the pipeline's header and in the pipelines list. The landing
+ * banner says so once; this stays for as long as it is true, for every reader
+ * (the restore offer below is only for whoever may write).
+ *
+ * The header passes the pipeline's revisions. When its current revision is
+ * the wizard's own, nobody edited it — an older version of the wizard
+ * generated it (see restorableWizardRevision) — so the badge does not say
+ * "Hand-edited". The list has no revisions and says what the server says.
  */
 export function HandEditedBadge({
   pipeline,
-  revision,
+  revisions,
 }: {
   pipeline: Pipeline | undefined;
-  revision?: number | null;
+  revisions?: readonly PipelineRevision[];
 }) {
   const descId = useId();
-  if (!isHandEditedWizardPipeline(pipeline)) return null;
-  const since =
-    revision != null
-      ? `since its wizard last generated it (revision #${revision})`
-      : 'since its wizard last generated it';
-  const description = `Edited by hand ${since}: it no longer follows destination changes.`;
+  if (!pipeline || !isHandEditedWizardPipeline(pipeline)) return null;
+  const last = revisions ? lastWizardRevision(revisions, pipeline.source) : null;
+  const wizardsOwn = revisions != null && last != null && last === currentRevisionOf(revisions);
+  const label = wizardsOwn ? 'Not following wizard' : 'Hand-edited';
+  const description = wizardsOwn
+    ? `An older version of its wizard generated this text (revision #${last}): it no longer follows destination changes until that revision is restored.`
+    : last != null
+      ? `Edited by hand since its wizard last generated it (revision #${last}): it no longer follows destination changes.`
+      : 'Edited by hand since its wizard last generated it: it no longer follows destination changes.';
   return (
     <>
       <span
@@ -63,7 +77,7 @@ export function HandEditedBadge({
         title={description}
         className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium ${toneClass('warn')}`}
       >
-        Hand-edited
+        {label}
       </span>
       <span id={descId} className='sr-only'>
         {description}
@@ -78,8 +92,9 @@ export function HandEditedBadge({
  * destination it ships to, and the refusal tells the person to restore its
  * last wizard-generated revision, detach it, or delete it. This makes the
  * first of those one click: shown while the pipeline no longer follows its
- * wizard (follows_wizard, #301) and has an older revision its wizard wrote
- * (lib/wizardRevisions), it opens the page's ordinary restore confirmation
+ * wizard (follows_wizard, #301) and has a revision its wizard wrote
+ * (lib/wizardRevisions) — the current one included, see
+ * restorableWizardRevision — it opens the page's ordinary restore confirmation
  * for that revision — the existing RestoreRevision, nothing new on the server.
  * It waits for that revision's contents, which the confirmation's warnings
  * need (the query is shared with the revision diff view; GetRevision is
@@ -115,7 +130,9 @@ export function RestoreWizardVersion({
   return (
     <Banner variant='warning' testId='restore-wizard-version'>
       <p>
-        This pipeline was edited by hand since its wizard last generated it (revision #{revision}).
+        {revision === currentRevisionOf(revisions)
+          ? `An older version of this pipeline's wizard generated its text (revision #${revision}), and the wizard renders it differently today.`
+          : `This pipeline was edited by hand since its wizard last generated it (revision #${revision}).`}{' '}
         A change to a destination it ships to is refused until you restore that version, detach it
         from the wizard, or delete it.
       </p>

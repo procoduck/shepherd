@@ -81,5 +81,5 @@ func (s *PipelineService) DetachFromWizard(ctx context.Context, req *connect.Req
 		}
 		go s.recomputeOrgCaches(context.Background(), updated.OrgID) //nolint:contextcheck,gosec // G118+contextcheck: intentional detached context, as UpdatePipeline
 	}
-	return connect.NewResponse(pipelineForCaller(ctx, s.store, req.Msg.GetOrgId(), updated, revision)), nil
+	return connect.NewResponse(pipelineForCaller(ctx, s.store, s.logger, req.Msg.GetOrgId(), updated, revision)), nil
 }

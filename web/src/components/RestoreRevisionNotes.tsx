@@ -41,6 +41,7 @@ export function RestoreRevisionNotes({
   detail: PipelineRevision | undefined;
 }) {
   const isLastWizard = lastWizardRevision(revisions, pipeline.source) === revision;
+  const isCurrent = revisions.reduce((max, r) => Math.max(max, r.revision), 0) === revision;
   // A wizard revision that names a destination since deleted restores text
   // that ships to it, but no destination change will ever reach it again.
   const named = pipeline.source === 'wizard' ? destinationNames(detail?.wizardState) : [];
@@ -54,9 +55,11 @@ export function RestoreRevisionNotes({
     <>
       {isLastWizard && (
         <p data-testid='restore-wizard-note' className='text-sm text-muted'>
-          It is the last version this pipeline&rsquo;s wizard generated: restoring it drops the hand
-          edits since, so a destination change can regenerate it again. If a destination change is
-          still refused afterwards, detach the pipeline from the wizard or delete it.
+          {isCurrent
+            ? 'It is the current text, the last version this pipeline’s wizard generated: restoring it re-attaches the pipeline to its wizard, so a destination change can regenerate it again.'
+            : 'It is the last version this pipeline’s wizard generated: restoring it drops the hand edits since, so a destination change can regenerate it again.'}{' '}
+          If a destination change is still refused afterwards, detach the pipeline from the wizard
+          or delete it.
         </p>
       )}
       {missing.length > 0 && (

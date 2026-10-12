@@ -161,10 +161,11 @@ func skippedStagesToProto(stages []int) []int32 {
 	return out
 }
 
-// pipelineToProto converts the row alone: it leaves Revision (0) and CanEdit
-// (false) unset — both need a query — and only populates Revisions when the
-// caller (GetPipeline) explicitly attaches them. Every handler that returns a
-// Pipeline goes through pipelineForCaller, which fills both.
+// pipelineToProto converts the row alone: it leaves Revision (0), CanEdit
+// (false) and FollowsWizard (false) unset — each needs a query — and only
+// populates Revisions when the caller (GetPipeline) explicitly attaches them.
+// Every handler that returns a Pipeline goes through pipelineForCaller, which
+// fills all three (ListPipelines and CommitWizard fill them themselves).
 func pipelineToProto(p sqlc.Pipeline) *mgmtv1.Pipeline {
 	var matchers []string
 	if err := json.Unmarshal(p.Matchers, &matchers); err != nil {
@@ -210,11 +211,11 @@ func pipelineToProto(p sqlc.Pipeline) *mgmtv1.Pipeline {
 // revision must never be newer than p's contents — callers pass the number
 // from the same transaction or statement that produced p
 // (GetPipelineWithRevision, or the revision they just wrote).
-func pipelineForCaller(ctx context.Context, st *store.Store, orgIDStr string, p sqlc.Pipeline, revision int32) *mgmtv1.Pipeline {
+func pipelineForCaller(ctx context.Context, st *store.Store, logger *slog.Logger, orgIDStr string, p sqlc.Pipeline, revision int32) *mgmtv1.Pipeline {
 	pb := pipelineToProto(p)
 	pb.Revision = revision
 	pb.CanEdit = pipelineCanEdit(ctx, st, orgIDStr, pipelineOwnerTeamID(p))
-	pb.FollowsWizard = newWizardFollows(st.Queries, nil).of(ctx, p)
+	pb.FollowsWizard = newWizardFollows(st.Queries, logger).of(ctx, p)
 	return pb
 }
 
@@ -223,12 +224,12 @@ func pipelineForCaller(ctx context.Context, st *store.Store, orgIDStr string, p 
 // set owner): their response must still carry a revision that matches the
 // contents it shows. If the re-read fails (the pipeline was deleted
 // meanwhile), p goes out with revision 0, which no editor sends back.
-func reloadForCaller(ctx context.Context, st *store.Store, orgIDStr string, p sqlc.Pipeline) *mgmtv1.Pipeline {
+func reloadForCaller(ctx context.Context, st *store.Store, logger *slog.Logger, orgIDStr string, p sqlc.Pipeline) *mgmtv1.Pipeline {
 	row, err := st.Queries.GetPipelineWithRevision(ctx, p.ID)
 	if err != nil {
-		return pipelineForCaller(ctx, st, orgIDStr, p, 0)
+		return pipelineForCaller(ctx, st, logger, orgIDStr, p, 0)
 	}
-	return pipelineForCaller(ctx, st, orgIDStr, row.Pipeline, row.CurrentRevision)
+	return pipelineForCaller(ctx, st, logger, orgIDStr, row.Pipeline, row.CurrentRevision)
 }
 
 func revisionToProto(rv sqlc.PipelineRevision) *mgmtv1.PipelineRevision {
@@ -514,7 +515,7 @@ func (s *PipelineService) GetPipeline(ctx context.Context, req *connect.Request[
 	if err != nil {
 		return nil, err
 	}
-	pp := pipelineForCaller(ctx, s.store, req.Msg.GetOrgId(), p, current)
+	pp := pipelineForCaller(ctx, s.store, s.logger, req.Msg.GetOrgId(), p, current)
 
 	revs, revErr := s.store.Queries.ListPipelineRevisions(ctx, p.ID)
 	if revErr != nil {
@@ -663,7 +664,7 @@ func (s *PipelineService) CreatePipeline(ctx context.Context, req *connect.Reque
 	auditLog(ctx, s.store, actor, orgID, "pipeline.create", "pipeline", p.ID.String())
 	s.logger.Info("pipeline created", "pipeline_id", p.ID.String(), "org_id", orgID.String(), "name", p.Name, "actor", actor)
 
-	return connect.NewResponse(pipelineForCaller(ctx, s.store, msg.GetOrgId(), p, revision)), nil
+	return connect.NewResponse(pipelineForCaller(ctx, s.store, s.logger, msg.GetOrgId(), p, revision)), nil
 }
 
 // UpdatePipeline updates a pipeline.
@@ -722,7 +723,7 @@ func (s *PipelineService) UpdatePipeline(ctx context.Context, req *connect.Reque
 	if !changed {
 		// Nothing to record: no revision was written, so no audit row and no
 		// serve-cache work either.
-		return connect.NewResponse(pipelineForCaller(ctx, s.store, msg.GetOrgId(), updated, revision)), nil
+		return connect.NewResponse(pipelineForCaller(ctx, s.store, s.logger, msg.GetOrgId(), updated, revision)), nil
 	}
 
 	orgID := looseUUID(msg.GetOrgId())
@@ -735,7 +736,7 @@ func (s *PipelineService) UpdatePipeline(ctx context.Context, req *connect.Reque
 	}
 
 	auditLog(ctx, s.store, actor, orgID, "pipeline.update", "pipeline", p.ID.String())
-	return connect.NewResponse(pipelineForCaller(ctx, s.store, msg.GetOrgId(), updated, revision)), nil
+	return connect.NewResponse(pipelineForCaller(ctx, s.store, s.logger, msg.GetOrgId(), updated, revision)), nil
 }
 
 // writeUpdate persists an UpdatePipeline in one transaction: it row-locks the
@@ -927,7 +928,7 @@ func (s *PipelineService) setEnabled(ctx context.Context, orgIDStr, idStr string
 	}
 	auditLog(ctx, s.store, actor, orgID, action, "pipeline", p.ID.String())
 	s.logger.Info("pipeline enabled/disabled", "pipeline_id", p.ID.String(), "org_id", orgID.String(), "enabled", enable, "actor", actor)
-	return connect.NewResponse(reloadForCaller(ctx, s.store, orgIDStr, updated)), nil
+	return connect.NewResponse(reloadForCaller(ctx, s.store, s.logger, orgIDStr, updated)), nil
 }
 
 // EnablePipeline enables a pipeline.
@@ -1118,7 +1119,7 @@ func (s *PipelineService) SetPipelineOwner(ctx context.Context, req *connect.Req
 		return nil, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
 	}
 	auditLog(ctx, s.store, actorFromCtx(ctx), looseUUID(req.Msg.GetOrgId()), "pipeline.set_owner", "pipeline", p.ID.String())
-	return connect.NewResponse(reloadForCaller(ctx, s.store, req.Msg.GetOrgId(), updated)), nil
+	return connect.NewResponse(reloadForCaller(ctx, s.store, s.logger, req.Msg.GetOrgId(), updated)), nil
 }
 
 // ListRevisions lists a pipeline's revision history.
@@ -1361,7 +1362,7 @@ func (s *PipelineService) RestoreRevision(ctx context.Context, req *connect.Requ
 		}
 		auditLog(ctx, s.store, actor, orgID, action, "pipeline", p.ID.String())
 	}
-	return connect.NewResponse(pipelineForCaller(ctx, s.store, msg.GetOrgId(), updated, revision)), nil
+	return connect.NewResponse(pipelineForCaller(ctx, s.store, s.logger, msg.GetOrgId(), updated, revision)), nil
 }
 
 // --- helpers originally written for the pre-Connect REST handler ---

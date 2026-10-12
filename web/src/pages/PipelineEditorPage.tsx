@@ -26,7 +26,6 @@ import { AlloyEditor, RevisionDiff } from '@/editor/LazyAlloyEditor';
 import { useCanAdminister, useCanWrite, useOrgId } from '@/hooks/useOrg';
 import { type PipelineFormValues, usePipelineForm } from '@/hooks/usePipelineForm';
 import { formError } from '@/lib/formError';
-import { lastWizardRevision } from '@/lib/wizardRevisions';
 
 export function PipelineEditorPage() {
   const { id } = useParams({ strict: false }) as { id?: string };
@@ -151,6 +150,10 @@ export function PipelineEditorPage() {
       markSaved(p.id, submitted.current, p.revision);
       qc.invalidateQueries({ queryKey: ['pipelines', orgId] });
       if (!isNew) {
+        // The reply is the pipeline as saved — its follows_wizard included —
+        // so a second Save made before the refetch lands asks the right
+        // question (#301, review of #332).
+        qc.setQueryData(['pipeline', orgId, id], p);
         // Mirror restoreMutation's invalidation set below so the new
         // revision and "Updated by" show up right away.
         qc.invalidateQueries({ queryKey: ['pipeline', orgId, id] });
@@ -174,6 +177,9 @@ export function PipelineEditorPage() {
       // The server copy wins a restore: load it into the form (which also
       // makes it the snapshot later refetches compare against).
       loadForm(p, true);
+      // As after a save: the reply is the restored pipeline, follows_wizard
+      // included, until the refetch lands.
+      qc.setQueryData(['pipeline', orgId, id], p);
       qc.invalidateQueries({ queryKey: ['pipeline', orgId, id] });
       qc.invalidateQueries({ queryKey: ['revisions', orgId, id] });
       qc.invalidateQueries({ queryKey: ['pipelines', orgId] });
@@ -223,10 +229,7 @@ export function PipelineEditorPage() {
           <h1 className='text-xl font-semibold break-words'>
             {isNew ? 'New pipeline' : (pipeline?.name ?? 'Pipeline')}
           </h1>
-          <HandEditedBadge
-            pipeline={pipeline}
-            revision={pipeline ? lastWizardRevision(revisions, pipeline.source) : null}
-          />
+          <HandEditedBadge pipeline={pipeline} revisions={revisions} />
           {!isNew && pipeline && (
             <PipelineActions
               pipeline={pipeline}

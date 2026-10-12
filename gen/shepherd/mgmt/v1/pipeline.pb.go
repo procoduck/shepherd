@@ -179,8 +179,16 @@ type Pipeline struct {
 	// changes the text clears it; restoring a revision a wizard wrote puts it
 	// back), or, for a pipeline with no fingerprint (written before it
 	// existed), the fresh-render comparison that check falls back to. False
-	// for a hand-edited wizard pipeline and for every pipeline that is not a
-	// wizard pipeline. Ignored on input.
+	// for a wizard pipeline that check calls hand-edited and for every
+	// pipeline that is not a wizard pipeline. When the check cannot decide —
+	// an unknown wizard kind, stored state that does not decode, a render that
+	// fails against the current destinations, a failed read — it is TRUE (the
+	// server logs why): true means "not known to be hand-edited", not "a
+	// destination update will regenerate it", which still refuses such a
+	// pipeline and says why. A pipeline written before the fingerprint existed
+	// by a wizard whose output has changed since reads false although nobody
+	// edited it; restoring its last wizard-written revision re-attaches it.
+	// Ignored on input.
 	FollowsWizard bool `protobuf:"varint,17,opt,name=follows_wizard,json=followsWizard,proto3" json:"follows_wizard,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
