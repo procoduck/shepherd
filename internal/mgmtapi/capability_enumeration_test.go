@@ -64,11 +64,13 @@ func TestEveryProcedureHasAnAuthzRequirement(t *testing.T) {
 // writes; every List/Get/Preview/Validate/Render/Simulate/GraphView/Search/
 // Test/UpgradeCheck does not. Deriving "is a write" from the METHOD NAME
 // (read straight off the descriptor) rather than from procedureRequirements'
-// role values is deliberate: several org-admin-gated procedures are reads
-// gated admin-only for VISIBILITY (ListAudit, ListCredentials,
-// TestCredential, VisualService.Render/Validate/UpgradeCheck,
-// SimulateService's whole surface) — role level alone cannot distinguish
-// "admin-only read" from "write", so this test does not try to.
+// role values is deliberate: several procedures are reads gated above org
+// reader for VISIBILITY — org admin (ListAudit, ListCredentials,
+// TestCredential) or org editor (SimulateService's whole surface), and
+// VisualService.Render/Validate/UpgradeCheck, which since #319 are org-reader
+// at the interceptor and editor-or-owning-team in the handler — so role level
+// alone cannot distinguish "gated read" from "write", and this test does not
+// try to.
 var writeVerbPrefixes = []string{
 	"Create", "Update", "Delete", "Enable", "Disable", "Revoke", "Claim", "Unclaim", "Rotate", "Set", "Commit", "Restore",
 }

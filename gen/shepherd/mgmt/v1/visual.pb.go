@@ -768,9 +768,16 @@ func (x *VisualDiagnostic) GetMessage() string {
 }
 
 type RenderRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	OrgId         string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
-	Graph         *GraphDocument         `protobuf:"bytes,2,opt,name=graph,proto3" json:"graph,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	OrgId string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	Graph *GraphDocument         `protobuf:"bytes,2,opt,name=graph,proto3" json:"graph,omitempty"`
+	// pipeline_id names the existing pipeline this graph is being edited for.
+	// Set: the caller must be allowed to edit that pipeline (org-editor, or a
+	// team owner per AuthorizeOwnership — the UpdatePipeline check).
+	// Empty: a new, unsaved graph — org-editor required.
+	// Naming a pipeline runs the write-authorization check, so a
+	// propose-capability service account must leave pipeline_id empty.
+	PipelineId    string `protobuf:"bytes,3,opt,name=pipeline_id,json=pipelineId,proto3" json:"pipeline_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -817,6 +824,13 @@ func (x *RenderRequest) GetGraph() *GraphDocument {
 		return x.Graph
 	}
 	return nil
+}
+
+func (x *RenderRequest) GetPipelineId() string {
+	if x != nil {
+		return x.PipelineId
+	}
+	return ""
 }
 
 // RenderResponse is a visual graph rendered to Alloy config.
@@ -881,9 +895,11 @@ func (x *RenderResponse) GetDiagnostics() []*VisualDiagnostic {
 }
 
 type ValidateVisualRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	OrgId         string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
-	Graph         *GraphDocument         `protobuf:"bytes,2,opt,name=graph,proto3" json:"graph,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	OrgId string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	Graph *GraphDocument         `protobuf:"bytes,2,opt,name=graph,proto3" json:"graph,omitempty"`
+	// pipeline_id: same semantics as RenderRequest.pipeline_id.
+	PipelineId    string `protobuf:"bytes,3,opt,name=pipeline_id,json=pipelineId,proto3" json:"pipeline_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -930,6 +946,13 @@ func (x *ValidateVisualRequest) GetGraph() *GraphDocument {
 		return x.Graph
 	}
 	return nil
+}
+
+func (x *ValidateVisualRequest) GetPipelineId() string {
+	if x != nil {
+		return x.PipelineId
+	}
+	return ""
 }
 
 // VisualNodeDiagnostic mirrors the per-diagnostic object built by
@@ -1079,9 +1102,11 @@ func (x *ValidateVisualResponse) GetRenderDiagnostics() []*VisualDiagnostic {
 }
 
 type UpgradeCheckRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	OrgId         string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
-	Graph         *GraphDocument         `protobuf:"bytes,2,opt,name=graph,proto3" json:"graph,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	OrgId string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	Graph *GraphDocument         `protobuf:"bytes,2,opt,name=graph,proto3" json:"graph,omitempty"`
+	// pipeline_id: same semantics as RenderRequest.pipeline_id.
+	PipelineId    string `protobuf:"bytes,3,opt,name=pipeline_id,json=pipelineId,proto3" json:"pipeline_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1128,6 +1153,13 @@ func (x *UpgradeCheckRequest) GetGraph() *GraphDocument {
 		return x.Graph
 	}
 	return nil
+}
+
+func (x *UpgradeCheckRequest) GetPipelineId() string {
+	if x != nil {
+		return x.PipelineId
+	}
+	return ""
 }
 
 // UpgradeItem mirrors internal/visual.UpgradeItem. class is one of the
@@ -1955,20 +1987,24 @@ const file_shepherd_mgmt_v1_visual_proto_rawDesc = "" +
 	"\x04code\x18\x02 \x01(\tR\x04code\x12\x17\n" +
 	"\anode_id\x18\x03 \x01(\tR\x06nodeId\x12\x19\n" +
 	"\bnode_id2\x18\x04 \x01(\tR\anodeId2\x12\x18\n" +
-	"\amessage\x18\x05 \x01(\tR\amessage\"]\n" +
+	"\amessage\x18\x05 \x01(\tR\amessage\"~\n" +
 	"\rRenderRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x125\n" +
-	"\x05graph\x18\x02 \x01(\v2\x1f.shepherd.mgmt.v1.GraphDocumentR\x05graph\"\x93\x02\n" +
+	"\x05graph\x18\x02 \x01(\v2\x1f.shepherd.mgmt.v1.GraphDocumentR\x05graph\x12\x1f\n" +
+	"\vpipeline_id\x18\x03 \x01(\tR\n" +
+	"pipelineId\"\x93\x02\n" +
 	"\x0eRenderResponse\x12\x18\n" +
 	"\acontent\x18\x01 \x01(\tR\acontent\x12H\n" +
 	"\bnode_map\x18\x02 \x03(\v2-.shepherd.mgmt.v1.RenderResponse.NodeMapEntryR\anodeMap\x12D\n" +
 	"\vdiagnostics\x18\x03 \x03(\v2\".shepherd.mgmt.v1.VisualDiagnosticR\vdiagnostics\x1aW\n" +
 	"\fNodeMapEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x121\n" +
-	"\x05value\x18\x02 \x01(\v2\x1b.shepherd.mgmt.v1.NodeRangeR\x05value:\x028\x01\"e\n" +
+	"\x05value\x18\x02 \x01(\v2\x1b.shepherd.mgmt.v1.NodeRangeR\x05value:\x028\x01\"\x86\x01\n" +
 	"\x15ValidateVisualRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x125\n" +
-	"\x05graph\x18\x02 \x01(\v2\x1f.shepherd.mgmt.v1.GraphDocumentR\x05graph\"\x85\x01\n" +
+	"\x05graph\x18\x02 \x01(\v2\x1f.shepherd.mgmt.v1.GraphDocumentR\x05graph\x12\x1f\n" +
+	"\vpipeline_id\x18\x03 \x01(\tR\n" +
+	"pipelineId\"\x85\x01\n" +
 	"\x14VisualNodeDiagnostic\x12\x14\n" +
 	"\x05layer\x18\x01 \x01(\tR\x05layer\x12\x17\n" +
 	"\anode_id\x18\x02 \x01(\tR\x06nodeId\x12\x12\n" +
@@ -1977,10 +2013,12 @@ const file_shepherd_mgmt_v1_visual_proto_rawDesc = "" +
 	"\amessage\x18\x05 \x01(\tR\amessage\"\xb5\x01\n" +
 	"\x16ValidateVisualResponse\x12H\n" +
 	"\vdiagnostics\x18\x01 \x03(\v2&.shepherd.mgmt.v1.VisualNodeDiagnosticR\vdiagnostics\x12Q\n" +
-	"\x12render_diagnostics\x18\x02 \x03(\v2\".shepherd.mgmt.v1.VisualDiagnosticR\x11renderDiagnostics\"c\n" +
+	"\x12render_diagnostics\x18\x02 \x03(\v2\".shepherd.mgmt.v1.VisualDiagnosticR\x11renderDiagnostics\"\x84\x01\n" +
 	"\x13UpgradeCheckRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x125\n" +
-	"\x05graph\x18\x02 \x01(\v2\x1f.shepherd.mgmt.v1.GraphDocumentR\x05graph\"\x91\x01\n" +
+	"\x05graph\x18\x02 \x01(\v2\x1f.shepherd.mgmt.v1.GraphDocumentR\x05graph\x12\x1f\n" +
+	"\vpipeline_id\x18\x03 \x01(\tR\n" +
+	"pipelineId\"\x91\x01\n" +
 	"\vUpgradeItem\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1d\n" +
 	"\n" +

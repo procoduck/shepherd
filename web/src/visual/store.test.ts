@@ -854,8 +854,8 @@ describe('readOnly (#226): a viewer cannot change the graph by any store path', 
   });
 });
 
-// 2026-10-09 re-check: the loaded pipeline's own can_edit decides only what a
-// read-only builder says; it must not outlive the pipeline it came from.
+// The loaded pipeline's own can_edit decides whether the builder is editable
+// (#319); it must not outlive the pipeline it came from.
 describe('pipelineCanEdit', () => {
   it('starts false and is cleared by resetDoc', () => {
     useVisualStore.getState().resetDoc();
@@ -864,5 +864,23 @@ describe('pipelineCanEdit', () => {
     expect(useVisualStore.getState().pipelineCanEdit).toBe(true);
     useVisualStore.getState().resetDoc();
     expect(useVisualStore.getState().pipelineCanEdit).toBe(false);
+  });
+});
+
+// #324 review: opening a different pipeline must not carry the previous one's
+// edit right — the builder would stay editable until the next one loaded (or
+// for good, if it failed to). openPipeline clears it with the id.
+describe('openPipeline', () => {
+  it("names the pipeline and clears the previous one's can_edit", () => {
+    useVisualStore.getState().setPipelineCanEdit(true);
+    useVisualStore.getState().openPipeline('pip-b');
+    expect(useVisualStore.getState().pipelineCanEdit).toBe(false);
+    expect(useVisualStore.getState().pipelineId).toBe('pip-b');
+  });
+  it("maps the 'new' route to no pipeline id", () => {
+    useVisualStore.getState().setPipelineCanEdit(true);
+    useVisualStore.getState().openPipeline('new');
+    expect(useVisualStore.getState().pipelineCanEdit).toBe(false);
+    expect(useVisualStore.getState().pipelineId).toBe('');
   });
 });

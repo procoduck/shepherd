@@ -29,18 +29,22 @@ class RenderFailedError extends Error {}
 export const READ_ONLY_REASON = "Viewers can't change pipelines — ask an org editor or admin";
 
 /**
- * The read-only builder's message for an owning-team member below org editor:
- * the pipeline's own can_edit is true (F3), so "viewers can't change
- * pipelines" was false for them — but the builder stays gated on the org role
- * (VisualService.Render is org-editor), so it still opens read-only.
+ * Why Simulate is unavailable to an owning-team member below org editor
+ * (#319): the builder is theirs to edit and save for their team's pipeline —
+ * Render/Validate/UpgradeCheck are authorized per pipeline — but every
+ * SimulateService call stays org-editor on the server.
  */
-export const TEAM_READ_ONLY_REASON =
-  "The visual builder needs the org editor role. As a member of the owning team you can still edit this pipeline's text on its page, or ask an org editor.";
+export const SIMULATE_EDITOR_REASON =
+  'Simulation needs the org editor role — ask an org editor to run one for this pipeline';
 
-/** Why the builder is read-only for this user — only meaningful while it is. */
-export function useReadOnlyReason(): string {
-  const pipelineCanEdit = useVisualStore((s) => s.pipelineCanEdit);
-  return pipelineCanEdit ? TEAM_READ_ONLY_REASON : READ_ONLY_REASON;
+/** Why Simulate is disabled here, or undefined when it is not: a read-only
+ *  builder gives the plain read-only reason; an editable one below org editor
+ *  gives SIMULATE_EDITOR_REASON. */
+export function useSimulateDisabledReason(): string | undefined {
+  const canWrite = useCanWrite();
+  const readOnly = useVisualStore((s) => s.readOnly);
+  if (canWrite) return undefined;
+  return readOnly ? READ_ONLY_REASON : SIMULATE_EDITOR_REASON;
 }
 
 /**
@@ -112,11 +116,11 @@ export function Toolbar({
   };
 
   const orgId = useOrgId();
-  // Read-only for viewers, like the text editor (PipelineEditorPage): every
-  // action here is org-editor on the server, so offering it only produced a
-  // 403 toast (#206).
-  const readOnly = !useCanWrite();
-  const readOnlyReason = useReadOnlyReason();
+  // Read-only for whoever may not edit what is on the canvas, like the text
+  // editor (PipelineEditorPage): set by VisualBuilderPage from the pipeline's
+  // own can_edit, or from the org role for a new one (#206, #319).
+  const readOnly = useVisualStore((s) => s.readOnly);
+  const simulateDisabledReason = useSimulateDisabledReason();
   const navigate = useNavigate();
   const qc = useQueryClient();
 
@@ -148,7 +152,9 @@ export function Toolbar({
       if (!orgId) throw new Error('No organization available');
       // Render server-side first — contents saved on the pipeline must be
       // the server's render of `doc`, not the client-side TS preview.
-      const rendered = await renderVisual(orgId, doc);
+      // A saved pipeline is named (#319): the server authorizes the render
+      // against it, so an owning-team member below org editor may save.
+      const rendered = await renderVisual(orgId, doc, pipelineId === 'new' ? '' : pipelineId);
       if (rendered.diagnostics.length > 0) {
         const first = rendered.diagnostics[0] as { message?: string } | undefined;
         throw new RenderFailedError(
@@ -214,7 +220,7 @@ export function Toolbar({
   const hasBlockingErrors = errors > 0;
   const canSave = !readOnly && !matchersRequired && !hasBlockingErrors && !saveMutation.isPending;
   const saveDisabledReason = readOnly
-    ? readOnlyReason
+    ? READ_ONLY_REASON
     : matchersRequired
       ? 'Add at least one matcher before saving — format: key="value" or key=~"regex"'
       : hasBlockingErrors
@@ -235,7 +241,7 @@ export function Toolbar({
       ? `Flow OK · ${doc.nodes.filter((n) => !n.disabled).length} nodes, ${doc.edges.length} wires`
       : `Flow broken · ${errors} problem${errors !== 1 ? 's' : ''}`
     : null;
-  const sandboxDisabledReason = readOnly ? readOnlyReason : undefined;
+  const sandboxDisabledReason = simulateDisabledReason;
 
   return (
     <>
@@ -260,7 +266,7 @@ export function Toolbar({
         {readOnly && (
           <span
             data-testid='toolbar-read-only'
-            title={readOnlyReason}
+            title={READ_ONLY_REASON}
             className='shrink-0 whitespace-nowrap text-xs px-2 py-0.5 rounded border border-border text-muted'
           >
             Read only

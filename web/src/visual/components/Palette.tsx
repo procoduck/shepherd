@@ -1,12 +1,10 @@
-import { Link, useParams } from '@tanstack/react-router';
 import { Boxes } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useCanWrite } from '../../hooks/useOrg';
 import { canConnectPorts, resolvePorts } from '../l1';
 import { rankPaletteItems } from '../paletteSearch';
 import { useVisualStore } from '../store';
 import { CollapsiblePanel } from './CollapsiblePanel';
-import { READ_ONLY_REASON, TEAM_READ_ONLY_REASON, useReadOnlyReason } from './Toolbar';
+import { READ_ONLY_REASON } from './Toolbar';
 
 const CATEGORIES = ['sources', 'transform', 'destinations', 'config', 'advanced'] as const;
 const LABELS: Record<string, string> = {
@@ -33,10 +31,9 @@ export function Palette() {
   const doc = useVisualStore((s) => s.doc);
   const addNode = useVisualStore((s) => s.addNode);
   const allowExperimental = useVisualStore((s) => s.allowExperimental);
-  // A viewer can browse the catalogue but not place components (#206).
-  const readOnly = !useCanWrite();
-  const readOnlyReason = useReadOnlyReason();
-  const { id: pipelineId } = useParams({ strict: false }) as { id?: string };
+  // Someone who may not edit this pipeline can browse the catalogue but not
+  // place components (#206; per pipeline since #319).
+  const readOnly = useVisualStore((s) => s.readOnly);
   const [search, setSearch] = useState('');
   const [showAllOverride, setShowAllOverride] = useState(false);
   const clickCountRef = useRef(0);
@@ -149,24 +146,7 @@ export function Palette() {
             data-testid='palette-read-only'
             className='px-3 py-1.5 text-xs text-muted border-b border-border'
           >
-            {readOnlyReason === TEAM_READ_ONLY_REASON && pipelineId ? (
-              // The same sentence as the tooltip, with the way out linked.
-              <>
-                The visual builder needs the org editor role. As a member of the owning team you can
-                still{' '}
-                <Link
-                  to='/pipelines/$id'
-                  params={{ id: pipelineId }}
-                  data-testid='palette-read-only-text-link'
-                  className='text-indigo-400 underline hover:text-indigo-300'
-                >
-                  edit this pipeline's text on its page
-                </Link>
-                , or ask an org editor.
-              </>
-            ) : (
-              READ_ONLY_REASON
-            )}
+            {READ_ONLY_REASON}
           </p>
         )}
         <div className='p-2 border-b border-border'>

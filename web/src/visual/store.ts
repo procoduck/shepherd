@@ -129,8 +129,10 @@ interface VisualStore {
   /** Toolbar matcher chips (B4) — `key="value"` / `key=~"regex"` strings,
    * seeded from the loaded pipeline; required (non-empty) to save. */
   matchers: string[];
-  /** #226: the viewer's builder is read-only. Set by VisualBuilderPage from
-   * `useCanWrite()`; every action that changes the graph (nodes, edges,
+  /** #226: the builder is read-only for someone who may not edit what is on
+   * it. Set by VisualBuilderPage: for a saved pipeline from its own
+   * `pipelineCanEdit` (#319 — an owning-team member below org editor may edit
+   * it), for a new one from the org role (`useCanWrite()`). Every action that changes the graph (nodes, edges,
    * props, bindings, labels, the disabled flag, undo/redo) is a no-op while it
    * holds. The canvas and inspector also stop offering those gestures — this
    * is the backstop for any path they miss. Loading a document (importGraph,
@@ -237,13 +239,25 @@ interface VisualStore {
   setPipelineRevision: (revision: number) => void;
   /**
    * The loaded pipeline's own Pipeline.can_edit (the server's ownership
-   * answer), false for a new or not-yet-loaded one. The builder stays gated on
-   * the org role (its Render call is org-editor), so this only changes what a
-   * read-only builder SAYS: an owning-team member below editor may still edit
-   * the pipeline's text on its page.
+   * answer), false for a new or not-yet-loaded one. It decides whether the
+   * builder is editable for a saved pipeline (#319): the server authorizes
+   * Render/Validate/UpgradeCheck for a named pipeline by the same rule.
    */
   pipelineCanEdit: boolean;
   setPipelineCanEdit: (canEdit: boolean) => void;
+  /**
+   * The saved pipeline on the canvas, '' for a new one. Sent as pipeline_id
+   * on Render/Validate/UpgradeCheck (#319), which the server authorizes
+   * against that pipeline; '' keeps them org-editor. Set by openPipeline.
+   */
+  pipelineId: string;
+  /**
+   * The builder moved to `pipelineId` (a route id; 'new' for a new graph):
+   * names it, and clears the previous pipeline's can_edit, so the builder is
+   * read-only until this one's own answer loads — and stays so if it fails
+   * to (#324 review).
+   */
+  openPipeline: (pipelineId: string) => void;
   /** Sets whether experimental components are permitted (#114), from the org
    *  setting. Re-runs validation so a graph loaded before the flag arrived is
    *  re-gated against it. */
@@ -635,6 +649,9 @@ export const useVisualStore = create<VisualStore>()(
       setPipelineRevision: (pipelineRevision) => set({ pipelineRevision }),
       pipelineCanEdit: false,
       setPipelineCanEdit: (pipelineCanEdit) => set({ pipelineCanEdit }),
+      pipelineId: '',
+      openPipeline: (pipelineId) =>
+        set({ pipelineId: pipelineId === 'new' ? '' : pipelineId, pipelineCanEdit: false }),
 
       setAllowExperimental: (allowExperimental) =>
         set((state) =>

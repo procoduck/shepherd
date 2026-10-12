@@ -47,6 +47,8 @@ export function UpgradeReview({ open, onClose, onAccept }: UpgradeReviewProps) {
   const doc = useVisualStore((s) => s.doc);
   const importGraph = useVisualStore((s) => s.importGraph);
   const orgId = useOrgId();
+  // #319: a saved pipeline is named, so its owning team may upgrade-check it.
+  const pipelineId = useVisualStore((s) => s.pipelineId);
   const [result, setResult] = useState<UpgradeCheckResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,7 +61,7 @@ export function UpgradeReview({ open, onClose, onAccept }: UpgradeReviewProps) {
     if (!open || !orgId) return;
     setResult(null);
     setError(null);
-    upgradeCheck(orgId, docRef.current)
+    upgradeCheck(orgId, docRef.current, pipelineId)
       .then(setResult)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to check upgrade'));
     // Deliberately NOT `doc`: the review is checked against whichever
@@ -67,7 +69,7 @@ export function UpgradeReview({ open, onClose, onAccept }: UpgradeReviewProps) {
     // in the inspector. Depending on the whole doc re-fired UpgradeCheck on
     // every mutation made while the review panel happened to be open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc.schema_version, orgId, open]);
+  }, [doc.schema_version, orgId, open, pipelineId]);
 
   const blocked = result ? hasBlockingItems(result.items) : false;
 

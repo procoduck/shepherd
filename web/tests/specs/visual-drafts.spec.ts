@@ -1,7 +1,8 @@
 // visual-drafts.spec.ts — W5-05: IndexedDB draft autosave and the
 // restore-or-discard banner (design §4.4).
 import { expect, type Page } from '@playwright/test';
-import { basicScenario } from '../fixtures/factories';
+import { currentSchemaVersion } from '@/visual/schemaVersion';
+import { basicScenario, pipeline } from '../fixtures/factories';
 import { appAdmin } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
 import { test } from '../fixtures/test';
@@ -206,4 +207,168 @@ test.describe('visual builder drafts', () => {
     await page.waitForSelector('[data-testid="visual-builder"]', { timeout: 10_000 });
     await expect(page.getByTestId('draft-restore-banner')).not.toBeVisible();
   });
+});
+
+/** Polls until the draft's name/matchers entry (#319) for `pipelineId` holds `name`. */
+async function waitForDraftMeta(page: Page, pipelineId: string, name: string): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          (key) =>
+            new Promise<string | null>((resolve) => {
+              const openReq = indexedDB.open('keyval-store');
+              openReq.onerror = () => resolve(null);
+              openReq.onsuccess = () => {
+                const db = openReq.result;
+                if (!db.objectStoreNames.contains('keyval')) {
+                  resolve(null);
+                  return;
+                }
+                const getReq = db.transaction('keyval', 'readonly').objectStore('keyval').get(key);
+                getReq.onsuccess = () =>
+                  resolve((getReq.result as { name?: string } | undefined)?.name ?? null);
+                getReq.onerror = () => resolve(null);
+              };
+            }),
+          `vb:draft-meta:${pipelineId}`,
+        ),
+      { timeout: 5000 },
+    )
+    .toBe(name);
+}
+
+// #319: a draft used to hold only the graph and its base revision, so an
+// unsaved name or matcher edit was never offered back — only the beforeunload
+// warning covered it. The draft now keeps both, and restoring it restores them.
+test.describe('visual builder drafts keep the name and matchers', () => {
+  const chips = (page: Page) => page.getByTestId('matcher-chip');
+
+  test('a new pipeline draft restores its name and matchers with the graph', async ({
+    page,
+    api,
+  }) => {
+    await api.loginAs(appAdmin);
+    const s = basicScenario();
+    api.seed({ orgs: [s.org], schema: schemaFixture });
+    await page.goto('/pipelines/visual/new');
+    await page.waitForSelector('[data-testid="palette-search"]', { timeout: 10_000 });
+
+    await page.click('[data-testid="palette-item-prometheus.remote_write"]');
+    await page.getByTestId('toolbar-name').fill('draft-name');
+    const input = page.getByTestId('matcher-input');
+    await input.fill('cluster="draft-1"');
+    await input.press('Enter');
+    await waitForDraftSaved(page, 'new');
+    await waitForDraftMeta(page, 'new', 'draft-name');
+
+    page.on('dialog', (d) => {
+      void d.accept();
+    });
+    await page.reload();
+    await expect(page.getByTestId('draft-restore-banner')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('toolbar-name')).toHaveValue('');
+    await expect(chips(page)).toHaveCount(0);
+
+    await page.getByTestId('draft-restore').click();
+    await expect(page.locator('.react-flow__node')).toHaveCount(1);
+    await expect(page.getByTestId('toolbar-name')).toHaveValue('draft-name');
+    await expect(chips(page)).toContainText(['cluster="draft-1"']);
+  });
+
+  test('a name and matcher edit alone, on a saved pipeline, is offered and restored', async ({
+    page,
+    api,
+  }) => {
+    await api.loginAs(appAdmin);
+    const s = basicScenario();
+    const visual = {
+      ...pipeline({ id: 'pip-draft-meta', name: 'saved-name', source: 'visual' }),
+      matchers: ['env="prod"'],
+      wizard_state: {
+        kind: 'alloy-graph/v1',
+        schema_version: currentSchemaVersion(schemaFixture),
+        nodes: [
+          {
+            id: 'n1',
+            component: 'prometheus.exporter.self',
+            label: 'self',
+            position: { x: 100, y: 100 },
+            props: {},
+            disabled: false,
+            notes: '',
+          },
+        ],
+        edges: [],
+        bindings: [],
+        viewport: { x: 0, y: 0, zoom: 1 },
+        meta: { created_with: 'shepherd-visual-builder' },
+      },
+    };
+    api.seed({ orgs: [s.org], schema: schemaFixture, pipelines: [visual] });
+    await page.goto(`/pipelines/${visual.id}/visual`);
+    await expect(page.locator('.react-flow__node')).toHaveCount(1, { timeout: 10_000 });
+    await expect(page.getByTestId('toolbar-name')).toHaveValue('saved-name');
+
+    await page.getByTestId('toolbar-name').fill('edited-name');
+    const input = page.getByTestId('matcher-input');
+    await input.fill('team="draft"');
+    await input.press('Enter');
+    await waitForDraftMeta(page, visual.id, 'edited-name');
+
+    page.on('dialog', (d) => {
+      void d.accept();
+    });
+    await page.reload();
+    await expect(page.getByTestId('draft-restore-banner')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('toolbar-name')).toHaveValue('saved-name');
+
+    await page.getByTestId('draft-restore').click();
+    await expect(page.getByTestId('draft-restore-banner')).not.toBeVisible();
+    await expect(page.getByTestId('toolbar-name')).toHaveValue('edited-name');
+    await expect(chips(page)).toContainText(['env="prod"', 'team="draft"']);
+  });
+});
+
+// #324 review: drafts live in this browser's IndexedDB, not per account, so
+// the next person to sign in here was offered the last one's unsaved work.
+// Signing out clears them.
+test('signing out clears every builder draft from this browser', async ({ page, api }) => {
+  await api.loginAs(appAdmin);
+  const s = basicScenario();
+  api.seed({ orgs: [s.org], schema: schemaFixture });
+  await page.goto('/pipelines/visual/new');
+  await page.waitForSelector('[data-testid="palette-search"]', { timeout: 10_000 });
+  await page.click('[data-testid="palette-item-prometheus.remote_write"]');
+  await page.getByTestId('toolbar-name').fill('mine');
+  await waitForDraftSaved(page, 'new');
+  await waitForDraftMeta(page, 'new', 'mine');
+
+  page.on('dialog', (d) => {
+    void d.accept();
+  });
+  await page.getByRole('button', { name: 'Sign out' }).click();
+  // The mock keeps the session, so /login bounces on; leaving the builder is enough.
+  await expect(page).not.toHaveURL(/\/visual\/new/);
+
+  const draftKeys = () =>
+    page.evaluate(
+      () =>
+        new Promise<string[]>((resolve) => {
+          const openReq = indexedDB.open('keyval-store');
+          openReq.onerror = () => resolve([]);
+          openReq.onsuccess = () => {
+            const db = openReq.result;
+            if (!db.objectStoreNames.contains('keyval')) {
+              resolve([]);
+              return;
+            }
+            const req = db.transaction('keyval', 'readonly').objectStore('keyval').getAllKeys();
+            req.onsuccess = () =>
+              resolve(req.result.map(String).filter((k) => k.startsWith('vb:draft')));
+            req.onerror = () => resolve([]);
+          };
+        }),
+    );
+  await expect.poll(draftKeys).toEqual([]);
 });
