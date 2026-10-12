@@ -49,7 +49,9 @@ test('an org that already has a tenant ID shows it read-only and never resends i
 
   await page.getByRole('button', { name: 'Edit prod-org' }).click();
   await expect(page.getByTestId('org-edit-tenant-set')).toHaveValue('existing');
-  await expect(page.getByTestId('org-edit-tenant-set')).toBeDisabled();
+  // Read-only, not disabled: it is there to be read, so it is not dimmed (#309).
+  await expect(page.getByTestId('org-edit-tenant-set')).not.toBeEditable();
+  await expect(page.getByTestId('org-edit-tenant-set')).toHaveCSS('opacity', '1');
   await page.getByLabel('Display name').fill('Renamed');
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.locator('[data-sonner-toast]').filter({ hasText: 'updated' })).toBeVisible({

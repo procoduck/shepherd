@@ -1,4 +1,4 @@
-import { org } from '../fixtures/factories';
+import { destination, org, pipeline } from '../fixtures/factories';
 import { appAdmin, orgAdmin } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
 
@@ -160,8 +160,9 @@ test('an app admin reads platform events in the global scope, not in the org vie
   await expect(page.locator('tbody tr')).toHaveCount(2);
   const platformRow = page.locator('tbody tr').filter({ hasText: 'user.create' });
   await expect(platformRow).toContainText('Platform');
+  // #309: the org's display name, not its slug.
   await expect(page.locator('tbody tr').filter({ hasText: 'pipeline.update' })).toContainText(
-    'prod-org',
+    'Production Org',
   );
   // proto3 JSON omits an empty string, so "no org" arrives as a missing orgId.
   const calls = api.calls('AuditService/ListAudit');
@@ -174,4 +175,38 @@ test('an org admin gets no global audit scope', async ({ page, api }) => {
   await page.goto('/audit');
   await expect(page.locator('tbody tr')).toHaveCount(1);
   await expect(page.getByLabel('Scope')).toHaveCount(0);
+});
+
+// #309: the resource column showed a truncated id where the page could name
+// the thing, and the global scope named orgs by slug.
+test('the resource column names a resource the org still has', async ({ page, api }) => {
+  await api.loginAs(appAdmin);
+  api.seed({
+    orgs: [org({ id: 'org-0001' })],
+    pipelines: [pipeline({ id: 'pip-0001', name: 'ui-enabled' })],
+    destinations: [destination({ id: 'dst-0001', name: 'prom-prod' })],
+    auditRows: [
+      auditRow({ id: 2, resource_type: 'pipeline', resource_id: 'pip-0001' }),
+      auditRow({
+        id: 1,
+        at: '2026-08-19T08:00:00Z',
+        action: 'destination.update',
+        resource_type: 'destination',
+        resource_id: 'dst-0001',
+      }),
+      auditRow({
+        id: 3,
+        at: '2026-08-19T07:00:00Z',
+        resource_type: 'pipeline',
+        resource_id: 'pip-gone-0000-0000',
+      }),
+    ],
+  });
+  await page.goto('/audit');
+
+  const names = page.getByTestId('audit-resource-name');
+  await expect(names).toHaveText(['ui-enabled', 'prom-prod']);
+  await expect(names.first()).toHaveAttribute('title', 'pip-0001');
+  // A deleted resource keeps the shortened id.
+  await expect(page.getByTestId('audit-resource-id')).toHaveText('pip-gone…');
 });

@@ -132,8 +132,12 @@ test('logout clears cached persona data before navigating to login', async ({ pa
   });
 
   await page.goto('/');
+  await expect(page.getByRole('button', { name: /sign out/i })).toBeVisible();
+  const before = api.calls('MeService/GetMe').length;
   await page.getByRole('button', { name: /sign out/i }).click();
 
   await expect(page).toHaveURL(/\/login/);
   await expect(page.getByRole('heading', { name: /sign in to shepherd/i })).toBeVisible();
+  // #309: signing out knows the answer — it does not ask GetMe and get a 401.
+  expect(api.calls('MeService/GetMe')).toHaveLength(before);
 });

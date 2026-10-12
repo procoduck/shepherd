@@ -264,3 +264,79 @@ describe('WizardStepFields', () => {
     );
   });
 });
+
+// #308: Pod Logs offered a blank, unlabelled option meaning "raw lines".
+describe('a select whose options include the empty value', () => {
+  it('labels the empty option "None" and drops the disabled placeholder', () => {
+    render(
+      <WizardStepFields
+        fields={[
+          field({
+            name: 'log_format',
+            label: 'Log line format',
+            type: 'select',
+            options: ['', 'logfmt', 'json'],
+            default: create(ValueSchema, { kind: { case: 'stringValue', value: '' } }),
+          }),
+        ]}
+        state={{ log_format: '' }}
+        onChange={vi.fn()}
+      />,
+    );
+    const select = screen.getByRole('combobox') as HTMLSelectElement;
+    const options = Array.from(select.options).map((o) => [o.value, o.text]);
+    expect(options).toEqual([
+      ['', 'None'],
+      ['logfmt', 'logfmt'],
+      ['json', 'json'],
+    ]);
+    expect(select.value).toBe('');
+  });
+});
+
+// #308: a "<x>_enabled" toggle that is off turns off the fields after it in
+// its step and any "<x>_..." field on another step — the wizard ignores them.
+describe('fields gated by an *_enabled toggle', () => {
+  const logsStep = [
+    field({ name: 'logs_enabled', label: 'Collect logs', type: 'toggle' }),
+    field({ name: 'log_path', label: 'Log path', type: 'text' }),
+    field({ name: 'logs_dest_name', label: 'Logs destination', type: 'text' }),
+  ];
+
+  it('disables the fields after the toggle while it is off, and says why', () => {
+    render(
+      <WizardStepFields fields={logsStep} state={{ logs_enabled: false }} onChange={vi.fn()} />,
+    );
+    expect((screen.getByLabelText(/^Log path/) as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText(/^Logs destination/) as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getAllByText(/Turn on “Collect logs” to set this/)).toHaveLength(2);
+  });
+
+  it('leaves them editable while the toggle is on', () => {
+    render(
+      <WizardStepFields fields={logsStep} state={{ logs_enabled: true }} onChange={vi.fn()} />,
+    );
+    expect((screen.getByLabelText(/^Log path/) as HTMLInputElement).disabled).toBe(false);
+    expect(screen.queryByText(/to set this/)).toBeNull();
+  });
+
+  it('disables a same-prefix field on another step', () => {
+    render(
+      <WizardStepFields
+        fields={[field({ name: 'logs_dest_name', label: 'Logs destination', type: 'text' })]}
+        state={{ logs_enabled: false }}
+        onChange={vi.fn()}
+      />,
+    );
+    expect((screen.getByLabelText(/^Logs destination/) as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it('does not count a gated required field against the step', () => {
+    const fields = [
+      field({ name: 'logs_enabled', label: 'Collect logs', type: 'toggle' }),
+      field({ name: 'log_path', label: 'Log path', type: 'text', required: true }),
+    ];
+    expect(isStepValid(fields, { logs_enabled: false })).toBe(true);
+    expect(isStepValid(fields, { logs_enabled: true })).toBe(false);
+  });
+});

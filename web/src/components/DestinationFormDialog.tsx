@@ -153,6 +153,7 @@ export function DestinationFormDialog({
   pendingLabel,
   pending,
   error,
+  onEdit,
   onCancel,
   onSubmit,
 }: {
@@ -163,10 +164,17 @@ export function DestinationFormDialog({
   pending: boolean;
   /** The server's refusal of the last submit, shown in the dialog (#249). */
   error?: ReactNode;
+  /** Clears `error`: called on the first edit after a refusal, which was
+   *  about the form as submitted, not as it now reads (#300). */
+  onEdit?: () => void;
   onCancel: () => void;
   onSubmit: (form: DestinationFormState) => void;
 }) {
-  const [form, setForm] = useState(initial);
+  const [form, setFormState] = useState(initial);
+  const setForm: typeof setFormState = (next) => {
+    if (error) onEdit?.();
+    setFormState(next);
+  };
   const [urlError, setUrlError] = useState('');
   const secretMode = isSecretMode(form.authMode);
 

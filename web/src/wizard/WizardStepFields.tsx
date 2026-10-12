@@ -22,9 +22,39 @@ function hasValue(v: WizardFieldValue | undefined): boolean {
   return v !== undefined && v !== null && v !== '';
 }
 
-/** A step is valid when every field it marks `required` has a non-empty value. */
+/**
+ * Why a field is switched off, or undefined when it is not (#308). A toggle
+ * named `<x>_enabled` that is off turns off the fields after it in its own
+ * step (Self Monitoring's and App Observability's log path and format) and any
+ * `<x>_…` field on another step (their logs destination): the wizards ignore
+ * those values while the toggle is off, so leaving them editable implied they
+ * still did something. Only an explicit `false` counts — an unset toggle is
+ * the wizard's default, which is on for both.
+ */
+export function gatedBy(
+  field: StepField,
+  stepFields: StepField[],
+  state: WizardFormState,
+): { label: string } | undefined {
+  if (field.type === 'toggle') return undefined;
+  const index = stepFields.indexOf(field);
+  for (const toggle of stepFields.slice(0, Math.max(0, index))) {
+    if (toggle.type === 'toggle' && toggle.name.endsWith('_enabled')) {
+      if (state[toggle.name] === false) return { label: toggle.label };
+    }
+  }
+  const prefix = field.name.split('_')[0];
+  if (prefix && field.name.includes('_') && state[`${prefix}_enabled`] === false) {
+    const sibling = stepFields.find((f) => f.name === `${prefix}_enabled`);
+    return { label: sibling?.label ?? '' };
+  }
+  return undefined;
+}
+
+/** A step is valid when every field it marks `required` has a non-empty value,
+ *  except one a toggle has switched off. */
 export function isStepValid(fields: StepField[], state: WizardFormState): boolean {
-  return fields.every((f) => !f.required || hasValue(state[f.name]));
+  return fields.every((f) => !f.required || hasValue(state[f.name]) || !!gatedBy(f, fields, state));
 }
 
 // Used standalone (not inside ui/Field), so the mt-1 gap Field normally
@@ -74,6 +104,8 @@ export function WizardStepFields({
     <div className='space-y-4'>
       {fields.map((field) => {
         const value = state[field.name];
+        const gate = gatedBy(field, fields, state);
+        const disabled = !!gate;
         if (field.type === 'toggle') {
           return (
             <label key={field.name} className='flex items-center gap-2 text-sm text-zinc-200'>
@@ -110,13 +142,17 @@ export function WizardStepFields({
               <Select
                 value={(value as string) ?? ''}
                 onChange={(e) => onChange(field.name, e.target.value)}
+                disabled={disabled}
                 className={inputClassName}
               >
                 {/* An optional select with no default means "let the wizard
                     choose" (App Observability's collector role), so the
                     empty choice stays selectable: picking an option must not
-                    be a one-way door away from it. */}
-                {!field.required && defaultFieldValue(field) === undefined ? (
+                    be a one-way door away from it. A schema that lists the
+                    empty value itself (Pod Logs' "raw lines" format) gets it
+                    labelled below instead of a blank, unlabelled row (#308). */}
+                {field.options.includes('') ? null : !field.required &&
+                  defaultFieldValue(field) === undefined ? (
                   <option value=''>Auto — let the wizard choose</option>
                 ) : (
                   <option value='' disabled>
@@ -125,7 +161,7 @@ export function WizardStepFields({
                 )}
                 {field.options.map((o) => (
                   <option key={o} value={o}>
-                    {o}
+                    {o === '' ? 'None' : o}
                   </option>
                 ))}
               </Select>
@@ -133,6 +169,7 @@ export function WizardStepFields({
               <Input
                 type='number'
                 mono
+                disabled={disabled}
                 value={value === undefined ? '' : (value as number)}
                 onChange={(e) => onChange(field.name, e.target.valueAsNumber)}
                 placeholder={field.placeholder}
@@ -142,6 +179,7 @@ export function WizardStepFields({
               <Select
                 value={(value as string) ?? ''}
                 onChange={(e) => onChange(field.name, e.target.value)}
+                disabled={disabled}
                 className={inputClassName}
               >
                 {/* An optional destination ("Leave blank to skip") keeps its
@@ -164,6 +202,7 @@ export function WizardStepFields({
             ) : (
               <Input
                 type='text'
+                disabled={disabled}
                 value={(value as string) ?? ''}
                 onChange={(e) => onChange(field.name, e.target.value)}
                 placeholder={field.placeholder}
@@ -173,7 +212,14 @@ export function WizardStepFields({
             {field.description && (
               <span className='mt-1 block text-xs text-muted-2'>{field.description}</span>
             )}
-            {isDestField && destMatches.length === 0 && (
+            {gate && (
+              <span className='mt-1 block text-xs text-muted-3' data-testid='wizard-field-off'>
+                {gate.label
+                  ? `Turn on “${gate.label}” to set this.`
+                  : 'Turned off on an earlier step.'}
+              </span>
+            )}
+            {isDestField && destMatches.length === 0 && !gate && (
               <span className='mt-1 block text-xs text-muted-2'>
                 No matching destination in this org yet. Add one on the{' '}
                 <a href='/destinations' className='text-indigo-400 hover:text-indigo-300'>

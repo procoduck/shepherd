@@ -216,7 +216,7 @@ export function PipelineEditorPage() {
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            disabled={readOnly}
+            readOnly={readOnly} // not disabled: a viewer reads it; disabled is dimmed
             className='focus:outline-none focus:ring-1 focus:ring-indigo-500'
             placeholder='my-pipeline'
           />

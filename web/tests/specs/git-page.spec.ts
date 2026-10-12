@@ -259,3 +259,43 @@ test('repository cell shows no stray slash for a root path, and labels a subdire
   const subCell = page.getByRole('cell').filter({ hasText: 'team/sub.git' });
   await expect(subCell.getByTestId('repo-link-path')).toHaveText('path: alloy/prod');
 });
+
+// #309: Test credential asked for the repository URL again although a
+// repository link already pairs this credential with one.
+test('Test starts from the repository a link already uses with the credential', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(orgAdmin);
+  const s = basicScenario();
+  api.seed({
+    orgs: [s.org],
+    collectors: s.collectors,
+    gitCredentials: [{ id: 'cred-0001', name: 'gitea-pat', kind: 'pat', username: 'oauth2' }],
+    repoLinks: [
+      {
+        id: 'rl-0001',
+        repo_url: 'https://gitea.internal/team/configs.git',
+        branch: 'release',
+        path: '/',
+        collector_id: 'col-0001',
+        credential_id: 'cred-0001',
+        sync_status: 'ok',
+      },
+    ],
+  });
+  await page.goto('/git');
+
+  await page.getByRole('button', { name: /test gitea-pat/i }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByLabel(/repository url/i)).toHaveValue(
+    'https://gitea.internal/team/configs.git',
+  );
+  await expect(dialog.getByLabel(/branch/i)).toHaveValue('release');
+  await dialog.getByRole('button', { name: /run test/i }).click();
+  await expect(page.getByTestId('test-credential-result')).toContainText(/reachable/i);
+  expect(api.calls('GitOpsService/TestCredential')[0].body).toMatchObject({
+    repoUrl: 'https://gitea.internal/team/configs.git',
+    branch: 'release',
+  });
+});

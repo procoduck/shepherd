@@ -1,5 +1,5 @@
 import { collector, org, pipeline } from '../fixtures/factories';
-import { appAdmin } from '../fixtures/personas';
+import { appAdmin, orgAdmin } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
 
 test('overview shows stat cards', async ({ page, api }) => {
@@ -127,4 +127,33 @@ test('overview tiles show a per-tile loading state, not a dash', async ({ page, 
     const settled = await page.locator('p.text-2xl').allTextContents();
     expect(settled).toEqual(['1', '1', '0', '0']);
   }).toPass();
+});
+
+// #298: "Organisations" counts every org the user belongs to, while the other
+// tiles count the selected org only — and nothing said so. Each tile names
+// its scope.
+test('each tile says what it counts across', async ({ page, api }) => {
+  await api.loginAs(appAdmin);
+  api.seed({ orgs: [org({ id: 'org-0001' })], collectors: [], pipelines: [] });
+  await page.goto('/');
+
+  // An app admin's GetMe lists every org on the server, not their memberships.
+  await expect(page.getByTestId('overview-tile-scope')).toHaveText([
+    'Every organisation on this server',
+    'In Production Org',
+    'In Production Org',
+    'In Production Org, with a reporting collector',
+  ]);
+  await expect(page.getByText('All organisations', { exact: true })).toBeVisible();
+});
+
+test('for anyone else the organisations tile counts their memberships', async ({ page, api }) => {
+  await api.loginAs(orgAdmin);
+  api.seed({ orgs: [org({ id: 'org-0001' })], collectors: [], pipelines: [] });
+  await page.goto('/');
+
+  await expect(page.getByText('Your organisations', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('overview-tile-scope').first()).toHaveText(
+    'Every organisation you belong to',
+  );
 });

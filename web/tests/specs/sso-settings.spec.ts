@@ -120,8 +120,16 @@ test('a chart-managed provider is readable but not editable', async ({ page, api
   );
   await expect(page.getByTestId('sso-status')).toContainText('Helm chart');
   await expect(page.getByTestId('sso-issuer')).toBeDisabled();
-  await expect(page.getByTestId('sso-save')).toBeDisabled();
+  // #309: nothing here can be saved or tested, so no inert Save or Test button
+  // and no "leave blank to keep it" secret hint.
+  await expect(page.getByTestId('sso-save')).toHaveCount(0);
+  await expect(page.getByTestId('sso-test')).toHaveCount(0);
   await expect(page.getByTestId('sso-remove')).toHaveCount(0);
+  await expect(page.getByText(/Leave blank to keep it/)).toHaveCount(0);
+  // Whether the chart set a client secret is still worth knowing (never its value).
+  await expect(page.getByTestId('sso-form')).toContainText('A client secret is set by the chart.');
+  // Disabled fields look disabled.
+  await expect(page.getByTestId('sso-issuer')).toHaveCSS('cursor', 'not-allowed');
 });
 
 test('shows an alert, not the forbidden message, when settings fail to load for another reason', async ({

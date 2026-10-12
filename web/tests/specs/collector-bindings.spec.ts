@@ -22,7 +22,10 @@ test('creates, lists and deletes a collector binding', async ({ page, api }) => 
   await page.getByTestId('binding-new').click();
   await page.getByTestId('binding-issuer').fill('https://idp.example/');
   await page.getByTestId('binding-app-id').fill('client-eu');
-  await page.getByTestId('binding-org').fill('prod-org');
+  // #309: the organisation is picked, not typed as a slug.
+  const orgPicker = page.getByTestId('binding-org');
+  await expect(orgPicker).toHaveRole('combobox');
+  await orgPicker.selectOption({ label: 'Production Org (prod-org)' });
   await page.getByTestId('binding-clusters').fill('prod-eu-1, staging-eu-1');
   await page.getByTestId('binding-submit').click();
 
@@ -39,16 +42,40 @@ test('creates, lists and deletes a collector binding', async ({ page, api }) => 
 test('surfaces an unknown-organisation error', async ({ page, api }) => {
   const s = basicScenario();
   api.seed({ orgs: [s.org], agentIdentities: [] });
+  // The org was deleted between loading the picker and submitting.
+  api.override('POST', '/shepherd.mgmt.v1.AdminService/CreateAgentIdentity', (route) =>
+    route.fulfill({
+      status: 400,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        code: 'invalid_argument',
+        message: 'unknown organisation "prod-org"',
+      }),
+    }),
+  );
   await api.loginAs(appAdmin);
   await page.goto('/admin/auth');
 
   await page.getByTestId('binding-new').click();
   await page.getByTestId('binding-issuer').fill('https://idp/');
   await page.getByTestId('binding-app-id').fill('c');
-  await page.getByTestId('binding-org').fill('no-such-org');
+  await page.getByTestId('binding-org').selectOption('prod-org');
   await page.getByTestId('binding-submit').click();
 
-  await expect(page.getByText(/unknown organisation/i)).toBeVisible();
+  await expect(page.getByTestId('binding-org-error')).toContainText(/unknown organisation/i);
+});
+
+// #308: the issuer hint showed `iss` with literal backticks.
+test('the issuer hint names the claim as code, not in backticks', async ({ page, api }) => {
+  const s = basicScenario();
+  api.seed({ orgs: [s.org], agentIdentities: [] });
+  await api.loginAs(appAdmin);
+  await page.goto('/admin/auth');
+
+  await page.getByTestId('binding-new').click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.locator('code', { hasText: /^iss$/ })).toBeVisible();
+  await expect(dialog).not.toContainText('`');
 });
 
 test('a non-app-admin never reaches the section', async ({ page, api }) => {
@@ -56,4 +83,18 @@ test('a non-app-admin never reaches the section', async ({ page, api }) => {
   await page.goto('/admin/auth');
   // The route guard denies /admin/* to a non-app-admin before the page mounts.
   await expect(page.getByTestId('collector-bindings')).toHaveCount(0);
+});
+
+// #309 review: a failed ListOrgs left an empty picker with no explanation.
+test('the organisation picker says when the list could not be loaded', async ({ page, api }) => {
+  const s = basicScenario();
+  api.seed({ orgs: [s.org], agentIdentities: [] });
+  api.failNext('POST', '/shepherd.mgmt.v1.AdminService/ListOrgs', 503, 'unavailable');
+  await api.loginAs(appAdmin);
+  await page.goto('/admin/auth');
+
+  await page.getByTestId('binding-new').click();
+  await expect(page.getByTestId('binding-orgs-error')).toContainText(
+    'Could not load organisations',
+  );
 });

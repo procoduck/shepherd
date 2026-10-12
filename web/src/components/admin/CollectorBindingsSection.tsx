@@ -7,7 +7,7 @@ import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
 import { AdminModal, AdminModalActions } from '@/components/admin/AdminModal';
 import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
-import { Field, Input } from '@/components/ui/Field';
+import { Field, Input, Select } from '@/components/ui/Field';
 import type { AgentIdentity } from '@/gen/shepherd/mgmt/v1/admin_pb';
 import { formError, formErrors } from '@/lib/formError';
 
@@ -95,6 +95,14 @@ export function CollectorBindingsSection({ isAppAdmin }: { isAppAdmin: boolean }
     queryFn: () => clients.admin.listAgentIdentities({}),
   });
   const invalidate = () => qc.invalidateQueries({ queryKey: ['agent-identities'] });
+  // The organisation is picked from the real list (#309); the RPC still takes
+  // the slug, which is the option's value.
+  const orgsQuery = useQuery({
+    queryKey: ['orgs'],
+    queryFn: () => clients.admin.listOrgs({}),
+    enabled: showCreate,
+  });
+  const orgOptions = orgsQuery.data?.items ?? [];
 
   const createMut = useMutation({
     mutationFn: () =>
@@ -106,6 +114,7 @@ export function CollectorBindingsSection({ isAppAdmin }: { isAppAdmin: boolean }
         roles: splitList(roles),
       }),
     onSuccess: () => {
+      toast.success('Binding created');
       invalidate();
       setShowCreate(false);
       setIssuer('');
@@ -185,7 +194,14 @@ export function CollectorBindingsSection({ isAppAdmin }: { isAppAdmin: boolean }
             }}
             className='space-y-4'
           >
-            <Field label='Issuer' hint='The token issuer, exactly as it appears in `iss`.'>
+            <Field
+              label='Issuer'
+              hint={
+                <>
+                  The token issuer, exactly as it appears in <code className='font-mono'>iss</code>.
+                </>
+              }
+            >
               <Input
                 value={issuer}
                 onChange={(e) => setIssuer(e.target.value)}
@@ -201,21 +217,49 @@ export function CollectorBindingsSection({ isAppAdmin }: { isAppAdmin: boolean }
             </Field>
             <Field
               label='Organisation'
-              hint='The organisation slug to bind to.'
+              hint='The organisation whose config these collectors are served.'
               error={
-                createErrors.field.org && (
+                (createErrors.field.org && (
                   <span data-testid='binding-org-error' role='alert'>
                     {createErrors.field.org}
                   </span>
-                )
+                )) ||
+                (orgsQuery.isError && (
+                  <span data-testid='binding-orgs-error' role='alert'>
+                    Could not load organisations.{' '}
+                    <button
+                      type='button'
+                      onClick={() => orgsQuery.refetch()}
+                      className='underline hover:text-red-300'
+                    >
+                      Retry
+                    </button>
+                  </span>
+                ))
               }
             >
-              <Input
+              <Select
                 value={org}
+                required
                 aria-invalid={!!createErrors.field.org}
                 onChange={(e) => setOrg(e.target.value)}
                 data-testid='binding-org'
-              />
+              >
+                <option value='' disabled>
+                  {orgsQuery.isLoading
+                    ? 'Loading…'
+                    : orgsQuery.isError
+                      ? 'Organisations unavailable'
+                      : 'Select an organisation…'}
+                </option>
+                {orgOptions.map((o) => (
+                  <option key={o.id} value={o.name}>
+                    {o.displayName && o.displayName !== o.name
+                      ? `${o.displayName} (${o.name})`
+                      : o.name}
+                  </option>
+                ))}
+              </Select>
             </Field>
             <Field
               label='Clusters'

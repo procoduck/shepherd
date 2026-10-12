@@ -223,12 +223,22 @@ export function DestinationsPage() {
 
   return (
     <div className='space-y-4'>
-      <div className='flex items-center justify-between'>
-        <h1 className='text-xl font-semibold'>Destinations</h1>
+      <div className='flex items-start justify-between gap-4'>
+        <div>
+          <h1 className='text-xl font-semibold'>Destinations</h1>
+          {/* #303: an editor used to meet a read-only page with no reason,
+              although the wizards they run ship here. Same rule as the server
+              (rpc_interceptor.go: destination writes are org admin). */}
+          <p className='mt-1 text-sm text-muted' data-testid='destinations-permissions'>
+            Where this organisation&rsquo;s telemetry is sent. Only organisation admins can add,
+            change or delete destinations, because a change re-points every pipeline that ships to
+            one; editors pick from this list when they run a wizard.
+          </p>
+        </div>
         {!!orgId && canAdminister && (
           <button
             onClick={() => setShowCreate(true)}
-            className='flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500'
+            className='flex shrink-0 items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500'
           >
             <Plus size={14} /> New destination
           </button>
@@ -261,12 +271,16 @@ export function DestinationsPage() {
       ) : (data?.items ?? []).length === 0 ? (
         <div className='rounded-lg border border-border bg-card/40 p-8 text-center'>
           <p className='text-sm text-muted'>No destinations yet.</p>
-          <button
-            onClick={() => setShowCreate(true)}
-            className='mt-3 text-xs text-indigo-400 hover:text-indigo-300'
-          >
-            Add your first destination
-          </button>
+          {canAdminister ? (
+            <button
+              onClick={() => setShowCreate(true)}
+              className='mt-3 text-xs text-indigo-400 hover:text-indigo-300'
+            >
+              Add your first destination
+            </button>
+          ) : (
+            <p className='mt-1 text-xs text-muted-3'>Ask an organisation admin to add one.</p>
+          )}
         </div>
       ) : (
         <DataTable
@@ -284,6 +298,7 @@ export function DestinationsPage() {
           pendingLabel='Creating…'
           pending={createMut.isPending}
           error={formError(createMut.error, 'Failed to create destination')}
+          onEdit={() => createMut.reset()}
           onCancel={() => {
             setShowCreate(false);
             createMut.reset();
@@ -311,6 +326,7 @@ export function DestinationsPage() {
             formError(updateMut.error, 'Failed to update destination'),
             updateMut.error,
           )}
+          onEdit={() => updateMut.reset()}
           onCancel={() => {
             setEditing(null);
             updateMut.reset();

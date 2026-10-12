@@ -17,7 +17,10 @@ import type {
  * control used standalone (without Field, e.g. PipelineEditorPage's
  * sibling-label layout) doesn't get a spurious extra margin.
  */
-const CONTROL_BASE = 'w-full rounded-md border border-border-strong bg-card px-3 py-1.5 text-sm';
+// The disabled look (#309): a chart-managed SSO page's disabled fields used to
+// read as editable ones that ignored typing.
+const CONTROL_BASE =
+  'w-full rounded-md border border-border-strong bg-card px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-60';
 
 export function Field({
   label,

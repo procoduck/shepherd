@@ -56,6 +56,9 @@ export function AdminAuthPage() {
   const presets = presetsQuery.data?.items ?? [];
   const preset = presets.find((p) => p.key === form.provider);
   const readOnly = settings ? !settings.editable : true;
+  // Chart-managed is known only once settings load: until then the buttons
+  // stay (disabled) rather than vanishing and reappearing.
+  const chartManaged = !!settings && !settings.editable;
 
   // Seed the form from the server once the settings land. Keyed on updatedAt
   // so a save's response re-seeds (picking up server-side normalization the
@@ -217,6 +220,7 @@ export function AdminAuthPage() {
         disabled={disabled}
         onSelectProvider={applyPreset}
         clientSecretSet={!!settings?.clientSecretSet}
+        readOnly={chartManaged}
       />
 
       <SsoGroupsSection
@@ -245,19 +249,27 @@ export function AdminAuthPage() {
 
         <div className='flex-1' />
 
-        <button
-          data-testid='sso-test'
-          type='button'
-          disabled={readOnly || testMut.isPending || !form.issuer}
-          onClick={() => {
-            saveMut.reset();
-            testMut.mutate();
-          }}
-          className='flex items-center gap-1.5 rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium hover:bg-border disabled:opacity-50'
-        >
-          {testMut.isPending ? <Loader2 size={14} className='animate-spin' /> : <Plug size={14} />}
-          Test connection
-        </button>
+        {/* Chart-managed (#309): nothing here can be tested or saved, so the
+            buttons are not offered at all rather than shown inert. */}
+        {!chartManaged && (
+          <button
+            data-testid='sso-test'
+            type='button'
+            disabled={readOnly || testMut.isPending || !form.issuer}
+            onClick={() => {
+              saveMut.reset();
+              testMut.mutate();
+            }}
+            className='flex items-center gap-1.5 rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium hover:bg-border disabled:opacity-50'
+          >
+            {testMut.isPending ? (
+              <Loader2 size={14} className='animate-spin' />
+            ) : (
+              <Plug size={14} />
+            )}
+            Test connection
+          </button>
+        )}
 
         {settings?.configured && settings.editable && (
           <button
@@ -270,19 +282,21 @@ export function AdminAuthPage() {
           </button>
         )}
 
-        <button
-          data-testid='sso-save'
-          type='button'
-          disabled={disabled}
-          onClick={() => {
-            testMut.reset();
-            saveMut.mutate();
-          }}
-          className='flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50'
-        >
-          {saveMut.isPending && <Loader2 size={14} className='animate-spin' />}
-          Save
-        </button>
+        {!chartManaged && (
+          <button
+            data-testid='sso-save'
+            type='button'
+            disabled={disabled}
+            onClick={() => {
+              testMut.reset();
+              saveMut.mutate();
+            }}
+            className='flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50'
+          >
+            {saveMut.isPending && <Loader2 size={14} className='animate-spin' />}
+            Save
+          </button>
+        )}
       </div>
       {/* Save and Test refusals sit under the buttons that caused them (#249). */}
       <FormError

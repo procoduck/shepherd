@@ -14,21 +14,18 @@ import { useOrgId } from '@/hooks/useOrg';
 import { formError } from '@/lib/formError';
 import { primePipelineCache } from '@/lib/pipelineCache';
 import {
+  isNameTaken,
+  suggestPipelineName,
+  takenNameKeys,
+  uniquePipelineName,
+} from './pipelineName';
+import {
   defaultFieldValue,
   isStepValid,
   type WizardFormState,
   WizardStepFields,
 } from './WizardStepFields';
 import { WizardStepper } from './WizardStepper';
-
-function slugify(s: string): string {
-  return (
-    s
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'app'
-  );
-}
 
 /** A render the server refused on its merits (the input, the caller's
  * access): retrying returns the same answer. Anything else (a network
@@ -125,14 +122,26 @@ export function WizardRunnerPage() {
     });
   }, [schema]);
 
-  // Suggest a pipeline name from job_name until the user edits it directly.
+  // The org's pipeline names: the suggestion below avoids them, and a name
+  // that is taken is called out before Create rather than refused by it.
+  const pipelinesQuery = useQuery({
+    queryKey: ['pipelines', orgId],
+    queryFn: () => clients.pipeline.listPipelines({ orgId }),
+    enabled: !!orgId,
+  });
+  // Compared as the server compares them: its unique index is on the
+  // sanitized name (migration 0002), so "Pod Logs" takes "pod-logs".
+  const takenNames = takenNameKeys((pipelinesQuery.data?.items ?? []).map((p) => p.name));
+  const takenKey = [...takenNames].sort().join('\n');
+
+  // Suggest a pipeline name until the user edits it directly (#306): every
+  // wizard gets one — "<kind>-<job>" or just "<kind>", never a per-wizard
+  // literal — with a numeric suffix when the org already has it.
+  const jobName = typeof form.job_name === 'string' ? form.job_name : '';
   useEffect(() => {
     if (nameTouched) return;
-    const jobName = form.job_name;
-    // Suggest "<kind>-<job>" rather than a per-wizard literal, so a new
-    // wizard gets a sensible default without touching this file.
-    if (typeof jobName === 'string' && jobName) setName(`${slugify(KIND)}-${slugify(jobName)}`);
-  }, [form.job_name, nameTouched, KIND]);
+    setName(uniquePipelineName(suggestPipelineName(KIND, jobName), takenKey.split('\n')));
+  }, [jobName, nameTouched, KIND, takenKey]);
 
   const isReview = stepIndex === reviewIndex;
 
@@ -140,7 +149,9 @@ export function WizardRunnerPage() {
     queryKey: ['wizard-render', orgId, KIND, name, form],
     queryFn: () =>
       clients.wizard.renderWizard({ orgId, kind: KIND, name, state: form as JsonObject }),
-    enabled: !!orgId && isReview && !!name,
+    // Not before the schema: with no steps loaded yet, step 0 IS the review
+    // step, and the default name (#306) would preview an empty state.
+    enabled: !!orgId && !!schema && isReview && !!name,
     // A refused render is a verdict on this input, not a transient fault:
     // retrying it only delays the inline error below. Anything else (a
     // dropped connection, a 5xx) is retried twice, then offered as Retry.
@@ -167,12 +178,23 @@ export function WizardRunnerPage() {
     mutationFn: () =>
       clients.wizard.commitWizard({ orgId, kind: KIND, name, state: form as JsonObject }),
     onSuccess: async (pipeline) => {
+      // The new pipeline now holds this name; freeze it so the refreshed
+      // pipeline list does not re-suggest "<name>-2" on the way out.
+      setNameTouched(true);
       toast.success('Pipeline created from wizard');
       // Same landing as the visual builder's save: the editor must render
       // what was just committed, not whatever the cache held (H1).
       await primePipelineCache(qc, orgId, pipeline);
       // The result opens in the text editor; `from` makes it say so (#251).
       navigate({ to: '/pipelines/$id', params: { id: pipeline.id }, search: { from: 'wizard' } });
+    },
+    // Someone took the name between loading the list and committing: refresh
+    // the list so the suggestion moves to the next free suffix (and a typed
+    // name is flagged as taken) instead of offering the same refusal again.
+    onError: (err) => {
+      if (ConnectError.from(err).code === Code.AlreadyExists) {
+        qc.invalidateQueries({ queryKey: ['pipelines', orgId] });
+      }
     },
   });
 
@@ -206,6 +228,17 @@ export function WizardRunnerPage() {
   const canContinue = isReview || isStepValid(currentFields, form);
   const diagnostics = renderQuery.data?.diagnostics ?? [];
   const hasErrors = diagnostics.length > 0;
+  const nameTaken = !!name && isNameTaken(name, takenNames);
+  // Why Create is disabled, when the page does not already show it (#306): a
+  // render error and diagnostics are shown above; a pending commit or render
+  // says so on its own.
+  const createBlocked = !name
+    ? 'Enter a pipeline name.'
+    : nameTaken
+      ? `A pipeline named “${name}” already exists in this organisation.`
+      : hasErrors
+        ? 'Fix the problems in the preview first.'
+        : null;
 
   return (
     <div className='space-y-4'>
@@ -375,6 +408,11 @@ export function WizardRunnerPage() {
           {isReview && (
             <FormError message={formError(commitMut.error, 'Failed to create pipeline')} />
           )}
+          {isReview && createBlocked && (
+            <p className='text-right text-xs text-muted-2' data-testid='wizard-create-blocked'>
+              {createBlocked}
+            </p>
+          )}
           <div className='flex justify-end gap-2'>
             <button
               type='button'
@@ -402,6 +440,7 @@ export function WizardRunnerPage() {
                 onClick={() => commitMut.mutate()}
                 disabled={
                   !name ||
+                  nameTaken ||
                   hasErrors ||
                   !!renderQuery.error ||
                   commitMut.isPending ||

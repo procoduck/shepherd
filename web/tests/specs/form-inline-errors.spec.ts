@@ -186,6 +186,11 @@ test('destinations: a refused create shows the reason in the dialog', async ({ p
   await dialog(page).getByRole('button', { name: 'Create', exact: true }).click();
 
   await expectInline(page, dialog(page), 'Destination name "prom" already exists');
+
+  // #300: the refusal was about the name as submitted; changing it clears the
+  // stale message instead of leaving it up until the next submit.
+  await dialog(page).getByPlaceholder('prom-prod').pressSequentially('-2');
+  await expect(dialog(page).getByTestId('form-error')).toHaveCount(0);
 });
 
 test('collector labels: a refused label shows beside the form', async ({ page, api }) => {
@@ -229,7 +234,7 @@ test('collector bindings: a refused binding shows in the dialog', async ({ page,
   await page.getByTestId('binding-new').click();
   await page.getByTestId('binding-issuer').fill('http://idp/');
   await page.getByTestId('binding-app-id').fill('c');
-  await page.getByTestId('binding-org').fill('prod-org');
+  await page.getByTestId('binding-org').selectOption('prod-org');
   await page.getByTestId('binding-submit').click();
 
   await expectInline(page, dialog(page), 'Issuer must be an https url');
@@ -253,7 +258,7 @@ test('collector bindings: a refused role shows under the roles field (M6)', asyn
   await expect(dialog(page)).toContainText('metrics, logs, receiver, singleton');
   await page.getByTestId('binding-issuer').fill('https://idp/');
   await page.getByTestId('binding-app-id').fill('c');
-  await page.getByTestId('binding-org').fill('prod-org');
+  await page.getByTestId('binding-org').selectOption('prod-org');
   await page.getByTestId('binding-roles').fill('bogusrole');
   await page.getByTestId('binding-submit').click();
 

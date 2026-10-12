@@ -325,7 +325,7 @@ export function AdminOrgsPage() {
                 label='Tenant ID'
                 hint='Set once when the org got its identity; it cannot be changed.'
               >
-                <Input value={editOrg.tenantId} mono disabled data-testid='org-edit-tenant-set' />
+                <Input value={editOrg.tenantId} mono readOnly data-testid='org-edit-tenant-set' />
               </Field>
             ) : (
               <Field

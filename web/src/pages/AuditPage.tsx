@@ -7,74 +7,95 @@ import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Field, Input, Select } from '@/components/ui/Field';
 import type { AuditEntry } from '@/gen/shepherd/mgmt/v1/audit_pb';
+import { useAuditNames } from '@/hooks/useAuditNames';
 import { useMe } from '@/hooks/useMe';
 import { useOrg } from '@/hooks/useOrg';
 import { formatTimestampRelative } from '@/lib/utils';
 
 const PAGE_SIZE = 25;
 
-const auditColumns: DataTableColumn<AuditEntry>[] = [
-  {
-    key: 'when',
-    header: 'When',
-    cellClassName: 'px-4 py-2.5 text-muted whitespace-nowrap',
-    render: (entry) => (
-      <span title={entry.at ? timestampDate(entry.at).toLocaleString() : undefined}>
-        {formatTimestampRelative(entry.at)}
-      </span>
-    ),
-  },
-  {
-    key: 'actor',
-    header: 'Actor',
-    cellClassName: 'px-4 py-2.5 font-mono text-xs',
-    render: (entry) => (
-      <>
-        {entry.actor || '—'}
-        {entry.actorType && <span className='ml-1.5 text-muted-3'>({entry.actorType})</span>}
-      </>
-    ),
-  },
-  {
-    key: 'onBehalfOf',
-    header: 'On behalf of',
-    cellClassName: 'px-4 py-2.5 font-mono text-xs',
-    // The delegated half of a machine action. It was stored and returned by
-    // the API but never shown, which defeats the point: two-part
-    // attribution exists so a human reading this log can see who authorised
-    // a machine's write. A dash means no delegation -- a person acting for
-    // themselves -- not a missing value.
-    render: (entry) =>
-      entry.onBehalfOf ? entry.onBehalfOf : <span className='text-muted-3'>—</span>,
-  },
-  {
-    key: 'action',
-    header: 'Action',
-    cellClassName: 'px-4 py-2.5 font-mono text-xs',
-    render: (entry) => entry.action,
-  },
-  {
-    key: 'resource',
-    header: 'Resource',
-    cellClassName: 'px-4 py-2.5 text-muted text-xs',
-    render: (entry) => (
-      // Type and id on separate lines: inline, a full UUID ran into the type
-      // and read as one token (#212). The id is shortened; hover shows it all.
-      <div className='flex flex-col'>
-        <span>{entry.resourceType}</span>
-        {entry.resourceId && (
-          <span
-            className='font-mono text-muted-3'
-            title={entry.resourceId}
-            data-testid='audit-resource-id'
-          >
-            {entry.resourceId.length > 13 ? `${entry.resourceId.slice(0, 8)}…` : entry.resourceId}
-          </span>
-        )}
-      </div>
-    ),
-  },
-];
+function auditColumns(
+  resourceName: (entry: AuditEntry) => string | undefined,
+): DataTableColumn<AuditEntry>[] {
+  return [
+    {
+      key: 'when',
+      header: 'When',
+      cellClassName: 'px-4 py-2.5 text-muted whitespace-nowrap',
+      render: (entry) => (
+        <span title={entry.at ? timestampDate(entry.at).toLocaleString() : undefined}>
+          {formatTimestampRelative(entry.at)}
+        </span>
+      ),
+    },
+    {
+      key: 'actor',
+      header: 'Actor',
+      cellClassName: 'px-4 py-2.5 font-mono text-xs',
+      render: (entry) => (
+        <>
+          {entry.actor || '—'}
+          {entry.actorType && <span className='ml-1.5 text-muted-3'>({entry.actorType})</span>}
+        </>
+      ),
+    },
+    {
+      key: 'onBehalfOf',
+      header: 'On behalf of',
+      cellClassName: 'px-4 py-2.5 font-mono text-xs',
+      // The delegated half of a machine action. It was stored and returned by
+      // the API but never shown, which defeats the point: two-part
+      // attribution exists so a human reading this log can see who authorised
+      // a machine's write. A dash means no delegation -- a person acting for
+      // themselves -- not a missing value.
+      render: (entry) =>
+        entry.onBehalfOf ? entry.onBehalfOf : <span className='text-muted-3'>—</span>,
+    },
+    {
+      key: 'action',
+      header: 'Action',
+      cellClassName: 'px-4 py-2.5 font-mono text-xs',
+      render: (entry) => entry.action,
+    },
+    {
+      key: 'resource',
+      header: 'Resource',
+      cellClassName: 'px-4 py-2.5 text-muted text-xs',
+      render: (entry) => {
+        // Type and name/id on separate lines: inline, a full UUID ran into the
+        // type and read as one token (#212). A resource the org still has is
+        // named (#309); otherwise the id is shortened. Hover shows the full id.
+        const name = entry.resourceId ? resourceName(entry) : undefined;
+        return (
+          <div className='flex flex-col'>
+            <span>{entry.resourceType}</span>
+            {name ? (
+              <span
+                className='text-zinc-300'
+                title={entry.resourceId}
+                data-testid='audit-resource-name'
+              >
+                {name}
+              </span>
+            ) : (
+              entry.resourceId && (
+                <span
+                  className='font-mono text-muted-3'
+                  title={entry.resourceId}
+                  data-testid='audit-resource-id'
+                >
+                  {entry.resourceId.length > 13
+                    ? `${entry.resourceId.slice(0, 8)}…`
+                    : entry.resourceId}
+                </span>
+              )
+            )}
+          </div>
+        );
+      },
+    },
+  ];
+}
 
 // #253: the org view is that org's trail only. Platform events (rows with no
 // org: local user management, single sign-on) are read in the app admin's
@@ -83,7 +104,7 @@ const auditColumns: DataTableColumn<AuditEntry>[] = [
 type Scope = 'org' | 'all';
 
 export function AuditPage() {
-  const { orgId, orgs } = useOrg();
+  const { orgId } = useOrg();
   const { data: me } = useMe();
   const isAppAdmin = !!me?.isAppAdmin;
   const [scopeChoice, setScope] = useState<Scope>('org');
@@ -105,20 +126,24 @@ export function AuditPage() {
     enabled: scope === 'all' || !!orgId,
   });
 
+  const items = data?.items ?? [];
+  const names = useAuditNames(orgId, items, scope === 'org');
+
   // Only in the global scope, where rows come from several orgs and from none.
+  // Named by display name, not slug (#309).
   const orgColumn: DataTableColumn<AuditEntry> = {
     key: 'org',
     header: 'Organisation',
     cellClassName: 'px-4 py-2.5 text-muted text-xs',
     render: (entry) =>
       entry.orgId ? (
-        (orgs.find((o) => o.id === entry.orgId)?.name ?? entry.orgId)
+        (names.orgName(entry.orgId) ?? entry.orgId)
       ) : (
         <span className='italic'>Platform</span>
       ),
   };
+  const columns = auditColumns(names.resourceName);
 
-  const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const hasFilters = actor !== '' || action !== '';
 
@@ -218,7 +243,7 @@ export function AuditPage() {
       ) : (
         <>
           <DataTable
-            columns={scope === 'all' ? [orgColumn, ...auditColumns] : auditColumns}
+            columns={scope === 'all' ? [orgColumn, ...columns] : columns}
             rows={items}
             rowKey={(entry) => String(entry.id)}
             scrollX
