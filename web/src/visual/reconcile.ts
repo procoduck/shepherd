@@ -163,6 +163,8 @@ export type EdgeInputs = {
   wireType: string | undefined;
   animated: boolean;
   fromLabel: string;
+  /** The accepting node's label: with fromLabel, the wire's accessible name. */
+  toLabel: string;
   rf: ReturnType<typeof rfEndpointsForEdge>;
   /** The stroke colour is theme-dependent (overlay color_light), so a theme
    *  switch must invalidate the cached edge the same way a wire-type change does. */
@@ -198,13 +200,14 @@ export function reconcileEdges(
     )?.type;
     const animated = flowCheckActive && reachable.has(src.id);
     const fromLabel = fromNode?.label ?? src.from.node;
+    const toLabel = docNodes.find((n) => n.id === src.to.node)?.label ?? src.to.node;
     const selected = selectedIds.has(src.id);
     // React Flow's source/target are fixed by schema kind (export/argument),
     // independent of the stored edge's produces/accepts orientation — see
     // wireOrient.ts's rfEndpointsForEdge for why handing it `from`/`to`
     // verbatim silently fails to render a receiver-kind wire.
     const rf = rfEndpointsForEdge(schema, { nodes: docNodes }, src);
-    nextInputs.set(src.id, { src, wireType, animated, fromLabel, rf, theme });
+    nextInputs.set(src.id, { src, wireType, animated, fromLabel, toLabel, rf, theme });
 
     const prev = byId.get(src.id);
     const prevIn = inputs.get(src.id);
@@ -215,6 +218,7 @@ export function reconcileEdges(
       prevIn.wireType === wireType &&
       prevIn.animated === animated &&
       prevIn.fromLabel === fromLabel &&
+      prevIn.toLabel === toLabel &&
       prevIn.theme === theme &&
       prev.selected === selected &&
       deepEqual(prevIn.rf, rf)
@@ -230,6 +234,11 @@ export function reconcileEdges(
       ...rf,
       selected,
       animated,
+      // #310: React Flow's default name is "Edge from <rf source id> to <rf
+      // target id>" — internal ids, and reversed for a receiver-kind wire,
+      // whose React Flow endpoints run export→argument. The stored edge runs
+      // produces→accepts, which is the dataflow; name it by the node labels.
+      ariaLabel: `Edge from ${fromLabel} to ${toLabel}`,
       style: wireType ? { stroke: getThemedWireColor(schema, wireType, theme) } : undefined,
       // `data` carries the wire's semantics rather than just its looks, so a
       // custom edge component (animated dataflow, live throughput from Alloy)

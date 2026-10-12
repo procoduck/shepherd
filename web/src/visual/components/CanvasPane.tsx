@@ -108,7 +108,13 @@ const FIT_VIEW_OPTIONS = { padding: FIT_PADDING, maxZoom: 1 };
 // mostly won that race by luck of effect timing; React 19 loses it every
 // time. Fitting in the same commit that first paints the node closes the
 // window — nothing can see, or drag to, a measured node at the old viewport.
-function FitOnFirstNodes() {
+//
+// #307: it also re-fits when the pane itself changes size — the window is
+// resized, or the bottom drawer or a side panel opens — because a viewport
+// fitted for the old pane leaves nodes off its new edges or under the
+// minimap. Only while the viewport is still a fit: once the user has panned
+// or zoomed (`userMovedRef`), their view is left alone until the next fit.
+function FitOnFirstNodes({ userMovedRef }: { userMovedRef: React.MutableRefObject<boolean> }) {
   const store = useStoreApi();
   const { getNodesBounds, setViewport } = useReactFlow();
   const docNodes = useVisualStore((s) => s.doc.nodes);
@@ -137,14 +143,11 @@ function FitOnFirstNodes() {
     ),
   );
   const fittedForRef = useRef<number | null>(null);
+  const paneWidth = useStore((s) => s.width);
+  const paneHeight = useStore((s) => s.height);
+  const paneSizeRef = useRef({ width: paneWidth, height: paneHeight });
 
-  useLayoutEffect(() => {
-    if (docNodes.length === 0) {
-      fittedForRef.current = null;
-      return;
-    }
-    if (!measured || fittedForRef.current === importSeq) return;
-    fittedForRef.current = importSeq;
+  const fit = useCallback(() => {
     const { width, height, minZoom } = store.getState();
     // Same framing as `fitViewOptions` on <ReactFlow> below. A viewport set
     // without a duration is applied synchronously; the promise only reports.
@@ -158,7 +161,27 @@ function FitOnFirstNodes() {
         FIT_PADDING,
       ),
     );
-  }, [measured, docNodes, importSeq, store, getNodesBounds, setViewport]);
+    userMovedRef.current = false;
+  }, [docNodes, store, getNodesBounds, setViewport, userMovedRef]);
+
+  useLayoutEffect(() => {
+    if (docNodes.length === 0) {
+      fittedForRef.current = null;
+      return;
+    }
+    if (!measured || fittedForRef.current === importSeq) return;
+    fittedForRef.current = importSeq;
+    fit();
+  }, [measured, docNodes.length, importSeq, fit]);
+
+  useLayoutEffect(() => {
+    const prev = paneSizeRef.current;
+    paneSizeRef.current = { width: paneWidth, height: paneHeight };
+    if (prev.width === paneWidth && prev.height === paneHeight) return;
+    if (paneWidth === 0 || paneHeight === 0) return;
+    if (!measured || fittedForRef.current === null || userMovedRef.current) return;
+    fit();
+  }, [paneWidth, paneHeight, measured, fit, userMovedRef]);
 
   return null;
 }
@@ -276,6 +299,8 @@ export function CanvasPane() {
 
   // Ref to the canvas wrapper — used to focus it on mount so keyboard shortcuts work.
   const canvasWrapperRef = useRef<HTMLDivElement>(null);
+  // Whether the user has panned or zoomed since the last fit (#307).
+  const userMovedRef = useRef(false);
   useEffect(() => {
     canvasWrapperRef.current?.focus({ preventScroll: true });
   }, []);
@@ -757,7 +782,12 @@ export function CanvasPane() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onSelectionChange={onSelectionChange}
-        onMoveEnd={(_, vp) => updateViewport(vp)}
+        onMoveEnd={(event, vp) => {
+          updateViewport(vp);
+          // A pan or zoom gesture carries its DOM event; a programmatic fit
+          // does not (#307: a user's own view is not refitted on resize).
+          if (event) userMovedRef.current = true;
+        }}
         // #226: a viewer may pan, zoom and select — nothing that edits. RF's
         // own gestures for moving a node, drawing a wire or dragging a wire's
         // end elsewhere are switched off; selection stays on so the inspector
@@ -785,12 +815,21 @@ export function CanvasPane() {
         multiSelectionKeyCode='Shift'
       >
         <FlowApiBridge screenToFlowRef={screenToFlowRef} />
-        <FitOnFirstNodes />
+        <FitOnFirstNodes userMovedRef={userMovedRef} />
         <Background />
         {/* top-left: the minimap owns bottom-left, and stacking both hid the zoom buttons. */}
         <Controls
           position='top-left'
           fitViewOptions={FIT_VIEW_OPTIONS}
+          onZoomIn={() => {
+            userMovedRef.current = true;
+          }}
+          onZoomOut={() => {
+            userMovedRef.current = true;
+          }}
+          onFitView={() => {
+            userMovedRef.current = false;
+          }}
           className='[&>button]:bg-card [&>button]:border-border [&>button]:fill-zinc-300 [&>button:hover]:bg-accent/20'
         />
         {/* bottom-left, shrunk from React Flow's 200x150 default; FIT_PADDING

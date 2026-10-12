@@ -22,7 +22,7 @@ import (
 func productionRouter() http.Handler {
 	cfg := &config.Config{}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return server.NewRouter(cfg, &store.Store{}, nil, nil, validate.New(&cfg.Validate), spa.BuildInfo{}, logger)
+	return server.NewRouter(cfg, &store.Store{}, nil, nil, validate.New(&cfg.Validate), spa.BuildInfo{}, logger, func() bool { return false })
 }
 
 var _ = Describe("metrics listeners", func() {
@@ -163,7 +163,7 @@ var _ = Describe("beacon off-switch", func() {
 		cfg := &config.Config{}
 		cfg.Server.BeaconDisabled = disabled
 		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-		return server.NewRouter(cfg, &store.Store{}, nil, nil, validate.New(&cfg.Validate), spa.BuildInfo{}, logger)
+		return server.NewRouter(cfg, &store.Store{}, nil, nil, validate.New(&cfg.Validate), spa.BuildInfo{}, logger, func() bool { return false })
 	}
 
 	// Probe with POST, the method the endpoint actually serves. A GET would

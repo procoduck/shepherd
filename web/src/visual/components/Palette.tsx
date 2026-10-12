@@ -199,7 +199,7 @@ export function Palette() {
             const catItems = filtered.filter((c) => c.category === cat);
             if (catItems.length === 0) return null;
             return (
-              <details key={cat} open className='border-b border-border'>
+              <details key={cat} open aria-label={LABELS[cat]} className='border-b border-border'>
                 <summary className='px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-2 cursor-pointer select-none'>
                   {LABELS[cat]}
                 </summary>

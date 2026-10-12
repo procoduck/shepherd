@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"connectrpc.com/connect"
@@ -53,6 +54,10 @@ type Server struct {
 	// returns a no-op when tracing is disabled — so Run can call it
 	// unconditionally.
 	traceShutdown telemetry.ShutdownFunc
+	// routeApplyRunning is set once Run has started the tenant-route
+	// reconciler; TenantRouteService reads it to tell a route waiting on a
+	// reconciler from one no reconciler will ever apply (#304).
+	routeApplyRunning *atomic.Bool
 }
 
 // requestLogger emits one structured line per request, at a level chosen by the
@@ -173,7 +178,8 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	}
 
 	v := validate.New(&cfg.Validate)
-	r := newRouter(cfg, st, enc, authHandler, v, spaInfo, logger)
+	routeApplyRunning := new(atomic.Bool)
+	r := newRouter(cfg, st, enc, authHandler, v, spaInfo, logger, routeApplyRunning.Load)
 
 	// Tracing wraps the router from outside so a server span exists before
 	// chi routes, which is what lets the metrics middleware rename it once the
@@ -207,6 +213,8 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		enc:           enc,
 		validator:     v,
 		traceShutdown: traceShutdown,
+
+		routeApplyRunning: routeApplyRunning,
 	}, nil
 }
 
@@ -216,7 +224,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 // fallback last. Split from New — which owns the store/auth/encryptor
 // construction — so tests can exercise the real mounting and guard ordering
 // without a database or OIDC discovery.
-func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authHandler *auth.Handler, v *validate.Validator, spaInfo spa.BuildInfo, logger *slog.Logger) chi.Router {
+func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authHandler *auth.Handler, v *validate.Validator, spaInfo spa.BuildInfo, logger *slog.Logger, routeApplyRunning func() bool) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	// Ordered outermost-first: RequestID so every log line and span can be
@@ -348,7 +356,8 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 		// /api shims above (docs/archive/api-contract-design.md). Mounted in the same
 		// group so they get session population + CSRF enforcement; each
 		// handler additionally requires its own authz interceptor role.
-		mgmtapi.MountRPC(r, st, cfg, enc, logger, mgmtapi.WithOIDCSettings(authHandler))
+		mgmtapi.MountRPC(r, st, cfg, enc, logger, mgmtapi.WithOIDCSettings(authHandler),
+			mgmtapi.WithRouteApplyRunning(routeApplyRunning))
 	})
 
 	// Guard: reserved prefixes that didn't match any real route return 404 JSON, never the SPA.
@@ -419,6 +428,7 @@ func (s *Server) Run(ctx context.Context) error {
 		} else {
 			routeapply.New(s.store.Queries, kube, s.cfg.Gateway.Routes.Apply, s.logger,
 				routeapply.WithLocker(routeapply.NewPGLocker(s.store.Pool(), s.logger))).Start(ctx)
+			s.routeApplyRunning.Store(true)
 		}
 	}
 

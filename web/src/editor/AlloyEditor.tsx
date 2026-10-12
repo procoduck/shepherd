@@ -3,7 +3,7 @@ import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { bracketMatching, foldGutter, indentOnInput } from '@codemirror/language';
 import { type Diagnostic as CmDiagnostic, lintGutter, setDiagnostics } from '@codemirror/lint';
 import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
-import { EditorState, type Text, Transaction } from '@codemirror/state';
+import { Compartment, EditorState, type Text, Transaction } from '@codemirror/state';
 import { EditorView, highlightActiveLine, keymap, lineNumbers, ViewUpdate } from '@codemirror/view';
 import { useEffect, useRef } from 'react';
 import type { Diagnostic } from '@/gen/shepherd/mgmt/v1/common_pb';
@@ -23,6 +23,8 @@ export interface AlloyEditorProps {
    * not take back to the text they replaced.
    */
   replaceIsEdit?: boolean;
+  /** Soft-wrap long lines instead of scrolling sideways to them (#307). */
+  lineWrapping?: boolean;
 }
 
 // One frozen default, so a caller that omits `diagnostics` does not hand the
@@ -33,6 +35,11 @@ const NO_DIAGNOSTICS: readonly Diagnostic[] = Object.freeze([]);
 export const alloyTheme = EditorView.theme(
   {
     '&': {
+      // Fill the container so the scroller — and with it the horizontal
+      // scrollbar — ends at the container's bottom edge. Sized to its content
+      // instead, the editor let the container scroll it vertically and put the
+      // only way to reach the rest of a long line below the last line (#307).
+      height: '100%',
       backgroundColor: '#09090b',
       color: '#f4f4f5',
       fontFamily: "'JetBrains Mono Variable', monospace",
@@ -80,9 +87,15 @@ export function AlloyEditor({
   diagnostics = NO_DIAGNOSTICS,
   height = '100%',
   replaceIsEdit = true,
+  lineWrapping = false,
 }: AlloyEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  // Reconfigured in place when `lineWrapping` changes, so toggling it keeps
+  // the document, selection and undo history.
+  const wrapRef = useRef(new Compartment());
+  const lineWrappingRef = useRef(lineWrapping);
+  lineWrappingRef.current = lineWrapping;
 
   // Server diagnostics are pushed into CodeMirror with setDiagnostics — there
   // is no `linter()` source. The source used to read them from a ref and was
@@ -129,6 +142,7 @@ export function AlloyEditor({
       history(),
       lintGutter(),
       keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
+      wrapRef.current.of(lineWrappingRef.current ? EditorView.lineWrapping : []),
     ];
 
     if (readOnly) {
@@ -176,6 +190,12 @@ export function AlloyEditor({
       });
     }
   }, [value]);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: wrapRef.current.reconfigure(lineWrapping ? EditorView.lineWrapping : []),
+    });
+  }, [lineWrapping]);
 
   // Sync diagnostics, clamped to the document as it is now.
   useEffect(() => {

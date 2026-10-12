@@ -365,7 +365,7 @@ test('deleting a destination a wizard pipeline uses says it cannot be deleted an
   );
   await page.goto('/destinations');
 
-  await page.getByRole('button', { name: 'Delete destination' }).click();
+  await page.getByRole('button', { name: 'Delete prom-prod', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
 
