@@ -46,7 +46,7 @@ CodeQL and security-scan runs (38254210623, 38254210692, 38254210664) are green,
 E2E run (38254210547: the agent-protocol suite and the sandbox `e2e-sim` job) and the E2E K8s
 dispatch on it (38254348861). The
 release PR changes only version pins, docs, the rebuilt bundle and one Go comment (the archived
-plan's path in `internal/wizard/tls.go`); its runs on main are pending, recorded after merge. Each row cites the run that last exercised the surface — CI's `changes`
+plan's path in `internal/wizard/tls.go`); on main (`67baf3a`) its CI, CodeQL and security-scan runs (38258883697, 38258883670, 38258883726) are green. **v0.16.0 is released**: tag `v0.16.0` on `67baf3a`, release run 38259974133 (verify, publish, attest, scan of the published images) green. Each row cites the run that last exercised the surface — CI's `changes`
 gate skips the jobs a commit does not touch — so the claim is checkable by run id rather than by
 trusting this table.
 
