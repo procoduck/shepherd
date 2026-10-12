@@ -116,6 +116,19 @@ message Pipeline {
   // account it is true only for an apply-capability credential whose request
   // carries a verified On-Behalf-Of header, as for any machine write.
   bool can_edit = 16;
+  // follows_wizard is output-only (#301): true for a wizard pipeline whose
+  // stored text is still what its wizard last wrote, so a change to a
+  // destination it ships to regenerates it. It is the server's own hand-edit
+  // check — the one UpdateDestination and `shepherd admin
+  // rerender-destinations --all` use to decide between regenerating a
+  // pipeline and refusing it as edited by hand: the text still hashes to the
+  // render fingerprint the last wizard write stored (an editor save that
+  // changes the text clears it; restoring a revision a wizard wrote puts it
+  // back), or, for a pipeline with no fingerprint (written before it
+  // existed), the fresh-render comparison that check falls back to. False
+  // for a hand-edited wizard pipeline and for every pipeline that is not a
+  // wizard pipeline. Ignored on input.
+  bool follows_wizard = 17;
 }
 
 message ListPipelinesRequest {

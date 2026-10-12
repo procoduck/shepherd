@@ -168,7 +168,20 @@ type Pipeline struct {
 	// its source of truth) — callers check source separately. For a service
 	// account it is true only for an apply-capability credential whose request
 	// carries a verified On-Behalf-Of header, as for any machine write.
-	CanEdit       bool `protobuf:"varint,16,opt,name=can_edit,json=canEdit,proto3" json:"can_edit,omitempty"`
+	CanEdit bool `protobuf:"varint,16,opt,name=can_edit,json=canEdit,proto3" json:"can_edit,omitempty"`
+	// follows_wizard is output-only (#301): true for a wizard pipeline whose
+	// stored text is still what its wizard last wrote, so a change to a
+	// destination it ships to regenerates it. It is the server's own hand-edit
+	// check — the one UpdateDestination and `shepherd admin
+	// rerender-destinations --all` use to decide between regenerating a
+	// pipeline and refusing it as edited by hand: the text still hashes to the
+	// render fingerprint the last wizard write stored (an editor save that
+	// changes the text clears it; restoring a revision a wizard wrote puts it
+	// back), or, for a pipeline with no fingerprint (written before it
+	// existed), the fresh-render comparison that check falls back to. False
+	// for a hand-edited wizard pipeline and for every pipeline that is not a
+	// wizard pipeline. Ignored on input.
+	FollowsWizard bool `protobuf:"varint,17,opt,name=follows_wizard,json=followsWizard,proto3" json:"follows_wizard,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -311,6 +324,13 @@ func (x *Pipeline) GetOwnerTeamId() string {
 func (x *Pipeline) GetCanEdit() bool {
 	if x != nil {
 		return x.CanEdit
+	}
+	return false
+}
+
+func (x *Pipeline) GetFollowsWizard() bool {
+	if x != nil {
+		return x.FollowsWizard
 	}
 	return false
 }
@@ -1682,7 +1702,7 @@ const file_shepherd_mgmt_v1_pipeline_proto_rawDesc = "" +
 	"\bcontents\x18\x05 \x01(\tR\bcontents\x12\x1a\n" +
 	"\bmatchers\x18\x06 \x03(\tR\bmatchers\x12\x18\n" +
 	"\aenabled\x18\a \x01(\bR\aenabled\x12:\n" +
-	"\fwizard_state\x18\b \x01(\v2\x17.google.protobuf.StructR\vwizardState\"\xbc\x04\n" +
+	"\fwizard_state\x18\b \x01(\v2\x17.google.protobuf.StructR\vwizardState\"\xe3\x04\n" +
 	"\bPipeline\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06org_id\x18\x02 \x01(\tR\x05orgId\x12\x12\n" +
@@ -1704,7 +1724,8 @@ const file_shepherd_mgmt_v1_pipeline_proto_rawDesc = "" +
 	"\trevisions\x18\r \x03(\v2\".shepherd.mgmt.v1.PipelineRevisionR\trevisions\x12:\n" +
 	"\fwizard_state\x18\x0e \x01(\v2\x17.google.protobuf.StructR\vwizardState\x12\"\n" +
 	"\rowner_team_id\x18\x0f \x01(\tR\vownerTeamId\x12\x19\n" +
-	"\bcan_edit\x18\x10 \x01(\bR\acanEdit\"R\n" +
+	"\bcan_edit\x18\x10 \x01(\bR\acanEdit\x12%\n" +
+	"\x0efollows_wizard\x18\x11 \x01(\bR\rfollowsWizard\"R\n" +
 	"\x14ListPipelinesRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12#\n" +
 	"\rneeds_upgrade\x18\x02 \x01(\bR\fneedsUpgrade\"_\n" +

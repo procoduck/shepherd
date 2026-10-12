@@ -454,6 +454,9 @@ func (s *DestinationService) UpdateDestination(ctx context.Context, req *connect
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to decode destination"))
 	}
+	// #309: only this reply carries it — how many wizard pipelines this
+	// update regenerated, for the UI's confirmation.
+	item.RegeneratedPipelines = int32(len(rerendered)) //nolint:gosec // bounded by one org's pipelines
 	var detail any
 	if len(rerendered) > 0 {
 		detail = map[string]any{"rerendered_pipelines": rerendered}

@@ -48,6 +48,13 @@ interface Pipeline {
   revisions?: PipelineRevision[];
   /** The owning team's id; absent/empty means unowned. */
   owner_team_id?: string;
+  /** Wizard form state; a wizard names its destinations in `<signal>_dest_name` keys. */
+  wizard_state?: Record<string, unknown>;
+  /**
+   * #301: false marks a wizard pipeline hand-edited since its wizard last
+   * wrote it. Absent means a wizard pipeline still follows its wizard.
+   */
+  follows_wizard?: boolean;
 }
 interface PipelineRevision {
   id?: string;

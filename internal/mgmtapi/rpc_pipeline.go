@@ -203,16 +203,18 @@ func pipelineToProto(p sqlc.Pipeline) *mgmtv1.Pipeline {
 	return pb
 }
 
-// pipelineForCaller is pipelineToProto plus the two per-response fields:
+// pipelineForCaller is pipelineToProto plus the per-response fields:
 // revision, the pipeline's current revision as of p (what an editor sends
-// back as UpdatePipelineRequest.expected_revision), and can_edit, the
-// caller's write access to it (F3). revision must never be newer than p's
-// contents — callers pass the number from the same transaction or statement
-// that produced p (GetPipelineWithRevision, or the revision they just wrote).
+// back as UpdatePipelineRequest.expected_revision), can_edit, the caller's
+// write access to it (F3), and follows_wizard (#301, wizardFollows).
+// revision must never be newer than p's contents — callers pass the number
+// from the same transaction or statement that produced p
+// (GetPipelineWithRevision, or the revision they just wrote).
 func pipelineForCaller(ctx context.Context, st *store.Store, orgIDStr string, p sqlc.Pipeline, revision int32) *mgmtv1.Pipeline {
 	pb := pipelineToProto(p)
 	pb.Revision = revision
 	pb.CanEdit = pipelineCanEdit(ctx, st, orgIDStr, pipelineOwnerTeamID(p))
+	pb.FollowsWizard = newWizardFollows(st.Queries, nil).of(ctx, p)
 	return pb
 }
 
@@ -487,9 +489,11 @@ func (s *PipelineService) ListPipelines(ctx context.Context, req *connect.Reques
 	// can_edit depends only on the caller and the pipeline's owner, so it is
 	// decided once per distinct owner ("" = unowned) rather than per row.
 	canEdit := map[string]bool{}
+	follows := newWizardFollows(s.store.Queries, s.logger)
 	items := make([]*mgmtv1.Pipeline, len(pipelines))
 	for i := range pipelines {
 		items[i] = pipelineToProto(pipelines[i])
+		items[i].FollowsWizard = follows.of(ctx, pipelines[i])
 		owner := pipelineOwnerTeamID(pipelines[i])
 		allowed, seen := canEdit[owner]
 		if !seen {

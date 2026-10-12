@@ -1,28 +1,15 @@
-import { useHandEditedWizardRevision } from '@/components/RestoreWizardVersion';
 import { Modal, ModalActions } from '@/components/ui/Modal';
-import type { Pipeline, PipelineRevision } from '@/gen/shepherd/mgmt/v1/pipeline_pb';
+import type { Pipeline } from '@/gen/shepherd/mgmt/v1/pipeline_pb';
 
 /**
  * Whether saving `contents` would hand-edit a wizard pipeline that still
- * follows its wizard: one with no hand edit since its wizard last wrote it
- * (HandEditedBadge's query, shared), whose text this save changes. A save
- * that leaves the text as the wizard wrote it asks nothing.
- *
- * Known limit: the server decides by the render fingerprint, this by text.
- * A pipeline hand-edited and then edited back to its wizard text has lost
- * its fingerprint yet reads here as still following, so it is asked again —
- * the safe direction. Exact parity needs a per-pipeline "follows wizard"
- * field on Pipeline (a proto change, ask-first; #301 tracks it).
+ * follows its wizard (Pipeline.follows_wizard, #301: the server's own
+ * hand-edit verdict) by changing its text. A save that leaves the text as it
+ * is asks nothing, and neither does one to a pipeline already hand-edited:
+ * it stopped following destination changes with its first hand edit.
  */
-export function useWouldHandEdit(
-  pipeline: Pipeline | undefined,
-  revisions: readonly PipelineRevision[],
-  orgId: string,
-  queryOrgId: string,
-  contents: string,
-): boolean {
-  const handEdited = useHandEditedWizardRevision(pipeline, revisions, orgId, queryOrgId);
-  return pipeline?.source === 'wizard' && handEdited == null && contents !== pipeline.contents;
+export function wouldHandEdit(pipeline: Pipeline | undefined, contents: string): boolean {
+  return pipeline?.source === 'wizard' && pipeline.followsWizard && contents !== pipeline.contents;
 }
 
 /**

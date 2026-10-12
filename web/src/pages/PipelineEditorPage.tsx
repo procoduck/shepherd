@@ -5,7 +5,7 @@ import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { clients } from '@/api/transport';
 import { DetachFromWizard } from '@/components/DetachFromWizard';
-import { HandEditConfirmDialog, useWouldHandEdit } from '@/components/HandEditConfirmDialog';
+import { HandEditConfirmDialog, wouldHandEdit } from '@/components/HandEditConfirmDialog';
 import { PipelineActions } from '@/components/PipelineActions';
 import { PipelineEditorToolbar } from '@/components/PipelineEditorToolbar';
 import { OpenInVisualBuilder, PipelineLandingBanner } from '@/components/PipelineLandingBanner';
@@ -26,6 +26,7 @@ import { AlloyEditor, RevisionDiff } from '@/editor/LazyAlloyEditor';
 import { useCanAdminister, useCanWrite, useOrgId } from '@/hooks/useOrg';
 import { type PipelineFormValues, usePipelineForm } from '@/hooks/usePipelineForm';
 import { formError } from '@/lib/formError';
+import { lastWizardRevision } from '@/lib/wizardRevisions';
 
 export function PipelineEditorPage() {
   const { id } = useParams({ strict: false }) as { id?: string };
@@ -195,10 +196,9 @@ export function PipelineEditorPage() {
     (conflict ? null : formError(saveMutation.error, 'Save failed')) ??
     formError(formatMutation.error, 'Cannot format — fix the syntax errors first');
 
-  const wouldHandEdit = useWouldHandEdit(pipeline, revisions, pipelineOrgId, orgId, contents);
   const save = () => {
     formatMutation.reset();
-    if (wouldHandEdit) setConfirmingHandEdit(true);
+    if (wouldHandEdit(pipeline, contents)) setConfirmingHandEdit(true);
     else saveMutation.mutate({});
   };
   const closeHandEdit = () => {
@@ -225,9 +225,7 @@ export function PipelineEditorPage() {
           </h1>
           <HandEditedBadge
             pipeline={pipeline}
-            revisions={revisions}
-            orgId={pipelineOrgId}
-            queryOrgId={orgId}
+            revision={pipeline ? lastWizardRevision(revisions, pipeline.source) : null}
           />
           {!isNew && pipeline && (
             <PipelineActions

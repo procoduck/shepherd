@@ -7,63 +7,54 @@ import { toneClass } from '@/components/ui/statusTone';
 import type { Pipeline, PipelineRevision } from '@/gen/shepherd/mgmt/v1/pipeline_pb';
 import { lastWizardRevision } from '@/lib/wizardRevisions';
 
-/** The newest revision `pipeline`'s wizard wrote, unless it is already the current one. */
+/**
+ * Whether `pipeline` is a wizard pipeline edited by hand since its wizard last
+ * wrote it, so a destination change no longer regenerates it. This is the
+ * server's own verdict, Pipeline.follows_wizard (#301): the check
+ * UpdateDestination makes before it regenerates a pipeline or refuses it as
+ * hand-edited.
+ */
+export function isHandEditedWizardPipeline(pipeline: Pipeline | undefined): boolean {
+  return pipeline?.source === 'wizard' && !pipeline.followsWizard;
+}
+
+/**
+ * The newest revision a hand-edited wizard `pipeline`'s wizard wrote, unless
+ * it is already the current one: the revision whose restore re-attaches the
+ * pipeline to its wizard (RestoreRevision puts back that revision's render
+ * fingerprint). Null for a pipeline that still follows its wizard.
+ */
 function restorableWizardRevision(
   pipeline: Pipeline | undefined,
   revisions: readonly PipelineRevision[],
 ): number | null {
-  if (!pipeline) return null;
+  if (!pipeline || !isHandEditedWizardPipeline(pipeline)) return null;
   const last = lastWizardRevision(revisions, pipeline.source);
   const current = revisions.reduce((max, r) => Math.max(max, r.revision), 0);
   return last != null && last !== current ? last : null;
 }
 
 /**
- * The newest wizard-written revision of `pipeline` when its saved text differs
- * from it — the pipeline was edited by hand since, so a destination change no
- * longer re-renders it (the server cleared its render fingerprint) — else
- * null. Null too while that revision loads. Shares its query with the
- * revision diff view. GetRevision is org-reader, so this works for a viewer.
- */
-export function useHandEditedWizardRevision(
-  pipeline: Pipeline | undefined,
-  revisions: readonly PipelineRevision[],
-  orgId: string,
-  queryOrgId: string,
-): number | null {
-  const revision = restorableWizardRevision(pipeline, revisions);
-  const { data: wizardRevision } = useQuery({
-    queryKey: ['revision', queryOrgId, pipeline?.id, revision],
-    queryFn: () => clients.pipeline.getRevision({ orgId, id: pipeline!.id, revision: revision! }),
-    enabled: revision != null,
-  });
-  if (revision == null || !wizardRevision || wizardRevision.contents === pipeline?.contents) {
-    return null;
-  }
-  return revision;
-}
-
-/**
- * #301: the lasting mark, in the pipeline's header, that a wizard pipeline was
- * edited by hand and stopped following destination changes. The landing
- * banner says so once; this stays for as long as it is true, for every reader
- * (the restore offer below is only for whoever may write).
+ * #301: the lasting mark that a wizard pipeline was edited by hand and stopped
+ * following destination changes, in the pipeline's header and in the
+ * pipelines list. The landing banner says so once; this stays for as long as
+ * it is true, for every reader (the restore offer below is only for whoever
+ * may write). `revision`, when the page knows it, is the wizard's last version.
  */
 export function HandEditedBadge({
   pipeline,
-  revisions,
-  orgId,
-  queryOrgId,
+  revision,
 }: {
   pipeline: Pipeline | undefined;
-  revisions: readonly PipelineRevision[];
-  orgId: string;
-  queryOrgId: string;
+  revision?: number | null;
 }) {
-  const revision = useHandEditedWizardRevision(pipeline, revisions, orgId, queryOrgId);
   const descId = useId();
-  if (revision == null) return null;
-  const description = `Edited by hand since its wizard last generated it (revision #${revision}): it no longer follows destination changes.`;
+  if (!isHandEditedWizardPipeline(pipeline)) return null;
+  const since =
+    revision != null
+      ? `since its wizard last generated it (revision #${revision})`
+      : 'since its wizard last generated it';
+  const description = `Edited by hand ${since}: it no longer follows destination changes.`;
   return (
     <>
       <span
@@ -86,14 +77,17 @@ export function HandEditedBadge({
  * pipeline whose text was edited by hand blocks every change to a
  * destination it ships to, and the refusal tells the person to restore its
  * last wizard-generated revision, detach it, or delete it. This makes the
- * first of those one click: shown while the pipeline's saved text differs
- * from the newest revision its wizard wrote (lib/wizardRevisions), it opens
- * the page's ordinary restore confirmation for that revision — the existing
- * RestoreRevision, nothing new on the server.
+ * first of those one click: shown while the pipeline no longer follows its
+ * wizard (follows_wizard, #301) and has an older revision its wizard wrote
+ * (lib/wizardRevisions), it opens the page's ordinary restore confirmation
+ * for that revision — the existing RestoreRevision, nothing new on the server.
+ * It waits for that revision's contents, which the confirmation's warnings
+ * need (the query is shared with the revision diff view; GetRevision is
+ * org-reader).
  *
  * The page passes no pipeline to a caller who cannot write (UpdatePipeline's
  * rule, which RestoreRevision shares), and it renders nothing for one that is
- * not a wizard pipeline with such a revision.
+ * not a hand-edited wizard pipeline with such a revision.
  */
 export function RestoreWizardVersion({
   pipeline,
@@ -111,8 +105,13 @@ export function RestoreWizardVersion({
   queryOrgId: string;
   onRestore: (revision: number) => void;
 }) {
-  const revision = useHandEditedWizardRevision(pipeline, revisions, orgId, queryOrgId);
-  if (revision == null) return null;
+  const revision = restorableWizardRevision(pipeline, revisions);
+  const { data: wizardRevision } = useQuery({
+    queryKey: ['revision', queryOrgId, pipeline?.id, revision],
+    queryFn: () => clients.pipeline.getRevision({ orgId, id: pipeline!.id, revision: revision! }),
+    enabled: revision != null,
+  });
+  if (revision == null || !wizardRevision) return null;
   return (
     <Banner variant='warning' testId='restore-wizard-version'>
       <p>

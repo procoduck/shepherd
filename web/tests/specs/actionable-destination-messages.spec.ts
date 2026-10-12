@@ -182,6 +182,9 @@ function seedHandEdited(
         name: 'self-mon',
         source: 'wizard',
         contents,
+        // #301: the server's verdict — hand-edited unless the text is still
+        // the wizard's (a restore of revision 2 would make it so).
+        follows_wizard: contents === WIZARD_TEXT,
         matchers: CURRENT_MATCHERS,
         enabled: true,
         revisions: [
@@ -336,8 +339,9 @@ test('no "Restore last wizard version" while the text is what the wizard wrote, 
 
 // #301: the one-time landing banner was the only lasting word that a hand
 // edit detached a wizard pipeline from destination re-renders. The header now
-// says so for as long as the text differs from the last wizard revision — to
-// every reader, not only to whoever may restore it.
+// says so for as long as the server says it no longer follows its wizard
+// (Pipeline.follows_wizard) — to every reader, not only to whoever may
+// restore it.
 test('a hand-edited wizard pipeline is badged in its header, for an editor and a viewer', async ({
   page,
   api,
@@ -360,7 +364,7 @@ test('no hand-edited badge while the text is what the wizard wrote', async ({ pa
   seedHandEdited(api, WIZARD_TEXT);
   await page.goto('/pipelines/pip-hand');
   await expect(page.getByText('Source:').locator('span')).toHaveText('wizard');
-  // The badge renders from GetRevision; wait for it to have answered.
-  await expect.poll(() => api.calls('PipelineService/GetRevision').length).toBeGreaterThan(0);
+  // The badge renders from the pipeline itself (follows_wizard): no revision read.
   await expect(page.getByTestId('pipeline-hand-edited-badge')).toHaveCount(0);
+  expect(api.calls('PipelineService/GetRevision')).toHaveLength(0);
 });

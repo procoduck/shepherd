@@ -53,6 +53,13 @@ message Destination {
   google.protobuf.Struct extra = 10;
   google.protobuf.Timestamp created_at = 11;
   google.protobuf.Timestamp updated_at = 12;
+  // regenerated_pipelines is output-only (#309): the number of wizard
+  // pipelines UpdateDestination re-rendered from their stored state because
+  // of this update (each gets a new revision). Set only in
+  // UpdateDestination's response — zero there when the update changed no
+  // pipeline's text — and always zero in every other response. Ignored on
+  // input.
+  int32 regenerated_pipelines = 13;
 }
 
 message ListDestinationsRequest {

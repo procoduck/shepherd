@@ -3,6 +3,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { Plus } from 'lucide-react';
 import { clients } from '@/api/transport';
 import { QueryError } from '@/components/QueryError';
+import { HandEditedBadge } from '@/components/RestoreWizardVersion';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import type { Pipeline } from '@/gen/shepherd/mgmt/v1/pipeline_pb';
 import { useCanWrite, useOrgId } from '@/hooks/useOrg';
@@ -38,6 +39,9 @@ function pipelineColumns(
           ) : (
             p.source
           )}
+          {/* #301: the server's follows_wizard, so a hand-edited wizard
+              pipeline is visible without opening it. */}
+          <HandEditedBadge pipeline={p} />
           {staleVersions.has(p.id) && (
             <Link
               data-testid='pipeline-stale-render'
