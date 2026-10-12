@@ -277,9 +277,7 @@ func TestDestinationTenantTLS(t *testing.T) {
 					}
 				}
 				// self-monitoring: Alloy's own metrics, plus loki.source.file
-				// on logPath, which the sidecar appends to every second. (Not
-				// app-observability's logs path: its default `stage.logfmt {}`
-				// fails to build in a real Alloy — a separate, pre-existing bug.)
+				// on logPath, which the sidecar appends to every second.
 				commit("self-monitoring", appPipeline, map[string]any{
 					"job_name": "dest-tls", "scrape_interval": "10s",
 					"metrics_dest_name": "sink-prom",
@@ -293,13 +291,16 @@ func TestDestinationTenantTLS(t *testing.T) {
 				})
 
 				end := time.Now().Add(3 * time.Minute)
-				var content, status string
-				// remote_config_status alone is not enough: it can still say
-				// APPLIED for the previous (empty) config while Alloy refuses
-				// the new one. Alloy's own log must show the non-empty config
-				// loaded, and no refusal.
+				var content, status, hashBefore, hashAfter string
+				// APPLIED is presented only when the hash the collector
+				// reported equals the config served now (#286), so APPLIED
+				// read between two reads of the same served hash means Alloy
+				// loaded exactly the final config — not the one served after
+				// the first commit. The served content must also hold both
+				// pipelines, and Alloy's log must show a non-empty load and
+				// no refusal.
 				applied := func() bool {
-					if status != "APPLIED" ||
+					if status != "APPLIED" || hashBefore == "" || hashBefore != hashAfter ||
 						!strings.Contains(content, `declare "pipe_dest_tls_app"`) ||
 						!strings.Contains(content, `declare "pipe_dest_tls_wrong_ca"`) {
 						return false
@@ -311,13 +312,20 @@ func TestDestinationTenantTLS(t *testing.T) {
 					}
 					return loadedNonEmptyRemoteConfigRE.MatchString(logs)
 				}
-				for time.Now().Before(end) {
-					if sc, err := api.fleet.GetServedConfig(ctx, connect.NewRequest(&mgmtv1.GetServedConfigRequest{OrgId: orgID, Id: collectorID})); err == nil {
-						content = sc.Msg.GetContent()
+				served := func() string {
+					sc, err := api.fleet.GetServedConfig(ctx, connect.NewRequest(&mgmtv1.GetServedConfigRequest{OrgId: orgID, Id: collectorID}))
+					if err != nil {
+						return ""
 					}
+					content = sc.Msg.GetContent()
+					return sc.Msg.GetHash()
+				}
+				for time.Now().Before(end) {
+					hashBefore = served()
 					if c, err := api.fleet.GetCollector(ctx, connect.NewRequest(&mgmtv1.GetCollectorRequest{OrgId: orgID, Id: collectorID})); err == nil {
 						status = c.Msg.GetRemoteConfigStatus()
 					}
+					hashAfter = served()
 					if applied() {
 						break
 					}
@@ -339,9 +347,13 @@ func TestDestinationTenantTLS(t *testing.T) {
 						t.Fatalf("served config lacks %q:\n%s", want, content)
 					}
 				}
-				// Certificate material never passes through Shepherd.
+				// Certificate material never passes through Shepherd, and
+				// verification is never switched off.
 				if strings.Contains(content, "BEGIN") {
 					t.Fatalf("the served config contains PEM material:\n%s", content)
+				}
+				if strings.Contains(content, "insecure_skip_verify") {
+					t.Fatalf("the served config switches off certificate verification:\n%s", content)
 				}
 				return ctx
 			}).
@@ -391,13 +403,21 @@ func TestDestinationTenantTLS(t *testing.T) {
 				end = time.Now().Add(2 * time.Minute)
 				for {
 					logs := kubectlArgv(cfg, "-n", alloyNS, "logs", "deploy/"+alloyName, "-c", "alloy", "--tail=400")
-					if strings.Contains(logs, "x509") && strings.Contains(logs, "unknown authority") {
+					if wrongCAUnknownAuthority(logs) {
 						break
 					}
 					if time.Now().After(end) {
 						t.Fatalf("no x509 unknown-authority error from the wrong-CA destination within 2m\n--- alloy logs ---\n%s", logs)
 					}
 					time.Sleep(5 * time.Second)
+				}
+				// The wrong-CA pipeline is now known to be running, so the
+				// sink log read earlier could predate it: read it again and
+				// check nothing arrived without one of the two tenants.
+				for _, r := range destTLSSinkRequests(cfg, f.ns, sinkName) {
+					if r.Tenant != promTenant && r.Tenant != lokiTenant {
+						t.Fatalf("a request reached the sink after the wrong-CA pipeline started, with tenant %q: %+v", r.Tenant, r)
+					}
 				}
 				return ctx
 			}).
@@ -695,4 +715,17 @@ func destTLSCollectorObjects(ns, name, image, shepherdURL, cluster, tokenID, tok
 			},
 		},
 	}
+}
+
+// wrongCAUnknownAuthority reports whether the Alloy log has an x509
+// unknown-authority error from the wrong-CA pipeline itself, not just any
+// component.
+func wrongCAUnknownAuthority(logs string) bool {
+	for _, line := range strings.Split(logs, "\n") {
+		if strings.Contains(line, "pipe_dest_tls_wrong_ca") && strings.Contains(line, "x509") &&
+			strings.Contains(line, "unknown authority") {
+			return true
+		}
+	}
+	return false
 }
