@@ -265,7 +265,9 @@ func WrapForValidation(pipelineName, contents string) string {
 	blockName := "pipe_" + sanitizeName(pipelineName)
 	var sb strings.Builder
 	_, _ = fmt.Fprintf(&sb, "declare %q {\n", blockName)
-	for _, line := range strings.Split(contents, "\n") {
+	// The text's final newline ends its last line rather than adding an
+	// empty one — the merge engine's layout since #308.
+	for _, line := range strings.Split(strings.TrimSuffix(contents, "\n"), "\n") {
 		if line == "" {
 			sb.WriteString("\n")
 		} else {

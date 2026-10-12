@@ -111,6 +111,13 @@ var _ = Describe("UnwrapDiagnostics", func() {
 			"declare \"pipe_p\" {\n  a = 1\n\n  b = 2\n}\npipe_p \"default\" { }\n"))
 	})
 
+	// #308: the merge engine no longer turns a final newline into a blank
+	// line before the closing brace, and this wrap must stay the layout the
+	// engine serves. Red run, executed: the wrap read "  b = 2\n\n}".
+	It("wraps text ending in a newline exactly as text without one", func() {
+		Expect(validate.WrapForValidation("p", contents+"\n")).To(Equal(validate.WrapForValidation("p", contents)))
+	})
+
 	DescribeTable("maps a wrapped position to the user's text",
 		func(line, col, wantLine, wantCol int) {
 			got := validate.UnwrapDiagnostics(contents, []validate.Diagnostic{{Line: line, Col: col, Message: "m", Stage: 2}})

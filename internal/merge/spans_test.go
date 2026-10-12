@@ -27,7 +27,7 @@ var _ = Describe("declare-block spans (#297)", func() {
 	}
 
 	assemble := func(ps ...merge.Pipeline) merge.AssembleResult {
-		res, err := merge.Assemble("c1", "prod/metrics", cl, ps, "test")
+		res, err := merge.Assemble("c1", "prod/metrics", cl, ps)
 		Expect(err).NotTo(HaveOccurred())
 		return res
 	}
