@@ -64,8 +64,9 @@ const loadReadyTimeout = 90 * time.Second
 // configuration to construct a client at all. So the container gets a
 // fake in-cluster environment: a service-account token and CA, and
 // KUBERNETES_SERVICE_HOST pointing at a small TLS server in this process
-// that answers every Secret GET with each key the goldens reference. Every
-// other request it answers 404, which the discovery components only log at
+// that answers every Secret and ConfigMap GET with each key the goldens
+// reference (real PEM for keys a tls_config reads). Every other request it
+// answers 404, which the discovery components only log at
 // run time — a failure there is environmental, never a load refusal.
 //
 // Like AssertGoldensAgainstRealAlloy this calls t.Fatal, never t.Skip, when
@@ -94,6 +95,11 @@ type LoadFixtures struct {
 	// reads through remote.kubernetes.secret, and a key that golden reads
 	// from it, so a fixture cannot silently stop proving anything.
 	SecretData map[string]map[string]string
+	// Absent lists data keys the fake API leaves out of one Secret or
+	// ConfigMap, keyed "namespace/name": a key the object does not hold, as a
+	// misconfigured cluster would have it. Only LoadError takes it — a
+	// golden that must not load is a test of its own, not a golden.
+	Absent map[string][]string
 }
 
 // AssertGoldensLoadInRealAlloyWith is AssertGoldensLoadInRealAlloy with the
@@ -145,7 +151,10 @@ func AssertGoldensLoadInRealAlloyWith(t *testing.T, testdataDir string, fx LoadF
 	}
 
 	checkSecretFixtures(t, contents, fx.SecretData)
-	api := startFakeKubeAPI(t, secretKeysReferenced(contents), fx.SecretData)
+	if len(fx.Absent) > 0 {
+		t.Fatal("LoadFixtures.Absent is for LoadError: every golden must load")
+	}
+	api := startFakeKubeAPI(t, secretKeysReferenced(contents), pemKeysReferenced(contents), fx.SecretData, nil)
 	sa := writeServiceAccount(t, api.caPEM)
 
 	for _, g := range goldens {
@@ -158,6 +167,32 @@ func AssertGoldensLoadInRealAlloyWith(t *testing.T, testdataDir string, fx LoadF
 			}
 		})
 	}
+}
+
+// LoadError loads one config in the pinned Alloy image with the same fake
+// in-cluster surroundings as AssertGoldensLoadInRealAlloy and returns the
+// load error, or nil when Alloy built every component. It is for configs that
+// must NOT load (fx.Absent: a Secret or ConfigMap missing a key the config
+// reads), which a golden cannot express.
+func LoadError(t *testing.T, content string, fx LoadFixtures) error {
+	t.Helper()
+	checkRuntimeErrorsPin(t)
+	docker, err := exec.LookPath("docker")
+	if err != nil {
+		t.Fatal("no docker to run the pinned Alloy image — this guard must not silently pass")
+	}
+	image, ok := ensurePinnedImage(docker)
+	if !ok {
+		t.Fatalf("could not find or pull %s — this guard must not silently pass", pinnedImage())
+	}
+	contents := map[string]string{"config": content}
+	envArgs := make([]string, 0, 2*len(fx.Env))
+	for k, v := range fx.Env {
+		envArgs = append(envArgs, "-e", k+"="+v)
+	}
+	api := startFakeKubeAPI(t, secretKeysReferenced(contents), pemKeysReferenced(contents), fx.SecretData, fx.Absent)
+	sa := writeServiceAccount(t, api.caPEM)
+	return loadInAlloy(t, docker, image, api.port, sa, envArgs, content)
 }
 
 // loadInAlloy runs one config in a throwaway container and waits for the
@@ -392,6 +427,36 @@ func secretKeysReferenced(contents map[string]string) []string {
 	return keys
 }
 
+// pemDataRef matches a tls_config attribute that takes PEM material from a
+// remote.kubernetes.secret or remote.kubernetes.configmap export (#261),
+// capturing the attribute and the data key.
+var pemDataRef = regexp.MustCompile(
+	`\b(ca_pem|cert_pem|key_pem)\s*=\s*(?:string\.format\("%s",\s*)?(?:convert\.nonsensitive\()?remote\.kubernetes\.(?:secret|configmap)\.[A-Za-z0-9_]+\.data\["([^"]+)"\]`)
+
+// pemKeysReferenced maps every data key a golden reads into a tls_config
+// PEM attribute to the material the fake API serves under it. A placeholder
+// there fails the load ("unable to use specified CA cert") for a reason that
+// only exists in this test, so those keys get real PEM.
+//
+// The material follows the key contract (docs/spec.md §11.4), not the
+// attribute that reads it: tls.key is a private key, every other key (tls.crt,
+// ca.crt, an overridden CA key) a certificate. Deriving it from the attribute
+// would mirror the renderer — a render that swapped tls.crt and tls.key would
+// be served a key as cert_pem and a certificate as key_pem and still load.
+func pemKeysReferenced(contents map[string]string) map[string]string {
+	kinds := map[string]string{}
+	for _, c := range contents {
+		for _, m := range pemDataRef.FindAllStringSubmatch(c, -1) {
+			kind := "cert"
+			if m[2] == "tls.key" {
+				kind = "key"
+			}
+			kinds[m[2]] = kind
+		}
+	}
+	return kinds
+}
+
 // secretBlockRef matches a remote.kubernetes.secret block as wizards render
 // it, capturing its label, namespace and name.
 var secretBlockRef = regexp.MustCompile(
@@ -431,14 +496,22 @@ type fakeKubeAPI struct {
 	caPEM []byte
 }
 
-var secretPath = regexp.MustCompile(`^/api/v1/namespaces/([^/]+)/secrets/([^/]+)$`)
+var (
+	secretPath    = regexp.MustCompile(`^/api/v1/namespaces/([^/]+)/secrets/([^/]+)$`)
+	configMapPath = regexp.MustCompile(`^/api/v1/namespaces/([^/]+)/configmaps/([^/]+)$`)
+)
 
-// startFakeKubeAPI serves the one Kubernetes API call a component makes
-// while being built (a Secret GET) over TLS, with a self-signed certificate
-// valid for the name the container reaches this process by. It listens on
-// every interface because on Linux host.docker.internal resolves to the
-// docker bridge address, not loopback.
-func startFakeKubeAPI(t *testing.T, keys []string, overrides map[string]map[string]string) fakeKubeAPI {
+// startFakeKubeAPI serves the Kubernetes API calls a component makes while
+// being built (a Secret or ConfigMap GET) over TLS, with a self-signed
+// certificate valid for the name the container reaches this process by. Its
+// own certificate and key double as the PEM material for pemKeys — enough
+// for Alloy to parse a CA, a client certificate and its key at load. No TLS
+// handshake to a destination happens here, so this proves the render reads
+// the right keys into the right attributes, not that the CA verifies a chain
+// (e2e/k8s/destination_tls_test.go does that). It listens on every
+// interface because on Linux host.docker.internal resolves to the docker
+// bridge address, not loopback.
+func startFakeKubeAPI(t *testing.T, keys []string, pemKeys map[string]string, overrides map[string]map[string]string, absent map[string][]string) fakeKubeAPI {
 	t.Helper()
 	certPEM, keyPEM := selfSignedCert(t)
 	cert, err := tls.X509KeyPair(certPEM, keyPEM)
@@ -446,18 +519,44 @@ func startFakeKubeAPI(t *testing.T, keys []string, overrides map[string]map[stri
 		t.Fatalf("load fake kube API certificate: %v", err)
 	}
 
-	data := map[string]string{}
+	plain := map[string]string{}
 	for _, k := range keys {
 		v := "placeholder-" + k
 		if strings.Contains(k, "url") {
 			v = "https://auth.example.com/oauth2/token"
 		}
+		switch pemKeys[k] {
+		case "cert":
+			v = string(certPEM)
+		case "key":
+			v = string(keyPEM)
+		}
+		plain[k] = v
+	}
+	data := make(map[string]string, len(plain))
+	for k, v := range plain {
 		data[k] = base64.StdEncoding.EncodeToString([]byte(v))
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if m := configMapPath.FindStringSubmatch(r.URL.Path); m != nil && r.Method == http.MethodGet {
+			served := make(map[string]string, len(plain))
+			for k, v := range plain {
+				served[k] = v
+			}
+			for _, k := range absent[m[1]+"/"+m[2]] {
+				delete(served, k)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck // test fake; a write error surfaces as the client's failure
+				"apiVersion": "v1",
+				"kind":       "ConfigMap",
+				"metadata":   map[string]any{"namespace": m[1], "name": m[2]},
+				"data":       served,
+			})
+			return
+		}
 		if m := secretPath.FindStringSubmatch(r.URL.Path); m != nil && r.Method == http.MethodGet {
 			served := make(map[string]string, len(data))
 			for k, v := range data {
@@ -465,6 +564,9 @@ func startFakeKubeAPI(t *testing.T, keys []string, overrides map[string]map[stri
 			}
 			for k, v := range overrides[m[1]+"/"+m[2]] {
 				served[k] = base64.StdEncoding.EncodeToString([]byte(v))
+			}
+			for _, k := range absent[m[1]+"/"+m[2]] {
+				delete(served, k)
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck // test fake; a write error surfaces as the client's failure
 				"apiVersion": "v1",
@@ -479,7 +581,7 @@ func startFakeKubeAPI(t *testing.T, keys []string, overrides map[string]map[stri
 		_ = json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck // test fake
 			"apiVersion": "v1", "kind": "Status", "status": "Failure",
 			"reason": "NotFound", "code": http.StatusNotFound,
-			"message": "the wizard load test's fake API serves Secrets only",
+			"message": "the wizard load test's fake API serves Secrets and ConfigMaps only",
 		})
 	})
 

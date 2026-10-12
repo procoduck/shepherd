@@ -611,8 +611,8 @@ prometheus.remote_write "metrics" {
 As built, every wizard writer (`prometheus.remote_write`, `loki.write`) is emitted by one function,
 `internal/wizard.RenderWriter`, from the org's destination row the wizard's `*_dest_name` field
 names. A name the org does not have, or a destination of the wrong type, is refused
-(`failed_precondition`). The destination's `tenant_id` is rendered (§11.4); TLS options are not
-rendered yet (#261).
+(`failed_precondition`). The destination's `tenant_id` and TLS options are rendered too (§11.4,
+#261).
 
 ### 11.3 Logs template (shape)
 
@@ -650,6 +650,19 @@ collectors, which an org editor could already tag with any header in a raw pipel
 touch the gateway tier's ingress tenancy (D10/D11, `docs/plans/2026-10-06-destination-tenant-tls.md`
 §2). A tenant already stored before #261 reaches a pipeline on its next regeneration.
 
+**TLS (#261).** `extra.tls` (`wizard.ExtraKeyTLS`, no proto change) names objects on the spoke,
+never certificate material: `{"ca": {"kind": "configmap"|"secret", "namespace", "name", "key"?},
+"client_cert": {"namespace", "name"}, "server_name"}`, every part optional. The CA is read from
+`key`, default `ca.crt`; the client certificate Secret holds `tls.crt` and `tls.key`
+(`kubernetes.io/tls`). Rendered into the writer's `tls_config`: `ca_pem` (through
+`convert.nonsensitive` when read from a Secret), `cert_pem = convert.nonsensitive(…["tls.crt"])`,
+`key_pem = …["tls.key"]`, `server_name`, after a `remote.kubernetes.configmap`/`secret` per distinct
+object (an object named twice — auth and client certificate in one Secret — is read once).
+`wizard.ParseTLS` decodes strictly: an unknown key is refused, so there is no
+`insecure_skip_verify`. The API refuses (`invalid_argument`) a malformed `extra.tls`, a reference
+that is not a valid namespace/name, a client certificate that is not a Secret, an illegal CA key,
+a non-hostname `server_name`, and any TLS option on a URL that is not `https://`.
+
 **Key contract (#229)** — `internal/wizard.SecretKeys`:
 
 | `auth_mode` | Secret keys | Rendered into the writer's `endpoint` |
@@ -681,7 +694,7 @@ hand-edited when its contents no longer hash to its render fingerprint
 (`wizard_render_sha256`); with no fingerprint (written before migration 0030, or cleared by an
 editor write) the check falls back to comparing it, byte for byte, with its render against the
 destinations as they stood before the update, or with that render with every destination's tenant
-cleared (the pre-#261 renderer did not render a tenant) — the latter only while the pipeline's
+and TLS option cleared (the pre-#261 renderer rendered neither) — the latter only while the pipeline's
 latest wizard-written revision (`created` / `re-rendered: …`) still holds exactly its contents, so
 a hand edit that deleted a rendered `X-Scope-OrgID` is not mistaken for old output. That fallback
 is also tried when the render against the old destinations fails on a stored tenant (one outside
@@ -703,10 +716,19 @@ them, offers "Restore last wizard version" (`RestoreRevision` of that revision; 
 says when it also changes the matchers or the enabled state). Pipelines rendered before #229 (the `sys.env` writer) are converted
 once by `shepherd admin rerender-destinations`.
 
-**RBAC.** The collector's ServiceAccount needs `get`, `list` and `watch` on `secrets` in the
-Secret's namespace. The `grafana/alloy` chart's default ClusterRole grants this cluster-wide. A
-collector with restricted RBAC needs a Role and RoleBinding in that namespace
-(`e2e/k8s/destination_auth_test.go` runs with exactly that).
+**RBAC.** The collector's ServiceAccount needs `get` on `secrets` in the Secret's namespace:
+`remote.kubernetes.secret` GETs the one named Secret at load and on each poll and never lists or
+watches (`list`/`watch` are harmless extras). The `grafana/alloy` chart's default ClusterRole grants
+Secret access cluster-wide. A collector with restricted RBAC needs a Role and RoleBinding in that
+namespace (`e2e/k8s/destination_auth_test.go` runs with get/list/watch on secrets). A TLS CA in a
+ConfigMap needs `get` on `configmaps` in its namespace (`remote.kubernetes.configmap` reads the same
+way).
+
+**Missing data keys.** A key the Secret or ConfigMap does not hold reads as null, which Alloy takes
+as "not set". A missing `tls.crt` or `tls.key` still refuses the load (the other half of the pair
+is then unmatched); a missing CA key does not — the collector runs with the system roots and fails
+at send time with x509 errors. No Alloy expression can make the CA fail at load: a ConfigMap's data
+is not yet there when the writer is first evaluated (verified on Alloy v1.20.1).
 
 ---
 
