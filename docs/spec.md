@@ -716,11 +716,19 @@ them, offers "Restore last wizard version" (`RestoreRevision` of that revision; 
 says when it also changes the matchers or the enabled state). Pipelines rendered before #229 (the `sys.env` writer) are converted
 once by `shepherd admin rerender-destinations`.
 
-**RBAC.** The collector's ServiceAccount needs `get`, `list` and `watch` on `secrets` in the
-Secret's namespace. The `grafana/alloy` chart's default ClusterRole grants this cluster-wide. A
-collector with restricted RBAC needs a Role and RoleBinding in that namespace
-(`e2e/k8s/destination_auth_test.go` runs with exactly that). A TLS CA in a ConfigMap needs the same
-verbs on `configmaps` in its namespace.
+**RBAC.** The collector's ServiceAccount needs `get` on `secrets` in the Secret's namespace:
+`remote.kubernetes.secret` GETs the one named Secret at load and on each poll and never lists or
+watches (`list`/`watch` are harmless extras). The `grafana/alloy` chart's default ClusterRole grants
+Secret access cluster-wide. A collector with restricted RBAC needs a Role and RoleBinding in that
+namespace (`e2e/k8s/destination_auth_test.go` runs with get/list/watch on secrets). A TLS CA in a
+ConfigMap needs `get` on `configmaps` in its namespace (`remote.kubernetes.configmap` reads the same
+way).
+
+**Missing data keys.** A key the Secret or ConfigMap does not hold reads as null, which Alloy takes
+as "not set". A missing `tls.crt` or `tls.key` still refuses the load (the other half of the pair
+is then unmatched); a missing CA key does not — the collector runs with the system roots and fails
+at send time with x509 errors. No Alloy expression can make the CA fail at load: a ConfigMap's data
+is not yet there when the writer is first evaluated (verified on Alloy v1.20.1).
 
 ---
 

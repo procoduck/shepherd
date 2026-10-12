@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { EMPTY_TLS, extraWithTLS, tlsFromExtra, tlsIsSet } from './DestinationTLSFields';
+import {
+  EMPTY_TLS,
+  extraWithTLS,
+  k8sFieldError,
+  tlsFromExtra,
+  tlsIsSet,
+} from './DestinationTLSFields';
 
 // extra.tls (#261) must round-trip exactly what internal/wizard.ParseTLS
 // accepts: strict keys, the CA key only when it overrides ca.crt.
@@ -59,5 +65,20 @@ describe('destination TLS extra', () => {
   it('reads a missing or malformed tls as empty', () => {
     expect(tlsFromExtra(undefined)).toEqual(EMPTY_TLS);
     expect(tlsFromExtra({ tls: 'yes' })).toEqual(EMPTY_TLS);
+  });
+});
+
+describe('k8sFieldError (mirrors the server rules)', () => {
+  it('accepts valid namespaces, names and keys, and empty fields', () => {
+    expect(k8sFieldError('namespace', 'monitoring')).toBeUndefined();
+    expect(k8sFieldError('name', 'backend-ca.v2')).toBeUndefined();
+    expect(k8sFieldError('key', 'trust-bundle.pem')).toBeUndefined();
+    expect(k8sFieldError('namespace', '')).toBeUndefined();
+  });
+  it('refuses what the server refuses', () => {
+    expect(k8sFieldError('namespace', 'Monitoring')).toMatch(/namespace/);
+    expect(k8sFieldError('namespace', 'a.b')).toMatch(/namespace/);
+    expect(k8sFieldError('name', 'backend_ca')).toMatch(/object name/);
+    expect(k8sFieldError('key', 'ca crt')).toMatch(/data key/);
   });
 });

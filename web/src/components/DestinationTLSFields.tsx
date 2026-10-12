@@ -93,6 +93,29 @@ export function extraWithTLS(stored: JsonObject, t: TLSFormState): JsonObject {
   return { ...rest, [TLS_KEY]: tls };
 }
 
+// The server's rules (internal/wizard/destination.go k8sNamespaceRE /
+// k8sNameRE, tls.go dataKeyRE), mirrored so a typo shows next to its field;
+// the server still decides.
+const NAMESPACE_RE = /^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/;
+const NAME_RE = /^[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?$/;
+const KEY_RE = /^[-._a-zA-Z0-9]+$/;
+
+/** The inline error for a namespace/name/key field, or undefined. */
+export function k8sFieldError(kind: 'namespace' | 'name' | 'key', v: string): string | undefined {
+  const t = v.trim();
+  if (t === '') return undefined;
+  if (kind === 'namespace' && !NAMESPACE_RE.test(t)) {
+    return 'Not a Kubernetes namespace: lowercase letters, digits and -, at most 63 characters.';
+  }
+  if (kind === 'name' && !NAME_RE.test(t)) {
+    return 'Not a Kubernetes object name: lowercase letters, digits, - and ., at most 253 characters.';
+  }
+  if (kind === 'key' && !KEY_RE.test(t)) {
+    return 'Not a data key: letters, digits, -, _ and . only.';
+  }
+  return undefined;
+}
+
 export function DestinationTLSFields({
   value,
   onChange,
@@ -118,6 +141,17 @@ export function DestinationTLSFields({
   return (
     <fieldset className='space-y-3 rounded-md border border-border px-3 py-3'>
       <legend className='px-1 text-xs font-medium text-muted'>TLS</legend>
+      <button
+        type='button'
+        data-testid='tls-remove'
+        onClick={() => {
+          onChange(EMPTY_TLS);
+          setOpen(false);
+        }}
+        className='float-right text-2xs text-muted hover:text-text'
+      >
+        Remove TLS options
+      </button>
       <p data-testid='tls-explanation' className='text-2xs text-muted'>
         For a backend behind a private CA or one that requires a client certificate. The collector
         reads the certificates from a Secret or ConfigMap on each spoke cluster; Shepherd stores
@@ -138,7 +172,11 @@ export function DestinationTLSFields({
       </Field>
       {value.caKind !== '' && (
         <div className='flex gap-3'>
-          <Field label='CA namespace' className='flex-1'>
+          <Field
+            label='CA namespace'
+            className='flex-1'
+            error={k8sFieldError('namespace', value.caNamespace)}
+          >
             <Input
               value={value.caNamespace}
               onChange={(e) => set({ caNamespace: e.target.value })}
@@ -147,7 +185,7 @@ export function DestinationTLSFields({
               placeholder='monitoring'
             />
           </Field>
-          <Field label='CA name' className='flex-1'>
+          <Field label='CA name' className='flex-1' error={k8sFieldError('name', value.caName)}>
             <Input
               value={value.caName}
               onChange={(e) => set({ caName: e.target.value })}
@@ -156,7 +194,12 @@ export function DestinationTLSFields({
               placeholder='backend-ca'
             />
           </Field>
-          <Field label='CA key' className='flex-1' optional>
+          <Field
+            label='CA key'
+            className='flex-1'
+            optional
+            error={k8sFieldError('key', value.caKey)}
+          >
             <Input
               value={value.caKey}
               onChange={(e) => set({ caKey: e.target.value })}
@@ -176,7 +219,11 @@ export function DestinationTLSFields({
       </label>
       {value.clientCert && (
         <div className='flex gap-3'>
-          <Field label='Client certificate Secret namespace' className='flex-1'>
+          <Field
+            label='Client certificate Secret namespace'
+            className='flex-1'
+            error={k8sFieldError('namespace', value.clientNamespace)}
+          >
             <Input
               value={value.clientNamespace}
               onChange={(e) => set({ clientNamespace: e.target.value })}
@@ -185,7 +232,11 @@ export function DestinationTLSFields({
               placeholder='monitoring'
             />
           </Field>
-          <Field label='Client certificate Secret name' className='flex-1'>
+          <Field
+            label='Client certificate Secret name'
+            className='flex-1'
+            error={k8sFieldError('name', value.clientName)}
+          >
             <Input
               value={value.clientName}
               onChange={(e) => set({ clientName: e.target.value })}

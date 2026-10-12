@@ -566,3 +566,26 @@ test('a tenant ID outside the allowed characters is refused before submit', asyn
   await expect(dialog.getByText(/no slashes or spaces/)).toBeVisible();
   expect(api.calls('DestinationService/CreateDestination')).toHaveLength(0);
 });
+
+// Review of #280: an opened TLS section can be removed again, and a malformed
+// Secret/ConfigMap reference is flagged next to its field before submit.
+test('TLS options can be removed, and bad references are flagged inline', async ({ page, api }) => {
+  await api.loginAs(orgAdmin);
+  const s = basicScenario();
+  api.seed({ orgs: [s.org], destinations: [] });
+  await page.goto('/destinations');
+
+  await page.getByRole('button', { name: /new|create|add destination/i }).click();
+  const dialog = page.getByRole('dialog', { name: 'New destination' });
+  await dialog.getByRole('button', { name: /TLS options/ }).click();
+  await dialog.getByLabel('Trusted CA').selectOption({ label: 'From a ConfigMap' });
+  await dialog.getByLabel('CA namespace', { exact: true }).fill('Cert_Manager');
+  await expect(dialog.getByText(/Not a Kubernetes namespace/)).toBeVisible();
+  // The error renders inside the field's label, so its name gains the message.
+  await dialog.getByLabel(/^CA namespace/).fill('cert-manager');
+  await expect(dialog.getByText(/Not a Kubernetes namespace/)).toHaveCount(0);
+
+  await dialog.getByTestId('tls-remove').click();
+  await expect(dialog.getByLabel('Trusted CA')).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: /TLS options/ })).toBeVisible();
+});

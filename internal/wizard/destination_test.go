@@ -366,3 +366,47 @@ func TestRenderWriterQuotesURL(t *testing.T) {
 		t.Fatalf("the URL was not escaped into one literal:\n%s", got)
 	}
 }
+
+// TestWriterTLSMissingKeyFailsLoad pins the review of #280: a client
+// certificate Secret missing tls.crt or tls.key must refuse the load rather
+// than run without a client certificate. Each case first loads with every key
+// present (the control), then with one key absent. A missing CA key cannot be
+// caught at load (see renderTLS); the docs say so.
+func TestWriterTLSMissingKeyFailsLoad(t *testing.T) {
+	byName := map[string]int{}
+	for i, tc := range writerGoldenCases {
+		byName[tc.golden] = i
+	}
+	cases := []struct {
+		golden, object, key, want string
+	}{
+		{"writer-loki-mtls-shared-auth-secret", "monitoring/loki-credentials", "tls.crt", "cert_pem"},
+		{"writer-loki-mtls-shared-auth-secret", "monitoring/loki-credentials", "tls.key", "key_pem"},
+		{"writer-prometheus-mtls-cert-manager", "monitoring/collector-mtls", "tls.crt", "cert_pem"},
+		{"writer-prometheus-mtls-cert-manager", "monitoring/collector-mtls", "tls.key", "key_pem"},
+	}
+	for _, c := range cases {
+		t.Run(c.golden+"/without-"+c.key, func(t *testing.T) {
+			t.Parallel()
+			i, ok := byName[c.golden]
+			if !ok {
+				t.Fatalf("no writer golden case %s", c.golden)
+			}
+			tc := writerGoldenCases[i]
+			cfg, err := wizard.RenderWriter(tc.kind, tc.label, wizard.Destinations{tc.dest.Name: tc.dest}, tc.dest.Name)
+			if err != nil {
+				t.Fatalf("RenderWriter: %v", err)
+			}
+			if err := wizardtest.LoadError(t, cfg, wizardtest.LoadFixtures{}); err != nil {
+				t.Fatalf("control: with every key present the config must load: %v", err)
+			}
+			err = wizardtest.LoadError(t, cfg, wizardtest.LoadFixtures{Absent: map[string][]string{c.object: {c.key}}})
+			if err == nil {
+				t.Fatalf("with %s missing from %s the config loaded — the collector would run with the attribute unset", c.key, c.object)
+			}
+			if !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("load failed, but not on the missing key (want %q): %v", c.want, err)
+			}
+		})
+	}
+}

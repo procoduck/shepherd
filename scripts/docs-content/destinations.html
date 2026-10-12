@@ -115,6 +115,14 @@ prometheus.remote_write "metrics" {
         <li>There is no option to skip certificate verification: it would let the Secret-backed
           credentials above be sent to anyone on the path. Trust the backend&rsquo;s CA
           instead.</li>
+        <li><strong>Check the CA key name.</strong> If the Secret or ConfigMap has no data key by
+          that name, Alloy treats the CA as unset: the collector loads and reports healthy, then
+          trusts only the system roots and fails at send time with x509 <em>unknown
+          authority</em>. A missing <code>tls.crt</code> or <code>tls.key</code> is caught
+          earlier &mdash; the collector refuses the whole config.</li>
+        <li>These options apply to the writer&rsquo;s endpoint only. An OAuth2 destination&rsquo;s
+          token URL is fetched without them, so a token endpoint behind a private CA still needs
+          a CA the collector&rsquo;s system trust store already has.</li>
       </ul>
       <p>The served config holds only the references and key names:</p>
       <div class="code-block" data-lang="alloy">
@@ -137,15 +145,17 @@ prometheus.remote_write "metrics" {
 }</code></pre>
       </div>
 
-      <h2 id="rbac">What the collector needs to read the Secret</h2>
+      <h2 id="rbac">What the collector needs to read Secrets and ConfigMaps</h2>
       <p>The collector&rsquo;s service account needs <code>get</code> on Secrets in the
         Secret&rsquo;s namespace: <code>remote.kubernetes.secret</code> reads the one named Secret
         with a GET when the config loads and again every minute, and never lists or watches. The
         Grafana Alloy Helm chart, and so k8s-monitoring&rsquo;s collectors, grants Secret access
-        cluster-wide by default. If your collectors run with narrower RBAC, grant it in that one
-        namespace. A destination whose CA is in a ConfigMap needs the same on
-        <code>configmaps</code> in that namespace. The Role below also grants <code>list</code>
-        and <code>watch</code>, which are not needed:</p>
+        cluster-wide by default; check what your chart version grants for ConfigMaps. If your
+        collectors run with narrower RBAC, grant it in that one namespace. A destination whose CA
+        is in a ConfigMap needs <code>get</code> on <code>configmaps</code> in that namespace
+        (<code>remote.kubernetes.configmap</code> reads the same way) &mdash; the second rule
+        below. The first rule also grants <code>list</code> and <code>watch</code>, which are
+        not needed:</p>
       <div class="code-block" data-lang="yaml">
         <div class="code-head"><span>rbac.yaml</span><button class="copy-btn" type="button">Copy</button></div>
         <pre><code>apiVersion: rbac.authorization.k8s.io/v1
@@ -157,6 +167,9 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -172,8 +185,8 @@ subjects:
     name: &lt;collector service account&gt;
     namespace: &lt;collector namespace&gt;</code></pre>
       </div>
-      <p>Shepherd&rsquo;s Kubernetes test suite runs a real Alloy with exactly this Role and checks
-        that its remote-write requests carry the Secret&rsquo;s credentials.</p>
+      <p>Shepherd&rsquo;s Kubernetes test suite runs a real Alloy with this Role&rsquo;s Secret
+        rule and checks that its remote-write requests carry the Secret&rsquo;s credentials.</p>
 
       <h2 id="changes">When a change takes effect</h2>
       <p>The writer, auth block included, is generated when a wizard is previewed or committed. It

@@ -211,6 +211,19 @@ func dataRef(kind ObjectKind, label, key string) string {
 // map(secret) and ca_pem/cert_pem are strings, so those go through
 // convert.nonsensitive (as #229 does for username); a ConfigMap's data is
 // map(string). key_pem is a secret and is never converted.
+//
+// A data key the object does not hold reads as null, and Alloy takes a null
+// PEM attribute as "not set" (verified on Alloy v1.20.1). For the client
+// certificate that is harmless: a missing tls.crt or tls.key leaves the other
+// half alone and Alloy refuses the load ("exactly one of cert_pem or
+// cert_file must be configured when a client key is configured", and the
+// key_pem twin) — TestWriterTLSMissingKeyFailsLoad pins both. A missing CA
+// key cannot be caught at load: the collector runs with the system roots and
+// fails at send time with x509 "unknown authority". No expression closes
+// this — convert.nonsensitive(null) and string.trim_space(null) pass, and
+// string.format("%s", …) also refuses a ConfigMap CA whose key exists,
+// because Alloy first evaluates the writer before remote.kubernetes.configmap
+// has its data. destinations.html#tls tells operators to check the CA key.
 func renderTLS(sb *strings.Builder, reads *objectReads, label string, t *TLS) {
 	if t.Empty() {
 		return
