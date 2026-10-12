@@ -331,6 +331,13 @@ func (s *PipelineService) checkVisualRenderMatch(_ context.Context, clientConten
 // own org id with its pipeline id. A mismatch is reported as NotFound rather than
 // PermissionDenied so the response does not confirm the pipeline exists.
 func (s *PipelineService) loadPipeline(ctx context.Context, orgIDStr, idStr string) (sqlc.Pipeline, error) {
+	return loadOrgPipeline(ctx, s.store, orgIDStr, idStr)
+}
+
+// loadOrgPipeline is loadPipeline's body, callable without a *PipelineService
+// (VisualService authorizes Render/Validate/UpgradeCheck against a named
+// pipeline, #319).
+func loadOrgPipeline(ctx context.Context, st *store.Store, orgIDStr, idStr string) (sqlc.Pipeline, error) {
 	id, err := scanUUID(idStr)
 	if err != nil {
 		return sqlc.Pipeline{}, connect.NewError(connect.CodeInvalidArgument, errPipelineIDInvalid)
@@ -339,7 +346,7 @@ func (s *PipelineService) loadPipeline(ctx context.Context, orgIDStr, idStr stri
 	if err != nil {
 		return sqlc.Pipeline{}, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid org id"))
 	}
-	p, err := s.store.Queries.GetPipelineByID(ctx, id)
+	p, err := st.Queries.GetPipelineByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return sqlc.Pipeline{}, connect.NewError(connect.CodeNotFound, errPipelineNotFound)

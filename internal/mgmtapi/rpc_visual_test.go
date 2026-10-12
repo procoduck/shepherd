@@ -145,9 +145,10 @@ var _ = Describe("shepherd.mgmt.v1.VisualService", Label("integration"), func() 
 		Expect(allowed["content"]).To(ContainSubstring(`otelcol.exporter.debug "debug"`))
 	})
 
-	It("denies Render for a session without org-admin access", func() {
+	It("denies Render of a new graph for a session without org-editor access", func() {
 		body := map[string]any{"org_id": orgID, "graph": minimalGraph()}
-		// GraphView is org-reader, but Render requires org-admin.
+		// GraphView is org-reader, but Render of a new graph (no pipeline_id)
+		// requires org-editor (#319: decided in the handler, not the interceptor).
 		resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/Render", readerCookie, body)
 		defer resp.Body.Close() //nolint:errcheck // test cleanup
 		Expect(resp.StatusCode).To(Equal(http.StatusForbidden))

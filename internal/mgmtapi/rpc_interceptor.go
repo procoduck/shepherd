@@ -146,7 +146,8 @@ var procedureRequirements = map[string]string{
 	mgmtv1connect.GitOpsServiceCreateRepoLinkProcedure:   auth.RoleOrgAdmin,
 	mgmtv1connect.GitOpsServiceDeleteRepoLinkProcedure:   auth.RoleOrgAdmin,
 
-	// WizardService, VisualService and SimulateService — org EDITOR.
+	// WizardService and SimulateService — org EDITOR (VisualService's authoring
+	// procedures too, decided in its handler — see below).
 	//
 	// These author what the org RUNS. Changing what the org IS —
 	// destinations, tenant routes, git credentials, teams, service accounts —
@@ -157,10 +158,15 @@ var procedureRequirements = map[string]string{
 	mgmtv1connect.WizardServiceRenderWizardProcedure:    auth.RoleOrgEditor,
 	mgmtv1connect.WizardServiceCommitWizardProcedure:    auth.RoleOrgEditor,
 
-	// VisualService — org editor, except GraphView (org reader).
-	mgmtv1connect.VisualServiceRenderProcedure:        auth.RoleOrgEditor,
-	mgmtv1connect.VisualServiceValidateProcedure:      auth.RoleOrgEditor,
-	mgmtv1connect.VisualServiceUpgradeCheckProcedure:  auth.RoleOrgEditor,
+	// VisualService — Render/Validate/UpgradeCheck are org reader HERE, like
+	// PipelineService's writes, and decided per request in the handler
+	// (VisualService.authorizeGraph, #319): edit rights on the named pipeline
+	// when pipeline_id is set — the UpdatePipeline check, so an owning-team
+	// member may use the builder on their team's pipeline — and org editor for
+	// a new, unsaved graph. GraphView and DiffRevisions are org reader.
+	mgmtv1connect.VisualServiceRenderProcedure:        auth.RoleOrgReader,
+	mgmtv1connect.VisualServiceValidateProcedure:      auth.RoleOrgReader,
+	mgmtv1connect.VisualServiceUpgradeCheckProcedure:  auth.RoleOrgReader,
 	mgmtv1connect.VisualServiceGraphViewProcedure:     auth.RoleOrgReader,
 	mgmtv1connect.VisualServiceDiffRevisionsProcedure: auth.RoleOrgReader,
 

@@ -706,7 +706,7 @@ floor per service:
 | `FleetService`, `DestinationService`, `TenantRouteService`, `TeamService` | reads: org reader · writes: org admin |
 | `PipelineService` | reads: org reader · writes: org reader at the interceptor, then a per-pipeline check in the handler (`auth.AuthorizeOwnership`) — an org editor or above may write any pipeline, anyone else only a pipeline owned by a team they belong to; `ValidatePipeline` and `FormatPipeline` stay org reader; `SetPipelineOwner` is org admin |
 | `WizardService`, `SimulateService` | org editor |
-| `VisualService` | org editor; `GraphView` and `DiffRevisions` are org reader |
+| `VisualService` | `Render`, `Validate`, `UpgradeCheck`: org reader at the interceptor, then decided in the handler — with a `pipeline_id`, the same per-pipeline check as a `PipelineService` write (an owning-team member may use the visual builder on their team's pipeline); without one (a new, unsaved graph), org editor · `GraphView` and `DiffRevisions`: org reader |
 | `GitOpsService`, `AuditService`, `ServiceAccountService` | org admin |
 
 **What `/api` still serves.** Only what the Connect contract deliberately leaves out

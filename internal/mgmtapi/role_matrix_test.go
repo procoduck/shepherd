@@ -130,8 +130,11 @@ var _ = Describe("Connect role matrix: org-editor rung, CSRF", Label("integratio
 	const pipelineIDPlaceholder = "$ROLE_MATRIX_PIPELINE_ID$"
 
 	// A viewer (org-reader) is denied every org-editor-gated authoring
-	// procedure — WizardService, VisualService, SimulateService all sit at
-	// auth.RoleOrgEditor, strictly above reader. These are pinning
+	// procedure — WizardService and SimulateService sit at auth.RoleOrgEditor,
+	// strictly above reader; VisualService's Render/Validate/UpgradeCheck hold
+	// the same floor for a NEW graph (no pipeline_id), enforced in the handler
+	// since #319 (VisualService.authorizeGraph) — their per-pipeline,
+	// per-persona matrix is visual_ownership_test.go. These are pinning
 	// duplicates of coverage that already exists per-service
 	// (rpc_wizard_test.go, rpc_simulate_test.go); gathered here so the whole
 	// editor-floor shape is visible in one table. ListWizards and
@@ -155,6 +158,17 @@ var _ = Describe("Connect role matrix: org-editor rung, CSRF", Label("integratio
 			map[string]any{"kind": "app-observability", "name": "n", "state": map[string]any{}}),
 		Entry("WizardService/ListWizards", "/shepherd.mgmt.v1.WizardService/ListWizards", map[string]any{}),
 		Entry("VisualService/Validate", "/shepherd.mgmt.v1.VisualService/Validate", map[string]any{"graph": map[string]any{}}),
+		// #319: a new graph (no pipeline_id) stays org-editor in the handler.
+		// Red run: authorizeGraph's empty-pipeline_id branch returning nil made
+		// these three fail (403 became 200/400).
+		Entry("VisualService/Render (new graph)", "/shepherd.mgmt.v1.VisualService/Render", map[string]any{"graph": map[string]any{}}),
+		Entry("VisualService/UpgradeCheck (new graph)", "/shepherd.mgmt.v1.VisualService/UpgradeCheck", map[string]any{"graph": map[string]any{}}),
+		// #319: naming a pipeline the reader may not edit (this one is unowned,
+		// so org-editor-or-above only) is refused by the ownership check. Red
+		// run: authorizeGraph returning nil instead of
+		// authorizePipelineOwnership made this fail (403 became 400).
+		Entry("VisualService/Render (unowned pipeline)", "/shepherd.mgmt.v1.VisualService/Render",
+			map[string]any{"graph": map[string]any{}, "pipeline_id": pipelineIDPlaceholder}),
 		Entry("SimulateService/SimulateRelabel", "/shepherd.mgmt.v1.SimulateService/SimulateRelabel",
 			map[string]any{"rules": []any{}, "sample_targets": []any{}}),
 		// F-REVISIONS backend: RestoreRevision's interceptor row is the same
@@ -187,6 +201,8 @@ var _ = Describe("Connect role matrix: org-editor rung, CSRF", Label("integratio
 		},
 		Entry("WizardService/ListWizards", "/shepherd.mgmt.v1.WizardService/ListWizards", map[string]any{}),
 		Entry("VisualService/Validate", "/shepherd.mgmt.v1.VisualService/Validate", map[string]any{"graph": map[string]any{}}),
+		Entry("VisualService/Render", "/shepherd.mgmt.v1.VisualService/Render", map[string]any{"graph": map[string]any{}}),
+		Entry("VisualService/UpgradeCheck", "/shepherd.mgmt.v1.VisualService/UpgradeCheck", map[string]any{"graph": map[string]any{}}),
 		Entry("SimulateService/SimulateRelabel", "/shepherd.mgmt.v1.SimulateService/SimulateRelabel",
 			map[string]any{"rules": []any{}, "sample_targets": []any{}}),
 		Entry("PipelineService/ValidatePipeline", "/shepherd.mgmt.v1.PipelineService/ValidatePipeline",

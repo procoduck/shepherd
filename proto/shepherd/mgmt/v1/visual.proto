@@ -8,9 +8,11 @@ option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 
 // VisualService renders, validates and diffs visual graphs, and serves the
 // pipeline graph view.
-// Render/Validate/UpgradeCheck require org-editor (D6, the same authoring
-// ceiling WizardService and SimulateService hold); GraphView requires
-// org-reader.
+// Render/Validate/UpgradeCheck require edit rights on the named pipeline when
+// the request's pipeline_id is set (org-editor, or a member of the pipeline's
+// owning team — the check UpdatePipeline makes), and org-editor otherwise (a
+// new, unsaved graph: D6, the same authoring ceiling WizardService and
+// SimulateService hold). GraphView and DiffRevisions require org-reader.
 service VisualService {
   rpc Render(RenderRequest) returns (RenderResponse) {}
   rpc Validate(ValidateVisualRequest) returns (ValidateVisualResponse) {}
@@ -131,6 +133,11 @@ message VisualDiagnostic {
 message RenderRequest {
   string org_id = 1;
   GraphDocument graph = 2;
+  // pipeline_id names the existing pipeline this graph is being edited for.
+  // Set: the caller must be allowed to edit that pipeline (org-editor, or a
+  // team owner per AuthorizeOwnership — the UpdatePipeline check).
+  // Empty: a new, unsaved graph — org-editor required.
+  string pipeline_id = 3;
 }
 
 // RenderResponse is a visual graph rendered to Alloy config.
@@ -145,6 +152,8 @@ message RenderResponse {
 message ValidateVisualRequest {
   string org_id = 1;
   GraphDocument graph = 2;
+  // pipeline_id: same semantics as RenderRequest.pipeline_id.
+  string pipeline_id = 3;
 }
 
 // VisualNodeDiagnostic mirrors the per-diagnostic object built by
@@ -183,6 +192,8 @@ message ValidateVisualResponse {
 message UpgradeCheckRequest {
   string org_id = 1;
   GraphDocument graph = 2;
+  // pipeline_id: same semantics as RenderRequest.pipeline_id.
+  string pipeline_id = 3;
 }
 
 // UpgradeItem mirrors internal/visual.UpgradeItem. class is one of the

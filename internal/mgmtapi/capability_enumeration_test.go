@@ -66,7 +66,8 @@ func TestEveryProcedureHasAnAuthzRequirement(t *testing.T) {
 // (read straight off the descriptor) rather than from procedureRequirements'
 // role values is deliberate: several org-admin-gated procedures are reads
 // gated admin-only for VISIBILITY (ListAudit, ListCredentials,
-// TestCredential, VisualService.Render/Validate/UpgradeCheck,
+// TestCredential, VisualService.Render/Validate/UpgradeCheck (editor-or-owner,
+// decided in the handler since #319),
 // SimulateService's whole surface) — role level alone cannot distinguish
 // "admin-only read" from "write", so this test does not try to.
 var writeVerbPrefixes = []string{

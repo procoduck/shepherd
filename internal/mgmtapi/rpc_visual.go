@@ -15,6 +15,7 @@ import (
 
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
+	"shepherd/internal/auth"
 	"shepherd/internal/schema"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
@@ -123,12 +124,48 @@ func (s *VisualService) orgAllowsExperimental(ctx context.Context, orgID string)
 	return o.AllowExperimentalComponents
 }
 
+// authorizeGraph is the per-request half of Render/Validate/UpgradeCheck's
+// authorization (#319). Their interceptor row is org-reader — it only proves
+// "has some access to this org" — and the decision is made here, before the
+// graph is touched:
+//
+//   - pipeline_id empty (a new, unsaved graph): org-editor, the authoring
+//     ceiling these procedures held before #319, evaluated exactly as the
+//     interceptor would (a service account by tier, a session by role).
+//   - pipeline_id set: the pipeline must be in the request's org (another
+//     org's id is NotFound, as on every PipelineService path), and the caller
+//     must pass the checks UpdatePipeline makes — requireWriteAuthorized, then
+//     authorizePipelineOwnership against the pipeline's owning team. So an
+//     owning-team member below org editor may render, validate and
+//     upgrade-check the graph of a pipeline they may save, and nobody gets
+//     more here than Pipeline.can_edit says they have.
+//
+// Nothing else in these handlers reads stored data the caller supplied an id
+// for: the graph is the caller's own request, and the experimental gate keys
+// on org_id, which this check (or the org-editor one) has already scoped.
+func (s *VisualService) authorizeGraph(ctx context.Context, orgID, pipelineID string) error {
+	if pipelineID == "" {
+		return authorizeProcedure(ctx, s.store, auth.SessionFromCtx(ctx), orgID, auth.RoleOrgEditor)
+	}
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return err
+	}
+	p, err := loadOrgPipeline(ctx, s.store, orgID, pipelineID)
+	if err != nil {
+		return err
+	}
+	return authorizePipelineOwnership(ctx, s.store, orgID, pipelineOwnerTeamID(p))
+}
+
 // Render renders a visual graph document to Alloy config. When the render
 // step produces L1 diagnostics (e.g. a label collision), the response still
 // carries them in Diagnostics rather than as a connect error: the answer is
 // 200 with the diagnostics embedded, the "ride in a Diagnostics message"
 // contract from the design doc.
 func (s *VisualService) Render(ctx context.Context, req *connect.Request[mgmtv1.RenderRequest]) (*connect.Response[mgmtv1.RenderResponse], error) {
+	if err := s.authorizeGraph(ctx, req.Msg.GetOrgId(), req.Msg.GetPipelineId()); err != nil {
+		return nil, err
+	}
 	result, doc, payload, err := s.renderGraph(req.Msg.GetGraph())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
@@ -148,6 +185,9 @@ func (s *VisualService) Render(ctx context.Context, req *connect.Request[mgmtv1.
 // then Stage1+2 Alloy validation on the rendered content (L2). Diagnostics
 // from either layer ride in the response rather than as a connect error.
 func (s *VisualService) Validate(ctx context.Context, req *connect.Request[mgmtv1.ValidateVisualRequest]) (*connect.Response[mgmtv1.ValidateVisualResponse], error) {
+	if err := s.authorizeGraph(ctx, req.Msg.GetOrgId(), req.Msg.GetPipelineId()); err != nil {
+		return nil, err
+	}
 	result, doc, payload, err := s.renderGraph(req.Msg.GetGraph())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
@@ -190,7 +230,10 @@ func (s *VisualService) Validate(ctx context.Context, req *connect.Request[mgmtv
 }
 
 // UpgradeCheck reports whether a visual graph document needs a schema upgrade.
-func (s *VisualService) UpgradeCheck(_ context.Context, req *connect.Request[mgmtv1.UpgradeCheckRequest]) (*connect.Response[mgmtv1.UpgradeCheckResponse], error) {
+func (s *VisualService) UpgradeCheck(ctx context.Context, req *connect.Request[mgmtv1.UpgradeCheckRequest]) (*connect.Response[mgmtv1.UpgradeCheckResponse], error) {
+	if err := s.authorizeGraph(ctx, req.Msg.GetOrgId(), req.Msg.GetPipelineId()); err != nil {
+		return nil, err
+	}
 	if s.schema == nil {
 		return nil, connect.NewError(connect.CodeUnavailable, errSchemaUnavailable)
 	}

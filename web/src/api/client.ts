@@ -102,11 +102,16 @@ export interface VisualRenderResult {
   diagnostics: unknown[];
 }
 
+// #319: Render/Validate/UpgradeCheck are authorized per pipeline. `pipelineId`
+// names the saved pipeline the graph belongs to — whoever may edit it may call
+// them — and is '' (omitted) for a new, unsaved graph, which stays org-editor.
+
 export async function renderVisual(
   orgId: string,
   graph: LocalGraphDocument,
+  pipelineId = '',
 ): Promise<VisualRenderResult> {
-  const res = await clients.visual.render({ orgId, graph: toWireGraph(graph) });
+  const res = await clients.visual.render({ orgId, pipelineId, graph: toWireGraph(graph) });
   const nodeMap: Record<string, { start_line: number; end_line: number }> = {};
   for (const [key, value] of Object.entries(res.nodeMap)) {
     nodeMap[key] = { start_line: value.startLine, end_line: value.endLine };
@@ -117,8 +122,9 @@ export async function renderVisual(
 export async function validateVisual(
   orgId: string,
   graph: LocalGraphDocument,
+  pipelineId = '',
 ): Promise<{ diagnostics: unknown[] }> {
-  const res = await clients.visual.validate({ orgId, graph: toWireGraph(graph) });
+  const res = await clients.visual.validate({ orgId, pipelineId, graph: toWireGraph(graph) });
   return { diagnostics: res.diagnostics };
 }
 
@@ -149,8 +155,9 @@ export interface UpgradeCheckResult {
 export async function upgradeCheck(
   orgId: string,
   graph: LocalGraphDocument,
+  pipelineId = '',
 ): Promise<UpgradeCheckResult> {
-  const res = await clients.visual.upgradeCheck({ orgId, graph: toWireGraph(graph) });
+  const res = await clients.visual.upgradeCheck({ orgId, pipelineId, graph: toWireGraph(graph) });
   return {
     old_version: res.oldVersion,
     new_version: res.newVersion,

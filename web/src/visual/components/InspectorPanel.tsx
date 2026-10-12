@@ -11,7 +11,7 @@ import { nextBlockOrder, withAttr } from './inspector/blockOps';
 import { buildPortWireIndex, wireCountsFor, wireEdgesFor } from './inspector/portWiring';
 import { InspectorReadOnlyContext } from './inspector/readOnly';
 import type { AttrLike, BlockLike } from './inspector/schemaShapes';
-import { useReadOnlyReason } from './Toolbar';
+import { READ_ONLY_REASON } from './Toolbar';
 import { UpgradeReview } from './UpgradeReview';
 
 const diagAt = (diags: L1DiagnosticEx[], path: string[]): string | undefined =>
@@ -65,10 +65,10 @@ export function InspectorPanel() {
   const setDisabled = useVisualStore((s) => s.setDisabled);
   const updateNode = useVisualStore((s) => s.updateNode);
   const moveEdge = useVisualStore((s) => s.moveEdge);
-  // #226: a viewer reads the selected node's properties but cannot change
-  // them. Set from useCanWrite() by VisualBuilderPage.
+  // #226: someone who may not edit the pipeline reads the selected node's
+  // properties but cannot change them. Set by VisualBuilderPage (#319).
   const readOnly = useVisualStore((s) => s.readOnly);
-  const readOnlyReason = useReadOnlyReason();
+  const readOnlyReason = READ_ONLY_REASON;
   const [reviewOpen, setReviewOpen] = useState(false);
   const [showOptional, setShowOptional] = useState(false);
   const def: ComponentDef | undefined = node && schema?.components[node.component];

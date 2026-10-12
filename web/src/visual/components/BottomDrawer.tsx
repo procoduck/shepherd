@@ -7,11 +7,11 @@ import {
   simulateRelabel,
   type TargetTrace,
 } from '../../api/client';
-import { useCanWrite, useOrgId } from '../../hooks/useOrg';
+import { useOrgId } from '../../hooks/useOrg';
 import { renderTS } from '../renderTS';
 import { useVisualStore } from '../store';
 import { useDebouncedValue } from '../useDebouncedValue';
-import { useReadOnlyReason } from './Toolbar';
+import { READ_ONLY_REASON, useSimulateDisabledReason } from './Toolbar';
 
 const DRAWER_TABS = ['problems', 'code', 'simulate'] as const;
 type DrawerTab = (typeof DRAWER_TABS)[number];
@@ -34,10 +34,13 @@ export function BottomDrawer() {
   const selected = useVisualStore((s) => s.selected);
   const setSelected = useVisualStore((s) => s.setSelected);
   const orgId = useOrgId();
-  // Server render (Verify) and the simulators are org-editor RPCs; a viewer
-  // sees the tabs but cannot run them (#206).
-  const readOnly = !useCanWrite();
-  const readOnlyReason = useReadOnlyReason();
+  // Server render (Verify) is authorized like an edit of the pipeline on the
+  // canvas (#319), so it follows the builder's read-only flag; the simulators
+  // stay org-editor RPCs. Either way the tabs show and the button says why it
+  // cannot run (#206).
+  const readOnly = useVisualStore((s) => s.readOnly);
+  const pipelineId = useVisualStore((s) => s.pipelineId);
+  const simulateDisabledReason = useSimulateDisabledReason();
   const [simulateTab, setSimulateTab] = useState<'relabel' | 'logs'>('relabel');
   const [relabelResult, setRelabelResult] = useState<{ traces: TargetTrace[] }>();
   const [logsResult, setLogsResult] = useState<{ traces: LineTrace[] }>();
@@ -109,7 +112,7 @@ export function BottomDrawer() {
   const verify = async () => {
     if (!orgId || !rendered) return;
     const content = rendered.content;
-    const server = await renderVisual(orgId, doc);
+    const server = await renderVisual(orgId, doc, pipelineId);
     setVerified({ outcome: server.content === content ? 'match' : 'mismatch', content });
   };
   const selectedNode =
@@ -138,8 +141,8 @@ export function BottomDrawer() {
           className='border rounded px-2 py-1 text-xs disabled:opacity-50 disabled:cursor-not-allowed'
           data-testid='simulate-relabel-run'
           onClick={runRelabel}
-          disabled={readOnly}
-          title={readOnly ? readOnlyReason : undefined}
+          disabled={!!simulateDisabledReason}
+          title={simulateDisabledReason}
         >
           Run
         </button>
@@ -182,8 +185,8 @@ export function BottomDrawer() {
           className='border rounded px-2 py-1 text-xs disabled:opacity-50 disabled:cursor-not-allowed'
           data-testid='simulate-logs-run'
           onClick={runLogs}
-          disabled={readOnly}
-          title={readOnly ? readOnlyReason : undefined}
+          disabled={!!simulateDisabledReason}
+          title={simulateDisabledReason}
         >
           Run
         </button>
@@ -318,7 +321,7 @@ export function BottomDrawer() {
                 className='border rounded px-2 py-1 text-xs mb-2 disabled:opacity-50 disabled:cursor-not-allowed'
                 onClick={verify}
                 disabled={readOnly}
-                title={readOnly ? readOnlyReason : undefined}
+                title={readOnly ? READ_ONLY_REASON : undefined}
               >
                 Verify render
               </button>

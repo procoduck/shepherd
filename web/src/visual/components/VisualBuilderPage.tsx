@@ -6,6 +6,8 @@ import { clients, toApiError } from '../../api/transport';
 import { useCanWrite, useOrg } from '../../hooks/useOrg';
 import {
   clearDraft,
+  type DraftMeta,
+  draftMetaOf,
   loadDraftWithBase,
   saveDraft,
   shouldOfferRestore,
@@ -54,14 +56,25 @@ export function VisualBuilderPage() {
   const { orgId, orgs, setOrgId } = useOrg();
   const prevPipelineIdRef = useRef<string | null>(null);
 
-  // #226: a viewer may pan, zoom and select, but not edit. The canvas and
-  // inspector read this flag to stop offering edits; the store also refuses
-  // every graph mutation while it holds. A layout effect, so the first paint
-  // a viewer sees is already read-only.
+  // #226: someone who may not edit may pan, zoom and select, but not edit.
+  // The canvas and inspector read this flag to stop offering edits; the store
+  // also refuses every graph mutation while it holds. A layout effect, so the
+  // first paint is already read-only.
+  //
+  // #319: a saved pipeline is editable exactly when its own can_edit says so
+  // — the server authorizes Render/Validate/UpgradeCheck for a named pipeline
+  // by that rule, so an owning-team member below org editor uses the builder
+  // on their team's pipeline. A new graph stays on the org role (org editor).
   const canWrite = useCanWrite();
+  const pipelineCanEdit = useVisualStore((s) => s.pipelineCanEdit);
+  const editable = pipelineId === 'new' ? canWrite : pipelineCanEdit;
   useLayoutEffect(() => {
-    useVisualStore.getState().setReadOnly(!canWrite);
-  }, [canWrite]);
+    useVisualStore.getState().setReadOnly(!editable);
+  }, [editable]);
+  // The pipeline the server authorizes the builder's calls against (#319).
+  useLayoutEffect(() => {
+    useVisualStore.getState().setPipelineId(pipelineId === 'new' ? '' : pipelineId);
+  }, [pipelineId]);
 
   // Use a ref to the store action to avoid including it in the effect deps
   // (Zustand action references are stable but the selector creates new refs each render)
@@ -88,6 +101,9 @@ export function VisualBuilderPage() {
   const [loadState, setLoadState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draftToRestore, setDraftToRestore] = useState<GraphDocument | null>(null);
+  // The offered draft's name and matchers (#319); null for a draft saved
+  // before they were kept, which restores the graph alone.
+  const [draftMeta, setDraftMeta] = useState<DraftMeta | null>(null);
   // The server revision the offered draft was edited from (F1); null for a
   // draft saved before that was recorded, whose age is unknown.
   const [draftBase, setDraftBase] = useState<number | null>(null);
@@ -189,11 +205,12 @@ export function VisualBuilderPage() {
   // this happened before autosave re-subscribes, so it would otherwise wait
   // for the next edit) and the banner is dismissed, which resumes autosave.
   //
-  // Only a change to the graph's content counts — nodes, edges, bindings.
-  // setSchema stamping the served version onto a fresh doc (which can land
-  // after the check) and a pan/zoom are not the user continuing from here.
-  // Restore's own importGraph also passes through here; that saves the
-  // restored draft over itself, which is harmless.
+  // Only a change to the graph's content counts — nodes, edges, bindings —
+  // or to the name or matchers (#319). setSchema stamping the served version
+  // onto a fresh doc (which can land after the check) and a pan/zoom are not
+  // the user continuing from here. Restore's own importGraph also passes
+  // through here; that saves the restored draft over itself, which is
+  // harmless.
   useEffect(() => {
     if (!draftToRestore) return;
     const unsubscribe = useVisualStore.subscribe((state, prev) => {
@@ -201,12 +218,14 @@ export function VisualBuilderPage() {
       if (
         doc.nodes === prev.doc.nodes &&
         doc.edges === prev.doc.edges &&
-        doc.bindings === prev.doc.bindings
+        doc.bindings === prev.doc.bindings &&
+        state.pipelineName === prev.pipelineName &&
+        state.matchers === prev.matchers
       ) {
         return;
       }
       unsubscribe();
-      saveDraft(pipelineId, doc, state.pipelineRevision).catch(console.error);
+      saveDraft(pipelineId, doc, state.pipelineRevision, draftMetaOf(state)).catch(console.error);
       setDraftToRestore(null);
     });
     return unsubscribe;
@@ -226,9 +245,11 @@ export function VisualBuilderPage() {
     loadDraftWithBase(pipelineId)
       .then((draft) => {
         if (cancelled) return;
-        const current = useVisualStore.getState().doc;
-        if (draft && shouldOfferRestore(draft.doc, current)) {
+        const state = useVisualStore.getState();
+        const currentMeta = { name: state.pipelineName, matchers: state.matchers };
+        if (draft && shouldOfferRestore(draft.doc, state.doc, draft.meta, currentMeta)) {
           setDraftBase(draft.baseRevision);
+          setDraftMeta(draft.meta);
           setDraftToRestore(draft.doc);
         }
       })
@@ -315,8 +336,8 @@ export function VisualBuilderPage() {
         // The revision this graph is loaded at, which Save sends back as
         // expected_revision (F1).
         useVisualStore.getState().setPipelineRevision(pipeline.revision);
-        // Only what a read-only builder says depends on this (Toolbar's
-        // useReadOnlyReason); the builder itself stays role-gated.
+        // Whether this builder is editable (#319): the pipeline's own
+        // can_edit, the rule the server authorizes its Render by.
         useVisualStore.getState().setPipelineCanEdit(pipeline.canEdit);
         if (isWellFormedGraphDocument(rawWizardState)) {
           useVisualStore.getState().importGraph(rawWizardState);
@@ -405,6 +426,10 @@ export function VisualBuilderPage() {
                 useVisualStore.getState().setPipelineRevision(draftBase);
               }
               useVisualStore.getState().importGraph(draftToRestore);
+              // #319: the draft's name and matchers come back with its graph.
+              if (draftMeta) {
+                useVisualStore.getState().setPipelineMeta(draftMeta.name, draftMeta.matchers);
+              }
               setDraftToRestore(null);
             }}
           >
