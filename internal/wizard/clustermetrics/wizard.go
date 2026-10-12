@@ -47,7 +47,7 @@ func (w *Wizard) Schema() wizard.Schema {
 	return wizard.Schema{
 		Kind:        Kind,
 		Title:       "Cluster Metrics",
-		Description: "Collect Kubernetes cluster and node metrics — kubelet, cAdvisor and kube-state-metrics.",
+		Description: "Collect per-container CPU, memory and network metrics from cAdvisor on every node a collector runs on.",
 		Steps: []wizard.Step{
 			{
 				ID:    "scrape",

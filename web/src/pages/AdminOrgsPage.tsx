@@ -128,17 +128,27 @@ export function AdminOrgsPage() {
   const updateMut = useMutation({
     mutationFn: async () => {
       const orgId = editOrg?.id ?? '';
-      const updated = await clients.admin.updateOrg({ orgId, ...editForm });
+      // The tenant step runs FIRST (#302): it is the step that refuses
+      // (format, already taken, already set), and running it after UpdateOrg
+      // meant a refusal came only once the org fields and their org.update
+      // audit row were already written. Once it succeeds the open dialog
+      // shows the tenant as set, so a retry after a failed UpdateOrg does not
+      // send the set-once value again.
       const tenantId = editTenantId.trim();
-      if (!editOrg?.tenantId && tenantId) {
-        return clients.admin.setOrgTenantID({ orgId, tenantId });
+      if (editOrg && !editOrg.tenantId && tenantId) {
+        const withTenant = await clients.admin.setOrgTenantID({ orgId, tenantId });
+        // Only refresh a dialog that is still open on this org: one the user
+        // closed mid-save stays closed.
+        setEditOrg((cur) => (cur?.id === withTenant.id ? withTenant : cur));
+        invalidate();
       }
-      return updated;
+      return clients.admin.updateOrg({ orgId, ...editForm });
     },
-    onSuccess: () => {
+    onSuccess: (saved) => {
       toast.success('Organisation updated');
       invalidate();
-      setEditOrg(null);
+      // Close the dialog for this org only — not one opened since on another.
+      setEditOrg((cur) => (cur?.id === saved.id ? null : cur));
     },
   });
 

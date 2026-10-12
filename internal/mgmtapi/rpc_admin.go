@@ -228,7 +228,18 @@ func (s *AdminService) UpdateOrg(ctx context.Context, req *connect.Request[mgmtv
 	if strings.TrimSpace(msg.GetAdminGroupId()) == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("admin_group_id required"))
 	}
-	o, err := s.store.Queries.UpdateOrg(ctx, sqlc.UpdateOrgParams{
+	// Every check above runs before anything is written. The update and its
+	// org.update audit row then commit together (#302): the row used to be a
+	// best-effort insert after the update had committed, so an edit could land
+	// without its audit row. An audit insert that fails now rolls the edit back.
+	tx, err := s.store.Pool().Begin(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to start org update"))
+	}
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed; rollback error on the success path is expected and harmless
+	txQ := s.store.Queries.WithTx(tx)
+
+	o, err := txQ.UpdateOrg(ctx, sqlc.UpdateOrgParams{
 		ID:                          id,
 		DisplayName:                 msg.GetDisplayName(),
 		AdminGroupID:                msg.GetAdminGroupId(),
@@ -239,9 +250,18 @@ func (s *AdminService) UpdateOrg(ctx context.Context, req *connect.Request[mgmtv
 		AllowLocalAttributeMatching: msg.GetAllowLocalAttributeMatching(),
 	})
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, errors.New("org not found"))
+		}
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to update org"))
 	}
-	auditLog(ctx, s.store, actorFromCtx(ctx), o.ID, "org.update", "org", o.ID.String())
+	if err := auditInsert(ctx, txQ, actorFromCtx(ctx), "user", o.ID, "org.update", "org", o.ID.String(), nil); err != nil {
+		s.logger.Warn("update org: audit insert failed, rolling back", "org_id", o.ID, "err", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to record org update"))
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to commit org update"))
+	}
 	return connect.NewResponse(toOrgProto(o)), nil
 }
 

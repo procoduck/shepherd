@@ -155,6 +155,61 @@ var _ = Describe("shepherd.mgmt.v1 AdminService and MeService RPC", Label("integ
 			Expect(updated2["allowLocalAttributeMatching"]).To(BeTrue())
 		})
 
+		// #302: UpdateOrg wrote its org.update audit row best-effort AFTER the
+		// update had committed, so the two could disagree. The update and its
+		// audit row now commit together: an audit insert that fails rolls the
+		// edit back, and a refused edit leaves no audit row.
+		Describe("UpdateOrg's update and audit row are one transaction (#302)", func() {
+			// RAW-SQL-OK: test-only reads and a trigger forcing the audit insert
+			// to fail — there is no sqlc query for either, and this is a _test.go file.
+			countUpdateAudits := func() int {
+				var n int
+				Expect(st.Pool().QueryRow(ctx,
+					`SELECT count(*) FROM audit_log WHERE action = 'org.update'`).Scan(&n)).To(Succeed())
+				return n
+			}
+			displayName := func() string {
+				o, err := st.Queries.GetOrgByID(ctx, mustUUID(orgIDStr))
+				Expect(err).NotTo(HaveOccurred())
+				return o.DisplayName
+			}
+
+			It("rolls the edit back when its audit row cannot be written", func() {
+				_, err := st.Pool().Exec(ctx, `
+					CREATE FUNCTION refuse_org_update_audit() RETURNS trigger AS $$
+					BEGIN
+						IF NEW.action = 'org.update' THEN RAISE EXCEPTION 'audit refused'; END IF;
+						RETURN NEW;
+					END $$ LANGUAGE plpgsql;
+					CREATE TRIGGER refuse_org_update_audit BEFORE INSERT ON audit_log
+						FOR EACH ROW EXECUTE FUNCTION refuse_org_update_audit();`)
+				Expect(err).NotTo(HaveOccurred())
+
+				resp := postConnect("/shepherd.mgmt.v1.AdminService/UpdateOrg", map[string]any{
+					"orgId": orgIDStr, "displayName": "Renamed", "adminGroupId": "admin-rpc-admin-group",
+				}, createSession(true, nil))
+				Expect(resp.StatusCode).To(Equal(http.StatusInternalServerError))
+				Expect(displayName()).To(Equal("Admin RPC Org"), "the edit must not commit without its audit row")
+			})
+
+			It("writes no audit row for a refused edit and exactly one for an accepted one", func() {
+				appAdmin := createSession(true, nil)
+				refused := postConnect("/shepherd.mgmt.v1.AdminService/UpdateOrg", map[string]any{
+					"orgId": orgIDStr, "displayName": "Renamed", "adminGroupId": "  ",
+				}, appAdmin)
+				Expect(refused.StatusCode).To(Equal(http.StatusBadRequest))
+				Expect(countUpdateAudits()).To(BeZero())
+				Expect(displayName()).To(Equal("Admin RPC Org"))
+
+				ok := postConnect("/shepherd.mgmt.v1.AdminService/UpdateOrg", map[string]any{
+					"orgId": orgIDStr, "displayName": "Renamed", "adminGroupId": "admin-rpc-admin-group",
+				}, appAdmin)
+				Expect(ok.StatusCode).To(Equal(http.StatusOK))
+				Expect(countUpdateAudits()).To(Equal(1))
+				Expect(displayName()).To(Equal("Renamed"))
+			})
+		})
+
 		It("denies ListOrgs for an org-admin session that is not an app admin", func() {
 			orgAdmin := createSession(false, []string{"admin-rpc-admin-group"})
 

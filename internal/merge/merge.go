@@ -134,6 +134,10 @@ type AssembleResult struct {
 	// out of Content because of role enforcement (see WithRoleEnforcement).
 	// Empty when enforcement was not requested or excluded nothing.
 	Exclusions []Exclusion
+	// Spans is where each included pipeline's declare block sits in Content,
+	// in Content's order (#297). Metadata only — it never changes Content or
+	// Hash — and Spans(Content) recovers exactly the same map from the bytes.
+	Spans []BlockSpan
 }
 
 // Assemble builds the merged Alloy configuration for a collector.
@@ -230,15 +234,22 @@ func Assemble(collectorID, collectorDisplayName string, cl CollectorLabels, pipe
 		seen[blockName] = p.Name
 	}
 
-	// Declare-wrapped blocks.
+	// Declare-wrapped blocks. linesWritten tracks the 1-based line numbers
+	// each block lands on, for its BlockSpan (#297) — metadata only, the
+	// bytes written are unchanged by it.
+	linesWritten := strings.Count(sb.String(), "\n")
+	spans := make([]BlockSpan, 0, len(selected))
 	for i, p := range selected {
 		if i > 0 {
 			sb.WriteString("\n")
+			linesWritten++
 		}
 		blockName := "pipe_" + SanitizeName(p.Name)
 		fmt.Fprintf(&sb, "declare %q {\n", blockName)
+		declareLine := linesWritten + 1
 		// Indent pipeline contents by one level.
-		for _, line := range strings.Split(p.Contents, "\n") {
+		contentLines := strings.Split(p.Contents, "\n")
+		for _, line := range contentLines {
 			if line == "" {
 				sb.WriteString("\n")
 			} else {
@@ -247,10 +258,15 @@ func Assemble(collectorID, collectorDisplayName string, cl CollectorLabels, pipe
 		}
 		sb.WriteString("}\n")
 		fmt.Fprintf(&sb, "%s \"default\" { }\n", blockName)
+		linesWritten = declareLine + len(contentLines) + 2
+		spans = append(spans, BlockSpan{
+			PipelineName: p.Name, BlockName: blockName,
+			DeclareLine: declareLine, EndLine: linesWritten,
+		})
 	}
 
 	content := sb.String()
-	return AssembleResult{Content: content, Hash: HashContent(content), Exclusions: exclusions}, nil
+	return AssembleResult{Content: content, Hash: HashContent(content), Exclusions: exclusions, Spans: spans}, nil
 }
 
 // HashContent computes hex(sha256(content)).
