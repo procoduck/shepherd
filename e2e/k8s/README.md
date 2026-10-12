@@ -8,11 +8,11 @@ make e2e-k8s          # build images, create cluster, run, destroy
 make e2e-k8s-clean    # remove clusters a killed run left behind
 ```
 
-The suite is thirteen `func Test*` entries today (`grep -h '^func Test' e2e/k8s/*_test.go | grep -vc TestMain`:
+The suite is fourteen `func Test*` entries today (`grep -h '^func Test' e2e/k8s/*_test.go | grep -vc TestMain`:
 CNI negative control, Helm install with defaults, Helm install with the simulator on, repeatable
 install, chart-provisioned CNPG/ESO dependencies, simulator containment probes, simulator
 containment kill probe, Gateway operator-owned attachment, Gateway route conformance/tenant
-isolation, receiver-tier pass-through tenancy through a real Alloy (R3, `receiver_tenancy_test.go`), tenant-route apply — a route created through the Connect API applied by Shepherd's reconciler under the chart's RBAC (`tenant_route_apply_test.go`), chart-values G10 — generated values installed with the real k8s-monitoring chart register a collector that is served a pipeline (`chart_values_test.go`), destination Secret auth — a `basic_secret` destination's Secret, read by a real Alloy with namespace-scoped RBAC, authenticates its remote-write requests (`destination_auth_test.go`, #229)). Measured 2026-09-15 on CI run 34973037471 (the v0.7.0 release PR): the `make e2e-k8s`
+isolation, receiver-tier pass-through tenancy through a real Alloy (R3, `receiver_tenancy_test.go`), tenant-route apply — a route created through the Connect API applied by Shepherd's reconciler under the chart's RBAC (`tenant_route_apply_test.go`), chart-values G10 — generated values installed with the real k8s-monitoring chart register a collector that is served a pipeline (`chart_values_test.go`), destination Secret auth — a `basic_secret` destination's Secret, read by a real Alloy with namespace-scoped RBAC, authenticates its remote-write requests (`destination_auth_test.go`, #229), destination tenant and TLS — a real Alloy trusts a private CA from a ConfigMap and a Secret, presents a client certificate from a `kubernetes.io/tls` Secret to a sink that requires one, honours `server_name`, and sends each destination's tenant on remote-write and Loki pushes, while a wrong-CA destination delivers nothing (`destination_tls_test.go`, #261)). Measured 2026-09-15 on CI run 34973037471 (the v0.7.0 release PR): the `make e2e-k8s`
 step took 14 min including both image builds, cluster create and destroy; the whole job 16 min.
 Earlier figures (~200s for four features, ~500s for six) predate the Gateway API and containment
 features. If you add a feature or re-time a run, update this paragraph rather than leaving a stale
