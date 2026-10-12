@@ -9,8 +9,8 @@
 > since shipped (issues #100–#118 are all closed; the last, B1, in v0.13.0). Open work is the open
 > GitHub issues (bar Renovate's Dependency Dashboard, #87), each represented in §2–§4 below.
 > The 2026-10-08 pre-release walkthrough's low-severity findings and nits (#296–#310) shipped
-> fixed in v0.16.0, bar the parts of #301, #308 and #309 that need a proto or served-config
-> change; those three stay open on the board and are not repeated below.
+> fixed in v0.16.0; the parts of #301, #308 and #309 that needed a proto or served-config change
+> were approved on 2026-10-12 and merged unreleased (#332, #333) — all three are closed.
 >
 > Baseline re-verified 2026-10-12 for v0.16.0 (commit `b7fd2a0`, chart 0.20.0) from the CI,
 > CodeQL, security-scan and e2e runs on that commit, not from a summary. v0.16.0 was walked on
@@ -197,7 +197,9 @@ read from an environment variable nothing set (H4), and M1–M6 (Review-step err
 pipelines surfaced, actionable destination refusals, the kind agents' RBAC, editor diagnostics,
 server-side form validation). PRs #288–#295 and follow-ups; `CHANGELOG.md` v0.15.0 has the list.
 The low findings and nits are issues #296–#310, fixed in v0.16.0 (#323, #325–#327) except the
-parts of #301, #308 and #309 that need a proto or served-config change (still open). A second pass on 2026-10-09 (`fcb8b17`) found
+parts of #301, #308 and #309 that needed a proto or served-config change, approved 2026-10-12 and
+merged unreleased in #332 (`Pipeline.follows_wizard`, `Destination.regenerated_pipelines`) and #333
+(served header without "prod", serve format 2, single blank lines, visual header "N nodes"). A second pass on 2026-10-09 (`fcb8b17`) found
 four lows (an untouched builder graph counted as dirty, never-connected collectors counted as live
 matches, Self Monitoring's fixed role, no in-app 404), fixed in #318, plus the stale-tab overwrite
 and team edit rights fixed in #317 and diagnostics one line off fixed in #316.
