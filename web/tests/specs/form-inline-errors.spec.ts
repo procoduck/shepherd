@@ -80,7 +80,8 @@ test.describe('tenant routes', () => {
     await page.getByTestId('route-gateway-name').pressSequentially('shepherd-gw');
     await page.getByRole('button', { name: 'Create route' }).click();
 
-    await expectInline(page, dialog(page), 'Gateway_namespace "x y" is not valid');
+    // The leading field identifier is named in words (2026-10-12 walkthrough).
+    await expectInline(page, dialog(page), 'Gateway namespace "x y" is not valid');
   });
 
   test('a refused gateway name or namespace shows under that field (M6)', async ({ page, api }) => {

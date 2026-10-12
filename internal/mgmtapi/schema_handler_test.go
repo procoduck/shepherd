@@ -32,8 +32,7 @@ var _ = Describe("Schema endpoint compression and conditional GET (#279)", func(
 		Expect(err).NotTo(HaveOccurred())
 		h := mgmtapi.NewSchemaHandler(reg)
 		r := chi.NewRouter()
-		r.Get("/schema/current", h.GetCurrent)
-		r.Get("/schema/{version}", h.Get)
+		mgmtapi.MountSchemaRoutes(r, h)
 		router = r
 	})
 
@@ -149,5 +148,27 @@ var _ = Describe("Schema endpoint compression and conditional GET (#279)", func(
 		a := get(pinned, map[string]string{"Accept-Encoding": "gzip"})
 		b := get(pinned, map[string]string{"Accept-Encoding": "gzip"})
 		Expect(b.Body.Bytes()).To(Equal(a.Body.Bytes()))
+	})
+
+	// 2026-10-12 walkthrough: HEAD /api/schema/current answered 404 — a
+	// cheap "is the schema there, and which ETag" probe found no route. HEAD
+	// answers with GET's headers.
+	for _, path := range []string{pinned, "/schema/current"} {
+		It("answers HEAD with the GET headers: "+path, func() {
+			req := httptest.NewRequest(http.MethodHead, path, nil)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			Expect(rec.Code).To(Equal(http.StatusOK))
+			Expect(rec.Header().Get("ETag")).To(Equal(get(path, nil).Header().Get("ETag")))
+			Expect(rec.Header().Get("Content-Type")).To(Equal("application/json"))
+		})
+	}
+
+	It("is mounted for HEAD on the /api router, behind the same authentication as GET", func() {
+		req := httptest.NewRequest(http.MethodHead, "/schema/current", nil)
+		rec := httptest.NewRecorder()
+		mgmtapi.Router().ServeHTTP(rec, req)
+		Expect(rec.Code).To(Equal(http.StatusUnauthorized),
+			"a HEAD with no session reaches RequireAuth, not the 404 fallback")
 	})
 })

@@ -7,6 +7,7 @@ import { StepFieldSchema } from '@/gen/shepherd/mgmt/v1/wizard_pb';
 import {
   defaultFieldValue,
   isStepValid,
+  missingRequiredFields,
   type WizardFormState,
   WizardStepFields,
 } from './WizardStepFields';
@@ -57,6 +58,28 @@ describe('defaultFieldValue', () => {
       default: create(ValueSchema, { kind: { case: 'structValue', value: { fields: {} } } }),
     });
     expect(defaultFieldValue(f)).toBeUndefined();
+  });
+});
+
+// 2026-10-12 walkthrough: Continue was disabled with no reason given.
+describe('missingRequiredFields', () => {
+  it('lists the labels of the required fields still empty, in order', () => {
+    const fields = [
+      field({ name: 'a', label: 'Cluster pattern', required: true }),
+      field({ name: 'b', label: 'Optional', required: false }),
+      field({ name: 'c', label: 'Job label', required: true }),
+    ];
+    expect(missingRequiredFields(fields, {})).toEqual(['Cluster pattern', 'Job label']);
+    expect(missingRequiredFields(fields, { a: 'x' })).toEqual(['Job label']);
+    expect(missingRequiredFields(fields, { a: 'x', c: 'y' })).toEqual([]);
+  });
+
+  it('skips a required field a toggle has switched off', () => {
+    const fields = [
+      field({ name: 'logs_enabled', label: 'Collect logs', type: 'toggle' }),
+      field({ name: 'log_path', label: 'Log path', required: true }),
+    ];
+    expect(missingRequiredFields(fields, { logs_enabled: false })).toEqual([]);
   });
 });
 

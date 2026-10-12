@@ -5,6 +5,7 @@ import {
   k8sFieldError,
   tlsFromExtra,
   tlsIsSet,
+  tlsSummary,
 } from './DestinationTLSFields';
 
 // extra.tls (#261) must round-trip exactly what internal/wizard.ParseTLS
@@ -80,5 +81,30 @@ describe('k8sFieldError (mirrors the server rules)', () => {
     expect(k8sFieldError('namespace', 'a.b')).toMatch(/namespace/);
     expect(k8sFieldError('name', 'backend_ca')).toMatch(/object name/);
     expect(k8sFieldError('key', 'ca crt')).toMatch(/data key/);
+  });
+});
+
+// 2026-10-12 walkthrough: the destinations table did not say which
+// destinations carry TLS options. The badge's description reads them back.
+describe('tlsSummary', () => {
+  it('is empty when no TLS option is set', () => {
+    expect(tlsSummary(EMPTY_TLS)).toBe('');
+  });
+
+  it('names the CA, the client certificate and the server name', () => {
+    expect(
+      tlsSummary(
+        tlsFromExtra({
+          tls: {
+            ca: { kind: 'configmap', namespace: 'cert-manager', name: 'org-trust' },
+            client_cert: { namespace: 'monitoring', name: 'collector-mtls' },
+            server_name: 'mimir.internal',
+          },
+        }),
+      ),
+    ).toBe(
+      'CA from ConfigMap cert-manager/org-trust; client certificate from Secret monitoring/collector-mtls; server name mimir.internal',
+    );
+    expect(tlsSummary(tlsFromExtra({ tls: { server_name: 'x' } }))).toBe('server name x');
   });
 });

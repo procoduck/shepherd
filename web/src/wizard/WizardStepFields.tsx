@@ -54,7 +54,15 @@ export function gatedBy(
 /** A step is valid when every field it marks `required` has a non-empty value,
  *  except one a toggle has switched off. */
 export function isStepValid(fields: StepField[], state: WizardFormState): boolean {
-  return fields.every((f) => !f.required || hasValue(state[f.name]) || !!gatedBy(f, fields, state));
+  return missingRequiredFields(fields, state).length === 0;
+}
+
+/** The labels of the step's required fields that are still empty (and not
+ *  switched off), in order — why Continue is disabled. */
+export function missingRequiredFields(fields: StepField[], state: WizardFormState): string[] {
+  return fields
+    .filter((f) => f.required && !hasValue(state[f.name]) && !gatedBy(f, fields, state))
+    .map((f) => f.label || f.name);
 }
 
 // Used standalone (not inside ui/Field), so the mt-1 gap Field normally

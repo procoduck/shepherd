@@ -424,5 +424,25 @@ var _ = Describe("Collector instance metadata", Label("integration"), func() {
 			Expect(found["alloyVersion"]).To(Equal("v2.0.0"))
 			Expect(found["lastSeen"]).NotTo(BeEmpty())
 		})
+
+		// 2026-10-12 walkthrough: the pipeline page's #297 banner read the
+		// error from ListCollectors, which never set it, and ended in an
+		// empty "Error:". The list carries the same presented error
+		// GetCollector does — and withholds it exactly when GetCollector does.
+		It("carries a FAILED collector's load error, and withholds it once the instance is stale", func() {
+			collector := createCollector("list-failed-error")
+			upsertInstance("list-fail", collector.ID, "list-fail", "v1.20.1", "linux", `{}`)
+			setStatus("list-fail", "FAILED", "40:3: Failed to build component")
+
+			item := listItem(collector.ID)
+			Expect(item["remoteConfigStatus"]).To(Equal("FAILED"))
+			Expect(item["remoteConfigError"]).To(Equal("40:3: Failed to build component"))
+			Expect(getCollector(collector.ID)["remoteConfigError"]).To(Equal(item["remoteConfigError"]))
+
+			backdate("list-fail", time.Hour)
+			item = listItem(collector.ID)
+			Expect(item["remoteConfigStatus"]).To(Equal("inactive"))
+			Expect(item).NotTo(HaveKey("remoteConfigError"))
+		})
 	})
 })

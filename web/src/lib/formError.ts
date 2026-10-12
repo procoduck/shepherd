@@ -9,6 +9,15 @@ import { toApiError } from '@/api/transport';
  */
 export function sentenceCase(message: string): string {
   const t = message.trim();
+  // A message that opens with a field identifier ("tenant_id is in use…")
+  // read "Tenant_id is in use…" raised (2026-10-12 walkthrough): the leading
+  // identifier is named in words instead, "id" as "ID".
+  const ident = /^([a-z][a-z0-9]*(?:_[a-z0-9]+)+)(?=[\s:,.]|$)/.exec(t)?.[1];
+  if (ident) {
+    const words = ident.split('_').map((w) => (w === 'id' ? 'ID' : w));
+    const named = words.join(' ');
+    return named.charAt(0).toUpperCase() + named.slice(1) + t.slice(ident.length);
+  }
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 

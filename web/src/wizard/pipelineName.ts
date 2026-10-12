@@ -43,6 +43,16 @@ export function isNameTaken(name: string, takenKeys: Set<string>): boolean {
   return takenKeys.has(sanitizePipelineName(name));
 }
 
+/** The org's existing name that `name` collides with, as that pipeline is
+ *  named ("Pod Logs" for "pod-logs"), or undefined when none does. */
+export function collidingName(name: string, names: Iterable<string>): string | undefined {
+  const key = sanitizePipelineName(name);
+  for (const existing of names) {
+    if (sanitizePipelineName(existing) === key) return existing;
+  }
+  return undefined;
+}
+
 /** `name` itself when no pipeline has it, else the first free `name-N` (N ≥ 2).
  *  "Has it" is the server's sanitized comparison, not string equality. */
 export function uniquePipelineName(name: string, taken: Iterable<string>): string {

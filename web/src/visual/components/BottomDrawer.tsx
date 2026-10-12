@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useState } from 'react';
+import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useId, useState } from 'react';
 import {
   type LineTrace,
   renderVisual,
@@ -7,6 +7,11 @@ import {
   simulateRelabel,
   type TargetTrace,
 } from '../../api/client';
+import {
+  UNAVAILABLE_CLASS,
+  UnavailableReason,
+  unavailableProps,
+} from '../../components/ui/unavailable';
 import { useOrgId } from '../../hooks/useOrg';
 import { renderTS } from '../renderTS';
 import { useVisualStore } from '../store';
@@ -41,6 +46,7 @@ export function BottomDrawer() {
   const readOnly = useVisualStore((s) => s.readOnly);
   const pipelineId = useVisualStore((s) => s.pipelineId);
   const simulateDisabledReason = useSimulateDisabledReason();
+  const simulateReasonId = useId();
   const [simulateTab, setSimulateTab] = useState<'relabel' | 'logs'>('relabel');
   const [relabelResult, setRelabelResult] = useState<{ traces: TargetTrace[] }>();
   const [logsResult, setLogsResult] = useState<{ traces: LineTrace[] }>();
@@ -118,13 +124,13 @@ export function BottomDrawer() {
   const selectedNode =
     selected.length === 1 ? doc.nodes.find((n) => n.id === selected[0]) : undefined;
   const runRelabel = async () => {
-    if (!orgId) return;
+    if (!orgId || simulateDisabledReason) return;
     const rules =
       selectedNode && Array.isArray(selectedNode.props.rules) ? selectedNode.props.rules : [];
     setRelabelResult(await simulateRelabel(orgId, { rules, sample_targets: [] }));
   };
   const runLogs = async () => {
-    if (!orgId) return;
+    if (!orgId || simulateDisabledReason) return;
     const stages =
       selectedNode && Array.isArray(selectedNode.props.stage)
         ? selectedNode.props.stage
@@ -138,14 +144,15 @@ export function BottomDrawer() {
     selectedNode?.component === 'prometheus.relabel' || !selectedNode ? (
       <>
         <button
-          className='border rounded px-2 py-1 text-xs disabled:opacity-50 disabled:cursor-not-allowed'
+          type='button'
+          className={`border rounded px-2 py-1 text-xs ${UNAVAILABLE_CLASS}`}
           data-testid='simulate-relabel-run'
           onClick={runRelabel}
-          disabled={!!simulateDisabledReason}
-          title={simulateDisabledReason}
+          {...unavailableProps(simulateDisabledReason, simulateReasonId)}
         >
           Run
         </button>
+        <UnavailableReason id={simulateReasonId} reason={simulateDisabledReason} />
         <span className='ml-3 text-xs text-muted'>Uses built-in k8s fixture targets</span>
         {!selectedNode && <p className='text-xs text-muted'>Select a relabel node to trace</p>}
         <div className='mt-2 space-y-2'>
@@ -182,14 +189,15 @@ export function BottomDrawer() {
     selectedNode?.component === 'loki.process' || !selectedNode ? (
       <>
         <button
-          className='border rounded px-2 py-1 text-xs disabled:opacity-50 disabled:cursor-not-allowed'
+          type='button'
+          className={`border rounded px-2 py-1 text-xs ${UNAVAILABLE_CLASS}`}
           data-testid='simulate-logs-run'
           onClick={runLogs}
-          disabled={!!simulateDisabledReason}
-          title={simulateDisabledReason}
+          {...unavailableProps(simulateDisabledReason, simulateReasonId)}
         >
           Run
         </button>
+        <UnavailableReason id={simulateReasonId} reason={simulateDisabledReason} />
         <span className='ml-3 text-xs text-muted'>Uses built-in log fixtures</span>
         {!selectedNode && <p className='text-xs text-muted'>Select a loki.process node to trace</p>}
         <div className='mt-2 space-y-2'>

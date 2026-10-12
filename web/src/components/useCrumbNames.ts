@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { clients } from '@/api/transport';
 import type { CrumbResolver } from '@/components/breadcrumb';
+import { useMe } from '@/hooks/useMe';
+import { requiredRoleFor, roleSatisfied } from '@/routes/routeManifest';
 
 // The detail routes whose breadcrumb names the item (#250) rather than the
 // route's generic label ("Pipeline", "Collector", "Wizard").
@@ -38,6 +40,12 @@ export function useCrumbNames(pathname: string, orgId: string): CrumbResolver {
   const pipelineId = match(PIPELINE_ROUTE, pathname, ['new', 'visual']);
   const collectorId = match(COLLECTOR_ROUTE, pathname);
   const wizardKind = match(WIZARD_ROUTE, pathname);
+  // A wizard is org-editor (WizardService). A viewer sent to one sees
+  // RequireRole's denial and must not have its schema fetched behind it —
+  // the 2026-10-12 walkthrough saw the 403s in the console.
+  const { data: me } = useMe();
+  const wizardRole = requiredRoleFor('/wizards/$kind');
+  const mayOpenWizard = !wizardRole || roleSatisfied(me, orgId, wizardRole);
 
   const { data: pipeline } = useQuery({
     queryKey: ['pipeline', orgId, pipelineId],
@@ -52,7 +60,7 @@ export function useCrumbNames(pathname: string, orgId: string): CrumbResolver {
   const { data: wizard } = useQuery({
     queryKey: ['wizard-schema', orgId, wizardKind],
     queryFn: () => clients.wizard.getWizardSchema({ orgId, kind: wizardKind }),
-    enabled: !!orgId && !!wizardKind,
+    enabled: !!orgId && !!wizardKind && mayOpenWizard,
     // Matches WizardRunnerPage's own observer: an unknown kind is a 404 that
     // stays one, and the page shows its message without a retry cycle.
     retry: false,

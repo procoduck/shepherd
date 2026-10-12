@@ -202,8 +202,12 @@ func (s *FleetService) ListCollectors(ctx context.Context, req *connect.Request[
 		}
 		// The summary is the most recently seen live instance, so it is
 		// inactive only when every instance of the collector is.
-		status, _ := presentInstanceStatus(instanceOutcome{
-			status: summary.RemoteConfigStatus, statusHash: summary.StatusHash, servedHash: summary.ServedHash,
+		// The error travels with the status, presented by the same rule as
+		// GetCollector's: the pipeline page's rejection banner (#297) reads
+		// it from this list.
+		status, errMsg := presentInstanceStatus(instanceOutcome{
+			status: summary.RemoteConfigStatus, errMsg: summary.RemoteConfigError,
+			statusHash: summary.StatusHash, servedHash: summary.ServedHash,
 			lastSeen: summary.LastSeen,
 		}, s.inactiveAfter, now)
 		items[i] = &mgmtv1.Collector{
@@ -212,6 +216,7 @@ func (s *FleetService) ListCollectors(ctx context.Context, req *connect.Request[
 			Cluster:            cluster.Name,
 			Role:               c.Role,
 			RemoteConfigStatus: status,
+			RemoteConfigError:  errMsg,
 			LastSeen:           timestampFromPg(summary.LastSeen),
 			AlloyVersion:       summary.AlloyVersion.String,
 			Labels:             labels,

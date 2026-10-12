@@ -167,13 +167,30 @@ export function AdminOrgsPage() {
     : toApiError(deleteMut.error).code === 'already_exists'
       ? `Cannot delete: ${toApiError(deleteMut.error).message || 'organisation is not empty'}`
       : errorText(deleteMut.error, 'Failed to delete organisation');
+  // Cancel discards the form, not just the dialog (2026-10-12 walkthrough:
+  // reopening New organisation showed the abandoned values).
   const closeCreate = () => {
     setShowCreate(false);
+    setCreateForm(emptyCreateForm);
     createMut.reset();
   };
   const closeEdit = () => {
     setEditOrg(null);
     updateMut.reset();
+  };
+  // A refusal was about the form as submitted; the first edit after it
+  // clears it, as #300 does for destinations.
+  const editCreate: typeof setCreateForm = (next) => {
+    if (createMut.error) createMut.reset();
+    setCreateForm(next);
+  };
+  const editEdit: typeof setEditForm = (next) => {
+    if (updateMut.error) updateMut.reset();
+    setEditForm(next);
+  };
+  const editTenant = (tenant: string) => {
+    if (updateMut.error) updateMut.reset();
+    setEditTenantId(tenant);
   };
 
   function openEdit(o: Org) {
@@ -240,7 +257,7 @@ export function AdminOrgsPage() {
             <Field label='Name'>
               <Input
                 value={createForm.name}
-                onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
+                onChange={(e) => editCreate((f) => ({ ...f, name: e.target.value }))}
                 required
                 mono
                 placeholder='prod-org'
@@ -249,7 +266,7 @@ export function AdminOrgsPage() {
             <Field label='Display name'>
               <Input
                 value={createForm.displayName}
-                onChange={(e) => setCreateForm((f) => ({ ...f, displayName: e.target.value }))}
+                onChange={(e) => editCreate((f) => ({ ...f, displayName: e.target.value }))}
                 required
                 placeholder='Production Org'
               />
@@ -257,7 +274,7 @@ export function AdminOrgsPage() {
             <Field label='Admin group ID' hint={GROUP_VALUE_HINT}>
               <Input
                 value={createForm.adminGroupId}
-                onChange={(e) => setCreateForm((f) => ({ ...f, adminGroupId: e.target.value }))}
+                onChange={(e) => editCreate((f) => ({ ...f, adminGroupId: e.target.value }))}
                 required
                 mono
                 placeholder='platform-admins'
@@ -270,7 +287,7 @@ export function AdminOrgsPage() {
             >
               <Input
                 value={createForm.editorGroupId}
-                onChange={(e) => setCreateForm((f) => ({ ...f, editorGroupId: e.target.value }))}
+                onChange={(e) => editCreate((f) => ({ ...f, editorGroupId: e.target.value }))}
                 mono
                 placeholder='platform-editors'
               />
@@ -278,7 +295,7 @@ export function AdminOrgsPage() {
             <Field label='Viewer group ID' optional>
               <Input
                 value={createForm.readerGroupId}
-                onChange={(e) => setCreateForm((f) => ({ ...f, readerGroupId: e.target.value }))}
+                onChange={(e) => editCreate((f) => ({ ...f, readerGroupId: e.target.value }))}
                 mono
                 placeholder='platform-viewers'
               />
@@ -298,7 +315,7 @@ export function AdminOrgsPage() {
             >
               <Input
                 value={createForm.tenantId}
-                onChange={(e) => setCreateForm((f) => ({ ...f, tenantId: e.target.value }))}
+                onChange={(e) => editCreate((f) => ({ ...f, tenantId: e.target.value }))}
                 mono
                 placeholder='acme'
               />
@@ -326,7 +343,7 @@ export function AdminOrgsPage() {
             <Field label='Display name'>
               <Input
                 value={editForm.displayName}
-                onChange={(e) => setEditForm((f) => ({ ...f, displayName: e.target.value }))}
+                onChange={(e) => editEdit((f) => ({ ...f, displayName: e.target.value }))}
                 required
               />
             </Field>
@@ -345,7 +362,7 @@ export function AdminOrgsPage() {
               >
                 <Input
                   value={editTenantId}
-                  onChange={(e) => setEditTenantId(e.target.value)}
+                  onChange={(e) => editTenant(e.target.value)}
                   mono
                   placeholder='acme'
                   data-testid='org-edit-tenant'
@@ -355,7 +372,7 @@ export function AdminOrgsPage() {
             <Field label='Admin group ID' hint={GROUP_VALUE_HINT}>
               <Input
                 value={editForm.adminGroupId}
-                onChange={(e) => setEditForm((f) => ({ ...f, adminGroupId: e.target.value }))}
+                onChange={(e) => editEdit((f) => ({ ...f, adminGroupId: e.target.value }))}
                 required
                 mono
               />
@@ -367,14 +384,14 @@ export function AdminOrgsPage() {
             >
               <Input
                 value={editForm.editorGroupId}
-                onChange={(e) => setEditForm((f) => ({ ...f, editorGroupId: e.target.value }))}
+                onChange={(e) => editEdit((f) => ({ ...f, editorGroupId: e.target.value }))}
                 mono
               />
             </Field>
             <Field label='Viewer group ID' optional>
               <Input
                 value={editForm.readerGroupId}
-                onChange={(e) => setEditForm((f) => ({ ...f, readerGroupId: e.target.value }))}
+                onChange={(e) => editEdit((f) => ({ ...f, readerGroupId: e.target.value }))}
                 mono
               />
             </Field>
@@ -384,7 +401,7 @@ export function AdminOrgsPage() {
                 data-testid='org-allow-experimental'
                 checked={editForm.allowExperimentalComponents}
                 onChange={(e) =>
-                  setEditForm((f) => ({ ...f, allowExperimentalComponents: e.target.checked }))
+                  editEdit((f) => ({ ...f, allowExperimentalComponents: e.target.checked }))
                 }
                 className='mt-0.5'
               />
@@ -402,9 +419,7 @@ export function AdminOrgsPage() {
                 type='checkbox'
                 data-testid='org-allow-label-matching'
                 checked={editForm.allowLabelMatching}
-                onChange={(e) =>
-                  setEditForm((f) => ({ ...f, allowLabelMatching: e.target.checked }))
-                }
+                onChange={(e) => editEdit((f) => ({ ...f, allowLabelMatching: e.target.checked }))}
                 className='mt-0.5'
               />
               <span>
@@ -426,7 +441,7 @@ export function AdminOrgsPage() {
                 data-testid='org-allow-local-attribute-matching'
                 checked={editForm.allowLocalAttributeMatching}
                 onChange={(e) =>
-                  setEditForm((f) => ({ ...f, allowLocalAttributeMatching: e.target.checked }))
+                  editEdit((f) => ({ ...f, allowLocalAttributeMatching: e.target.checked }))
                 }
                 className='mt-0.5'
               />

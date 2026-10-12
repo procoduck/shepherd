@@ -81,6 +81,7 @@ function teamColumns(
               data-testid={`team-members-${t.name}`}
               onClick={() => setMembersOf(t)}
               title='Manage members'
+              aria-label={`Manage members of ${t.name}`}
               className='mr-2 text-muted-3 hover:text-zinc-200'
             >
               <UserPlus size={15} />
@@ -89,6 +90,7 @@ function teamColumns(
               data-testid={`team-delete-${t.name}`}
               onClick={() => setDeleteTeam(t)}
               title='Delete'
+              aria-label={`Delete team ${t.name}`}
               className='text-muted-3 hover:text-red-400'
             >
               <Trash2 size={15} />
@@ -166,7 +168,8 @@ export function TeamsPage() {
           <p className='mt-1 text-sm text-muted' data-testid='teams-intro'>
             A team owns pipelines; its members can edit what it owns without being an organisation
             admin or editor. Members come from an identity provider group, from an explicit list of
-            local users, or from both.
+            local users, or from both. Only organisation admins create and delete teams and manage
+            their members.
           </p>
         </div>
         {canManage && (

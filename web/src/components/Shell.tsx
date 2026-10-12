@@ -25,7 +25,7 @@ import { useEffect, useRef, useState } from 'react';
 import { buildCrumbs } from '@/components/breadcrumb';
 import { useCrumbNames } from '@/components/useCrumbNames';
 import { useMe } from '@/hooks/useMe';
-import { useOrg } from '@/hooks/useOrg';
+import { clearPersistedOrgId, useOrg } from '@/hooks/useOrg';
 import { currentReturnPath, loginHref } from '@/lib/returnPath';
 import { cn } from '@/lib/utils';
 import { requiredRoleFor, roleSatisfied, routeManifest } from '@/routes/routeManifest';
@@ -162,6 +162,8 @@ export function Shell() {
     // Signed out is now known, not something to ask: without this the login
     // page's useMe re-asked GetMe and got the 401 it was certain to (#309).
     queryClient.setQueryData(['me'], null);
+    // After `me` is null, so no org resolves and nothing writes it back.
+    clearPersistedOrgId();
     // Clear the test-injected initialData so LoginPage doesn't auto-redirect after logout.
     if (typeof window !== 'undefined') {
       delete (window as unknown as Record<string, unknown>).__initialMe;

@@ -21,6 +21,11 @@ import { createSandboxRun, getSandboxRun, type SimulateRunResult } from '../../a
 import { toApiError } from '../../api/transport';
 import { DataTable } from '../../components/ui/DataTable';
 import { Modal } from '../../components/ui/Modal';
+import {
+  UNAVAILABLE_CLASS,
+  UnavailableReason,
+  unavailableProps,
+} from '../../components/ui/unavailable';
 import { useVisualStore } from '../store';
 
 // The design doc's own label ("Sandbox run (30s)…") names the requested
@@ -380,6 +385,7 @@ export function SandboxRunPanel({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
+  const reasonId = useId();
   useEffect(() => {
     if (!menuOpen) return;
     menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
@@ -513,20 +519,23 @@ export function SandboxRunPanel({
           aria-haspopup='menu'
           aria-expanded={menuOpen}
           aria-controls={menuOpen ? menuId : undefined}
-          onClick={() => setMenuOpen((v) => !v)}
+          onClick={() => {
+            if (!disabledReason) setMenuOpen((v) => !v);
+          }}
           onKeyDown={(e) => {
             // WAI-ARIA menu button: the arrow keys open the menu too.
             if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
             e.preventDefault();
-            setMenuOpen(true);
+            if (!disabledReason) setMenuOpen(true);
           }}
-          disabled={!orgId || !!disabledReason}
-          title={disabledReason}
-          className='text-sm px-3 py-1 rounded border shrink-0 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed'
+          disabled={!orgId}
+          {...unavailableProps(disabledReason, reasonId)}
+          className={`text-sm px-3 py-1 rounded border shrink-0 whitespace-nowrap ${UNAVAILABLE_CLASS}`}
         >
           Simulate ▾
         </button>
       )}
+      {!hideTrigger && <UnavailableReason id={reasonId} reason={disabledReason} />}
       {!hideTrigger && menuOpen && (
         <div
           ref={menuRef}
