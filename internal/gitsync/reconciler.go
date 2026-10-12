@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"shepherd/internal/gitrepo"
 	"shepherd/internal/merge"
 	"shepherd/internal/metrics"
+	"shepherd/internal/serve"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/validate"
@@ -477,34 +479,24 @@ func (r *Reconciler) stage3DryRun(ctx context.Context, link sqlc.RepoLink, candi
 	// Every other enabled pipeline, minus any existing row for this same
 	// name — it is superseded by the candidate below, which represents the
 	// file as it would be AFTER this sync.
-	mergePipelines := make([]merge.Pipeline, 0, len(enabledPipelines)+1)
-	for i := range enabledPipelines {
-		ep := enabledPipelines[i]
+	// The candidate keeps the superseded row's revision for the header ("(rev
+	// N)" is a comment line; the dry run validates, it never serves).
+	candidateRevision := 0
+	others := slices.DeleteFunc(enabledPipelines, func(ep sqlc.ListEnabledPipelinesForMergeRow) bool {
 		if ep.Name == candidateName {
-			continue
+			candidateRevision = int(ep.CurrentRevision)
+			return true
 		}
-		var m []string
-		if jsonErr := json.Unmarshal(ep.Matchers, &m); jsonErr != nil {
-			continue
-		}
-		repoLinkCollectorID := ""
-		if ep.RepoLinkCollectorID.Valid {
-			repoLinkCollectorID = ep.RepoLinkCollectorID.String()
-		}
-		mergePipelines = append(mergePipelines, merge.Pipeline{
-			ID:                  ep.ID.String(),
-			Name:                ep.Name,
-			Contents:            ep.Contents,
-			Matchers:            m,
-			Source:              ep.Source,
-			RepoLinkCollectorID: repoLinkCollectorID,
-		})
-	}
-	mergePipelines = append(mergePipelines, merge.Pipeline{
+		return false
+	})
+	// The serve paths' own row conversion (internal/serve), so the dry run
+	// models what they serve.
+	mergePipelines := append(serve.PipelinesFromRows(others), merge.Pipeline{
 		ID:                  "dry-run-candidate",
 		Name:                candidateName,
 		Contents:            candidateContents,
 		Source:              "git",
+		Revision:            candidateRevision,
 		RepoLinkCollectorID: link.CollectorID.String(),
 	})
 
