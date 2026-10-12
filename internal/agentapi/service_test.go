@@ -720,6 +720,64 @@ WHERE serve_cache.dirty = true AND serve_cache.dirty_seq = $4`
 				"a clean current-format row must not be recomputed")
 		})
 
+		// The superseded branch: a mark lands while the recompute of an
+		// old-format row runs, so the conditional write loses and the re-read
+		// row is still old-format (the mark reset it to 0). The poll must serve
+		// its own fresh bytes WITHOUT caching them — never the old row — and
+		// the next poll recomputes against the newer generation and writes at
+		// the current format. Red runs, executed: with the branch caching its
+		// result instead (an unconditional write), the row was rewritten on the
+		// first poll and the "row NOT written" assertion failed; with it
+		// serving the re-read row instead, the poll answered not-modified for
+		// the v0.15 hash.
+		It("serves a superseded recompute of an old-format row uncached, and writes on the next poll", func() {
+			collector, pipeline := setupClaimedPipeline()
+			withRevisions(pipeline, 2)
+			Expect(st.Queries.MarkServeCacheDirty(ctx, collector.ID)).To(Succeed())
+			_, err := st.Pool().Exec(ctx, v015Write, collector.ID, oldBytes, "v015-hash", seqOf(collector.ID))
+			Expect(err).NotTo(HaveOccurred())
+			before, err := st.Queries.GetServeCache(ctx, collector.ID)
+			Expect(err).NotTo(HaveOccurred())
+
+			svc := agentapi.New(st, nil, slog.Default(), testSchemaRegistry())
+			marks := 0
+			agentapi.SetAfterRecompute(svc, func(ctx context.Context) {
+				if marks > 0 {
+					return
+				}
+				marks++
+				_, err := st.Pool().Exec(ctx, v015Mark, collector.ID)
+				Expect(err).NotTo(HaveOccurred())
+			})
+			poll := func() *collectorv1.GetConfigResponse {
+				resp, err := svc.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+					Id: "recompute-instance", Hash: "v015-hash", LocalAttributes: attrs,
+				}))
+				Expect(err).NotTo(HaveOccurred())
+				return resp.Msg
+			}
+
+			first := poll()
+			Expect(marks).To(Equal(1), "the mark must have landed mid-recompute")
+			Expect(first.GetNotModified()).To(BeFalse())
+			Expect(first.GetContent()).To(ContainSubstring("//   - recompute-pipeline (rev 2)\n"), "the fresh bytes are served")
+			row, err := st.Queries.GetServeCache(ctx, collector.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(row.Content).To(Equal(before.Content), "the superseded result must NOT be written")
+			Expect(row.Dirty).To(BeTrue())
+			Expect(row.Format).To(BeEquivalentTo(0))
+			Expect(row.DirtySeq).To(Equal(before.DirtySeq + 1))
+
+			second := poll()
+			Expect(second.GetContent()).To(Equal(first.GetContent()))
+			Expect(second.GetHash()).To(Equal(first.GetHash()))
+			row, err = st.Queries.GetServeCache(ctx, collector.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(row.Content).To(Equal(first.GetContent()), "the next poll writes")
+			Expect(row.Format).To(Equal(serve.Format))
+			Expect(row.Dirty).To(BeFalse())
+		})
+
 		// A legacy pipeline with no pipeline_revisions row at all (written
 		// before revisions existed, or by a path that never recorded one) has
 		// no revision to show: it keeps "(rev 0)", the same 0 that

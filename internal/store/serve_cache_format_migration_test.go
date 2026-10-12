@@ -74,6 +74,24 @@ var _ = Describe("Migration: 0033_serve_cache_format", Label("integration"), fun
 		Expect(format(ctx)).To(BeEquivalentTo(0))
 	})
 
+	// The real mark path: MarkServeCacheDirty* (and every older binary's
+	// copy of them) is an INSERT … ON CONFLICT DO UPDATE SET dirty_seq, not
+	// a plain UPDATE. The trigger must fire for it too.
+	It("resets format when the upsert-shaped mark hits an existing row", func(ctx context.Context) {
+		_, err := db.Exec(ctx, `UPDATE serve_cache SET format = 1 WHERE collector_id = $1`, collector)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = db.Exec(ctx, `INSERT INTO serve_cache (collector_id, content, hash, dirty, dirty_seq)
+VALUES ($1, '', '', true, 1)
+ON CONFLICT (collector_id) DO UPDATE SET
+    dirty = true,
+    dirty_seq = serve_cache.dirty_seq + 1`, collector)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(format(ctx)).To(BeEquivalentTo(0))
+		var seq int64
+		Expect(db.QueryRow(ctx, `SELECT dirty_seq FROM serve_cache WHERE collector_id = $1`, collector).Scan(&seq)).To(Succeed())
+		Expect(seq).To(BeEquivalentTo(5))
+	})
+
 	It("rolls back to 32 by dropping the column, trigger and function", func(ctx context.Context) {
 		db.Close()
 		Expect(store.MigrateTo(ctx, url, 32)).To(Succeed())

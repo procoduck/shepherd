@@ -16,3 +16,8 @@ func ContextWithOIDCPrincipal(ctx context.Context, claims auth.AgentClaims) cont
 
 // SweepOnce runs one lifecycle sweep synchronously, as a tick would. Test-only.
 func (sw *Sweeper) SweepOnce(ctx context.Context) { sw.sweep(ctx) }
+
+// SetAfterRecompute installs a hook that runs between GetConfig's lazy
+// recompute and its conditional write, so a spec can land a dirty mark
+// exactly mid-recompute. Test-only.
+func SetAfterRecompute(s *Service, f func(context.Context)) { s.afterRecompute = f }

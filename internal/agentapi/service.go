@@ -55,6 +55,10 @@ type Service struct {
 	// disabled; beacon.AppendBaseline treats that as "leave content
 	// unchanged", never as an error.
 	beaconBaseline beacon.BaselineConfig
+	// afterRecompute, when set, runs between the lazy recompute and its
+	// conditional write — test-only (export_test.go), so a spec can land a
+	// mark exactly mid-recompute. Nil in production.
+	afterRecompute func(context.Context)
 }
 
 // ServiceOption configures optional Service behavior not required by every
@@ -233,6 +237,9 @@ func (s *Service) GetConfig(
 			if err != nil {
 				return nil, err
 			}
+			if s.afterRecompute != nil {
+				s.afterRecompute(ctx)
+			}
 			updated, err := s.store.Queries.UpsertServeCacheConditional(ctx, sqlc.UpsertServeCacheConditionalParams{
 				CollectorID: coll.ID,
 				Content:     newContent,
@@ -252,10 +259,17 @@ func (s *Service) GetConfig(
 				if !serve.Current(current.Format) {
 					// Except a row in an older format (a mark reset it, and
 					// an older binary may since have written old-format
-					// bytes into it): never serve those as current. What this
-					// recompute produced is at least as fresh — it read a
-					// generation no older than the row's content — so serve
-					// it without caching; the next poll recomputes and writes.
+					// bytes into it): never serve those as current. Serve
+					// this recompute's result instead, without caching it;
+					// the next poll recomputes against the newer generation
+					// and writes. Usually that result is at least as fresh
+					// as the row. The accepted exception is mid-rollout: an
+					// older binary can recompute the newer generation (N+1)
+					// and write it clean at format 0 while this serves its
+					// generation-N result, so for this one poll the
+					// collector may get older pipeline content than the row
+					// holds. The row stays format 0, so the next poll
+					// recomputes and serves N+1 — it self-heals.
 					return sqlc.ServeCache{CollectorID: coll.ID, Content: newContent, Hash: newHash, Dirty: true, Format: serve.Format}, nil
 				}
 				return current, nil
