@@ -1,5 +1,5 @@
 // Package blackbox implements the "blackbox" wizard: probes a list of
-// HTTP/TCP/ICMP/DNS targets via the blackbox exporter and forwards the
+// HTTP or TCP targets via the blackbox exporter and forwards the
 // resulting probe-success/latency metrics to a Prometheus destination. One
 // of the five catalog wizards docs/gateway-tier-plan.md W8 asks for.
 //
@@ -63,7 +63,7 @@ func (w *Wizard) Schema() wizard.Schema {
 	return wizard.Schema{
 		Kind:        Kind,
 		Title:       "Blackbox Probes",
-		Description: "Probe HTTP, TCP or DNS endpoints from your cluster and alert on reachability and latency.",
+		Description: "Probe HTTP or TCP endpoints from your cluster and ship probe success and latency metrics to a Prometheus destination.",
 		Steps: []wizard.Step{
 			{
 				ID:    "targets",

@@ -1,5 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { clients } from '@/api/transport';
+import { REJECTED_KIND, reconciliationQuery } from '@/components/CollectorReconciliation';
 import { QueryError } from '@/components/QueryError';
 import { Banner } from '@/components/ui/Banner';
 import type { MatchedCollector, Pipeline } from '@/gen/shepherd/mgmt/v1/pipeline_pb';
@@ -27,6 +28,58 @@ export function exclusionLines(collectors: MatchedCollector[]): string[] {
     const labels = [...names].map(([name, n]) => (n > 1 ? `${name} ×${n}` : name));
     return `Excluded from ${total} collector(s): ${labels.join(', ')} — ${reason}.`;
   });
+}
+
+/** At most this many FAILED collectors are asked which pipeline they rejected. */
+const MAX_REJECTION_LOOKUPS = 20;
+
+/**
+ * The matched collectors that rejected THIS pipeline (#297). A collector's
+ * load error points at a line of its merged config; its reconciliation's
+ * served_config_rejected finding names the pipeline that line belongs to.
+ * Only collectors reading FAILED are asked, so a healthy fleet costs one
+ * ListCollectors call.
+ */
+function PipelineRejections({
+  pipelineName,
+  orgId,
+  matchedIds,
+}: {
+  pipelineName: string;
+  orgId: string;
+  matchedIds: string[];
+}) {
+  const { data: fleet } = useQuery({
+    queryKey: ['collectors', orgId],
+    queryFn: () => clients.fleet.listCollectors({ orgId }),
+    enabled: !!orgId && matchedIds.length > 0,
+  });
+  const matched = new Set(matchedIds);
+  const failed = (fleet?.items ?? [])
+    .filter((c) => matched.has(c.id) && c.remoteConfigStatus.toUpperCase() === 'FAILED')
+    .slice(0, MAX_REJECTION_LOOKUPS);
+  const results = useQueries({ queries: failed.map((c) => reconciliationQuery(orgId, c.id)) });
+  const rejections = failed.flatMap((c, i) => {
+    const f = results[i]?.data?.findings.find(
+      (x) => x.kind === REJECTED_KIND && x.pipelineName === pipelineName,
+    );
+    return f ? [{ collector: c, summary: f.summary }] : [];
+  });
+  if (rejections.length === 0) return null;
+  return (
+    <Banner variant='error' testId='pipeline-rejected-by'>
+      <ul className='space-y-1'>
+        {rejections.map(({ collector: c, summary }) => (
+          <li key={c.id}>
+            <span className='font-medium'>
+              {c.cluster}/{c.role}:
+            </span>{' '}
+            {summary} Error: <code className='font-mono'>{c.remoteConfigError}</code>
+          </li>
+        ))}
+      </ul>
+    </Banner>
+  );
 }
 
 /**
@@ -78,6 +131,11 @@ export function PipelineMatchPreview({
         Saved pipeline matches {collectors.length} collector{collectors.length === 1 ? '' : 's'}
         {pipeline.enabled ? '' : ' (when enabled)'}.
       </p>
+      <PipelineRejections
+        pipelineName={pipeline.name}
+        orgId={orgId}
+        matchedIds={collectors.filter((c) => !c.excludedReason).map((c) => c.id)}
+      />
       {lines.length > 0 && (
         <Banner variant='warning' testId='pipeline-role-exclusion'>
           <ul className='space-y-1'>

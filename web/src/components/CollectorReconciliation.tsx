@@ -13,9 +13,44 @@ function findingLabel(kind: string): string {
       return 'Running, not served';
     case 'role_signal_excluded':
       return 'Matched, excluded by role';
+    case REJECTED_KIND:
+      return 'Rejected by collector';
     default:
       return 'Role / signal mismatch';
   }
+}
+
+/**
+ * served_config_rejected (#297): the collector refused the config it is
+ * served. When the load error's line falls inside a pipeline's declare
+ * block, pipelineName names that pipeline and the summary reads "rejected in
+ * pipeline "X" (line N of its text, …)".
+ */
+export const REJECTED_KIND = 'served_config_rejected';
+
+/** The reconciliation query, shared by the tab, the banner and the pipeline page. */
+export function reconciliationQuery(orgId: string, id: string) {
+  return {
+    queryKey: ['reconciliation', orgId, id],
+    queryFn: () => clients.fleet.getReconciliation({ orgId, id }),
+    enabled: !!orgId && !!id,
+    refetchInterval: 30000,
+  };
+}
+
+/**
+ * The collector banner's line naming the pipeline a FAILED collector
+ * rejected (#297). Renders nothing until the finding names one.
+ */
+export function CollectorRejectionNote({ orgId, id }: { orgId: string; id: string }) {
+  const { data } = useQuery(reconciliationQuery(orgId, id));
+  const f = data?.findings.find((x) => x.kind === REJECTED_KIND && x.pipelineName);
+  if (!f) return null;
+  return (
+    <p className='mt-1' data-testid='collector-rejected-pipeline'>
+      {f.summary}
+    </p>
+  );
 }
 
 /**
@@ -34,12 +69,7 @@ export function CollectorReconciliation({
   /** The collector's remote_config_status, e.g. FAILED (upper-cased). */
   status: string;
 }) {
-  const { data, isLoading } = useQuery({
-    queryKey: ['reconciliation', orgId, id],
-    queryFn: () => clients.fleet.getReconciliation({ orgId, id }),
-    enabled: !!orgId,
-    refetchInterval: 30000,
-  });
+  const { data, isLoading } = useQuery(reconciliationQuery(orgId, id));
   const findings = data?.findings ?? [];
 
   return (
@@ -53,14 +83,16 @@ export function CollectorReconciliation({
       {status === 'FAILED' && (
         // Reconciliation compares signals; it cannot see that the agent
         // rejected its served config. A FAILED collector is running its
-        // previous config, so "served" is not what is running (#198).
+        // previous config, so "served" is not what is running (#198). The
+        // notice no longer points at a list "below" (#297 L3): when the
+        // server can attribute the rejection, it is a finding of its own.
         <div
           className='rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400'
           data-testid='reconciliation-load-failed'
         >
           Not in sync — this collector rejected the config it is being served and is still running
-          its previous one. The error is shown above; the served and observed state below cannot
-          agree until it loads.
+          its previous one, so what it runs is not what it is served until that config loads. The
+          error is shown above.
         </div>
       )}
       {isLoading ? (
@@ -79,10 +111,18 @@ export function CollectorReconciliation({
           {findings.map((f, i) => (
             <li
               key={`${f.kind}-${f.controllerPath || f.pipelineName}-${i}`}
-              className='rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3'
+              className={
+                f.kind === REJECTED_KIND
+                  ? 'rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3'
+                  : 'rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3'
+              }
             >
               <div className='flex items-center gap-2'>
-                <span className='text-xs font-medium uppercase tracking-wide text-amber-400'>
+                <span
+                  className={`text-xs font-medium uppercase tracking-wide ${
+                    f.kind === REJECTED_KIND ? 'text-red-400' : 'text-amber-400'
+                  }`}
+                >
                   {findingLabel(f.kind)}
                 </span>
                 {f.stale && (

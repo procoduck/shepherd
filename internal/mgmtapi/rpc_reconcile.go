@@ -71,7 +71,57 @@ func (s *FleetService) GetReconciliation(ctx context.Context, req *connect.Reque
 	// on it is the finding an operator most needs, and before M2 it was
 	// visible only as a comment in the served config.
 	findings = append(reconcile.ExclusionFindings(reconcile.Declared{Role: coll.Role}, excluded), findings...)
+	// A rejection leads (#297): while the collector refuses its served config
+	// it runs the previous one, so every other served<->observed comparison
+	// is about a config that is not running.
+	if rej, ok := s.rejectionFinding(ctx, id); ok {
+		findings = append([]reconcile.Finding{rej}, findings...)
+	}
 	return connect.NewResponse(&mgmtv1.GetReconciliationResponse{Findings: findingsToProto(findings)}), nil
+}
+
+// rejectionFinding reports a collector that rejected its served config
+// (#297): its newest live instance presents FAILED (presentInstanceStatus, the
+// rule the collector views use, so an inactive instance's FAILED does not
+// count). The load error names a line of the MERGED config; when the status
+// was reported against the config served now, internal/merge maps that line
+// back to the pipeline whose declare block holds it. Served content is read
+// as stored — the span map is recovered from the bytes, never written next to
+// them. A status recorded without a hash (an agent predating #115) is taken
+// to be about the served config, as the collector views take it.
+func (s *FleetService) rejectionFinding(ctx context.Context, collectorID pgtype.UUID) (reconcile.Finding, bool) {
+	rows, err := s.store.Queries.ListCollectorInstancesByCollector(ctx, collectorID)
+	if err != nil || len(rows) == 0 {
+		return reconcile.Finding{}, false
+	}
+	row := rows[0]
+	status, errMsg := presentInstanceStatus(instanceOutcome{
+		status: row.RemoteConfigStatus, errMsg: row.RemoteConfigError,
+		statusHash: row.StatusHash, servedHash: row.ServedHash, lastSeen: row.LastSeen,
+	}, s.inactiveAfter, s.now())
+	if status != "FAILED" {
+		return reconcile.Finding{}, false
+	}
+	rej := reconcile.Rejection{
+		AboutCurrent: row.StatusHash.String == "" || row.StatusHash.String == row.ServedHash.String,
+	}
+	if !rej.AboutCurrent {
+		return reconcile.RejectionFinding(rej), true
+	}
+	line, _, ok := merge.ErrorPosition(errMsg)
+	if !ok {
+		return reconcile.RejectionFinding(rej), true
+	}
+	rej.MergedLine = line
+	cache, err := s.store.Queries.GetServeCache(ctx, collectorID)
+	if err != nil {
+		return reconcile.RejectionFinding(rej), true
+	}
+	if loc, found := merge.Locate(cache.Content, line); found {
+		rej.PipelineName = loc.PipelineName
+		rej.PipelineLine = loc.PipelineLine
+	}
+	return reconcile.RejectionFinding(rej), true
 }
 
 // reconcileServed rebuilds the pipeline set a collector SHOULD be served now —

@@ -59,3 +59,64 @@ test('an org that already has a tenant ID shows it read-only and never resends i
   });
   expect(api.calls('AdminService/SetOrgTenantID')).toHaveLength(0);
 });
+
+// #302: the edit called UpdateOrg first and SetOrgTenantID second, so an
+// invalid tenant ID was refused only AFTER the org fields — and their
+// org.update audit row — had been written. The tenant step, the one that can
+// refuse, now runs first: a refusal leaves the org untouched.
+test('a refused tenant ID writes nothing: UpdateOrg is never called', async ({ page, api }) => {
+  await api.loginAs(appAdmin);
+  api.seed({ orgs: [org] });
+  await page.goto('/admin/orgs');
+
+  await page.getByRole('button', { name: 'Edit prod-org' }).click();
+  await page.getByLabel('Display name').fill('Renamed');
+  await page.getByTestId('org-edit-tenant').pressSequentially('bad tenant/id');
+  await page.getByRole('button', { name: 'Save' }).click();
+
+  await expect(page.getByText(/outside the allowed set/)).toBeVisible({ timeout: 5_000 });
+  expect(api.calls('AdminService/SetOrgTenantID')).toHaveLength(1);
+  expect(api.calls('AdminService/UpdateOrg')).toHaveLength(0);
+});
+
+test('a retried edit after the tenant step succeeded does not resend the tenant', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(appAdmin);
+  api.seed({ orgs: [org] });
+  await page.goto('/admin/orgs');
+
+  await page.getByRole('button', { name: 'Edit prod-org' }).click();
+  // UpdateOrg fails transiently after the tenant step succeeded.
+  await page.getByLabel('Display name').fill('Renamed');
+  await page.getByTestId('org-edit-tenant').pressSequentially('prod-tenant');
+  let failed = false;
+  api.override('POST', '/shepherd.mgmt.v1.AdminService/UpdateOrg', (route) => {
+    if (!failed) {
+      failed = true;
+      return route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 'unavailable', message: 'try again' }),
+      });
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ id: 'org-0001', name: 'prod-org', displayName: 'Renamed' }),
+    });
+  });
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: /try again/i })).toBeVisible({
+    timeout: 5_000,
+  });
+
+  // The tenant is now fixed in the open dialog; Save again only updates.
+  await expect(page.getByTestId('org-edit-tenant-set')).toHaveValue('prod-tenant');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.locator('[data-sonner-toast]').filter({ hasText: 'updated' })).toBeVisible({
+    timeout: 5_000,
+  });
+  expect(api.calls('AdminService/SetOrgTenantID')).toHaveLength(1);
+});

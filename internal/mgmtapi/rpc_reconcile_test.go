@@ -3,6 +3,7 @@ package mgmtapi_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 
 	"shepherd/internal/auth"
 	"shepherd/internal/config"
+	"shepherd/internal/merge"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 )
@@ -211,6 +213,82 @@ var _ = Describe("shepherd.mgmt.v1.FleetService/GetReconciliation", Label("integ
 			fs := findings()
 			Expect(fs).To(HaveLen(1))
 			Expect(fs[0]["controllerPath"]).To(Equal("pipe_by_label"))
+		})
+	})
+
+	// #297: a collector that rejected its served config reads FAILED, and its
+	// error points at a line of the MERGED config. The tab used to say "the
+	// served and observed state below cannot agree" and list nothing; it now
+	// carries a served_config_rejected finding naming the pipeline whose
+	// declare block holds that line.
+	Describe("a collector that rejected its served config (#297)", func() {
+		const instanceID = "recon-inst-1"
+		pipeContents := "loki.write \"dest\" {\n  endpoint {\n    url = \"http://example.com/loki/api/v1/push\"\n  }\n}\n"
+
+		// serve stores an assembled config for the collector, the way the
+		// serve path would, and returns it.
+		serve := func() merge.AssembleResult {
+			cl := merge.CollectorLabels{CollectorID: collID.String(), Labels: map[string]string{"cluster": "recon-cluster", "role": "singleton"}}
+			res, err := merge.Assemble(collID.String(), "recon-cluster/singleton", cl, []merge.Pipeline{{
+				ID: "p", Name: pipeName, Contents: pipeContents, Source: "ui", Revision: 1,
+				Matchers: []string{`cluster="recon-cluster"`},
+			}}, "test")
+			Expect(err).NotTo(HaveOccurred())
+			_, err = st.Queries.UpsertServeCacheConditional(ctx, sqlc.UpsertServeCacheConditionalParams{
+				CollectorID: collID, Content: res.Content, Hash: res.Hash, DirtySeq: 0,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			return res
+		}
+		report := func(status, errMsg, hash string) {
+			_, err := st.Queries.UpsertCollectorInstance(ctx, sqlc.UpsertCollectorInstanceParams{
+				ID: instanceID, CollectorID: collID, Name: "recon-node", LocalAttributes: json.RawMessage(`{}`),
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(st.Queries.UpdateInstanceStatus(ctx, sqlc.UpdateInstanceStatusParams{
+				ID:                 instanceID,
+				RemoteConfigStatus: pgtype.Text{String: status, Valid: true},
+				RemoteConfigError:  pgtype.Text{String: errMsg, Valid: errMsg != ""},
+				StatusHash:         pgtype.Text{String: hash, Valid: hash != ""},
+			})).To(Succeed())
+		}
+		rejections := func() []map[string]any {
+			var out []map[string]any
+			for _, f := range findings() {
+				if f["kind"] == "served_config_rejected" {
+					out = append(out, f)
+				}
+			}
+			return out
+		}
+
+		It("names the pipeline and the line of its own text the error points at", func() {
+			res := serve()
+			// The url attribute is line 3 of the pipeline's own text.
+			merged := res.Spans[0].DeclareLine + 3
+			report("FAILED", fmt.Sprintf("%d:5: Failed to build component: decoding configuration", merged), res.Hash)
+
+			fs := rejections()
+			Expect(fs).To(HaveLen(1))
+			Expect(fs[0]["pipelineName"]).To(Equal(pipeName))
+			Expect(fs[0]["sources"]).To(Equal([]any{"served", "observed"}))
+			Expect(fs[0]["summary"]).To(ContainSubstring(
+				fmt.Sprintf(`rejected in pipeline %q (line 3 of its text, line %d of the merged config)`, pipeName, merged)))
+		})
+
+		It("does not attribute a rejection of an earlier config to the current pipelines", func() {
+			res := serve()
+			report("FAILED", fmt.Sprintf("%d:5: Failed to build component", res.Spans[0].DeclareLine+3), "an-older-hash")
+			fs := rejections()
+			Expect(fs).To(HaveLen(1))
+			Expect(fs[0]).NotTo(HaveKey("pipelineName"))
+			Expect(fs[0]["summary"]).To(ContainSubstring("earlier served config"))
+		})
+
+		It("reports nothing once the collector loads the config", func() {
+			res := serve()
+			report("APPLIED", "", res.Hash)
+			Expect(rejections()).To(BeEmpty())
 		})
 	})
 

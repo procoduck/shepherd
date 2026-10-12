@@ -643,6 +643,15 @@ export function installDefaultHandlers(router: Router) {
     // Set-once, like the real handler.
     if (o['tenant_id'])
       return connectError(r, 400, 'failed_precondition', 'tenant id is already set');
+    // gateway.ValidateTenantID's charset rule, like the real handler — #302's
+    // spec needs the refusal to prove an edit writes nothing before it.
+    if (!/^[A-Za-z0-9!\-_.*'()]+$/.test(String(req['tenantId'] ?? '')))
+      return connectError(
+        r,
+        400,
+        'invalid_argument',
+        'tenant id contains characters outside the allowed set',
+      );
     o['tenant_id'] = req['tenantId'];
     return json(r, 200, orgToWire(o));
   });

@@ -5,7 +5,10 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { clients } from '@/api/transport';
 import { CollectorAttributes, CollectorLabelsButton } from '@/components/CollectorLabels';
-import { CollectorReconciliation } from '@/components/CollectorReconciliation';
+import {
+  CollectorReconciliation,
+  CollectorRejectionNote,
+} from '@/components/CollectorReconciliation';
 import { QueryError } from '@/components/QueryError';
 import { DataTable } from '@/components/ui/DataTable';
 import { Field, Input } from '@/components/ui/Field';
@@ -186,6 +189,7 @@ export function CollectorDetailPage() {
         <div className='rounded-lg border border-danger/30 bg-danger-surface px-4 py-3 text-sm text-danger'>
           <span className='font-medium'>Config error: </span>
           {detail.remoteConfigError}
+          {status === 'FAILED' && <CollectorRejectionNote orgId={orgId} id={id} />}
         </div>
       )}
 
