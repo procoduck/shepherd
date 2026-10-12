@@ -124,8 +124,8 @@ func (q *Queries) GetCollectorInstanceByID(ctx context.Context, id string) (Coll
 }
 
 const getLatestCollectorInstanceSummary = `-- name: GetLatestCollectorInstanceSummary :one
-SELECT ci.remote_config_status, ci.last_seen, ci.alloy_version, ci.local_attributes,
-       ci.remote_config_status_hash AS status_hash, sc.hash AS served_hash
+SELECT ci.remote_config_status, ci.remote_config_error, ci.last_seen, ci.alloy_version,
+       ci.local_attributes, ci.remote_config_status_hash AS status_hash, sc.hash AS served_hash
 FROM collector_instances ci
 LEFT JOIN serve_cache sc ON sc.collector_id = ci.collector_id
 WHERE ci.collector_id = $1 AND ci.unregistered_at IS NULL
@@ -135,6 +135,7 @@ LIMIT 1
 
 type GetLatestCollectorInstanceSummaryRow struct {
 	RemoteConfigStatus pgtype.Text        `json:"remote_config_status"`
+	RemoteConfigError  pgtype.Text        `json:"remote_config_error"`
 	LastSeen           pgtype.Timestamptz `json:"last_seen"`
 	AlloyVersion       pgtype.Text        `json:"alloy_version"`
 	LocalAttributes    json.RawMessage    `json:"local_attributes"`
@@ -142,7 +143,7 @@ type GetLatestCollectorInstanceSummaryRow struct {
 	ServedHash         pgtype.Text        `json:"served_hash"`
 }
 
-// Status, last-seen, and version of the most recently reporting live
+// Status, error, last-seen, and version of the most recently reporting live
 // instance for a collector, in a single round trip (used by the collector
 // list endpoint instead of N per-row status-only lookups). status_hash and
 // served_hash let the reader tell an outcome about the config being served
@@ -152,6 +153,7 @@ func (q *Queries) GetLatestCollectorInstanceSummary(ctx context.Context, collect
 	var i GetLatestCollectorInstanceSummaryRow
 	err := row.Scan(
 		&i.RemoteConfigStatus,
+		&i.RemoteConfigError,
 		&i.LastSeen,
 		&i.AlloyVersion,
 		&i.LocalAttributes,

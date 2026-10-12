@@ -25,6 +25,9 @@ export interface AlloyEditorProps {
   replaceIsEdit?: boolean;
   /** Soft-wrap long lines instead of scrolling sideways to them (#307). */
   lineWrapping?: boolean;
+  /** The editing area's accessible name: its textbox had none (2026-10-12
+   *  walkthrough). Read when the editor is created. */
+  ariaLabel?: string;
 }
 
 // One frozen default, so a caller that omits `diagnostics` does not hand the
@@ -92,6 +95,7 @@ export function AlloyEditor({
   height = '100%',
   replaceIsEdit = true,
   lineWrapping = false,
+  ariaLabel = 'Alloy configuration',
 }: AlloyEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -134,6 +138,7 @@ export function AlloyEditor({
         spellcheck: 'false',
         autocorrect: 'off',
         autocapitalize: 'off',
+        'aria-label': ariaLabel,
       }),
       alloyLanguage(),
       lineNumbers(),

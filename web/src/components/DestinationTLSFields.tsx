@@ -69,6 +69,21 @@ export function tlsIsSet(t: TLSFormState): boolean {
   return t.caKind !== '' || t.clientCert || t.serverName.trim() !== '';
 }
 
+/** The TLS options in words, '' when none is set — the destinations table's
+ *  TLS badge describes itself with it. */
+export function tlsSummary(t: TLSFormState): string {
+  const parts: string[] = [];
+  if (t.caKind !== '') {
+    const kind = t.caKind === 'configmap' ? 'ConfigMap' : 'Secret';
+    parts.push(`CA from ${kind} ${t.caNamespace}/${t.caName}`);
+  }
+  if (t.clientCert) {
+    parts.push(`client certificate from Secret ${t.clientNamespace}/${t.clientName}`);
+  }
+  if (t.serverName.trim() !== '') parts.push(`server name ${t.serverName.trim()}`);
+  return parts.join('; ');
+}
+
 /**
  * The extra to send: the stored one with `tls` replaced by the form's
  * options, or removed when none is set.

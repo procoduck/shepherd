@@ -9,6 +9,14 @@ describe('sentenceCase', () => {
     ['Already capitalised', 'Already capitalised'],
     ['"quoted" first', '"quoted" first'],
     ['', ''],
+    // 2026-10-12 walkthrough: a leading field identifier read "Tenant_id is
+    // in use…". It is named in words instead; one later in the text is a
+    // quoted identifier and stays as written.
+    ['tenant_id is in use by another org', 'Tenant ID is in use by another org'],
+    ['secret_name: required', 'Secret name: required'],
+    ['name must not repeat tenant_id', 'Name must not repeat tenant_id'],
+    ['scrape_url is required', 'Scrape URL is required'],
+    ['ssh_known_hosts required for kind ssh', 'SSH known hosts required for kind ssh'],
   ])('%j -> %j', (input, want) => {
     expect(sentenceCase(input)).toBe(want);
   });

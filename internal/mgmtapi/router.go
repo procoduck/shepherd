@@ -50,11 +50,21 @@ func Router() http.Handler {
 	// GET /api/schema/{version} → specific version merged with overlay (ETag cached).
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Get("/schema/current", schemaHandler.GetCurrent)
-		r.Get("/schema/{version}", schemaHandler.Get)
+		MountSchemaRoutes(r, schemaHandler)
 	})
 
 	return r
+}
+
+// MountSchemaRoutes registers the schema artifact routes on r, for GET and
+// HEAD: a HEAD (a cheap "is it there, which ETag" probe) used to fall through
+// to the 404 handler. net/http drops the body a HEAD handler writes, so the
+// GET handlers serve both.
+func MountSchemaRoutes(r chi.Router, h *SchemaHandler) {
+	r.Get("/schema/current", h.GetCurrent)
+	r.Head("/schema/current", h.GetCurrent)
+	r.Get("/schema/{version}", h.Get)
+	r.Head("/schema/{version}", h.Get)
 }
 
 // MountOption configures optional MountRPC dependencies — things the route

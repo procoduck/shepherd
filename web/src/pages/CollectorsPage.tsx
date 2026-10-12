@@ -145,16 +145,21 @@ export function CollectorsPage() {
         <Field label='Search collectors' className='flex-1'>
           <Input value={search} onChange={(e) => setSearch(e.target.value)} />
         </Field>
-        <Field label='Group by'>
-          <Select value={activeGroup} onChange={(e) => setGroupBy(e.target.value)}>
-            <option value=''>None</option>
-            {labelKeys.map((key) => (
-              <option key={key} value={key}>
-                {key}
-              </option>
-            ))}
-          </Select>
-        </Field>
+        {/* Groups are collector labels: with none set there is nothing to
+            group by, and a picker offering only "None" said otherwise
+            (2026-10-12 walkthrough). */}
+        {labelKeys.length > 0 && (
+          <Field label='Group by'>
+            <Select value={activeGroup} onChange={(e) => setGroupBy(e.target.value)}>
+              <option value=''>None</option>
+              {labelKeys.map((key) => (
+                <option key={key} value={key}>
+                  {key}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
         <span className='py-2 text-xs text-muted'>
           {filtered.length} / {collectors.length}
         </span>

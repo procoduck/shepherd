@@ -17,12 +17,12 @@ export function EditorValidationStatus({
   alloyValidateSkipped: boolean;
 }) {
   return (
-    <div className='flex items-center gap-2 text-xs' aria-live='polite'>
+    <div className='flex min-w-0 items-center gap-2 text-xs' aria-live='polite'>
       {show &&
         (validating ? (
-          <span className='text-muted'>Validating…</span>
+          <span className='whitespace-nowrap text-muted'>Validating…</span>
         ) : problems > 0 ? (
-          <span className='flex items-center gap-1 text-red-400'>
+          <span className='flex items-center gap-1 whitespace-nowrap text-red-400'>
             <XCircle size={14} /> {problems} problem
             {problems > 1 ? 's' : ''}
           </span>
@@ -32,11 +32,11 @@ export function EditorValidationStatus({
             data-testid='validate-skipped-note'
             title='The server has no validate.alloy_binary configured, so only the Alloy syntax was checked. Component and argument errors will not show here.'
           >
-            <AlertTriangle size={14} /> Syntax checked — alloy validate skipped (no Alloy binary
-            configured)
+            <AlertTriangle size={14} className='shrink-0' /> Syntax checked — alloy validate skipped
+            (no Alloy binary configured)
           </span>
         ) : (
-          <span className='flex items-center gap-1 text-emerald-500'>
+          <span className='flex items-center gap-1 whitespace-nowrap text-emerald-500'>
             <CheckCircle2 size={14} /> No problems
           </span>
         ))}

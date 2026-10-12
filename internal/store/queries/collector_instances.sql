@@ -87,13 +87,13 @@ DELETE FROM collector_instances WHERE last_seen < $1;
 SELECT * FROM collector_instances WHERE id = $1;
 
 -- name: GetLatestCollectorInstanceSummary :one
--- Status, last-seen, and version of the most recently reporting live
+-- Status, error, last-seen, and version of the most recently reporting live
 -- instance for a collector, in a single round trip (used by the collector
 -- list endpoint instead of N per-row status-only lookups). status_hash and
 -- served_hash let the reader tell an outcome about the config being served
 -- from one about an earlier config (docs/proofs/applied-status.md).
-SELECT ci.remote_config_status, ci.last_seen, ci.alloy_version, ci.local_attributes,
-       ci.remote_config_status_hash AS status_hash, sc.hash AS served_hash
+SELECT ci.remote_config_status, ci.remote_config_error, ci.last_seen, ci.alloy_version,
+       ci.local_attributes, ci.remote_config_status_hash AS status_hash, sc.hash AS served_hash
 FROM collector_instances ci
 LEFT JOIN serve_cache sc ON sc.collector_id = ci.collector_id
 WHERE ci.collector_id = $1 AND ci.unregistered_at IS NULL

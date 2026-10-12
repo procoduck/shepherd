@@ -38,7 +38,7 @@ export function WrapLinesToggle({
       type='button'
       aria-pressed={wrap}
       onClick={() => onChange(!wrap)}
-      className={`rounded border border-border px-2 py-1 text-xs font-medium hover:text-zinc-100 ${
+      className={`shrink-0 whitespace-nowrap rounded border border-border px-2 py-1 text-xs font-medium hover:text-zinc-100 ${
         wrap ? 'text-accent' : 'text-muted'
       }`}
       data-testid='wrap-lines-toggle'

@@ -184,7 +184,11 @@ export function Palette() {
                   {LABELS[cat]}
                 </summary>
                 {catItems.map(({ name, def }) => (
-                  <div
+                  // A button (2026-10-12 walkthrough): clicking places the
+                  // component, so keyboard and screen-reader users need it in
+                  // the tab order and announced as an action.
+                  <button
+                    type='button'
                     key={name}
                     draggable={!readOnly}
                     aria-disabled={readOnly || undefined}
@@ -198,7 +202,7 @@ export function Palette() {
                       e.dataTransfer.setData('application/vb-component', name);
                     }}
                     onClick={() => handleClick(name)}
-                    className={`px-3 py-1.5 text-sm flex items-center gap-2 ${
+                    className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 ${
                       readOnly
                         ? 'cursor-not-allowed opacity-60'
                         : 'cursor-pointer hover:bg-accent/10'
@@ -220,7 +224,7 @@ export function Palette() {
                         {def.stability === 'experimental' ? 'exp' : 'preview'}
                       </span>
                     )}
-                  </div>
+                  </button>
                 ))}
               </details>
             );

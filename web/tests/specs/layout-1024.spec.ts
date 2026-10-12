@@ -265,3 +265,54 @@ test('the editor fills its pane and the revision diff still shows both sides', a
   }
   await expect(page.getByTestId('revision-diff')).toContainText('// first');
 });
+
+// 2026-10-12 walkthrough (M1): at 1024x768 the text editor's toolbar ran past
+// the window on every pipeline page — Save's right edge at 1046px, with no
+// page scroll to reach it — and "No problems" and "Wrap lines" broke onto two
+// lines. Save must sit wholly inside the window, the toolbar's labels on one
+// line each, with the long "alloy validate skipped" verdict too.
+for (const { label, path, skipped } of [
+  { label: 'a text pipeline', path: '/pipelines/pip-text', skipped: false },
+  { label: 'a text pipeline (skipped-validate note)', path: '/pipelines/pip-text', skipped: true },
+  { label: 'a new pipeline', path: '/pipelines/new', skipped: false },
+  { label: "a visual pipeline's text page", path: '/pipelines/pip-vis', skipped: false },
+]) {
+  test(`at 1024 px the editor toolbar keeps Save in the window: ${label}`, async ({
+    page,
+    api,
+  }) => {
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await api.loginAs(orgEditor);
+    const s = basicScenario();
+    api.seed({
+      orgs: [s.org],
+      pipelines: [
+        pipeline({ id: 'pip-text', name: 'base-metrics', org_id: s.org.id, contents: '// ok' }),
+        pipeline({ id: 'pip-vis', name: 'vis', org_id: s.org.id, source: 'visual' }),
+      ],
+      ...(skipped ? { validateResult: { valid: true, diagnostics: [], skipped_stages: [2] } } : {}),
+    });
+    await page.goto(path);
+    await expect(page.locator('.cm-editor')).toBeVisible();
+    if (path !== '/pipelines/new') {
+      await expect
+        .poll(() => api.calls('PipelineService/ValidatePipeline').length)
+        .toBeGreaterThan(0);
+    }
+
+    const save = page.getByRole('button', { name: 'Save', exact: true });
+    await expect(save).toBeVisible();
+    const box = await settledBox(save);
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(1024);
+    expect(box.y + box.height).toBeLessThanOrEqual(768);
+    // No sideways page scroll is hiding anything either.
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      1024,
+    );
+    // Each control's label stays on one line (a 12px label wrapped is ~2x).
+    const wrap = await settledBox(page.getByRole('button', { name: 'Wrap lines' }));
+    expect(wrap.height).toBeLessThan(32);
+    expect(box.height).toBeLessThan(32);
+  });
+}

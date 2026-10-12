@@ -139,7 +139,9 @@ test("a viewer's visual builder is read-only: no Save, Simulate, palette or name
   await expect(page.getByTestId('palette-read-only')).toBeVisible();
   const item = page.getByTestId('palette-item-prometheus.remote_write');
   await expect(item).toHaveAttribute('aria-disabled', 'true');
-  await item.click();
+  // A button now (2026-10-12 walkthrough): aria-disabled, so Playwright's
+  // actionability check refuses it; force the click a person could still make.
+  await item.click({ force: true });
   await expect(page.locator('.react-flow__node')).toHaveCount(1);
 
   // Nothing the viewer did reached an editor-only RPC.

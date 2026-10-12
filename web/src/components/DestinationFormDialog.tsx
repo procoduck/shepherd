@@ -209,7 +209,7 @@ export function DestinationFormDialog({
   const [tenantError, setTenantError] = useState('');
   const secretMode = isSecretMode(form.authMode);
 
-  function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     let err = validateUrl(form.url);
     if (!err && tlsIsSet(form.tls) && !form.url.toLowerCase().startsWith('https://')) {
@@ -218,7 +218,18 @@ export function DestinationFormDialog({
     setUrlError(err);
     const tErr = validateTenant(form.tenantId.trim());
     setTenantError(tErr);
-    if (!err && !tErr) onSubmit(form);
+    if (!err && !tErr) {
+      onSubmit(form);
+      return;
+    }
+    // The URL sits above a long form: its error (TLS options needing https://
+    // most of all, set at the bottom) was scrolled out of view on submit
+    // (2026-10-12 walkthrough). Take the person to the first refused field.
+    const first = e.currentTarget.elements.namedItem(err ? 'url' : 'tenantId');
+    if (first instanceof HTMLElement) {
+      first.focus();
+      first.scrollIntoView({ block: 'center' });
+    }
   }
 
   return (
@@ -244,6 +255,8 @@ export function DestinationFormDialog({
         </Field>
         <Field label='URL' error={urlError}>
           <Input
+            name='url'
+            aria-invalid={urlError ? true : undefined}
             value={form.url}
             onChange={(e) => {
               setForm((f) => ({ ...f, url: e.target.value }));
@@ -260,6 +273,8 @@ export function DestinationFormDialog({
         </p>
         <Field label='Tenant ID' optional error={tenantError}>
           <Input
+            name='tenantId'
+            aria-invalid={tenantError ? true : undefined}
             value={form.tenantId}
             onChange={(e) => {
               setForm((f) => ({ ...f, tenantId: e.target.value }));

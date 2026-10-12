@@ -83,7 +83,17 @@ function PipelineRejections({
             <span className='font-medium'>
               {c.cluster}/{c.role}:
             </span>{' '}
-            {summary} Error: <code className='font-mono'>{c.remoteConfigError}</code>
+            {summary}
+            {/* ListCollectors carries the presented load error (2026-10-12
+                walkthrough: it did not, and this ended in a bare "Error:").
+                A FAILED report can still come with no message: then there is
+                nothing to label. */}
+            {c.remoteConfigError && (
+              <>
+                {' '}
+                Error: <code className='font-mono'>{c.remoteConfigError}</code>
+              </>
+            )}
           </li>
         ))}
       </ul>

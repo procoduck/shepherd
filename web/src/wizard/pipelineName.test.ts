@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  collidingName,
   isNameTaken,
   sanitizePipelineName,
   suggestPipelineName,
@@ -51,5 +52,15 @@ describe('the sanitized comparison', () => {
     expect(uniquePipelineName('pod-logs', ['pod_logs', 'POD-LOGS-2'])).toBe('pod-logs-3');
     expect(isNameTaken('pod-logs', takenNameKeys(['pod_logs']))).toBe(true);
     expect(isNameTaken('pod-logs', takenNameKeys(['pod-logs-x']))).toBe(false);
+  });
+});
+
+// 2026-10-12 walkthrough: "A pipeline named “pod-logs” already exists" when
+// the org's pipeline is "Pod Logs" — the message should name the one it is.
+describe('collidingName', () => {
+  it('returns the existing name the server would compare equal', () => {
+    expect(collidingName('pod-logs', ['other', 'Pod Logs'])).toBe('Pod Logs');
+    expect(collidingName('pod-logs', ['pod-logs'])).toBe('pod-logs');
+    expect(collidingName('fresh', ['Pod Logs'])).toBeUndefined();
   });
 });

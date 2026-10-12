@@ -13,10 +13,11 @@ import {
   isSecretMode,
   scopesFromExtra,
 } from '@/components/DestinationFormDialog';
-import { extraWithTLS, tlsFromExtra } from '@/components/DestinationTLSFields';
+import { extraWithTLS, tlsFromExtra, tlsSummary } from '@/components/DestinationTLSFields';
 import { withPipelineLinks } from '@/components/PipelineNameLinks';
 import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
+import { toneClass } from '@/components/ui/statusTone';
 import type { Destination } from '@/gen/shepherd/mgmt/v1/destination_pb';
 import { useCanAdminister, useOrg } from '@/hooks/useOrg';
 import { formError } from '@/lib/formError';
@@ -77,7 +78,25 @@ function destinationColumns(
       key: 'url',
       header: 'URL',
       cellClassName: 'px-4 py-2.5 font-mono text-xs text-zinc-300',
-      render: (d) => <DestinationUrl url={d.url} />,
+      // Whether TLS options are set (2026-10-12 walkthrough): until now only
+      // the edit dialog said so.
+      render: (d) => {
+        const tls = tlsSummary(tlsFromExtra(d.extra));
+        return (
+          <>
+            <DestinationUrl url={d.url} />
+            {tls && (
+              <span
+                data-testid='destination-tls-badge'
+                title={`TLS options: ${tls}`}
+                className={`ml-2 inline-flex rounded px-1.5 py-0.5 font-sans text-2xs font-medium ${toneClass('info')}`}
+              >
+                TLS<span className='sr-only'> options: {tls}</span>
+              </span>
+            )}
+          </>
+        );
+      },
     },
     {
       key: 'tenant',

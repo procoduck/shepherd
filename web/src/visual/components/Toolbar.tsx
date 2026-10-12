@@ -252,6 +252,12 @@ export function Toolbar({
         data-layout={layout}
       >
         {flowCheckActive && <span data-testid='flow-check-active' className='sr-only' />}
+        {/* The page's heading (2026-10-12 walkthrough: the builder had none),
+            for screen-reader navigation; the name input shows it visually. */}
+        <h1 className='sr-only'>
+          Visual builder:{' '}
+          {pipelineName.trim() || (pipelineId === 'new' ? 'new pipeline' : 'pipeline')}
+        </h1>
         <input
           data-testid='toolbar-name'
           aria-label='Pipeline name'

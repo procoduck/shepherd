@@ -47,6 +47,19 @@ export function setPersistedOrgId(id: string): void {
   for (const listener of listeners) listener();
 }
 
+/** Forgets the persisted org (on sign-out, 2026-10-12 walkthrough): the next
+ *  person to sign in on this browser starts from their own first org rather
+ *  than this one's choice. */
+export function clearPersistedOrgId(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(ORG_STORAGE_KEY);
+  } catch {
+    /* ignore persistence failures */
+  }
+  for (const listener of listeners) listener();
+}
+
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   const onStorage = (e: StorageEvent) => {

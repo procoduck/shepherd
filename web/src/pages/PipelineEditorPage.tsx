@@ -1,13 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useParams } from '@tanstack/react-router';
-import { ArrowLeft, PlayCircle, Save, Wand2 } from 'lucide-react';
+import { useNavigate, useParams, useSearch } from '@tanstack/react-router';
+import { ArrowLeft } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { clients } from '@/api/transport';
 import { DetachFromWizard } from '@/components/DetachFromWizard';
-import { EditorValidationStatus } from '@/components/EditorValidationStatus';
+import { HandEditConfirmDialog, useWouldHandEdit } from '@/components/HandEditConfirmDialog';
 import { PipelineActions } from '@/components/PipelineActions';
+import { PipelineEditorToolbar } from '@/components/PipelineEditorToolbar';
 import { OpenInVisualBuilder, PipelineLandingBanner } from '@/components/PipelineLandingBanner';
+import { PipelineLoadState } from '@/components/PipelineLoadState';
 import { PipelineMatchers } from '@/components/PipelineMatchers';
 import { PipelineMatchPreview } from '@/components/PipelineMatchPreview';
 import { PipelineOwner } from '@/components/PipelineOwner';
@@ -18,7 +20,7 @@ import { EditorSaveConflict, isSaveConflict } from '@/components/SaveConflictDia
 import { Input } from '@/components/ui/Field';
 import { FormError } from '@/components/ui/FormError';
 import { Modal, ModalActions } from '@/components/ui/Modal';
-import { useWrapLines, WrapLinesToggle } from '@/components/WrapLinesToggle';
+import { useWrapLines } from '@/components/WrapLinesToggle';
 import { diffStats } from '@/editor/diffStats';
 import { AlloyEditor, RevisionDiff } from '@/editor/LazyAlloyEditor';
 import { useCanAdminister, useCanWrite, useOrgId } from '@/hooks/useOrg';
@@ -27,6 +29,9 @@ import { formError } from '@/lib/formError';
 
 export function PipelineEditorPage() {
   const { id } = useParams({ strict: false }) as { id?: string };
+  // Set when a builder Save or a finished wizard landed here (#251): the
+  // landing banner shows until it is dismissed or the pipeline is saved.
+  const { from } = useSearch({ strict: false }) as { from?: string };
   const isNew = !id;
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -42,8 +47,11 @@ export function PipelineEditorPage() {
   // Where the restore confirmation was opened from: the diff view's button,
   // or "Restore last wizard version" (which leaves no diff to go back to).
   const [confirmingRestore, setConfirmingRestore] = useState<false | 'diff' | 'offer'>(false);
+  // A Save that would hand-edit a wizard pipeline asks first (2026-10-12
+  // walkthrough): it stops the pipeline following destination changes.
+  const [confirmingHandEdit, setConfirmingHandEdit] = useState(false);
 
-  const { data: pipeline } = useQuery({
+  const { data: pipeline, error: pipelineError } = useQuery({
     queryKey: ['pipeline', orgId, id],
     queryFn: () => clients.pipeline.getPipeline({ orgId, id: id! }),
     enabled: !!id && !!orgId,
@@ -148,7 +156,13 @@ export function PipelineEditorPage() {
         qc.invalidateQueries({ queryKey: ['revisions', orgId, id] });
       }
       if (isNew) navigate({ to: '/pipelines/$id', params: { id: p.id } });
+      // The landing banner is out of date after a save (2026-10-12).
+      else if (from)
+        navigate({ to: '/pipelines/$id', params: { id: p.id }, search: {}, replace: true });
+      setConfirmingHandEdit(false);
     },
+    // A conflict has its own dialog; the hand-edit question is answered.
+    onError: (err) => isSaveConflict(err) && setConfirmingHandEdit(false),
   });
 
   const restoreMutation = useMutation({
@@ -181,15 +195,30 @@ export function PipelineEditorPage() {
     (conflict ? null : formError(saveMutation.error, 'Save failed')) ??
     formError(formatMutation.error, 'Cannot format — fix the syntax errors first');
 
+  const wouldHandEdit = useWouldHandEdit(pipeline, revisions, pipelineOrgId, orgId, contents);
+  const save = () => {
+    formatMutation.reset();
+    if (wouldHandEdit) setConfirmingHandEdit(true);
+    else saveMutation.mutate({});
+  };
+  const closeHandEdit = () => {
+    setConfirmingHandEdit(false);
+    saveMutation.reset();
+  };
+
   const hasErrors = diagnostics.length > 0;
   // Read-only for whoever may not write this pipeline (canEdit above) and for
   // git-managed pipelines (git is the source of truth).
   const readOnly = !canEdit || pipeline?.source === 'git';
 
+  if (!isNew && !pipeline) return <PipelineLoadState error={pipelineError} />;
+
   return (
     <div className='flex h-[calc(100vh-7rem)] gap-0'>
       {/* Left pane */}
-      <div className='w-[380px] shrink-0 border-r border-border overflow-y-auto p-6 space-y-5'>
+      {/* 300px below a 1280px window (2026-10-12 walkthrough): at 1024px the
+          380px pane left the editor toolbar too little room for Save. */}
+      <div className='w-[300px] xl:w-[380px] shrink-0 border-r border-border overflow-y-auto p-6 space-y-5'>
         <div className='space-y-3'>
           <h1 className='text-xl font-semibold break-words'>
             {isNew ? 'New pipeline' : (pipeline?.name ?? 'Pipeline')}
@@ -284,7 +313,7 @@ export function PipelineEditorPage() {
       </div>
 
       {/* Right pane */}
-      <div className='flex flex-1 flex-col overflow-hidden'>
+      <div className='flex min-w-0 flex-1 flex-col overflow-hidden'>
         {id && <PipelineLandingBanner pipelineId={id} />}
         {selectedRevision != null ? (
           <>
@@ -341,53 +370,24 @@ export function PipelineEditorPage() {
           </>
         ) : (
           <>
-            {/* Toolbar */}
-            <div className='h-11 border-b border-border px-3 flex items-center justify-between shrink-0'>
-              <EditorValidationStatus
-                show={canEdit}
-                validating={validating}
-                problems={diagnostics.length}
-                alloyValidateSkipped={skippedStages.includes(2)}
-              />
-              <div className='flex items-center gap-2'>
-                <WrapLinesToggle wrap={wrapLines} onChange={setWrapLines} />
-                {!readOnly && (
-                  <>
-                    <button
-                      type='button'
-                      onClick={() => validate(contents)}
-                      disabled={validating || !contents.trim()}
-                      className='flex items-center gap-1.5 rounded border border-border px-3 py-1 text-xs font-medium text-muted hover:text-zinc-100 disabled:opacity-50'
-                      data-testid='validate-btn'
-                    >
-                      <PlayCircle size={13} /> Validate
-                    </button>
-                    <button
-                      type='button'
-                      onClick={() => {
-                        saveMutation.reset();
-                        formatMutation.mutate();
-                      }}
-                      disabled={formatMutation.isPending || !contents.trim()}
-                      className='flex items-center gap-1.5 rounded border border-border px-3 py-1 text-xs font-medium text-muted hover:text-zinc-100 disabled:opacity-50'
-                      data-testid='format-btn'
-                    >
-                      <Wand2 size={13} /> Format
-                    </button>
-                    <button
-                      onClick={() => {
-                        formatMutation.reset();
-                        saveMutation.mutate({});
-                      }}
-                      disabled={saveMutation.isPending || blockingErrors}
-                      className='flex items-center gap-1.5 rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50'
-                    >
-                      <Save size={13} /> Save
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
+            <PipelineEditorToolbar
+              showStatus={canEdit}
+              validating={validating}
+              problems={diagnostics.length}
+              alloyValidateSkipped={skippedStages.includes(2)}
+              wrapLines={wrapLines}
+              onWrapLines={setWrapLines}
+              readOnly={readOnly}
+              canRun={!!contents.trim()}
+              onValidate={() => validate(contents)}
+              formatting={formatMutation.isPending}
+              onFormat={() => {
+                saveMutation.reset();
+                formatMutation.mutate();
+              }}
+              saveDisabled={saveMutation.isPending || blockingErrors}
+              onSave={save}
+            />
 
             {editorError && (
               <div className='border-b border-border p-2'>
@@ -438,6 +438,15 @@ export function PipelineEditorPage() {
           onOverwrite={
             pipeline?.canEdit ? () => saveMutation.mutate({ overwrite: true }) : undefined
           }
+        />
+      )}
+
+      {confirmingHandEdit && (
+        <HandEditConfirmDialog
+          pending={saveMutation.isPending}
+          error={conflict ? null : formError(saveMutation.error, 'Save failed')}
+          onCancel={closeHandEdit}
+          onConfirm={() => saveMutation.mutate({})}
         />
       )}
 

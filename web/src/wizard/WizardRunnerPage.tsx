@@ -14,6 +14,7 @@ import { useOrgId } from '@/hooks/useOrg';
 import { formError } from '@/lib/formError';
 import { primePipelineCache } from '@/lib/pipelineCache';
 import {
+  collidingName,
   isNameTaken,
   suggestPipelineName,
   takenNameKeys,
@@ -21,7 +22,7 @@ import {
 } from './pipelineName';
 import {
   defaultFieldValue,
-  isStepValid,
+  missingRequiredFields,
   type WizardFormState,
   WizardStepFields,
 } from './WizardStepFields';
@@ -225,17 +226,29 @@ export function WizardRunnerPage() {
     { id: 'review', title: 'Review' },
   ];
   const currentFields = isReview ? [] : dataSteps[stepIndex].fields;
-  const canContinue = isReview || isStepValid(currentFields, form);
+  // Why Continue is disabled (2026-10-12 walkthrough: it said nothing).
+  const missing = isReview ? [] : missingRequiredFields(currentFields, form);
+  const canContinue = missing.length === 0;
   const diagnostics = renderQuery.data?.diagnostics ?? [];
   const hasErrors = diagnostics.length > 0;
   const nameTaken = !!name && isNameTaken(name, takenNames);
+  // The pipeline it collides with, as that one is named: "Pod Logs" takes
+  // "pod-logs" too, and the message should say which pipeline that is.
+  const collidesWith = nameTaken
+    ? collidingName(
+        name,
+        (pipelinesQuery.data?.items ?? []).map((p) => p.name),
+      )
+    : undefined;
   // Why Create is disabled, when the page does not already show it (#306): a
   // render error and diagnostics are shown above; a pending commit or render
   // says so on its own.
   const createBlocked = !name
     ? 'Enter a pipeline name.'
     : nameTaken
-      ? `A pipeline named “${name}” already exists in this organisation.`
+      ? collidesWith && collidesWith !== name
+        ? `“${name}” is taken: it is the same name as the existing pipeline “${collidesWith}” (names are compared ignoring case and punctuation).`
+        : `A pipeline named “${name}” already exists in this organisation.`
       : hasErrors
         ? 'Fix the problems in the preview first.'
         : null;
@@ -394,6 +407,7 @@ export function WizardRunnerPage() {
                     <div className='h-64 overflow-hidden rounded-md border border-border'>
                       <AlloyEditor
                         value={renderQuery.data.contents}
+                        ariaLabel='Generated Alloy configuration'
                         readOnly
                         diagnostics={diagnostics}
                         height='100%'
@@ -407,6 +421,15 @@ export function WizardRunnerPage() {
 
           {isReview && (
             <FormError message={formError(commitMut.error, 'Failed to create pipeline')} />
+          )}
+          {!isReview && missing.length > 0 && (
+            <p
+              id='wizard-continue-reason'
+              className='text-right text-xs text-muted-2'
+              data-testid='wizard-continue-blocked'
+            >
+              To continue, fill in {missing.join(', ')}.
+            </p>
           )}
           {isReview && createBlocked && (
             <p className='text-right text-xs text-muted-2' data-testid='wizard-create-blocked'>
@@ -428,9 +451,15 @@ export function WizardRunnerPage() {
             {!isReview ? (
               <button
                 type='button'
-                onClick={() => setStepIndex((i) => Math.min(reviewIndex, i + 1))}
-                disabled={!canContinue}
-                className='rounded-md bg-indigo-600 px-4 py-1.5 text-sm text-white hover:bg-indigo-500 disabled:opacity-50'
+                onClick={() => {
+                  // aria-disabled keeps Continue focusable so its reason
+                  // reaches keyboard and screen-reader users; refuse here.
+                  if (!canContinue) return;
+                  setStepIndex((i) => Math.min(reviewIndex, i + 1));
+                }}
+                aria-disabled={canContinue ? undefined : true}
+                aria-describedby={canContinue ? undefined : 'wizard-continue-reason'}
+                className='rounded-md bg-indigo-600 px-4 py-1.5 text-sm text-white hover:bg-indigo-500 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-indigo-600'
               >
                 Continue
               </button>

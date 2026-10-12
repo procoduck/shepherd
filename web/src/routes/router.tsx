@@ -1,4 +1,10 @@
-import { createRootRoute, createRoute, createRouter, Outlet } from '@tanstack/react-router';
+import {
+  createRootRoute,
+  createRoute,
+  createRouter,
+  Outlet,
+  redirect,
+} from '@tanstack/react-router';
 import { type JSX, Suspense } from 'react';
 import { NotFoundPage } from '@/components/NotFoundPage';
 import type { PipelineLandedFrom } from '@/components/PipelineLandingBanner';
@@ -196,6 +202,13 @@ const visualNewRoute = createRoute({
 const visualEditRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/pipelines/$id/visual',
+  // "/pipelines/new/visual" is not a pipeline called "new": it is the new
+  // builder, and goes through that route's org-editor guard (2026-10-12
+  // walkthrough: a viewer got an unguarded read-only canvas here, and
+  // RequireRole's denial at /pipelines/visual/new).
+  beforeLoad: ({ params }) => {
+    if (params.id === 'new') throw redirect({ to: '/pipelines/visual/new', replace: true });
+  },
   loader: startBuilderLoad,
   component: () => (
     <Suspense fallback={<div className='h-full p-4 text-sm'>Loading visual builder…</div>}>
