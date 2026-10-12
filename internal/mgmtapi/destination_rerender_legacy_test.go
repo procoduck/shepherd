@@ -181,6 +181,14 @@ var _ = Describe("RerenderLegacyDestinationWriters (#262 upgrade path)", Label("
 			Expect(err).NotTo(HaveOccurred())
 			_, err = st.Pool().Exec(ctx, `UPDATE pipelines SET wizard_render_sha256 = $2 WHERE id = $1`, p.ID, fingerprint)
 			Expect(err).NotTo(HaveOccurred())
+			// CommitWizard's revision 1, as a real pre-#261 wizard pipeline
+			// has it: the pre-#261 hand-edit fallback only accepts text that
+			// is still the last wizard-written revision (review of #277).
+			_, err = st.Queries.CreatePipelineRevision(ctx, sqlc.CreatePipelineRevisionParams{
+				PipelineID: p.ID, Revision: 1, Contents: pre261.Contents, Matchers: p.Matchers,
+				ChangedBy: "seed", ChangeNote: "created", WizardState: stateJSON,
+			})
+			Expect(err).NotTo(HaveOccurred())
 			return p
 		}
 		fp := func(s string) pgtype.Text { return pgtype.Text{String: sha256Hex(s), Valid: true} }
@@ -197,7 +205,10 @@ var _ = Describe("RerenderLegacyDestinationWriters (#262 upgrade path)", Label("
 		Expect(results).To(HaveLen(1))
 		Expect(results[0].TenantDestinations).To(ConsistOf("mimir: acme"))
 		Expect(results[0].Rerendered).To(ConsistOf("fingerprinted", "unfingerprinted"))
-		Expect(results[0].Failed).To(ConsistOf(And(ContainSubstring("hand-edited"), ContainSubstring("edited by hand"))))
+		// A hand edit is skipped, not failed: it must not make every --all
+		// run exit non-zero (review of #282).
+		Expect(results[0].Skipped).To(ConsistOf(And(ContainSubstring("hand-edited"), ContainSubstring("edited by hand"))))
+		Expect(results[0].Failed).To(BeEmpty())
 		p, err := st.Queries.GetPipelineByID(ctx, fingerprinted.ID)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(p.Contents).To(Equal(pre261.Contents))
@@ -211,6 +222,15 @@ var _ = Describe("RerenderLegacyDestinationWriters (#262 upgrade path)", Label("
 			Expect(err).NotTo(HaveOccurred())
 			Expect(p.Contents).To(ContainSubstring(`"X-Scope-OrgID" = "acme",`))
 			Expect(p.WizardRenderSha256.String).To(Equal(sha256Hex(p.Contents)))
+			// The new revision is a wizard write: its note keeps the UI's
+			// wizard-revision marking, and it carries the fingerprint so a
+			// later restore re-attaches the pipeline (migration 0031).
+			revs, err := st.Queries.ListPipelineRevisions(ctx, id)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(revs).NotTo(BeEmpty())
+			Expect(revs[0].Contents).To(Equal(p.Contents))
+			Expect(revs[0].ChangeNote).To(Equal("re-rendered: rerender-destinations --all"))
+			Expect(revs[0].WizardRenderSha256.String).To(Equal(sha256Hex(p.Contents)))
 		}
 		e, err := st.Queries.GetPipelineByID(ctx, edited.ID)
 		Expect(err).NotTo(HaveOccurred())
@@ -224,5 +244,6 @@ var _ = Describe("RerenderLegacyDestinationWriters (#262 upgrade path)", Label("
 		results, err = mgmtapi.RerenderAllWizardPipelines(ctx, st, v, reg, slog.Default(), false)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(results[0].Rerendered).To(BeEmpty())
+		Expect(results[0].Skipped).To(HaveLen(1))
 	})
 })

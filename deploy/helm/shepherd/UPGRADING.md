@@ -15,10 +15,13 @@ which nothing could have set before, so they change nothing on upgrade.
 
 A tenant ID that an API caller stored on a destination earlier is sent from the
 next time each of its wizard pipelines is regenerated: when the pipeline's
-wizard is re-run, or when the destination is saved. **Sending it moves that
-data into the named backend tenant**, so a tenant ID that was set but never
-meant to be used would move your data. The destination form never set one, so
-destinations created in the UI have none.
+wizard is re-run, or when **any** destination the pipeline names is saved —
+saving one destination regenerates the whole pipeline, so a pipeline that
+writes metrics to destination A and logs to B starts sending B's stored tenant
+too when A is saved. **Sending it moves that data into the named backend
+tenant**, so a tenant ID that was set but never meant to be used would move
+your data. The destination form never set one, so destinations created in the
+UI have none.
 
 ### What to do
 
@@ -27,9 +30,12 @@ and the pipelines that would change. With `--all` the command writes nothing
 unless you add `--apply`:
 
 ```sh
-kubectl exec svc/<release> -- /usr/local/bin/shepherd admin rerender-destinations \
+kubectl -n <namespace> exec svc/<service> -- /usr/local/bin/shepherd admin rerender-destinations \
   --config /etc/shepherd/shepherd.yaml --all
 ```
+
+(`<service>` is the release name when it contains `shepherd`, otherwise
+`<release>-shepherd`; `fullnameOverride` replaces both.)
 
 For each organisation it prints `tenant  <destination>: <tenant>` for every
 destination with a tenant ID, and `ok  <pipeline>` for every wizard pipeline
@@ -39,8 +45,12 @@ that destination's pipelines. When the list is right, run it again with
 `--apply`: each listed pipeline is validated like any pipeline edit and stored
 with a new revision and a `pipeline.rerender` audit row (actor
 `system:rerender-destinations`). A pipeline edited by hand is listed as
-`FAILED` and never overwritten; re-run its wizard or detach it from its wizard.
-It is safe to repeat.
+`skipped` and never overwritten — on its page, restore its last
+wizard-generated revision, detach it from the wizard, or delete it. A pipeline
+that cannot be regenerated is listed as `FAILED` with the reason; if an
+organisation's merged config fails Stage 3, nothing in that organisation is
+changed. The command exits 1 only for `FAILED` pipelines (skipped hand edits do
+not count), so it can run from a script or Job. It is safe to repeat.
 
 A tenant ID that belongs to another organisation (its app-admin-set tenant ID)
 is now refused, both when a destination is saved and when a pipeline is

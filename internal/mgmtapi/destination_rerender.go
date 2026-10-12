@@ -468,6 +468,10 @@ type LegacyRerenderResult struct {
 	// A Stage 3 refusal lists every enabled pipeline of the org and leaves
 	// the whole org untouched.
 	Failed []string
+	// Skipped is one line per pipeline --all leaves alone because it was
+	// edited by hand: refusing to overwrite it is the intended outcome, not
+	// a failure, so it does not make the command exit non-zero.
+	Skipped []string
 	// TenantDestinations is one "destination: tenant" line per destination
 	// of the org with a non-empty tenant_id. Only RerenderAllWizardPipelines
 	// fills it: a tenant stored before #261 was never sent, and regenerating
@@ -587,6 +591,10 @@ func (s *PipelineService) rerenderOrg(ctx context.Context, org sqlc.Org, all, dr
 	}
 	changes, failures := s.planWizardRerenders(ctx, txQ, org.ID, legacy, before, dests, nil)
 	for _, f := range failures {
+		if all && f.handEdited {
+			res.Skipped = append(res.Skipped, f.describe(remedyLegacyRerender))
+			continue
+		}
 		res.Failed = append(res.Failed, f.describe(remedyLegacyRerender))
 	}
 	for i := range changes {

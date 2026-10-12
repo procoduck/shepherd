@@ -41,7 +41,12 @@ is stored (#261). Destinations' tenant IDs were stored but not sent before
 #261; regenerating starts sending them as X-Scope-OrgID, which moves that data
 into the named backend tenant. --all is a dry run unless --apply is given: it
 lists, per org, the destinations with a tenant and the pipelines that would
-change. A pipeline edited by hand is listed and never overwritten.
+change. A pipeline edited by hand is listed as skipped and never overwritten.
+
+Exit status: 0 when every pipeline that needed it was (or, on a dry run, would
+be) re-rendered — pipelines skipped as edited by hand do not count against it;
+1 when any pipeline could not be re-rendered (a render or validation failure,
+listed as FAILED). A Stage 3 refusal leaves that whole org unchanged.
 
 A pipeline that cannot be re-rendered (for example, its destination was
 deleted) is listed with the reason and what to do — fix what the reason
@@ -106,6 +111,9 @@ func runAdminRerenderDestinations(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	if failed > 0 {
+		if dryRun {
+			return fmt.Errorf("%d pipeline(s) would not be re-rendered; fix them before applying", failed)
+		}
 		return fmt.Errorf("%d pipeline(s) were not re-rendered; fix them and run again", failed)
 	}
 	return nil
@@ -126,8 +134,9 @@ func printRerenderResults(w io.Writer, results []mgmtapi.LegacyRerenderResult, d
 		_, _ = fmt.Fprintln(w, msg) //nolint:errcheck // terminal output
 		return 0
 	}
-	failed := 0
-	for _, r := range results {
+	failed, changing := 0, 0
+	for i := range results {
+		r := &results[i]
 		_, _ = fmt.Fprintf(w, "org %s (%s): %s %d pipeline(s)\n", r.OrgName, r.OrgID, verb, len(r.Rerendered)) //nolint:errcheck // terminal output
 		for _, t := range r.TenantDestinations {
 			_, _ = fmt.Fprintf(w, "  tenant  %s\n", t) //nolint:errcheck // terminal output
@@ -135,13 +144,20 @@ func printRerenderResults(w io.Writer, results []mgmtapi.LegacyRerenderResult, d
 		for _, name := range r.Rerendered {
 			_, _ = fmt.Fprintf(w, "  ok      %s\n", name) //nolint:errcheck // terminal output
 		}
+		for _, f := range r.Skipped {
+			_, _ = fmt.Fprintf(w, "  skipped %s\n", f) //nolint:errcheck // terminal output
+		}
 		for _, f := range r.Failed {
 			_, _ = fmt.Fprintf(w, "  FAILED  %s\n", f) //nolint:errcheck // terminal output
 		}
 		failed += len(r.Failed)
+		changing += len(r.Rerendered)
 	}
-	if dryRun && all {
+	switch {
+	case dryRun && all && changing > 0:
 		_, _ = fmt.Fprintln(w, "dry run: nothing written — run again with --apply to regenerate") //nolint:errcheck // terminal output
+	case all && changing == 0:
+		_, _ = fmt.Fprintln(w, "nothing to regenerate — nothing to do") //nolint:errcheck // terminal output
 	}
 	return failed
 }

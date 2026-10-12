@@ -45,4 +45,16 @@ var _ = Describe("rerender-destinations flags", func() {
 		Expect(out.String()).To(ContainSubstring("tenant  mimir: acme"))
 		Expect(out.String()).To(ContainSubstring("run again with --apply"))
 	})
+
+	It("lists hand-edited pipelines as skipped without counting them as failures", func() {
+		var out bytes.Buffer
+		failed := printRerenderResults(&out, []mgmtapi.LegacyRerenderResult{{
+			OrgID: "o1", OrgName: "acme",
+			Skipped: []string{`"mine": edited by hand`},
+		}}, true, true)
+		Expect(failed).To(Equal(0))
+		Expect(out.String()).To(ContainSubstring(`skipped "mine": edited by hand`))
+		Expect(out.String()).To(ContainSubstring("nothing to do"))
+		Expect(out.String()).NotTo(ContainSubstring("run again with --apply"))
+	})
 })

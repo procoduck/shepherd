@@ -338,7 +338,7 @@ subjects:
         <code>--apply</code>, and never overwrites a pipeline edited by hand:</p>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-        <pre><code>kubectl exec svc/shepherd -- /usr/local/bin/shepherd admin rerender-destinations \
+        <pre><code>kubectl -n shepherd exec svc/shepherd -- /usr/local/bin/shepherd admin rerender-destinations \
   --config /etc/shepherd/shepherd.yaml --all</code></pre>
       </div>
         <nav class="page-nav" aria-label="Pagination">
