@@ -1668,6 +1668,7 @@ func (s *PipelineService) recomputeOrgCaches(ctx context.Context, orgID pgtype.U
 			Content:     served.Content,
 			Hash:        served.Hash,
 			DirtySeq:    expectedSeq[c.ID],
+			Format:      serve.Format,
 		}); upsertErr != nil {
 			if errors.Is(upsertErr, pgx.ErrNoRows) {
 				// Superseded: the row was re-marked after this recompute read

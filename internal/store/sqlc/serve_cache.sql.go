@@ -12,7 +12,7 @@ import (
 )
 
 const getServeCache = `-- name: GetServeCache :one
-SELECT collector_id, content, hash, computed_at, dirty, dirty_seq FROM serve_cache WHERE collector_id = $1
+SELECT collector_id, content, hash, computed_at, dirty, dirty_seq, format FROM serve_cache WHERE collector_id = $1
 `
 
 func (q *Queries) GetServeCache(ctx context.Context, collectorID pgtype.UUID) (ServeCache, error) {
@@ -25,6 +25,7 @@ func (q *Queries) GetServeCache(ctx context.Context, collectorID pgtype.UUID) (S
 		&i.ComputedAt,
 		&i.Dirty,
 		&i.DirtySeq,
+		&i.Format,
 	)
 	return i, err
 }
@@ -117,15 +118,17 @@ func (q *Queries) MarkServeCacheDirtyByOrg(ctx context.Context, orgID pgtype.UUI
 }
 
 const upsertServeCacheConditional = `-- name: UpsertServeCacheConditional :one
-INSERT INTO serve_cache (collector_id, content, hash, computed_at, dirty, dirty_seq)
-VALUES ($1, $2, $3, now(), false, 0)
+INSERT INTO serve_cache (collector_id, content, hash, computed_at, dirty, dirty_seq, format)
+VALUES ($1, $2, $3, now(), false, 0, $5)
 ON CONFLICT (collector_id) DO UPDATE SET
     content     = EXCLUDED.content,
     hash        = EXCLUDED.hash,
     computed_at = now(),
-    dirty       = false
-WHERE serve_cache.dirty = true AND serve_cache.dirty_seq = $4
-RETURNING collector_id, content, hash, computed_at, dirty, dirty_seq
+    dirty       = false,
+    format      = EXCLUDED.format
+WHERE (serve_cache.dirty = true OR serve_cache.format < EXCLUDED.format)
+  AND serve_cache.dirty_seq = $4
+RETURNING collector_id, content, hash, computed_at, dirty, dirty_seq, format
 `
 
 type UpsertServeCacheConditionalParams struct {
@@ -133,6 +136,7 @@ type UpsertServeCacheConditionalParams struct {
 	Content     string      `json:"content"`
 	Hash        string      `json:"hash"`
 	DirtySeq    int64       `json:"dirty_seq"`
+	Format      int16       `json:"format"`
 }
 
 // Compare-and-swap on the dirty generation. The caller passes the dirty_seq it
@@ -142,12 +146,17 @@ type UpsertServeCacheConditionalParams struct {
 // recompute that observed the newer generation writes instead — so stale
 // content can never consume a newer dirty flag. Returns no row when skipped;
 // callers treat that as "superseded", not as a failure.
+//
+// format is the caller's serve format (internal/serve.Format). A clean row in
+// an older format is as stale as a dirty one (0033), so the write also lands
+// on it — under the same generation check.
 func (q *Queries) UpsertServeCacheConditional(ctx context.Context, arg UpsertServeCacheConditionalParams) (ServeCache, error) {
 	row := q.db.QueryRow(ctx, upsertServeCacheConditional,
 		arg.CollectorID,
 		arg.Content,
 		arg.Hash,
 		arg.DirtySeq,
+		arg.Format,
 	)
 	var i ServeCache
 	err := row.Scan(
@@ -157,6 +166,7 @@ func (q *Queries) UpsertServeCacheConditional(ctx context.Context, arg UpsertSer
 		&i.ComputedAt,
 		&i.Dirty,
 		&i.DirtySeq,
+		&i.Format,
 	)
 	return i, err
 }

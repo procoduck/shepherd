@@ -55,6 +55,10 @@ type Service struct {
 	// disabled; beacon.AppendBaseline treats that as "leave content
 	// unchanged", never as an error.
 	beaconBaseline beacon.BaselineConfig
+	// afterRecompute, when set, runs between the lazy recompute and its
+	// conditional write — test-only (export_test.go), so a spec can land a
+	// mark exactly mid-recompute. Nil in production.
+	afterRecompute func(context.Context)
 }
 
 // ServiceOption configures optional Service behavior not required by every
@@ -212,9 +216,11 @@ func (s *Service) GetConfig(
 
 	s.emitLocalAttrsMatchDrift(ctx, orgID, coll, cluster, role, beforeAttrsJSON, attrs)
 
-	// Claimed: read from serve cache; recompute if dirty.
+	// Claimed: read from serve cache; recompute if dirty, or if the row was
+	// computed in an older serve format (serve.Format, migration 0033) — a
+	// clean row an older binary wrote is as stale as a dirty one.
 	cache, err := s.store.Queries.GetServeCache(ctx, coll.ID)
-	if err != nil || cache.Dirty {
+	if err != nil || cache.Dirty || !serve.Current(cache.Format) {
 		// The generation this poll observed, captured BEFORE the pipelines
 		// are loaded inside recomputeServeCache: the upsert below is a
 		// compare-and-swap on it, so a mark that lands mid-recompute (an
@@ -231,18 +237,42 @@ func (s *Service) GetConfig(
 			if err != nil {
 				return nil, err
 			}
+			if s.afterRecompute != nil {
+				s.afterRecompute(ctx)
+			}
 			updated, err := s.store.Queries.UpsertServeCacheConditional(ctx, sqlc.UpsertServeCacheConditionalParams{
 				CollectorID: coll.ID,
 				Content:     newContent,
 				Hash:        newHash,
 				DirtySeq:    expectedSeq,
+				Format:      serve.Format,
 			})
 			if errors.Is(err, pgx.ErrNoRows) {
 				// Superseded: a newer mark arrived while this recompute ran,
 				// or the eager recompute already served this generation.
 				// Serve whatever the row holds now — if it is still dirty,
 				// the next poll recomputes against the newer generation.
-				return s.store.Queries.GetServeCache(ctx, coll.ID)
+				current, getErr := s.store.Queries.GetServeCache(ctx, coll.ID)
+				if getErr != nil {
+					return nil, getErr
+				}
+				if !serve.Current(current.Format) {
+					// Except a row in an older format (a mark reset it, and
+					// an older binary may since have written old-format
+					// bytes into it): never serve those as current. Serve
+					// this recompute's result instead, without caching it;
+					// the next poll recomputes against the newer generation
+					// and writes. Usually that result is at least as fresh
+					// as the row. The accepted exception is mid-rollout: an
+					// older binary can recompute the newer generation (N+1)
+					// and write it clean at format 0 while this serves its
+					// generation-N result, so for this one poll the
+					// collector may get older pipeline content than the row
+					// holds. The row stays format 0, so the next poll
+					// recomputes and serves N+1 — it self-heals.
+					return sqlc.ServeCache{CollectorID: coll.ID, Content: newContent, Hash: newHash, Dirty: true, Format: serve.Format}, nil
+				}
+				return current, nil
 			}
 			if err != nil {
 				return nil, err

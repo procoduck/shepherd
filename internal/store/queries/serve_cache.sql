@@ -42,14 +42,20 @@ ON CONFLICT (collector_id) DO UPDATE SET
 -- recompute that observed the newer generation writes instead — so stale
 -- content can never consume a newer dirty flag. Returns no row when skipped;
 -- callers treat that as "superseded", not as a failure.
-INSERT INTO serve_cache (collector_id, content, hash, computed_at, dirty, dirty_seq)
-VALUES ($1, $2, $3, now(), false, 0)
+--
+-- format is the caller's serve format (internal/serve.Format). A clean row in
+-- an older format is as stale as a dirty one (0033), so the write also lands
+-- on it — under the same generation check.
+INSERT INTO serve_cache (collector_id, content, hash, computed_at, dirty, dirty_seq, format)
+VALUES ($1, $2, $3, now(), false, 0, $5)
 ON CONFLICT (collector_id) DO UPDATE SET
     content     = EXCLUDED.content,
     hash        = EXCLUDED.hash,
     computed_at = now(),
-    dirty       = false
-WHERE serve_cache.dirty = true AND serve_cache.dirty_seq = $4
+    dirty       = false,
+    format      = EXCLUDED.format
+WHERE (serve_cache.dirty = true OR serve_cache.format < EXCLUDED.format)
+  AND serve_cache.dirty_seq = $4
 RETURNING *;
 
 -- name: ListServeCacheSeqByOrg :many
