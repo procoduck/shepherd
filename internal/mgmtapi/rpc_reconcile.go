@@ -89,9 +89,20 @@ func (s *FleetService) GetReconciliation(ctx context.Context, req *connect.Reque
 // as stored — the span map is recovered from the bytes, never written next to
 // them. A status recorded without a hash (an agent predating #115) is taken
 // to be about the served config, as the collector views take it.
+//
+// Hash equality is the only attribution rule. A status about an earlier hash
+// is still reported (Alloy re-sends only a changed error, so the collector is
+// most likely still failing), but no "probably pipeline X" is offered: the
+// earlier config's bytes are not stored, so nothing cheap proves the line
+// still lands in the same block — any change above it (another pipeline,
+// the header's revision list) shifts every line after it.
 func (s *FleetService) rejectionFinding(ctx context.Context, collectorID pgtype.UUID) (reconcile.Finding, bool) {
 	rows, err := s.store.Queries.ListCollectorInstancesByCollector(ctx, collectorID)
-	if err != nil || len(rows) == 0 {
+	if err != nil {
+		s.logger.Warn("reconcile: listing instances for rejection check", "collector_id", collectorID.String(), "err", err)
+		return reconcile.Finding{}, false
+	}
+	if len(rows) == 0 {
 		return reconcile.Finding{}, false
 	}
 	row := rows[0]
@@ -115,6 +126,8 @@ func (s *FleetService) rejectionFinding(ctx context.Context, collectorID pgtype.
 	rej.MergedLine = line
 	cache, err := s.store.Queries.GetServeCache(ctx, collectorID)
 	if err != nil {
+		// Still a rejection worth reporting; it just cannot be attributed.
+		s.logger.Warn("reconcile: reading served config for rejection attribution", "collector_id", collectorID.String(), "err", err)
 		return reconcile.RejectionFinding(rej), true
 	}
 	if loc, found := merge.Locate(cache.Content, line); found {

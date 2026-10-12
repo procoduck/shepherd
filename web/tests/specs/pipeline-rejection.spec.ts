@@ -82,6 +82,49 @@ test('the pipeline page says which matched collector rejected this pipeline', as
   await expect.poll(() => api.calls('FleetService/GetReconciliation').length).toBe(1);
 });
 
+// Review of #327: the fan-out is one GetReconciliation per FAILED matched
+// collector, so it must not poll, and it asks about 20 collectors at most.
+test('the pipeline page asks each failing collector once, and at most 20 of them', async ({
+  page,
+  api,
+}) => {
+  await page.clock.install();
+  await api.loginAs(orgEditor);
+  const s = basicScenario();
+  const many = Array.from({ length: 25 }, (_, i) =>
+    collector({
+      id: `col-fail-${i}`,
+      cluster: `c${i}`,
+      role: 'metrics',
+      remote_config_status: 'FAILED',
+      remote_config_error: '40:3: Failed to build component',
+    }),
+  );
+  api.seed({
+    orgs: [s.org],
+    pipelines: s.pipelines,
+    collectors: many,
+    reconciliation: { findings: [rejection] },
+  });
+  api.override('POST', '/shepherd.mgmt.v1.PipelineService/PreviewMatches', (route) =>
+    fulfillJSON(route, {
+      collectors: many.map((c) => ({ id: c.id, cluster: c.cluster, role: c.role })),
+    }),
+  );
+
+  await page.goto('/pipelines/pip-0001');
+  await expect(page.getByTestId('pipeline-rejected-by')).toContainText('c0/metrics');
+  await expect(page.getByTestId('pipeline-rejected-by')).toContainText(
+    '5 more failing collectors were not checked',
+  );
+  await expect.poll(() => api.calls('FleetService/GetReconciliation').length).toBe(20);
+
+  // No polling: two minutes later nothing has been asked again.
+  await page.clock.fastForward('02:00');
+  await expect(page.getByTestId('pipeline-rejected-by')).toBeVisible();
+  expect(api.calls('FleetService/GetReconciliation')).toHaveLength(20);
+});
+
 test('the pipeline page stays quiet when a collector rejected a different pipeline', async ({
   page,
   api,

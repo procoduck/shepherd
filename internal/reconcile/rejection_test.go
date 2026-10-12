@@ -42,10 +42,13 @@ func TestRejectionFinding(t *testing.T) {
 			wantNotIn: []string{"rejected in pipeline"},
 		},
 		{
-			name:      "an earlier config",
-			in:        Rejection{MergedLine: 40, PipelineName: "stale-guess", PipelineLine: 3},
-			wantIn:    []string{"earlier served config", "not reported on the one served now"},
-			wantNotIn: []string{"stale-guess", "rejected in pipeline"},
+			name: "an earlier config",
+			in:   Rejection{MergedLine: 40, PipelineName: "stale-guess", PipelineLine: 3},
+			// Review of #327: Alloy re-reports only on a changed error, so after
+			// an unrelated served change the collector is STILL failing — the
+			// finding must say so, not that it "has not reported".
+			wantIn:    []string{"still failing", "recorded against an earlier served config", "previous config"},
+			wantNotIn: []string{"stale-guess", "rejected in pipeline", "has not reported"},
 		},
 	}
 	for _, tc := range cases {

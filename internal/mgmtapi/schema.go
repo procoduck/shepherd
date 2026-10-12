@@ -154,7 +154,7 @@ func (h *SchemaHandler) encode(etag string, merged map[string]any) (*encodedSche
 }
 
 // writeSchema answers with the representation the client accepts, or 304 when
-// If-None-Match already names one of this version's representations.
+// If-None-Match already names the representation it would send.
 func writeSchema(w http.ResponseWriter, r *http.Request, enc *encodedSchema, cacheControl string) {
 	body, tag, encoding := enc.identity, enc.identityETag, ""
 	if acceptsGzip(r.Header.Get("Accept-Encoding")) {
@@ -166,7 +166,10 @@ func writeSchema(w http.ResponseWriter, r *http.Request, enc *encodedSchema, cac
 	hdr.Set("ETag", tag)
 	hdr.Set("Cache-Control", cacheControl)
 
-	if inm := r.Header.Get("If-None-Match"); inm != "" && etagListMatches(inm, enc.identityETag, enc.gzipETag) {
+	// 304 only when the client holds the representation it would get now: a
+	// client with the cached identity body that now accepts gzip receives the
+	// gzip body, not a 304 naming bytes it never received.
+	if inm := r.Header.Get("If-None-Match"); inm != "" && etagListMatches(inm, tag) {
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
@@ -180,21 +183,31 @@ func writeSchema(w http.ResponseWriter, r *http.Request, enc *encodedSchema, cac
 	_, _ = w.Write(body) //nolint:errcheck,gosec // headers already sent; body is the embedded schema artifact served as application/json, never request input
 }
 
-// acceptsGzip reports whether an Accept-Encoding header admits gzip (or "*")
-// with a non-zero quality.
+// acceptsGzip reports whether an Accept-Encoding header admits gzip with a
+// non-zero quality. An explicitly named gzip (or x-gzip) decides on its own
+// qvalue, whatever "*" says (RFC 9110 §12.5.3); "*" decides only when gzip is
+// not named.
 func acceptsGzip(header string) bool {
+	named, namedOK := false, false
+	wildcard, wildcardOK := false, false
 	for part := range strings.SplitSeq(header, ",") {
 		coding, params, _ := strings.Cut(strings.TrimSpace(part), ";")
 		coding = strings.ToLower(strings.TrimSpace(coding))
-		if coding != "gzip" && coding != "x-gzip" && coding != "*" {
-			continue
+		q, hasQ := qualityParam(params)
+		admits := !hasQ || q > 0
+		switch coding {
+		case "gzip", "x-gzip":
+			namedOK = true
+			named = named || admits
+		case "*":
+			wildcardOK = true
+			wildcard = wildcard || admits
 		}
-		if q, ok := qualityParam(params); ok && q == 0 {
-			continue
-		}
-		return true
 	}
-	return false
+	if namedOK {
+		return named
+	}
+	return wildcardOK && wildcard
 }
 
 // qualityParam extracts the q= value of an Accept-Encoding member's parameters.
@@ -214,17 +227,13 @@ func qualityParam(params string) (float64, bool) {
 }
 
 // etagListMatches applies If-None-Match's weak comparison (RFC 9110 §13.1.2):
-// "*" matches, and a W/ prefix is ignored.
-func etagListMatches(header string, tags ...string) bool {
+// "*" matches, and a W/ prefix is ignored. tag is the selected
+// representation's ETag.
+func etagListMatches(header, tag string) bool {
 	for candidate := range strings.SplitSeq(header, ",") {
 		candidate = strings.TrimPrefix(strings.TrimSpace(candidate), "W/")
-		if candidate == "*" {
+		if candidate == "*" || candidate == tag {
 			return true
-		}
-		for _, t := range tags {
-			if candidate == t {
-				return true
-			}
 		}
 	}
 	return false

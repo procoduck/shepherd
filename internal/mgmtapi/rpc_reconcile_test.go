@@ -285,6 +285,35 @@ var _ = Describe("shepherd.mgmt.v1.FleetService/GetReconciliation", Label("integ
 			Expect(fs[0]["summary"]).To(ContainSubstring("earlier served config"))
 		})
 
+		// Review of #327: Alloy re-sends a status only when (status, message)
+		// changes, so after an unrelated served change a collector still
+		// failing the same way never re-reports. The finding stays, says it is
+		// still failing, and does not guess at the moved line.
+		It("keeps reporting a collector still failing after an unrelated served change, without attributing it", func() {
+			res := serve()
+			report("FAILED", fmt.Sprintf("%d:5: Failed to build component", res.Spans[0].DeclareLine+3), res.Hash)
+			Expect(rejections()[0]["pipelineName"]).To(Equal(pipeName))
+
+			// An unrelated change re-serves different bytes; no new status arrives.
+			Expect(st.Queries.MarkServeCacheDirty(ctx, collID)).To(Succeed())
+			cache, err := st.Queries.GetServeCache(ctx, collID)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = st.Queries.UpsertServeCacheConditional(ctx, sqlc.UpsertServeCacheConditionalParams{
+				CollectorID: collID, Content: "// header moved\n" + res.Content, Hash: "h-after-unrelated-change",
+				DirtySeq: cache.DirtySeq,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			fs := rejections()
+			Expect(fs).To(HaveLen(1))
+			Expect(fs[0]).NotTo(HaveKey("pipelineName"))
+			Expect(fs[0]["summary"]).To(And(
+				ContainSubstring("still failing"),
+				ContainSubstring("recorded against an earlier served config"),
+				Not(ContainSubstring("has not reported")),
+			))
+		})
+
 		It("reports nothing once the collector loads the config", func() {
 			res := serve()
 			report("APPLIED", "", res.Hash)

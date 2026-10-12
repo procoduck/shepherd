@@ -18,7 +18,7 @@ const org = {
 
 test('an app admin sets the tenant ID of an org created without one', async ({ page, api }) => {
   await api.loginAs(appAdmin);
-  api.seed({ orgs: [org] });
+  api.seed({ orgs: [{ ...org }] }); // a copy: the mock mutates what it is seeded with
   await page.goto('/admin/orgs');
 
   await page.getByRole('button', { name: 'Edit prod-org' }).click();
@@ -66,7 +66,7 @@ test('an org that already has a tenant ID shows it read-only and never resends i
 // refuse, now runs first: a refusal leaves the org untouched.
 test('a refused tenant ID writes nothing: UpdateOrg is never called', async ({ page, api }) => {
   await api.loginAs(appAdmin);
-  api.seed({ orgs: [org] });
+  api.seed({ orgs: [{ ...org }] }); // a copy: the mock mutates what it is seeded with
   await page.goto('/admin/orgs');
 
   await page.getByRole('button', { name: 'Edit prod-org' }).click();
@@ -84,7 +84,7 @@ test('a retried edit after the tenant step succeeded does not resend the tenant'
   api,
 }) => {
   await api.loginAs(appAdmin);
-  api.seed({ orgs: [org] });
+  api.seed({ orgs: [{ ...org }] }); // a copy: the mock mutates what it is seeded with
   await page.goto('/admin/orgs');
 
   await page.getByRole('button', { name: 'Edit prod-org' }).click();
@@ -119,4 +119,33 @@ test('a retried edit after the tenant step succeeded does not resend the tenant'
     timeout: 5_000,
   });
   expect(api.calls('AdminService/SetOrgTenantID')).toHaveLength(1);
+});
+
+// Review of #327: the tenant step updates the open dialog's org when it
+// lands. Closing the dialog while it is in flight must keep it closed.
+test('closing the dialog mid-save does not reopen it when the tenant step lands', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(appAdmin);
+  api.seed({ orgs: [{ ...org }] }); // a copy: the mock mutates what it is seeded with
+  api.delay('POST', '/shepherd.mgmt.v1.AdminService/SetOrgTenantID', 800);
+  // Hold UpdateOrg too, so the window between the tenant step landing and the
+  // save finishing (when a reopened dialog would show) is observable.
+  api.delay('POST', '/shepherd.mgmt.v1.AdminService/UpdateOrg', 1500);
+  await page.goto('/admin/orgs');
+
+  await page.getByRole('button', { name: 'Edit prod-org' }).click();
+  await page.getByTestId('org-edit-tenant').pressSequentially('prod-tenant');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+
+  // The tenant step lands, and the save continues to UpdateOrg.
+  await expect.poll(() => api.calls('AdminService/UpdateOrg').length).toBe(1);
+  // Checked once, not retried: a retrying assertion would wait out the held
+  // UpdateOrg, whose onSuccess closes the dialog again anyway.
+  expect(await page.getByRole('dialog').count()).toBe(0);
+  await expect.poll(() => page.getByText('Organisation updated').count()).toBeGreaterThan(0);
+  expect(await page.getByRole('dialog').count()).toBe(0);
 });

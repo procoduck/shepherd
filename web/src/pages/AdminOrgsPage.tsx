@@ -137,15 +137,18 @@ export function AdminOrgsPage() {
       const tenantId = editTenantId.trim();
       if (editOrg && !editOrg.tenantId && tenantId) {
         const withTenant = await clients.admin.setOrgTenantID({ orgId, tenantId });
-        setEditOrg(withTenant);
+        // Only refresh a dialog that is still open on this org: one the user
+        // closed mid-save stays closed.
+        setEditOrg((cur) => (cur?.id === withTenant.id ? withTenant : cur));
         invalidate();
       }
       return clients.admin.updateOrg({ orgId, ...editForm });
     },
-    onSuccess: () => {
+    onSuccess: (saved) => {
       toast.success('Organisation updated');
       invalidate();
-      setEditOrg(null);
+      // Close the dialog for this org only — not one opened since on another.
+      setEditOrg((cur) => (cur?.id === saved.id ? null : cur));
     },
   });
 

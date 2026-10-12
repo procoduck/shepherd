@@ -42,8 +42,15 @@ func RejectionFinding(r Rejection) Finding {
 	const running = "the collector is still running its previous config"
 	switch {
 	case !r.AboutCurrent:
-		f.Summary = "This collector rejected an earlier served config and has not reported on the one served " +
-			"now; the line its error names cannot be attributed to the current pipelines."
+		// Alloy re-sends its status only when (status, message) changes
+		// (docs/proofs/applied-status.md (b)), so a collector that keeps
+		// failing with the same error after an unrelated served change never
+		// re-reports. It IS still failing; only the attribution is unsafe —
+		// the line belongs to the earlier config's layout, which any change
+		// before it (another pipeline, the header) would have shifted.
+		f.Summary = "This collector is still failing to load its config; " + running + ". Its error was " +
+			"recorded against an earlier served config (Alloy re-reports only when the error changes), so " +
+			"the line it names cannot be attributed to a pipeline of the config served now."
 	case r.MergedLine == 0:
 		f.Summary = "This collector rejected its served config; " + running +
 			". The error names no line, so it cannot be attributed to a pipeline."

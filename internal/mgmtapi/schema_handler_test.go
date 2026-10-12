@@ -96,6 +96,26 @@ var _ = Describe("Schema endpoint compression and conditional GET (#279)", func(
 
 			stale := get(path, map[string]string{"If-None-Match": `"stale"`})
 			Expect(stale.Code).To(Equal(http.StatusOK))
+
+			Expect(get(path, map[string]string{"If-None-Match": "*"}).Code).To(Equal(http.StatusNotModified))
+		})
+
+		// Review of #327: a 304 tells the client its cached copy of the
+		// SELECTED representation is current. A client holding only the
+		// identity body that now accepts gzip must get the gzip body, not a
+		// 304 carrying the gzip tag for bytes it never received.
+		It("answers 304 only when the selected representation's tag matches: "+path, func() {
+			plainTag := get(path, nil).Header().Get("ETag")
+			gzTag := get(path, map[string]string{"Accept-Encoding": "gzip"}).Header().Get("ETag")
+
+			upgraded := get(path, map[string]string{"Accept-Encoding": "gzip", "If-None-Match": plainTag})
+			Expect(upgraded.Code).To(Equal(http.StatusOK))
+			Expect(upgraded.Header().Get("Content-Encoding")).To(Equal("gzip"))
+			Expect(upgraded.Header().Get("ETag")).To(Equal(gzTag))
+
+			downgraded := get(path, map[string]string{"If-None-Match": gzTag})
+			Expect(downgraded.Code).To(Equal(http.StatusOK))
+			Expect(downgraded.Header().Get("Content-Encoding")).To(BeEmpty())
 		})
 	}
 
@@ -104,6 +124,19 @@ var _ = Describe("Schema endpoint compression and conditional GET (#279)", func(
 		Expect(rec.Code).To(Equal(http.StatusOK))
 		Expect(rec.Header().Get("Content-Encoding")).To(BeEmpty())
 	})
+
+	// RFC 9110 §12.5.3: an explicitly named coding's qvalue wins over "*".
+	DescribeTable("an explicit gzip qvalue wins over *",
+		func(acceptEncoding, wantEncoding string) {
+			rec := get(pinned, map[string]string{"Accept-Encoding": acceptEncoding})
+			Expect(rec.Code).To(Equal(http.StatusOK))
+			Expect(rec.Header().Get("Content-Encoding")).To(Equal(wantEncoding))
+		},
+		Entry("gzip refused before *", "gzip;q=0, *", ""),
+		Entry("gzip refused after *", "*, gzip;q=0", ""),
+		Entry("* alone admits gzip", "*", "gzip"),
+		Entry("* refused but gzip named", "gzip, *;q=0", "gzip"),
+	)
 
 	It("keeps the version-pinned route immutable and current revalidating", func() {
 		Expect(get(pinned, map[string]string{"Accept-Encoding": "gzip"}).Header().Get("Cache-Control")).

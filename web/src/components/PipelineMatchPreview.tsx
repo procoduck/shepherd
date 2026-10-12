@@ -55,10 +55,19 @@ function PipelineRejections({
     enabled: !!orgId && matchedIds.length > 0,
   });
   const matched = new Set(matchedIds);
-  const failed = (fleet?.items ?? [])
-    .filter((c) => matched.has(c.id) && c.remoteConfigStatus.toUpperCase() === 'FAILED')
-    .slice(0, MAX_REJECTION_LOOKUPS);
-  const results = useQueries({ queries: failed.map((c) => reconciliationQuery(orgId, c.id)) });
+  const allFailed = (fleet?.items ?? []).filter(
+    (c) => matched.has(c.id) && c.remoteConfigStatus.toUpperCase() === 'FAILED',
+  );
+  const failed = allFailed.slice(0, MAX_REJECTION_LOOKUPS);
+  const unchecked = allFailed.length - failed.length;
+  // One request per failing collector: fetched on mount and window focus
+  // only, never polled (the collector page's own tab keeps its poll).
+  const results = useQueries({
+    queries: failed.map((c) => ({
+      ...reconciliationQuery(orgId, c.id),
+      refetchInterval: false as const,
+    })),
+  });
   const rejections = failed.flatMap((c, i) => {
     const f = results[i]?.data?.findings.find(
       (x) => x.kind === REJECTED_KIND && x.pipelineName === pipelineName,
@@ -78,6 +87,12 @@ function PipelineRejections({
           </li>
         ))}
       </ul>
+      {unchecked > 0 && (
+        <p className='mt-1'>
+          {unchecked} more failing collector{unchecked === 1 ? ' was' : 's were'} not checked; open
+          each collector's Reconciliation tab to see which pipeline it rejected.
+        </p>
+      )}
     </Banner>
   );
 }
