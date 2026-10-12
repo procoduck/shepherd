@@ -38,11 +38,18 @@ type Destination struct {
 	// AuthMode is e.g. "none", "basic", "oauth2".
 	AuthMode string `protobuf:"bytes,9,opt,name=auth_mode,json=authMode,proto3" json:"auth_mode,omitempty"`
 	// extra is a caller-supplied JSON object of arbitrary shape.
-	Extra         *structpb.Struct       `protobuf:"bytes,10,opt,name=extra,proto3" json:"extra,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Extra     *structpb.Struct       `protobuf:"bytes,10,opt,name=extra,proto3" json:"extra,omitempty"`
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	// regenerated_pipelines is output-only (#309): the number of wizard
+	// pipelines UpdateDestination re-rendered from their stored state because
+	// of this update (each gets a new revision). Set only in
+	// UpdateDestination's response — zero there when the update changed no
+	// pipeline's text — and always zero in every other response. Ignored on
+	// input.
+	RegeneratedPipelines int32 `protobuf:"varint,13,opt,name=regenerated_pipelines,json=regeneratedPipelines,proto3" json:"regenerated_pipelines,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *Destination) Reset() {
@@ -157,6 +164,13 @@ func (x *Destination) GetUpdatedAt() *timestamppb.Timestamp {
 		return x.UpdatedAt
 	}
 	return nil
+}
+
+func (x *Destination) GetRegeneratedPipelines() int32 {
+	if x != nil {
+		return x.RegeneratedPipelines
+	}
+	return 0
 }
 
 type ListDestinationsRequest struct {
@@ -1395,7 +1409,7 @@ var File_shepherd_mgmt_v1_destination_proto protoreflect.FileDescriptor
 
 const file_shepherd_mgmt_v1_destination_proto_rawDesc = "" +
 	"\n" +
-	"\"shepherd/mgmt/v1/destination.proto\x12\x10shepherd.mgmt.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x99\x03\n" +
+	"\"shepherd/mgmt/v1/destination.proto\x12\x10shepherd.mgmt.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xce\x03\n" +
 	"\vDestination\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06org_id\x18\x02 \x01(\tR\x05orgId\x12\x12\n" +
@@ -1412,7 +1426,8 @@ const file_shepherd_mgmt_v1_destination_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"0\n" +
+	"updated_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x123\n" +
+	"\x15regenerated_pipelines\x18\r \x01(\x05R\x14regeneratedPipelines\"0\n" +
 	"\x17ListDestinationsRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\"e\n" +
 	"\x18ListDestinationsResponse\x123\n" +

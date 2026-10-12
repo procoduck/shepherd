@@ -5,7 +5,7 @@ import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { clients } from '@/api/transport';
 import { DetachFromWizard } from '@/components/DetachFromWizard';
-import { HandEditConfirmDialog, useWouldHandEdit } from '@/components/HandEditConfirmDialog';
+import { HandEditConfirmDialog, wouldHandEdit } from '@/components/HandEditConfirmDialog';
 import { PipelineActions } from '@/components/PipelineActions';
 import { PipelineEditorToolbar } from '@/components/PipelineEditorToolbar';
 import { OpenInVisualBuilder, PipelineLandingBanner } from '@/components/PipelineLandingBanner';
@@ -150,6 +150,10 @@ export function PipelineEditorPage() {
       markSaved(p.id, submitted.current, p.revision);
       qc.invalidateQueries({ queryKey: ['pipelines', orgId] });
       if (!isNew) {
+        // The reply is the pipeline as saved — its follows_wizard included —
+        // so a second Save made before the refetch lands asks the right
+        // question (#301, review of #332).
+        qc.setQueryData(['pipeline', orgId, id], p);
         // Mirror restoreMutation's invalidation set below so the new
         // revision and "Updated by" show up right away.
         qc.invalidateQueries({ queryKey: ['pipeline', orgId, id] });
@@ -173,6 +177,9 @@ export function PipelineEditorPage() {
       // The server copy wins a restore: load it into the form (which also
       // makes it the snapshot later refetches compare against).
       loadForm(p, true);
+      // As after a save: the reply is the restored pipeline, follows_wizard
+      // included, until the refetch lands.
+      qc.setQueryData(['pipeline', orgId, id], p);
       qc.invalidateQueries({ queryKey: ['pipeline', orgId, id] });
       qc.invalidateQueries({ queryKey: ['revisions', orgId, id] });
       qc.invalidateQueries({ queryKey: ['pipelines', orgId] });
@@ -195,10 +202,9 @@ export function PipelineEditorPage() {
     (conflict ? null : formError(saveMutation.error, 'Save failed')) ??
     formError(formatMutation.error, 'Cannot format — fix the syntax errors first');
 
-  const wouldHandEdit = useWouldHandEdit(pipeline, revisions, pipelineOrgId, orgId, contents);
   const save = () => {
     formatMutation.reset();
-    if (wouldHandEdit) setConfirmingHandEdit(true);
+    if (wouldHandEdit(pipeline, contents)) setConfirmingHandEdit(true);
     else saveMutation.mutate({});
   };
   const closeHandEdit = () => {
@@ -223,12 +229,8 @@ export function PipelineEditorPage() {
           <h1 className='text-xl font-semibold break-words'>
             {isNew ? 'New pipeline' : (pipeline?.name ?? 'Pipeline')}
           </h1>
-          <HandEditedBadge
-            pipeline={pipeline}
-            revisions={revisions}
-            orgId={pipelineOrgId}
-            queryOrgId={orgId}
-          />
+          {/* Until the history loads, the badge says only what is always true. */}
+          <HandEditedBadge pipeline={pipeline} revisions={revisionsData ? revisions : undefined} />
           {!isNew && pipeline && (
             <PipelineActions
               pipeline={pipeline}

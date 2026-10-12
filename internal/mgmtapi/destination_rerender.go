@@ -306,6 +306,70 @@ func handEdited(ctx context.Context, q *sqlc.Queries, p sqlc.Pipeline, before wi
 	return handEditFailure(p)
 }
 
+// wizardFollows answers Pipeline.follows_wizard (#301): whether a wizard
+// pipeline still follows its wizard, by the server's own rule — handEdited,
+// the check a destination update and `rerender-destinations --all` make
+// before they regenerate a pipeline. False for a pipeline that is not a
+// wizard pipeline, and for one handEdited refuses as hand-edited.
+//
+// Every other refusal of handEdited's — an unknown wizard kind, stored state
+// that does not decode, a render that fails against the current destinations
+// (a deleted destination, one whose extra does not load), a revision read
+// that fails — and a failure to load those destinations reports TRUE, logged
+// at Warn with the reason. None of them says the text was edited by hand,
+// and false would badge an untouched pipeline "Hand-edited" and skip the
+// "Save a hand edit?" question; true at worst asks once too often. Such a
+// pipeline is still not regenerated: a destination update refuses it
+// (planWizardRerenders) and names the reason.
+//
+// A fingerprinted pipeline (every wizard write since 0030) is decided by its
+// hash alone. Only one without a fingerprint needs its org's destinations,
+// which are loaded once per org and reused, so a list costs one destination
+// read however many such pipelines it holds.
+type wizardFollows struct {
+	q      *sqlc.Queries
+	logger *slog.Logger
+	dests  map[pgtype.UUID]wizard.Destinations
+}
+
+func newWizardFollows(q *sqlc.Queries, logger *slog.Logger) *wizardFollows {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &wizardFollows{q: q, logger: logger, dests: map[pgtype.UUID]wizard.Destinations{}}
+}
+
+// of is follows_wizard for p.
+func (w *wizardFollows) of(ctx context.Context, p sqlc.Pipeline) bool {
+	if !p.WizardKind.Valid {
+		return false
+	}
+	var before wizard.Destinations
+	if !p.WizardRenderSha256.Valid {
+		dests, ok := w.dests[p.OrgID]
+		if !ok {
+			var err error
+			dests, err = wizardDestinations(ctx, w.q, p.OrgID)
+			if err != nil {
+				w.logger.Warn("follows_wizard: loading destinations", "err", err, "pipeline_id", p.ID.String())
+				return true
+			}
+			w.dests[p.OrgID] = dests
+		}
+		before = dests
+	}
+	f := handEdited(ctx, w.q, p, before)
+	switch {
+	case f == nil:
+		return true
+	case f.handEdited:
+		return false
+	}
+	w.logger.Warn("follows_wizard: the hand-edit check could not decide; reporting true",
+		"reason", f.reason, "pipeline_id", p.ID.String())
+	return true
+}
+
 // handEditFailure is p refused as hand-edited (errHandEdited).
 func handEditFailure(p sqlc.Pipeline) *rerenderFailure {
 	f := failureFor(p, errHandEdited)

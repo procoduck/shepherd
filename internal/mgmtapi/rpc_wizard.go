@@ -364,6 +364,7 @@ func (s *WizardService) CommitWizard(ctx context.Context, req *connect.Request[m
 	pb := wizardPipelineToProto(p)
 	pb.Revision = revision
 	pb.CanEdit = pipelineCanEdit(ctx, s.store, req.Msg.GetOrgId(), pipelineOwnerTeamID(p))
+	pb.FollowsWizard = newWizardFollows(s.store.Queries, s.logger).of(ctx, p)
 	return connect.NewResponse(pb), nil
 }
 

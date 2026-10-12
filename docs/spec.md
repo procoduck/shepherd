@@ -715,11 +715,34 @@ so it is set exactly on revisions whose text a wizard wrote; `RestoreRevision` o
 copies it back to the pipeline, re-attaching it to its wizard even when the wizard renders that
 state differently today (a restored revision without one falls back to the fresh-render check
 above). `RestoreRevision` refuses (`invalid_argument`) a caller change note of `created` or one
-starting `re-rendered:`, the notes only wizard writes use. The pipeline page marks the revisions
-its wizard wrote by those notes and, while a wizard pipeline's text differs from the last of
-them, offers "Restore last wizard version" (`RestoreRevision` of that revision; the confirmation
-says when it also changes the matchers or the enabled state). Pipelines rendered before #229 (the `sys.env` writer) are converted
-once by `shepherd admin rerender-destinations`.
+starting `re-rendered:`, the notes only wizard writes use. Pipelines rendered before #229 (the
+`sys.env` writer) are converted once by `shepherd admin rerender-destinations`.
+
+**Following the wizard, in the API and the UI (#301, #309).** `Pipeline.follows_wizard`
+(output-only, set on every response that returns a `Pipeline`) is the hand-edit check above, run
+against the org's current destinations: false for a pipeline it calls hand-edited and for every
+non-wizard pipeline, true when the text is still the wizard's. When the check cannot decide — an
+unknown wizard kind, stored state that does not decode, a render that fails against the current
+destinations (a deleted destination, an `extra` that does not load), a failed read — it is
+**true**, and the server logs the reason at Warn: true means "not known to be hand-edited", and a
+destination update still refuses such a pipeline and names why. A pipeline written before the
+fingerprint by a wizard whose output has since changed (#289) reads false although its current
+revision is the wizard's own. `UpdateDestination`'s response carries
+`Destination.regenerated_pipelines`, the number of wizard pipelines it re-rendered (zero in every
+other response); the UI's toast reads "Destination updated — N pipeline(s) regenerated", or just
+"Destination updated" when none was. Everything the UI shows about it reads `follows_wizard`,
+never the text: a wizard pipeline with `follows_wizard` false carries a *Not following wizard*
+badge in the pipelines list ("Destination changes no longer regenerate this pipeline; open it to
+see why" — the list has no revisions, so it cannot tell a hand edit from an older wizard's text)
+and one in its header that says which: *Hand-edited*, or *Not following wizard* when its current
+revision is the wizard's own, since nobody edited it (until the history loads, the list's
+wording). Its page offers "Restore last wizard
+version" (`RestoreRevision` of the newest revision its wizard wrote, by the notes above, even
+when that is the current revision: the restore copies the revision's fingerprint back and
+re-attaches it; the confirmation says when it also changes the matchers or the enabled state).
+Saving asks "Save a hand edit?" first exactly when `follows_wizard` is true and the save changes
+the text; the page takes the follow state from the save's and the restore's own responses, so a
+second save made at once asks the right question.
 
 **RBAC.** The collector's ServiceAccount needs `get` on `secrets` in the Secret's namespace:
 `remote.kubernetes.secret` GETs the one named Secret at load and on each poll and never lists or

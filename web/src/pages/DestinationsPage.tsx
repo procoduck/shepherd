@@ -20,6 +20,7 @@ import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { toneClass } from '@/components/ui/statusTone';
 import type { Destination } from '@/gen/shepherd/mgmt/v1/destination_pb';
 import { useCanAdminister, useOrg } from '@/hooks/useOrg';
+import { destinationUpdatedMessage } from '@/lib/destinationUpdated';
 import { formError } from '@/lib/formError';
 
 /**
@@ -215,8 +216,9 @@ export function DestinationsPage() {
         extra: extraWithTLS(extraWithScopes(d.extra, form), form.tls),
       });
     },
-    onSuccess: () => {
-      toast.success('Destination updated');
+    onSuccess: (updated) => {
+      // #309: how many wizard pipelines the update regenerated.
+      toast.success(destinationUpdatedMessage(updated.regeneratedPipelines));
       qc.invalidateQueries({ queryKey: ['destinations', orgId] });
       invalidatePipelines();
       setEditing(null);
