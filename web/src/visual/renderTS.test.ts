@@ -330,7 +330,9 @@ describe('D1 direction', () => {
 
   it('labels a one-node graph "1 node", as render.go does', () => {
     const r = renderTS(
-      makeDoc([{ id: 'n1', component: 'discovery.kubernetes', label: 'k8s', props: { role: 'pod' } }]),
+      makeDoc([
+        { id: 'n1', component: 'discovery.kubernetes', label: 'k8s', props: { role: 'pod' } },
+      ]),
       shippedSchema,
     );
     expect(r.content).toMatch(
