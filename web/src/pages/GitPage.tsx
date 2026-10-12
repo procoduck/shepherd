@@ -299,7 +299,10 @@ export function GitPage() {
   function openTest(c: GitCredential) {
     testCredMut.reset();
     setTestCred(c);
-    setTestForm({ repoUrl: '', branch: '' });
+    // Start from the repository a link already pairs with this credential
+    // (#309) instead of asking for a URL the page already knows.
+    const linked = repoLinks.find((rl) => rl.credentialId === c.id);
+    setTestForm({ repoUrl: linked?.repoUrl ?? '', branch: linked?.branch ?? '' });
     setTestResult(null);
   }
 

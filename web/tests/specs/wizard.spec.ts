@@ -1,4 +1,4 @@
-import { basicScenario, destination } from '../fixtures/factories';
+import { basicScenario, destination, pipeline } from '../fixtures/factories';
 import { appAdmin } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
 
@@ -314,4 +314,52 @@ test('the collector role can return to Auto', async ({ page, api }) => {
   await expect(role).toHaveValue('singleton');
   await role.selectOption({ label: 'Auto — let the wizard choose' });
   await expect(role).toHaveValue('');
+});
+
+// #306: Pod Logs and App Observability opened Review with an empty name and a
+// disabled Create, and the others suggested a name that clashed on a second
+// run. Every wizard now suggests one, unique in the org, and Create says why
+// it is disabled.
+test('Review suggests a unique pipeline name and says why Create is disabled', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(appAdmin);
+  const s = basicScenario();
+  api.seed({ orgs: [s.org], pipelines: [pipeline({ id: 'pip-pl', name: 'pod-logs' })] });
+  api.override('POST', '/shepherd.mgmt.v1.WizardService/GetWizardSchema', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        kind: 'pod-logs',
+        title: 'Pod Logs',
+        steps: [
+          {
+            id: 'targets',
+            title: 'Pod selection',
+            fields: [{ name: 'namespace_pattern', label: 'Namespace pattern', type: 'text' }],
+          },
+        ],
+      }),
+    }),
+  );
+  await page.goto('/wizards/pod-logs');
+  await page.getByRole('button', { name: 'Continue' }).click();
+
+  const name = page.getByLabel('Pipeline name');
+  await expect(name).toHaveValue('pod-logs-2');
+  const create = page.getByRole('button', { name: 'Create pipeline' });
+  await expect(create).toBeEnabled();
+  await expect(page.getByTestId('wizard-create-blocked')).toHaveCount(0);
+
+  await name.fill('');
+  await expect(create).toBeDisabled();
+  await expect(page.getByTestId('wizard-create-blocked')).toHaveText('Enter a pipeline name.');
+
+  await name.fill('pod-logs');
+  await expect(create).toBeDisabled();
+  await expect(page.getByTestId('wizard-create-blocked')).toHaveText(
+    'A pipeline named “pod-logs” already exists in this organisation.',
+  );
 });

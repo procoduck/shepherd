@@ -163,9 +163,9 @@ export function TeamsPage() {
       <div className='flex items-start justify-between gap-4'>
         <div>
           <h1 className='text-xl font-semibold'>Teams</h1>
-          <p className='mt-1 text-sm text-muted'>
+          <p className='mt-1 text-sm text-muted' data-testid='teams-intro'>
             A team owns pipelines; its members can edit what it owns without being an organisation
-            administrator. Members come from an identity provider group, from an explicit list of
+            admin or editor. Members come from an identity provider group, from an explicit list of
             local users, or from both.
           </p>
         </div>

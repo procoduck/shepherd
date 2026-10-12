@@ -373,3 +373,38 @@ test('deleting a destination a wizard pipeline uses says it cannot be deleted an
   await expect(dialog.getByTestId('form-error')).toContainText('"self-mon", "app-obs"');
   await expect(page.getByRole('cell', { name: 'prom-prod', exact: true })).toBeVisible();
 });
+
+// #303 (L10): an editor met a read-only page with no reason, although the
+// wizards they run ship to these destinations. The page says who manages them.
+for (const [label, persona] of [
+  ['an editor', orgEditor],
+  ['a viewer', reader],
+] as const) {
+  test(`${label} is told who manages destinations and offered no create link`, async ({
+    page,
+    api,
+  }) => {
+    await api.loginAs(persona);
+    const s = basicScenario();
+    api.seed({ orgs: [s.org], destinations: [] });
+    await page.goto('/destinations');
+
+    await expect(page.getByText('No destinations yet.')).toBeVisible();
+    await expect(page.getByTestId('destinations-permissions')).toContainText(
+      'Only organisation admins can add, change or delete destinations',
+    );
+    await expect(page.getByRole('button', { name: /add your first destination/i })).toHaveCount(0);
+  });
+}
+
+test('an org admin is told the same rule and keeps the create link', async ({ page, api }) => {
+  await api.loginAs(orgAdmin);
+  const s = basicScenario();
+  api.seed({ orgs: [s.org], destinations: [] });
+  await page.goto('/destinations');
+
+  await expect(page.getByTestId('destinations-permissions')).toContainText(
+    'Only organisation admins',
+  );
+  await expect(page.getByRole('button', { name: /add your first destination/i })).toBeVisible();
+});

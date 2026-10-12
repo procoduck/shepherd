@@ -76,7 +76,7 @@ func (w *Wizard) Schema() wizard.Schema {
 					{
 						Name: "log_format", Label: "Log line format", Type: "select",
 						Options: []string{"", "logfmt", "json", "cri", "docker"}, Default: "",
-						Description: "Leave blank to ship raw lines unparsed.",
+						Description: "None ships the raw lines unparsed.",
 					},
 				},
 			},

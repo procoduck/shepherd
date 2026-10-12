@@ -128,3 +128,20 @@ test('overview tiles show a per-tile loading state, not a dash', async ({ page, 
     expect(settled).toEqual(['1', '1', '0', '0']);
   }).toPass();
 });
+
+// #298: "Organisations" counts every org the user belongs to, while the other
+// tiles count the selected org only — and nothing said so. Each tile names
+// its scope.
+test('each tile says what it counts across', async ({ page, api }) => {
+  await api.loginAs(appAdmin);
+  api.seed({ orgs: [org({ id: 'org-0001' })], collectors: [], pipelines: [] });
+  await page.goto('/');
+
+  await expect(page.getByTestId('overview-tile-scope')).toHaveText([
+    'Every organisation you belong to',
+    'In Production Org',
+    'In Production Org',
+    'In Production Org, with a reporting collector',
+  ]);
+  await expect(page.getByText('Your organisations', { exact: true })).toBeVisible();
+});

@@ -1,9 +1,21 @@
+import { Code, ConnectError } from '@connectrpc/connect';
 import { useQuery } from '@tanstack/react-query';
 import { passwordChangeRequired, redirectToChangePassword } from '@/api/localAuth';
 import { clients } from '@/api/transport';
 import type { GetMeResponse } from '@/gen/shepherd/mgmt/v1/me_pb';
 
 export type MeData = GetMeResponse;
+
+/**
+ * Whether a failed GetMe could be the password-change middleware's 403 —
+ * connect-web reads its body as a bare PermissionDenied. Anything else (a
+ * signed-out 401, a transport failure) cannot be, and asking GetMe again to
+ * find out doubled every signed-out page load's request and its console 401
+ * (#309).
+ */
+export function mayOwePasswordChange(err: unknown): boolean {
+  return err instanceof ConnectError && err.code === Code.PermissionDenied;
+}
 
 async function fetchMe(): Promise<MeData | null> {
   // Mirrors the legacy fetcher: any failure (401/403 unauthenticated, or any
@@ -17,8 +29,8 @@ async function fetchMe(): Promise<MeData | null> {
   // loop with no way out. The screen is where they belong.
   try {
     return await clients.me.getMe({});
-  } catch {
-    if (await passwordChangeRequired()) {
+  } catch (err) {
+    if (mayOwePasswordChange(err) && (await passwordChangeRequired())) {
       redirectToChangePassword();
     }
     return null;

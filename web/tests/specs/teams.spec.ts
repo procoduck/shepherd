@@ -189,3 +189,14 @@ test('offers only people in this organisation as new members', async ({ page, ap
   await expect(select.locator('option[value="user-2"]')).toHaveCount(1);
   await expect(select.locator('option[value="user-3"]')).toHaveCount(0);
 });
+
+// #303 (L9): the header said team members edit "without being an organisation
+// administrator", while every other line on the page — and the server
+// (auth.AuthorizeOwnership) — says org admins AND editors edit everything.
+test('the header names both roles that edit every pipeline', async ({ page, api }) => {
+  await api.loginAs(appAdmin);
+  await page.goto('/teams');
+  await expect(page.getByTestId('teams-intro')).toContainText(
+    'without being an organisation admin or editor',
+  );
+});

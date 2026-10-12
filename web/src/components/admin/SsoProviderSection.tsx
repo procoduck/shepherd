@@ -12,6 +12,7 @@ export function SsoProviderSection({
   disabled,
   onSelectProvider,
   clientSecretSet,
+  readOnly = false,
 }: {
   form: SsoFormState;
   onChange: (updater: (f: SsoFormState) => SsoFormState) => void;
@@ -20,6 +21,9 @@ export function SsoProviderSection({
   disabled: boolean;
   onSelectProvider: (preset: OidcProviderPreset) => void;
   clientSecretSet: boolean;
+  /** Chart-managed: nothing here can be saved, so no "leave blank to keep
+   *  it" advice about a secret nobody can enter (#309). */
+  readOnly?: boolean;
 }) {
   // Advisory only. The server deliberately does not constrain the redirect
   // host -- it cannot reliably know its own external hostname -- so this is
@@ -85,9 +89,11 @@ export function SsoProviderSection({
       <Field
         label='Client secret'
         hint={
-          clientSecretSet
-            ? 'A secret is stored. Leave blank to keep it; enter a value to replace it.'
-            : 'Stored encrypted. It is never shown again after saving.'
+          readOnly
+            ? undefined
+            : clientSecretSet
+              ? 'A secret is stored. Leave blank to keep it; enter a value to replace it.'
+              : 'Stored encrypted. It is never shown again after saving.'
         }
       >
         <Input

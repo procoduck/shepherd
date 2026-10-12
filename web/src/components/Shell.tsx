@@ -107,9 +107,13 @@ export function Shell() {
   // turn "no preference set" into a stored one. See src/theme.ts.
   const isFirstThemeEffect = useRef(true);
 
+  // Set by sign-out, which navigates to /login itself: the signed-out state
+  // it records must not also trigger the full-page redirect below.
+  const signingOut = useRef(false);
+
   // All effects must be before any conditional return (Rules of Hooks)
   useEffect(() => {
-    if (!isLoading && me === null) {
+    if (!isLoading && me === null && !signingOut.current) {
       // #250: remember where the user was going, so signing in returns there.
       window.location.href = loginHref(currentReturnPath());
     }
@@ -153,7 +157,11 @@ export function Shell() {
 
   async function handleLogout() {
     await fetch('/auth/logout', { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+    signingOut.current = true;
     queryClient.clear();
+    // Signed out is now known, not something to ask: without this the login
+    // page's useMe re-asked GetMe and got the 401 it was certain to (#309).
+    queryClient.setQueryData(['me'], null);
     // Clear the test-injected initialData so LoginPage doesn't auto-redirect after logout.
     if (typeof window !== 'undefined') {
       delete (window as unknown as Record<string, unknown>).__initialMe;

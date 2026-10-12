@@ -190,7 +190,7 @@ test('nobody sees zero orgs on the overview page', async ({ page, api }) => {
   await api.loginAs(nobody);
   api.seed({});
   await page.goto('/');
-  const orgsTile = page.getByText('Organisations', { exact: true }).locator('..');
+  const orgsTile = page.getByText('Your organisations', { exact: true }).locator('..');
   await expect(orgsTile).toContainText('0');
 });
 
