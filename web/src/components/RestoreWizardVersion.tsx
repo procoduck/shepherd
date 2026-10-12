@@ -50,8 +50,33 @@ function currentRevisionOf(revisions: readonly PipelineRevision[]): number {
  * The header passes the pipeline's revisions. When its current revision is
  * the wizard's own, nobody edited it — an older version of the wizard
  * generated it (see restorableWizardRevision) — so the badge does not say
- * "Hand-edited". The list has no revisions and says what the server says.
+ * "Hand-edited". The list passes none and cannot tell the two cases apart,
+ * so it says only what is always true (review of #332).
  */
+function badgeWording(
+  pipeline: Pipeline,
+  revisions: readonly PipelineRevision[] | undefined,
+): { label: string; description: string } {
+  if (!revisions) {
+    return {
+      label: 'Not following wizard',
+      description: 'Destination changes no longer regenerate this pipeline; open it to see why.',
+    };
+  }
+  const last = lastWizardRevision(revisions, pipeline.source);
+  if (last != null && last === currentRevisionOf(revisions)) {
+    return {
+      label: 'Not following wizard',
+      description: `An older version of its wizard generated this text (revision #${last}): it no longer follows destination changes until that revision is restored.`,
+    };
+  }
+  const since = last != null ? ` (revision #${last})` : '';
+  return {
+    label: 'Hand-edited',
+    description: `Edited by hand since its wizard last generated it${since}: it no longer follows destination changes.`,
+  };
+}
+
 export function HandEditedBadge({
   pipeline,
   revisions,
@@ -61,14 +86,7 @@ export function HandEditedBadge({
 }) {
   const descId = useId();
   if (!pipeline || !isHandEditedWizardPipeline(pipeline)) return null;
-  const last = revisions ? lastWizardRevision(revisions, pipeline.source) : null;
-  const wizardsOwn = revisions != null && last != null && last === currentRevisionOf(revisions);
-  const label = wizardsOwn ? 'Not following wizard' : 'Hand-edited';
-  const description = wizardsOwn
-    ? `An older version of its wizard generated this text (revision #${last}): it no longer follows destination changes until that revision is restored.`
-    : last != null
-      ? `Edited by hand since its wizard last generated it (revision #${last}): it no longer follows destination changes.`
-      : 'Edited by hand since its wizard last generated it: it no longer follows destination changes.';
+  const { label, description } = badgeWording(pipeline, revisions);
   return (
     <>
       <span

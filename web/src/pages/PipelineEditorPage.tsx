@@ -229,7 +229,8 @@ export function PipelineEditorPage() {
           <h1 className='text-xl font-semibold break-words'>
             {isNew ? 'New pipeline' : (pipeline?.name ?? 'Pipeline')}
           </h1>
-          <HandEditedBadge pipeline={pipeline} revisions={revisions} />
+          {/* Until the history loads, the badge says only what is always true. */}
+          <HandEditedBadge pipeline={pipeline} revisions={revisionsData ? revisions : undefined} />
           {!isNew && pipeline && (
             <PipelineActions
               pipeline={pipeline}

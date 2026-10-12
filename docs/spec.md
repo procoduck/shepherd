@@ -731,9 +731,12 @@ revision is the wizard's own. `UpdateDestination`'s response carries
 `Destination.regenerated_pipelines`, the number of wizard pipelines it re-rendered (zero in every
 other response); the UI's toast reads "Destination updated — N pipeline(s) regenerated", or just
 "Destination updated" when none was. Everything the UI shows about it reads `follows_wizard`,
-never the text: a wizard pipeline with `follows_wizard` false carries a *Hand-edited* badge in
-the pipelines list and in its header — *Not following wizard* there instead when its current
-revision is the wizard's own, since nobody edited it — and its page offers "Restore last wizard
+never the text: a wizard pipeline with `follows_wizard` false carries a *Not following wizard*
+badge in the pipelines list ("Destination changes no longer regenerate this pipeline; open it to
+see why" — the list has no revisions, so it cannot tell a hand edit from an older wizard's text)
+and one in its header that says which: *Hand-edited*, or *Not following wizard* when its current
+revision is the wizard's own, since nobody edited it (until the history loads, the list's
+wording). Its page offers "Restore last wizard
 version" (`RestoreRevision` of the newest revision its wizard wrote, by the notes above, even
 when that is the current revision: the restore copies the revision's fingerprint back and
 re-attaches it; the confirmation says when it also changes the matchers or the enabled state).

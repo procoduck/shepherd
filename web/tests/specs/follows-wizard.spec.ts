@@ -19,7 +19,13 @@ import { expect, test } from '../fixtures/test';
 const WIZARD_TEXT = 'prometheus.remote_write "metrics" { endpoint { url = "https://old" } }';
 
 test.describe('the pipelines list', () => {
-  test('badges a hand-edited wizard pipeline, and no other', async ({ page, api }) => {
+  // Review of #332: the list has no revisions, so it cannot tell a hand edit
+  // from an older wizard version's text; it says only what is always true.
+  // Red run: the row badge read "Hand-edited".
+  test('badges a wizard pipeline that no longer follows its wizard, and no other', async ({
+    page,
+    api,
+  }) => {
     await api.loginAs(reader);
     const s = basicScenario();
     api.seed({
@@ -35,8 +41,10 @@ test.describe('the pipelines list', () => {
     const edited = page
       .getByTestId('pipeline-row-edited')
       .getByTestId('pipeline-hand-edited-badge');
-    await expect(edited).toHaveText('Hand-edited');
-    await expect(edited).toHaveAccessibleDescription(/no longer follows destination changes/);
+    await expect(edited).toHaveText('Not following wizard');
+    await expect(edited).toHaveAccessibleDescription(
+      'Destination changes no longer regenerate this pipeline; open it to see why.',
+    );
     await expect(page.getByTestId('pipeline-hand-edited-badge')).toHaveCount(1);
     await expect(page.getByTestId('pipeline-row-follows')).toBeVisible();
   });

@@ -30,8 +30,9 @@ Categories used here:
 
 ### Added
 
-- **The pipelines list shows the *Hand-edited* badge**, and the badge, the "Save a hand edit?"
-  question and *Restore last wizard version* now follow the server's own verdict instead of
+- **The pipelines list badges a wizard pipeline that no longer follows its wizard** (*Not
+  following wizard*: destination changes no longer regenerate it), and the header's *Hand-edited*
+  badge, the "Save a hand edit?" question and *Restore last wizard version* now follow the server's own verdict instead of
   comparing the text with the last wizard-written revision. A wizard pipeline hand-edited and
   then edited back to its wizard text is badged (a destination change still refuses it until a
   wizard revision is restored), and saving it again no longer asks. A pipeline written before
