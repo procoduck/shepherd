@@ -30,7 +30,7 @@ that recomputes a collector's config during the rollout writes the old
 `(rev 0)` header. Each cached config records the serve format it was computed
 in (`0033`), and the new pods recompute any config in an older format before
 serving it, so no collector keeps the `(rev 0)` header after the rollout. A
-collector that polls an old pod during the rollout gets the old config until it
+collector that polls an old pod during the rollout may get the old config until it
 next polls a new pod; if its organisation is edited mid-rollout it may reload
 one extra time. A collector that is offline during the upgrade picks up the new
 header when it next polls.

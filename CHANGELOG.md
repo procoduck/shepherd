@@ -32,7 +32,7 @@ proto or served-config change) and #279 are fixed. Two migrations (`0032`, `0033
   each cached config was computed in. A new pod recomputes any config an older pod computed —
   including one an old pod rewrote while the rollout was still running — before serving it, so
   the new revision header reaches organisations nobody edits. A collector that polls an old pod
-  during the rollout gets the old config until it next polls a new pod; one whose organisation is
+  during the rollout may get the old config until it next polls a new pod; one whose organisation is
   edited mid-rollout may reload one extra time. Afterwards, any write that bumps a pipeline's revision reloads the collectors serving it, even
   when its text is unchanged. (#296)
 - **Decide when stored tenant IDs start being sent.** A tenant ID stored on a destination before
@@ -163,7 +163,7 @@ proto or served-config change) and #279 are fixed. Two migrations (`0032`, `0033
   served bytes: migration `0032` marks every served config stale, and every cached config now
   records the serve format it was computed in (`0033`), so a new pod never serves one an older pod
   computed — even one rewritten by an old pod mid-rollout. **Every collector serving a pipeline
-  reloads once** after the upgrade, on its first poll of a new pod. From then on, any write that bumps a
+  reloads once** after the upgrade. From then on, any write that bumps a
   pipeline's revision reloads every collector serving it, even when the text is unchanged — a
   matcher-only edit, a visual-builder save that only moved nodes, restoring a revision with
   identical text, detaching from a wizard (which now re-serves an enabled pipeline). Git sync
@@ -183,7 +183,7 @@ proto or served-config change) and #279 are fixed. Two migrations (`0032`, `0033
   - The pipeline page shows a loading or error state instead of an empty form. Saving changed
     text on a wizard pipeline that still follows its wizard asks first, and a save dismisses the
     landing banner.
-  - The organisation and destination dialogs clear a server error on the first edit, and errors
+  - The organisation dialogs clear a server error on the first edit, and errors
     read as sentences ("Tenant ID is in use…", not `Tenant_id`). New organisation's Cancel resets
     the form; the destination dialog focuses the first refused field, and the destinations table
     marks destinations with TLS options.

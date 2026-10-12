@@ -12,9 +12,10 @@
 > fixed in v0.16.0, bar the parts of #301, #308 and #309 that need a proto or served-config
 > change; those three stay open on the board and are not repeated below.
 >
-> Baseline re-verified 2026-10-12 for v0.16.0 (commit `b8ce639`, chart 0.20.0) from the CI,
-> CodeQL, security-scan and e2e runs on that commit, not from a summary. v0.16.0 was not walked in
-> the browser before the tag; the last manual walkthrough is v0.15.0's (2026-10-09).
+> Baseline re-verified 2026-10-12 for v0.16.0 (commit `b7fd2a0`, chart 0.20.0) from the CI,
+> CodeQL, security-scan and e2e runs on that commit, not from a summary. v0.16.0 was walked on
+> the kind dev stack on 2026-10-12 (findings fixed in #329), and its upgrade path was exercised
+> there as a real v0.15.0 → main rolling upgrade (#330).
 > Completed rounds live in `docs/archive/` — the history this ledger used to carry inline is
 > `docs/archive/completed-2026-09-11.md`. Do not start a second ledger.
 
@@ -40,9 +41,10 @@
 
 ## 1. Verified baseline (2026-10-12, v0.16.0)
 
-The baseline commit is `b8ce639` (#282, the last merge before the v0.16.0 release PR); its CI,
-CodeQL and security-scan runs (38240264757, 38240264821, 38240264885) are green, and so is the
-E2E dispatch on it (38240393208: the agent-protocol suite and the sandbox `e2e-sim` job). The
+The baseline commit is `b7fd2a0` (#330, the last merge before the v0.16.0 release PR); its CI,
+CodeQL and security-scan runs (38254210623, 38254210692, 38254210664) are green, and so are its
+E2E run (38254210547: the agent-protocol suite and the sandbox `e2e-sim` job) and the E2E K8s
+dispatch on it (38254348861). The
 release PR changes only version pins, docs, the rebuilt bundle and one Go comment (the archived
 plan's path in `internal/wizard/tls.go`); its runs on main are pending, recorded after merge. Each row cites the run that last exercised the surface — CI's `changes`
 gate skips the jobs a commit does not touch — so the claim is checkable by run id rather than by
@@ -50,18 +52,19 @@ trusting this table.
 
 | Check | Where it ran | Result |
 |---|---|---|
-| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 38240264757 (`b8ce639`) | clean (Go 1.27.2) |
-| `golangci-lint` + config verify, all ten `make guards`, `helm lint` (incl. the dev-kind values), `scripts/repocheck`, generated-code drift | CI `lint` + `guards` jobs, same run; `generated-drift` on `0c3c659` (#277, the last proto change), run 38234586056 | 0 issues |
+| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 38254210623 (`b7fd2a0`) | clean (Go 1.27.2) |
+| `golangci-lint` + config verify, all ten `make guards`, `helm lint` (incl. the dev-kind values), `scripts/repocheck`, generated-code drift | CI `lint` + `guards` jobs, same run; `generated-drift` on `b7fd2a0` (#330's sqlc regenerate), same run | 0 issues |
 | `go test ./...` with coverage (testcontainers Postgres), incl. every wizard golden — tenant and TLS goldens too — loaded by a real Alloy v1.20.1 | CI `test` job, same run | green |
-| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job, run 38240264757 (`b8ce639`) | clean |
-| Mocked Playwright (`make test-ui`) | CI `test-ui` job, run 38240264757 (`b8ce639`) | green |
-| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 38240264757 (`b8ce639`) | green |
-| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml` manual dispatch on `b8ce639`, run 38240393208 | green |
+| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job, run 38251053377 (`b7f27f4`, #329 — the last web change; #330 touched no web code) | clean |
+| Mocked Playwright (`make test-ui`) | CI `test-ui` job, run 38251053377 (`b7f27f4`) | green |
+| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 38254210623 (`b7fd2a0`) | green |
+| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml` on push to `b7fd2a0`, run 38254210547 | green |
 | Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job, same run | green (containment + run lifecycle) |
-| Kubernetes e2e, kind (`make e2e-k8s`) — incl. destination Secret auth (#260) and tenant + TLS (#281) through a real Alloy | `e2e-k8s.yml` on #282's head `c53153d` (pull request), run 38239291244; manual dispatch on `b8ce639`, run 38240396239 | green (both) |
-| CodeQL (actions, go, javascript-typescript, python; `security-extended`) | `codeql.yml` on `b8ce639`, run 38240264821 | green |
-| gitleaks, Trivy config + image scans, OpenSSF Scorecard | `security-scan.yml` on `b8ce639`, run 38240264885 | green |
-| Manual walkthrough on the kind dev stack (Playwright MCP) | last on v0.15.0, 2026-10-09 on `fcb8b17` | v0.16.0 not re-walked; its UI changes are covered by the mocked suite above |
+| Kubernetes e2e, kind (`make e2e-k8s`) — incl. destination Secret auth (#260) and tenant + TLS (#281) through a real Alloy | `e2e-k8s.yml` on #282's head `c53153d` (pull request), run 38239291244; manual dispatch on `b7fd2a0`, run 38254348861 | green (both) |
+| CodeQL (actions, go, javascript-typescript, python; `security-extended`) | `codeql.yml` on `b7fd2a0`, run 38254210692 | green |
+| gitleaks, Trivy config + image scans, OpenSSF Scorecard | `security-scan.yml` on `b7fd2a0`, run 38254210664 | green |
+| Manual walkthrough on the kind dev stack (Playwright MCP) | v0.16, 2026-10-12 on `b8ce639`; fixes in #329 | all v0.16 features pass; mediums/lows fixed (#329), the rolling-upgrade `(rev 0)` gap fixed (#330) |
+| Rolling upgrade v0.15.0 → main on the kind dev stack | 2026-10-12, #330's head: DB at 31, v0.15.0 deployed with `(rev 0)` caches, then `make dev-kind-reload` | every polling collector serves `(rev N)` at format 1 |
 
 ### What demonstrably works end to end
 
