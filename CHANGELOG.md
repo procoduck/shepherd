@@ -11,6 +11,185 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
+## v0.16.0
+
+Chart 0.20.0, released 2026-10-12. **Destinations carry a tenant and TLS:** a wizard pipeline now
+sends its destination's tenant ID as `X-Scope-OrgID` (stored and ignored before), and can trust a
+private CA, present a client certificate and set a server name, all read on the collector's own
+cluster from a Secret or ConfigMap — proven against a real Alloy and an mTLS sink in the kind
+suite. The served config's header shows each pipeline's real revision instead of `(rev 0)`, so
+**every collector reloads once after the upgrade**. Members of a pipeline's owning team can use
+the visual builder, a collector that rejects its config now says which pipeline it rejected, and
+the 2026-10-08 walkthrough's low findings (#297–#310) and #279 are fixed. One migration (`0032`).
+
+**Upgrade:** `helm upgrade` to chart 0.20.0 — read `deploy/helm/shepherd/UPGRADING.md`
+(0.19.x → 0.20.0) first:
+
+- **Every collector reloads its config once,** on its next poll after the upgrade: migration
+  `0032` (a single `UPDATE` on `serve_cache`; it takes moments) marks every served config stale so
+  the new revision header reaches organisations nobody edits. Afterwards, any write that bumps a
+  pipeline's revision reloads the collectors serving it, even when its text is unchanged. (#296)
+- **Decide when stored tenant IDs start being sent.** A tenant ID stored on a destination before
+  this release is sent only once its wizard pipelines are regenerated. List them with
+  `shepherd admin rerender-destinations --all` (a dry run), then add `--apply`. Sending a tenant
+  moves that data into the named backend tenant. (#261)
+- **A CA in a ConfigMap** needs `get` on `configmaps` for the collector's ServiceAccount, and a CA
+  key that does not exist is not caught when the config loads (below). Nothing changes until you
+  set TLS options. (#261)
+- **Team owners and the visual builder:** members of a pipeline's owning team, including org
+  viewers in that team, can now render and validate that pipeline in the builder. (#319)
+
+### Added
+
+- **Destination tenant IDs are sent (#261).** A destination's tenant ID was stored and never
+  rendered. Every wizard writer now sends it: a `headers = { "X-Scope-OrgID" = … }` entry on
+  `prometheus.remote_write`, `tenant_id` on `loki.write`; an empty tenant renders nothing, so
+  existing pipelines are byte-identical. The destination form has a Tenant ID field, pre-filled
+  for a new destination with the organisation's own tenant ID, and the table a Tenant column. The
+  value must be a valid tenant ID (`invalid_argument`). **Cross-org guard, both sides:** a tenant
+  ID that another organisation holds as its own is refused when a destination is saved
+  (`invalid_argument`, "tenant_id is not available to this org") and again when a pipeline is
+  generated, and `CreateOrg` / `SetOrgTenantID` refuse a tenant ID another organisation's
+  destination sends (`failed_precondition`, without naming the organisation); both checks run
+  under a per-tenant advisory lock so they cannot race. The guard covers a destination's tenant
+  only — a hand-written pipeline can set any header. Editing a destination's tenant regenerates
+  its pipelines with a revision. A wizard pipeline generated before this release whose destination
+  already had a tenant is regenerated, not refused as hand-edited; one whose rendered header was
+  deleted by hand counts as a hand edit and is not put back. A tenant stored before this release
+  reaches a pipeline on its next regeneration (`rerender-destinations --all`, below). _Shipped._
+  (#277)
+- **Destination TLS options (#261).** A destination can trust a private CA (from a ConfigMap or a
+  Secret, key `ca.crt` or one you name), present a client certificate (a `kubernetes.io/tls`
+  Secret with `tls.crt` and `tls.key`, as cert-manager writes it) and set a server name. The
+  collector reads them on its own cluster with `remote.kubernetes.configmap` / `secret`, one read
+  per distinct object; Shepherd stores and serves only the references and key names, never
+  certificate material. Certificate verification cannot be turned off: `extra.tls` is decoded
+  strictly, so `insecure_skip_verify` is refused, and so is any TLS option on an `http://` URL
+  (`invalid_argument`). A CA in a ConfigMap needs `get` on `configmaps` in its namespace. A
+  client-certificate Secret missing `tls.crt` or `tls.key` makes the collector refuse the config;
+  **a missing CA key is not caught at load** — Alloy treats the CA as unset, the collector reads
+  APPLIED and fails at send time with x509 *unknown authority* (a documented limitation; check the
+  key name). The options cover the writer's endpoint, not an OAuth2 token URL. The destination
+  form has a collapsible *TLS options* section. A new `e2e-k8s` test runs a real Alloy with only
+  namespace-scoped RBAC against a sink that requires and verifies a client certificate: CA from a
+  ConfigMap under an overridden key and from a cert-manager-style Secret, the client certificate,
+  `server_name`, the tenant on remote-write and Loki pushes, and a wrong-CA destination that
+  delivers nothing. _Shipped._ (#280, #281)
+- **`shepherd admin rerender-destinations --all`** lists, per organisation, the destinations with
+  a tenant ID and every wizard pipeline whose regenerated text differs from what is stored, and
+  with `--apply` regenerates them through the full gate (Stages 1–2 per pipeline, Stage 3 over the
+  organisation's merged config) with a revision and a `pipeline.rerender` audit row. It is a dry
+  run unless `--apply` is given; `--apply` without `--all`, or with `--dry-run`, is refused. A
+  pipeline edited by hand is listed as `skipped` and never overwritten (exit 0); a pipeline that
+  cannot be regenerated is `FAILED` with the reason, and the command exits 1 only for those. A
+  Stage 3 refusal leaves that whole organisation unchanged. Safe to repeat. Without `--all` the
+  command keeps its v0.15.0 meaning. _Shipped._ (#282)
+- **Members of a pipeline's owning team use the visual builder (#319).** They could edit the
+  pipeline as text but not in the builder. `VisualService` `Render`, `Validate` and `UpgradeCheck`
+  take an optional `pipeline_id` and are then authorized per pipeline, by the same rule as saving
+  it (another organisation's pipeline is `not_found`); without one (a new graph) they need org
+  editor as before. Starting a new visual pipeline and running simulations stay org editor, and
+  the builder says why Simulate is disabled. Moving to another pipeline makes the builder
+  read-only until that pipeline's own answer loads. _Shipped._ (#324)
+- **A collector that rejects its served config says which pipeline it rejected (#297).** The line
+  in Alloy's load error is mapped back to the pipeline's declare block and shown as "rejected in
+  pipeline X (line N of its text, line M of the merged config)" on the collector's banner, on its
+  *Reconciliation* tab (a new `served_config_rejected` finding, listed first) and on the pipeline
+  page. It names a pipeline only when the collector's status is about the config being served;
+  otherwise it says the error was recorded against an earlier served config. Served bytes are
+  unchanged. _Shipped._ (#327)
+- **Hand-edited wizard pipelines carry a lasting *Hand-edited* badge** in the pipeline header,
+  for every reader, while the text differs from the last wizard-written revision. The pipelines
+  list does not show it yet (it needs a proto field). _Shipped._ (#301, #326)
+- **Every wizard suggests a pipeline name** (`<kind>-<job>`, or `<kind>`), with the first free
+  `-N` suffix when the organisation has it, compared the way the server's unique index compares
+  names; Review says why *Create* is disabled (no name, a taken name, preview problems), so a
+  taken name is caught before the server refuses the commit. _Shipped._ (#306, #325)
+
+### Changed
+
+- **Builder drafts keep the pipeline name and matchers.** An unsaved rename or matcher change is
+  offered back after a reload, and restoring a draft restores them with the graph. Signing out
+  clears every builder draft in that browser. _Shipped._ (#319, #324)
+- **Tenant routes say "not applied", with the reason, when no route reconciler runs** on the
+  server (route apply disabled, or no in-cluster client), instead of *pending* forever; the stored
+  row stays pending, so a reconciler started later still applies it. The Gateway column names the
+  gateway in both modes. _Shipped._ (#304, #326)
+- **The component schema is served gzip-compressed** (`/api/schema/{version}` and `current`),
+  encoded once per schema version, with `Vary: Accept-Encoding`, a strong ETag per representation
+  and `304` on `If-None-Match`. _Shipped._ (#279, #327)
+- **Wizard cards describe what the wizards render:** Blackbox probes HTTP/TCP endpoints (no DNS,
+  no alerting), Cluster Metrics collects cAdvisor container metrics. _Shipped._ (#299, #327)
+- **Overview tiles say what they count across** — your organisations (all organisations, for an
+  app admin) or the selected one. _Shipped._ (#298, #325)
+- **Who may do what is stated where it applies:** the Teams page says org admins and editors edit
+  any pipeline; the Destinations page says only org admins manage destinations, and its empty
+  state offers *Add* only to them. RBAC is unchanged. _Shipped._ (#303, #325)
+- **Wizard forms:** Pod Logs' empty format reads "None"; fields a `…_enabled` toggle has switched
+  off are disabled with the reason, and no longer block *Continue*. _Shipped._ (#308, #325)
+- **Smaller UI changes:** the audit log names pipelines, destinations, teams, collectors and
+  organisations that still exist (organisations by display name); a collector binding picks its
+  organisation from a list; chart-managed single sign-on hides the inert Save/Test; Git *Test
+  credential* starts from the repository link that uses it; a signed-out page load asks `GetMe`
+  once and sign-out not at all; disabled fields look disabled. _Shipped._ (#309, #325)
+- **1024 px layout:** the builder canvas refits when its pane resizes unless you have panned or
+  zoomed, so the minimap no longer covers nodes; the text editor fills its pane, so its horizontal
+  scrollbar is on screen, and a remembered *Wrap lines* toggle wraps long lines. A sandbox run
+  with stubbed discovery explains, next to *Metrics captured*, that the real targets were never
+  discovered. _Shipped._ (#305, #307, #326)
+- **Accessibility:** user and destination actions, wizard *Start* links and palette groups are
+  named for what they act on; the Simulate dropdown is a WAI-ARIA menu; wires are announced by
+  node labels in dataflow order; the pipeline Name field is labelled. _Shipped._ (#310, #326)
+
+### Fixed
+
+- **The served config's header shows each pipeline's real revision (#296).** It read `(rev 0)`
+  for every pipeline, because nothing passed the revision to the merge. Both serve paths and both
+  Stage 3 dry runs now take it from one conversion, so they cannot disagree. This changes the
+  served bytes: **every collector reloads once**, on its next poll after the upgrade, because
+  migration `0032` marks every served config stale. From then on, any write that bumps a
+  pipeline's revision reloads every collector serving it, even when the text is unchanged — a
+  matcher-only edit, a visual-builder save that only moved nodes, restoring a revision with
+  identical text, detaching from a wizard (which now re-serves an enabled pipeline). Git sync
+  writes a pipeline and its revision in one transaction; a failed revision write now fails that
+  file's sync instead of being logged and skipped. _Shipped._ (#323)
+- **Editing an organisation with an invalid tenant ID no longer saves its other fields first.**
+  The refusable tenant step runs first, and `UpdateOrg` writes the update and its audit row in one
+  transaction. _Shipped._ (#302, #327)
+- **The destination dialog clears a server refusal** as soon as you edit the form. _Shipped._
+  (#300, #325)
+
+### API
+
+All additive; `buf breaking` is clean against v0.15.0.
+
+- `OrgMembership.tenant_id` (`GetMe`): the organisation's own tenant ID, read-only, empty when
+  unset. _RPC only_ beyond the destination form's pre-fill. (#277)
+- `RenderRequest`, `ValidateVisualRequest`, `UpgradeCheckRequest`: `pipeline_id` (optional;
+  authorizes per pipeline, above). A propose-only service account must leave it empty. The builder
+  uses it. (#324)
+- `GetReconciliation` can return a `served_config_rejected` finding (served ↔ observed,
+  `pipeline_name` set when the error's line falls inside a pipeline). `Finding.kind` is a string;
+  its proto comment does not list the new kind yet. _RPC only_ beyond the UI uses above. (#327)
+- `AdminService.UpdateOrg` returns `not_found` for an unknown organisation (it was `internal`).
+  _RPC only._ (#327)
+- `CreateDestination` / `UpdateDestination` validate `tenant_id` and `extra.tls`
+  (`invalid_argument`); `CreateOrg` / `SetOrgTenantID` refuse a tenant ID another organisation's
+  destination sends (`failed_precondition`). (#277, #280)
+- `TenantRoute.apply_status` reads `not_applicable` for a pending route no reconciler will apply,
+  as the field already documented. (#326)
+- `/api/schema/*` (HTTP, not Connect) honours `Accept-Encoding: gzip` and `If-None-Match`. (#327)
+
+### Build & CI
+
+- **Kubernetes e2e:** `TestDestinationTenantTLS` (fourteen `e2e-k8s` tests now) proves tenant and
+  TLS against a real Alloy; its sink is a stdlib Go program on the pinned `GO_IMAGE`, no new
+  image. (#281)
+- **Wizard load test:** the fake Kubernetes API serves ConfigMaps as well as Secrets and real PEM
+  by the key contract, so every TLS golden is loaded by a real Alloy; a missing `tls.crt` /
+  `tls.key` is pinned to refuse the load. (#280)
+- **Docs:** the ledger records the v0.15.0 release and main's CI runs. (#322)
+
 ## v0.15.0
 
 Chart 0.19.0, released 2026-10-09. **Destinations work end to end:** a wizard pipeline now writes

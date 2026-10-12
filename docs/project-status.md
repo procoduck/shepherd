@@ -8,12 +8,13 @@
 > board is archived at `docs/archive/plans/2026-09-16-outstanding-work.md` — every item in it has
 > since shipped (issues #100–#118 are all closed; the last, B1, in v0.13.0). Open work is the open
 > GitHub issues (bar Renovate's Dependency Dashboard, #87), each represented in §2–§4 below.
-> The 2026-10-08 pre-release walkthrough's low-severity findings and nits are filed as
-> #296–#310 (on the board, waves 1–3); they are listed only there, not repeated below.
+> The 2026-10-08 pre-release walkthrough's low-severity findings and nits (#296–#310) shipped
+> fixed in v0.16.0, bar the parts of #301, #308 and #309 that need a proto or served-config
+> change; those three stay open on the board and are not repeated below.
 >
-> Baseline re-verified 2026-10-09 for v0.15.0 (commit `210a397`, chart 0.19.0) from the CI runs
-> on that commit plus the 2026-10-09 pre-release walkthrough on the kind dev stack, not from a
-> summary.
+> Baseline re-verified 2026-10-12 for v0.16.0 (commit `b8ce639`, chart 0.20.0) from the CI,
+> CodeQL, security-scan and e2e runs on that commit, not from a summary. v0.16.0 was not walked in
+> the browser before the tag; the last manual walkthrough is v0.15.0's (2026-10-09).
 > Completed rounds live in `docs/archive/` — the history this ledger used to carry inline is
 > `docs/archive/completed-2026-09-11.md`. Do not start a second ledger.
 
@@ -23,7 +24,7 @@
 |---|---|
 | `docs/project-status.md` | this ledger — verified baseline, open bugs, unbuilt features, open follow-ups |
 | `docs/spec.md` | authoritative product/build specification (§ numbers referenced below) |
-| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. Holds `2026-10-06-destination-tenant-tls.md` (#261, in progress; ships in v0.16.0). `2026-10-01-destination-auth.md` (#229/#262) shipped in v0.15.0 and is in `docs/archive/plans/` |
+| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. **Empty: no live plan.** The last two, `2026-10-01-destination-auth.md` (#229/#262, v0.15.0) and `2026-10-06-destination-tenant-tls.md` (#261, v0.16.0), are in `docs/archive/plans/` |
 | `docs/visual-builder-design-VB1.md` | visual builder design — M1–M8 built; §6.4 (S3) is the live spec for the sandbox feature (enabled by default in the Helm chart since v0.0.1) |
 | `docs/reviews/` | **live decision records only**: `canvas-framework-evaluation.md` (the React Flow decision and the controlled-mode contract `CanvasPane` depends on). Closed reviews move to `docs/archive/reviews/` |
 | `docs/dev-guide.md` | running the dev stack |
@@ -37,31 +38,30 @@
 
 ---
 
-## 1. Verified baseline (2026-10-09, v0.15.0)
+## 1. Verified baseline (2026-10-12, v0.16.0)
 
-The baseline commit is `210a397` (#321, the last merge before the v0.15.0 release PR); its CI,
-CodeQL and security-scan runs (37910223512, 37910223547, 37910223424) are green. The release PR
-(#320, `8d1722d`) changes only version pins, docs and the rebuilt bundle; its CI, CodeQL and
-security-scan runs on main (37911472097, 37911472058, 37911472093) are green, and the release run
-for tag `v0.15.0` on that commit is 37954890404 (verify, release, image attestations and the
-published-image scans all green). Each row cites the run that last exercised the surface — CI's
-`changes` gate skips the jobs a commit does not touch, so the web rows cite `210a397` and the Go
-rows `8d1722d` — so the claim is checkable by run id rather than by trusting this table.
+The baseline commit is `b8ce639` (#282, the last merge before the v0.16.0 release PR); its CI,
+CodeQL and security-scan runs (38240264757, 38240264821, 38240264885) are green, and so is the
+E2E dispatch on it (38240393208: the agent-protocol suite and the sandbox `e2e-sim` job). The
+release PR changes only version pins, docs and the rebuilt bundle; its runs on main are pending,
+recorded after merge. Each row cites the run that last exercised the surface — CI's `changes`
+gate skips the jobs a commit does not touch — so the claim is checkable by run id rather than by
+trusting this table.
 
 | Check | Where it ran | Result |
 |---|---|---|
-| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 37911472097 (`8d1722d`) | clean (Go 1.27.2, x/net v0.60.0 — #315) |
-| `golangci-lint` + config verify, all ten `make guards`, `helm lint` (incl. the dev-kind values), `scripts/repocheck`, generated-code drift | CI `lint` + `guards` jobs, same run; `generated-drift` on `a367e66`, run 37904225712 (the last commit its `changes` gate selected it on) | 0 issues |
-| `go test ./...` with coverage (testcontainers Postgres), incl. every wizard golden loaded by a real Alloy v1.20.1 | CI `test` job, same run | green |
-| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job, run 37910223512 (`210a397`) | clean |
-| Mocked Playwright (`make test-ui`) | CI `test-ui` job, run 37910223512 (`210a397`) | green |
-| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 37911472097 (`8d1722d`) | green |
-| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml` on push of `bbc9f5e` (#316), run 37900766810 — the last commit its path filter selected | green |
-| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job, manual dispatch on `fcb8b17` (#314), run 37865881421 | green (containment + run lifecycle) |
-| Kubernetes e2e, kind (`make e2e-k8s`) — incl. destination Secret auth through a real Alloy (#260) | `e2e-k8s.yml`, manual dispatch on `fcb8b17`, run 37865879292 | green |
-| CodeQL (actions, go, javascript-typescript, python; `security-extended`) | `codeql.yml` on `8d1722d`, run 37911472058 | green |
-| gitleaks, Trivy config + image scans, OpenSSF Scorecard | `security-scan.yml` on `8d1722d`, run 37911472093 | green |
-| Manual walkthrough on the kind dev stack (Playwright MCP) | 2026-10-09 on `fcb8b17` | its findings (F1–F3, B4–B7) fixed in #316, #317 and #318, all in `a367e66`; the re-check's UI items fixed in #321 (`210a397`) |
+| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 38240264757 (`b8ce639`) | clean (Go 1.27.2) |
+| `golangci-lint` + config verify, all ten `make guards`, `helm lint` (incl. the dev-kind values), `scripts/repocheck`, generated-code drift | CI `lint` + `guards` jobs, same run; `generated-drift` on `0c3c659` (#277, the last proto change), run 38234586056 | 0 issues |
+| `go test ./...` with coverage (testcontainers Postgres), incl. every wizard golden — tenant and TLS goldens too — loaded by a real Alloy v1.20.1 | CI `test` job, same run | green |
+| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job, run 38240264757 (`b8ce639`) | clean |
+| Mocked Playwright (`make test-ui`) | CI `test-ui` job, run 38240264757 (`b8ce639`) | green |
+| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 38240264757 (`b8ce639`) | green |
+| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml` manual dispatch on `b8ce639`, run 38240393208 | green |
+| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job, same run | green (containment + run lifecycle) |
+| Kubernetes e2e, kind (`make e2e-k8s`) — incl. destination Secret auth (#260) and tenant + TLS (#281) through a real Alloy | `e2e-k8s.yml` on #282's head `c53153d` (pull request), run 38239291244; manual dispatch on `b8ce639`, run 38240396239 | green on `c53153d`; the `b8ce639` dispatch was still running when this was written, recorded after merge |
+| CodeQL (actions, go, javascript-typescript, python; `security-extended`) | `codeql.yml` on `b8ce639`, run 38240264821 | green |
+| gitleaks, Trivy config + image scans, OpenSSF Scorecard | `security-scan.yml` on `b8ce639`, run 38240264885 | green |
+| Manual walkthrough on the kind dev stack (Playwright MCP) | last on v0.15.0, 2026-10-09 on `fcb8b17` | v0.16.0 not re-walked; its UI changes are covered by the mocked suite above |
 
 ### What demonstrably works end to end
 
@@ -131,6 +131,12 @@ the manual end-to-end pass the list above records. Re-walk them on the next rele
   config is loaded (#286); diagnostics in the user's coordinates (#316); stale-save refusal and
   per-pipeline `can_edit` (#317); Kubernetes 1.32 floor (#270); Go 1.27.2 (#315). Walked on kind
   2026-10-08 and 2026-10-09 before the tag.
+- **v0.16.0** — destination tenant as `X-Scope-OrgID` with a cross-org guard on both sides (#277),
+  TLS options read on the collector (#280), both proven through a real Alloy in `e2e-k8s` (#281),
+  `rerender-destinations --all` (#282); the served header's real revisions with a one-time fleet
+  reload (#323, migration `0032`); team owners in the visual builder (#324, proto `pipeline_id`);
+  the rejected pipeline named (#327); the 2026-10-08 walkthrough lows (#325–#327). Not walked in
+  the browser before the tag.
 
 ### History
 
@@ -154,6 +160,8 @@ remediation with its D1–D14 decisions, and the v0.5.0 dependency and toolchain
   selectors), chart 0.18.0, release run 36850745268.
 - 2026-10-09 — v0.15.0 (destination auth and re-render, two pre-release walkthroughs, Go 1.27.2),
   chart 0.19.0, release run 37954890404.
+- 2026-10-12 — v0.16.0 (destination tenant and TLS, real revisions in the served header, team
+  owners in the builder, walkthrough lows), chart 0.20.0; release run recorded after the tag.
 
 ---
 
@@ -185,7 +193,8 @@ Observability scrape targets and log globs that collected nothing (H2, H3), the 
 read from an environment variable nothing set (H4), and M1–M6 (Review-step errors, role-excluded
 pipelines surfaced, actionable destination refusals, the kind agents' RBAC, editor diagnostics,
 server-side form validation). PRs #288–#295 and follow-ups; `CHANGELOG.md` v0.15.0 has the list.
-The low findings and nits are issues #296–#310. A second pass on 2026-10-09 (`fcb8b17`) found
+The low findings and nits are issues #296–#310, fixed in v0.16.0 (#323, #325–#327) except the
+parts of #301, #308 and #309 that need a proto or served-config change (still open). A second pass on 2026-10-09 (`fcb8b17`) found
 four lows (an untouched builder graph counted as dirty, never-connected collectors counted as live
 matches, Self Monitoring's fixed role, no in-app 404), fixed in #318, plus the stale-tab overwrite
 and team edit rights fixed in #317 and diagnostics one line off fixed in #316.
@@ -200,18 +209,6 @@ Served config is shown, but nothing links back to the pipelines that produced it
 to get from "this collector runs X" to "because pipeline Y matched". The merge engine already knows
 the contributing set.
 
-### F-DEST-TLS — wizard writers render no tenant header and no TLS options · **medium**
-
-#261. `wizard.RenderWriter` emits a destination's URL and Secret auth only: `destinations.tenant_id`
-is stored and ignored (the #229 bug class), and there is no way to trust a private CA or present a
-client certificate, so multi-tenant Mimir/Loki and private-CA backends need hand-written pipelines.
-Design approved 2026-10-06, built in five PRs: `docs/plans/2026-10-06-destination-tenant-tls.md`
-(§9 decisions, §10 sequence). Step 1 (#273, one undecodable destination no longer breaks the org's
-wizard renders) shipped in v0.15.0; the rest ships in v0.16.0 (#277/#280/#281/#282 drafts):
-tenant from the destination (refused if it is another org's), TLS material read on the collector
-from a Secret/ConfigMap (`ca.crt` or an overridden CA key, `tls.crt`, `tls.key`), no
-`insecure_skip_verify`, operator-triggered rollout of stored tenants.
-
 All gateway-tier workstreams (W1–W11) and attribute-based matching (#139) have shipped — the last
 of them in v0.12.0: the receiver tier (#109, opt-in, R3 signed), tenant-route apply, onboarding
 artifacts (#111) and the chart-values generator with G10 (#112). See `docs/gateway-tier-plan.md` §9.
@@ -219,6 +216,16 @@ artifacts (#111) and the chart-values generator with G10 (#112). See `docs/gatew
 Closed features (F5 sandbox simulation, F-SIGNAL-SERVE) are in `docs/archive/completed-2026-09-11.md`.
 F-REVISIONS closed — see `CHANGELOG.md` v0.6.0 "Pipelines — Shipped"; its plan is archived at
 `docs/archive/plans/2026-09-11-f-revisions.md`.
+F-DEST-TLS closed (#261): wizard writers send a destination's tenant as `X-Scope-OrgID`
+(`tenant_id` on `loki.write`), refused when it is another org's (checked on the destination and
+the org side under a per-tenant advisory lock), and render TLS options — a CA from a Secret or
+ConfigMap (`ca.crt` or an overridden key), a client certificate from a `kubernetes.io/tls` Secret,
+a server name, no `insecure_skip_verify` — read on the collector, proven end to end by
+`e2e/k8s/destination_tls_test.go`. Stored tenants roll out through the operator's
+`shepherd admin rerender-destinations --all` (`UPGRADING.md` 0.19.x → 0.20.0). Known limitation:
+a missing CA key is not caught at load (documented). Step 1 (#273) shipped in v0.15.0, the rest
+(#277, #280, #281, #282) in v0.16.0 (`CHANGELOG.md`); plan in
+`docs/archive/plans/2026-10-06-destination-tenant-tls.md`.
 F-DEST-AUTH closed (#229): wizard writers render a `basic_secret` / `oauth2_secret` destination's
 auth from its Kubernetes Secret (`remote.kubernetes.secret`, key contract in `docs/spec.md` §11.4),
 proven end to end by `e2e/k8s/destination_auth_test.go`. Shipped in v0.15.0 (`CHANGELOG.md`); plan in

@@ -13,7 +13,7 @@ import (
 // #229, Shepherd stores only references to objects on the spoke cluster and
 // key names; the collector reads the certificate material at runtime with
 // remote.kubernetes.secret / remote.kubernetes.configmap. No PEM ever enters
-// Shepherd or the served config. See docs/plans/2026-10-06-destination-tenant-tls.md §3.
+// Shepherd or the served config. See docs/archive/plans/2026-10-06-destination-tenant-tls.md §3.
 
 // ExtraKeyTLS is the destinations.extra key holding a destination's TLS
 // options (maintainer decision Q4: extra, no proto change).
