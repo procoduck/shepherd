@@ -232,6 +232,12 @@ func UnwrapDiagnostics(contents string, diags []Diagnostic) []Diagnostic {
 	lines := strings.Split(contents, "\n")
 	lastLine := len(lines)
 	endCol := len(lines[lastLine-1]) + 1
+	// How many lines of contents the wrap holds: it drops the empty line
+	// after a final newline, so the closing brace sits where that line would.
+	// Mapping the brace as a contents line kept its column, past the end of
+	// the text (found by FuzzUnwrapDiagnostics); it is a wrapper line and
+	// clamps like one.
+	wrappedLines := strings.Count(strings.TrimSuffix(contents, "\n"), "\n") + 1
 
 	out := make([]Diagnostic, len(diags))
 	for i, d := range diags {
@@ -243,7 +249,7 @@ func UnwrapDiagnostics(contents string, diags []Diagnostic) []Diagnostic {
 			if d.Col > 0 {
 				d.Col = 1
 			}
-		case d.Line-wrapHeaderLines <= lastLine:
+		case d.Line-wrapHeaderLines <= wrappedLines:
 			d.Line -= wrapHeaderLines
 			if lines[d.Line-1] != "" && d.Col > 0 {
 				d.Col = max(1, d.Col-wrapIndent)
