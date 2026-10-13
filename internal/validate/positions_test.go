@@ -141,6 +141,17 @@ var _ = Describe("UnwrapDiagnostics", func() {
 		Expect(got).To(Equal([]validate.Diagnostic{{Line: 2, Col: 1}}))
 	})
 
+	// Found by FuzzUnwrapDiagnostics (seed testdata/fuzz/
+	// FuzzUnwrapDiagnostics/brace-after-final-newline). The wrap drops the
+	// empty line after a final newline, so the closing brace sits where that
+	// line would; it was mapped as that line with its column kept. Red run,
+	// executed: "a = 1\n" with the brace at 3:2 came back as 2:2, one column
+	// past the end of the text.
+	It("clamps the closing brace of a trailing-newline text to the end of the text", func() {
+		got := validate.UnwrapDiagnostics("a = 1\n", []validate.Diagnostic{{Line: 3, Col: 2}})
+		Expect(got).To(Equal([]validate.Diagnostic{{Line: 2, Col: 1}}))
+	})
+
 	It("returns nil for no diagnostics and does not touch its input", func() {
 		Expect(validate.UnwrapDiagnostics(contents, nil)).To(BeNil())
 		in := []validate.Diagnostic{{Line: 2, Col: 5}}
