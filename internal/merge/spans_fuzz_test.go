@@ -46,21 +46,13 @@ func FuzzAssembleSpans(f *testing.F) {
 			t.Fatalf("Spans recovered %d spans, Assemble recorded %d\n%s", len(got), len(res.Spans), res.Content)
 		}
 		for i := range got {
-			want := res.Spans[i]
-			if !strings.ContainsAny(name1+name2, "\r\n") {
-				if got[i] != want {
-					t.Fatalf("span %d: Spans = %+v, Assemble = %+v\n%s", i, got[i], want, res.Content)
-				}
-				continue
-			}
 			// A name the header cannot carry verbatim (a line break: the API
-			// refuses one, a git-synced file path can carry one) comes back as
-			// the header prints it or as the block name — never as the other
-			// pipeline's name.
-			name := got[i].PipelineName
-			got[i].PipelineName = want.PipelineName
-			if got[i] != want || (name != headerName(want.PipelineName) && name != want.BlockName) {
-				t.Fatalf("span %d: Spans = %+v (name %q), Assemble = %+v\n%s", i, got[i], name, want, res.Content)
+			// refuses one, a git-synced file path can carry one) comes back
+			// exactly as the header prints it — its own, never another's.
+			want := res.Spans[i]
+			want.PipelineName = headerName(want.PipelineName)
+			if got[i] != want {
+				t.Fatalf("span %d: Spans = %+v, want %+v\n%s", i, got[i], want, res.Content)
 			}
 		}
 

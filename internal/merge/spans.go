@@ -56,36 +56,6 @@ var headerPipelineRE = regexp.MustCompile(`^//   - (.*) \(rev -?\d+\)$`)
 func Spans(content string) []BlockSpan {
 	lines := strings.Split(content, "\n")
 
-	// Block name -> display name, from the header's pipeline list. A name the
-	// header could not carry verbatim (commentSafe rewrote it) falls back to
-	// the block name below.
-	//
-	// Two header entries can key the same block: commentSafe turns a line
-	// break into a space, so a rewritten name ("a\r\nb", printed "a b") may
-	// sanitize to another pipeline's block ("a_b") rather than its own
-	// ("a__b"). A git-synced file path can carry one; the API refuses it. The
-	// header cannot say which entry is that block's, so an ambiguous block
-	// falls back to its block name rather than taking the last entry's name —
-	// which attributed one pipeline's load error to another (found by
-	// FuzzAssembleSpans).
-	names := map[string]string{}
-	ambiguous := map[string]bool{}
-	for _, l := range lines {
-		if !strings.HasPrefix(l, "//") {
-			break
-		}
-		if m := headerPipelineRE.FindStringSubmatch(l); m != nil {
-			key := "pipe_" + SanitizeName(m[1])
-			if _, dup := names[key]; dup {
-				ambiguous[key] = true
-			}
-			names[key] = m[1]
-		}
-	}
-	for key := range ambiguous {
-		delete(names, key)
-	}
-
 	var spans []BlockSpan
 	for i := 0; i < len(lines); i++ {
 		m := declareLineRE.FindStringSubmatch(lines[i])
@@ -102,19 +72,90 @@ func Spans(content string) []BlockSpan {
 			if lines[j+1] != block+` "default" { }` {
 				break
 			}
-			name, ok := names[block]
-			if !ok {
-				name = block
-			}
 			spans = append(spans, BlockSpan{
-				PipelineName: name, BlockName: block,
+				PipelineName: block, BlockName: block,
 				DeclareLine: i + 1, EndLine: j + 2,
 			})
 			i = j + 1
 			break
 		}
 	}
+	nameSpans(lines, spans)
 	return spans
+}
+
+// headerListRE matches the header line that opens the pipeline list.
+var headerListRE = regexp.MustCompile(`^// Pipelines \((\d+)\):$`)
+
+// nameSpans gives each span the display name the header lists for it,
+// leaving the block name on any it cannot name for certain.
+//
+// The header lists the included pipelines in the order their blocks follow
+// (buildHeader and the declare loop walk the same slice, as they have since
+// the first served format), so the i-th "//   - <name> (rev N)" entry under
+// "// Pipelines (N):" names the i-th block. Pairing by position is exact
+// where matching by sanitized name is not: commentSafe prints "a\r\nb" (block
+// pipe_a__b) as "a b", which sanitizes to the block of a pipeline really
+// named "a b" — keyed by name, one of the two would carry the other's name
+// (found by FuzzAssembleSpans).
+//
+// When the list is not exactly N well-formed entries — content served before
+// commentSafe, where a raw line break split an entry across lines, or text
+// that is no assembled config at all — names fall back to the sanitized-name
+// match, and a block two entries both sanitize to keeps its block name.
+func nameSpans(lines []string, spans []BlockSpan) {
+	var listed []string
+	n := -1
+	for _, l := range lines {
+		if !strings.HasPrefix(l, "//") {
+			break
+		}
+		if n < 0 {
+			if m := headerListRE.FindStringSubmatch(l); m != nil {
+				var err error
+				if n, err = strconv.Atoi(m[1]); err != nil {
+					n = -1
+					break
+				}
+			}
+			continue
+		}
+		if len(listed) == n {
+			break
+		}
+		m := headerPipelineRE.FindStringSubmatch(l)
+		if m == nil {
+			break
+		}
+		listed = append(listed, m[1])
+	}
+
+	if n >= 0 && len(listed) == n && len(spans) >= n {
+		for i, name := range listed {
+			spans[i].PipelineName = name
+		}
+		return
+	}
+
+	names := map[string]string{}
+	ambiguous := map[string]bool{}
+	for _, l := range lines {
+		if !strings.HasPrefix(l, "//") {
+			break
+		}
+		if m := headerPipelineRE.FindStringSubmatch(l); m != nil {
+			key := "pipe_" + SanitizeName(m[1])
+			if _, dup := names[key]; dup {
+				ambiguous[key] = true
+			}
+			names[key] = m[1]
+		}
+	}
+	for i := range spans {
+		if name, ok := names[spans[i].BlockName]; ok && !ambiguous[spans[i].BlockName] {
+			spans[i].PipelineName = name
+		}
+	}
 }
 
 // Locate attributes a 1-based line of an assembled config to the pipeline
