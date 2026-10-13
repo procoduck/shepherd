@@ -1,0 +1,8 @@
+{
+  "name": "shepherd-pnpm-tool",
+  "private": true,
+  "description": "The package manager deploy/Dockerfile.local and deploy/Dockerfile.init install with `npm ci`, so its tarballs are checked against the sha512 in package-lock.json. Its version is deploy/versions.env PNPM_VERSION and nothing else: to bump it, change it there, here and in the lockfile together (`npm install --package-lock-only --ignore-scripts` in this directory); `make check-docker` fails when they disagree.",
+  "dependencies": {
+    "pnpm": "12.8.1"
+  }
+}

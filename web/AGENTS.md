@@ -16,7 +16,7 @@ React 19 + TypeScript + Vite SPA, embedded into the Go binary via `go:embed`.
 
 ## Tooling
 - **Runtime**: Node 26 (`deploy/versions.env` NODE_IMAGE, ci.yml/release.yml `node-version`, `engines.node`; `engineStrict` refuses an install on an older Node). `@types/node` tracks the same major
-- **Package manager**: pnpm v12; the pin is `package.json` `packageManager` (CI reads it) and `deploy/versions.env` PNPM_VERSION must match
+- **Package manager**: pnpm v12; the pin is `package.json` `packageManager` (CI reads it) and `deploy/versions.env` PNPM_VERSION must match, as must `deploy/pnpm-tool/` (the hash-locked manifest the image builds `npm ci` pnpm from; `make check-docker` checks it)
 - Install on a new machine: `npm install -g pnpm@12.8.1` (or `brew install pnpm`) — Node 25+ no longer bundles corepack. A pnpm 12 that differs from the pin switches to the pinned version itself
 - pnpm 12 fails on any `pnpm-workspace.yaml` key it does not recognise (`ERR_PNPM_UNRECOGNIZED_WORKSPACE_SETTINGS`) — check a new setting's spelling against the pnpm docs
 - **Linter/formatter**: Biome (`biome.json`) — replaces ESLint + Prettier entirely
