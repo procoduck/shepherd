@@ -142,3 +142,49 @@ var _ = Describe("the check-docker guard", func() {
 		Expect(out).To(ContainSubstring("package-lock.json"))
 	})
 })
+
+// The pnpm tool manifest is an image-build input like the Dockerfiles, so
+// every place that decides "the images changed" must see it: the path
+// filters of the two workflows that build and run the images, ci.yml's
+// backend gate (which runs the image-building test-fullstack job), and the
+// buildx layer-cache keys, which otherwise restore a pnpm layer from before
+// the lockfile moved.
+//
+// Red run, 2026-10-13: none of e2e.yml's push paths, e2e-k8s.yml's PR paths,
+// ci.yml's backend regex or the four cache keys named deploy/pnpm-tool.
+var _ = Describe("the pnpm tool manifest as a CI image input", func() {
+	triggerPaths := func(file, event string) []string {
+		GinkgoHelper()
+		w := loadWorkflow(file)
+		ev, ok := w.On[event].(map[string]any)
+		Expect(ok).To(BeTrue(), "%s has no on.%s", file, event)
+		raw, ok := ev["paths"].([]any)
+		Expect(ok).To(BeTrue(), "%s on.%s.paths is not a list", file, event)
+		var out []string
+		for _, p := range raw {
+			s, ok := p.(string)
+			Expect(ok).To(BeTrue(), "%s on.%s.paths entry is not a string", file, event)
+			out = append(out, s)
+		}
+		return out
+	}
+
+	It("triggers the image-building e2e workflows", func() {
+		Expect(triggerPaths("e2e.yml", "push")).To(ContainElement("deploy/pnpm-tool/**"))
+		Expect(triggerPaths("e2e-k8s.yml", "pull_request")).To(ContainElement("deploy/pnpm-tool/**"))
+	})
+
+	It("counts as a backend change in ci.yml's changes gate", func() {
+		Expect(readRepoFile(".github/workflows/ci.yml")).To(ContainSubstring(`|^deploy/pnpm-tool/|`))
+	})
+
+	It("is hashed into every buildx layer-cache key", func() {
+		for _, file := range []string{"ci.yml", "e2e.yml", "e2e-k8s.yml"} {
+			for i, s := range buildxCacheSteps(file) {
+				key, ok := s.With["key"].(string)
+				Expect(ok).To(BeTrue(), "%s cache step %d: with.key is not a string", file, i)
+				Expect(key).To(ContainSubstring("'deploy/pnpm-tool/package-lock.json'"), "%s cache step %d", file, i)
+			}
+		}
+	})
+})
