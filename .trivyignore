@@ -9,3 +9,10 @@
 # set image.registry explicitly. Enforcing a registry list inside the template
 # would break exactly that mirror case.
 KSV-0125
+
+# DS-0026 "No HEALTHCHECK defined" — LOW, every deploy/Dockerfile.*. The
+# runtime images are distroless (no shell or curl for a HEALTHCHECK CMD), the
+# Helm chart defines liveness and readiness probes (Kubernetes ignores Docker
+# HEALTHCHECK), Dockerfile.init builds a one-shot migration Job, and the
+# compose stacks declare their own healthchecks.
+DS-0026
