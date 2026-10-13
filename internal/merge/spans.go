@@ -59,14 +59,31 @@ func Spans(content string) []BlockSpan {
 	// Block name -> display name, from the header's pipeline list. A name the
 	// header could not carry verbatim (commentSafe rewrote it) falls back to
 	// the block name below.
+	//
+	// Two header entries can key the same block: commentSafe turns a line
+	// break into a space, so a rewritten name ("a\r\nb", printed "a b") may
+	// sanitize to another pipeline's block ("a_b") rather than its own
+	// ("a__b"). A git-synced file path can carry one; the API refuses it. The
+	// header cannot say which entry is that block's, so an ambiguous block
+	// falls back to its block name rather than taking the last entry's name —
+	// which attributed one pipeline's load error to another (found by
+	// FuzzAssembleSpans).
 	names := map[string]string{}
+	ambiguous := map[string]bool{}
 	for _, l := range lines {
 		if !strings.HasPrefix(l, "//") {
 			break
 		}
 		if m := headerPipelineRE.FindStringSubmatch(l); m != nil {
-			names["pipe_"+SanitizeName(m[1])] = m[1]
+			key := "pipe_" + SanitizeName(m[1])
+			if _, dup := names[key]; dup {
+				ambiguous[key] = true
+			}
+			names[key] = m[1]
 		}
+	}
+	for key := range ambiguous {
+		delete(names, key)
 	}
 
 	var spans []BlockSpan

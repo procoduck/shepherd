@@ -84,6 +84,21 @@ var _ = Describe("declare-block spans (#297)", func() {
 		Expect(loc.PipelineLine).To(BeZero())
 	})
 
+	// Found by FuzzAssembleSpans (seed testdata/fuzz/FuzzAssembleSpans/
+	// header-name-collision). The header prints "a\r\nb" as "a b", which
+	// sanitizes to the block of a pipeline really named "a b"; Spans gave that
+	// block the last header entry's name. Red run, executed: block pipe_a_b
+	// was attributed to the name printed for "a\r\nb".
+	It("never attributes a block to another pipeline's header entry", func() {
+		crlf := merge.Pipeline{ID: "c", Name: "a\r\nb", Source: "git", RepoLinkCollectorID: "c1", Contents: "x {}\n"}
+		plain := merge.Pipeline{ID: "p", Name: "a\x01b", Source: "ui", Matchers: []string{`cluster="prod"`}, Contents: "y {}\n"}
+		res := assemble(crlf, plain)
+		Expect(res.Spans).To(HaveLen(2))
+		for _, s := range merge.Spans(res.Content) {
+			Expect(s.PipelineName).To(Equal(s.BlockName), "an ambiguous header entry names no block")
+		}
+	})
+
 	It("maps nothing for a header line, a line past the blocks, or an empty config", func() {
 		res := assemble(alpha)
 		_, ok := merge.Locate(res.Content, 1)
