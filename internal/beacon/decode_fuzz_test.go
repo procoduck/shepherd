@@ -12,8 +12,9 @@ import (
 
 // FuzzDecodeWriteRequest feeds arbitrary collector-supplied remote_write
 // bodies (snappy-framed protobuf) through the decoder the beacon ingest
-// handler runs. Plain `go test` runs only the seed corpus (the f.Add calls
-// plus testdata/fuzz/FuzzDecodeWriteRequest/); fuzz with
+// handler runs. Plain `go test` runs only the seed corpus (the f.Add calls,
+// plus testdata/fuzz/FuzzDecodeWriteRequest/ once a failing input is saved
+// there as a regression seed); fuzz with
 // `go test -run='^$' -fuzz=FuzzDecodeWriteRequest -fuzztime=60s ./internal/beacon`.
 //
 // Properties: never a panic; a body over the cap is refused with
