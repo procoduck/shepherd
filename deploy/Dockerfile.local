@@ -9,12 +9,18 @@ FROM ${NODE_IMAGE} AS web
 ARG PNPM_VERSION
 WORKDIR /app
 COPY web/package.json web/pnpm-lock.yaml web/.npmrc web/pnpm-workspace.yaml web/
-# Node 25+ no longer bundles corepack, so pnpm comes from npm at the exact
-# PNPM_VERSION pin (npm verifies the tarball against the registry integrity).
+# Node 25+ no longer bundles corepack, so pnpm comes from deploy/pnpm-tool: a
+# manifest + lockfile pinned to PNPM_VERSION. `npm ci` checks every tarball
+# against the lockfile's committed sha512, never what the registry serves for
+# a name; `make check-docker` fails when the lockfile and versions.env disagree,
+# and the version test below fails the image if a --build-arg disagrees with it.
 # --ignore-scripts: pnpm's preinstall only relinks its bin onto the native binary;
 # without it the placeholder bin starts that same binary through Node.
-# Point npm at your organisation's registry mirror here if applicable.
-RUN npm install --global --no-fund --no-audit --ignore-scripts pnpm@${PNPM_VERSION}
+# An npm registry mirror configured here replaces the lockfile's registry host.
+COPY deploy/pnpm-tool/package.json deploy/pnpm-tool/package-lock.json /opt/pnpm-tool/
+RUN npm ci --prefix /opt/pnpm-tool --ignore-scripts --no-fund --no-audit \
+ && test "$(/opt/pnpm-tool/node_modules/.bin/pnpm --version)" = "${PNPM_VERSION}"
+ENV PATH=/opt/pnpm-tool/node_modules/.bin:${PATH}
 COPY web/ web/
 COPY scripts/ scripts/
 RUN chmod +x scripts/build-web.sh && ./scripts/build-web.sh

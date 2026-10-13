@@ -25,6 +25,9 @@ DOCKER_BUILD_ARGS := \
 # .github/workflows).
 DOCKER_CACHE_FLAGS ?=
 
+# The npm manifest + lockfile the image builds install pnpm from (check-docker).
+PNPM_TOOL_DIR ?= deploy/pnpm-tool
+
 # Fail fast (<1s) on a missing CLI instead of discovering it after minutes of
 # docker builds or stack boots. $(1) = binary, $(2) = how to get it.
 define preflight
@@ -392,6 +395,21 @@ check-docker: ## Guard: Dockerfile FROMs/ARG defaults agree with versions.env
 			fi; \
 		done; \
 	done; \
+	if [ "$$FAIL" != "0" ]; then exit 1; fi
+	@# Guard 3: the pnpm both Dockerfiles `npm ci` from deploy/pnpm-tool must be
+	@# PNPM_VERSION in both its manifest and its lockfile — the lockfile's root
+	@# entry and its node_modules/pnpm entry. PNPM_TOOL_DIR exists for the
+	@# repocheck spec that proves this fails on a drifted fixture.
+	@FAIL=0; dir="$(PNPM_TOOL_DIR)"; want="$(PNPM_VERSION)"; \
+	manifest=$$(sed -n 's/^ *"pnpm": "\([^"]*\)".*/\1/p' "$$dir/package.json"); \
+	if [ "$$manifest" != "$$want" ]; then \
+		echo "ERROR: $$dir/package.json: pnpm '$$manifest' disagrees with deploy/versions.env PNPM_VERSION '$$want'"; FAIL=1; \
+	fi; \
+	root=$$(sed -n '/^  "packages": {/,/^    },/s/^ *"pnpm": "\([^"]*\)".*/\1/p' "$$dir/package-lock.json"); \
+	locked=$$(sed -n '/"node_modules\/pnpm": {/{n;s/^ *"version": "\([^"]*\)".*/\1/p;}' "$$dir/package-lock.json"); \
+	if [ "$$root" != "$$want" ] || [ "$$locked" != "$$want" ]; then \
+		echo "ERROR: $$dir/package-lock.json: pnpm '$$root'/'$$locked' disagrees with deploy/versions.env PNPM_VERSION '$$want' (npm install --package-lock-only --ignore-scripts in $$dir)"; FAIL=1; \
+	fi; \
 	if [ "$$FAIL" != "0" ]; then exit 1; fi
 	@echo "check-docker: OK"
 

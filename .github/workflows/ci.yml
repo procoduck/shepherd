@@ -157,7 +157,7 @@ jobs:
           # always-on `guards` job checks (check-single-dist,
           # check-dist-consistency).
           if echo "$files" | grep -vE '^internal/spa/dist/|\.md$' \
-             | grep -qE '(\.go$|^go\.(mod|sum)$|^proto/|^gen/|^buf\.(gen\.)?yaml$|^sqlc\.yaml$|^internal/|^cmd/|^tools/|^e2e/|^deploy/helm/|^deploy/Dockerfile|^deploy/versions\.env$|^\.golangci\.yml$|^Makefile$|^\.github/workflows/ci\.yml$)'; then
+             | grep -qE '(\.go$|^go\.(mod|sum)$|^proto/|^gen/|^buf\.(gen\.)?yaml$|^sqlc\.yaml$|^internal/|^cmd/|^tools/|^e2e/|^deploy/helm/|^deploy/Dockerfile|^deploy/pnpm-tool/|^deploy/versions\.env$|^\.golangci\.yml$|^Makefile$|^\.github/workflows/ci\.yml$)'; then
             echo "backend=true" >> "$GITHUB_OUTPUT"
           else
             echo "backend=false" >> "$GITHUB_OUTPUT"
@@ -676,7 +676,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/.buildx-cache
-          key: buildx-${{ runner.os }}-${{ github.workflow }}-${{ github.job }}-${{ hashFiles('go.sum', 'web/pnpm-lock.yaml', 'deploy/versions.env', 'deploy/Dockerfile.local', 'deploy/Dockerfile.init', 'deploy/Dockerfile.simulator') }}-${{ github.run_id }}
+          key: buildx-${{ runner.os }}-${{ github.workflow }}-${{ github.job }}-${{ hashFiles('go.sum', 'web/pnpm-lock.yaml', 'deploy/versions.env', 'deploy/Dockerfile.local', 'deploy/Dockerfile.init', 'deploy/Dockerfile.simulator', 'deploy/pnpm-tool/package-lock.json') }}-${{ github.run_id }}
           restore-keys: |
             buildx-${{ runner.os }}-${{ github.workflow }}-${{ github.job }}-
 

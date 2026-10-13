@@ -31,6 +31,7 @@ on:
       - "internal/gitsync/**"
       - "internal/auth/**"
       - "deploy/Dockerfile*"
+      - "deploy/pnpm-tool/**" # the images' pnpm (npm ci from its lockfile)
       - "deploy/versions.env"
       - ".github/workflows/e2e.yml"
   # The egress job ALSO runs on any PR that touches the S3 sandbox containment
@@ -98,7 +99,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/.buildx-cache
-          key: buildx-${{ runner.os }}-${{ github.workflow }}-${{ github.job }}-${{ hashFiles('go.sum', 'web/pnpm-lock.yaml', 'deploy/versions.env', 'deploy/Dockerfile.local', 'deploy/Dockerfile.init', 'deploy/Dockerfile.simulator') }}-${{ github.run_id }}
+          key: buildx-${{ runner.os }}-${{ github.workflow }}-${{ github.job }}-${{ hashFiles('go.sum', 'web/pnpm-lock.yaml', 'deploy/versions.env', 'deploy/Dockerfile.local', 'deploy/Dockerfile.init', 'deploy/Dockerfile.simulator', 'deploy/pnpm-tool/package-lock.json') }}-${{ github.run_id }}
           restore-keys: |
             buildx-${{ runner.os }}-${{ github.workflow }}-${{ github.job }}-
 
@@ -186,7 +187,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/.buildx-cache
-          key: buildx-${{ runner.os }}-${{ github.workflow }}-${{ github.job }}-${{ hashFiles('go.sum', 'web/pnpm-lock.yaml', 'deploy/versions.env', 'deploy/Dockerfile.local', 'deploy/Dockerfile.init', 'deploy/Dockerfile.simulator') }}-${{ github.run_id }}
+          key: buildx-${{ runner.os }}-${{ github.workflow }}-${{ github.job }}-${{ hashFiles('go.sum', 'web/pnpm-lock.yaml', 'deploy/versions.env', 'deploy/Dockerfile.local', 'deploy/Dockerfile.init', 'deploy/Dockerfile.simulator', 'deploy/pnpm-tool/package-lock.json') }}-${{ github.run_id }}
           restore-keys: |
             buildx-${{ runner.os }}-${{ github.workflow }}-${{ github.job }}-
 
