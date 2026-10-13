@@ -5,8 +5,9 @@
 **Please do not report security issues in public GitHub issues.**
 
 Use GitHub's private vulnerability reporting on this repository
-(Security → Report a vulnerability), which opens a private advisory visible only
-to the maintainers.
+(Security → Report a vulnerability, or directly at
+<https://github.com/procoduck/shepherd/security/advisories/new>), which opens a
+private advisory visible only to the maintainers.
 
 Please include what you can: affected version or commit, a description of the
 issue, and the steps or a proof of concept that shows the impact. If you are not

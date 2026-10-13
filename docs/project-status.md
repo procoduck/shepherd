@@ -293,6 +293,16 @@ was closed in the same batches (`CHANGELOG.md` v0.7.0).
 
 In rough priority order; closed items stay in place, marked with the release that shipped them:
 
+- **Bump Alloy to v1.21.x when it is released** (code-scanning alerts 140–157, 2026-10-13 triage).
+  The vendored Alloy v1.20.1 is built with Go 1.26.7 and x/net 0.58.0; 18 Trivy alerts (HTTP/2 and
+  HTTP/1 server DoS, crypto/tls ECH, html/template, one Windows-only) are reported against
+  `usr/local/bin/alloy` and are not reachable — Shepherd runs only `alloy validate`/`fmt` (no
+  listener, no network) and the simulator's `alloy run` is egress-contained. No v1.20.2 is
+  coming; upstream `main` is already on Go 1.27.2 / x/net 0.61.0. It is a schema bump
+  (`ALLOY_IMAGE`, `make schema`, overlay reconcile, `make generate-corpus`, re-stated census
+  numbers). Alert 133 (Loki Ruler API path traversal, a Trivy pseudo-version mis-compare) does
+  not close with it.
+
 - [x] **UX polish from the 2026-09-30 walkthrough** (#212, closed 2026-10-01) — part shipped in
       v0.14.0 (#219/#223/#225/#227); the rest was split into #249–#253 (inline form errors, the
       post-login redirect, the builder toolbar, pipeline heading/enable/delete/owner team, nits),
