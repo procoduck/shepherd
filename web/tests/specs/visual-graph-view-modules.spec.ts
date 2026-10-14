@@ -157,7 +157,7 @@ test.describe('graph view of a config built from modules (k8s-monitoring metrics
     await expect(page.locator('[aria-label="Edge from kubelet to cluster_metrics"]')).toHaveCount(
       0,
     );
-    await expect(box.getByTestId('module-group-port')).toHaveText('metrics_destinations');
+    await expect(box.getByTestId('module-group-port')).toHaveText('argument.metrics_destinations');
     // The rest of the graph is laid out again around the smaller box.
     const all = await boxes(page);
     const parentOf = new Map(metrics.graph.nodes.map((n) => [n.id, n.parent ?? '']));

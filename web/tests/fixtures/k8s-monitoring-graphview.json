@@ -55,10 +55,10 @@
           "node": "n_cluster_events__loki_process_cluster_events",
           "port": "forward_to"
         },
-        "id": "e_n_cluster_events__loki_process_cluster_events_n_declare_cluster_events_logs_destinations",
+        "id": "e_n_cluster_events__loki_process_cluster_events_forward_to_n_declare_cluster_events_argument.logs_destinations",
         "to": {
           "node": "n_declare_cluster_events",
-          "port": "logs_destinations"
+          "port": "argument.logs_destinations"
         }
       },
       {
@@ -141,9 +141,9 @@
       {
         "from": {
           "node": "n_declare_cluster_events",
-          "port": "logs_destinations"
+          "port": "argument.logs_destinations"
         },
-        "id": "e_n_declare_cluster_events_n_opaque_cluster_events_feature_logs_destinations",
+        "id": "e_n_declare_cluster_events_argument.logs_destinations_n_opaque_cluster_events_feature_logs_destinations",
         "to": {
           "node": "n_opaque_cluster_events_feature",
           "port": "logs_destinations"

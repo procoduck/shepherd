@@ -227,11 +227,14 @@ export async function layoutGraph(elk: ELK, input: LayoutInput): Promise<LayoutR
   // between a group and something inside it lives in that group.
   for (const e of edges) {
     const above = { source: ancestors(tree, e.source), target: ancestors(tree, e.target) };
-    const lca = above.target.includes(e.source)
-      ? e.source
-      : above.source.includes(e.target)
-        ? e.target
-        : above.source.find((g) => above.target.includes(g));
+    const lca =
+      e.source === e.target
+        ? e.source // through a group, inside it
+        : above.target.includes(e.source)
+          ? e.source
+          : above.source.includes(e.target)
+            ? e.target
+            : above.source.find((g) => above.target.includes(g));
     const container = lca ? (elkNodes.get(lca) ?? root) : root;
     const end = (node: string, handleId: string) => {
       if (!tree.groups.has(node)) return node;

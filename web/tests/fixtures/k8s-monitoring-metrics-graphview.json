@@ -103,10 +103,10 @@
           "node": "n_annotation_autodiscovery__prometheus_scrape_annotation_autodiscovery_http",
           "port": "forward_to"
         },
-        "id": "e_n_annotation_autodiscovery__prometheus_scrape_annotation_autodiscovery_http_n_declare_annotation_autodiscovery_metrics_destinations",
+        "id": "e_n_annotation_autodiscovery__prometheus_scrape_annotation_autodiscovery_http_forward_to_n_declare_annotation_autodiscovery_argument.metrics_destinations",
         "to": {
           "node": "n_declare_annotation_autodiscovery",
-          "port": "metrics_destinations"
+          "port": "argument.metrics_destinations"
         }
       },
       {
@@ -125,10 +125,21 @@
           "node": "n_annotation_autodiscovery__prometheus_scrape_annotation_autodiscovery_https",
           "port": "forward_to"
         },
-        "id": "e_n_annotation_autodiscovery__prometheus_scrape_annotation_autodiscovery_https_n_declare_annotation_autodiscovery_metrics_destinations",
+        "id": "e_n_annotation_autodiscovery__prometheus_scrape_annotation_autodiscovery_https_forward_to_n_declare_annotation_autodiscovery_argument.metrics_destinations",
         "to": {
           "node": "n_declare_annotation_autodiscovery",
+          "port": "argument.metrics_destinations"
+        }
+      },
+      {
+        "from": {
+          "node": "n_opaque_annotation_autodiscovery_feature",
           "port": "metrics_destinations"
+        },
+        "id": "e_n_opaque_annotation_autodiscovery_feature_n_prometheus_remote_write_prometheus_metrics_destinations",
+        "to": {
+          "node": "n_prometheus_remote_write_prometheus",
+          "port": "receiver"
         }
       },
       {
@@ -180,10 +191,10 @@
           "node": "n_cluster_metrics__prometheus_relabel_kubelet",
           "port": "forward_to"
         },
-        "id": "e_n_cluster_metrics__prometheus_relabel_kubelet_n_declare_cluster_metrics_metrics_destinations",
+        "id": "e_n_cluster_metrics__prometheus_relabel_kubelet_forward_to_n_declare_cluster_metrics_argument.metrics_destinations",
         "to": {
           "node": "n_declare_cluster_metrics",
-          "port": "metrics_destinations"
+          "port": "argument.metrics_destinations"
         }
       },
       {
@@ -224,10 +235,10 @@
           "node": "n_cluster_metrics__prometheus_relabel_kubelet_resources",
           "port": "forward_to"
         },
-        "id": "e_n_cluster_metrics__prometheus_relabel_kubelet_resources_n_declare_cluster_metrics_metrics_destinations",
+        "id": "e_n_cluster_metrics__prometheus_relabel_kubelet_resources_forward_to_n_declare_cluster_metrics_argument.metrics_destinations",
         "to": {
           "node": "n_declare_cluster_metrics",
-          "port": "metrics_destinations"
+          "port": "argument.metrics_destinations"
         }
       },
       {
@@ -268,10 +279,10 @@
           "node": "n_cluster_metrics__prometheus_relabel_cadvisor",
           "port": "forward_to"
         },
-        "id": "e_n_cluster_metrics__prometheus_relabel_cadvisor_n_declare_cluster_metrics_metrics_destinations",
+        "id": "e_n_cluster_metrics__prometheus_relabel_cadvisor_forward_to_n_declare_cluster_metrics_argument.metrics_destinations",
         "to": {
           "node": "n_declare_cluster_metrics",
-          "port": "metrics_destinations"
+          "port": "argument.metrics_destinations"
         }
       },
       {
@@ -312,10 +323,21 @@
           "node": "n_cluster_metrics__prometheus_relabel_kube_state_metrics",
           "port": "forward_to"
         },
-        "id": "e_n_cluster_metrics__prometheus_relabel_kube_state_metrics_n_declare_cluster_metrics_metrics_destinations",
+        "id": "e_n_cluster_metrics__prometheus_relabel_kube_state_metrics_forward_to_n_declare_cluster_metrics_argument.metrics_destinations",
         "to": {
           "node": "n_declare_cluster_metrics",
+          "port": "argument.metrics_destinations"
+        }
+      },
+      {
+        "from": {
+          "node": "n_opaque_cluster_metrics_feature",
           "port": "metrics_destinations"
+        },
+        "id": "e_n_opaque_cluster_metrics_feature_n_prometheus_remote_write_prometheus_metrics_destinations",
+        "to": {
+          "node": "n_prometheus_remote_write_prometheus",
+          "port": "receiver"
         }
       },
       {
@@ -356,65 +378,10 @@
           "node": "n_linux_host_metrics__prometheus_relabel_node_exporter",
           "port": "forward_to"
         },
-        "id": "e_n_linux_host_metrics__prometheus_relabel_node_exporter_n_declare_linux_host_metrics_metrics_destinations",
+        "id": "e_n_linux_host_metrics__prometheus_relabel_node_exporter_forward_to_n_declare_linux_host_metrics_argument.metrics_destinations",
         "to": {
           "node": "n_declare_linux_host_metrics",
-          "port": "metrics_destinations"
-        }
-      },
-      {
-        "from": {
-          "node": "n_prometheus_operator_objects__prometheus_operator_podmonitors_pod_monitors",
-          "port": "forward_to"
-        },
-        "id": "e_n_prometheus_operator_objects__prometheus_operator_podmonitors_pod_monitors_n_declare_prometheus_operator_objects_metrics_destinations",
-        "to": {
-          "node": "n_declare_prometheus_operator_objects",
-          "port": "metrics_destinations"
-        }
-      },
-      {
-        "from": {
-          "node": "n_prometheus_operator_objects__prometheus_operator_probes_probes",
-          "port": "forward_to"
-        },
-        "id": "e_n_prometheus_operator_objects__prometheus_operator_probes_probes_n_declare_prometheus_operator_objects_metrics_destinations",
-        "to": {
-          "node": "n_declare_prometheus_operator_objects",
-          "port": "metrics_destinations"
-        }
-      },
-      {
-        "from": {
-          "node": "n_prometheus_operator_objects__prometheus_operator_servicemonitors_service_monitors",
-          "port": "forward_to"
-        },
-        "id": "e_n_prometheus_operator_objects__prometheus_operator_servicemonitors_service_monitors_n_declare_prometheus_operator_objects_metrics_destinations",
-        "to": {
-          "node": "n_declare_prometheus_operator_objects",
-          "port": "metrics_destinations"
-        }
-      },
-      {
-        "from": {
-          "node": "n_opaque_annotation_autodiscovery_feature",
-          "port": "metrics_destinations"
-        },
-        "id": "e_n_opaque_annotation_autodiscovery_feature_n_prometheus_remote_write_prometheus_metrics_destinations",
-        "to": {
-          "node": "n_prometheus_remote_write_prometheus",
-          "port": "receiver"
-        }
-      },
-      {
-        "from": {
-          "node": "n_opaque_cluster_metrics_feature",
-          "port": "metrics_destinations"
-        },
-        "id": "e_n_opaque_cluster_metrics_feature_n_prometheus_remote_write_prometheus_metrics_destinations",
-        "to": {
-          "node": "n_prometheus_remote_write_prometheus",
-          "port": "receiver"
+          "port": "argument.metrics_destinations"
         }
       },
       {
@@ -426,6 +393,39 @@
         "to": {
           "node": "n_prometheus_remote_write_prometheus",
           "port": "receiver"
+        }
+      },
+      {
+        "from": {
+          "node": "n_prometheus_operator_objects__prometheus_operator_podmonitors_pod_monitors",
+          "port": "forward_to"
+        },
+        "id": "e_n_prometheus_operator_objects__prometheus_operator_podmonitors_pod_monitors_forward_to_n_declare_prometheus_operator_objects_argument.metrics_destinations",
+        "to": {
+          "node": "n_declare_prometheus_operator_objects",
+          "port": "argument.metrics_destinations"
+        }
+      },
+      {
+        "from": {
+          "node": "n_prometheus_operator_objects__prometheus_operator_probes_probes",
+          "port": "forward_to"
+        },
+        "id": "e_n_prometheus_operator_objects__prometheus_operator_probes_probes_forward_to_n_declare_prometheus_operator_objects_argument.metrics_destinations",
+        "to": {
+          "node": "n_declare_prometheus_operator_objects",
+          "port": "argument.metrics_destinations"
+        }
+      },
+      {
+        "from": {
+          "node": "n_prometheus_operator_objects__prometheus_operator_servicemonitors_service_monitors",
+          "port": "forward_to"
+        },
+        "id": "e_n_prometheus_operator_objects__prometheus_operator_servicemonitors_service_monitors_forward_to_n_declare_prometheus_operator_objects_argument.metrics_destinations",
+        "to": {
+          "node": "n_declare_prometheus_operator_objects",
+          "port": "argument.metrics_destinations"
         }
       },
       {
@@ -453,9 +453,9 @@
       {
         "from": {
           "node": "n_declare_annotation_autodiscovery",
-          "port": "metrics_destinations"
+          "port": "argument.metrics_destinations"
         },
-        "id": "e_n_declare_annotation_autodiscovery_n_opaque_annotation_autodiscovery_feature_metrics_destinations",
+        "id": "e_n_declare_annotation_autodiscovery_argument.metrics_destinations_n_opaque_annotation_autodiscovery_feature_metrics_destinations",
         "to": {
           "node": "n_opaque_annotation_autodiscovery_feature",
           "port": "metrics_destinations"
@@ -464,9 +464,9 @@
       {
         "from": {
           "node": "n_declare_cluster_metrics",
-          "port": "metrics_destinations"
+          "port": "argument.metrics_destinations"
         },
-        "id": "e_n_declare_cluster_metrics_n_opaque_cluster_metrics_feature_metrics_destinations",
+        "id": "e_n_declare_cluster_metrics_argument.metrics_destinations_n_opaque_cluster_metrics_feature_metrics_destinations",
         "to": {
           "node": "n_opaque_cluster_metrics_feature",
           "port": "metrics_destinations"
@@ -475,9 +475,9 @@
       {
         "from": {
           "node": "n_declare_linux_host_metrics",
-          "port": "metrics_destinations"
+          "port": "argument.metrics_destinations"
         },
-        "id": "e_n_declare_linux_host_metrics_n_opaque_linux_host_metrics_feature_metrics_destinations",
+        "id": "e_n_declare_linux_host_metrics_argument.metrics_destinations_n_opaque_linux_host_metrics_feature_metrics_destinations",
         "to": {
           "node": "n_opaque_linux_host_metrics_feature",
           "port": "metrics_destinations"
@@ -486,9 +486,9 @@
       {
         "from": {
           "node": "n_declare_prometheus_operator_objects",
-          "port": "metrics_destinations"
+          "port": "argument.metrics_destinations"
         },
-        "id": "e_n_declare_prometheus_operator_objects_n_opaque_prometheus_operator_objects_feature_metrics_destinations",
+        "id": "e_n_declare_prometheus_operator_objects_argument.metrics_destinations_n_opaque_prometheus_operator_objects_feature_metrics_destinations",
         "to": {
           "node": "n_opaque_prometheus_operator_objects_feature",
           "port": "metrics_destinations"

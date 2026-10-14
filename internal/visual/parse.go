@@ -288,13 +288,32 @@ func (gp *graphParser) nodeID(doc *GraphDocument, sc *parseScope, component, lab
 	if sc.path != "" {
 		id = "n_" + sc.path + "__" + strings.TrimPrefix(id, "n_")
 	}
-	for _, existing := range doc.Nodes {
-		if existing.ID == id {
-			id += "_2"
-			break
+	if !gp.opts.ExpandModules {
+		// The builder's parse, unchanged: one "_2" on a clash.
+		for _, existing := range doc.Nodes {
+			if existing.ID == id {
+				id += "_2"
+				break
+			}
 		}
+		return id
+	}
+	// Module paths sanitize and join with "__", so different paths can meet
+	// (declare "a" { declare "b" } and declare "a__b"): count up until free.
+	base := id
+	for n := 2; gp.nodeIDTaken(doc, id); n++ {
+		id = fmt.Sprintf("%s_%d", base, n)
 	}
 	return id
+}
+
+func (gp *graphParser) nodeIDTaken(doc *GraphDocument, id string) bool {
+	for _, existing := range doc.Nodes {
+		if existing.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 // addNode appends a node at the next slot of the server's grid layout (which
@@ -358,36 +377,35 @@ func (gp *graphParser) addPort(mod *module, kind string, block *ast.BlockStmt) {
 	}
 }
 
+// Group port names: an argument and an export may share a name, and they are
+// different ports (one carries data in, the other out), so each is named by
+// its kind.
+func argPort(name string) string    { return "argument." + name }
+func exportPort(name string) string { return "export." + name }
+
 // wireAll turns references into edges, removing the props they came from.
 // Bodies are walked depth-first so a reference inside a block (an OTel
-// `output` block, say) is addressed by its dotted path. Modules are wired
-// innermost first: whether an instance's attribute is a port depends on how
-// the module uses that argument, and whether a reference to an instance's
-// export is one depends on what the export names. Without modules this is one
-// pass over the nodes in source order, as it always was.
+// `output` block, say) is addressed by its dotted path. Every module's port
+// directions are settled first (resolvePorts): whether an instance's attribute
+// is a port depends on how its module uses that argument, and whether a
+// reference to an instance's export is one on what the export names — across
+// modules, in any declaration order. Without modules this is one pass over the
+// nodes in source order, as it always was.
 func (gp *graphParser) wireAll(doc *GraphDocument) {
-	maxDepth := 0
-	for _, sc := range gp.nodeScope {
-		maxDepth = max(maxDepth, sc.depth)
-	}
 	for _, o := range gp.opaqueNodes {
 		if m := o.scope.lookupModule(o.name); m != nil {
 			gp.instanceOf[o.id] = m
 		}
 	}
-	for depth := maxDepth; depth >= 0; depth-- {
-		for i := range doc.Nodes {
-			// A group node has no block of its own: its body is its children.
-			sc, block := gp.nodeScope[doc.Nodes[i].ID], gp.blocks[doc.Nodes[i].ID]
-			if sc.depth == depth && block != nil {
-				gp.edges(doc, i, block.Body, nil, sc, doc.Nodes[i].Props)
-			}
+	gp.resolvePorts(doc)
+	for i := range doc.Nodes {
+		// A group node has no block of its own: its body is its children.
+		if block := gp.blocks[doc.Nodes[i].ID]; block != nil {
+			gp.edges(doc, i, block.Body, nil, gp.nodeScope[doc.Nodes[i].ID], doc.Nodes[i].Props)
 		}
-		for _, m := range gp.modules {
-			if m.body.depth == depth {
-				gp.wireExports(doc, m)
-			}
-		}
+	}
+	for _, m := range gp.modules {
+		gp.wireExports(doc, m)
 	}
 	for i := range doc.Nodes {
 		if m := gp.instanceOf[doc.Nodes[i].ID]; m != nil {
@@ -396,44 +414,166 @@ func (gp *graphParser) wireAll(doc *GraphDocument) {
 	}
 }
 
-// wireExports turns each export whose value is pure wiring into edges between
-// the group's port and the components it names; any other reference in an
-// export's value is a binding on the group.
-func (gp *graphParser) wireExports(doc *GraphDocument, m *module) {
-	type end struct{ node, export string }
-	for _, block := range m.exportStmts {
-		port := m.exports[block.Label]
-		for _, stmt := range block.Body {
-			attr, ok := stmt.(*ast.AttributeStmt)
-			if !ok || attr.Name.Name != "value" {
+// resolvePorts settles which module arguments and exports are wired, and
+// which way data crosses each, before any edge is drawn. A port's direction
+// can depend on another module's (an instance of b inside a, an export naming
+// an instance's export), so it iterates until nothing changes; each pass only
+// ever marks a port wired, so it terminates.
+func (gp *graphParser) resolvePorts(doc *GraphDocument) {
+	if len(gp.modules) == 0 {
+		return
+	}
+	for changed := true; changed; {
+		changed = false
+		for i := range doc.Nodes {
+			sc, block := gp.nodeScope[doc.Nodes[i].ID], gp.blocks[doc.Nodes[i].ID]
+			if block == nil || sc.module == nil {
 				continue
 			}
-			refs, isWire := wireRefs(attr.Value)
-			var ends []end
-			for _, ref := range refs {
-				otherID, export, resolved := resolveRef(ref, m.body.nodeByRef)
-				if !resolved || !gp.isPort(doc, otherID, export) {
-					isWire = false
-					break
+			walkWireAttrs(block.Body, nil, func(prop string, value ast.Expr) {
+				refs, isWire := wireRefs(value)
+				if !isWire {
+					return
 				}
-				ends = append(ends, end{otherID, export})
-			}
-			if !isWire || len(ends) == 0 {
-				for _, ref := range exprRefs(attr.Value) {
-					if otherID, export, resolved := resolveRef(ref, m.body.nodeByRef); resolved {
-						gp.binding(m.groupID, "export."+block.Label, otherID, export, attr.Value)
+				ends, ok := gp.wireEnds(doc, i, prop, refs, sc)
+				if !ok {
+					return
+				}
+				for _, e := range ends {
+					if e.arg != nil && !e.arg.wired {
+						e.arg.wired, e.arg.outward = true, gp.inputProduces(doc, i, prop)
+						changed = true
 					}
 				}
-				continue
-			}
-			port.wired = true
-			port.outward = !gp.isReceiverExport(doc, ends[0].node, ends[0].export)
-			for _, e := range ends {
-				if port.outward {
-					gp.addEdge(doc, PortRef{Node: e.node, Port: e.export}, PortRef{Node: m.groupID, Port: block.Label})
-				} else {
-					gp.addEdge(doc, PortRef{Node: m.groupID, Port: block.Label}, PortRef{Node: e.node, Port: e.export})
+			})
+		}
+		for _, m := range gp.modules {
+			for _, block := range m.exportStmts {
+				port := m.exports[block.Label]
+				if port.wired {
+					continue
 				}
+				if value := exportValue(block); value != nil {
+					if _, outward, ok := gp.exportEnds(doc, m, value); ok {
+						port.wired, port.outward = true, outward
+						changed = true
+					}
+				}
+			}
+		}
+	}
+}
+
+// walkWireAttrs calls fn for every attribute a wire can come from, at its
+// dotted path: the body's own and those of nested unlabeled blocks that occur
+// once (a repeated block is a list in props, which no port path addresses) —
+// the same attributes edges() visits.
+func walkWireAttrs(body ast.Body, path []string, fn func(prop string, value ast.Expr)) {
+	counts := map[string]int{}
+	for _, stmt := range body {
+		if b, ok := stmt.(*ast.BlockStmt); ok {
+			counts[strings.Join(b.Name, ".")]++
+		}
+	}
+	for _, stmt := range body {
+		switch s := stmt.(type) {
+		case *ast.BlockStmt:
+			name := strings.Join(s.Name, ".")
+			if s.Label == "" && counts[name] == 1 {
+				walkWireAttrs(s.Body, append(append([]string{}, path...), name), fn)
+			}
+		case *ast.AttributeStmt:
+			fn(strings.Join(append(append([]string{}, path...), s.Name.Name), "."), s.Value)
+		}
+	}
+}
+
+// exportValue is an export block's `value` expression.
+func exportValue(block *ast.BlockStmt) ast.Expr {
+	for _, stmt := range block.Body {
+		if attr, ok := stmt.(*ast.AttributeStmt); ok && attr.Name.Name == "value" {
+			return attr.Value
+		}
+	}
+	return nil
+}
+
+// exportEnd is one thing an export's value names: a component's (or inner
+// instance's) port, or — passed straight through — one of the module's own
+// arguments.
+type exportEnd struct {
+	node, export string
+	arg          string
+}
+
+// exportEnds resolves an export's value when it is pure wiring: every
+// reference a port in the module (or a wired argument of it). outward says
+// which way data crosses the module boundary through the export, decided by
+// the first reference: out for a data export, in for an exported receiver; an
+// argument passed through flips its argument's direction (receivers handed in
+// and exported again take data in through the export).
+func (gp *graphParser) exportEnds(doc *GraphDocument, m *module, value ast.Expr) ([]exportEnd, bool, bool) {
+	refs, isWire := wireRefs(value)
+	if !isWire || len(refs) == 0 {
+		return nil, false, false
+	}
+	ends := make([]exportEnd, 0, len(refs))
+	outward := false
+	for i, ref := range refs {
+		var out bool
+		if arg, name, isArg := argumentRef(m.body, ref); isArg {
+			if !arg.wired {
+				return nil, false, false
+			}
+			ends = append(ends, exportEnd{arg: name})
+			out = !arg.outward
+		} else {
+			otherID, export, resolved := resolveRef(ref, m.body.nodeByRef)
+			if !resolved || !gp.isPort(doc, otherID, export) {
+				return nil, false, false
+			}
+			ends = append(ends, exportEnd{node: otherID, export: export})
+			out = !gp.isReceiverExport(doc, otherID, export)
+		}
+		if i == 0 {
+			outward = out
+		}
+	}
+	return ends, outward, true
+}
+
+// wireExports turns each export whose value is pure wiring into edges between
+// the group's export port and what it names (another of the group's ports, for
+// an argument passed through); any other reference in an export's value is a
+// binding on the group.
+func (gp *graphParser) wireExports(doc *GraphDocument, m *module) {
+	for _, block := range m.exportStmts {
+		value := exportValue(block)
+		if value == nil {
+			continue
+		}
+		port := m.exports[block.Label]
+		ends, _, ok := gp.exportEnds(doc, m, value)
+		if !ok || !port.wired {
+			for _, ref := range exprRefs(value) {
+				if _, name, isArg := argumentRef(m.body, ref); isArg {
+					gp.binding(m.groupID, exportPort(block.Label), m.groupID, argPort(name), value)
+				} else if otherID, export, resolved := resolveRef(ref, m.body.nodeByRef); resolved {
+					gp.binding(m.groupID, exportPort(block.Label), otherID, export, value)
+				}
+			}
+			continue
+		}
+		out := PortRef{Node: m.groupID, Port: exportPort(block.Label)}
+		for _, e := range ends {
+			inner := PortRef{Node: e.node, Port: e.export}
+			if e.arg != "" {
+				inner = PortRef{Node: m.groupID, Port: argPort(e.arg)}
+			}
+			if port.outward {
+				gp.addEdge(doc, inner, out)
+			} else {
+				gp.addEdge(doc, out, inner)
 			}
 		}
 	}
@@ -450,8 +590,8 @@ func (gp *graphParser) wireInstance(doc *GraphDocument, idx int, m *module) {
 			set[attr.Name.Name] = true
 		}
 	}
-	link := func(name string, outward bool) {
-		group, instance := PortRef{Node: m.groupID, Port: name}, PortRef{Node: inst, Port: name}
+	link := func(groupPort, name string, outward bool) {
+		group, instance := PortRef{Node: m.groupID, Port: groupPort}, PortRef{Node: inst, Port: name}
 		if outward {
 			gp.addEdge(doc, group, instance)
 		} else {
@@ -460,23 +600,34 @@ func (gp *graphParser) wireInstance(doc *GraphDocument, idx int, m *module) {
 	}
 	for _, name := range m.argOrder {
 		if p := m.args[name]; p.wired && set[name] {
-			link(name, p.outward)
+			link(argPort(name), name, p.outward)
 		}
 	}
 	for _, name := range m.exportOrder {
 		if p := m.exports[name]; p.wired {
-			link(name, p.outward)
+			link(exportPort(name), name, p.outward)
 		}
 	}
 }
 
-// addEdge appends an edge in dataflow direction, from → to.
+// addEdge appends an edge in dataflow direction, from → to. Its id names both
+// ends' ports, made unique if two references draw the same edge.
 func (gp *graphParser) addEdge(doc *GraphDocument, from, to PortRef) {
-	doc.Edges = append(doc.Edges, GraphEdge{
-		ID:   fmt.Sprintf("e_%s_%s_%s", from.Node, to.Node, to.Port),
-		From: from,
-		To:   to,
-	})
+	base := fmt.Sprintf("e_%s_%s_%s_%s", from.Node, from.Port, to.Node, to.Port)
+	id := base
+	for n := 2; gp.edgeIDTaken(doc, id); n++ {
+		id = fmt.Sprintf("%s_%d", base, n)
+	}
+	doc.Edges = append(doc.Edges, GraphEdge{ID: id, From: from, To: to})
+}
+
+func (gp *graphParser) edgeIDTaken(doc *GraphDocument, id string) bool {
+	for _, e := range doc.Edges {
+		if e.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func (gp *graphParser) drop(format string, args ...any) {
@@ -654,27 +805,9 @@ func (gp *graphParser) edges(doc *GraphDocument, idx int, body ast.Body, path []
 // outside an expanded module) stays an expression, so the prop is never both
 // a wire and a value.
 func (gp *graphParser) wire(doc *GraphDocument, idx int, prop string, refs []string, sc *parseScope) bool {
-	if len(refs) == 0 {
+	ends, ok := gp.wireEnds(doc, idx, prop, refs, sc)
+	if !ok {
 		return false
-	}
-	type end struct {
-		node, export string
-		arg          *modulePort
-	}
-	ends := make([]end, 0, len(refs))
-	for _, ref := range refs {
-		if arg, name, isArg := argumentRef(sc, ref); isArg {
-			if !gp.isInputPort(doc, idx, prop) {
-				return false
-			}
-			ends = append(ends, end{sc.module.groupID, name, arg})
-			continue
-		}
-		otherID, export, ok := resolveRef(ref, sc.nodeByRef)
-		if !ok || !gp.isPort(doc, otherID, export) {
-			return false
-		}
-		ends = append(ends, end{otherID, export, nil})
 	}
 	for _, e := range ends {
 		if e.arg == nil {
@@ -683,7 +816,7 @@ func (gp *graphParser) wire(doc *GraphDocument, idx int, prop string, refs []str
 		}
 		// An argument's direction is the consumer's: a forward_to (or an
 		// output block's list) hands data out through it; anything else takes
-		// data in. The first use decides.
+		// data in. resolvePorts has settled it; the first use decides.
 		if !e.arg.wired {
 			e.arg.wired, e.arg.outward = true, gp.inputProduces(doc, idx, prop)
 		}
@@ -695,6 +828,37 @@ func (gp *graphParser) wire(doc *GraphDocument, idx int, prop string, refs []str
 		}
 	}
 	return true
+}
+
+// wireEnd is one resolved reference of a wiring attribute: a node's port, or
+// (arg set) the enclosing module's argument port on its group.
+type wireEnd struct {
+	node, export string
+	arg          *modulePort
+}
+
+// wireEnds resolves every reference of a wiring attribute, or reports that
+// one does not resolve to a port (all or nothing, see wire).
+func (gp *graphParser) wireEnds(doc *GraphDocument, idx int, prop string, refs []string, sc *parseScope) ([]wireEnd, bool) {
+	if len(refs) == 0 {
+		return nil, false
+	}
+	ends := make([]wireEnd, 0, len(refs))
+	for _, ref := range refs {
+		if arg, name, isArg := argumentRef(sc, ref); isArg {
+			if !gp.isInputPort(doc, idx, prop) {
+				return nil, false
+			}
+			ends = append(ends, wireEnd{sc.module.groupID, argPort(name), arg})
+			continue
+		}
+		otherID, export, ok := resolveRef(ref, sc.nodeByRef)
+		if !ok || !gp.isPort(doc, otherID, export) {
+			return nil, false
+		}
+		ends = append(ends, wireEnd{otherID, export, nil})
+	}
+	return ends, true
 }
 
 // argumentRef resolves argument.<name>.value inside an expanded module to the
@@ -758,7 +922,7 @@ func (gp *graphParser) references(doc *GraphDocument, idx int, prop string, s *a
 	node := doc.Nodes[idx]
 	for _, ref := range exprRefs(s.Value) {
 		if _, name, isArg := argumentRef(sc, ref); isArg {
-			gp.binding(node.ID, prop, sc.module.groupID, name, s.Value)
+			gp.binding(node.ID, prop, sc.module.groupID, argPort(name), s.Value)
 			continue
 		}
 		if otherID, export, ok := resolveRef(ref, sc.nodeByRef); ok {

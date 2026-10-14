@@ -128,11 +128,11 @@ var _ = Describe("ParseAlloy module expansion (graph view only)", func() {
 				case to.Component == "declare":
 					Expect(result.Parents[from.ID]).To(Equal(to.ID), "an argument edge stays inside its module")
 					Expect(e.From.Port).To(Equal("forward_to"))
-					Expect(e.To.Port).To(Equal("metrics_destinations"))
+					Expect(e.To.Port).To(Equal("argument.metrics_destinations"))
 					inner++
 				case from.Component == "declare":
 					Expect(to.Component).To(Equal("opaque." + from.Label))
-					Expect(e.From.Port).To(Equal("metrics_destinations"))
+					Expect(e.From.Port).To(Equal("argument.metrics_destinations"))
 					Expect(e.To.Port).To(Equal("metrics_destinations"))
 					link++
 				}
@@ -199,7 +199,7 @@ var _ = Describe("ParseAlloy module expansion (graph view only)", func() {
 			}
 		}
 		Expect(ports).To(ConsistOf(
-			"output.metrics->metrics_destinations", "output.logs->logs_destinations", "output.traces->traces_destinations"))
+			"output.metrics->argument.metrics_destinations", "output.logs->argument.logs_destinations", "output.traces->argument.traces_destinations"))
 		var batch, attributes string
 		for _, n := range result.Doc.Nodes {
 			switch {
@@ -285,8 +285,8 @@ prometheus.scrape "app" {
 				got = append(got, end{e.From.Node, e.From.Port, e.To.Node, e.To.Port})
 			}
 			Expect(got).To(ConsistOf(
-				end{pods.ID, "targets", group.ID, "targets"},
-				end{group.ID, "targets", instance.ID, "targets"},
+				end{pods.ID, "targets", group.ID, "export.targets"},
+				end{group.ID, "export.targets", instance.ID, "targets"},
 				end{instance.ID, "targets", scrape.ID, "targets"},
 			))
 			Expect(reaches(result.Doc, pods.ID, scrape.ID)).To(BeTrue())
@@ -339,7 +339,7 @@ prometheus.remote_write "sink" {
 			Expect(result.Doc.Edges).To(BeEmpty())
 			Expect(result.Bindings).To(HaveLen(1))
 			Expect(result.Bindings[0].Ref.Node).To(Equal(group.ID))
-			Expect(result.Bindings[0].Ref.Export).To(Equal("namespace"))
+			Expect(result.Bindings[0].Ref.Export).To(Equal("argument.namespace"))
 			Expect(result.Bindings[0].Prop).To(Equal("namespaces.names"))
 		})
 

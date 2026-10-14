@@ -72,7 +72,7 @@ describe('graphViewLayout on the k8s-monitoring metrics config', () => {
     const ports = groupPorts(flow.edges, tree.groups);
     for (const g of tree.groups) {
       // metrics_destinations carries receivers out of the module: right edge.
-      expect(ports.get(g)?.map((p) => p.key)).toEqual(['right:metrics_destinations']);
+      expect(ports.get(g)?.map((p) => p.key)).toEqual(['right:argument.metrics_destinations']);
     }
   });
 
@@ -118,5 +118,33 @@ describe('graphViewLayout on the k8s-monitoring metrics config', () => {
     expect(result.edges.some((e) => e.source === cluster.id)).toBe(true);
     const size = result.groupSizes.get(cluster.id);
     expect(size?.width).toBe(240);
+  });
+
+  it('lays out an edge through a group, from its input port to its output port', async () => {
+    const doc = {
+      nodes: [
+        { id: 'g', component: 'declare' },
+        { id: 'r', component: 'discovery.relabel', parent: 'g' },
+        { id: 'i', component: 'opaque.m' },
+      ],
+      edges: [
+        { id: 'in', from: { node: 'g', port: 'argument.in' }, to: { node: 'r', port: 'targets' } },
+        {
+          id: 'through',
+          from: { node: 'g', port: 'argument.in' },
+          to: { node: 'g', port: 'export.out' },
+        },
+        { id: 'link', from: { node: 'g', port: 'export.out' }, to: { node: 'i', port: 'out' } },
+      ],
+    } as unknown as GraphDocument;
+    const flow = graphViewFlow(doc, def);
+    const result = await layoutGraph(new ELK(), {
+      nodes: doc.nodes,
+      edges: flow.edges,
+      collapsed: new Set(),
+      sizes: new Map(),
+    });
+    expect(result.edges).toHaveLength(3);
+    expect(result.portTops.get('g')?.size).toBe(2);
   });
 });

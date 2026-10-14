@@ -47,11 +47,16 @@ export async function loadElk(): Promise<ElkHandle> {
   return { elk, failed, dispose: () => worker?.terminate() };
 }
 
-/** Races a layout against its worker failing and LAYOUT_TIMEOUT_MS. */
+/** Races a layout against its worker failing and LAYOUT_TIMEOUT_MS. A layout
+ *  that times out terminates the worker: it would otherwise keep a core busy
+ *  on a result nobody will read. */
 export function withLayoutGuards<T>(handle: ElkHandle, layout: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error('the layout timed out')), LAYOUT_TIMEOUT_MS);
+    timer = setTimeout(() => {
+      handle.dispose();
+      reject(new Error('the layout timed out'));
+    }, LAYOUT_TIMEOUT_MS);
   });
   return Promise.race([layout, handle.failed, timeout]).finally(() => clearTimeout(timer));
 }

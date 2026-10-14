@@ -76,10 +76,14 @@ export function graphViewFlow(
   // data leaving the module goes out through a port on its right edge, data
   // entering it comes in on the left.
   const parentOf = new Map(doc.nodes.map((n) => [n.id, n.parent ?? '']));
+  // An edge from a group to itself (an export passing an argument straight
+  // through) runs inside it: both its ends are reached from within.
   const inside = (group: string, node: string) => {
-    for (let p = parentOf.get(node) ?? ''; p; p = parentOf.get(p) ?? '') {
+    if (node === group) return true;
+    const seen = new Set<string>();
+    for (let p = parentOf.get(node) ?? ''; p && !seen.has(p); p = parentOf.get(p) ?? '') {
       if (p === group) return true;
-      if (p === node) return false;
+      seen.add(p);
     }
     return false;
   };
@@ -142,8 +146,17 @@ export function graphViewFlow(
  * nested. Every consumer that edits or renders a GraphView graph goes through
  * here.
  */
-export function builderDraftFromGraphView<T extends Pick<GraphDocument, 'bindings'>>(graph: T): T {
-  return { ...graph, bindings: [] };
+export function builderDraftFromGraphView<T extends Pick<GraphDocument, 'bindings' | 'nodes'>>(
+  graph: T,
+): T {
+  // `parent` too (GraphView's module grouping): the builder has no modules,
+  // and the server's Render refuses a node that carries one. A graph with a
+  // module is opaque and never gets here; this keeps it that way regardless.
+  return {
+    ...graph,
+    nodes: graph.nodes.map(({ parent: _, ...n }) => n),
+    bindings: [],
+  };
 }
 
 /** Whether a parsed node is one the graph model could not map (ParseAlloy
