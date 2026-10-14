@@ -45,9 +45,9 @@ The baseline commit is `dd85f59` (#344, the last merge before the v0.17.0 releas
 CodeQL and security-scan runs (38627041055, 38627041355, 38627040911) are green. #344 touched
 only web code and the CHANGELOG, so CI's `changes` gate ran the web, guards and Playwright jobs
 there; the Go jobs last ran on `fd63cdf` (#342, run 38600760238; #343 changed only
-`.dockerignore`). The E2E run (agent-protocol suite and the sandbox `e2e-sim` job) and the E2E K8s
-run dispatched on `dd85f59` for the release are 38636903475 and 38636908019; their results are
-recorded after merge if they had not finished when this was written. The previous release:
+`.dockerignore`). The E2E run (agent-protocol suite and the sandbox `e2e-sim` job) dispatched on `dd85f59` for
+the release, 38636903475, is green; the E2E K8s dispatch, 38636908019, is recorded after merge if
+it had not finished when this was written. The previous release:
 **v0.16.0 is released**, tag `v0.16.0` on `67baf3a`, release run 38259974133 (verify, publish,
 attest, scan of the published images) green. Each row cites the run that last exercised the
 surface — CI's `changes` gate skips the jobs a commit does not touch — so the claim is checkable by
@@ -61,8 +61,8 @@ run id rather than by trusting this table.
 | `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job, run 38627041055 (`dd85f59`) | clean |
 | Mocked Playwright (`make test-ui`) | CI `test-ui` job, same run | green |
 | `make smoke` + fullstack Playwright against the compose stack, incl. a seeded `declare` pipeline opening laid out with the elkjs worker served from the embedded SPA | CI `test-fullstack` job, same run | green |
-| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml` on push to `fd63cdf`, run 38600760057; manual dispatch on `dd85f59`, run 38636903475 | green (`fd63cdf`); `dd85f59` pending, recorded after merge |
-| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job, same runs | green (`fd63cdf`); `dd85f59` pending, recorded after merge |
+| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml` on push to `fd63cdf`, run 38600760057; manual dispatch on `dd85f59`, run 38636903475 | green (`fd63cdf`, `dd85f59`) |
+| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job, same runs | green (`fd63cdf`, `dd85f59`) |
 | Kubernetes e2e, kind (`make e2e-k8s`) — incl. destination Secret auth (#260) and tenant + TLS (#281) through a real Alloy | `e2e-k8s.yml` on #342's head `e1f3395` (pull request), run 38599496839; weekly schedule on `c1806a9` (#340, the pnpm-tool image change), run 38387690938; manual dispatch on `dd85f59`, run 38636908019 | green (`e1f3395`, `c1806a9`); `dd85f59` pending, recorded after merge |
 | CodeQL (actions, go, javascript-typescript, python; `security-extended`) | `codeql.yml` on `dd85f59`, run 38627041355 | green |
 | gitleaks, Trivy config + image scans, OpenSSF Scorecard | `security-scan.yml` on `dd85f59`, run 38627040911 | green |
@@ -142,11 +142,13 @@ the manual end-to-end pass the list above records. Re-walk them on the next rele
   TLS options read on the collector (#280), both proven through a real Alloy in `e2e-k8s` (#281),
   `rerender-destinations --all` (#282); the served header's real revisions with a one-time fleet
   reload (#323, migration `0032`); team owners in the visual builder (#324, proto `pipeline_id`);
-  the rejected pipeline named (#327); the 2026-10-08 walkthrough lows (#325–#327). Not walked in
-  the browser before the tag.
+  the rejected pipeline named (#327); the 2026-10-08 walkthrough lows (#325–#327). Walked on
+  kind 2026-10-12 (fixes in #329, #330).
 - **v0.17.0** — the read-only graph view reachable and honest for text, wizard and git pipelines
   (#341) and opening Alloy modules as groups with an elkjs layout (#342; proto
-  `GraphNode.parent`); walked on kind 2026-10-14 against a k8s-monitoring import, fixes in #344;
+  `GraphNode.parent`); walked on kind 2026-10-14 against a k8s-monitoring import, fixes in #344 (the kind stack was
+  rolled from #330's build — serve format 1 — to `fd63cdf`, and every polling collector then served
+  the new header at format 2; the badge and the regenerated count were checked there too);
   the served header without "prod", serve format 2, one fleet reload (#333);
   `Pipeline.follows_wizard` and `Destination.regenerated_pipelines` (#332); six fuzz targets and
   the two bugs they found (#339); pnpm installed from a hash-locked manifest in the images (#340);

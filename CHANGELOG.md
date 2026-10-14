@@ -80,7 +80,7 @@ fixed; go-git moves to v6 beta.1; the open code-scanning alerts are triaged. No 
   69 of 69 components are visible, against 23; 74 wires between components are drawn, against
   30, plus 16 `argument.*.value` references drawn to their module's port and 10 links from a
   module's port to its instance (both added by the view, not Alloy references). Laying out the
-  886-line metrics config takes about 150 ms. Read-only: a module still cannot be recreated in
+  metrics config (about 880 lines) takes about 150 ms. Read-only: a module still cannot be recreated in
   the visual builder, and nothing about how pipelines are saved, rendered or served changes.
   _Shipped._ (#342, #344)
 
@@ -123,8 +123,8 @@ fixed; go-git moves to v6 beta.1; the open code-scanning alerts are triaged. No 
   a block name the UI never matches. Header entries are now paired with blocks by position,
   falling back to the name match only for a header written before v0.7.0. Found by fuzzing.
   _Shipped._ (#339)
-- **A diagnostic on the closing brace of a pipeline text that ends in a newline** was mapped one
-  line past the end of the text; it now clamps to the text's end. Found by fuzzing. _Shipped._
+- **A diagnostic on the closing brace of a pipeline text that ends in a newline** was mapped past
+  the end of the text; it now clamps to the text's end. Found by fuzzing. _Shipped._
   (#339)
 
 ### API
@@ -147,7 +147,7 @@ All additive; `buf breaking` is clean against v0.16.0.
   `declare`) whose components are mapped like top-level ones, with ids prefixed by the module
   path, and wires that run through a module's argument and export ports; an unmapped block
   carries its source text (`props["$raw"]`); references that are not wires come back as
-  display-only bindings. _RPC only_ beyond the graph view. (#341, #342)
+  display-only bindings. Used by the graph view. (#341, #342)
 
 ### Dependencies
 
@@ -187,10 +187,10 @@ All additive; `buf breaking` is clean against v0.16.0.
   (`internal/beacon`). `go test ./...` runs their seed corpora; they found the two bugs under
   *Fixed*. (#339)
 - **The image build context leaves out agent worktrees and every `node_modules`**
-  (`.dockerignore`): `COPY . .` had grown to about 17 GB and crashed the Docker daemon
+  (`.dockerignore`): in a checkout holding agent worktrees, `COPY . .` had grown to about 17 GB and crashed the Docker daemon
   mid-build; it is now about 20 MB. (#343)
 - **CI:** `deploy/pnpm-tool` counts as an image input in the workflows' path filters and
-  layer-cache keys (#340); GitHub Actions patch round (`setup-node` 7.1.0, `upload-artifact`
+  layer-cache keys (#340); GitHub Actions minor-and-patch round (`setup-node` 7.1.0, `upload-artifact`
   7.0.2, CodeQL 4.38.3, `kind-action` 1.15.1) (#337).
 - **Docs:** the ledger records the v0.16.0 release and closes #301, #308 and #309. (#331, #334)
 

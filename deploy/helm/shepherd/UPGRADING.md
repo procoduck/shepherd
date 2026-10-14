@@ -41,7 +41,9 @@ does not set it, so while old and new pods both serve, a page loaded from a
 new pod can badge a wizard pipeline *Not following wizard* and offer *Restore
 last wizard version* when its request reached an old pod. The badge is wrong
 only for that response; reload once the rollout is done. Nothing is written
-unless someone restores a revision. Nothing to do.
+unless someone restores a revision, but an editor save whose pipeline response came from an
+old pod is not asked "Save a hand edit?" first, so avoid hand-editing wizard pipelines until
+the rollout is done.
 
 ### Graph view and the licence notice
 
