@@ -1,5 +1,12 @@
 .git
 .codegraph
+# Agent and editor worktrees: full checkouts (each with its own node_modules)
+# under the repo root. Sending them as build context once took ~17 GB and
+# crashed the Docker daemon mid-build (2026-10-14).
+.claude/
+.worktrees/
+.playwright-mcp/
+**/node_modules/
 bin/
 dist/
 web/node_modules/
