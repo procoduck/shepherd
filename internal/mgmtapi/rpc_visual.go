@@ -312,8 +312,15 @@ func (s *VisualService) GraphView(ctx context.Context, req *connect.Request[mgmt
 	}
 
 	result := s.contentsToGraph(p.Contents)
+	// The view is read-only, so it carries the parser's reference projection
+	// (secret and other non-port references) in the graph's bindings. Only
+	// here: DiffRevisions compares the renderable document, and the props
+	// already hold these expressions. The client drops them before
+	// "Recreate as visual pipeline" for the same reason.
+	view := result.Doc
+	view.Bindings = append(append([]visual.GraphBinding{}, view.Bindings...), result.Bindings...)
 	return connect.NewResponse(&mgmtv1.GraphViewResponse{
-		Graph:   graphDocToProto(result.Doc),
+		Graph:   graphDocToProto(view),
 		Opaque:  result.Opaque,
 		Warning: result.Warning,
 	}), nil

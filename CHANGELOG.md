@@ -30,6 +30,21 @@ Categories used here:
 
 ### Added
 
+- **A text, wizard or git pipeline can be viewed as a graph:** *View as graph* on the
+  pipeline's page and a *graph* link in the pipelines list open the read-only graph view,
+  which nothing linked to before. The view now draws every wire — including those of a
+  block it cannot map (a `declare`, a custom component's instance), which get handles
+  derived from their wires instead of silently losing them — labels such blocks *not
+  mapped* and shows their source text, lists the server's mapping warnings instead of
+  only a *Partial* badge, shows nested settings as formatted JSON instead of
+  `[object Object]`, and lists a node's secret and other references (a reference inside a
+  function call or index, such as `convert.nonsensitive(remote.kubernetes.secret.x.data["k"])`,
+  is now recognised; `array.concat` of wires becomes wires). *Recreate as visual pipeline*
+  is unavailable, saying how many blocks cannot be carried over, while the graph has
+  unmapped blocks. The view had also drawn no receiver-kind wire (`forward_to`,
+  `output.*`): measured on grafana/k8s-monitoring 4.4.0 output, all 30 wires of its four
+  Alloy configs are drawn, against 2 before. _Shipped._
+
 - **The pipelines list badges a wizard pipeline that no longer follows its wizard** (*Not
   following wizard*: destination changes no longer regenerate it), and the header's *Hand-edited*
   badge, the "Save a hand edit?" question and *Restore last wizard version* now follow the server's own verdict instead of

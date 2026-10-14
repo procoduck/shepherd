@@ -37,7 +37,19 @@ function pipelineColumns(
               visual ↗
             </Link>
           ) : (
-            p.source
+            <span className='flex items-center gap-2'>
+              {p.source}
+              {/* The read-only graph of a text/wizard/git pipeline. */}
+              <Link
+                to='/pipelines/$id/graph'
+                params={{ id: p.id }}
+                aria-label={`View ${p.name} as graph`}
+                data-testid='pipeline-graph-link'
+                className='text-indigo-400 hover:text-indigo-300'
+              >
+                graph ↗
+              </Link>
+            </span>
           )}
           {/* #301: the server's follows_wizard, so a hand-edited wizard
               pipeline is visible without opening it. */}

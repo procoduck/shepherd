@@ -235,6 +235,88 @@ prometheus.remote_write "sink" {
 		Expect(to["port"]).To(Equal("receiver"))
 	})
 
+	// The read-only graph view of a hand-written / chart-generated pipeline:
+	// the opaque block's source text and the secret references reach the
+	// client, through the existing GraphDocument message (no proto change).
+	It("returns opaque blocks' source as $raw and secret references as bindings", func() {
+		contents := `declare "feature" {
+  argument "dest" { }
+}
+
+feature "x" {
+  dest = [prometheus.remote_write.sink.receiver]
+}
+
+remote.kubernetes.secret "creds" {
+  name      = "creds"
+  namespace = "default"
+}
+
+prometheus.remote_write "sink" {
+  endpoint {
+    url = "http://example.com/api/v1/push"
+    basic_auth {
+      password = remote.kubernetes.secret.creds.data["password"]
+    }
+  }
+}
+`
+		p, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: orgUUID(orgID), Name: "graph-view-opaque-pipe", Contents: contents,
+			Matchers: json.RawMessage(`[]`), Enabled: false, Source: "git", CreatedBy: "test", UpdatedBy: "test",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/GraphView", readerCookie,
+			map[string]any{"org_id": orgID, "id": p.ID.String()})
+		defer resp.Body.Close() //nolint:errcheck // test cleanup
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		var result struct {
+			Graph struct {
+				Nodes []struct {
+					ID        string         `json:"id"`
+					Component string         `json:"component"`
+					Props     map[string]any `json:"props"`
+				} `json:"nodes"`
+				Edges    []map[string]any `json:"edges"`
+				Bindings []struct {
+					Node string `json:"node"`
+					Prop string `json:"prop"`
+					Ref  struct {
+						Node   string `json:"node"`
+						Export string `json:"export"`
+						Expr   string `json:"expr"`
+					} `json:"ref"`
+				} `json:"bindings"`
+			} `json:"graph"`
+			Opaque  bool   `json:"opaque"`
+			Warning string `json:"warning"`
+		}
+		Expect(json.NewDecoder(resp.Body).Decode(&result)).To(Succeed())
+		Expect(result.Opaque).To(BeTrue())
+		Expect(result.Warning).To(ContainSubstring(`"feature" is not a component`))
+
+		raws := map[string]any{}
+		ids := map[string]string{}
+		for _, n := range result.Graph.Nodes {
+			ids[n.Component] = n.ID
+			if raw, ok := n.Props["$raw"]; ok {
+				raws[n.Component] = raw
+			}
+		}
+		Expect(raws).To(HaveLen(2))
+		Expect(raws["opaque.feature"]).To(HavePrefix(`feature "x" {`))
+		Expect(result.Graph.Edges).To(HaveLen(1))
+
+		Expect(result.Graph.Bindings).To(HaveLen(1))
+		b := result.Graph.Bindings[0]
+		Expect(b.Node).To(Equal(ids["prometheus.remote_write"]))
+		Expect(b.Prop).To(Equal("endpoint.basic_auth.password"))
+		Expect(b.Ref.Node).To(Equal(ids["remote.kubernetes.secret"]))
+		Expect(b.Ref.Export).To(Equal("data"))
+		Expect(b.Ref.Expr).To(Equal(`remote.kubernetes.secret.creds.data["password"]`))
+	})
+
 	It("allows GraphView for an org-reader session", func() {
 		p, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
 			OrgID: orgUUID(orgID), Name: "graph-view-pipe", Contents: "// empty pipeline\n",

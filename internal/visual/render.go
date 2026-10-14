@@ -176,6 +176,11 @@ const (
 	// only way to reach a secret-typed attribute nested inside a block, and
 	// the shape ParseAlloy uses to round-trip non-literal expressions.
 	exprKey = "$expr"
+
+	// rawKey holds an opaque node's block as printed from its parse (ParseAlloy sets
+	// it for the read-only graph view). It is display-only: neither renderer
+	// ever emits it, whatever component it sits on.
+	rawKey = "$raw"
 )
 
 func sanitizeLabel(s string) string {
@@ -743,7 +748,7 @@ func (rd *renderer) writeBody(lw *lineWriter, indent, nodeID string, attrs []Att
 
 	unknown := []string{}
 	for k := range props {
-		if !consumed[k] {
+		if !consumed[k] && k != rawKey {
 			unknown = append(unknown, k)
 		}
 	}
@@ -760,6 +765,9 @@ func (rd *renderer) writeBody(lw *lineWriter, indent, nodeID string, attrs []Att
 func (rd *renderer) writeUntypedProps(lw *lineWriter, indent, nodeID string, props map[string]interface{}) {
 	keys := make([]string, 0, len(props))
 	for k := range props {
+		if k == rawKey {
+			continue
+		}
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)

@@ -133,6 +133,10 @@ export interface PortLayout {
    * classification; see the role comment above. */
   rfType: 'source' | 'target';
   role: PortRole;
+  /** A handle the graph view adds because an edge lands on a port the node's
+   * schema does not give it (an opaque node has no schema at all) — see
+   * graphViewFlow.ts. Drawn hollow so it does not pass for a typed port. */
+  generic?: boolean;
   /** Vertical center of this port's row, in px from the ports container's
    * padding edge — see PORT_ROW_* below. Every port in the same column gets a
    * distinct value, which is the fix for the CRITICAL defect this task
@@ -160,10 +164,24 @@ function portRowCenterPx(index: number): number {
   );
 }
 
+/** A generic handle a node needs only because an edge lands on it (the
+ * read-only graph view, graphViewFlow.ts). */
+export interface GenericPort {
+  handleId: string;
+  /** The port name the edge uses (shown as the row's label). */
+  label: string;
+  rfType: 'source' | 'target';
+  side: 'left' | 'right';
+}
+
 /** Groups a component's ports by D1 role (not by the schema's input/output
  * split) and assigns each port in a column its own row, so no two handles in
- * the same column ever share a coordinate. */
-export function layoutPorts(def: ComponentDef | undefined): {
+ * the same column ever share a coordinate. Generic ports follow the schema's,
+ * in their side's column. */
+export function layoutPorts(
+  def: ComponentDef | undefined,
+  generic: readonly GenericPort[] = [],
+): {
   left: PortLayout[];
   right: PortLayout[];
 } {
@@ -187,6 +205,17 @@ export function layoutPorts(def: ComponentDef | undefined): {
   };
   (def?.inputs ?? []).forEach((p, i) => place(p, i, 'input', 'target'));
   (def?.outputs ?? []).forEach((p, i) => place(p, i, 'output', 'source'));
+  for (const g of generic) {
+    (g.side === 'left' ? left : right).push({
+      handleId: g.handleId,
+      label: g.label,
+      wireType: '',
+      rfType: g.rfType,
+      role: g.side === 'left' ? 'accepts' : 'produces',
+      generic: true,
+      top: 0,
+    });
+  }
   left.forEach((entry, i) => {
     entry.top = portRowCenterPx(i);
   });
@@ -205,6 +234,9 @@ export interface PipelineNodeData extends GraphNode {
    * being viewed, projected onto the node the same way `diagnostics` is —
    * see store.ts's `simHealthByNode`. */
   health?: SimHealthEntry;
+  /** Graph view only: handles derived from the edges touching this node that
+   * its schema does not provide (graphViewFlow.ts). */
+  genericPorts?: GenericPort[];
 }
 type PipelineFlowNode = Node<PipelineNodeData, 'pipeline'>;
 
@@ -270,7 +302,11 @@ export const PipelineNode = memo(function PipelineNode({
   );
   // D1: ports grouped by role (accepts/left, produces/right) with each port
   // in a column assigned its own row — see layoutPorts above.
-  const { left: acceptPorts, right: producePorts } = useMemo(() => layoutPorts(def), [def]);
+  const { left: acceptPorts, right: producePorts } = useMemo(
+    () => layoutPorts(def, node.genericPorts),
+    [def, node.genericPorts],
+  );
+  const opaque = node.component.startsWith('opaque.');
 
   // React Flow caches each handle's bounds when it measures the node. Because
   // layoutPorts gives every port its own `top`, the handles move after that
@@ -378,7 +414,19 @@ export const PipelineNode = memo(function PipelineNode({
       )}
       <div className='px-2 py-1.5 border-b border-border flex items-center gap-1.5 font-mono truncate'>
         <CategoryIcon category={def?.category ?? 'advanced'} className='shrink-0 text-muted-2' />
-        <span className='truncate'>{node.component}</span>
+        {/* An opaque node (ParseAlloy's `opaque.` prefix) is a block the graph
+            model could not map; it says so instead of passing for a component. */}
+        <span className='truncate'>
+          {opaque ? node.component.slice('opaque.'.length) : node.component}
+        </span>
+        {opaque && (
+          <span
+            data-testid='node-opaque-badge'
+            className='ml-auto shrink-0 rounded border border-amber-500/40 bg-amber-500/10 px-1 font-sans text-[10px] text-amber-400'
+          >
+            not mapped
+          </span>
+        )}
       </div>
       <div className='px-2 py-0.5 text-muted'>
         {editing ? (
@@ -415,7 +463,11 @@ export const PipelineNode = memo(function PipelineNode({
             const isSnappedPort = compatible && p.handleId === snappedHandleId;
             const highlight = compatible || isSnappedPort;
             return (
-              <div key={p.handleId} className='h-4 flex items-center'>
+              <div
+                key={`${p.rfType}:${p.handleId}`}
+                className='h-4 flex items-center'
+                data-generic-port={p.generic ? 'true' : undefined}
+              >
                 <Handle
                   type={p.rfType}
                   position={Position.Left}
@@ -432,7 +484,7 @@ export const PipelineNode = memo(function PipelineNode({
                     connState.dragActive && !highlight ? 'opacity-30' : '',
                   ].join(' ')}
                 />
-                <span className={highlight ? GREEN_TEXT_CLASS : undefined}>
+                <span className={highlight ? GREEN_TEXT_CLASS : p.generic ? 'italic' : undefined}>
                   {p.label}
                   {isSnappedPort ? ' ✓' : ''}
                 </span>
@@ -446,8 +498,12 @@ export const PipelineNode = memo(function PipelineNode({
             const isSnappedPort = compatible && p.handleId === snappedHandleId;
             const highlight = compatible || isSnappedPort;
             return (
-              <div key={p.handleId} className='h-4 flex items-center'>
-                <span className={highlight ? GREEN_TEXT_CLASS : undefined}>
+              <div
+                key={`${p.rfType}:${p.handleId}`}
+                className='h-4 flex items-center'
+                data-generic-port={p.generic ? 'true' : undefined}
+              >
+                <span className={highlight ? GREEN_TEXT_CLASS : p.generic ? 'italic' : undefined}>
                   {isSnappedPort ? '✓ ' : ''}
                   {p.label}
                 </span>

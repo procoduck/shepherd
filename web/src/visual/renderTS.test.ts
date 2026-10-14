@@ -680,3 +680,40 @@ describe('diagnostics', () => {
     expect(r.content).toContain('prometheus.scrape "a_b"');
   });
 });
+
+// `$raw` is the read-only graph view's copy of an opaque block's source
+// (ParseAlloy, internal/visual/parse.go). Neither renderer may emit it —
+// render.go skips it the same way (parse_graphview_test.go).
+describe('$raw (graph-view source text)', () => {
+  it('is never emitted for a component the schema does not know', () => {
+    const r = renderTS(
+      makeDoc([
+        {
+          id: 'n1',
+          component: 'opaque.declare',
+          label: 'feature',
+          props: { $raw: 'declare "feature" {}', comment: 'x' },
+        },
+      ]),
+      shippedSchema,
+    );
+    expect(r.content).not.toContain('$raw');
+    expect(r.content).toContain('comment = "x"');
+  });
+
+  it('is neither emitted nor reported for a known component', () => {
+    const r = renderTS(
+      makeDoc([
+        {
+          id: 'n1',
+          component: 'discovery.kubernetes',
+          label: 'k',
+          props: { role: 'pod', $raw: 'discovery.kubernetes "k" {}' },
+        },
+      ]),
+      shippedSchema,
+    );
+    expect(r.content).not.toContain('$raw');
+    expect(r.diagnostics.map((d) => d.message).join('\n')).not.toContain('$raw');
+  });
+});
