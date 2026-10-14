@@ -102,6 +102,11 @@ test.describe('graph view of a chart-generated pipeline (k8s-monitoring)', () =>
   test('shows the server warning text, not only a badge', async ({ page }) => {
     const warning = page.getByTestId('graph-view-warning');
     await expect(warning).toBeVisible();
+    await expect(warning.getByTestId('graph-view-warning-summary')).toHaveText(
+      '1 module is shown as a group of its components, its instance as a read-only node — the builder cannot edit modules.',
+    );
+    // The server's own lines, behind the summary.
+    await warning.getByText('Show all 2 details').click();
     await expect(warning).toContainText('"cluster_events" is not a component');
     await expect(warning).toContainText('module "cluster_events" is shown as a group');
   });
@@ -113,8 +118,12 @@ test.describe('graph view of a chart-generated pipeline (k8s-monitoring)', () =>
     );
     // In from the module's group on its left, out to loki.write on its right.
     await expect(opaque.locator('.react-flow__handle')).toHaveCount(2);
-    await expect(page.locator('[aria-label="Edge from feature to loki"]')).toHaveCount(1);
-    await expect(page.locator('[aria-label="Edge from cluster_events to feature"]')).toHaveCount(1);
+    await expect(
+      page.locator('[aria-label="Edge from cluster_events feature to loki.write loki"]'),
+    ).toHaveCount(1);
+    await expect(
+      page.locator('[aria-label="Edge from module cluster_events to cluster_events feature"]'),
+    ).toHaveCount(1);
   });
 
   test("labels unmapped blocks and shows a module's source text", async ({ page }) => {
@@ -165,22 +174,47 @@ test.describe('graph view of a chart-generated pipeline (k8s-monitoring)', () =>
   });
 });
 
+/** The fixture without its module, its instance or their edges: every block maps. */
+const mapped = {
+  ...k8sMonitoring.graph,
+  nodes: k8sMonitoring.graph.nodes.filter(
+    (n) => !n.component.startsWith('opaque.') && n.component !== 'declare' && !n.parent,
+  ),
+  edges: (k8sMonitoring.graph.edges as { from: { node: string }; to: { node: string } }[]).filter(
+    (e) =>
+      [e.from.node, e.to.node].every((id) => /^n_(?!opaque_|declare_|cluster_events__)/.test(id)),
+  ),
+};
+
+// 2026-10-14 walkthrough M3: a viewer was offered an enabled Recreate on a
+// fully mapped graph, though Recreate creates a pipeline — org editor and up.
+test('Recreate is unavailable to a viewer, with the reason, even for a fully mapped graph', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(reader);
+  const s = basicScenario();
+  api.seed({
+    orgs: [s.org],
+    schema: shippedSchema,
+    pipelines: [s.pipelines[2]],
+    graphViewResult: { graph: mapped, opaque: false, warning: '' },
+  });
+  await page.goto(`/pipelines/${s.pipelines[2].id}/graph`);
+  await expect(page.getByTestId('pipeline-node')).toHaveCount(10);
+  const recreate = page.getByRole('button', { name: 'Recreate as visual pipeline' });
+  await expect(recreate).toHaveAttribute('aria-disabled', 'true');
+  await expect(recreate).toHaveAccessibleDescription(/Viewers can.t create pipelines/);
+  await recreate.click({ force: true });
+  await expect(page.getByTestId('recreate-confirm-dialog')).toHaveCount(0);
+});
+
 test('Recreate stays available for a fully mapped graph and drops the view-only bindings', async ({
   page,
   api,
 }) => {
   await api.loginAs(appAdmin);
   const s = basicScenario();
-  const mapped = {
-    ...k8sMonitoring.graph,
-    nodes: k8sMonitoring.graph.nodes.filter(
-      (n) => !n.component.startsWith('opaque.') && n.component !== 'declare' && !n.parent,
-    ),
-    edges: (k8sMonitoring.graph.edges as { from: { node: string }; to: { node: string } }[]).filter(
-      (e) =>
-        [e.from.node, e.to.node].every((id) => /^n_(?!opaque_|declare_|cluster_events__)/.test(id)),
-    ),
-  };
   api.seed({
     orgs: [s.org],
     schema: shippedSchema,

@@ -42,13 +42,18 @@ export function useAuditNames(
   // team.member.add/remove record "<team id>/<user id>" (rpc_team.go): the
   // team resolves from the list above, the user from that team's members —
   // the same query (and key) the Teams page's members dialog uses. A member
-  // since removed keeps a shortened user id.
+  // since removed keeps a shortened user id. Only a team the org still has is
+  // asked: one deleted since the event is NotFound, which logged a console
+  // error on every visit (2026-10-14 walkthrough L5) — and its row shows the
+  // shortened id either way, since the team itself has no name.
+  const liveTeams = new Set((teams.data?.items ?? []).map((t) => t.id));
   const memberTeamIds = orgScoped
     ? [
         ...new Set(
           entries
             .filter((e) => e.resourceType === 'team' && e.resourceId.includes('/'))
-            .map((e) => e.resourceId.split('/')[0]),
+            .map((e) => e.resourceId.split('/')[0])
+            .filter((teamId) => liveTeams.has(teamId)),
         ),
       ]
     : [];
@@ -57,7 +62,8 @@ export function useAuditNames(
       queryKey: ['team-members', teamId],
       queryFn: () => clients.team.listTeamMembers({ orgId, teamId }),
       enabled: !!orgId,
-      // A team deleted since the event 404s; retrying only repeats it.
+      // A team deleted between ListTeams and this call still 404s; retrying
+      // only repeats it.
       retry: false,
     })),
   });
