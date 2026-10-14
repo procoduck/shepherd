@@ -457,7 +457,7 @@ export const PipelineNode = memo(function PipelineNode({
         )}
       </div>
       <div className='relative flex justify-between px-2 py-1 min-h-[24px]'>
-        <div className='flex flex-col gap-1'>
+        <div className='flex min-w-0 flex-col gap-1'>
           {acceptPorts.map((p) => {
             const compatible = connState.validPortIds.includes(p.handleId);
             const isSnappedPort = compatible && p.handleId === snappedHandleId;
@@ -465,8 +465,9 @@ export const PipelineNode = memo(function PipelineNode({
             return (
               <div
                 key={`${p.rfType}:${p.handleId}`}
-                className='h-4 flex items-center'
+                className='h-4 flex min-w-0 max-w-full items-center'
                 data-generic-port={p.generic ? 'true' : undefined}
+                title={p.generic ? p.label : undefined}
               >
                 <Handle
                   type={p.rfType}
@@ -484,7 +485,11 @@ export const PipelineNode = memo(function PipelineNode({
                     connState.dragActive && !highlight ? 'opacity-30' : '',
                   ].join(' ')}
                 />
-                <span className={highlight ? GREEN_TEXT_CLASS : p.generic ? 'italic' : undefined}>
+                <span
+                  className={
+                    highlight ? GREEN_TEXT_CLASS : p.generic ? 'italic truncate' : undefined
+                  }
+                >
                   {p.label}
                   {isSnappedPort ? ' ✓' : ''}
                 </span>
@@ -492,7 +497,7 @@ export const PipelineNode = memo(function PipelineNode({
             );
           })}
         </div>
-        <div className='flex flex-col gap-1 items-end'>
+        <div className='flex min-w-0 flex-col gap-1 items-end'>
           {producePorts.map((p) => {
             const compatible = connState.validPortIds.includes(p.handleId);
             const isSnappedPort = compatible && p.handleId === snappedHandleId;
@@ -500,10 +505,15 @@ export const PipelineNode = memo(function PipelineNode({
             return (
               <div
                 key={`${p.rfType}:${p.handleId}`}
-                className='h-4 flex items-center'
+                className='h-4 flex min-w-0 max-w-full items-center'
                 data-generic-port={p.generic ? 'true' : undefined}
+                title={p.generic ? p.label : undefined}
               >
-                <span className={highlight ? GREEN_TEXT_CLASS : p.generic ? 'italic' : undefined}>
+                <span
+                  className={
+                    highlight ? GREEN_TEXT_CLASS : p.generic ? 'italic truncate' : undefined
+                  }
+                >
                   {isSnappedPort ? '✓ ' : ''}
                   {p.label}
                 </span>

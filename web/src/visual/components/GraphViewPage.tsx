@@ -26,30 +26,102 @@ import {
 } from '../../components/ui/unavailable';
 import { useOrg } from '../../hooks/useOrg';
 import { exprOf } from '../bindings';
+import { type ElkHandle, loadElk, withLayoutGuards } from '../elkLayout';
 import { builderDraftFromGraphView, graphViewFlow, isOpaqueNode, RAW_KEY } from '../graphViewFlow';
+import {
+  collapsedGroupSize,
+  defaultCollapsed,
+  groupPorts,
+  groupTree,
+  isModuleGroup,
+  type LayoutResult,
+  layoutGraph,
+} from '../graphViewLayout';
 import { loadCurrentSchema } from '../schemaCache';
 import { useVisualStore } from '../store';
 import type { GraphBinding, GraphNode } from '../types';
+import { type ModuleGroupData, ModuleGroupNode } from './ModuleGroupNode';
 import type { PipelineNodeData } from './PipelineNode';
 import { PipelineNode } from './PipelineNode';
 
-const nodeTypes: NodeTypes = { pipeline: PipelineNode as NodeTypes[string] };
+const nodeTypes: NodeTypes = {
+  pipeline: PipelineNode as NodeTypes[string],
+  module: ModuleGroupNode as NodeTypes[string],
+};
 
-// The `fitView` prop fits once, on mount — before this page's nodes, which
-// arrive in an effect, have sizes; with nothing measured the fit snapped to the
-// maximum zoom and showed one corner of the graph. This fits once more, the
-// first time React Flow reports every node measured, and never again: a later
-// re-seed (the schema arriving re-creates the nodes) must not undo a pan or
-// zoom the user has made since.
-function FitWhenMeasured() {
+type LayoutStatus = 'measuring' | 'elk' | 'grid';
+type Size = { width: number; height: number };
+
+/**
+ * Drives the layout from inside React Flow (its hooks need the provider).
+ *
+ * The page first renders every node flat at the server's grid positions, so
+ * React Flow measures each component's real size; the first time every node
+ * is measured this hands those sizes to the page, which lays the graph out
+ * with ELK. It fits the view once more after each layout the page marks as a
+ * re-fit (the first ELK layout, or the fallback to the grid) and never on a
+ * collapse or expand — that must not undo a pan or zoom the user has made.
+ *
+ * The `fitView` prop alone fits on mount, before this page's nodes, which
+ * arrive in an effect, have sizes; with nothing measured that fit snapped to
+ * the maximum zoom and showed one corner of the graph.
+ */
+/** Whether React Flow's store holds exactly the nodes the page seeded (it
+ *  takes them in from an effect, so for a render it still has the last seed). */
+function holds(held: readonly Node[], seeded: readonly Node[]) {
+  const data = new Map(seeded.map((n) => [n.id, n.data]));
+  return held.length === data.size && held.every((n) => data.get(n.id) === n.data);
+}
+
+function LayoutController({
+  nodes,
+  ready,
+  status,
+  measureKey,
+  fitKey,
+  onMeasured,
+}: {
+  /** The nodes the page seeded: sizes are read, and the view fitted, only
+   *  once React Flow holds exactly these (a stale store still reports the
+   *  previous seed measured). */
+  nodes: readonly Node[];
+  /** False until the schema has loaded (or failed to): it decides the ports,
+   *  so a node measured before it has the wrong height. */
+  ready: boolean;
+  status: LayoutStatus;
+  /** Changes whenever the page re-seeds the nodes for a new measurement. */
+  measureKey: number;
+  fitKey: number;
+  onMeasured: (sizes: Map<string, Size>) => void;
+}) {
   const initialized = useNodesInitialized();
-  const { fitView } = useReactFlow();
-  const fitted = useRef(false);
+  const { fitView, getNodes } = useReactFlow();
+  const reported = useRef(false);
   useEffect(() => {
-    if (!initialized || fitted.current) return;
-    fitted.current = true;
-    void fitView({ padding: 0.1, maxZoom: 1 });
-  }, [initialized, fitView]);
+    reported.current = false;
+  }, [measureKey]);
+  useEffect(() => {
+    if (!initialized || !ready || status !== 'measuring' || reported.current) return;
+    const held = getNodes();
+    if (!holds(held, nodes)) return;
+    reported.current = true;
+    const sizes = new Map<string, Size>();
+    for (const n of held) {
+      if (n.type !== 'pipeline' || !n.measured?.width || !n.measured?.height) continue;
+      sizes.set(n.id, { width: n.measured.width, height: n.measured.height });
+    }
+    onMeasured(sizes);
+  }, [initialized, ready, status, nodes, getNodes, onMeasured]);
+  const fitted = useRef(-1);
+  useEffect(() => {
+    if (!initialized || fitKey === fitted.current || !holds(getNodes(), nodes)) return;
+    // After React Flow has taken the new positions in.
+    const frame = requestAnimationFrame(() => {
+      fitted.current = fitKey;
+      void fitView({ padding: 0.1, maxZoom: 1 });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [initialized, fitKey, nodes, getNodes, fitView]);
   return null;
 }
 
@@ -194,12 +266,18 @@ export function GraphViewPage() {
   const [error, setError] = useState<string | null>(null);
   const [showRecreateConfirm, setShowRecreateConfirm] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [schemaFailed, setSchemaFailed] = useState(false);
 
   // Load schema if not already loaded
   useEffect(() => {
     if (!schema) {
       // The shared copy (schemaCache.ts) — the route started the fetch.
-      loadCurrentSchema().then(setSchema).catch(console.error);
+      loadCurrentSchema()
+        .then(setSchema)
+        .catch((e) => {
+          console.error(e);
+          setSchemaFailed(true);
+        });
     }
   }, [schema, setSchema]);
 
@@ -243,9 +321,12 @@ export function GraphViewPage() {
   }, [id, orgId, orgs, setOrgId]);
 
   // Blocks the graph model could not map cannot become builder nodes: the
-  // draft would carry `opaque.*` components that fail to render. Recreate is
-  // unavailable until every block maps, and says how many do not.
-  const opaqueCount = graphData?.graph.nodes.filter((n) => isOpaqueNode(n.component)).length ?? 0;
+  // draft would carry `opaque.*` components that fail to render. A module's
+  // group cannot either — the builder has no modules, and its components
+  // would land flattened at the top level. Recreate is unavailable until
+  // every block maps, and says how many do not.
+  const opaqueCount =
+    graphData?.graph.nodes.filter((n) => isOpaqueNode(n.component) || isModuleGroup(n)).length ?? 0;
   const recreateReason =
     opaqueCount > 0
       ? `${opaqueCount} ${opaqueCount === 1 ? 'block' : 'blocks'} can't be carried over to the visual builder: ${opaqueCount === 1 ? "it isn't a component" : "they aren't components"} the builder can edit.`
@@ -279,23 +360,142 @@ export function GraphViewPage() {
     [graphData, schema],
   );
 
+  // Module groups (GraphView expands each `declare`, graphViewLayout.ts).
+  const tree = useMemo(() => groupTree(graphData?.graph.nodes ?? []), [graphData]);
+  const ports = useMemo(() => groupPorts(flow.edges, tree.groups), [flow, tree]);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  useEffect(() => setCollapsed(defaultCollapsed(tree)), [tree]);
+  const toggleGroup = useCallback(
+    (groupId: string) =>
+      setCollapsed((cur) => {
+        const next = new Set(cur);
+        if (!next.delete(groupId)) next.add(groupId);
+        return next;
+      }),
+    [],
+  );
+
+  // The layout: measure every node at the server's grid, then ELK (loaded on
+  // this route only, in a worker — elkLayout.ts); the grid stays if elkjs
+  // cannot load or the layout fails. A graph with no edges and no groups
+  // needs no layout pass beyond the grid either way.
+  const [status, setStatus] = useState<LayoutStatus>('measuring');
+  const statusRef = useRef(status);
+  statusRef.current = status;
+  // The layout and the collapse state it was computed for: a toggle shows
+  // when its layout lands, never half-applied.
+  const [layout, setLayout] = useState<(LayoutResult & { collapsed: Set<string> }) | null>(null);
+  const [measureKey, setMeasureKey] = useState(0);
+  const [fitKey, setFitKey] = useState(0);
+  // The fit request the seeded nodes carry out (set with them, so a fit never
+  // runs against the previous layout's nodes).
+  const [appliedFitKey, setAppliedFitKey] = useState(0);
+  const [sizes, setSizes] = useState<Map<string, Size> | null>(null);
+  const elkRef = useRef<Promise<ElkHandle> | null>(null);
+  useEffect(() => {
+    elkRef.current = loadElk();
+    elkRef.current.catch(() => undefined);
+    return () => {
+      void elkRef.current?.then((h) => h.dispose()).catch(() => undefined);
+    };
+  }, []);
+  // A new graph or schema re-measures: the schema decides which ports a node has.
+  useEffect(() => {
+    setStatus('measuring');
+    setLayout(null);
+    setSizes(null);
+    setMeasureKey((k) => k + 1);
+  }, [graphData, schema]);
+  const onMeasured = useCallback((measured: Map<string, Size>) => setSizes(measured), []);
+
+  useEffect(() => {
+    if (!sizes || !graphData) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const handle = await (elkRef.current ?? Promise.reject(new Error('no layout engine')));
+        const result = await withLayoutGuards(
+          handle,
+          layoutGraph(handle.elk, {
+            nodes: graphData.graph.nodes,
+            edges: flow.edges,
+            collapsed,
+            sizes,
+          }),
+        );
+        if (cancelled) return;
+        setLayout({ ...result, collapsed });
+        // Re-fit on the first layout only, never on a collapse or expand.
+        if (statusRef.current !== 'elk') setFitKey((k) => k + 1);
+        setStatus('elk');
+      } catch (e) {
+        if (cancelled) return;
+        console.warn('graph view: layout unavailable, showing the server grid', e);
+        setLayout(null);
+        if (statusRef.current !== 'grid') setFitKey((k) => k + 1);
+        setStatus('grid');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sizes, graphData, flow, collapsed]);
+
   // This view is read-only, but it is still React Flow in CONTROLLED mode, so it
   // owes the same contract as the editable canvas (see CanvasPane's
   // "controlled-mode contract"): React Flow's own fields — `measured` above all
   // — reach it only through the change stream that applyNodeChanges applies.
   // Without a change handler nothing here was ever measured, so this view's
-  // minimap drew an empty rectangle exactly as the editor's did. The graph
-  // itself never changes after it loads, so seeding on load is enough; React
-  // Flow owns the arrays from then on.
-  const [rfNodes, setRfNodes] = useState<Node<PipelineNodeData>[]>([]);
+  // minimap drew an empty rectangle exactly as the editor's did. The nodes are
+  // re-seeded only when the graph, the schema or the layout changes; React
+  // Flow owns the arrays in between.
+  const [rfNodes, setRfNodes] = useState<Node[]>([]);
   const [rfEdges, setRfEdges] = useState<Edge[]>([]);
 
   useEffect(() => {
-    setRfNodes(
-      (graphData?.graph.nodes ?? []).map((n) => ({
+    const nodes = graphData?.graph.nodes ?? [];
+    const laidOut = status === 'elk' && layout !== null;
+    const out: Node[] = [];
+    for (const n of nodes) {
+      if (tree.groups.has(n.id)) {
+        const isCollapsed = !laidOut || layout.collapsed.has(n.id);
+        if (laidOut && !layout.positions.has(n.id)) continue;
+        const groupPortsOf = ports.get(n.id) ?? [];
+        const size = laidOut
+          ? (layout.groupSizes.get(n.id) ?? collapsedGroupSize(groupPortsOf))
+          : collapsedGroupSize(groupPortsOf);
+        out.push({
+          id: n.id,
+          type: 'module',
+          position: laidOut ? (layout.positions.get(n.id) ?? n.position) : n.position,
+          ...(laidOut && tree.parentOf.get(n.id)
+            ? { parentId: tree.parentOf.get(n.id), extent: 'parent' as const }
+            : {}),
+          style: { width: size.width, height: size.height },
+          // Behind the children it holds.
+          zIndex: -1,
+          data: {
+            id: n.id,
+            label: n.label,
+            childCount: tree.children.get(n.id)?.length ?? 0,
+            collapsed: isCollapsed,
+            collapsible: laidOut,
+            ports: groupPortsOf,
+            portTops: laidOut
+              ? Object.fromEntries(layout.portTops.get(n.id) ?? new Map<string, number>())
+              : undefined,
+            onToggle: toggleGroup,
+          } satisfies ModuleGroupData,
+        });
+        continue;
+      }
+      if (laidOut && !layout.positions.has(n.id)) continue;
+      const parent = tree.parentOf.get(n.id);
+      out.push({
         id: n.id,
         type: 'pipeline',
-        position: n.position,
+        position: laidOut ? (layout.positions.get(n.id) ?? n.position) : n.position,
+        ...(laidOut && parent ? { parentId: parent, extent: 'parent' as const } : {}),
         data: {
           ...n,
           schema: schema?.components[n.component],
@@ -303,23 +503,29 @@ export function GraphViewPage() {
           readOnly: true,
           genericPorts: flow.genericPorts[n.id],
         } as PipelineNodeData,
-      })),
-    );
+      });
+    }
+    setRfNodes(out);
+    setAppliedFitKey(fitKey);
     // #310: named by node labels, not React Flow's "Edge from <id> to <id>".
-    const label = (id: string) => graphData?.graph.nodes.find((n) => n.id === id)?.label ?? id;
-    const docEdges = graphData?.graph.edges ?? [];
+    const label = (id: string) => nodes.find((n) => n.id === id)?.label ?? id;
+    const docEdges = new Map((graphData?.graph.edges ?? []).map((e) => [e.id, e]));
     setRfEdges(
-      flow.edges.map((e, i) => ({
-        ...e,
-        // Named in dataflow order, whichever way React Flow had to hold it.
-        ariaLabel: `Edge from ${label(docEdges[i].from.node)} to ${label(docEdges[i].to.node)}`,
-      })),
+      (laidOut ? layout.edges : flow.edges).map(({ reversed: _, ...e }) => {
+        const doc = docEdges.get(e.id);
+        return {
+          ...e,
+          // Named in dataflow order, whichever way React Flow had to hold it.
+          ariaLabel: doc
+            ? `Edge from ${label(doc.from.node)} to ${label(doc.to.node)}`
+            : `Edge from ${label(e.source)} to ${label(e.target)}`,
+        };
+      }),
     );
-  }, [graphData, schema, flow]);
+  }, [graphData, schema, flow, tree, ports, status, layout, toggleGroup, fitKey]);
 
   const onNodesChange = useCallback(
-    (changes: NodeChange<Node<PipelineNodeData>>[]) =>
-      setRfNodes((cur) => applyNodeChanges<Node<PipelineNodeData>>(changes, cur)),
+    (changes: NodeChange[]) => setRfNodes((cur) => applyNodeChanges(changes, cur)),
     [],
   );
   const onEdgesChange = useCallback(
@@ -379,7 +585,22 @@ export function GraphViewPage() {
       {graphData?.warning && <GraphViewWarning warning={graphData.warning} />}
 
       {/* Read-only canvas — no palette, no controls that mutate */}
-      <div className='flex-1 relative' data-testid='graph-view-canvas'>
+      {status === 'grid' && (
+        <div
+          role='note'
+          data-testid='graph-view-layout-fallback'
+          className='shrink-0 border-b px-4 py-1 text-xs text-muted'
+        >
+          The layout engine could not load, so nodes are shown on a plain grid and modules are not
+          drawn around their components.
+        </div>
+      )}
+      <div
+        className='flex-1 relative'
+        data-testid='graph-view-canvas'
+        data-layout={status}
+        data-layout-ms={layout ? Math.round(layout.ms) : undefined}
+      >
         <ReactFlow
           nodes={rfNodes}
           edges={rfEdges}
@@ -395,7 +616,14 @@ export function GraphViewPage() {
           <Background />
           <Controls showInteractive={false} />
           <MiniMap position='bottom-left' />
-          <FitWhenMeasured />
+          <LayoutController
+            nodes={rfNodes}
+            ready={schema !== null || schemaFailed}
+            status={status}
+            measureKey={measureKey}
+            fitKey={appliedFitKey}
+            onMeasured={onMeasured}
+          />
         </ReactFlow>
         {selectedNodeId &&
           (() => {

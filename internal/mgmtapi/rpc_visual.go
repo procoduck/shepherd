@@ -80,12 +80,29 @@ func (s *VisualService) renderGraph(g *mgmtv1.GraphDocument) (visual.RenderResul
 	if s.schema == nil {
 		return visual.RenderResult{}, visual.GraphDocument{}, visual.SchemaPayload{}, errSchemaUnavailable
 	}
+	if err := refuseGraphViewNodes(g); err != nil {
+		return visual.RenderResult{}, visual.GraphDocument{}, visual.SchemaPayload{}, err
+	}
 	doc := graphDocFromProto(g)
 	schemaPayload, err := s.loadSchemaPayload(doc.SchemaVersion)
 	if err != nil {
 		return visual.RenderResult{}, visual.GraphDocument{}, visual.SchemaPayload{}, err
 	}
 	return visual.Render(doc, schemaPayload), doc, schemaPayload, nil
+}
+
+// refuseGraphViewNodes rejects a graph carrying GraphNode.parent: that field
+// is the read-only graph view's module grouping (GraphView expands `declare`
+// blocks for display), never part of a builder document, and nothing renders
+// a module's contents from a graph — rendering one would silently flatten the
+// module's components into top-level blocks.
+func refuseGraphViewNodes(g *mgmtv1.GraphDocument) error {
+	for _, n := range g.GetNodes() {
+		if n.GetParent() != "" {
+			return fmt.Errorf("node %q has a parent (%q): module groups come from the read-only graph view and cannot be rendered", n.GetId(), n.GetParent())
+		}
+	}
+	return nil
 }
 
 // experimentalGate returns L1 render diagnostics for every experimental
@@ -311,7 +328,10 @@ func (s *VisualService) GraphView(ctx context.Context, req *connect.Request[mgmt
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("pipeline not found"))
 	}
 
-	result := s.contentsToGraph(p.Contents)
+	// Modules expanded: the view draws each `declare` as a group of its
+	// components (GraphNode.parent). Only here — DiffRevisions and the
+	// builder's documents never carry a group.
+	result := s.contentsToGraph(p.Contents, visual.ParseOptions{ExpandModules: true})
 	// The read-only view carries the parser's reference projection (secret
 	// references, and ports referenced inside a larger expression) in the
 	// graph's bindings. Only here: DiffRevisions compares the renderable
@@ -322,8 +342,14 @@ func (s *VisualService) GraphView(ctx context.Context, req *connect.Request[mgmt
 	// — go through web/src/visual/graphViewFlow.ts builderDraftFromGraphView.
 	view := result.Doc
 	view.Bindings = append(append([]visual.GraphBinding{}, view.Bindings...), result.Bindings...)
+	graph := graphDocToProto(view)
+	// The module grouping, likewise a projection (ParseResult.Parents): set on
+	// the wire only, never on a visual.GraphDocument.
+	for _, n := range graph.GetNodes() {
+		n.Parent = result.Parents[n.GetId()]
+	}
 	return connect.NewResponse(&mgmtv1.GraphViewResponse{
-		Graph:   graphDocToProto(view),
+		Graph:   graph,
 		Opaque:  result.Opaque,
 		Warning: result.Warning,
 	}), nil
@@ -339,7 +365,7 @@ func (s *VisualService) GraphView(ctx context.Context, req *connect.Request[mgmt
 // (prometheus.remote_write.receiver, loki.write.receiver, otelcol.*.input,
 // pyroscope.*.receiver). Best-effort: if the schema can't be loaded, still parse
 // without it rather than fail the caller.
-func (s *VisualService) contentsToGraph(contents string) visual.ParseResult {
+func (s *VisualService) contentsToGraph(contents string, opts visual.ParseOptions) visual.ParseResult {
 	// s.schema is nil when the registry failed to initialize (see MountRPC);
 	// fall back to the pinned default version so the best-effort schema load
 	// below degrades to a schemaless parse instead of panicking. The empty
@@ -353,9 +379,9 @@ func (s *VisualService) contentsToGraph(contents string) visual.ParseResult {
 	schemaPayload, schemaErr := s.loadSchemaPayload(schemaVersion)
 	if schemaErr != nil {
 		s.logger.Warn("graph re-parse: schema unavailable, edges may be misoriented", "err", schemaErr, "schema_version", schemaVersion)
-		return visual.ParseAlloy(contents, schemaVersion)
+		return visual.ParseAlloyWithOptions(contents, schemaVersion, opts)
 	}
-	return visual.ParseAlloy(contents, schemaVersion, schemaPayload)
+	return visual.ParseAlloyWithOptions(contents, schemaVersion, opts, schemaPayload)
 }
 
 // graphFromState resolves a graph from a stored wizard_state, falling back to a
@@ -370,7 +396,7 @@ func (s *VisualService) graphFromState(wizardState json.RawMessage, contents str
 			return doc, false, ""
 		}
 	}
-	pr := s.contentsToGraph(contents)
+	pr := s.contentsToGraph(contents, visual.ParseOptions{})
 	return pr.Doc, pr.Opaque, pr.Warning
 }
 

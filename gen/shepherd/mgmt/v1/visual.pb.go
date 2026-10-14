@@ -317,7 +317,14 @@ type GraphNode struct {
 	// declaration order, which is exactly what every graph saved before this field
 	// existed gets. Names present here but absent from props are ignored; blocks in
 	// props but absent here render afterwards in schema order.
-	BlockOrder    []string `protobuf:"bytes,8,rep,name=block_order,json=blockOrder,proto3" json:"block_order,omitempty"`
+	BlockOrder []string `protobuf:"bytes,8,rep,name=block_order,json=blockOrder,proto3" json:"block_order,omitempty"`
+	// parent is the id of the group node this node sits in — an expanded
+	// `declare` module, whose own component is "declare" — or empty at the top
+	// level. READ-ONLY, graph view only: GraphView sets it (it expands modules
+	// for display); DiffRevisions never does; a builder document never carries
+	// it, and Render and Validate refuse a graph that sets it (InvalidArgument),
+	// since nothing renders a module's contents from a graph.
+	Parent        string `protobuf:"bytes,9,opt,name=parent,proto3" json:"parent,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -406,6 +413,13 @@ func (x *GraphNode) GetBlockOrder() []string {
 		return x.BlockOrder
 	}
 	return nil
+}
+
+func (x *GraphNode) GetParent() string {
+	if x != nil {
+		return x.Parent
+	}
+	return ""
 }
 
 // GraphEdge mirrors internal/visual.GraphEdge. order is a pointer in Go
@@ -1949,7 +1963,7 @@ const file_shepherd_mgmt_v1_visual_proto_rawDesc = "" +
 	"BindingRef\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\tR\x04node\x12\x16\n" +
 	"\x06export\x18\x02 \x01(\tR\x06export\x12\x12\n" +
-	"\x04expr\x18\x03 \x01(\tR\x04expr\"\x89\x02\n" +
+	"\x04expr\x18\x03 \x01(\tR\x04expr\"\xa1\x02\n" +
 	"\tGraphNode\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
 	"\tcomponent\x18\x02 \x01(\tR\tcomponent\x12\x14\n" +
@@ -1959,7 +1973,8 @@ const file_shepherd_mgmt_v1_visual_proto_rawDesc = "" +
 	"\bdisabled\x18\x06 \x01(\bR\bdisabled\x12\x14\n" +
 	"\x05notes\x18\a \x01(\tR\x05notes\x12\x1f\n" +
 	"\vblock_order\x18\b \x03(\tR\n" +
-	"blockOrder\"\x9a\x01\n" +
+	"blockOrder\x12\x16\n" +
+	"\x06parent\x18\t \x01(\tR\x06parent\"\x9a\x01\n" +
 	"\tGraphEdge\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12-\n" +
 	"\x04from\x18\x02 \x01(\v2\x19.shepherd.mgmt.v1.PortRefR\x04from\x12)\n" +

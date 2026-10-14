@@ -691,12 +691,13 @@ generate-corpus: ## Regenerate visual-builder goldens (web tests read internal/v
 	@echo "==> Regenerating goldens from the shipped schema artifact..."
 	GEN_GOLDENS=1 go test ./internal/visual/ -run TestGenGoldens
 	@# The graph-view fixtures the web suites replay: the parser's real output
-	@# for the k8s-monitoring config and the builder round-trip cases
-	@# (parse_graphview_test.go, parse_roundtrip_test.go). Biome lays them out;
+	@# for the k8s-monitoring configs (modules expanded, as GraphView parses) and
+	@# the builder round-trip cases (parse_modules_test.go,
+	@# parse_roundtrip_test.go). Biome lays them out;
 	@# the Go specs compare them by value.
 	GEN_GOLDENS=1 go test ./internal/visual/ -run TestVisual -count=1 -args -ginkgo.focus='fixture'
 	$(call preflight,$(PNPM),Install pnpm (https://pnpm.io/installation).)
-	cd web && $(PNPM) exec biome format --write tests/fixtures/k8s-monitoring-graphview.json tests/fixtures/graphview-roundtrip.json
+	cd web && $(PNPM) exec biome format --write tests/fixtures/k8s-monitoring-graphview.json tests/fixtures/k8s-monitoring-metrics-graphview.json tests/fixtures/graphview-roundtrip.json
 	@echo "==> Done. $(shell ls internal/visual/testdata/corpus/*.graph.json | wc -l | tr -d ' ') corpus entries; renderTS.test.ts reads them in place."
 
 # Kubernetes e2e suite (kind). Creates its own cluster, installs Calico,

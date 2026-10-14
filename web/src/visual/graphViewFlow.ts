@@ -25,6 +25,9 @@ export type { GenericPort };
 
 export interface GraphViewEdge {
   id: string;
+  /** React Flow holds this edge against dataflow (target = the dataflow
+   *  source); the layout orders nodes by dataflow, so it turns it back. */
+  reversed?: boolean;
   source: string;
   sourceHandle: string;
   target: string;
@@ -67,6 +70,25 @@ export function graphViewFlow(
     return handleId;
   };
 
+  // A module group's port sits on the side data crosses it on (graphView
+  // Layout.ts): an edge between the group and a node inside it reaches the
+  // port from within, so the inside end's side is the group's opposite one —
+  // data leaving the module goes out through a port on its right edge, data
+  // entering it comes in on the left.
+  const parentOf = new Map(doc.nodes.map((n) => [n.id, n.parent ?? '']));
+  const inside = (group: string, node: string) => {
+    for (let p = parentOf.get(node) ?? ''; p; p = parentOf.get(p) ?? '') {
+      if (p === group) return true;
+      if (p === node) return false;
+    }
+    return false;
+  };
+  /** The side of the generic handle at one end of an edge: the from end on
+   *  the node's right, the to end on its left — turned around for a group
+   *  reached from inside. */
+  const side = (node: string, isFrom: boolean, other: string): 'left' | 'right' =>
+    isFrom !== inside(node, other) ? 'right' : 'left';
+
   const edges = doc.edges.map((e) => {
     const from = handle(e.from.node, e.from.port);
     const to = handle(e.to.node, e.to.port);
@@ -79,14 +101,17 @@ export function graphViewFlow(
     if (reversed) {
       return {
         id: e.id,
+        reversed: true,
         source: e.to.node,
         sourceHandle:
-          to?.rfType === 'source' ? to.handleId : generic(e.to.node, e.to.port, 'source', 'left'),
+          to?.rfType === 'source'
+            ? to.handleId
+            : generic(e.to.node, e.to.port, 'source', side(e.to.node, false, e.from.node)),
         target: e.from.node,
         targetHandle:
           from?.rfType === 'target'
             ? from.handleId
-            : generic(e.from.node, e.from.port, 'target', 'right'),
+            : generic(e.from.node, e.from.port, 'target', side(e.from.node, true, e.to.node)),
       };
     }
     return {
@@ -95,10 +120,12 @@ export function graphViewFlow(
       sourceHandle:
         from?.rfType === 'source'
           ? from.handleId
-          : generic(e.from.node, e.from.port, 'source', 'right'),
+          : generic(e.from.node, e.from.port, 'source', side(e.from.node, true, e.to.node)),
       target: e.to.node,
       targetHandle:
-        to?.rfType === 'target' ? to.handleId : generic(e.to.node, e.to.port, 'target', 'left'),
+        to?.rfType === 'target'
+          ? to.handleId
+          : generic(e.to.node, e.to.port, 'target', side(e.to.node, false, e.from.node)),
     };
   });
   return { edges, genericPorts };

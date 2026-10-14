@@ -1,7 +1,6 @@
 package visual_test
 
 import (
-	"encoding/json"
 	"os"
 	"strings"
 
@@ -122,29 +121,8 @@ var _ = Describe("ParseAlloy on a chart-generated pipeline (graph view)", func()
 		}
 	})
 
-	// The mocked Playwright suite (web/tests/specs/visual-graph-view-imported.spec.ts)
-	// replays this parse as its GraphView response, so the UI is proved
-	// against what the server really returns for this config. After a parser
-	// change regenerate it with `make generate-corpus` (GEN_GOLDENS=1, then
-	// Biome formats it; the comparison below is by value, so layout is free).
-	It("matches the web suite's GraphView fixture", func() {
-		view := result.Doc
-		view.Bindings = append(append([]visual.GraphBinding{}, view.Bindings...), result.Bindings...)
-		got, err := json.MarshalIndent(map[string]any{
-			"graph": view, "opaque": result.Opaque, "warning": result.Warning,
-		}, "", "  ")
-		Expect(err).NotTo(HaveOccurred())
-		const fixture = "../../web/tests/fixtures/k8s-monitoring-graphview.json"
-		if os.Getenv("GEN_GOLDENS") != "" {
-			Expect(os.WriteFile(fixture, append(got, '\n'), 0o644)).To(Succeed())
-		}
-		raw, err := os.ReadFile(fixture)
-		Expect(err).NotTo(HaveOccurred())
-		var want, have any
-		Expect(json.Unmarshal(raw, &want)).To(Succeed())
-		Expect(json.Unmarshal(got, &have)).To(Succeed())
-		Expect(have).To(Equal(want), "the web fixture is stale: regenerate it (see above)")
-	})
+	// The web suite's GraphView fixture for this config is the graph view's
+	// parse (module expansion on): parse_modules_test.go generates and checks it.
 
 	It("never renders $raw as an attribute", func() {
 		rendered := visual.Render(result.Doc, corpusSchema())

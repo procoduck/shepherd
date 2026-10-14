@@ -44,7 +44,8 @@ describe('graphViewFlow', () => {
   it('adds generic handles only where the schema has none, by dataflow side', () => {
     const flow = graphViewFlow(k8s.graph, def);
     // The opaque instance feeds loki.write's receiver: its handle sits on its
-    // right, and loki.write keeps its own schema handle.
+    // right, and loki.write keeps its own schema handle. The module's group
+    // hands the instance its argument on the instance's left.
     expect(flow.genericPorts.n_opaque_cluster_events_feature).toEqual([
       {
         handleId: genericHandleId('right', 'logs_destinations'),
@@ -52,8 +53,27 @@ describe('graphViewFlow', () => {
         rfType: 'target',
         side: 'right',
       },
+      {
+        handleId: genericHandleId('left', 'logs_destinations'),
+        label: 'logs_destinations',
+        rfType: 'target',
+        side: 'left',
+      },
     ]);
-    expect(Object.keys(flow.genericPorts)).toEqual(['n_opaque_cluster_events_feature']);
+    // The group's port is on its right edge — data leaves the module there —
+    // both for the edge from inside and for the one out to the instance.
+    expect(flow.genericPorts.n_declare_cluster_events).toEqual([
+      {
+        handleId: genericHandleId('right', 'logs_destinations'),
+        label: 'logs_destinations',
+        rfType: 'source',
+        side: 'right',
+      },
+    ]);
+    expect(Object.keys(flow.genericPorts).sort()).toEqual([
+      'n_declare_cluster_events',
+      'n_opaque_cluster_events_feature',
+    ]);
   });
 
   it('turns a receiver-kind wire around to the RF handle types it uses', () => {

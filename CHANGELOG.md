@@ -46,6 +46,19 @@ Categories used here:
   unmapped blocks. The view had also drawn no receiver-kind wire (`forward_to`,
   `output.*`): measured on grafana/k8s-monitoring 4.4.0 output, all 30 wires of its four
   Alloy configs are drawn, against 2 before. _Shipped._
+- **The graph view opens Alloy modules:** each `declare` is drawn as a box holding its
+  components, instead of one empty *not mapped* block, with the module's arguments and exports
+  as ports on the box; a reference to `argument.X.value` inside the module is a wire to that
+  port, and the port is wired to the module's instance, so a component inside a module can be
+  followed through the instance to its destination. Nested modules are opened too (up to 8
+  deep). The graph is laid out left to right by the Eclipse Layout Kernel (elkjs, loaded only on
+  the graph view and run in a Web Worker; the server's grid stays, with a note, if it cannot
+  load). A module box collapses and expands; one holding more than 20 components starts
+  collapsed. Measured on grafana/k8s-monitoring 4.4.0's four Alloy configs: 69 of 69 components
+  are visible and 100 wires drawn, against 23 components and 30 wires before; laying out its
+  886-line metrics config takes about 150 ms. Read-only: a module still cannot be recreated in
+  the visual builder, and nothing about how pipelines are saved, rendered or served changes.
+  _Shipped._
 
 - **The pipelines list badges a wizard pipeline that no longer follows its wizard** (*Not
   following wizard*: destination changes no longer regenerate it), and the header's *Hand-edited*
@@ -72,6 +85,16 @@ All additive.
 - `Destination.regenerated_pipelines` (output-only, field 13): the number of wizard pipelines
   the update regenerated. Set only in `UpdateDestination`'s response; zero everywhere else.
   (#309)
+- `GraphNode.parent` (field 9): the id of the module group (component `declare`) a node
+  sits in, empty at the top level. Read-only and graph-view only: `GraphView` sets it;
+  `DiffRevisions` never does; `Render` and `Validate` refuse a graph that sets it
+  (`invalid_argument`).
+
+### Dependencies
+
+- **elkjs 0.12.0** (EPL-2.0 OR GPL-3.0-or-later) in the web UI, for the graph view's layout. Loaded only on the
+  graph view, as a Web Worker script (1.6 MB, 460 kB gzipped) plus a 4 kB client chunk; the
+  other pages do not fetch it.
 
 ## v0.16.0
 

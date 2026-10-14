@@ -1,43 +1,236 @@
 {
   "graph": {
+    "bindings": [
+      {
+        "node": "n_loki_write_loki",
+        "prop": "endpoint.basic_auth.username",
+        "ref": {
+          "export": "data",
+          "expr": "convert.nonsensitive(remote.kubernetes.secret.loki.data[\"username\"])",
+          "node": "n_remote_kubernetes_secret_loki"
+        }
+      },
+      {
+        "node": "n_loki_write_loki",
+        "prop": "endpoint.basic_auth.password",
+        "ref": {
+          "export": "data",
+          "expr": "remote.kubernetes.secret.loki.data[\"password\"]",
+          "node": "n_remote_kubernetes_secret_loki"
+        }
+      },
+      {
+        "node": "n_prometheus_remote_write_prometheus",
+        "prop": "endpoint.basic_auth.username",
+        "ref": {
+          "export": "data",
+          "expr": "convert.nonsensitive(remote.kubernetes.secret.prometheus.data[\"username\"])",
+          "node": "n_remote_kubernetes_secret_prometheus"
+        }
+      },
+      {
+        "node": "n_prometheus_remote_write_prometheus",
+        "prop": "endpoint.basic_auth.password",
+        "ref": {
+          "export": "data",
+          "expr": "remote.kubernetes.secret.prometheus.data[\"password\"]",
+          "node": "n_remote_kubernetes_secret_prometheus"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "from": {
+          "node": "n_cluster_events__loki_source_kubernetes_events_cluster_events",
+          "port": "forward_to"
+        },
+        "id": "e_n_cluster_events__loki_source_kubernetes_events_cluster_events_n_cluster_events__loki_process_cluster_events_forward_to",
+        "to": {
+          "node": "n_cluster_events__loki_process_cluster_events",
+          "port": "receiver"
+        }
+      },
+      {
+        "from": {
+          "node": "n_cluster_events__loki_process_cluster_events",
+          "port": "forward_to"
+        },
+        "id": "e_n_cluster_events__loki_process_cluster_events_n_declare_cluster_events_logs_destinations",
+        "to": {
+          "node": "n_declare_cluster_events",
+          "port": "logs_destinations"
+        }
+      },
+      {
+        "from": {
+          "node": "n_opaque_cluster_events_feature",
+          "port": "logs_destinations"
+        },
+        "id": "e_n_opaque_cluster_events_feature_n_loki_write_loki_logs_destinations",
+        "to": {
+          "node": "n_loki_write_loki",
+          "port": "receiver"
+        }
+      },
+      {
+        "from": {
+          "node": "n_prometheus_exporter_unix_kubernetes_monitoring_telemetry",
+          "port": "targets"
+        },
+        "id": "e_n_prometheus_exporter_unix_kubernetes_monitoring_telemetry_n_discovery_relabel_kubernetes_monitoring_telemetry_targets",
+        "to": {
+          "node": "n_discovery_relabel_kubernetes_monitoring_telemetry",
+          "port": "targets"
+        }
+      },
+      {
+        "from": {
+          "node": "n_discovery_relabel_kubernetes_monitoring_telemetry",
+          "port": "output"
+        },
+        "id": "e_n_discovery_relabel_kubernetes_monitoring_telemetry_n_prometheus_scrape_kubernetes_monitoring_telemetry_targets",
+        "to": {
+          "node": "n_prometheus_scrape_kubernetes_monitoring_telemetry",
+          "port": "targets"
+        }
+      },
+      {
+        "from": {
+          "node": "n_prometheus_scrape_kubernetes_monitoring_telemetry",
+          "port": "forward_to"
+        },
+        "id": "e_n_prometheus_scrape_kubernetes_monitoring_telemetry_n_prometheus_relabel_kubernetes_monitoring_telemetry_forward_to",
+        "to": {
+          "node": "n_prometheus_relabel_kubernetes_monitoring_telemetry",
+          "port": "receiver"
+        }
+      },
+      {
+        "from": {
+          "node": "n_prometheus_relabel_kubernetes_monitoring_telemetry",
+          "port": "forward_to"
+        },
+        "id": "e_n_prometheus_relabel_kubernetes_monitoring_telemetry_n_prometheus_remote_write_prometheus_forward_to",
+        "to": {
+          "node": "n_prometheus_remote_write_prometheus",
+          "port": "receiver"
+        }
+      },
+      {
+        "from": {
+          "node": "n_otelcol_exporter_loki_loki",
+          "port": "forward_to"
+        },
+        "id": "e_n_otelcol_exporter_loki_loki_n_loki_write_loki_forward_to",
+        "to": {
+          "node": "n_loki_write_loki",
+          "port": "receiver"
+        }
+      },
+      {
+        "from": {
+          "node": "n_otelcol_exporter_prometheus_prometheus",
+          "port": "forward_to"
+        },
+        "id": "e_n_otelcol_exporter_prometheus_prometheus_n_prometheus_remote_write_prometheus_forward_to",
+        "to": {
+          "node": "n_prometheus_remote_write_prometheus",
+          "port": "receiver"
+        }
+      },
+      {
+        "from": {
+          "node": "n_declare_cluster_events",
+          "port": "logs_destinations"
+        },
+        "id": "e_n_declare_cluster_events_n_opaque_cluster_events_feature_logs_destinations",
+        "to": {
+          "node": "n_opaque_cluster_events_feature",
+          "port": "logs_destinations"
+        }
+      }
+    ],
     "kind": "alloy-graph/v1",
-    "schema_version": "v1.20.1",
+    "meta": {
+      "created_with": "shepherd-parser"
+    },
     "nodes": [
       {
-        "id": "n_opaque_declare_cluster_events",
-        "component": "opaque.declare",
+        "component": "declare",
+        "disabled": false,
+        "id": "n_declare_cluster_events",
         "label": "cluster_events",
+        "notes": "",
         "position": {
           "x": 0,
           "y": 0
         },
         "props": {
           "$raw": "declare \"cluster_events\" {\n\targument \"logs_destinations\" {\n\t\tcomment = \"Must be a list of log destinations where collected logs should be forwarded to\"\n\t}\n\n\tloki.source.kubernetes_events \"cluster_events\" {\n\t\tjob_name   = \"integrations/kubernetes/eventhandler\"\n\t\tlog_format = \"logfmt\"\n\t\tforward_to = [loki.process.cluster_events.receiver]\n\t}\n\n\tloki.process \"cluster_events\" {\n\t\tstage.static_labels {\n\t\t\tvalues = {\n\t\t\t\t\"source\" = \"kubernetes-events\",\n\t\t\t}\n\t\t}\n\n\t\tstage.label_drop {\n\t\t\tvalues = [\"kind\"]\n\t\t}\n\n\t\tforward_to = argument.logs_destinations.value\n\t}\n}"
-        },
-        "disabled": false,
-        "notes": "",
-        "block_order": ["argument", "loki.source.kubernetes_events", "loki.process"]
+        }
       },
       {
-        "id": "n_opaque_cluster_events_feature",
-        "component": "opaque.cluster_events",
-        "label": "feature",
+        "component": "loki.source.kubernetes_events",
+        "disabled": false,
+        "id": "n_cluster_events__loki_source_kubernetes_events_cluster_events",
+        "label": "cluster_events",
+        "notes": "",
+        "parent": "n_declare_cluster_events",
         "position": {
           "x": 280,
           "y": 0
         },
         "props": {
-          "$raw": "cluster_events \"feature\" {\n\tlogs_destinations = [\n\t\tloki.write.loki.receiver,\n\t]\n}"
-        },
-        "disabled": false,
-        "notes": ""
+          "job_name": "integrations/kubernetes/eventhandler",
+          "log_format": "logfmt"
+        }
       },
       {
-        "id": "n_prometheus_exporter_unix_kubernetes_monitoring_telemetry",
-        "component": "prometheus.exporter.unix",
-        "label": "kubernetes_monitoring_telemetry",
+        "block_order": ["stage.static_labels", "stage.label_drop"],
+        "component": "loki.process",
+        "disabled": false,
+        "id": "n_cluster_events__loki_process_cluster_events",
+        "label": "cluster_events",
+        "notes": "",
+        "parent": "n_declare_cluster_events",
         "position": {
           "x": 560,
+          "y": 0
+        },
+        "props": {
+          "stage.label_drop": {
+            "values": ["kind"]
+          },
+          "stage.static_labels": {
+            "values": {
+              "source": "kubernetes-events"
+            }
+          }
+        }
+      },
+      {
+        "component": "opaque.cluster_events",
+        "disabled": false,
+        "id": "n_opaque_cluster_events_feature",
+        "label": "feature",
+        "notes": "",
+        "position": {
+          "x": 840,
+          "y": 0
+        },
+        "props": {
+          "$raw": "cluster_events \"feature\" {\n\tlogs_destinations = [\n\t\tloki.write.loki.receiver,\n\t]\n}"
+        }
+      },
+      {
+        "block_order": ["textfile"],
+        "component": "prometheus.exporter.unix",
+        "disabled": false,
+        "id": "n_prometheus_exporter_unix_kubernetes_monitoring_telemetry",
+        "label": "kubernetes_monitoring_telemetry",
+        "notes": "",
+        "position": {
+          "x": 1120,
           "y": 0
         },
         "props": {
@@ -45,18 +238,18 @@
           "textfile": {
             "directory": "/etc/release-info"
           }
-        },
-        "disabled": false,
-        "notes": "",
-        "block_order": ["textfile"]
+        }
       },
       {
-        "id": "n_discovery_relabel_kubernetes_monitoring_telemetry",
+        "block_order": ["rule"],
         "component": "discovery.relabel",
+        "disabled": false,
+        "id": "n_discovery_relabel_kubernetes_monitoring_telemetry",
         "label": "kubernetes_monitoring_telemetry",
+        "notes": "",
         "position": {
-          "x": 840,
-          "y": 0
+          "x": 0,
+          "y": 200
         },
         "props": {
           "rule": [
@@ -71,18 +264,18 @@
               "target_label": "job"
             }
           ]
-        },
-        "disabled": false,
-        "notes": "",
-        "block_order": ["rule"]
+        }
       },
       {
-        "id": "n_prometheus_scrape_kubernetes_monitoring_telemetry",
+        "block_order": ["clustering"],
         "component": "prometheus.scrape",
+        "disabled": false,
+        "id": "n_prometheus_scrape_kubernetes_monitoring_telemetry",
         "label": "kubernetes_monitoring_telemetry",
+        "notes": "",
         "position": {
-          "x": 1120,
-          "y": 0
+          "x": 280,
+          "y": 200
         },
         "props": {
           "clustering": {
@@ -90,17 +283,17 @@
           },
           "job_name": "integrations/kubernetes/kubernetes_monitoring_telemetry",
           "scrape_interval": "60s"
-        },
-        "disabled": false,
-        "notes": "",
-        "block_order": ["clustering"]
+        }
       },
       {
-        "id": "n_prometheus_relabel_kubernetes_monitoring_telemetry",
+        "block_order": ["rule"],
         "component": "prometheus.relabel",
+        "disabled": false,
+        "id": "n_prometheus_relabel_kubernetes_monitoring_telemetry",
         "label": "kubernetes_monitoring_telemetry",
+        "notes": "",
         "position": {
-          "x": 0,
+          "x": 560,
           "y": 200
         },
         "props": {
@@ -109,29 +302,29 @@
             "regex": "grafana_kubernetes_monitoring_.*",
             "source_labels": ["__name__"]
           }
-        },
-        "disabled": false,
-        "notes": "",
-        "block_order": ["rule"]
+        }
       },
       {
-        "id": "n_otelcol_exporter_loki_loki",
         "component": "otelcol.exporter.loki",
+        "disabled": false,
+        "id": "n_otelcol_exporter_loki_loki",
         "label": "loki",
+        "notes": "",
         "position": {
-          "x": 280,
+          "x": 840,
           "y": 200
         },
-        "props": {},
-        "disabled": false,
-        "notes": ""
+        "props": {}
       },
       {
-        "id": "n_loki_write_loki",
+        "block_order": ["endpoint"],
         "component": "loki.write",
+        "disabled": false,
+        "id": "n_loki_write_loki",
         "label": "loki",
+        "notes": "",
         "position": {
-          "x": 560,
+          "x": 1120,
           "y": 200
         },
         "props": {
@@ -157,48 +350,48 @@
             "cluster": "prod-eu-1",
             "k8s_cluster_name": "prod-eu-1"
           }
-        },
-        "disabled": false,
-        "notes": "",
-        "block_order": ["endpoint"]
+        }
       },
       {
-        "id": "n_remote_kubernetes_secret_loki",
         "component": "remote.kubernetes.secret",
+        "disabled": false,
+        "id": "n_remote_kubernetes_secret_loki",
         "label": "loki",
+        "notes": "",
         "position": {
-          "x": 840,
-          "y": 200
+          "x": 0,
+          "y": 400
         },
         "props": {
           "name": "loki-km-k8s-monitoring",
           "namespace": "default"
-        },
-        "disabled": false,
-        "notes": ""
+        }
       },
       {
-        "id": "n_otelcol_exporter_prometheus_prometheus",
         "component": "otelcol.exporter.prometheus",
+        "disabled": false,
+        "id": "n_otelcol_exporter_prometheus_prometheus",
         "label": "prometheus",
+        "notes": "",
         "position": {
-          "x": 1120,
-          "y": 200
+          "x": 280,
+          "y": 400
         },
         "props": {
           "add_metric_suffixes": true,
           "keep_identifying_resource_attributes": true,
           "resource_to_telemetry_conversion": false
-        },
-        "disabled": false,
-        "notes": ""
+        }
       },
       {
-        "id": "n_prometheus_remote_write_prometheus",
+        "block_order": ["endpoint", "wal"],
         "component": "prometheus.remote_write",
+        "disabled": false,
+        "id": "n_prometheus_remote_write_prometheus",
         "label": "prometheus",
+        "notes": "",
         "position": {
-          "x": 0,
+          "x": 560,
           "y": 400
         },
         "props": {
@@ -227,153 +420,31 @@
             "min_keepalive_time": "5m",
             "truncate_frequency": "2h"
           }
-        },
-        "disabled": false,
-        "notes": "",
-        "block_order": ["endpoint", "wal"]
+        }
       },
       {
-        "id": "n_remote_kubernetes_secret_prometheus",
         "component": "remote.kubernetes.secret",
+        "disabled": false,
+        "id": "n_remote_kubernetes_secret_prometheus",
         "label": "prometheus",
+        "notes": "",
         "position": {
-          "x": 280,
+          "x": 840,
           "y": 400
         },
         "props": {
           "name": "prometheus-km-k8s-monitoring",
           "namespace": "default"
-        },
-        "disabled": false,
-        "notes": ""
-      }
-    ],
-    "edges": [
-      {
-        "id": "e_n_opaque_cluster_events_feature_n_loki_write_loki_logs_destinations",
-        "from": {
-          "node": "n_opaque_cluster_events_feature",
-          "port": "logs_destinations"
-        },
-        "to": {
-          "node": "n_loki_write_loki",
-          "port": "receiver"
-        }
-      },
-      {
-        "id": "e_n_prometheus_exporter_unix_kubernetes_monitoring_telemetry_n_discovery_relabel_kubernetes_monitoring_telemetry_targets",
-        "from": {
-          "node": "n_prometheus_exporter_unix_kubernetes_monitoring_telemetry",
-          "port": "targets"
-        },
-        "to": {
-          "node": "n_discovery_relabel_kubernetes_monitoring_telemetry",
-          "port": "targets"
-        }
-      },
-      {
-        "id": "e_n_discovery_relabel_kubernetes_monitoring_telemetry_n_prometheus_scrape_kubernetes_monitoring_telemetry_targets",
-        "from": {
-          "node": "n_discovery_relabel_kubernetes_monitoring_telemetry",
-          "port": "output"
-        },
-        "to": {
-          "node": "n_prometheus_scrape_kubernetes_monitoring_telemetry",
-          "port": "targets"
-        }
-      },
-      {
-        "id": "e_n_prometheus_scrape_kubernetes_monitoring_telemetry_n_prometheus_relabel_kubernetes_monitoring_telemetry_forward_to",
-        "from": {
-          "node": "n_prometheus_scrape_kubernetes_monitoring_telemetry",
-          "port": "forward_to"
-        },
-        "to": {
-          "node": "n_prometheus_relabel_kubernetes_monitoring_telemetry",
-          "port": "receiver"
-        }
-      },
-      {
-        "id": "e_n_prometheus_relabel_kubernetes_monitoring_telemetry_n_prometheus_remote_write_prometheus_forward_to",
-        "from": {
-          "node": "n_prometheus_relabel_kubernetes_monitoring_telemetry",
-          "port": "forward_to"
-        },
-        "to": {
-          "node": "n_prometheus_remote_write_prometheus",
-          "port": "receiver"
-        }
-      },
-      {
-        "id": "e_n_otelcol_exporter_loki_loki_n_loki_write_loki_forward_to",
-        "from": {
-          "node": "n_otelcol_exporter_loki_loki",
-          "port": "forward_to"
-        },
-        "to": {
-          "node": "n_loki_write_loki",
-          "port": "receiver"
-        }
-      },
-      {
-        "id": "e_n_otelcol_exporter_prometheus_prometheus_n_prometheus_remote_write_prometheus_forward_to",
-        "from": {
-          "node": "n_otelcol_exporter_prometheus_prometheus",
-          "port": "forward_to"
-        },
-        "to": {
-          "node": "n_prometheus_remote_write_prometheus",
-          "port": "receiver"
         }
       }
     ],
-    "bindings": [
-      {
-        "node": "n_loki_write_loki",
-        "prop": "endpoint.basic_auth.username",
-        "ref": {
-          "node": "n_remote_kubernetes_secret_loki",
-          "export": "data",
-          "expr": "convert.nonsensitive(remote.kubernetes.secret.loki.data[\"username\"])"
-        }
-      },
-      {
-        "node": "n_loki_write_loki",
-        "prop": "endpoint.basic_auth.password",
-        "ref": {
-          "node": "n_remote_kubernetes_secret_loki",
-          "export": "data",
-          "expr": "remote.kubernetes.secret.loki.data[\"password\"]"
-        }
-      },
-      {
-        "node": "n_prometheus_remote_write_prometheus",
-        "prop": "endpoint.basic_auth.username",
-        "ref": {
-          "node": "n_remote_kubernetes_secret_prometheus",
-          "export": "data",
-          "expr": "convert.nonsensitive(remote.kubernetes.secret.prometheus.data[\"username\"])"
-        }
-      },
-      {
-        "node": "n_prometheus_remote_write_prometheus",
-        "prop": "endpoint.basic_auth.password",
-        "ref": {
-          "node": "n_remote_kubernetes_secret_prometheus",
-          "export": "data",
-          "expr": "remote.kubernetes.secret.prometheus.data[\"password\"]"
-        }
-      }
-    ],
+    "schema_version": "v1.20.1",
     "viewport": {
       "x": 0,
       "y": 0,
       "zoom": 1
-    },
-    "meta": {
-      "created_with": "shepherd-parser"
     }
   },
   "opaque": true,
-  "warning": "this pipeline could not be fully mapped to a graph: \"declare\" is not a component and cannot be edited as a node; block \"argument\" in declare has a label, which the graph model cannot represent; block \"loki.source.kubernetes_events\" in declare has a label, which the graph model cannot represent; block \"loki.process\" in declare has a label, which the graph model cannot represent; \"cluster_events\" is not a component and cannot be edited as a node"
+  "warning": "this pipeline could not be fully mapped to a graph: module \"cluster_events\" is shown as a group of its components (the builder cannot edit modules); \"cluster_events\" is not a component and cannot be edited as a node"
 }
