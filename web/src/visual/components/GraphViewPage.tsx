@@ -11,18 +11,176 @@ import {
   type NodeChange,
   type NodeTypes,
   ReactFlow,
+  useNodesInitialized,
+  useReactFlow,
 } from '@xyflow/react';
-import { useCallback, useEffect, useState } from 'react';
+import { X } from 'lucide-react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import '@xyflow/react/dist/base.css';
 import { type GraphViewResult, graphView } from '../../api/client';
 import { Modal } from '../../components/ui/Modal';
+import {
+  UNAVAILABLE_CLASS,
+  UnavailableReason,
+  unavailableProps,
+} from '../../components/ui/unavailable';
 import { useOrg } from '../../hooks/useOrg';
+import { exprOf } from '../bindings';
+import { builderDraftFromGraphView, graphViewFlow, isOpaqueNode, RAW_KEY } from '../graphViewFlow';
 import { loadCurrentSchema } from '../schemaCache';
 import { useVisualStore } from '../store';
+import type { GraphBinding, GraphNode } from '../types';
 import type { PipelineNodeData } from './PipelineNode';
 import { PipelineNode } from './PipelineNode';
 
 const nodeTypes: NodeTypes = { pipeline: PipelineNode as NodeTypes[string] };
+
+// The `fitView` prop fits once, on mount — before this page's nodes, which
+// arrive in an effect, have sizes; with nothing measured the fit snapped to the
+// maximum zoom and showed one corner of the graph. This fits once more, the
+// first time React Flow reports every node measured, and never again: a later
+// re-seed (the schema arriving re-creates the nodes) must not undo a pan or
+// zoom the user has made since.
+function FitWhenMeasured() {
+  const initialized = useNodesInitialized();
+  const { fitView } = useReactFlow();
+  const fitted = useRef(false);
+  useEffect(() => {
+    if (!initialized || fitted.current) return;
+    fitted.current = true;
+    void fitView({ padding: 0.1, maxZoom: 1 });
+  }, [initialized, fitView]);
+  return null;
+}
+
+const WARNING_PREFIX = 'this pipeline could not be fully mapped to a graph: ';
+
+/** The server's warning (ParseAlloy joins every unmapped item with "; "), one
+ *  item per line. */
+function GraphViewWarning({ warning }: { warning: string }) {
+  const items = warning.startsWith(WARNING_PREFIX)
+    ? warning.slice(WARNING_PREFIX.length).split('; ')
+    : [warning];
+  return (
+    <div
+      role='note'
+      aria-label='Mapping warnings'
+      data-testid='graph-view-warning'
+      className='max-h-32 shrink-0 overflow-y-auto border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-400'
+    >
+      <p className='font-medium'>This pipeline could not be fully mapped to a graph:</p>
+      <ul className='list-disc pl-5'>
+        {items.map((item, i) => (
+          <li key={i}>{item}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** One prop's value: an expression as written, a nested block or list as
+ *  formatted JSON (never `[object Object]`), a scalar as itself. */
+function PropValue({ value }: { value: unknown }) {
+  const expr = exprOf(value);
+  if (expr !== undefined) return <code className='font-mono break-all'>{expr}</code>;
+  if (value !== null && typeof value === 'object')
+    return (
+      <pre className='max-h-48 overflow-auto whitespace-pre rounded bg-panel p-1 font-mono'>
+        {JSON.stringify(value, null, 2)}
+      </pre>
+    );
+  return <span className='font-mono break-all'>{String(value)}</span>;
+}
+
+const nodeName = (n: GraphNode | undefined) =>
+  n ? `${n.component.replace(/^opaque\./, '')} "${n.label}"` : 'a removed node';
+
+function NodeInspector({
+  node,
+  nodes,
+  bindings,
+  onClose,
+}: {
+  node: GraphNode;
+  nodes: GraphNode[];
+  bindings: GraphBinding[];
+  onClose: () => void;
+}) {
+  const byId = (id: string) => nodes.find((n) => n.id === id);
+  const raw = node.props[RAW_KEY];
+  const props = Object.entries(node.props).filter(([key]) => key !== RAW_KEY);
+  const uses = bindings.filter((b) => b.node === node.id);
+  const usedBy = bindings.filter((b) => b.ref.node === node.id);
+  return (
+    <aside
+      aria-label='Node details'
+      data-testid='graph-view-inspector'
+      className='absolute right-0 top-0 z-10 m-2 flex max-h-[calc(100%-1rem)] w-96 flex-col overflow-y-auto rounded border bg-card p-3 text-xs shadow-lg'
+    >
+      <div className='mb-1 flex items-start gap-2'>
+        <div className='min-w-0 flex-1'>
+          <div className='font-mono font-semibold break-all'>
+            {isOpaqueNode(node.component) ? node.component.slice('opaque.'.length) : node.component}
+          </div>
+          <div className='text-muted'>"{node.label}"</div>
+        </div>
+        <button
+          type='button'
+          aria-label='Close node details'
+          className='rounded p-0.5 text-muted hover:bg-accent'
+          onClick={onClose}
+        >
+          <X size={14} />
+        </button>
+      </div>
+      {isOpaqueNode(node.component) && (
+        <p className='mb-2 text-amber-400'>
+          Not mapped: this block is not a component the graph can show. Its wires are drawn; its
+          contents are shown as written.
+        </p>
+      )}
+      {props.length > 0 && (
+        <div className='space-y-1'>
+          {props.map(([key, value]) => (
+            <div key={key} data-testid={`inspector-prop-${key}`} className='flex flex-col gap-0.5'>
+              <span className='text-muted'>{key}:</span>
+              <PropValue value={value} />
+            </div>
+          ))}
+        </div>
+      )}
+      {(uses.length > 0 || usedBy.length > 0) && (
+        <div data-testid='inspector-bindings' className='mt-2 space-y-1 border-t pt-2'>
+          <div className='text-muted'>References</div>
+          {uses.map((b, i) => (
+            <div key={`u${i}`}>
+              <span className='font-mono'>{b.prop}</span> uses {nodeName(byId(b.ref.node))}
+              <code className='block font-mono break-all text-muted'>{b.ref.expr}</code>
+            </div>
+          ))}
+          {usedBy.map((b, i) => (
+            <div key={`r${i}`}>
+              {b.ref.export} is used by {nodeName(byId(b.node))} in{' '}
+              <span className='font-mono'>{b.prop}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {typeof raw === 'string' && (
+        <div className='mt-2 border-t pt-2'>
+          <div className='mb-1 text-muted'>Source</div>
+          <pre
+            data-testid='inspector-raw'
+            className='max-h-80 overflow-auto whitespace-pre rounded bg-panel p-1 font-mono'
+            style={{ tabSize: 2 }}
+          >
+            {raw}
+          </pre>
+        </div>
+      )}
+    </aside>
+  );
+}
 
 export function GraphViewPage() {
   const { id } = useParams({ strict: false }) as { id: string };
@@ -84,16 +242,42 @@ export function GraphViewPage() {
     };
   }, [id, orgId, orgs, setOrgId]);
 
+  // Blocks the graph model could not map cannot become builder nodes: the
+  // draft would carry `opaque.*` components that fail to render. Recreate is
+  // unavailable until every block maps, and says how many do not.
+  const opaqueCount = graphData?.graph.nodes.filter((n) => isOpaqueNode(n.component)).length ?? 0;
+  const recreateReason =
+    opaqueCount > 0
+      ? `${opaqueCount} ${opaqueCount === 1 ? 'block' : 'blocks'} can't be carried over to the visual builder: ${opaqueCount === 1 ? "it isn't a component" : "they aren't components"} the builder can edit.`
+      : undefined;
+  const recreateReasonId = useId();
+
   const handleRecreate = () => {
-    if (!graphData) return;
+    if (!graphData || recreateReason) return;
     // Load the parsed graph into the store as a draft for a new visual pipeline.
     // DECISION: this is a copy — no link to the original pipeline.
     useVisualStore.getState().doc; // touch to ensure store is init
     // Navigate to new visual pipeline; the user will refine the imported graph.
     // We store the imported graph in sessionStorage for the new-pipeline page to pick up.
-    sessionStorage.setItem('vb:import-graph', JSON.stringify(graphData.graph));
+    // Without the view-only bindings (builderDraftFromGraphView says why).
+    sessionStorage.setItem(
+      'vb:import-graph',
+      JSON.stringify(builderDraftFromGraphView(graphData.graph)),
+    );
     navigate({ to: '/pipelines/visual/new' });
   };
+
+  // Edges resolved against the nodes' real handles, plus the generic handles
+  // a node needs for an edge its schema does not describe (graphViewFlow.ts) —
+  // without them an opaque node's edges were silently not drawn.
+  const flow = useMemo(
+    () =>
+      graphViewFlow(
+        { nodes: graphData?.graph.nodes ?? [], edges: graphData?.graph.edges ?? [] },
+        (component) => schema?.components[component],
+      ),
+    [graphData, schema],
+  );
 
   // This view is read-only, but it is still React Flow in CONTROLLED mode, so it
   // owes the same contract as the editable canvas (see CanvasPane's
@@ -117,22 +301,21 @@ export function GraphViewPage() {
           schema: schema?.components[n.component],
           diagnostics: [],
           readOnly: true,
+          genericPorts: flow.genericPorts[n.id],
         } as PipelineNodeData,
       })),
     );
     // #310: named by node labels, not React Flow's "Edge from <id> to <id>".
     const label = (id: string) => graphData?.graph.nodes.find((n) => n.id === id)?.label ?? id;
+    const docEdges = graphData?.graph.edges ?? [];
     setRfEdges(
-      (graphData?.graph.edges ?? []).map((e) => ({
-        id: e.id,
-        source: e.from.node,
-        sourceHandle: e.from.port,
-        target: e.to.node,
-        targetHandle: e.to.port,
-        ariaLabel: `Edge from ${label(e.from.node)} to ${label(e.to.node)}`,
+      flow.edges.map((e, i) => ({
+        ...e,
+        // Named in dataflow order, whichever way React Flow had to hold it.
+        ariaLabel: `Edge from ${label(docEdges[i].from.node)} to ${label(docEdges[i].to.node)}`,
       })),
     );
-  }, [graphData, schema]);
+  }, [graphData, schema, flow]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange<Node<PipelineNodeData>>[]) =>
@@ -173,18 +356,29 @@ export function GraphViewPage() {
             Partial — some expressions could not be mapped
           </span>
         )}
-        <div className='ml-auto'>
+        <div className='ml-auto flex items-center gap-2'>
+          {recreateReason && (
+            <span className='text-xs text-muted' aria-hidden='true'>
+              {opaqueCount} {opaqueCount === 1 ? 'block' : 'blocks'} not mapped
+            </span>
+          )}
           <button
-            className='text-sm px-3 py-1 rounded border hover:bg-accent'
-            onClick={() => setShowRecreateConfirm(true)}
+            type='button'
+            className={`text-sm px-3 py-1 rounded border hover:bg-accent ${UNAVAILABLE_CLASS}`}
+            onClick={() => {
+              if (!recreateReason) setShowRecreateConfirm(true);
+            }}
             data-testid='recreate-as-visual-btn'
+            {...unavailableProps(recreateReason, recreateReasonId)}
           >
             Recreate as visual pipeline
           </button>
+          <UnavailableReason id={recreateReasonId} reason={recreateReason} />
         </div>
       </div>
+      {graphData?.warning && <GraphViewWarning warning={graphData.warning} />}
 
-      {/* Read-only canvas — no palette, no inspector, no controls that mutate */}
+      {/* Read-only canvas — no palette, no controls that mutate */}
       <div className='flex-1 relative' data-testid='graph-view-canvas'>
         <ReactFlow
           nodes={rfNodes}
@@ -201,25 +395,18 @@ export function GraphViewPage() {
           <Background />
           <Controls showInteractive={false} />
           <MiniMap position='bottom-left' />
+          <FitWhenMeasured />
         </ReactFlow>
         {selectedNodeId &&
           (() => {
             const node = graphData?.graph.nodes.find((n) => n.id === selectedNodeId);
             return node ? (
-              <div className='absolute right-0 top-0 w-72 m-2 bg-card border rounded p-3 text-xs shadow-lg z-10'>
-                <div className='font-mono font-semibold mb-1'>{node.component}</div>
-                <div className='text-muted mb-2'>"{node.label}"</div>
-                {Object.entries(node.props).length > 0 && (
-                  <div className='space-y-1'>
-                    {Object.entries(node.props).map(([key, value]) => (
-                      <div key={key} className='flex gap-2'>
-                        <span className='text-muted'>{key}:</span>
-                        <span className='font-mono truncate'>{String(value)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <NodeInspector
+                node={node}
+                nodes={graphData?.graph.nodes ?? []}
+                bindings={graphData?.graph.bindings ?? []}
+                onClose={() => setSelectedNodeId(null)}
+              />
             ) : null;
           })()}
       </div>

@@ -43,7 +43,8 @@ test('reader sees the pipelines list without New pipeline or the Enabled switch'
   const s = basicScenario();
   api.seed({ orgs: [s.org], pipelines: s.pipelines });
   await page.goto('/pipelines');
-  await expect(page.getByRole('link', { name: 'ui-enabled' })).toBeVisible();
+  // exact: each row also has a "View ui-enabled as graph" link.
+  await expect(page.getByRole('link', { name: 'ui-enabled', exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: /New pipeline/i })).toHaveCount(0);
   await expect(page.getByRole('link', { name: /Visual builder/i })).toHaveCount(0);
   await expect(page.getByRole('switch', { name: /^Enabled: / })).toHaveCount(0);

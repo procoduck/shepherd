@@ -3,7 +3,7 @@ import { defaultState, installDefaultHandlers } from '../mocks/handlers';
 import { type Handler, type MockState, Router } from '../mocks/router';
 import type { MeResponse } from './personas';
 
-interface ApiFixture {
+export interface ApiFixture {
   state: MockState;
   seed: (partial: Partial<MockState>) => void;
   loginAs: (persona: MeResponse) => Promise<void>;

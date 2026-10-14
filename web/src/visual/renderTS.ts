@@ -84,6 +84,9 @@ const ROLE_ACCEPTS = 'accepts';
  * shape ParseAlloy uses to round-trip non-literal expressions.
  */
 const EXPR_KEY = '$expr';
+/** An opaque node's source text, kept for the read-only graph view (ParseAlloy,
+ *  render.go's rawKey). Display-only: never emitted, never reported. */
+const RAW_KEY = '$raw';
 
 const categoryOrder: Record<string, number> = {
   config: 0,
@@ -376,7 +379,7 @@ class Renderer {
     }
 
     for (const key of Object.keys(props)
-      .filter((k) => !consumed.has(k))
+      .filter((k) => !consumed.has(k) && k !== RAW_KEY)
       .sort(compareBytes))
       this.diag(
         'unknown_prop',
@@ -392,7 +395,7 @@ class Renderer {
   untypedProps(indent: string, nodeId: string, props: Record<string, unknown>): string {
     let out = '';
     for (const key of Object.keys(props).sort(compareBytes)) {
-      if (props[key] === null || props[key] === undefined) continue;
+      if (key === RAW_KEY || props[key] === null || props[key] === undefined) continue;
       const text = this.serializeTyped(nodeId, key, props[key], '');
       if (text !== null) out += `${indent}${key} = ${text}\n`;
     }

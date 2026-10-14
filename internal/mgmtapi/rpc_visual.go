@@ -312,8 +312,18 @@ func (s *VisualService) GraphView(ctx context.Context, req *connect.Request[mgmt
 	}
 
 	result := s.contentsToGraph(p.Contents)
+	// The read-only view carries the parser's reference projection (secret
+	// references, and ports referenced inside a larger expression) in the
+	// graph's bindings. Only here: DiffRevisions compares the renderable
+	// document. The props already hold these expressions, so a client that
+	// edits or renders this graph must drop them first, or each renders twice:
+	// both consumers — "Recreate as visual pipeline" (GraphViewPage) and the
+	// builder's fallback load when wizard_state is unusable (VisualBuilderPage)
+	// — go through web/src/visual/graphViewFlow.ts builderDraftFromGraphView.
+	view := result.Doc
+	view.Bindings = append(append([]visual.GraphBinding{}, view.Bindings...), result.Bindings...)
 	return connect.NewResponse(&mgmtv1.GraphViewResponse{
-		Graph:   graphDocToProto(result.Doc),
+		Graph:   graphDocToProto(view),
 		Opaque:  result.Opaque,
 		Warning: result.Warning,
 	}), nil

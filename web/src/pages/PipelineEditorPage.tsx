@@ -8,7 +8,7 @@ import { DetachFromWizard } from '@/components/DetachFromWizard';
 import { HandEditConfirmDialog, wouldHandEdit } from '@/components/HandEditConfirmDialog';
 import { PipelineActions } from '@/components/PipelineActions';
 import { PipelineEditorToolbar } from '@/components/PipelineEditorToolbar';
-import { OpenInVisualBuilder, PipelineLandingBanner } from '@/components/PipelineLandingBanner';
+import { PipelineLandingBanner, PipelineViewLink } from '@/components/PipelineLandingBanner';
 import { PipelineLoadState } from '@/components/PipelineLoadState';
 import { PipelineMatchers } from '@/components/PipelineMatchers';
 import { PipelineMatchPreview } from '@/components/PipelineMatchPreview';
@@ -297,7 +297,7 @@ export function PipelineEditorPage() {
             <p>
               Source: <span className='text-zinc-300'>{pipeline.source}</span>
             </p>
-            {pipeline.source === 'visual' && <OpenInVisualBuilder pipelineId={pipeline.id} />}
+            <PipelineViewLink pipelineId={pipeline.id} source={pipeline.source} />
             {canEdit && pipeline.source === 'wizard' && (
               <DetachFromWizard pipeline={pipeline} orgId={pipelineOrgId} queryOrgId={orgId} />
             )}

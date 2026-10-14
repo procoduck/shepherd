@@ -13,6 +13,7 @@ import {
   shouldOfferRestore,
   subscribeDraftAutosave,
 } from '../draft';
+import { builderDraftFromGraphView } from '../graphViewFlow';
 import { cachedCurrentSchema, loadCurrentSchema } from '../schemaCache';
 import { useVisualStore } from '../store';
 import type { GraphDocument } from '../types';
@@ -361,7 +362,9 @@ export function VisualBuilderPage() {
         toast.warning(
           "This pipeline's saved graph was missing or unreadable, so it was reconstructed from its generated config — positions, notes, disabled flags and some bindings may not match what was last saved.",
         );
-        useVisualStore.getState().importGraph(gv.graph);
+        // Without GraphView's view-only bindings: each is an expression the
+        // props already hold, and imported it would render a second time.
+        useVisualStore.getState().importGraph(builderDraftFromGraphView(gv.graph));
         useVisualStore.getState().setPipelineMeta(pipeline.name, pipeline.matchers);
         setLoadState('idle');
       } catch (e) {

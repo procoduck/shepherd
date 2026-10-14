@@ -17,6 +17,17 @@ type ParseResult struct {
 	Doc     GraphDocument
 	Opaque  bool   // true if the file couldn't be fully mapped to a graph
 	Warning string // human-readable note when parsing is partial
+	// Bindings are the references to another node that are NOT wires — a
+	// remote.kubernetes.secret's `data`, or a port referenced inside a larger
+	// expression — wherever they sit in a body, nested blocks and function
+	// calls included. They are a PROJECTION for the read-only graph view: the
+	// expression itself stays in Props as {"$expr": ...} so Render reproduces
+	// it, which is also why they are kept out of Doc.Bindings — that channel
+	// renders `prop = expr` at the node's top level, wrong for a nested prop and
+	// a duplicate for a top-level one. Every consumer that turns a GraphView
+	// response back into an editable draft must drop them
+	// (web/src/visual/graphViewFlow.ts, builderDraftFromGraphView).
+	Bindings []GraphBinding
 }
 
 // configBlocks are the top-level Alloy blocks that are not components. They
@@ -103,12 +114,21 @@ func ParseAlloy(content, schemaVersion string, schema ...SchemaPayload) ParseRes
 			}
 		}
 
+		props := gp.props(block.Body, name)
+		if component != name {
+			// An opaque block's props are a best-effort reading of a body the
+			// graph model does not describe (a `declare`'s nested components
+			// are dropped entirely), so the graph view shows the block itself,
+			// printed back from its parse (comments are not kept). Both
+			// renderers skip this key.
+			props[rawKey] = gp.print(block)
+		}
 		doc.Nodes = append(doc.Nodes, GraphNode{
 			ID:        id,
 			Component: component,
 			Label:     label,
 			Position:  Position{X: x, Y: y},
-			Props:     gp.props(block.Body, name),
+			Props:     props,
 			// Captured here or lost for good: Props is a map, so parsing an
 			// existing config into a graph and rendering it back would otherwise
 			// silently re-sequence the author's blocks into schema order. That
@@ -132,7 +152,7 @@ func ParseAlloy(content, schemaVersion string, schema ...SchemaPayload) ParseRes
 		gp.edges(&doc, i, blocks[doc.Nodes[i].ID].Body, nil, nodeByRef, doc.Nodes[i].Props)
 	}
 
-	return ParseResult{Doc: doc, Opaque: gp.opaque, Warning: gp.warning()}
+	return ParseResult{Doc: doc, Opaque: gp.opaque, Warning: gp.warning(), Bindings: gp.bindings}
 }
 
 type graphParser struct {
@@ -140,6 +160,7 @@ type graphParser struct {
 	hasSchema bool
 	dropped   []string
 	opaque    bool
+	bindings  []GraphBinding
 }
 
 func (gp *graphParser) drop(format string, args ...any) {
@@ -279,10 +300,10 @@ func (gp *graphParser) print(node ast.Node) string {
 }
 
 // edges walks one node's body and converts every reference to another node
-// into an edge, deleting the prop it came from. path is the dotted location of
-// the current body inside the component.
+// into an edge (deleting the prop it came from when the prop was nothing but
+// wiring) or a binding. path is the dotted location of the current body inside
+// the component.
 func (gp *graphParser) edges(doc *GraphDocument, idx int, body ast.Body, path []string, nodeByRef map[string]string, props map[string]interface{}) {
-	node := doc.Nodes[idx]
 	for _, stmt := range body {
 		switch s := stmt.(type) {
 		case *ast.BlockStmt:
@@ -298,57 +319,121 @@ func (gp *graphParser) edges(doc *GraphDocument, idx int, body ast.Body, path []
 			}
 			gp.edges(doc, idx, s.Body, append(append([]string{}, path...), name), nodeByRef, child)
 		case *ast.AttributeStmt:
-			refs := extractRefs(s.Value)
-			if len(refs) == 0 {
+			prop := strings.Join(append(append([]string{}, path...), s.Name.Name), ".")
+			if refs, isWire := wireRefs(s.Value); isWire && gp.wire(doc, idx, prop, refs, nodeByRef) {
+				// The renderer writes the attribute back from the edges.
+				delete(props, s.Name.Name)
 				continue
 			}
-			prop := strings.Join(append(append([]string{}, path...), s.Name.Name), ".")
-			consumed := 0
-			for _, ref := range refs {
-				if gp.edge(doc, idx, prop, ref, nodeByRef) {
-					consumed++
-				}
-			}
-			if consumed == len(refs) {
-				delete(props, s.Name.Name)
-			} else if consumed > 0 {
-				gp.drop("attribute %q of %s mixes wires with other values", prop, node.Component)
-			}
+			gp.references(doc, idx, prop, s, nodeByRef)
 		}
 	}
 }
 
-// edge resolves one "component.label.export" reference into a graph edge in
-// dataflow direction.
-func (gp *graphParser) edge(doc *GraphDocument, idx int, prop, ref string, nodeByRef map[string]string) bool {
-	node := doc.Nodes[idx]
-	parts := strings.Split(ref, ".")
-	if len(parts) < 3 {
+// wire turns an attribute that is nothing but wiring — a reference, a list of
+// them, or the array.concat the renderer emits for a targets fan-in — into
+// edges, and reports whether it did. It is all or nothing: only when every
+// reference resolves to a port of a node in the graph. Anything less (a list
+// mixing a receiver with a non-port export, a reference to an `argument`)
+// stays an expression, so the prop is never both a wire and a value.
+func (gp *graphParser) wire(doc *GraphDocument, idx int, prop string, refs []string, nodeByRef map[string]string) bool {
+	if len(refs) == 0 {
 		return false
 	}
-	// Try progressively shorter prefixes to find a matching node.
+	type end struct{ node, export string }
+	ends := make([]end, 0, len(refs))
+	for _, ref := range refs {
+		otherID, export, ok := resolveRef(ref, nodeByRef)
+		if !ok || !gp.isPort(doc, otherID, export) {
+			return false
+		}
+		ends = append(ends, end{otherID, export})
+	}
+	for _, e := range ends {
+		gp.edge(doc, idx, prop, e.node, e.export)
+	}
+	return true
+}
+
+// references handles an attribute that is not pure wiring but contains
+// references — convert.nonsensitive(secret.data["k"]), a concat of a wire and
+// a literal list, a list mixing a receiver with a file's content. The prop
+// keeps the expression verbatim ({"$expr": ...}, set by props()), so rendering
+// it back is exact, and it is neither a wire nor a reason to call the graph
+// opaque: an edge here would make the renderer write the attribute twice (or
+// drop the expression for the wire). Each reference to another node is
+// reported as a binding instead, which the read-only view lists and nothing
+// renders.
+func (gp *graphParser) references(doc *GraphDocument, idx int, prop string, s *ast.AttributeStmt, nodeByRef map[string]string) {
+	node := doc.Nodes[idx]
+	for _, ref := range exprRefs(s.Value) {
+		if otherID, export, ok := resolveRef(ref, nodeByRef); ok {
+			gp.binding(node.ID, prop, otherID, export, s.Value)
+		}
+	}
+}
+
+// binding records a reference kept inside an expression (see
+// ParseResult.Bindings). Expr is the whole attribute value: that is what the
+// prop holds.
+func (gp *graphParser) binding(nodeID, prop, otherID, export string, value ast.Expr) {
+	gp.bindings = append(gp.bindings, GraphBinding{
+		Node: nodeID,
+		Prop: prop,
+		Ref:  BindingRef{Node: otherID, Export: export, Expr: gp.print(value)},
+	})
+}
+
+// resolveRef splits a "component.label.export" reference into the node it
+// names and the export, trying progressively shorter prefixes so a dotted
+// export (output.metrics) and a dotted component name both resolve.
+func resolveRef(ref string, nodeByRef map[string]string) (nodeID, export string, ok bool) {
+	parts := strings.Split(ref, ".")
+	if len(parts) < 3 {
+		return "", "", false
+	}
 	for split := len(parts) - 1; split >= 2; split-- {
-		otherID, exists := nodeByRef[strings.Join(parts[:split], ".")]
-		if !exists {
-			continue
+		if id, exists := nodeByRef[strings.Join(parts[:split], ".")]; exists {
+			return id, strings.Join(parts[split:], "."), true
 		}
-		export := strings.Join(parts[split:], ".")
-		edge := GraphEdge{
-			ID:   fmt.Sprintf("e_%s_%s_%s", otherID, node.ID, prop),
-			From: PortRef{Node: otherID, Port: export},
-			To:   PortRef{Node: node.ID, Port: prop},
-		}
-		if gp.isReceiverExport(doc, otherID, export) {
-			// A receiver export means data flows this node → the referenced
-			// one, so the canvas edge points the other way (D1(b)).
-			edge.ID = fmt.Sprintf("e_%s_%s_%s", node.ID, otherID, prop)
-			edge.From = PortRef{Node: node.ID, Port: prop}
-			edge.To = PortRef{Node: otherID, Port: export}
-		}
-		doc.Edges = append(doc.Edges, edge)
+	}
+	return "", "", false
+}
+
+// isPort reports whether export is a wireable port of the node. Without a
+// schema every reference is treated as one (the legacy behaviour); with one, a
+// mapped component's port list decides, and an opaque node — whose exports no
+// schema describes — has none.
+func (gp *graphParser) isPort(doc *GraphDocument, nodeID, export string) bool {
+	if !gp.hasSchema {
 		return true
 	}
+	for _, n := range doc.Nodes {
+		if n.ID != nodeID {
+			continue
+		}
+		c, known := gp.schema.Components[n.Component]
+		return known && findOutput(c, export) != nil
+	}
 	return false
+}
+
+// edge adds the edge for one resolved reference, in dataflow direction.
+func (gp *graphParser) edge(doc *GraphDocument, idx int, prop, otherID, export string) {
+	node := doc.Nodes[idx]
+	edge := GraphEdge{
+		ID:   fmt.Sprintf("e_%s_%s_%s", otherID, node.ID, prop),
+		From: PortRef{Node: otherID, Port: export},
+		To:   PortRef{Node: node.ID, Port: prop},
+	}
+	if gp.isReceiverExport(doc, otherID, export) {
+		// A receiver export means data flows this node → the referenced
+		// one, so the canvas edge points the other way (D1(b)).
+		edge.ID = fmt.Sprintf("e_%s_%s_%s", node.ID, otherID, prop)
+		edge.From = PortRef{Node: node.ID, Port: prop}
+		edge.To = PortRef{Node: otherID, Port: export}
+	}
+	doc.Edges = append(doc.Edges, edge)
 }
 
 func (gp *graphParser) isReceiverExport(doc *GraphDocument, nodeID, export string) bool {
@@ -366,19 +451,82 @@ func (gp *graphParser) isReceiverExport(doc *GraphDocument, nodeID, export strin
 	return false
 }
 
-// extractRefs returns all dot-joined access expression strings in an expression.
-func extractRefs(expr ast.Expr) []string {
+// wireRefs reports whether an expression is pure wiring — a reference, a list
+// of references (nested lists included), or array.concat over those, which is
+// what the renderer writes for a targets fan-in — and returns its references.
+func wireRefs(expr ast.Expr) ([]string, bool) {
+	switch e := expr.(type) {
+	case *ast.AccessExpr:
+		return []string{accessPath(e)}, true
+	case *ast.ArrayExpr:
+		return wireList(e.Elements)
+	case *ast.CallExpr:
+		if fn, isAccess := e.Value.(*ast.AccessExpr); isAccess && accessPath(fn) == "array.concat" {
+			return wireList(e.Args)
+		}
+	}
+	return nil, false
+}
+
+func wireList(elems []ast.Expr) ([]string, bool) {
+	refs := []string{}
+	for _, el := range elems {
+		inner, ok := wireRefs(el)
+		if !ok {
+			return nil, false
+		}
+		refs = append(refs, inner...)
+	}
+	return refs, true
+}
+
+// exprRefs returns every dotted reference anywhere inside an expression: in
+// call arguments, indexed values and indices, operands, object fields and
+// list elements. A called function's own name (convert.nonsensitive) is not a
+// reference and is skipped.
+func exprRefs(expr ast.Expr) []string {
 	var refs []string
 	switch e := expr.(type) {
 	case *ast.AccessExpr:
-		// Build the full dot-path
-		refs = append(refs, accessPath(e))
-	case *ast.ArrayExpr:
-		for _, elem := range e.Elements {
-			refs = append(refs, extractRefs(elem)...)
+		root := ast.Expr(e)
+		for {
+			inner, isAccess := root.(*ast.AccessExpr)
+			if !isAccess {
+				break
+			}
+			root = inner.Value
 		}
-	case *ast.IdentifierExpr:
-		// single identifier — not a cross-component reference
+		if _, isIdent := root.(*ast.IdentifierExpr); isIdent {
+			refs = append(refs, accessPath(e))
+		} else {
+			// foo(x).y: the field access is on a computed value, so only
+			// the computation can hold a reference.
+			refs = append(refs, exprRefs(root)...)
+		}
+	case *ast.ArrayExpr:
+		for _, el := range e.Elements {
+			refs = append(refs, exprRefs(el)...)
+		}
+	case *ast.ObjectExpr:
+		for _, field := range e.Fields {
+			refs = append(refs, exprRefs(field.Value)...)
+		}
+	case *ast.CallExpr:
+		for _, arg := range e.Args {
+			refs = append(refs, exprRefs(arg)...)
+		}
+	case *ast.IndexExpr:
+		refs = append(refs, exprRefs(e.Value)...)
+		refs = append(refs, exprRefs(e.Index)...)
+	case *ast.BinaryExpr:
+		refs = append(refs, exprRefs(e.Left)...)
+		refs = append(refs, exprRefs(e.Right)...)
+	case *ast.UnaryExpr:
+		refs = append(refs, exprRefs(e.Value)...)
+	case *ast.ParenExpr:
+		refs = append(refs, exprRefs(e.Inner)...)
+	case *ast.IdentifierExpr, *ast.LiteralExpr:
+		// a bare identifier or a literal is not a cross-component reference
 	}
 	return refs
 }

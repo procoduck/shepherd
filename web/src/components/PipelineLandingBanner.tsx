@@ -1,5 +1,5 @@
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import { Info, Workflow, X } from 'lucide-react';
+import { Info, Network, Workflow, X } from 'lucide-react';
 
 /** The flow that just navigated to a pipeline's editor page — the `from`
  *  search param on `/pipelines/$id` (#251). */
@@ -75,6 +75,32 @@ export function OpenInVisualBuilder({ pipelineId }: { pipelineId: string }) {
       className='flex items-center gap-1 text-indigo-400 hover:text-indigo-300'
     >
       <Workflow size={12} /> Open in visual builder
+    </Link>
+  );
+}
+
+/** How a pipeline's page offers its graph: the builder for a visual pipeline,
+ *  the read-only graph view for any other. */
+export function PipelineViewLink({ pipelineId, source }: { pipelineId: string; source: string }) {
+  return source === 'visual' ? (
+    <OpenInVisualBuilder pipelineId={pipelineId} />
+  ) : (
+    <ViewAsGraph pipelineId={pipelineId} />
+  );
+}
+
+/** The read-only graph of a pipeline that was not built in the visual builder
+ *  (text, wizard, git): the same page "Open in visual builder" is for a
+ *  visual one. Nothing linked to it before, so it was reachable only by URL. */
+export function ViewAsGraph({ pipelineId }: { pipelineId: string }) {
+  return (
+    <Link
+      to='/pipelines/$id/graph'
+      params={{ id: pipelineId }}
+      data-testid='editor-view-graph'
+      className='flex items-center gap-1 text-indigo-400 hover:text-indigo-300'
+    >
+      <Network size={12} aria-hidden='true' /> View as graph
     </Link>
   );
 }
