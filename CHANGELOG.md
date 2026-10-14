@@ -79,6 +79,24 @@ Categories used here:
   3 pipelines regenerated"; an update that regenerates none keeps the plain message. _Shipped._
   (#309)
 
+### Fixed
+
+- **Graph view fixes from the 2026-10-14 walkthrough** (k8s-monitoring metrics config, 41
+  nodes, 1440x900): the zoom and *Fit View* buttons were under the minimap and could not be
+  clicked — they now sit top-left, as in the builder, with the builder's minimap, which also
+  follows dark mode instead of staying white. The view zooms out to 10% (React Flow's 50% floor
+  left three nodes of that graph outside the pane after *Fit View*), and the first fit keeps
+  every node clear of the controls and the minimap. A viewer is no longer offered *Recreate as
+  visual pipeline*, which creates a pipeline; it is unavailable with the reason, as other
+  role-gated controls are. The mapping warnings banner summarises instead of listing two lines
+  per module ("4 modules are shown as groups of their components, their instances as read-only
+  nodes"), with the server's own lines behind *Show all*, and the badge reads *Modules shown as
+  groups* unless something is genuinely unmapped. A module instance's details say which module
+  it instantiates and link to it, instead of "not a component the graph can show". Edges are
+  named by each end's kind and label ("Edge from discovery.relabel nodes to prometheus.scrape
+  nodes"), so screen readers can tell them apart. The audit log no longer asks for the members
+  of a team deleted since the event, which logged a 404 in the browser console. _Shipped._
+
 ### API
 
 All additive.

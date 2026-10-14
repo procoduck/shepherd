@@ -3,10 +3,8 @@ import {
   applyEdgeChanges,
   applyNodeChanges,
   Background,
-  Controls,
   type Edge,
   type EdgeChange,
-  MiniMap,
   type Node,
   type NodeChange,
   type NodeTypes,
@@ -24,7 +22,7 @@ import {
   UnavailableReason,
   unavailableProps,
 } from '../../components/ui/unavailable';
-import { useOrg } from '../../hooks/useOrg';
+import { useCanWrite, useOrg } from '../../hooks/useOrg';
 import { exprOf } from '../bindings';
 import { type ElkHandle, loadElk, withLayoutGuards } from '../elkLayout';
 import { builderDraftFromGraphView, graphViewFlow, isOpaqueNode, RAW_KEY } from '../graphViewFlow';
@@ -37,9 +35,11 @@ import {
   type LayoutResult,
   layoutGraph,
 } from '../graphViewLayout';
+import { moduleOfInstance, nodeKindLabel, summariseWarning } from '../graphViewText';
 import { loadCurrentSchema } from '../schemaCache';
 import { useVisualStore } from '../store';
 import type { GraphBinding, GraphNode } from '../types';
+import { CanvasControls, CanvasMiniMap, FIT_PADDING } from './CanvasChrome';
 import { type ModuleGroupData, ModuleGroupNode } from './ModuleGroupNode';
 import type { PipelineNodeData } from './PipelineNode';
 import { PipelineNode } from './PipelineNode';
@@ -50,6 +50,16 @@ const nodeTypes: NodeTypes = {
 };
 
 type LayoutStatus = 'measuring' | 'elk' | 'grid';
+
+// How far out this view may zoom. A chart-generated config is far larger than
+// anything drawn in the builder (whose floor is 0.25): at React Flow's default
+// of 0.5 the k8s-monitoring metrics graph (41 nodes) could not be fitted at
+// 1440x900, and Fit View left three nodes outside the pane (2026-10-14
+// walkthrough M2).
+const GRAPH_MIN_ZOOM = 0.1;
+// Every fit — the first one after the layout, and the Fit View button —
+// frames the graph clear of the zoom controls and the minimap (CanvasChrome).
+const GRAPH_FIT = { padding: FIT_PADDING, maxZoom: 1, minZoom: GRAPH_MIN_ZOOM };
 type Size = { width: number; height: number };
 
 /**
@@ -118,34 +128,39 @@ function LayoutController({
     // After React Flow has taken the new positions in.
     const frame = requestAnimationFrame(() => {
       fitted.current = fitKey;
-      void fitView({ padding: 0.1, maxZoom: 1 });
+      void fitView(GRAPH_FIT);
     });
     return () => cancelAnimationFrame(frame);
   }, [initialized, fitKey, nodes, getNodes, fitView]);
   return null;
 }
 
-const WARNING_PREFIX = 'this pipeline could not be fully mapped to a graph: ';
-
-/** The server's warning (ParseAlloy joins every unmapped item with "; "), one
- *  item per line. */
-function GraphViewWarning({ warning }: { warning: string }) {
-  const items = warning.startsWith(WARNING_PREFIX)
-    ? warning.slice(WARNING_PREFIX.length).split('; ')
-    : [warning];
+/** The server's warning, summarised one line per category (graphViewText.ts),
+ *  with every item it wrote behind "Show all": a config of four modules listed
+ *  eight lines in a scrolling box (2026-10-14 walkthrough L1). */
+function GraphViewWarning({ items, lines }: { items: string[]; lines: string[] }) {
   return (
     <div
       role='note'
       aria-label='Mapping warnings'
       data-testid='graph-view-warning'
-      className='max-h-32 shrink-0 overflow-y-auto border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-400'
+      className='max-h-40 shrink-0 overflow-y-auto border-b border-amber-500/30 bg-amber-500/10 px-4 py-1.5 text-xs text-amber-400'
     >
-      <p className='font-medium'>This pipeline could not be fully mapped to a graph:</p>
-      <ul className='list-disc pl-5'>
-        {items.map((item, i) => (
-          <li key={i}>{item}</li>
+      <ul data-testid='graph-view-warning-summary'>
+        {lines.map((line) => (
+          <li key={line}>{line}</li>
         ))}
       </ul>
+      <details data-testid='graph-view-warning-details'>
+        <summary className='cursor-pointer select-none underline-offset-2 hover:underline'>
+          Show all {items.length} {items.length === 1 ? 'detail' : 'details'}
+        </summary>
+        <ul className='list-disc pl-5'>
+          {items.map((item, i) => (
+            <li key={i}>{item}</li>
+          ))}
+        </ul>
+      </details>
     </div>
   );
 }
@@ -172,13 +187,18 @@ function NodeInspector({
   nodes,
   bindings,
   onClose,
+  onSelect,
 }: {
   node: GraphNode;
   nodes: GraphNode[];
   bindings: GraphBinding[];
   onClose: () => void;
+  onSelect: (id: string) => void;
 }) {
   const byId = (id: string) => nodes.find((n) => n.id === id);
+  // An opaque block that instantiates a module the graph draws as a group is
+  // that module's instance, not an unknown block (2026-10-14 walkthrough L2).
+  const module = moduleOfInstance(node, nodes);
   const raw = node.props[RAW_KEY];
   const props = Object.entries(node.props).filter(([key]) => key !== RAW_KEY);
   const uses = bindings.filter((b) => b.node === node.id);
@@ -205,7 +225,20 @@ function NodeInspector({
           <X size={14} />
         </button>
       </div>
-      {isOpaqueNode(node.component) && (
+      {module && (
+        <p className='mb-2 text-muted'>
+          An instance of module {module.label}: it sets the module's arguments, and the module's
+          components are drawn in its group.{' '}
+          <button
+            type='button'
+            className='underline underline-offset-2 hover:text-accent'
+            onClick={() => onSelect(module.id)}
+          >
+            Show module {module.label}
+          </button>
+        </p>
+      )}
+      {isOpaqueNode(node.component) && !module && (
         <p className='mb-2 text-amber-400'>
           Not mapped: this block is not a component the graph can show. Its wires are drawn; its
           contents are shown as written.
@@ -260,6 +293,8 @@ export function GraphViewPage() {
   const schema = useVisualStore((s) => s.schema);
   const setSchema = useVisualStore((s) => s.setSchema);
   const { orgId, orgs, setOrgId } = useOrg();
+  // Recreate creates a pipeline: the same role rule as a new builder graph.
+  const canWrite = useCanWrite();
 
   const [graphData, setGraphData] = useState<GraphViewResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -327,11 +362,24 @@ export function GraphViewPage() {
   // every block maps, and says how many do not.
   const opaqueCount =
     graphData?.graph.nodes.filter((n) => isOpaqueNode(n.component) || isModuleGroup(n)).length ?? 0;
-  const recreateReason =
-    opaqueCount > 0
+  const recreateReason = !canWrite
+    ? "Viewers can't create pipelines — ask an org editor or admin"
+    : opaqueCount > 0
       ? `${opaqueCount} ${opaqueCount === 1 ? 'block' : 'blocks'} can't be carried over to the visual builder: ${opaqueCount === 1 ? "it isn't a component" : "they aren't components"} the builder can edit.`
       : undefined;
   const recreateReasonId = useId();
+  const warning = useMemo(
+    () =>
+      graphData?.warning ? summariseWarning(graphData.warning, graphData.graph.nodes) : undefined,
+    [graphData],
+  );
+  // Modules drawn as groups are shown, only not editable; "Partial" is for
+  // what the graph genuinely could not map (2026-10-14 walkthrough L1).
+  const badge = graphData?.opaque
+    ? warning && !warning.unmapped
+      ? 'Modules shown as groups'
+      : 'Partial — some expressions could not be mapped'
+    : undefined;
 
   const handleRecreate = () => {
     if (!graphData || recreateReason) return;
@@ -507,8 +555,13 @@ export function GraphViewPage() {
     }
     setRfNodes(out);
     setAppliedFitKey(fitKey);
-    // #310: named by node labels, not React Flow's "Edge from <id> to <id>".
-    const label = (id: string) => nodes.find((n) => n.id === id)?.label ?? id;
+    // #310: named by the nodes, not React Flow's "Edge from <id> to <id>" —
+    // each by its kind and label, since chart configs reuse a label across
+    // kinds ("Edge from nodes to nodes", 2026-10-14 walkthrough L4).
+    const label = (id: string) => {
+      const n = nodes.find((x) => x.id === id);
+      return n ? nodeKindLabel(n) : id;
+    };
     const docEdges = new Map((graphData?.graph.edges ?? []).map((e) => [e.id, e]));
     setRfEdges(
       (laidOut ? layout.edges : flow.edges).map(({ reversed: _, ...e }) => {
@@ -557,15 +610,18 @@ export function GraphViewPage() {
         data-testid='graph-view-toolbar'
       >
         <span className='text-sm font-medium text-muted'>Graph view — read only</span>
-        {graphData?.opaque && (
-          <span className='text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200'>
-            Partial — some expressions could not be mapped
+        {badge && (
+          <span
+            data-testid='graph-view-badge'
+            className='text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200'
+          >
+            {badge}
           </span>
         )}
         <div className='ml-auto flex items-center gap-2'>
-          {recreateReason && (
+          {canWrite && recreateReason && (
             <span className='text-xs text-muted' aria-hidden='true'>
-              {opaqueCount} {opaqueCount === 1 ? 'block' : 'blocks'} not mapped
+              {opaqueCount} {opaqueCount === 1 ? 'block' : 'blocks'} can't be carried over
             </span>
           )}
           <button
@@ -582,7 +638,7 @@ export function GraphViewPage() {
           <UnavailableReason id={recreateReasonId} reason={recreateReason} />
         </div>
       </div>
-      {graphData?.warning && <GraphViewWarning warning={graphData.warning} />}
+      {warning && <GraphViewWarning items={warning.items} lines={warning.lines} />}
 
       {/* Read-only canvas — no palette, no controls that mutate */}
       {status === 'grid' && (
@@ -612,10 +668,14 @@ export function GraphViewPage() {
           elementsSelectable
           onNodeClick={(_, node) => setSelectedNodeId(node.id)}
           fitView
+          fitViewOptions={GRAPH_FIT}
+          minZoom={GRAPH_MIN_ZOOM}
         >
           <Background />
-          <Controls showInteractive={false} />
-          <MiniMap position='bottom-left' />
+          {/* Zoom controls top-left, clear of the minimap (2026-10-14
+              walkthrough M1); both as the builder draws them. */}
+          <CanvasControls fitViewOptions={GRAPH_FIT} showInteractive={false} />
+          <CanvasMiniMap />
           <LayoutController
             nodes={rfNodes}
             ready={schema !== null || schemaFailed}
@@ -634,6 +694,7 @@ export function GraphViewPage() {
                 nodes={graphData?.graph.nodes ?? []}
                 bindings={graphData?.graph.bindings ?? []}
                 onClose={() => setSelectedNodeId(null)}
+                onSelect={setSelectedNodeId}
               />
             ) : null;
           })()}

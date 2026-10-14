@@ -58,9 +58,13 @@ prometheus.remote_write "sink" {
   const group = page.getByTestId('module-group');
   await expect(group).toHaveCount(1);
   await expect(group.getByTestId('module-group-count')).toHaveText('2 components');
-  await expect(page.locator('[aria-label="Edge from host to feature"]')).toHaveCount(1);
-  await expect(page.locator('[aria-label="Edge from feature to x"]')).toHaveCount(1);
-  await expect(page.locator('[aria-label="Edge from x to sink"]')).toHaveCount(1);
+  // Each end named by its kind and label: the module's component, the module,
+  // its instance, the destination.
+  const edge = (from: string, to: string) =>
+    page.locator(`[aria-label="Edge from ${from} to ${to}"]`);
+  await expect(edge('prometheus.scrape host', 'module feature')).toHaveCount(1);
+  await expect(edge('module feature', 'feature x')).toHaveCount(1);
+  await expect(edge('feature x', 'prometheus.remote_write sink')).toHaveCount(1);
 
   await rpc(page, 'PipelineService', 'DeletePipeline', { orgId: org.id, id: pipeline.id });
 });

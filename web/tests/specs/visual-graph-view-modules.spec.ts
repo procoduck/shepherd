@@ -11,7 +11,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, type Page } from '@playwright/test';
 import { basicScenario } from '../fixtures/factories';
-import { reader } from '../fixtures/personas';
+import { type MeResponse, orgEditor, reader } from '../fixtures/personas';
 import { shippedSchema } from '../fixtures/schema-fixture';
 import { type ApiFixture, test } from '../fixtures/test';
 
@@ -40,8 +40,8 @@ const group = (label: string) => {
 };
 const childrenOf = (id: string) => metrics.graph.nodes.filter((n) => n.parent === id);
 
-async function open(page: Page, api: ApiFixture) {
-  await api.loginAs(reader);
+async function open(page: Page, api: ApiFixture, persona: MeResponse = reader) {
+  await api.loginAs(persona);
   const s = basicScenario();
   api.seed({
     orgs: [s.org],
@@ -67,6 +67,9 @@ async function boxes(page: Page): Promise<Map<string, Box>> {
   );
   return new Map(entries);
 }
+/** An edge by its accessible name: each end named by its kind and label
+ *  (2026-10-14 walkthrough L4 — by label alone, "nodes to nodes"). */
+const edge = (from: string, to: string) => `[aria-label="Edge from ${from} to ${to}"]`;
 const overlaps = (a: Box, b: Box) =>
   a.x < b.x + b.width - 0.5 &&
   b.x < a.x + a.width - 0.5 &&
@@ -123,15 +126,20 @@ test.describe('graph view of a config built from modules (k8s-monitoring metrics
     await expect(page.locator('.react-flow__edge')).toHaveCount(metrics.graph.edges.length);
     // Inside the module: the kubelet relabel hands its data to the module's
     // metrics_destinations argument …
-    await expect(page.locator('[aria-label="Edge from kubelet to cluster_metrics"]')).toHaveCount(
-      1,
-    );
+    await expect(
+      page.locator(edge('prometheus.relabel kubelet', 'module cluster_metrics')),
+    ).toHaveCount(1);
     // … which the module's instance sets …
-    await expect(page.locator('[aria-label="Edge from cluster_metrics to feature"]')).toHaveCount(
-      1,
-    );
-    // … to the remote_write's receiver (one edge per instance).
-    await expect(page.locator('[aria-label="Edge from feature to prometheus"]')).toHaveCount(4);
+    await expect(
+      page.locator(edge('module cluster_metrics', 'cluster_metrics feature')),
+    ).toHaveCount(1);
+    // … to the remote_write's receiver (one edge per instance, each named by
+    // its instance's module).
+    for (const g of groups) {
+      await expect(
+        page.locator(edge(`${g.label} feature`, 'prometheus.remote_write prometheus')),
+      ).toHaveCount(1);
+    }
     const cluster = group('cluster_metrics');
     const port = page
       .locator(`.react-flow__node[data-id="${cluster.id}"]`)
@@ -151,12 +159,12 @@ test.describe('graph view of a config built from modules (k8s-monitoring metrics
       await expect(page.locator(`.react-flow__node[data-id="${c.id}"]`)).toHaveCount(0);
     }
     // Still wired to its instance, through the port on its collapsed box.
-    await expect(page.locator('[aria-label="Edge from cluster_metrics to feature"]')).toHaveCount(
-      1,
-    );
-    await expect(page.locator('[aria-label="Edge from kubelet to cluster_metrics"]')).toHaveCount(
-      0,
-    );
+    await expect(
+      page.locator(edge('module cluster_metrics', 'cluster_metrics feature')),
+    ).toHaveCount(1);
+    await expect(
+      page.locator(edge('prometheus.relabel kubelet', 'module cluster_metrics')),
+    ).toHaveCount(0);
     await expect(box.getByTestId('module-group-port')).toHaveText('argument.metrics_destinations');
     // The rest of the graph is laid out again around the smaller box.
     const all = await boxes(page);
@@ -182,11 +190,101 @@ test.describe('graph view of a config built from modules (k8s-monitoring metrics
       'declare "cluster_metrics" {',
     );
   });
+});
 
-  test('keeps Recreate unavailable: modules cannot be carried over', async ({ page }) => {
-    const recreate = page.getByRole('button', { name: 'Recreate as visual pipeline' });
-    await expect(recreate).toHaveAttribute('aria-disabled', 'true');
-    await expect(recreate).toHaveAccessibleDescription(/8 blocks can.t be carried over/);
+test('keeps Recreate unavailable to an editor: modules cannot be carried over', async ({
+  page,
+  api,
+}) => {
+  await open(page, api, orgEditor);
+  const recreate = page.getByRole('button', { name: 'Recreate as visual pipeline' });
+  await expect(recreate).toHaveAttribute('aria-disabled', 'true');
+  await expect(recreate).toHaveAccessibleDescription(/8 blocks can.t be carried over/);
+});
+
+// The 2026-10-14 kind walkthrough, at the window it was measured in.
+test.describe('graph view chrome at 1440x900 (k8s-monitoring metrics)', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  /** The ids of the nodes whose on-screen box is not inside the canvas pane. */
+  async function outsidePane(page: Page): Promise<string[]> {
+    const pane = (await page.getByTestId('graph-view-canvas').boundingBox()) as Box;
+    const all = await boxes(page);
+    if (all.size !== metrics.graph.nodes.length) return ['(not every node is rendered)'];
+    const out: string[] = [];
+    for (const [id, b] of all) {
+      const inside =
+        b.x >= pane.x - 0.5 &&
+        b.y >= pane.y - 0.5 &&
+        b.x + b.width <= pane.x + pane.width + 0.5 &&
+        b.y + b.height <= pane.y + pane.height + 0.5;
+      if (!inside) out.push(id);
+    }
+    return out;
+  }
+
+  test.beforeEach(async ({ page, api }) => {
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await open(page, api);
+    await expect(page.getByTestId('graph-view-canvas')).toHaveAttribute('data-layout', 'elk');
+  });
+
+  test('M2: the first fit shows every node inside the pane', async ({ page }) => {
+    await expect.poll(() => outsidePane(page)).toEqual([]);
+  });
+
+  test('M1: the zoom controls are clickable, not under the minimap', async ({ page }) => {
+    const zoomOut = page.getByRole('button', { name: 'Zoom Out' });
+    // Zooming in first leaves room to zoom out again.
+    await page.getByRole('button', { name: 'Zoom In' }).click();
+    await zoomOut.click();
+    await expect(zoomOut).toBeEnabled();
+    await page.getByRole('button', { name: 'Fit View' }).click();
+    await expect.poll(() => outsidePane(page)).toEqual([]);
+  });
+
+  test('L3: the minimap follows the dark theme', async ({ page }) => {
+    const bg = await page
+      .locator('.react-flow__minimap')
+      .evaluate((el) => getComputedStyle(el).backgroundColor);
+    // The builder's minimap colours (CanvasMiniMap), not React Flow's white.
+    expect(bg).toBe('rgb(14, 14, 17)');
+  });
+
+  test('L1: the warnings banner summarises modules in one line, details on demand', async ({
+    page,
+  }) => {
+    const banner = page.getByRole('note', { name: 'Mapping warnings' });
+    await expect(banner.getByTestId('graph-view-warning-summary').locator('li')).toHaveText([
+      '4 modules are shown as groups of their components, their instances as read-only nodes — the builder cannot edit modules.',
+    ]);
+    const details = banner.getByTestId('graph-view-warning-details');
+    await expect(details.locator('li').first()).toBeHidden();
+    // Compact: a summary line, not a scrolling list of eight.
+    expect((await banner.boundingBox())?.height ?? 0).toBeLessThan(80);
+    // Every server line stays one click away.
+    await banner.getByText('Show all 8 details').click();
+    await expect(details.locator('li')).toHaveCount(8);
+    await expect(details).toContainText('module "cluster_metrics" is shown as a group');
+    await expect(details).toContainText('"cluster_metrics" is not a component');
+    // The badge says what happened, not that content was lost.
+    await expect(page.getByTestId('graph-view-badge')).toHaveText('Modules shown as groups');
+  });
+
+  test('L2: a module instance is described as an instance of its module', async ({ page }) => {
+    const instance = metrics.graph.nodes.find((n) => n.component === 'opaque.cluster_metrics');
+    if (!instance) throw new Error('fixture has no cluster_metrics instance');
+    await page
+      .locator(`[data-testid="pipeline-node"][data-node-id="${instance.id}"]`)
+      .click({ position: { x: 20, y: 10 } });
+    const inspector = page.getByRole('complementary', { name: 'Node details' });
+    await expect(inspector).toContainText('An instance of module cluster_metrics');
+    await expect(inspector).not.toContainText('not a component the graph can show');
+    // The module it instantiates is one click away.
+    await inspector.getByRole('button', { name: 'Show module cluster_metrics' }).click();
+    await expect(inspector.getByTestId('inspector-raw')).toContainText(
+      'declare "cluster_metrics" {',
+    );
   });
 });
 

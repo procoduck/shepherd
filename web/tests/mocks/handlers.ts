@@ -1095,6 +1095,9 @@ export function installDefaultHandlers(router: Router) {
   });
   router.register('POST', '/shepherd.mgmt.v1.TeamService/ListTeamMembers', async (r) => {
     const body = (await r.request().postDataJSON()) as Obj;
+    // As the server does (rpc_team.go): a team that does not exist is NotFound.
+    if (!teamsOf().some((t) => t.id === body.teamId))
+      return connectError(r, 404, 'not_found', 'team not found');
     return json(r, 200, list(membersOf(String(body.teamId))));
   });
   router.register('POST', '/shepherd.mgmt.v1.TeamService/AddTeamMember', async (r) => {

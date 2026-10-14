@@ -210,3 +210,37 @@ test('the resource column names a resource the org still has', async ({ page, ap
   // A deleted resource keeps the shortened id.
   await expect(page.getByTestId('audit-resource-id')).toHaveText('pip-gone…');
 });
+
+// 2026-10-14 walkthrough L5: a team.member event for a team deleted since
+// asked ListTeamMembers for it anyway, and the 404 landed in the console.
+test('a member event for a since-deleted team asks for no members, a live team still names its member', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(orgAdmin);
+  api.seed({
+    orgs: [org({ id: 'org-0001' })],
+    auditRows: [
+      auditRow({
+        id: 2,
+        action: 'team.member.add',
+        resource_type: 'team',
+        resource_id: 'team-2/user-2',
+      }),
+      auditRow({
+        id: 1,
+        at: '2026-08-19T08:00:00Z',
+        action: 'team.member.add',
+        resource_type: 'team',
+        resource_id: 'team-gone-0000-0000/user-2',
+      }),
+    ],
+  });
+  await page.goto('/audit');
+
+  await expect(page.getByTestId('audit-resource-name')).toHaveText(['local-squad / Alice']);
+  const asked = api
+    .calls('TeamService/ListTeamMembers')
+    .map((c) => (c.body as { teamId: string }).teamId);
+  expect(asked).toEqual(['team-2']);
+});
