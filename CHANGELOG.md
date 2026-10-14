@@ -35,15 +35,21 @@ Categories used here:
   which nothing linked to before. The view now draws every wire — including those of a
   block it cannot map (a `declare`, a custom component's instance), which get handles
   derived from their wires instead of silently losing them — labels such blocks *not
-  mapped* and shows their source text, lists the server's mapping warnings instead of
-  only a *Partial* badge, shows nested settings as formatted JSON instead of
+  mapped* and shows their source text, summarises the server's mapping warnings (one line
+  per kind, e.g. "4 modules are shown as groups of their components", with every server line
+  behind *Show all*) under a badge that reads *Modules shown as groups* when nothing is
+  genuinely unmapped and *Partial* when something is, shows nested settings as formatted JSON instead of
   `[object Object]`, and lists a node's secret and other references (a reference inside a
   function call or index, such as `convert.nonsensitive(remote.kubernetes.secret.x.data["k"])`,
   is now recognised and listed, while the expression is kept exactly as written;
   `array.concat` of wires becomes wires). Revision diffs of a non-visual pipeline now also
   show a change inside an unmapped block, as a change to its source text. *Recreate as visual pipeline*
   is unavailable, saying how many blocks cannot be carried over, while the graph has
-  unmapped blocks. The view had also drawn no receiver-kind wire (`forward_to`,
+  unmapped blocks, and to a viewer, who cannot create pipelines. The view zooms out to 10% so
+  a chart-sized graph fits the window, keeps its zoom controls top-left clear of the minimap,
+  and uses the builder's minimap, which follows dark mode. Each edge is named by its ends'
+  kind and label (e.g. "Edge from discovery.relabel nodes to prometheus.scrape nodes"), with
+  the ports, the module or a number added where two edges would otherwise share a name. The view had also drawn no receiver-kind wire (`forward_to`,
   `output.*`): measured on grafana/k8s-monitoring 4.4.0 output, all 30 wires of its four
   Alloy configs are drawn, against 2 before. _Shipped._
 - **The graph view opens Alloy modules:** each `declare` is drawn as a box holding its
@@ -56,7 +62,9 @@ Categories used here:
   out left to right by the Eclipse Layout Kernel (elkjs, loaded only on the graph view and run in
   a Web Worker; the server's grid stays, with a note, if it cannot load or a layout takes over
   15 s). A module box collapses and expands; one holding more than 20 components starts
-  collapsed. On grafana/k8s-monitoring 4.4.0's four Alloy configs (the committed fixtures
+  collapsed. A module instance's details name the module it instantiates (resolved through
+  enclosing scopes as Alloy does) and *Show module* selects that module's box and brings it into
+  view. On grafana/k8s-monitoring 4.4.0's four Alloy configs (the committed fixtures
   `internal/visual/testdata/k8s-monitoring/{metrics,logs,singleton,receiver}.alloy`; the
   singleton one trimmed of settings only; `parse_modules_review_test.go` recounts them):
   69 of 69 components are visible, against 23; 74 wires between components are drawn, against
@@ -81,21 +89,10 @@ Categories used here:
 
 ### Fixed
 
-- **Graph view fixes from the 2026-10-14 walkthrough** (k8s-monitoring metrics config, 41
-  nodes, 1440x900): the zoom and *Fit View* buttons were under the minimap and could not be
-  clicked — they now sit top-left, as in the builder, with the builder's minimap, which also
-  follows dark mode instead of staying white. The view zooms out to 10% (React Flow's 50% floor
-  left three nodes of that graph outside the pane after *Fit View*), and the first fit keeps
-  every node clear of the controls and the minimap. A viewer is no longer offered *Recreate as
-  visual pipeline*, which creates a pipeline; it is unavailable with the reason, as other
-  role-gated controls are. The mapping warnings banner summarises instead of listing two lines
-  per module ("4 modules are shown as groups of their components, their instances as read-only
-  nodes"), with the server's own lines behind *Show all*, and the badge reads *Modules shown as
-  groups* unless something is genuinely unmapped. A module instance's details say which module
-  it instantiates and link to it, instead of "not a component the graph can show". Edges are
-  named by each end's kind and label ("Edge from discovery.relabel nodes to prometheus.scrape
-  nodes"), so screen readers can tell them apart. The audit log no longer asks for the members
-  of a team deleted since the event, which logged a 404 in the browser console. _Shipped._
+- **The audit log no longer asks for the members of a team deleted since the event** (v0.16.0
+  names the team and member on team-membership events): the request was refused as not found
+  and logged an error in the browser console on every visit. Only teams the organisation still
+  has are asked; the row keeps its shortened id as before. _Shipped._
 
 ### API
 

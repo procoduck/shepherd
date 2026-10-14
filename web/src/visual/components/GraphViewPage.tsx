@@ -17,6 +17,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import '@xyflow/react/dist/base.css';
 import { type GraphViewResult, graphView } from '../../api/client';
 import { Modal } from '../../components/ui/Modal';
+import { toneClass } from '../../components/ui/statusTone';
 import {
   UNAVAILABLE_CLASS,
   UnavailableReason,
@@ -35,7 +36,7 @@ import {
   type LayoutResult,
   layoutGraph,
 } from '../graphViewLayout';
-import { moduleOfInstance, nodeKindLabel, summariseWarning } from '../graphViewText';
+import { edgeNames, moduleOfInstance, summariseWarning } from '../graphViewText';
 import { loadCurrentSchema } from '../schemaCache';
 import { useVisualStore } from '../store';
 import type { GraphBinding, GraphNode } from '../types';
@@ -89,6 +90,7 @@ function LayoutController({
   status,
   measureKey,
   fitKey,
+  focus,
   onMeasured,
 }: {
   /** The nodes the page seeded: sizes are read, and the view fitted, only
@@ -102,6 +104,8 @@ function LayoutController({
   /** Changes whenever the page re-seeds the nodes for a new measurement. */
   measureKey: number;
   fitKey: number;
+  /** A node to bring into view (Show module), once per request. */
+  focus: { id: string; seq: number } | null;
   onMeasured: (sizes: Map<string, Size>) => void;
 }) {
   const initialized = useNodesInitialized();
@@ -132,6 +136,12 @@ function LayoutController({
     });
     return () => cancelAnimationFrame(frame);
   }, [initialized, fitKey, nodes, getNodes, fitView]);
+  const focused = useRef(-1);
+  useEffect(() => {
+    if (!focus || focus.seq === focused.current) return;
+    focused.current = focus.seq;
+    void fitView({ ...GRAPH_FIT, nodes: [{ id: focus.id }], duration: 200 });
+  }, [focus, fitView]);
   return null;
 }
 
@@ -557,25 +567,33 @@ export function GraphViewPage() {
     setAppliedFitKey(fitKey);
     // #310: named by the nodes, not React Flow's "Edge from <id> to <id>" —
     // each by its kind and label, since chart configs reuse a label across
-    // kinds ("Edge from nodes to nodes", 2026-10-14 walkthrough L4).
-    const label = (id: string) => {
-      const n = nodes.find((x) => x.id === id);
-      return n ? nodeKindLabel(n) : id;
-    };
+    // kinds ("Edge from nodes to nodes", 2026-10-14 walkthrough L4), and
+    // made unique among the edges drawn (edgeNames: ports, module, number).
     const docEdges = new Map((graphData?.graph.edges ?? []).map((e) => [e.id, e]));
-    setRfEdges(
-      (laidOut ? layout.edges : flow.edges).map(({ reversed: _, ...e }) => {
-        const doc = docEdges.get(e.id);
-        return {
-          ...e,
+    const drawn = laidOut ? layout.edges : flow.edges;
+    const names = edgeNames(
+      drawn.map(
+        (e) =>
           // Named in dataflow order, whichever way React Flow had to hold it.
-          ariaLabel: doc
-            ? `Edge from ${label(doc.from.node)} to ${label(doc.to.node)}`
-            : `Edge from ${label(e.source)} to ${label(e.target)}`,
-        };
-      }),
+          docEdges.get(e.id) ?? {
+            id: e.id,
+            from: { node: e.source, port: '' },
+            to: { node: e.target, port: '' },
+          },
+      ),
+      nodes,
     );
+    setRfEdges(drawn.map(({ reversed: _, ...e }) => ({ ...e, ariaLabel: names.get(e.id) })));
   }, [graphData, schema, flow, tree, ports, status, layout, toggleGroup, fitKey]);
+
+  // Show module (the inspector): select the node on the canvas as a click
+  // would, open its details, and bring it into view.
+  const [focus, setFocus] = useState<{ id: string; seq: number } | null>(null);
+  const showNode = useCallback((nodeId: string) => {
+    setSelectedNodeId(nodeId);
+    setRfNodes((cur) => cur.map((n) => ({ ...n, selected: n.id === nodeId })));
+    setFocus((f) => ({ id: nodeId, seq: (f?.seq ?? 0) + 1 }));
+  }, []);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => setRfNodes((cur) => applyNodeChanges(changes, cur)),
@@ -613,7 +631,11 @@ export function GraphViewPage() {
         {badge && (
           <span
             data-testid='graph-view-badge'
-            className='text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200'
+            // The contrast-checked status tones, in both themes: informational
+            // for modules shown as groups, a warning for unmapped content.
+            className={`text-xs px-2 py-0.5 rounded border ${toneClass(
+              warning && !warning.unmapped ? 'info' : 'warn',
+            )}`}
           >
             {badge}
           </span>
@@ -682,6 +704,7 @@ export function GraphViewPage() {
             status={status}
             measureKey={measureKey}
             fitKey={appliedFitKey}
+            focus={focus}
             onMeasured={onMeasured}
           />
         </ReactFlow>
@@ -694,7 +717,7 @@ export function GraphViewPage() {
                 nodes={graphData?.graph.nodes ?? []}
                 bindings={graphData?.graph.bindings ?? []}
                 onClose={() => setSelectedNodeId(null)}
-                onSelect={setSelectedNodeId}
+                onSelect={showNode}
               />
             ) : null;
           })()}

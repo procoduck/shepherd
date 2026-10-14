@@ -269,6 +269,8 @@ test.describe('graph view chrome at 1440x900 (k8s-monitoring metrics)', () => {
     await expect(details).toContainText('"cluster_metrics" is not a component');
     // The badge says what happened, not that content was lost.
     await expect(page.getByTestId('graph-view-badge')).toHaveText('Modules shown as groups');
+    // On the contrast-checked status tokens, not light-only amber literals.
+    await expect(page.getByTestId('graph-view-badge')).toHaveClass(/\btext-info\b/);
   });
 
   test('L2: a module instance is described as an instance of its module', async ({ page }) => {
@@ -285,6 +287,22 @@ test.describe('graph view chrome at 1440x900 (k8s-monitoring metrics)', () => {
     await expect(inspector.getByTestId('inspector-raw')).toContainText(
       'declare "cluster_metrics" {',
     );
+    // … selected on the canvas, and the view brought to it: fitted to the one
+    // group, it fills most of the pane.
+    const groupNode = page.locator(`.react-flow__node[data-id="${group('cluster_metrics').id}"]`);
+    await expect(groupNode).toHaveClass(/\bselected\b/);
+    const pane = (await page.getByTestId('graph-view-canvas').boundingBox()) as Box;
+    await expect
+      .poll(async () => {
+        const b = (await groupNode.boundingBox()) as Box;
+        const inside =
+          b.x >= pane.x - 0.5 &&
+          b.y >= pane.y - 0.5 &&
+          b.x + b.width <= pane.x + pane.width + 0.5 &&
+          b.y + b.height <= pane.y + pane.height + 0.5;
+        return inside && (b.width > pane.width * 0.5 || b.height > pane.height * 0.5);
+      })
+      .toBe(true);
   });
 });
 

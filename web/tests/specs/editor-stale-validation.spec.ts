@@ -17,10 +17,18 @@ test('a slow validation of an older buffer does not overwrite a newer result', a
   api.seed({ orgs: [s.org], pipelines: [p] });
 
   // The broken buffer's answer takes 2.5s; the fixed one answers at once.
+  // The waits below key on WHICH buffer was asked, not on a call count: the
+  // page's own validation of the seeded `// ok` fires 800ms after load, and
+  // on a loaded machine it landed after a count was taken and satisfied a
+  // "more calls than before" poll, so the test raced on.
   let staleServed = false;
+  let brokenRequested = false;
+  let fixedRequested = false;
   api.override('POST', '/shepherd.mgmt.v1.PipelineService/ValidatePipeline', async (route) => {
     const req = route.request().postDataJSON() as { contents?: string };
     const broken = (req.contents ?? '').includes('broken {');
+    if (broken) brokenRequested = true;
+    if ((req.contents ?? '').includes('// fixed')) fixedRequested = true;
     if (broken) await new Promise((r) => setTimeout(r, 2_500));
     await route.fulfill({
       status: 200,
@@ -42,17 +50,15 @@ test('a slow validation of an older buffer does not overwrite a newer result', a
   await expect(editor).toBeVisible();
   await expect(page.getByText('No problems')).toBeVisible();
 
-  const calls = () => api.calls('/shepherd.mgmt.v1.PipelineService/ValidatePipeline').length;
-  const before = calls();
   await editor.click();
   await page.keyboard.press('ControlOrMeta+A');
   await page.keyboard.type('broken {');
   // The broken buffer's validation is in flight...
-  await expect.poll(calls).toBeGreaterThan(before);
+  await expect.poll(() => brokenRequested).toBe(true);
   // ...when the text is fixed, and the fixed buffer's validation answers first.
   await page.keyboard.press('ControlOrMeta+A');
   await page.keyboard.type('// fixed');
-  await expect.poll(calls).toBeGreaterThan(before + 1);
+  await expect.poll(() => fixedRequested).toBe(true);
 
   // Let the stale answer arrive, then check it was ignored.
   await expect.poll(() => staleServed, { timeout: 10_000 }).toBe(true);
@@ -79,9 +85,12 @@ test('a validation answer for text typed past since does not land', async ({ pag
     release = r;
   });
   const never = new Promise<void>(() => undefined);
+  // Keyed on the buffer asked, not a call count (see the test above).
   let staleServed = false;
+  let brokenRequested = false;
   api.override('POST', '/shepherd.mgmt.v1.PipelineService/ValidatePipeline', async (route) => {
     const req = route.request().postDataJSON() as { contents?: string };
+    if (req.contents === 'broken') brokenRequested = true;
     if (req.contents !== 'broken') {
       await never;
       return;
@@ -101,12 +110,10 @@ test('a validation answer for text typed past since does not land', async ({ pag
   await page.goto('/pipelines/pip-past');
   const editor = page.locator('.cm-content');
   await expect(editor).toBeVisible();
-  const calls = () => api.calls('/shepherd.mgmt.v1.PipelineService/ValidatePipeline').length;
-  const before = calls();
   await editor.click();
   await page.keyboard.press('ControlOrMeta+A');
   await page.keyboard.type('broken');
-  await expect.poll(calls).toBeGreaterThan(before);
+  await expect.poll(() => brokenRequested).toBe(true);
   // Type on, then let the answer for the old text arrive at once — inside
   // the 800ms debounce, so no newer request has been sent.
   await page.keyboard.type(' no more');

@@ -59,12 +59,17 @@ export function summariseWarning(warning: string, nodes: readonly GraphNode[]): 
       modules.size === 1
         ? '1 module is shown as a group of its components'
         : `${modules.size} modules are shown as groups of their components`;
+    // "its"/"their" only when every module has exactly one instance;
+    // otherwise the instances are counted.
+    const nodesWord = instances === 1 ? 'a read-only node' : 'read-only nodes';
     const inst =
       instances === 0
         ? ''
-        : instances === 1
-          ? ', its instance as a read-only node'
-          : ', their instances as read-only nodes';
+        : instances === modules.size
+          ? instances === 1
+            ? ', its instance as a read-only node'
+            : ', their instances as read-only nodes'
+          : `, ${plural(instances, 'instance', 'instances')} as ${nodesWord}`;
     lines.push(`${groups}${inst} — the builder cannot edit modules.`);
   }
   if (other.length > 0) {
@@ -75,16 +80,81 @@ export function summariseWarning(warning: string, nodes: readonly GraphNode[]): 
   return { items, lines, unmapped: other.length > 0 };
 }
 
-/** The `declare` group a module instance (`opaque.<module>`) instantiates: the
- *  module of that name in the instance's own scope, else any of that name. */
+/** The `declare` group a module instance (`opaque.<module>`) instantiates,
+ *  resolved as Alloy scopes it: the module of that name declared in the
+ *  instance's own scope, else in the nearest enclosing one — never one
+ *  declared inside a sibling module. */
 export function moduleOfInstance(
   node: GraphNode,
   nodes: readonly GraphNode[],
 ): GraphNode | undefined {
   if (!isOpaqueNode(node.component)) return undefined;
   const name = node.component.slice('opaque.'.length);
-  const candidates = nodes.filter((n) => isModuleGroup(n) && n.label === name);
-  return candidates.find((n) => (n.parent ?? '') === (node.parent ?? '')) ?? candidates[0];
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const seen = new Set<string>();
+  let scope: string | undefined = node.parent ?? '';
+  while (scope !== undefined && !seen.has(scope)) {
+    seen.add(scope);
+    const here: string = scope;
+    const found = nodes.find(
+      (n) => isModuleGroup(n) && n.label === name && (n.parent ?? '') === here,
+    );
+    if (found) return found;
+    scope = here === '' ? undefined : (byId.get(here)?.parent ?? '');
+  }
+  return undefined;
+}
+
+type EdgeEnds = {
+  id: string;
+  from: { node: string; port: string };
+  to: { node: string; port: string };
+};
+
+/**
+ * Each edge's accessible name — `Edge from <kind label> to <kind label>` —
+ * made unique among the edges given. Parallel edges between the same two
+ * nodes (an OTel batch processor's metrics, logs and traces outputs into
+ * one exporter) add their ports; edges whose ends share a kind and label
+ * in different module scopes add the source's module; anything still alike
+ * is numbered.
+ */
+export function edgeNames(
+  edges: readonly EdgeEnds[],
+  nodes: readonly GraphNode[],
+): Map<string, string> {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const name = (id: string) => {
+    const n = byId.get(id);
+    return n ? nodeKindLabel(n) : id;
+  };
+  const names = new Map(
+    edges.map((e) => [e.id, `Edge from ${name(e.from.node)} to ${name(e.to.node)}`]),
+  );
+  const refine = (extra: (e: EdgeEnds) => string) => {
+    const count = new Map<string, number>();
+    for (const n of names.values()) count.set(n, (count.get(n) ?? 0) + 1);
+    for (const e of edges) {
+      const current = names.get(e.id) as string;
+      if ((count.get(current) ?? 0) < 2) continue;
+      const more = extra(e);
+      if (more) names.set(e.id, `${current} ${more}`);
+    }
+  };
+  refine((e) => (e.from.port || e.to.port ? `(${e.from.port} to ${e.to.port})` : ''));
+  refine((e) => {
+    const parent = byId.get(e.from.node)?.parent;
+    const scope = parent ? byId.get(parent) : undefined;
+    return scope ? `in module ${scope.label}` : '';
+  });
+  const seen = new Map<string, number>();
+  for (const e of edges) {
+    const current = names.get(e.id) as string;
+    const k = (seen.get(current) ?? 0) + 1;
+    seen.set(current, k);
+    if (k > 1) names.set(e.id, `${current} (${k})`);
+  }
+  return names;
 }
 
 /** A node named by its kind and label — `discovery.relabel nodes`, `module
