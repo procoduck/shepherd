@@ -30,6 +30,13 @@ export interface GraphNode {
    * declaration order — what every graph saved before this field existed gets.
    */
   block_order?: string[];
+  /**
+   * Read-only graph view only: the id of the module group (component
+   * `declare`) this node sits in, absent at the top level. GraphView sets it
+   * when it expands a `declare`; the builder never does, and the server's
+   * Render refuses a graph that carries one.
+   */
+  parent?: string;
 }
 
 export interface GraphEdge {

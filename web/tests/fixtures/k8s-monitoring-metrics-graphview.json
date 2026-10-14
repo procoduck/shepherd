@@ -1,0 +1,1795 @@
+{
+  "graph": {
+    "bindings": [
+      {
+        "node": "n_prometheus_remote_write_prometheus",
+        "prop": "endpoint.basic_auth.username",
+        "ref": {
+          "export": "data",
+          "expr": "convert.nonsensitive(remote.kubernetes.secret.prometheus.data[\"username\"])",
+          "node": "n_remote_kubernetes_secret_prometheus"
+        }
+      },
+      {
+        "node": "n_prometheus_remote_write_prometheus",
+        "prop": "endpoint.basic_auth.password",
+        "ref": {
+          "export": "data",
+          "expr": "remote.kubernetes.secret.prometheus.data[\"password\"]",
+          "node": "n_remote_kubernetes_secret_prometheus"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "from": {
+          "node": "n_annotation_autodiscovery__discovery_kubernetes_pods",
+          "port": "targets"
+        },
+        "id": "e_n_annotation_autodiscovery__discovery_kubernetes_pods_n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_pods_targets",
+        "to": {
+          "node": "n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_pods",
+          "port": "targets"
+        }
+      },
+      {
+        "from": {
+          "node": "n_annotation_autodiscovery__discovery_kubernetes_services",
+          "port": "targets"
+        },
+        "id": "e_n_annotation_autodiscovery__discovery_kubernetes_services_n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_services_targets",
+        "to": {
+          "node": "n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_services",
+          "port": "targets"
+        }
+      },
+      {
+        "from": {
+          "node": "n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_pods",
+          "port": "output"
+        },
+        "id": "e_n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_pods_n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_http_targets",
+        "to": {
+          "node": "n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_http",
+          "port": "targets"
+        }
+      },
+      {
+        "from": {
+          "node": "n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_services",
+          "port": "output"
+        },
+        "id": "e_n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_services_n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_http_targets",
+        "to": {
+          "node": "n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_http",
+          "port": "targets"
+        }
+      },
+      {
+        "from": {
+          "node": "n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_pods",
+          "port": "output"
+        },
+        "id": "e_n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_pods_n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_https_targets",
+        "to": {
+          "node": "n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_https",
+          "port": "targets"
+        }
+      },
+      {
+        "from": {
+          "node": "n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_services",
+          "port": "output"
+        },
+        "id": "e_n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_services_n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_https_targets",
+        "to": {
+          "node": "n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_https",
+          "port": "targets"
+        }
+      },
+      {
+        "from": {
+          "node": "n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_http",
+          "port": "output"
+        },
+        "id": "e_n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_http_n_annotation_autodiscovery__prometheus_scrape_annotation_autodiscovery_http_targets",
+        "to": {
+          "node": "n_annotation_autodiscovery__prometheus_scrape_annotation_autodiscovery_http",
+          "port": "targets"
+        }
+      },
+      {
+        "from": {
+          "node": "n_annotation_autodiscovery__prometheus_scrape_annotation_autodiscovery_http",
+          "port": "forward_to"
+        },
+        "id": "e_n_annotation_autodiscovery__prometheus_scrape_annotation_autodiscovery_http_forward_to_n_declare_annotation_autodiscovery_argument.metrics_destinations",
+        "to": {
+          "node": "n_declare_annotation_autodiscovery",
+          "port": "argument.metrics_destinations"
+        }
+      },
+      {
+        "from": {
+          "node": "n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_https",
+          "port": "output"
+        },
+        "id": "e_n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_https_n_annotation_autodiscovery__prometheus_scrape_annotation_autodiscovery_https_targets",
+        "to": {
+          "node": "n_annotation_autodiscovery__prometheus_scrape_annotation_autodiscovery_https",
+          "port": "targets"
+        }
+      },
+      {
+        "from": {
+          "node": "n_annotation_autodiscovery__prometheus_scrape_annotation_autodiscovery_https",
+          "port": "forward_to"
+        },
+        "id": "e_n_annotation_autodiscovery__prometheus_scrape_annotation_autodiscovery_https_forward_to_n_declare_annotation_autodiscovery_argument.metrics_destinations",
+        "to": {
+          "node": "n_declare_annotation_autodiscovery",
+          "port": "argument.metrics_destinations"
+        }
+      },
+      {
+        "from": {
+          "node": "n_opaque_annotation_autodiscovery_feature",
+          "port": "metrics_destinations"
+        },
+        "id": "e_n_opaque_annotation_autodiscovery_feature_n_prometheus_remote_write_prometheus_metrics_destinations",
+        "to": {
+          "node": "n_prometheus_remote_write_prometheus",
+          "port": "receiver"
+        }
+      },
+      {
+        "from": {
+          "node": "n_cluster_metrics__discovery_kubernetes_nodes",
+          "port": "targets"
+        },
+        "id": "e_n_cluster_metrics__discovery_kubernetes_nodes_n_cluster_metrics__discovery_relabel_nodes_targets",
+        "to": {
+          "node": "n_cluster_metrics__discovery_relabel_nodes",
+          "port": "targets"
+        }
+      },
+      {
+        "from": {
+          "node": "n_cluster_metrics__discovery_relabel_nodes",
+          "port": "output"
+        },
+        "id": "e_n_cluster_metrics__discovery_relabel_nodes_n_cluster_metrics__discovery_relabel_kubelet_targets",
+        "to": {
+          "node": "n_cluster_metrics__discovery_relabel_kubelet",
+          "port": "targets"
+        }
+      },
+      {
+        "from": {
+          "node": "n_cluster_metrics__discovery_relabel_kubelet",
+          "port": "output"
+        },
+        "id": "e_n_cluster_metrics__discovery_relabel_kubelet_n_cluster_metrics__prometheus_scrape_kubelet_targets",
+        "to": {
+          "node": "n_cluster_metrics__prometheus_scrape_kubelet",
+          "port": "targets"
+        }
+      },
+      {
+        "from": {
+          "node": "n_cluster_metrics__prometheus_scrape_kubelet",
+          "port": "forward_to"
+        },
+        "id": "e_n_cluster_metrics__prometheus_scrape_kubelet_n_cluster_metrics__prometheus_relabel_kubelet_forward_to",
+        "to": {
+          "node": "n_cluster_metrics__prometheus_relabel_kubelet",
+          "port": "receiver"
+        }
+      },
+      {
+        "from": {
+          "node": "n_cluster_metrics__prometheus_relabel_kubelet",
+          "port": "forward_to"
+        },
+        "id": "e_n_cluster_metrics__prometheus_relabel_kubelet_forward_to_n_declare_cluster_metrics_argument.metrics_destinations",
+        "to": {
+          "node": "n_declare_cluster_metrics",
+          "port": "argument.metrics_destinations"
+        }
+      },
+      {
+        "from": {
+          "node": "n_cluster_metrics__discovery_relabel_nodes",
+          "port": "output"
+        },
+        "id": "e_n_cluster_metrics__discovery_relabel_nodes_n_cluster_metrics__discovery_relabel_kubelet_resources_targets",
+        "to": {
+          "node": "n_cluster_metrics__discovery_relabel_kubelet_resources",
+          "port": "targets"
+        }
+      },
+      {
+        "from": {
+          "node": "n_cluster_metrics__discovery_relabel_kubelet_resources",
+          "port": "output"
+        },
+        "id": "e_n_cluster_metrics__discovery_relabel_kubelet_resources_n_cluster_metrics__prometheus_scrape_kubelet_resources_targets",
+        "to": {
+          "node": "n_cluster_metrics__prometheus_scrape_kubelet_resources",
+          "port": "targets"
+        }
+      },
+      {
+        "from": {
+          "node": "n_cluster_metrics__prometheus_scrape_kubelet_resources",
+          "port": "forward_to"
+        },
+        "id": "e_n_cluster_metrics__prometheus_scrape_kubelet_resources_n_cluster_metrics__prometheus_relabel_kubelet_resources_forward_to",
+        "to": {
+          "node": "n_cluster_metrics__prometheus_relabel_kubelet_resources",
+          "port": "receiver"
+        }
+      },
+      {
+        "from": {
+          "node": "n_cluster_metrics__prometheus_relabel_kubelet_resources",
+          "port": "forward_to"
+        },
+        "id": "e_n_cluster_metrics__prometheus_relabel_kubelet_resources_forward_to_n_declare_cluster_metrics_argument.metrics_destinations",
+        "to": {
+          "node": "n_declare_cluster_metrics",
+          "port": "argument.metrics_destinations"
+        }
+      },
+      {
+        "from": {
+          "node": "n_cluster_metrics__discovery_relabel_nodes",
+          "port": "output"
+        },
+        "id": "e_n_cluster_metrics__discovery_relabel_nodes_n_cluster_metrics__discovery_relabel_cadvisor_targets",
+        "to": {
+          "node": "n_cluster_metrics__discovery_relabel_cadvisor",
+          "port": "targets"
+        }
+      },
+      {
+        "from": {
+          "node": "n_cluster_metrics__discovery_relabel_cadvisor",
+          "port": "output"
+        },
+        "id": "e_n_cluster_metrics__discovery_relabel_cadvisor_n_cluster_metrics__prometheus_scrape_cadvisor_targets",
+        "to": {
+          "node": "n_cluster_metrics__prometheus_scrape_cadvisor",
+          "port": "targets"
+        }
+      },
+      {
+        "from": {
+          "node": "n_cluster_metrics__prometheus_scrape_cadvisor",
+          "port": "forward_to"
+        },
+        "id": "e_n_cluster_metrics__prometheus_scrape_cadvisor_n_cluster_metrics__prometheus_relabel_cadvisor_forward_to",
+        "to": {
+          "node": "n_cluster_metrics__prometheus_relabel_cadvisor",
+          "port": "receiver"
+        }
+      },
+      {
+        "from": {
+          "node": "n_cluster_metrics__prometheus_relabel_cadvisor",
+          "port": "forward_to"
+        },
+        "id": "e_n_cluster_metrics__prometheus_relabel_cadvisor_forward_to_n_declare_cluster_metrics_argument.metrics_destinations",
+        "to": {
+          "node": "n_declare_cluster_metrics",
+          "port": "argument.metrics_destinations"
+        }
+      },
+      {
+        "from": {
+          "node": "n_cluster_metrics__discovery_kubernetes_kube_state_metrics",
+          "port": "targets"
+        },
+        "id": "e_n_cluster_metrics__discovery_kubernetes_kube_state_metrics_n_cluster_metrics__discovery_relabel_kube_state_metrics_targets",
+        "to": {
+          "node": "n_cluster_metrics__discovery_relabel_kube_state_metrics",
+          "port": "targets"
+        }
+      },
+      {
+        "from": {
+          "node": "n_cluster_metrics__discovery_relabel_kube_state_metrics",
+          "port": "output"
+        },
+        "id": "e_n_cluster_metrics__discovery_relabel_kube_state_metrics_n_cluster_metrics__prometheus_scrape_kube_state_metrics_targets",
+        "to": {
+          "node": "n_cluster_metrics__prometheus_scrape_kube_state_metrics",
+          "port": "targets"
+        }
+      },
+      {
+        "from": {
+          "node": "n_cluster_metrics__prometheus_scrape_kube_state_metrics",
+          "port": "forward_to"
+        },
+        "id": "e_n_cluster_metrics__prometheus_scrape_kube_state_metrics_n_cluster_metrics__prometheus_relabel_kube_state_metrics_forward_to",
+        "to": {
+          "node": "n_cluster_metrics__prometheus_relabel_kube_state_metrics",
+          "port": "receiver"
+        }
+      },
+      {
+        "from": {
+          "node": "n_cluster_metrics__prometheus_relabel_kube_state_metrics",
+          "port": "forward_to"
+        },
+        "id": "e_n_cluster_metrics__prometheus_relabel_kube_state_metrics_forward_to_n_declare_cluster_metrics_argument.metrics_destinations",
+        "to": {
+          "node": "n_declare_cluster_metrics",
+          "port": "argument.metrics_destinations"
+        }
+      },
+      {
+        "from": {
+          "node": "n_opaque_cluster_metrics_feature",
+          "port": "metrics_destinations"
+        },
+        "id": "e_n_opaque_cluster_metrics_feature_n_prometheus_remote_write_prometheus_metrics_destinations",
+        "to": {
+          "node": "n_prometheus_remote_write_prometheus",
+          "port": "receiver"
+        }
+      },
+      {
+        "from": {
+          "node": "n_linux_host_metrics__discovery_kubernetes_node_exporter",
+          "port": "targets"
+        },
+        "id": "e_n_linux_host_metrics__discovery_kubernetes_node_exporter_n_linux_host_metrics__discovery_relabel_node_exporter_targets",
+        "to": {
+          "node": "n_linux_host_metrics__discovery_relabel_node_exporter",
+          "port": "targets"
+        }
+      },
+      {
+        "from": {
+          "node": "n_linux_host_metrics__discovery_relabel_node_exporter",
+          "port": "output"
+        },
+        "id": "e_n_linux_host_metrics__discovery_relabel_node_exporter_n_linux_host_metrics__prometheus_scrape_node_exporter_targets",
+        "to": {
+          "node": "n_linux_host_metrics__prometheus_scrape_node_exporter",
+          "port": "targets"
+        }
+      },
+      {
+        "from": {
+          "node": "n_linux_host_metrics__prometheus_scrape_node_exporter",
+          "port": "forward_to"
+        },
+        "id": "e_n_linux_host_metrics__prometheus_scrape_node_exporter_n_linux_host_metrics__prometheus_relabel_node_exporter_forward_to",
+        "to": {
+          "node": "n_linux_host_metrics__prometheus_relabel_node_exporter",
+          "port": "receiver"
+        }
+      },
+      {
+        "from": {
+          "node": "n_linux_host_metrics__prometheus_relabel_node_exporter",
+          "port": "forward_to"
+        },
+        "id": "e_n_linux_host_metrics__prometheus_relabel_node_exporter_forward_to_n_declare_linux_host_metrics_argument.metrics_destinations",
+        "to": {
+          "node": "n_declare_linux_host_metrics",
+          "port": "argument.metrics_destinations"
+        }
+      },
+      {
+        "from": {
+          "node": "n_opaque_linux_host_metrics_feature",
+          "port": "metrics_destinations"
+        },
+        "id": "e_n_opaque_linux_host_metrics_feature_n_prometheus_remote_write_prometheus_metrics_destinations",
+        "to": {
+          "node": "n_prometheus_remote_write_prometheus",
+          "port": "receiver"
+        }
+      },
+      {
+        "from": {
+          "node": "n_prometheus_operator_objects__prometheus_operator_podmonitors_pod_monitors",
+          "port": "forward_to"
+        },
+        "id": "e_n_prometheus_operator_objects__prometheus_operator_podmonitors_pod_monitors_forward_to_n_declare_prometheus_operator_objects_argument.metrics_destinations",
+        "to": {
+          "node": "n_declare_prometheus_operator_objects",
+          "port": "argument.metrics_destinations"
+        }
+      },
+      {
+        "from": {
+          "node": "n_prometheus_operator_objects__prometheus_operator_probes_probes",
+          "port": "forward_to"
+        },
+        "id": "e_n_prometheus_operator_objects__prometheus_operator_probes_probes_forward_to_n_declare_prometheus_operator_objects_argument.metrics_destinations",
+        "to": {
+          "node": "n_declare_prometheus_operator_objects",
+          "port": "argument.metrics_destinations"
+        }
+      },
+      {
+        "from": {
+          "node": "n_prometheus_operator_objects__prometheus_operator_servicemonitors_service_monitors",
+          "port": "forward_to"
+        },
+        "id": "e_n_prometheus_operator_objects__prometheus_operator_servicemonitors_service_monitors_forward_to_n_declare_prometheus_operator_objects_argument.metrics_destinations",
+        "to": {
+          "node": "n_declare_prometheus_operator_objects",
+          "port": "argument.metrics_destinations"
+        }
+      },
+      {
+        "from": {
+          "node": "n_opaque_prometheus_operator_objects_feature",
+          "port": "metrics_destinations"
+        },
+        "id": "e_n_opaque_prometheus_operator_objects_feature_n_prometheus_remote_write_prometheus_metrics_destinations",
+        "to": {
+          "node": "n_prometheus_remote_write_prometheus",
+          "port": "receiver"
+        }
+      },
+      {
+        "from": {
+          "node": "n_otelcol_exporter_prometheus_prometheus",
+          "port": "forward_to"
+        },
+        "id": "e_n_otelcol_exporter_prometheus_prometheus_n_prometheus_remote_write_prometheus_forward_to",
+        "to": {
+          "node": "n_prometheus_remote_write_prometheus",
+          "port": "receiver"
+        }
+      },
+      {
+        "from": {
+          "node": "n_declare_annotation_autodiscovery",
+          "port": "argument.metrics_destinations"
+        },
+        "id": "e_n_declare_annotation_autodiscovery_argument.metrics_destinations_n_opaque_annotation_autodiscovery_feature_metrics_destinations",
+        "to": {
+          "node": "n_opaque_annotation_autodiscovery_feature",
+          "port": "metrics_destinations"
+        }
+      },
+      {
+        "from": {
+          "node": "n_declare_cluster_metrics",
+          "port": "argument.metrics_destinations"
+        },
+        "id": "e_n_declare_cluster_metrics_argument.metrics_destinations_n_opaque_cluster_metrics_feature_metrics_destinations",
+        "to": {
+          "node": "n_opaque_cluster_metrics_feature",
+          "port": "metrics_destinations"
+        }
+      },
+      {
+        "from": {
+          "node": "n_declare_linux_host_metrics",
+          "port": "argument.metrics_destinations"
+        },
+        "id": "e_n_declare_linux_host_metrics_argument.metrics_destinations_n_opaque_linux_host_metrics_feature_metrics_destinations",
+        "to": {
+          "node": "n_opaque_linux_host_metrics_feature",
+          "port": "metrics_destinations"
+        }
+      },
+      {
+        "from": {
+          "node": "n_declare_prometheus_operator_objects",
+          "port": "argument.metrics_destinations"
+        },
+        "id": "e_n_declare_prometheus_operator_objects_argument.metrics_destinations_n_opaque_prometheus_operator_objects_feature_metrics_destinations",
+        "to": {
+          "node": "n_opaque_prometheus_operator_objects_feature",
+          "port": "metrics_destinations"
+        }
+      }
+    ],
+    "kind": "alloy-graph/v1",
+    "meta": {
+      "created_with": "shepherd-parser"
+    },
+    "nodes": [
+      {
+        "component": "declare",
+        "disabled": false,
+        "id": "n_declare_annotation_autodiscovery",
+        "label": "annotation_autodiscovery",
+        "notes": "",
+        "position": {
+          "x": 0,
+          "y": 0
+        },
+        "props": {
+          "$raw": "declare \"annotation_autodiscovery\" {\n\targument \"metrics_destinations\" {\n\t\tcomment = \"Must be a list of metric destinations where collected metrics should be forwarded to\"\n\t}\n\n\tdiscovery.kubernetes \"pods\" {\n\t\trole = \"pod\"\n\t}\n\n\tdiscovery.relabel \"annotation_autodiscovery_pods\" {\n\t\ttargets = discovery.kubernetes.pods.targets\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_pod_annotation_k8s_grafana_com_scrape\"]\n\t\t\tregex         = \"true\"\n\t\t\taction        = \"keep\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\n\t\t\t\t\"__meta_kubernetes_pod_phase\",\n\t\t\t\t\"__meta_kubernetes_pod_ready\",\n\t\t\t\t\"__meta_kubernetes_pod_container_init\",\n\t\t\t]\n\t\t\tregex  = \"Running;true;false\"\n\t\t\taction = \"keep\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_pod_name\"]\n\t\t\ttarget_label  = \"pod\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_pod_container_name\"]\n\t\t\ttarget_label  = \"container\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_namespace\"]\n\t\t\ttarget_label  = \"namespace\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_pod_annotation_k8s_grafana_com_job\"]\n\t\t\ttarget_label  = \"job\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"job\", \"__meta_kubernetes_pod_label_app_kubernetes_io_name\"]\n\t\t\tregex         = \";(.+)\"\n\t\t\ttarget_label  = \"job\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"job\", \"__meta_kubernetes_pod_label_app\"]\n\t\t\tregex         = \";(.+)\"\n\t\t\ttarget_label  = \"job\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"job\", \"container\"]\n\t\t\tregex         = \";(.+)\"\n\t\t\ttarget_label  = \"job\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_pod_annotation_k8s_grafana_com_instance\"]\n\t\t\ttarget_label  = \"instance\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"container\"]\n\t\t\ttarget_label  = \"__tmp_container\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_pod_annotation_k8s_grafana_com_metrics_container\"]\n\t\t\tregex         = \"(.+)\"\n\t\t\ttarget_label  = \"__tmp_container\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"container\"]\n\t\t\taction        = \"keepequal\"\n\t\t\ttarget_label  = \"__tmp_container\"\n\t\t}\n\n\t\trule {\n\t\t\taction = \"labeldrop\"\n\t\t\tregex  = \"__tmp_container\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_pod_annotation_k8s_grafana_com_metrics_path\"]\n\t\t\tregex         = \"(.+)\"\n\t\t\ttarget_label  = \"__metrics_path__\"\n\t\t}\n\n\t\trule {\n\t\t\taction      = \"labelmap\"\n\t\t\tregex       = \"__meta_kubernetes_pod_annotation_k8s_grafana_com_metrics_param_(.+)\"\n\t\t\treplacement = \"__param_$1\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_pod_container_port_name\"]\n\t\t\ttarget_label  = \"__tmp_port\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_pod_annotation_k8s_grafana_com_metrics_portName\"]\n\t\t\tregex         = \"(.+)\"\n\t\t\ttarget_label  = \"__tmp_port\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_pod_container_port_name\"]\n\t\t\taction        = \"keepequal\"\n\t\t\ttarget_label  = \"__tmp_port\"\n\t\t}\n\n\t\trule {\n\t\t\taction = \"labeldrop\"\n\t\t\tregex  = \"__tmp_port\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_pod_annotation_k8s_grafana_com_metrics_portNumber\", \"__meta_kubernetes_pod_ip\"]\n\t\t\tregex         = \"(\\\\d+);(([A-Fa-f0-9]{1,4}::?){1,7}[A-Fa-f0-9]{1,4})\"\n\t\t\treplacement   = \"[$2]:$1\"\n\t\t\ttarget_label  = \"__address__\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_pod_annotation_k8s_grafana_com_metrics_portNumber\", \"__meta_kubernetes_pod_ip\"]\n\t\t\tregex         = \"(\\\\d+);((([0-9]+?)(\\\\.|$)){4})\"\n\t\t\treplacement   = \"$2:$1\"\n\t\t\ttarget_label  = \"__address__\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_pod_annotation_k8s_grafana_com_metrics_scheme\"]\n\t\t\tregex         = \"(.+)\"\n\t\t\ttarget_label  = \"__scheme__\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_pod_annotation_k8s_grafana_com_metrics_scrapeInterval\"]\n\t\t\tregex         = \"(.+)\"\n\t\t\ttarget_label  = \"__scrape_interval__\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__scrape_interval__\"]\n\t\t\tregex         = \"\"\n\t\t\treplacement   = \"60s\"\n\t\t\ttarget_label  = \"__scrape_interval__\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_pod_annotation_k8s_grafana_com_metrics_scrapeTimeout\"]\n\t\t\tregex         = \"(.+)\"\n\t\t\ttarget_label  = \"__scrape_timeout__\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__scrape_timeout__\"]\n\t\t\tregex         = \"\"\n\t\t\treplacement   = \"10s\"\n\t\t\ttarget_label  = \"__scrape_timeout__\"\n\t\t}\n\t}\n\n\tdiscovery.kubernetes \"services\" {\n\t\trole = \"service\"\n\t}\n\n\tdiscovery.relabel \"annotation_autodiscovery_services\" {\n\t\ttargets = discovery.kubernetes.services.targets\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_service_annotation_k8s_grafana_com_scrape\"]\n\t\t\tregex         = \"true\"\n\t\t\taction        = \"keep\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_service_name\"]\n\t\t\ttarget_label  = \"service\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_namespace\"]\n\t\t\ttarget_label  = \"namespace\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_service_annotation_k8s_grafana_com_job\"]\n\t\t\ttarget_label  = \"job\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"job\", \"__meta_kubernetes_service_label_app_kubernetes_io_name\"]\n\t\t\tregex         = \";(.+)\"\n\t\t\ttarget_label  = \"job\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"job\", \"__meta_kubernetes_service_label_app\"]\n\t\t\tregex         = \";(.+)\"\n\t\t\ttarget_label  = \"job\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"job\", \"service\"]\n\t\t\tregex         = \";(.+)\"\n\t\t\ttarget_label  = \"job\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_service_annotation_k8s_grafana_com_instance\"]\n\t\t\ttarget_label  = \"instance\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_service_annotation_k8s_grafana_com_metrics_path\"]\n\t\t\ttarget_label  = \"__metrics_path__\"\n\t\t}\n\n\t\trule {\n\t\t\taction      = \"labelmap\"\n\t\t\tregex       = \"__meta_kubernetes_service_annotation_k8s_grafana_com_metrics_param_(.+)\"\n\t\t\treplacement = \"__param_$1\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_service_port_name\"]\n\t\t\ttarget_label  = \"__tmp_port\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_service_annotation_k8s_grafana_com_metrics_portName\"]\n\t\t\tregex         = \"(.+)\"\n\t\t\ttarget_label  = \"__tmp_port\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_service_port_name\"]\n\t\t\taction        = \"keepequal\"\n\t\t\ttarget_label  = \"__tmp_port\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_service_port_number\"]\n\t\t\ttarget_label  = \"__tmp_port\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_service_annotation_k8s_grafana_com_metrics_portNumber\"]\n\t\t\tregex         = \"(.+)\"\n\t\t\ttarget_label  = \"__tmp_port\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_service_port_number\"]\n\t\t\taction        = \"keepequal\"\n\t\t\ttarget_label  = \"__tmp_port\"\n\t\t}\n\n\t\trule {\n\t\t\taction = \"labeldrop\"\n\t\t\tregex  = \"__tmp_port\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_service_annotation_k8s_grafana_com_metrics_scheme\"]\n\t\t\tregex         = \"(.+)\"\n\t\t\ttarget_label  = \"__scheme__\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_service_annotation_k8s_grafana_com_metrics_scrapeInterval\"]\n\t\t\tregex         = \"(.+)\"\n\t\t\ttarget_label  = \"__scrape_interval__\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__scrape_interval__\"]\n\t\t\tregex         = \"\"\n\t\t\treplacement   = \"60s\"\n\t\t\ttarget_label  = \"__scrape_interval__\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_service_annotation_k8s_grafana_com_metrics_scrapeTimeout\"]\n\t\t\tregex         = \"(.+)\"\n\t\t\ttarget_label  = \"__scrape_timeout__\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__scrape_timeout__\"]\n\t\t\tregex         = \"\"\n\t\t\treplacement   = \"10s\"\n\t\t\ttarget_label  = \"__scrape_timeout__\"\n\t\t}\n\t}\n\n\tdiscovery.relabel \"annotation_autodiscovery_http\" {\n\t\ttargets = array.concat(discovery.relabel.annotation_autodiscovery_pods.output, discovery.relabel.annotation_autodiscovery_services.output)\n\n\t\trule {\n\t\t\tsource_labels = [\"__scheme__\"]\n\t\t\tregex         = \"https\"\n\t\t\taction        = \"drop\"\n\t\t}\n\t}\n\n\tdiscovery.relabel \"annotation_autodiscovery_https\" {\n\t\ttargets = array.concat(discovery.relabel.annotation_autodiscovery_pods.output, discovery.relabel.annotation_autodiscovery_services.output)\n\n\t\trule {\n\t\t\tsource_labels = [\"__scheme__\"]\n\t\t\tregex         = \"https\"\n\t\t\taction        = \"keep\"\n\t\t}\n\t}\n\n\tprometheus.scrape \"annotation_autodiscovery_http\" {\n\t\ttargets                            = discovery.relabel.annotation_autodiscovery_http.output\n\t\thonor_labels                       = true\n\t\tbearer_token_file                  = \"/var/run/secrets/kubernetes.io/serviceaccount/token\"\n\t\tscrape_protocols                   = [\"OpenMetricsText1.0.0\", \"OpenMetricsText0.0.1\", \"PrometheusText0.0.4\"]\n\t\tscrape_classic_histograms          = false\n\t\tscrape_native_histograms           = false\n\t\tconvert_classic_histograms_to_nhcb = false\n\n\t\tclustering {\n\t\t\tenabled = true\n\t\t}\n\n\t\tforward_to = argument.metrics_destinations.value\n\t}\n\n\tprometheus.scrape \"annotation_autodiscovery_https\" {\n\t\ttargets           = discovery.relabel.annotation_autodiscovery_https.output\n\t\thonor_labels      = true\n\t\tbearer_token_file = \"/var/run/secrets/kubernetes.io/serviceaccount/token\"\n\n\t\ttls_config {\n\t\t\tinsecure_skip_verify = true\n\t\t}\n\t\tscrape_protocols                   = [\"OpenMetricsText1.0.0\", \"OpenMetricsText0.0.1\", \"PrometheusText0.0.4\"]\n\t\tscrape_classic_histograms          = false\n\t\tscrape_native_histograms           = false\n\t\tconvert_classic_histograms_to_nhcb = false\n\n\t\tclustering {\n\t\t\tenabled = true\n\t\t}\n\n\t\tforward_to = argument.metrics_destinations.value\n\t}\n}"
+        }
+      },
+      {
+        "component": "discovery.kubernetes",
+        "disabled": false,
+        "id": "n_annotation_autodiscovery__discovery_kubernetes_pods",
+        "label": "pods",
+        "notes": "",
+        "parent": "n_declare_annotation_autodiscovery",
+        "position": {
+          "x": 280,
+          "y": 0
+        },
+        "props": {
+          "role": "pod"
+        }
+      },
+      {
+        "block_order": ["rule"],
+        "component": "discovery.relabel",
+        "disabled": false,
+        "id": "n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_pods",
+        "label": "annotation_autodiscovery_pods",
+        "notes": "",
+        "parent": "n_declare_annotation_autodiscovery",
+        "position": {
+          "x": 560,
+          "y": 0
+        },
+        "props": {
+          "rule": [
+            {
+              "action": "keep",
+              "regex": "true",
+              "source_labels": ["__meta_kubernetes_pod_annotation_k8s_grafana_com_scrape"]
+            },
+            {
+              "action": "keep",
+              "regex": "Running;true;false",
+              "source_labels": [
+                "__meta_kubernetes_pod_phase",
+                "__meta_kubernetes_pod_ready",
+                "__meta_kubernetes_pod_container_init"
+              ]
+            },
+            {
+              "source_labels": ["__meta_kubernetes_pod_name"],
+              "target_label": "pod"
+            },
+            {
+              "source_labels": ["__meta_kubernetes_pod_container_name"],
+              "target_label": "container"
+            },
+            {
+              "source_labels": ["__meta_kubernetes_namespace"],
+              "target_label": "namespace"
+            },
+            {
+              "source_labels": ["__meta_kubernetes_pod_annotation_k8s_grafana_com_job"],
+              "target_label": "job"
+            },
+            {
+              "regex": ";(.+)",
+              "source_labels": ["job", "__meta_kubernetes_pod_label_app_kubernetes_io_name"],
+              "target_label": "job"
+            },
+            {
+              "regex": ";(.+)",
+              "source_labels": ["job", "__meta_kubernetes_pod_label_app"],
+              "target_label": "job"
+            },
+            {
+              "regex": ";(.+)",
+              "source_labels": ["job", "container"],
+              "target_label": "job"
+            },
+            {
+              "source_labels": ["__meta_kubernetes_pod_annotation_k8s_grafana_com_instance"],
+              "target_label": "instance"
+            },
+            {
+              "source_labels": ["container"],
+              "target_label": "__tmp_container"
+            },
+            {
+              "regex": "(.+)",
+              "source_labels": [
+                "__meta_kubernetes_pod_annotation_k8s_grafana_com_metrics_container"
+              ],
+              "target_label": "__tmp_container"
+            },
+            {
+              "action": "keepequal",
+              "source_labels": ["container"],
+              "target_label": "__tmp_container"
+            },
+            {
+              "action": "labeldrop",
+              "regex": "__tmp_container"
+            },
+            {
+              "regex": "(.+)",
+              "source_labels": ["__meta_kubernetes_pod_annotation_k8s_grafana_com_metrics_path"],
+              "target_label": "__metrics_path__"
+            },
+            {
+              "action": "labelmap",
+              "regex": "__meta_kubernetes_pod_annotation_k8s_grafana_com_metrics_param_(.+)",
+              "replacement": "__param_$1"
+            },
+            {
+              "source_labels": ["__meta_kubernetes_pod_container_port_name"],
+              "target_label": "__tmp_port"
+            },
+            {
+              "regex": "(.+)",
+              "source_labels": [
+                "__meta_kubernetes_pod_annotation_k8s_grafana_com_metrics_portName"
+              ],
+              "target_label": "__tmp_port"
+            },
+            {
+              "action": "keepequal",
+              "source_labels": ["__meta_kubernetes_pod_container_port_name"],
+              "target_label": "__tmp_port"
+            },
+            {
+              "action": "labeldrop",
+              "regex": "__tmp_port"
+            },
+            {
+              "regex": "(\\d+);(([A-Fa-f0-9]{1,4}::?){1,7}[A-Fa-f0-9]{1,4})",
+              "replacement": "[$2]:$1",
+              "source_labels": [
+                "__meta_kubernetes_pod_annotation_k8s_grafana_com_metrics_portNumber",
+                "__meta_kubernetes_pod_ip"
+              ],
+              "target_label": "__address__"
+            },
+            {
+              "regex": "(\\d+);((([0-9]+?)(\\.|$)){4})",
+              "replacement": "$2:$1",
+              "source_labels": [
+                "__meta_kubernetes_pod_annotation_k8s_grafana_com_metrics_portNumber",
+                "__meta_kubernetes_pod_ip"
+              ],
+              "target_label": "__address__"
+            },
+            {
+              "regex": "(.+)",
+              "source_labels": ["__meta_kubernetes_pod_annotation_k8s_grafana_com_metrics_scheme"],
+              "target_label": "__scheme__"
+            },
+            {
+              "regex": "(.+)",
+              "source_labels": [
+                "__meta_kubernetes_pod_annotation_k8s_grafana_com_metrics_scrapeInterval"
+              ],
+              "target_label": "__scrape_interval__"
+            },
+            {
+              "regex": "",
+              "replacement": "60s",
+              "source_labels": ["__scrape_interval__"],
+              "target_label": "__scrape_interval__"
+            },
+            {
+              "regex": "(.+)",
+              "source_labels": [
+                "__meta_kubernetes_pod_annotation_k8s_grafana_com_metrics_scrapeTimeout"
+              ],
+              "target_label": "__scrape_timeout__"
+            },
+            {
+              "regex": "",
+              "replacement": "10s",
+              "source_labels": ["__scrape_timeout__"],
+              "target_label": "__scrape_timeout__"
+            }
+          ]
+        }
+      },
+      {
+        "component": "discovery.kubernetes",
+        "disabled": false,
+        "id": "n_annotation_autodiscovery__discovery_kubernetes_services",
+        "label": "services",
+        "notes": "",
+        "parent": "n_declare_annotation_autodiscovery",
+        "position": {
+          "x": 840,
+          "y": 0
+        },
+        "props": {
+          "role": "service"
+        }
+      },
+      {
+        "block_order": ["rule"],
+        "component": "discovery.relabel",
+        "disabled": false,
+        "id": "n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_services",
+        "label": "annotation_autodiscovery_services",
+        "notes": "",
+        "parent": "n_declare_annotation_autodiscovery",
+        "position": {
+          "x": 1120,
+          "y": 0
+        },
+        "props": {
+          "rule": [
+            {
+              "action": "keep",
+              "regex": "true",
+              "source_labels": ["__meta_kubernetes_service_annotation_k8s_grafana_com_scrape"]
+            },
+            {
+              "source_labels": ["__meta_kubernetes_service_name"],
+              "target_label": "service"
+            },
+            {
+              "source_labels": ["__meta_kubernetes_namespace"],
+              "target_label": "namespace"
+            },
+            {
+              "source_labels": ["__meta_kubernetes_service_annotation_k8s_grafana_com_job"],
+              "target_label": "job"
+            },
+            {
+              "regex": ";(.+)",
+              "source_labels": ["job", "__meta_kubernetes_service_label_app_kubernetes_io_name"],
+              "target_label": "job"
+            },
+            {
+              "regex": ";(.+)",
+              "source_labels": ["job", "__meta_kubernetes_service_label_app"],
+              "target_label": "job"
+            },
+            {
+              "regex": ";(.+)",
+              "source_labels": ["job", "service"],
+              "target_label": "job"
+            },
+            {
+              "source_labels": ["__meta_kubernetes_service_annotation_k8s_grafana_com_instance"],
+              "target_label": "instance"
+            },
+            {
+              "source_labels": [
+                "__meta_kubernetes_service_annotation_k8s_grafana_com_metrics_path"
+              ],
+              "target_label": "__metrics_path__"
+            },
+            {
+              "action": "labelmap",
+              "regex": "__meta_kubernetes_service_annotation_k8s_grafana_com_metrics_param_(.+)",
+              "replacement": "__param_$1"
+            },
+            {
+              "source_labels": ["__meta_kubernetes_service_port_name"],
+              "target_label": "__tmp_port"
+            },
+            {
+              "regex": "(.+)",
+              "source_labels": [
+                "__meta_kubernetes_service_annotation_k8s_grafana_com_metrics_portName"
+              ],
+              "target_label": "__tmp_port"
+            },
+            {
+              "action": "keepequal",
+              "source_labels": ["__meta_kubernetes_service_port_name"],
+              "target_label": "__tmp_port"
+            },
+            {
+              "source_labels": ["__meta_kubernetes_service_port_number"],
+              "target_label": "__tmp_port"
+            },
+            {
+              "regex": "(.+)",
+              "source_labels": [
+                "__meta_kubernetes_service_annotation_k8s_grafana_com_metrics_portNumber"
+              ],
+              "target_label": "__tmp_port"
+            },
+            {
+              "action": "keepequal",
+              "source_labels": ["__meta_kubernetes_service_port_number"],
+              "target_label": "__tmp_port"
+            },
+            {
+              "action": "labeldrop",
+              "regex": "__tmp_port"
+            },
+            {
+              "regex": "(.+)",
+              "source_labels": [
+                "__meta_kubernetes_service_annotation_k8s_grafana_com_metrics_scheme"
+              ],
+              "target_label": "__scheme__"
+            },
+            {
+              "regex": "(.+)",
+              "source_labels": [
+                "__meta_kubernetes_service_annotation_k8s_grafana_com_metrics_scrapeInterval"
+              ],
+              "target_label": "__scrape_interval__"
+            },
+            {
+              "regex": "",
+              "replacement": "60s",
+              "source_labels": ["__scrape_interval__"],
+              "target_label": "__scrape_interval__"
+            },
+            {
+              "regex": "(.+)",
+              "source_labels": [
+                "__meta_kubernetes_service_annotation_k8s_grafana_com_metrics_scrapeTimeout"
+              ],
+              "target_label": "__scrape_timeout__"
+            },
+            {
+              "regex": "",
+              "replacement": "10s",
+              "source_labels": ["__scrape_timeout__"],
+              "target_label": "__scrape_timeout__"
+            }
+          ]
+        }
+      },
+      {
+        "block_order": ["rule"],
+        "component": "discovery.relabel",
+        "disabled": false,
+        "id": "n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_http",
+        "label": "annotation_autodiscovery_http",
+        "notes": "",
+        "parent": "n_declare_annotation_autodiscovery",
+        "position": {
+          "x": 0,
+          "y": 200
+        },
+        "props": {
+          "rule": {
+            "action": "drop",
+            "regex": "https",
+            "source_labels": ["__scheme__"]
+          }
+        }
+      },
+      {
+        "block_order": ["rule"],
+        "component": "discovery.relabel",
+        "disabled": false,
+        "id": "n_annotation_autodiscovery__discovery_relabel_annotation_autodiscovery_https",
+        "label": "annotation_autodiscovery_https",
+        "notes": "",
+        "parent": "n_declare_annotation_autodiscovery",
+        "position": {
+          "x": 280,
+          "y": 200
+        },
+        "props": {
+          "rule": {
+            "action": "keep",
+            "regex": "https",
+            "source_labels": ["__scheme__"]
+          }
+        }
+      },
+      {
+        "block_order": ["clustering"],
+        "component": "prometheus.scrape",
+        "disabled": false,
+        "id": "n_annotation_autodiscovery__prometheus_scrape_annotation_autodiscovery_http",
+        "label": "annotation_autodiscovery_http",
+        "notes": "",
+        "parent": "n_declare_annotation_autodiscovery",
+        "position": {
+          "x": 560,
+          "y": 200
+        },
+        "props": {
+          "bearer_token_file": "/var/run/secrets/kubernetes.io/serviceaccount/token",
+          "clustering": {
+            "enabled": true
+          },
+          "convert_classic_histograms_to_nhcb": false,
+          "honor_labels": true,
+          "scrape_classic_histograms": false,
+          "scrape_native_histograms": false,
+          "scrape_protocols": [
+            "OpenMetricsText1.0.0",
+            "OpenMetricsText0.0.1",
+            "PrometheusText0.0.4"
+          ]
+        }
+      },
+      {
+        "block_order": ["tls_config", "clustering"],
+        "component": "prometheus.scrape",
+        "disabled": false,
+        "id": "n_annotation_autodiscovery__prometheus_scrape_annotation_autodiscovery_https",
+        "label": "annotation_autodiscovery_https",
+        "notes": "",
+        "parent": "n_declare_annotation_autodiscovery",
+        "position": {
+          "x": 840,
+          "y": 200
+        },
+        "props": {
+          "bearer_token_file": "/var/run/secrets/kubernetes.io/serviceaccount/token",
+          "clustering": {
+            "enabled": true
+          },
+          "convert_classic_histograms_to_nhcb": false,
+          "honor_labels": true,
+          "scrape_classic_histograms": false,
+          "scrape_native_histograms": false,
+          "scrape_protocols": [
+            "OpenMetricsText1.0.0",
+            "OpenMetricsText0.0.1",
+            "PrometheusText0.0.4"
+          ],
+          "tls_config": {
+            "insecure_skip_verify": true
+          }
+        }
+      },
+      {
+        "component": "opaque.annotation_autodiscovery",
+        "disabled": false,
+        "id": "n_opaque_annotation_autodiscovery_feature",
+        "label": "feature",
+        "notes": "",
+        "position": {
+          "x": 1120,
+          "y": 200
+        },
+        "props": {
+          "$raw": "annotation_autodiscovery \"feature\" {\n\tmetrics_destinations = [\n\t\tprometheus.remote_write.prometheus.receiver,\n\t]\n}"
+        }
+      },
+      {
+        "component": "declare",
+        "disabled": false,
+        "id": "n_declare_cluster_metrics",
+        "label": "cluster_metrics",
+        "notes": "",
+        "position": {
+          "x": 0,
+          "y": 400
+        },
+        "props": {
+          "$raw": "declare \"cluster_metrics\" {\n\targument \"metrics_destinations\" {\n\t\tcomment = \"Must be a list of metric destinations where collected metrics should be forwarded to\"\n\t}\n\n\tdiscovery.kubernetes \"nodes\" {\n\t\trole = \"node\"\n\t}\n\n\tdiscovery.relabel \"nodes\" {\n\t\ttargets = discovery.kubernetes.nodes.targets\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_node_name\"]\n\t\t\ttarget_label  = \"node\"\n\t\t}\n\n\t\trule {\n\t\t\treplacement  = \"kubernetes\"\n\t\t\ttarget_label = \"source\"\n\t\t}\n\t}\n\n\tdiscovery.relabel \"kubelet\" {\n\t\ttargets = discovery.relabel.nodes.output\n\t}\n\n\tprometheus.scrape \"kubelet\" {\n\t\ttargets                            = discovery.relabel.kubelet.output\n\t\tjob_name                           = \"integrations/kubernetes/kubelet\"\n\t\tscheme                             = \"https\"\n\t\tscrape_interval                    = \"60s\"\n\t\tscrape_timeout                     = \"10s\"\n\t\tscrape_protocols                   = [\"OpenMetricsText1.0.0\", \"OpenMetricsText0.0.1\", \"PrometheusText0.0.4\"]\n\t\tscrape_classic_histograms          = false\n\t\tscrape_native_histograms           = false\n\t\tconvert_classic_histograms_to_nhcb = false\n\t\tbearer_token_file                  = \"/var/run/secrets/kubernetes.io/serviceaccount/token\"\n\n\t\ttls_config {\n\t\t\tca_file              = \"/var/run/secrets/kubernetes.io/serviceaccount/ca.crt\"\n\t\t\tinsecure_skip_verify = true\n\t\t\tserver_name          = \"kubernetes\"\n\t\t}\n\n\t\tclustering {\n\t\t\tenabled = true\n\t\t}\n\n\t\tforward_to = [prometheus.relabel.kubelet.receiver]\n\t}\n\n\tprometheus.relabel \"kubelet\" {\n\t\tmax_cache_size = 100000\n\n\t\trule {\n\t\t\tsource_labels = [\"__name__\"]\n\t\t\tregex         = \"up|scrape_samples_scraped|go_goroutines|kubelet_certificate_manager_client_expiration_renew_errors|kubelet_certificate_manager_client_ttl_seconds|kubelet_certificate_manager_server_ttl_seconds|kubelet_cgroup_manager_duration_seconds_bucket|kubelet_cgroup_manager_duration_seconds_count|kubelet_node_config_error|kubelet_node_name|kubelet_pleg_relist_duration_seconds_bucket|kubelet_pleg_relist_duration_seconds_count|kubelet_pleg_relist_interval_seconds_bucket|kubelet_pod_start_duration_seconds_bucket|kubelet_pod_start_duration_seconds_count|kubelet_pod_worker_duration_seconds_bucket|kubelet_pod_worker_duration_seconds_count|kubelet_running_container_count|kubelet_running_containers|kubelet_running_pod_count|kubelet_running_pods|kubelet_runtime_operations_errors_total|kubelet_runtime_operations_total|kubelet_server_expiration_renew_errors|kubelet_volume_stats_available_bytes|kubelet_volume_stats_capacity_bytes|kubelet_volume_stats_inodes|kubelet_volume_stats_inodes_free|kubelet_volume_stats_inodes_used|kubelet_volume_stats_used_bytes|kubernetes_build_info|namespace_workload_pod|process_cpu_seconds_total|process_resident_memory_bytes|rest_client_requests_total|storage_operation_duration_seconds_count|storage_operation_errors_total|volume_manager_total_volumes\"\n\t\t\taction        = \"keep\"\n\t\t}\n\n\t\tforward_to = argument.metrics_destinations.value\n\t}\n\n\tdiscovery.relabel \"kubelet_resources\" {\n\t\ttargets = discovery.relabel.nodes.output\n\n\t\trule {\n\t\t\treplacement  = \"/metrics/resource\"\n\t\t\ttarget_label = \"__metrics_path__\"\n\t\t}\n\t}\n\n\tprometheus.scrape \"kubelet_resources\" {\n\t\ttargets                            = discovery.relabel.kubelet_resources.output\n\t\tjob_name                           = \"integrations/kubernetes/resources\"\n\t\tscheme                             = \"https\"\n\t\tscrape_interval                    = \"60s\"\n\t\tscrape_timeout                     = \"10s\"\n\t\tscrape_protocols                   = [\"OpenMetricsText1.0.0\", \"OpenMetricsText0.0.1\", \"PrometheusText0.0.4\"]\n\t\tscrape_classic_histograms          = false\n\t\tscrape_native_histograms           = false\n\t\tconvert_classic_histograms_to_nhcb = false\n\t\tbearer_token_file                  = \"/var/run/secrets/kubernetes.io/serviceaccount/token\"\n\n\t\ttls_config {\n\t\t\tca_file              = \"/var/run/secrets/kubernetes.io/serviceaccount/ca.crt\"\n\t\t\tinsecure_skip_verify = true\n\t\t\tserver_name          = \"kubernetes\"\n\t\t}\n\n\t\tclustering {\n\t\t\tenabled = true\n\t\t}\n\n\t\tforward_to = [prometheus.relabel.kubelet_resources.receiver]\n\t}\n\n\tprometheus.relabel \"kubelet_resources\" {\n\t\tmax_cache_size = 100000\n\n\t\trule {\n\t\t\tsource_labels = [\"__name__\"]\n\t\t\tregex         = \"up|scrape_samples_scraped|node_cpu_usage_seconds_total|node_memory_working_set_bytes\"\n\t\t\taction        = \"keep\"\n\t\t}\n\n\t\tforward_to = argument.metrics_destinations.value\n\t}\n\n\tdiscovery.relabel \"cadvisor\" {\n\t\ttargets = discovery.relabel.nodes.output\n\n\t\trule {\n\t\t\treplacement  = \"/metrics/cadvisor\"\n\t\t\ttarget_label = \"__metrics_path__\"\n\t\t}\n\t}\n\n\tprometheus.scrape \"cadvisor\" {\n\t\ttargets                            = discovery.relabel.cadvisor.output\n\t\tjob_name                           = \"integrations/kubernetes/cadvisor\"\n\t\tscheme                             = \"https\"\n\t\tscrape_interval                    = \"60s\"\n\t\tscrape_timeout                     = \"10s\"\n\t\tscrape_protocols                   = [\"OpenMetricsText1.0.0\", \"OpenMetricsText0.0.1\", \"PrometheusText0.0.4\"]\n\t\tscrape_classic_histograms          = false\n\t\tscrape_native_histograms           = false\n\t\tconvert_classic_histograms_to_nhcb = false\n\t\tbearer_token_file                  = \"/var/run/secrets/kubernetes.io/serviceaccount/token\"\n\n\t\ttls_config {\n\t\t\tca_file              = \"/var/run/secrets/kubernetes.io/serviceaccount/ca.crt\"\n\t\t\tinsecure_skip_verify = true\n\t\t\tserver_name          = \"kubernetes\"\n\t\t}\n\n\t\tclustering {\n\t\t\tenabled = true\n\t\t}\n\n\t\tforward_to = [prometheus.relabel.cadvisor.receiver]\n\t}\n\n\tprometheus.relabel \"cadvisor\" {\n\t\tmax_cache_size = 100000\n\n\t\trule {\n\t\t\tsource_labels = [\"__name__\"]\n\t\t\tregex         = \"up|scrape_samples_scraped|container_cpu_cfs_periods_total|container_cpu_cfs_throttled_periods_total|container_cpu_usage_seconds_total|container_fs_reads_bytes_total|container_fs_reads_total|container_fs_writes_bytes_total|container_fs_writes_total|container_memory_cache|container_memory_rss|container_memory_swap|container_memory_usage_bytes|container_memory_working_set_bytes|container_network_receive_bytes_total|container_network_receive_packets_dropped_total|container_network_receive_packets_total|container_network_transmit_bytes_total|container_network_transmit_packets_dropped_total|container_network_transmit_packets_total|machine_memory_bytes\"\n\t\t\taction        = \"keep\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__name__\", \"container\"]\n\t\t\tseparator     = \"@\"\n\t\t\tregex         = \"(container_cpu_.*|container_fs_.*|container_memory_.*|container_pressure_.*)@\"\n\t\t\taction        = \"drop\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__name__\", \"image\"]\n\t\t\tseparator     = \"@\"\n\t\t\tregex         = \"(container_cpu_.*|container_fs_.*|container_memory_.*|container_network_.*|container_pressure_.*)@\"\n\t\t\taction        = \"drop\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__name__\", \"boot_id\"]\n\t\t\tseparator     = \"@\"\n\t\t\tregex         = \"machine_memory_bytes@.*\"\n\t\t\ttarget_label  = \"boot_id\"\n\t\t\treplacement   = \"NA\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__name__\", \"system_uuid\"]\n\t\t\tseparator     = \"@\"\n\t\t\tregex         = \"machine_memory_bytes@.*\"\n\t\t\ttarget_label  = \"system_uuid\"\n\t\t\treplacement   = \"NA\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__name__\", \"device\"]\n\t\t\tseparator     = \"@\"\n\t\t\tregex         = \"container_fs_.*@(/dev/)?(mmcblk.p.+|nvme.+|rbd.+|sd.+|vd.+|xvd.+|dasd.+)\"\n\t\t\ttarget_label  = \"__keepme\"\n\t\t\treplacement   = \"1\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__name__\", \"__keepme\"]\n\t\t\tseparator     = \"@\"\n\t\t\tregex         = \"container_fs_.*@\"\n\t\t\taction        = \"drop\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__name__\"]\n\t\t\tregex         = \"container_fs_.*\"\n\t\t\ttarget_label  = \"__keepme\"\n\t\t\treplacement   = \"\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__name__\", \"interface\"]\n\t\t\tseparator     = \"@\"\n\t\t\tregex         = \"container_network_.*@(en[ospx][0-9].*|wlan[0-9].*|eth[0-9].*)\"\n\t\t\ttarget_label  = \"__keepme\"\n\t\t\treplacement   = \"1\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__name__\", \"__keepme\"]\n\t\t\tseparator     = \"@\"\n\t\t\tregex         = \"container_network_.*@\"\n\t\t\taction        = \"drop\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__name__\"]\n\t\t\tregex         = \"container_network_.*\"\n\t\t\ttarget_label  = \"__keepme\"\n\t\t\treplacement   = \"\"\n\t\t}\n\t\tforward_to = argument.metrics_destinations.value\n\t}\n\n\tdiscovery.kubernetes \"kube_state_metrics\" {\n\t\trole = \"endpoints\"\n\n\t\tselectors {\n\t\t\trole  = \"endpoints\"\n\t\t\tlabel = \"release=km,app.kubernetes.io/name=kube-state-metrics\"\n\t\t}\n\n\t\tnamespaces {\n\t\t\tnames = [\"default\"]\n\t\t}\n\t}\n\n\tdiscovery.relabel \"kube_state_metrics\" {\n\t\ttargets = discovery.kubernetes.kube_state_metrics.targets\n\n\t\trule {\n\t\t\taction       = \"replace\"\n\t\t\treplacement  = \"kubernetes\"\n\t\t\ttarget_label = \"source\"\n\t\t}\n\t}\n\n\tprometheus.scrape \"kube_state_metrics\" {\n\t\ttargets                            = discovery.relabel.kube_state_metrics.output\n\t\tjob_name                           = \"integrations/kubernetes/kube-state-metrics\"\n\t\tscrape_interval                    = \"60s\"\n\t\tscrape_timeout                     = \"10s\"\n\t\tscrape_protocols                   = [\"OpenMetricsText1.0.0\", \"OpenMetricsText0.0.1\", \"PrometheusText0.0.4\"]\n\t\tscrape_classic_histograms          = false\n\t\tscrape_native_histograms           = false\n\t\tconvert_classic_histograms_to_nhcb = false\n\t\tscheme                             = \"http\"\n\t\tbearer_token_file                  = \"\"\n\n\t\ttls_config {\n\t\t\tinsecure_skip_verify = true\n\t\t}\n\n\t\tclustering {\n\t\t\tenabled = true\n\t\t}\n\t\tforward_to = [prometheus.relabel.kube_state_metrics.receiver]\n\t}\n\n\tprometheus.relabel \"kube_state_metrics\" {\n\t\tmax_cache_size = 100000\n\n\t\trule {\n\t\t\tsource_labels = [\"__name__\"]\n\t\t\tregex         = \"up|scrape_samples_scraped|kube_configmap_info|kube_configmap_metadata_resource_version|kube_cronjob.*|kube_daemonset.*|kube_deployment_metadata_generation|kube_deployment_spec_replicas|kube_deployment_status_condition|kube_deployment_status_observed_generation|kube_deployment_status_replicas_available|kube_deployment_status_replicas_updated|kube_horizontalpodautoscaler_spec_max_replicas|kube_horizontalpodautoscaler_spec_min_replicas|kube_horizontalpodautoscaler_status_current_replicas|kube_horizontalpodautoscaler_status_desired_replicas|kube_job.*|kube_namespace_status_phase|kube_node.*|kube_persistentvolume_status_phase|kube_persistentvolumeclaim_access_mode|kube_persistentvolumeclaim_info|kube_persistentvolumeclaim_labels|kube_persistentvolumeclaim_resource_requests_storage_bytes|kube_persistentvolumeclaim_status_phase|kube_pod_completion_time|kube_pod_container_info|kube_pod_container_resource_limits|kube_pod_container_resource_requests|kube_pod_container_status_last_terminated_reason|kube_pod_container_status_last_terminated_timestamp|kube_pod_container_status_restarts_total|kube_pod_container_status_waiting_reason|kube_pod_info|kube_pod_owner|kube_pod_restart_policy|kube_pod_spec_volumes_persistentvolumeclaims_info|kube_pod_start_time|kube_pod_status_phase|kube_pod_status_reason|kube_pod_init_.*|kube_replicaset.*|kube_resourcequota|kube_secret_metadata_resource_version|kube_statefulset.*\"\n\t\t\taction        = \"keep\"\n\t\t}\n\t\tforward_to = argument.metrics_destinations.value\n\t}\n}"
+        }
+      },
+      {
+        "component": "discovery.kubernetes",
+        "disabled": false,
+        "id": "n_cluster_metrics__discovery_kubernetes_nodes",
+        "label": "nodes",
+        "notes": "",
+        "parent": "n_declare_cluster_metrics",
+        "position": {
+          "x": 280,
+          "y": 400
+        },
+        "props": {
+          "role": "node"
+        }
+      },
+      {
+        "block_order": ["rule"],
+        "component": "discovery.relabel",
+        "disabled": false,
+        "id": "n_cluster_metrics__discovery_relabel_nodes",
+        "label": "nodes",
+        "notes": "",
+        "parent": "n_declare_cluster_metrics",
+        "position": {
+          "x": 560,
+          "y": 400
+        },
+        "props": {
+          "rule": [
+            {
+              "source_labels": ["__meta_kubernetes_node_name"],
+              "target_label": "node"
+            },
+            {
+              "replacement": "kubernetes",
+              "target_label": "source"
+            }
+          ]
+        }
+      },
+      {
+        "component": "discovery.relabel",
+        "disabled": false,
+        "id": "n_cluster_metrics__discovery_relabel_kubelet",
+        "label": "kubelet",
+        "notes": "",
+        "parent": "n_declare_cluster_metrics",
+        "position": {
+          "x": 840,
+          "y": 400
+        },
+        "props": {}
+      },
+      {
+        "block_order": ["tls_config", "clustering"],
+        "component": "prometheus.scrape",
+        "disabled": false,
+        "id": "n_cluster_metrics__prometheus_scrape_kubelet",
+        "label": "kubelet",
+        "notes": "",
+        "parent": "n_declare_cluster_metrics",
+        "position": {
+          "x": 1120,
+          "y": 400
+        },
+        "props": {
+          "bearer_token_file": "/var/run/secrets/kubernetes.io/serviceaccount/token",
+          "clustering": {
+            "enabled": true
+          },
+          "convert_classic_histograms_to_nhcb": false,
+          "job_name": "integrations/kubernetes/kubelet",
+          "scheme": "https",
+          "scrape_classic_histograms": false,
+          "scrape_interval": "60s",
+          "scrape_native_histograms": false,
+          "scrape_protocols": [
+            "OpenMetricsText1.0.0",
+            "OpenMetricsText0.0.1",
+            "PrometheusText0.0.4"
+          ],
+          "scrape_timeout": "10s",
+          "tls_config": {
+            "ca_file": "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
+            "insecure_skip_verify": true,
+            "server_name": "kubernetes"
+          }
+        }
+      },
+      {
+        "block_order": ["rule"],
+        "component": "prometheus.relabel",
+        "disabled": false,
+        "id": "n_cluster_metrics__prometheus_relabel_kubelet",
+        "label": "kubelet",
+        "notes": "",
+        "parent": "n_declare_cluster_metrics",
+        "position": {
+          "x": 0,
+          "y": 600
+        },
+        "props": {
+          "max_cache_size": 100000,
+          "rule": {
+            "action": "keep",
+            "regex": "up|scrape_samples_scraped|go_goroutines|kubelet_certificate_manager_client_expiration_renew_errors|kubelet_certificate_manager_client_ttl_seconds|kubelet_certificate_manager_server_ttl_seconds|kubelet_cgroup_manager_duration_seconds_bucket|kubelet_cgroup_manager_duration_seconds_count|kubelet_node_config_error|kubelet_node_name|kubelet_pleg_relist_duration_seconds_bucket|kubelet_pleg_relist_duration_seconds_count|kubelet_pleg_relist_interval_seconds_bucket|kubelet_pod_start_duration_seconds_bucket|kubelet_pod_start_duration_seconds_count|kubelet_pod_worker_duration_seconds_bucket|kubelet_pod_worker_duration_seconds_count|kubelet_running_container_count|kubelet_running_containers|kubelet_running_pod_count|kubelet_running_pods|kubelet_runtime_operations_errors_total|kubelet_runtime_operations_total|kubelet_server_expiration_renew_errors|kubelet_volume_stats_available_bytes|kubelet_volume_stats_capacity_bytes|kubelet_volume_stats_inodes|kubelet_volume_stats_inodes_free|kubelet_volume_stats_inodes_used|kubelet_volume_stats_used_bytes|kubernetes_build_info|namespace_workload_pod|process_cpu_seconds_total|process_resident_memory_bytes|rest_client_requests_total|storage_operation_duration_seconds_count|storage_operation_errors_total|volume_manager_total_volumes",
+            "source_labels": ["__name__"]
+          }
+        }
+      },
+      {
+        "block_order": ["rule"],
+        "component": "discovery.relabel",
+        "disabled": false,
+        "id": "n_cluster_metrics__discovery_relabel_kubelet_resources",
+        "label": "kubelet_resources",
+        "notes": "",
+        "parent": "n_declare_cluster_metrics",
+        "position": {
+          "x": 280,
+          "y": 600
+        },
+        "props": {
+          "rule": {
+            "replacement": "/metrics/resource",
+            "target_label": "__metrics_path__"
+          }
+        }
+      },
+      {
+        "block_order": ["tls_config", "clustering"],
+        "component": "prometheus.scrape",
+        "disabled": false,
+        "id": "n_cluster_metrics__prometheus_scrape_kubelet_resources",
+        "label": "kubelet_resources",
+        "notes": "",
+        "parent": "n_declare_cluster_metrics",
+        "position": {
+          "x": 560,
+          "y": 600
+        },
+        "props": {
+          "bearer_token_file": "/var/run/secrets/kubernetes.io/serviceaccount/token",
+          "clustering": {
+            "enabled": true
+          },
+          "convert_classic_histograms_to_nhcb": false,
+          "job_name": "integrations/kubernetes/resources",
+          "scheme": "https",
+          "scrape_classic_histograms": false,
+          "scrape_interval": "60s",
+          "scrape_native_histograms": false,
+          "scrape_protocols": [
+            "OpenMetricsText1.0.0",
+            "OpenMetricsText0.0.1",
+            "PrometheusText0.0.4"
+          ],
+          "scrape_timeout": "10s",
+          "tls_config": {
+            "ca_file": "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
+            "insecure_skip_verify": true,
+            "server_name": "kubernetes"
+          }
+        }
+      },
+      {
+        "block_order": ["rule"],
+        "component": "prometheus.relabel",
+        "disabled": false,
+        "id": "n_cluster_metrics__prometheus_relabel_kubelet_resources",
+        "label": "kubelet_resources",
+        "notes": "",
+        "parent": "n_declare_cluster_metrics",
+        "position": {
+          "x": 840,
+          "y": 600
+        },
+        "props": {
+          "max_cache_size": 100000,
+          "rule": {
+            "action": "keep",
+            "regex": "up|scrape_samples_scraped|node_cpu_usage_seconds_total|node_memory_working_set_bytes",
+            "source_labels": ["__name__"]
+          }
+        }
+      },
+      {
+        "block_order": ["rule"],
+        "component": "discovery.relabel",
+        "disabled": false,
+        "id": "n_cluster_metrics__discovery_relabel_cadvisor",
+        "label": "cadvisor",
+        "notes": "",
+        "parent": "n_declare_cluster_metrics",
+        "position": {
+          "x": 1120,
+          "y": 600
+        },
+        "props": {
+          "rule": {
+            "replacement": "/metrics/cadvisor",
+            "target_label": "__metrics_path__"
+          }
+        }
+      },
+      {
+        "block_order": ["tls_config", "clustering"],
+        "component": "prometheus.scrape",
+        "disabled": false,
+        "id": "n_cluster_metrics__prometheus_scrape_cadvisor",
+        "label": "cadvisor",
+        "notes": "",
+        "parent": "n_declare_cluster_metrics",
+        "position": {
+          "x": 0,
+          "y": 800
+        },
+        "props": {
+          "bearer_token_file": "/var/run/secrets/kubernetes.io/serviceaccount/token",
+          "clustering": {
+            "enabled": true
+          },
+          "convert_classic_histograms_to_nhcb": false,
+          "job_name": "integrations/kubernetes/cadvisor",
+          "scheme": "https",
+          "scrape_classic_histograms": false,
+          "scrape_interval": "60s",
+          "scrape_native_histograms": false,
+          "scrape_protocols": [
+            "OpenMetricsText1.0.0",
+            "OpenMetricsText0.0.1",
+            "PrometheusText0.0.4"
+          ],
+          "scrape_timeout": "10s",
+          "tls_config": {
+            "ca_file": "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
+            "insecure_skip_verify": true,
+            "server_name": "kubernetes"
+          }
+        }
+      },
+      {
+        "block_order": ["rule"],
+        "component": "prometheus.relabel",
+        "disabled": false,
+        "id": "n_cluster_metrics__prometheus_relabel_cadvisor",
+        "label": "cadvisor",
+        "notes": "",
+        "parent": "n_declare_cluster_metrics",
+        "position": {
+          "x": 280,
+          "y": 800
+        },
+        "props": {
+          "max_cache_size": 100000,
+          "rule": [
+            {
+              "action": "keep",
+              "regex": "up|scrape_samples_scraped|container_cpu_cfs_periods_total|container_cpu_cfs_throttled_periods_total|container_cpu_usage_seconds_total|container_fs_reads_bytes_total|container_fs_reads_total|container_fs_writes_bytes_total|container_fs_writes_total|container_memory_cache|container_memory_rss|container_memory_swap|container_memory_usage_bytes|container_memory_working_set_bytes|container_network_receive_bytes_total|container_network_receive_packets_dropped_total|container_network_receive_packets_total|container_network_transmit_bytes_total|container_network_transmit_packets_dropped_total|container_network_transmit_packets_total|machine_memory_bytes",
+              "source_labels": ["__name__"]
+            },
+            {
+              "action": "drop",
+              "regex": "(container_cpu_.*|container_fs_.*|container_memory_.*|container_pressure_.*)@",
+              "separator": "@",
+              "source_labels": ["__name__", "container"]
+            },
+            {
+              "action": "drop",
+              "regex": "(container_cpu_.*|container_fs_.*|container_memory_.*|container_network_.*|container_pressure_.*)@",
+              "separator": "@",
+              "source_labels": ["__name__", "image"]
+            },
+            {
+              "regex": "machine_memory_bytes@.*",
+              "replacement": "NA",
+              "separator": "@",
+              "source_labels": ["__name__", "boot_id"],
+              "target_label": "boot_id"
+            },
+            {
+              "regex": "machine_memory_bytes@.*",
+              "replacement": "NA",
+              "separator": "@",
+              "source_labels": ["__name__", "system_uuid"],
+              "target_label": "system_uuid"
+            },
+            {
+              "regex": "container_fs_.*@(/dev/)?(mmcblk.p.+|nvme.+|rbd.+|sd.+|vd.+|xvd.+|dasd.+)",
+              "replacement": "1",
+              "separator": "@",
+              "source_labels": ["__name__", "device"],
+              "target_label": "__keepme"
+            },
+            {
+              "action": "drop",
+              "regex": "container_fs_.*@",
+              "separator": "@",
+              "source_labels": ["__name__", "__keepme"]
+            },
+            {
+              "regex": "container_fs_.*",
+              "replacement": "",
+              "source_labels": ["__name__"],
+              "target_label": "__keepme"
+            },
+            {
+              "regex": "container_network_.*@(en[ospx][0-9].*|wlan[0-9].*|eth[0-9].*)",
+              "replacement": "1",
+              "separator": "@",
+              "source_labels": ["__name__", "interface"],
+              "target_label": "__keepme"
+            },
+            {
+              "action": "drop",
+              "regex": "container_network_.*@",
+              "separator": "@",
+              "source_labels": ["__name__", "__keepme"]
+            },
+            {
+              "regex": "container_network_.*",
+              "replacement": "",
+              "source_labels": ["__name__"],
+              "target_label": "__keepme"
+            }
+          ]
+        }
+      },
+      {
+        "block_order": ["selectors", "namespaces"],
+        "component": "discovery.kubernetes",
+        "disabled": false,
+        "id": "n_cluster_metrics__discovery_kubernetes_kube_state_metrics",
+        "label": "kube_state_metrics",
+        "notes": "",
+        "parent": "n_declare_cluster_metrics",
+        "position": {
+          "x": 560,
+          "y": 800
+        },
+        "props": {
+          "namespaces": {
+            "names": ["default"]
+          },
+          "role": "endpoints",
+          "selectors": {
+            "label": "release=km,app.kubernetes.io/name=kube-state-metrics",
+            "role": "endpoints"
+          }
+        }
+      },
+      {
+        "block_order": ["rule"],
+        "component": "discovery.relabel",
+        "disabled": false,
+        "id": "n_cluster_metrics__discovery_relabel_kube_state_metrics",
+        "label": "kube_state_metrics",
+        "notes": "",
+        "parent": "n_declare_cluster_metrics",
+        "position": {
+          "x": 840,
+          "y": 800
+        },
+        "props": {
+          "rule": {
+            "action": "replace",
+            "replacement": "kubernetes",
+            "target_label": "source"
+          }
+        }
+      },
+      {
+        "block_order": ["tls_config", "clustering"],
+        "component": "prometheus.scrape",
+        "disabled": false,
+        "id": "n_cluster_metrics__prometheus_scrape_kube_state_metrics",
+        "label": "kube_state_metrics",
+        "notes": "",
+        "parent": "n_declare_cluster_metrics",
+        "position": {
+          "x": 1120,
+          "y": 800
+        },
+        "props": {
+          "bearer_token_file": "",
+          "clustering": {
+            "enabled": true
+          },
+          "convert_classic_histograms_to_nhcb": false,
+          "job_name": "integrations/kubernetes/kube-state-metrics",
+          "scheme": "http",
+          "scrape_classic_histograms": false,
+          "scrape_interval": "60s",
+          "scrape_native_histograms": false,
+          "scrape_protocols": [
+            "OpenMetricsText1.0.0",
+            "OpenMetricsText0.0.1",
+            "PrometheusText0.0.4"
+          ],
+          "scrape_timeout": "10s",
+          "tls_config": {
+            "insecure_skip_verify": true
+          }
+        }
+      },
+      {
+        "block_order": ["rule"],
+        "component": "prometheus.relabel",
+        "disabled": false,
+        "id": "n_cluster_metrics__prometheus_relabel_kube_state_metrics",
+        "label": "kube_state_metrics",
+        "notes": "",
+        "parent": "n_declare_cluster_metrics",
+        "position": {
+          "x": 0,
+          "y": 1000
+        },
+        "props": {
+          "max_cache_size": 100000,
+          "rule": {
+            "action": "keep",
+            "regex": "up|scrape_samples_scraped|kube_configmap_info|kube_configmap_metadata_resource_version|kube_cronjob.*|kube_daemonset.*|kube_deployment_metadata_generation|kube_deployment_spec_replicas|kube_deployment_status_condition|kube_deployment_status_observed_generation|kube_deployment_status_replicas_available|kube_deployment_status_replicas_updated|kube_horizontalpodautoscaler_spec_max_replicas|kube_horizontalpodautoscaler_spec_min_replicas|kube_horizontalpodautoscaler_status_current_replicas|kube_horizontalpodautoscaler_status_desired_replicas|kube_job.*|kube_namespace_status_phase|kube_node.*|kube_persistentvolume_status_phase|kube_persistentvolumeclaim_access_mode|kube_persistentvolumeclaim_info|kube_persistentvolumeclaim_labels|kube_persistentvolumeclaim_resource_requests_storage_bytes|kube_persistentvolumeclaim_status_phase|kube_pod_completion_time|kube_pod_container_info|kube_pod_container_resource_limits|kube_pod_container_resource_requests|kube_pod_container_status_last_terminated_reason|kube_pod_container_status_last_terminated_timestamp|kube_pod_container_status_restarts_total|kube_pod_container_status_waiting_reason|kube_pod_info|kube_pod_owner|kube_pod_restart_policy|kube_pod_spec_volumes_persistentvolumeclaims_info|kube_pod_start_time|kube_pod_status_phase|kube_pod_status_reason|kube_pod_init_.*|kube_replicaset.*|kube_resourcequota|kube_secret_metadata_resource_version|kube_statefulset.*",
+            "source_labels": ["__name__"]
+          }
+        }
+      },
+      {
+        "component": "opaque.cluster_metrics",
+        "disabled": false,
+        "id": "n_opaque_cluster_metrics_feature",
+        "label": "feature",
+        "notes": "",
+        "position": {
+          "x": 280,
+          "y": 1000
+        },
+        "props": {
+          "$raw": "cluster_metrics \"feature\" {\n\tmetrics_destinations = [\n\t\tprometheus.remote_write.prometheus.receiver,\n\t]\n}"
+        }
+      },
+      {
+        "component": "declare",
+        "disabled": false,
+        "id": "n_declare_linux_host_metrics",
+        "label": "linux_host_metrics",
+        "notes": "",
+        "position": {
+          "x": 560,
+          "y": 1000
+        },
+        "props": {
+          "$raw": "declare \"linux_host_metrics\" {\n\targument \"metrics_destinations\" {\n\t\tcomment = \"Must be a list of metric destinations where collected metrics should be forwarded to\"\n\t}\n\n\tdiscovery.kubernetes \"node_exporter\" {\n\t\trole = \"pod\"\n\n\t\tselectors {\n\t\t\trole  = \"pod\"\n\t\t\tlabel = \"release=km,app.kubernetes.io/name=node-exporter\"\n\t\t}\n\n\t\tnamespaces {\n\t\t\tnames = [\"default\"]\n\t\t}\n\t}\n\n\tdiscovery.relabel \"node_exporter\" {\n\t\ttargets = discovery.kubernetes.node_exporter.targets\n\n\t\trule {\n\t\t\tsource_labels = [\n\t\t\t\t\"__meta_kubernetes_pod_container_init\",\n\t\t\t\t\"__meta_kubernetes_pod_phase\",\n\t\t\t\t\"__meta_kubernetes_pod_ready\",\n\t\t\t]\n\t\t\tseparator = \"@\"\n\t\t\tregex     = \"false@Running@true\"\n\t\t\taction    = \"keep\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_pod_node_name\"]\n\t\t\ttarget_label  = \"instance\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_namespace\"]\n\t\t\ttarget_label  = \"namespace\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_pod_name\"]\n\t\t\ttarget_label  = \"pod\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__meta_kubernetes_pod_container_name\"]\n\t\t\ttarget_label  = \"container\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\n\t\t\t\t\"__meta_kubernetes_pod_controller_kind\",\n\t\t\t\t\"__meta_kubernetes_pod_controller_name\",\n\t\t\t]\n\t\t\tseparator    = \"/\"\n\t\t\ttarget_label = \"workload\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"workload\"]\n\t\t\tregex         = \"(ReplicaSet/.+)-.+\"\n\t\t\ttarget_label  = \"workload\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\n\t\t\t\t\"__meta_kubernetes_pod_label_app_kubernetes_io_name\",\n\t\t\t\t\"__meta_kubernetes_pod_label_k8s_app\",\n\t\t\t\t\"__meta_kubernetes_pod_label_app\",\n\t\t\t]\n\t\t\tseparator    = \";\"\n\t\t\tregex        = \"^(?:;*)?([^;]+).*$\"\n\t\t\treplacement  = \"$1\"\n\t\t\ttarget_label = \"app\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\n\t\t\t\t\"__meta_kubernetes_pod_label_app_kubernetes_io_component\",\n\t\t\t\t\"__meta_kubernetes_pod_label_k8s_component\",\n\t\t\t\t\"__meta_kubernetes_pod_label_component\",\n\t\t\t]\n\t\t\tregex        = \"^(?:;*)?([^;]+).*$\"\n\t\t\treplacement  = \"$1\"\n\t\t\ttarget_label = \"component\"\n\t\t}\n\n\t\trule {\n\t\t\ttarget_label = \"source\"\n\t\t\treplacement  = \"kubernetes\"\n\t\t}\n\t}\n\n\tprometheus.scrape \"node_exporter\" {\n\t\ttargets                            = discovery.relabel.node_exporter.output\n\t\tjob_name                           = \"integrations/node_exporter\"\n\t\tscrape_interval                    = \"60s\"\n\t\tscrape_timeout                     = \"10s\"\n\t\tscrape_protocols                   = [\"OpenMetricsText1.0.0\", \"OpenMetricsText0.0.1\", \"PrometheusText0.0.4\"]\n\t\tscrape_classic_histograms          = false\n\t\tscrape_native_histograms           = false\n\t\tconvert_classic_histograms_to_nhcb = false\n\t\tscheme                             = \"http\"\n\n\t\ttls_config {\n\t\t\tinsecure_skip_verify = true\n\t\t}\n\n\t\tclustering {\n\t\t\tenabled = true\n\t\t}\n\t\tforward_to = [prometheus.relabel.node_exporter.receiver]\n\t}\n\n\tprometheus.relabel \"node_exporter\" {\n\t\tmax_cache_size = 100000\n\n\t\trule {\n\t\t\tsource_labels = [\"__name__\"]\n\t\t\tregex         = \"up|scrape_samples_scraped|node_cpu.*|node_exporter_build_info|node_filesystem.*|node_memory.*|node_network_receive_bytes_total|node_network_receive_drop_total|node_network_transmit_bytes_total|node_network_transmit_drop_total|process_cpu_seconds_total|process_resident_memory_bytes\"\n\t\t\taction        = \"keep\"\n\t\t}\n\n\t\trule {\n\t\t\tsource_labels = [\"__name__\", \"fstype\"]\n\t\t\tseparator     = \"@\"\n\t\t\tregex         = \"node_filesystem.*@(ramfs|tmpfs)\"\n\t\t\taction        = \"drop\"\n\t\t}\n\t\tforward_to = argument.metrics_destinations.value\n\t}\n}"
+        }
+      },
+      {
+        "block_order": ["selectors", "namespaces"],
+        "component": "discovery.kubernetes",
+        "disabled": false,
+        "id": "n_linux_host_metrics__discovery_kubernetes_node_exporter",
+        "label": "node_exporter",
+        "notes": "",
+        "parent": "n_declare_linux_host_metrics",
+        "position": {
+          "x": 840,
+          "y": 1000
+        },
+        "props": {
+          "namespaces": {
+            "names": ["default"]
+          },
+          "role": "pod",
+          "selectors": {
+            "label": "release=km,app.kubernetes.io/name=node-exporter",
+            "role": "pod"
+          }
+        }
+      },
+      {
+        "block_order": ["rule"],
+        "component": "discovery.relabel",
+        "disabled": false,
+        "id": "n_linux_host_metrics__discovery_relabel_node_exporter",
+        "label": "node_exporter",
+        "notes": "",
+        "parent": "n_declare_linux_host_metrics",
+        "position": {
+          "x": 1120,
+          "y": 1000
+        },
+        "props": {
+          "rule": [
+            {
+              "action": "keep",
+              "regex": "false@Running@true",
+              "separator": "@",
+              "source_labels": [
+                "__meta_kubernetes_pod_container_init",
+                "__meta_kubernetes_pod_phase",
+                "__meta_kubernetes_pod_ready"
+              ]
+            },
+            {
+              "source_labels": ["__meta_kubernetes_pod_node_name"],
+              "target_label": "instance"
+            },
+            {
+              "source_labels": ["__meta_kubernetes_namespace"],
+              "target_label": "namespace"
+            },
+            {
+              "source_labels": ["__meta_kubernetes_pod_name"],
+              "target_label": "pod"
+            },
+            {
+              "source_labels": ["__meta_kubernetes_pod_container_name"],
+              "target_label": "container"
+            },
+            {
+              "separator": "/",
+              "source_labels": [
+                "__meta_kubernetes_pod_controller_kind",
+                "__meta_kubernetes_pod_controller_name"
+              ],
+              "target_label": "workload"
+            },
+            {
+              "regex": "(ReplicaSet/.+)-.+",
+              "source_labels": ["workload"],
+              "target_label": "workload"
+            },
+            {
+              "regex": "^(?:;*)?([^;]+).*$",
+              "replacement": "$1",
+              "separator": ";",
+              "source_labels": [
+                "__meta_kubernetes_pod_label_app_kubernetes_io_name",
+                "__meta_kubernetes_pod_label_k8s_app",
+                "__meta_kubernetes_pod_label_app"
+              ],
+              "target_label": "app"
+            },
+            {
+              "regex": "^(?:;*)?([^;]+).*$",
+              "replacement": "$1",
+              "source_labels": [
+                "__meta_kubernetes_pod_label_app_kubernetes_io_component",
+                "__meta_kubernetes_pod_label_k8s_component",
+                "__meta_kubernetes_pod_label_component"
+              ],
+              "target_label": "component"
+            },
+            {
+              "replacement": "kubernetes",
+              "target_label": "source"
+            }
+          ]
+        }
+      },
+      {
+        "block_order": ["tls_config", "clustering"],
+        "component": "prometheus.scrape",
+        "disabled": false,
+        "id": "n_linux_host_metrics__prometheus_scrape_node_exporter",
+        "label": "node_exporter",
+        "notes": "",
+        "parent": "n_declare_linux_host_metrics",
+        "position": {
+          "x": 0,
+          "y": 1200
+        },
+        "props": {
+          "clustering": {
+            "enabled": true
+          },
+          "convert_classic_histograms_to_nhcb": false,
+          "job_name": "integrations/node_exporter",
+          "scheme": "http",
+          "scrape_classic_histograms": false,
+          "scrape_interval": "60s",
+          "scrape_native_histograms": false,
+          "scrape_protocols": [
+            "OpenMetricsText1.0.0",
+            "OpenMetricsText0.0.1",
+            "PrometheusText0.0.4"
+          ],
+          "scrape_timeout": "10s",
+          "tls_config": {
+            "insecure_skip_verify": true
+          }
+        }
+      },
+      {
+        "block_order": ["rule"],
+        "component": "prometheus.relabel",
+        "disabled": false,
+        "id": "n_linux_host_metrics__prometheus_relabel_node_exporter",
+        "label": "node_exporter",
+        "notes": "",
+        "parent": "n_declare_linux_host_metrics",
+        "position": {
+          "x": 280,
+          "y": 1200
+        },
+        "props": {
+          "max_cache_size": 100000,
+          "rule": [
+            {
+              "action": "keep",
+              "regex": "up|scrape_samples_scraped|node_cpu.*|node_exporter_build_info|node_filesystem.*|node_memory.*|node_network_receive_bytes_total|node_network_receive_drop_total|node_network_transmit_bytes_total|node_network_transmit_drop_total|process_cpu_seconds_total|process_resident_memory_bytes",
+              "source_labels": ["__name__"]
+            },
+            {
+              "action": "drop",
+              "regex": "node_filesystem.*@(ramfs|tmpfs)",
+              "separator": "@",
+              "source_labels": ["__name__", "fstype"]
+            }
+          ]
+        }
+      },
+      {
+        "component": "opaque.linux_host_metrics",
+        "disabled": false,
+        "id": "n_opaque_linux_host_metrics_feature",
+        "label": "feature",
+        "notes": "",
+        "position": {
+          "x": 560,
+          "y": 1200
+        },
+        "props": {
+          "$raw": "linux_host_metrics \"feature\" {\n\tmetrics_destinations = [\n\t\tprometheus.remote_write.prometheus.receiver,\n\t]\n}"
+        }
+      },
+      {
+        "component": "declare",
+        "disabled": false,
+        "id": "n_declare_prometheus_operator_objects",
+        "label": "prometheus_operator_objects",
+        "notes": "",
+        "position": {
+          "x": 840,
+          "y": 1200
+        },
+        "props": {
+          "$raw": "declare \"prometheus_operator_objects\" {\n\targument \"metrics_destinations\" {\n\t\tcomment = \"Must be a list of metric destinations where collected metrics should be forwarded to\"\n\t}\n\n\tprometheus.operator.podmonitors \"pod_monitors\" {\n\t\tclustering {\n\t\t\tenabled = true\n\t\t}\n\n\t\tscrape {\n\t\t\tdefault_scrape_interval  = \"60s\"\n\t\t\tdefault_scrape_timeout   = \"10s\"\n\t\t\tscrape_native_histograms = false\n\t\t}\n\t\tforward_to = argument.metrics_destinations.value\n\t}\n\n\tprometheus.operator.probes \"probes\" {\n\t\tclustering {\n\t\t\tenabled = true\n\t\t}\n\n\t\tscrape {\n\t\t\tdefault_scrape_interval  = \"60s\"\n\t\t\tdefault_scrape_timeout   = \"10s\"\n\t\t\tscrape_native_histograms = false\n\t\t}\n\t\tforward_to = argument.metrics_destinations.value\n\t}\n\n\tprometheus.operator.servicemonitors \"service_monitors\" {\n\t\tkubernetes_role = \"endpointslice\"\n\n\t\tclustering {\n\t\t\tenabled = true\n\t\t}\n\n\t\tscrape {\n\t\t\tdefault_scrape_interval  = \"60s\"\n\t\t\tdefault_scrape_timeout   = \"10s\"\n\t\t\tscrape_native_histograms = false\n\t\t}\n\t\tforward_to = argument.metrics_destinations.value\n\t}\n}"
+        }
+      },
+      {
+        "block_order": ["clustering", "scrape"],
+        "component": "prometheus.operator.podmonitors",
+        "disabled": false,
+        "id": "n_prometheus_operator_objects__prometheus_operator_podmonitors_pod_monitors",
+        "label": "pod_monitors",
+        "notes": "",
+        "parent": "n_declare_prometheus_operator_objects",
+        "position": {
+          "x": 1120,
+          "y": 1200
+        },
+        "props": {
+          "clustering": {
+            "enabled": true
+          },
+          "scrape": {
+            "default_scrape_interval": "60s",
+            "default_scrape_timeout": "10s",
+            "scrape_native_histograms": false
+          }
+        }
+      },
+      {
+        "block_order": ["clustering", "scrape"],
+        "component": "prometheus.operator.probes",
+        "disabled": false,
+        "id": "n_prometheus_operator_objects__prometheus_operator_probes_probes",
+        "label": "probes",
+        "notes": "",
+        "parent": "n_declare_prometheus_operator_objects",
+        "position": {
+          "x": 0,
+          "y": 1400
+        },
+        "props": {
+          "clustering": {
+            "enabled": true
+          },
+          "scrape": {
+            "default_scrape_interval": "60s",
+            "default_scrape_timeout": "10s",
+            "scrape_native_histograms": false
+          }
+        }
+      },
+      {
+        "block_order": ["clustering", "scrape"],
+        "component": "prometheus.operator.servicemonitors",
+        "disabled": false,
+        "id": "n_prometheus_operator_objects__prometheus_operator_servicemonitors_service_monitors",
+        "label": "service_monitors",
+        "notes": "",
+        "parent": "n_declare_prometheus_operator_objects",
+        "position": {
+          "x": 280,
+          "y": 1400
+        },
+        "props": {
+          "clustering": {
+            "enabled": true
+          },
+          "kubernetes_role": "endpointslice",
+          "scrape": {
+            "default_scrape_interval": "60s",
+            "default_scrape_timeout": "10s",
+            "scrape_native_histograms": false
+          }
+        }
+      },
+      {
+        "component": "opaque.prometheus_operator_objects",
+        "disabled": false,
+        "id": "n_opaque_prometheus_operator_objects_feature",
+        "label": "feature",
+        "notes": "",
+        "position": {
+          "x": 560,
+          "y": 1400
+        },
+        "props": {
+          "$raw": "prometheus_operator_objects \"feature\" {\n\tmetrics_destinations = [\n\t\tprometheus.remote_write.prometheus.receiver,\n\t]\n}"
+        }
+      },
+      {
+        "component": "otelcol.exporter.prometheus",
+        "disabled": false,
+        "id": "n_otelcol_exporter_prometheus_prometheus",
+        "label": "prometheus",
+        "notes": "",
+        "position": {
+          "x": 840,
+          "y": 1400
+        },
+        "props": {
+          "add_metric_suffixes": true,
+          "keep_identifying_resource_attributes": true,
+          "resource_to_telemetry_conversion": false
+        }
+      },
+      {
+        "block_order": ["endpoint", "wal"],
+        "component": "prometheus.remote_write",
+        "disabled": false,
+        "id": "n_prometheus_remote_write_prometheus",
+        "label": "prometheus",
+        "notes": "",
+        "position": {
+          "x": 1120,
+          "y": 1400
+        },
+        "props": {
+          "endpoint": {
+            "basic_auth": {
+              "password": {
+                "$expr": "remote.kubernetes.secret.prometheus.data[\"password\"]"
+              },
+              "username": {
+                "$expr": "convert.nonsensitive(remote.kubernetes.secret.prometheus.data[\"username\"])"
+              }
+            },
+            "headers": {},
+            "queue_config": {
+              "batch_send_deadline": "5s",
+              "capacity": 10000,
+              "max_backoff": "5s",
+              "max_samples_per_send": 2000,
+              "max_shards": 50,
+              "min_backoff": "30ms",
+              "min_shards": 1,
+              "retry_on_http_429": true,
+              "sample_age_limit": "0s"
+            },
+            "send_native_histograms": false,
+            "tls_config": {
+              "insecure_skip_verify": false
+            },
+            "url": "https://prometheus.example.com/api/v1/write"
+          },
+          "external_labels": {
+            "cluster": "prod-eu-1",
+            "k8s_cluster_name": "prod-eu-1"
+          },
+          "wal": {
+            "max_keepalive_time": "8h",
+            "min_keepalive_time": "5m",
+            "truncate_frequency": "2h"
+          }
+        }
+      },
+      {
+        "component": "remote.kubernetes.secret",
+        "disabled": false,
+        "id": "n_remote_kubernetes_secret_prometheus",
+        "label": "prometheus",
+        "notes": "",
+        "position": {
+          "x": 0,
+          "y": 1600
+        },
+        "props": {
+          "name": "prometheus-km-k8s-monitoring",
+          "namespace": "default"
+        }
+      }
+    ],
+    "schema_version": "v1.20.1",
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "zoom": 1
+    }
+  },
+  "opaque": true,
+  "warning": "this pipeline could not be fully mapped to a graph: module \"annotation_autodiscovery\" is shown as a group of its components (the builder cannot edit modules); \"annotation_autodiscovery\" is not a component and cannot be edited as a node; module \"cluster_metrics\" is shown as a group of its components (the builder cannot edit modules); \"cluster_metrics\" is not a component and cannot be edited as a node; module \"linux_host_metrics\" is shown as a group of its components (the builder cannot edit modules); \"linux_host_metrics\" is not a component and cannot be edited as a node; module \"prometheus_operator_objects\" is shown as a group of its components (the builder cannot edit modules); \"prometheus_operator_objects\" is not a component and cannot be edited as a node"
+}

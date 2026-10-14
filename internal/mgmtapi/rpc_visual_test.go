@@ -3,6 +3,7 @@ package mgmtapi_test
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -315,6 +316,137 @@ prometheus.remote_write "sink" {
 		Expect(b.Ref.Node).To(Equal(ids["remote.kubernetes.secret"]))
 		Expect(b.Ref.Export).To(Equal("data"))
 		Expect(b.Ref.Expr).To(Equal(`remote.kubernetes.secret.creds.data["password"]`))
+	})
+
+	// A chart-shaped module: one component inside a `declare`, reaching the
+	// destination only through argument.dest.value and the instance.
+	moduleContents := `declare "feature" {
+  argument "dest" { }
+
+  prometheus.exporter.unix "host" { }
+
+  prometheus.scrape "host" {
+    targets    = prometheus.exporter.unix.host.targets
+    forward_to = argument.dest.value
+  }
+}
+
+feature "x" {
+  dest = [prometheus.remote_write.sink.receiver]
+}
+
+prometheus.remote_write "sink" {
+  endpoint {
+    url = "http://example.com/api/v1/push"
+  }
+}
+`
+
+	It("expands modules in GraphView: children carry the group's id as parent", func() {
+		p, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: orgUUID(orgID), Name: "graph-view-module-pipe", Contents: moduleContents,
+			Matchers: json.RawMessage(`[]`), Enabled: false, Source: "git", CreatedBy: "test", UpdatedBy: "test",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/GraphView", readerCookie,
+			map[string]any{"org_id": orgID, "id": p.ID.String()})
+		defer resp.Body.Close() //nolint:errcheck // test cleanup
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		var result struct {
+			Graph struct {
+				Nodes []struct {
+					ID        string `json:"id"`
+					Component string `json:"component"`
+					Label     string `json:"label"`
+					Parent    string `json:"parent"`
+				} `json:"nodes"`
+				Edges []struct {
+					From struct{ Node, Port string } `json:"from"`
+					To   struct{ Node, Port string } `json:"to"`
+				} `json:"edges"`
+			} `json:"graph"`
+			Opaque bool `json:"opaque"`
+		}
+		Expect(json.NewDecoder(resp.Body).Decode(&result)).To(Succeed())
+		Expect(result.Opaque).To(BeTrue(), "a module cannot be edited in the builder")
+
+		parents := map[string]string{}
+		ids := map[string]string{}
+		for _, n := range result.Graph.Nodes {
+			parents[n.Component+"/"+n.Label] = n.Parent
+			ids[n.Component+"/"+n.Label] = n.ID
+		}
+		group := ids["declare/feature"]
+		Expect(group).NotTo(BeEmpty())
+		Expect(parents).To(Equal(map[string]string{
+			"declare/feature":               "",
+			"prometheus.exporter.unix/host": group,
+			"prometheus.scrape/host":        group,
+			"opaque.feature/x":              "",
+			"prometheus.remote_write/sink":  "",
+		}))
+		type hop struct{ from, to string }
+		var hops []hop
+		for _, e := range result.Graph.Edges {
+			hops = append(hops, hop{e.From.Node, e.To.Node})
+		}
+		Expect(hops).To(ConsistOf(
+			hop{ids["prometheus.exporter.unix/host"], ids["prometheus.scrape/host"]},
+			hop{ids["prometheus.scrape/host"], group},
+			hop{group, ids["opaque.feature/x"]},
+			hop{ids["opaque.feature/x"], ids["prometheus.remote_write/sink"]},
+		))
+	})
+
+	It("never expands modules for DiffRevisions", func() {
+		p, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: orgUUID(orgID), Name: "diff-module-pipe", Contents: moduleContents,
+			Matchers: json.RawMessage(`[]`), Enabled: false, Source: "git", CreatedBy: "test", UpdatedBy: "test",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		_, err = st.Queries.CreatePipelineRevision(ctx, sqlc.CreatePipelineRevisionParams{
+			PipelineID: p.ID, Revision: 1, Contents: "// r1\n", Matchers: json.RawMessage(`[]`),
+			Enabled: false, ChangedBy: "test", ChangeNote: "first",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		body := map[string]any{"org_id": orgID, "id": p.ID.String(), "from_revision": 1, "to_revision": 0}
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/DiffRevisions", readerCookie, body)
+		defer resp.Body.Close() //nolint:errcheck // test cleanup
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		var result struct {
+			Diff struct {
+				NodeChanges []struct {
+					ID        string `json:"id"`
+					Component string `json:"component"`
+				} `json:"nodeChanges"`
+			} `json:"diff"`
+		}
+		Expect(json.NewDecoder(resp.Body).Decode(&result)).To(Succeed())
+		var components []string
+		for _, nc := range result.Diff.NodeChanges {
+			components = append(components, nc.Component)
+		}
+		Expect(components).To(ConsistOf("opaque.declare", "opaque.feature", "prometheus.remote_write"),
+			"the module stays one opaque node: no group, none of its components")
+	})
+
+	It("refuses to Render or Validate a graph whose node carries a parent", func() {
+		graph := minimalGraph()
+		nodes, ok := graph["nodes"].([]map[string]any)
+		Expect(ok).To(BeTrue())
+		nodes[0]["parent"] = "n_declare_feature"
+		for _, procedure := range []string{"Render", "Validate"} {
+			resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/"+procedure, adminCookie,
+				map[string]any{"org_id": orgID, "graph": graph})
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest), procedure)
+			raw, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Body.Close()).To(Succeed())
+			Expect(string(raw)).To(ContainSubstring("invalid_argument"))
+			Expect(string(raw)).To(ContainSubstring("read-only graph view"), procedure)
+		}
 	})
 
 	It("allows GraphView for an org-reader session", func() {

@@ -73,6 +73,9 @@ function fromWireGraph(g: WireGraphDocument | undefined): LocalGraphDocument {
       props: (n.props ?? {}) as Record<string, unknown>,
       disabled: n.disabled,
       notes: n.notes,
+      // Only when set (GraphView's module groups): a builder graph's nodes
+      // stay exactly the shape they always were.
+      ...(n.parent ? { parent: n.parent } : {}),
     })),
     edges: (g?.edges ?? []).map((e) => ({
       id: e.id,

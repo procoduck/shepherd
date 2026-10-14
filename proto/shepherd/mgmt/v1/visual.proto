@@ -79,6 +79,13 @@ message GraphNode {
   // existed gets. Names present here but absent from props are ignored; blocks in
   // props but absent here render afterwards in schema order.
   repeated string block_order = 8;
+  // parent is the id of the group node this node sits in — an expanded
+  // `declare` module, whose own component is "declare" — or empty at the top
+  // level. READ-ONLY, graph view only: GraphView sets it (it expands modules
+  // for display); DiffRevisions never does; a builder document never carries
+  // it, and Render and Validate refuse a graph that sets it (InvalidArgument),
+  // since nothing renders a module's contents from a graph.
+  string parent = 9;
 }
 
 // GraphEdge mirrors internal/visual.GraphEdge. order is a pointer in Go

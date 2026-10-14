@@ -60,6 +60,15 @@ archives:
   - id: server
     ids: [shepherd, shepherd-simulator]
     formats: [tar.gz]
+    # Setting files replaces GoReleaser's default (LICENSE*, README*,
+    # CHANGELOG*), so those are restated. THIRD_PARTY_NOTICES.md: the shepherd
+    # binary embeds elkjs (EPL-2.0), whose notice and source pointer must go
+    # with it; scripts/repocheck/notices_test.go guards this.
+    files:
+      - LICENSE*
+      - README*
+      - CHANGELOG*
+      - THIRD_PARTY_NOTICES.md
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
   # The MCP archive: the client-side binary, per desktop OS/arch. Windows ships
   # as a zip (the platform convention) with the usual .exe.
@@ -83,6 +92,7 @@ dockers:
     goarch: amd64
     ids: [shepherd]
     dockerfile: deploy/Dockerfile.goreleaser
+    extra_files: [THIRD_PARTY_NOTICES.md]
     image_templates:
       - "{{ .Env.IMAGE_REGISTRY }}/shepherd:{{ .Version }}-amd64"
     build_flag_templates:
@@ -95,6 +105,7 @@ dockers:
     goarch: arm64
     ids: [shepherd]
     dockerfile: deploy/Dockerfile.goreleaser
+    extra_files: [THIRD_PARTY_NOTICES.md]
     image_templates:
       - "{{ .Env.IMAGE_REGISTRY }}/shepherd:{{ .Version }}-arm64"
     build_flag_templates:

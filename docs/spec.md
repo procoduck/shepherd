@@ -857,7 +857,7 @@ Full-height flex layout, no page scroll except the content area:
 /pipelines/new              [org-editor] — Editor (create)
 /pipelines/:id              — Editor (view/edit; read-only for readers & git-sourced)
 /pipelines/:id/visual       — Visual builder graph editor
-/pipelines/:id/graph        — Graph view (read-only)
+/pipelines/:id/graph        — Graph view (read-only; `declare` modules drawn as collapsible groups, ELK layout — docs/visual-builder-design-VB1.md §4.3)
 /pipelines/visual/new       — Visual builder (create)
 /wizards                    [org-editor] — Wizard gallery (cards, one per registered wizard kind)
 /wizards/:kind              [org-editor] — Wizard stepper (one generic runner for every registered wizard)

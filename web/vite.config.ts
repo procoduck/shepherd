@@ -85,7 +85,10 @@ export default defineConfig({
     // AlloyEditor 383 kB (CodeMirror + the Lezer grammar + the Alloy language
     // and completion sources, behind src/editor/LazyAlloyEditor — fetched when
     // an editor first mounts), PipelineNode 206 kB, VisualBuilderPage 72 kB and
-    // GraphViewPage 4 kB. Before the editor was split out the entry was 894 kB
+    // GraphViewPage 4 kB. The graph view's layout engine, elkjs (1.6 MB, sent
+    // uncompressed by the Go server), is not a chunk at all: src/visual/elkLayout.ts loads it as a
+    // Web Worker script asset (`?url`) plus the 4 kB elk-api client chunk, on
+    // the graph route only. Before the editor was split out the entry was 894 kB
     // (gzip 274 kB); under vite 6 / rollup, 1,020 kB.
     //
     // The entry is what every page needs on first paint — react-dom (~250 kB),

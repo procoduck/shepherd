@@ -3,10 +3,12 @@
 //
 // The GraphView response is the server's real parse of a trimmed
 // grafana/k8s-monitoring 4.4.0 config (internal/visual/testdata/k8s-monitoring/
-// singleton.alloy); internal/visual/parse_graphview_test.go fails when the
-// fixture drifts from the parser. It holds two opaque blocks (a `declare` and
-// the custom component it defines), seven edges — one of them from the opaque
-// instance — and four secret references reported as bindings.
+// singleton.alloy), modules expanded as GraphView parses them;
+// internal/visual/parse_modules_test.go fails when the fixture drifts from the
+// parser. It holds one `declare` module drawn as a group of its two components,
+// the module's instance (an opaque block), ten edges — three of them carrying
+// the module's data out through its argument and the instance to loki.write —
+// and four secret references reported as bindings.
 import { readFileSync } from 'node:fs';
 import { expect } from '@playwright/test';
 import { basicScenario, pipeline } from '../fixtures/factories';
@@ -17,7 +19,11 @@ import { test } from '../fixtures/test';
 const k8sMonitoring = JSON.parse(
   readFileSync(new URL('../fixtures/k8s-monitoring-graphview.json', import.meta.url), 'utf8'),
 ) as {
-  graph: { nodes: { id: string; component: string }[]; edges: unknown[]; bindings: unknown[] };
+  graph: {
+    nodes: { id: string; component: string; parent?: string }[];
+    edges: unknown[];
+    bindings: unknown[];
+  };
   opaque: boolean;
   warning: string;
 };
@@ -89,14 +95,15 @@ test.describe('graph view of a chart-generated pipeline (k8s-monitoring)', () =>
     });
     await page.goto(`/pipelines/${s.pipelines[2].id}/graph`);
     await expect(page.getByTestId('graph-view')).toBeVisible();
-    await expect(page.getByTestId('pipeline-node')).toHaveCount(12);
+    await expect(page.getByTestId('pipeline-node')).toHaveCount(13);
+    await expect(page.getByTestId('module-group')).toHaveCount(1);
   });
 
   test('shows the server warning text, not only a badge', async ({ page }) => {
     const warning = page.getByTestId('graph-view-warning');
     await expect(warning).toBeVisible();
     await expect(warning).toContainText('"cluster_events" is not a component');
-    await expect(warning).toContainText('"declare" is not a component');
+    await expect(warning).toContainText('module "cluster_events" is shown as a group');
   });
 
   test('draws every edge, including the one from the unmapped block', async ({ page }) => {
@@ -104,18 +111,23 @@ test.describe('graph view of a chart-generated pipeline (k8s-monitoring)', () =>
     const opaque = page.locator(
       `[data-testid="pipeline-node"][data-node-id="${nodeByComponent('opaque.cluster_events')}"]`,
     );
-    await expect(opaque.locator('.react-flow__handle')).toHaveCount(1);
+    // In from the module's group on its left, out to loki.write on its right.
+    await expect(opaque.locator('.react-flow__handle')).toHaveCount(2);
     await expect(page.locator('[aria-label="Edge from feature to loki"]')).toHaveCount(1);
+    await expect(page.locator('[aria-label="Edge from cluster_events to feature"]')).toHaveCount(1);
   });
 
-  test('labels unmapped blocks and shows their source text', async ({ page }) => {
+  test("labels unmapped blocks and shows a module's source text", async ({ page }) => {
     const opaque = page.locator(
-      `[data-testid="pipeline-node"][data-node-id="${nodeByComponent('opaque.declare')}"]`,
+      `[data-testid="pipeline-node"][data-node-id="${nodeByComponent('opaque.cluster_events')}"]`,
     );
     await expect(opaque.getByTestId('node-opaque-badge')).toHaveText('not mapped');
-    await expect(page.getByTestId('node-opaque-badge')).toHaveCount(2);
+    await expect(page.getByTestId('node-opaque-badge')).toHaveCount(1);
 
-    await opaque.click();
+    await page
+      .locator(`[data-testid="module-group"][data-node-id="${nodeByComponent('declare')}"]`)
+      .getByTestId('module-group-count')
+      .click();
     const inspector = page.getByRole('complementary', { name: 'Node details' });
     await expect(inspector).toBeVisible();
     const raw = inspector.getByTestId('inspector-raw');
@@ -161,9 +173,12 @@ test('Recreate stays available for a fully mapped graph and drops the view-only 
   const s = basicScenario();
   const mapped = {
     ...k8sMonitoring.graph,
-    nodes: k8sMonitoring.graph.nodes.filter((n) => !n.component.startsWith('opaque.')),
-    edges: (k8sMonitoring.graph.edges as { from: { node: string } }[]).filter(
-      (e) => !e.from.node.startsWith('n_opaque_'),
+    nodes: k8sMonitoring.graph.nodes.filter(
+      (n) => !n.component.startsWith('opaque.') && n.component !== 'declare' && !n.parent,
+    ),
+    edges: (k8sMonitoring.graph.edges as { from: { node: string }; to: { node: string } }[]).filter(
+      (e) =>
+        [e.from.node, e.to.node].every((id) => /^n_(?!opaque_|declare_|cluster_events__)/.test(id)),
     ),
   };
   api.seed({

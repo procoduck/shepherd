@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { shippedSchema } from '../../tests/fixtures/schema-fixture';
 import { layoutPorts } from './components/PipelineNode';
-import { genericHandleId, graphViewFlow } from './graphViewFlow';
+import { builderDraftFromGraphView, genericHandleId, graphViewFlow } from './graphViewFlow';
 import type { GraphDocument } from './types';
 
 const def = (component: string) => shippedSchema.components[component];
@@ -44,7 +44,8 @@ describe('graphViewFlow', () => {
   it('adds generic handles only where the schema has none, by dataflow side', () => {
     const flow = graphViewFlow(k8s.graph, def);
     // The opaque instance feeds loki.write's receiver: its handle sits on its
-    // right, and loki.write keeps its own schema handle.
+    // right, and loki.write keeps its own schema handle. The module's group
+    // hands the instance its argument on the instance's left.
     expect(flow.genericPorts.n_opaque_cluster_events_feature).toEqual([
       {
         handleId: genericHandleId('right', 'logs_destinations'),
@@ -52,8 +53,27 @@ describe('graphViewFlow', () => {
         rfType: 'target',
         side: 'right',
       },
+      {
+        handleId: genericHandleId('left', 'logs_destinations'),
+        label: 'logs_destinations',
+        rfType: 'target',
+        side: 'left',
+      },
     ]);
-    expect(Object.keys(flow.genericPorts)).toEqual(['n_opaque_cluster_events_feature']);
+    // The group's port is on its right edge — data leaves the module there —
+    // both for the edge from inside and for the one out to the instance.
+    expect(flow.genericPorts.n_declare_cluster_events).toEqual([
+      {
+        handleId: genericHandleId('right', 'argument.logs_destinations'),
+        label: 'argument.logs_destinations',
+        rfType: 'source',
+        side: 'right',
+      },
+    ]);
+    expect(Object.keys(flow.genericPorts).sort()).toEqual([
+      'n_declare_cluster_events',
+      'n_opaque_cluster_events_feature',
+    ]);
   });
 
   it('turns a receiver-kind wire around to the RF handle types it uses', () => {
@@ -88,5 +108,55 @@ describe('graphViewFlow', () => {
     expect(drawable(doc, flow, flow.edges[0])).toBe(true);
     expect(flow.genericPorts.a[0].side).toBe('right');
     expect(flow.genericPorts.b[0].side).toBe('left');
+  });
+
+  it('puts both ends of an edge through a group (an argument exported as is) inside it', () => {
+    const doc = {
+      nodes: [{ id: 'g', component: 'declare' }],
+      edges: [
+        {
+          id: 'e',
+          from: { node: 'g', port: 'argument.in' },
+          to: { node: 'g', port: 'export.out' },
+        },
+      ],
+    } as unknown as GraphDocument;
+    const flow = graphViewFlow(doc, def);
+    expect(flow.genericPorts.g).toEqual([
+      {
+        handleId: genericHandleId('left', 'argument.in'),
+        label: 'argument.in',
+        rfType: 'source',
+        side: 'left',
+      },
+      {
+        handleId: genericHandleId('right', 'export.out'),
+        label: 'export.out',
+        rfType: 'target',
+        side: 'right',
+      },
+    ]);
+  });
+
+  it('survives a parent cycle in a malformed response', () => {
+    const doc = {
+      nodes: [
+        { id: 'a', component: 'declare', parent: 'b' },
+        { id: 'b', component: 'declare', parent: 'a' },
+        { id: 'c', component: 'opaque.c' },
+      ],
+      edges: [{ id: 'e', from: { node: 'c', port: 'out' }, to: { node: 'a', port: 'in' } }],
+    } as unknown as GraphDocument;
+    expect(graphViewFlow(doc, def).edges).toHaveLength(1);
+  });
+
+  it('hands the builder no module grouping', () => {
+    const draft = builderDraftFromGraphView({
+      nodes: [
+        { id: 'n', component: 'prometheus.scrape', parent: 'g' } as GraphDocument['nodes'][number],
+      ],
+      bindings: [],
+    });
+    expect(draft.nodes[0]).not.toHaveProperty('parent');
   });
 });
