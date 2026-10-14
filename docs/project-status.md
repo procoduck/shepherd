@@ -10,12 +10,12 @@
 > GitHub issues (bar Renovate's Dependency Dashboard, #87), each represented in §2–§4 below.
 > The 2026-10-08 pre-release walkthrough's low-severity findings and nits (#296–#310) shipped
 > fixed in v0.16.0; the parts of #301, #308 and #309 that needed a proto or served-config change
-> were approved on 2026-10-12 and merged unreleased (#332, #333) — all three are closed.
+> were approved on 2026-10-12 and ship in v0.17.0 (#332, #333) — all three are closed.
 >
-> Baseline re-verified 2026-10-12 for v0.16.0 (commit `b7fd2a0`, chart 0.20.0) from the CI,
-> CodeQL, security-scan and e2e runs on that commit, not from a summary. v0.16.0 was walked on
-> the kind dev stack on 2026-10-12 (findings fixed in #329), and its upgrade path was exercised
-> there as a real v0.15.0 → main rolling upgrade (#330).
+> Baseline re-verified 2026-10-14 for v0.17.0 (commit `dd85f59`, chart 0.21.0) from the CI,
+> CodeQL, security-scan and e2e runs on main, not from a summary. The read-only graph view
+> (#341, #342) was walked on the kind dev stack on 2026-10-14 against a real k8s-monitoring
+> import (findings fixed in #344; the image build context fix #343 came out of the same session).
 > Completed rounds live in `docs/archive/` — the history this ledger used to carry inline is
 > `docs/archive/completed-2026-09-11.md`. Do not start a second ledger.
 
@@ -39,30 +39,34 @@
 
 ---
 
-## 1. Verified baseline (2026-10-12, v0.16.0)
+## 1. Verified baseline (2026-10-14, v0.17.0)
 
-The baseline commit is `b7fd2a0` (#330, the last merge before the v0.16.0 release PR); its CI,
-CodeQL and security-scan runs (38254210623, 38254210692, 38254210664) are green, and so are its
-E2E run (38254210547: the agent-protocol suite and the sandbox `e2e-sim` job) and the E2E K8s
-dispatch on it (38254348861). The
-release PR changes only version pins, docs, the rebuilt bundle and one Go comment (the archived
-plan's path in `internal/wizard/tls.go`); on main (`67baf3a`) its CI, CodeQL and security-scan runs (38258883697, 38258883670, 38258883726) are green. **v0.16.0 is released**: tag `v0.16.0` on `67baf3a`, release run 38259974133 (verify, publish, attest, scan of the published images) green. Each row cites the run that last exercised the surface — CI's `changes`
-gate skips the jobs a commit does not touch — so the claim is checkable by run id rather than by
-trusting this table.
+The baseline commit is `dd85f59` (#344, the last merge before the v0.17.0 release PR); its CI,
+CodeQL and security-scan runs (38627041055, 38627041355, 38627040911) are green. #344 touched
+only web code and the CHANGELOG, so CI's `changes` gate ran the web, guards and Playwright jobs
+there; the Go jobs last ran on `fd63cdf` (#342, run 38600760238; #343 changed only
+`.dockerignore`). The E2E run (agent-protocol suite and the sandbox `e2e-sim` job) and the E2E K8s
+run dispatched on `dd85f59` for the release are 38636903475 and 38636908019; their results are
+recorded after merge if they had not finished when this was written. The previous release:
+**v0.16.0 is released**, tag `v0.16.0` on `67baf3a`, release run 38259974133 (verify, publish,
+attest, scan of the published images) green. Each row cites the run that last exercised the
+surface — CI's `changes` gate skips the jobs a commit does not touch — so the claim is checkable by
+run id rather than by trusting this table.
 
 | Check | Where it ran | Result |
 |---|---|---|
-| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 38254210623 (`b7fd2a0`) | clean (Go 1.27.2) |
-| `golangci-lint` + config verify, all ten `make guards`, `helm lint` (incl. the dev-kind values), `scripts/repocheck`, generated-code drift | CI `lint` + `guards` jobs, same run; `generated-drift` on `b7fd2a0` (#330's sqlc regenerate), same run | 0 issues |
-| `go test ./...` with coverage (testcontainers Postgres), incl. every wizard golden — tenant and TLS goldens too — loaded by a real Alloy v1.20.1 | CI `test` job, same run | green |
-| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job, run 38251053377 (`b7f27f4`, #329 — the last web change; #330 touched no web code) | clean |
-| Mocked Playwright (`make test-ui`) | CI `test-ui` job, run 38251053377 (`b7f27f4`) | green |
-| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, run 38254210623 (`b7fd2a0`) | green |
-| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml` on push to `b7fd2a0`, run 38254210547 | green |
-| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job, same run | green (containment + run lifecycle) |
-| Kubernetes e2e, kind (`make e2e-k8s`) — incl. destination Secret auth (#260) and tenant + TLS (#281) through a real Alloy | `e2e-k8s.yml` on #282's head `c53153d` (pull request), run 38239291244; manual dispatch on `b7fd2a0`, run 38254348861 | green (both) |
-| CodeQL (actions, go, javascript-typescript, python; `security-extended`) | `codeql.yml` on `b7fd2a0`, run 38254210692 | green |
-| gitleaks, Trivy config + image scans, OpenSSF Scorecard | `security-scan.yml` on `b7fd2a0`, run 38254210664 | green |
+| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 38600760238 (`fd63cdf`, #342 — the last Go change) | clean (Go 1.27.2) |
+| `golangci-lint` + config verify, all ten `make guards`, `helm lint` (incl. the dev-kind values), `scripts/repocheck`, generated-code drift | CI `lint` + `generated-drift` jobs, run 38600760238 (`fd63cdf`, #342's proto regenerate); `guards` on `dd85f59`, run 38627041055 | 0 issues |
+| `go test ./...` with coverage (testcontainers Postgres), incl. every wizard golden loaded by a real Alloy v1.20.1, the six fuzz targets' seed corpora (#339) and the k8s-monitoring graph-view fixtures (#341, #342) | CI `test` job, run 38600760238 (`fd63cdf`) | green |
+| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job, run 38627041055 (`dd85f59`) | clean |
+| Mocked Playwright (`make test-ui`) | CI `test-ui` job, same run | green |
+| `make smoke` + fullstack Playwright against the compose stack, incl. a seeded `declare` pipeline opening laid out with the elkjs worker served from the embedded SPA | CI `test-fullstack` job, same run | green |
+| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml` on push to `fd63cdf`, run 38600760057; manual dispatch on `dd85f59`, run 38636903475 | green (`fd63cdf`); `dd85f59` pending, recorded after merge |
+| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job, same runs | green (`fd63cdf`); `dd85f59` pending, recorded after merge |
+| Kubernetes e2e, kind (`make e2e-k8s`) — incl. destination Secret auth (#260) and tenant + TLS (#281) through a real Alloy | `e2e-k8s.yml` on #342's head `e1f3395` (pull request), run 38599496839; weekly schedule on `c1806a9` (#340, the pnpm-tool image change), run 38387690938; manual dispatch on `dd85f59`, run 38636908019 | green (`e1f3395`, `c1806a9`); `dd85f59` pending, recorded after merge |
+| CodeQL (actions, go, javascript-typescript, python; `security-extended`) | `codeql.yml` on `dd85f59`, run 38627041355 | green |
+| gitleaks, Trivy config + image scans, OpenSSF Scorecard | `security-scan.yml` on `dd85f59`, run 38627040911 | green |
+| Manual walkthrough on the kind dev stack (Playwright MCP) | graph view, 2026-10-14: a real k8s-monitoring import (metrics config, 41 nodes, 1440×900); fixes in #344 | three mediums (zoom controls under the minimap, no zoom-out far enough, *Recreate* offered to viewers) and five lows fixed (#344); the image build context that crashed Docker during the session fixed (#343) |
 | Manual walkthrough on the kind dev stack (Playwright MCP) | v0.16, 2026-10-12 on `b8ce639`; fixes in #329 | all v0.16 features pass; mediums/lows fixed (#329), the rolling-upgrade `(rev 0)` gap fixed (#330) |
 | Rolling upgrade v0.15.0 → main on the kind dev stack | 2026-10-12, #330's head: DB at 31, v0.15.0 deployed with `(rev 0)` caches, then `make dev-kind-reload` | every polling collector serves `(rev N)` at format 1 |
 
@@ -140,6 +144,13 @@ the manual end-to-end pass the list above records. Re-walk them on the next rele
   reload (#323, migration `0032`); team owners in the visual builder (#324, proto `pipeline_id`);
   the rejected pipeline named (#327); the 2026-10-08 walkthrough lows (#325–#327). Not walked in
   the browser before the tag.
+- **v0.17.0** — the read-only graph view reachable and honest for text, wizard and git pipelines
+  (#341) and opening Alloy modules as groups with an elkjs layout (#342; proto
+  `GraphNode.parent`); walked on kind 2026-10-14 against a k8s-monitoring import, fixes in #344;
+  the served header without "prod", serve format 2, one fleet reload (#333);
+  `Pipeline.follows_wizard` and `Destination.regenerated_pipelines` (#332); six fuzz targets and
+  the two bugs they found (#339); pnpm installed from a hash-locked manifest in the images (#340);
+  code-scanning triage (#338). No migration.
 
 ### History
 
@@ -164,7 +175,9 @@ remediation with its D1–D14 decisions, and the v0.5.0 dependency and toolchain
 - 2026-10-09 — v0.15.0 (destination auth and re-render, two pre-release walkthroughs, Go 1.27.2),
   chart 0.19.0, release run 37954890404.
 - 2026-10-12 — v0.16.0 (destination tenant and TLS, real revisions in the served header, team
-  owners in the builder, walkthrough lows), chart 0.20.0; release run recorded after the tag.
+  owners in the builder, walkthrough lows), chart 0.20.0, release run 38259974133.
+- 2026-10-15 — v0.17.0 (graph view for imported pipelines incl. Alloy modules, served header
+  without "prod", wizard-follow badge, fuzzing), chart 0.21.0; release run recorded after the tag.
 
 ---
 
@@ -198,11 +211,19 @@ pipelines surfaced, actionable destination refusals, the kind agents' RBAC, edit
 server-side form validation). PRs #288–#295 and follow-ups; `CHANGELOG.md` v0.15.0 has the list.
 The low findings and nits are issues #296–#310, fixed in v0.16.0 (#323, #325–#327) except the
 parts of #301, #308 and #309 that needed a proto or served-config change, approved 2026-10-12 and
-merged unreleased in #332 (`Pipeline.follows_wizard`, `Destination.regenerated_pipelines`) and #333
+shipped in v0.17.0: #332 (`Pipeline.follows_wizard`, `Destination.regenerated_pipelines`) and #333
 (served header without "prod", serve format 2, single blank lines, visual header "N nodes"). A second pass on 2026-10-09 (`fcb8b17`) found
 four lows (an untouched builder graph counted as dirty, never-connected collectors counted as live
 matches, Self Monitoring's fixed role, no in-app 404), fixed in #318, plus the stale-tab overwrite
 and team edit rights fixed in #317 and diagnostics one line off fixed in #316.
+
+**2026-10-14 graph-view walkthrough** (kind dev stack, Playwright MCP, a real grafana/k8s-monitoring
+metrics config imported as a pipeline, 41 nodes at 1440×900): three mediums (M1 zoom controls
+unreachable under the minimap, M2 no zoom-out far enough to fit a chart-sized graph, M3 *Recreate
+as visual pipeline* offered to viewers) and five lows (warning summary, module-instance link,
+themed minimap, edge names, a refused `ListTeamMembers` on the audit page), all fixed in #344
+before v0.17.0. The session also found the Docker image build context had grown to ~17 GB (agent
+worktrees with their `node_modules`) and crashed the daemon; `.dockerignore` fixed in #343.
 
 ---
 
