@@ -12,5 +12,7 @@ FROM ${ALLOY_IMAGE} AS alloy
 FROM ${DISTROLESS_BASE_IMAGE}
 COPY --from=alloy /bin/alloy /usr/local/bin/alloy
 COPY shepherd /usr/local/bin/shepherd
+# The embedded web UI ships elkjs (EPL-2.0): its notice and source pointer.
+COPY THIRD_PARTY_NOTICES.md /licenses/THIRD_PARTY_NOTICES.md
 USER nonroot
 ENTRYPOINT ["/usr/local/bin/shepherd"]

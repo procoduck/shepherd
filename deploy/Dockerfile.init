@@ -36,6 +36,8 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /shepherd ./cmd/shepherd
 
 FROM ${GO_IMAGE}
 COPY --from=builder /shepherd /usr/local/bin/shepherd
+# The embedded web UI ships elkjs (EPL-2.0): its notice and source pointer.
+COPY THIRD_PARTY_NOTICES.md /licenses/THIRD_PARTY_NOTICES.md
 # Not root: the init image only runs `migrate` and `dev seed` against Postgres over
 # the network; nothing it does needs to write to its own filesystem (Trivy DS-0002).
 USER nobody:nobody

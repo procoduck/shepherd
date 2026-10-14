@@ -102,6 +102,11 @@ All additive.
   Loaded only on the graph view: a 1.6 MB Web Worker script plus a 4 kB client chunk. Shepherd
   serves both uncompressed, so that is 1.6 MB on the wire unless a proxy in front compresses it
   (about 460 kB gzipped); the other pages do not fetch it.
+- **`THIRD_PARTY_NOTICES.md`** (new, repo root): elkjs's notice — version, copyright,
+  licence (distributed under EPL-2.0) and the exact upstream source tag and commit. It ships in
+  the server release archive and at `/licenses/THIRD_PARTY_NOTICES.md` in the `shepherd` images
+  (release, local and init). `scripts/repocheck` fails when web/pnpm-lock.yaml's elkjs version
+  and the notice disagree, so a dependency bump must update the notice too.
 
 ## v0.16.0
 

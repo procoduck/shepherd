@@ -221,4 +221,5 @@ Issues and pull requests are welcome; start with
 
 ## Licence
 
-[Apache License 2.0](LICENSE)
+[Apache License 2.0](LICENSE). Third-party code whose licence asks for a notice (elkjs, EPL-2.0) is listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); the rest is in each release's SBOM.
