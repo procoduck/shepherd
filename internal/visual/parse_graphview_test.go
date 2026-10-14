@@ -122,12 +122,11 @@ var _ = Describe("ParseAlloy on a chart-generated pipeline (graph view)", func()
 		}
 	})
 
-	// The mocked Playwright suite (web/tests/specs/visual-graph-view.spec.ts)
+	// The mocked Playwright suite (web/tests/specs/visual-graph-view-imported.spec.ts)
 	// replays this parse as its GraphView response, so the UI is proved
 	// against what the server really returns for this config. After a parser
-	// change regenerate it with `GEN_GOLDENS=1 ginkgo --focus fixture
-	// ./internal/visual`, then `pnpm exec biome format --write` the file in
-	// web/ (the comparison below is by value, so Biome's layout is fine).
+	// change regenerate it with `make generate-corpus` (GEN_GOLDENS=1, then
+	// Biome formats it; the comparison below is by value, so layout is free).
 	It("matches the web suite's GraphView fixture", func() {
 		view := result.Doc
 		view.Bindings = append(append([]visual.GraphBinding{}, view.Bindings...), result.Bindings...)
@@ -190,7 +189,7 @@ prometheus.remote_write "sink" {
 			"targets = array.concat(discovery.kubernetes.pods.targets, discovery.kubernetes.nodes.targets)"))
 	})
 
-	It("draws a port reference buried in another expression, keeps the expression and says so", func() {
+	It("keeps a port reference buried in another expression as written, listed as a binding", func() {
 		parsed := visual.ParseAlloy(`discovery.kubernetes "pods" {
   role = "pod"
 }
@@ -199,8 +198,8 @@ discovery.relabel "keep" {
   targets = array.concat(discovery.kubernetes.pods.targets, [{"__address__" = "localhost:9090"}])
 }
 `, "v1.20.1", corpusSchema())
-		Expect(parsed.Doc.Edges).To(HaveLen(1))
-		Expect(parsed.Doc.Edges[0].To.Port).To(Equal("targets"))
+		Expect(parsed.Doc.Edges).To(BeEmpty())
+		Expect(parsed.Opaque).To(BeFalse(), parsed.Warning)
 		var relabel visual.GraphNode
 		for _, n := range parsed.Doc.Nodes {
 			if n.Component == "discovery.relabel" {
@@ -208,9 +207,9 @@ discovery.relabel "keep" {
 			}
 		}
 		Expect(relabel.Props["targets"]).To(HaveKey("$expr"))
-		Expect(parsed.Opaque).To(BeTrue())
-		Expect(parsed.Warning).To(ContainSubstring(`"targets"`))
-		Expect(parsed.Bindings).To(BeEmpty())
+		Expect(parsed.Bindings).To(HaveLen(1))
+		Expect(parsed.Bindings[0].Prop).To(Equal("targets"))
+		Expect(parsed.Bindings[0].Ref.Export).To(Equal("targets"))
 	})
 
 	It("reports a top-level non-port reference as a binding and keeps its prop", func() {

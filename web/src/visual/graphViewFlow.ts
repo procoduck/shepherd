@@ -104,6 +104,21 @@ export function graphViewFlow(
   return { edges, genericPorts };
 }
 
+/**
+ * The editable draft for a GraphView response — what the builder imports on
+ * its fallback load (a pipeline without a usable wizard_state) and what
+ * "Recreate as visual pipeline" hands it. GraphView's `bindings` are a
+ * display-only projection of references the parser kept inside expressions
+ * (internal/visual/parse.go, ParseResult.Bindings): each expression is
+ * already in its node's props, so a binding carried into the builder renders
+ * the attribute a second time — at the node's top level even when the prop is
+ * nested. Every consumer that edits or renders a GraphView graph goes through
+ * here.
+ */
+export function builderDraftFromGraphView<T extends Pick<GraphDocument, 'bindings'>>(graph: T): T {
+  return { ...graph, bindings: [] };
+}
+
 /** Whether a parsed node is one the graph model could not map (ParseAlloy
  *  prefixes its component with `opaque.`). */
 export const isOpaqueNode = (component: string) => component.startsWith('opaque.');

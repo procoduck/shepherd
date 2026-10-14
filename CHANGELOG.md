@@ -39,7 +39,9 @@ Categories used here:
   only a *Partial* badge, shows nested settings as formatted JSON instead of
   `[object Object]`, and lists a node's secret and other references (a reference inside a
   function call or index, such as `convert.nonsensitive(remote.kubernetes.secret.x.data["k"])`,
-  is now recognised; `array.concat` of wires becomes wires). *Recreate as visual pipeline*
+  is now recognised and listed, while the expression is kept exactly as written;
+  `array.concat` of wires becomes wires). Revision diffs of a non-visual pipeline now also
+  show a change inside an unmapped block, as a change to its source text. *Recreate as visual pipeline*
   is unavailable, saying how many blocks cannot be carried over, while the graph has
   unmapped blocks. The view had also drawn no receiver-kind wire (`forward_to`,
   `output.*`): measured on grafana/k8s-monitoring 4.4.0 output, all 30 wires of its four

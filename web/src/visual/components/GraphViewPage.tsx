@@ -15,7 +15,7 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import { X } from 'lucide-react';
-import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import '@xyflow/react/dist/base.css';
 import { type GraphViewResult, graphView } from '../../api/client';
 import { Modal } from '../../components/ui/Modal';
@@ -26,7 +26,7 @@ import {
 } from '../../components/ui/unavailable';
 import { useOrg } from '../../hooks/useOrg';
 import { exprOf } from '../bindings';
-import { graphViewFlow, isOpaqueNode, RAW_KEY } from '../graphViewFlow';
+import { builderDraftFromGraphView, graphViewFlow, isOpaqueNode, RAW_KEY } from '../graphViewFlow';
 import { loadCurrentSchema } from '../schemaCache';
 import { useVisualStore } from '../store';
 import type { GraphBinding, GraphNode } from '../types';
@@ -37,14 +37,18 @@ const nodeTypes: NodeTypes = { pipeline: PipelineNode as NodeTypes[string] };
 
 // The `fitView` prop fits once, on mount — before this page's nodes, which
 // arrive in an effect, have sizes; with nothing measured the fit snapped to the
-// maximum zoom and showed one corner of the graph. This fits again each time
-// React Flow reports every node measured (the nodes are re-seeded once more
-// when the schema arrives); the graph itself never changes after that.
+// maximum zoom and showed one corner of the graph. This fits once more, the
+// first time React Flow reports every node measured, and never again: a later
+// re-seed (the schema arriving re-creates the nodes) must not undo a pan or
+// zoom the user has made since.
 function FitWhenMeasured() {
   const initialized = useNodesInitialized();
   const { fitView } = useReactFlow();
+  const fitted = useRef(false);
   useEffect(() => {
-    if (initialized) void fitView({ padding: 0.1, maxZoom: 1 });
+    if (!initialized || fitted.current) return;
+    fitted.current = true;
+    void fitView({ padding: 0.1, maxZoom: 1 });
   }, [initialized, fitView]);
   return null;
 }
@@ -255,10 +259,11 @@ export function GraphViewPage() {
     useVisualStore.getState().doc; // touch to ensure store is init
     // Navigate to new visual pipeline; the user will refine the imported graph.
     // We store the imported graph in sessionStorage for the new-pipeline page to pick up.
-    // The view's bindings are dropped: the server reports them so this page
-    // can show references, but each one's expression already sits in its
-    // node's props, so carried into the builder it would render twice.
-    sessionStorage.setItem('vb:import-graph', JSON.stringify({ ...graphData.graph, bindings: [] }));
+    // Without the view-only bindings (builderDraftFromGraphView says why).
+    sessionStorage.setItem(
+      'vb:import-graph',
+      JSON.stringify(builderDraftFromGraphView(graphData.graph)),
+    );
     navigate({ to: '/pipelines/visual/new' });
   };
 

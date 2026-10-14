@@ -17,13 +17,16 @@ type ParseResult struct {
 	Doc     GraphDocument
 	Opaque  bool   // true if the file couldn't be fully mapped to a graph
 	Warning string // human-readable note when parsing is partial
-	// Bindings are the references to another node's non-port export (a
-	// remote.kubernetes.secret's `data`, say), wherever they sit in a body —
-	// nested blocks and function calls included. They are a PROJECTION for the
-	// read-only graph view: the expression itself stays in Props as
-	// {"$expr": ...} so Render reproduces it, which is also why they are kept
-	// out of Doc.Bindings — that channel renders `prop = expr` at the node's
-	// top level, wrong for a nested prop and a duplicate for a top-level one.
+	// Bindings are the references to another node that are NOT wires — a
+	// remote.kubernetes.secret's `data`, or a port referenced inside a larger
+	// expression — wherever they sit in a body, nested blocks and function
+	// calls included. They are a PROJECTION for the read-only graph view: the
+	// expression itself stays in Props as {"$expr": ...} so Render reproduces
+	// it, which is also why they are kept out of Doc.Bindings — that channel
+	// renders `prop = expr` at the node's top level, wrong for a nested prop and
+	// a duplicate for a top-level one. Every consumer that turns a GraphView
+	// response back into an editable draft must drop them
+	// (web/src/visual/graphViewFlow.ts, builderDraftFromGraphView).
 	Bindings []GraphBinding
 }
 
@@ -317,73 +320,62 @@ func (gp *graphParser) edges(doc *GraphDocument, idx int, body ast.Body, path []
 			gp.edges(doc, idx, s.Body, append(append([]string{}, path...), name), nodeByRef, child)
 		case *ast.AttributeStmt:
 			prop := strings.Join(append(append([]string{}, path...), s.Name.Name), ".")
-			if refs, isWire := wireRefs(s.Value); isWire {
-				gp.wire(doc, idx, prop, s, refs, nodeByRef, props)
+			if refs, isWire := wireRefs(s.Value); isWire && gp.wire(doc, idx, prop, refs, nodeByRef) {
+				// The renderer writes the attribute back from the edges.
+				delete(props, s.Name.Name)
 				continue
 			}
-			gp.expression(doc, idx, prop, s, nodeByRef)
+			gp.references(doc, idx, prop, s, nodeByRef)
 		}
 	}
 }
 
-// wire handles an attribute whose whole value is wiring — a reference, a list
-// of them, or the array.concat the renderer emits for a targets fan-in — the
-// shape both the builder and hand-written configs use for a wire. Every port
-// reference becomes an edge and, when all of them do, the prop goes (the
-// renderer writes it back from the edges). A reference to a non-port export is
-// a binding instead; the prop then stays, so nothing is lost.
-func (gp *graphParser) wire(doc *GraphDocument, idx int, prop string, s *ast.AttributeStmt, refs []string, nodeByRef map[string]string, props map[string]interface{}) {
+// wire turns an attribute that is nothing but wiring — a reference, a list of
+// them, or the array.concat the renderer emits for a targets fan-in — into
+// edges, and reports whether it did. It is all or nothing: only when every
+// reference resolves to a port of a node in the graph. Anything less (a list
+// mixing a receiver with a non-port export, a reference to an `argument`)
+// stays an expression, so the prop is never both a wire and a value.
+func (gp *graphParser) wire(doc *GraphDocument, idx int, prop string, refs []string, nodeByRef map[string]string) bool {
 	if len(refs) == 0 {
-		return
+		return false
 	}
-	node := doc.Nodes[idx]
-	edges := 0
+	type end struct{ node, export string }
+	ends := make([]end, 0, len(refs))
 	for _, ref := range refs {
 		otherID, export, ok := resolveRef(ref, nodeByRef)
-		if !ok {
-			continue
+		if !ok || !gp.isPort(doc, otherID, export) {
+			return false
 		}
-		if gp.isPort(doc, otherID, export) {
-			gp.edge(doc, idx, prop, otherID, export)
-			edges++
-			continue
-		}
-		gp.binding(node.ID, prop, otherID, export, s.Value)
+		ends = append(ends, end{otherID, export})
 	}
-	if edges == len(refs) {
-		delete(props, s.Name.Name)
-	} else if edges > 0 {
-		gp.drop("attribute %q of %s mixes wires with other values", prop, node.Component)
+	for _, e := range ends {
+		gp.edge(doc, idx, prop, e.node, e.export)
 	}
+	return true
 }
 
-// expression handles an attribute whose value is a computation that happens to
-// contain references — convert.nonsensitive(secret.data["k"]), a concat mixing
-// wires and literals, an index into an export. The prop keeps the expression
-// verbatim ({"$expr": ...}, set by props()), so rendering it back is exact. A
-// reference to a port is still drawn as an edge, because that IS where the
-// node's data comes from, and reported, because rebuilding the attribute from
-// that edge would lose the rest of the expression. Any other reference is a
-// binding.
-func (gp *graphParser) expression(doc *GraphDocument, idx int, prop string, s *ast.AttributeStmt, nodeByRef map[string]string) {
+// references handles an attribute that is not pure wiring but contains
+// references — convert.nonsensitive(secret.data["k"]), a concat of a wire and
+// a literal list, a list mixing a receiver with a file's content. The prop
+// keeps the expression verbatim ({"$expr": ...}, set by props()), so rendering
+// it back is exact, and it is neither a wire nor a reason to call the graph
+// opaque: an edge here would make the renderer write the attribute twice (or
+// drop the expression for the wire). Each reference to another node is
+// reported as a binding instead, which the read-only view lists and nothing
+// renders.
+func (gp *graphParser) references(doc *GraphDocument, idx int, prop string, s *ast.AttributeStmt, nodeByRef map[string]string) {
 	node := doc.Nodes[idx]
 	for _, ref := range exprRefs(s.Value) {
-		otherID, export, ok := resolveRef(ref, nodeByRef)
-		if !ok {
-			continue
+		if otherID, export, ok := resolveRef(ref, nodeByRef); ok {
+			gp.binding(node.ID, prop, otherID, export, s.Value)
 		}
-		if gp.isPort(doc, otherID, export) {
-			gp.edge(doc, idx, prop, otherID, export)
-			gp.drop("attribute %q of %s wires %s inside an expression; it is drawn as a wire and kept as written",
-				prop, node.Component, ref)
-			continue
-		}
-		gp.binding(node.ID, prop, otherID, export, s.Value)
 	}
 }
 
-// binding records a reference to a non-port export (see ParseResult.Bindings).
-// Expr is the whole attribute value: that is what the prop holds.
+// binding records a reference kept inside an expression (see
+// ParseResult.Bindings). Expr is the whole attribute value: that is what the
+// prop holds.
 func (gp *graphParser) binding(nodeID, prop, otherID, export string, value ast.Expr) {
 	gp.bindings = append(gp.bindings, GraphBinding{
 		Node: nodeID,
