@@ -33,6 +33,28 @@ While old and new pods both serve, a builder save can be refused once as not
 matching the server's render (the render and the save reached different
 versions); saving again after the rollout succeeds.
 
+### Wizard pipeline badges during the rollout (#301)
+
+The UI now takes a wizard pipeline's *Hand-edited* / *Not following wizard*
+state from a new `Pipeline.follows_wizard` field the server sets. An old pod
+does not set it, so while old and new pods both serve, a page loaded from a
+new pod can badge a wizard pipeline *Not following wizard* and offer *Restore
+last wizard version* when its request reached an old pod. The badge is wrong
+only for that response; reload once the rollout is done. Nothing is written
+unless someone restores a revision, but an editor save whose pipeline response came from an
+old pod is not asked "Save a hand edit?" first, so avoid hand-editing wizard pipelines until
+the rollout is done.
+
+### Graph view and the licence notice
+
+Nothing to do; noted for proxies and compliance reviews. The read-only graph
+view now loads elkjs, a 1.6 MB Web Worker script fetched only on that page.
+Shepherd serves it uncompressed; a proxy or ingress that compresses responses
+brings it to about 460 kB. elkjs is distributed under EPL-2.0: its notice is
+`THIRD_PARTY_NOTICES.md` in the server release archive and
+`/licenses/THIRD_PARTY_NOTICES.md` in the `shepherd` images (release, local
+and init).
+
 ## 0.19.x → 0.20.0
 
 An ordinary `helm upgrade`, then **decide when destinations' tenant IDs start
