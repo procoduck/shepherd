@@ -7,6 +7,21 @@ column, a trigger and a one-row-per-link backfill; quick). Read the local
 sign-in note if people sign in with local accounts, and the Git sync note if
 you link repositories.
 
+### Migration 0034
+
+The migration Job (a `pre-upgrade` hook, on by default with
+`migrations.job.enabled: true`) applies `0034` before the new pods start;
+nothing to do. If you turned the Job off, run `shepherd migrate up` against the
+database yourself before upgrading, as for every release. `0034` adds a
+nullable `last_ok_at` column to `repo_links` (metadata-only, instant), a
+`BEFORE INSERT OR UPDATE` trigger that stamps it whenever a write moves a link
+to `ok` or records a new commit while it is `ok` — so writes from the old pods
+during the rollout keep it current too — and backfills every existing link to
+the moment of the upgrade (one `UPDATE`, one row per link). The Git sync
+guard below measures a sync's deletes against the pipelines that existed at
+that moment. Its down migration drops the trigger, its function and the
+column.
+
 ### Local sign-in behind an ingress: `config.server.trusted_proxies`
 
 Shepherd no longer trusts `X-Forwarded-For`, `X-Real-IP` or `True-Client-IP`
