@@ -75,18 +75,26 @@ Categories used here:
   `receiver.applyTenantRoutes` are on. `make help` and the README no longer pin a stale count of
   Kubernetes e2e features.
 - **A file removed from a linked repository kept its pipeline,** served to the link's collector
-  indefinitely, although the spec has always said the sync deletes it. Shipped. A successful
-  sync now deletes the link's git pipelines whose file is gone, in one transaction with a
-  `pipeline.delete` audit row each (actor `gitsync`; reason *file removed from repository*, the
-  link, the file path and the commit) and a recompute of the collector's served config, so it
-  drops them on its next poll. A rename deletes the old name's pipeline and creates the new one.
-  A sync that could not fetch the repository, or in which any file failed validation, deletes
-  nothing; a file skipped as larger than `max_file_bytes` keeps its pipeline. **Guard:** if a sync
-  finds no `.alloy` files at all while the link still has pipelines — more likely a wrong path or
-  branch than a deliberate wipe — it deletes nothing and sets the link's status to `warning`
-  (amber on the Git page), re-checking on every poll. Pipelines whose file was removed before
-  the upgrade go on the link's next new commit, since an unchanged commit tip is not re-fetched.
-  No migration. (B-GITSYNC-PRUNE)
+  for as long as the link existed, although the spec has always said the sync deletes it.
+  Shipped. A successful sync now deletes the link's git pipelines whose file is gone, in the
+  same transaction as the sync's other writes, with a `pipeline.delete` audit row each (actor
+  `gitsync`, reason `gitsync.file_removed`, the link, the file path and the commit the clone
+  checked out), and recomputes the org's served configs right away. A rename deletes the old
+  pipeline and creates the new one in the same sync, including a rename onto the same
+  sanitised name (`My-App.alloy` → `my_app.alloy`). A sync that could not fetch the repository,
+  or in which any file failed validation, deletes nothing; a file skipped as larger than
+  `max_file_bytes` keeps its pipeline. **Guards:** a commit with no `.alloy` files at all while
+  the link has pipelines (usually a wrong path or branch), or one that would delete more than
+  half of the link's pipelines and more than three, is held back entirely; the link shows
+  `warning` with the reason, and every poll re-fetches the repository until it changes. To remove
+  that many deliberately, delete and re-create the link or remove fewer files per commit.
+  `shepherd_gitsync_total` gains `result="warning"`. Pipelines whose file was removed before the
+  upgrade go on the link's next new commit (an unchanged commit tip is not re-fetched). No
+  migration. (B-GITSYNC-PRUNE)
+- **The Git sync page now shows why a sync failed.** Shipped. The reason a link's last sync ended
+  in `error` or `warning` appears under its status badge (`RepoLink.sync_error`, a new
+  output-only field); before, it was recorded but never reached the API. A status the page does
+  not recognise now reads neutral rather than green.
 
 ## v0.17.0
 

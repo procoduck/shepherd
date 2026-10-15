@@ -156,21 +156,21 @@ LEFT JOIN repo_links rl ON rl.id = p.repo_link_id
 WHERE p.org_id = $1 AND p.enabled = true
 ORDER BY p.name;
 
--- name: CountGitPipelinesByRepoLink :one
--- How many git pipelines a repo link owns: gitsync's empty-tree guard
--- (B-GITSYNC-PRUNE) refuses to prune when a sync finds no .alloy files at
--- all but the link still has pipelines.
-SELECT count(*) FROM pipelines WHERE repo_link_id = $1 AND source = 'git';
+-- name: ListGitPipelinesByRepoLink :many
+-- The git pipelines a repo link owns. gitsync compares their names with the
+-- names derived from the synced tree's paths to find the files that left
+-- the repository (docs/spec.md §10, B-GITSYNC-PRUNE).
+SELECT id, name, git_path FROM pipelines
+WHERE repo_link_id = $1 AND source = 'git'
+ORDER BY name;
 
--- name: DeleteGitPipelinesMissingFromTree :many
--- docs/spec.md §10: a successful sync deletes the git pipelines of its link
--- whose file disappeared. present_paths is every .alloy path the sync saw in
--- the tree (read or skipped as oversized), so anything not in it is gone. A
--- row with no git_path (gitsync always sets one) is never matched. Returns
--- what it deleted so the caller can audit each one.
+-- name: DeleteGitPipelinesOfRepoLink :many
+-- Deletes the listed git pipelines of one repo link — the ones whose file
+-- left the repository. Scoped to the link and source='git' so an id that is
+-- not the link's is never touched. Returns what it deleted so the caller
+-- can audit each one.
 DELETE FROM pipelines
 WHERE repo_link_id = sqlc.arg(repo_link_id)
   AND source = 'git'
-  AND git_path IS NOT NULL
-  AND NOT (git_path = ANY(sqlc.arg(present_paths)::text[]))
+  AND id = ANY(sqlc.arg(ids)::uuid[])
 RETURNING id, name, git_path;

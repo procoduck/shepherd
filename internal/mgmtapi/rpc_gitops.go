@@ -119,6 +119,7 @@ func toRepoLinkProto(l sqlc.RepoLink) *mgmtv1.RepoLink {
 		Branch:       l.Branch,
 		Path:         l.Path,
 		SyncStatus:   l.SyncStatus.String,
+		SyncError:    l.SyncError.String,
 		LastSyncedAt: protoTimestamp(l.LastSyncedAt),
 		CollectorId:  l.CollectorID.String(),
 		CredentialId: l.CredentialID.String(),

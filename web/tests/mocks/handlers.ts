@@ -218,6 +218,7 @@ function repoLinkToWire(l: Obj) {
     branch: s(l, 'branch'),
     path: s(l, 'path'),
     syncStatus: s(l, 'sync_status'),
+    syncError: s(l, 'sync_error'),
     lastSyncedAt: l['last_synced_at'],
     collectorId: s(l, 'collector_id'),
     credentialId: s(l, 'credential_id'),

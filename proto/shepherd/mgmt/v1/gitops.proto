@@ -141,6 +141,11 @@ message RepoLink {
   google.protobuf.Timestamp last_synced_at = 6;
   string collector_id = 7;
   string credential_id = 8;
+  // Output only. Why the last sync ended in sync_status "error" or
+  // "warning" (a sync that applied nothing because it would have deleted
+  // every pipeline, or more than half of them); empty after an "ok" sync.
+  // Credential values are scrubbed from it before it is recorded.
+  string sync_error = 9;
 }
 
 message ListRepoLinksRequest {

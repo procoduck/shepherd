@@ -69,6 +69,29 @@ var _ = Describe("Repo", func() {
 			Expect(files).To(HaveLen(1))
 			Expect(files[0].Path).To(Equal("pipelines/app.alloy"))
 			Expect(string(files[0].Content)).To(ContainSubstring("logging"))
+
+			// Fetch names the commit the clone checked out, which is what
+			// gitsync records against the pipelines it writes or deletes.
+			tree, err := repo.Fetch(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tree.Commit).To(Equal(firstSHA))
+			Expect(tree.Files).To(HaveLen(1))
+			Expect(tree.Oversized).To(BeEmpty())
+		})
+
+		It("reports a file over max_file_bytes as oversized rather than dropping it silently", func() {
+			repo := gitrepo.Repo{
+				URL:    cloneURL,
+				Branch: defaultBranch,
+				Path:   "pipelines",
+				Auth:   gitrepo.BasicAuth{Username: giteaAdminUser, Password: giteaAdminPass},
+				Limits: gitrepo.Limits{MaxFileBytes: 8},
+			}
+
+			tree, err := repo.Fetch(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tree.Files).To(BeEmpty())
+			Expect(tree.Oversized).To(Equal([]string{"pipelines/app.alloy"}))
 		})
 
 		It("authenticates with a personal access token", func() {

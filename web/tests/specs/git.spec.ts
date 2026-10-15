@@ -40,3 +40,68 @@ test('git sync error is surfaced on the repo link', async ({ page, api }) => {
   await expect(indicator).toBeVisible();
   await expect(indicator).toContainText(/error/i);
 });
+
+// B-GITSYNC-PRUNE: a sync that refuses to delete most of a link's pipelines
+// records a warning, and the reason is what tells the admin what to do.
+test('git sync warning shows its reason under the badge', async ({ page, api }) => {
+  await api.loginAs(appAdmin);
+  const s = basicScenario();
+  const reason =
+    'this commit would delete 4 of 6 pipelines (more than half, and more than 3) in one sync; nothing was applied from it and every pipeline was kept.';
+  api.seed({
+    orgs: [s.org],
+    repoLinks: [
+      {
+        id: 'rl-0001',
+        repo_url: 'https://gitea.example.com/obs/pipelines.git',
+        branch: 'main',
+        path: 'pipelines/',
+        sync_status: 'warning',
+        sync_error: reason,
+        collector_id: s.collectors[0].id,
+      },
+    ],
+  });
+  await page.goto('/git');
+
+  const badge = page.getByTestId('sync-status-warning');
+  await expect(badge).toBeVisible();
+  await expect(badge).toHaveText('warning');
+  const detail = page.getByTestId('sync-error');
+  await expect(detail).toHaveText(reason);
+  // The badge names its reason for assistive tech, not only by position.
+  await expect(badge).toHaveAccessibleDescription(reason);
+});
+
+test('git sync error shows its reason; an ok link shows none', async ({ page, api }) => {
+  await api.loginAs(appAdmin);
+  const s = basicScenario();
+  api.seed({
+    orgs: [s.org],
+    repoLinks: [
+      {
+        id: 'rl-0001',
+        repo_url: 'https://gitea.example.com/obs/broken.git',
+        branch: 'main',
+        path: '',
+        sync_status: 'error',
+        sync_error: 'fetching files: authentication required',
+        collector_id: s.collectors[0].id,
+      },
+      {
+        id: 'rl-0002',
+        repo_url: 'https://gitea.example.com/obs/fine.git',
+        branch: 'main',
+        path: '',
+        sync_status: 'ok',
+        collector_id: s.collectors[0].id,
+      },
+    ],
+  });
+  await page.goto('/git');
+
+  await expect(page.getByTestId('sync-error')).toHaveCount(1);
+  await expect(page.getByTestId('sync-error')).toHaveText(
+    'fetching files: authentication required',
+  );
+});

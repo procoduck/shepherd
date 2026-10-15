@@ -24,20 +24,21 @@ export function toneClass(tone: StatusTone): string {
 }
 
 /**
- * A repo link's sync_status as a tone. "warning" is a sync that found no
- * .alloy files while the link still has pipelines, so it kept them instead
- * of deleting them all (internal/gitsync pruneAndMarkSynced).
+ * A repo link's sync_status as a tone. "warning" is a sync that applied
+ * nothing because it would have deleted every pipeline of the link, or more
+ * than half of them (internal/gitsync pruneGuard). Anything unrecognised —
+ * including no sync yet — reads neutral, never as a success.
  */
 export function syncStatusTone(status: string): StatusTone {
   switch (status) {
+    case 'ok':
+      return 'ok';
     case 'error':
       return 'danger';
     case 'warning':
       return 'warn';
-    case '':
-      return 'neutral';
     default:
-      return 'ok';
+      return 'neutral';
   }
 }
 

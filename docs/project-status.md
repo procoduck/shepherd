@@ -205,8 +205,9 @@ Fixed bugs (B-CONTAIN-1, B-CONCAT, B-STAGEORDER, F9-a) are in
 `docs/archive/completed-2026-09-11.md` with their red-run evidence. B-VIEWER-CANVAS (#226, a
 viewer's canvas and inspector stayed editable) shipped fixed in v0.15.0 (#256). B-GITSYNC-PRUNE
 (a file removed from a linked repository kept its pipeline, contrary to `docs/spec.md` §10) is
-fixed, unreleased: a successful sync deletes them, with an empty-tree guard (spec §10, "Removed
-files"); red-first specs in `internal/gitsync/reconciler_internal_test.go`.
+fixed, unreleased (#349): a successful sync deletes them, behind an empty-tree guard and a
+more-than-half-and-more-than-three guard (spec §10, "Removed files"); red-first specs in
+`internal/gitsync/reconciler_internal_test.go`.
 
 **2026-10-08 pre-release walkthrough** (kind dev stack, Playwright MCP): four high and six medium
 findings, all fixed in v0.15.0 — the builder save landing on stale data (H1), App

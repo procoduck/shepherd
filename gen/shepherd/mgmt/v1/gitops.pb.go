@@ -635,15 +635,20 @@ func (x *TestCredentialResponse) GetTokenExchangeOk() bool {
 
 // RepoLink binds a git repository path to a collector's pipelines.
 type RepoLink struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	RepoUrl       string                 `protobuf:"bytes,2,opt,name=repo_url,json=repoUrl,proto3" json:"repo_url,omitempty"`
-	Branch        string                 `protobuf:"bytes,3,opt,name=branch,proto3" json:"branch,omitempty"`
-	Path          string                 `protobuf:"bytes,4,opt,name=path,proto3" json:"path,omitempty"`
-	SyncStatus    string                 `protobuf:"bytes,5,opt,name=sync_status,json=syncStatus,proto3" json:"sync_status,omitempty"`
-	LastSyncedAt  *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=last_synced_at,json=lastSyncedAt,proto3" json:"last_synced_at,omitempty"`
-	CollectorId   string                 `protobuf:"bytes,7,opt,name=collector_id,json=collectorId,proto3" json:"collector_id,omitempty"`
-	CredentialId  string                 `protobuf:"bytes,8,opt,name=credential_id,json=credentialId,proto3" json:"credential_id,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Id           string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	RepoUrl      string                 `protobuf:"bytes,2,opt,name=repo_url,json=repoUrl,proto3" json:"repo_url,omitempty"`
+	Branch       string                 `protobuf:"bytes,3,opt,name=branch,proto3" json:"branch,omitempty"`
+	Path         string                 `protobuf:"bytes,4,opt,name=path,proto3" json:"path,omitempty"`
+	SyncStatus   string                 `protobuf:"bytes,5,opt,name=sync_status,json=syncStatus,proto3" json:"sync_status,omitempty"`
+	LastSyncedAt *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=last_synced_at,json=lastSyncedAt,proto3" json:"last_synced_at,omitempty"`
+	CollectorId  string                 `protobuf:"bytes,7,opt,name=collector_id,json=collectorId,proto3" json:"collector_id,omitempty"`
+	CredentialId string                 `protobuf:"bytes,8,opt,name=credential_id,json=credentialId,proto3" json:"credential_id,omitempty"`
+	// Output only. Why the last sync ended in sync_status "error" or
+	// "warning" (a sync that applied nothing because it would have deleted
+	// every pipeline, or more than half of them); empty after an "ok" sync.
+	// Credential values are scrubbed from it before it is recorded.
+	SyncError     string `protobuf:"bytes,9,opt,name=sync_error,json=syncError,proto3" json:"sync_error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -730,6 +735,13 @@ func (x *RepoLink) GetCollectorId() string {
 func (x *RepoLink) GetCredentialId() string {
 	if x != nil {
 		return x.CredentialId
+	}
+	return ""
+}
+
+func (x *RepoLink) GetSyncError() string {
+	if x != nil {
+		return x.SyncError
 	}
 	return ""
 }
@@ -1061,7 +1073,7 @@ const file_shepherd_mgmt_v1_gitops_proto_rawDesc = "" +
 	"\treachable\x18\x01 \x01(\bR\treachable\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\x126\n" +
 	"\x17token_exchange_required\x18\x03 \x01(\bR\x15tokenExchangeRequired\x12*\n" +
-	"\x11token_exchange_ok\x18\x04 \x01(\bR\x0ftokenExchangeOk\"\x8c\x02\n" +
+	"\x11token_exchange_ok\x18\x04 \x01(\bR\x0ftokenExchangeOk\"\xab\x02\n" +
 	"\bRepoLink\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
 	"\brepo_url\x18\x02 \x01(\tR\arepoUrl\x12\x16\n" +
@@ -1071,7 +1083,9 @@ const file_shepherd_mgmt_v1_gitops_proto_rawDesc = "" +
 	"syncStatus\x12@\n" +
 	"\x0elast_synced_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\flastSyncedAt\x12!\n" +
 	"\fcollector_id\x18\a \x01(\tR\vcollectorId\x12#\n" +
-	"\rcredential_id\x18\b \x01(\tR\fcredentialId\"-\n" +
+	"\rcredential_id\x18\b \x01(\tR\fcredentialId\x12\x1d\n" +
+	"\n" +
+	"sync_error\x18\t \x01(\tR\tsyncError\"-\n" +
 	"\x14ListRepoLinksRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\"_\n" +
 	"\x15ListRepoLinksResponse\x120\n" +

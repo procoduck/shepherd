@@ -146,6 +146,9 @@ func (r Repo) Files(ctx context.Context) ([]File, error) {
 
 // Tree is what Fetch found under Repo.Path.
 type Tree struct {
+	// Commit is the hash the clone checked out — the commit Files and
+	// Oversized describe, which may be newer than an earlier LatestCommit.
+	Commit string
 	// Files holds every *.alloy file that was read.
 	Files []File
 	// Oversized lists the paths (relative to the repository root) of the
@@ -170,13 +173,14 @@ func (r Repo) Fetch(ctx context.Context) (Tree, error) {
 	}
 
 	wt := memfs.New()
-	if _, err := git.CloneContext(ctx, memory.NewStorage(), wt, &git.CloneOptions{
+	cloned, err := git.CloneContext(ctx, memory.NewStorage(), wt, &git.CloneOptions{
 		URL:           r.URL,
 		ReferenceName: r.branchRef(),
 		SingleBranch:  true,
 		Depth:         1,
 		ClientOptions: opts,
-	}); err != nil {
+	})
+	if err != nil {
 		return Tree{}, r.wrapFetchErr("clone", err, counter, limits)
 	}
 	// See the matching check in LatestCommit: the counter is the
@@ -185,13 +189,17 @@ func (r Repo) Fetch(ctx context.Context) (Tree, error) {
 	if counter.exceeded() {
 		return Tree{}, fmt.Errorf("%w: clone of %s", ErrRepoTooLarge, r.URL)
 	}
+	head, err := cloned.Head()
+	if err != nil {
+		return Tree{}, fmt.Errorf("gitrepo: reading the cloned HEAD of %s: %w", r.URL, err)
+	}
 
 	root := "."
 	if r.Path != "" && r.Path != "." {
 		root = filepath.Clean(r.Path)
 	}
 
-	var tree Tree
+	tree := Tree{Commit: head.Hash().String()}
 	walkErr := util.Walk(wt, root, func(walkPath string, info fs.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			if walkPath == root {
