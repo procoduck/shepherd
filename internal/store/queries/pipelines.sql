@@ -159,8 +159,9 @@ ORDER BY p.name;
 -- name: ListGitPipelinesByRepoLink :many
 -- The git pipelines a repo link owns. gitsync compares their names with the
 -- names derived from the synced tree's paths to find the files that left
--- the repository (docs/spec.md §10, B-GITSYNC-PRUNE).
-SELECT id, name, git_path FROM pipelines
+-- the repository (docs/spec.md §10, B-GITSYNC-PRUNE); created_at tells the
+-- mass-delete guard which existed at the link's last ok sync.
+SELECT id, name, git_path, created_at FROM pipelines
 WHERE repo_link_id = $1 AND source = 'git'
 ORDER BY name;
 

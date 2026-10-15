@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"shepherd/internal/config"
@@ -44,6 +45,9 @@ type Reconciler struct {
 	// recompute, when set, refreshes an org's served configs right after a
 	// sync changed its git pipelines (see WithRecompute).
 	recompute func(ctx context.Context, orgID pgtype.UUID)
+	// planFileFunc, when set, replaces planFile. Test seam only: specs use it
+	// to make one planning pass fail transiently (a validator timeout).
+	planFileFunc func(ctx context.Context, link sqlc.RepoLink, file gitrepo.File, removing map[string]bool) (*filePlan, error)
 }
 
 // Locker lets exactly one Shepherd replica run a sync pass at a time. The
@@ -271,11 +275,12 @@ func (r *Reconciler) syncLink(ctx context.Context, link sqlc.RepoLink) (syncOutc
 	// A guard holds the deletes back, never the rest of the commit: a
 	// backlog of files removed before an upgrade, or a moved directory, must
 	// not freeze every other change to the link.
-	warning := pruneGuard(len(present), len(owned), len(removed))
+	baseline := guardBaseline(link, owned)
+	warning := pruneGuard(len(present), len(owned), baseline, len(removed))
 	if warning != "" {
 		r.logger.Warn("gitsync: holding back deletes that would remove too many pipelines",
-			"link_id", link.ID, "commit", commit, "pipelines", len(owned), "removing", len(removed),
-			"branch", link.Branch, "path", link.Path)
+			"link_id", link.ID, "commit", commit, "pipelines", len(owned), "baseline", baseline,
+			"removing", len(removed), "branch", link.Branch, "path", link.Path)
 		removed, removedNames = nil, nil
 	}
 
@@ -288,11 +293,19 @@ func (r *Reconciler) syncLink(ctx context.Context, link sqlc.RepoLink) (syncOutc
 		// again with them in place: what is written must be exactly what
 		// was validated, and a file that replaces one of them under the
 		// same sanitised name now fails as a clash and waits for a sync
-		// that can prune.
+		// that can prune. The first pass's failures stand even if the
+		// second pass clears them (a validator timeout, a store blip): the
+		// sync stays "error" with last_commit unset, so the next poll
+		// fetches this commit again and retries the deletes, instead of
+		// recording it as synced with the deletes skipped.
+		firstErrs := syncErrs
 		removed = nil
 		plans, syncErrs, err = r.planAll(ctx, link, tree.Files, nil, nil, scrub)
 		if err != nil {
 			return fail(err)
+		}
+		if len(syncErrs) == 0 {
+			syncErrs = firstErrs
 		}
 	}
 
@@ -336,7 +349,11 @@ func (r *Reconciler) planAll(ctx context.Context, link sqlc.RepoLink, files []gi
 	var plans []filePlan
 	var syncErrs []error
 	for _, file := range files {
-		plan, err := r.planFile(ctx, link, file, removing)
+		planFile := r.planFile
+		if r.planFileFunc != nil {
+			planFile = r.planFileFunc
+		}
+		plan, err := planFile(ctx, link, file, removing)
 		if err != nil {
 			err = scrub(err)
 			r.logger.Warn("gitsync: syncing file", "path", file.Path, "err", err)
@@ -408,32 +425,58 @@ const emptyTreeWarning = "the repository has no .alloy files under this link's p
 	"but the link still has synced pipelines; none of them was deleted. " +
 	"Check the link's path and branch. To remove every pipeline deliberately, delete the repository link."
 
+// guardBaseline is the denominator of the more-than-half guard: how many of
+// the link's pipelines existed when its last sync finished "ok"
+// (repo_links.last_ok_at, stamped by a trigger, migration 0034; every link
+// that existed at that upgrade starts from the upgrade's moment). A guarded
+// sync still applies its creates, so counting every current pipeline would
+// let the next poll weigh the same deletes against a larger set and release
+// the guard on its own. Measured against this baseline, the guard holds
+// until the removal itself shrinks (files restored) or the link is
+// re-created. A link that has never finished "ok" has a baseline of 0: it
+// may delete at most maxUnguardedPrune pipelines per sync until it does.
+func guardBaseline(link sqlc.RepoLink, owned []sqlc.ListGitPipelinesByRepoLinkRow) int {
+	if !link.LastOkAt.Valid {
+		return 0
+	}
+	n := 0
+	for _, p := range owned {
+		if !p.CreatedAt.Time.After(link.LastOkAt.Time) {
+			n++
+		}
+	}
+	return n
+}
+
 // pruneGuard returns the warning to record instead of deleting, or "" when
 // the deletes may go ahead. present is the number of pipeline files in the
-// synced tree, owned the link's pipelines, removing how many of those have
-// no file any more.
+// synced tree, owned the link's pipelines, baseline how many of those
+// existed at the link's last ok sync (guardBaseline), removing how many of
+// the link's pipelines have no file any more.
 //
 //   - No .alloy files at all while the link has pipelines: far more often a
 //     wrong path or branch (a missing path reads as an empty tree) than a
 //     deliberate wipe.
-//   - More than half of the link's pipelines AND more than
-//     maxUnguardedPrune: a mass deletion in one commit is more likely a
-//     mistake (a moved directory, a bad merge) than intent.
+//   - More than half of the baseline AND more than maxUnguardedPrune: a
+//     mass deletion in one commit is more likely a mistake (a moved
+//     directory, a bad merge) than intent.
 //
 // Either way no pipeline is deleted, but the commit's creates and updates
 // still apply; the link shows sync_status=warning with the reason, and
-// last_commit stays unset so every poll checks again (a full clone each
-// poll) until the repository or the link changes.
-func pruneGuard(present, owned, removing int) string {
+// last_commit stays unset so every poll checks again — a full clone, and
+// Stages 1-2 plus the Stage-3 dry run for every file — until the repository
+// or the link changes.
+func pruneGuard(present, owned, baseline, removing int) string {
 	if present == 0 && owned > 0 {
 		return emptyTreeWarning
 	}
-	if removing > maxUnguardedPrune && 2*removing > owned {
+	if removing > maxUnguardedPrune && 2*removing > baseline {
 		return fmt.Sprintf("this commit would delete %d of %d pipelines (more than half, and more than %d) in one sync, "+
 			"so none of them was deleted; the commit's other changes were applied. "+
-			"To remove them deliberately, delete and re-create the repository link, "+
-			"or remove fewer files per commit and let each sync complete in between.",
-			removing, owned, maxUnguardedPrune)
+			"To delete them deliberately, delete and re-create the repository link, "+
+			"or restore some of the removed files so that one sync deletes no more than half, "+
+			"and remove them again once it has completed.",
+			removing, baseline, maxUnguardedPrune)
 	}
 	return ""
 }
@@ -532,6 +575,13 @@ func (r *Reconciler) apply(ctx context.Context, link sqlc.RepoLink, commit strin
 			})
 		}
 		if err != nil {
+			// planAll checks sanitised names up front; a clash that still
+			// reaches the index (a pipeline created by the API meanwhile)
+			// gets the same plain-language reading.
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "pipelines_org_sanitized_name_key" {
+				return false, fmt.Errorf("%s: pipeline %q has the same sanitised name as another pipeline in this org; rename the file", plan.path, plan.name)
+			}
 			return false, fmt.Errorf("%s pipeline %s: %w", action, plan.name, err)
 		}
 		// The revision goes in with the row, so no reader ever sees the new
@@ -931,7 +981,8 @@ func (r *Reconciler) markError(ctx context.Context, linkID pgtype.UUID, err erro
 	return err
 }
 
-// markWarning records a sync that applied nothing on purpose (pruneGuard).
+// markWarning records a sync that held its deletes back on purpose
+// (pruneGuard) after applying the commit's creates and updates.
 // last_commit stays unset so the next poll re-checks instead of taking the
 // unchanged-commit shortcut back to "ok".
 func (r *Reconciler) markWarning(ctx context.Context, linkID pgtype.UUID, warning string) {

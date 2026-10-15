@@ -718,6 +718,42 @@ prometheus.remote_write "demo" {
 			})
 		})
 
+		// A file that fails only on the first planning pass (a validator
+		// timeout, a store blip) and passes on the re-plan must not turn the
+		// sync into "ok": that records last_commit, and the skipped deletes
+		// would then wait for the next new commit.
+		It("keeps a sync whose first pass failed in error, so the next poll retries the deletes", func() {
+			commit(map[string]string{"fine.alloy": "// fine", "gone.alloy": "// gone"})
+			syncOK()
+			gone, err := pipelineNamed("gone")
+			Expect(err).NotTo(HaveOccurred())
+
+			commit(map[string]string{"fine.alloy": "// fine, changed"}, "gone.alloy")
+			calls := 0
+			r.planFileFunc = func(ctx context.Context, l sqlc.RepoLink, f gitrepo.File, removing map[string]bool) (*filePlan, error) {
+				calls++
+				if calls == 1 {
+					return nil, errors.New("alloy validate: timed out")
+				}
+				return r.planFile(ctx, l, f, removing)
+			}
+			err = r.reconcileLink(ctx, link)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("timed out"))
+
+			link, err = st.Queries.GetRepoLinkByID(ctx, link.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(link.SyncStatus.String).To(Equal("error"))
+			Expect(link.LastCommit.Valid).To(BeFalse(), "the next poll must fetch this commit again")
+			_, err = st.Queries.GetPipelineByID(ctx, gone.ID)
+			Expect(err).NotTo(HaveOccurred())
+
+			r.planFileFunc = nil
+			Expect(r.reconcileLink(ctx, link)).To(Succeed())
+			_, err = st.Queries.GetPipelineByID(ctx, gone.ID)
+			Expect(err).To(HaveOccurred(), "the retry prunes")
+		})
+
 		Describe("the mass-deletion threshold", func() {
 			sixFiles := func() map[string]string {
 				m := map[string]string{}
@@ -749,7 +785,7 @@ prometheus.remote_write "demo" {
 				Expect(updatedLink.SyncStatus.String).To(Equal("warning"))
 				Expect(updatedLink.SyncError.String).To(ContainSubstring("would delete 4 of 6 pipelines"))
 				Expect(updatedLink.SyncError.String).To(ContainSubstring("delete and re-create the repository link"))
-				Expect(updatedLink.SyncError.String).To(ContainSubstring("let each sync complete in between"))
+				Expect(updatedLink.SyncError.String).To(ContainSubstring("restore some of the removed files"))
 				Expect(updatedLink.LastCommit.Valid).To(BeFalse())
 			})
 
@@ -783,6 +819,45 @@ prometheus.remote_write "demo" {
 				Expect(updatedLink.SyncStatus.String).To(Equal("warning"))
 				Expect(updatedLink.SyncError.String).To(ContainSubstring("would delete 4 of 6 pipelines"))
 				Expect(updatedLink.LastCommit.Valid).To(BeFalse())
+			})
+
+			// The guard's denominator must not grow from the guarded commit's
+			// own creates: compared with 8 pipelines (6 + the 2 it added) on
+			// the next poll, 4 removals are no longer "more than half", and
+			// the guard released itself after one poll.
+			It("keeps holding on later polls when the guarded commit also adds files, until files are restored", func() {
+				commit(sixFiles())
+				syncOK()
+
+				commit(map[string]string{"p7.alloy": "// p7", "p8.alloy": "// p8"},
+					"p1.alloy", "p2.alloy", "p3.alloy", "p4.alloy")
+				for poll := 1; poll <= 2; poll++ {
+					Expect(r.reconcileLink(ctx, link)).To(Succeed())
+					var err error
+					link, err = st.Queries.GetRepoLinkByID(ctx, link.ID)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(link.SyncStatus.String).To(Equal("warning"), "poll %d", poll)
+					Expect(link.SyncError.String).To(ContainSubstring("would delete 4 of 6 pipelines"), "poll %d", poll)
+					Expect(deleteAudits()).To(BeEmpty(), "poll %d: the deletes stay held back", poll)
+				}
+				_, err := pipelineNamed("p7")
+				Expect(err).NotTo(HaveOccurred(), "the guarded commit's creates still applied")
+
+				// Restoring two files brings the removal under the threshold.
+				commit(map[string]string{"p1.alloy": "// p1", "p2.alloy": "// p2"})
+				Expect(r.reconcileLink(ctx, link)).To(Succeed())
+				link, err = st.Queries.GetRepoLinkByID(ctx, link.ID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(link.SyncStatus.String).To(Equal("ok"))
+				for _, n := range []string{"p3", "p4"} {
+					_, err := pipelineNamed(n)
+					Expect(err).To(HaveOccurred(), "%s is pruned once under the threshold", n)
+				}
+				for _, n := range []string{"p1", "p2", "p5", "p6", "p7", "p8"} {
+					_, err := pipelineNamed(n)
+					Expect(err).NotTo(HaveOccurred(), n)
+				}
+				Expect(deleteAudits()).To(HaveLen(2))
 			})
 
 			It("deletes one of six", func() {

@@ -45,9 +45,11 @@
         pipelines (usually a wrong path or branch), and a commit that would delete more than half
         of the link&rsquo;s pipelines and more than three (a moved directory, or files removed
         before upgrading to the release that added this). While a link shows the warning, every
-        poll fetches the repository again. To remove that many pipelines deliberately, delete and
-        re-create the repository link, or remove fewer files per commit and let each sync
-        complete in between.
+        poll fetches and validates the repository again. &ldquo;Half&rdquo; is counted against the
+        pipelines the link had at its last successful sync, so files the same commit adds do not
+        lift the guard. To delete that many pipelines deliberately, delete and re-create the
+        repository link, or restore some of the removed files so one sync deletes no more than
+        half, and remove them again once it has completed.
       </p>
       <p>
         Two pipelines in an organisation cannot have names that differ only in case or

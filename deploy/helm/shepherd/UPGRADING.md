@@ -2,9 +2,10 @@
 
 ## 0.21.x → 0.22.0
 
-An ordinary `helm upgrade`; no migration. Read the local sign-in note if
-people sign in with local accounts, and the Git sync note if you link
-repositories.
+An ordinary `helm upgrade`. Migration 0034 adds `repo_links.last_ok_at` (a
+column, a trigger and a one-row-per-link backfill; quick). Read the local
+sign-in note if people sign in with local accounts, and the Git sync note if
+you link repositories.
 
 ### Local sign-in behind an ingress: `config.server.trusted_proxies`
 
@@ -65,15 +66,19 @@ for as long as the link existed. From this release a sync deletes it, with a
 **The backlog goes on the first sync after a new commit.** Pipelines whose
 files were removed before the upgrade are deleted on the link's next new
 commit (an unchanged commit is not fetched again). If that backlog is more
-than half of a link's pipelines and more than three, or the branch has no
-`.alloy` files left under the link's path, the sync deletes **none** of them:
-it still applies the commit's other changes and shows the link's status as
-`warning` on the Git sync page, with the reason under it. While it shows the
-warning, each poll fetches the repository again. To resolve it:
+than three pipelines and more than half of what the link held at the
+upgrade, or the branch has no `.alloy` files left under the link's path, the
+sync deletes **none** of them: it still applies the commit's other changes and
+shows the link's status as `warning` on the Git sync page, with the reason
+under it. The warning stays until the removal shrinks or the link changes;
+while it shows, each poll clones and validates the repository again. Removing
+fewer files per commit does not clear it — the files are already gone from the
+branch. To resolve it:
 
 - if the removals are intended, delete and re-create the repository link (the
-  new link syncs only the files that exist), or restore some of the files and
-  remove them a few per commit, letting each sync complete in between;
+  new link syncs only the files that exist), or restore some of the removed
+  files so one sync deletes no more than half, then remove them again once
+  that sync has completed;
 - if they are not, fix the link's path or branch, or restore the files.
 
 `shepherd_gitsync_total` gains `result="warning"` (and `result="link_gone"`

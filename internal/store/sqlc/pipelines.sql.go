@@ -479,20 +479,22 @@ func (q *Queries) ListEnabledPipelinesForMerge(ctx context.Context, orgID pgtype
 }
 
 const listGitPipelinesByRepoLink = `-- name: ListGitPipelinesByRepoLink :many
-SELECT id, name, git_path FROM pipelines
+SELECT id, name, git_path, created_at FROM pipelines
 WHERE repo_link_id = $1 AND source = 'git'
 ORDER BY name
 `
 
 type ListGitPipelinesByRepoLinkRow struct {
-	ID      pgtype.UUID `json:"id"`
-	Name    string      `json:"name"`
-	GitPath pgtype.Text `json:"git_path"`
+	ID        pgtype.UUID        `json:"id"`
+	Name      string             `json:"name"`
+	GitPath   pgtype.Text        `json:"git_path"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
 // The git pipelines a repo link owns. gitsync compares their names with the
 // names derived from the synced tree's paths to find the files that left
-// the repository (docs/spec.md §10, B-GITSYNC-PRUNE).
+// the repository (docs/spec.md §10, B-GITSYNC-PRUNE); created_at tells the
+// mass-delete guard which existed at the link's last ok sync.
 func (q *Queries) ListGitPipelinesByRepoLink(ctx context.Context, repoLinkID pgtype.UUID) ([]ListGitPipelinesByRepoLinkRow, error) {
 	rows, err := q.db.Query(ctx, listGitPipelinesByRepoLink, repoLinkID)
 	if err != nil {
@@ -502,7 +504,12 @@ func (q *Queries) ListGitPipelinesByRepoLink(ctx context.Context, repoLinkID pgt
 	var items []ListGitPipelinesByRepoLinkRow
 	for rows.Next() {
 		var i ListGitPipelinesByRepoLinkRow
-		if err := rows.Scan(&i.ID, &i.Name, &i.GitPath); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.GitPath,
+			&i.CreatedAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
