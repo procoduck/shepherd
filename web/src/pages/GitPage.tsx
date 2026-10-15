@@ -477,7 +477,7 @@ export function GitPage() {
       {deleteLink && (
         <AdminConfirmDialog
           title='Delete repository link?'
-          body='The collector this link targets will stop receiving updates from this repository. Pipelines already synced from it are left as-is.'
+          body='The pipelines this link synced from the repository are deleted with it, and the collector it targets stops receiving them on its next poll. Relinking the repository syncs them again.'
           confirmLabel='Delete'
           pendingLabel='Deleting…'
           pending={deleteLinkMut.isPending}

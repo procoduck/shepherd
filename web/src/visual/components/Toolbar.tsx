@@ -18,7 +18,7 @@ import { useVisualStore } from '../store';
 import { useElementWidth } from '../useElementWidth';
 import { OverflowMenu } from './OverflowMenu';
 import { RevisionCompare } from './RevisionCompare';
-import { type SandboxRunHandle, SandboxRunPanel } from './SandboxRunPanel';
+import { SANDBOX_RUN_LABEL, type SandboxRunHandle, SandboxRunPanel } from './SandboxRunPanel';
 
 /** Thrown when the server-side render (VisualService.Render) reports L1
  * diagnostics — the graph itself failed to render, so there is nothing
@@ -495,7 +495,7 @@ export function Toolbar({
                     {
                       kind: 'item' as const,
                       testId: 'simulate-menu-sandbox-run',
-                      label: 'Sandbox run (30s)…',
+                      label: SANDBOX_RUN_LABEL,
                       disabledReason: orgId ? sandboxDisabledReason : 'No organization selected',
                       onSelect: () => sandboxRef.current?.start(),
                     },

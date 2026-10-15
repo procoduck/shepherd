@@ -99,6 +99,14 @@ RETURNING *;
 -- name: DeletePipeline :exec
 DELETE FROM pipelines WHERE id = $1;
 
+-- name: DeletePipelinesByRepoLink :many
+-- The git-sourced pipelines a repo link owns, deleted with the link
+-- (GitOpsService.DeleteRepoLink): fk_pipelines_repo_link has no ON DELETE
+-- action, so the link row cannot go while they exist. Returns what it
+-- deleted so the caller can audit each one.
+DELETE FROM pipelines WHERE repo_link_id = $1
+RETURNING id, name;
+
 -- name: ListWizardPipelinesReferencingDestination :many
 -- The wizard pipelines in one org that name a destination (#262). A wizard
 -- stores the destination by NAME, under a `<signal>_dest_name` key of its

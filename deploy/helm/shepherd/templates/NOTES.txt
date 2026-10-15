@@ -67,12 +67,20 @@ Create a token:
 {{- if ((.Values.receiver).enabled) }}
 
 Receiver tier: ENABLED ({{ include "shepherd.receiverFullname" . }}, OTLP/HTTP on port {{ .Values.receiver.listener.port }}).
-  - It is enabled ahead of review gate R3 (docs/gateway-tier-plan.md §7);
-    the chart defaults it off until R3 is signed.
+  - Review gate R3 (docs/gateway-tier-plan.md §7) was signed 2026-09-29; the
+    chart keeps the receiver opt-in.
   - Only the peers in receiver.networkPolicy.gatewayFrom can reach it. With
     mode={{ .Values.receiver.mode }}, the tenant is the X-Scope-OrgID header
     your gateway's HTTPRoute sets -- the route prefix is an identifier, not an
     authorizer.
-  - Tenant routes created in Shepherd are NOT applied to the cluster yet:
-    create the HTTPRoute pointing at this Service yourself.
+{{- if include "shepherd.routeApplyEnabled" . }}
+  - Shepherd applies each tenant route's HTTPRoute in this namespace, pointing
+    at this Service, and the Tenant routes page shows whether the gateway
+    attached it. Its ServiceAccount holds a Role on httproutes here and a
+    ClusterRole to read the HTTPRoute CRD (receiver.applyTenantRoutes).
+{{- else }}
+  - receiver.applyTenantRoutes is false: Shepherd does not apply tenant routes
+    and the chart grants it no RBAC. Create each route's HTTPRoute pointing
+    at this Service yourself.
+{{- end }}
 {{- end }}

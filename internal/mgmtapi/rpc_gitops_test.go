@@ -466,6 +466,77 @@ var _ = Describe("GitOpsService (Connect RPC)", Label("integration"), func() {
 				Entry("scp-like with an SSH key", "ssh", "git@gitea.internal:team/configs.git"),
 			)
 		})
+
+		// Public-docs review 2026-10-15: pipelines.repo_link_id references
+		// repo_links with no ON DELETE action, so deleting a link whose files
+		// had synced failed with a bare "internal".
+		Describe("DeleteRepoLink on a link with synced pipelines", func() {
+			It("deletes the link and its git-sourced pipelines, dirties the collector's served config and audits each pipeline", func() {
+				cluster, err := st.Queries.UpsertCluster(ctx, "repo-link-delete-cluster")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgUUID(orgID)})).To(Succeed())
+				coll, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+				Expect(err).NotTo(HaveOccurred())
+
+				created := createCredential(createCredWire{Name: "delete-link-cred", Kind: "none"})
+				credID, ok := created["id"].(string)
+				Expect(ok).To(BeTrue())
+				body, err := json.Marshal(map[string]any{
+					"orgId": orgID, "collectorId": coll.ID.String(), "credentialId": credID,
+					"repoUrl": "http://gitea:3000/team/configs.git",
+				})
+				Expect(err).NotTo(HaveOccurred())
+				resp := postConnect("/shepherd.mgmt.v1.GitOpsService/CreateRepoLink", string(body), admin)
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+				var link map[string]any
+				decodeBody(resp, &link)
+				linkID, ok := link["id"].(string)
+				Expect(ok).To(BeTrue())
+
+				// What gitsync leaves behind after a successful sync: a
+				// source=git pipeline owned by the link. The manual pipeline
+				// is not the link's and must survive the delete.
+				gitPipe, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+					OrgID: orgUUID(orgID), Name: "configs/synced", Contents: `// git-sourced`,
+					Matchers: json.RawMessage(`[]`), Enabled: true, Source: "git",
+					WizardState: json.RawMessage(`{}`), CreatedBy: "gitsync", UpdatedBy: "gitsync",
+					RepoLinkID: orgUUID(linkID), GitPath: pgtype.Text{String: "synced.alloy", Valid: true},
+				})
+				Expect(err).NotTo(HaveOccurred())
+				manual, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+					OrgID: orgUUID(orgID), Name: "manual", Contents: `// manual`,
+					Matchers: json.RawMessage(`[]`), Enabled: true, Source: "ui",
+					WizardState: json.RawMessage(`{}`), CreatedBy: "admin", UpdatedBy: "admin",
+				})
+				Expect(err).NotTo(HaveOccurred())
+				// A clean served config that still includes the git pipeline.
+				_, err = st.Pool().Exec(ctx, `INSERT INTO serve_cache (collector_id, content, hash, dirty) VALUES ($1, 'old', 'old', false)`, coll.ID) // RAW-SQL-OK: test fixture
+				Expect(err).NotTo(HaveOccurred())
+
+				resp = postConnect("/shepherd.mgmt.v1.GitOpsService/DeleteRepoLink",
+					`{"orgId":"`+orgID+`","id":"`+linkID+`"}`, admin)
+				respBody, err := io.ReadAll(resp.Body)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp.Body.Close()).To(Succeed())
+				Expect(resp.StatusCode).To(Equal(http.StatusOK), string(respBody))
+
+				links, err := st.Queries.ListRepoLinksByOrg(ctx, orgUUID(orgID))
+				Expect(err).NotTo(HaveOccurred())
+				Expect(links).To(BeEmpty())
+				_, err = st.Queries.GetPipelineByID(ctx, gitPipe.ID)
+				Expect(err).To(HaveOccurred(), "the link's git-sourced pipeline must go with it")
+				_, err = st.Queries.GetPipelineByID(ctx, manual.ID)
+				Expect(err).NotTo(HaveOccurred(), "a manual pipeline is not the link's to delete")
+
+				cache, err := st.Queries.GetServeCache(ctx, coll.ID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(cache.Dirty).To(BeTrue(), "the target collector's served config must be recomputed without the pipeline")
+
+				n, err := st.Queries.CountAuditLog(ctx, sqlc.CountAuditLogParams{Column1: orgUUID(orgID), Column3: "pipeline.delete"})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(n).To(BeEquivalentTo(1), "one pipeline.delete row per pipeline the link took with it")
+			})
+		})
 	})
 
 	Context("without encryption configured", func() {

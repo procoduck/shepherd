@@ -237,6 +237,12 @@ export interface PipelineNodeData extends GraphNode {
   /** Graph view only: handles derived from the edges touching this node that
    * its schema does not provide (graphViewFlow.ts). */
   genericPorts?: GenericPort[];
+  /** Graph view only: the label of the module (the `declare` group the view
+   *  draws) this opaque node instantiates — graphViewText.ts's
+   *  moduleOfInstance. Such a node is that module's instance, not a block the
+   *  graph failed to map, so it is not chipped "not mapped". The builder never
+   *  sets it. */
+  moduleInstanceOf?: string;
 }
 type PipelineFlowNode = Node<PipelineNodeData, 'pipeline'>;
 
@@ -419,7 +425,16 @@ export const PipelineNode = memo(function PipelineNode({
         <span className='truncate'>
           {opaque ? node.component.slice('opaque.'.length) : node.component}
         </span>
-        {opaque && (
+        {opaque && node.moduleInstanceOf && (
+          <span
+            data-testid='node-module-instance-badge'
+            title={`An instance of module ${node.moduleInstanceOf}, drawn as a group`}
+            className='ml-auto shrink-0 rounded border border-border px-1 font-sans text-[10px] text-muted'
+          >
+            module instance
+          </span>
+        )}
+        {opaque && !node.moduleInstanceOf && (
           <span
             data-testid='node-opaque-badge'
             className='ml-auto shrink-0 rounded border border-amber-500/40 bg-amber-500/10 px-1 font-sans text-[10px] text-amber-400'

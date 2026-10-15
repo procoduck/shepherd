@@ -192,6 +192,55 @@ test.describe('graph view of a config built from modules (k8s-monitoring metrics
   });
 });
 
+// Public-docs review 2026-10-15: every opaque node carried the "not mapped"
+// chip, so the four module instances said "not mapped" under a badge saying
+// "Modules shown as groups". An instance of a module the view draws as a
+// group says so instead; a block the graph genuinely could not map keeps the
+// chip.
+test('marks module instances as instances, keeping "not mapped" for real unmapped blocks', async ({
+  page,
+  api,
+}) => {
+  const unmapped = {
+    component: 'opaque.tracing',
+    disabled: false,
+    id: 'n_opaque_tracing',
+    label: '',
+    notes: '',
+    position: { x: 0, y: 0 },
+    props: { $raw: 'tracing {\n\tsampling_fraction = 0.1\n}' },
+  };
+  await api.loginAs(reader);
+  const s = basicScenario();
+  api.seed({
+    orgs: [s.org],
+    schema: shippedSchema,
+    pipelines: [s.pipelines[2]],
+    graphViewResult: {
+      ...metrics,
+      graph: { ...metrics.graph, nodes: [...metrics.graph.nodes, unmapped] },
+      warning: `${metrics.warning}; "tracing" is not a component and cannot be edited as a node`,
+    },
+  });
+  await page.goto(`/pipelines/${s.pipelines[2].id}/graph`);
+  await expect(page.getByTestId('graph-view-canvas')).toHaveAttribute('data-layout', 'elk');
+
+  const node = (id: string) => page.locator(`[data-testid="pipeline-node"][data-node-id="${id}"]`);
+  const instances = metrics.graph.nodes.filter(
+    (n) =>
+      n.component.startsWith('opaque.') && groups.some((g) => `opaque.${g.label}` === n.component),
+  );
+  expect(instances).toHaveLength(4);
+  for (const inst of instances) {
+    await expect(node(inst.id).getByTestId('node-opaque-badge')).toHaveCount(0);
+    await expect(node(inst.id).getByTestId('node-module-instance-badge')).toHaveText(
+      'module instance',
+    );
+  }
+  await expect(node(unmapped.id).getByTestId('node-opaque-badge')).toHaveText('not mapped');
+  await expect(node(unmapped.id).getByTestId('node-module-instance-badge')).toHaveCount(0);
+});
+
 test('keeps Recreate unavailable to an editor: modules cannot be carried over', async ({
   page,
   api,

@@ -11,6 +11,31 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
+## Unreleased
+
+### Fixed
+
+- **Deleting a repository link whose files had synced failed with `internal`.** Shipped. A git
+  pipeline's foreign key to its link had no delete action, so the link could not be removed once
+  anything had synced — and since a git pipeline cannot be deleted on its own either, nothing
+  could. Deleting a link now deletes the pipelines it synced in the same transaction, records a
+  `pipeline.delete` audit row for each (with the link it came from), and marks the link's
+  collector for a recompute so its served config drops them on the next poll. The confirmation
+  dialog says so; it used to promise the pipelines were "left as-is". No migration.
+- **The graph view chipped module instances "not mapped"** under a badge saying "Modules shown as
+  groups". An instance of a module the view draws as a group now reads *module instance*; a block
+  the graph genuinely could not map keeps the chip. The builder is unchanged.
+- **The builder's More menu said "Sandbox run (30s)…"** at narrow widths; a run is a 30-second
+  capture plus up to 15 seconds of shutdown flush. It now carries the Simulate menu's label,
+  *Sandbox run (30s capture, ~45s total)…*.
+- **Chart text described the receiver tier as it was before v0.12.0.** `NOTES.txt` and the
+  `receiver` schema description said review gate R3 was unsigned and that Shepherd did not apply
+  tenant routes; R3 was signed 2026-09-29 and Shepherd has applied them since v0.12.0. The
+  `serviceAccount` comment in `values.yaml` and the database docs page said the chart grants no
+  RBAC; it grants the HTTPRoute Role and CRD-read ClusterRole when the receiver tier and
+  `receiver.applyTenantRoutes` are on. `make help` and the README no longer pin a stale count of
+  Kubernetes e2e features.
+
 ## v0.17.0
 
 Chart 0.21.0, released 2026-10-15. **Imported pipelines can be read as a graph:** a text, wizard
