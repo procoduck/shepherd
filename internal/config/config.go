@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"net/url"
 	"strings"
 	"time"
@@ -48,6 +49,84 @@ type ServerConfig struct {
 	// be able to turn it off without downgrading, rather than discovering it
 	// running after an upgrade.
 	BeaconDisabled bool `mapstructure:"beacon_disabled"`
+	// TrustedProxies lists the CIDRs of the reverse proxies directly in front
+	// of Shepherd (the ingress controller or gateway pods). Empty — the
+	// default — means no forwarding header is ever trusted: the client address
+	// is the TCP peer, so behind an ingress every browser shares one address
+	// (and one local sign-in per-IP throttle bucket).
+	//
+	// When set, and only when the TCP peer is inside one of these CIDRs, the
+	// client address is taken from X-Forwarded-For, walking it right to left
+	// and skipping entries that are themselves trusted; the first untrusted
+	// entry is the client. X-Real-IP and True-Client-IP are never read. CIDRs
+	// rather than a hop count because a count trusts the header no matter who
+	// sent it: anything that can reach the pod directly (another pod, a
+	// port-forward) could then choose its own address. A CIDR list narrows
+	// that to the addresses inside it — which is still every pod in it when
+	// it is the pod CIDR; the configuration docs (#trusted-proxies) cover
+	// externalTrafficPolicy, proxy-side header trust and NetworkPolicy.
+	//
+	// Env: SHEPHERD_SERVER_TRUSTED_PROXIES, comma-separated.
+	TrustedProxies []string `mapstructure:"trusted_proxies"`
+}
+
+// minTrustedProxyBits is the shortest prefix ParseTrustedProxies accepts:
+// /8 for IPv4 (10.0.0.0/8 is the widest private block a pod network uses),
+// /16 for IPv6. Anything wider is far more than any proxy fleet, and every
+// address inside the list can claim any client address.
+func minTrustedProxyBits(a netip.Addr) int {
+	if a.Is4() {
+		return 8
+	}
+	return 16
+}
+
+// ParseTrustedProxies parses server.trusted_proxies. Each entry must be a CIDR
+// ("10.244.0.0/16", "fd00:10:244::/56"); a bare address is accepted as a
+// single-host prefix. A /0 is rejected — trusting every peer would make
+// X-Forwarded-For fully client-controlled, which is the exact spoofing the
+// list exists to prevent — and so is anything broader than
+// minTrustedProxyBits.
+func ParseTrustedProxies(entries []string) ([]netip.Prefix, error) {
+	out := make([]netip.Prefix, 0, len(entries))
+	for _, raw := range entries {
+		s := strings.TrimSpace(raw)
+		if s == "" {
+			continue
+		}
+		var p netip.Prefix
+		if strings.Contains(s, "/") {
+			parsed, err := netip.ParsePrefix(s)
+			if err != nil {
+				return nil, fmt.Errorf("server.trusted_proxies: %q is not a CIDR: %w", s, err)
+			}
+			p = parsed.Masked()
+		} else {
+			addr, err := netip.ParseAddr(s)
+			if err != nil {
+				return nil, fmt.Errorf("server.trusted_proxies: %q is not a CIDR or IP address: %w", s, err)
+			}
+			addr = addr.Unmap().WithZone("")
+			p = netip.PrefixFrom(addr, addr.BitLen())
+		}
+		if p.Addr().Is4In6() {
+			// ::ffff:a.b.c.d/n: fold to the v4 prefix so it matches the
+			// unmapped addresses it is compared against.
+			bits := p.Bits() - 96
+			if bits < 0 {
+				return nil, fmt.Errorf("server.trusted_proxies: %q is wider than the IPv4-mapped range", s)
+			}
+			p = netip.PrefixFrom(p.Addr().Unmap(), bits).Masked()
+		}
+		if p.Bits() == 0 {
+			return nil, fmt.Errorf("server.trusted_proxies: %q trusts every address; list the proxies' own CIDRs", s)
+		}
+		if minBits := minTrustedProxyBits(p.Addr()); p.Bits() < minBits {
+			return nil, fmt.Errorf("server.trusted_proxies: %q is too broad (shorter than /%d); every address inside it can claim any client address, so list the proxies' own CIDRs", s, minBits)
+		}
+		out = append(out, p)
+	}
+	return out, nil
 }
 
 // DatabaseConfig holds PostgreSQL connection settings.
@@ -452,6 +531,7 @@ func Load(file string) (*Config, error) {
 		{"server.listen", "SHEPHERD_SERVER_LISTEN"},
 		{"server.base_url", "SHEPHERD_SERVER_BASE_URL"},
 		{"server.metrics_listen", "SHEPHERD_SERVER_METRICS_LISTEN"},
+		{"server.trusted_proxies", "SHEPHERD_SERVER_TRUSTED_PROXIES"},
 		{"database.url", "SHEPHERD_DATABASE_URL"},
 		{"database.max_conns", "SHEPHERD_DATABASE_MAX_CONNS"},
 		{"oidc.issuer", "SHEPHERD_OIDC_ISSUER"},
@@ -551,6 +631,9 @@ func Load(file string) (*Config, error) {
 	key, err := base64.StdEncoding.DecodeString(c.Security.EncryptionKey)
 	if err != nil || len(key) != 32 {
 		return nil, fmt.Errorf("configuration errors:\n  - security.encryption_key must be a base64-encoded 32-byte value")
+	}
+	if _, err := ParseTrustedProxies(c.Server.TrustedProxies); err != nil {
+		return nil, fmt.Errorf("configuration errors:\n  - %w", err)
 	}
 	if raw := c.Gateway.Routes.PublicBaseURL; raw != "" {
 		if u, err := url.Parse(raw); err != nil || u.Scheme != "https" || u.Host == "" {

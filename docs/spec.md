@@ -1505,7 +1505,13 @@ What carried over unchanged:
   `POST /api/auth/local/login` is additionally rate-limited (W3-2, D4):
   two in-process `golang.org/x/time/rate` buckets, one per submitted login
   and one per source IP, each with idle eviction; a throttled request gets
-  `429` with `Retry-After`.
+  `429` with `Retry-After`. The source IP is the direct TCP peer
+  (`r.RemoteAddr`), or — only when that peer is inside
+  `server.trusted_proxies` (CIDRs, default empty) — the rightmost
+  `X-Forwarded-For` entry not itself trusted. `X-Real-IP` and
+  `True-Client-IP` are never read, and no middleware rewrites the peer
+  address. With the list empty, every client behind an ingress shares one
+  per-IP bucket.
 
 ### §D.9 v1.3 — Sessions schema (amended)
 Sessions table gains `source text NOT NULL DEFAULT 'oidc'`. `id_token_expires` is now nullable (local sessions have no ID token). Migration 0003. Both `GetSessionByID` and `CreateSession` include the `source` column.

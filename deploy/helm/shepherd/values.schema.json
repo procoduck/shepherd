@@ -150,6 +150,14 @@
             },
             "beacon_disabled": {
               "type": "boolean"
+            },
+            "trusted_proxies": {
+              "description": "CIDRs (or single addresses) of the reverse proxies directly in front of Shepherd. X-Forwarded-For is read only from these peers. Empty trusts no forwarding header. Every address inside the list can claim any client address. Shepherd validates each entry at startup and rejects /0, IPv4 prefixes shorter than /8 and IPv6 prefixes shorter than /16.",
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
             }
           }
         },

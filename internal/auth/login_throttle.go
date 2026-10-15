@@ -12,8 +12,8 @@ import (
 // source IP. Neither alone is enough — a per-login-only limiter lets an
 // attacker spread guesses across many source addresses, a per-IP-only
 // limiter lets one behind a shared address (the Helm ingress puts every
-// client behind the same IP) lock everyone else out with a single
-// misbehaving client.
+// client behind the same IP unless server.trusted_proxies names it — see
+// clientIP) lock everyone else out with a single misbehaving client.
 //
 // The per-login bucket is the tight one: burst loginPerLoginBurst attempts
 // land immediately (an operator mistyping a password a few times must not

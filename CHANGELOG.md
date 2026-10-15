@@ -13,6 +13,42 @@ Categories used here:
 
 ## Unreleased
 
+### Security
+
+- **The per-IP local sign-in throttle could be bypassed with spoofed forwarding headers
+  (`True-Client-IP`, `X-Real-IP`, `X-Forwarded-For`).** Shipped. The server's middleware chain
+  included chi's `middleware.RealIP` (deprecated upstream for this reason: GHSA-3fxj-6jh8-hvhx,
+  GHSA-rjr7-jggh-pgcp, GHSA-9g5q-2w5x-hmxf), which replaced the request's source address with
+  whatever the client put in any of those headers. The per-IP bucket on
+  `POST /api/auth/local/login` (60 attempts, then 1 a second) is keyed on that address, so a
+  client sending a different value on every request got a fresh bucket each time and could guess
+  passwords across many usernames without ever being throttled per IP. The per-username bucket
+  (10 attempts, then about 1 every six seconds) was unaffected, so guessing against any one
+  account stayed limited. OIDC sign-in and the API token paths do not use the per-IP throttle.
+
+  Shepherd no longer trusts forwarding headers from just anyone. The client address is the
+  direct TCP peer unless that peer is listed in the new **`server.trusted_proxies`** setting
+  (`config.server.trusted_proxies` in the chart; CIDRs; default empty). Only then is it taken
+  from `X-Forwarded-For`, read right to left past the trusted hops; `X-Real-IP` and
+  `True-Client-IP` are never read, and `r.RemoteAddr` is never rewritten. **With
+  `trusted_proxies` empty — the default — every browser behind your ingress or gateway shares one
+  per-IP bucket for local sign-in, and an unauthenticated client can exhaust it with about 60
+  failed attempts, blocking local sign-in for everyone for as long as it keeps going** (OIDC
+  sign-in is unaffected). To give each client its own bucket, set `trusted_proxies` to the CIDR
+  your ingress controller or gateway pods get their addresses from (usually the cluster's pod
+  CIDR). Every address in the list can claim any client address, so this needs
+  `externalTrafficPolicy: Local` on the proxy's Service (on overlay CNIs the default `Cluster`
+  puts a node tunnel address from the pod pool inside the list), proxy-side header trust left
+  off (ingress-nginx `use-forwarded-headers` / `enable-real-ip` / `use-proxy-protocol` with the
+  default `proxy-real-ip-cidr`, NGF `rewriteClientIP`), and ideally a NetworkPolicy so only the
+  proxy can reach Shepherd. `/0`, IPv4 prefixes shorter than `/8` and IPv6 prefixes shorter than
+  `/16` are rejected at startup. See `deploy/helm/shepherd/UPGRADING.md` (0.21.x → 0.22.0) and
+  the configuration docs for ingress-nginx and NGINX Gateway Fabric examples. Nothing else read
+  the rewritten address
+  (no access-log field, audit row or other rate limit carried a client IP), so log output does
+  not change; trace spans keep the `client.address` and `network.peer.address` attributes they
+  already had.
+
 ### Fixed
 
 - **Deleting a repository link whose files had synced failed with `internal`.** Shipped. A git

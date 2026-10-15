@@ -1,5 +1,60 @@
 # Upgrading the Shepherd chart
 
+## 0.21.x → 0.22.0
+
+An ordinary `helm upgrade`; no migration. Read the local sign-in note if
+people sign in with local accounts.
+
+### Local sign-in behind an ingress: `config.server.trusted_proxies`
+
+Shepherd no longer trusts `X-Forwarded-For`, `X-Real-IP` or `True-Client-IP`
+from any client. Before, a client could set any of them to get a fresh per-IP
+local sign-in throttle bucket on every request (the per-username limit still
+held). The client address is now the TCP peer, so **behind your Ingress or
+Gateway every browser shares one per-IP bucket**: about 60 failed local
+sign-ins from anyone, signed in or not, block local sign-in for everyone
+until they stop. OIDC sign-in is unaffected.
+
+To give each client its own bucket again, list the CIDR your ingress
+controller or Gateway data-plane pods connect from (usually the pod CIDR):
+
+```yaml
+config:
+  server:
+    trusted_proxies:
+      - 10.244.0.0/16
+```
+
+Only connections from inside the list have `X-Forwarded-For` read (right to
+left, skipping trusted hops). Before you set it, check three things — the
+Configuration docs page, *Client addresses behind an ingress*, has the detail:
+
+- **What your proxy writes.** ingress-nginx by default *sets*
+  `X-Forwarded-For` to the address it saw, replacing the client's value. Keep
+  its `use-forwarded-headers`, `enable-real-ip` and `use-proxy-protocol` off
+  unless `proxy-real-ip-cidr` (default `0.0.0.0/0`) names only your load
+  balancer; otherwise the address it records is client-chosen. NGINX Gateway
+  Fabric *appends* the address it saw; the same applies to its `NginxProxy`
+  `rewriteClientIP` / `trustedAddresses`.
+- **`externalTrafficPolicy: Local` on the proxy's Service is required** when
+  you trust the pod CIDR (or PROXY protocol with a narrowed trust list). With
+  `Cluster`, kube-proxy rewrites the source to a node address. On overlay
+  networks (Calico IPIP/VXLAN, flannel VXLAN, the kind dev stack) that is the
+  node's tunnel address from the pod pool, which the list then trusts. Behind
+  NGINX Gateway Fabric the client chooses its bucket again; behind
+  ingress-nginx everyone arriving through that node shares one.
+- **Every address in the list can claim any client address.** With the whole
+  pod CIDR, that is every pod in the cluster. Narrow it to the proxy
+  namespace's IP pool where your CNI allows, and/or add a NetworkPolicy
+  admitting Shepherd's port only from the proxy namespace and your collectors
+  (the chart's `networkPolicy` admits every namespace today). A
+  `hostNetwork` ingress controller connects from node addresses, so it needs
+  the node CIDR instead.
+
+A bad entry, a `/0`, an IPv4 prefix shorter than `/8` or an IPv6 prefix
+shorter than `/16` fails startup with a `server.trusted_proxies` error. Log
+output does not change.
+
 ## 0.20.x → 0.21.0
 
 An ordinary `helm upgrade`; no migration. **Every collector reloads its config
