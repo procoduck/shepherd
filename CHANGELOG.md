@@ -13,7 +13,24 @@ Categories used here:
 
 ## Unreleased
 
-### Fixed
+### Security
+
+- **The per-IP local sign-in throttle could be bypassed with a spoofed `X-Real-IP`.** Shipped.
+  The server's middleware chain included chi's `middleware.RealIP` (deprecated upstream for this
+  reason: GHSA-3fxj-6jh8-hvhx, GHSA-rjr7-jggh-pgcp, GHSA-9g5q-2w5x-hmxf), which replaced the
+  request's source address with whatever the client put in `X-Real-IP`, `X-Forwarded-For` or
+  `True-Client-IP`. The per-IP bucket on `POST /api/auth/local/login` (60 attempts, then 1 a
+  second) is keyed on that address, so a client sending a different header value on every
+  request got a fresh bucket each time and could guess passwords across many usernames without
+  ever being throttled per IP. The per-username bucket (10 attempts, then about 1 every six
+  seconds) was unaffected, so guessing against any one account stayed limited; OIDC sign-in and
+  the API token paths do not use the per-IP throttle. Shepherd no longer trusts forwarding
+  headers anywhere: the source address is the direct TCP peer — behind the Helm chart, the
+  ingress or gateway, so all browser sign-ins share one per-IP bucket, which is what the bucket
+  was sized for. Nothing else read the rewritten address: no access-log field, audit row or other
+  rate limit carried a client IP, so no log output changes; trace spans keep the
+  OpenTelemetry `client.address` (taken from `X-Forwarded-For`, display only) and
+  `network.peer.address` attributes they already had. No configuration change.
 
 - **Deleting a repository link whose files had synced failed with `internal`.** Shipped. A git
   pipeline's foreign key to its link had no delete action, so the link could not be removed once

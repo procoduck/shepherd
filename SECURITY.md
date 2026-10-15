@@ -31,6 +31,11 @@ runs, so the areas most worth attention are:
   interceptor tables in `internal/mgmtapi`.
 - Secret handling: git credentials and the OIDC client secret are encrypted at
   rest with the key in `security.encryption_key`.
+- Anything that lets a client choose the source address the server sees. Shepherd
+  does not trust `X-Forwarded-For`, `X-Real-IP` or `True-Client-IP`: the address
+  the local sign-in throttle keys on is the direct TCP peer (behind the Helm
+  chart, the ingress), and no middleware rewrites it from a header
+  (`internal/server/login_throttle_test.go` pins this).
 - Anything that makes the server fetch a URL a user supplied. OIDC discovery is
   deliberately constrained (`internal/auth/discovery.go`); a way around those
   constraints is a finding.

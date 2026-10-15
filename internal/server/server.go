@@ -232,7 +232,14 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 	// the chain spends, then the access log.
 	r.Use(telemetry.HTTPMetrics)
 	r.Use(requestLogger(logger))
-	r.Use(middleware.RealIP) //nolint:staticcheck // RealIP deprecated but no safe replacement available yet
+	// No middleware.RealIP, deliberately. It rewrote r.RemoteAddr from
+	// X-Real-IP / X-Forwarded-For / True-Client-IP — headers any client can
+	// set — before every handler, which let a client pick its own key in the
+	// per-IP local sign-in throttle (internal/auth clientIP) and reset it on
+	// every request. r.RemoteAddr is the direct TCP peer (behind the Helm
+	// chart: the ingress or gateway) and nothing here should change that.
+	// Upstream deprecated RealIP for the same reason (GHSA-3fxj-6jh8-hvhx).
+	// Pinned by login_throttle_test.go.
 	r.Use(middleware.Recoverer)
 
 	// Health endpoints — no auth, no h2c wrapping required.

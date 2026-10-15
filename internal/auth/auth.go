@@ -958,7 +958,10 @@ func randomState() string {
 // X-Forwarded-For/X-Real-IP parsing — so behind the Helm ingress every
 // client resolves to the same address; the per-IP bucket is sized generous
 // enough (loginPerIPBurst) to absorb that (see the login_throttle.go
-// comment) rather than trust a header a client can set itself.
+// comment) rather than trust a header a client can set itself. Nothing in
+// the server's middleware chain may rewrite r.RemoteAddr from those headers
+// either (chi's middleware.RealIP did, until it was removed — see
+// internal/server/login_throttle_test.go).
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
