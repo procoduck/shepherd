@@ -12,10 +12,11 @@
 > fixed in v0.16.0; the parts of #301, #308 and #309 that needed a proto or served-config change
 > were approved on 2026-10-12 and ship in v0.17.0 (#332, #333) — all three are closed.
 >
-> Baseline re-verified 2026-10-14 for v0.17.0 (commit `dd85f59`, chart 0.21.0) from the CI,
-> CodeQL, security-scan and e2e runs on main, not from a summary. The read-only graph view
-> (#341, #342) was walked on the kind dev stack on 2026-10-14 against a real k8s-monitoring
-> import (findings fixed in #344; the image build context fix #343 came out of the same session).
+> Baseline re-verified 2026-10-15 for v0.18.0 (commit `f6ce7d4`, chart 0.22.0) from the CI,
+> CodeQL, security-scan and e2e runs on main, not from a summary. The public docs were reviewed
+> against v0.17.0 and the screenshots retaken on 2026-10-15 (#346, #347); the review's leftovers
+> (#348) found the repository-link delete bug and B-GITSYNC-PRUNE (#349), and the local sign-in
+> throttle bypass through spoofed forwarding headers was fixed in #350 — all ship in v0.18.0.
 > Completed rounds live in `docs/archive/` — the history this ledger used to carry inline is
 > `docs/archive/completed-2026-09-11.md`. Do not start a second ledger.
 
@@ -39,33 +40,33 @@
 
 ---
 
-## 1. Verified baseline (2026-10-14, v0.17.0)
+## 1. Verified baseline (2026-10-15, v0.18.0)
 
-The baseline commit is `dd85f59` (#344, the last merge before the v0.17.0 release PR); its CI,
-CodeQL and security-scan runs (38627041055, 38627041355, 38627040911) are green. #344 touched
-only web code and the CHANGELOG, so CI's `changes` gate ran the web, guards and Playwright jobs
-there; the Go jobs last ran on `fd63cdf` (#342, run 38600760238; #343 changed only
-`.dockerignore`). The E2E run (agent-protocol suite and the sandbox `e2e-sim` job) dispatched on `dd85f59` for
-the release, 38636903475, is green; the E2E K8s dispatch, 38636908019, is recorded after merge if
-it had not finished when this was written. The previous release:
-**v0.16.0 is released**, tag `v0.16.0` on `67baf3a`, release run 38259974133 (verify, publish,
-attest, scan of the published images) green. Each row cites the run that last exercised the
+The baseline commit is `f6ce7d4` (#349, the last merge before the v0.18.0 release PR); its CI,
+CodeQL and security-scan runs (38744221662, 38744221618, 38744221672) are green, every CI job
+ran there (#349 touched Go, proto, SQL and web code), and its E2E run on push, 38744221646, is
+green (the agent-protocol suite; the sandbox `e2e-sim` job is path-filtered and last ran on
+`dd85f59`, run 38636903475). The E2E K8s dispatch on `f6ce7d4`, 38764159489, is pending and
+recorded after merge. The previous release: **v0.17.0 is released**, tag `v0.17.0` on
+`1c79ddc`, release run 38702024932 (verify, publish, attest, scan of the published images)
+green. Each row cites the run that last exercised the
 surface — CI's `changes` gate skips the jobs a commit does not touch — so the claim is checkable by
 run id rather than by trusting this table.
 
 | Check | Where it ran | Result |
 |---|---|---|
-| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 38600760238 (`fd63cdf`, #342 — the last Go change) | clean (Go 1.27.2) |
-| `golangci-lint` + config verify, all ten `make guards`, `helm lint` (incl. the dev-kind values), `scripts/repocheck`, generated-code drift | CI `lint` + `generated-drift` jobs, run 38600760238 (`fd63cdf`, #342's proto regenerate); `guards` on `dd85f59`, run 38627041055 | 0 issues |
-| `go test ./...` with coverage (testcontainers Postgres), incl. every wizard golden loaded by a real Alloy v1.20.1, the six fuzz targets' seed corpora (#339) and the k8s-monitoring graph-view fixtures (#341, #342) | CI `test` job, run 38600760238 (`fd63cdf`) | green |
-| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job, run 38627041055 (`dd85f59`) | clean |
+| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 38744221662 (`f6ce7d4`) | clean (Go 1.27.2) |
+| `golangci-lint` + config verify, all ten `make guards`, `helm lint` (incl. the dev-kind values), `scripts/repocheck`, generated-code drift | CI `lint`, `guards` + `generated-drift` jobs, run 38744221662 (`f6ce7d4`, #349's proto and sqlc regenerate) | 0 issues |
+| `go test ./...` with coverage (testcontainers Postgres), incl. every wizard golden loaded by a real Alloy v1.20.1, the six fuzz targets' seed corpora (#339), the k8s-monitoring graph-view fixtures (#341, #342), the client-address and login-throttle specs (#350), the git-sync prune and guard specs against a real Gitea, and the migration `0034` store spec (#349) | CI `test` job, run 38744221662 (`f6ce7d4`) | green |
+| `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job, same run | clean |
 | Mocked Playwright (`make test-ui`) | CI `test-ui` job, same run | green |
 | `make smoke` + fullstack Playwright against the compose stack, incl. a seeded `declare` pipeline opening laid out with the elkjs worker served from the embedded SPA | CI `test-fullstack` job, same run | green |
-| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml` on push to `fd63cdf`, run 38600760057; manual dispatch on `dd85f59`, run 38636903475 | green (`fd63cdf`, `dd85f59`) |
-| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job, same runs | green (`fd63cdf`, `dd85f59`) |
-| Kubernetes e2e, kind (`make e2e-k8s`) — incl. destination Secret auth (#260) and tenant + TLS (#281) through a real Alloy | `e2e-k8s.yml` on #342's head `e1f3395` (pull request), run 38599496839; weekly schedule on `c1806a9` (#340, the pnpm-tool image change), run 38387690938; manual dispatch on `dd85f59`, run 38636908019 | green (`e1f3395`, `c1806a9`); `dd85f59` pending, recorded after merge |
-| CodeQL (actions, go, javascript-typescript, python; `security-extended`) | `codeql.yml` on `dd85f59`, run 38627041355 | green |
-| gitleaks, Trivy config + image scans, OpenSSF Scorecard | `security-scan.yml` on `dd85f59`, run 38627040911 | green |
+| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml` on push to `f6ce7d4`, run 38744221646 | green |
+| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job, manual dispatch on `dd85f59`, run 38636903475 (path-filtered; nothing since touches the sandbox surface) | green |
+| Kubernetes e2e, kind (`make e2e-k8s`) — incl. destination Secret auth (#260) and tenant + TLS (#281) through a real Alloy | `e2e-k8s.yml` on #342's head `e1f3395` (pull request), run 38599496839; manual dispatch on `dd85f59`, run 38636908019; manual dispatch on `f6ce7d4`, run 38764159489 | green (`e1f3395`, `dd85f59`); `f6ce7d4` pending, recorded after merge |
+| CodeQL (actions, go, javascript-typescript, python; `security-extended`) | `codeql.yml` on `f6ce7d4`, run 38744221618 | green |
+| gitleaks, Trivy config + image scans, OpenSSF Scorecard | `security-scan.yml` on `f6ce7d4`, run 38744221672 | green |
+| Public docs review and screenshots | 2026-10-15, against v0.17.0 (`1c79ddc`): 21 docs pages, `site/index.html` and the README checked against the code (#347); all nine screenshots retaken on the kind dev stack plus the graph view (#346) | corrections merged; leftovers fixed in #348, which found the repo-link delete bug (fixed there) and B-GITSYNC-PRUNE (fixed in #349) |
 | Manual walkthrough on the kind dev stack (Playwright MCP) | graph view, 2026-10-14: a real k8s-monitoring import (metrics config, 41 nodes, 1440×900); fixes in #344 | three mediums (zoom controls under the minimap, no zoom-out far enough, *Recreate* offered to viewers) and five lows fixed (#344); the image build context that crashed Docker during the session fixed (#343) |
 | Manual walkthrough on the kind dev stack (Playwright MCP) | v0.16, 2026-10-12 on `b8ce639`; fixes in #329 | all v0.16 features pass; mediums/lows fixed (#329), the rolling-upgrade `(rev 0)` gap fixed (#330) |
 | Rolling upgrade v0.15.0 → main on the kind dev stack | 2026-10-12, #330's head: DB at 31, v0.15.0 deployed with `(rev 0)` caches, then `make dev-kind-reload` | every polling collector serves `(rev N)` at format 1 |
@@ -153,6 +154,12 @@ the manual end-to-end pass the list above records. Re-walk them on the next rele
   `Pipeline.follows_wizard` and `Destination.regenerated_pipelines` (#332); six fuzz targets and
   the two bugs they found (#339); pnpm installed from a hash-locked manifest in the images (#340);
   code-scanning triage (#338). No migration.
+- **v0.18.0** — the local sign-in per-IP throttle no longer keyed on client-chosen forwarding
+  headers, with the opt-in `server.trusted_proxies` (#350); git sync deleting the pipelines of
+  removed files behind the empty-tree and mass-delete guards, `RepoLink.sync_error` on the Git
+  sync page (#349, migration `0034`, proto field 9); repository-link delete fixed, chart text
+  and two UI labels (#348); the public docs reviewed and the screenshots retaken (#346, #347).
+  Not walked in the browser before the tag.
 
 ### History
 
@@ -179,7 +186,11 @@ remediation with its D1–D14 decisions, and the v0.5.0 dependency and toolchain
 - 2026-10-12 — v0.16.0 (destination tenant and TLS, real revisions in the served header, team
   owners in the builder, walkthrough lows), chart 0.20.0, release run 38259974133.
 - 2026-10-15 — v0.17.0 (graph view for imported pipelines incl. Alloy modules, served header
-  without "prod", wizard-follow badge, fuzzing), chart 0.21.0; release run recorded after the tag.
+  without "prod", wizard-follow badge, fuzzing), chart 0.21.0, release run 38702024932 (tag on
+  `1c79ddc`).
+- 2026-10-15 — v0.18.0 (local sign-in throttle bypass fixed, git sync deletes removed files'
+  pipelines, repository-link delete, docs review and screenshots), chart 0.22.0; release run
+  recorded after the tag.
 
 ---
 
@@ -204,10 +215,14 @@ compose-only.
 Fixed bugs (B-CONTAIN-1, B-CONCAT, B-STAGEORDER, F9-a) are in
 `docs/archive/completed-2026-09-11.md` with their red-run evidence. B-VIEWER-CANVAS (#226, a
 viewer's canvas and inspector stayed editable) shipped fixed in v0.15.0 (#256). B-GITSYNC-PRUNE
-(a file removed from a linked repository kept its pipeline, contrary to `docs/spec.md` §10) is
-fixed, unreleased (#349): a successful sync deletes them, behind an empty-tree guard and a
+(a file removed from a linked repository kept its pipeline, contrary to `docs/spec.md` §10) ships
+fixed in v0.18.0 (#349): a successful sync deletes them, behind an empty-tree guard and a
 more-than-half-and-more-than-three guard (spec §10, "Removed files"); red-first specs in
-`internal/gitsync/reconciler_internal_test.go`.
+`internal/gitsync/reconciler_internal_test.go`. The repository-link delete that failed with
+`internal` once anything had synced (found in the 2026-10-15 docs review) ships fixed in v0.18.0
+(#348). The per-IP local sign-in throttle bypass (chi's `middleware.RealIP` trusted
+`True-Client-IP` / `X-Real-IP` / `X-Forwarded-For` from any client) ships fixed in v0.18.0
+(#350); forwarding headers are read only from peers in `server.trusted_proxies`.
 
 **2026-10-08 pre-release walkthrough** (kind dev stack, Playwright MCP): four high and six medium
 findings, all fixed in v0.15.0 — the builder save landing on stale data (H1), App

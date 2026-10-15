@@ -141,7 +141,7 @@
         files at all under the link&rsquo;s path while the link still has pipelines (usually a
         wrong path or branch), and a commit that would delete more than three pipelines and more
         than half of what the link had at its last successful sync (a moved directory, or files
-        removed before upgrading to the release that added this). A moved directory therefore
+        removed before upgrading to v0.18.0, the release that added this). A moved directory therefore
         keeps serving its old pipelines rather than both copies. A link that has never completed
         a sync may delete at most three pipelines per sync until it does. While a link shows the
         warning, every poll clones and validates the repository again. To apply such a commit,
@@ -170,7 +170,7 @@
 <footer>
   <div class="wrap">
     <div class="foot-left">
-      <span class="pill">v0.17.0</span>
+      <span class="pill">v0.18.0</span>
       <span>self-hosted Grafana Alloy fleet manager</span>
     </div>
     <div class="foot-links">

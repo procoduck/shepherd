@@ -11,7 +11,39 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
-## Unreleased
+## v0.18.0
+
+Chart 0.22.0, released 2026-10-15. **Security fix: the per-IP local sign-in throttle could be
+bypassed** by a client setting `True-Client-IP`, `X-Real-IP` or `X-Forwarded-For` to a new value
+on every request, which got it a fresh per-IP bucket each time and let it guess passwords across
+many usernames without being throttled per IP (the per-username limit held). Fixed: Shepherd no
+longer trusts forwarding headers from any client; the client address is the TCP peer unless the
+peer is listed in the new opt-in **`config.server.trusted_proxies`**. Without it, every browser
+behind an ingress or gateway shares one per-IP bucket for local sign-in, so set it if people sign
+in with local accounts; OIDC sign-in is unaffected. **Git sync now deletes the pipeline of a file
+removed from a linked repository,** behind a mass-delete guard that holds back an empty tree or a
+large removal and shows the link as `warning`; the Git sync page now shows why a sync ended in
+`error` or `warning` (the new `RepoLink.sync_error`). Deleting a repository link whose files had
+synced, which failed with `internal`, now works and deletes the link's pipelines. The public
+docs were reviewed against v0.17.0 and every screenshot retaken. One migration (`0034`).
+
+**Upgrade:** `helm upgrade` to chart 0.22.0 — read `deploy/helm/shepherd/UPGRADING.md`
+(0.21.x → 0.22.0) first:
+
+- **If people sign in with local accounts behind an Ingress or Gateway, set
+  `config.server.trusted_proxies`** to the CIDR your proxy pods connect from, after checking the
+  three conditions UPGRADING lists (what your proxy writes to `X-Forwarded-For`,
+  `externalTrafficPolicy: Local` on the proxy's Service, and who else can connect from inside the
+  list). Until you do, about 60 failed local sign-ins from anyone block local sign-in for everyone
+  for as long as they continue. A bad entry, a `/0` or a too-broad prefix fails startup. (#350)
+- **Pipelines whose files were removed from a linked repository before the upgrade are deleted
+  on that link's next new commit.** If the backlog is more than three pipelines and more than
+  half of what the link held at the upgrade, the sync holds it back and the link shows `warning`; UPGRADING
+  says how to resolve it. Finish the rollout promptly: until it is done, an old pod can still
+  apply a held-back commit the old way. (#349)
+- Migration `0034` (`repo_links.last_ok_at`: a column, a trigger and a one-row-per-link
+  backfill) runs in the pre-upgrade Job and takes moments. The served config format is
+  unchanged, so there is no fleet-wide reload.
 
 ### Security
 
@@ -47,7 +79,7 @@ Categories used here:
   the rewritten address
   (no access-log field, audit row or other rate limit carried a client IP), so log output does
   not change; trace spans keep the `client.address` and `network.peer.address` attributes they
-  already had.
+  already had. (#350)
 
 ### Fixed
 
@@ -60,20 +92,20 @@ Categories used here:
   drops them without waiting for a poll (an offline collector included). The Pipelines list and
   pipeline pages refresh too. The confirmation dialog says so, and that relinking syncs them
   again with fresh revision history; it used to promise the pipelines were "left as-is". No
-  migration.
+  migration. (#348)
 - **The graph view chipped module instances "not mapped"** under a badge saying "Modules shown as
   groups". An instance of a module the view draws as a group now reads *module instance*; a block
-  the graph genuinely could not map keeps the chip. The builder is unchanged.
+  the graph genuinely could not map keeps the chip. The builder is unchanged. _Shipped._ (#348)
 - **The builder's More menu said "Sandbox run (30s)…"** at narrow widths; a run is a 30-second
   capture plus up to 15 seconds of shutdown flush. It now carries the Simulate menu's label,
-  *Sandbox run (30s capture, ~45s total)…*.
+  *Sandbox run (30s capture, ~45s total)…*. _Shipped._ (#348)
 - **Chart text described the receiver tier as it was before v0.12.0.** `NOTES.txt` and the
   `receiver` schema description said review gate R3 was unsigned and that Shepherd did not apply
   tenant routes; R3 was signed 2026-09-29 and Shepherd has applied them since v0.12.0. The
   `serviceAccount` comment in `values.yaml` and the database docs page said the chart grants no
   RBAC; it grants the HTTPRoute Role and CRD-read ClusterRole when the receiver tier and
   `receiver.applyTenantRoutes` are on. `make help` and the README no longer pin a stale count of
-  Kubernetes e2e features.
+  Kubernetes e2e features. _Shipped._ (#348)
 - **A file removed from a linked repository kept its pipeline,** served to the link's collector
   for as long as the link existed, although the spec has always said the sync deletes it.
   Shipped. A successful sync now deletes the link's git pipelines whose file is gone, in the
@@ -99,16 +131,34 @@ Categories used here:
   while its sync ran). **After upgrading:** pipelines whose file was removed before the upgrade go
   on the link's next new commit (an unchanged commit tip is not re-fetched); if that backlog trips
   the guard, see `deploy/helm/shepherd/UPGRADING.md`. Migration 0034 adds
-  `repo_links.last_ok_at`. (B-GITSYNC-PRUNE)
+  `repo_links.last_ok_at`. (B-GITSYNC-PRUNE, #349)
 - **A git file whose pipeline name clashes with another pipeline's now says so.** Two names that
   differ only in case or punctuation (`a-b`, `a_b`) cannot coexist in an org. Such a clash — with
   another file in the commit, or with any pipeline of the org, including one the link's collector
   is not served — fails only the files involved, with an error naming the other, instead of a
-  database unique-constraint error; the rest of the commit syncs.
+  database unique-constraint error; the rest of the commit syncs. _Shipped._ (#349)
 - **The Git sync page now shows why a sync failed.** Shipped. The reason a link's last sync ended
   in `error` or `warning` appears under its status badge (`RepoLink.sync_error`, a new
   output-only field); before, it was recorded but never reached the API. A status the page does
-  not recognise now reads neutral rather than green.
+  not recognise now reads neutral rather than green. (#349)
+
+### API
+
+All additive; `buf breaking` is clean against v0.17.0.
+
+- `RepoLink.sync_error` (output-only, field 9): why the link's last sync ended in `error` or
+  `warning` (for a held-back sync, how many deletes and new files were held); empty after an
+  `ok` sync. Credential values are scrubbed before it is recorded. Set on every response that
+  returns a `RepoLink`. (#349)
+
+### Build & CI
+
+- **Docs:** the public docs reviewed against v0.17.0 — a new *View any pipeline as a graph*
+  section on the authoring page, and accuracy fixes across 21 pages, `site/index.html` and the
+  README (quickstart step order, git pipelines being read-only, role and team-member rights,
+  receiver route statuses, configuration coming from a YAML file, and more). (#347)
+- **Screenshots:** all nine `site/img` screenshots retaken on v0.17.0 from the kind dev stack,
+  plus a new one of the graph view. (#346)
 
 ## v0.17.0
 
