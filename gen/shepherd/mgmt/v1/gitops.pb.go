@@ -645,8 +645,9 @@ type RepoLink struct {
 	CollectorId  string                 `protobuf:"bytes,7,opt,name=collector_id,json=collectorId,proto3" json:"collector_id,omitempty"`
 	CredentialId string                 `protobuf:"bytes,8,opt,name=credential_id,json=credentialId,proto3" json:"credential_id,omitempty"`
 	// Output only. Why the last sync ended in sync_status "error" or
-	// "warning" (a sync that applied nothing because it would have deleted
-	// every pipeline, or more than half of them); empty after an "ok" sync.
+	// "warning" (a sync that held its deletes and new files back because it
+	// would have deleted every pipeline, or too many of them, while still
+	// applying changes to existing files); empty after an "ok" sync.
 	// Credential values are scrubbed from it before it is recorded.
 	SyncError     string `protobuf:"bytes,9,opt,name=sync_error,json=syncError,proto3" json:"sync_error,omitempty"`
 	unknownFields protoimpl.UnknownFields

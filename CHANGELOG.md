@@ -86,12 +86,15 @@ Categories used here:
   `max_file_bytes` keeps its pipeline. **Guards:** in a commit with no `.alloy` files at all
   while the link has pipelines (usually a wrong path or branch), or one that would delete more
   than three pipelines and more than half of those the link had at its last successful sync,
-  the deletes are held back while the commit's new and changed files still sync; the link shows
-  `warning` with the reason, and every poll re-clones and re-validates the repository until the
-  removal shrinks or the link changes (pipelines the same commit adds do not lift the guard). To
-  delete that many deliberately, delete and re-create the link, or restore some of the removed
-  files so one sync deletes no more than half and remove them again afterwards. A sync in which a
-  file failed stays `error` and retries the whole commit on the next poll.
+  the deletes **and the new files** are held back while changes to existing files still sync —
+  so a moved directory keeps serving its old pipelines rather than both copies. A link that has
+  never completed a sync may delete at most three per sync until it does. The link shows
+  `warning` with the reason (how many deletes and new files were held), and every poll re-clones
+  and re-validates the repository until the removal shrinks or the link changes. To apply such a
+  commit, delete and re-create the repository link; or restore some of the removed files, then
+  remove them again a few at a time (at most three, or no more than half of what remains, per
+  sync), letting each sync complete. A sync in which a file failed stays `error` and retries the
+  whole commit on the next poll.
   `shepherd_gitsync_total` gains `result="warning"` and `result="link_gone"` (a link deleted
   while its sync ran). **After upgrading:** pipelines whose file was removed before the upgrade go
   on the link's next new commit (an unchanged commit tip is not re-fetched); if that backlog trips

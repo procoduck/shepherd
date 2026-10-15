@@ -4,7 +4,7 @@
 -- creates, and counting those would let the next poll compare the same
 -- deletes against a larger set and release the guard on its own.
 --
--- Stamped by a trigger rather than by the sync's own UPDATE, so a write from
+-- Stamped by a trigger rather than by the sync's own UPDATE, so an ok write from
 -- any binary — including an older one during a rolling update, whose
 -- UpdateRepoLinkSync does not name this column — keeps it current. now() is
 -- the transaction's start time, the same instant as the created_at of every
@@ -16,10 +16,18 @@ ALTER TABLE repo_links ADD COLUMN last_ok_at TIMESTAMPTZ;
 -- link held then, whatever the link's status.
 UPDATE repo_links SET last_ok_at = now();
 
+-- Stamped only when a write moves the link to 'ok' or records a new commit
+-- while it is 'ok'. The unchanged-commit poll (which rewrites 'ok' with the
+-- same last_commit every poll interval) and unrelated edits leave it, so the
+-- baseline stays the moment the link's pipelines last matched a commit.
 CREATE FUNCTION repo_links_stamp_last_ok() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-    IF NEW.sync_status = 'ok' THEN
+    IF NEW.sync_status = 'ok' AND (
+        TG_OP = 'INSERT'
+        OR NEW.sync_status IS DISTINCT FROM OLD.sync_status
+        OR NEW.last_commit IS DISTINCT FROM OLD.last_commit
+    ) THEN
         NEW.last_ok_at := now();
     END IF;
     RETURN NEW;

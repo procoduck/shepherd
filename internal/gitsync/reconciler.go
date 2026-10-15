@@ -276,11 +276,12 @@ func (r *Reconciler) syncLink(ctx context.Context, link sqlc.RepoLink) (syncOutc
 	// backlog of files removed before an upgrade, or a moved directory, must
 	// not freeze every other change to the link.
 	baseline := guardBaseline(link, owned)
-	warning := pruneGuard(len(present), len(owned), baseline, len(removed))
-	if warning != "" {
-		r.logger.Warn("gitsync: holding back deletes that would remove too many pipelines",
+	guard := pruneGuard(len(present), len(owned), baseline, len(removed), link.LastOkAt.Valid)
+	removing := len(removed)
+	if guard != guardNone {
+		r.logger.Warn("gitsync: holding back deletes and new files: the commit would remove too many pipelines",
 			"link_id", link.ID, "commit", commit, "pipelines", len(owned), "baseline", baseline,
-			"removing", len(removed), "branch", link.Branch, "path", link.Path)
+			"removing", removing, "branch", link.Branch, "path", link.Path)
 		removed, removedNames = nil, nil
 	}
 
@@ -307,6 +308,24 @@ func (r *Reconciler) syncLink(ctx context.Context, link sqlc.RepoLink) (syncOutc
 		if len(syncErrs) == 0 {
 			syncErrs = firstErrs
 		}
+	}
+
+	// Under a guard, new files wait with the deletes: a moved directory
+	// would otherwise serve its new copies beside the old ones (duplicate
+	// scrapes and remote_write, two receivers on one port). Updates to
+	// existing pipelines still apply, so a pre-upgrade backlog of removed
+	// files does not freeze the link.
+	warning := ""
+	if guard != guardNone {
+		held := 0
+		plans = slices.DeleteFunc(plans, func(p filePlan) bool {
+			if p.existing == nil {
+				held++
+				return true
+			}
+			return false
+		})
+		warning = guardMessage(guard, removing, baseline, held)
 	}
 
 	// apply has rolled its transaction back by the time it returns an
@@ -419,19 +438,14 @@ func (r *Reconciler) planAll(ctx context.Context, link sqlc.RepoLink, files []gi
 // without the half-of-the-link check applying (pruneGuard).
 const maxUnguardedPrune = 3
 
-// emptyTreeWarning is recorded in sync_error (sync_status=warning) when a
-// sync finds no .alloy files but the link still has pipelines.
-const emptyTreeWarning = "the repository has no .alloy files under this link's path on this branch, " +
-	"but the link still has synced pipelines; none of them was deleted. " +
-	"Check the link's path and branch. To remove every pipeline deliberately, delete the repository link."
-
 // guardBaseline is the denominator of the more-than-half guard: how many of
 // the link's pipelines existed when its last sync finished "ok"
 // (repo_links.last_ok_at, stamped by a trigger, migration 0034; every link
-// that existed at that upgrade starts from the upgrade's moment). A guarded
-// sync still applies its creates, so counting every current pipeline would
-// let the next poll weigh the same deletes against a larger set and release
-// the guard on its own. Measured against this baseline, the guard holds
+// that existed at that upgrade starts from the upgrade's moment). Pipelines
+// created since — by a sync that failed a file but still wrote the others,
+// say — do not count, so nothing the link gains while the deletes wait can
+// weigh the same deletes against a larger set and release the guard on its
+// own. Measured against this baseline, the guard holds
 // until the removal itself shrinks (files restored) or the link is
 // re-created. A link that has never finished "ok" has a baseline of 0: it
 // may delete at most maxUnguardedPrune pipelines per sync until it does.
@@ -448,35 +462,85 @@ func guardBaseline(link sqlc.RepoLink, owned []sqlc.ListGitPipelinesByRepoLinkRo
 	return n
 }
 
-// pruneGuard returns the warning to record instead of deleting, or "" when
-// the deletes may go ahead. present is the number of pipeline files in the
-// synced tree, owned the link's pipelines, baseline how many of those
-// existed at the link's last ok sync (guardBaseline), removing how many of
-// the link's pipelines have no file any more.
+// pruneGuardKind is which guard, if any, holds a sync's deletes back.
+type pruneGuardKind int
+
+const (
+	guardNone pruneGuardKind = iota
+	// guardEmptyTree: no .alloy files at all while the link has pipelines.
+	guardEmptyTree
+	// guardThreshold: more than maxUnguardedPrune deletes and more than half
+	// of the baseline.
+	guardThreshold
+	// guardNeverOK: more than maxUnguardedPrune deletes on a link that has
+	// never finished a sync "ok" (no baseline).
+	guardNeverOK
+)
+
+// pruneGuard decides whether a sync's deletes may go ahead. present is the
+// number of pipeline files in the synced tree, owned the link's pipelines,
+// baseline how many of those existed at the link's last ok sync
+// (guardBaseline), removing how many of the link's pipelines have no file
+// any more, everOK whether the link has ever finished a sync "ok".
 //
 //   - No .alloy files at all while the link has pipelines: far more often a
 //     wrong path or branch (a missing path reads as an empty tree) than a
 //     deliberate wipe.
 //   - More than half of the baseline AND more than maxUnguardedPrune: a
 //     mass deletion in one commit is more likely a mistake (a moved
-//     directory, a bad merge) than intent.
+//     directory, a bad merge) than intent. With no baseline (never ok),
+//     more than maxUnguardedPrune.
 //
-// Either way no pipeline is deleted, but the commit's creates and updates
-// still apply; the link shows sync_status=warning with the reason, and
-// last_commit stays unset so every poll checks again — a full clone, and
-// Stages 1-2 plus the Stage-3 dry run for every file — until the repository
-// or the link changes.
-func pruneGuard(present, owned, baseline, removing int) string {
+// When a guard holds, no pipeline is deleted and no new file is created;
+// updates to existing pipelines still apply. The link shows
+// sync_status=warning with guardMessage, and last_commit stays unset so
+// every poll checks again — a full clone, and Stages 1-2 plus the Stage-3
+// dry run for every file — until the repository or the link changes.
+func pruneGuard(present, owned, baseline, removing int, everOK bool) pruneGuardKind {
 	if present == 0 && owned > 0 {
-		return emptyTreeWarning
+		return guardEmptyTree
 	}
 	if removing > maxUnguardedPrune && 2*removing > baseline {
+		if !everOK {
+			return guardNeverOK
+		}
+		return guardThreshold
+	}
+	return guardNone
+}
+
+// guardRemedy is the advice every mass-delete warning ends with: what
+// actually clears it, given the guard compares the branch head with the
+// database (removing fewer files per commit cannot help once they are gone).
+const guardRemedy = "To apply it, delete and re-create the repository link; " +
+	"or restore some of the removed files, then remove them again a few at a time " +
+	"(at most 3, or no more than half of what remains, per sync), letting each sync complete."
+
+// guardMessage is the sync_error a held-back sync records: what was held
+// (removing deletes, held new files) and how to resolve it.
+func guardMessage(kind pruneGuardKind, removing, baseline, held int) string {
+	newFiles := fmt.Sprintf("%d new files were not created either", held)
+	if held == 1 {
+		newFiles = "1 new file was not created either"
+	}
+	switch kind {
+	case guardNone:
+		return ""
+	case guardEmptyTree:
+		return "the repository has no .alloy files under this link's path on this branch, " +
+			"but the link still has synced pipelines; none of them was deleted. " +
+			"Check the link's path and branch. To remove every pipeline deliberately, delete the repository link."
+	case guardNeverOK:
+		return fmt.Sprintf("this link has not completed a sync yet; until it does, one sync may delete at most %d pipelines, "+
+			"and this commit would delete %d, so none of them was deleted and %s; "+
+			"changes to existing files were applied. "+
+			"To apply it, delete and re-create the repository link; or restore some of the removed files, "+
+			"then remove them again at most %d per sync, letting each sync complete.",
+			maxUnguardedPrune, removing, newFiles, maxUnguardedPrune)
+	case guardThreshold:
 		return fmt.Sprintf("this commit would delete %d of %d pipelines (more than half, and more than %d) in one sync, "+
-			"so none of them was deleted; the commit's other changes were applied. "+
-			"To delete them deliberately, delete and re-create the repository link, "+
-			"or restore some of the removed files so that one sync deletes no more than half, "+
-			"and remove them again once it has completed.",
-			removing, baseline, maxUnguardedPrune)
+			"so none of them was deleted and %s; changes to existing files were applied. %s",
+			removing, baseline, maxUnguardedPrune, newFiles, guardRemedy)
 	}
 	return ""
 }

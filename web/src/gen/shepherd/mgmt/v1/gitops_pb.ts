@@ -393,8 +393,9 @@ export type RepoLink = Message<"shepherd.mgmt.v1.RepoLink"> & {
 
   /**
    * Output only. Why the last sync ended in sync_status "error" or
-   * "warning" (a sync that applied nothing because it would have deleted
-   * every pipeline, or more than half of them); empty after an "ok" sync.
+   * "warning" (a sync that held its deletes and new files back because it
+   * would have deleted every pipeline, or too many of them, while still
+   * applying changes to existing files); empty after an "ok" sync.
    * Credential values are scrubbed from it before it is recorded.
    *
    * @generated from field: string sync_error = 9;

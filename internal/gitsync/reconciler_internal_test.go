@@ -792,7 +792,11 @@ prometheus.remote_write "demo" {
 			// Only the deletes are held back: a pre-upgrade backlog of removed
 			// files, or a moved directory, must not freeze every other change
 			// to the link until it is re-created.
-			It("still applies the commit's creates and updates while holding the deletes back", func() {
+			// Updates to existing pipelines still apply (a pre-upgrade backlog
+			// must not freeze the link), but new files are held back with the
+			// deletes: a moved directory would otherwise serve the new copies
+			// beside the old ones (duplicate scrapes, two receivers on a port).
+			It("applies the commit's updates but holds its deletes and creates back", func() {
 				commit(sixFiles())
 				syncOK()
 				p5, err := pipelineNamed("p5")
@@ -806,7 +810,7 @@ prometheus.remote_write "demo" {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(updated.Contents).To(Equal("// p5, changed"))
 				_, err = pipelineNamed("p7")
-				Expect(err).NotTo(HaveOccurred())
+				Expect(err).To(HaveOccurred(), "a new file waits with the held-back deletes")
 				for _, n := range []string{"p1", "p2", "p3", "p4"} {
 					_, err := pipelineNamed(n)
 					Expect(err).NotTo(HaveOccurred(), "%s's delete is held back", n)
@@ -818,7 +822,71 @@ prometheus.remote_write "demo" {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(updatedLink.SyncStatus.String).To(Equal("warning"))
 				Expect(updatedLink.SyncError.String).To(ContainSubstring("would delete 4 of 6 pipelines"))
+				Expect(updatedLink.SyncError.String).To(ContainSubstring("1 new file was not created"))
 				Expect(updatedLink.LastCommit.Valid).To(BeFalse())
+			})
+
+			It("keeps serving a moved directory's old pipelines and creates none of the new ones", func() {
+				moved := map[string]string{}
+				var old []string
+				for _, n := range []string{"p1", "p2", "p3", "p4", "p5", "p6"} {
+					moved["b/"+n+".alloy"] = "// " + n
+					old = append(old, "a/"+n+".alloy")
+				}
+				original := map[string]string{}
+				for _, p := range old {
+					original[p] = "// " + p[2:len(p)-6]
+				}
+				commit(original)
+				syncOK()
+
+				commit(moved, old...)
+				Expect(r.reconcileLink(ctx, link)).To(Succeed())
+
+				for _, n := range []string{"p1", "p2", "p3", "p4", "p5", "p6"} {
+					_, err := pipelineNamed("a/" + n)
+					Expect(err).NotTo(HaveOccurred(), "a/%s keeps serving", n)
+					_, err = pipelineNamed("b/" + n)
+					Expect(err).To(HaveOccurred(), "b/%s must not be served beside a/%s", n, n)
+				}
+				Expect(deleteAudits()).To(BeEmpty())
+				Expect(dirtyFlag()).To(BeFalse())
+
+				updatedLink, err := st.Queries.GetRepoLinkByID(ctx, link.ID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(updatedLink.SyncStatus.String).To(Equal("warning"))
+				Expect(updatedLink.SyncError.String).To(ContainSubstring("would delete 6 of 6 pipelines"))
+				Expect(updatedLink.SyncError.String).To(ContainSubstring("6 new files were not created"))
+			})
+
+			// A link that has never finished "ok" has no baseline: it may
+			// delete at most three per sync, and says why in its own words.
+			It("tells a link that has never completed a sync why it may delete at most three", func() {
+				four := map[string]string{"q1.alloy": "// q1", "q2.alloy": "// q2", "q3.alloy": "// q3", "q4.alloy": "// q4"}
+				withBad := map[string]string{"bad.alloy": "this is not valid alloy syntax {{{"}
+				for k, v := range four {
+					withBad[k] = v
+				}
+				commit(withBad)
+				Expect(r.reconcileLink(ctx, link)).NotTo(Succeed(), "the first sync never finishes ok")
+				var err error
+				link, err = st.Queries.GetRepoLinkByID(ctx, link.ID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(link.LastOkAt.Valid).To(BeFalse())
+
+				commit(map[string]string{"bad.alloy": "// fixed"}, "q1.alloy", "q2.alloy", "q3.alloy", "q4.alloy")
+				Expect(r.reconcileLink(ctx, link)).To(Succeed())
+
+				for _, n := range []string{"q1", "q2", "q3", "q4"} {
+					_, err := pipelineNamed(n)
+					Expect(err).NotTo(HaveOccurred())
+				}
+				link, err = st.Queries.GetRepoLinkByID(ctx, link.ID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(link.SyncStatus.String).To(Equal("warning"))
+				Expect(link.SyncError.String).To(ContainSubstring("this link has not completed a sync yet"))
+				Expect(link.SyncError.String).To(ContainSubstring("at most 3"))
+				Expect(link.SyncError.String).To(ContainSubstring("delete and re-create the repository link"))
 			})
 
 			// The guard's denominator must not grow from the guarded commit's
@@ -841,7 +909,7 @@ prometheus.remote_write "demo" {
 					Expect(deleteAudits()).To(BeEmpty(), "poll %d: the deletes stay held back", poll)
 				}
 				_, err := pipelineNamed("p7")
-				Expect(err).NotTo(HaveOccurred(), "the guarded commit's creates still applied")
+				Expect(err).To(HaveOccurred(), "the guarded commit's creates are held back too")
 
 				// Restoring two files brings the removal under the threshold.
 				commit(map[string]string{"p1.alloy": "// p1", "p2.alloy": "// p2"})

@@ -24,9 +24,10 @@ export function toneClass(tone: StatusTone): string {
 }
 
 /**
- * A repo link's sync_status as a tone. "warning" is a sync that applied
- * nothing because it would have deleted every pipeline of the link, or more
- * than half of them (internal/gitsync pruneGuard). Anything unrecognised —
+ * A repo link's sync_status as a tone. "warning" is a sync that held its
+ * deletes and new files back because it would have deleted every pipeline of
+ * the link, or too many of them, while still applying changes to existing
+ * files (internal/gitsync pruneGuard). Anything unrecognised —
  * including no sync yet — reads neutral, never as a success.
  */
 export function syncStatusTone(status: string): StatusTone {
