@@ -121,7 +121,7 @@ docs were reviewed against v0.17.0 and every screenshot retaken. One migration (
   the deletes **and the new files** are held back while changes to existing files still sync —
   so a moved directory keeps serving its old pipelines rather than both copies. A link that has
   never completed a sync may delete at most three per sync until it does. The link shows
-  `warning` with the reason (how many deletes and new files were held), and every poll re-clones
+  `warning` with the reason (for the mass-delete guard, how many deletes and new files were held), and every poll re-clones
   and re-validates the repository until the removal shrinks or the link changes. To apply such a
   commit, delete and re-create the repository link; or restore some of the removed files, then
   remove them again a few at a time (at most three, or no more than half of what remains, per
@@ -147,7 +147,7 @@ docs were reviewed against v0.17.0 and every screenshot retaken. One migration (
 All additive; `buf breaking` is clean against v0.17.0.
 
 - `RepoLink.sync_error` (output-only, field 9): why the link's last sync ended in `error` or
-  `warning` (for a held-back sync, how many deletes and new files were held); empty after an
+  `warning` (for a sync held back as a mass delete, how many deletes and new files were held); empty after an
   `ok` sync. Credential values are scrubbed before it is recorded. Set on every response that
   returns a `RepoLink`. (#349)
 
