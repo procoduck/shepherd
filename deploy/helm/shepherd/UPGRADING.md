@@ -3,7 +3,8 @@
 ## 0.21.x → 0.22.0
 
 An ordinary `helm upgrade`; no migration. Read the local sign-in note if
-people sign in with local accounts.
+people sign in with local accounts, and the Git sync note if you link
+repositories.
 
 ### Local sign-in behind an ingress: `config.server.trusted_proxies`
 
@@ -54,6 +55,30 @@ Configuration docs page, *Client addresses behind an ingress*, has the detail:
 A bad entry, a `/0`, an IPv4 prefix shorter than `/8` or an IPv6 prefix
 shorter than `/16` fails startup with a `server.trusted_proxies` error. Log
 output does not change.
+
+### Git sync deletes the pipelines of removed files (B-GITSYNC-PRUNE)
+
+Until now a file removed from a linked repository kept its pipeline, served
+for as long as the link existed. From this release a sync deletes it, with a
+`pipeline.delete` audit row by `gitsync`.
+
+**The backlog goes on the first sync after a new commit.** Pipelines whose
+files were removed before the upgrade are deleted on the link's next new
+commit (an unchanged commit is not fetched again). If that backlog is more
+than half of a link's pipelines and more than three, or the branch has no
+`.alloy` files left under the link's path, the sync deletes **none** of them:
+it still applies the commit's other changes and shows the link's status as
+`warning` on the Git sync page, with the reason under it. While it shows the
+warning, each poll fetches the repository again. To resolve it:
+
+- if the removals are intended, delete and re-create the repository link (the
+  new link syncs only the files that exist), or restore some of the files and
+  remove them a few per commit, letting each sync complete in between;
+- if they are not, fix the link's path or branch, or restore the files.
+
+`shepherd_gitsync_total` gains `result="warning"` (and `result="link_gone"`
+for a link deleted while its sync ran); alerts on `result="error"` are
+unaffected.
 
 ## 0.20.x → 0.21.0
 

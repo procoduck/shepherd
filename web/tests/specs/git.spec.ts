@@ -47,7 +47,7 @@ test('git sync warning shows its reason under the badge', async ({ page, api }) 
   await api.loginAs(appAdmin);
   const s = basicScenario();
   const reason =
-    'this commit would delete 4 of 6 pipelines (more than half, and more than 3) in one sync; nothing was applied from it and every pipeline was kept.';
+    "this commit would delete 4 of 6 pipelines (more than half, and more than 3) in one sync, so none of them was deleted; the commit's other changes were applied.";
   api.seed({
     orgs: [s.org],
     repoLinks: [
@@ -69,8 +69,8 @@ test('git sync warning shows its reason under the badge', async ({ page, api }) 
   await expect(badge).toHaveText('warning');
   const detail = page.getByTestId('sync-error');
   await expect(detail).toHaveText(reason);
-  // The badge names its reason for assistive tech, not only by position.
-  await expect(badge).toHaveAccessibleDescription(reason);
+  // Read in order with the badge: the reason is text in the badge's own cell.
+  await expect(page.getByRole('cell').filter({ has: badge })).toContainText(reason);
 });
 
 test('git sync error shows its reason; an ok link shows none', async ({ page, api }) => {

@@ -127,6 +127,9 @@ const (
 	outcomeOK      syncOutcome = "ok"
 	outcomeWarning syncOutcome = "warning"
 	outcomeError   syncOutcome = "error"
+	// outcomeLinkGone: the link was deleted while its sync ran, so the sync
+	// wrote nothing — neither a success nor a failure of the sync itself.
+	outcomeLinkGone syncOutcome = "link_gone"
 )
 
 func (r *Reconciler) reconcileAll(ctx context.Context) {
@@ -175,7 +178,8 @@ func (r *Reconciler) reconcileLink(ctx context.Context, link sqlc.RepoLink) erro
 // Deletes happen only on a fully successful sync: a failed fetch returns
 // before anything is compared, and a file that fails validation turns the
 // prune off for that sync (the files that passed still sync, as before).
-// Two guards refuse a suspicious prune outright (pruneGuard).
+// Two guards hold a suspicious prune back while the rest of the commit is
+// still applied (pruneGuard).
 func (r *Reconciler) syncLink(ctx context.Context, link sqlc.RepoLink) (syncOutcome, error) {
 	fail := func(err error) (syncOutcome, error) {
 		return outcomeError, r.markError(ctx, link.ID, err)
@@ -264,18 +268,75 @@ func (r *Reconciler) syncLink(ctx context.Context, link sqlc.RepoLink) (syncOutc
 		}
 	}
 
-	if warning := pruneGuard(len(present), len(owned), len(removed)); warning != "" {
-		r.logger.Warn("gitsync: not applying a commit that would delete too many pipelines",
+	// A guard holds the deletes back, never the rest of the commit: a
+	// backlog of files removed before an upgrade, or a moved directory, must
+	// not freeze every other change to the link.
+	warning := pruneGuard(len(present), len(owned), len(removed))
+	if warning != "" {
+		r.logger.Warn("gitsync: holding back deletes that would remove too many pipelines",
 			"link_id", link.ID, "commit", commit, "pipelines", len(owned), "removing", len(removed),
 			"branch", link.Branch, "path", link.Path)
+		removed, removedNames = nil, nil
+	}
+
+	plans, syncErrs, err := r.planAll(ctx, link, tree.Files, removed, removedNames, scrub)
+	if err != nil {
+		return fail(err)
+	}
+	if len(syncErrs) > 0 && len(removed) > 0 {
+		// A failed sync never prunes, so the removed pipelines stay. Plan
+		// again with them in place: what is written must be exactly what
+		// was validated, and a file that replaces one of them under the
+		// same sanitised name now fails as a clash and waits for a sync
+		// that can prune.
+		removed = nil
+		plans, syncErrs, err = r.planAll(ctx, link, tree.Files, nil, nil, scrub)
+		if err != nil {
+			return fail(err)
+		}
+	}
+
+	// apply has rolled its transaction back by the time it returns an
+	// error, so markError (a write to the same link row on another
+	// connection) never waits on the row lock apply took.
+	changed, err := r.apply(ctx, link, commit, plans, removed, len(syncErrs) == 0 && warning == "")
+	if errors.Is(err, errLinkGone) {
+		r.logger.Info("gitsync: repo link deleted during its sync; nothing written", "link_id", link.ID)
+		return outcomeLinkGone, nil
+	}
+	if err != nil {
+		return fail(err)
+	}
+	if changed && r.recompute != nil {
+		r.recompute(ctx, link.OrgID)
+	}
+	if len(syncErrs) > 0 {
+		if warning != "" {
+			syncErrs = append(syncErrs, errors.New(warning))
+		}
+		return fail(errors.Join(syncErrs...))
+	}
+	if warning != "" {
 		r.markWarning(ctx, link.ID, warning)
 		return outcomeWarning, nil
 	}
+	return outcomeOK, nil
+}
 
+// planAll plans every fetched file (planFile), then fails — that file only,
+// with its own error — every planned write whose sanitised name another
+// pipeline of the org already holds, or another file of this sync claims.
+// The unique index pipelines_org_sanitized_name_key would otherwise refuse
+// it at write time and roll back the whole sync, and the Stage-3 dry run
+// cannot catch it: it sees only the pipelines this collector is served.
+// removed/removing are the link's pipelines this sync deletes: left out of
+// each dry run, and their names are free to take. The returned error is a
+// store failure that ends the sync; per-file problems are in syncErrs.
+func (r *Reconciler) planAll(ctx context.Context, link sqlc.RepoLink, files []gitrepo.File, removed []sqlc.ListGitPipelinesByRepoLinkRow, removing map[string]bool, scrub func(error) error) ([]filePlan, []error, error) {
 	var plans []filePlan
 	var syncErrs []error
-	for _, file := range tree.Files {
-		plan, err := r.planFile(ctx, link, file, removedNames)
+	for _, file := range files {
+		plan, err := r.planFile(ctx, link, file, removing)
 		if err != nil {
 			err = scrub(err)
 			r.logger.Warn("gitsync: syncing file", "path", file.Path, "err", err)
@@ -286,41 +347,55 @@ func (r *Reconciler) syncLink(ctx context.Context, link sqlc.RepoLink) (syncOutc
 			plans = append(plans, *plan)
 		}
 	}
-	if len(syncErrs) > 0 {
-		// A failed sync never prunes: the removed files' pipelines stay
-		// served. A file that renames one of them onto the same sanitised
-		// name (the unique index pipelines_org_sanitized_name_key) cannot be
-		// created beside it, so it waits for a sync that can prune too.
-		removed = nil
-		plans = slices.DeleteFunc(plans, func(p filePlan) bool {
-			for name := range removedNames {
-				if merge.SanitizeName(name) == merge.SanitizeName(p.name) {
-					syncErrs = append(syncErrs, fmt.Errorf("%s: replaces pipeline %q, which is removed only once every file syncs", p.path, name))
-					return true
-				}
-			}
-			return false
-		})
+
+	existing, err := r.store.Queries.ListPipelineSanitizedNamesByOrg(ctx, link.OrgID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("listing the org's pipeline names: %w", err)
+	}
+	deleting := make(map[pgtype.UUID]bool, len(removed))
+	for _, p := range removed {
+		deleting[p.ID] = true
+	}
+	taken := map[string][]sqlc.ListPipelineSanitizedNamesByOrgRow{}
+	for _, p := range existing {
+		if !deleting[p.ID] {
+			taken[p.SanitizedName.String] = append(taken[p.SanitizedName.String], p)
+		}
+	}
+	claims := map[string][]filePlan{}
+	for _, p := range plans {
+		s := merge.SanitizeName(p.name)
+		claims[s] = append(claims[s], p)
 	}
 
-	// apply has rolled its transaction back by the time it returns an
-	// error, so markError (a write to the same link row on another
-	// connection) never waits on the row lock apply took.
-	changed, err := r.apply(ctx, link, commit, plans, removed, len(syncErrs) == 0)
-	if errors.Is(err, errLinkGone) {
-		r.logger.Info("gitsync: repo link deleted during its sync; nothing written", "link_id", link.ID)
-		return outcomeOK, nil
+	kept := plans[:0]
+	for _, p := range plans {
+		s := merge.SanitizeName(p.name)
+		var clash error
+		for _, other := range claims[s] {
+			if other.path != p.path {
+				clash = fmt.Errorf("%s: pipeline %q has the same sanitised name as %s; rename one of the files", p.path, p.name, other.path)
+				break
+			}
+		}
+		if clash == nil {
+			for _, holder := range taken[s] {
+				if p.existing != nil && holder.ID == p.existing.ID {
+					continue // the pipeline this file updates
+				}
+				clash = fmt.Errorf("%s: pipeline %q has the same sanitised name as pipeline %q (source %s) in this org; rename the file or that pipeline",
+					p.path, p.name, holder.Name, holder.Source)
+				break
+			}
+		}
+		if clash != nil {
+			r.logger.Warn("gitsync: syncing file", "path", p.path, "err", clash)
+			syncErrs = append(syncErrs, clash)
+			continue
+		}
+		kept = append(kept, p)
 	}
-	if err != nil {
-		return fail(err)
-	}
-	if changed && r.recompute != nil {
-		r.recompute(ctx, link.OrgID)
-	}
-	if len(syncErrs) > 0 {
-		return fail(errors.Join(syncErrs...))
-	}
-	return outcomeOK, nil
+	return kept, syncErrs, nil
 }
 
 // maxUnguardedPrune is the largest number of pipelines one sync may delete
@@ -330,13 +405,13 @@ const maxUnguardedPrune = 3
 // emptyTreeWarning is recorded in sync_error (sync_status=warning) when a
 // sync finds no .alloy files but the link still has pipelines.
 const emptyTreeWarning = "the repository has no .alloy files under this link's path on this branch, " +
-	"but the link still has synced pipelines; nothing was applied from this commit and they were kept. " +
+	"but the link still has synced pipelines; none of them was deleted. " +
 	"Check the link's path and branch. To remove every pipeline deliberately, delete the repository link."
 
-// pruneGuard returns the warning to record instead of applying a commit,
-// or "" when the commit may be applied. present is the number of pipeline
-// files in the synced tree, owned the link's pipelines, removing how many
-// of those have no file any more.
+// pruneGuard returns the warning to record instead of deleting, or "" when
+// the deletes may go ahead. present is the number of pipeline files in the
+// synced tree, owned the link's pipelines, removing how many of those have
+// no file any more.
 //
 //   - No .alloy files at all while the link has pipelines: far more often a
 //     wrong path or branch (a missing path reads as an empty tree) than a
@@ -345,18 +420,19 @@ const emptyTreeWarning = "the repository has no .alloy files under this link's p
 //     maxUnguardedPrune: a mass deletion in one commit is more likely a
 //     mistake (a moved directory, a bad merge) than intent.
 //
-// Either way nothing from the commit is applied, the link shows
-// sync_status=warning with the reason, and last_commit stays unset so every
-// poll checks again (a full clone each poll) until the repository or the
-// link changes.
+// Either way no pipeline is deleted, but the commit's creates and updates
+// still apply; the link shows sync_status=warning with the reason, and
+// last_commit stays unset so every poll checks again (a full clone each
+// poll) until the repository or the link changes.
 func pruneGuard(present, owned, removing int) string {
 	if present == 0 && owned > 0 {
 		return emptyTreeWarning
 	}
 	if removing > maxUnguardedPrune && 2*removing > owned {
-		return fmt.Sprintf("this commit would delete %d of %d pipelines (more than half, and more than %d) in one sync; "+
-			"nothing was applied from it and every pipeline was kept. "+
-			"To remove them deliberately, delete and re-create the repository link or remove fewer files per commit.",
+		return fmt.Sprintf("this commit would delete %d of %d pipelines (more than half, and more than %d) in one sync, "+
+			"so none of them was deleted; the commit's other changes were applied. "+
+			"To remove them deliberately, delete and re-create the repository link, "+
+			"or remove fewer files per commit and let each sync complete in between.",
 			removing, owned, maxUnguardedPrune)
 	}
 	return ""

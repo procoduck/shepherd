@@ -164,6 +164,14 @@ SELECT id, name, git_path FROM pipelines
 WHERE repo_link_id = $1 AND source = 'git'
 ORDER BY name;
 
+-- name: ListPipelineSanitizedNamesByOrg :many
+-- Every pipeline of an org with its sanitised name (the column the unique
+-- index pipelines_org_sanitized_name_key covers), disabled ones included.
+-- gitsync checks each planned create against it so a clash fails that one
+-- file instead of rolling back the whole sync at write time.
+SELECT id, name, sanitized_name, source, repo_link_id FROM pipelines
+WHERE org_id = $1;
+
 -- name: DeleteGitPipelinesOfRepoLink :many
 -- Deletes the listed git pipelines of one repo link — the ones whose file
 -- left the repository. Scoped to the link and source='git' so an id that is

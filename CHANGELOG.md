@@ -83,14 +83,21 @@ Categories used here:
   pipeline and creates the new one in the same sync, including a rename onto the same
   sanitised name (`My-App.alloy` → `my_app.alloy`). A sync that could not fetch the repository,
   or in which any file failed validation, deletes nothing; a file skipped as larger than
-  `max_file_bytes` keeps its pipeline. **Guards:** a commit with no `.alloy` files at all while
-  the link has pipelines (usually a wrong path or branch), or one that would delete more than
-  half of the link's pipelines and more than three, is held back entirely; the link shows
-  `warning` with the reason, and every poll re-fetches the repository until it changes. To remove
-  that many deliberately, delete and re-create the link or remove fewer files per commit.
-  `shepherd_gitsync_total` gains `result="warning"`. Pipelines whose file was removed before the
-  upgrade go on the link's next new commit (an unchanged commit tip is not re-fetched). No
-  migration. (B-GITSYNC-PRUNE)
+  `max_file_bytes` keeps its pipeline. **Guards:** in a commit with no `.alloy` files at all
+  while the link has pipelines (usually a wrong path or branch), or one that would delete more
+  than half of the link's pipelines and more than three, the deletes are held back while the
+  commit's new and changed files still sync; the link shows `warning` with the reason, and every
+  poll re-fetches the repository until it changes. To remove that many deliberately, delete and
+  re-create the link, or remove fewer files per commit and let each sync complete in between.
+  `shepherd_gitsync_total` gains `result="warning"` and `result="link_gone"` (a link deleted
+  while its sync ran). **After upgrading:** pipelines whose file was removed before the upgrade go
+  on the link's next new commit (an unchanged commit tip is not re-fetched); if that backlog trips
+  the guard, see `deploy/helm/shepherd/UPGRADING.md`. No migration. (B-GITSYNC-PRUNE)
+- **A git file whose pipeline name clashes with another pipeline's now says so.** Two names that
+  differ only in case or punctuation (`a-b`, `a_b`) cannot coexist in an org. Such a clash — with
+  another file in the commit, or with any pipeline of the org, including one the link's collector
+  is not served — fails only the files involved, with an error naming the other, instead of a
+  database unique-constraint error; the rest of the commit syncs.
 - **The Git sync page now shows why a sync failed.** Shipped. The reason a link's last sync ended
   in `error` or `warning` appears under its status badge (`RepoLink.sync_error`, a new
   output-only field); before, it was recorded but never reached the API. A status the page does

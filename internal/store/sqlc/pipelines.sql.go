@@ -513,6 +513,49 @@ func (q *Queries) ListGitPipelinesByRepoLink(ctx context.Context, repoLinkID pgt
 	return items, nil
 }
 
+const listPipelineSanitizedNamesByOrg = `-- name: ListPipelineSanitizedNamesByOrg :many
+SELECT id, name, sanitized_name, source, repo_link_id FROM pipelines
+WHERE org_id = $1
+`
+
+type ListPipelineSanitizedNamesByOrgRow struct {
+	ID            pgtype.UUID `json:"id"`
+	Name          string      `json:"name"`
+	SanitizedName pgtype.Text `json:"sanitized_name"`
+	Source        string      `json:"source"`
+	RepoLinkID    pgtype.UUID `json:"repo_link_id"`
+}
+
+// Every pipeline of an org with its sanitised name (the column the unique
+// index pipelines_org_sanitized_name_key covers), disabled ones included.
+// gitsync checks each planned create against it so a clash fails that one
+// file instead of rolling back the whole sync at write time.
+func (q *Queries) ListPipelineSanitizedNamesByOrg(ctx context.Context, orgID pgtype.UUID) ([]ListPipelineSanitizedNamesByOrgRow, error) {
+	rows, err := q.db.Query(ctx, listPipelineSanitizedNamesByOrg, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPipelineSanitizedNamesByOrgRow
+	for rows.Next() {
+		var i ListPipelineSanitizedNamesByOrgRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.SanitizedName,
+			&i.Source,
+			&i.RepoLinkID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPipelinesByOrg = `-- name: ListPipelinesByOrg :many
 SELECT id, org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, repo_link_id, git_path, created_by, updated_by, created_at, updated_at, sanitized_name, owner_team_id, wizard_render_sha256 FROM pipelines WHERE org_id = $1 ORDER BY name
 `

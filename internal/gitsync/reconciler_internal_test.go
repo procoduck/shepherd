@@ -644,7 +644,9 @@ prometheus.remote_write "demo" {
 			}, "My-App.alloy")
 			err = r.reconcileLink(ctx, link)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring(`replaces pipeline "My-App"`))
+			// Re-planned with My-App still in place (N1: what is written is
+			// what was validated), my_app's own dry run names the clash.
+			Expect(err.Error()).To(MatchRegexp(`my_app\.alloy: .*"My-App" and "my_app" both sanitize`))
 
 			_, err = st.Queries.GetPipelineByID(ctx, old.ID)
 			Expect(err).NotTo(HaveOccurred(), "a failed sync never prunes")
@@ -653,6 +655,67 @@ prometheus.remote_write "demo" {
 			fine, err := pipelineNamed("fine")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(fine.Contents).To(Equal("// fine, changed"), "a file that validated still syncs")
+		})
+
+		// Two names that sanitise alike cannot both exist in an org (unique
+		// index pipelines_org_sanitized_name_key). Caught at write time, the
+		// clash rolled back the whole sync; it must fail only its own files.
+		Describe("a sanitised-name clash", func() {
+			It("fails both new files that clash with each other, and nothing else", func() {
+				commit(map[string]string{"fine.alloy": "// fine", "gone.alloy": "// gone"})
+				syncOK()
+				gone, err := pipelineNamed("gone")
+				Expect(err).NotTo(HaveOccurred())
+
+				commit(map[string]string{
+					"fine.alloy": "// fine, changed",
+					"a-b.alloy":  "// a-b",
+					"a_b.alloy":  "// a_b",
+				}, "gone.alloy")
+				err = r.reconcileLink(ctx, link)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring(`a-b.alloy: pipeline "a-b" has the same sanitised name as a_b.alloy`))
+				Expect(err.Error()).To(ContainSubstring(`a_b.alloy: pipeline "a_b" has the same sanitised name as a-b.alloy`))
+
+				fine, err := pipelineNamed("fine")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(fine.Contents).To(Equal("// fine, changed"), "the files that passed still sync")
+				_, err = pipelineNamed("a-b")
+				Expect(err).To(HaveOccurred())
+				_, err = pipelineNamed("a_b")
+				Expect(err).To(HaveOccurred())
+				_, err = st.Queries.GetPipelineByID(ctx, gone.ID)
+				Expect(err).NotTo(HaveOccurred(), "a sync with a failed file does not prune")
+
+				updatedLink, err := st.Queries.GetRepoLinkByID(ctx, link.ID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(updatedLink.SyncStatus.String).To(Equal("error"))
+			})
+
+			It("fails a new file that clashes with a pipeline this collector is not served", func() {
+				// A UI pipeline matching another cluster: the Stage-3 dry run
+				// for this collector never sees it.
+				_, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+					OrgID: link.OrgID, Name: "ui-thing", Contents: "// ui",
+					Matchers: json.RawMessage(`["cluster=\"somewhere-else\""]`),
+					Enabled:  true, Source: "ui",
+					WizardState: json.RawMessage(`{}`), CreatedBy: "test", UpdatedBy: "test",
+				})
+				Expect(err).NotTo(HaveOccurred())
+				commit(map[string]string{"fine.alloy": "// fine"})
+				syncOK()
+
+				commit(map[string]string{"fine.alloy": "// fine, changed", "ui_thing.alloy": "// git"})
+				err = r.reconcileLink(ctx, link)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring(`ui_thing.alloy: pipeline "ui_thing" has the same sanitised name as pipeline "ui-thing"`))
+
+				fine, err := pipelineNamed("fine")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(fine.Contents).To(Equal("// fine, changed"))
+				_, err = pipelineNamed("ui_thing")
+				Expect(err).To(HaveOccurred())
+			})
 		})
 
 		Describe("the mass-deletion threshold", func() {
@@ -686,6 +749,39 @@ prometheus.remote_write "demo" {
 				Expect(updatedLink.SyncStatus.String).To(Equal("warning"))
 				Expect(updatedLink.SyncError.String).To(ContainSubstring("would delete 4 of 6 pipelines"))
 				Expect(updatedLink.SyncError.String).To(ContainSubstring("delete and re-create the repository link"))
+				Expect(updatedLink.SyncError.String).To(ContainSubstring("let each sync complete in between"))
+				Expect(updatedLink.LastCommit.Valid).To(BeFalse())
+			})
+
+			// Only the deletes are held back: a pre-upgrade backlog of removed
+			// files, or a moved directory, must not freeze every other change
+			// to the link until it is re-created.
+			It("still applies the commit's creates and updates while holding the deletes back", func() {
+				commit(sixFiles())
+				syncOK()
+				p5, err := pipelineNamed("p5")
+				Expect(err).NotTo(HaveOccurred())
+
+				commit(map[string]string{"p5.alloy": "// p5, changed", "p7.alloy": "// p7"},
+					"p1.alloy", "p2.alloy", "p3.alloy", "p4.alloy")
+				Expect(r.reconcileLink(ctx, link)).To(Succeed())
+
+				updated, err := st.Queries.GetPipelineByID(ctx, p5.ID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(updated.Contents).To(Equal("// p5, changed"))
+				_, err = pipelineNamed("p7")
+				Expect(err).NotTo(HaveOccurred())
+				for _, n := range []string{"p1", "p2", "p3", "p4"} {
+					_, err := pipelineNamed(n)
+					Expect(err).NotTo(HaveOccurred(), "%s's delete is held back", n)
+				}
+				Expect(deleteAudits()).To(BeEmpty())
+				Expect(dirtyFlag()).To(BeTrue())
+
+				updatedLink, err := st.Queries.GetRepoLinkByID(ctx, link.ID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(updatedLink.SyncStatus.String).To(Equal("warning"))
+				Expect(updatedLink.SyncError.String).To(ContainSubstring("would delete 4 of 6 pipelines"))
 				Expect(updatedLink.LastCommit.Valid).To(BeFalse())
 			})
 
@@ -787,7 +883,9 @@ prometheus.remote_write "demo" {
 			_, err := st.Pool().Exec(ctx, `DELETE FROM repo_links WHERE id = $1`, link.ID)
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(r.reconcileLink(ctx, link)).To(Succeed())
+			outcome, err := r.syncLink(ctx, link)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(outcome).To(Equal(syncOutcome("link_gone")), "counted apart from a real ok sync")
 
 			_, err = pipelineNamed("orphan")
 			Expect(err).To(HaveOccurred())

@@ -132,13 +132,22 @@
         <code>pipeline.delete</code> by <code>gitsync</code> with the file and commit, and the
         collector&rsquo;s served config is recomputed right away. A sync that could not fetch the
         repository, or in which any file failed validation, deletes nothing. Two guards hold a
-        commit back entirely &mdash; nothing created, updated or deleted &mdash; and set the
-        link&rsquo;s status to <code>warning</code>, with the reason under it: a commit with no
-        <code>.alloy</code> files at all under the link&rsquo;s path while the link still has
+        commit&rsquo;s deletes back &mdash; its new and changed files still sync &mdash; and set
+        the link&rsquo;s status to <code>warning</code>, with the reason under it: a commit with
+        no <code>.alloy</code> files at all under the link&rsquo;s path while the link still has
         pipelines (usually a wrong path or branch), and a commit that would delete more than half
-        of the link&rsquo;s pipelines and more than three. While a link shows the warning, every
+        of the link&rsquo;s pipelines and more than three (a moved directory, or files removed
+        before upgrading to the release that added this). While a link shows the warning, every
         poll fetches the repository again. To remove that many pipelines deliberately, delete and
-        re-create the repository link, or remove fewer files per commit.
+        re-create the repository link, or remove fewer files per commit and let each sync
+        complete in between.
+      </p>
+      <p>
+        Two pipelines in an organisation cannot have names that differ only in case or
+        punctuation (<code>a-b</code> and <code>a_b</code> read as the same name). A file whose
+        pipeline name clashes that way with another pipeline in the organisation, or with another
+        file in the same commit, fails on its own with an error naming the other; the rest of the
+        commit still syncs.
       </p>
       <p>Git sync is managed by organisation admins.</p>
         <nav class="page-nav" aria-label="Pagination">
