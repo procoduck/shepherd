@@ -8,8 +8,8 @@
       <table>
         <thead><tr><th><code>oidc.issuer</code> in your values</th><th>Result</th></tr></thead>
         <tbody>
-          <tr><td>Set</td><td>The chart owns SSO. The admin UI shows it read-only and refuses writes &mdash; a cluster whose identity provider is declared in git is not re-pointed from a browser session</td></tr>
-          <tr><td>Not set</td><td>An app admin configures a provider at <strong>Admin &rarr; Single sign-on</strong>. It is stored encrypted in the database and takes effect <strong>without a restart</strong></td></tr>
+          <tr><td>Set</td><td>The chart owns SSO. The admin UI shows it read-only, without Save or Test connection, and the server refuses writes &mdash; a cluster whose identity provider is declared in git is not re-pointed from a browser session</td></tr>
+          <tr><td>Not set</td><td>An app admin configures a provider at <strong>Admin &rarr; Single sign-on</strong>. It is stored encrypted in the database and takes effect <strong>without a restart</strong>. Collector <a href="agent-tokens.html#oidc">OIDC</a> is read from chart config only, so it needs this set in your values</td></tr>
         </tbody>
       </table>
       <p>To set it up from the UI:</p>
@@ -35,7 +35,8 @@
       </ol>
       <p class="note">
         <strong>Groups decide access.</strong> Whatever your provider puts in the groups claim is matched
-        against <code>auth.app_admin_group_ids</code> and each org's admin/editor/viewer group. For Entra those are
+        against the <strong>App admin groups</strong> (<code>auth.app_admin_group_ids</code> when the
+        chart owns SSO) and each org's admin/editor/viewer group. For Entra those are
         object GUIDs; for every other provider they are whatever your IdP emits &mdash; usually a group name
         or a path like <code>acme/platform</code>. Keep at least one local administrator until you have
         confirmed an SSO sign-in lands you with app-admin rights &mdash; local accounts are not a

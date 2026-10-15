@@ -93,9 +93,13 @@
       <div class="docs-content">
 <h1>Configuration</h1>
       <p>
-        Shepherd is configured from environment variables (a Kubernetes Secret in a chart install,
-        your shell in local development). Only two are required &mdash; the server refuses to start
-        without them &mdash; and the rest matter only for the setups they name.
+        Shepherd reads its settings from a YAML file and from <code>SHEPHERD_*</code> environment
+        variables, which override it. In a chart install the non-secret settings come from the
+        chart&rsquo;s <code>config:</code> block, rendered into a ConfigMap mounted at
+        <code>/etc/shepherd/shepherd.yaml</code>, and the secrets below from a Kubernetes Secret; in
+        local development, from your shell (and <code>./shepherd.yaml</code> if present). Only two
+        settings are required &mdash; the server refuses to start without them &mdash; and the rest
+        matter only for the setups they name.
       </p>
       <h2 id="the-secret">The secret Shepherd reads</h2>
       <p>
@@ -109,6 +113,7 @@
           <tr><td><code>SHEPHERD_DATABASE_URL</code></td><td><strong>Yes</strong></td><td>PostgreSQL connection string</td></tr>
           <tr><td><code>SHEPHERD_SECURITY_ENCRYPTION_KEY</code></td><td><strong>Yes</strong></td><td>Base64-encoded 32-byte key encrypting stored credentials at rest. <strong>Keep it</strong> &mdash; a replacement key cannot decrypt what the old one wrote</td></tr>
           <tr><td><code>SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD</code></td><td>Recommended</td><td>Password for the administrator created on first boot. Read only while the users table is empty. Leave it unset and the account is created as <code>admin</code>/<code>admin</code>, which can do nothing until the password is changed</td></tr>
+          <tr><td><code>SHEPHERD_BOOTSTRAP_ADMIN_LOGIN</code></td><td>No</td><td>Login of that first administrator; defaults to <code>admin</code></td></tr>
           <tr><td><code>SHEPHERD_OIDC_CLIENT_SECRET</code></td><td>Chart-configured SSO only</td><td>Omit it to configure SSO from the UI instead</td></tr>
           <tr><td><code>SHEPHERD_GRAPH_CLIENT_SECRET</code></td><td>Entra + Graph lookup only</td><td>Not used by any other provider</td></tr>
         </tbody>

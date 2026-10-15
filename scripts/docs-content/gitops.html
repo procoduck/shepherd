@@ -3,7 +3,8 @@
         Instead of authoring in the UI, point Shepherd at a git repository and it will poll for
         <code>*.alloy</code> files and sync them onto a target collector as pipelines. Any git server
         works — the credential kinds are personal access token, basic auth, SSH deploy key, an Entra
-        service principal for Azure DevOps, and GitHub App installation tokens. Set it up under
+        service principal for Azure DevOps, GitHub App installation tokens, and none for a public
+        repository. Set it up under
         <strong>Git sync</strong> in the sidebar: add a credential, then a repository link naming the
         branch, the path and the collector its files are served to.
       </p>
@@ -21,7 +22,13 @@
       <p><img src="../img/git-sync.jpg" alt="The Git sync page: a credential and a repository link showing branch, target collector, sync status and last-synced time" loading="lazy"></p>
       <p>
         Synced pipelines show <code>git</code> in the Source column and are <strong>owned by the
-        repository</strong> — edit one in the UI and the next sync overwrites it. They pass the same
-        three-stage validation gate as everything else, so a bad commit fails the sync and is reported
-        on the repo link rather than being served to a collector.
+        repository</strong>: they are read-only in Shepherd &mdash; the editor will not save them and
+        they cannot be deleted. You can enable or disable one, or restore an earlier revision, but the
+        next sync puts the repository&rsquo;s version back. A new file becomes an enabled pipeline on
+        its first successful sync; removing a file from the repository does not remove its
+        pipeline. Synced files pass the same three-stage validation gate as everything else, one file
+        at a time: a file that fails is skipped (its previous version keeps being served), the
+        others in the same commit still sync, and the errors are reported on the repo link. Any
+        synced pipeline can be read as a <a href="authoring.html#5-view-any-pipeline-as-a-graph">graph</a>.
       </p>
+      <p>Git sync is managed by organisation admins.</p>

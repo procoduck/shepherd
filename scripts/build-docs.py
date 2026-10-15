@@ -68,7 +68,7 @@ NAV = [
     ]),
     ("Pipelines", [
         ("authoring", "Authoring pipelines", "Authoring pipelines",
-         "Three ways to write a pipeline \u2014 a wizard, the visual builder, or raw Alloy \u2014 all landing in one merge engine."),
+         "Three ways to write a pipeline \u2014 a wizard, the visual builder, or raw Alloy \u2014 all landing in one merge engine, and a read-only graph view of any of them."),
         ("destinations", "Destinations", "Destinations",
          "Where wizard pipelines write, and how a collector authenticates with credentials from a Kubernetes Secret Shepherd never sees."),
         ("matchers", "Matchers and validation", "Matchers and validation",
@@ -84,7 +84,7 @@ NAV = [
     ]),
     ("Ingest", [
         ("receiver", "Receiver tier", "Receiver tier",
-         "An OTLP/HTTP endpoint behind your gateway that forwards each tenant's data under its own tenant \u2014 off by default while under review."),
+         "An OTLP/HTTP endpoint behind your gateway that forwards each tenant's data under its own tenant \u2014 opt-in, off by default."),
     ]),
     ("Sandbox", [
         ("simulation", "Sandbox simulation", "Sandbox simulation",

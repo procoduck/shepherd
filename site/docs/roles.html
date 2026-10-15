@@ -114,8 +114,9 @@
           <tr>
             <td><strong>Organisation administrator</strong></td>
             <td>Everything inside one org, including what the org <em>is</em>: destinations, tenant
-                routes, git credentials and repo links, teams, service accounts, and the group
-                assignments on that org&rsquo;s collectors.</td>
+                routes, git credentials and repo links, teams, service accounts, the group
+                assignments and labels on that org&rsquo;s collectors, <em>Connect a
+                cluster</em>, a pipeline&rsquo;s owning team, and the org&rsquo;s audit log.</td>
             <td>Reach another org, claim clusters, or manage agent tokens.</td>
           </tr>
           <tr>
@@ -123,19 +124,21 @@
             <td>Author what the org <em>runs</em>: pipelines, wizards, the visual builder,
                 simulations.</td>
             <td>Change where telemetry ships &mdash; destinations, tenant routes, git credentials
-                and teams stay with the org admin.</td>
+                and teams stay with the org admin, as do collector labels, a pipeline&rsquo;s owning
+                team and the audit log.</td>
           </tr>
           <tr>
             <td><strong>Team member</strong></td>
-            <td>Write the pipelines their team owns, as text or in the visual builder &mdash; scoped
-                write, with no wider access.</td>
-            <td>Touch pipelines their team does not own, start a new visual pipeline, or run a
-                simulation &mdash; those stay with the org editor.</td>
+            <td>Edit, enable, disable, restore, detach and delete the pipelines their team owns, as
+                text or in the visual builder; read the rest of the org like a viewer.</td>
+            <td>Touch pipelines their team does not own, create pipelines (from a wizard, the
+                visual builder or text), or run a simulation &mdash; those stay with the org
+                editor.</td>
           </tr>
           <tr>
             <td><strong>Viewer</strong></td>
-            <td>View collectors they are assigned to, and the pipelines and served config affecting
-                them.</td>
+            <td>View the organisation&rsquo;s collectors and pipelines, and the config each
+                collector is served.</td>
             <td>Create or change anything.</td>
           </tr>
           <tr>
@@ -151,7 +154,8 @@
           </tr>
           <tr>
             <td><strong>Collector (agent token)</strong></td>
-            <td>Fetch its own merged config and report status, over HTTP Basic auth.</td>
+            <td>Fetch its own merged config and report status, over HTTP Basic auth with an agent
+                token, or with an <a href="agent-tokens.html#oidc">OIDC access token</a>.</td>
             <td>Read or change anything in the management API.</td>
           </tr>
         </tbody>
@@ -172,7 +176,14 @@
         viewer group at <strong>Admin &rarr; Organisations</strong>. Whatever your provider emits in the groups
         claim is matched against those values &mdash; object GUIDs for Microsoft Entra, and for every
         other provider whatever it actually emits, usually a group name or a path. App-admin rights
-        come from <code>auth.app_admin_group_ids</code>.
+        come from <code>auth.app_admin_group_ids</code> when single sign-on is configured in the
+        chart, and from the <strong>App admin groups</strong> field on <strong>Admin &rarr; Single
+        sign-on</strong> when it is set up in the UI.
+      </p>
+      <p>
+        A service account also has a role tier, editor or admin, which caps what it can call. An
+        <code>apply</code> account can write any pipeline in its org whatever team owns it, so issue
+        it as an org-level credential.
       </p>
       <p>
         <strong>From a local account.</strong> An app admin creates the account at
