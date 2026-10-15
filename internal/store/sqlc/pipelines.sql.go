@@ -78,6 +78,49 @@ func (q *Queries) CreatePipeline(ctx context.Context, arg CreatePipelineParams) 
 	return i, err
 }
 
+const deleteGitPipelinesOfRepoLink = `-- name: DeleteGitPipelinesOfRepoLink :many
+DELETE FROM pipelines
+WHERE repo_link_id = $1
+  AND source = 'git'
+  AND id = ANY($2::uuid[])
+RETURNING id, name, git_path
+`
+
+type DeleteGitPipelinesOfRepoLinkParams struct {
+	RepoLinkID pgtype.UUID   `json:"repo_link_id"`
+	Ids        []pgtype.UUID `json:"ids"`
+}
+
+type DeleteGitPipelinesOfRepoLinkRow struct {
+	ID      pgtype.UUID `json:"id"`
+	Name    string      `json:"name"`
+	GitPath pgtype.Text `json:"git_path"`
+}
+
+// Deletes the listed git pipelines of one repo link — the ones whose file
+// left the repository. Scoped to the link and source='git' so an id that is
+// not the link's is never touched. Returns what it deleted so the caller
+// can audit each one.
+func (q *Queries) DeleteGitPipelinesOfRepoLink(ctx context.Context, arg DeleteGitPipelinesOfRepoLinkParams) ([]DeleteGitPipelinesOfRepoLinkRow, error) {
+	rows, err := q.db.Query(ctx, deleteGitPipelinesOfRepoLink, arg.RepoLinkID, arg.Ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeleteGitPipelinesOfRepoLinkRow
+	for rows.Next() {
+		var i DeleteGitPipelinesOfRepoLinkRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.GitPath); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const deletePipeline = `-- name: DeletePipeline :exec
 DELETE FROM pipelines WHERE id = $1
 `
@@ -424,6 +467,91 @@ func (q *Queries) ListEnabledPipelinesForMerge(ctx context.Context, orgID pgtype
 			&i.WizardRenderSha256,
 			&i.RepoLinkCollectorID,
 			&i.CurrentRevision,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGitPipelinesByRepoLink = `-- name: ListGitPipelinesByRepoLink :many
+SELECT id, name, git_path, created_at FROM pipelines
+WHERE repo_link_id = $1 AND source = 'git'
+ORDER BY name
+`
+
+type ListGitPipelinesByRepoLinkRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	Name      string             `json:"name"`
+	GitPath   pgtype.Text        `json:"git_path"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+// The git pipelines a repo link owns. gitsync compares their names with the
+// names derived from the synced tree's paths to find the files that left
+// the repository (docs/spec.md §10, B-GITSYNC-PRUNE); created_at tells the
+// mass-delete guard which existed at the link's last ok sync.
+func (q *Queries) ListGitPipelinesByRepoLink(ctx context.Context, repoLinkID pgtype.UUID) ([]ListGitPipelinesByRepoLinkRow, error) {
+	rows, err := q.db.Query(ctx, listGitPipelinesByRepoLink, repoLinkID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListGitPipelinesByRepoLinkRow
+	for rows.Next() {
+		var i ListGitPipelinesByRepoLinkRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.GitPath,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPipelineSanitizedNamesByOrg = `-- name: ListPipelineSanitizedNamesByOrg :many
+SELECT id, name, sanitized_name, source, repo_link_id FROM pipelines
+WHERE org_id = $1
+`
+
+type ListPipelineSanitizedNamesByOrgRow struct {
+	ID            pgtype.UUID `json:"id"`
+	Name          string      `json:"name"`
+	SanitizedName pgtype.Text `json:"sanitized_name"`
+	Source        string      `json:"source"`
+	RepoLinkID    pgtype.UUID `json:"repo_link_id"`
+}
+
+// Every pipeline of an org with its sanitised name (the column the unique
+// index pipelines_org_sanitized_name_key covers), disabled ones included.
+// gitsync checks each planned create against it so a clash fails that one
+// file instead of rolling back the whole sync at write time.
+func (q *Queries) ListPipelineSanitizedNamesByOrg(ctx context.Context, orgID pgtype.UUID) ([]ListPipelineSanitizedNamesByOrgRow, error) {
+	rows, err := q.db.Query(ctx, listPipelineSanitizedNamesByOrg, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPipelineSanitizedNamesByOrgRow
+	for rows.Next() {
+		var i ListPipelineSanitizedNamesByOrgRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.SanitizedName,
+			&i.Source,
+			&i.RepoLinkID,
 		); err != nil {
 			return nil, err
 		}

@@ -465,6 +465,32 @@ var _ = Describe("GitOpsService (Connect RPC)", Label("integration"), func() {
 				Entry("ssh:// with an SSH key", "ssh", "ssh://git@gitea.internal:2222/team/configs.git"),
 				Entry("scp-like with an SSH key", "ssh", "git@gitea.internal:team/configs.git"),
 			)
+
+			// B-GITSYNC-PRUNE: a sync that refuses a mass deletion records why
+			// in sync_error; the Git page shows it under the status badge.
+			It("lists a link's sync_error beside its sync_status", func() {
+				resp := createLink(credOfKind("none"), "http://gitea:3000/team/configs.git")
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+				var created map[string]any
+				decodeBody(resp, &created)
+				linkID, ok := created["id"].(string)
+				Expect(ok).To(BeTrue())
+				Expect(st.Queries.UpdateRepoLinkSync(ctx, sqlc.UpdateRepoLinkSyncParams{
+					ID:         orgUUID(linkID),
+					SyncStatus: pgtype.Text{String: "warning", Valid: true},
+					SyncError:  pgtype.Text{String: "this commit would delete 4 of 6 pipelines", Valid: true},
+				})).To(Succeed())
+
+				resp = postConnect("/shepherd.mgmt.v1.GitOpsService/ListRepoLinks", `{"orgId":"`+orgID+`"}`, admin)
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+				var listed struct {
+					Items []map[string]any `json:"items"`
+				}
+				decodeBody(resp, &listed)
+				Expect(listed.Items).To(HaveLen(1))
+				Expect(listed.Items[0]["syncStatus"]).To(Equal("warning"))
+				Expect(listed.Items[0]["syncError"]).To(Equal("this commit would delete 4 of 6 pipelines"))
+			})
 		})
 
 		// Public-docs review 2026-10-15: pipelines.repo_link_id references

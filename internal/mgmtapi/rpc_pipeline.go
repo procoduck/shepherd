@@ -1587,6 +1587,14 @@ func (s *PipelineService) previewMatchedCollectors(ctx context.Context, p merge.
 	return matched, nil
 }
 
+// RecomputeOrgCaches is recomputeOrgCaches for callers outside this package:
+// internal/gitsync runs it after a sync changes the org's git pipelines
+// (server.go wires it with gitsync.WithRecompute), the eager recompute the
+// API's own pipeline and repo-link deletes do.
+func (s *PipelineService) RecomputeOrgCaches(ctx context.Context, orgID pgtype.UUID) {
+	s.recomputeOrgCaches(ctx, orgID)
+}
+
 // recomputeOrgCaches assembles and writes the serve cache for all collectors in an org.
 // Called as a background goroutine after pipeline enable/disable/update/delete.
 func (s *PipelineService) recomputeOrgCaches(ctx context.Context, orgID pgtype.UUID) {

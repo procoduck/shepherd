@@ -2,8 +2,10 @@
 
 ## 0.21.x → 0.22.0
 
-An ordinary `helm upgrade`; no migration. Read the local sign-in note if
-people sign in with local accounts.
+An ordinary `helm upgrade`. Migration 0034 adds `repo_links.last_ok_at` (a
+column, a trigger and a one-row-per-link backfill; quick). Read the local
+sign-in note if people sign in with local accounts, and the Git sync note if
+you link repositories.
 
 ### Local sign-in behind an ingress: `config.server.trusted_proxies`
 
@@ -54,6 +56,40 @@ Configuration docs page, *Client addresses behind an ingress*, has the detail:
 A bad entry, a `/0`, an IPv4 prefix shorter than `/8` or an IPv6 prefix
 shorter than `/16` fails startup with a `server.trusted_proxies` error. Log
 output does not change.
+
+### Git sync deletes the pipelines of removed files (B-GITSYNC-PRUNE)
+
+Until now a file removed from a linked repository kept its pipeline, served
+for as long as the link existed. From this release a sync deletes it, with a
+`pipeline.delete` audit row by `gitsync`.
+
+**The backlog goes on the first sync after a new commit.** Pipelines whose
+files were removed before the upgrade are deleted on the link's next new
+commit (an unchanged commit is not fetched again). If that backlog is more
+than three pipelines and more than half of what the link held at the
+upgrade, or the branch has no `.alloy` files left under the link's path, the
+sync deletes **none** of them and creates none of the commit's new files; it
+still applies changes to files that already have a pipeline, and shows the
+link's status as `warning` on the Git sync page, with the reason under it. The
+warning stays until the removal shrinks or the link changes; while it shows,
+each poll clones and validates the repository again. Removing fewer files per
+commit does not clear it — the files are already gone from the branch. To
+resolve it:
+
+- if the removals are intended, delete and re-create the repository link (the
+  new link syncs only the files that exist); or restore some of the removed
+  files, then remove them again a few at a time (at most three, or no more
+  than half of what remains, per sync), letting each sync complete;
+- if they are not, fix the link's path or branch, or restore the files.
+
+**During the rollout** an old replica can still win the sync lock and apply a
+warned link's commit the old way — new files created, nothing deleted — and
+record it as `ok`; the new replicas then look at it again only on the link's
+next new commit. Finish the rollout promptly.
+
+`shepherd_gitsync_total` gains `result="warning"` (and `result="link_gone"`
+for a link deleted while its sync ran); alerts on `result="error"` are
+unaffected.
 
 ## 0.20.x → 0.21.0
 

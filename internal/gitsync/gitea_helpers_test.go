@@ -135,11 +135,23 @@ func newPusher(ctx context.Context, cloneURL, username, password string) (*pushe
 // intermediate directories created as needed), commits them, and pushes to
 // origin.
 func (p *pusher) commitAndPush(ctx context.Context, files map[string]string, message string) error {
+	return p.commitChangesAndPush(ctx, files, nil, message)
+}
+
+// commitChangesAndPush is commitAndPush that also deletes the files in
+// remove (paths relative to the repo root) in the same commit — one commit
+// that both removes and adds is how a rename reaches the reconciler.
+func (p *pusher) commitChangesAndPush(ctx context.Context, files map[string]string, remove []string, message string) error {
 	wt, err := p.repo.Worktree()
 	if err != nil {
 		return fmt.Errorf("worktree: %w", err)
 	}
 
+	for _, path := range remove {
+		if _, err := wt.Remove(path); err != nil {
+			return fmt.Errorf("removing %s: %w", path, err)
+		}
+	}
 	for path, content := range files {
 		if err := billyutil.WriteFile(p.fs, path, []byte(content), 0o644); err != nil {
 			return fmt.Errorf("writing %s: %w", path, err)

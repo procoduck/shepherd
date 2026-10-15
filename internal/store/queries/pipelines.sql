@@ -155,3 +155,31 @@ FROM pipelines p
 LEFT JOIN repo_links rl ON rl.id = p.repo_link_id
 WHERE p.org_id = $1 AND p.enabled = true
 ORDER BY p.name;
+
+-- name: ListGitPipelinesByRepoLink :many
+-- The git pipelines a repo link owns. gitsync compares their names with the
+-- names derived from the synced tree's paths to find the files that left
+-- the repository (docs/spec.md §10, B-GITSYNC-PRUNE); created_at tells the
+-- mass-delete guard which existed at the link's last ok sync.
+SELECT id, name, git_path, created_at FROM pipelines
+WHERE repo_link_id = $1 AND source = 'git'
+ORDER BY name;
+
+-- name: ListPipelineSanitizedNamesByOrg :many
+-- Every pipeline of an org with its sanitised name (the column the unique
+-- index pipelines_org_sanitized_name_key covers), disabled ones included.
+-- gitsync checks each planned create against it so a clash fails that one
+-- file instead of rolling back the whole sync at write time.
+SELECT id, name, sanitized_name, source, repo_link_id FROM pipelines
+WHERE org_id = $1;
+
+-- name: DeleteGitPipelinesOfRepoLink :many
+-- Deletes the listed git pipelines of one repo link — the ones whose file
+-- left the repository. Scoped to the link and source='git' so an id that is
+-- not the link's is never touched. Returns what it deleted so the caller
+-- can audit each one.
+DELETE FROM pipelines
+WHERE repo_link_id = sqlc.arg(repo_link_id)
+  AND source = 'git'
+  AND id = ANY(sqlc.arg(ids)::uuid[])
+RETURNING id, name, git_path;

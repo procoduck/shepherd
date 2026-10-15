@@ -14,10 +14,10 @@ import {
   type RepoLinkFormState,
 } from '@/components/git/gitForms';
 import { RepoLinkForm } from '@/components/git/RepoLinkForm';
+import { SyncStatusCell } from '@/components/git/SyncStatusCell';
 import { TestCredentialDialog } from '@/components/git/TestCredentialDialog';
 import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
-import { toneClass } from '@/components/ui/statusTone';
 import type {
   GitCredential,
   RepoLink,
@@ -126,16 +126,7 @@ function repoLinkColumns(
     {
       key: 'status',
       header: 'Status',
-      render: (rl) => (
-        <span
-          data-testid={rl.syncStatus === 'error' ? 'sync-status-error' : undefined}
-          className={`text-xs px-1.5 py-0.5 rounded ${toneClass(
-            rl.syncStatus === 'error' ? 'danger' : rl.syncStatus ? 'ok' : 'neutral',
-          )}`}
-        >
-          {rl.syncStatus || 'pending'}
-        </span>
-      ),
+      render: (rl) => <SyncStatusCell link={rl} />,
     },
     {
       key: 'lastSynced',

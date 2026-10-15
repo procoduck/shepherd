@@ -8,16 +8,19 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 
 	"shepherd/internal/config"
 	"shepherd/internal/crypto"
 	"shepherd/internal/gitrepo"
+	"shepherd/internal/metrics"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/validate"
@@ -412,6 +415,636 @@ prometheus.remote_write "demo" {
 		updatedLink, linkErr := st.Queries.GetRepoLinkByID(ctx, link.ID)
 		Expect(linkErr).NotTo(HaveOccurred())
 		Expect(updatedLink.SyncStatus.String).To(Equal("error"))
+	})
+
+	// B-GITSYNC-PRUNE: docs/spec.md §10's reconciler is to "delete git
+	// pipelines of this link whose file disappeared", but reconcileLink only
+	// upserted what it fetched, so a removed file's pipeline stayed served
+	// to the link's collector for as long as the link existed.
+	Describe("a file removed from the repository", func() {
+		commit := func(add map[string]string, remove ...string) {
+			GinkgoHelper()
+			p, err := newPusher(ctx, repoCloneURL, giteaAdminUser, giteaAdminPass)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(p.commitChangesAndPush(ctx, add, remove, "prune fixture")).To(Succeed())
+		}
+		// syncOK runs one successful sync and returns the link as it now
+		// stands (last_commit recorded), with the serve cache re-baselined
+		// clean so a spec can assert what the NEXT sync dirties.
+		syncOK := func() {
+			GinkgoHelper()
+			Expect(r.reconcileLink(ctx, link)).To(Succeed())
+			var err error
+			link, err = st.Queries.GetRepoLinkByID(ctx, link.ID)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = st.Pool().Exec(ctx, `UPDATE serve_cache SET dirty = false WHERE collector_id = $1`, collectorID)
+			Expect(err).NotTo(HaveOccurred())
+		}
+		pipelineNamed := func(name string) (sqlc.Pipeline, error) {
+			return st.Queries.GetPipelineByOrgAndName(ctx, sqlc.GetPipelineByOrgAndNameParams{OrgID: link.OrgID, Name: name})
+		}
+		deleteAudits := func() []map[string]string {
+			GinkgoHelper()
+			rows, err := st.Pool().Query(ctx,
+				`SELECT resource_id, actor, actor_type, detail FROM audit_log WHERE action = 'pipeline.delete' ORDER BY id`)
+			Expect(err).NotTo(HaveOccurred())
+			defer rows.Close()
+			var out []map[string]string
+			for rows.Next() {
+				var resourceID, actor, actorType string
+				var detail []byte
+				Expect(rows.Scan(&resourceID, &actor, &actorType, &detail)).To(Succeed())
+				m := map[string]string{}
+				Expect(json.Unmarshal(detail, &m)).To(Succeed())
+				m["resource_id"], m["actor"], m["actor_type"] = resourceID, actor, actorType
+				out = append(out, m)
+			}
+			Expect(rows.Err()).NotTo(HaveOccurred())
+			return out
+		}
+
+		It("deletes its pipeline, audits the delete, dirties the collector and leaves the kept file's pipeline alone", func() {
+			commit(map[string]string{"gone.alloy": "// gone", "kept.alloy": "// kept"})
+			syncOK()
+			gone, err := pipelineNamed("gone")
+			Expect(err).NotTo(HaveOccurred())
+			kept, err := pipelineNamed("kept")
+			Expect(err).NotTo(HaveOccurred())
+
+			commit(nil, "gone.alloy")
+			var recomputed []pgtype.UUID
+			r.recompute = func(_ context.Context, orgID pgtype.UUID) { recomputed = append(recomputed, orgID) }
+			Expect(r.reconcileLink(ctx, link)).To(Succeed())
+
+			_, err = st.Queries.GetPipelineByID(ctx, gone.ID)
+			Expect(err).To(HaveOccurred(), "the removed file's pipeline must be deleted")
+			Expect(recomputed).To(Equal([]pgtype.UUID{link.OrgID}),
+				"the org's served configs are recomputed right after the delete commits, as the API's deletes do")
+
+			stillKept, err := st.Queries.GetPipelineByID(ctx, kept.ID)
+			Expect(err).NotTo(HaveOccurred(), "a file still in the repository keeps its pipeline")
+			Expect(stillKept.Contents).To(Equal("// kept"))
+			revs, err := st.Queries.ListPipelineRevisions(ctx, kept.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(revs).To(HaveLen(1), "an untouched file gains no revision")
+
+			Expect(dirtyFlag()).To(BeTrue(), "the collector that served the pipeline must recompute without it")
+
+			updatedLink, err := st.Queries.GetRepoLinkByID(ctx, link.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(updatedLink.SyncStatus.String).To(Equal("ok"))
+
+			audits := deleteAudits()
+			Expect(audits).To(HaveLen(1))
+			Expect(audits[0]).To(Equal(map[string]string{
+				"resource_id":  gone.ID.String(),
+				"actor":        "gitsync",
+				"actor_type":   "system",
+				"name":         "gone",
+				"reason":       "gitsync.file_removed",
+				"description":  "file removed from repository",
+				"repo_link_id": link.ID.String(),
+				"git_path":     "gone.alloy",
+				"commit":       updatedLink.LastCommit.String,
+			}))
+		})
+
+		It("deletes nothing when the fetch fails", func() {
+			commit(map[string]string{"gone.alloy": "// gone", "kept.alloy": "// kept"})
+			syncOK()
+			gone, err := pipelineNamed("gone")
+			Expect(err).NotTo(HaveOccurred())
+
+			// gone.alloy is removed, but the tree now holds three files and
+			// the fetch is capped at two: Files fails, so the reconciler
+			// never sees a complete listing and must not act on a partial one.
+			commit(map[string]string{"c.alloy": "// c", "d.alloy": "// d"}, "gone.alloy")
+			r.limits = gitrepo.Limits{MaxFiles: 2}
+			Expect(r.reconcileLink(ctx, link)).NotTo(Succeed())
+
+			_, err = st.Queries.GetPipelineByID(ctx, gone.ID)
+			Expect(err).NotTo(HaveOccurred(), "a failed fetch must not delete anything")
+			Expect(deleteAudits()).To(BeEmpty())
+			Expect(dirtyFlag()).To(BeFalse())
+		})
+
+		It("deletes nothing when another file in the same commit fails validation", func() {
+			commit(map[string]string{"gone.alloy": "// gone", "kept.alloy": "// kept"})
+			syncOK()
+			gone, err := pipelineNamed("gone")
+			Expect(err).NotTo(HaveOccurred())
+
+			commit(map[string]string{"kept.alloy": "this is not valid alloy syntax {{{"}, "gone.alloy")
+			Expect(r.reconcileLink(ctx, link)).NotTo(Succeed())
+
+			_, err = st.Queries.GetPipelineByID(ctx, gone.ID)
+			Expect(err).NotTo(HaveOccurred(), "a sync that failed must not prune")
+			Expect(deleteAudits()).To(BeEmpty())
+		})
+
+		It("refuses to prune every pipeline when the synced tree has no .alloy files, and records a warning", func() {
+			commit(map[string]string{"only.alloy": "// only"})
+			syncOK()
+			only, err := pipelineNamed("only")
+			Expect(err).NotTo(HaveOccurred())
+
+			commit(nil, "only.alloy")
+			Expect(r.reconcileLink(ctx, link)).To(Succeed())
+
+			_, err = st.Queries.GetPipelineByID(ctx, only.ID)
+			Expect(err).NotTo(HaveOccurred(), "an empty tree is more likely a wrong path or branch than a deliberate wipe")
+			Expect(deleteAudits()).To(BeEmpty())
+			Expect(dirtyFlag()).To(BeFalse())
+
+			updatedLink, err := st.Queries.GetRepoLinkByID(ctx, link.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(updatedLink.SyncStatus.String).To(Equal("warning"))
+			Expect(updatedLink.SyncError.String).To(ContainSubstring("no .alloy files"))
+			Expect(updatedLink.LastCommit.Valid).To(BeFalse(),
+				"the warning must be re-evaluated on the next poll, not cleared by the unchanged-commit shortcut")
+		})
+
+		It("keeps the pipeline of a file that is still there but now skipped as oversized", func() {
+			commit(map[string]string{"big.alloy": "// small for now", "kept.alloy": "// kept"})
+			syncOK()
+			big, err := pipelineNamed("big")
+			Expect(err).NotTo(HaveOccurred())
+
+			// gitrepo skips (does not fail on) a file over max_file_bytes,
+			// so it is missing from the files the sync read — but not from
+			// the repository.
+			commit(map[string]string{"big.alloy": "// " + strings.Repeat("x", 512)})
+			r.limits = gitrepo.Limits{MaxFileBytes: 256}
+			Expect(r.reconcileLink(ctx, link)).To(Succeed())
+
+			stillThere, err := st.Queries.GetPipelineByID(ctx, big.ID)
+			Expect(err).NotTo(HaveOccurred(), "an oversized file has not been removed")
+			Expect(stillThere.Contents).To(Equal("// small for now"))
+			Expect(deleteAudits()).To(BeEmpty())
+		})
+
+		It("treats a rename as a delete of the old pipeline and a create of the new one", func() {
+			commit(map[string]string{"before.alloy": "// renamed"})
+			syncOK()
+			before, err := pipelineNamed("before")
+			Expect(err).NotTo(HaveOccurred())
+
+			commit(map[string]string{"after.alloy": "// renamed"}, "before.alloy")
+			Expect(r.reconcileLink(ctx, link)).To(Succeed())
+
+			_, err = st.Queries.GetPipelineByID(ctx, before.ID)
+			Expect(err).To(HaveOccurred(), "the old name's pipeline must go")
+			after, err := pipelineNamed("after")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(after.Source).To(Equal("git"))
+			Expect(after.GitPath.String).To(Equal("after.alloy"))
+			Expect(after.Contents).To(Equal("// renamed"))
+
+			audits := deleteAudits()
+			Expect(audits).To(HaveLen(1))
+			Expect(audits[0]["resource_id"]).To(Equal(before.ID.String()))
+			Expect(audits[0]["git_path"]).To(Equal("before.alloy"))
+			Expect(dirtyFlag()).To(BeTrue())
+		})
+
+		// A rename between two names that sanitise to the same declare label
+		// (merge.SanitizeName) used to be stuck for good: the Stage-3 dry run
+		// merged the new file beside the old, still-present pipeline, failed
+		// on the duplicate label, and a failed sync never prunes.
+		It("completes a rename whose old and new names sanitise to the same label", func() {
+			commit(map[string]string{"My-App.alloy": "// app"})
+			syncOK()
+			old, err := pipelineNamed("My-App")
+			Expect(err).NotTo(HaveOccurred())
+
+			commit(map[string]string{"my_app.alloy": "// app"}, "My-App.alloy")
+			Expect(r.reconcileLink(ctx, link)).To(Succeed())
+
+			_, err = st.Queries.GetPipelineByID(ctx, old.ID)
+			Expect(err).To(HaveOccurred(), "the old name's pipeline must go")
+			renamed, err := pipelineNamed("my_app")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(renamed.GitPath.String).To(Equal("my_app.alloy"))
+
+			updatedLink, err := st.Queries.GetRepoLinkByID(ctx, link.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(updatedLink.SyncStatus.String).To(Equal("ok"))
+		})
+
+		It("holds such a rename back, without failing the other files, while another file fails validation", func() {
+			commit(map[string]string{"My-App.alloy": "// app", "fine.alloy": "// fine"})
+			syncOK()
+			old, err := pipelineNamed("My-App")
+			Expect(err).NotTo(HaveOccurred())
+
+			commit(map[string]string{
+				"my_app.alloy": "// app",
+				"fine.alloy":   "// fine, changed",
+				"bad.alloy":    "this is not valid alloy syntax {{{",
+			}, "My-App.alloy")
+			err = r.reconcileLink(ctx, link)
+			Expect(err).To(HaveOccurred())
+			// Re-planned with My-App still in place (N1: what is written is
+			// what was validated), my_app's own dry run names the clash.
+			Expect(err.Error()).To(MatchRegexp(`my_app\.alloy: .*"My-App" and "my_app" both sanitize`))
+
+			_, err = st.Queries.GetPipelineByID(ctx, old.ID)
+			Expect(err).NotTo(HaveOccurred(), "a failed sync never prunes")
+			_, err = pipelineNamed("my_app")
+			Expect(err).To(HaveOccurred(), "the rename waits for a sync that can delete the old name")
+			fine, err := pipelineNamed("fine")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(fine.Contents).To(Equal("// fine, changed"), "a file that validated still syncs")
+		})
+
+		// Two names that sanitise alike cannot both exist in an org (unique
+		// index pipelines_org_sanitized_name_key). Caught at write time, the
+		// clash rolled back the whole sync; it must fail only its own files.
+		Describe("a sanitised-name clash", func() {
+			It("fails both new files that clash with each other, and nothing else", func() {
+				commit(map[string]string{"fine.alloy": "// fine", "gone.alloy": "// gone"})
+				syncOK()
+				gone, err := pipelineNamed("gone")
+				Expect(err).NotTo(HaveOccurred())
+
+				commit(map[string]string{
+					"fine.alloy": "// fine, changed",
+					"a-b.alloy":  "// a-b",
+					"a_b.alloy":  "// a_b",
+				}, "gone.alloy")
+				err = r.reconcileLink(ctx, link)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring(`a-b.alloy: pipeline "a-b" has the same sanitised name as a_b.alloy`))
+				Expect(err.Error()).To(ContainSubstring(`a_b.alloy: pipeline "a_b" has the same sanitised name as a-b.alloy`))
+
+				fine, err := pipelineNamed("fine")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(fine.Contents).To(Equal("// fine, changed"), "the files that passed still sync")
+				_, err = pipelineNamed("a-b")
+				Expect(err).To(HaveOccurred())
+				_, err = pipelineNamed("a_b")
+				Expect(err).To(HaveOccurred())
+				_, err = st.Queries.GetPipelineByID(ctx, gone.ID)
+				Expect(err).NotTo(HaveOccurred(), "a sync with a failed file does not prune")
+
+				updatedLink, err := st.Queries.GetRepoLinkByID(ctx, link.ID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(updatedLink.SyncStatus.String).To(Equal("error"))
+			})
+
+			It("fails a new file that clashes with a pipeline this collector is not served", func() {
+				// A UI pipeline matching another cluster: the Stage-3 dry run
+				// for this collector never sees it.
+				_, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+					OrgID: link.OrgID, Name: "ui-thing", Contents: "// ui",
+					Matchers: json.RawMessage(`["cluster=\"somewhere-else\""]`),
+					Enabled:  true, Source: "ui",
+					WizardState: json.RawMessage(`{}`), CreatedBy: "test", UpdatedBy: "test",
+				})
+				Expect(err).NotTo(HaveOccurred())
+				commit(map[string]string{"fine.alloy": "// fine"})
+				syncOK()
+
+				commit(map[string]string{"fine.alloy": "// fine, changed", "ui_thing.alloy": "// git"})
+				err = r.reconcileLink(ctx, link)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring(`ui_thing.alloy: pipeline "ui_thing" has the same sanitised name as pipeline "ui-thing"`))
+
+				fine, err := pipelineNamed("fine")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(fine.Contents).To(Equal("// fine, changed"))
+				_, err = pipelineNamed("ui_thing")
+				Expect(err).To(HaveOccurred())
+			})
+		})
+
+		// A file that fails only on the first planning pass (a validator
+		// timeout, a store blip) and passes on the re-plan must not turn the
+		// sync into "ok": that records last_commit, and the skipped deletes
+		// would then wait for the next new commit.
+		It("keeps a sync whose first pass failed in error, so the next poll retries the deletes", func() {
+			commit(map[string]string{"fine.alloy": "// fine", "gone.alloy": "// gone"})
+			syncOK()
+			gone, err := pipelineNamed("gone")
+			Expect(err).NotTo(HaveOccurred())
+
+			commit(map[string]string{"fine.alloy": "// fine, changed"}, "gone.alloy")
+			calls := 0
+			r.planFileFunc = func(ctx context.Context, l sqlc.RepoLink, f gitrepo.File, removing map[string]bool) (*filePlan, error) {
+				calls++
+				if calls == 1 {
+					return nil, errors.New("alloy validate: timed out")
+				}
+				return r.planFile(ctx, l, f, removing)
+			}
+			err = r.reconcileLink(ctx, link)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("timed out"))
+
+			link, err = st.Queries.GetRepoLinkByID(ctx, link.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(link.SyncStatus.String).To(Equal("error"))
+			Expect(link.LastCommit.Valid).To(BeFalse(), "the next poll must fetch this commit again")
+			_, err = st.Queries.GetPipelineByID(ctx, gone.ID)
+			Expect(err).NotTo(HaveOccurred())
+
+			r.planFileFunc = nil
+			Expect(r.reconcileLink(ctx, link)).To(Succeed())
+			_, err = st.Queries.GetPipelineByID(ctx, gone.ID)
+			Expect(err).To(HaveOccurred(), "the retry prunes")
+		})
+
+		Describe("the mass-deletion threshold", func() {
+			sixFiles := func() map[string]string {
+				m := map[string]string{}
+				for _, n := range []string{"p1", "p2", "p3", "p4", "p5", "p6"} {
+					m[n+".alloy"] = "// " + n
+				}
+				return m
+			}
+
+			It("deletes nothing and warns when one sync would remove more than half of the link's pipelines and more than three", func() {
+				commit(sixFiles())
+				syncOK()
+
+				commit(nil, "p1.alloy", "p2.alloy", "p3.alloy", "p4.alloy")
+				recomputes := 0
+				r.recompute = func(context.Context, pgtype.UUID) { recomputes++ }
+				Expect(r.reconcileLink(ctx, link)).To(Succeed())
+				Expect(recomputes).To(BeZero(), "a sync that applied nothing recomputes nothing")
+
+				for _, n := range []string{"p1", "p2", "p3", "p4", "p5", "p6"} {
+					_, err := pipelineNamed(n)
+					Expect(err).NotTo(HaveOccurred(), "%s must survive a suspicious mass delete", n)
+				}
+				Expect(deleteAudits()).To(BeEmpty())
+				Expect(dirtyFlag()).To(BeFalse())
+
+				updatedLink, err := st.Queries.GetRepoLinkByID(ctx, link.ID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(updatedLink.SyncStatus.String).To(Equal("warning"))
+				Expect(updatedLink.SyncError.String).To(ContainSubstring("would delete 4 of 6 pipelines"))
+				Expect(updatedLink.SyncError.String).To(ContainSubstring("delete and re-create the repository link"))
+				Expect(updatedLink.SyncError.String).To(ContainSubstring("restore some of the removed files"))
+				Expect(updatedLink.LastCommit.Valid).To(BeFalse())
+			})
+
+			// Only the deletes are held back: a pre-upgrade backlog of removed
+			// files, or a moved directory, must not freeze every other change
+			// to the link until it is re-created.
+			// Updates to existing pipelines still apply (a pre-upgrade backlog
+			// must not freeze the link), but new files are held back with the
+			// deletes: a moved directory would otherwise serve the new copies
+			// beside the old ones (duplicate scrapes, two receivers on a port).
+			It("applies the commit's updates but holds its deletes and creates back", func() {
+				commit(sixFiles())
+				syncOK()
+				p5, err := pipelineNamed("p5")
+				Expect(err).NotTo(HaveOccurred())
+
+				commit(map[string]string{"p5.alloy": "// p5, changed", "p7.alloy": "// p7"},
+					"p1.alloy", "p2.alloy", "p3.alloy", "p4.alloy")
+				Expect(r.reconcileLink(ctx, link)).To(Succeed())
+
+				updated, err := st.Queries.GetPipelineByID(ctx, p5.ID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(updated.Contents).To(Equal("// p5, changed"))
+				_, err = pipelineNamed("p7")
+				Expect(err).To(HaveOccurred(), "a new file waits with the held-back deletes")
+				for _, n := range []string{"p1", "p2", "p3", "p4"} {
+					_, err := pipelineNamed(n)
+					Expect(err).NotTo(HaveOccurred(), "%s's delete is held back", n)
+				}
+				Expect(deleteAudits()).To(BeEmpty())
+				Expect(dirtyFlag()).To(BeTrue())
+
+				updatedLink, err := st.Queries.GetRepoLinkByID(ctx, link.ID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(updatedLink.SyncStatus.String).To(Equal("warning"))
+				Expect(updatedLink.SyncError.String).To(ContainSubstring("would delete 4 of 6 pipelines"))
+				Expect(updatedLink.SyncError.String).To(ContainSubstring("1 new file was not created"))
+				Expect(updatedLink.LastCommit.Valid).To(BeFalse())
+			})
+
+			It("keeps serving a moved directory's old pipelines and creates none of the new ones", func() {
+				moved := map[string]string{}
+				var old []string
+				for _, n := range []string{"p1", "p2", "p3", "p4", "p5", "p6"} {
+					moved["b/"+n+".alloy"] = "// " + n
+					old = append(old, "a/"+n+".alloy")
+				}
+				original := map[string]string{}
+				for _, p := range old {
+					original[p] = "// " + p[2:len(p)-6]
+				}
+				commit(original)
+				syncOK()
+
+				commit(moved, old...)
+				Expect(r.reconcileLink(ctx, link)).To(Succeed())
+
+				for _, n := range []string{"p1", "p2", "p3", "p4", "p5", "p6"} {
+					_, err := pipelineNamed("a/" + n)
+					Expect(err).NotTo(HaveOccurred(), "a/%s keeps serving", n)
+					_, err = pipelineNamed("b/" + n)
+					Expect(err).To(HaveOccurred(), "b/%s must not be served beside a/%s", n, n)
+				}
+				Expect(deleteAudits()).To(BeEmpty())
+				Expect(dirtyFlag()).To(BeFalse())
+
+				updatedLink, err := st.Queries.GetRepoLinkByID(ctx, link.ID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(updatedLink.SyncStatus.String).To(Equal("warning"))
+				Expect(updatedLink.SyncError.String).To(ContainSubstring("would delete 6 of 6 pipelines"))
+				Expect(updatedLink.SyncError.String).To(ContainSubstring("6 new files were not created"))
+			})
+
+			// A link that has never finished "ok" has no baseline: it may
+			// delete at most three per sync, and says why in its own words.
+			It("tells a link that has never completed a sync why it may delete at most three", func() {
+				four := map[string]string{"q1.alloy": "// q1", "q2.alloy": "// q2", "q3.alloy": "// q3", "q4.alloy": "// q4"}
+				withBad := map[string]string{"bad.alloy": "this is not valid alloy syntax {{{"}
+				for k, v := range four {
+					withBad[k] = v
+				}
+				commit(withBad)
+				Expect(r.reconcileLink(ctx, link)).NotTo(Succeed(), "the first sync never finishes ok")
+				var err error
+				link, err = st.Queries.GetRepoLinkByID(ctx, link.ID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(link.LastOkAt.Valid).To(BeFalse())
+
+				commit(map[string]string{"bad.alloy": "// fixed"}, "q1.alloy", "q2.alloy", "q3.alloy", "q4.alloy")
+				Expect(r.reconcileLink(ctx, link)).To(Succeed())
+
+				for _, n := range []string{"q1", "q2", "q3", "q4"} {
+					_, err := pipelineNamed(n)
+					Expect(err).NotTo(HaveOccurred())
+				}
+				link, err = st.Queries.GetRepoLinkByID(ctx, link.ID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(link.SyncStatus.String).To(Equal("warning"))
+				Expect(link.SyncError.String).To(ContainSubstring("this link has not completed a sync yet"))
+				Expect(link.SyncError.String).To(ContainSubstring("at most 3"))
+				Expect(link.SyncError.String).To(ContainSubstring("delete and re-create the repository link"))
+			})
+
+			// The guard's denominator must not grow from the guarded commit's
+			// own creates: compared with 8 pipelines (6 + the 2 it added) on
+			// the next poll, 4 removals are no longer "more than half", and
+			// the guard released itself after one poll.
+			It("keeps holding on later polls when the guarded commit also adds files, until files are restored", func() {
+				commit(sixFiles())
+				syncOK()
+
+				commit(map[string]string{"p7.alloy": "// p7", "p8.alloy": "// p8"},
+					"p1.alloy", "p2.alloy", "p3.alloy", "p4.alloy")
+				for poll := 1; poll <= 2; poll++ {
+					Expect(r.reconcileLink(ctx, link)).To(Succeed())
+					var err error
+					link, err = st.Queries.GetRepoLinkByID(ctx, link.ID)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(link.SyncStatus.String).To(Equal("warning"), "poll %d", poll)
+					Expect(link.SyncError.String).To(ContainSubstring("would delete 4 of 6 pipelines"), "poll %d", poll)
+					Expect(deleteAudits()).To(BeEmpty(), "poll %d: the deletes stay held back", poll)
+				}
+				_, err := pipelineNamed("p7")
+				Expect(err).To(HaveOccurred(), "the guarded commit's creates are held back too")
+
+				// Restoring two files brings the removal under the threshold.
+				commit(map[string]string{"p1.alloy": "// p1", "p2.alloy": "// p2"})
+				Expect(r.reconcileLink(ctx, link)).To(Succeed())
+				link, err = st.Queries.GetRepoLinkByID(ctx, link.ID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(link.SyncStatus.String).To(Equal("ok"))
+				for _, n := range []string{"p3", "p4"} {
+					_, err := pipelineNamed(n)
+					Expect(err).To(HaveOccurred(), "%s is pruned once under the threshold", n)
+				}
+				for _, n := range []string{"p1", "p2", "p5", "p6", "p7", "p8"} {
+					_, err := pipelineNamed(n)
+					Expect(err).NotTo(HaveOccurred(), n)
+				}
+				Expect(deleteAudits()).To(HaveLen(2))
+			})
+
+			It("deletes one of six", func() {
+				commit(sixFiles())
+				syncOK()
+
+				commit(nil, "p1.alloy")
+				Expect(r.reconcileLink(ctx, link)).To(Succeed())
+
+				_, err := pipelineNamed("p1")
+				Expect(err).To(HaveOccurred())
+				Expect(deleteAudits()).To(HaveLen(1))
+			})
+
+			It("deletes three of four: at most three is never a mass deletion", func() {
+				commit(map[string]string{"q1.alloy": "// q1", "q2.alloy": "// q2", "q3.alloy": "// q3", "q4.alloy": "// q4"})
+				syncOK()
+
+				commit(nil, "q1.alloy", "q2.alloy", "q3.alloy")
+				Expect(r.reconcileLink(ctx, link)).To(Succeed())
+
+				for _, n := range []string{"q1", "q2", "q3"} {
+					_, err := pipelineNamed(n)
+					Expect(err).To(HaveOccurred(), "%s must be deleted", n)
+				}
+				_, err := pipelineNamed("q4")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(deleteAudits()).To(HaveLen(3))
+			})
+		})
+
+		// The prune matches on the pipeline name derived from the file path
+		// (the identity the unique sanitised-name index enforces), not on
+		// the stored git_path text: if the stored path format ever drifted,
+		// a git_path match would read every file as removed.
+		It("keeps a pipeline whose stored git_path no longer matches the path text but whose file is still there", func() {
+			commit(map[string]string{"kept.alloy": "// kept", "other.alloy": "// other"})
+			syncOK()
+			kept, err := pipelineNamed("kept")
+			Expect(err).NotTo(HaveOccurred())
+			_, err = st.Pool().Exec(ctx, `UPDATE pipelines SET git_path = './kept.alloy' WHERE id = $1`, kept.ID)
+			Expect(err).NotTo(HaveOccurred())
+
+			commit(map[string]string{"other.alloy": "// other, changed"})
+			Expect(r.reconcileLink(ctx, link)).To(Succeed())
+
+			_, err = st.Queries.GetPipelineByID(ctx, kept.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(deleteAudits()).To(BeEmpty())
+		})
+
+		It("ignores files that are not .alloy files", func() {
+			commit(map[string]string{"kept.alloy": "// kept", "notes.txt": "notes", "docs/README.md": "# readme"})
+			syncOK()
+
+			commit(map[string]string{"CHANGES.md": "changes"}, "notes.txt", "docs/README.md")
+			Expect(r.reconcileLink(ctx, link)).To(Succeed())
+
+			_, err := pipelineNamed("kept")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(deleteAudits()).To(BeEmpty())
+		})
+
+		DescribeTable("prunes under the link's path",
+			func(linkPath string, files map[string]string, remove, gone, kept string) {
+				_, err := st.Pool().Exec(ctx, `UPDATE repo_links SET path = $1 WHERE id = $2`, linkPath, link.ID)
+				Expect(err).NotTo(HaveOccurred())
+				link, err = st.Queries.GetRepoLinkByID(ctx, link.ID)
+				Expect(err).NotTo(HaveOccurred())
+
+				commit(files)
+				syncOK()
+				gonePipe, err := pipelineNamed(gone)
+				Expect(err).NotTo(HaveOccurred())
+				keptPipe, err := pipelineNamed(kept)
+				Expect(err).NotTo(HaveOccurred())
+
+				commit(nil, remove)
+				Expect(r.reconcileLink(ctx, link)).To(Succeed())
+
+				_, err = st.Queries.GetPipelineByID(ctx, gonePipe.ID)
+				Expect(err).To(HaveOccurred())
+				_, err = st.Queries.GetPipelineByID(ctx, keptPipe.ID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(deleteAudits()).To(HaveLen(1))
+			},
+			Entry("path \"/\"", "/",
+				map[string]string{"a.alloy": "// a", "b.alloy": "// b"}, "a.alloy", "a", "b"),
+			Entry("a subdirectory, with a file outside it", "configs",
+				map[string]string{"configs/a.alloy": "// a", "configs/b.alloy": "// b", "elsewhere/c.alloy": "// c"},
+				"configs/a.alloy", "configs/a", "configs/b"),
+		)
+
+		It("ends cleanly, writing nothing, when the link is deleted while its sync runs", func() {
+			commit(map[string]string{"orphan.alloy": "// orphan"})
+			// The link row goes after reconcileAll listed it: reconcileLink
+			// still holds the stale row.
+			_, err := st.Pool().Exec(ctx, `DELETE FROM repo_links WHERE id = $1`, link.ID)
+			Expect(err).NotTo(HaveOccurred())
+
+			outcome, err := r.syncLink(ctx, link)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(outcome).To(Equal(syncOutcome("link_gone")), "counted apart from a real ok sync")
+
+			_, err = pipelineNamed("orphan")
+			Expect(err).To(HaveOccurred())
+		})
+
+		It("counts a guarded sync as a warning, not ok or error", func() {
+			commit(map[string]string{"only.alloy": "// only"})
+			syncOK()
+			commit(nil, "only.alloy")
+			_, err := st.Pool().Exec(ctx, `UPDATE repo_links SET last_synced_at = NULL WHERE id = $1`, link.ID)
+			Expect(err).NotTo(HaveOccurred())
+
+			before := promtestutil.ToFloat64(metrics.SyncTotal.WithLabelValues("warning"))
+			r.reconcileAll(ctx)
+			Expect(promtestutil.ToFloat64(metrics.SyncTotal.WithLabelValues("warning"))).To(Equal(before + 1))
+		})
 	})
 })
 

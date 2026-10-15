@@ -416,8 +416,21 @@ func (s *Server) Run(ctx context.Context) error {
 	// encryptor to be configured, since repo_link credentials are stored
 	// encrypted; without it there is no key to decrypt them with.
 	if s.enc != nil {
-		reconciler := gitsync.New(s.store, s.enc, s.validator, s.cfg, s.logger,
-			gitsync.WithLocker(advisorylock.New(s.store.Pool(), advisorylock.GitSync, "git-sync", s.logger)))
+		syncOpts := []gitsync.Option{
+			gitsync.WithLocker(advisorylock.New(s.store.Pool(), advisorylock.GitSync, "git-sync", s.logger)),
+		}
+		// The same eager recompute the API runs after a pipeline or repo-link
+		// delete, built the way mgmtapi.MountRPC builds its PipelineService.
+		// Without a schema registry the sync still marks the collector dirty
+		// and its next poll recomputes lazily.
+		if schemaReg, schemaErr := schema.New(schema.Embedded, version.AlloySchemaVersion); schemaErr != nil {
+			s.logger.Error("gitops reconciler: schema registry unavailable; served configs refresh on the next poll only", "err", schemaErr)
+		} else {
+			ps := mgmtapi.NewPipelineService(s.store, s.validator, schemaReg, s.logger,
+				mgmtapi.WithBeaconRemoteWrite(s.cfg.Server.BaseURL, beacon.OAuth2ForBeacon(s.cfg.OIDC.BeaconAuth, s.cfg.OIDC.AgentTokenURL, s.cfg.OIDC.AgentScopes)))
+			syncOpts = append(syncOpts, gitsync.WithRecompute(ps.RecomputeOrgCaches))
+		}
+		reconciler := gitsync.New(s.store, s.enc, s.validator, s.cfg, s.logger, syncOpts...)
 		reconciler.Start(ctx)
 	} else {
 		s.logger.Warn("gitops reconciler not started: encryption key not configured")

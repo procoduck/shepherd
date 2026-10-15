@@ -14,7 +14,7 @@ import (
 const createRepoLink = `-- name: CreateRepoLink :one
 INSERT INTO repo_links (org_id, collector_id, credential_id, repo_url, branch, path, poll_interval_seconds)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, org_id, collector_id, credential_id, branch, path, poll_interval_seconds, last_synced_at, last_commit, sync_status, sync_error, created_at, updated_at, repo_url
+RETURNING id, org_id, collector_id, credential_id, branch, path, poll_interval_seconds, last_synced_at, last_commit, sync_status, sync_error, created_at, updated_at, repo_url, last_ok_at
 `
 
 type CreateRepoLinkParams struct {
@@ -53,6 +53,7 @@ func (q *Queries) CreateRepoLink(ctx context.Context, arg CreateRepoLinkParams) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.RepoUrl,
+		&i.LastOkAt,
 	)
 	return i, err
 }
@@ -67,7 +68,7 @@ func (q *Queries) DeleteRepoLink(ctx context.Context, id pgtype.UUID) error {
 }
 
 const getRepoLinkByID = `-- name: GetRepoLinkByID :one
-SELECT id, org_id, collector_id, credential_id, branch, path, poll_interval_seconds, last_synced_at, last_commit, sync_status, sync_error, created_at, updated_at, repo_url FROM repo_links WHERE id = $1
+SELECT id, org_id, collector_id, credential_id, branch, path, poll_interval_seconds, last_synced_at, last_commit, sync_status, sync_error, created_at, updated_at, repo_url, last_ok_at FROM repo_links WHERE id = $1
 `
 
 func (q *Queries) GetRepoLinkByID(ctx context.Context, id pgtype.UUID) (RepoLink, error) {
@@ -88,12 +89,13 @@ func (q *Queries) GetRepoLinkByID(ctx context.Context, id pgtype.UUID) (RepoLink
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.RepoUrl,
+		&i.LastOkAt,
 	)
 	return i, err
 }
 
 const getRepoLinkForUpdate = `-- name: GetRepoLinkForUpdate :one
-SELECT id, org_id, collector_id, credential_id, branch, path, poll_interval_seconds, last_synced_at, last_commit, sync_status, sync_error, created_at, updated_at, repo_url FROM repo_links WHERE id = $1 FOR UPDATE
+SELECT id, org_id, collector_id, credential_id, branch, path, poll_interval_seconds, last_synced_at, last_commit, sync_status, sync_error, created_at, updated_at, repo_url, last_ok_at FROM repo_links WHERE id = $1 FOR UPDATE
 `
 
 // Row-locks the link for DeleteRepoLink's transaction: a concurrent gitsync
@@ -119,12 +121,13 @@ func (q *Queries) GetRepoLinkForUpdate(ctx context.Context, id pgtype.UUID) (Rep
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.RepoUrl,
+		&i.LastOkAt,
 	)
 	return i, err
 }
 
 const listDueRepoLinks = `-- name: ListDueRepoLinks :many
-SELECT id, org_id, collector_id, credential_id, branch, path, poll_interval_seconds, last_synced_at, last_commit, sync_status, sync_error, created_at, updated_at, repo_url FROM repo_links
+SELECT id, org_id, collector_id, credential_id, branch, path, poll_interval_seconds, last_synced_at, last_commit, sync_status, sync_error, created_at, updated_at, repo_url, last_ok_at FROM repo_links
 WHERE last_synced_at IS NULL
    OR last_synced_at + (poll_interval_seconds * interval '1 second') < now()
 ORDER BY last_synced_at ASC NULLS FIRST
@@ -154,6 +157,7 @@ func (q *Queries) ListDueRepoLinks(ctx context.Context) ([]RepoLink, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.RepoUrl,
+			&i.LastOkAt,
 		); err != nil {
 			return nil, err
 		}
@@ -166,7 +170,7 @@ func (q *Queries) ListDueRepoLinks(ctx context.Context) ([]RepoLink, error) {
 }
 
 const listRepoLinksByOrg = `-- name: ListRepoLinksByOrg :many
-SELECT id, org_id, collector_id, credential_id, branch, path, poll_interval_seconds, last_synced_at, last_commit, sync_status, sync_error, created_at, updated_at, repo_url FROM repo_links WHERE org_id = $1 ORDER BY created_at
+SELECT id, org_id, collector_id, credential_id, branch, path, poll_interval_seconds, last_synced_at, last_commit, sync_status, sync_error, created_at, updated_at, repo_url, last_ok_at FROM repo_links WHERE org_id = $1 ORDER BY created_at
 `
 
 func (q *Queries) ListRepoLinksByOrg(ctx context.Context, orgID pgtype.UUID) ([]RepoLink, error) {
@@ -193,6 +197,7 @@ func (q *Queries) ListRepoLinksByOrg(ctx context.Context, orgID pgtype.UUID) ([]
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.RepoUrl,
+			&i.LastOkAt,
 		); err != nil {
 			return nil, err
 		}

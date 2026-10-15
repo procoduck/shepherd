@@ -74,6 +74,41 @@ Categories used here:
   RBAC; it grants the HTTPRoute Role and CRD-read ClusterRole when the receiver tier and
   `receiver.applyTenantRoutes` are on. `make help` and the README no longer pin a stale count of
   Kubernetes e2e features.
+- **A file removed from a linked repository kept its pipeline,** served to the link's collector
+  for as long as the link existed, although the spec has always said the sync deletes it.
+  Shipped. A successful sync now deletes the link's git pipelines whose file is gone, in the
+  same transaction as the sync's other writes, with a `pipeline.delete` audit row each (actor
+  `gitsync`, reason `gitsync.file_removed`, the link, the file path and the commit the clone
+  checked out), and recomputes the org's served configs right away. A rename deletes the old
+  pipeline and creates the new one in the same sync, including a rename onto the same
+  sanitised name (`My-App.alloy` → `my_app.alloy`). A sync that could not fetch the repository,
+  or in which any file failed validation, deletes nothing; a file skipped as larger than
+  `max_file_bytes` keeps its pipeline. **Guards:** in a commit with no `.alloy` files at all
+  while the link has pipelines (usually a wrong path or branch), or one that would delete more
+  than three pipelines and more than half of those the link had at its last successful sync,
+  the deletes **and the new files** are held back while changes to existing files still sync —
+  so a moved directory keeps serving its old pipelines rather than both copies. A link that has
+  never completed a sync may delete at most three per sync until it does. The link shows
+  `warning` with the reason (how many deletes and new files were held), and every poll re-clones
+  and re-validates the repository until the removal shrinks or the link changes. To apply such a
+  commit, delete and re-create the repository link; or restore some of the removed files, then
+  remove them again a few at a time (at most three, or no more than half of what remains, per
+  sync), letting each sync complete. A sync in which a file failed stays `error` and retries the
+  whole commit on the next poll.
+  `shepherd_gitsync_total` gains `result="warning"` and `result="link_gone"` (a link deleted
+  while its sync ran). **After upgrading:** pipelines whose file was removed before the upgrade go
+  on the link's next new commit (an unchanged commit tip is not re-fetched); if that backlog trips
+  the guard, see `deploy/helm/shepherd/UPGRADING.md`. Migration 0034 adds
+  `repo_links.last_ok_at`. (B-GITSYNC-PRUNE)
+- **A git file whose pipeline name clashes with another pipeline's now says so.** Two names that
+  differ only in case or punctuation (`a-b`, `a_b`) cannot coexist in an org. Such a clash — with
+  another file in the commit, or with any pipeline of the org, including one the link's collector
+  is not served — fails only the files involved, with an error naming the other, instead of a
+  database unique-constraint error; the rest of the commit syncs.
+- **The Git sync page now shows why a sync failed.** Shipped. The reason a link's last sync ended
+  in `error` or `warning` appears under its status badge (`RepoLink.sync_error`, a new
+  output-only field); before, it was recorded but never reached the API. A status the page does
+  not recognise now reads neutral rather than green.
 
 ## v0.17.0
 

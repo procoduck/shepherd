@@ -246,6 +246,7 @@ type RepoLink struct {
 	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 	RepoUrl             string             `json:"repo_url"`
+	LastOkAt            pgtype.Timestamptz `json:"last_ok_at"`
 }
 
 type ServeCache struct {

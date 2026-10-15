@@ -48,7 +48,7 @@ var (
 	SyncTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "shepherd",
 		Name:      "gitsync_total",
-		Help:      "Total gitsync reconciliation attempts by result (ok, error).",
+		Help:      "Total gitsync reconciliation attempts by result (ok, warning, error, link_gone).",
 	}, []string{"result"})
 
 	// ValidationTotal counts pipeline validation requests by stage and result.

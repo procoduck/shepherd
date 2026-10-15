@@ -23,6 +23,26 @@ export function toneClass(tone: StatusTone): string {
   return STATUS_TONE_CLASS[tone];
 }
 
+/**
+ * A repo link's sync_status as a tone. "warning" is a sync that held its
+ * deletes and new files back because it would have deleted every pipeline of
+ * the link, or too many of them, while still applying changes to existing
+ * files (internal/gitsync pruneGuard). Anything unrecognised —
+ * including no sync yet — reads neutral, never as a success.
+ */
+export function syncStatusTone(status: string): StatusTone {
+  switch (status) {
+    case 'ok':
+      return 'ok';
+    case 'error':
+      return 'danger';
+    case 'warning':
+      return 'warn';
+    default:
+      return 'neutral';
+  }
+}
+
 /** A collector's remote-config status (APPLIED/APPLYING/FAILED/…) as a tone. */
 export function collectorStatusTone(status: string): StatusTone {
   switch (status) {
