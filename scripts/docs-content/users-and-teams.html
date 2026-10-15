@@ -35,7 +35,7 @@
         <li><strong>Disabled</strong> &mdash; revokes access without deleting the account, so audit
           entries naming that person keep resolving to something.</li>
       </ul>
-      <p><img src="../img/users.jpg" alt="Admin, Users: local accounts with their organisations and status badges for app admin and must-change-password" loading="lazy"></p>
+      <p><img src="../img/users.jpg" alt="Admin, Users: local accounts with their organisations, an app admin badge and active status" loading="lazy"></p>
       <p class="note">
         <strong>The last administrator cannot be removed.</strong> Demoting, disabling or deleting the
         only remaining enabled app admin is refused rather than allowed and regretted &mdash; there is
@@ -54,16 +54,19 @@
       <h2 id="teams">Teams and who may edit a pipeline</h2>
       <p>
         A pipeline with no owning team can be edited only by an organisation administrator or editor.
-        Give it an owning team and that team&rsquo;s members can edit it too, with no wider access at
-        all &mdash; that is the whole point of a team: a scoped write for people who are otherwise
-        viewers. An org admin assigns the owning team through the management API
-        (<code>PipelineService/SetPipelineOwner</code>); the UI does not offer it yet.
+        Give it an owning team and that team&rsquo;s members can edit it too, with no wider write
+        access &mdash; that is the whole point of a team: a scoped write for people who are otherwise
+        viewers. (Team membership alone also gives read access to the organisation, as a viewer
+        has.) An org admin sets or clears the owning team on the pipeline&rsquo;s page; everyone
+        else sees it read-only.
       </p>
       <p>
         A team member edits their team&rsquo;s pipeline the same way an editor does: its text on the
-        pipeline&rsquo;s page, or its graph in the visual builder if it was built there. Two things
-        stay with the org editor: starting a brand-new visual pipeline, and the builder&rsquo;s
-        simulations, which show a team member why they are unavailable.
+        pipeline&rsquo;s page, or its graph in the visual builder if it was built there. They can also
+        enable, disable, delete, restore a revision of, and detach from its wizard any pipeline
+        their team owns. Creating pipelines in the UI &mdash; a new pipeline, a wizard, a brand-new visual
+        pipeline &mdash; and the builder&rsquo;s simulations stay with the org editor; the builder
+        shows a team member why Simulate is unavailable.
       </p>
       <p>
         A team draws its members from an identity provider group, from an explicit list of local

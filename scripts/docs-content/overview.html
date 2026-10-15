@@ -19,10 +19,13 @@
       </div>
       <ul>
         <li><strong>Collectors</strong> authenticate with an <a href="agent-tokens.html">agent token</a>
-          over HTTP Basic auth and poll for their configuration on an interval you choose.</li>
+          over HTTP Basic auth, or with an access token from your identity provider, and poll for their configuration on an interval you choose.</li>
         <li><strong>The merge engine</strong> takes every enabled pipeline whose
           <a href="matchers.html">matchers</a> select a given collector and merges them into the single
-          config that collector is served.</li>
+          config that collector is served. Pipelines come from a wizard, the visual builder, raw
+          Alloy or git (see <a href="authoring.html">Authoring pipelines</a>), and any of them can be
+          read as a graph, Alloy modules drawn as groups &mdash; chart-generated config from
+          grafana/k8s-monitoring included.</li>
         <li><strong>PostgreSQL</strong> holds everything: pipelines, orgs, sessions, credentials.
           Shepherd itself is stateless, so the chart runs two replicas by default and you can scale
           it like any other Deployment. The database is the only thing to back up.</li>
@@ -32,8 +35,9 @@
 
       <h2 id="what-a-collector-gets">What a collector actually gets</h2>
       <p>
-        One merged config, assembled from the pipelines that match it. A collector that matches
-        nothing is served an empty config rather than an error, so an unclaimed or unmatched collector
+        One merged config, assembled from the pipelines that match it. A collector in an unclaimed
+        cluster is served an empty config, and a claimed one that matches nothing a config with no
+        pipelines (only the <a href="#the-beacon">beacon</a>), rather than an error, so an unclaimed or unmatched collector
         keeps running whatever it already had locally &mdash; nothing is disrupted until somebody
         claims its cluster and enables pipelines that select it.
       </p>
@@ -53,9 +57,11 @@
 
       <h2 id="what-it-is-not">What it is not</h2>
       <ul>
-        <li><strong>Not a telemetry backend.</strong> Shepherd never receives your metrics, logs or
+        <li><strong>Not a telemetry backend.</strong> Shepherd stores none of your metrics, logs or
           traces. It configures the collectors that ship them, and the data goes wherever your
-          destinations point.</li>
+          destinations point. The beacon reports only component names and health, and the
+          optional <a href="receiver.html">receiver tier</a> is an Alloy that forwards each
+          tenant&rsquo;s data straight to your backends.</li>
         <li><strong>Not a replacement for Alloy.</strong> What Shepherd serves is ordinary Alloy
           config. Anything Alloy can run, it can serve; anything Alloy cannot, it refuses at the gate.</li>
         <li><strong>Not an agent installer.</strong> You deploy Alloy however you already do; Shepherd

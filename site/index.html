@@ -99,9 +99,11 @@
         <p>
           A schema-driven canvas covering every registered Alloy component. Drag components onto
           the canvas, wire them by typed ports, and undo/redo freely — the graph compiles to
-          deterministic Alloy config through the same gate as everything else.
+          deterministic Alloy config through the same gate as everything else. Pipelines written
+          as text, by a wizard or in git &mdash; grafana/k8s-monitoring output included &mdash; open
+          in a read-only graph view that draws every wire and shows Alloy modules as groups.
         </p>
-        <span class="tag">drag-to-wire · undo/redo</span>
+        <span class="tag">drag-to-wire · undo/redo · graph view</span>
       </article>
 
       <article class="feature-card">
@@ -124,10 +126,11 @@
         <h3>GitOps from any git server</h3>
         <p>
           Point a repo link at a directory of <code>.alloy</code> files on any git host. Authenticate
-          with a personal access token, an SSH deploy key, or a GitHub App installation — synced
+          with a personal access token, HTTPS basic auth, an SSH deploy key, a GitHub App
+          installation or an Azure DevOps service principal — synced
           files pass the same validation gate before they're servable.
         </p>
-        <span class="tag">PAT · SSH · GitHub App</span>
+        <span class="tag">PAT · SSH · GitHub App · Azure DevOps</span>
       </article>
 
       <article class="feature-card">
@@ -168,7 +171,7 @@
         <p>
           An optional OTLP/HTTP endpoint behind your Gateway API gateway. Shepherd applies a route
           per tenant that <em>sets</em> the tenant header &mdash; a client can never choose its
-          own tenant &mdash; and shows whether the gateway attached it. Each route comes with
+          own tenant &mdash; and shows whether the gateway attached it. Each active OTLP route comes with
           ready-to-paste SDK and IaC snippets for connecting an app. Off by default; turn it on
           with <code>receiver.enabled</code>.
         </p>
@@ -181,7 +184,7 @@
         </div>
         <h3>A beacon, not a survey</h3>
         <p>
-          Every collector is served a small baseline pipeline that reports which components it is
+          Every claimed collector is served a small baseline pipeline that reports which components it is
           actually running, and whether they are healthy. Component names only &mdash; never config
           text, never raw samples. The collector you know nothing about is the one that would never
           have opted in &mdash; so it is on by default, with a single chart value to turn it off.
@@ -316,7 +319,8 @@
       <h2>Deploy with Helm, point Alloy at it.</h2>
       <p class="section-sub">
         The chart and images are published to GitHub Container Registry for linux/amd64 and
-        linux/arm64 — nothing to clone. Bring your own PostgreSQL.
+        linux/arm64 — nothing to clone. Bring your own PostgreSQL, or let CloudNativePG provision
+        one.
       </p>
     </div>
 
@@ -328,13 +332,16 @@
           <p>
             Published as an OCI artifact — nothing to clone. Bring your own PostgreSQL and a secret
             holding the database URL and encryption key; see
-            <a href="docs/configuration.html">Configuration</a>. Sandbox simulation ships enabled by
+            <a href="docs/configuration.html">Configuration</a>. Set
+            <code>config.server.base_url</code> to the address your collectors reach Shepherd at.
+            Sandbox simulation ships enabled by
             default; add <code>--set simulator.enabled=false</code> to turn it off.
           </p>
           <div class="code-block" data-lang="shell">
             <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
             <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.21.0 \
   --set existingSecret=shepherd-secrets \
+  --set config.server.base_url=https://shepherd.internal \
   --set "route.enabled=true" \
   --set "route.hostnames[0]=shepherd.internal" \
   --set "route.parentRefs[0].name=my-gateway"</code></pre>

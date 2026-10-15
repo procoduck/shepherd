@@ -11,7 +11,9 @@
         Six guided forms cover the jobs most fleets need. Answer the questions, preview the Alloy it
         generates, commit it as a pipeline. A wizard writes to one of your org&rsquo;s
         <a href="destinations.html">destinations</a>, and gets that destination&rsquo;s URL and
-        authentication.
+        authentication. Each wizard suggests a free pipeline name, its <strong>Continue</strong>
+        says which required fields are still missing, and the Review step previews which collectors
+        the pipeline would reach and says why <strong>Create pipeline</strong> is disabled when it is.
       </p>
       <p><img src="../img/wizards.jpg" alt="The Wizards page: six cards — App Observability, Blackbox Probes, Cluster Metrics, Database Metrics, Pod Logs, Self Monitoring" loading="lazy"></p>
       <p id="database-credentials">
@@ -33,7 +35,17 @@
         host or VM cannot read a Kubernetes Secret and refuses its whole config, so keep the
         pipeline&rsquo;s matchers to Kubernetes clusters. For other collectors choose the
         <code>env</code> credential source, which reads an environment variable that you must set on
-        those collectors yourself &mdash; Shepherd does not set it.
+        those collectors yourself &mdash; Shepherd does not set it. A Redis without a password can
+        use <code>none</code>.
+      </p>
+      <p id="wizard-pipelines">
+        <strong>A wizard pipeline stays linked to its wizard.</strong> When a destination it ships
+        to changes, Shepherd regenerates it. Saving a change to its text asks first
+        (<em>Save a hand edit?</em>), because a hand edit stops that: the pipeline then reads
+        <em>Hand-edited</em> in its header and <em>Not following wizard</em> in the pipelines list
+        until you use <strong>Restore last wizard version</strong>, or you make it an ordinary
+        pipeline with <strong>Detach from wizard</strong>. See
+        <a href="destinations.html#changes">when a destination change takes effect</a>.
       </p>
 
       <h2 id="2-the-visual-builder-when-you-want-to-see-the-graph">2. The visual builder, when you want to see the graph</h2>
@@ -42,7 +54,14 @@
         <strong>Generated config</strong> tab shows the Alloy it produces as you work, and the validity
         chip in the toolbar goes red the moment the graph would not run — you cannot save a broken one.
       </p>
-      <p><img src="../img/visual-builder.jpg" alt="The visual pipeline builder: component palette on the left, a three-node graph on the canvas, properties panel on the right" loading="lazy"></p>
+      <p>
+        Starting a new visual pipeline needs the org editor role. An existing one can be edited in
+        the builder by anyone who may edit that pipeline, members of its owning team included;
+        running it in the <a href="simulation.html">sandbox</a> stays with org editors, and the
+        builder says so on <strong>Simulate</strong>. Saving opens the pipeline&rsquo;s page, the
+        text editor, with a banner saying how to get back to the graph.
+      </p>
+      <p><img src="../img/visual-builder.jpg" alt="The visual pipeline builder: a toolbar with the pipeline name, matchers, validity chip, Simulate, More and Save; the component palette on the left, a three-node graph on the canvas, the properties panel on the right" loading="lazy"></p>
       <p>
         The graph below generates the config beside it. This is the same Alloy that will be merged and
         served — there is no separate translation step to be surprised by.
@@ -55,14 +74,55 @@
       </p>
       <h2 id="4-revisions-and-restore">4. Revisions and restore</h2>
       <p>
-        Every save is a numbered revision. The editor can show any past revision as a diff against
+        Every save that changes something is a numbered revision; saving a pipeline unchanged adds
+        none. The editor can show any past revision as a diff against
         the current text, so you can see exactly what changed and who changed it.
       </p>
       <p>
         Restoring a revision does not rewrite history &mdash; it creates a new revision from the old
         one's contents, matchers and enabled state — so restoring a revision saved while
         the pipeline was disabled disables it, and the dialog says so — and runs it through the same validation gate as any other save. A
-        git-managed pipeline can be restored too, but the next sync from the repository wins.
+        git-managed pipeline can be restored too, but the next commit to the repository puts the
+        repository&rsquo;s text back.
+      </p>
+      <p id="save-conflicts">
+        A save from a page that loaded an older revision is refused instead of silently replacing
+        someone else&rsquo;s newer change. The dialog offers <strong>Reload</strong>, which shows
+        the current version and discards your unsaved edits, and, in the text editor,
+        <strong>Overwrite with my version</strong>.
+      </p>
+
+      <h2 id="5-view-any-pipeline-as-a-graph">5. View any pipeline as a graph</h2>
+      <p>
+        A pipeline written as text, by a wizard or by git sync &mdash; chart-generated Alloy from
+        grafana/k8s-monitoring included &mdash; can be read as a graph: <strong>View as graph</strong>
+        on its page, or the <strong>graph</strong> link beside its source in the pipelines list. (A
+        visual pipeline opens in the builder instead.) The view is <strong>read-only</strong>: it
+        changes nothing about how the pipeline is saved, rendered or served.
+      </p>
+      <p><img src="../img/graph-view.jpg" alt="The read-only graph view of an imported k8s-monitoring pipeline: four Alloy modules drawn as groups of their components, wired through their instances to one prometheus.remote_write" loading="lazy"></p>
+      <ul>
+        <li><strong>Every wire is drawn</strong>, laid out left to right, including
+          <code>forward_to</code> lists and wires into or out of a block the view cannot map.</li>
+        <li><strong>Modules are groups.</strong> Each <code>declare</code> is a box holding its
+          components, with its arguments and exports as ports wired to the module&rsquo;s instance,
+          so a component inside a module can be followed through to its destination. Nested
+          modules open too. A box collapses and expands; one with more than 20 components starts
+          collapsed. A module instance&rsquo;s <strong>Show module</strong> brings its box into
+          view.</li>
+        <li><strong>A block the view cannot map is labelled <em>not mapped</em></strong> and shows
+          its source text; a module&rsquo;s instance is a read-only node that links to its
+          module&rsquo;s group. A summary above the canvas says what was drawn how, with every detail
+          behind <strong>Show all</strong>; the toolbar badge reads <em>Modules shown as groups</em>
+          when nothing is genuinely unmapped, and <em>Partial</em> when something is.</li>
+        <li>Selecting a node shows its settings and the secrets and other components it refers
+          to.</li>
+      </ul>
+      <p>
+        <strong>Recreate as visual pipeline</strong> copies the graph into a new, separate visual
+        draft; the conversion is lossy and the original is not changed. It needs the org editor
+        role, and it is unavailable &mdash; saying how many blocks cannot be carried over &mdash;
+        while the graph has a module or an unmapped block, since the builder has neither.
       </p>
 
       <p class="note">

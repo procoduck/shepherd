@@ -14,8 +14,11 @@
         <li><code>list_collectors</code>, <code>get_collector</code>,
           <code>list_fleet_attributes</code> &mdash; read the fleet, including each
           collector&rsquo;s per-instance health.</li>
-        <li><code>validate_pipeline</code>, <code>preview_matches</code> &mdash; check a candidate
-          without saving it: does it parse, and which collectors would it match.</li>
+        <li><code>validate_pipeline</code> &mdash; check candidate text without saving it: does it
+          parse and check out against the component schema, and which signals does it carry.</li>
+        <li><code>preview_matches</code> &mdash; which collectors an existing pipeline&rsquo;s
+          stored matchers select (a proposal&rsquo;s matchers are covered by
+          <code>propose_pipeline_revision</code>).</li>
         <li><code>simulate_relabel</code>, <code>simulate_logs</code> &mdash; trace sample targets
           through relabel rules, or sample log lines through <code>loki.process</code> stages, step
           by step.</li>
@@ -29,8 +32,8 @@
       <h2 id="credential">Give it a service account</h2>
       <p>
         The agent authenticates as a service account scoped to a single organisation,
-        with <strong>propose</strong> capability &mdash; never apply. Mint one from
-        <strong>Service accounts</strong> (or the API), then note its id and one-time secret. A
+        with <strong>propose</strong> capability &mdash; never apply. An org admin mints one from
+        <strong>Access &rarr; Service accounts</strong> (or the API), then note its id and one-time secret. A
         propose-capability, editor-tier account is exactly right: it can read and propose, and the
         server has no path to apply even if the credential were broader.
       </p>

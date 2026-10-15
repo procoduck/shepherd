@@ -36,6 +36,12 @@ export SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD=choose-a-password
         password you exported. Then mint an <a href="agent-tokens.html">agent token</a> and
         <a href="collectors.html">point a collector at it</a>.
       </p>
+      <p>
+        Stage 2&rsquo;s <code>alloy validate</code> runs only when
+        <code>SHEPHERD_VALIDATE_ALLOY_BINARY</code> points at an <code>alloy</code> binary (the
+        chart sets <code>/usr/local/bin/alloy</code>). Unset, that check is reported as skipped,
+        never as a pass; the in-process syntax and wiring checks still run.
+      </p>
       <h2 id="the-full-dev-stack">The full dev stack</h2>
       <p>
         <code>make dev</code> boots a whole environment in Docker &mdash; PostgreSQL, a seeded

@@ -21,7 +21,9 @@
                       CloudNativePG path (<a href="database.html#cloudnativepg">Database</a>, 1.29+).
                       Chart 0.18 and older accepted 1.29.</li>
                   <li><code>metrics.serviceMonitor.enabled</code> needs the Prometheus Operator's
-                      CRDs; <code>route.enabled</code> needs the Gateway API CRDs.</li>
+                      CRDs; <code>route.enabled</code> and <code>receiver.enabled</code> need the
+                      Gateway API CRDs; <code>cnpg.enabled</code> needs CloudNativePG&rsquo;s and
+                      <code>externalSecrets.enabled</code> the External Secrets Operator&rsquo;s.</li>
                 </ul></td>
           </tr>
           <tr>
@@ -46,7 +48,7 @@
           </tr>
           <tr>
             <td>Build from source</td>
-            <td>Go (version per <code>go.mod</code>), Node 26 + pnpm, Docker (the Go suite starts real
+            <td>Go 1.27.2 (per <code>go.mod</code>), Node 26 and pnpm 12, Docker (the Go suite starts real
                 Postgres via testcontainers), and Helm for the chart tests.</td>
           </tr>
         </tbody>

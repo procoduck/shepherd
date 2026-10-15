@@ -136,8 +136,9 @@ helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.21.0 \
     # iam.gke.io/gcp-service-account: shepherd@project.iam.gserviceaccount.com</code></pre>
       </div>
       <p>
-        The chart grants no RBAC and mounts no API token &mdash; Shepherd never calls the Kubernetes
-        API &mdash; so this account exists precisely to be annotated. Set
+        Unless the <a href="receiver.html">receiver tier</a> applies tenant routes, the chart grants
+        no RBAC and mounts no API token &mdash; that is the only thing Shepherd calls the Kubernetes
+        API for &mdash; so this account exists precisely to be annotated. Set
         <code>serviceAccount.create: false</code> and <code>serviceAccount.name</code> instead to use
         an account your platform team already manages; it must exist before you install, because the
         migration Job runs as a pre-install hook and a pod naming a missing ServiceAccount is refused.

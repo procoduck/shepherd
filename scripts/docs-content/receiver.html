@@ -1,14 +1,15 @@
 <h1>Receiver tier</h1>
       <p>
-        The receiver tier is an OTLP/HTTP endpoint for applications &mdash; browsers, Lambdas,
-        services &mdash; that sits behind your Gateway API gateway and forwards each tenant's data to
+        The receiver tier is an OTLP/HTTP endpoint for applications &mdash; Lambdas, services,
+        jobs &mdash; that sits behind your Gateway API gateway and forwards each tenant's data to
         your tenant-aware backends (Mimir, Loki, Tempo) carrying that tenant's
         <code>X-Scope-OrgID</code>. One receiver serves every tenant.
       </p>
       <p>
-        <strong>It is off by default</strong> (<code>receiver.enabled: false</code>) while it goes
-        through its security review. You can turn it on to try it; the chart tells you so when you
-        do.
+        <strong>It is off by default</strong> (<code>receiver.enabled: false</code>): an opt-in
+        feature. Its security review (containment, a tested off-switch, the gateway as the only
+        ingress, a real-Alloy tenancy proof) is signed off, and it stays opt-in. It sets no CORS
+        headers, so a browser sending OTLP from another origin needs that handled in front of it.
       </p>
 
       <h2 id="how-it-works">How it works</h2>
@@ -81,19 +82,27 @@
         Create a tenant route on <strong>Delivery &rarr; Tenant routes</strong> (or through
         <code>TenantRouteService</code>), naming the Gateway it attaches to. Shepherd then creates the
         route's HTTPRoute in its own namespace, pointing at the receiver, and waits for the gateway to
-        report it attached. The <strong>In cluster</strong> column shows the result:
+        report it attached. Only org admins create, rotate and revoke tenant routes, and an
+        organisation needs a tenant ID before it can have any. The <strong>In cluster</strong>
+        column shows the result:
       </p>
       <ul>
         <li><strong>applied</strong> &mdash; the gateway accepted the route; traffic to its path
             reaches the receiver with the org's tenant.</li>
         <li><strong>refused</strong> &mdash; the gateway will not attach it, and says why underneath.
             Usually the Gateway's listeners do not admit routes from Shepherd's namespace: set their
-            <code>allowedRoutes.namespaces</code> to include it. Shepherd keeps checking, so the route
-            turns <strong>applied</strong> once the Gateway is fixed.</li>
+            <code>allowedRoutes.namespaces</code> to include it. Shepherd keeps checking, with a
+            backoff of up to 30 minutes, so the route turns <strong>applied</strong> after the
+            Gateway is fixed.</li>
         <li><strong>error</strong> &mdash; anything else (the error is shown); retried with backoff.</li>
-        <li><strong>pending</strong> &mdash; not applied yet. A route that stays pending means route
-            apply is off: the receiver tier is disabled, or <code>receiver.applyTenantRoutes</code> is
-            <code>false</code>.</li>
+        <li><strong>pending</strong> &mdash; not applied yet; the reconciler applies it on its next
+            pass.</li>
+        <li><strong>not applied</strong> &mdash; Shepherd will not apply this route, and says why
+            underneath: route apply is not running on this server (the receiver tier is disabled,
+            <code>receiver.applyTenantRoutes</code> is <code>false</code>, or Shepherd is not running
+            in a cluster), or it is a Faro route, which has no receiver yet.</li>
+        <li><strong>not routed</strong> &mdash; the route was revoked and its HTTPRoute is not
+            removed yet.</li>
         <li><strong>removed</strong> &mdash; the route was revoked, or its rotation overlap ended, and
             its HTTPRoute has been deleted.</li>
       </ul>

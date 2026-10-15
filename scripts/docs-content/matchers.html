@@ -15,13 +15,16 @@
         matching will evaluate &mdash; and a wizard shows how many collectors its matchers select
         before you commit.
       </p>
-      <p><img src="../img/pipelines.jpg" alt="The Pipelines list showing name, source, matchers and an enabled toggle for each pipeline" loading="lazy"></p>
+      <p><img src="../img/pipelines.jpg" alt="The Pipelines list showing name, source (with a graph link, and a Not following wizard badge on a hand-edited wizard pipeline), matchers and an enabled toggle for each pipeline" loading="lazy"></p>
       <p>
         The <strong>Source</strong> column is worth reading: <code>ui</code>, <code>wizard</code>,
         <code>visual</code> and <code>git</code> pipelines all merge identically, but a
         <code>git</code> one is owned by its repository and will be overwritten on the next sync.
         A <code>git</code> pipeline also ignores matchers: it goes to the collector its repository
-        link targets (see <a href="gitops.html">GitOps</a>).
+        link targets (see <a href="gitops.html">GitOps</a>). Beside any source but
+        <code>visual</code> is a <strong>graph</strong> link to the pipeline&rsquo;s
+        <a href="authoring.html#5-view-any-pipeline-as-a-graph">read-only graph view</a>, and a
+        wizard pipeline edited by hand is badged <em>Not following wizard</em>.
       </p>
 
       <h2 id="roles">A collector&rsquo;s role limits what it runs</h2>
@@ -32,7 +35,11 @@
         <code>singleton</code> takes anything. A pipeline that matches a collector but carries a
         signal its role does not accept is left out of that collector&rsquo;s config &mdash; not
         an error, so enabling it still works everywhere else. The served config&rsquo;s header
-        names every pipeline left out and why.
+        names every pipeline left out and why, and so does the UI: a pipeline&rsquo;s page shows
+        <em>Saved pipeline matches N collector(s)</em> with a warning for each collector whose role
+        excludes it, a collector&rsquo;s <strong>Reconciliation</strong> tab lists it as
+        <em>Matched, excluded by role</em>, and a wizard&rsquo;s Review step marks it before you
+        commit.
       </p>
 
       <h2 id="matching-on-labels">Matching on labels and agent attributes</h2>
@@ -55,8 +62,8 @@
         always win over either. Some keys can never be set by a label or an attribute:
         <code>cluster</code>, <code>role</code>, <code>id</code>, <code>os</code>,
         <code>alloy_version</code>, and anything starting <code>collector.</code> or
-        <code>shepherd.</code>. A key must also be a valid matcher name (letters, digits and
-        underscores, not starting with a digit), so an attribute such as <code>k8s.namespace</code>
+        <code>shepherd.</code>. A key must also be a valid matcher name (letters, digits,
+        underscores and colons, not starting with a digit), so an attribute such as <code>k8s.namespace</code>
         cannot be matched on.
       </p>
       <p>
@@ -81,7 +88,10 @@
             of targets wrapped in another list (<code>targets = [discovery.kubernetes.pods.targets]</code>;
             drop the brackets). The other is a single receiver where a list is required
             (<code>forward_to = prometheus.remote_write.main.receiver</code>; add the brackets). Shepherd
-            refuses both, with the line and column.</li>
+            refuses both, with the line and column. If the server has no Alloy binary configured,
+            the <code>alloy validate</code> half is skipped and reported as skipped, never as a pass
+            &mdash; the editor says <em>Syntax checked &mdash; alloy validate skipped</em>; the
+            published images include the binary.</li>
         <li><strong>Merge dry-run</strong> — the whole merged config for every affected collector.
             This is the stage that earns its keep: a pipeline can be perfectly valid on its own and
             still collide with one that is already running, and this catches that before any agent
