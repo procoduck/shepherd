@@ -61,17 +61,32 @@ type ServerConfig struct {
 	// entry is the client. X-Real-IP and True-Client-IP are never read. CIDRs
 	// rather than a hop count because a count trusts the header no matter who
 	// sent it: anything that can reach the pod directly (another pod, a
-	// port-forward) could then choose its own address.
+	// port-forward) could then choose its own address. A CIDR list narrows
+	// that to the addresses inside it — which is still every pod in it when
+	// it is the pod CIDR; the configuration docs (#trusted-proxies) cover
+	// externalTrafficPolicy, proxy-side header trust and NetworkPolicy.
 	//
 	// Env: SHEPHERD_SERVER_TRUSTED_PROXIES, comma-separated.
 	TrustedProxies []string `mapstructure:"trusted_proxies"`
 }
 
+// minTrustedProxyBits is the shortest prefix ParseTrustedProxies accepts:
+// /8 for IPv4 (10.0.0.0/8 is the widest private block a pod network uses),
+// /16 for IPv6. Anything wider is far more than any proxy fleet, and every
+// address inside the list can claim any client address.
+func minTrustedProxyBits(a netip.Addr) int {
+	if a.Is4() {
+		return 8
+	}
+	return 16
+}
+
 // ParseTrustedProxies parses server.trusted_proxies. Each entry must be a CIDR
-// ("10.244.0.0/16", "fd00::/8"); a bare address is accepted as a single-host
-// prefix. A /0 is rejected: trusting every peer would make X-Forwarded-For
-// fully client-controlled, which is the exact spoofing the list exists to
-// prevent.
+// ("10.244.0.0/16", "fd00:10:244::/56"); a bare address is accepted as a
+// single-host prefix. A /0 is rejected — trusting every peer would make
+// X-Forwarded-For fully client-controlled, which is the exact spoofing the
+// list exists to prevent — and so is anything broader than
+// minTrustedProxyBits.
 func ParseTrustedProxies(entries []string) ([]netip.Prefix, error) {
 	out := make([]netip.Prefix, 0, len(entries))
 	for _, raw := range entries {
@@ -105,6 +120,9 @@ func ParseTrustedProxies(entries []string) ([]netip.Prefix, error) {
 		}
 		if p.Bits() == 0 {
 			return nil, fmt.Errorf("server.trusted_proxies: %q trusts every address; list the proxies' own CIDRs", s)
+		}
+		if minBits := minTrustedProxyBits(p.Addr()); p.Bits() < minBits {
+			return nil, fmt.Errorf("server.trusted_proxies: %q is too broad (shorter than /%d); every address inside it can claim any client address, so list the proxies' own CIDRs", s, minBits)
 		}
 		out = append(out, p)
 	}

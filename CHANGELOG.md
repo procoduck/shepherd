@@ -36,8 +36,15 @@ Categories used here:
   failed attempts, blocking local sign-in for everyone for as long as it keeps going** (OIDC
   sign-in is unaffected). To give each client its own bucket, set `trusted_proxies` to the CIDR
   your ingress controller or gateway pods get their addresses from (usually the cluster's pod
-  CIDR); see `deploy/helm/shepherd/UPGRADING.md` (0.21.x → 0.22.0) and the configuration docs
-  for ingress-nginx and NGINX Gateway Fabric examples. Nothing else read the rewritten address
+  CIDR). Every address in the list can claim any client address, so this needs
+  `externalTrafficPolicy: Local` on the proxy's Service (on overlay CNIs the default `Cluster`
+  puts a node tunnel address from the pod pool inside the list), proxy-side header trust left
+  off (ingress-nginx `use-forwarded-headers` / `enable-real-ip` / `use-proxy-protocol` with the
+  default `proxy-real-ip-cidr`, NGF `rewriteClientIP`), and ideally a NetworkPolicy so only the
+  proxy can reach Shepherd. `/0`, IPv4 prefixes shorter than `/8` and IPv6 prefixes shorter than
+  `/16` are rejected at startup. See `deploy/helm/shepherd/UPGRADING.md` (0.21.x → 0.22.0) and
+  the configuration docs for ingress-nginx and NGINX Gateway Fabric examples. Nothing else read
+  the rewritten address
   (no access-log field, audit row or other rate limit carried a client IP), so log output does
   not change; trace spans keep the `client.address` and `network.peer.address` attributes they
   already had.

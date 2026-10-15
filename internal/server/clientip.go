@@ -25,10 +25,22 @@ import (
 //     ClientIPFromXFF: entries a client prepends sit to the LEFT of what its
 //     proxies append, so they are never reached). If that yields nothing —
 //     no header, every entry trusted, or an unparseable entry (fail-closed) —
-//     the client falls back to the TCP peer.
-//   - X-Real-IP and True-Client-IP are never read: ingress-nginx and NGINX
-//     Gateway Fabric both append to X-Forwarded-For, and the other two pass a
+//     the client falls back to the TCP peer. An entry carrying a port
+//     ("203.0.113.5:4711") does not parse as an address, so it too falls
+//     back to the peer (the shared bucket), never to a client-chosen key.
+//   - X-Real-IP and True-Client-IP are never read: they pass a
 //     client-supplied value through unless the edge strips it.
+//     X-Forwarded-For is what both supported proxies maintain: ingress-nginx
+//     by default SETS it to the address it saw (`$remote_addr`, replacing
+//     whatever the client sent), NGINX Gateway Fabric APPENDS that address
+//     (`$proxy_add_x_forwarded_for`). Either way the rightmost entry is the
+//     proxy's own observation. That stops being true if the proxy itself is
+//     told to trust client headers — ingress-nginx's use-forwarded-headers /
+//     enable-real-ip / use-proxy-protocol with the default
+//     proxy-real-ip-cidr of 0.0.0.0/0, or NGF's NginxProxy rewriteClientIP
+//     with loose trustedAddresses — because $remote_addr then becomes
+//     client-chosen before it reaches us. Nothing here can detect that; the
+//     docs (configuration.html#trusted-proxies) warn operators off it.
 //
 // This replaces chi's middleware.RealIP, which trusted all three headers from
 // any peer and mutated r.RemoteAddr (GHSA-3fxj-6jh8-hvhx).

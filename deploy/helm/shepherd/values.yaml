@@ -96,8 +96,18 @@ config:
     # the ingress then shares ONE per-IP local sign-in throttle bucket, which
     # any unauthenticated client can exhaust (~60 failed attempts) to block
     # local sign-in for everyone; OIDC sign-in is unaffected. Set this if
-    # people sign in with local accounts. `/0` is rejected. Examples for
-    # ingress-nginx and NGINX Gateway Fabric: the Configuration docs page.
+    # people sign in with local accounts.
+    #
+    # Every address inside the list can claim ANY client address, so: give
+    # the proxy's Service externalTrafficPolicy: Local (with Cluster, on
+    # overlay CNIs the node's tunnel address -- from the pod pool -- is
+    # trusted too); keep ingress-nginx's use-forwarded-headers /
+    # enable-real-ip / use-proxy-protocol (and NGF's rewriteClientIP) off
+    # unless their trust list names only your load balancer; and narrow the
+    # list, or restrict who can reach Shepherd with your own NetworkPolicy
+    # (`networkPolicy` below admits every namespace). `/0`, IPv4 shorter than
+    # /8 and IPv6 shorter than /16 are rejected. Details and examples: the
+    # Configuration docs page, "Client addresses behind an ingress".
     trusted_proxies: []
     #   - 10.244.0.0/16
   database:

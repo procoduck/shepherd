@@ -157,7 +157,9 @@ kubectl -n shepherd port-forward svc/shepherd 8080:8080</code></pre>
         accounts.</strong> Without it, every browser behind the Ingress or Gateway shares one
         per-IP sign-in throttle bucket, which anyone can exhaust. See
         <a href="configuration.html#trusted-proxies">Configuration</a> for ingress-nginx and
-        NGINX Gateway Fabric examples.
+        NGINX Gateway Fabric examples. It is safe only with <code>externalTrafficPolicy: Local</code>
+        on the proxy&rsquo;s Service, and with nothing but your proxy able to connect from inside the
+        list &mdash; that page explains both.
       </p>
 
       <h2 id="upgrading">Upgrading</h2>

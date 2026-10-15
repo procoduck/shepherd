@@ -26,12 +26,34 @@ config:
 ```
 
 Only connections from inside the list have `X-Forwarded-For` read (right to
-left, skipping trusted hops). ingress-nginx and NGINX Gateway Fabric both
-append the address they saw, which is what is used; make sure their Service
-uses `externalTrafficPolicy: Local` (or PROXY protocol), or that address is a
-node's. A bad entry or a `/0` fails startup with a `server.trusted_proxies`
-error. Log output does not change. Details and examples: the Configuration
-docs page, *Client addresses behind an ingress*.
+left, skipping trusted hops). Before you set it, check three things — the
+Configuration docs page, *Client addresses behind an ingress*, has the detail:
+
+- **What your proxy writes.** ingress-nginx by default *sets*
+  `X-Forwarded-For` to the address it saw, replacing the client's value. Keep
+  its `use-forwarded-headers`, `enable-real-ip` and `use-proxy-protocol` off
+  unless `proxy-real-ip-cidr` (default `0.0.0.0/0`) names only your load
+  balancer; otherwise the address it records is client-chosen. NGINX Gateway
+  Fabric *appends* the address it saw; the same applies to its `NginxProxy`
+  `rewriteClientIP` / `trustedAddresses`.
+- **`externalTrafficPolicy: Local` on the proxy's Service is required** when
+  you trust the pod CIDR (or PROXY protocol with a narrowed trust list). With
+  `Cluster`, kube-proxy rewrites the source to a node address. On overlay
+  networks (Calico IPIP/VXLAN, flannel VXLAN, the kind dev stack) that is the
+  node's tunnel address from the pod pool, which the list then trusts. Behind
+  NGINX Gateway Fabric the client chooses its bucket again; behind
+  ingress-nginx everyone arriving through that node shares one.
+- **Every address in the list can claim any client address.** With the whole
+  pod CIDR, that is every pod in the cluster. Narrow it to the proxy
+  namespace's IP pool where your CNI allows, and/or add a NetworkPolicy
+  admitting Shepherd's port only from the proxy namespace and your collectors
+  (the chart's `networkPolicy` admits every namespace today). A
+  `hostNetwork` ingress controller connects from node addresses, so it needs
+  the node CIDR instead.
+
+A bad entry, a `/0`, an IPv4 prefix shorter than `/8` or an IPv6 prefix
+shorter than `/16` fails startup with a `server.trusted_proxies` error. Log
+output does not change.
 
 ## 0.20.x → 0.21.0
 

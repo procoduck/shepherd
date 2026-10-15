@@ -21,7 +21,12 @@ func TestParseTrustedProxies(t *testing.T) {
 		{name: "blank entries skipped", in: []string{"", "  "}, want: []string{}},
 		{name: "ipv4 cidr", in: []string{"10.244.0.0/16"}, want: []string{"10.244.0.0/16"}},
 		{name: "host bits masked", in: []string{"10.244.3.7/16"}, want: []string{"10.244.0.0/16"}},
-		{name: "ipv6 cidr", in: []string{"fd00::/8"}, want: []string{"fd00::/8"}},
+		{name: "ipv6 cidr", in: []string{"fd00:10:244::/56"}, want: []string{"fd00:10:244::/56"}},
+		{name: "ipv4 /8 is the widest accepted", in: []string{"10.0.0.0/8"}, want: []string{"10.0.0.0/8"}},
+		{name: "ipv6 /16 is the widest accepted", in: []string{"fd00::/16"}, want: []string{"fd00::/16"}},
+		{name: "ipv4 wider than /8 rejected", in: []string{"10.0.0.0/7"}, wantErr: "too broad (shorter than /8)"},
+		{name: "ipv6 wider than /16 rejected", in: []string{"fd00::/8"}, wantErr: "too broad (shorter than /16)"},
+		{name: "v4-mapped wider than /8 rejected", in: []string{"::ffff:0.0.0.0/100"}, wantErr: "too broad (shorter than /8)"},
 		{name: "bare ipv4 is a /32", in: []string{"192.0.2.10"}, want: []string{"192.0.2.10/32"}},
 		{name: "bare ipv6 is a /128", in: []string{"2001:db8::1"}, want: []string{"2001:db8::1/128"}},
 		{name: "v4-mapped folds to v4", in: []string{"::ffff:10.0.0.0/104"}, want: []string{"10.0.0.0/8"}},
@@ -78,7 +83,7 @@ func TestTrustedProxiesLoad(t *testing.T) {
 	t.Run("yaml list", func(t *testing.T) {
 		setRequired(t)
 		file := filepath.Join(t.TempDir(), "shepherd.yaml")
-		body := "server:\n  trusted_proxies:\n    - 10.244.0.0/16\n    - fd00::/8\n"
+		body := "server:\n  trusted_proxies:\n    - 10.244.0.0/16\n    - fd00:10:244::/56\n"
 		if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -86,7 +91,7 @@ func TestTrustedProxiesLoad(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !slices.Equal(cfg.Server.TrustedProxies, []string{"10.244.0.0/16", "fd00::/8"}) {
+		if !slices.Equal(cfg.Server.TrustedProxies, []string{"10.244.0.0/16", "fd00:10:244::/56"}) {
 			t.Fatalf("trusted_proxies = %v", cfg.Server.TrustedProxies)
 		}
 	})
