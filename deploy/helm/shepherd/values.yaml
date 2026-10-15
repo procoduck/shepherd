@@ -86,6 +86,20 @@ config:
     # writes, and an operator who cannot answer for that yet should be able to
     # say no without downgrading.
     beacon_disabled: false
+    # trusted_proxies: CIDRs of the reverse proxies directly in front of
+    # Shepherd -- your ingress controller or Gateway data-plane pods, usually
+    # the cluster's pod CIDR. Only when a connection comes from inside one of
+    # these is the client address read from X-Forwarded-For (right to left,
+    # skipping trusted hops); X-Real-IP and True-Client-IP are never read.
+    #
+    # Empty (the default) trusts no forwarding header: every browser behind
+    # the ingress then shares ONE per-IP local sign-in throttle bucket, which
+    # any unauthenticated client can exhaust (~60 failed attempts) to block
+    # local sign-in for everyone; OIDC sign-in is unaffected. Set this if
+    # people sign in with local accounts. `/0` is rejected. Examples for
+    # ingress-nginx and NGINX Gateway Fabric: the Configuration docs page.
+    trusted_proxies: []
+    #   - 10.244.0.0/16
   database:
     # max_conns: the maximum size of Shepherd's own PostgreSQL connection pool.
     max_conns: 20

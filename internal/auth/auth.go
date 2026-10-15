@@ -19,6 +19,7 @@ import (
 	"time"
 
 	oidc "github.com/coreos/go-oidc/v3/oidc"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/oauth2"
 
@@ -953,16 +954,22 @@ func randomState() string {
 	return base64.URLEncoding.EncodeToString(b)
 }
 
-// clientIP returns the request's source address without its port, for use
-// as a loginThrottle key. It reads r.RemoteAddr only — no
-// X-Forwarded-For/X-Real-IP parsing — so behind the Helm ingress every
-// client resolves to the same address; the per-IP bucket is sized generous
-// enough (loginPerIPBurst) to absorb that (see the login_throttle.go
-// comment) rather than trust a header a client can set itself. Nothing in
-// the server's middleware chain may rewrite r.RemoteAddr from those headers
-// either (chi's middleware.RealIP did, until it was removed — see
-// internal/server/login_throttle_test.go).
+// clientIP returns the request's client address without its port, for use
+// as a loginThrottle key.
+//
+// It is the address the server's client-IP middleware derived
+// (internal/server clientIPMiddleware): the TCP peer, or — only when that
+// peer is inside server.trusted_proxies — the rightmost untrusted
+// X-Forwarded-For entry. It never parses a forwarding header itself. With no
+// trusted proxies configured, every client behind the Helm ingress resolves
+// to the ingress's address; the per-IP bucket is sized generous enough
+// (loginPerIPBurst) to absorb that (see the login_throttle.go comment)
+// rather than trust a header a client can set itself. Outside the server's
+// router (handler tests) no derived address exists and r.RemoteAddr is used.
 func clientIP(r *http.Request) string {
+	if ip := middleware.GetClientIP(r.Context()); ip != "" {
+		return ip
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr

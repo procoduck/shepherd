@@ -49,6 +49,60 @@
         an unattended install cannot quietly sit on a default credential. After first boot, accounts
         are managed at <strong>Admin &rarr; Users</strong>; see <a href="users-and-teams.html">Users and teams</a>.
       </p>
+      <h2 id="trusted-proxies">Client addresses behind an ingress: <code>server.trusted_proxies</code></h2>
+      <p>
+        Shepherd throttles local sign-in per client address as well as per username. By default it
+        takes that address from the TCP connection and trusts no forwarding header, because any
+        client can send <code>X-Forwarded-For</code>, <code>X-Real-IP</code> or
+        <code>True-Client-IP</code>. Behind an ingress controller or gateway, though, every
+        connection comes from the proxy, so <strong>every browser shares one per-IP bucket</strong>:
+        about 60 failed sign-ins from anyone, signed in or not, block local sign-in for everyone
+        until they stop. OIDC sign-in is not throttled this way and is unaffected.
+      </p>
+      <p>
+        <code>server.trusted_proxies</code> (<code>config.server.trusted_proxies</code> in the chart;
+        <code>SHEPHERD_SERVER_TRUSTED_PROXIES</code>, comma-separated) lists the CIDRs your proxies
+        connect from. When a connection comes from one of them, and only then, Shepherd reads
+        <code>X-Forwarded-For</code> right to left, skips entries that are themselves trusted, and
+        uses the first one that is not. Entries a client adds itself sit to the left of what your
+        proxies append, so they are never reached. <code>X-Real-IP</code> and
+        <code>True-Client-IP</code> are never read. Default: empty.
+      </p>
+      <p>
+        Use the CIDR the proxy pods get their addresses from &mdash; usually the cluster's pod CIDR
+        (<code>kubectl get nodes -o jsonpath='{.items[*].spec.podCIDR}'</code>, or your CNI's IP pool),
+        since pod addresses change. A bare address is taken as a single host; <code>/0</code> is
+        rejected. Everything inside the list can claim any client address, so keep it as narrow as
+        your network allows, and add the CIDR of any HTTP load balancer in front of the ingress that
+        appends its own <code>X-Forwarded-For</code> entry.
+      </p>
+      <div class="code-block" data-lang="yaml">
+        <div class="code-head"><span>values.yaml &mdash; ingress-nginx</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>config:
+  server:
+    # Pod CIDR the ingress-nginx controller pods are scheduled into.
+    # ingress-nginx appends the address it saw to X-Forwarded-For.
+    trusted_proxies:
+      - 10.244.0.0/16</code></pre>
+      </div>
+      <div class="code-block" data-lang="yaml">
+        <div class="code-head"><span>values.yaml &mdash; Gateway API (NGINX Gateway Fabric)</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>config:
+  server:
+    # Pod CIDR the Gateway's NGINX data-plane pods are scheduled into.
+    # NGF appends the address it saw to X-Forwarded-For.
+    trusted_proxies:
+      - 10.244.0.0/16</code></pre>
+      </div>
+      <p class="note">
+        <strong>Check that the proxy sees real client addresses.</strong> If the controller's
+        LoadBalancer Service uses <code>externalTrafficPolicy: Cluster</code>, the address it
+        appends is a node&rsquo;s, so clients still share buckets per node. Use
+        <code>externalTrafficPolicy: Local</code> (or PROXY protocol) on the proxy&rsquo;s Service.
+        Get the list wrong in the other direction &mdash; a CIDR that does not contain the proxy
+        &mdash; and Shepherd simply keeps using the proxy&rsquo;s address: no spoofing, only the
+        shared bucket.
+      </p>
       <h2 id="single-sign-on-settings">Single sign-on</h2>
       <p>
         One setting decides where SSO configuration comes from: <code>oidc.issuer</code>. Set it in

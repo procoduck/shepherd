@@ -1,5 +1,38 @@
 # Upgrading the Shepherd chart
 
+## 0.21.x → 0.22.0
+
+An ordinary `helm upgrade`; no migration. Read the local sign-in note if
+people sign in with local accounts.
+
+### Local sign-in behind an ingress: `config.server.trusted_proxies`
+
+Shepherd no longer trusts `X-Forwarded-For`, `X-Real-IP` or `True-Client-IP`
+from any client. Before, a client could set any of them to get a fresh per-IP
+local sign-in throttle bucket on every request (the per-username limit still
+held). The client address is now the TCP peer, so **behind your Ingress or
+Gateway every browser shares one per-IP bucket**: about 60 failed local
+sign-ins from anyone, signed in or not, block local sign-in for everyone
+until they stop. OIDC sign-in is unaffected.
+
+To give each client its own bucket again, list the CIDR your ingress
+controller or Gateway data-plane pods connect from (usually the pod CIDR):
+
+```yaml
+config:
+  server:
+    trusted_proxies:
+      - 10.244.0.0/16
+```
+
+Only connections from inside the list have `X-Forwarded-For` read (right to
+left, skipping trusted hops). ingress-nginx and NGINX Gateway Fabric both
+append the address they saw, which is what is used; make sure their Service
+uses `externalTrafficPolicy: Local` (or PROXY protocol), or that address is a
+node's. A bad entry or a `/0` fails startup with a `server.trusted_proxies`
+error. Log output does not change. Details and examples: the Configuration
+docs page, *Client addresses behind an ingress*.
+
 ## 0.20.x → 0.21.0
 
 An ordinary `helm upgrade`; no migration. **Every collector reloads its config
