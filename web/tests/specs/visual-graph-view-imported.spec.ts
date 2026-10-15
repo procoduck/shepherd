@@ -126,12 +126,14 @@ test.describe('graph view of a chart-generated pipeline (k8s-monitoring)', () =>
     ).toHaveCount(1);
   });
 
-  test("labels unmapped blocks and shows a module's source text", async ({ page }) => {
+  test("labels the module instance and shows a module's source text", async ({ page }) => {
     const opaque = page.locator(
       `[data-testid="pipeline-node"][data-node-id="${nodeByComponent('opaque.cluster_events')}"]`,
     );
-    await expect(opaque.getByTestId('node-opaque-badge')).toHaveText('not mapped');
-    await expect(page.getByTestId('node-opaque-badge')).toHaveCount(1);
+    // An instance of a module drawn as a group, not an unmapped block
+    // (public-docs review 2026-10-15).
+    await expect(opaque.getByTestId('node-module-instance-badge')).toHaveText('module instance');
+    await expect(page.getByTestId('node-opaque-badge')).toHaveCount(0);
 
     await page
       .locator(`[data-testid="module-group"][data-node-id="${nodeByComponent('declare')}"]`)

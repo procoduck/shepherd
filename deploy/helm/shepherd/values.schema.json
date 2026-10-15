@@ -917,7 +917,7 @@
       }
     },
     "receiver": {
-      "description": "Receiver tier (#109): OTLP/HTTP Alloy fronted by the gateway. Off until review gate R3 is signed.",
+      "description": "Receiver tier (#109): OTLP/HTTP Alloy fronted by the gateway. Opt-in (off by default); review gate R3 was signed 2026-09-29. With it on, Shepherd applies each tenant route's HTTPRoute itself unless applyTenantRoutes is false.",
       "type": "object",
       "additionalProperties": false,
       "properties": {

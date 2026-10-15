@@ -17,15 +17,14 @@ access into the clusters it manages.
 [Helm values](https://procoduck.github.io/shepherd/docs/helm-values.html) ·
 [Changelog](CHANGELOG.md)
 
-![The visual pipeline builder: a toolbar with the pipeline name, matchers, validity chip, Simulate, More and Save above the component palette, canvas and properties panel](site/img/visual-builder.jpg)
+![The visual pipeline builder: component palette, canvas, live validity and the generated Alloy config](site/img/visual-builder.jpg)
 
 ## What it does
 
 - **Serves merged config.** Every enabled pipeline whose matchers select a
   collector is merged into the single config that collector receives. A
-  collector in an unclaimed cluster gets an empty config, and a claimed one that
-  matches nothing a config with no pipelines, not an error, so it keeps running
-  what it already had.
+  collector that matches nothing gets an empty config, not an error, so it keeps
+  running what it already had.
 - **Refuses to serve config that would not run.** Three gates: syntax,
   `alloy validate` plus a schema check for component wiring it lets through, and
   a merge dry-run against each affected collector's *full* merged config — so a
@@ -34,9 +33,6 @@ access into the clusters it manages.
 - **Three ways to author.** Guided wizards for six common jobs, a visual builder
   that generates Alloy as you wire components together, or raw Alloy pasted in.
   All three land in the same merge engine and the same gate.
-- **Read any pipeline as a graph.** Text, wizard and git pipelines —
-  chart-generated k8s-monitoring config included — open in a read-only graph
-  view that draws every wire and opens Alloy modules as groups.
 - **GitOps from any git server.** Poll a repo and turn its files into validated
   pipelines. PAT, basic, SSH, Azure DevOps service principal, and GitHub App auth.
 - **Sandbox simulation.** Run a candidate pipeline against synthetic telemetry in
@@ -48,9 +44,8 @@ access into the clusters it manages.
   k8s-monitoring chart; an optional receiver tier gives apps an OTLP endpoint per
   tenant behind your Gateway API gateway, with *Connect an app* snippets for it.
 
-It is **not** a telemetry backend. Shepherd stores none of your metrics, logs or
-traces; it configures the collectors that ship them (the optional receiver tier
-is an Alloy that forwards each tenant's data straight to your backends).
+It is **not** a telemetry backend. Shepherd never receives your metrics, logs or
+traces; it configures the collectors that ship them.
 
 ## Requirements
 
@@ -58,7 +53,7 @@ is an Alloy that forwards each tenant's data straight to your backends).
 |---|---|
 | Run Shepherd | A Kubernetes cluster (1.32+), Helm 3 or 4, and **PostgreSQL 16 or newer** it can reach — the test suites run 16, the dev and e2e stacks 18; older majors are untested. The chart needs no CRDs by default. |
 | Run collectors | [Grafana Alloy](https://grafana.com/docs/alloy/) **v1.20.1** — the version whose component schema this build validates against, pinned in `deploy/versions.env`. |
-| Build from source | Go 1.27.2 (see `go.mod`), Node 26 with pnpm 12, Docker (tests start real PostgreSQL via testcontainers), and Helm. |
+| Build from source | Go (see `go.mod`), Node 26 with pnpm, Docker (tests start real PostgreSQL via testcontainers), and Helm. |
 
 Two optional integrations need their operators installed first:
 [CloudNativePG](https://procoduck.github.io/shepherd/docs/database.html) to have
@@ -82,8 +77,7 @@ kubectl -n shepherd create secret generic shepherd-secrets \
   --from-literal=SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD='choose-a-password'
 
 helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.21.0 \
-  --namespace shepherd --set existingSecret=shepherd-secrets \
-  --set config.server.base_url=http://shepherd.shepherd.svc.cluster.local:8080
+  --namespace shepherd --set existingSecret=shepherd-secrets
 
 kubectl -n shepherd port-forward svc/shepherd 8080:8080
 ```
@@ -128,9 +122,8 @@ remotecfg {
 ```
 
 Those `attributes` are what pipeline matchers select on, so choose them
-deliberately. Within one poll its cluster appears, unclaimed, under
-**Admin → Clusters**; claim it into an organisation (create one first at
-**Admin → Organisations**) and its collectors appear under **Collectors**.
+deliberately. Within one poll the collector appears under **Collectors**, and
+its cluster can be claimed into an organisation.
 
 ## How it works
 
@@ -159,7 +152,7 @@ and the two coexist. Shepherd runs with no identity provider at all.
 | Application administrator | Everything, everywhere: organisations, cluster claiming, agent tokens, local users |
 | Organisation administrator | Everything in one org, including what it *is*: destinations, routes, git credentials, teams |
 | Organisation editor | Authors what the org *runs* — pipelines, wizards, simulations — but cannot change where telemetry ships |
-| Team member | Edits, enables, disables, restores and deletes the pipelines their team owns, as text or in the visual builder; creating pipelines in the UI stays with org editors |
+| Team member | Writes only the pipelines their team owns (API only; the UI does not yet reflect team-scoped write) |
 | Viewer | Read only |
 | Service account | Machine access scoped `propose` (read and simulate) or `apply` (writes, acting for a named human) |
 
@@ -209,7 +202,7 @@ make help       # every target, and the env knobs the suites honour
 | Command | What it runs |
 |---|---|
 | `make e2e` | Compose end-to-end suite (~10 min, Docker) |
-| `make e2e-k8s` | Kubernetes suite: a kind cluster, Gateway API, NGINX Gateway Fabric, CloudNativePG and External Secrets, then the chart — fourteen tests (`e2e/k8s/README.md`); ~14 min in CI including both image builds (run 34973037471, 2026-09-15, at 9 features) |
+| `make e2e-k8s` | Kubernetes suite: a kind cluster, Gateway API, NGINX Gateway Fabric, CloudNativePG and External Secrets, then the chart — one feature per `func Test*`, listed in `e2e/k8s/README.md`; ~14 min in CI including both image builds (run 34973037471, 2026-09-15, at 9 features) |
 | `make dev-kind` | Kubernetes flavour of `make dev`: a persistent kind cluster (`shepherd-dev`) running the real chart, Gitea and mock OIDC at `http://shepherd.localtest.me` (`docs/kind-test-environment-plan.md` §11) |
 | `make test-ui` | Mocked Playwright suite, no backend required |
 | `make generate` | buf + sqlc + version codegen |
@@ -229,5 +222,4 @@ Issues and pull requests are welcome; start with
 ## Licence
 
 [Apache License 2.0](LICENSE). Third-party code whose licence asks for a notice (elkjs, EPL-2.0) is listed in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), which the `shepherd` images
-also carry at `/licenses/THIRD_PARTY_NOTICES.md`; the rest is in each release's SBOM.
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); the rest is in each release's SBOM.

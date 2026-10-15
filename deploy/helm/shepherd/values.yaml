@@ -555,9 +555,15 @@ metrics:
 
 # serviceAccount: the identity Shepherd's pods run as.
 #
-# The chart grants no RBAC — Shepherd never calls the Kubernetes API — so the
-# account exists to be annotated. That is how a pod reaches a managed database
-# without a static credential: an EKS IRSA role ARN or a GKE Workload Identity
+# By default the chart grants it no RBAC and Shepherd never calls the
+# Kubernetes API. The one exception is the receiver tier: with
+# `receiver.enabled` and `receiver.applyTenantRoutes` (its default) both on,
+# the chart binds this account to a Role that writes HTTPRoutes in the release
+# namespace and a ClusterRole that reads the single HTTPRoute
+# CustomResourceDefinition, so Shepherd can apply tenant routes
+# (templates/rbac-tenant-routes.yaml). Either way the account also exists to
+# be annotated. That is how a pod reaches a managed database without a static
+# credential: an EKS IRSA role ARN or a GKE Workload Identity
 # binding goes in `annotations` below, and the token it produces is what
 # authenticates to RDS or Cloud SQL.
 serviceAccount:

@@ -560,6 +560,9 @@ export function GraphViewPage() {
           diagnostics: [],
           readOnly: true,
           genericPorts: flow.genericPorts[n.id],
+          // A module instance is not chipped "not mapped" (public-docs
+          // review 2026-10-15), matching the inspector (#344).
+          moduleInstanceOf: moduleOfInstance(n, nodes)?.label,
         } as PipelineNodeData,
       });
     }

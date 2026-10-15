@@ -718,7 +718,7 @@ generate-corpus: ## Regenerate visual-builder goldens (web tests read internal/v
 # test-fullstack): the images the cluster loads must be built from THIS working
 # tree, not whatever the daemon happens to be holding. The suite also checks
 # this itself, for anyone running `go test -tags e2ek8s` directly.
-e2e-k8s: preflight-k8s docker-build-local docker-build-simulator ## Kubernetes e2e suite on a fresh kind cluster (~20-25 min in CI for 12 features; 45m timeout budget)
+e2e-k8s: preflight-k8s docker-build-local docker-build-simulator ## Kubernetes e2e suite on a fresh kind cluster (~20-25 min in CI; features listed in e2e/k8s/README.md; 45m timeout budget)
 	go test -tags e2ek8s -count=1 -timeout 45m -v ./e2e/k8s/...
 
 # Removes clusters a killed run (SIGKILL) left behind — the one case the

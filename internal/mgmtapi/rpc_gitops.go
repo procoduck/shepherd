@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -28,12 +29,17 @@ type GitOpsService struct {
 	store      *store.Store
 	crypto     *crypto.Encryptor
 	tokenCache *gitrepo.TokenCache
-	logger     *slog.Logger
+	// pipelines is the PipelineService whose eager serve-cache recompute
+	// DeleteRepoLink runs after deleting a link's pipelines, as
+	// DeletePipeline does, so the served config the UI shows drops them
+	// without waiting for the collector to poll.
+	pipelines *PipelineService
+	logger    *slog.Logger
 }
 
 // NewGitOpsService constructs a GitOpsService.
-func NewGitOpsService(st *store.Store, enc *crypto.Encryptor, logger *slog.Logger) *GitOpsService {
-	return &GitOpsService{store: st, crypto: enc, tokenCache: gitrepo.NewTokenCache(), logger: logger}
+func NewGitOpsService(st *store.Store, enc *crypto.Encryptor, pipelines *PipelineService, logger *slog.Logger) *GitOpsService {
+	return &GitOpsService{store: st, crypto: enc, tokenCache: gitrepo.NewTokenCache(), pipelines: pipelines, logger: logger}
 }
 
 var _ mgmtv1connect.GitOpsServiceHandler = (*GitOpsService)(nil)
@@ -549,7 +555,21 @@ func repoURLMatchesCredential(repoURL string, urlTransport gitrepo.Transport, cr
 		"use the repository's ssh:// or git@host:path clone URL, or pick an HTTPS credential", repoURL, cred.Name)
 }
 
-// DeleteRepoLink deletes a repo link.
+// DeleteRepoLink deletes a repo link together with the git-sourced pipelines
+// it owns.
+//
+// A git pipeline exists only as the link's copy of a file in its repository
+// (docs/spec.md §10's sync reconciler creates it, updates it, and is the only
+// writer — DeletePipeline refuses source=git), and it is served only to the
+// link's collector (§6.1: selected by repo_link.collector_id). With the link gone
+// nothing can update or remove it and nothing would serve it, so it goes with
+// the link. fk_pipelines_repo_link has no ON DELETE action, which is why a
+// plain link delete used to fail with "internal" once any file had synced.
+// Everything happens in one transaction: the pipelines, their audit rows,
+// the dirty mark on the link's collector (so its served config is recomputed
+// without them), and the link itself. After the commit the org's serve
+// caches are recomputed eagerly, as DeletePipeline does, so the served
+// config shown in the UI drops the pipelines even if the collector is offline.
 func (s *GitOpsService) DeleteRepoLink(ctx context.Context, req *connect.Request[mgmtv1.DeleteRepoLinkRequest]) (*connect.Response[mgmtv1.DeleteRepoLinkResponse], error) {
 	if err := requireWriteAuthorized(ctx); err != nil {
 		return nil, err
@@ -565,11 +585,56 @@ func (s *GitOpsService) DeleteRepoLink(ctx context.Context, req *connect.Request
 	if err != nil || link.OrgID.String() != req.Msg.GetOrgId() {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("repo link not found"))
 	}
-	if err := s.store.Queries.DeleteRepoLink(ctx, id); err != nil {
-		s.logger.Error("delete repo link", "err", err)
-		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to delete repo link"))
+	errDelete := connect.NewError(connect.CodeInternal, errors.New("failed to delete repo link"))
+	tx, err := s.store.Pool().Begin(ctx)
+	if err != nil {
+		s.logger.Error("delete repo link: begin", "err", err)
+		return nil, errDelete
 	}
-	auditLog(ctx, s.store, actorFromCtx(ctx), link.OrgID, "repo_link.delete", "repo_link", id.String())
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
+	txQ := s.store.Queries.WithTx(tx)
+	actor := actorFromCtx(ctx)
+	if _, err := txQ.GetRepoLinkForUpdate(ctx, id); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, errors.New("repo link not found"))
+		}
+		s.logger.Error("delete repo link: lock", "err", err)
+		return nil, errDelete
+	}
+	removed, err := txQ.DeletePipelinesByRepoLink(ctx, id)
+	if err != nil {
+		s.logger.Error("delete repo link: delete its pipelines", "err", err)
+		return nil, errDelete
+	}
+	for _, p := range removed {
+		if err := auditInsert(ctx, txQ, actor, "user", link.OrgID, "pipeline.delete", "pipeline", p.ID.String(),
+			map[string]string{"name": p.Name, "reason": "repo_link.delete", "repo_link_id": id.String()}); err != nil {
+			s.logger.Error("delete repo link: audit pipeline delete", "err", err)
+			return nil, errDelete
+		}
+	}
+	if len(removed) > 0 {
+		if err := txQ.MarkServeCacheDirty(ctx, link.CollectorID); err != nil {
+			s.logger.Error("delete repo link: mark serve cache dirty", "err", err)
+			return nil, errDelete
+		}
+	}
+	if err := txQ.DeleteRepoLink(ctx, id); err != nil {
+		s.logger.Error("delete repo link", "err", err)
+		return nil, errDelete
+	}
+	if err := auditInsert(ctx, txQ, actor, "user", link.OrgID, "repo_link.delete", "repo_link", id.String(),
+		map[string]int{"pipelines_deleted": len(removed)}); err != nil {
+		s.logger.Error("delete repo link: audit", "err", err)
+		return nil, errDelete
+	}
+	if err := tx.Commit(ctx); err != nil {
+		s.logger.Error("delete repo link: commit", "err", err)
+		return nil, errDelete
+	}
+	if len(removed) > 0 {
+		go s.pipelines.recomputeOrgCaches(context.Background(), link.OrgID) //nolint:contextcheck,gosec // G118+contextcheck: intentional detached context, as DeletePipeline
+	}
 	return connect.NewResponse(&mgmtv1.DeleteRepoLinkResponse{}), nil
 }
 

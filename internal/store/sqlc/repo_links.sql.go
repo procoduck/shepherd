@@ -92,6 +92,37 @@ func (q *Queries) GetRepoLinkByID(ctx context.Context, id pgtype.UUID) (RepoLink
 	return i, err
 }
 
+const getRepoLinkForUpdate = `-- name: GetRepoLinkForUpdate :one
+SELECT id, org_id, collector_id, credential_id, branch, path, poll_interval_seconds, last_synced_at, last_commit, sync_status, sync_error, created_at, updated_at, repo_url FROM repo_links WHERE id = $1 FOR UPDATE
+`
+
+// Row-locks the link for DeleteRepoLink's transaction: a concurrent gitsync
+// insert of a pipeline referencing it (which takes FOR KEY SHARE on this
+// row) waits for the delete to commit and then fails its foreign key,
+// instead of slipping a pipeline in between the pipeline delete and the
+// link delete.
+func (q *Queries) GetRepoLinkForUpdate(ctx context.Context, id pgtype.UUID) (RepoLink, error) {
+	row := q.db.QueryRow(ctx, getRepoLinkForUpdate, id)
+	var i RepoLink
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.CollectorID,
+		&i.CredentialID,
+		&i.Branch,
+		&i.Path,
+		&i.PollIntervalSeconds,
+		&i.LastSyncedAt,
+		&i.LastCommit,
+		&i.SyncStatus,
+		&i.SyncError,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.RepoUrl,
+	)
+	return i, err
+}
+
 const listDueRepoLinks = `-- name: ListDueRepoLinks :many
 SELECT id, org_id, collector_id, credential_id, branch, path, poll_interval_seconds, last_synced_at, last_commit, sync_status, sync_error, created_at, updated_at, repo_url FROM repo_links
 WHERE last_synced_at IS NULL

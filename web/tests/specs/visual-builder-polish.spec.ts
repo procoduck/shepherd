@@ -229,6 +229,11 @@ test.describe('toolbar overflow menu at 1024px', () => {
     const menu = page.getByRole('menu');
     await expect(menu.getByRole('menuitemcheckbox', { name: /flow check/i })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: /history/i })).toBeVisible();
+    // The same honest label the Simulate dropdown carries (#253): a run is a
+    // 30s capture plus up to 15s of shutdown flush, not 30s end to end.
+    await expect(page.getByTestId('simulate-menu-sandbox-run')).toHaveText(
+      'Sandbox run (30s capture, ~45s total)…',
+    );
     await menu.getByRole('menuitem', { name: /sandbox run/i }).click();
     await expect(page.getByTestId('sandbox-run-dialog')).toBeVisible();
   });

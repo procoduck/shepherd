@@ -87,6 +87,40 @@ func (q *Queries) DeletePipeline(ctx context.Context, id pgtype.UUID) error {
 	return err
 }
 
+const deletePipelinesByRepoLink = `-- name: DeletePipelinesByRepoLink :many
+DELETE FROM pipelines WHERE repo_link_id = $1
+RETURNING id, name
+`
+
+type DeletePipelinesByRepoLinkRow struct {
+	ID   pgtype.UUID `json:"id"`
+	Name string      `json:"name"`
+}
+
+// The git-sourced pipelines a repo link owns, deleted with the link
+// (GitOpsService.DeleteRepoLink): fk_pipelines_repo_link has no ON DELETE
+// action, so the link row cannot go while they exist. Returns what it
+// deleted so the caller can audit each one.
+func (q *Queries) DeletePipelinesByRepoLink(ctx context.Context, repoLinkID pgtype.UUID) ([]DeletePipelinesByRepoLinkRow, error) {
+	rows, err := q.db.Query(ctx, deletePipelinesByRepoLink, repoLinkID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeletePipelinesByRepoLinkRow
+	for rows.Next() {
+		var i DeletePipelinesByRepoLinkRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const detachPipelineFromWizard = `-- name: DetachPipelineFromWizard :one
 UPDATE pipelines
 SET source               = 'ui',

@@ -292,6 +292,10 @@ export function GitPage() {
     onSuccess: () => {
       toast.success('Repository link deleted');
       invalidateLinks();
+      // The server deletes the pipelines the link synced along with it
+      // (#348): drop the cached list and every cached pipeline detail.
+      qc.invalidateQueries({ queryKey: ['pipelines', orgId] });
+      qc.invalidateQueries({ queryKey: ['pipeline', orgId] });
       setDeleteLink(null);
     },
   });
@@ -477,7 +481,7 @@ export function GitPage() {
       {deleteLink && (
         <AdminConfirmDialog
           title='Delete repository link?'
-          body='The collector this link targets will stop receiving updates from this repository. Pipelines already synced from it are left as-is.'
+          body='The pipelines this link synced from the repository are deleted with it, and the collector it targets stops receiving them on its next poll. Relinking the repository syncs them again, with fresh revision history.'
           confirmLabel='Delete'
           pendingLabel='Deleting…'
           pending={deleteLinkMut.isPending}

@@ -18,6 +18,14 @@ SET last_synced_at = now(),
     updated_at     = now()
 WHERE id = $1;
 
+-- name: GetRepoLinkForUpdate :one
+-- Row-locks the link for DeleteRepoLink's transaction: a concurrent gitsync
+-- insert of a pipeline referencing it (which takes FOR KEY SHARE on this
+-- row) waits for the delete to commit and then fails its foreign key,
+-- instead of slipping a pipeline in between the pipeline delete and the
+-- link delete.
+SELECT * FROM repo_links WHERE id = $1 FOR UPDATE;
+
 -- name: DeleteRepoLink :exec
 DELETE FROM repo_links WHERE id = $1;
 
