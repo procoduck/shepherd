@@ -26,10 +26,16 @@
         they cannot be deleted. You can enable or disable one &mdash; that sticks &mdash; or restore an
         earlier revision, but the next commit to the repository puts the repository&rsquo;s text
         back. A new file becomes an enabled pipeline on
-        its first successful sync; removing a file from the repository does not remove its
-        pipeline. Synced files pass the same three-stage validation gate as everything else, one file
-        at a time: a file that fails is skipped (its previous version keeps being served), the
-        others in the same commit still sync, and the errors are reported on the repo link. Any
+        its first successful sync; a file removed from the repository (or renamed &mdash; the old
+        name counts as removed) has its pipeline deleted on the next successful sync, recorded in
+        the audit log as a <code>pipeline.delete</code> by <code>gitsync</code>, and the target
+        collector drops it on its next poll. Synced files pass the same three-stage validation gate
+        as everything else, one file at a time: a file that fails is skipped (its previous version
+        keeps being served), the others in the same commit still sync, and the errors are reported
+        on the repo link &mdash; a sync with a failing file, or one that could not fetch the
+        repository, deletes nothing. If a sync finds no <code>.alloy</code> files at all while the
+        link still has pipelines, Shepherd assumes a wrong path or branch rather than a deliberate
+        wipe: it keeps every pipeline and shows the link&rsquo;s status as <code>warning</code>. Any
         synced pipeline can be read as a <a href="authoring.html#5-view-any-pipeline-as-a-graph">graph</a>.
       </p>
       <p>Git sync is managed by organisation admins.</p>

@@ -2,7 +2,8 @@
 // repo_links that are due for sync, downloads .alloy files over real git
 // (via internal/gitrepo) using whichever auth strategy the linked
 // credential's kind selects, validates each file, and upserts them as
-// git-sourced pipelines.
+// git-sourced pipelines. A successful sync also deletes the link's
+// pipelines whose file has left the repository (pruneAndMarkSynced).
 package gitsync
 
 import (
@@ -183,13 +184,13 @@ func (r *Reconciler) reconcileLink(ctx context.Context, link sqlc.RepoLink) erro
 	}
 
 	// Fetch .alloy files.
-	files, err := repo.Files(ctx)
+	tree, err := repo.Fetch(ctx)
 	if err != nil {
 		return r.markError(ctx, link.ID, scrub(fmt.Errorf("fetching files: %w", err)))
 	}
 
 	var syncErrs []error
-	for _, file := range files {
+	for _, file := range tree.Files {
 		if err := r.syncFile(ctx, link, file, latestCommit); err != nil {
 			err = scrub(err)
 			r.logger.Warn("gitsync: syncing file", "path", file.Path, "err", err)
@@ -197,17 +198,118 @@ func (r *Reconciler) reconcileLink(ctx context.Context, link sqlc.RepoLink) erro
 		}
 	}
 	if len(syncErrs) > 0 {
+		// A failed sync never prunes: the previous state stays served.
 		return r.markError(ctx, link.ID, errors.Join(syncErrs...))
 	}
 
-	// Mark sync success.
-	if syncErr := r.store.Queries.UpdateRepoLinkSync(ctx, sqlc.UpdateRepoLinkSyncParams{
+	return r.pruneAndMarkSynced(ctx, link, tree, latestCommit)
+}
+
+// pruneReason is the audit detail's reason for a pipeline deleted because
+// its file left the repository.
+const pruneReason = "file removed from repository"
+
+// emptyTreeWarning is recorded in sync_error (sync_status=warning) when a
+// sync finds no .alloy files but the link still has pipelines.
+const emptyTreeWarning = "the repository has no .alloy files under this link's path on this branch, " +
+	"but the link still has synced pipelines; they were kept, not deleted. " +
+	"Check the link's path and branch. To remove every pipeline, delete the repository link."
+
+// pruneAndMarkSynced finishes a SUCCESSFUL sync (every file fetched and
+// synced): it deletes the git pipelines of this link whose file is no longer
+// in tree (docs/spec.md §10, "delete git pipelines of this link whose file
+// disappeared"), audits each delete, dirties the link's collector — the only
+// one a git pipeline is served to (§6.1) — and records sync_status=ok, all in
+// one transaction, so the delete and the status that reports it land together.
+// A file skipped as oversized is still in the tree and keeps its pipeline.
+//
+// Guard: a tree with no .alloy files at all, for a link that still has
+// pipelines, is far more often a wrong path or branch (or a repository
+// mid-rewrite) than a deliberate wipe. Pruning would delete every pipeline
+// the link serves, so it is skipped: the link is marked sync_status=warning
+// with emptyTreeWarning, and last_commit is left unset so the next poll
+// looks again rather than taking the unchanged-commit shortcut to "ok".
+func (r *Reconciler) pruneAndMarkSynced(ctx context.Context, link sqlc.RepoLink, tree gitrepo.Tree, commit string) error {
+	present := make([]string, 0, len(tree.Files)+len(tree.Oversized))
+	for _, f := range tree.Files {
+		present = append(present, f.Path)
+	}
+	present = append(present, tree.Oversized...)
+
+	if len(present) == 0 {
+		owned, err := r.store.Queries.CountGitPipelinesByRepoLink(ctx, link.ID)
+		if err != nil {
+			return r.markError(ctx, link.ID, fmt.Errorf("counting the link's pipelines: %w", err))
+		}
+		if owned > 0 {
+			r.logger.Warn("gitsync: synced tree has no .alloy files; not pruning the link's pipelines",
+				"link_id", link.ID, "pipelines", owned, "branch", link.Branch, "path", link.Path)
+			if err := r.store.Queries.UpdateRepoLinkSync(ctx, sqlc.UpdateRepoLinkSyncParams{
+				ID:         link.ID,
+				LastCommit: pgtype.Text{},
+				SyncStatus: pgtype.Text{String: "warning", Valid: true},
+				SyncError:  pgtype.Text{String: emptyTreeWarning, Valid: true},
+			}); err != nil {
+				r.logger.Error("gitsync: recording sync warning", "link_id", link.ID, "err", err)
+			}
+			return nil
+		}
+	}
+
+	tx, err := r.store.Pool().Begin(ctx)
+	if err != nil {
+		return r.markError(ctx, link.ID, fmt.Errorf("pruning removed files: beginning transaction: %w", err))
+	}
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
+	q := r.store.Queries.WithTx(tx)
+
+	removed, err := q.DeleteGitPipelinesMissingFromTree(ctx, sqlc.DeleteGitPipelinesMissingFromTreeParams{
+		RepoLinkID:   link.ID,
+		PresentPaths: present,
+	})
+	if err != nil {
+		return r.markError(ctx, link.ID, fmt.Errorf("pruning removed files: %w", err))
+	}
+	for _, p := range removed {
+		detail, err := json.Marshal(map[string]string{
+			"name":         p.Name,
+			"reason":       pruneReason,
+			"repo_link_id": link.ID.String(),
+			"git_path":     p.GitPath.String,
+			"commit":       commit,
+		})
+		if err != nil {
+			return r.markError(ctx, link.ID, fmt.Errorf("pruning removed files: audit detail: %w", err))
+		}
+		if err := q.InsertAuditLog(ctx, sqlc.InsertAuditLogParams{
+			Actor:        "gitsync",
+			ActorType:    "system",
+			OrgID:        link.OrgID,
+			Action:       "pipeline.delete",
+			ResourceType: "pipeline",
+			ResourceID:   p.ID.String(),
+			Detail:       detail,
+		}); err != nil {
+			return r.markError(ctx, link.ID, fmt.Errorf("pruning removed files: audit: %w", err))
+		}
+		r.logger.Info("gitsync: deleted the pipeline of a removed file",
+			"link_id", link.ID, "pipeline", p.Name, "path", p.GitPath.String, "commit", commit)
+	}
+	if len(removed) > 0 {
+		if err := q.MarkServeCacheDirty(ctx, link.CollectorID); err != nil {
+			return r.markError(ctx, link.ID, fmt.Errorf("pruning removed files: marking serve cache dirty: %w", err))
+		}
+	}
+	if err := q.UpdateRepoLinkSync(ctx, sqlc.UpdateRepoLinkSyncParams{
 		ID:         link.ID,
-		LastCommit: pgtype.Text{String: latestCommit, Valid: true},
+		LastCommit: pgtype.Text{String: commit, Valid: true},
 		SyncStatus: pgtype.Text{String: "ok", Valid: true},
 		SyncError:  pgtype.Text{},
-	}); syncErr != nil {
-		r.logger.Error("gitsync: recording sync status", "link_id", link.ID, "err", syncErr)
+	}); err != nil {
+		return r.markError(ctx, link.ID, fmt.Errorf("recording sync status: %w", err))
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return r.markError(ctx, link.ID, fmt.Errorf("pruning removed files: committing: %w", err))
 	}
 	return nil
 }

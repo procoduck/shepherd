@@ -133,7 +133,32 @@ func (r Repo) LatestCommit(ctx context.Context) (string, error) {
 // treated the same as an existing, empty directory, and Files returns no
 // files. This keeps "no config committed yet" indistinguishable from
 // "nothing new to sync" from the caller's point of view.
+//
+// A file larger than Limits.MaxFileBytes is skipped (and logged); Fetch
+// also reports its path.
 func (r Repo) Files(ctx context.Context) ([]File, error) {
+	tree, err := r.Fetch(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return tree.Files, nil
+}
+
+// Tree is what Fetch found under Repo.Path.
+type Tree struct {
+	// Files holds every *.alloy file that was read.
+	Files []File
+	// Oversized lists the paths (relative to the repository root) of the
+	// *.alloy files that exist but were skipped for exceeding
+	// Limits.MaxFileBytes. They are still in the tree: a caller that acts
+	// on a file's absence (gitsync's prune of removed files) must count
+	// them as present.
+	Oversized []string
+}
+
+// Fetch is Files plus the paths of the *.alloy files it skipped as
+// oversized. See Files for how a missing Path is treated.
+func (r Repo) Fetch(ctx context.Context) (Tree, error) {
 	limits := r.Limits.withDefaults()
 	ctx, cancel := context.WithTimeout(ctx, limits.FetchTimeout)
 	defer cancel()
@@ -141,7 +166,7 @@ func (r Repo) Files(ctx context.Context) ([]File, error) {
 	counter := newByteCounter(limits.MaxRepoBytes)
 	opts, err := r.clientOptions(ctx, counter)
 	if err != nil {
-		return nil, err
+		return Tree{}, err
 	}
 
 	wt := memfs.New()
@@ -152,13 +177,13 @@ func (r Repo) Files(ctx context.Context) ([]File, error) {
 		Depth:         1,
 		ClientOptions: opts,
 	}); err != nil {
-		return nil, r.wrapFetchErr("clone", err, counter, limits)
+		return Tree{}, r.wrapFetchErr("clone", err, counter, limits)
 	}
 	// See the matching check in LatestCommit: the counter is the
 	// authoritative signal, independent of whether CloneContext itself
 	// reported an error.
 	if counter.exceeded() {
-		return nil, fmt.Errorf("%w: clone of %s", ErrRepoTooLarge, r.URL)
+		return Tree{}, fmt.Errorf("%w: clone of %s", ErrRepoTooLarge, r.URL)
 	}
 
 	root := "."
@@ -166,7 +191,7 @@ func (r Repo) Files(ctx context.Context) ([]File, error) {
 		root = filepath.Clean(r.Path)
 	}
 
-	var files []File
+	var tree Tree
 	walkErr := util.Walk(wt, root, func(walkPath string, info fs.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			if walkPath == root {
@@ -180,7 +205,7 @@ func (r Repo) Files(ctx context.Context) ([]File, error) {
 			return nil
 		}
 
-		if len(files) >= limits.MaxFiles {
+		if len(tree.Files) >= limits.MaxFiles {
 			return fmt.Errorf("%w: more than %d files under %q in %s", ErrTooManyFiles, limits.MaxFiles, r.Path, r.URL)
 		}
 
@@ -191,17 +216,18 @@ func (r Repo) Files(ctx context.Context) ([]File, error) {
 		if skipped {
 			slog.WarnContext(ctx, "gitrepo: skipping oversized file",
 				"path", walkPath, "size", info.Size(), "max_file_bytes", limits.MaxFileBytes, "url", r.URL)
+			tree.Oversized = append(tree.Oversized, walkPath)
 			return nil
 		}
 
-		files = append(files, File{Path: walkPath, Content: content})
+		tree.Files = append(tree.Files, File{Path: walkPath, Content: content})
 		return nil
 	})
 	if walkErr != nil {
-		return nil, walkErr
+		return Tree{}, walkErr
 	}
 
-	return files, nil
+	return tree, nil
 }
 
 // readLimited reads filename in full unless it is larger than max, in

@@ -12,6 +12,20 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countGitPipelinesByRepoLink = `-- name: CountGitPipelinesByRepoLink :one
+SELECT count(*) FROM pipelines WHERE repo_link_id = $1 AND source = 'git'
+`
+
+// How many git pipelines a repo link owns: gitsync's empty-tree guard
+// (B-GITSYNC-PRUNE) refuses to prune when a sync finds no .alloy files at
+// all but the link still has pipelines.
+func (q *Queries) CountGitPipelinesByRepoLink(ctx context.Context, repoLinkID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countGitPipelinesByRepoLink, repoLinkID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createPipeline = `-- name: CreatePipeline :one
 INSERT INTO pipelines (org_id, name, contents, matchers, enabled, source, wizard_kind, wizard_state, created_by, updated_by, repo_link_id, git_path, owner_team_id, wizard_render_sha256)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
@@ -76,6 +90,51 @@ func (q *Queries) CreatePipeline(ctx context.Context, arg CreatePipelineParams) 
 		&i.WizardRenderSha256,
 	)
 	return i, err
+}
+
+const deleteGitPipelinesMissingFromTree = `-- name: DeleteGitPipelinesMissingFromTree :many
+DELETE FROM pipelines
+WHERE repo_link_id = $1
+  AND source = 'git'
+  AND git_path IS NOT NULL
+  AND NOT (git_path = ANY($2::text[]))
+RETURNING id, name, git_path
+`
+
+type DeleteGitPipelinesMissingFromTreeParams struct {
+	RepoLinkID   pgtype.UUID `json:"repo_link_id"`
+	PresentPaths []string    `json:"present_paths"`
+}
+
+type DeleteGitPipelinesMissingFromTreeRow struct {
+	ID      pgtype.UUID `json:"id"`
+	Name    string      `json:"name"`
+	GitPath pgtype.Text `json:"git_path"`
+}
+
+// docs/spec.md §10: a successful sync deletes the git pipelines of its link
+// whose file disappeared. present_paths is every .alloy path the sync saw in
+// the tree (read or skipped as oversized), so anything not in it is gone. A
+// row with no git_path (gitsync always sets one) is never matched. Returns
+// what it deleted so the caller can audit each one.
+func (q *Queries) DeleteGitPipelinesMissingFromTree(ctx context.Context, arg DeleteGitPipelinesMissingFromTreeParams) ([]DeleteGitPipelinesMissingFromTreeRow, error) {
+	rows, err := q.db.Query(ctx, deleteGitPipelinesMissingFromTree, arg.RepoLinkID, arg.PresentPaths)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeleteGitPipelinesMissingFromTreeRow
+	for rows.Next() {
+		var i DeleteGitPipelinesMissingFromTreeRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.GitPath); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const deletePipeline = `-- name: DeletePipeline :exec

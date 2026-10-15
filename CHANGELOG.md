@@ -74,6 +74,19 @@ Categories used here:
   RBAC; it grants the HTTPRoute Role and CRD-read ClusterRole when the receiver tier and
   `receiver.applyTenantRoutes` are on. `make help` and the README no longer pin a stale count of
   Kubernetes e2e features.
+- **A file removed from a linked repository kept its pipeline,** served to the link's collector
+  indefinitely, although the spec has always said the sync deletes it. Shipped. A successful
+  sync now deletes the link's git pipelines whose file is gone, in one transaction with a
+  `pipeline.delete` audit row each (actor `gitsync`; reason *file removed from repository*, the
+  link, the file path and the commit) and a recompute of the collector's served config, so it
+  drops them on its next poll. A rename deletes the old name's pipeline and creates the new one.
+  A sync that could not fetch the repository, or in which any file failed validation, deletes
+  nothing; a file skipped as larger than `max_file_bytes` keeps its pipeline. **Guard:** if a sync
+  finds no `.alloy` files at all while the link still has pipelines — more likely a wrong path or
+  branch than a deliberate wipe — it deletes nothing and sets the link's status to `warning`
+  (amber on the Git page), re-checking on every poll. Pipelines whose file was removed before
+  the upgrade go on the link's next new commit, since an unchanged commit tip is not re-fetched.
+  No migration. (B-GITSYNC-PRUNE)
 
 ## v0.17.0
 

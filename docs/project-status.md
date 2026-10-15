@@ -201,18 +201,12 @@ developer who needs containment to be real locally uses `make dev-kind`, which i
 the chart's NetworkPolicy is enforced (`docs/kind-test-environment-plan.md` §11). B-CONTAIN-2 is
 compose-only.
 
-### B-GITSYNC-PRUNE — a file removed from a linked repository keeps its pipeline · **medium**
-
-`docs/spec.md` §10's sync reconciler is to "delete git pipelines of this link whose file
-disappeared". `internal/gitsync.reconcileLink` only upserts the files it fetched; nothing deletes
-a pipeline whose file is gone, so it stays served to the link's collector until the link itself is
-deleted (which, since the 2026-10-15 public-docs review fix, deletes the link's pipelines with
-it). `DeletePipeline` refuses `source=git`, so there is no other way to remove one. Found while
-fixing the repo-link delete; not fixed there.
-
 Fixed bugs (B-CONTAIN-1, B-CONCAT, B-STAGEORDER, F9-a) are in
 `docs/archive/completed-2026-09-11.md` with their red-run evidence. B-VIEWER-CANVAS (#226, a
-viewer's canvas and inspector stayed editable) shipped fixed in v0.15.0 (#256).
+viewer's canvas and inspector stayed editable) shipped fixed in v0.15.0 (#256). B-GITSYNC-PRUNE
+(a file removed from a linked repository kept its pipeline, contrary to `docs/spec.md` §10) is
+fixed, unreleased: a successful sync deletes them, with an empty-tree guard (spec §10, "Removed
+files"); red-first specs in `internal/gitsync/reconciler_internal_test.go`.
 
 **2026-10-08 pre-release walkthrough** (kind dev stack, Playwright MCP): four high and six medium
 findings, all fixed in v0.15.0 — the builder save landing on stale data (H1), App
