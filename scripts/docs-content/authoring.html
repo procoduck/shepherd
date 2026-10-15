@@ -82,7 +82,8 @@
         Restoring a revision does not rewrite history &mdash; it creates a new revision from the old
         one's contents, matchers and enabled state — so restoring a revision saved while
         the pipeline was disabled disables it, and the dialog says so — and runs it through the same validation gate as any other save. A
-        git-managed pipeline can be restored too, but the next sync from the repository wins.
+        git-managed pipeline can be restored too, but the next commit to the repository puts the
+        repository&rsquo;s text back.
       </p>
       <p id="save-conflicts">
         A save from a page that loaded an older revision is refused instead of silently replacing
@@ -110,7 +111,8 @@
           collapsed. A module instance&rsquo;s <strong>Show module</strong> brings its box into
           view.</li>
         <li><strong>A block the view cannot map is labelled <em>not mapped</em></strong> and shows
-          its source text. A summary above the canvas says what was drawn how, with every detail
+          its source text; a module&rsquo;s instance is a read-only node that links to its
+          module&rsquo;s group. A summary above the canvas says what was drawn how, with every detail
           behind <strong>Show all</strong>; the toolbar badge reads <em>Modules shown as groups</em>
           when nothing is genuinely unmapped, and <em>Partial</em> when something is.</li>
         <li>Selecting a node shows its settings and the secrets and other components it refers

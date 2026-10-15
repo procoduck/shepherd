@@ -82,7 +82,8 @@ kubectl -n shepherd create secret generic shepherd-secrets \
   --from-literal=SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD='choose-a-password'
 
 helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.21.0 \
-  --namespace shepherd --set existingSecret=shepherd-secrets
+  --namespace shepherd --set existingSecret=shepherd-secrets \
+  --set config.server.base_url=http://shepherd.shepherd.svc.cluster.local:8080
 
 kubectl -n shepherd port-forward svc/shepherd 8080:8080
 ```
@@ -158,7 +159,7 @@ and the two coexist. Shepherd runs with no identity provider at all.
 | Application administrator | Everything, everywhere: organisations, cluster claiming, agent tokens, local users |
 | Organisation administrator | Everything in one org, including what it *is*: destinations, routes, git credentials, teams |
 | Organisation editor | Authors what the org *runs* — pipelines, wizards, simulations — but cannot change where telemetry ships |
-| Team member | Edits, enables, disables, restores and deletes the pipelines their team owns, as text or in the visual builder; creating pipelines stays with org editors |
+| Team member | Edits, enables, disables, restores and deletes the pipelines their team owns, as text or in the visual builder; creating pipelines in the UI stays with org editors |
 | Viewer | Read only |
 | Service account | Machine access scoped `propose` (read and simulate) or `apply` (writes, acting for a named human) |
 

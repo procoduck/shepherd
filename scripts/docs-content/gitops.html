@@ -23,8 +23,9 @@
       <p>
         Synced pipelines show <code>git</code> in the Source column and are <strong>owned by the
         repository</strong>: they are read-only in Shepherd &mdash; the editor will not save them and
-        they cannot be deleted. You can enable or disable one, or restore an earlier revision, but the
-        next sync puts the repository&rsquo;s version back. A new file becomes an enabled pipeline on
+        they cannot be deleted. You can enable or disable one &mdash; that sticks &mdash; or restore an
+        earlier revision, but the next commit to the repository puts the repository&rsquo;s text
+        back. A new file becomes an enabled pipeline on
         its first successful sync; removing a file from the repository does not remove its
         pipeline. Synced files pass the same three-stage validation gate as everything else, one file
         at a time: a file that fails is skipped (its previous version keeps being served), the

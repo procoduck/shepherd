@@ -161,7 +161,7 @@ kubectl -n shepherd port-forward svc/shepherd 8080:8080</code></pre>
       </div>
       <p>
         Read the <a href="https://github.com/procoduck/shepherd/blob/main/CHANGELOG.md">changelog</a>
-        first: each release opens with an <strong>Upgrade:</strong> block, and a chart minor that
+        first: each release since v0.9.0 opens with an <strong>Upgrade:</strong> block, and a chart minor that
         needs operator action has its own section in
         <a href="https://github.com/procoduck/shepherd/blob/main/deploy/helm/shepherd/UPGRADING.md">UPGRADING.md</a>.
         Migrations run ahead of the new pods automatically.
@@ -176,8 +176,10 @@ kubectl -n shepherd port-forward svc/shepherd 8080:8080</code></pre>
         are gone, so every collector&rsquo;s served bytes change. The new pods recompute every
         cached config an older pod computed before serving it, so the change reaches quiet
         organisations too. Plan it as a fleet-wide config push. While old and new pods both serve,
-        a visual-builder save can be refused once, and a wizard pipeline can read <em>Not following
-        wizard</em>; both clear when the rollout finishes. The new graph view fetches a 1.6&nbsp;MB
+        a visual-builder save can be refused once; a wizard pipeline can read <em>Not following
+        wizard</em> until you reload after the rollout; and a save served by an old pod skips the
+        <em>Save a hand edit?</em> question, so avoid hand-editing wizard pipelines until the
+        rollout finishes. The new graph view fetches a 1.6&nbsp;MB
         Web Worker script, served uncompressed unless a proxy in front compresses it. Details in
         <a href="https://github.com/procoduck/shepherd/blob/main/deploy/helm/shepherd/UPGRADING.md">UPGRADING.md</a>.
       </p>

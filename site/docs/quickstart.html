@@ -137,14 +137,17 @@ kubectl -n shepherd create secret generic shepherd-secrets \
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
         <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.21.0 \
   --namespace shepherd \
-  --set existingSecret=shepherd-secrets
+  --set existingSecret=shepherd-secrets \
+  --set config.server.base_url=http://shepherd.shepherd.svc.cluster.local:8080
 
 kubectl -n shepherd rollout status deploy/shepherd</code></pre>
       </div>
       <p>
         Database migrations run as a Helm <code>pre-install</code>/<code>pre-upgrade</code> hook, so
         <code>helm install</code> waits for the schema to be current before it creates the
-        Deployment at all. The install above deliberately exposes nothing: <code>route</code> and <code>ingress</code> are both off by
+        Deployment at all. <code>config.server.base_url</code> is the address collectors reach
+        Shepherd at &mdash; here the in-cluster Service; set your external URL instead once you
+        expose it. The install above deliberately exposes nothing: <code>route</code> and <code>ingress</code> are both off by
         default, because an HTTPRoute needs Gateway API CRDs that a vanilla cluster does not have.
         Reach it with a port-forward first and decide how to expose it afterwards &mdash; see
         <a href="kubernetes.html#exposing-shepherd">Exposing Shepherd</a>.

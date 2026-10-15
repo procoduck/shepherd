@@ -42,7 +42,8 @@
         confirmed an SSO sign-in lands you with app-admin rights &mdash; local accounts are not a
         fallback mode, they are a supported way to run Shepherd alongside SSO or instead of it.
       </p>
-      <p><img src="../img/single-sign-on.jpg" alt="Admin, Single sign-on: the provider picker, issuer URL, client ID and secret, and the redirect URL Shepherd serves the callback on" loading="lazy"></p>
+      <p><img src="../img/single-sign-on.jpg" alt="Admin, Single sign-on with the provider declared in the Helm chart: a read-only form (provider, issuer URL, client ID, secret set by the chart, redirect URL) under a banner saying it cannot be edited here" loading="lazy"></p>
+      <p>The screenshot shows the chart-managed state: the same form, read-only, with no Save or Test connection.</p>
 
       <p class="note">The same identity provider can also authenticate your <strong>Alloy
         collectors</strong>, not just people. See <a href="agent-tokens.html#oidc">Agent tokens
