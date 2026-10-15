@@ -510,7 +510,7 @@ var _ = Describe("GitOpsService (Connect RPC)", Label("integration"), func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 				// A clean served config that still includes the git pipeline.
-				_, err = st.Pool().Exec(ctx, `INSERT INTO serve_cache (collector_id, content, hash, dirty) VALUES ($1, 'old', 'old', false)`, coll.ID) // RAW-SQL-OK: test fixture
+				_, err = st.Pool().Exec(ctx, `INSERT INTO serve_cache (collector_id, content, hash, dirty) VALUES ($1, '// pipeline configs/synced', 'old', false)`, coll.ID) // RAW-SQL-OK: test fixture
 				Expect(err).NotTo(HaveOccurred())
 
 				resp = postConnect("/shepherd.mgmt.v1.GitOpsService/DeleteRepoLink",
@@ -528,9 +528,21 @@ var _ = Describe("GitOpsService (Connect RPC)", Label("integration"), func() {
 				_, err = st.Queries.GetPipelineByID(ctx, manual.ID)
 				Expect(err).NotTo(HaveOccurred(), "a manual pipeline is not the link's to delete")
 
-				cache, err := st.Queries.GetServeCache(ctx, coll.ID)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(cache.Dirty).To(BeTrue(), "the target collector's served config must be recomputed without the pipeline")
+				// Recomputed eagerly, as DeletePipeline does: what the UI shows
+				// as served (GetServedConfig) drops the pipeline without the
+				// collector ever polling — an offline collector included.
+				servedConfig := func() map[string]any {
+					resp := postConnect("/shepherd.mgmt.v1.FleetService/GetServedConfig",
+						`{"orgId":"`+orgID+`","id":"`+coll.ID.String()+`"}`, admin)
+					Expect(resp.StatusCode).To(Equal(http.StatusOK))
+					var served map[string]any
+					decodeBody(resp, &served)
+					return served
+				}
+				Eventually(servedConfig, 10*time.Second, 100*time.Millisecond).Should(And(
+					HaveKeyWithValue("hash", Not(Equal("old"))),
+					HaveKeyWithValue("content", Not(ContainSubstring("configs/synced"))),
+				))
 
 				n, err := st.Queries.CountAuditLog(ctx, sqlc.CountAuditLogParams{Column1: orgUUID(orgID), Column3: "pipeline.delete"})
 				Expect(err).NotTo(HaveOccurred())

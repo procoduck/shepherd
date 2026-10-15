@@ -173,7 +173,7 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 			return mgmtv1connect.NewDestinationServiceHandler(NewDestinationService(st, pipelineSvc, logger), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewGitOpsServiceHandler(NewGitOpsService(st, enc, logger), authz...)
+			return mgmtv1connect.NewGitOpsServiceHandler(NewGitOpsService(st, enc, pipelineSvc, logger), authz...)
 		},
 		func() (string, http.Handler) {
 			return mgmtv1connect.NewWizardServiceHandler(NewWizardService(st, v, logger, WithWizardSchema(schemaReg)), authz...)

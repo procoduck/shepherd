@@ -19,9 +19,12 @@ Categories used here:
   pipeline's foreign key to its link had no delete action, so the link could not be removed once
   anything had synced — and since a git pipeline cannot be deleted on its own either, nothing
   could. Deleting a link now deletes the pipelines it synced in the same transaction, records a
-  `pipeline.delete` audit row for each (with the link it came from), and marks the link's
-  collector for a recompute so its served config drops them on the next poll. The confirmation
-  dialog says so; it used to promise the pipelines were "left as-is". No migration.
+  `pipeline.delete` audit row for each (with the link it came from), and recomputes the
+  organisation's served configs right away, so the served config shown for the link's collector
+  drops them without waiting for a poll (an offline collector included). The Pipelines list and
+  pipeline pages refresh too. The confirmation dialog says so, and that relinking syncs them
+  again with fresh revision history; it used to promise the pipelines were "left as-is". No
+  migration.
 - **The graph view chipped module instances "not mapped"** under a badge saying "Modules shown as
   groups". An instance of a module the view draws as a group now reads *module instance*; a block
   the graph genuinely could not map keeps the chip. The builder is unchanged.

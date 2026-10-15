@@ -225,6 +225,48 @@ test('deletes a repo link after confirmation', async ({ page, api }) => {
   expect(calls).toHaveLength(1);
 });
 
+// #348: deleting a link deletes the pipelines it synced. The Pipelines list
+// is cached (30s staleTime), so the delete must invalidate it, or the list
+// keeps showing pipelines that no longer exist until the cache goes stale.
+test('deleting a repo link drops its synced pipelines from the Pipelines list', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(orgAdmin);
+  const s = basicScenario();
+  api.seed({
+    orgs: [s.org],
+    collectors: s.collectors,
+    pipelines: [s.pipelines[0], { ...s.pipelines[2], repo_link_id: 'rl-0001' }],
+    gitCredentials: [{ id: 'cred-0001', name: 'gitea-pat', kind: 'pat', username: 'oauth2' }],
+    repoLinks: [
+      {
+        id: 'rl-0001',
+        repo_url: 'https://gitea.internal/team/configs.git',
+        branch: 'main',
+        path: '/',
+        collector_id: 'col-0001',
+        credential_id: 'cred-0001',
+        sync_status: 'ok',
+      },
+    ],
+  });
+  await page.goto('/pipelines');
+  const gitPipe = page.getByRole('link', { name: s.pipelines[2].name, exact: true });
+  await expect(gitPipe).toBeVisible();
+
+  // In-app navigation, so the Pipelines list stays in the query cache.
+  const nav = page.getByTestId('app-sidebar');
+  await nav.getByRole('link', { name: 'Git sync', exact: true }).click();
+  await page.getByRole('button', { name: /delete repository link/i }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(page.getByText('https://gitea.internal/team/configs.git')).toHaveCount(0);
+
+  await nav.getByRole('link', { name: 'Pipelines', exact: true }).click();
+  await expect(page.getByRole('link', { name: s.pipelines[0].name, exact: true })).toBeVisible();
+  await expect(gitPipe).toHaveCount(0);
+});
+
 // #253: a link at the repo root used to render "<url> /" — a stray slash glued
 // onto the URL. The root path now shows nothing; a subdirectory gets its own
 // labelled line.

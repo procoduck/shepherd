@@ -1819,6 +1819,9 @@ export function installDefaultHandlers(router: Router) {
   router.register('POST', '/shepherd.mgmt.v1.GitOpsService/DeleteRepoLink', async (r) => {
     const req = await body(r);
     st.repoLinks = (st.repoLinks as Obj[]).filter((x) => x['id'] !== req['id']);
+    // As the server does (#348): the link's synced pipelines go with it.
+    // repo_link_id is fixture-only; the wire Pipeline does not carry it.
+    st.pipelines = (st.pipelines as Obj[]).filter((p) => p['repo_link_id'] !== req['id']);
     return json(r, 200, {});
   });
 
