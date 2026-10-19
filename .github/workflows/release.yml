@@ -344,7 +344,7 @@ jobs:
           password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
 
       - name: goreleaser release
-        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           distribution: goreleaser
           # Pinned, not "latest": .goreleaser.yaml declares a `version: 2`
@@ -503,7 +503,7 @@ jobs:
           output: trivy-${{ matrix.image }}.sarif
           exit-code: "0"
       - name: Upload to the Security tab
-        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           sarif_file: trivy-${{ matrix.image }}.sarif
           category: trivy-release-${{ matrix.image }}
