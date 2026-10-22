@@ -69,8 +69,12 @@ Automated, in the repository and on GitHub, so a reporter can see what is alread
   is deliberately tag-only and excluded from Renovate (a bump must stay inside kind's and the
   gateway controller's supported range).
 - **Supply chain** — every GitHub Action is pinned to a commit SHA (enforced by
-  `scripts/repocheck`), release archives carry SBOMs, and release archives and images carry
-  Sigstore provenance attestations (`gh attestation verify`). OpenSSF Scorecard runs weekly.
+  `scripts/repocheck`); release archives, both images and the Helm chart carry Sigstore build
+  provenance, each image also an attested SPDX SBOM (image and chart attestations are pushed to
+  the registry too), and release tags must be SSH-signed by a key in `.github/allowed_signers`.
+  The release workflow verifies all of it before it finishes; the commands to check it yourself
+  are in [Verifying releases](https://procoduck.github.io/shepherd/docs/verifying-releases.html).
+  OpenSSF Scorecard runs weekly.
 - **Branch protection** — `main` requires a pull request and the CI checks (guards, lint, build,
   test, web, test-ui, test-fullstack, CodeQL, secrets, config-scan) for everyone, admins included.
 

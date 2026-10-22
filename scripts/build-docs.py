@@ -51,6 +51,8 @@ NAV = [
          "What Shepherd needs to run: a cluster, PostgreSQL, an Alloy version, and the ports it listens on."),
         ("kubernetes", "Kubernetes (Helm)", "Kubernetes (Helm)",
          "Install the published Helm chart from its OCI registry, with no clone and no repo to add."),
+        ("verifying-releases", "Verifying releases", "Verifying releases",
+         "Check a release archive, image, SBOM, Helm chart or tag against the signatures its release workflow made."),
         ("database", "Database", "Database",
          "Point Shepherd at a Postgres you already run, or let CloudNativePG provision one in the cluster."),
         ("secrets", "Secrets", "Secrets",

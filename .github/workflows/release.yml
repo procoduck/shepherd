@@ -44,8 +44,9 @@ concurrency:
 # Least privilege at the top level (Scorecard Token-Permissions): the default
 # for any job is read-only, and each job below grants exactly the write scopes
 # it needs — only `release` (cuts the GitHub release + pushes to GHCR) and the
-# attest jobs (Sigstore provenance) get any write at all. `verify` publishes
-# nothing and stays read-only.
+# attest jobs (Sigstore provenance and SBOM attestations, pushed next to the
+# image or chart in the registry) get any write at all. `verify` and
+# `verify-attestations` publish nothing and stay read-only.
 permissions:
   contents: read
 
@@ -74,8 +75,43 @@ jobs:
             exit 1
           fi
 
+      # Full history and tags: the signed-tag check below needs the annotated
+      # tag object itself (a shallow tag checkout can hand back only the
+      # commit) and origin/main, whose allowed_signers it trusts.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      # Signed tags (owner decision 2026-10-22): a release tag must carry an
+      # SSH signature from a key in .github/allowed_signers, so an unsigned or
+      # wrongly signed tag stops here, before anything is published. Release
+      # steps: `git tag -s` (AGENTS.md).
+      #
+      # The signers file is read from origin/main, not from the tagged commit:
+      # a tag can point at any commit, including one that never went through
+      # review and edits this very file to list its own key. main is
+      # branch-protected, so the trusted key set changes only by a reviewed PR.
+      # Re-fetching the tag with --force makes sure verify-tag sees the
+      # annotated tag object as pushed, and a lightweight tag (no object, so
+      # nothing to sign) is refused by name rather than by a confusing
+      # verify-tag error.
+      - name: Verify the tag is signed by a release key
+        run: |
+          set -euo pipefail
+          git fetch --force --no-tags origin "+refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          if [ "$(git cat-file -t "refs/tags/${GITHUB_REF_NAME}")" != "tag" ]; then
+            echo "::error::tag '$GITHUB_REF_NAME' is a lightweight tag; release tags must be annotated and signed (git tag -s)" >&2
+            exit 1
+          fi
+          signers="$RUNNER_TEMP/allowed_signers"
+          git show origin/main:.github/allowed_signers > "$signers"
+          git config gpg.ssh.allowedSignersFile "$signers"
+          if ! git verify-tag "$GITHUB_REF_NAME"; then
+            echo "::error::tag '$GITHUB_REF_NAME' is not signed by a key in main's .github/allowed_signers; refusing to release" >&2
+            exit 1
+          fi
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -179,6 +215,10 @@ jobs:
       # JSON array of {name, digest} for the attest-images job's matrix —
       # the image names and digests aren't known until goreleaser has run.
       images: ${{ steps.images.outputs.images }}
+      # The pushed chart's OCI manifest digest and version, for attest-chart
+      # and verify-attestations. Empty unless the chart push succeeded.
+      chart-digest: ${{ steps.chart.outputs.digest }}
+      chart-version: ${{ steps.chart.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -372,7 +412,10 @@ jobs:
       # until goreleaser has written dist/artifacts.json. Collect their
       # name+digest here and hand them to the attest-images job below as a
       # matrix -- actions/attest-build-provenance attests one subject per
-      # invocation.
+      # invocation. :{{ .Version }} and :latest are the same manifest list,
+      # so the list is de-duplicated by digest: the attestation subject is
+      # name@digest either way, and pushing each attestation to the registry
+      # twice would only add duplicate referrers.
       - name: Collect image digests
         id: images
         run: |
@@ -384,7 +427,7 @@ jobs:
           images="$(jq -c '[
             .[] | select(.type == "Docker Manifest") |
             {name: (.name | sub(":[^:/]+$"; "")), digest: .extra.Digest}
-          ]' dist/artifacts.json)"
+          ] | unique_by(.digest)' dist/artifacts.json)"
           echo "images=$images" >> "$GITHUB_OUTPUT"
 
       # The chart is published as an OCI artifact so an operator can install it
@@ -411,8 +454,14 @@ jobs:
       # ran in "Verify the Helm chart is unpublished and lints cleanly" —
       # before goreleaser, not after. The registry login persists on disk for
       # the rest of the job (same runner, same $HOME), so this step only
-      # packages and pushes.
+      # packages and pushes -- and records the pushed manifest digest for
+      # attest-chart. `helm push` prints "Digest: sha256:..."; if that line
+      # ever changes shape, `helm pull` (which prints the same line) asks the
+      # registry instead, so a reworded message cannot leave the chart
+      # unattested. Either way the value must be a sha256 digest before it is
+      # handed on.
       - name: Publish the Helm chart to GHCR (OCI)
+        id: chart
         env:
           IMAGE_REGISTRY: ${{ vars.IMAGE_REGISTRY || 'ghcr.io/procoduck' }}
         run: |
@@ -434,36 +483,161 @@ jobs:
           chart_repo="oci://${IMAGE_REGISTRY}/charts"
 
           helm package "$chart_dir" --destination dist-chart
-          helm push "dist-chart/shepherd-${chart_version}.tgz" "$chart_repo"
+          push_out="$(helm push "dist-chart/shepherd-${chart_version}.tgz" "$chart_repo" 2>&1)" ||
+            { echo "$push_out" >&2; exit 1; }
+          echo "$push_out"
 
-          echo "Published ${chart_repo}/shepherd:${chart_version} (appVersion ${app_version})"
+          parse_digest() { awk '$1 == "Digest:" { d = $2 } END { print d }'; }
+          digest="$(parse_digest <<<"$push_out")"
+          if [ -z "$digest" ]; then
+            mkdir -p "$RUNNER_TEMP/chart-pull"
+            pull_out="$(helm pull "${chart_repo}/shepherd" --version "$chart_version" \
+              --destination "$RUNNER_TEMP/chart-pull" 2>&1)" || { echo "$pull_out" >&2; exit 1; }
+            digest="$(parse_digest <<<"$pull_out")"
+          fi
+          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::could not determine the pushed chart's digest (got '$digest'); the chart is published but attest-chart cannot attest it" >&2
+            exit 1
+          fi
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "version=$chart_version" >> "$GITHUB_OUTPUT"
+
+          echo "Published ${chart_repo}/shepherd:${chart_version}@${digest} (appVersion ${app_version})"
 
   # actions/attest-build-provenance attests one subject per invocation, so
-  # the four docker_manifests images (shepherd and shepherd-simulator, each
-  # :{{ .Version }} and :latest) each get their own matrix job, built from
-  # the release job's "Collect image digests" step. Skips cleanly if goreleaser
-  # skipped a manifest's push (e.g. :latest on a prerelease) -- that manifest
-  # is simply absent from dist/artifacts.json and so from the matrix.
+  # each published image digest (shepherd and shepherd-simulator; :latest
+  # shares its digest with :{{ .Version }}) gets its own matrix job, built
+  # from the release job's "Collect image digests" step. Skips cleanly if
+  # goreleaser skipped a manifest's push (e.g. :latest on a prerelease) --
+  # that manifest is simply absent from dist/artifacts.json and so from the
+  # matrix.
+  #
+  # Each leg signs two attestations for its digest -- SLSA build provenance
+  # and an SPDX-JSON SBOM -- and pushes both to the registry next to the
+  # image as well as to GitHub's attestation store, so a consumer that can
+  # reach the registry but not api.github.com (an air-gapped mirror, an
+  # admission controller) can still verify them.
+  #
+  # Runs whenever the release job got as far as collecting digests, not only
+  # when it succeeded: the images are public from that point on, and a later
+  # failure in the release job (the chart push, say) must not also leave them
+  # unattested. fail-fast is off for the same reason -- one leg failing must
+  # not cancel the other image's attestations.
   attest-images:
     name: attest-images
     needs: release
-    if: needs.release.outputs.images != '[]'
+    if: ${{ !cancelled() && needs.release.outputs.images != '' && needs.release.outputs.images != '[]' }}
     runs-on: ubuntu-latest
-    # attest-build-provenance only: Sigstore signing needs id-token +
-    # attestations write; contents: read is the action's documented minimum.
+    timeout-minutes: 15
+    # Sigstore signing needs id-token + attestations write; push-to-registry
+    # writes the attestation into the image's GHCR package (packages: write);
+    # contents: read is the action's documented minimum.
     permissions:
       contents: read
       id-token: write
       attestations: write
+      packages: write
     strategy:
+      fail-fast: false
       matrix:
         image: ${{ fromJson(needs.release.outputs.images) }}
     steps:
-      - name: Attest ${{ matrix.image.name }}
+      # The image name is fully qualified (ghcr.io/<ns>/shepherd); its host
+      # is what docker/login-action takes.
+      - name: Resolve registry host
+        id: registry
+        env:
+          IMAGE: ${{ matrix.image.name }}
+        run: echo "host=${IMAGE%%/*}" >> "$GITHUB_OUTPUT"
+
+      # push-to-registry and syft's registry pull both read the Docker
+      # credential store this writes.
+      - name: Log in to registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ steps.registry.outputs.host }}
+          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
+
+      - name: Attest provenance — ${{ matrix.image.name }}
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ matrix.image.name }}
           subject-digest: ${{ matrix.image.digest }}
+          push-to-registry: true
+
+      - name: Set up syft (SBOM generation)
+        id: syft
+        uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+
+      # Scanned from the registry by digest -- the bytes that were published,
+      # not a local build. The digest names a multi-arch manifest list, so
+      # syft has to pick one member: linux/amd64, pinned rather than left to
+      # the runner's arch. The arm64 member is built from the same Dockerfile,
+      # Go module graph and distroless base, so its package set is the same;
+      # the SBOM is attested to the manifest list's digest, which is what
+      # every pull by tag resolves.
+      - name: Generate SBOM — ${{ matrix.image.name }}
+        env:
+          SYFT: ${{ steps.syft.outputs.cmd }}
+          IMAGE: ${{ matrix.image.name }}
+          DIGEST: ${{ matrix.image.digest }}
+        run: |
+          set -euo pipefail
+          "$SYFT" scan "registry:${IMAGE}@${DIGEST}" --platform linux/amd64 \
+            --output "spdx-json=${RUNNER_TEMP}/sbom.spdx.json"
+
+      # attest-sbom records the predicate type https://spdx.dev/Document/v<N>
+      # from the document's own spdxVersion (syft writes SPDX-2.3), which is
+      # what verify-attestations and the docs pass as --predicate-type.
+      - name: Attest SBOM — ${{ matrix.image.name }}
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-name: ${{ matrix.image.name }}
+          subject-digest: ${{ matrix.image.digest }}
+          sbom-path: ${{ runner.temp }}/sbom.spdx.json
+          push-to-registry: true
+
+  # SLSA build provenance for the Helm chart, by the OCI manifest digest
+  # `helm push` reported, pushed to the registry next to the chart as well as
+  # to GitHub's attestation store. A job of its own rather than a step after
+  # the push: a failure here then never marks the release job (and so the
+  # jobs keyed on its result) failed, and the same !cancelled() reasoning as
+  # attest-images applies -- once the chart is public it should be attested
+  # whatever else went wrong.
+  attest-chart:
+    name: attest-chart
+    needs: release
+    if: ${{ !cancelled() && needs.release.outputs.chart-digest != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      packages: write
+    env:
+      IMAGE_REGISTRY: ${{ vars.IMAGE_REGISTRY || 'ghcr.io/procoduck' }}
+    steps:
+      - name: Resolve registry host
+        id: registry
+        run: echo "host=${IMAGE_REGISTRY%%/*}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ steps.registry.outputs.host }}
+          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
+
+      # subject-name is the untagged chart repository; the chart version is
+      # only a tag, the digest identifies what was pushed.
+      - name: Attest provenance — ${{ env.IMAGE_REGISTRY }}/charts/shepherd
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE_REGISTRY }}/charts/shepherd
+          subject-digest: ${{ needs.release.outputs.chart-digest }}
+          push-to-registry: true
 
   # Report-only scan of the images this release actually published, so the
   # Security tab shows the shipped artifact rather than the local build the
@@ -507,3 +681,112 @@ jobs:
         with:
           sarif_file: trivy-${{ matrix.image }}.sarif
           category: trivy-release-${{ matrix.image }}
+
+  # Proves the release's signatures from the consumer's side, with the same
+  # commands scripts/docs-content/verifying-releases.html tells an operator to
+  # run: every archive in checksums.txt, each image and the chart by digest
+  # and by tag, each image's SBOM, and the registry copies pushed by
+  # push-to-registry. Pinned to this repository, to release.yml as the signer
+  # and to this tag's ref, so an attestation from any other workflow, repo
+  # or tag does not count.
+  #
+  # A failure turns the run red and undoes nothing: by now the release is
+  # public, and deleting or re-tagging artifacts that consumers may already
+  # have pulled would be worse than a reported gap (the same reasoning as
+  # scan-published). A red run here means "fix the attestation and say so in
+  # the release notes", not "the release is gone". It checks everything
+  # before failing, so one run lists every gap.
+  verify-attestations:
+    name: verify-attestations
+    needs: [release, attest-images, attest-chart]
+    if: always() && needs.release.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Read-only: downloads the release, reads attestations from GitHub's
+    # store and from the registry.
+    permissions:
+      contents: read
+      attestations: read
+      packages: read
+    env:
+      IMAGE_REGISTRY: ${{ vars.IMAGE_REGISTRY || 'ghcr.io/procoduck' }}
+    steps:
+      - name: Resolve registry host
+        id: registry
+        run: echo "host=${IMAGE_REGISTRY%%/*}" >> "$GITHUB_OUTPUT"
+
+      # --bundle-from-oci reads the registry with the Docker credential store.
+      - name: Log in to registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ steps.registry.outputs.host }}
+          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
+
+      - name: Verify every published artifact's attestations
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGES: ${{ needs.release.outputs.images }}
+          CHART_DIGEST: ${{ needs.release.outputs.chart-digest }}
+          CHART_VERSION: ${{ needs.release.outputs.chart-version }}
+          # attest-sbom's predicate type for syft's SPDX-2.3 output (see the
+          # "Attest SBOM" step). If syft moves to a new SPDX version this
+          # fails loudly, and the docs page's command needs the same bump.
+          SBOM_PREDICATE: https://spdx.dev/Document/v2.3
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          pin=(-R "$repo" --signer-workflow "${repo}/.github/workflows/release.yml" --source-ref "$GITHUB_REF")
+          version="${GITHUB_REF_NAME#v}"
+          failed=()
+          check() {
+            echo "::group::$*"
+            if "$@"; then echo "::endgroup::"; else echo "::endgroup::"; echo "::error::FAILED: $*"; failed+=("$*"); fi
+          }
+
+          # Release archives (and their SBOM files): checksums first, then
+          # the provenance attestation of every file checksums.txt lists --
+          # those are exactly the subjects the release job attested.
+          dl="$RUNNER_TEMP/release"
+          mkdir -p "$dl"
+          if gh release download "$GITHUB_REF_NAME" -R "$repo" -D "$dl" && [ -s "$dl/checksums.txt" ]; then
+            sums() { (cd "$1" && sha256sum --strict --check checksums.txt); }
+            check sums "$dl"
+            # fd 3, so nothing in the loop body can consume the list.
+            while read -r -u 3 _ name; do
+              check gh attestation verify "$dl/$name" "${pin[@]}"
+            done 3< "$dl/checksums.txt"
+          else
+            check false "could not download the release's assets and checksums.txt"
+          fi
+
+          # Images: provenance and SBOM, from GitHub's store and from the
+          # registry copy, by digest; provenance again by tag.
+          if [ -z "$IMAGES" ] || [ "$IMAGES" = "[]" ]; then
+            check false "release job reported no published images"
+          else
+            for ref in $(jq -r '.[] | "\(.name)@\(.digest)"' <<<"$IMAGES"); do
+              check gh attestation verify "oci://${ref}" "${pin[@]}"
+              check gh attestation verify "oci://${ref}" "${pin[@]}" --bundle-from-oci
+              check gh attestation verify "oci://${ref}" "${pin[@]}" --predicate-type "$SBOM_PREDICATE"
+              check gh attestation verify "oci://${ref}" "${pin[@]}" --predicate-type "$SBOM_PREDICATE" --bundle-from-oci
+              check gh attestation verify "oci://${ref%@*}:${version}" "${pin[@]}"
+            done
+          fi
+
+          # The chart: provenance by digest (GitHub's store and the registry
+          # copy) and by its own version tag.
+          if [ -z "$CHART_DIGEST" ]; then
+            check false "release job reported no chart digest"
+          else
+            chart="${IMAGE_REGISTRY}/charts/shepherd"
+            check gh attestation verify "oci://${chart}@${CHART_DIGEST}" "${pin[@]}"
+            check gh attestation verify "oci://${chart}@${CHART_DIGEST}" "${pin[@]}" --bundle-from-oci
+            check gh attestation verify "oci://${chart}:${CHART_VERSION}" "${pin[@]}"
+          fi
+
+          if [ "${#failed[@]}" -gt 0 ]; then
+            echo "::error::${#failed[@]} verification(s) failed; the release stays published -- see the errors above" >&2
+            exit 1
+          fi
+          echo "Every published artifact verified."

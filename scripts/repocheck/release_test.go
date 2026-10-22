@@ -5,6 +5,7 @@
 package repocheck_test
 
 import (
+	"path/filepath"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -162,6 +163,93 @@ var _ = Describe("release.yml", func() {
 		Expect(ok).To(BeTrue(), "release.yml has no verify job")
 		Expect(joinedRuns(verify.Steps)).To(ContainSubstring(`^v[0-9]+\.[0-9]+\.[0-9]+`),
 			"the verify job must validate the tag against a semver regex at runtime, since GitHub's tag glob cannot fully enforce one")
+	})
+})
+
+// Red run, 2026-10-22, against origin/main 8616d81: release.yml accepted
+// any annotated (or lightweight) tag matching the semver glob, attested the
+// chart not at all, attested images only in GitHub's store (no registry
+// copy, no SBOM), and nothing checked the published attestations from the
+// consumer's side -- every spec below failed on that tree.
+var _ = Describe("release.yml signing and self-verification", func() {
+	findStep := func(steps []workflowStep, pred func(workflowStep) bool) int {
+		for i, s := range steps {
+			if pred(s) {
+				return i
+			}
+		}
+		return -1
+	}
+
+	It("refuses a tag not signed by a key in .github/allowed_signers before anything is published", func() {
+		signers := readRepoFile(filepath.Join(".github", "allowed_signers"))
+		lines := 0
+		for _, l := range strings.Split(signers, "\n") {
+			if l = strings.TrimSpace(l); l == "" || strings.HasPrefix(l, "#") {
+				continue
+			}
+			lines++
+			Expect(l).To(MatchRegexp(`^\S+@\S+ namespaces="git" (ssh-ed25519|ecdsa-sha2-\S+|sk-\S+|ssh-rsa) [A-Za-z0-9+/=]+$`),
+				"allowed_signers line is not `<principal> namespaces=\"git\" <keytype> <base64>`: %q", l)
+		}
+		Expect(lines).To(BeNumerically(">", 0), ".github/allowed_signers lists no key")
+
+		rel := loadWorkflow("release.yml")
+		verify := rel.Jobs["verify"]
+		idx := findStep(verify.Steps, func(s workflowStep) bool {
+			return strings.Contains(s.Run, "git verify-tag") && strings.Contains(s.Run, "gpg.ssh.allowedSignersFile")
+		})
+		Expect(idx).To(BeNumerically(">=", 0), "the verify job must run `git verify-tag` against allowed_signers")
+		Expect(verify.Steps[idx].Run).To(ContainSubstring(".github/allowed_signers"))
+		// The release job needs verify, so a failure here publishes nothing.
+		Expect(needsList(rel.Jobs["release"].Needs)).To(ContainElement("verify"))
+	})
+
+	It("attests the chart, and pushes image provenance and an SBOM to the registry", func() {
+		rel := loadWorkflow("release.yml")
+
+		release := rel.Jobs["release"]
+		chartPush := findStep(release.Steps, func(s workflowStep) bool { return strings.Contains(s.Run, "helm push") })
+		Expect(chartPush).To(BeNumerically(">=", 0))
+		Expect(release.Steps[chartPush].Run).To(ContainSubstring(`digest=`),
+			"the chart push step must record the pushed digest for attest-chart")
+
+		pushes := func(s workflowStep) bool { return s.With["push-to-registry"] == true }
+
+		chart, ok := rel.Jobs["attest-chart"]
+		Expect(ok).To(BeTrue(), "release.yml has no attest-chart job")
+		Expect(findStep(chart.Steps, func(s workflowStep) bool {
+			name, ok := s.With["subject-name"].(string)
+			return ok && strings.HasPrefix(s.Uses, "actions/attest-build-provenance@") && pushes(s) &&
+				strings.HasSuffix(name, "/charts/shepherd")
+		})).To(BeNumerically(">=", 0), "attest-chart must attest <registry>/charts/shepherd with push-to-registry")
+
+		images := rel.Jobs["attest-images"]
+		Expect(images.Permissions["packages"]).To(Equal("write"), "push-to-registry needs packages: write")
+		Expect(findStep(images.Steps, func(s workflowStep) bool {
+			return strings.HasPrefix(s.Uses, "actions/attest-build-provenance@") && pushes(s)
+		})).To(BeNumerically(">=", 0), "image provenance must be pushed to the registry")
+		Expect(findStep(images.Steps, func(s workflowStep) bool {
+			return strings.HasPrefix(s.Uses, "actions/attest-sbom@") && pushes(s) && s.With["sbom-path"] != nil
+		})).To(BeNumerically(">=", 0), "each image needs an SBOM attestation pushed to the registry")
+	})
+
+	It("verifies every published artifact from the consumer's side, pinned to this workflow", func() {
+		rel := loadWorkflow("release.yml")
+		v, ok := rel.Jobs["verify-attestations"]
+		Expect(ok).To(BeTrue(), "release.yml has no verify-attestations job")
+		Expect(needsList(v.Needs)).To(ContainElements("release", "attest-images", "attest-chart"))
+		for _, scope := range []string{"contents", "attestations", "packages"} {
+			Expect(v.Permissions[scope]).To(Equal("read"), "verify-attestations must stay read-only (%s)", scope)
+		}
+		joined := joinedRuns(v.Steps)
+		for _, want := range []string{
+			"gh release download", "checksums.txt", "gh attestation verify",
+			"--signer-workflow", ".github/workflows/release.yml", "--source-ref",
+			"--bundle-from-oci", "--predicate-type", "/charts/shepherd",
+		} {
+			Expect(joined).To(ContainSubstring(want))
+		}
 	})
 })
 
