@@ -221,7 +221,7 @@ message AgentConfigFile {
 Mount the generated handler at `POST /collector.v1.CollectorService/{Method}` on the main HTTP server, wrapped in h2c so both HTTP/1.1+JSON and HTTP/2+proto work. Read `local_attributes`, falling back to deprecated `attributes` if `local_attributes` is empty.
 
 **`RegisterCollector`:**
-1. Authenticate via agent token (§7.3). Reject with `connect.CodeUnauthenticated` on failure.
+1. Authenticate via agent token (§7.3) or, when collector OIDC is enabled, an OIDC access token (§7.3b). Reject with `connect.CodeUnauthenticated` on failure.
 2. Require attributes `cluster` and `role` (role ∈ `metrics|logs|singleton|receiver`); reject with `CodeInvalidArgument` listing what's missing.
 3. Upsert `clusters` row by name (org_id NULL if new — "unclaimed").
 4. Upsert logical `collectors` row `(cluster_id, role)`.
@@ -230,9 +230,10 @@ Mount the generated handler at `POST /collector.v1.CollectorService/{Method}` on
 **`GetConfig`:**
 1. Authenticate; resolve instance → logical collector exactly as above (upsert too — a GetConfig from an unknown instance must self-register; agents may restart-loop without re-registering).
 2. Update `last_seen`; if `remote_config_status` is set, persist `status` + `error_message` on the instance row.
-3. If the collector's cluster has no org (unclaimed): return an **empty config** `{content: "", hash: sha256hex(""), not_modified: false}` (or `not_modified: true` if the request hash already equals the empty hash). Never error — an unclaimed collector must keep running its local config undisturbed.
-4. Otherwise assemble the served config via the merge engine (§6). The merge engine returns `(content, hash)` from the serve-cache.
-5. If `request.hash == hash`: return `{not_modified: true, hash: hash}` with empty content. Else return `{content, hash, not_modified: false}`.
+3. Resolve the org the config is served for (`resolveOrg`). For an agent-token caller this is the cluster's claimed org. An OIDC caller may resolve its own org — from an `agent_identities` binding or the token's asserted org — and claims the cluster to it on this call; a cluster, role or org that identity may not serve is refused with `CodePermissionDenied`, deliberately *not* the empty config of step 4 (§7.3b). An OIDC caller with neither a binding nor an asserted org resolves exactly like an agent token.
+4. If the resolved org is null (an unclaimed cluster): return an **empty config** `{content: "", hash: sha256hex(""), not_modified: false}` (or `not_modified: true` if the request hash already equals the empty hash). Never error — an unclaimed collector must keep running its local config undisturbed.
+5. Otherwise assemble the served config via the merge engine (§6). The merge engine returns `(content, hash)` from the serve-cache.
+6. If `request.hash == hash`: return `{not_modified: true, hash: hash}` with empty content. Else return `{content, hash, not_modified: false}`.
 
 **`UnregisterCollector`:** mark the instance row `unregistered_at = now()`. Do not delete.
 
@@ -353,7 +354,7 @@ Every mutating management-API handler writes an `audit_log` row.
 
 ### 6.1 Matchers
 
-A pipeline has a list of matcher strings using **Prometheus Alertmanager matcher syntax**: `cluster="prod-eu-1"`, `role!="logs"`, `cluster=~"prod-.*"`, `env!~"dev.*"`. Parse them with `github.com/prometheus/alertmanager/pkg/labels.ParseMatcher`. All matchers on a pipeline are **ANDed**. They evaluate against the label set of the target logical collector: `{cluster: <cluster name>, role: <role>}` plus, when the owning org has opted in independently to each (`allow_label_matching` / `allow_local_attribute_matching`, procoduck/shepherd#139), the collector's admin-set "Manage labels" and its agent-reported `local_attributes` — precedence `{cluster, role} > adminLabels > localAttrs`, reserved keys (`cluster`, `role`, `id`, `os`, `alloy_version`, `collector.*`, `shepherd.*`) dropped from either source (`internal/merge.IsReserved`). **`local_attributes` is the single most-recently-seen live instance's whole attribute blob, not a true per-key union across every live instance** — a deliberate simplification (LABEL-MATCHING-PLAN.md §5, decided 2026-09-18): a collector with more than one genuinely concurrent live instance (an HA pair, or briefly during a rolling upgrade) reporting different keys can see served config flap depending on poll timing. A pipeline with zero matchers matches **nothing** (safety default — the UI must always require at least one matcher).
+A pipeline has a list of matcher strings using **Prometheus Alertmanager matcher syntax**: `cluster="prod-eu-1"`, `role!="logs"`, `cluster=~"prod-.*"`, `env!~"dev.*"`. Parse them with `github.com/prometheus/alertmanager/pkg/labels.ParseMatcher`. All matchers on a pipeline are **ANDed**. They evaluate against the label set of the target logical collector: `{cluster: <cluster name>, role: <role>}` plus, when the owning org has opted in independently to each (`allow_label_matching` / `allow_local_attribute_matching`, procoduck/shepherd#139), the collector's admin-set "Manage labels" and its agent-reported `local_attributes` — precedence `{cluster, role} > adminLabels > localAttrs`, reserved keys (`cluster`, `role`, `id`, `os`, `alloy_version`, `collector.*`, `shepherd.*`) dropped from either source (`internal/merge.IsReserved`). **`local_attributes` is the single most-recently-seen live instance's whole attribute blob, not a true per-key union across every live instance** — a deliberate simplification (LABEL-MATCHING-PLAN.md §5, decided 2026-09-18): a collector with more than one genuinely concurrent live instance (an HA pair, or briefly during a rolling upgrade) reporting different keys can see served config flap depending on poll timing. **The two recompute paths (§6.3) read `local_attributes` from different places, deliberately:** the lazy recompute inside `GetConfig` matches on the *current request's* `local_attributes` (`recomputeServeCache`, `internal/agentapi/service.go`), because that poll's own `collector_instances` write may not have committed yet and a re-read would match on the previous heartbeat; the eager recompute from `mgmtapi` has no request to read and uses the latest stored instance row (`localAttrsByOrg`, `internal/mgmtapi/helpers.go`). When an agent's attributes have just changed the two can briefly disagree; they converge on the collector's next poll. A pipeline with zero matchers matches **nothing** (safety default — the UI must always require at least one matcher).
 
 Pipelines with `source='git'` skip matching: they apply to exactly their `repo_link.collector_id`.
 
@@ -382,7 +383,7 @@ hash := hex(sha256(content))
 
 ### 6.3 Serve cache & invalidation
 
-`GetConfig` reads from `serve_cache`. A row is recomputed (and re-validated at stage 3, §8) when `dirty = true`, missing, or its `format` is older than the binary's `serve.Format` (migration 0033; a dirty mark resets `format` to 0, so a recompute by a binary that does not set it never reads as current). Mark dirty for all potentially affected collectors whenever: a pipeline is created/updated/deleted/toggled (dirty every collector in the org — cheap and correct), a git sync changes files (dirty that collector), a cluster is claimed/unclaimed, or a matcher-relevant attribute changes on registration. Recomputation happens lazily inside `GetConfig` with a per-collector `singleflight` guard, and eagerly from `mgmtapi` after every write. Both paths read the row's `dirty_seq` **before** loading pipelines and write with a compare-and-swap on it (every mark bumps the generation), so a recompute that raced a newer mark writes nothing and the recompute that observed the newer generation wins — stale content can never clear a newer dirty flag (migration 0020). If recomputation fails validation, KEEP the previous cache entry, log an error, and record the failure in `audit_log` — never serve a broken config and never serve empty because of a merge bug.
+`GetConfig` reads from `serve_cache`. A row is recomputed (and re-validated at stage 3, §8) when `dirty = true`, missing, or its `format` is older than the binary's `serve.Format` (migration 0033; a dirty mark resets `format` to 0, so a recompute by a binary that does not set it never reads as current). Mark dirty for all potentially affected collectors whenever: a pipeline is created/updated/deleted/toggled (dirty every collector in the org — cheap and correct), a git sync changes files (dirty that collector), a cluster is claimed/unclaimed, or a matcher-relevant attribute changes on registration. Recomputation happens lazily inside `GetConfig` with a per-collector `singleflight` guard, and eagerly from `mgmtapi` after every write (the lazy path matches on the polling request's own `local_attributes`, the eager path on the last stored ones — §6.1). Both paths read the row's `dirty_seq` **before** loading pipelines and write with a compare-and-swap on it (every mark bumps the generation), so a recompute that raced a newer mark writes nothing and the recompute that observed the newer generation wins — stale content can never clear a newer dirty flag (migration 0020). If recomputation fails validation, KEEP the previous cache entry, log an error, and record the failure in `audit_log` — never serve a broken config and never serve empty because of a merge bug.
 
 ---
 
@@ -445,7 +446,8 @@ The resulting roles are the same either way:
 
 - **App Admin**: any group in `auth.app_admin_group_ids`, or a local user with
   `is_app_admin`. Can do everything, everywhere: CRUD orgs, claim/unclaim
-  clusters into orgs, CRUD group assignments, CRUD agent tokens, CRUD local
+  clusters into orgs (the only human who can; a collector OIDC identity may
+  also claim its own cluster, §7.3b), CRUD group assignments, CRUD agent tokens, CRUD local
   users, view all.
 - **Org Admin** of org O: member of `O.admin_group_id`, or `org_members.role =
   'admin'` for O. Full CRUD within O: pipelines, destinations, git
@@ -461,7 +463,14 @@ The resulting roles are the same either way:
 - **Viewer** (formerly *Reader*): for any collector C, a user can *view* C (and
   the pipelines/served config affecting C) if they are a member of any group in
   `group_assignments` for C, or of the org's `reader_group_id`, or
-  `org_members.role = 'viewer'`, or holds a higher role. Viewers create nothing.
+  `org_members.role = 'viewer'`, or holds a higher role. A viewer writes
+  nothing org-wide — no destination, route, wizard or unowned pipeline — with
+  one exception, **team-scoped pipeline write** (G11, `auth.AuthorizeOwnership`):
+  a member of a team of O may create a pipeline owned by that team, and
+  update, enable, disable, restore a revision of, detach from its wizard,
+  delete, or open in the visual builder a pipeline that team owns. Never an
+  unowned pipeline or another team's, and never its ownership —
+  `SetPipelineOwner` is org admin (§12).
   The column is still `reader_group_id` — renaming it would break every chart
   and secret already deployed — but the role reports as `viewer`. A local user
   who is only a team member (no `org_members` row at all) still clears this
@@ -471,13 +480,28 @@ The resulting roles are the same either way:
 
 Authorization is one function, `authorizeOrgAccess(ctx, org, minRole)`, taking
 a **minimum** role rather than a boolean: ranks are admin > editor > viewer, and
-both paths above resolve into that same rank comparison. Middleware helpers
-`RequireAppAdmin` and `RequireOrgAccess(orgIDParam, minRole)` wrap it; every
-handler declares exactly one.
+both paths above resolve into that same rank comparison. It is enforced per
+Connect procedure, not per handler: the interceptor in
+`internal/mgmtapi/rpc_interceptor.go` looks up each procedure's minimum role in
+`procedureRequirements` (§12) and checks it through `auth.Authorize`, failing
+closed for a procedure missing from the table. Pipeline writes then add the
+per-pipeline `auth.AuthorizeOwnership` check above inside the handler.
 
 ### 7.3 Agent tokens (machine auth)
 
-Agents authenticate `collector.v1` calls with HTTP Basic auth: username = token UUID, password = 32-byte random secret (base64url). Store only `sha256(secret)`; compare with `crypto/subtle.ConstantTimeCompare`. App Admin creates/revokes tokens via API/UI; the secret is displayed exactly once. Implement as a Connect request gate (`connect.WithRequestGate`, `internal/agentapi/auth.go`): the decision happens on the headers, before the body is decompressed or decoded, and a refused call is still counted by `telemetry.RequestGate`. (v1 tokens are global-authN only; tenancy comes from cluster claiming.)
+Agents authenticate `collector.v1` calls with HTTP Basic auth: username = token UUID, password = 32-byte random secret (base64url). Store only `sha256(secret)`; compare with `crypto/subtle.ConstantTimeCompare`. App Admin creates/revokes tokens via API/UI; the secret is displayed exactly once. Implement as a Connect request gate (`connect.WithRequestGate`, `internal/agentapi/auth.go`): the decision happens on the headers, before the body is decompressed or decoded, and a refused call is still counted by `telemetry.RequestGate`. (Agent tokens are global-authN only; a token-authenticated collector's tenancy comes from cluster claiming alone. A collector authenticating with OIDC may instead resolve its own org — §7.3b.)
+
+### 7.3b Collector OIDC (machine auth for `collector.v1`)
+
+An alternative to the agent token, off by default (v0.8.0; `config.oidc.agent_audience` is the master switch). A collector presents `Authorization: Bearer <access token>` from the same issuer as user SSO — Alloy's `remotecfg` `oauth2` block fetches it natively — and the same request gate verifies it: signature and issuer, `aud` equal to `agent_audience`, and, when configured, the grant gate (`agent_required_role` in `agent_roles_claim`, or `agent_required_scope`). A Bearer header while collector OIDC is off is `Unauthenticated`. The calling client is identified by `(iss, <agent_app_claim>)`, default claim `sub`.
+
+Org resolution (`resolveOrg`, `internal/agentapi/service.go`), first match wins:
+
+1. **Binding** — an `agent_identities` row on `(issuer, app id)` (migration 0021; `shepherd agent-identity create` or Admin → Single sign-on). The cluster must be in the binding's cluster allowlist and the collector's role in its role allowlist; an empty or absent list means any (`resolveBoundOrg`). The cluster is then claimed to the binding's org if unclaimed, or confirmed if it is already that org's.
+2. **Asserted org (mode 2, v0.9.0)** — no binding, but the deployment trusts the issuer's org assignment and the token names an org: `agent_trust_org_claim` (a claim holding the org's name) or `agent_org_role_prefix` (the role `shepherd-org:platform-eng` names org `platform-eng`; a token whose roles name more than one org asserts none). Both keys are empty by default. The name is resolved to an org; if the token carries the `agent_clusters_claim` claim, the cluster must be listed in it. This path has no role allowlist — the identity may serve any role. The cluster is claimed exactly as for a binding (`resolveClaimOrg`).
+3. **Neither** — OIDC proved liveness only; the org comes from the admin cluster claim, the same as an agent token, and an unclaimed cluster is served empty (§4.1).
+
+A disallowed claim returns `PermissionDenied`, not the empty config §4.1 promises an unclaimed cluster: a cluster or role outside a binding's allowlists, a cluster outside the token's clusters claim, an asserted org that does not exist, or a cluster already claimed by another org — a token can never take over another org's cluster by naming it. This is deliberate. An unclaimed cluster is a normal state in which the collector must keep running its local config; a wrongly bound or wrongly asserted identity is a misconfiguration, and it must fail loudly in the collector's logs rather than quietly serve nothing.
 
 ### 7.3a Service accounts (machine callers of the management API)
 
