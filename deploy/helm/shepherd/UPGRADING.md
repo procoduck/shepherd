@@ -1,5 +1,84 @@
 # Upgrading the Shepherd chart
 
+## 0.22.x → 0.23.0
+
+First published as the release candidate **0.23.0-rc.1** (Shepherd v0.19.0-rc.1); install it
+with `--version 0.23.0-rc.1`, or `--devel`. Everything below applies to the rc and to 0.23.0.
+
+An ordinary `helm upgrade` with three migrations, one recompute per collector, a short burst of
+collector errors during the rollout, and a management-API break. Update API scripts first.
+
+### Migrations 0035–0037
+
+The migration Job (a `pre-upgrade` hook, on by default) applies them before the new pods start;
+if you turned it off, run `shepherd migrate up` yourself first. All three are quick:
+
+- `0035` adds `serve_cache.last_failed_seq` (default `-1`), which lets a failed recompute be
+  audited once per collector and generation.
+- `0036` changes `collector_instances`' primary key from `(id)` to `(collector_id, id)` and adds
+  an index on `id`. Existing rows are already one per id, so this only swaps the constraint.
+  **Its down migration is lossy**: per instance id it keeps only the most recently seen row.
+- `0037` renames `orgs.reader_group_id` to `viewer_group_id`.
+
+### Collector errors during the rollout
+
+Pods still on the old image write collector instances with `ON CONFLICT (id)`, which Postgres
+rejects once `0036` has run. Until every pod runs the new image, `GetConfig` and
+`RegisterCollector` calls that reach an old pod answer `Internal`. Alloy keeps its last loaded
+config and retries, so nothing changes on the collectors, but expect a burst of agent-RPC errors
+(and alerts on them) until the rollout finishes. Finish it promptly.
+
+### One recompute per collector (serve format 3)
+
+The new pods compute serve format 3 and recompute every cached config once, on its collector's
+next poll. With the beacon enabled (the default) the bytes are unchanged, so collectors get
+`NotModified` and do not reload. With `config.server.beacon_disabled: true`, a collector whose
+config was last written by an eager recompute loses a beacon `remote_write` block that pointed at
+an endpoint the server does not mount, and **reloads once**; after that its config no longer
+changes depending on which path computed it.
+
+### Management API: roles are enums, `viewer_group_id`
+
+Scripts and service-account clients that call the management API must be updated **before** the
+upgrade:
+
+- Roles (`OrgMember`, `SetOrgMember`, GetMe memberships, service accounts) are
+  `ROLE_VIEWER` / `ROLE_EDITOR` / `ROLE_ADMIN`; the strings `"viewer"` / `"editor"` /
+  `"admin"` are read as unspecified, and a write carrying one is refused.
+- `CreateServiceAccount` requires `role`; it no longer defaults to editor.
+- `Org.reader_group_id` is `viewer_group_id` (JSON `viewerGroupId`). **A JSON client that still
+  sends `readerGroupId` to `UpdateOrg` clears the org's viewer group**, because the unknown field
+  is ignored and `UpdateOrg` replaces every field. Access is removed, never granted. Reload any
+  browser tab left open across the upgrade before editing an org.
+- Tenant routes report `status` / `apply_status` as `TENANT_ROUTE_STATUS_*` /
+  `TENANT_ROUTE_APPLY_STATUS_*`.
+
+### Collector request limits
+
+Collector RPCs refuse an empty instance id, or an id or `cluster` longer than 256 bytes
+(`InvalidArgument`), and a request message over 8 MiB (`ResourceExhausted`). Alloy's default id
+is a UUID and a hostname is at most 253 bytes, so this only matters if you set long custom ids
+or cluster names.
+
+### Git sync applies a commit whole or not at all
+
+A commit with one failing file now applies nothing (before, the files that passed synced); the
+link shows `error` naming the failing files and the collector keeps serving the previous commit.
+A commit held back by the prune guard applies nothing either, including updates to existing
+files. Nothing to do; fix or revert the failing file and the next poll applies the commit.
+
+### `config.validate.stage3_timeout`
+
+New in `values.yaml` with the server's existing default, `"30s"`: the budget for the save-time
+merge validation. Additive; raise it only if saves in a very large org are refused with
+"stage-3 validation budget exceeded".
+
+### Signed releases
+
+From this release, tags are signed and every archive, image (provenance and SBOM) and the chart
+carries attestations in GitHub's store and in the registry. Optional: verify what you pull with
+the commands on the docs' *Verifying releases* page before upgrading.
+
 ## 0.21.x → 0.22.0
 
 An ordinary `helm upgrade`. Migration 0034 adds `repo_links.last_ok_at` (a

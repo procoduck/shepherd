@@ -203,13 +203,34 @@ def chart_version():
 
 
 def app_version():
-    """The released app version, read from the chart so it has one source."""
+    """The released app version, read from the chart so it has one source.
+
+    During a prerelease (an appVersion such as 0.19.0-rc.1) the site, which
+    deploys from main, keeps naming the last stable release instead: it is
+    taken from site/index.html's hand-edited footer pill, which
+    `make check-docs-version` holds to a stable version while Chart.yaml
+    carries a prerelease.
+    """
     path = os.path.join(ROOT, "deploy", "helm", "shepherd", "Chart.yaml")
     with open(path, encoding="utf-8") as fh:
         for line in fh:
             if line.startswith("appVersion:"):
-                return "v" + line.split(":", 1)[1].strip().strip('"')
+                version = line.split(":", 1)[1].strip().strip('"')
+                if "-" not in version:
+                    return "v" + version
+                return stable_site_version()
     raise SystemExit("build-docs: could not read appVersion from Chart.yaml")
+
+
+def stable_site_version():
+    """The last stable version site/index.html's footer pill names."""
+    path = os.path.join(ROOT, "site", "index.html")
+    with open(path, encoding="utf-8") as fh:
+        m = re.search(r'<span class="pill">(v[0-9]+\.[0-9]+\.[0-9]+)</span>', fh.read())
+    if not m:
+        raise SystemExit("build-docs: appVersion is a prerelease but site/index.html's "
+                         "footer pill names no stable vX.Y.Z to fall back to")
+    return m.group(1)
 
 
 def flat_pages():
