@@ -16,7 +16,7 @@
 import { expect } from '@playwright/test';
 import { currentSchemaVersion } from '@/visual/schemaVersion';
 import { basicScenario, pipeline } from '../fixtures/factories';
-import { orgAdmin, orgEditor, reader } from '../fixtures/personas';
+import { orgAdmin, orgEditor, viewer } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
 import { test } from '../fixtures/test';
 
@@ -26,7 +26,7 @@ test('a viewer sees no nav links to Git, Service accounts, Audit or Wizards', as
   page,
   api,
 }) => {
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   const s = basicScenario();
   api.seed({ orgs: [s.org] });
   await page.goto('/');
@@ -66,7 +66,7 @@ for (const route of ['/git', '/service-accounts', '/audit', '/wizards']) {
     page,
     api,
   }) => {
-    await api.loginAs(reader);
+    await api.loginAs(viewer);
     const s = basicScenario();
     api.seed({ orgs: [s.org] });
     await page.goto(route);
@@ -83,7 +83,7 @@ test('a viewer visiting the new visual pipeline URL is told they have no access'
   page,
   api,
 }) => {
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   const s = basicScenario();
   api.seed({ orgs: [s.org], schema: schemaFixture });
   await page.goto('/pipelines/visual/new');
@@ -115,7 +115,7 @@ test("a viewer's visual builder is read-only: no Save, Simulate, palette or name
   page,
   api,
 }) => {
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   const s = basicScenario();
   const visualPipe = {
     ...pipeline({ id: 'pip-view', name: 'viewed', source: 'visual' }),

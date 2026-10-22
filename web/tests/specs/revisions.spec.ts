@@ -1,5 +1,5 @@
 import { basicScenario } from '../fixtures/factories';
-import { appAdmin, reader } from '../fixtures/personas';
+import { appAdmin, viewer } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
 
 test('revision history lists each revision with its author and note', async ({ page, api }) => {
@@ -46,7 +46,7 @@ test('revision history lists each revision with its author and note', async ({ p
 // one (#2) — so the per-row "View diff" wiring (which revision number a
 // given row's click carries via data-revision) is actually exercised
 // instead of trivially satisfied by a single-row history. "diff renders",
-// "restore calls the RPC and refreshes" and "reader sees the diff but no
+// "restore calls the RPC and refreshes" and "viewer sees the diff but no
 // Restore" all use it, always by clicking the row for revision #1
 // specifically. Returns the pipeline id so callers can navigate to it.
 function seedTwoRevisions(
@@ -254,8 +254,8 @@ test('git-sourced warning', async ({ page, api }) => {
   await expect(page.getByTestId('restore-git-warning')).toHaveCount(0);
 });
 
-test('reader sees the diff but no Restore', async ({ page, api }) => {
-  await api.loginAs(reader);
+test('viewer sees the diff but no Restore', async ({ page, api }) => {
+  await api.loginAs(viewer);
   const pipelineId = seedTwoRevisions(api);
   await page.goto(`/pipelines/${pipelineId}`);
 

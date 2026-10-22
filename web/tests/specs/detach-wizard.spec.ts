@@ -1,5 +1,5 @@
 import { basicScenario } from '../fixtures/factories';
-import { orgEditor, reader } from '../fixtures/personas';
+import { orgEditor, viewer } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
 
 // "Detach from wizard" (#262 follow-up): a wizard pipeline whose text was
@@ -48,7 +48,7 @@ test('a viewer sees no Detach action, and a non-wizard pipeline offers none', as
   page,
   api,
 }) => {
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   const s = basicScenario();
   api.seed({ orgs: [s.org], pipelines: s.pipelines });
   const wizardPipeline = s.pipelines.find((p) => p.source === 'wizard');

@@ -28,7 +28,7 @@ test('lists local accounts with their status and org roles', async ({ page, api 
   // The pending-handover state must be visible at a glance: an account whose
   // password was set by someone else is not yet the owner's.
   await expect(page.getByTestId('user-row-alice')).toContainText('must change password');
-  await expect(page.getByTestId('user-row-alice')).toContainText('prod-org · editor');
+  await expect(page.getByTestId('user-row-alice')).toContainText('prod-org · Editor');
 });
 
 test('says federated users are not listed here, rather than showing an empty page', async ({
@@ -105,12 +105,12 @@ test('gives a user a role in an organisation, changes it, and removes it', async
   await page.goto('/admin/users');
 
   await page.getByTestId('user-edit-alice').click();
-  await expect(page.getByTestId('edit-org-role-prod-org')).toHaveValue('editor');
+  await expect(page.getByTestId('edit-org-role-prod-org')).toHaveValue('EDITOR');
 
-  await page.getByTestId('edit-org-role-prod-org').selectOption('viewer');
+  await page.getByTestId('edit-org-role-prod-org').selectOption({ label: 'Viewer' });
   // The modal shows the live membership, so the change is visible without
   // closing and reopening it.
-  await expect(page.getByTestId('edit-org-role-prod-org')).toHaveValue('viewer');
+  await expect(page.getByTestId('edit-org-role-prod-org')).toHaveValue('VIEWER');
 
   await page.getByTestId('edit-org-remove-prod-org').click();
   await expect(page.getByTestId('edit-orgs-empty')).toBeVisible();
@@ -156,6 +156,6 @@ test('adding a user to an organisation defaults to the least-privileged role', a
   });
   await page.goto('/admin/users');
   await page.getByTestId('user-edit-alice').click();
-  await expect(page.getByLabel('Role in the organisation to add')).toHaveValue('viewer');
+  await expect(page.getByLabel('Role in the organisation to add')).toHaveValue('VIEWER');
   await expect(page.getByLabel('Organisation to add', { exact: true })).toBeVisible();
 });

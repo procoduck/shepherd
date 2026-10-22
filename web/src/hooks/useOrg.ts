@@ -1,12 +1,13 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import { Role, roleAtLeast } from '@/lib/roles';
 import { useMe } from './useMe';
 
 export interface OrgSummary {
   id: string;
   name: string;
   displayName: string;
-  role: string;
+  role: Role;
   // allowExperimentalComponents mirrors the org setting (#114): whether the
   // visual builder may offer experimental Alloy components. The server render
   // gate is authoritative regardless.
@@ -133,7 +134,7 @@ export function useOrgId(): string {
  * the visual builder, simulations — in the selected org.
  *
  * Admin OR editor, because that is what the server enforces: the pipeline write
- * procedures sit at org-reader in rpc_interceptor.go and defer to
+ * procedures sit at the org viewer floor in rpc_interceptor.go and defer to
  * auth.AuthorizeOwnership, whose rule is "editor or above writes anything in
  * its org". An earlier version of this checked for admin alone and claimed to
  * mirror the server; it did not, and it made the entire editor role unusable
@@ -146,15 +147,12 @@ export function useOrgId(): string {
  * pipeline's own `canEdit` instead (Pipeline.can_edit, F3: the server's
  * ownership check). This role-only answer is for what no pipeline decides
  * yet: creating one, the wizards, and the visual builder, whose render and
- * simulate calls are org-editor on the server.
+ * simulate calls need org editor on the server.
  */
 export function useCanWrite(): boolean {
   const { data: me } = useMe();
   const { orgId, orgs } = useOrg();
-  return (
-    !!me?.isAppAdmin ||
-    orgs.some((o) => o.id === orgId && (o.role === 'admin' || o.role === 'editor'))
-  );
+  return !!me?.isAppAdmin || orgs.some((o) => o.id === orgId && roleAtLeast(o.role, Role.EDITOR));
 }
 
 /**
@@ -165,5 +163,5 @@ export function useCanWrite(): boolean {
 export function useCanAdminister(): boolean {
   const { data: me } = useMe();
   const { orgId, orgs } = useOrg();
-  return !!me?.isAppAdmin || orgs.some((o) => o.id === orgId && o.role === 'admin');
+  return !!me?.isAppAdmin || orgs.some((o) => o.id === orgId && o.role === Role.ADMIN);
 }

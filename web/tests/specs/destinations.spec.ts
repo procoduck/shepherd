@@ -1,5 +1,5 @@
 import { basicScenario, destination } from '../fixtures/factories';
-import { appAdmin, orgAdmin, orgEditor, reader } from '../fixtures/personas';
+import { appAdmin, orgAdmin, orgEditor, viewer } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
 
 /*
@@ -85,7 +85,7 @@ test('the traces destination option submits the otlp type the schema admits', as
 // authenticated org member reaches it — but write access is gated by
 // useCanAdminister (appAdmin or org role "admin"), so an org admin sees
 // the same write affordance an app admin does, while an editor and a
-// reader see the list but not the button (W7-08: real, positive coverage
+// viewer see the list but not the button (W7-08: real, positive coverage
 // for the roles this route actually ships, not just appAdmin).
 test('an org admin, not just an app admin, can create a destination', async ({ page, api }) => {
   await api.loginAs(orgAdmin);
@@ -95,11 +95,11 @@ test('an org admin, not just an app admin, can create a destination', async ({ p
 
   await expect(page.getByRole('button', { name: /new|create|add destination/i })).toBeVisible();
   await page.getByRole('button', { name: /new|create|add destination/i }).click();
-  await page.getByLabel(/name/i).fill('org-admin-destination');
-  await page.getByLabel(/url/i).fill('https://org-admin.example.com');
+  await page.getByLabel(/name/i).fill('org admin-destination');
+  await page.getByLabel(/url/i).fill('https://org admin.example.com');
   await page.getByRole('button', { name: /save|create/i }).click();
 
-  await expect(page.getByText('org-admin-destination')).toBeVisible();
+  await expect(page.getByText('org admin-destination')).toBeVisible();
 });
 
 test('orgEditor sees the destinations list but not the New destination button', async ({
@@ -119,11 +119,11 @@ test('orgEditor sees the destinations list but not the New destination button', 
   await expect(page.getByRole('button', { name: /^Edit / })).toHaveCount(0);
 });
 
-test('reader sees the destinations list but not the New destination button', async ({
+test('viewer sees the destinations list but not the New destination button', async ({
   page,
   api,
 }) => {
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   const s = basicScenario();
   api.seed({ orgs: [s.org], destinations: s.destinations });
   await page.goto('/destinations');
@@ -378,7 +378,7 @@ test('deleting a destination a wizard pipeline uses says it cannot be deleted an
 // wizards they run ship to these destinations. The page says who manages them.
 for (const [label, persona] of [
   ['an editor', orgEditor],
-  ['a viewer', reader],
+  ['a viewer', viewer],
 ] as const) {
   test(`${label} is told who manages destinations and offered no create link`, async ({
     page,

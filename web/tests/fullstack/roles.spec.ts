@@ -17,7 +17,7 @@
  *     editor/viewer do not exist yet and POST /api/auth/local/login for
  *     either returns 401 — loginAs's own error path, proving these tests
  *     exercise a real account rather than an always-succeeding stub.
- *   - Control-level: temporarily drop the `|| o.role === 'editor'` clause
+ *   - Control-level: temporarily raise useCanWrite's floor to Role.ADMIN
  *     from useCanWrite in web/src/hooks/useOrg.ts, rebuild shepherd:local,
  *     restart the dev stack's shepherd container. The editor-affordance case
  *     below fails (no pipeline-new testid — editor now reads as a viewer).
@@ -58,7 +58,7 @@ test.describe('roles: editor', () => {
 
     await page.goto('/pipelines');
     await page.waitForLoadState('networkidle');
-    // Editor is org-editor on platform-org (useCanWrite: admin OR editor) —
+    // Editor is org editor on platform-org (useCanWrite: admin OR editor) —
     // the write affordance must be visible, not just present in the DOM.
     await expect(page.getByTestId('pipeline-new')).toBeVisible();
 

@@ -24,7 +24,7 @@ const emptyCreateForm = {
   displayName: '',
   adminGroupId: '',
   editorGroupId: '',
-  readerGroupId: '',
+  viewerGroupId: '',
   tenantId: '',
 };
 
@@ -96,7 +96,7 @@ export function AdminOrgsPage() {
     displayName: '',
     adminGroupId: '',
     editorGroupId: '',
-    readerGroupId: '',
+    viewerGroupId: '',
     allowExperimentalComponents: false,
     // UpdateOrg replaces every field from the request, so both matching
     // flags must always be sent — omitting one would reset it to false.
@@ -200,7 +200,7 @@ export function AdminOrgsPage() {
       displayName: o.displayName,
       adminGroupId: o.adminGroupId,
       editorGroupId: o.editorGroupId,
-      readerGroupId: o.readerGroupId,
+      viewerGroupId: o.viewerGroupId,
       allowExperimentalComponents: o.allowExperimentalComponents,
       allowLabelMatching: o.allowLabelMatching,
       allowLocalAttributeMatching: o.allowLocalAttributeMatching,
@@ -294,8 +294,8 @@ export function AdminOrgsPage() {
             </Field>
             <Field label='Viewer group ID' optional>
               <Input
-                value={createForm.readerGroupId}
-                onChange={(e) => editCreate((f) => ({ ...f, readerGroupId: e.target.value }))}
+                value={createForm.viewerGroupId}
+                onChange={(e) => editCreate((f) => ({ ...f, viewerGroupId: e.target.value }))}
                 mono
                 placeholder='platform-viewers'
               />
@@ -390,8 +390,8 @@ export function AdminOrgsPage() {
             </Field>
             <Field label='Viewer group ID' optional>
               <Input
-                value={editForm.readerGroupId}
-                onChange={(e) => editEdit((f) => ({ ...f, readerGroupId: e.target.value }))}
+                value={editForm.viewerGroupId}
+                onChange={(e) => editEdit((f) => ({ ...f, viewerGroupId: e.target.value }))}
                 mono
               />
             </Field>

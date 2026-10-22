@@ -11,7 +11,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, type Page } from '@playwright/test';
 import { basicScenario } from '../fixtures/factories';
-import { type MeResponse, orgEditor, reader } from '../fixtures/personas';
+import { type MeResponse, orgEditor, viewer } from '../fixtures/personas';
 import { shippedSchema } from '../fixtures/schema-fixture';
 import { type ApiFixture, test } from '../fixtures/test';
 
@@ -40,7 +40,7 @@ const group = (label: string) => {
 };
 const childrenOf = (id: string) => metrics.graph.nodes.filter((n) => n.parent === id);
 
-async function open(page: Page, api: ApiFixture, persona: MeResponse = reader) {
+async function open(page: Page, api: ApiFixture, persona: MeResponse = viewer) {
   await api.loginAs(persona);
   const s = basicScenario();
   api.seed({
@@ -210,7 +210,7 @@ test('marks module instances as instances, keeping "not mapped" for real unmappe
     position: { x: 0, y: 0 },
     props: { $raw: 'tracing {\n\tsampling_fraction = 0.1\n}' },
   };
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   const s = basicScenario();
   api.seed({
     orgs: [s.org],
@@ -360,7 +360,7 @@ test('loads the layout engine on the graph route only', async ({ page, api }) =>
   page.on('request', (r) => {
     if (/elk/i.test(r.url())) elk.push(r.url());
   });
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   const s = basicScenario();
   api.seed({
     orgs: [s.org],

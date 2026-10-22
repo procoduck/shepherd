@@ -11,7 +11,7 @@
  * authors what the org RUNS, and cannot change what the org IS.
  */
 import { basicScenario } from '../fixtures/factories';
-import { localAdmin, orgAdmin, orgEditor, reader } from '../fixtures/personas';
+import { localAdmin, orgAdmin, orgEditor, viewer } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
 
 test('an editor can author pipelines', async ({ page, api }) => {
@@ -46,7 +46,7 @@ test('an editor cannot change where telemetry ships', async ({ page, api }) => {
 
 test('a viewer still gets a read-only pipelines page', async ({ page, api }) => {
   // The control: widening write access to editors must not widen it to viewers.
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   const s = basicScenario();
   api.seed({ orgs: [s.org], pipelines: s.pipelines });
   await page.goto('/pipelines');
@@ -55,11 +55,11 @@ test('a viewer still gets a read-only pipelines page', async ({ page, api }) => 
   await expect(page.getByTestId('pipeline-visual-builder')).toHaveCount(0);
 });
 
-test('a reader cannot change where telemetry ships either', async ({ page, api }) => {
+test('a viewer cannot change where telemetry ships either', async ({ page, api }) => {
   // The same control as "an editor cannot change where telemetry ships",
   // one rung down: destinations are gated by useCanAdminister (org admin or
-  // app admin), which a reader clears no more than an editor does.
-  await api.loginAs(reader);
+  // app admin), which a viewer clears no more than an editor does.
+  await api.loginAs(viewer);
   await page.goto('/destinations');
   await expect(page.getByRole('button', { name: /new destination/i })).toHaveCount(0);
 });

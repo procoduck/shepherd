@@ -2,20 +2,24 @@
 // The protected-routes spec imports this to build its test matrix.
 // Every route MUST have a tag. Missing tags fail the spec's completeness guard.
 
+import { Role, roleAtLeast } from '@/lib/roles';
+
 /**
  * Client-side role floor for a route, mirroring
  * internal/mgmtapi/rpc_interceptor.go's per-procedure requirement for the
  * route's primary read RPC:
  *   - 'app-admin' — admin/*  (AdminService, UserService: app admin only)
- *   - 'org-admin' — /git, /audit (GitOpsService, AuditService)
- *   - 'org-editor' — /wizards, /wizards/$kind, /pipelines/new,
+ *   - Role.ADMIN — /git, /audit (GitOpsService, AuditService)
+ *   - Role.EDITOR — /wizards, /wizards/$kind, /pipelines/new,
  *     /pipelines/visual/new (WizardService, and pipeline authoring)
- *   - 'org-reader' — every other org-scoped page that has no elevated
+ *   - Role.VIEWER — every other org-scoped page that has no elevated
  *     requirement of its own (e.g. /teams — TeamService.ListTeams)
- * The server remains the actual enforcement (RequireRole exists only so a
- * denied direct navigation never mounts the page and fires its RPC).
+ * An org floor is a Role in the org the page is for; an app admin clears
+ * every floor. The server remains the actual enforcement (RequireRole exists
+ * only so a denied direct navigation never mounts the page and fires its RPC).
  */
-export type RequiredRole = 'app-admin' | 'org-admin' | 'org-editor' | 'org-reader';
+export type OrgFloor = Role.VIEWER | Role.EDITOR | Role.ADMIN;
+export type RequiredRole = 'app-admin' | OrgFloor;
 
 export interface RouteEntry {
   path: string;
@@ -53,7 +57,7 @@ export const routeManifest: RouteEntry[] = [
   {
     path: '/pipelines/new',
     tag: 'protected',
-    requiredRole: 'org-editor',
+    requiredRole: Role.EDITOR,
     label: 'New pipeline',
   },
   { path: '/pipelines/$id', tag: 'protected', label: 'Pipeline' },
@@ -67,28 +71,28 @@ export const routeManifest: RouteEntry[] = [
     path: '/teams',
     tag: 'protected',
     distinctLocator: 'text=Teams',
-    requiredRole: 'org-reader',
+    requiredRole: Role.VIEWER,
     label: 'Teams',
   },
   {
     path: '/tenant-routes',
     tag: 'protected',
     distinctLocator: 'text=Tenant routes',
-    requiredRole: 'org-reader',
+    requiredRole: Role.VIEWER,
     label: 'Tenant routes',
   },
   {
     path: '/service-accounts',
     tag: 'protected',
     distinctLocator: 'text=Service accounts',
-    requiredRole: 'org-admin',
+    requiredRole: Role.ADMIN,
     label: 'Service accounts',
   },
   {
     path: '/git',
     tag: 'protected',
     distinctLocator: 'text=Git sync',
-    requiredRole: 'org-admin',
+    requiredRole: Role.ADMIN,
     label: 'Git sync',
   },
   // Full-bleed canvas routes. They bypass contentRoute (see router.tsx) but are
@@ -100,7 +104,7 @@ export const routeManifest: RouteEntry[] = [
   {
     path: '/pipelines/visual/new',
     tag: 'protected',
-    requiredRole: 'org-editor',
+    requiredRole: Role.EDITOR,
     label: 'Visual builder',
   },
   { path: '/pipelines/$id/visual', tag: 'protected', label: 'Visual builder' },
@@ -109,13 +113,13 @@ export const routeManifest: RouteEntry[] = [
     path: '/wizards',
     tag: 'protected',
     distinctLocator: 'text=Wizards',
-    requiredRole: 'org-editor',
+    requiredRole: Role.EDITOR,
     label: 'Wizards',
   },
   {
     path: '/wizards/$kind',
     tag: 'protected',
-    requiredRole: 'org-editor',
+    requiredRole: Role.EDITOR,
     label: 'Wizard',
   },
   {
@@ -157,7 +161,7 @@ export const routeManifest: RouteEntry[] = [
     path: '/audit',
     tag: 'protected',
     distinctLocator: 'text=Audit log',
-    requiredRole: 'org-admin',
+    requiredRole: Role.ADMIN,
     label: 'Audit log',
   },
 ];
@@ -169,19 +173,8 @@ export const routeManifest: RouteEntry[] = [
  *  proto code or the Playwright fixtures directory. */
 export interface RoleSubject {
   isAppAdmin: boolean;
-  orgs: Array<{ id: string; role: string }>;
+  orgs: Array<{ id: string; role: Role }>;
 }
-
-// org_members.role values (Grafana's naming, per internal/auth/authz.go's
-// localToRequirement) ranked so a floor can be compared numerically. Higher
-// is more capable; org admin satisfies every floor.
-const ORG_ROLE_RANK: Record<string, number> = { admin: 3, editor: 2, viewer: 1 };
-
-const REQUIRED_ORG_ROLE_RANK: Record<'org-admin' | 'org-editor' | 'org-reader', number> = {
-  'org-admin': 3,
-  'org-editor': 2,
-  'org-reader': 1,
-};
 
 /**
  * Whether `me` clears `required` for the org named by `orgId`, mirroring
@@ -201,7 +194,7 @@ export function roleSatisfied(
   if (required === 'app-admin') return false;
   const membership = me.orgs.find((o) => o.id === orgId);
   if (!membership) return false;
-  return (ORG_ROLE_RANK[membership.role] ?? 0) >= REQUIRED_ORG_ROLE_RANK[required];
+  return roleAtLeast(membership.role, required);
 }
 
 /** The requiredRole routeManifest records for exactly `path`, if any. Shell

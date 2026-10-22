@@ -7,20 +7,30 @@ import { clients, toApiError } from '@/api/transport';
 import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
 import { ConnectAppDialog } from '@/components/ConnectAppDialog';
 import { QueryError } from '@/components/QueryError';
-import { ApplyStatus, gatewayLabel } from '@/components/TenantRouteApplyStatus';
+import {
+  ApplyStatus,
+  gatewayLabel,
+  routeStatusLabel,
+  routeStatusTone,
+} from '@/components/TenantRouteApplyStatus';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Field, Input, Select } from '@/components/ui/Field';
 import { Modal, ModalActions } from '@/components/ui/Modal';
 import { toneClass } from '@/components/ui/statusTone';
-import type { TenantRoute } from '@/gen/shepherd/mgmt/v1/tenant_route_pb';
+import { type TenantRoute, TenantRouteStatus } from '@/gen/shepherd/mgmt/v1/tenant_route_pb';
 import { useCanAdminister, useOrgId } from '@/hooks/useOrg';
 import { formError, formErrors } from '@/lib/formError';
 
 // A route's lifecycle state, coloured so "active" reads apart from a route
 // that is mid-rotation or already revoked at a glance.
-function StatusBadge({ status }: { status: string }) {
-  const tone = toneClass(status === 'active' ? 'ok' : status === 'deprecated' ? 'warn' : 'neutral');
-  return <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${tone}`}>{status}</span>;
+function StatusBadge({ status }: { status: TenantRouteStatus }) {
+  return (
+    <span
+      className={`rounded px-1.5 py-0.5 text-xs font-medium ${toneClass(routeStatusTone(status))}`}
+    >
+      {routeStatusLabel(status)}
+    </span>
+  );
 }
 
 function routeColumns(
@@ -51,7 +61,7 @@ function routeColumns(
       header: 'Valid until',
       cellClassName: 'px-4 py-2.5 text-muted',
       render: (r) =>
-        r.validUntil && r.status !== 'revoked' ? (
+        r.validUntil && r.status !== TenantRouteStatus.REVOKED ? (
           timestampDate(r.validUntil).toLocaleString()
         ) : (
           <span className='text-muted-3'>—</span>
@@ -65,7 +75,7 @@ function routeColumns(
         <span className='flex items-center justify-end gap-2'>
           {/* Connecting an app is read-only, so every reader gets it — but
               only for a route whose endpoint works now and will keep working. */}
-          {r.status === 'active' && r.kind === 'otlp' && (
+          {r.status === TenantRouteStatus.ACTIVE && r.kind === 'otlp' && (
             <button
               type='button'
               onClick={() => onConnect(r)}
@@ -77,7 +87,7 @@ function routeColumns(
               <Plug size={14} />
             </button>
           )}
-          {canAdminister && r.status === 'active' && (
+          {canAdminister && r.status === TenantRouteStatus.ACTIVE && (
             <button
               type='button'
               onClick={() => onRotate(r)}
@@ -88,7 +98,7 @@ function routeColumns(
               <RotateCw size={14} />
             </button>
           )}
-          {canAdminister && r.status !== 'revoked' && (
+          {canAdminister && r.status !== TenantRouteStatus.REVOKED && (
             <button
               type='button'
               onClick={() => onRevoke(r)}

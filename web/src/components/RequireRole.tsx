@@ -3,16 +3,27 @@ import { Lock } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useMe } from '@/hooks/useMe';
 import { useOrg } from '@/hooks/useOrg';
+import { Role } from '@/lib/roles';
 import { type RequiredRole, roleSatisfied } from '@/routes/routeManifest';
 
 // What each floor means in words a user recognises — the denial page names the
 // role the page needs rather than an internal requirement id.
-const REQUIRED_ROLE_LABEL: Record<RequiredRole, string> = {
-  'app-admin': 'an application administrator',
-  'org-admin': 'an admin of this organisation',
-  'org-editor': 'an editor or admin of this organisation',
-  'org-reader': 'a member of this organisation',
-};
+function requiredRoleLabel(required: RequiredRole): string {
+  switch (required) {
+    case 'app-admin':
+      return 'an application administrator';
+    case Role.ADMIN:
+      return 'an admin of this organisation';
+    case Role.EDITOR:
+      return 'an editor or admin of this organisation';
+    case Role.VIEWER:
+      return 'a member of this organisation';
+    default: {
+      const unknown: never = required;
+      return unknown;
+    }
+  }
+}
 
 /**
  * Client-side gate for routeManifest's `requiredRole`. The server remains
@@ -52,7 +63,7 @@ export function RequireRole({
           <Lock size={20} className='mx-auto text-muted' aria-hidden='true' />
           <h1 className='text-lg font-semibold'>You don't have access to this page</h1>
           <p className='text-sm text-muted'>
-            This page is only available to {REQUIRED_ROLE_LABEL[requiredRole]}. Ask an administrator
+            This page is only available to {requiredRoleLabel(requiredRole)}. Ask an administrator
             if you need access.
           </p>
           <Link to='/' className='inline-block text-sm text-indigo-400 hover:underline'>

@@ -4,7 +4,12 @@ import { clients, toApiError } from '@/api/transport';
 import { CopyButton } from '@/components/ui/CopyButton';
 import { Field, Input, Select } from '@/components/ui/Field';
 import { Modal } from '@/components/ui/Modal';
-import type { RenderConnectAppResponse, TenantRoute } from '@/gen/shepherd/mgmt/v1/tenant_route_pb';
+import {
+  type RenderConnectAppResponse,
+  type TenantRoute,
+  TenantRouteApplyStatus,
+} from '@/gen/shepherd/mgmt/v1/tenant_route_pb';
+import { applyStatusInfo } from './TenantRouteApplyStatus';
 
 // The artifacts RenderConnectApp returns, in the order a service owner is
 // most likely to want them. Every one is derived server-side from the same
@@ -65,12 +70,12 @@ export function ConnectAppDialog({
   return (
     <Modal title={`Connect an app to /otlp/${route.segment}`} onClose={onClose} size='xl'>
       <div className='space-y-4' data-testid='connect-app'>
-        {route.applyStatus !== 'applied' && (
+        {route.applyStatus !== TenantRouteApplyStatus.APPLIED && (
           <p
             className='rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-400'
             data-testid='connect-app-not-applied'
           >
-            {route.applyStatus === 'not_applicable' ? (
+            {route.applyStatus === TenantRouteApplyStatus.NOT_APPLICABLE ? (
               // #304: no reconciler will apply it — "yet" would promise one.
               <>
                 This route is not applied to the cluster
@@ -79,8 +84,9 @@ export function ConnectAppDialog({
               </>
             ) : (
               <>
-                This route is not applied to the cluster yet ({route.applyStatus || 'pending'}), so
-                telemetry sent to it will not arrive until it is.
+                This route is not applied to the cluster yet (
+                {applyStatusInfo(route.applyStatus).label}), so telemetry sent to it will not arrive
+                until it is.
               </>
             )}
           </p>

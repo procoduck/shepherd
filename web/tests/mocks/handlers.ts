@@ -1,4 +1,6 @@
 import type { Route } from '@playwright/test';
+import { TenantRouteApplyStatus, TenantRouteStatus } from '@/gen/shepherd/mgmt/v1/tenant_route_pb';
+import { Role, roleAtLeast } from '@/lib/roles';
 import { connectError, json, list, type MockState, Router } from './router';
 
 const mockIdCounters: Record<string, number> = {};
@@ -27,6 +29,15 @@ export function resetMockState() {
 // ─────────────────────────────────────────────────────────────────────────
 
 type Obj = Record<string, unknown>;
+// A Role as the SPA sends it (protojson: the enum's name, e.g. "ROLE_EDITOR")
+// or as a fixture holds it (the number). Anything else is UNSPECIFIED.
+function roleFromWire(v: unknown): Role {
+  if (typeof v === 'number') return v in Role ? (v as Role) : Role.UNSPECIFIED;
+  const name = String(v ?? '').replace(/^ROLE_/, '') as keyof typeof Role;
+  const role = Role[name];
+  return typeof role === 'number' ? role : Role.UNSPECIFIED;
+}
+
 const s = (o: Obj, k: string): string => (o[k] as string | undefined) ?? '';
 const n = (o: Obj, k: string): number => (o[k] as number | undefined) ?? 0;
 const b = (o: Obj, k: string): boolean => !!o[k];
@@ -38,7 +49,7 @@ function orgToWire(o: Obj) {
     name: s(o, 'name'),
     displayName: s(o, 'display_name'),
     adminGroupId: s(o, 'admin_group_id'),
-    readerGroupId: s(o, 'reader_group_id'),
+    viewerGroupId: s(o, 'viewer_group_id'),
     tenantId: s(o, 'tenant_id'),
     createdAt: o['created_at'],
     updatedAt: o['updated_at'],
@@ -504,7 +515,9 @@ function defaultUsers() {
       is_app_admin: true,
       must_change_password: false,
       disabled: false,
-      orgs: [{ id: 'org-0001', name: 'prod-org', display_name: 'Production Org', role: 'admin' }],
+      orgs: [
+        { id: 'org-0001', name: 'prod-org', display_name: 'Production Org', role: Role.ADMIN },
+      ],
     },
     {
       id: 'user-2',
@@ -514,7 +527,9 @@ function defaultUsers() {
       is_app_admin: false,
       must_change_password: true,
       disabled: false,
-      orgs: [{ id: 'org-0001', name: 'prod-org', display_name: 'Production Org', role: 'editor' }],
+      orgs: [
+        { id: 'org-0001', name: 'prod-org', display_name: 'Production Org', role: Role.EDITOR },
+      ],
     },
   ];
 }
@@ -645,7 +660,7 @@ export function installDefaultHandlers(router: Router) {
       admin_group_id: (req['adminGroupId'] as string) || '11111111-1111-1111-1111-111111111111',
       name: req['name'],
       display_name: req['displayName'],
-      reader_group_id: req['readerGroupId'],
+      viewer_group_id: req['viewerGroupId'],
       created_at: '2026-08-17T09:00:00Z',
       updated_at: '2026-08-17T09:00:00Z',
     };
@@ -658,7 +673,7 @@ export function installDefaultHandlers(router: Router) {
     if (!o) return connectError(r, 404, 'not_found', 'org not found');
     o['display_name'] = req['displayName'];
     o['admin_group_id'] = req['adminGroupId'];
-    o['reader_group_id'] = req['readerGroupId'];
+    o['viewer_group_id'] = req['viewerGroupId'];
     o['allow_experimental_components'] = req['allowExperimentalComponents'];
     // Full replace, like the real UpdateOrg (internal/mgmtapi/rpc_admin.go):
     // an omitted proto3 bool arrives as false.
@@ -809,17 +824,16 @@ export function installDefaultHandlers(router: Router) {
   // (an editor locked out of pipelines, a viewer shown "Add your first
   // credential") stayed invisible to a green suite.
   //
-  // Ranks mirror the server: admin > editor > viewer.
-  const orgRank = (role: string) => (role === 'admin' ? 3 : role === 'editor' ? 2 : 1);
-  const requireOrgRole = (r: Route, orgId: string, minRole: 'admin' | 'editor' | 'viewer') => {
+  // The ladder mirrors the server: admin > editor > viewer (lib/roles).
+  const requireOrgRole = (r: Route, orgId: string, minRole: Role) => {
     const me = st.me as
-      | { isAppAdmin?: boolean; orgs?: { id: string; role: string }[] }
+      | { isAppAdmin?: boolean; orgs?: { id: string; role: Role }[] }
       | null
       | undefined;
     if (!me) return connectError(r, 401, 'unauthenticated', 'not authenticated');
     if (me.isAppAdmin) return null;
     const membership = (me.orgs ?? []).find((o) => o.id === orgId);
-    if (!membership || orgRank(membership.role) < orgRank(minRole)) {
+    if (!membership || !roleAtLeast(membership.role, minRole)) {
       return connectError(r, 403, 'permission_denied', 'auth: forbidden');
     }
     return null;
@@ -831,14 +845,14 @@ export function installDefaultHandlers(router: Router) {
   // as the server checks ownership against the org named in the request.
   const canEditPipeline = (p: Obj, orgId: unknown): boolean => {
     const me = st.me as
-      | { isAppAdmin?: boolean; orgs?: { id: string; role: string }[] }
+      | { isAppAdmin?: boolean; orgs?: { id: string; role: Role }[] }
       | null
       | undefined;
     if (!me) return false;
     if (me.isAppAdmin) return true;
     const org = s(p, 'org_id') || String(orgId ?? '');
     const membership = (me.orgs ?? []).find((o) => o.id === org);
-    if (membership && orgRank(membership.role) >= orgRank('editor')) return true;
+    if (membership && roleAtLeast(membership.role, Role.EDITOR)) return true;
     const owner = s(p, 'owner_team_id');
     return !!owner && (st.myTeamIds ?? []).includes(owner);
   };
@@ -1012,6 +1026,10 @@ export function installDefaultHandlers(router: Router) {
     const denied = requireAppAdmin(r);
     if (denied) return denied;
     const body = (await r.request().postDataJSON()) as Obj;
+    const role = roleFromWire(body.role);
+    if (role === Role.UNSPECIFIED) {
+      return connectError(r, 400, 'invalid_argument', 'role is required');
+    }
     const users = ((st.users as Obj[]) ?? defaultUsers()).slice();
     const idx = users.findIndex((u) => u.id === body.userId);
     if (idx < 0) return connectError(r, 404, 'not_found', 'no such user');
@@ -1024,13 +1042,13 @@ export function installDefaultHandlers(router: Router) {
       id: body.orgId,
       name: known?.name ?? 'org',
       display_name: known?.display_name ?? known?.name ?? 'Org',
-      role: body.role,
+      role,
     };
     if (existing >= 0) orgs[existing] = row;
     else orgs.push(row);
     users[idx] = { ...users[idx], orgs };
     st.users = users;
-    return json(r, 200, { org_id: body.orgId, user_id: body.userId, role: body.role });
+    return json(r, 200, { org_id: body.orgId, user_id: body.userId, role });
   });
   router.register('POST', '/shepherd.mgmt.v1.UserService/RemoveOrgMember', async (r) => {
     const denied = requireAppAdmin(r);
@@ -1143,7 +1161,7 @@ export function installDefaultHandlers(router: Router) {
   for (const method of ['SetCollectorLabel', 'DeleteCollectorLabel']) {
     router.register('POST', `/shepherd.mgmt.v1.FleetService/${method}`, async (r) => {
       const req = await body(r);
-      const denied = requireOrgRole(r, String(req['orgId'] ?? ''), 'admin');
+      const denied = requireOrgRole(r, String(req['orgId'] ?? ''), Role.ADMIN);
       if (denied) return denied;
       const c = (st.collectors as Obj[]).find((x) => x['id'] === req['collectorId']);
       if (!c) return connectError(r, 404, 'not_found', 'collector not found');
@@ -1157,12 +1175,12 @@ export function installDefaultHandlers(router: Router) {
   router.register('POST', '/shepherd.mgmt.v1.FleetService/ListCollectors', (r) =>
     json(r, 200, list((st.collectors as Obj[]).map(collectorToWire))),
   );
-  // RenderChartValues: org-admin; mirrors the server's cross-org refusal
+  // RenderChartValues: org admin; mirrors the server's cross-org refusal
   // (st.claimedElsewhere lists cluster names another org owns). The YAML
   // bodies are stand-ins; the real rendering is Go's.
   router.register('POST', '/shepherd.mgmt.v1.FleetService/RenderChartValues', async (r) => {
     const req = await body(r);
-    const denied = requireOrgRole(r, String(req['orgId'] ?? ''), 'admin');
+    const denied = requireOrgRole(r, String(req['orgId'] ?? ''), Role.ADMIN);
     if (denied) return denied;
     const cluster = String(req['clusterName'] ?? '');
     if ((st.claimedElsewhere ?? []).includes(cluster)) {
@@ -1271,7 +1289,7 @@ export function installDefaultHandlers(router: Router) {
   });
   router.register('POST', '/shepherd.mgmt.v1.PipelineService/CreatePipeline', async (r) => {
     const pBody = (await r.request().postDataJSON()) as Obj;
-    const pDenied = requireOrgRole(r, String(pBody.orgId ?? ''), 'editor');
+    const pDenied = requireOrgRole(r, String(pBody.orgId ?? ''), Role.EDITOR);
     if (pDenied) return pDenied;
     const req = await body(r);
     const p: Obj = {
@@ -1311,7 +1329,7 @@ export function installDefaultHandlers(router: Router) {
     const req = await body(r);
     const idx = (st.pipelines as Obj[]).findIndex((x) => x['id'] === req['id']);
     if (idx < 0) {
-      const pDenied = requireOrgRole(r, String(req['orgId'] ?? ''), 'editor');
+      const pDenied = requireOrgRole(r, String(req['orgId'] ?? ''), Role.EDITOR);
       if (pDenied) return pDenied;
     }
     if (idx >= 0) {
@@ -1380,7 +1398,7 @@ export function installDefaultHandlers(router: Router) {
     const target = (st.pipelines as Obj[]).find((x) => x['id'] === req['id']);
     const pDenied = target
       ? requirePipelineWrite(r, target, req['orgId'])
-      : requireOrgRole(r, String(req['orgId'] ?? ''), 'editor');
+      : requireOrgRole(r, String(req['orgId'] ?? ''), Role.EDITOR);
     if (pDenied) return pDenied;
     st.pipelines = (st.pipelines as Obj[]).filter((x) => x['id'] !== req['id']);
     return json(r, 200, {});
@@ -1390,7 +1408,7 @@ export function installDefaultHandlers(router: Router) {
     const p = (st.pipelines as Obj[]).find((x) => x['id'] === req['id']);
     const pDenied = p
       ? requirePipelineWrite(r, p, req['orgId'])
-      : requireOrgRole(r, String(req['orgId'] ?? ''), 'editor');
+      : requireOrgRole(r, String(req['orgId'] ?? ''), Role.EDITOR);
     if (pDenied) return pDenied;
     if (p) p['enabled'] = true;
     return json(r, 200, pipelineOut(p ?? {}, req['orgId']));
@@ -1400,7 +1418,7 @@ export function installDefaultHandlers(router: Router) {
     const p = (st.pipelines as Obj[]).find((x) => x['id'] === req['id']);
     const pDenied = p
       ? requirePipelineWrite(r, p, req['orgId'])
-      : requireOrgRole(r, String(req['orgId'] ?? ''), 'editor');
+      : requireOrgRole(r, String(req['orgId'] ?? ''), Role.EDITOR);
     if (pDenied) return pDenied;
     if (p) p['enabled'] = false;
     return json(r, 200, pipelineOut(p ?? {}, req['orgId']));
@@ -1418,7 +1436,7 @@ export function installDefaultHandlers(router: Router) {
     return json(r, 200, list(revisions.map(pipelineRevisionMetaToWire)));
   });
   router.register('POST', '/shepherd.mgmt.v1.PipelineService/GetRevision', async (r) => {
-    // Org-reader on the real server (S2) — no requireOrgRole gate here, same
+    // Org-viewer on the real server (S2) — no requireOrgRole gate here, same
     // as GetPipeline above.
     const req = await body(r);
     const p = (st.pipelines as Obj[]).find((x) => x['id'] === req['id']);
@@ -1432,7 +1450,7 @@ export function installDefaultHandlers(router: Router) {
     const req = await body(r);
     const p = (st.pipelines as Obj[]).find((x) => x['id'] === req['id']);
     if (!p) {
-      const pDenied = requireOrgRole(r, String(req['orgId'] ?? ''), 'editor');
+      const pDenied = requireOrgRole(r, String(req['orgId'] ?? ''), Role.EDITOR);
       return pDenied ?? connectError(r, 404, 'not_found', 'pipeline not found');
     }
     const pDenied = requirePipelineWrite(r, p, req['orgId']);
@@ -1475,7 +1493,7 @@ export function installDefaultHandlers(router: Router) {
   // who owns them. An empty owner_team_id clears the owner.
   router.register('POST', '/shepherd.mgmt.v1.PipelineService/SetPipelineOwner', async (r) => {
     const pBody = (await r.request().postDataJSON()) as Obj;
-    const pDenied = requireOrgRole(r, String(pBody.orgId ?? ''), 'admin');
+    const pDenied = requireOrgRole(r, String(pBody.orgId ?? ''), Role.ADMIN);
     if (pDenied) return pDenied;
     const p = (st.pipelines as Obj[]).find((x) => x['id'] === pBody['id']);
     if (!p) return connectError(r, 404, 'not_found', 'pipeline not found');
@@ -1489,7 +1507,7 @@ export function installDefaultHandlers(router: Router) {
     const req = await body(r);
     const p = (st.pipelines as Obj[]).find((x) => x['id'] === req['id']);
     if (!p) {
-      const pDenied = requireOrgRole(r, String(req['orgId'] ?? ''), 'editor');
+      const pDenied = requireOrgRole(r, String(req['orgId'] ?? ''), Role.EDITOR);
       return pDenied ?? connectError(r, 404, 'not_found', 'pipeline not found');
     }
     const pDenied = requirePipelineWrite(r, p, req['orgId']);
@@ -1521,7 +1539,7 @@ export function installDefaultHandlers(router: Router) {
   );
   router.register('POST', '/shepherd.mgmt.v1.TenantRouteService/CreateTenantRoute', async (r) => {
     const tBody = (await r.request().postDataJSON()) as Obj;
-    const denied = requireOrgRole(r, String(tBody.orgId ?? ''), 'admin');
+    const denied = requireOrgRole(r, String(tBody.orgId ?? ''), Role.ADMIN);
     if (denied) return denied;
     const req = await body(r);
     // A test opts into the "org has no tenant identity" precondition by setting
@@ -1540,8 +1558,8 @@ export function installDefaultHandlers(router: Router) {
       tenant_id: 'tenant-x',
       kind: req['kind'],
       segment: `${req['kind']}-${mockId('seg')}`,
-      status: 'active',
-      apply_status: 'pending',
+      status: TenantRouteStatus.ACTIVE,
+      apply_status: TenantRouteApplyStatus.PENDING,
       gateway_mode: req['gatewayMode'],
       gateway_name: req['gatewayName'] ?? '',
       gateway_namespace: req['gatewayNamespace'] ?? '',
@@ -1553,19 +1571,22 @@ export function installDefaultHandlers(router: Router) {
   });
   router.register('POST', '/shepherd.mgmt.v1.TenantRouteService/RotateTenantRoute', async (r) => {
     const tBody = (await r.request().postDataJSON()) as Obj;
-    const denied = requireOrgRole(r, String(tBody.orgId ?? ''), 'admin');
+    const denied = requireOrgRole(r, String(tBody.orgId ?? ''), Role.ADMIN);
     if (denied) return denied;
     const req = await body(r);
     const idx = (st.tenantRoutes as Obj[]).findIndex((x) => x['id'] === req['id']);
     const old = st.tenantRoutes[idx] as Obj;
-    Object.assign(old, { status: 'deprecated', valid_until: '2026-09-18T09:00:00Z' });
+    Object.assign(old, {
+      status: TenantRouteStatus.DEPRECATED,
+      valid_until: '2026-09-18T09:00:00Z',
+    });
     const active: Obj = {
       ...old,
       id: mockId('tr'),
       segment: `${old['kind']}-${mockId('seg')}`,
-      status: 'active',
+      status: TenantRouteStatus.ACTIVE,
       // A new row: nothing has applied it yet.
-      apply_status: 'pending',
+      apply_status: TenantRouteApplyStatus.PENDING,
       apply_message: '',
       applied_at: undefined,
       valid_until: undefined,
@@ -1609,11 +1630,11 @@ export function installDefaultHandlers(router: Router) {
   });
   router.register('POST', '/shepherd.mgmt.v1.TenantRouteService/RevokeTenantRoute', async (r) => {
     const tBody = (await r.request().postDataJSON()) as Obj;
-    const denied = requireOrgRole(r, String(tBody.orgId ?? ''), 'admin');
+    const denied = requireOrgRole(r, String(tBody.orgId ?? ''), Role.ADMIN);
     if (denied) return denied;
     const req = await body(r);
     const idx = (st.tenantRoutes as Obj[]).findIndex((x) => x['id'] === req['id']);
-    if (idx >= 0) Object.assign(st.tenantRoutes[idx] as Obj, { status: 'revoked' });
+    if (idx >= 0) Object.assign(st.tenantRoutes[idx] as Obj, { status: TenantRouteStatus.REVOKED });
     return json(r, 200, (st.tenantRoutes[idx] as Obj) ?? {});
   });
   router.register('POST', '/shepherd.mgmt.v1.ServiceAccountService/ListServiceAccounts', (r) =>
@@ -1624,11 +1645,14 @@ export function installDefaultHandlers(router: Router) {
     '/shepherd.mgmt.v1.ServiceAccountService/CreateServiceAccount',
     async (r) => {
       const sBody = (await r.request().postDataJSON()) as Obj;
-      const denied = requireOrgRole(r, String(sBody.orgId ?? ''), 'admin');
+      const denied = requireOrgRole(r, String(sBody.orgId ?? ''), Role.ADMIN);
       if (denied) return denied;
       const req = await body(r);
       const id = mockId('sa');
-      const role = String(req['role'] ?? '') || 'editor';
+      const role = roleFromWire(req['role']);
+      if (role !== Role.EDITOR && role !== Role.ADMIN) {
+        return connectError(r, 400, 'invalid_argument', 'role must be ROLE_EDITOR or ROLE_ADMIN');
+      }
       const account: Obj = {
         id,
         org_id: req['orgId'],
@@ -1654,7 +1678,7 @@ export function installDefaultHandlers(router: Router) {
     '/shepherd.mgmt.v1.ServiceAccountService/RevokeServiceAccount',
     async (r) => {
       const sBody = (await r.request().postDataJSON()) as Obj;
-      const denied = requireOrgRole(r, String(sBody.orgId ?? ''), 'admin');
+      const denied = requireOrgRole(r, String(sBody.orgId ?? ''), Role.ADMIN);
       if (denied) return denied;
       const req = await body(r);
       const idx = (st.serviceAccounts as Obj[]).findIndex((x) => x['id'] === req['id']);
@@ -1667,7 +1691,7 @@ export function installDefaultHandlers(router: Router) {
   );
   router.register('POST', '/shepherd.mgmt.v1.DestinationService/CreateDestination', async (r) => {
     const dBody = (await r.request().postDataJSON()) as Obj;
-    const dDenied = requireOrgRole(r, String(dBody.orgId ?? ''), 'admin');
+    const dDenied = requireOrgRole(r, String(dBody.orgId ?? ''), Role.ADMIN);
     if (dDenied) return dDenied;
     const req = await body(r);
     const d: Obj = {
@@ -1694,7 +1718,7 @@ export function installDefaultHandlers(router: Router) {
   });
   router.register('POST', '/shepherd.mgmt.v1.DestinationService/UpdateDestination', async (r) => {
     const dBody = (await r.request().postDataJSON()) as Obj;
-    const dDenied = requireOrgRole(r, String(dBody.orgId ?? ''), 'admin');
+    const dDenied = requireOrgRole(r, String(dBody.orgId ?? ''), Role.ADMIN);
     if (dDenied) return dDenied;
     const req = await body(r);
     const idx = (st.destinations as Obj[]).findIndex((x) => x['id'] === req['id']);
@@ -1755,7 +1779,7 @@ export function installDefaultHandlers(router: Router) {
   });
   router.register('POST', '/shepherd.mgmt.v1.DestinationService/DeleteDestination', async (r) => {
     const dBody = (await r.request().postDataJSON()) as Obj;
-    const dDenied = requireOrgRole(r, String(dBody.orgId ?? ''), 'admin');
+    const dDenied = requireOrgRole(r, String(dBody.orgId ?? ''), Role.ADMIN);
     if (dDenied) return dDenied;
     const req = await body(r);
     st.destinations = (st.destinations as Obj[]).filter((x) => x['id'] !== req['id']);
@@ -1978,7 +2002,7 @@ export function installDefaultHandlers(router: Router) {
   const requireGraphAccess = async (r: Route) => {
     const req = await body(r);
     const pid = String(req['pipelineId'] ?? '');
-    if (!pid) return requireOrgRole(r, String(req['orgId'] ?? ''), 'editor');
+    if (!pid) return requireOrgRole(r, String(req['orgId'] ?? ''), Role.EDITOR);
     const p = (st.pipelines as Obj[]).find((x) => x['id'] === pid);
     if (!p) return connectError(r, 404, 'not_found', 'pipeline not found');
     return requirePipelineWrite(r, p, req['orgId']);
@@ -2187,7 +2211,7 @@ export function installDefaultHandlers(router: Router) {
   // (reset, not clamped, outside (0, 200]), offset resets to 0 when negative.
   router.register('POST', '/shepherd.mgmt.v1.AuditService/ListAudit', async (r) => {
     const auditBody = (await r.request().postDataJSON()) as Obj;
-    const auditDenied = requireOrgRole(r, String(auditBody.orgId ?? ''), 'admin');
+    const auditDenied = requireOrgRole(r, String(auditBody.orgId ?? ''), Role.ADMIN);
     if (auditDenied) return auditDenied;
     const req = await body(r);
     const orgId = req['orgId'] as string | undefined;

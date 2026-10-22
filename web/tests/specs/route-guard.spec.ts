@@ -5,16 +5,16 @@
  * before a denied page ever renders).
  *
  * Contract (mirrors internal/mgmtapi/rpc_interceptor.go):
- *   - admin/* requires app-admin. None of orgAdmin, orgEditor, reader or
+ *   - admin/* requires app-admin. None of orgAdmin, orgEditor, viewer or
  *     nobody carry isAppAdmin, so all four are denied on every admin/*
  *     route below.
- *   - /teams requires 'org-reader' (routeManifest.ts assigns 'app-admin' to
- *     admin/*, 'org-admin' to /git and /audit, 'org-editor' to wizards and
- *     pipeline-create, and 'org-reader' to every other org-scoped route
+ *   - /teams requires 'org-viewer' (routeManifest.ts assigns 'app-admin' to
+ *     admin/*, Role.ADMIN to /git and /audit, Role.EDITOR to wizards and
+ *     pipeline-create, and 'org-viewer' to every other org-scoped route
  *     with no elevated requirement of its own, /teams included — mirroring
  *     TeamServiceListTeamsProcedure's RoleOrgReader in rpc_interceptor.go).
- *     orgAdmin, orgEditor and reader all belong to org-0001 and clear
- *     org-reader; nobody belongs to no org at all and is denied.
+ *     orgAdmin, orgEditor and viewer all belong to org-0001 and clear
+ *     org-viewer; nobody belongs to no org at all and is denied.
  * A denial is a visible [data-testid="route-denied"] page (since #206 shown
  * in place; it used to redirect to '/', which the poll below still accepts),
  * and — the part the marker alone cannot prove — the page's privileged RPC
@@ -26,8 +26,9 @@
  * component, so every persona reached every route and its RPC fired.
  */
 import type { Page } from '@playwright/test';
+import { Role } from '@/lib/roles';
 import { org } from '../fixtures/factories';
-import { nobody, orgAdmin, orgEditor, reader } from '../fixtures/personas';
+import { nobody, orgAdmin, orgEditor, viewer } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
 
 const ORG = org({ id: 'org-0001' });
@@ -111,26 +112,26 @@ test.describe('route-guard: persona x route denial matrix', () => {
     await expectAllowed(page, '/teams');
   });
 
-  test('reader is denied /admin/orgs', async ({ page, api }) => {
-    await api.loginAs(reader);
+  test('viewer is denied /admin/orgs', async ({ page, api }) => {
+    await api.loginAs(viewer);
     api.seed({ orgs: [ORG] });
     await expectDenied(page, api, '/admin/orgs', 'AdminService/ListOrgs');
   });
 
-  test('reader is denied /admin/users', async ({ page, api }) => {
-    await api.loginAs(reader);
+  test('viewer is denied /admin/users', async ({ page, api }) => {
+    await api.loginAs(viewer);
     api.seed({ orgs: [ORG] });
     await expectDenied(page, api, '/admin/users', 'UserService/ListUsers');
   });
 
-  test('reader is denied /admin/auth', async ({ page, api }) => {
-    await api.loginAs(reader);
+  test('viewer is denied /admin/auth', async ({ page, api }) => {
+    await api.loginAs(viewer);
     api.seed({ orgs: [ORG] });
     await expectDenied(page, api, '/admin/auth', 'AdminService/GetOidcSettings');
   });
 
-  test('reader is allowed /teams', async ({ page, api }) => {
-    await api.loginAs(reader);
+  test('viewer is allowed /teams', async ({ page, api }) => {
+    await api.loginAs(viewer);
     api.seed({ orgs: [ORG] });
     await page.goto('/teams');
     await expectAllowed(page, '/teams');

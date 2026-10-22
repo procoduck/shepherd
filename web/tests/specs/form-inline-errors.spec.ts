@@ -11,6 +11,7 @@
  * sentence-cased text appears inside that form, with no toast carrying it.
  */
 import type { Locator, Page } from '@playwright/test';
+import { TenantRouteStatus } from '@/gen/shepherd/mgmt/v1/tenant_route_pb';
 import { basicScenario, collector, destination, org } from '../fixtures/factories';
 import { appAdmin, orgAdmin, orgEditor } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
@@ -138,7 +139,7 @@ test.describe('tenant routes', () => {
           tenant_id: 'tenant-x',
           kind: 'otlp',
           segment: 'otlp-abc123',
-          status: 'active',
+          status: TenantRouteStatus.ACTIVE,
           gateway_mode: 'managed',
           gateway_name: 'gw',
           gateway_namespace: '',

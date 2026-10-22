@@ -15,7 +15,7 @@ import { expect, type Locator, type Page } from '@playwright/test';
 import { currentSchemaVersion } from '@/visual/schemaVersion';
 import { waitForViewportSettled } from '../fixtures/canvas';
 import { basicScenario, pipeline } from '../fixtures/factories';
-import { orgEditor, reader } from '../fixtures/personas';
+import { orgEditor, viewer } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
 import { test } from '../fixtures/test';
 import { toolbarAction } from '../fixtures/toolbar';
@@ -242,7 +242,7 @@ test.describe('toolbar overflow menu at 1024px', () => {
     page,
     api,
   }) => {
-    await api.loginAs(reader);
+    await api.loginAs(viewer);
     await openBuilder(page, api);
     await expect(page.getByTestId('toolbar-read-only')).toBeVisible();
     await expect(page.getByTestId('toolbar-save')).toBeDisabled();
@@ -377,7 +377,7 @@ test.describe('where Save and the wizard land', () => {
     page,
     api,
   }) => {
-    await api.loginAs(reader);
+    await api.loginAs(viewer);
     await openBuilder(page, api);
     await page.goto(`/pipelines/${PIPELINE_ID}`);
     await expect(page.getByTestId('editor-open-visual')).toBeVisible();

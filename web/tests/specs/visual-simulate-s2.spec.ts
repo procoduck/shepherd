@@ -1,4 +1,5 @@
 import { expect } from '@playwright/test';
+import { Role } from '@/lib/roles';
 import { basicScenario, org } from '../fixtures/factories';
 import { appAdmin } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
@@ -152,14 +153,14 @@ test.describe('visual simulate S2 — org selection', () => {
   const orgA = org({ id: 'org-0001', name: 'prod-org', display_name: 'Production Org' });
   const orgB = org({ id: 'org-0002', name: 'data-eng', display_name: 'Data Eng' });
   const twoOrgAdmin = {
-    userOid: 'u-two-org-admin',
+    userOid: 'u-two-org admin',
     email: 'twoorg@example.com',
     displayName: 'Two-Org Admin',
     isAppAdmin: true,
     authMethod: 'oidc',
     orgs: [
-      { id: orgA.id, name: orgA.name, displayName: orgA.display_name, role: 'admin' },
-      { id: orgB.id, name: orgB.name, displayName: orgB.display_name, role: 'admin' },
+      { id: orgA.id, name: orgA.name, displayName: orgA.display_name, role: Role.ADMIN },
+      { id: orgB.id, name: orgB.name, displayName: orgB.display_name, role: Role.ADMIN },
     ],
   };
 

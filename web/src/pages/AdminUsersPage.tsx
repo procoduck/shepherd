@@ -16,6 +16,7 @@ import { toneClass } from '@/components/ui/statusTone';
 import type { User } from '@/gen/shepherd/mgmt/v1/user_pb';
 import { useMe } from '@/hooks/useMe';
 import { formError } from '@/lib/formError';
+import { Role, roleLabel } from '@/lib/roles';
 
 /**
  * Admin → Users.
@@ -58,7 +59,7 @@ function userColumns(
         ) : (
           u.orgs.map((o) => (
             <span key={o.id} className='mr-1 rounded bg-border px-1.5 py-0.5 text-xs'>
-              {o.name} · {o.role}
+              {o.name} · {roleLabel(o.role)}
             </span>
           ))
         ),
@@ -195,8 +196,7 @@ export function AdminUsersPage() {
   // administrative act. Both calls invalidate the user list, which is where
   // the memberships are rendered.
   const setOrgRoleMut = useMutation({
-    mutationFn: (v: { orgId: string; userId: string; role: string }) =>
-      clients.user.setOrgMember(v),
+    mutationFn: (v: { orgId: string; userId: string; role: Role }) => clients.user.setOrgMember(v),
     onSuccess: () => {
       invalidate();
       toast.success('Organisation role updated');

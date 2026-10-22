@@ -11,7 +11,7 @@ const org = {
   name: 'prod-org',
   display_name: 'Production Org',
   admin_group_id: 'admins',
-  reader_group_id: '',
+  viewer_group_id: '',
   created_at: '2026-09-01T09:00:00Z',
   updated_at: '2026-09-01T09:00:00Z',
 };
