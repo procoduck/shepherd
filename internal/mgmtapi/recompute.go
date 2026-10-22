@@ -2,10 +2,13 @@ package mgmtapi
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"shepherd/internal/merge"
 	"shepherd/internal/serve"
+	"shepherd/internal/store/sqlc"
 )
 
 // The eager serve path: after a write changes what an org's collectors are
@@ -16,7 +19,7 @@ import (
 // RecomputeOrgCaches is recomputeOrgCaches for callers outside this package:
 // internal/gitsync runs it after a sync changes the org's git pipelines
 // (server.go wires it with gitsync.WithRecompute), the eager recompute the
-// API's own pipeline and repo-link deletes do.
+// API's own pipeline deletes do.
 func (s *PipelineService) RecomputeOrgCaches(ctx context.Context, orgID pgtype.UUID) {
 	s.recomputeOrgCaches(ctx, orgID)
 }
@@ -33,10 +36,65 @@ func (s *PipelineService) recomputeOrgCaches(ctx context.Context, orgID pgtype.U
 			s.logger.Error("recomputeOrgCaches panicked", "org_id", orgID.String(), "panic", r)
 		}
 	}()
+	in, err := s.loadOrgServeInputs(ctx, orgID)
+	if err != nil {
+		s.logger.Error("recomputeOrgCaches: loading serve inputs failed", "org_id", orgID.String(), "err", err)
+		return
+	}
+	for i := range in.collectors {
+		s.recomputeCollector(ctx, in, in.collectors[i])
+	}
+}
+
+// recomputeCollectorCache is recomputeOrgCaches narrowed to one collector,
+// the eager recompute for a write whose effect is confined to a single
+// collector (DeleteRepoLink: a repo link belongs to exactly one collector).
+// It loads the same org-wide inputs -- the dirty generations read before the
+// pipelines -- and runs the identical per-collector step, so the bytes and
+// hash it stores are the ones recomputeOrgCaches would have stored for that
+// collector. Every other collector's cache row is left untouched.
+func (s *PipelineService) recomputeCollectorCache(ctx context.Context, orgID, collectorID pgtype.UUID) {
+	defer func() {
+		if r := recover(); r != nil {
+			s.logger.Error("recomputeCollectorCache panicked",
+				"org_id", orgID.String(), "collector_id", collectorID.String(), "panic", r)
+		}
+	}()
+	in, err := s.loadOrgServeInputs(ctx, orgID)
+	if err != nil {
+		s.logger.Error("recomputeCollectorCache: loading serve inputs failed",
+			"org_id", orgID.String(), "collector_id", collectorID.String(), "err", err)
+		return
+	}
+	for i := range in.collectors {
+		if in.collectors[i].ID == collectorID {
+			s.recomputeCollector(ctx, in, in.collectors[i])
+			return
+		}
+	}
+	// Gone from the org since the write (deleted, or its cluster released):
+	// this org has nothing to serve it.
+	s.logger.Debug("recomputeCollectorCache: collector not in org",
+		"org_id", orgID.String(), "collector_id", collectorID.String())
+}
+
+// orgServeInputs is what the eager recompute reads once per org and shares
+// across that org's collectors.
+type orgServeInputs struct {
+	orgID              pgtype.UUID
+	collectors         []sqlc.ListCollectorsWithClusterByOrgRow
+	allowLabelMatching bool
+	localAttrs         map[string]map[string]string
+	// expectedSeq is each cache row's dirty generation, read before the
+	// pipelines were loaded; a collector with no row yet has generation 0.
+	expectedSeq map[pgtype.UUID]int64
+	pipelines   []merge.Pipeline
+}
+
+func (s *PipelineService) loadOrgServeInputs(ctx context.Context, orgID pgtype.UUID) (*orgServeInputs, error) {
 	collectors, err := s.store.Queries.ListCollectorsWithClusterByOrg(ctx, orgID)
 	if err != nil {
-		s.logger.Error("recomputeOrgCaches: listing collectors failed", "err", err)
-		return
+		return nil, fmt.Errorf("listing collectors: %w", err)
 	}
 	org, _ := s.store.Queries.GetOrgByID(ctx, orgID) //nolint:errcheck // an org lookup failure degrades to no admin labels below
 	localAttrs := localAttrsByOrg(ctx, s.store.Queries, orgID, org.AllowLocalAttributeMatching)
@@ -49,8 +107,7 @@ func (s *PipelineService) recomputeOrgCaches(ctx context.Context, orgID pgtype.U
 	// no row yet has generation 0.
 	seqRows, err := s.store.Queries.ListServeCacheSeqByOrg(ctx, orgID)
 	if err != nil {
-		s.logger.Error("recomputeOrgCaches: reading cache generations failed", "err", err)
-		return
+		return nil, fmt.Errorf("reading cache generations: %w", err)
 	}
 	expectedSeq := make(map[pgtype.UUID]int64, len(seqRows))
 	for _, r := range seqRows {
@@ -64,57 +121,67 @@ func (s *PipelineService) recomputeOrgCaches(ctx context.Context, orgID pgtype.U
 	// the org's GitOps pipelines silently removed.
 	enabledPipelines, err := s.store.Queries.ListEnabledPipelinesForMerge(ctx, orgID)
 	if err != nil {
-		s.logger.Error("recomputeOrgCaches: listing pipelines failed", "err", err)
+		return nil, fmt.Errorf("listing pipelines: %w", err)
+	}
+	return &orgServeInputs{
+		orgID:              orgID,
+		collectors:         collectors,
+		allowLabelMatching: org.AllowLabelMatching,
+		localAttrs:         localAttrs,
+		expectedSeq:        expectedSeq,
+		// The same row -> merge.Pipeline conversion agentapi's lazy recompute
+		// uses, current revision included (#296): the two paths must serve
+		// byte-identical config or the hash moves whenever a poll switches path.
+		pipelines: serve.PipelinesFromRows(enabledPipelines),
+	}, nil
+}
+
+// recomputeCollector computes and stores one collector's served config from
+// its org's shared inputs: the single per-collector step of the eager path,
+// shared by recomputeOrgCaches and recomputeCollectorCache. A failure keeps
+// the collector's previous entry and is reported through serve.RecordFailure.
+func (s *PipelineService) recomputeCollector(ctx context.Context, in *orgServeInputs, c sqlc.ListCollectorsWithClusterByOrgRow) {
+	seq := in.expectedSeq[c.ID]
+	// internal/serve.ComputeServed is the single merge -> append-baseline
+	// -> hash -> Stage-1-validate implementation this eager path shares
+	// with internal/agentapi's lazy recompute (docs/gateway-tier-plan.md
+	// §10), role enforcement included.
+	served, err := serve.ComputeServed(ctx,
+		serve.Deps{Schema: s.schema, BeaconBaseline: s.beaconBaseline},
+		serve.Collector{ID: c.ID.String(), Cluster: c.ClusterName, Role: c.Role, AdminLabels: adminLabelsIfAllowed(in.allowLabelMatching, c.Labels), LocalAttrs: in.localAttrs[c.ID.String()]},
+		in.pipelines,
+	)
+	if err != nil {
+		serve.RecordFailure(ctx, s.store, s.logger, serve.Failure{
+			CollectorID: c.ID, OrgID: in.orgID, DirtySeq: seq, Path: serve.PathEager, Err: err,
+		})
 		return
 	}
-	// The same row -> merge.Pipeline conversion agentapi's lazy recompute
-	// uses, current revision included (#296): the two paths must serve
-	// byte-identical config or the hash moves whenever a poll switches path.
-	mergePipelines := serve.PipelinesFromRows(enabledPipelines)
-	for i := range collectors {
-		c := collectors[i]
+	for _, ex := range served.Exclusions {
+		// Visible per docs/gateway-tier-plan.md §8 rule 2: a pipeline
+		// excluded for a role/signal mismatch is never silent. The
+		// generated header (served.Content) already names it too; this
+		// log line is what makes it discoverable without opening the
+		// merged config.
+		s.logger.Warn("eager recompute: pipeline excluded (role/signal mismatch)",
+			"collector_id", c.ID.String(), "role", c.Role, "pipeline", ex.PipelineName, "reason", ex.Reason)
+	}
+	if served.BaselineErr != nil {
+		s.logger.Error("eager recompute: appending beacon baseline pipeline failed; serving without it",
+			"collector_id", c.ID.String(), "err", served.BaselineErr)
+	}
 
-		// internal/serve.ComputeServed is the single merge -> append-baseline
-		// -> hash -> Stage-1-validate implementation this eager path shares
-		// with internal/agentapi's lazy recompute (docs/gateway-tier-plan.md
-		// §10), role enforcement included.
-		served, err := serve.ComputeServed(ctx,
-			serve.Deps{Schema: s.schema, BeaconBaseline: s.beaconBaseline},
-			serve.Collector{ID: c.ID.String(), Cluster: c.ClusterName, Role: c.Role, AdminLabels: adminLabelsIfAllowed(org.AllowLabelMatching, c.Labels), LocalAttrs: localAttrs[c.ID.String()]},
-			mergePipelines,
-		)
-		if err != nil {
-			serve.RecordFailure(ctx, s.store, s.logger, serve.Failure{
-				CollectorID: c.ID, OrgID: orgID, DirtySeq: expectedSeq[c.ID], Path: serve.PathEager, Err: err,
-			})
-			continue
-		}
-		for _, ex := range served.Exclusions {
-			// Visible per docs/gateway-tier-plan.md §8 rule 2: a pipeline
-			// excluded for a role/signal mismatch is never silent. The
-			// generated header (served.Content) already names it too; this
-			// log line is what makes it discoverable without opening the
-			// merged config.
-			s.logger.Warn("recomputeOrgCaches: pipeline excluded (role/signal mismatch)",
-				"collector_id", c.ID.String(), "role", c.Role, "pipeline", ex.PipelineName, "reason", ex.Reason)
-		}
-		if served.BaselineErr != nil {
-			s.logger.Error("recomputeOrgCaches: appending beacon baseline pipeline failed; serving without it",
-				"collector_id", c.ID.String(), "err", served.BaselineErr)
-		}
-
-		_, written, storeErr := serve.Store(ctx, s.store.Queries, c.ID, expectedSeq[c.ID], served)
-		if storeErr != nil {
-			serve.RecordFailure(ctx, s.store, s.logger, serve.Failure{
-				CollectorID: c.ID, OrgID: orgID, DirtySeq: expectedSeq[c.ID], Path: serve.PathEager, Err: storeErr,
-			})
-			continue
-		}
-		if !written {
-			// Superseded: the row was re-marked after this recompute read
-			// its generation, or another recompute already served this
-			// generation. The recompute that saw the newer mark writes.
-			s.logger.Debug("recomputeOrgCaches: write superseded by a newer mark", "collector_id", c.ID.String())
-		}
+	_, written, storeErr := serve.Store(ctx, s.store.Queries, c.ID, seq, served)
+	if storeErr != nil {
+		serve.RecordFailure(ctx, s.store, s.logger, serve.Failure{
+			CollectorID: c.ID, OrgID: in.orgID, DirtySeq: seq, Path: serve.PathEager, Err: storeErr,
+		})
+		return
+	}
+	if !written {
+		// Superseded: the row was re-marked after this recompute read
+		// its generation, or another recompute already served this
+		// generation. The recompute that saw the newer mark writes.
+		s.logger.Debug("eager recompute: write superseded by a newer mark", "collector_id", c.ID.String())
 	}
 }

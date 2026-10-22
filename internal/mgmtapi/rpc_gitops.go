@@ -637,7 +637,12 @@ func (s *GitOpsService) DeleteRepoLink(ctx context.Context, req *connect.Request
 		return nil, errDelete
 	}
 	if len(removed) > 0 {
-		go s.pipelines.recomputeOrgCaches(context.Background(), link.OrgID) //nolint:contextcheck,gosec // G118+contextcheck: intentional detached context, as DeletePipeline
+		// Eager, because GetServedConfig shows the stored row and ignores
+		// dirty: an offline collector's page would otherwise keep showing
+		// the deleted git pipelines. Only the link's collector: a git
+		// pipeline matches solely the collector its repo link names, so no
+		// other collector's served config changed (#368).
+		go s.pipelines.recomputeCollectorCache(context.Background(), link.OrgID, link.CollectorID) //nolint:contextcheck,gosec // G118+contextcheck: intentional detached context, as DeletePipeline
 	}
 	return connect.NewResponse(&mgmtv1.DeleteRepoLinkResponse{}), nil
 }
