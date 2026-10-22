@@ -504,6 +504,23 @@ var _ = Describe("GitOpsService (Connect RPC)", Label("integration"), func() {
 				Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgUUID(orgID)})).To(Succeed())
 				coll, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
 				Expect(err).NotTo(HaveOccurred())
+				// Another collector in the same org, in a cluster that sorts
+				// first, whose row is dirty (marked by some earlier write,
+				// not yet polled): an org-wide recompute would compute and
+				// write it before reaching the link's collector (#368). A
+				// clean row would prove nothing -- the CAS skips clean rows.
+				otherCluster, err := st.Queries.UpsertCluster(ctx, "repo-link-delete-a-bystander")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: otherCluster.ID, OrgID: orgUUID(orgID)})).To(Succeed())
+				other, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: otherCluster.ID, Role: "metrics"})
+				Expect(err).NotTo(HaveOccurred())
+				_, err = st.Queries.UpsertServeCacheConditional(ctx, sqlc.UpsertServeCacheConditionalParams{
+					CollectorID: other.ID, Content: "// bystander sentinel", Hash: "bystander-old", Format: serve.Format,
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(st.Queries.MarkServeCacheDirty(ctx, other.ID)).To(Succeed())
+				otherBefore, err := st.Queries.GetServeCache(ctx, other.ID)
+				Expect(err).NotTo(HaveOccurred())
 
 				created := createCredential(createCredWire{Name: "delete-link-cred", Kind: "none"})
 				credID, ok := created["id"].(string)
@@ -572,6 +589,20 @@ var _ = Describe("GitOpsService (Connect RPC)", Label("integration"), func() {
 					HaveKeyWithValue("hash", Not(Equal("old"))),
 					HaveKeyWithValue("content", Not(ContainSubstring("configs/synced"))),
 				))
+
+				// Only the link's collector is recomputed: a git pipeline
+				// matches solely its link's collector, so the bystander's
+				// dirty row is left for its own next poll: not rewritten,
+				// cleared, re-marked or re-timestamped.
+				Consistently(func(g Gomega) {
+					row, err := st.Queries.GetServeCache(ctx, other.ID)
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(row.Hash).To(Equal("bystander-old"))
+					g.Expect(row.Content).To(Equal(otherBefore.Content))
+					g.Expect(row.ComputedAt).To(Equal(otherBefore.ComputedAt))
+					g.Expect(row.Dirty).To(Equal(otherBefore.Dirty))
+					g.Expect(row.DirtySeq).To(Equal(otherBefore.DirtySeq))
+				}, 1*time.Second, 100*time.Millisecond).Should(Succeed())
 
 				n, err := st.Queries.CountAuditLog(ctx, sqlc.CountAuditLogParams{Column1: orgUUID(orgID), Column3: "pipeline.delete"})
 				Expect(err).NotTo(HaveOccurred())
