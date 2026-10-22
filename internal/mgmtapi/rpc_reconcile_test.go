@@ -247,6 +247,7 @@ var _ = Describe("shepherd.mgmt.v1.FleetService/GetReconciliation", Label("integ
 			Expect(err).NotTo(HaveOccurred())
 			Expect(st.Queries.UpdateInstanceStatus(ctx, sqlc.UpdateInstanceStatusParams{
 				ID:                 instanceID,
+				CollectorID:        collID,
 				RemoteConfigStatus: pgtype.Text{String: status, Valid: true},
 				RemoteConfigError:  pgtype.Text{String: errMsg, Valid: errMsg != ""},
 				StatusHash:         pgtype.Text{String: hash, Valid: hash != ""},

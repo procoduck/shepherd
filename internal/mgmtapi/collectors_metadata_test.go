@@ -122,6 +122,7 @@ var _ = Describe("Collector instance metadata", Label("integration"), func() {
 			upsertInstance("inst-newer", collector.ID, "node-b", "v1.2.0", "darwin", `{"env":"prod"}`)
 			Expect(st.Queries.UpdateInstanceStatus(ctx, sqlc.UpdateInstanceStatusParams{
 				ID:                 "inst-newer",
+				CollectorID:        collector.ID,
 				RemoteConfigStatus: pgtype.Text{String: "FAILED", Valid: true},
 				RemoteConfigError:  pgtype.Text{String: "schema validation failed", Valid: true},
 			})).To(Succeed())
@@ -192,6 +193,7 @@ var _ = Describe("Collector instance metadata", Label("integration"), func() {
 	setStatus := func(id, status, errMsg string) {
 		Expect(st.Queries.UpdateInstanceStatus(ctx, sqlc.UpdateInstanceStatusParams{
 			ID:                 id,
+			CollectorID:        instanceCollectorID(ctx, st, id),
 			RemoteConfigStatus: pgtype.Text{String: status, Valid: true},
 			RemoteConfigError:  pgtype.Text{String: errMsg, Valid: errMsg != ""},
 		})).To(Succeed())
@@ -309,6 +311,7 @@ var _ = Describe("Collector instance metadata", Label("integration"), func() {
 		setStatusFor := func(id, status, errMsg, hash string) {
 			Expect(st.Queries.UpdateInstanceStatus(ctx, sqlc.UpdateInstanceStatusParams{
 				ID:                 id,
+				CollectorID:        instanceCollectorID(ctx, st, id),
 				RemoteConfigStatus: pgtype.Text{String: status, Valid: true},
 				RemoteConfigError:  pgtype.Text{String: errMsg, Valid: errMsg != ""},
 				StatusHash:         pgtype.Text{String: hash, Valid: hash != ""},
@@ -446,3 +449,12 @@ var _ = Describe("Collector instance metadata", Label("integration"), func() {
 		})
 	})
 })
+
+// instanceCollectorID is the collector of the most recently seen instance row
+// with this wire id — instances are keyed per collector (0036), so a status
+// write names both.
+func instanceCollectorID(ctx context.Context, st *store.Store, id string) pgtype.UUID {
+	inst, err := st.Queries.GetCollectorInstanceByID(ctx, id)
+	Expect(err).NotTo(HaveOccurred())
+	return inst.CollectorID
+}

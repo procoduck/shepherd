@@ -2,9 +2,15 @@ package agentapi_test
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"sync"
 
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5"
@@ -12,8 +18,11 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	dto "github.com/prometheus/client_model/go"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 
 	collectorv1 "shepherd/gen/collector/v1"
+	"shepherd/gen/collector/v1/collectorv1connect"
 	"shepherd/internal/agentapi"
 	"shepherd/internal/auth"
 	"shepherd/internal/config"
@@ -22,21 +31,96 @@ import (
 	"shepherd/internal/store/sqlc"
 )
 
-// Instance ids are bound to an org (review step 5, R9/R10, B-AGENT-INSTANCE):
-// GetConfig writes the instance row only after the org check, an instance id
-// moves to another collector only within its org (or out of an unclaimed
-// cluster), and UnregisterCollector is scoped to the caller's org. The
-// principal is injected directly, as in agent_oidc_enforcement_test.go; a
-// context with no principal is the agent-token path.
-var _ = Describe("Collector instance binding", Label("integration"), func() {
+// Instances are keyed per collector (review step 5, R9/R10, B-AGENT-INSTANCE,
+// migration 0036): an instance id never moves between collectors, so no org
+// can squat or rebind another org's id; GetConfig writes the instance row only
+// after the org check; a poll clears unregistered_at; UnregisterCollector is
+// scoped to the caller's org. Every call goes through the real Connect handler
+// behind NewAuthGate: a Basic agent token, or a Bearer token the fake verifier
+// below maps to claims (the verifier itself is tested in internal/auth).
+var _ = Describe("Collector instance identity", Label("integration"), func() {
 	var (
-		st   *store.Store
-		svc  *agentapi.Service
-		orgA sqlc.Org
-		orgB sqlc.Org
+		st     *store.Store
+		server *httptest.Server
+		orgA   sqlc.Org
+		orgB   sqlc.Org
+		basic  string
+		claims map[string]auth.AgentClaims
 	)
 
 	const issuer = "https://idp.example/"
+
+	BeforeEach(func(ctx context.Context) {
+		url := sharedPG.IsolatedDB(ctx, GinkgoTB())
+		var err error
+		st, err = store.New(ctx, &config.DatabaseConfig{URL: url, MaxConns: 10})
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(st.Close)
+
+		raw := make([]byte, 32)
+		_, _ = rand.Read(raw)
+		secret := base64.URLEncoding.EncodeToString(raw)
+		hash := sha256.Sum256([]byte(secret))
+		tok, err := st.Queries.CreateAgentToken(ctx, sqlc.CreateAgentTokenParams{Name: "t", TokenHash: hash[:], CreatedBy: "test"})
+		Expect(err).NotTo(HaveOccurred())
+		basic = "Basic " + base64.StdEncoding.EncodeToString([]byte(tok.ID.String()+":"+secret))
+
+		claims = map[string]auth.AgentClaims{}
+		verify := func(_ context.Context, raw string) (auth.AgentClaims, error) {
+			c, ok := claims[raw]
+			if !ok {
+				return auth.AgentClaims{}, errors.New("unknown token")
+			}
+			return c, nil
+		}
+
+		svc := agentapi.New(st, nil, slog.New(slog.DiscardHandler), testSchemaRegistry())
+		path, handler := collectorv1connect.NewCollectorServiceHandler(svc,
+			connect.WithRequestGate(agentapi.NewAuthGate(st, verify)))
+		mux := http.NewServeMux()
+		mux.Handle(path, handler)
+		server = httptest.NewServer(h2c.NewHandler(mux, &http2.Server{}))
+		DeferCleanup(server.Close)
+
+		orgA, err = st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "org-a", DisplayName: "A", AdminGroupID: "ga"})
+		Expect(err).NotTo(HaveOccurred())
+		orgB, err = st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "org-b", DisplayName: "B", AdminGroupID: "gb"})
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	// client authenticates with the given Authorization header value.
+	client := func(authz string) collectorv1connect.CollectorServiceClient {
+		return collectorv1connect.NewCollectorServiceClient(server.Client(), server.URL, connect.WithGRPC(),
+			connect.WithInterceptors(connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
+				return func(c context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+					req.Header().Set("Authorization", authz)
+					return next(c, req)
+				}
+			})))
+	}
+	token := func() collectorv1connect.CollectorServiceClient { return client(basic) }
+
+	// bound returns a client whose Bearer token maps to an agent_identities
+	// binding for org, with an optional role allowlist.
+	bound := func(ctx context.Context, appID string, org sqlc.Org, roles ...string) collectorv1connect.CollectorServiceClient {
+		if roles == nil {
+			roles = []string{}
+		}
+		rolesJSON, err := json.Marshal(roles)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = st.Queries.CreateAgentIdentity(ctx, sqlc.CreateAgentIdentityParams{
+			Issuer: issuer, AppID: appID, OrgID: org.ID, Clusters: json.RawMessage(`[]`), Roles: rolesJSON, CreatedBy: "test",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		claims["jwt-"+appID] = auth.AgentClaims{Issuer: issuer, AppID: appID}
+		return client("Bearer jwt-" + appID)
+	}
+
+	// asserted returns a client whose Bearer token asserts org by name (mode 2).
+	asserted := func(appID, orgName string) collectorv1connect.CollectorServiceClient {
+		claims["jwt-"+appID] = auth.AgentClaims{Issuer: issuer, AppID: appID, Org: orgName}
+		return client("Bearer jwt-" + appID)
+	}
 
 	refused := func(reason string) float64 {
 		m := &dto.Metric{}
@@ -44,16 +128,22 @@ var _ = Describe("Collector instance binding", Label("integration"), func() {
 		return m.Counter.GetValue()
 	}
 
-	poll := func(ctx context.Context, id, cluster, role string, extra map[string]string, status *collectorv1.RemoteConfigStatus) error {
+	poll := func(ctx context.Context, c collectorv1connect.CollectorServiceClient, id, cluster, role string,
+		extra map[string]string, status *collectorv1.RemoteConfigStatus,
+	) (*connect.Response[collectorv1.GetConfigResponse], error) {
 		attrs := map[string]string{"cluster": cluster, "role": role}
 		for k, v := range extra {
 			attrs[k] = v
 		}
-		_, err := svc.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+		return c.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
 			Id: id, LocalAttributes: attrs, RemoteConfigStatus: status, Hash: "h-" + id,
 		}))
-		return err
 	}
+	mustPoll := func(ctx context.Context, c collectorv1connect.CollectorServiceClient, id, cluster, role string, extra map[string]string) {
+		_, err := poll(ctx, c, id, cluster, role, extra, nil)
+		Expect(err).NotTo(HaveOccurred())
+	}
+	failed := &collectorv1.RemoteConfigStatus{Status: collectorv1.RemoteConfigStatuses_RemoteConfigStatuses_FAILED, ErrorMessage: "boom"}
 
 	claim := func(ctx context.Context, cluster string, org sqlc.Org) {
 		cl, err := st.Queries.UpsertCluster(ctx, cluster)
@@ -67,9 +157,18 @@ var _ = Describe("Collector instance binding", Label("integration"), func() {
 		return c.ID
 	}
 
-	instance := func(ctx context.Context, id string) sqlc.CollectorInstance {
-		inst, err := st.Queries.GetCollectorInstanceByID(ctx, id)
+	// row reads the instance row (collector, id); ok is false when there is none.
+	row := func(ctx context.Context, cluster, role, id string) (sqlc.CollectorInstance, bool) {
+		inst, err := st.Queries.GetCollectorInstance(ctx, sqlc.GetCollectorInstanceParams{CollectorID: collectorOf(ctx, cluster, role), ID: id})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return sqlc.CollectorInstance{}, false
+		}
 		Expect(err).NotTo(HaveOccurred())
+		return inst, true
+	}
+	mustRow := func(ctx context.Context, cluster, role, id string) sqlc.CollectorInstance {
+		inst, ok := row(ctx, cluster, role, id)
+		Expect(ok).To(BeTrue(), "expected an instance row %s under %s/%s", id, cluster, role)
 		return inst
 	}
 
@@ -79,109 +178,111 @@ var _ = Describe("Collector instance binding", Label("integration"), func() {
 		return m
 	}
 
-	bindingCtx := func(ctx context.Context, appID string, org sqlc.Org, roles ...string) context.Context {
-		if roles == nil {
-			roles = []string{}
-		}
-		rolesJSON, err := json.Marshal(roles)
-		Expect(err).NotTo(HaveOccurred())
-		_, err = st.Queries.CreateAgentIdentity(ctx, sqlc.CreateAgentIdentityParams{
-			Issuer: issuer, AppID: appID, OrgID: org.ID, Clusters: json.RawMessage(`[]`), Roles: rolesJSON, CreatedBy: "test",
-		})
-		Expect(err).NotTo(HaveOccurred())
-		return agentapi.ContextWithOIDCPrincipal(ctx, auth.AgentClaims{Issuer: issuer, AppID: appID})
-	}
-
-	BeforeEach(func(ctx context.Context) {
-		url := sharedPG.IsolatedDB(ctx, GinkgoTB())
-		var err error
-		st, err = store.New(ctx, &config.DatabaseConfig{URL: url, MaxConns: 5})
-		Expect(err).NotTo(HaveOccurred())
-		DeferCleanup(st.Close)
-		svc = agentapi.New(st, nil, slog.New(slog.DiscardHandler), testSchemaRegistry())
-		orgA, err = st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "org-a", DisplayName: "A", AdminGroupID: "ga"})
-		Expect(err).NotTo(HaveOccurred())
-		orgB, err = st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "org-b", DisplayName: "B", AdminGroupID: "gb"})
-		Expect(err).NotTo(HaveOccurred())
-	})
-
-	Describe("rebinding an instance id", func() {
-		It("refuses a move to another org's collector and leaves the row untouched", func(ctx context.Context) {
+	Describe("an instance id under several collectors", func() {
+		It("cannot be squatted: another org polling the id first does not lock its real collector out", func(ctx context.Context) {
 			claim(ctx, "a-cluster", orgA)
 			claim(ctx, "b-cluster", orgB)
-			Expect(poll(ctx, "host-1", "a-cluster", "metrics", map[string]string{"team": "a"}, nil)).To(Succeed())
-			before := refused(metrics.AgentRefusedInstanceRebind)
+			// An org-B identity reports org A's hostname-like id first.
+			mustPoll(ctx, bound(ctx, "client-b", orgB), "host-1", "b-cluster", "metrics", map[string]string{"team": "b"})
 
-			err := poll(ctx, "host-1", "b-cluster", "metrics", map[string]string{"team": "b"},
-				&collectorv1.RemoteConfigStatus{Status: collectorv1.RemoteConfigStatuses_RemoteConfigStatuses_FAILED, ErrorMessage: "boom"})
-			Expect(err).To(HaveOccurred())
-			Expect(connect.CodeOf(err)).To(Equal(connect.CodePermissionDenied))
-
-			inst := instance(ctx, "host-1")
-			Expect(inst.CollectorID).To(Equal(collectorOf(ctx, "a-cluster", "metrics")), "the instance stays on org A's collector")
-			Expect(attrsOf(inst)).To(HaveKeyWithValue("team", "a"), "the refused poll's attributes are not written")
-			Expect(inst.RemoteConfigStatus.String).NotTo(Equal("FAILED"), "the refused poll's status is not written")
-			Expect(refused(metrics.AgentRefusedInstanceRebind)).To(Equal(before+1))
+			mustPoll(ctx, token(), "host-1", "a-cluster", "metrics", map[string]string{"team": "a"})
+			Expect(attrsOf(mustRow(ctx, "a-cluster", "metrics", "host-1"))).To(HaveKeyWithValue("team", "a"))
+			Expect(attrsOf(mustRow(ctx, "b-cluster", "metrics", "host-1"))).To(HaveKeyWithValue("team", "b"),
+				"each collector keeps its own row")
 		})
 
-		It("allows a move between two collectors of the same org", func(ctx context.Context) {
+		It("cannot be rebound: polling the id under another org's collector leaves the first org's row untouched", func(ctx context.Context) {
+			claim(ctx, "a-cluster", orgA)
+			claim(ctx, "b-cluster", orgB)
+			mustPoll(ctx, token(), "host-1", "a-cluster", "metrics", map[string]string{"team": "a"})
+			before := mustRow(ctx, "a-cluster", "metrics", "host-1")
+
+			_, err := poll(ctx, token(), "host-1", "b-cluster", "metrics", map[string]string{"team": "b"}, failed)
+			Expect(err).NotTo(HaveOccurred())
+
+			after := mustRow(ctx, "a-cluster", "metrics", "host-1")
+			Expect(attrsOf(after)).To(Equal(attrsOf(before)))
+			Expect(after.RemoteConfigStatus).To(Equal(before.RemoteConfigStatus))
+			Expect(after.LastSeen).To(Equal(before.LastSeen))
+			Expect(mustRow(ctx, "b-cluster", "metrics", "host-1").RemoteConfigStatus.String).To(Equal("FAILED"),
+				"the status lands on the row of the collector that polled")
+		})
+
+		It("writes a second row on a same-org move through a binding", func(ctx context.Context) {
 			claim(ctx, "a-cluster", orgA)
 			claim(ctx, "a-cluster-2", orgA)
-			Expect(poll(ctx, "host-1", "a-cluster", "metrics", nil, nil)).To(Succeed())
-			Expect(poll(ctx, "host-1", "a-cluster-2", "logs", nil, nil)).To(Succeed())
-			Expect(instance(ctx, "host-1").CollectorID).To(Equal(collectorOf(ctx, "a-cluster-2", "logs")))
+			c := bound(ctx, "client-a", orgA)
+			mustPoll(ctx, c, "host-1", "a-cluster", "metrics", nil)
+			mustPoll(ctx, c, "host-1", "a-cluster-2", "logs", nil)
+			mustRow(ctx, "a-cluster", "metrics", "host-1")
+			mustRow(ctx, "a-cluster-2", "logs", "host-1")
 		})
 
-		It("allows a move out of an unclaimed cluster", func(ctx context.Context) {
-			Expect(poll(ctx, "host-1", "new-cluster", "metrics", nil, nil)).To(Succeed())
-			claim(ctx, "b-cluster", orgB)
-			Expect(poll(ctx, "host-1", "b-cluster", "metrics", nil, nil)).To(Succeed())
-			Expect(instance(ctx, "host-1").CollectorID).To(Equal(collectorOf(ctx, "b-cluster", "metrics")))
-		})
-
-		It("refuses a move from a claimed cluster into an unclaimed one", func(ctx context.Context) {
+		It("serves empty config, not PermissionDenied, after a cluster rename under a static token", func(ctx context.Context) {
 			claim(ctx, "a-cluster", orgA)
-			Expect(poll(ctx, "host-1", "a-cluster", "metrics", nil, nil)).To(Succeed())
-			err := poll(ctx, "host-1", "new-cluster", "metrics", nil, nil)
-			Expect(connect.CodeOf(err)).To(Equal(connect.CodePermissionDenied))
-			Expect(instance(ctx, "host-1").CollectorID).To(Equal(collectorOf(ctx, "a-cluster", "metrics")))
+			mustPoll(ctx, token(), "host-1", "a-cluster", "metrics", nil)
+
+			resp, err := poll(ctx, token(), "host-1", "renamed-cluster", "metrics", nil, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Msg.GetContent()).To(BeEmpty())
+			Expect(resp.Msg.GetHash()).To(Equal(agentapi.EmptyHash))
+			mustRow(ctx, "renamed-cluster", "metrics", "host-1")
+			mustRow(ctx, "a-cluster", "metrics", "host-1")
 		})
 
-		It("applies the same rule to RegisterCollector", func(ctx context.Context) {
+		It("survives a concurrent first poll for the same id under two collectors", func(ctx context.Context) {
 			claim(ctx, "a-cluster", orgA)
 			claim(ctx, "b-cluster", orgB)
-			Expect(poll(ctx, "host-1", "a-cluster", "metrics", nil, nil)).To(Succeed())
-			_, err := svc.RegisterCollector(ctx, connect.NewRequest(&collectorv1.RegisterCollectorRequest{
+			var wg sync.WaitGroup
+			errs := make([]error, 2)
+			for i, cl := range []string{"a-cluster", "b-cluster"} {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					defer GinkgoRecover()
+					_, errs[i] = poll(ctx, token(), "race-host", cl, "metrics", nil, nil)
+				}()
+			}
+			wg.Wait()
+			Expect(errs).To(HaveEach(Not(HaveOccurred())))
+			mustRow(ctx, "a-cluster", "metrics", "race-host")
+			mustRow(ctx, "b-cluster", "metrics", "race-host")
+		})
+
+		It("applies the same identity to RegisterCollector", func(ctx context.Context) {
+			claim(ctx, "a-cluster", orgA)
+			claim(ctx, "b-cluster", orgB)
+			mustPoll(ctx, token(), "host-1", "a-cluster", "metrics", nil)
+			_, err := token().RegisterCollector(ctx, connect.NewRequest(&collectorv1.RegisterCollectorRequest{
 				Id: "host-1", LocalAttributes: map[string]string{"cluster": "b-cluster", "role": "metrics"},
 			}))
-			Expect(connect.CodeOf(err)).To(Equal(connect.CodePermissionDenied))
-			Expect(instance(ctx, "host-1").CollectorID).To(Equal(collectorOf(ctx, "a-cluster", "metrics")))
+			Expect(err).NotTo(HaveOccurred())
+			mustRow(ctx, "a-cluster", "metrics", "host-1")
+			mustRow(ctx, "b-cluster", "metrics", "host-1")
 		})
 	})
 
 	Describe("a refused poll", func() {
-		It("writes no instance row for a new instance id", func(ctx context.Context) {
-			oidc := bindingCtx(ctx, "client-a", orgA, "logs")
+		It("writes no instance row for a new instance id and counts role_denied", func(ctx context.Context) {
+			c := bound(ctx, "client-a", orgA, "logs")
 			before := refused(metrics.AgentRefusedRoleDenied)
-			err := poll(oidc, "fresh-host", "a-cluster", "metrics", nil,
-				&collectorv1.RemoteConfigStatus{Status: collectorv1.RemoteConfigStatuses_RemoteConfigStatuses_FAILED, ErrorMessage: "boom"})
+			_, err := poll(ctx, c, "fresh-host", "a-cluster", "metrics", nil, failed)
 			Expect(connect.CodeOf(err)).To(Equal(connect.CodePermissionDenied))
-			_, getErr := st.Queries.GetCollectorInstanceByID(ctx, "fresh-host")
-			Expect(errors.Is(getErr, pgx.ErrNoRows)).To(BeTrue(), "a refused poll leaves no instance row")
-			Expect(refused(metrics.AgentRefusedRoleDenied)).To(Equal(before+1))
+			_, ok := row(ctx, "a-cluster", "metrics", "fresh-host")
+			Expect(ok).To(BeFalse(), "a refused poll leaves no instance row")
+			Expect(refused(metrics.AgentRefusedRoleDenied)).To(Equal(before + 1))
 		})
 
-		It("leaves an existing instance's attributes and status untouched", func(ctx context.Context) {
-			oidc := bindingCtx(ctx, "client-a", orgA, "metrics")
-			Expect(poll(oidc, "host-1", "a-cluster", "metrics", map[string]string{"team": "a"}, nil)).To(Succeed())
-			before := instance(ctx, "host-1")
+		It("leaves an existing instance row's attributes, status and last_seen untouched", func(ctx context.Context) {
+			claim(ctx, "b-cluster", orgB)
+			mustPoll(ctx, token(), "host-1", "b-cluster", "metrics", map[string]string{"team": "b"})
+			before := mustRow(ctx, "b-cluster", "metrics", "host-1")
 
-			err := poll(oidc, "host-1", "a-cluster", "logs", map[string]string{"team": "x"},
-				&collectorv1.RemoteConfigStatus{Status: collectorv1.RemoteConfigStatuses_RemoteConfigStatuses_FAILED, ErrorMessage: "boom"})
+			// An org-A identity names org B's cluster with the same id.
+			_, err := poll(ctx, bound(ctx, "client-a", orgA), "host-1", "b-cluster", "metrics", map[string]string{"team": "x"}, failed)
 			Expect(connect.CodeOf(err)).To(Equal(connect.CodePermissionDenied))
 
-			after := instance(ctx, "host-1")
-			Expect(after.CollectorID).To(Equal(before.CollectorID))
+			after := mustRow(ctx, "b-cluster", "metrics", "host-1")
 			Expect(attrsOf(after)).To(Equal(attrsOf(before)))
 			Expect(after.RemoteConfigStatus).To(Equal(before.RemoteConfigStatus))
 			Expect(after.LastSeen).To(Equal(before.LastSeen))
@@ -189,46 +290,78 @@ var _ = Describe("Collector instance binding", Label("integration"), func() {
 
 		It("counts a cluster refusal as claim_denied", func(ctx context.Context) {
 			claim(ctx, "b-cluster", orgB)
-			oidc := bindingCtx(ctx, "client-a", orgA)
 			before := refused(metrics.AgentRefusedClaimDenied)
-			Expect(connect.CodeOf(poll(oidc, "host-1", "b-cluster", "metrics", nil, nil))).To(Equal(connect.CodePermissionDenied))
-			Expect(refused(metrics.AgentRefusedClaimDenied)).To(Equal(before+1))
+			_, err := poll(ctx, bound(ctx, "client-a", orgA), "host-1", "b-cluster", "metrics", nil, nil)
+			Expect(connect.CodeOf(err)).To(Equal(connect.CodePermissionDenied))
+			Expect(refused(metrics.AgentRefusedClaimDenied)).To(Equal(before + 1))
 		})
 	})
 
 	Describe("UnregisterCollector", func() {
-		unregister := func(ctx context.Context, id string) error {
-			_, err := svc.UnregisterCollector(ctx, connect.NewRequest(&collectorv1.UnregisterCollectorRequest{Id: id}))
-			return err
+		unregister := func(ctx context.Context, c collectorv1connect.CollectorServiceClient, id string) {
+			_, err := c.UnregisterCollector(ctx, connect.NewRequest(&collectorv1.UnregisterCollectorRequest{Id: id}))
+			Expect(err).NotTo(HaveOccurred(), "unregister answers success in and out of scope alike")
+		}
+		unregistered := func(ctx context.Context, cluster, role, id string) bool {
+			return mustRow(ctx, cluster, role, id).UnregisteredAt.Valid
 		}
 
-		It("refuses to unregister another org's instance", func(ctx context.Context) {
+		BeforeEach(func(ctx context.Context) {
+			claim(ctx, "a-cluster", orgA)
 			claim(ctx, "b-cluster", orgB)
-			Expect(poll(ctx, "b-host", "b-cluster", "metrics", nil, nil)).To(Succeed())
-			oidc := bindingCtx(ctx, "client-a", orgA)
-			before := refused(metrics.AgentRefusedUnregisterDenied)
-
-			err := unregister(oidc, "b-host")
-			Expect(connect.CodeOf(err)).To(Equal(connect.CodePermissionDenied))
-			Expect(instance(ctx, "b-host").UnregisteredAt.Valid).To(BeFalse())
-			Expect(refused(metrics.AgentRefusedUnregisterDenied)).To(Equal(before+1))
+			// One id under a collector of each org.
+			mustPoll(ctx, token(), "shared-host", "a-cluster", "metrics", nil)
+			mustPoll(ctx, token(), "shared-host", "b-cluster", "metrics", nil)
 		})
 
-		It("unregisters an instance of the caller's own org", func(ctx context.Context) {
-			oidc := bindingCtx(ctx, "client-a", orgA)
-			Expect(poll(oidc, "a-host", "a-cluster", "metrics", nil, nil)).To(Succeed())
-			Expect(unregister(oidc, "a-host")).To(Succeed())
-			Expect(instance(ctx, "a-host").UnregisteredAt.Valid).To(BeTrue())
+		It("marks only the caller's org's row for a binding, and counts unregister_denied for the rest", func(ctx context.Context) {
+			before := refused(metrics.AgentRefusedUnregisterDenied)
+			unregister(ctx, bound(ctx, "client-a", orgA), "shared-host")
+			Expect(unregistered(ctx, "a-cluster", "metrics", "shared-host")).To(BeTrue())
+			Expect(unregistered(ctx, "b-cluster", "metrics", "shared-host")).To(BeFalse(), "org B's row is out of scope")
+			Expect(refused(metrics.AgentRefusedUnregisterDenied)).To(Equal(before + 1))
+		})
+
+		It("leaves another org's only row alone and answers success", func(ctx context.Context) {
+			mustPoll(ctx, token(), "b-only", "b-cluster", "metrics", nil)
+			unregister(ctx, bound(ctx, "client-a", orgA), "b-only")
+			Expect(unregistered(ctx, "b-cluster", "metrics", "b-only")).To(BeFalse())
+		})
+
+		It("honours a binding's role allowlist", func(ctx context.Context) {
+			unregister(ctx, bound(ctx, "client-a", orgA, "logs"), "shared-host")
+			Expect(unregistered(ctx, "a-cluster", "metrics", "shared-host")).To(BeFalse())
+		})
+
+		It("scopes a mode-2 asserted org the same way", func(ctx context.Context) {
+			unregister(ctx, asserted("client-b", "org-b"), "shared-host")
+			Expect(unregistered(ctx, "b-cluster", "metrics", "shared-host")).To(BeTrue())
+			Expect(unregistered(ctx, "a-cluster", "metrics", "shared-host")).To(BeFalse())
+		})
+
+		It("marks nothing for an asserted org that does not exist", func(ctx context.Context) {
+			unregister(ctx, asserted("client-x", "no-such-org"), "shared-host")
+			Expect(unregistered(ctx, "a-cluster", "metrics", "shared-host")).To(BeFalse())
+			Expect(unregistered(ctx, "b-cluster", "metrics", "shared-host")).To(BeFalse())
+		})
+
+		It("marks every row with the id for a static token", func(ctx context.Context) {
+			unregister(ctx, token(), "shared-host")
+			Expect(unregistered(ctx, "a-cluster", "metrics", "shared-host")).To(BeTrue())
+			Expect(unregistered(ctx, "b-cluster", "metrics", "shared-host")).To(BeTrue())
+		})
+
+		It("answers success for an unknown id", func(ctx context.Context) {
+			unregister(ctx, token(), "never-seen")
+			unregister(ctx, bound(ctx, "client-a", orgA), "never-seen")
 		})
 
 		It("is cleared by the instance's next poll", func(ctx context.Context) {
-			claim(ctx, "a-cluster", orgA)
-			Expect(poll(ctx, "a-host", "a-cluster", "metrics", nil, nil)).To(Succeed())
-			Expect(unregister(ctx, "a-host")).To(Succeed())
-			Expect(instance(ctx, "a-host").UnregisteredAt.Valid).To(BeTrue())
-
-			Expect(poll(ctx, "a-host", "a-cluster", "metrics", nil, nil)).To(Succeed())
-			Expect(instance(ctx, "a-host").UnregisteredAt.Valid).To(BeFalse(), "a polling instance is registered again")
+			unregister(ctx, token(), "shared-host")
+			Expect(unregistered(ctx, "a-cluster", "metrics", "shared-host")).To(BeTrue())
+			mustPoll(ctx, token(), "shared-host", "a-cluster", "metrics", nil)
+			Expect(unregistered(ctx, "a-cluster", "metrics", "shared-host")).To(BeFalse(), "a polling instance is registered again")
+			Expect(unregistered(ctx, "b-cluster", "metrics", "shared-host")).To(BeTrue(), "only the polling collector's row")
 		})
 	})
 })

@@ -59,6 +59,8 @@ type Service struct {
 	// conditional write — test-only (export_test.go), so a spec can land a
 	// mark exactly mid-recompute. Nil in production.
 	afterRecompute func(context.Context)
+	// refusals rate-limits the Warn log of identity refusals.
+	refusals *refusalLog
 }
 
 // ServiceOption configures optional Service behavior not required by every
@@ -85,7 +87,10 @@ func WithBeaconBaseline(b beacon.BaselineConfig) ServiceOption {
 // error: the lazy recompute then fails (serve.ComputeServed refuses) and the
 // collector keeps its previous config, never an unenforced one.
 func New(st *store.Store, v *validate.Validator, logger *slog.Logger, reg *schema.Registry, opts ...ServiceOption) *Service {
-	s := &Service{store: st, validator: v, logger: logger.With("component", "agentapi"), schema: reg}
+	s := &Service{
+		store: st, validator: v, logger: logger.With("component", "agentapi"), schema: reg,
+		refusals: newRefusalLog(refusalLogWindow, refusalLogMax),
+	}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -117,12 +122,11 @@ func (s *Service) RegisterCollector(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	orgID, err := s.resolveOrg(ctx, cluster, role, coll)
-	if err != nil {
+	if _, err := s.resolveOrg(ctx, cluster, role, coll); err != nil {
 		return nil, s.refused(err, "RegisterCollector", req.Msg.Id, coll.ID, cluster, role)
 	}
-	if err := s.bindInstance(ctx, req.Msg.Id, name, coll, orgID, attrs); err != nil {
-		return nil, s.refused(err, "RegisterCollector", req.Msg.Id, coll.ID, cluster, role)
+	if err := s.bindInstance(ctx, req.Msg.Id, name, coll, attrs); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
 	return connect.NewResponse(&collectorv1.RegisterCollectorResponse{}), nil
@@ -177,12 +181,16 @@ func (s *Service) GetConfig(
 	// attributes — see emitLocalAttrsMatchDrift's doc comment for why the
 	// comparison itself is over decoded maps, not raw jsonb bytes.
 	var beforeAttrsJSON json.RawMessage
-	if prev, prevErr := s.store.Queries.GetCollectorInstanceByID(ctx, req.Msg.Id); prevErr == nil {
+	// Instances are keyed per collector (0036), so this is the row this
+	// poll is about to update — a first poll under a new collector has none.
+	if prev, prevErr := s.store.Queries.GetCollectorInstance(ctx, sqlc.GetCollectorInstanceParams{
+		CollectorID: coll.ID, ID: req.Msg.Id,
+	}); prevErr == nil {
 		beforeAttrsJSON = prev.LocalAttributes
 	}
 
-	if err := s.bindInstance(ctx, req.Msg.Id, name, coll, orgID, attrs); err != nil {
-		return nil, s.refused(err, "GetConfig", req.Msg.Id, coll.ID, cluster, role)
+	if err := s.bindInstance(ctx, req.Msg.Id, name, coll, attrs); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
 	// Persist remote_config_status if provided.
@@ -190,6 +198,7 @@ func (s *Service) GetConfig(
 		statusStr := strings.TrimPrefix(req.Msg.RemoteConfigStatus.Status.String(), "RemoteConfigStatuses_")
 		errMsg := req.Msg.RemoteConfigStatus.ErrorMessage
 		if err := s.store.Queries.UpdateInstanceStatus(ctx, sqlc.UpdateInstanceStatusParams{
+			CollectorID:        coll.ID,
 			ID:                 req.Msg.Id,
 			RemoteConfigStatus: pgtype.Text{String: statusStr, Valid: true},
 			RemoteConfigError:  pgtype.Text{String: errMsg, Valid: errMsg != ""},
@@ -202,7 +211,7 @@ func (s *Service) GetConfig(
 
 	// Unclaimed cluster: serve empty config.
 	if !orgID.Valid {
-		s.applySilentPoll(ctx, req.Msg, emptyHash)
+		s.applySilentPoll(ctx, coll.ID, req.Msg, emptyHash)
 		if req.Msg.Hash == emptyHash {
 			metrics.ObserveGetConfig("not_modified", start)
 			return connect.NewResponse(&collectorv1.GetConfigResponse{
@@ -289,7 +298,7 @@ func (s *Service) GetConfig(
 	}
 
 	// A poll with no fresh status but the hash we served: see applySilentPoll.
-	s.applySilentPoll(ctx, req.Msg, cache.Hash)
+	s.applySilentPoll(ctx, coll.ID, req.Msg, cache.Hash)
 
 	if req.Msg.Hash == cache.Hash {
 		metrics.ObserveGetConfig("not_modified", start)
@@ -315,76 +324,80 @@ func (s *Service) GetConfig(
 // sets it only after loading successfully. The SQL (ApplySilentPoll) holds
 // the full rule; a status carried by the request was already persisted above
 // and always wins, so this is a no-op then.
-func (s *Service) applySilentPoll(ctx context.Context, req *collectorv1.GetConfigRequest, servedHash string) {
+func (s *Service) applySilentPoll(ctx context.Context, collectorID pgtype.UUID, req *collectorv1.GetConfigRequest, servedHash string) {
 	if req.GetRemoteConfigStatus() != nil || req.GetHash() != servedHash {
 		return
 	}
 	loaded := len(req.GetEffectiveConfig().GetConfigMap().GetConfigMap()) > 0
 	if err := s.store.Queries.ApplySilentPoll(ctx, sqlc.ApplySilentPollParams{
-		ID:         req.GetId(),
-		Loaded:     loaded,
-		PolledHash: pgtype.Text{String: req.GetHash(), Valid: req.GetHash() != ""},
+		CollectorID: collectorID,
+		ID:          req.GetId(),
+		Loaded:      loaded,
+		PolledHash:  pgtype.Text{String: req.GetHash(), Valid: req.GetHash() != ""},
 	}); err != nil {
 		s.logger.Warn("failed to record silent poll", "instance_id", req.GetId(), "err", err)
 	}
 }
 
-// UnregisterCollector marks an instance as unregistered — only an instance
-// the caller may act for (R9). The request carries the instance id alone, so
-// the caller's scope comes from its principal (callerScope): an OIDC
-// principal with an org of its own (a binding, or a mode-2 asserted org) may
-// unregister only instances whose cluster is claimed to that org and, for a
-// binding, inside its cluster/role allowlists. A principal with no org of its
-// own — an agent token, or OIDC with neither — resolves its org the way
-// GetConfig does, from the cluster claim of the collector it acts as; the
-// only collector an id-only request names is the instance's own, so the
-// check holds by construction and the call is allowed — such a principal can
-// already poll as any collector. An unknown id is a no-op, as before.
+// UnregisterCollector marks the instance rows with the request's wire id
+// that the caller may act for (R9). Instances are keyed per collector
+// (0036), so one id can have a row under several collectors; the request
+// carries the id alone, so the caller's scope comes from its principal
+// (callerScope):
+//
+//   - an OIDC principal with an org of its own (a binding, or a mode-2
+//     asserted org) marks only rows whose collector's cluster is claimed to
+//     that org and, for a binding, inside its cluster/role allowlists (for an
+//     asserted org, inside the token's clusters claim);
+//   - a principal with no org of its own — an agent token, or OIDC with
+//     neither — marks every row with the id. Its org is resolved per request
+//     from the cluster claim of the collector it acts as, so it can already
+//     poll as any of them: this grants nothing new.
+//
+// The answer is the same success whether rows were marked, the id is unknown,
+// or every row is out of scope, so the call is no existence oracle across
+// orgs; out-of-scope rows are only counted (unregister_denied) and logged.
 func (s *Service) UnregisterCollector(
 	ctx context.Context,
 	req *connect.Request[collectorv1.UnregisterCollectorRequest],
 ) (*connect.Response[collectorv1.UnregisterCollectorResponse], error) {
-	inst, err := s.store.Queries.GetCollectorInstanceScope(ctx, req.Msg.Id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return connect.NewResponse(&collectorv1.UnregisterCollectorResponse{}), nil
-	}
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reading instance: %w", err))
-	}
+	ok := connect.NewResponse(&collectorv1.UnregisterCollectorResponse{})
 	scope, err := s.callerScope(ctx)
+	if errors.Is(err, errUnknownAssertedOrg) {
+		// The caller's scope is empty: nothing is in it.
+		s.refusals.record(s.logger, "UnregisterCollector", metrics.AgentRefusedUnregisterDenied, req.Msg.Id)
+		return ok, nil
+	}
 	if err != nil {
-		return nil, s.refused(err, "UnregisterCollector", req.Msg.Id, inst.CollectorID, inst.ClusterName, inst.Role)
+		return nil, err
 	}
-	if scope.hasOrg && (inst.OrgID != scope.orgID ||
-		!allowlistPermits(scope.clusters, inst.ClusterName) || !allowlistPermits(scope.roles, inst.Role)) {
-		return nil, s.refused(refuse(metrics.AgentRefusedUnregisterDenied,
-			errors.New("instance does not belong to this collector identity's organisation")),
-			"UnregisterCollector", req.Msg.Id, inst.CollectorID, inst.ClusterName, inst.Role)
-	}
-	// Pinned to the collector checked above: if the instance moved in
-	// between, nothing is written.
-	n, err := s.store.Queries.UnregisterInstanceOfCollector(ctx, sqlc.UnregisterInstanceOfCollectorParams{
-		ID: req.Msg.Id, CollectorID: inst.CollectorID,
+	res, err := s.store.Queries.UnregisterInstanceScoped(ctx, sqlc.UnregisterInstanceScopedParams{
+		ID:       req.Msg.Id,
+		OrgID:    scope.orgID,
+		Clusters: scope.clusters,
+		Roles:    scope.roles,
 	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("unregistering instance: %w", err))
 	}
-	if n == 0 {
-		return nil, connect.NewError(connect.CodeAborted, errors.New("instance changed during unregister; retry"))
+	if res.OutOfScope > 0 {
+		s.refusals.record(s.logger, "UnregisterCollector", metrics.AgentRefusedUnregisterDenied, req.Msg.Id)
 	}
-	return connect.NewResponse(&collectorv1.UnregisterCollectorResponse{}), nil
+	return ok, nil
 }
+
+// errUnknownAssertedOrg: a mode-2 token asserts an org that does not exist.
+var errUnknownAssertedOrg = errors.New("token asserts an organisation that does not exist")
 
 // identityScope is what a principal may act for on its own, independent of
 // any cluster it names: the org of its binding or asserted claim, and the
-// allowlists that come with it. hasOrg is false for a principal whose org is
-// resolved per request from the cluster claim (an agent token, or OIDC with
-// no binding and no asserted org).
+// allowlists that come with it (nil = any). An invalid orgID is a principal
+// whose org is resolved per request from the cluster claim (an agent token,
+// or OIDC with no binding and no asserted org) — unscoped.
 type identityScope struct {
-	hasOrg   bool
 	orgID    pgtype.UUID
-	clusters json.RawMessage
-	roles    json.RawMessage
+	clusters []string
+	roles    []string
 }
 
 // callerScope resolves the principal's own org with resolveOrg's precedence:
@@ -400,7 +413,7 @@ func (s *Service) callerScope(ctx context.Context) (identityScope, error) {
 	})
 	switch {
 	case err == nil:
-		return identityScope{hasOrg: true, orgID: binding.OrgID, clusters: binding.Clusters, roles: binding.Roles}, nil
+		return identityScope{orgID: binding.OrgID, clusters: allowlist(binding.Clusters), roles: allowlist(binding.Roles)}, nil
 	case errors.Is(err, pgx.ErrNoRows):
 	default:
 		return identityScope{}, connect.NewError(connect.CodeInternal, fmt.Errorf("resolving agent identity: %w", err))
@@ -410,17 +423,26 @@ func (s *Service) callerScope(ctx context.Context) (identityScope, error) {
 	}
 	org, err := s.store.Queries.GetOrgByName(ctx, p.Claims.Org)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return identityScope{}, refuse(metrics.AgentRefusedUnregisterDenied,
-			errors.New("token asserts an organisation that does not exist"))
+		return identityScope{}, errUnknownAssertedOrg
 	}
 	if err != nil {
 		return identityScope{}, connect.NewError(connect.CodeInternal, fmt.Errorf("resolving asserted org: %w", err))
 	}
-	clusters, err := json.Marshal(p.Claims.Clusters)
-	if err != nil {
-		return identityScope{}, connect.NewError(connect.CodeInternal, fmt.Errorf("encoding clusters claim: %w", err))
+	var clusters []string
+	if len(p.Claims.Clusters) > 0 {
+		clusters = p.Claims.Clusters
 	}
-	return identityScope{hasOrg: true, orgID: org.ID, clusters: clusters}, nil
+	return identityScope{orgID: org.ID, clusters: clusters}, nil
+}
+
+// allowlist decodes a jsonb string-array allowlist with allowlistPermits'
+// semantics: absent, empty or malformed means "any", returned as nil.
+func allowlist(raw json.RawMessage) []string {
+	var list []string
+	if len(raw) == 0 || json.Unmarshal(raw, &list) != nil || len(list) == 0 {
+		return nil
+	}
+	return list
 }
 
 // refusal is an identity check's PermissionDenied, tagged with its
@@ -436,18 +458,15 @@ func (r *refusal) Unwrap() error { return r.err }
 
 func refuse(reason string, err error) error { return &refusal{reason: reason, err: err} }
 
-// refused converts a handler error into the RPC's error. A refusal is counted
-// in shepherd_agent_refused_total, logged at Warn with the ids it concerns —
-// never the credential or claim contents — and returned as PermissionDenied;
-// any other error passes through unchanged.
+// refused converts a handler error into the RPC's error. A refusal is
+// counted, logged (rate-limited, see refusalLog) and returned as
+// PermissionDenied; any other error passes through unchanged.
 func (s *Service) refused(err error, rpc, instanceID string, collectorID pgtype.UUID, cluster, role string) error {
 	var r *refusal
 	if !errors.As(err, &r) {
 		return err
 	}
-	metrics.AgentRefusedTotal.WithLabelValues(r.reason).Inc()
-	s.logger.Warn("collector request refused",
-		"rpc", rpc, "reason", r.reason, "instance_id", instanceID,
+	s.refusals.record(s.logger, rpc, r.reason, instanceID,
 		"collector_id", collectorID.String(), "cluster", cluster, "role", role)
 	return connect.NewError(connect.CodePermissionDenied, r.err)
 }
@@ -468,22 +487,19 @@ func (s *Service) upsertCollector(ctx context.Context, cluster, role string) (sq
 	return coll, nil
 }
 
-// bindInstance writes the instance row under coll for a caller whose org
-// check already passed; orgID is the org it resolved (invalid when the
-// cluster is unclaimed). The upsert itself enforces the rebind rule (R10): an
-// existing instance id moves to coll only when its current cluster is
-// unclaimed or in orgID — otherwise the statement matches no row and this
-// returns an instance_rebind refusal with the stored row untouched.
+// bindInstance writes the instance row (coll, instanceID) for a caller whose
+// org check already passed. Instances are keyed per collector (0036): an
+// instance never moves, so a poll under another cluster/role writes a new
+// row and the old one ages out through agent.delete_after.
 func (s *Service) bindInstance(
 	ctx context.Context,
 	instanceID, name string,
 	coll sqlc.Collector,
-	orgID pgtype.UUID,
 	attrs map[string]string,
 ) error {
 	attrsJSON, err := json.Marshal(attrs)
 	if err != nil {
-		return connect.NewError(connect.CodeInternal, fmt.Errorf("marshaling attributes: %w", err))
+		return fmt.Errorf("marshaling attributes: %w", err)
 	}
 
 	alloyVersion := pgtype.Text{}
@@ -495,21 +511,15 @@ func (s *Service) bindInstance(
 		osVal = pgtype.Text{String: v, Valid: true}
 	}
 
-	_, err = s.store.Queries.UpsertCollectorInstance(ctx, sqlc.UpsertCollectorInstanceParams{
+	if _, err := s.store.Queries.UpsertCollectorInstance(ctx, sqlc.UpsertCollectorInstanceParams{
 		ID:              instanceID,
 		CollectorID:     coll.ID,
 		Name:            name,
 		LocalAttributes: attrsJSON,
 		AlloyVersion:    alloyVersion,
 		Os:              osVal,
-		OrgID:           orgID,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return refuse(metrics.AgentRefusedInstanceRebind,
-			errors.New("instance id belongs to a collector in another organisation"))
-	}
-	if err != nil {
-		return connect.NewError(connect.CodeInternal, fmt.Errorf("upserting instance: %w", err))
+	}); err != nil {
+		return fmt.Errorf("upserting instance: %w", err)
 	}
 	return nil
 }

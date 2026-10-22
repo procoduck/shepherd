@@ -97,11 +97,14 @@ not a constraint:
 - `GetConfig` keeps upserting cluster + collector before org resolution (unclaimed discovery and
   OIDC auto-claim need them) but writes the instance row, its status and attributes only after the
   org check.
-- An instance id may move to another collector only within the same org or when its old cluster
-  is unclaimed; otherwise PermissionDenied with the row untouched.
-- `UnregisterCollector` is scoped to the caller's org; `GetConfig` clears `unregistered_at`.
-- New metric `shepherd_agent_refused_total{reason=claim_denied|role_denied|instance_rebind}` plus a
-  Warn log.
+- Instances are keyed by `(collector_id, id)` (decided after the #370 review, replacing "move only
+  within the org", which let the first writer squat an id across orgs): an instance never moves; a
+  new cluster/role writes a new row and the old one ages out.
+- `UnregisterCollector` marks only the rows in the caller's org (all rows for a static token or
+  unbound OIDC); unknown and out-of-scope ids answer the same success. `GetConfig` clears
+  `unregistered_at`.
+- New metric `shepherd_agent_refused_total{reason=claim_denied|role_denied|unregister_denied}` plus a
+  Warn log, rate-limited to the first per (instance id, reason) per five minutes.
 
 **Step 6 — git sync atomic commit (R8).**
 - #349 already writes in one transaction; the partial apply comes from dropping failing files. Any
