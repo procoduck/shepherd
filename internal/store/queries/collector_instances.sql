@@ -8,9 +8,21 @@
 -- name. remote_config_status is not touched: it is the agent's last reported
 -- outcome, and liveness is last_seen alone — "inactive" is derived from it at
 -- read time (#237), so a reconnecting instance shows live again simply by
--- bumping last_seen, with its outcome intact.
+-- bumping last_seen, with its outcome intact. unregistered_at is cleared: an
+-- instance that polls is registered again (R9).
+--
+-- Org binding (R10): org_id is the org the caller resolved for the new
+-- collector (NULL when its cluster is unclaimed). An existing instance id may
+-- move to a different collector only when its current collector's cluster is
+-- unclaimed or claimed by that same org. A refused move matches no row in the
+-- DO UPDATE ... WHERE, so the statement returns no row (pgx.ErrNoRows) and
+-- the stored row is untouched. The check and the write are one statement on
+-- the conflicting row, which ON CONFLICT locks — no check-then-write race.
+-- A same-collector re-poll (the hot path) passes on the first disjunct and
+-- never evaluates the subquery.
 INSERT INTO collector_instances (id, collector_id, name, local_attributes, alloy_version, os, last_seen)
-VALUES ($1, $2, $3, $4, $5, $6, now())
+VALUES (sqlc.arg(id), sqlc.arg(collector_id), sqlc.arg(name), sqlc.arg(local_attributes),
+        sqlc.narg(alloy_version), sqlc.narg(os), now())
 ON CONFLICT (id) DO UPDATE SET
     collector_id = EXCLUDED.collector_id,
     name         = CASE
@@ -21,8 +33,17 @@ ON CONFLICT (id) DO UPDATE SET
     local_attributes = EXCLUDED.local_attributes,
     alloy_version = EXCLUDED.alloy_version,
     os           = EXCLUDED.os,
+    unregistered_at = NULL,
     last_seen    = now(),
     updated_at   = now()
+WHERE collector_instances.collector_id = EXCLUDED.collector_id
+   OR NOT EXISTS (
+        SELECT 1
+        FROM collectors c
+        JOIN clusters cl ON cl.id = c.cluster_id
+        WHERE c.id = collector_instances.collector_id
+          AND cl.org_id IS NOT NULL
+          AND cl.org_id IS DISTINCT FROM sqlc.narg(org_id)::uuid)
 RETURNING *;
 
 -- name: UpdateInstanceStatus :exec
@@ -79,6 +100,22 @@ WHERE id = sqlc.arg(id)
 UPDATE collector_instances
 SET unregistered_at = now(), updated_at = now()
 WHERE id = $1;
+
+-- name: GetCollectorInstanceScope :one
+-- The collector, cluster, role and org an instance currently belongs to —
+-- what UnregisterCollector checks the caller against (R9).
+SELECT ci.collector_id, c.role, cl.name AS cluster_name, cl.org_id
+FROM collector_instances ci
+JOIN collectors c ON c.id = ci.collector_id
+JOIN clusters cl ON cl.id = c.cluster_id
+WHERE ci.id = $1;
+
+-- name: UnregisterInstanceOfCollector :execrows
+-- UnregisterCollector's write, pinned to the collector the scope check saw:
+-- if the instance moved in between, nothing is written (0 rows).
+UPDATE collector_instances
+SET unregistered_at = now(), updated_at = now()
+WHERE id = $1 AND collector_id = $2;
 
 -- name: DeleteOldInstances :exec
 DELETE FROM collector_instances WHERE last_seen < $1;

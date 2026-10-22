@@ -111,8 +111,18 @@ func (s *Service) RegisterCollector(
 	if name == "" {
 		name = req.Msg.Id
 	}
-	if err := s.upsertCollectorInstance(ctx, req.Msg.Id, name, cluster, role, attrs); err != nil {
+	// Same order as GetConfig: cluster + collector rows, then the org check,
+	// then the instance row — a refused registration leaves no instance trace.
+	coll, err := s.upsertCollector(ctx, cluster, role)
+	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	orgID, err := s.resolveOrg(ctx, cluster, role, coll)
+	if err != nil {
+		return nil, s.refused(err, "RegisterCollector", req.Msg.Id, coll.ID, cluster, role)
+	}
+	if err := s.bindInstance(ctx, req.Msg.Id, name, coll, orgID, attrs); err != nil {
+		return nil, s.refused(err, "RegisterCollector", req.Msg.Id, coll.ID, cluster, role)
 	}
 
 	return connect.NewResponse(&collectorv1.RegisterCollectorResponse{}), nil
@@ -146,10 +156,24 @@ func (s *Service) GetConfig(
 		name = req.Msg.Id
 	}
 
+	// Cluster + collector rows first: unclaimed-cluster discovery and OIDC
+	// auto-claim (resolveOrg) both need them. The instance row, its status
+	// and its local_attributes are written only after the org check passes,
+	// so a refused poll leaves no instance-row trace (R9/R10).
+	coll, err := s.upsertCollector(ctx, cluster, role)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+
+	orgID, err := s.resolveOrg(ctx, cluster, role, coll)
+	if err != nil {
+		return nil, s.refused(err, "GetConfig", req.Msg.Id, coll.ID, cluster, role)
+	}
+
 	// PR-9's match-drift short-circuit needs the instance's PREVIOUS
-	// local_attributes before upsertCollectorInstance overwrites it. This
-	// read runs on every poll, so it must stay cheap: one extra SELECT, never
-	// a pipeline list + diff, for the overwhelmingly common case of unchanged
+	// local_attributes before bindInstance overwrites it. This read runs on
+	// every poll, so it must stay cheap: one extra SELECT, never a pipeline
+	// list + diff, for the overwhelmingly common case of unchanged
 	// attributes — see emitLocalAttrsMatchDrift's doc comment for why the
 	// comparison itself is over decoded maps, not raw jsonb bytes.
 	var beforeAttrsJSON json.RawMessage
@@ -157,8 +181,8 @@ func (s *Service) GetConfig(
 		beforeAttrsJSON = prev.LocalAttributes
 	}
 
-	if err := s.upsertCollectorInstance(ctx, req.Msg.Id, name, cluster, role, attrs); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+	if err := s.bindInstance(ctx, req.Msg.Id, name, coll, orgID, attrs); err != nil {
+		return nil, s.refused(err, "GetConfig", req.Msg.Id, coll.ID, cluster, role)
 	}
 
 	// Persist remote_config_status if provided.
@@ -174,20 +198,6 @@ func (s *Service) GetConfig(
 		}); err != nil {
 			s.logger.Warn("failed to update instance status", "instance_id", req.Msg.Id, "err", err)
 		}
-	}
-
-	// Resolve collector and check if cluster is claimed.
-	coll, err := s.store.Queries.GetCollectorByClusterAndRole(ctx, sqlc.GetCollectorByClusterAndRoleParams{
-		Name: cluster,
-		Role: role,
-	})
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("resolving collector: %w", err))
-	}
-
-	orgID, err := s.resolveOrg(ctx, cluster, role, coll)
-	if err != nil {
-		return nil, err
 	}
 
 	// Unclaimed cluster: serve empty config.
@@ -319,39 +329,161 @@ func (s *Service) applySilentPoll(ctx context.Context, req *collectorv1.GetConfi
 	}
 }
 
-// UnregisterCollector marks an instance as unregistered.
+// UnregisterCollector marks an instance as unregistered — only an instance
+// the caller may act for (R9). The request carries the instance id alone, so
+// the caller's scope comes from its principal (callerScope): an OIDC
+// principal with an org of its own (a binding, or a mode-2 asserted org) may
+// unregister only instances whose cluster is claimed to that org and, for a
+// binding, inside its cluster/role allowlists. A principal with no org of its
+// own — an agent token, or OIDC with neither — resolves its org the way
+// GetConfig does, from the cluster claim of the collector it acts as; the
+// only collector an id-only request names is the instance's own, so the
+// check holds by construction and the call is allowed — such a principal can
+// already poll as any collector. An unknown id is a no-op, as before.
 func (s *Service) UnregisterCollector(
 	ctx context.Context,
 	req *connect.Request[collectorv1.UnregisterCollectorRequest],
 ) (*connect.Response[collectorv1.UnregisterCollectorResponse], error) {
-	if err := s.store.Queries.UnregisterInstance(ctx, req.Msg.Id); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+	inst, err := s.store.Queries.GetCollectorInstanceScope(ctx, req.Msg.Id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return connect.NewResponse(&collectorv1.UnregisterCollectorResponse{}), nil
+	}
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reading instance: %w", err))
+	}
+	scope, err := s.callerScope(ctx)
+	if err != nil {
+		return nil, s.refused(err, "UnregisterCollector", req.Msg.Id, inst.CollectorID, inst.ClusterName, inst.Role)
+	}
+	if scope.hasOrg && (inst.OrgID != scope.orgID ||
+		!allowlistPermits(scope.clusters, inst.ClusterName) || !allowlistPermits(scope.roles, inst.Role)) {
+		return nil, s.refused(refuse(metrics.AgentRefusedUnregisterDenied,
+			errors.New("instance does not belong to this collector identity's organisation")),
+			"UnregisterCollector", req.Msg.Id, inst.CollectorID, inst.ClusterName, inst.Role)
+	}
+	// Pinned to the collector checked above: if the instance moved in
+	// between, nothing is written.
+	n, err := s.store.Queries.UnregisterInstanceOfCollector(ctx, sqlc.UnregisterInstanceOfCollectorParams{
+		ID: req.Msg.Id, CollectorID: inst.CollectorID,
+	})
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("unregistering instance: %w", err))
+	}
+	if n == 0 {
+		return nil, connect.NewError(connect.CodeAborted, errors.New("instance changed during unregister; retry"))
 	}
 	return connect.NewResponse(&collectorv1.UnregisterCollectorResponse{}), nil
 }
 
-// upsertCollectorInstance upserts cluster → collector → instance rows.
-func (s *Service) upsertCollectorInstance(
-	ctx context.Context,
-	instanceID, name, cluster, role string,
-	attrs map[string]string,
-) error {
+// identityScope is what a principal may act for on its own, independent of
+// any cluster it names: the org of its binding or asserted claim, and the
+// allowlists that come with it. hasOrg is false for a principal whose org is
+// resolved per request from the cluster claim (an agent token, or OIDC with
+// no binding and no asserted org).
+type identityScope struct {
+	hasOrg   bool
+	orgID    pgtype.UUID
+	clusters json.RawMessage
+	roles    json.RawMessage
+}
+
+// callerScope resolves the principal's own org with resolveOrg's precedence:
+// a binding first, then a mode-2 asserted org, else none.
+func (s *Service) callerScope(ctx context.Context) (identityScope, error) {
+	p := PrincipalFrom(ctx)
+	if p.Kind != AuthKindOIDC || p.Claims == nil {
+		return identityScope{}, nil
+	}
+	binding, err := s.store.Queries.GetAgentIdentityByAppID(ctx, sqlc.GetAgentIdentityByAppIDParams{
+		Issuer: p.Claims.Issuer,
+		AppID:  p.Claims.AppID,
+	})
+	switch {
+	case err == nil:
+		return identityScope{hasOrg: true, orgID: binding.OrgID, clusters: binding.Clusters, roles: binding.Roles}, nil
+	case errors.Is(err, pgx.ErrNoRows):
+	default:
+		return identityScope{}, connect.NewError(connect.CodeInternal, fmt.Errorf("resolving agent identity: %w", err))
+	}
+	if p.Claims.Org == "" {
+		return identityScope{}, nil
+	}
+	org, err := s.store.Queries.GetOrgByName(ctx, p.Claims.Org)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return identityScope{}, refuse(metrics.AgentRefusedUnregisterDenied,
+			errors.New("token asserts an organisation that does not exist"))
+	}
+	if err != nil {
+		return identityScope{}, connect.NewError(connect.CodeInternal, fmt.Errorf("resolving asserted org: %w", err))
+	}
+	clusters, err := json.Marshal(p.Claims.Clusters)
+	if err != nil {
+		return identityScope{}, connect.NewError(connect.CodeInternal, fmt.Errorf("encoding clusters claim: %w", err))
+	}
+	return identityScope{hasOrg: true, orgID: org.ID, clusters: clusters}, nil
+}
+
+// refusal is an identity check's PermissionDenied, tagged with its
+// shepherd_agent_refused_total reason. Handlers turn it into the RPC error
+// through Service.refused, which counts and logs it once.
+type refusal struct {
+	reason string
+	err    error
+}
+
+func (r *refusal) Error() string { return r.err.Error() }
+func (r *refusal) Unwrap() error { return r.err }
+
+func refuse(reason string, err error) error { return &refusal{reason: reason, err: err} }
+
+// refused converts a handler error into the RPC's error. A refusal is counted
+// in shepherd_agent_refused_total, logged at Warn with the ids it concerns —
+// never the credential or claim contents — and returned as PermissionDenied;
+// any other error passes through unchanged.
+func (s *Service) refused(err error, rpc, instanceID string, collectorID pgtype.UUID, cluster, role string) error {
+	var r *refusal
+	if !errors.As(err, &r) {
+		return err
+	}
+	metrics.AgentRefusedTotal.WithLabelValues(r.reason).Inc()
+	s.logger.Warn("collector request refused",
+		"rpc", rpc, "reason", r.reason, "instance_id", instanceID,
+		"collector_id", collectorID.String(), "cluster", cluster, "role", role)
+	return connect.NewError(connect.CodePermissionDenied, r.err)
+}
+
+// upsertCollector upserts the cluster and collector rows a request names.
+func (s *Service) upsertCollector(ctx context.Context, cluster, role string) (sqlc.Collector, error) {
 	cl, err := s.store.Queries.UpsertCluster(ctx, cluster)
 	if err != nil {
-		return fmt.Errorf("upserting cluster %q: %w", cluster, err)
+		return sqlc.Collector{}, fmt.Errorf("upserting cluster %q: %w", cluster, err)
 	}
-
 	coll, err := s.store.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{
 		ClusterID: cl.ID,
 		Role:      role,
 	})
 	if err != nil {
-		return fmt.Errorf("upserting collector: %w", err)
+		return sqlc.Collector{}, fmt.Errorf("upserting collector: %w", err)
 	}
+	return coll, nil
+}
 
+// bindInstance writes the instance row under coll for a caller whose org
+// check already passed; orgID is the org it resolved (invalid when the
+// cluster is unclaimed). The upsert itself enforces the rebind rule (R10): an
+// existing instance id moves to coll only when its current cluster is
+// unclaimed or in orgID — otherwise the statement matches no row and this
+// returns an instance_rebind refusal with the stored row untouched.
+func (s *Service) bindInstance(
+	ctx context.Context,
+	instanceID, name string,
+	coll sqlc.Collector,
+	orgID pgtype.UUID,
+	attrs map[string]string,
+) error {
 	attrsJSON, err := json.Marshal(attrs)
 	if err != nil {
-		return fmt.Errorf("marshaling attributes: %w", err)
+		return connect.NewError(connect.CodeInternal, fmt.Errorf("marshaling attributes: %w", err))
 	}
 
 	alloyVersion := pgtype.Text{}
@@ -363,17 +495,22 @@ func (s *Service) upsertCollectorInstance(
 		osVal = pgtype.Text{String: v, Valid: true}
 	}
 
-	if _, err := s.store.Queries.UpsertCollectorInstance(ctx, sqlc.UpsertCollectorInstanceParams{
+	_, err = s.store.Queries.UpsertCollectorInstance(ctx, sqlc.UpsertCollectorInstanceParams{
 		ID:              instanceID,
 		CollectorID:     coll.ID,
 		Name:            name,
 		LocalAttributes: attrsJSON,
 		AlloyVersion:    alloyVersion,
 		Os:              osVal,
-	}); err != nil {
-		return fmt.Errorf("upserting instance: %w", err)
+		OrgID:           orgID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return refuse(metrics.AgentRefusedInstanceRebind,
+			errors.New("instance id belongs to a collector in another organisation"))
 	}
-
+	if err != nil {
+		return connect.NewError(connect.CodeInternal, fmt.Errorf("upserting instance: %w", err))
+	}
 	return nil
 }
 
@@ -514,11 +651,11 @@ func (s *Service) resolveOrg(ctx context.Context, cluster, role string, coll sql
 // allowlists and auto-claims the cluster to the binding's org.
 func (s *Service) resolveBoundOrg(ctx context.Context, cluster, role string, coll sqlc.Collector, binding sqlc.AgentIdentity) (pgtype.UUID, error) {
 	if !allowlistPermits(binding.Clusters, cluster) {
-		return pgtype.UUID{}, connect.NewError(connect.CodePermissionDenied,
+		return pgtype.UUID{}, refuse(metrics.AgentRefusedClaimDenied,
 			fmt.Errorf("cluster %q is not permitted for this collector identity", cluster))
 	}
 	if !allowlistPermits(binding.Roles, role) {
-		return pgtype.UUID{}, connect.NewError(connect.CodePermissionDenied,
+		return pgtype.UUID{}, refuse(metrics.AgentRefusedRoleDenied,
 			fmt.Errorf("role %q is not permitted for this collector identity", role))
 	}
 	// Bind the cluster to the identity's org, or confirm it is already ours.
@@ -529,7 +666,7 @@ func (s *Service) resolveBoundOrg(ctx context.Context, cluster, role string, col
 		OrgID: binding.OrgID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return pgtype.UUID{}, connect.NewError(connect.CodePermissionDenied,
+		return pgtype.UUID{}, refuse(metrics.AgentRefusedClaimDenied,
 			fmt.Errorf("cluster %q is claimed by another organisation", cluster))
 	}
 	if err != nil {
@@ -550,12 +687,12 @@ func (s *Service) resolveClaimOrg(ctx context.Context, cluster string, coll sqlc
 	// no Shepherd-side binding to scope the token, so this claim is the only
 	// cluster allowlist. Empty means "any cluster in the asserted org".
 	if len(claims.Clusters) > 0 && !slices.Contains(claims.Clusters, cluster) {
-		return pgtype.UUID{}, connect.NewError(connect.CodePermissionDenied,
+		return pgtype.UUID{}, refuse(metrics.AgentRefusedClaimDenied,
 			fmt.Errorf("cluster %q is not permitted by this token's clusters claim", cluster))
 	}
 	org, err := s.store.Queries.GetOrgByName(ctx, claims.Org)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return pgtype.UUID{}, connect.NewError(connect.CodePermissionDenied,
+		return pgtype.UUID{}, refuse(metrics.AgentRefusedClaimDenied,
 			fmt.Errorf("token asserts organisation %q, which does not exist", claims.Org))
 	}
 	if err != nil {
@@ -566,7 +703,7 @@ func (s *Service) resolveClaimOrg(ctx context.Context, cluster string, coll sqlc
 		OrgID: org.ID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return pgtype.UUID{}, connect.NewError(connect.CodePermissionDenied,
+		return pgtype.UUID{}, refuse(metrics.AgentRefusedClaimDenied,
 			fmt.Errorf("cluster %q is claimed by another organisation", cluster))
 	}
 	if err != nil {
@@ -624,7 +761,7 @@ func requireClusterRole(attrs map[string]string) (cluster, role string, err erro
 // PR-8b's gated freshness requirement: local_attributes matching on this hot
 // path must use the CURRENT request's self-reported attributes, never a
 // re-query of collector_instances, which would still reflect the previous
-// heartbeat (this function's own upsertCollectorInstance write for the
+// heartbeat (this function's own bindInstance write for the
 // current one hasn't necessarily landed/committed before this read would
 // run). One known, accepted edge: this recompute runs inside GetConfig's
 // singleflight.Do keyed by collector ID (§200), so two nearly-simultaneous

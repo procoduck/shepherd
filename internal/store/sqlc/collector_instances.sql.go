@@ -123,6 +123,35 @@ func (q *Queries) GetCollectorInstanceByID(ctx context.Context, id string) (Coll
 	return i, err
 }
 
+const getCollectorInstanceScope = `-- name: GetCollectorInstanceScope :one
+SELECT ci.collector_id, c.role, cl.name AS cluster_name, cl.org_id
+FROM collector_instances ci
+JOIN collectors c ON c.id = ci.collector_id
+JOIN clusters cl ON cl.id = c.cluster_id
+WHERE ci.id = $1
+`
+
+type GetCollectorInstanceScopeRow struct {
+	CollectorID pgtype.UUID `json:"collector_id"`
+	Role        string      `json:"role"`
+	ClusterName string      `json:"cluster_name"`
+	OrgID       pgtype.UUID `json:"org_id"`
+}
+
+// The collector, cluster, role and org an instance currently belongs to —
+// what UnregisterCollector checks the caller against (R9).
+func (q *Queries) GetCollectorInstanceScope(ctx context.Context, id string) (GetCollectorInstanceScopeRow, error) {
+	row := q.db.QueryRow(ctx, getCollectorInstanceScope, id)
+	var i GetCollectorInstanceScopeRow
+	err := row.Scan(
+		&i.CollectorID,
+		&i.Role,
+		&i.ClusterName,
+		&i.OrgID,
+	)
+	return i, err
+}
+
 const getLatestCollectorInstanceSummary = `-- name: GetLatestCollectorInstanceSummary :one
 SELECT ci.remote_config_status, ci.remote_config_error, ci.last_seen, ci.alloy_version,
        ci.local_attributes, ci.remote_config_status_hash AS status_hash, sc.hash AS served_hash
@@ -321,6 +350,27 @@ func (q *Queries) UnregisterInstance(ctx context.Context, id string) error {
 	return err
 }
 
+const unregisterInstanceOfCollector = `-- name: UnregisterInstanceOfCollector :execrows
+UPDATE collector_instances
+SET unregistered_at = now(), updated_at = now()
+WHERE id = $1 AND collector_id = $2
+`
+
+type UnregisterInstanceOfCollectorParams struct {
+	ID          string      `json:"id"`
+	CollectorID pgtype.UUID `json:"collector_id"`
+}
+
+// UnregisterCollector's write, pinned to the collector the scope check saw:
+// if the instance moved in between, nothing is written (0 rows).
+func (q *Queries) UnregisterInstanceOfCollector(ctx context.Context, arg UnregisterInstanceOfCollectorParams) (int64, error) {
+	result, err := q.db.Exec(ctx, unregisterInstanceOfCollector, arg.ID, arg.CollectorID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const updateInstanceStatus = `-- name: UpdateInstanceStatus :exec
 UPDATE collector_instances
 SET remote_config_status      = $2,
@@ -351,7 +401,8 @@ func (q *Queries) UpdateInstanceStatus(ctx context.Context, arg UpdateInstanceSt
 
 const upsertCollectorInstance = `-- name: UpsertCollectorInstance :one
 INSERT INTO collector_instances (id, collector_id, name, local_attributes, alloy_version, os, last_seen)
-VALUES ($1, $2, $3, $4, $5, $6, now())
+VALUES ($1, $2, $3, $4,
+        $5, $6, now())
 ON CONFLICT (id) DO UPDATE SET
     collector_id = EXCLUDED.collector_id,
     name         = CASE
@@ -362,8 +413,17 @@ ON CONFLICT (id) DO UPDATE SET
     local_attributes = EXCLUDED.local_attributes,
     alloy_version = EXCLUDED.alloy_version,
     os           = EXCLUDED.os,
+    unregistered_at = NULL,
     last_seen    = now(),
     updated_at   = now()
+WHERE collector_instances.collector_id = EXCLUDED.collector_id
+   OR NOT EXISTS (
+        SELECT 1
+        FROM collectors c
+        JOIN clusters cl ON cl.id = c.cluster_id
+        WHERE c.id = collector_instances.collector_id
+          AND cl.org_id IS NOT NULL
+          AND cl.org_id IS DISTINCT FROM $7::uuid)
 RETURNING id, collector_id, name, local_attributes, alloy_version, os, last_seen, unregistered_at, remote_config_status, remote_config_error, created_at, updated_at, remote_config_status_hash
 `
 
@@ -374,6 +434,7 @@ type UpsertCollectorInstanceParams struct {
 	LocalAttributes json.RawMessage `json:"local_attributes"`
 	AlloyVersion    pgtype.Text     `json:"alloy_version"`
 	Os              pgtype.Text     `json:"os"`
+	OrgID           pgtype.UUID     `json:"org_id"`
 }
 
 // On conflict, an incoming name that is empty or equal to the wire id (both
@@ -385,7 +446,18 @@ type UpsertCollectorInstanceParams struct {
 // name. remote_config_status is not touched: it is the agent's last reported
 // outcome, and liveness is last_seen alone — "inactive" is derived from it at
 // read time (#237), so a reconnecting instance shows live again simply by
-// bumping last_seen, with its outcome intact.
+// bumping last_seen, with its outcome intact. unregistered_at is cleared: an
+// instance that polls is registered again (R9).
+//
+// Org binding (R10): org_id is the org the caller resolved for the new
+// collector (NULL when its cluster is unclaimed). An existing instance id may
+// move to a different collector only when its current collector's cluster is
+// unclaimed or claimed by that same org. A refused move matches no row in the
+// DO UPDATE ... WHERE, so the statement returns no row (pgx.ErrNoRows) and
+// the stored row is untouched. The check and the write are one statement on
+// the conflicting row, which ON CONFLICT locks — no check-then-write race.
+// A same-collector re-poll (the hot path) passes on the first disjunct and
+// never evaluates the subquery.
 func (q *Queries) UpsertCollectorInstance(ctx context.Context, arg UpsertCollectorInstanceParams) (CollectorInstance, error) {
 	row := q.db.QueryRow(ctx, upsertCollectorInstance,
 		arg.ID,
@@ -394,6 +466,7 @@ func (q *Queries) UpsertCollectorInstance(ctx context.Context, arg UpsertCollect
 		arg.LocalAttributes,
 		arg.AlloyVersion,
 		arg.Os,
+		arg.OrgID,
 	)
 	var i CollectorInstance
 	err := row.Scan(
