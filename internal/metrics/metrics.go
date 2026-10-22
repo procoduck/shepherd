@@ -46,6 +46,15 @@ var (
 		Help:      "Total number of serve-cache recompute failures (lazy and eager paths).",
 	})
 
+	// AgentRefusedTotal counts collector RPCs the agent API refused on an
+	// identity check, by reason — a closed set (AgentRefused* below), so the
+	// cardinality is bounded by construction.
+	AgentRefusedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "shepherd",
+		Name:      "agent_refused_total",
+		Help:      "Total collector RPCs refused on an identity check, by reason (claim_denied, role_denied, unregister_denied).",
+	}, []string{"reason"})
+
 	// SyncTotal counts gitsync reconciliation attempts by result.
 	SyncTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "shepherd",
@@ -116,6 +125,20 @@ var (
 		Name:      "pipeline_match_changes_total",
 		Help:      "Total pipeline-to-collector match changes caused by a label mutation, by direction (added, removed).",
 	}, []string{"direction"})
+)
+
+// The shepherd_agent_refused_total reasons.
+const (
+	// AgentRefusedClaimDenied: the principal may not act for the cluster — a
+	// binding's or token's cluster allowlist excludes it, the cluster is
+	// claimed by another org, or the token asserts an org that does not exist.
+	AgentRefusedClaimDenied = "claim_denied"
+	// AgentRefusedRoleDenied: a binding's role allowlist excludes the role.
+	AgentRefusedRoleDenied = "role_denied"
+	// AgentRefusedUnregisterDenied: UnregisterCollector named an instance id
+	// with rows outside the caller's org (or its allowlists). The caller still
+	// gets success; those rows are left alone and only counted.
+	AgentRefusedUnregisterDenied = "unregister_denied"
 )
 
 // init publishes the build-info series as soon as the package loads, so

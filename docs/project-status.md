@@ -226,7 +226,13 @@ partially apply a commit"). Found in the 2026-10-22 review; fix is step 6 of
 valid agent token can rebind any (hostname-like) instance id; `UnregisterCollector` has no org check
 and its `unregistered_at` is never cleared, hiding a still-polling instance and dropping its
 `local_attributes` from org recompute. Found in the 2026-10-22 review; step 5 of the remediation
-plan (R9, R10).
+plan (R9, R10). Ships fixed in the next release (#370): instances are keyed per
+collector (migration 0036), so an id never moves and no org can squat or rebind another's; the
+instance row is written only after the org check; a poll clears `unregistered_at`; an OIDC caller
+with an org unregisters only that org's rows (spec §4.1); refusals count in
+`shepherd_agent_refused_total`. A static agent token can still unregister any instance (the request
+carries only the id, and such a token can already poll as any collector) — the instance
+re-registers on its next poll.
 
 ### B-SERVE-AUDIT — a failed recompute leaves no audit trail · **low**
 

@@ -1260,6 +1260,7 @@ WHERE serve_cache.dirty = true AND serve_cache.dirty_seq = $4`
 			Expect(err).NotTo(HaveOccurred())
 			Expect(st.Queries.UpdateInstanceStatus(ctx, sqlc.UpdateInstanceStatusParams{
 				ID:                 "reconnect-instance",
+				CollectorID:        instanceCollectorID(ctx, st, "reconnect-instance"),
 				RemoteConfigStatus: pgtype.Text{String: "APPLYING", Valid: true},
 			})).To(Succeed())
 
@@ -1375,6 +1376,7 @@ WHERE serve_cache.dirty = true AND serve_cache.dirty_seq = $4`
 				// The FAILED was reported for an earlier config.
 				Expect(st.Queries.UpdateInstanceStatus(ctx, sqlc.UpdateInstanceStatusParams{
 					ID:                 "recompute-instance",
+					CollectorID:        instanceCollectorID(ctx, st, "recompute-instance"),
 					RemoteConfigStatus: pgtype.Text{String: "FAILED", Valid: true},
 					RemoteConfigError:  pgtype.Text{String: "40:3: Failed to build component", Valid: true},
 					StatusHash:         pgtype.Text{String: "an-earlier-hash", Valid: true},
@@ -1435,6 +1437,7 @@ WHERE serve_cache.dirty = true AND serve_cache.dirty_seq = $4`
 				servedHash := failClaimed()
 				Expect(st.Queries.UpdateInstanceStatus(ctx, sqlc.UpdateInstanceStatusParams{
 					ID:                 "recompute-instance",
+					CollectorID:        instanceCollectorID(ctx, st, "recompute-instance"),
 					RemoteConfigStatus: pgtype.Text{String: "APPLIED", Valid: true},
 					StatusHash:         pgtype.Text{String: "an-earlier-hash", Valid: true},
 				})).To(Succeed())
@@ -1755,4 +1758,13 @@ func testSchemaRegistry() *schema.Registry {
 	reg, err := schema.New(schema.Embedded, version.AlloySchemaVersion)
 	Expect(err).NotTo(HaveOccurred())
 	return reg
+}
+
+// instanceCollectorID is the collector of the most recently seen instance row
+// with this wire id — instances are keyed per collector (0036), so a status
+// write names both.
+func instanceCollectorID(ctx context.Context, st *store.Store, id string) pgtype.UUID {
+	inst, err := st.Queries.GetCollectorInstanceByID(ctx, id)
+	Expect(err).NotTo(HaveOccurred())
+	return inst.CollectorID
 }

@@ -21,7 +21,6 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c" //nolint:staticcheck // h2c is still required for Connect/gRPC cleartext
 
-	"shepherd/gen/collector/v1/collectorv1connect"
 	"shepherd/internal/advisorylock"
 	"shepherd/internal/agentapi"
 	"shepherd/internal/auth"
@@ -306,7 +305,8 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 	// refused call never reaches telemetry.Interceptor, so the gate is wrapped
 	// by telemetry.RequestGate to keep it counted — an auth failure spike is
 	// exactly the thing you want on a graph.
-	connectPath, connectHandler := collectorv1connect.NewCollectorServiceHandler(
+	// agentapi.NewHandler also caps the request message (MaxRequestBytes).
+	connectPath, connectHandler := agentapi.NewHandler(
 		svc,
 		connect.WithRequestGate(telemetry.RequestGate(agentapi.NewAuthGate(st, verifyAgentToken))),
 		connect.WithInterceptors(telemetry.Interceptor()),

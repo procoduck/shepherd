@@ -1,4 +1,9 @@
 -- name: UpsertCollectorInstance :one
+-- An instance is keyed by (collector_id, id) (0036): it never moves between
+-- collectors. A poll under a different cluster/role writes a new row, and the
+-- old one ages out through agent.delete_after — so no id can be squatted or
+-- rebound across orgs (R10).
+--
 -- On conflict, an incoming name that is empty or equal to the wire id (both
 -- signal "caller has no real display name to report, e.g. a bare poll with
 -- no collector.name attribute") never clobbers a previously-known display
@@ -8,11 +13,11 @@
 -- name. remote_config_status is not touched: it is the agent's last reported
 -- outcome, and liveness is last_seen alone — "inactive" is derived from it at
 -- read time (#237), so a reconnecting instance shows live again simply by
--- bumping last_seen, with its outcome intact.
+-- bumping last_seen, with its outcome intact. unregistered_at is cleared: an
+-- instance that polls is registered again (R9).
 INSERT INTO collector_instances (id, collector_id, name, local_attributes, alloy_version, os, last_seen)
 VALUES ($1, $2, $3, $4, $5, $6, now())
-ON CONFLICT (id) DO UPDATE SET
-    collector_id = EXCLUDED.collector_id,
+ON CONFLICT (collector_id, id) DO UPDATE SET
     name         = CASE
                         WHEN (EXCLUDED.name = '' OR EXCLUDED.name = collector_instances.id)
                              AND collector_instances.name <> '' THEN collector_instances.name
@@ -21,6 +26,7 @@ ON CONFLICT (id) DO UPDATE SET
     local_attributes = EXCLUDED.local_attributes,
     alloy_version = EXCLUDED.alloy_version,
     os           = EXCLUDED.os,
+    unregistered_at = NULL,
     last_seen    = now(),
     updated_at   = now()
 RETURNING *;
@@ -29,11 +35,11 @@ RETURNING *;
 -- remote_config_status_hash records which config the status is about: the
 -- hash the agent sent alongside it (see 0028).
 UPDATE collector_instances
-SET remote_config_status      = $2,
-    remote_config_error       = $3,
+SET remote_config_status      = sqlc.arg(remote_config_status),
+    remote_config_error       = sqlc.narg(remote_config_error),
     remote_config_status_hash = sqlc.narg(status_hash),
     updated_at                = now()
-WHERE id = $1;
+WHERE collector_id = sqlc.arg(collector_id) AND id = sqlc.arg(id);
 
 -- name: ApplySilentPoll :exec
 -- A poll with no RemoteConfigStatus, whose hash equals what GetConfig served.
@@ -69,22 +75,62 @@ SET remote_config_status = CASE
     END,
     remote_config_status_hash = sqlc.arg(polled_hash),
     updated_at                = now()
-WHERE id = sqlc.arg(id)
+WHERE collector_id = sqlc.arg(collector_id) AND id = sqlc.arg(id)
   AND (sqlc.arg(loaded)::bool
        OR remote_config_status IS NULL
        OR remote_config_status = ''
        OR remote_config_status_hash IS DISTINCT FROM sqlc.arg(polled_hash));
 
 -- name: UnregisterInstance :exec
+-- Every row with this wire id, unscoped. Test fixtures only; the agent API
+-- uses UnregisterInstanceScoped.
 UPDATE collector_instances
 SET unregistered_at = now(), updated_at = now()
 WHERE id = $1;
 
+-- name: UnregisterInstanceScoped :one
+-- UnregisterCollector (R9): marks every row with this wire id that the
+-- caller's scope covers, in one statement. A NULL org_id is an unscoped
+-- caller (an agent token, or OIDC with no binding and no asserted org): every
+-- row. Otherwise only rows whose collector's cluster is claimed to org_id
+-- and, when the allowlists are non-NULL, whose cluster name and role are in
+-- them. out_of_scope counts the rows with this id the caller may not touch —
+-- for the refusal metric only; the caller gets the same answer either way.
+WITH matched AS (
+    SELECT ci.collector_id,
+           COALESCE(sqlc.narg(org_id)::uuid IS NULL
+            OR (cl.org_id = sqlc.narg(org_id)::uuid
+                AND (sqlc.narg(clusters)::text[] IS NULL OR cl.name = ANY(sqlc.narg(clusters)::text[]))
+                AND (sqlc.narg(roles)::text[] IS NULL OR c.role = ANY(sqlc.narg(roles)::text[]))), false)::bool AS in_scope
+    FROM collector_instances ci
+    JOIN collectors c ON c.id = ci.collector_id
+    JOIN clusters cl ON cl.id = c.cluster_id
+    WHERE ci.id = sqlc.arg(id)
+),
+marked AS (
+    UPDATE collector_instances ci
+    SET unregistered_at = now(), updated_at = now()
+    FROM matched m
+    WHERE ci.id = sqlc.arg(id) AND ci.collector_id = m.collector_id AND m.in_scope
+    RETURNING ci.collector_id
+)
+SELECT (SELECT count(*) FROM marked)::bigint AS unregistered,
+       (SELECT count(*) FROM matched WHERE NOT matched.in_scope)::bigint AS out_of_scope;
+
 -- name: DeleteOldInstances :exec
 DELETE FROM collector_instances WHERE last_seen < $1;
 
+-- name: GetCollectorInstance :one
+-- One instance row under one collector — GetConfig's read of the previous
+-- local_attributes.
+SELECT * FROM collector_instances WHERE collector_id = $1 AND id = $2;
+
 -- name: GetCollectorInstanceByID :one
-SELECT * FROM collector_instances WHERE id = $1;
+-- The most recently seen row with this wire id, under any collector (an id
+-- that moved has one row per collector it reported under, 0036).
+SELECT * FROM collector_instances WHERE id = $1
+ORDER BY last_seen DESC NULLS LAST, updated_at DESC
+LIMIT 1;
 
 -- name: GetLatestCollectorInstanceSummary :one
 -- Status, error, last-seen, and version of the most recently reporting live

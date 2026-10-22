@@ -28,7 +28,7 @@ SET remote_config_status = CASE
     END,
     remote_config_status_hash = $2,
     updated_at                = now()
-WHERE id = $3
+WHERE collector_id = $3 AND id = $4
   AND ($1::bool
        OR remote_config_status IS NULL
        OR remote_config_status = ''
@@ -36,9 +36,10 @@ WHERE id = $3
 `
 
 type ApplySilentPollParams struct {
-	Loaded     bool        `json:"loaded"`
-	PolledHash pgtype.Text `json:"polled_hash"`
-	ID         string      `json:"id"`
+	Loaded      bool        `json:"loaded"`
+	PolledHash  pgtype.Text `json:"polled_hash"`
+	CollectorID pgtype.UUID `json:"collector_id"`
+	ID          string      `json:"id"`
 }
 
 // A poll with no RemoteConfigStatus, whose hash equals what GetConfig served.
@@ -61,7 +62,12 @@ type ApplySilentPollParams struct {
 // Writes only when something changes, so a steady fleet does not rewrite
 // its rows on every poll.
 func (q *Queries) ApplySilentPoll(ctx context.Context, arg ApplySilentPollParams) error {
-	_, err := q.db.Exec(ctx, applySilentPoll, arg.Loaded, arg.PolledHash, arg.ID)
+	_, err := q.db.Exec(ctx, applySilentPoll,
+		arg.Loaded,
+		arg.PolledHash,
+		arg.CollectorID,
+		arg.ID,
+	)
 	return err
 }
 
@@ -98,10 +104,46 @@ func (q *Queries) DeleteOldInstances(ctx context.Context, lastSeen pgtype.Timest
 	return err
 }
 
-const getCollectorInstanceByID = `-- name: GetCollectorInstanceByID :one
-SELECT id, collector_id, name, local_attributes, alloy_version, os, last_seen, unregistered_at, remote_config_status, remote_config_error, created_at, updated_at, remote_config_status_hash FROM collector_instances WHERE id = $1
+const getCollectorInstance = `-- name: GetCollectorInstance :one
+SELECT id, collector_id, name, local_attributes, alloy_version, os, last_seen, unregistered_at, remote_config_status, remote_config_error, created_at, updated_at, remote_config_status_hash FROM collector_instances WHERE collector_id = $1 AND id = $2
 `
 
+type GetCollectorInstanceParams struct {
+	CollectorID pgtype.UUID `json:"collector_id"`
+	ID          string      `json:"id"`
+}
+
+// One instance row under one collector — GetConfig's read of the previous
+// local_attributes.
+func (q *Queries) GetCollectorInstance(ctx context.Context, arg GetCollectorInstanceParams) (CollectorInstance, error) {
+	row := q.db.QueryRow(ctx, getCollectorInstance, arg.CollectorID, arg.ID)
+	var i CollectorInstance
+	err := row.Scan(
+		&i.ID,
+		&i.CollectorID,
+		&i.Name,
+		&i.LocalAttributes,
+		&i.AlloyVersion,
+		&i.Os,
+		&i.LastSeen,
+		&i.UnregisteredAt,
+		&i.RemoteConfigStatus,
+		&i.RemoteConfigError,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.RemoteConfigStatusHash,
+	)
+	return i, err
+}
+
+const getCollectorInstanceByID = `-- name: GetCollectorInstanceByID :one
+SELECT id, collector_id, name, local_attributes, alloy_version, os, last_seen, unregistered_at, remote_config_status, remote_config_error, created_at, updated_at, remote_config_status_hash FROM collector_instances WHERE id = $1
+ORDER BY last_seen DESC NULLS LAST, updated_at DESC
+LIMIT 1
+`
+
+// The most recently seen row with this wire id, under any collector (an id
+// that moved has one row per collector it reported under, 0036).
 func (q *Queries) GetCollectorInstanceByID(ctx context.Context, id string) (CollectorInstance, error) {
 	row := q.db.QueryRow(ctx, getCollectorInstanceByID, id)
 	var i CollectorInstance
@@ -316,35 +358,93 @@ SET unregistered_at = now(), updated_at = now()
 WHERE id = $1
 `
 
+// Every row with this wire id, unscoped. Test fixtures only; the agent API
+// uses UnregisterInstanceScoped.
 func (q *Queries) UnregisterInstance(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, unregisterInstance, id)
 	return err
 }
 
+const unregisterInstanceScoped = `-- name: UnregisterInstanceScoped :one
+WITH matched AS (
+    SELECT ci.collector_id,
+           COALESCE($1::uuid IS NULL
+            OR (cl.org_id = $1::uuid
+                AND ($2::text[] IS NULL OR cl.name = ANY($2::text[]))
+                AND ($3::text[] IS NULL OR c.role = ANY($3::text[]))), false)::bool AS in_scope
+    FROM collector_instances ci
+    JOIN collectors c ON c.id = ci.collector_id
+    JOIN clusters cl ON cl.id = c.cluster_id
+    WHERE ci.id = $4
+),
+marked AS (
+    UPDATE collector_instances ci
+    SET unregistered_at = now(), updated_at = now()
+    FROM matched m
+    WHERE ci.id = $4 AND ci.collector_id = m.collector_id AND m.in_scope
+    RETURNING ci.collector_id
+)
+SELECT (SELECT count(*) FROM marked)::bigint AS unregistered,
+       (SELECT count(*) FROM matched WHERE NOT matched.in_scope)::bigint AS out_of_scope
+`
+
+type UnregisterInstanceScopedParams struct {
+	OrgID    pgtype.UUID `json:"org_id"`
+	Clusters []string    `json:"clusters"`
+	Roles    []string    `json:"roles"`
+	ID       string      `json:"id"`
+}
+
+type UnregisterInstanceScopedRow struct {
+	Unregistered int64 `json:"unregistered"`
+	OutOfScope   int64 `json:"out_of_scope"`
+}
+
+// UnregisterCollector (R9): marks every row with this wire id that the
+// caller's scope covers, in one statement. A NULL org_id is an unscoped
+// caller (an agent token, or OIDC with no binding and no asserted org): every
+// row. Otherwise only rows whose collector's cluster is claimed to org_id
+// and, when the allowlists are non-NULL, whose cluster name and role are in
+// them. out_of_scope counts the rows with this id the caller may not touch —
+// for the refusal metric only; the caller gets the same answer either way.
+func (q *Queries) UnregisterInstanceScoped(ctx context.Context, arg UnregisterInstanceScopedParams) (UnregisterInstanceScopedRow, error) {
+	row := q.db.QueryRow(ctx, unregisterInstanceScoped,
+		arg.OrgID,
+		arg.Clusters,
+		arg.Roles,
+		arg.ID,
+	)
+	var i UnregisterInstanceScopedRow
+	err := row.Scan(&i.Unregistered, &i.OutOfScope)
+	return i, err
+}
+
 const updateInstanceStatus = `-- name: UpdateInstanceStatus :exec
 UPDATE collector_instances
-SET remote_config_status      = $2,
-    remote_config_error       = $3,
-    remote_config_status_hash = $4,
+SET remote_config_status      = $1,
+    remote_config_error       = $2,
+    remote_config_status_hash = $3,
     updated_at                = now()
-WHERE id = $1
+WHERE collector_id = $4 AND id = $5
 `
 
 type UpdateInstanceStatusParams struct {
-	ID                 string      `json:"id"`
 	RemoteConfigStatus pgtype.Text `json:"remote_config_status"`
 	RemoteConfigError  pgtype.Text `json:"remote_config_error"`
 	StatusHash         pgtype.Text `json:"status_hash"`
+	CollectorID        pgtype.UUID `json:"collector_id"`
+	ID                 string      `json:"id"`
 }
 
 // remote_config_status_hash records which config the status is about: the
 // hash the agent sent alongside it (see 0028).
 func (q *Queries) UpdateInstanceStatus(ctx context.Context, arg UpdateInstanceStatusParams) error {
 	_, err := q.db.Exec(ctx, updateInstanceStatus,
-		arg.ID,
 		arg.RemoteConfigStatus,
 		arg.RemoteConfigError,
 		arg.StatusHash,
+		arg.CollectorID,
+		arg.ID,
 	)
 	return err
 }
@@ -352,8 +452,7 @@ func (q *Queries) UpdateInstanceStatus(ctx context.Context, arg UpdateInstanceSt
 const upsertCollectorInstance = `-- name: UpsertCollectorInstance :one
 INSERT INTO collector_instances (id, collector_id, name, local_attributes, alloy_version, os, last_seen)
 VALUES ($1, $2, $3, $4, $5, $6, now())
-ON CONFLICT (id) DO UPDATE SET
-    collector_id = EXCLUDED.collector_id,
+ON CONFLICT (collector_id, id) DO UPDATE SET
     name         = CASE
                         WHEN (EXCLUDED.name = '' OR EXCLUDED.name = collector_instances.id)
                              AND collector_instances.name <> '' THEN collector_instances.name
@@ -362,6 +461,7 @@ ON CONFLICT (id) DO UPDATE SET
     local_attributes = EXCLUDED.local_attributes,
     alloy_version = EXCLUDED.alloy_version,
     os           = EXCLUDED.os,
+    unregistered_at = NULL,
     last_seen    = now(),
     updated_at   = now()
 RETURNING id, collector_id, name, local_attributes, alloy_version, os, last_seen, unregistered_at, remote_config_status, remote_config_error, created_at, updated_at, remote_config_status_hash
@@ -376,6 +476,11 @@ type UpsertCollectorInstanceParams struct {
 	Os              pgtype.Text     `json:"os"`
 }
 
+// An instance is keyed by (collector_id, id) (0036): it never moves between
+// collectors. A poll under a different cluster/role writes a new row, and the
+// old one ages out through agent.delete_after — so no id can be squatted or
+// rebound across orgs (R10).
+//
 // On conflict, an incoming name that is empty or equal to the wire id (both
 // signal "caller has no real display name to report, e.g. a bare poll with
 // no collector.name attribute") never clobbers a previously-known display
@@ -385,7 +490,8 @@ type UpsertCollectorInstanceParams struct {
 // name. remote_config_status is not touched: it is the agent's last reported
 // outcome, and liveness is last_seen alone — "inactive" is derived from it at
 // read time (#237), so a reconnecting instance shows live again simply by
-// bumping last_seen, with its outcome intact.
+// bumping last_seen, with its outcome intact. unregistered_at is cleared: an
+// instance that polls is registered again (R9).
 func (q *Queries) UpsertCollectorInstance(ctx context.Context, arg UpsertCollectorInstanceParams) (CollectorInstance, error) {
 	row := q.db.QueryRow(ctx, upsertCollectorInstance,
 		arg.ID,

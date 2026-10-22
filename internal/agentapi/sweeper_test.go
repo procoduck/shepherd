@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
-	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 
 	"shepherd/internal/auth"
 	"shepherd/internal/config"
@@ -75,6 +75,7 @@ var _ = Describe("Sweeper", Label("integration"), func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(st.Queries.UpdateInstanceStatus(ctx, sqlc.UpdateInstanceStatusParams{
 			ID:                 "inst-live",
+			CollectorID:        collector.ID,
 			RemoteConfigStatus: pgtype.Text{String: "FAILED", Valid: true},
 			RemoteConfigError:  pgtype.Text{String: "boom", Valid: true},
 		})).To(Succeed())
@@ -176,7 +177,7 @@ var _ = Describe("Sweeper", Label("integration"), func() {
 			Expect(err).NotTo(HaveOccurred())
 			if status != "" {
 				Expect(st.Queries.UpdateInstanceStatus(ctx, sqlc.UpdateInstanceStatusParams{
-					ID: id, RemoteConfigStatus: pgtype.Text{String: status, Valid: true},
+					ID: id, CollectorID: coll.ID, RemoteConfigStatus: pgtype.Text{String: status, Valid: true},
 				})).To(Succeed())
 			}
 			// RAW-SQL-OK: backdating last_seen — UpsertCollectorInstance always
