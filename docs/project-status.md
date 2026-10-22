@@ -212,6 +212,30 @@ developer who needs containment to be real locally uses `make dev-kind`, which i
 the chart's NetworkPolicy is enforced (`docs/kind-test-environment-plan.md` §11). B-CONTAIN-2 is
 compose-only.
 
+### B-GITSYNC-ATOMIC — a git sync can apply part of a commit · **medium**
+
+`reconcileLink` (`internal/gitsync/reconciler.go`) syncs a commit file by file, each write in its
+own transaction, and dry-runs each file against its siblings' *current* rows. A commit that changes
+two interdependent files can leave a collector serving half of it, contrary to spec §8 ("never
+partially apply a commit"). Found in the 2026-10-22 review; fix is step 6 of
+`docs/plans/2026-10-22-review-remediation.md` (R8).
+
+### B-AGENT-INSTANCE — instance ids are not bound to an org · **medium**
+
+`GetConfig`'s instance upsert rewrites `collector_id` on conflict before the org is resolved, so any
+valid agent token can rebind any (hostname-like) instance id; `UnregisterCollector` has no org check
+and its `unregistered_at` is never cleared, hiding a still-polling instance and dropping its
+`local_attributes` from org recompute. Found in the 2026-10-22 review; step 5 of the remediation
+plan (R9, R10).
+
+### B-SERVE-AUDIT — a failed recompute leaves no audit trail · **low**
+
+Spec §6.3 requires a failed recompute to keep the previous entry, log an error and write an
+`audit_log` row; both serve paths log a Warn only, and the eager path counts no metric. The
+save-time Stage 2 check also runs without the D6 baseline appended, so the served bytes as a whole
+never pass `alloy validate` (the baseline is a fixed template, so the practical risk is low). Step 4
+of the remediation plan (R4).
+
 Fixed bugs (B-CONTAIN-1, B-CONCAT, B-STAGEORDER, F9-a) are in
 `docs/archive/completed-2026-09-11.md` with their red-run evidence. B-VIEWER-CANVAS (#226, a
 viewer's canvas and inspector stayed editable) shipped fixed in v0.15.0 (#256). B-GITSYNC-PRUNE
@@ -332,6 +356,10 @@ B1–B3 come from the v0.6.0 manual UI walkthrough (`docs/archive/plans/2026-09-
 §3 "Blocked") — all three have since shipped (B1 in v0.13.0, #115) — and two items from the kind dev stack's
 first live bring-up (`docs/archive/plans/2026-09-14-kind-dev-stack.md`); every other finding from both
 was closed in the same batches (`CHANGELOG.md` v0.7.0).
+
+The 2026-10-22 whole-project review's remaining findings — the duplicated serve-cache write, the
+nil-schema divergence, the role-vocabulary refactor and a service-account viewer tier, plus smaller
+fixes — are decided and sequenced in `docs/plans/2026-10-22-review-remediation.md`.
 
 In rough priority order; closed items stay in place, marked with the release that shipped them:
 
