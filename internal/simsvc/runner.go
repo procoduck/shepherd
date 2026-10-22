@@ -159,10 +159,10 @@ func runAlloy(ctx context.Context, opts runnerOptions, logger *slog.Logger) runO
 		runErr = fmt.Errorf("%w: alloy exited during the run: %w", errAlloyStartFailed, err)
 	case <-time.After(opts.Duration):
 		cancel()
-		<-exited
+		logStopExit(logger, <-exited)
 	case <-ctx.Done():
 		cancel()
-		<-exited
+		logStopExit(logger, <-exited)
 		runErr = ctx.Err()
 	}
 	// Cancel before snapshotting: the poller writes to the tracker until its
@@ -177,6 +177,17 @@ func runAlloy(ctx context.Context, opts runnerOptions, logger *slog.Logger) runO
 		StderrTail: lines,
 		StderrCut:  cut,
 		Err:        runErr,
+	}
+}
+
+// logStopExit records how an Alloy that runAlloy stopped itself exited. A
+// non-nil error is the expected outcome of the interrupt, not a run failure,
+// so it never becomes runOutcome.Err; it is still worth a debug line, because
+// an Alloy that outlived the kill grace and was killed did not finish flushing
+// its remote_write queue — the reason a capture can end short.
+func logStopExit(logger *slog.Logger, err error) {
+	if err != nil {
+		logger.Debug("sandbox: alloy exited after stop", "error", err)
 	}
 }
 
