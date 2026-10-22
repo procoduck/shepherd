@@ -1466,10 +1466,10 @@ export function installDefaultHandlers(router: Router) {
     else if (rev['contents'] !== p['contents']) p['follows_wizard'] = false;
     // Restore creates a NEW revision from the old one's contents (S3): it
     // never mutates the row it restores from, and it never rewrites `rev`.
+    // The pipeline keeps its current enabled state (#377).
     Object.assign(p, {
       contents: rev['contents'],
       matchers: arr<string>(rev, 'matchers'),
-      enabled: b(rev, 'enabled'),
       wizard_state: rev['wizard_state'],
     });
     const me = st.me as { email?: string } | null | undefined;
@@ -1482,7 +1482,7 @@ export function installDefaultHandlers(router: Router) {
         (req['changeNote'] as string) || `Restored from revision ${req['revision'] as number}`,
       contents: rev['contents'],
       matchers: rev['matchers'],
-      enabled: rev['enabled'],
+      enabled: b(p, 'enabled'),
       wizard_state: rev['wizard_state'],
     });
     p['revisions'] = revisions;

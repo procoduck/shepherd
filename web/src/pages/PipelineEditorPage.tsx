@@ -462,8 +462,9 @@ export function PipelineEditorPage() {
             className='space-y-4'
           >
             <p className='text-sm text-muted'>
-              Restore revision #{selectedRevision}? This creates a new revision from its contents,
-              matchers and enabled state; the current text is kept in history.
+              Restore revision #{selectedRevision}? This creates a new revision from its contents
+              and matchers; the pipeline stays enabled or disabled as it is now, and the current
+              text is kept in history.
             </p>
             {pipeline && (
               <RestoreRevisionNotes

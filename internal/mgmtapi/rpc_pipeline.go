@@ -1158,8 +1158,11 @@ func (s *PipelineService) GetRevision(ctx context.Context, req *connect.Request[
 }
 
 // RestoreRevision creates a NEW revision (N+1) from an old revision's
-// contents/matchers/enabled(+wizard_state) and returns the updated pipeline
-// (S2/S3). It never mutates the old revision row.
+// contents/matchers(+wizard_state) and returns the updated pipeline (S2/S3).
+// It never mutates the old revision row, and it never changes the
+// pipeline's enabled state (#377): the revision's own enabled bit is
+// history, not something restore brings back — revision 1 is always written
+// disabled, so restoring it used to switch a live pipeline off.
 //
 // Authorization mirrors UpdatePipeline exactly (S2): requireWriteAuthorized
 // for machine callers, then authorizeOwnership (org admin, or a member of
@@ -1184,16 +1187,15 @@ func (s *PipelineService) GetRevision(ctx context.Context, req *connect.Request[
 // then disagree with the restored text for a visual pipeline; that is a
 // data-vintage limitation, not something this check would catch either.)
 //
-// Stage 3 runs exactly once, gated on the pipeline's state AFTER this
-// restore completes (targetEnabled), before any write — covering both a
-// content change on an already-(and-still)-enabled pipeline and an
-// enabled-bit TRANSITION in either direction with the one check
-// EnablePipeline/DisablePipeline/UpdatePipeline would each run for that
-// same resulting state, run BEFORE UpdatePipeline persists anything so a
-// failure here leaves the stored pipeline row, and the revision history,
-// completely untouched — no half-restore. It is skipped only when the
-// pipeline is disabled both before and after (nothing is, or becomes,
-// served), mirroring UpdatePipeline's own `if p.Enabled` gate.
+// Stage 3 runs exactly as it does for UpdatePipeline: when the pipeline is
+// enabled, the restored content goes through the merged-config dry run as
+// an enabled candidate, BEFORE anything is written, so a failure leaves the
+// stored pipeline row and the revision history completely untouched — no
+// half-restore. A disabled pipeline stays disabled, nothing becomes served,
+// and Stage 3 is skipped, mirroring UpdatePipeline's own `if p.Enabled`
+// gate. A pipeline enabled between that read and the row lock is refused
+// (errEnabledMeanwhile), as UpdatePipeline refuses it, so unchecked content
+// can never reach the served config.
 func (s *PipelineService) RestoreRevision(ctx context.Context, req *connect.Request[mgmtv1.RestoreRevisionRequest]) (*connect.Response[mgmtv1.Pipeline], error) {
 	if err := requireWriteAuthorized(ctx); err != nil {
 		return nil, err
@@ -1243,13 +1245,11 @@ func (s *PipelineService) RestoreRevision(ctx context.Context, req *connect.Requ
 		return nil, err
 	}
 
-	targetEnabled := rv.Enabled
 	orgID := looseUUID(msg.GetOrgId())
-	// One Stage3 check, gated on the state the pipeline is IN after this
-	// restore, run before any write — see the doc comment above for why
-	// this replaced the previous two-check, write-in-the-middle sequence.
-	if p.Enabled || targetEnabled {
-		if err := s.stage3Check(ctx, candidate, orgID, targetEnabled); err != nil {
+	// One Stage 3 check against the pipeline's current enabled state (which
+	// the restore keeps), run before any write.
+	if p.Enabled {
+		if err := s.stage3Check(ctx, candidate, orgID, true); err != nil {
 			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 		}
 	}
@@ -1273,14 +1273,20 @@ func (s *PipelineService) RestoreRevision(ctx context.Context, req *connect.Requ
 	txQ := s.store.Queries.WithTx(tx)
 
 	// The name is the current one, read under the row lock: restore brings
-	// back contents, matchers and enabled, never a name, so it must not
-	// revert a rename that landed after p was read.
+	// back contents and matchers, never a name or the enabled bit, so it
+	// must not revert a rename that landed after p was read.
 	locked, err := txQ.GetPipelineForUpdate(ctx, p.ID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, connect.NewError(connect.CodeNotFound, errPipelineNotFound)
 		}
 		return nil, mapError(err)
+	}
+	// Stage 3 ran above only if p was enabled. A pipeline enabled between
+	// that read and this lock would otherwise take unchecked content
+	// straight into the served config — refuse, as UpdatePipeline does.
+	if locked.Enabled && !p.Enabled {
+		return nil, connect.NewError(connect.CodeAborted, errEnabledMeanwhile)
 	}
 
 	// WizardState: rv.WizardState (nil when the revision predates 0019 or
@@ -1307,19 +1313,9 @@ func (s *PipelineService) RestoreRevision(ctx context.Context, req *connect.Requ
 		return nil, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
 	}
 
-	// The enabled bit itself is never touched by UpdatePipeline's query, so
-	// it still needs its own write when the restore changes it. The
-	// validating check for this transition already ran above, before
-	// UpdatePipeline; this is persistence only.
-	if targetEnabled != p.Enabled {
-		updated, err = txQ.SetPipelineEnabled(ctx, sqlc.SetPipelineEnabledParams{
-			ID: p.ID, Enabled: targetEnabled, UpdatedBy: actor,
-		})
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
-		}
-	}
-
+	// UpdatePipeline's query never touches the enabled bit, so the
+	// pipeline keeps its current enabled state (#377) and the new revision
+	// records it.
 	revision, err := createPipelineRevisionQ(ctx, txQ, updated, note, actor)
 	if err != nil {
 		s.logger.Error("restore revision: create revision", "err", err, "pipeline_id", updated.ID.String())
@@ -1331,12 +1327,8 @@ func (s *PipelineService) RestoreRevision(ctx context.Context, req *connect.Requ
 	}
 
 	// Dirty/recompute whenever the pipeline is enabled now OR was enabled
-	// before the restore: a restore that flips enabled -> disabled still
-	// has to drop the pipeline from what collectors are served, exactly
-	// like setEnabled's and DeletePipeline's unconditional dirty+recompute
-	// — checking only updated.Enabled would leave the serve cache clean
-	// (and still containing this pipeline's merged config) whenever a
-	// restore turns an enabled pipeline off.
+	// when read: the restored content (or, if it was disabled concurrently,
+	// its absence) has to reach what collectors are served.
 	if updated.Enabled || p.Enabled {
 		if dirtyErr := s.store.Queries.MarkServeCacheDirtyByOrg(ctx, orgID); dirtyErr != nil {
 			s.logger.Error("restore revision: mark serve cache dirty", "err", dirtyErr, "org_id", orgID.String())
@@ -1344,17 +1336,9 @@ func (s *PipelineService) RestoreRevision(ctx context.Context, req *connect.Requ
 		go s.recomputeOrgCaches(context.Background(), orgID) //nolint:contextcheck,gosec // G118+contextcheck: intentional detached context
 	}
 
+	// Restore never toggles the pipeline (#377), so pipeline.restore is the
+	// whole story; the new revision row carries the (unchanged) enabled bit.
 	auditLog(ctx, s.store, actor, orgID, "pipeline.restore", "pipeline", p.ID.String())
-	// Restore brings back the revision's enabled state too (spec §12). When
-	// that flips it, say so in the log as the toggle would (#200) — a restore
-	// that disables a pipeline must not look like a content-only change.
-	if targetEnabled != p.Enabled {
-		action := "pipeline.disable"
-		if targetEnabled {
-			action = "pipeline.enable"
-		}
-		auditLog(ctx, s.store, actor, orgID, action, "pipeline", p.ID.String())
-	}
 	return connect.NewResponse(pipelineForCaller(ctx, s.store, s.logger, msg.GetOrgId(), updated, revision)), nil
 }
 
