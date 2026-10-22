@@ -252,6 +252,72 @@ func TestAssemble_IsComputeServedWithoutStage1(t *testing.T) {
 	}
 }
 
+// #376: AssembleForValidation differs from Assemble ONLY in the collector's
+// identity — the header's display name and id (a comment) and the baseline's
+// shepherd_collector_id value (a string literal) — so Stage 3 can validate
+// identical-but-for-identity configs once without changing a verdict. Proven
+// by substitution: replacing the placeholders in the normalised bytes with
+// the real identity reproduces the served bytes exactly, and two collectors
+// with the same pipelines normalise to the same bytes.
+func TestAssembleForValidation_OnlyIdentityDiffers(t *testing.T) {
+	pipelines := []merge.Pipeline{
+		scrapePipeline("p1", "alpha", []string{`role="metrics"`}),
+		scrapePipeline("p2", "beta", []string{`cluster="one"`}),
+		{ID: "g1", Name: "from-repo", Contents: "// repo", Source: "git", RepoLinkCollectorID: "coll-one"},
+	}
+	deps := serve.Deps{Schema: mustSchema(t), BeaconBaseline: beacon.NewBaselineConfig("https://shepherd.example.test" + beacon.WritePath)}
+	one := serve.Collector{ID: "coll-one", Cluster: "one", Role: "metrics"}
+
+	served, err := serve.Assemble(deps, one, pipelines)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+	norm, err := serve.AssembleForValidation(deps, one, pipelines)
+	if err != nil {
+		t.Fatalf("AssembleForValidation: %v", err)
+	}
+	if !strings.Contains(norm.Content, "from-repo") || !strings.Contains(norm.Content, "beta") {
+		t.Fatalf("normalised bytes must select with the real identity (git link, cluster matcher):\n%s", norm.Content)
+	}
+	if strings.Contains(norm.Content, "coll-one") || strings.Contains(norm.Content, "one/metrics") {
+		t.Fatalf("normalised bytes still carry the collector's identity:\n%s", norm.Content)
+	}
+	restored := strings.NewReplacer(
+		serve.PlaceholderCollectorID, one.ID,
+		serve.PlaceholderCollectorName, one.Cluster+"/"+one.Role,
+	).Replace(norm.Content)
+	if restored != served.Content {
+		t.Fatalf("normalisation changed more than the identity:\nserved:\n%s\nnormalised:\n%s", served.Content, norm.Content)
+	}
+	for _, line := range strings.Split(norm.Content, "\n") {
+		if strings.Contains(line, serve.PlaceholderCollectorID) || strings.Contains(line, serve.PlaceholderCollectorName) {
+			trimmed := strings.TrimSpace(line)
+			if !strings.HasPrefix(trimmed, "//") && trimmed != `replacement  = "`+serve.PlaceholderCollectorID+`"` {
+				t.Fatalf("placeholder outside a comment or the baseline's replacement literal: %q", line)
+			}
+		}
+	}
+
+	// Two collectors whose served configs differ only by identity normalise
+	// to the same bytes; one whose pipelines differ does not.
+	two := serve.Collector{ID: "coll-two", Cluster: "two", Role: "metrics"}
+	three := serve.Collector{ID: "coll-three", Cluster: "three", Role: "metrics"}
+	normTwo, err := serve.AssembleForValidation(deps, two, pipelines)
+	if err != nil {
+		t.Fatalf("AssembleForValidation: %v", err)
+	}
+	normThree, err := serve.AssembleForValidation(deps, three, pipelines)
+	if err != nil {
+		t.Fatalf("AssembleForValidation: %v", err)
+	}
+	if normTwo.Hash != normThree.Hash {
+		t.Fatalf("identity-only difference survived normalisation:\n%s\n---\n%s", normTwo.Content, normThree.Content)
+	}
+	if normTwo.Hash == norm.Hash {
+		t.Fatal("collectors with different pipelines must not share normalised content")
+	}
+}
+
 // mustSchema loads the embedded schema registry every production serve path
 // is given.
 func mustSchema(t *testing.T) *schema.Registry {

@@ -125,3 +125,34 @@ not a constraint:
   tier stays editor.
 
 Migrations in steps 4, 7a and 7b are numbered by merge order.
+
+## 6. External evaluation (2026-10-22)
+
+A local lab evaluation of 0.18.0 (Alloy 1.18.1/1.20.1, local Kubernetes) was checked against main
+4e2a3dd. Issues filed:
+
+- #374 — start-up dependency.
+- #375 — version-aware validation.
+- #376 — Stage 3 scale: Stage 3 validated every collector in the org, once each. Step 4d validates
+  only the collectors the old or new matchers select, once per distinct merged config (collector
+  identity normalised to a placeholder), and exposes `config.validate.stage3_timeout` in the chart.
+- #377 — restore keeps the enabled state.
+- #378 — module pipelines.
+
+Notes, not issues:
+
+- **Several tenant collectors on one cluster collapse into one logical collector.** A cluster
+  belongs to one org and `(cluster, role)` is one collector, so collectors that report the same
+  cluster name and role share one served config. The convention for now: give each such collector
+  its own synthetic cluster attribute (a distinct cluster name per tenant) and document it.
+  Whether one cluster can belong to several orgs is decided later.
+- **No machine principal for org/token lifecycle automation.** Service accounts are never
+  app-admin by design (spec §7.3a), IdP bearer tokens are not accepted by the management API, and
+  a service-account write must name the creating human. Candidate: an app-admin-tier machine
+  credential behind an explicit config flag, plus a per-service-account allowed `on_behalf_of`
+  list.
+- **Beacon URL and token env var names.** The D6 beacon's remote_write URL follows
+  `server.base_url`, and the env vars the served baseline reads its credentials from are fixed as
+  `SHEPHERD_AGENT_TOKEN_ID` / `SHEPHERD_AGENT_TOKEN_SECRET`; neither is documented. Document both
+  now; an optional `beacon_url` can come later. Configurable env var names are out — they would
+  change every collector's served bytes.
