@@ -47,6 +47,7 @@
   <ul>
     <li><a href="requirements.html">Requirements</a></li>
     <li><a href="kubernetes.html">Kubernetes (Helm)</a></li>
+    <li><a href="verifying-releases.html">Verifying releases</a></li>
     <li><a href="database.html">Database</a></li>
     <li><a href="secrets.html">Secrets</a></li>
     <li><a href="configuration.html">Configuration</a></li>
@@ -109,6 +110,17 @@
 }</code></pre>
       </div>
       <p>On first poll, an unclaimed cluster gets served an empty config so it keeps running whatever it already has locally — nothing is disrupted until an app admin claims the cluster for an organisation (<a href="roles.html">Roles</a>) and someone with edit rights in that organisation enables pipelines that match it. (A collector authenticating with <a href="agent-tokens.html#oidc">OIDC</a> under a binding is claimed into its bound organisation on its first poll.)</p>
+      <p class="note">
+        <strong>The served config includes a self-monitoring beacon that writes back to
+        Shepherd.</strong> Its remote-write URL is built from Shepherd&rsquo;s
+        <code>server.base_url</code>, so that address must be reachable from every collector&rsquo;s
+        cluster, not just from your browser. With agent-token auth, the beacon reads the token from
+        the collector&rsquo;s environment, so every collector must expose it as environment
+        variables named exactly <code>SHEPHERD_AGENT_TOKEN_ID</code> and
+        <code>SHEPHERD_AGENT_TOKEN_SECRET</code> (with <a href="agent-tokens.html#oidc-beacon">OIDC
+        beacon auth</a>, <code>SHEPHERD_OIDC_CLIENT_ID</code> and
+        <code>SHEPHERD_OIDC_CLIENT_SECRET</code> instead).
+      </p>
 
       <h2 id="status">Collector status</h2>
       <p>

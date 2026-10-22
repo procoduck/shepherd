@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verifying releases &mdash; Shepherd docs</title>
+<meta name="description" content="Check a release archive, image, SBOM, Helm chart or tag against the signatures its release workflow made.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="../index.html">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 2.5 4 6v6c0 5.2 3.4 9.4 8 10.5 4.6-1.1 8-5.3 8-10.5V6l-8-3.5Z" stroke="var(--accent)" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M8.5 12.2 11 14.7l4.8-5" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Shepherd
+    </a>
+    <div class="nav-links">
+      <a href="../index.html#features">Features</a>
+      <a href="../index.html#architecture">Architecture</a>
+      <a href="index.html">Docs</a>
+      <a class="btn btn-outline" href="https://github.com/procoduck/shepherd">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<div class="docs-body">
+  <div class="wrap docs-shell">
+<aside class="docs-nav" id="docs-nav">
+  <p class="docs-nav-label">Documentation</p>
+  <p class="docs-nav-cat">Get started</p>
+  <ul>
+    <li><a href="quickstart.html">Quickstart</a></li>
+  </ul>
+  <p class="docs-nav-cat">About</p>
+  <ul>
+    <li><a href="overview.html">What Shepherd is</a></li>
+    <li><a href="roles.html">Roles and access</a></li>
+  </ul>
+  <p class="docs-nav-cat">Install</p>
+  <ul>
+    <li><a href="requirements.html">Requirements</a></li>
+    <li><a href="kubernetes.html">Kubernetes (Helm)</a></li>
+    <li><a href="verifying-releases.html" class="active" aria-current="page">Verifying releases</a></li>
+    <li><a href="database.html">Database</a></li>
+    <li><a href="secrets.html">Secrets</a></li>
+    <li><a href="configuration.html">Configuration</a></li>
+    <li><a href="local-development.html">Running from source</a></li>
+  </ul>
+  <p class="docs-nav-cat">Fleet</p>
+  <ul>
+    <li><a href="agent-tokens.html">Agent tokens</a></li>
+    <li><a href="collectors.html">Connect a collector</a></li>
+  </ul>
+  <p class="docs-nav-cat">Pipelines</p>
+  <ul>
+    <li><a href="authoring.html">Authoring pipelines</a></li>
+    <li><a href="destinations.html">Destinations</a></li>
+    <li><a href="matchers.html">Matchers and validation</a></li>
+    <li><a href="gitops.html">GitOps</a></li>
+  </ul>
+  <p class="docs-nav-cat">Access control</p>
+  <ul>
+    <li><a href="single-sign-on.html">Single sign-on</a></li>
+    <li><a href="users-and-teams.html">Users and teams</a></li>
+  </ul>
+  <p class="docs-nav-cat">Ingest</p>
+  <ul>
+    <li><a href="receiver.html">Receiver tier</a></li>
+  </ul>
+  <p class="docs-nav-cat">Sandbox</p>
+  <ul>
+    <li><a href="simulation.html">Sandbox simulation</a></li>
+  </ul>
+  <p class="docs-nav-cat">Automation</p>
+  <ul>
+    <li><a href="mcp.html">AI agent (MCP)</a></li>
+  </ul>
+  <p class="docs-nav-cat">Reference</p>
+  <ul>
+    <li><a href="helm-values.html">Helm values</a></li>
+    <li><a href="resources.html">Further reading</a></li>
+  </ul>
+</aside>
+
+    <div class="docs-main">
+      <nav class="crumbs" aria-label="Breadcrumb"><a href="index.html">Docs</a><span aria-hidden="true">/</span><span>Install</span><span aria-hidden="true">/</span><span class="crumb-here">Verifying releases</span></nav>
+      <div class="docs-content">
+<h1>Verifying releases</h1>
+      <p>Every Shepherd release is signed by the workflow that built it, so you can check that what
+        you install came from this repository&rsquo;s release workflow, at the tag it claims, and was
+        not altered afterwards:</p>
+      <ul>
+        <li><strong>Release archives</strong> (and the SBOM file next to each) carry a SLSA build
+            provenance attestation, and <code>checksums.txt</code> lists their digests.</li>
+        <li><strong>Container images</strong> (<code>shepherd</code> and
+            <code>shepherd-simulator</code>) carry build provenance and an SPDX&nbsp;SBOM, both
+            stored in GitHub and pushed to the registry next to the image.</li>
+        <li><strong>The Helm chart</strong> carries build provenance, stored in GitHub and in the
+            registry next to the chart.</li>
+        <li><strong>Release tags</strong> are SSH-signed with a key listed in
+            <code>.github/allowed_signers</code>; the release workflow refuses a tag that is not.</li>
+      </ul>
+      <p>The release workflow runs these same commands against everything it publishes before the
+        run turns green. You need the <a href="https://cli.github.com/">GitHub CLI</a> for
+        <code>gh attestation</code>; the <code>cosign</code> alternatives need
+        <a href="https://docs.sigstore.dev/cosign/system_config/installation/">cosign</a> 3 or later.
+        Every <code>gh attestation verify</code> below pins three things: the repository
+        (<code>-R</code>), the workflow that signed (<code>--signer-workflow</code>) and the tag it
+        ran for (<code>--source-ref</code>). Drop none of them &mdash; without them, an attestation
+        from some other workflow would also pass.</p>
+
+      <h2 id="set-up">Set the release you are checking</h2>
+      <p>The tag is the app version with a <code>v</code>; image tags drop the <code>v</code>; the
+        chart has its own version (<a href="kubernetes.html#installing">Kubernetes (Helm)</a>).</p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>TAG=vX.Y.Z               # the release tag
+VERSION="${TAG#v}"       # the image tag
+CHART_VERSION=A.B.C      # the chart version that release published
+REPO=procoduck/shepherd
+SIGNER="$REPO/.github/workflows/release.yml"</code></pre>
+      </div>
+
+      <h2 id="archives">A release archive</h2>
+      <p>Download the archive and <code>checksums.txt</code>, check the digest, then check the
+        archive&rsquo;s provenance:</p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>gh release download "$TAG" -R "$REPO" -p checksums.txt -p "shepherd_${VERSION}_linux_amd64.tar.gz"
+sha256sum --ignore-missing --check checksums.txt
+gh attestation verify "shepherd_${VERSION}_linux_amd64.tar.gz" -R "$REPO" \
+  --signer-workflow "$SIGNER" --source-ref "refs/tags/$TAG"</code></pre>
+      </div>
+      <p>Every file <code>checksums.txt</code> lists is attested, so the same command works for the
+        <code>shepherd-mcp</code> archives and the <code>.sbom.json</code> files. On macOS use
+        <code>shasum -a 256 --ignore-missing --check checksums.txt</code>.</p>
+
+      <h2 id="images">An image</h2>
+      <p>By tag, or &mdash; better, since a tag can move &mdash; by the digest you actually deploy.
+        Repeat for <code>shepherd-simulator</code>.</p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>IMAGE=ghcr.io/procoduck/shepherd
+gh attestation verify "oci://$IMAGE:$VERSION" -R "$REPO" \
+  --signer-workflow "$SIGNER" --source-ref "refs/tags/$TAG"
+
+# The digest the tag resolves to (or the one in your manifests)
+DIGEST=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Manifest.Digest}}' | tr -d '"')
+gh attestation verify "oci://$IMAGE@$DIGEST" -R "$REPO" \
+  --signer-workflow "$SIGNER" --source-ref "refs/tags/$TAG"</code></pre>
+      </div>
+
+      <h2 id="chart">The Helm chart</h2>
+      <p><code>helm pull</code> prints the chart&rsquo;s digest as it downloads it:</p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>CHART=ghcr.io/procoduck/charts/shepherd
+gh attestation verify "oci://$CHART:$CHART_VERSION" -R "$REPO" \
+  --signer-workflow "$SIGNER" --source-ref "refs/tags/$TAG"
+
+CHART_DIGEST=$(helm pull "oci://$CHART" --version "$CHART_VERSION" 2&gt;&amp;1 | awk '$1 == "Digest:" { print $2 }')
+gh attestation verify "oci://$CHART@$CHART_DIGEST" -R "$REPO" \
+  --signer-workflow "$SIGNER" --source-ref "refs/tags/$TAG"</code></pre>
+      </div>
+
+      <h2 id="registry">From the registry, without GitHub&rsquo;s API</h2>
+      <p>Image and chart attestations are also stored in the registry beside the artifact, so a
+        mirror or an air-gapped cluster can verify them. Add <code>--bundle-from-oci</code> to any
+        image or chart command above:</p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>gh attestation verify "oci://$IMAGE@$DIGEST" -R "$REPO" \
+  --signer-workflow "$SIGNER" --source-ref "refs/tags/$TAG" --bundle-from-oci
+gh attestation verify "oci://$CHART@$CHART_DIGEST" -R "$REPO" \
+  --signer-workflow "$SIGNER" --source-ref "refs/tags/$TAG" --bundle-from-oci</code></pre>
+      </div>
+      <p>Or with cosign, which reads only the registry copy:</p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>cosign verify-attestation --type slsaprovenance1 \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity "https://github.com/$SIGNER@refs/tags/$TAG" \
+  "$IMAGE@$DIGEST" &gt; /dev/null
+
+cosign verify-attestation --type slsaprovenance1 \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity "https://github.com/$SIGNER@refs/tags/$TAG" \
+  "$CHART@$CHART_DIGEST" &gt; /dev/null</code></pre>
+      </div>
+      <p>Both commands exit non-zero unless an attestation verifies; the redirect only hides the
+        attestation payload cosign prints on success.</p>
+
+      <h2 id="sbom">An image&rsquo;s SBOM</h2>
+      <p>The SBOM attestation has the predicate type <code>https://spdx.dev/Document/v2.3</code>.
+        Verify it, then write the verified SPDX document to a file:</p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>SPDX=https://spdx.dev/Document/v2.3
+gh attestation verify "oci://$IMAGE@$DIGEST" -R "$REPO" \
+  --signer-workflow "$SIGNER" --source-ref "refs/tags/$TAG" --predicate-type "$SPDX"
+
+gh attestation verify "oci://$IMAGE@$DIGEST" -R "$REPO" \
+  --signer-workflow "$SIGNER" --source-ref "refs/tags/$TAG" --predicate-type "$SPDX" \
+  --format json --jq '.[0].verificationResult.statement.predicate' &gt; shepherd.spdx.json</code></pre>
+      </div>
+      <p>The same SBOM, from the registry with cosign:</p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>cosign verify-attestation --type "$SPDX" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity "https://github.com/$SIGNER@refs/tags/$TAG" \
+  "$IMAGE@$DIGEST" &gt; /dev/null</code></pre>
+      </div>
+      <p>The SBOM describes the image&rsquo;s <code>linux/amd64</code> member; the
+        <code>linux/arm64</code> member is built from the same Dockerfile, Go modules and base
+        image.</p>
+
+      <h2 id="tags">A release tag&rsquo;s signature</h2>
+      <p>Check the tag against the signers list on <code>main</code>, which only a reviewed pull
+        request can change:</p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>git clone https://github.com/procoduck/shepherd.git &amp;&amp; cd shepherd
+git -c gpg.ssh.allowedSignersFile=.github/allowed_signers verify-tag "$TAG"</code></pre>
+      </div>
+      <p>A good tag prints <code>Good "git" signature for &hellip;</code>. Tags from before signing
+        was enforced are unsigned and fail this check. Their archives and images still verify
+        through GitHub&rsquo;s API as above; chart provenance, image SBOMs and the registry copies
+        start with the first release that has a signed tag.</p>
+        <nav class="page-nav" aria-label="Pagination">
+          <a class="page-nav-prev" href="kubernetes.html"><span>Previous</span><strong>Kubernetes (Helm)</strong></a>
+          <a class="page-nav-next" href="database.html"><span>Next</span><strong>Database</strong></a>
+        </nav>
+      </div>
+    </div>
+
+    <aside class="docs-toc">
+      <p class="toc-label">On this page</p>
+      <ul>
+        <li><a href="#set-up">Set the release you are checking</a></li>
+        <li><a href="#archives">A release archive</a></li>
+        <li><a href="#images">An image</a></li>
+        <li><a href="#chart">The Helm chart</a></li>
+        <li><a href="#registry">From the registry, without GitHub&rsquo;s API</a></li>
+        <li><a href="#sbom">An image&rsquo;s SBOM</a></li>
+        <li><a href="#tags">A release tag&rsquo;s signature</a></li>
+      </ul>
+    </aside>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-left">
+      <span class="pill">v0.18.0</span>
+      <span>self-hosted Grafana Alloy fleet manager</span>
+    </div>
+    <div class="foot-links">
+      <a href="https://github.com/procoduck/shepherd">GitHub</a>
+      <a href="index.html">Docs</a>
+      <a href="../index.html">Home</a>
+    </div>
+  </div>
+</footer>
+
+<script src="../docs.js" defer></script>
+</body>
+</html>
