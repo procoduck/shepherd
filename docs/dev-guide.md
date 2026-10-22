@@ -80,7 +80,7 @@ Kubernetes counterpart to `make dev` above, not a test suite — see
   Gitea endpoints.
 - **The OIDC walk, briefly:** sign in with the "Mock SSO" button, enter a username and a JSON
   `groups` claim on mock-oauth2-server's login page. A group matching the seeded app-admin group
-  id signs in as an app admin; a group matching a seeded org's admin/reader group id signs in with
+  id signs in as an app admin; a group matching a seeded org's admin/viewer group id signs in with
   that org role. `/admin/auth` is **read-only** against this stack — the chart's `oidc.issuer`
   value means the SSO settings page cannot be used to add or test a different provider (a
   deliberate `internal/auth` boundary, not a dev-stack gap; §11 of the plan above has the exact
@@ -160,8 +160,8 @@ The dev seed (`shepherd dev seed`) creates:
 
 | Entity | Details |
 |---|---|
-| Orgs | `platform-org` (admin group `22222222-aaaa-4000-8000-000000000001`, reader group `…0002`) + `data-eng` (admin group `…0003`) |
-| Local users | Bootstrap admin (§ Credentials below) plus two more on `platform-org`: `editor` / `editor-dev-pass` (`org_members.role = editor`) and `viewer` / `viewer-dev-pass` (`role = viewer`) — deterministic fixtures for exercising the org-editor/viewer tiers without an OIDC provider (`internal/cli/dev.go`'s `seedLocalUsers`) |
+| Orgs | `platform-org` (admin group `22222222-aaaa-4000-8000-000000000001`, viewer group `…0002`) + `data-eng` (admin group `…0003`) |
+| Local users | Bootstrap admin (§ Credentials below) plus two more on `platform-org`: `editor` / `editor-dev-pass` (`org_members.role = editor`) and `viewer` / `viewer-dev-pass` (`role = viewer`) — deterministic fixtures for exercising the editor/viewer tiers without an OIDC provider (`internal/cli/dev.go`'s `seedLocalUsers`) |
 | Clusters | `prod-eu-1`, `staging-eu-1` (both claimed by platform-org), `data-eng-eu-1` (claimed by data-eng) |
 | Collectors | `metrics`, `logs`, `singleton` on prod-eu-1; `metrics` on data-eng-eu-1. Collector rows only — instances register themselves from the compose Alloy containers; `singleton` shows zero instances until something registers, which is expected |
 | Pipelines (platform-org) | `base-metrics` (ui, enabled), `demo-visual` (visual, disabled — real `alloy-graph/v1` wizard_state so the visual builder opens with an editable example; its `discovery.kubernetes` only loads in a cluster, so enable it on the kind stack, not compose), `loki-logs` (ui, disabled), `app-obs-wizard` (wizard, disabled) |
@@ -211,10 +211,10 @@ Use `shepherd dev create-session` to mint a DB-backed session for any persona:
 ```bash
 # From inside the running shepherd container:
 docker compose -f dev/docker-compose.dev.yaml exec shepherd \
-  /usr/local/bin/shepherd dev create-session --persona orgadmin-platform
+  /usr/local/bin/shepherd dev create-session --persona admin-platform
 
-# Personas: appadmin | orgadmin-platform | reader-platform | nobody
-# Output: session_id=dev-orgadmin-platform-1234567890
+# Personas: appadmin | admin-platform | viewer-platform | nobody
+# Output: session_id=dev-admin-platform-1234567890
 # Set cookie: shepherd_session=<session_id>
 ```
 

@@ -389,8 +389,8 @@ In rough priority order; closed items stay in place, marked with the release tha
       post-login redirect, the builder toolbar, pipeline heading/enable/delete/owner team, nits),
       all closed and shipped in v0.15.0.
 
-- [x] **`ValidatePipeline` stays open to org readers** (decided 2026-09-28). Its Connect interceptor
-      row is `auth.RoleOrgReader`: a reader can validate pipeline text, which writes nothing apart
+- [x] **`ValidatePipeline` stays open to org viewers** (decided 2026-09-28). Its Connect interceptor
+      row is `RequireOrg(auth.RoleViewer)`: a viewer can validate pipeline text, which writes nothing apart
       from the `pipeline.propose` audit row for service-account callers. The removed REST shim had put
       it behind org editor; that stricter rule is not carried over. `role_matrix_test.go` pins the
       Connect behaviour.
@@ -423,10 +423,10 @@ In rough priority order; closed items stay in place, marked with the release tha
       (built upstream with Go 1.26.5). v1.19.2 is built on a patched Go and carries 2, both in
       grpc (upstream). Bumped as a schema bump: `ALLOY_IMAGE`/`ALLOY_VERSION`, `make schema`,
       overlay reconciliation, the v1.18.1 artifact kept embedded for upgrade-review diffs.
-- [ ] **Typed `Role`/`Source` enums.** `internal/auth`'s role constants (`RoleOrgAdmin` etc.,
-      `internal/auth/authz.go`) and `pipelines.source` are plain `string`-typed constants, not a
-      distinct Go type — the `exhaustive` linter cannot check a switch over either for
-      completeness the way it can for the four enums W2-S5 closed.
+- [ ] **Typed `Source` enum.** `pipelines.source` is a plain `string`-typed constant, not a
+      distinct Go type — the `exhaustive` linter cannot check a switch over it for completeness the
+      way it can for the four enums W2-S5 closed. (The role half is done: step 7a, #361, made
+      `auth.Role` and `auth.Requirement` typed.)
 - [ ] **Canvas keyboard wiring is partial.** Delete/undo/redo/copy-paste and re-focus-on-drop work
       (`web/src/visual/components/CanvasPane.tsx`); the a11y pass `docs/visual-builder-design-VB1.md`
       §8 calls for — keyboard node navigation, a focus ring on ports — is not built.
