@@ -277,6 +277,13 @@ config:
     # timeout: how long Stage 2's `alloy validate` exec is allowed to run
     # before it is killed.
     timeout: "10s"
+    # stage3_timeout: the whole budget for Stage 3, which validates the merged
+    # config of every collector a pipeline change affects (one `alloy
+    # validate` per distinct merged config) before the change is accepted.
+    # Past it the change is refused with "stage-3 validation budget
+    # exceeded"; raise it for orgs where one pipeline selects very many
+    # collectors with differing merged configs.
+    stage3_timeout: "30s"
   gitsync:
     # tick: how often the git-sync reconciler polls repos that are due for a
     # check, per their own poll interval.

@@ -89,12 +89,49 @@ var errNilSchema = errors.New("serve: schema registry is nil; refusing to comput
 // validates what is actually served (baseline included) instead of a
 // re-implementation of it that can drift.
 func Assemble(deps Deps, coll Collector, pipelines []merge.Pipeline) (Result, error) {
+	return assemble(deps, coll, pipelines, coll.ID, coll.Cluster+"/"+coll.Role)
+}
+
+// PlaceholderCollectorID and PlaceholderCollectorName stand in for a
+// collector's id and "cluster/role" display name in AssembleForValidation's
+// output. The id is a well-formed UUID so the stamped baseline carries the
+// same shape of value it is served with.
+const (
+	PlaceholderCollectorID   = "00000000-0000-0000-0000-000000000000"
+	PlaceholderCollectorName = "collector/role"
+)
+
+// AssembleForValidation is Assemble with the collector's identity normalised
+// out of the bytes: the same pipelines are selected — matching, including a
+// git pipeline's RepoLinkCollectorID, uses the real coll — but the header's
+// "Collector:" line names PlaceholderCollectorName (PlaceholderCollectorID)
+// and the D6 baseline stamps PlaceholderCollectorID as its
+// shepherd_collector_id. Those are the only per-collector bytes Assemble
+// writes, so collectors whose served configs differ only by identity get
+// identical content and Stage 3 (internal/mgmtapi) validates them once
+// (#376).
+//
+// It cannot change a validation verdict: the display name and id reach the
+// header only through commentSafe inside a "//" comment line, and the
+// baseline only as a %q-quoted string literal (beacon.RenderBaselinePipeline)
+// — a comment's text and a string literal's value are never parsed by Stage
+// 1 or checked by Stage 2, and both forms keep the same line count, so every
+// diagnostic position is the same too. The placeholder is non-empty, so the
+// baseline's collector-id rule is rendered exactly as it is when served.
+func AssembleForValidation(deps Deps, coll Collector, pipelines []merge.Pipeline) (Result, error) {
+	return assemble(deps, coll, pipelines, PlaceholderCollectorID, PlaceholderCollectorName)
+}
+
+// assemble is Assemble with the identity written into the bytes (header id
+// and display name, baseline collector id) given separately from coll, which
+// alone drives pipeline selection.
+func assemble(deps Deps, coll Collector, pipelines []merge.Pipeline, stampID, stampName string) (Result, error) {
 	if deps.Schema == nil {
 		return Result{}, errNilSchema
 	}
 	cl := merge.BuildCollectorLabels(coll.ID, coll.Cluster, coll.Role, coll.AdminLabels, coll.LocalAttrs)
 
-	assembled, err := merge.Assemble(coll.ID, coll.Cluster+"/"+coll.Role, cl, pipelines, merge.WithRoleEnforcement(deps.Schema))
+	assembled, err := merge.Assemble(stampID, stampName, cl, pipelines, merge.WithRoleEnforcement(deps.Schema))
 	if err != nil {
 		return Result{}, fmt.Errorf("assembling config: %w", err)
 	}
@@ -112,7 +149,7 @@ func Assemble(deps Deps, coll Collector, pipelines []merge.Pipeline) (Result, er
 	// per-collector field, set here rather than by the caller so both serve
 	// paths get it.
 	baselineCfg := deps.BeaconBaseline
-	baselineCfg.CollectorID = coll.ID
+	baselineCfg.CollectorID = stampID
 	if appended, appendErr := beacon.AppendBaseline(content, baselineCfg); appendErr != nil {
 		// Render failure is a static-config bug (a bad Label, say), not a
 		// per-collector condition — degrade to serving without the baseline

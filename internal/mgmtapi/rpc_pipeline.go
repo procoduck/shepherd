@@ -1386,9 +1386,12 @@ func createPipelineRevisionQ(ctx context.Context, q *sqlc.Queries, p sqlc.Pipeli
 	return rv.Revision, err
 }
 
-// stage3Check runs Stage 3 validation: assembles merged configs for all affected collectors,
-// deduplicates by content hash, then runs Stages 1 and 2 on each unique content
-// with concurrency=4 and a configurable timeout (validate.stage3_timeout).
+// stage3Check runs Stage 3 validation: assembles merged configs for the
+// affected collectors — those the candidate's old or new matchers select —
+// deduplicates by content hash with the collector's identity normalised out
+// (serve.AssembleForValidation), then runs Stages 1 and 2 on each unique
+// content with concurrency=4 and a configurable timeout
+// (validate.stage3_timeout).
 // includeCandidate=true adds/replaces p in the merge set (enable, edit);
 // false removes it (disable).
 func (s *PipelineService) stage3Check(ctx context.Context, p sqlc.Pipeline, orgID pgtype.UUID, includeCandidate bool) error {
@@ -1425,15 +1428,28 @@ func (s *PipelineService) stage3CheckSet(ctx context.Context, orgID pgtype.UUID,
 		return fmt.Errorf("loading pipelines: %w", err)
 	}
 
-	// On disable: remove the candidate from the merge set (validate the
-	// remaining pipelines).
-	if excludeID != "" {
-		enabledPipelines = slices.DeleteFunc(enabledPipelines, func(ep sqlc.ListEnabledPipelinesForMergeRow) bool {
-			return ep.ID.String() == excludeID
-		})
-	}
 	// The serve paths' own conversion, so the dry run models what they serve.
 	mergePipelines := serve.PipelinesFromRows(enabledPipelines)
+
+	// changed holds every form of a pipeline this change touches — the stored
+	// (old) row of a replaced or removed pipeline and each candidate (new) —
+	// and a collector is affected exactly when one of them selects it (spec
+	// §8). Any other collector's merged config is the same before and after
+	// the change, so validating it would only re-check what it is already
+	// served (#376).
+	var changed []merge.Pipeline
+
+	// On disable: remove the candidate from the merge set (validate the
+	// remaining pipelines on the collectors its OLD matchers selected).
+	if excludeID != "" {
+		mergePipelines = slices.DeleteFunc(mergePipelines, func(mp merge.Pipeline) bool {
+			if mp.ID == excludeID {
+				changed = append(changed, mp)
+				return true
+			}
+			return false
+		})
+	}
 	for i := range candidates {
 		p := candidates[i]
 		var matchers []string
@@ -1450,6 +1466,7 @@ func (s *PipelineService) stage3CheckSet(ctx context.Context, orgID pgtype.UUID,
 		for j, mp := range mergePipelines {
 			if mp.ID == cand.ID {
 				cand.Revision = mp.Revision
+				changed = append(changed, mp)
 				mergePipelines[j] = cand
 				found = true
 				break
@@ -1458,37 +1475,48 @@ func (s *PipelineService) stage3CheckSet(ctx context.Context, orgID pgtype.UUID,
 		if !found {
 			mergePipelines = append(mergePipelines, cand)
 		}
+		changed = append(changed, cand)
 	}
 
-	collectors, err := s.store.Queries.ListCollectorsByOrg(ctx, orgID)
+	// One query for every collector with its cluster name (not one
+	// GetClusterByID per collector).
+	collectors, err := s.store.Queries.ListCollectorsWithClusterByOrg(ctx, orgID)
 	if err != nil {
 		return fmt.Errorf("loading collectors: %w", err)
 	}
 	org, _ := s.store.Queries.GetOrgByID(ctx, orgID) //nolint:errcheck // an org lookup failure degrades to no admin labels below, not a Stage 3 failure
 	localAttrs := localAttrsByOrg(ctx, s.store.Queries, orgID, org.AllowLocalAttributeMatching)
 
-	// Assemble merged content for every collector; deduplicate by sha256 hash.
+	// Assemble merged content for every affected collector and validate each
+	// distinct content once. The content is serve.AssembleForValidation's:
+	// the collector's id and name normalised to a placeholder, which only
+	// ever sits in a comment or a string literal, so the verdict for the
+	// shared bytes is every sharing collector's verdict.
 	type mergedEntry struct {
-		content      string
-		collectorKey string // "cluster/role" for error messages
+		content       string
+		collectorKeys []string // "cluster/role" of every collector sharing content, for error messages
 	}
-	seen := make(map[string]bool) // hash → already validated
-	var toValidate []mergedEntry
+	byHash := make(map[string]int) // normalised hash → index in toValidate
+	var toValidate []*mergedEntry
 	var failures []string
 
 	for i := range collectors {
 		c := collectors[i]
-		cluster, _ := s.store.Queries.GetClusterByID(ctx, c.ClusterID) //nolint:errcheck // empty cluster name is safe in merge
-		key := cluster.Name + "/" + c.Role
+		key := c.ClusterName + "/" + c.Role
+		coll := serve.Collector{ID: c.ID.String(), Cluster: c.ClusterName, Role: c.Role, AdminLabels: adminLabelsIfAllowed(org.AllowLabelMatching, c.Labels), LocalAttrs: localAttrs[c.ID.String()]}
+		if !affectedBy(changed, coll) {
+			continue
+		}
 
-		// serve.Assemble, not merge.Assemble: the bytes this collector would
-		// actually be served, D6's baseline pipeline included (R4, #358), so
-		// Stage 2's PortShapes and `alloy validate` below check what Alloy
-		// will load rather than the merged pipelines alone. It is
-		// serve.ComputeServed minus Stage 1, which this loop runs itself.
-		result, assembleErr := serve.Assemble(
+		// serve.AssembleForValidation, not merge.Assemble: the bytes this
+		// collector would actually be served, D6's baseline pipeline included
+		// (R4, #358), so Stage 2's PortShapes and `alloy validate` below check
+		// what Alloy will load rather than the merged pipelines alone — with
+		// only its identity normalised out (#376). It is serve.ComputeServed
+		// minus Stage 1, which this loop runs itself.
+		result, assembleErr := serve.AssembleForValidation(
 			serve.Deps{Schema: s.schema, BeaconBaseline: s.beaconBaseline},
-			serve.Collector{ID: c.ID.String(), Cluster: cluster.Name, Role: c.Role, AdminLabels: adminLabelsIfAllowed(org.AllowLabelMatching, c.Labels), LocalAttrs: localAttrs[c.ID.String()]},
+			coll,
 			mergePipelines,
 		)
 		if assembleErr != nil {
@@ -1505,10 +1533,12 @@ func (s *PipelineService) stage3CheckSet(ctx context.Context, orgID pgtype.UUID,
 			s.logger.Debug("stage3Check: pipeline excluded (role/signal mismatch)",
 				"collector_id", c.ID.String(), "role", c.Role, "pipeline", ex.PipelineName, "reason", ex.Reason)
 		}
-		if !seen[result.Hash] {
-			seen[result.Hash] = true
-			toValidate = append(toValidate, mergedEntry{content: result.Content, collectorKey: key})
+		if idx, ok := byHash[result.Hash]; ok {
+			toValidate[idx].collectorKeys = append(toValidate[idx].collectorKeys, key)
+			continue
 		}
+		byHash[result.Hash] = len(toValidate)
+		toValidate = append(toValidate, &mergedEntry{content: result.Content, collectorKeys: []string{key}})
 	}
 
 	if len(failures) > 0 {
@@ -1534,7 +1564,7 @@ func (s *PipelineService) stage3CheckSet(ctx context.Context, orgID pgtype.UUID,
 				for _, d := range r1.Diagnostics {
 					msgs = append(msgs, fmt.Sprintf("%d:%d %s", d.Line, d.Col, d.Message))
 				}
-				resultCh <- result{key: entry.collectorKey, msgs: msgs}
+				resultCh <- result{key: strings.Join(entry.collectorKeys, ", "), msgs: msgs}
 				return
 			}
 
@@ -1544,7 +1574,7 @@ func (s *PipelineService) stage3CheckSet(ctx context.Context, orgID pgtype.UUID,
 					msgs = append(msgs, fmt.Sprintf("stage2:%d:%d %s", d.Line, d.Col, d.Message))
 				}
 			}
-			resultCh <- result{key: entry.collectorKey, msgs: msgs}
+			resultCh <- result{key: strings.Join(entry.collectorKeys, ", "), msgs: msgs}
 		}()
 	}
 
@@ -1564,6 +1594,24 @@ func (s *PipelineService) stage3CheckSet(ctx context.Context, orgID pgtype.UUID,
 		return fmt.Errorf("merge validation failed on collectors: %s", strings.Join(failures, " | "))
 	}
 	return nil
+}
+
+// affectedBy reports whether any form in changed selects coll, by the serve
+// path's own labels (merge.BuildCollectorLabels, the call serve.Assemble
+// makes, with the same admin-label / local-attribute gating the caller
+// applied) and matcher (merge.MatchesPipeline, which selects a git pipeline
+// by its RepoLinkCollectorID). Selection here is before role enforcement, a
+// superset of what is served. A matcher that does not parse counts as
+// affecting: Assemble reports such a pipeline in the header, so the
+// collector's bytes may change.
+func affectedBy(changed []merge.Pipeline, coll serve.Collector) bool {
+	cl := merge.BuildCollectorLabels(coll.ID, coll.Cluster, coll.Role, coll.AdminLabels, coll.LocalAttrs)
+	for _, p := range changed {
+		if ok, err := merge.MatchesPipeline(p, cl); ok || err != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *PipelineService) previewMatchedCollectors(ctx context.Context, p merge.Pipeline, orgID pgtype.UUID) ([]map[string]string, error) {
