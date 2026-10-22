@@ -14,8 +14,8 @@
           <tr>
             <td><strong>Application administrator</strong></td>
             <td>Everything, everywhere: create organisations and set their tenant identity, claim
-                clusters into orgs, issue and revoke agent tokens, configure single sign-on, manage
-                local accounts.</td>
+                clusters into orgs, issue and revoke agent tokens for any org and bind a token to
+                an org, configure single sign-on, manage local accounts.</td>
             <td>&mdash;</td>
           </tr>
           <tr>
@@ -23,8 +23,11 @@
             <td>Everything inside one org, including what the org <em>is</em>: destinations, tenant
                 routes, git credentials and repo links, teams, service accounts, the group
                 assignments and labels on that org&rsquo;s collectors, <em>Connect a
-                cluster</em>, a pipeline&rsquo;s owning team, and the org&rsquo;s audit log.</td>
-            <td>Reach another org, claim clusters, or manage agent tokens.</td>
+                cluster</em>, a pipeline&rsquo;s owning team, the org&rsquo;s
+                <a href="agent-tokens.html">agent tokens</a> (whose collectors claim unclaimed
+                clusters for the org), and the org&rsquo;s audit log.</td>
+            <td>Reach another org, claim a cluster directly, or see or bind a token that is not
+                bound to their org.</td>
           </tr>
           <tr>
             <td><strong>Organisation editor</strong></td>
@@ -63,7 +66,8 @@
           <tr>
             <td><strong>Collector (agent token)</strong></td>
             <td>Fetch its own merged config and report status, over HTTP Basic auth with an agent
-                token, or with an <a href="agent-tokens.html#oidc">OIDC access token</a>.</td>
+                token bound to its organisation, or with an
+                <a href="agent-tokens.html#oidc">OIDC access token</a>.</td>
             <td>Read or change anything in the management API.</td>
           </tr>
         </tbody>

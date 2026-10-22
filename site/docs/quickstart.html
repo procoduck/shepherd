@@ -170,8 +170,11 @@ kubectl -n shepherd rollout status deploy/shepherd</code></pre>
 
       <h2 id="mint-a-token">4. Mint an agent token</h2>
       <p>
-        Collectors authenticate with an agent token. Create one at <strong>Admin &rarr; Agent
-        Tokens</strong>; the secret is shown exactly once.
+        Collectors authenticate with an agent token, and every token belongs to an organisation.
+        On a fresh install, create one first at <strong>Admin &rarr; Organisations</strong>, then
+        create a token for it at <strong>Access &rarr; Agent Tokens</strong>; the secret is shown
+        exactly once. See <a href="agent-tokens.html">Agent tokens</a> for narrowing a token to
+        specific clusters and roles.
       </p>
 
       <h2 id="point-alloy-at-it">5. Point Alloy at it</h2>
@@ -204,17 +207,17 @@ kubectl -n shepherd rollout status deploy/shepherd</code></pre>
         generates the values for it.
       </p>
 
-      <h2 id="claim-a-cluster">6. Claim the cluster</h2>
+      <h2 id="claim-a-cluster">6. Watch the cluster arrive</h2>
       <p>
-        Within one poll interval <strong>Admin &rarr; Clusters</strong> shows the cluster the
-        collector reported, unclaimed. Claim it into an organisation &mdash; on a fresh install,
-        create one first at <strong>Admin &rarr; Organisations</strong> &mdash; and its collectors
-        appear under <strong>Collectors</strong>, where they can be managed.
+        Within one poll interval the collector&rsquo;s first poll claims the cluster it reported
+        for its token&rsquo;s organisation, and its collectors appear under
+        <strong>Collectors</strong>, where they can be managed. A cluster another organisation
+        already claimed is refused instead &mdash; the collector logs a
+        <code>permission_denied</code> error and keeps running its local config.
       </p>
       <p><img src="../img/collectors.jpg" alt="The Collectors list: each collector with its cluster, role, status, Alloy version and labels" loading="lazy"></p>
       <p class="note">
-        An unclaimed collector is served an <strong>empty config</strong>, not an error, so it keeps
-        running whatever it already had. Once claimed, a collector is served a small
+        Once claimed, a collector is served a small
         <a href="overview.html#the-beacon">beacon</a> pipeline (unless you turned the beacon off) and
         reloads once; nothing else changes until you deliberately enable a pipeline that matches it.
       </p>
@@ -250,7 +253,7 @@ kubectl -n shepherd rollout status deploy/shepherd</code></pre>
         <li><a href="#sign-in">3. Sign in</a></li>
         <li><a href="#mint-a-token">4. Mint an agent token</a></li>
         <li><a href="#point-alloy-at-it">5. Point Alloy at it</a></li>
-        <li><a href="#claim-a-cluster">6. Claim the cluster</a></li>
+        <li><a href="#claim-a-cluster">6. Watch the cluster arrive</a></li>
         <li><a href="#serve-a-pipeline">7. Serve it a pipeline</a></li>
         <li><a href="#where-next">Where to go next</a></li>
       </ul>

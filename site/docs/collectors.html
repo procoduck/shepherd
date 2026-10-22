@@ -109,7 +109,7 @@
   poll_frequency = "60s"
 }</code></pre>
       </div>
-      <p>On first poll, an unclaimed cluster gets served an empty config so it keeps running whatever it already has locally — nothing is disrupted until an app admin claims the cluster for an organisation (<a href="roles.html">Roles</a>) and someone with edit rights in that organisation enables pipelines that match it. (A collector authenticating with <a href="agent-tokens.html#oidc">OIDC</a> under a binding is claimed into its bound organisation on its first poll.)</p>
+      <p>On first poll, an unclaimed cluster gets served an empty config so it keeps running whatever it already has locally — nothing is disrupted until the cluster belongs to an organisation and someone with edit rights in that organisation enables pipelines that match it. A collector authenticating with an <a href="agent-tokens.html#binding">agent token</a>, or with <a href="agent-tokens.html#oidc">OIDC</a> under a binding, claims its unclaimed cluster for its token&rsquo;s organisation on its first poll; otherwise an app admin claims the cluster (<a href="roles.html">Roles</a>).</p>
       <p class="note">
         <strong>The served config includes a self-monitoring beacon that writes back to
         Shepherd.</strong> Its remote-write URL is built from Shepherd&rsquo;s

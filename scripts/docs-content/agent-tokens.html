@@ -1,9 +1,12 @@
 <h1>Agent tokens</h1>
       <p>Collectors authenticate to Shepherd with an agent token over HTTP Basic auth: the
-        token&rsquo;s ID is the username, its secret the password.</p>
+        token&rsquo;s ID is the username, its secret the password. Every token is bound to an
+        organisation, and can be narrowed further to a list of clusters and collector roles.</p>
       <ol>
-        <li>As an app admin, open <strong>Admin &rarr; Agent Tokens</strong> and create one. Copy
-            the secret straight away &mdash; it is shown exactly once.</li>
+        <li>As an org admin (or an app admin), open <strong>Access &rarr; Agent Tokens</strong>
+            and create one for your organisation &mdash; optionally listing the clusters and
+            roles it may act as. Copy the secret straight away &mdash; it is shown exactly
+            once.</li>
         <li>Put both into the collector&rsquo;s <code>remotecfg</code> block (keep the secret in
             an environment variable or a Kubernetes Secret, not in the file):</li>
       </ol>
@@ -19,17 +22,46 @@
   poll_frequency = "60s"
 }</code></pre>
       </div>
-      <p>A token is not tied to an organisation: which org a collector belongs to is decided by
-        claiming its cluster (<strong>Admin &rarr; Clusters</strong>). Revoke a token on the same
-        page; collectors using it are refused on their next poll. On Grafana&rsquo;s
-        k8s-monitoring chart, <a href="collectors.html#k8s-monitoring">Connect a cluster</a>
-        writes this wiring for you.</p>
+      <h2 id="binding">What a token may act for</h2>
+      <p>A collector using a token is served its token&rsquo;s organisation&rsquo;s configuration.
+        On its first poll, an unclaimed cluster it reports is claimed for that organisation
+        &mdash; no app admin step needed. A token is refused (the collector logs a
+        <code>permission_denied</code> error and keeps running its local config) when it reports:</p>
+      <ul>
+        <li>a cluster another organisation has already claimed &mdash; a token can never act as
+          another organisation&rsquo;s cluster by naming it;</li>
+        <li>a cluster or role outside the token&rsquo;s allowlists, when it has them (an empty list
+          means any).</li>
+      </ul>
+      <p>Refusals are counted in <code>shepherd_agent_refused_total</code> by reason
+        (<code>claim_denied</code>, <code>role_denied</code>, <code>token_unbound</code>).
+        Revoke a token on the same page; collectors using it are refused on their next poll. On
+        Grafana&rsquo;s k8s-monitoring chart, <a href="collectors.html#k8s-monitoring">Connect a
+        cluster</a> writes this wiring for you.</p>
+      <p>Org admins see and manage only their own organisation&rsquo;s tokens. App admins see
+        every token and are the only ones who can move a token to a different organisation.</p>
       <p>To create tokens from a script instead, run the CLI inside the Shepherd pod, which
         already has the database settings:</p>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-        <pre><code>kubectl -n shepherd exec svc/shepherd -- /usr/local/bin/shepherd token create --name ci</code></pre>
+        <pre><code>kubectl -n shepherd exec svc/shepherd -- /usr/local/bin/shepherd token create \
+  --name ci --org platform-engineering \
+  --clusters prod-eu-1,staging-eu-1 \
+  --roles metrics      # both lists optional; omit for any cluster / role in the org</code></pre>
       </div>
+
+      <h3 id="unbound">Tokens from before organisation binding</h3>
+      <p>Tokens created before tokens were bound to an organisation are <strong>unbound</strong>
+        after the upgrade, and Shepherd refuses every collector using one until it is bound.
+        Bind each of them right after upgrading: an app admin sees unbound tokens at the top of
+        the Agent Tokens page with a <strong>Bind</strong> action, or from the CLI:</p>
+      <div class="code-block" data-lang="shell">
+        <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
+        <pre><code>shepherd token list            # unbound tokens show org=UNBOUND
+shepherd token bind --id &lt;token-id&gt; --org platform-engineering [--clusters prod-eu-1] [--roles metrics]</code></pre>
+      </div>
+      <p>Binding changes nothing on the collector: the token keeps its ID and secret, and the
+        collector is served its organisation&rsquo;s configuration from its next poll.</p>
 
       <h2 id="oidc">Authenticate with OIDC instead of a shared token</h2>
       <p>A collector can present an OAuth2 access token from the same identity provider that does
@@ -37,8 +69,8 @@
         block fetches and presents it natively, so nothing changes on the agent beyond its config.
         With a binding (below) or IdP-asserted organisations, the token is scoped to one
         organisation, so a collector in one org can never pull another&rsquo;s configuration;
-        without either, the collector&rsquo;s organisation comes from claiming its cluster, as with
-        an agent token.</p>
+        without either, the collector&rsquo;s organisation comes from an app admin claiming its
+        cluster.</p>
       <p>Turn it on in the chart under <code>config.oidc</code> (it stays off until
         <code>agent_audience</code> is set). These settings are read from chart config only, so
         collector OIDC needs <code>config.oidc.issuer</code> in your values, which also makes single
