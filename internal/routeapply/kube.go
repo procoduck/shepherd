@@ -63,14 +63,18 @@ func (k *Kube) Apply(ctx context.Context, route *gatewayv1.HTTPRoute) error {
 	existing, err := res.Get(ctx, route.Name, metav1.GetOptions{})
 	switch {
 	case apierrors.IsNotFound(err):
-		_, err = res.Create(ctx, u, metav1.CreateOptions{})
-		return err
+		if _, err = res.Create(ctx, u, metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("creating HTTPRoute %s/%s: %w", route.Namespace, route.Name, err)
+		}
+		return nil
 	case err != nil:
 		return fmt.Errorf("checking whether HTTPRoute %s/%s exists: %w", route.Namespace, route.Name, err)
 	}
 	u.SetResourceVersion(existing.GetResourceVersion())
-	_, err = res.Update(ctx, u, metav1.UpdateOptions{})
-	return err
+	if _, err = res.Update(ctx, u, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("updating HTTPRoute %s/%s: %w", route.Namespace, route.Name, err)
+	}
+	return nil
 }
 
 // Get reads namespace/name, wrapping gateway.ErrNotFound when it is absent.
@@ -80,7 +84,7 @@ func (k *Kube) Get(ctx context.Context, namespace, name string) (*gatewayv1.HTTP
 		return nil, fmt.Errorf("HTTPRoute %s/%s: %w", namespace, name, gateway.ErrNotFound)
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("reading HTTPRoute %s/%s: %w", namespace, name, err)
 	}
 	var route gatewayv1.HTTPRoute
 	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(u.Object, &route); err != nil {

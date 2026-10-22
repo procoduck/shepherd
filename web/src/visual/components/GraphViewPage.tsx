@@ -36,7 +36,7 @@ import {
   type LayoutResult,
   layoutGraph,
 } from '../graphViewLayout';
-import { edgeNames, moduleOfInstance, summariseWarning } from '../graphViewText';
+import { edgeNames, moduleOfInstance, moduleResolver, summariseWarning } from '../graphViewText';
 import { loadCurrentSchema } from '../schemaCache';
 import { useVisualStore } from '../store';
 import type { GraphBinding, GraphNode } from '../types';
@@ -514,6 +514,7 @@ export function GraphViewPage() {
     const nodes = graphData?.graph.nodes ?? [];
     const laidOut = status === 'elk' && layout !== null;
     const out: Node[] = [];
+    const moduleOf = moduleResolver(nodes);
     for (const n of nodes) {
       if (tree.groups.has(n.id)) {
         const isCollapsed = !laidOut || layout.collapsed.has(n.id);
@@ -562,7 +563,7 @@ export function GraphViewPage() {
           genericPorts: flow.genericPorts[n.id],
           // A module instance is not chipped "not mapped" (public-docs
           // review 2026-10-15), matching the inspector (#344).
-          moduleInstanceOf: moduleOfInstance(n, nodes)?.label,
+          moduleInstanceOf: moduleOf(n)?.label,
         } as PipelineNodeData,
       });
     }

@@ -24,6 +24,7 @@ import (
 	"shepherd/internal/config"
 	"shepherd/internal/crypto"
 	"shepherd/internal/mgmtapi"
+	"shepherd/internal/serve"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 )
@@ -536,7 +537,9 @@ var _ = Describe("GitOpsService (Connect RPC)", Label("integration"), func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 				// A clean served config that still includes the git pipeline.
-				_, err = st.Pool().Exec(ctx, `INSERT INTO serve_cache (collector_id, content, hash, dirty) VALUES ($1, '// pipeline configs/synced', 'old', false)`, coll.ID) // RAW-SQL-OK: test fixture
+				_, err = st.Queries.UpsertServeCacheConditional(ctx, sqlc.UpsertServeCacheConditionalParams{
+					CollectorID: coll.ID, Content: "// pipeline configs/synced", Hash: "old", Format: serve.Format,
+				})
 				Expect(err).NotTo(HaveOccurred())
 
 				resp = postConnect("/shepherd.mgmt.v1.GitOpsService/DeleteRepoLink",

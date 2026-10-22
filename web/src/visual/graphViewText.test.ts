@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { edgeNames, moduleOfInstance, nodeKindLabel, summariseWarning } from './graphViewText';
+import {
+  edgeNames,
+  moduleOfInstance,
+  moduleResolver,
+  nodeKindLabel,
+  summariseWarning,
+} from './graphViewText';
 import type { GraphNode } from './types';
 
 // The server's real parse of the k8s-monitoring metrics config (four modules).
@@ -178,6 +184,34 @@ describe('moduleOfInstance', () => {
     expect(
       moduleOfInstance(node({ component: 'opaque.nope' }), metrics.graph.nodes),
     ).toBeUndefined();
+  });
+});
+
+describe('moduleResolver', () => {
+  it('resolves every node of a graph as moduleOfInstance does', () => {
+    const resolve = moduleResolver(metrics.graph.nodes);
+    for (const n of metrics.graph.nodes) {
+      expect(resolve(n)?.id).toBe(moduleOfInstance(n, metrics.graph.nodes)?.id);
+    }
+  });
+
+  it('keeps scoping across a chart-sized graph', () => {
+    // 300 sibling modules, each declaring an inner "m" and instantiating it,
+    // plus a top-level "m": each instance resolves within its own module.
+    const nodes = [node({ id: 'top_m', component: 'declare', label: 'm' })];
+    for (let i = 0; i < 300; i++) {
+      nodes.push(
+        node({ id: `mod${i}`, component: 'declare', label: `mod${i}` }),
+        node({ id: `mod${i}_m`, component: 'declare', label: 'm', parent: `mod${i}` }),
+        node({ id: `mod${i}_i`, component: 'opaque.m', label: 'x', parent: `mod${i}` }),
+      );
+    }
+    nodes.push(node({ id: 'top_i', component: 'opaque.m', label: 'x' }));
+    const resolve = moduleResolver(nodes);
+    for (let i = 0; i < 300; i++) {
+      expect(resolve(nodes[3 * i + 3] as GraphNode)?.id).toBe(`mod${i}_m`);
+    }
+    expect(resolve(nodes[nodes.length - 1] as GraphNode)?.id).toBe('top_m');
   });
 });
 

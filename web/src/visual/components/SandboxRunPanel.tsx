@@ -42,9 +42,9 @@ const POLL_INTERVAL_MS = 500;
 // before results are assembled. That flush is what turns "30s" into 45s, and
 // cutting it would truncate the capture, so the label names the capture
 // window and the end-to-end estimate instead of promising 30s total.
+const SHUTDOWN_GRACE_SECONDS = 15;
 // Exported so the Toolbar's narrow-layout More menu carries the same label
 // rather than a second, stale copy of it.
-const SHUTDOWN_GRACE_SECONDS = 15;
 export const SANDBOX_RUN_LABEL = `Sandbox run (${REQUESTED_DURATION_SECONDS}s capture, ~${
   REQUESTED_DURATION_SECONDS + SHUTDOWN_GRACE_SECONDS
 }s total)…`;

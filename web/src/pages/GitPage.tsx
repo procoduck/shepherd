@@ -287,6 +287,10 @@ export function GitPage() {
       // (#348): drop the cached list and every cached pipeline detail.
       qc.invalidateQueries({ queryKey: ['pipelines', orgId] });
       qc.invalidateQueries({ queryKey: ['pipeline', orgId] });
+      // ...and what the link's collector is served, which the server
+      // recomputed without them.
+      qc.invalidateQueries({ queryKey: ['served-config', orgId] });
+      qc.invalidateQueries({ queryKey: ['revisions', orgId] });
       setDeleteLink(null);
     },
   });
