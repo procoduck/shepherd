@@ -2,7 +2,9 @@ package validate_test
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -50,6 +52,50 @@ var _ = Describe("Skipped stages", func() {
 		r := newValidator("").Stages12(context.Background(), `prometheus.scrape "x" {`)
 		Expect(r.Valid).To(BeFalse())
 		Expect(r.Skipped).To(BeEmpty())
+	})
+})
+
+// Review of #373: a caller that compares two validations (git sync's
+// commit-vs-before check) must be able to tell "alloy validate found these
+// problems" from "alloy validate gave no verdict" — a timeout, a binary that
+// cannot run, a temp-file failure, output with no positioned diagnostic.
+var _ = Describe("Inconclusive Stage 2", func() {
+	const content = "// fine\n"
+	stub := func(body string) string {
+		path := filepath.Join(GinkgoT().TempDir(), "alloy")
+		Expect(os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o700)).To(Succeed())
+		return path
+	}
+	run := func(bin string, timeout time.Duration) validate.Result {
+		return validate.New(&config.ValidateConfig{
+			AlloyBinary: bin, StabilityLevel: "experimental", Timeout: timeout,
+		}).Stages12(context.Background(), content)
+	}
+
+	It("is inconclusive when alloy validate times out", func() {
+		r := run(stub("sleep 5"), 200*time.Millisecond)
+		Expect(r.Valid).To(BeFalse())
+		Expect(r.Inconclusive).To(BeTrue())
+	})
+
+	It("is inconclusive when alloy validate fails with no output", func() {
+		r := run(stub("exit 1"), 10*time.Second)
+		Expect(r.Valid).To(BeFalse())
+		Expect(r.Inconclusive).To(BeTrue())
+	})
+
+	It("is inconclusive when the binary cannot be run", func() {
+		r := run(filepath.Join(GinkgoT().TempDir(), "missing"), 10*time.Second)
+		Expect(r.Valid).To(BeFalse())
+		Expect(r.Inconclusive).To(BeTrue())
+	})
+
+	It("is a verdict when alloy validate reports a positioned diagnostic", func() {
+		r := run(stub(`echo "Error: $3:1:1: unknown component" >&2; exit 1`), 10*time.Second)
+		Expect(r.Valid).To(BeFalse())
+		Expect(r.Inconclusive).To(BeFalse())
+		Expect(r.Diagnostics).To(HaveLen(1))
+		Expect(r.Diagnostics[0].Message).To(Equal("unknown component"))
 	})
 })
 

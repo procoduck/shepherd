@@ -1135,30 +1135,81 @@ func (r *Reconciler) stage3DryRun(ctx context.Context, link sqlc.RepoLink, plans
 	if result.Valid {
 		return dryRunResult{}, nil
 	}
-	diags := locateDiagnostics(served.Content, result.Diagnostics)
+	if err := inconclusive(ctx, result); err != nil {
+		return dryRunResult{}, err
+	}
+	after := locateDiagnostics(served.Content, result.Diagnostics)
 
 	// The baseline: the collector's merged config without the commit. If it
-	// cannot be assembled or validated, nothing counts as pre-existing.
+	// cannot be assembled, nothing counts as pre-existing. If its validation
+	// gives no verdict (the budget ran out, the binary failed), the commit
+	// is refused: an unanswered check is never an error "already there".
 	var before []locatedDiag
 	if baseServed, baseErr := assemble(current); baseErr == nil {
-		if base := r.validator.Stages12(ctx, baseServed.Content); !base.Valid {
+		base := r.validator.Stages12(ctx, baseServed.Content)
+		if !base.Valid {
+			if err := inconclusive(ctx, base); err != nil {
+				return dryRunResult{}, err
+			}
 			before = locateDiagnostics(baseServed.Content, base.Diagnostics)
 		}
 	}
-	fresh, old := newDiagnostics(diags, before, changed)
-	if len(fresh) > 0 {
-		return dryRunResult{refusals: attributeDiagnostics(fresh, paths, collectorKey)}, nil
+	return judge(after, before, changed, paths, collectorKey), nil
+}
+
+// inconclusive reports a Stages 1-2 run that gave no verdict on the content
+// — the dry run's budget ran out, or alloy validate itself could not answer
+// (validate.Result.Inconclusive) — as an error that refuses the commit.
+func inconclusive(ctx context.Context, res validate.Result) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("validation could not complete: %w", err)
 	}
-	var preexisting []string
-	seen := map[string]bool{}
-	for _, d := range old {
-		label := d.label(paths, collectorKey)
-		if !seen[label] {
-			seen[label] = true
-			preexisting = append(preexisting, label)
+	if res.Inconclusive {
+		msg := "alloy validate gave no verdict"
+		if len(res.Diagnostics) > 0 {
+			msg = res.Diagnostics[0].Message
+		}
+		return fmt.Errorf("validation could not complete: %s", msg)
+	}
+	return nil
+}
+
+// judge decides a commit whose merged config failed Stages 1-2 (after),
+// given the diagnostics of the collector's merged config before it
+// (before). A Stage 1 failure before the commit refuses it: Stage 2 never
+// runs on a config that does not parse, so nothing the commit does could be
+// checked — the broken pipeline must be fixed first. Otherwise the commit
+// is refused for what it brings (newDiagnostics), and what was already
+// there is returned as preexisting, to apply the commit with a warning.
+func judge(after, before []locatedDiag, changed map[string]bool, paths map[string]string, collectorKey string) dryRunResult {
+	var syntax []string
+	for _, d := range before {
+		if d.stage == 1 {
+			syntax = appendOnce(syntax, d.label(paths, collectorKey))
 		}
 	}
-	return dryRunResult{preexisting: preexisting}, nil
+	if len(syntax) > 0 {
+		return dryRunResult{refusals: []error{fmt.Errorf(
+			"the collector's merged config already fails its syntax check before this commit, in: %s; "+
+				"fix that first — until it parses, no commit for this collector can be validated",
+			strings.Join(syntax, "; "))}}
+	}
+	fresh, old := newDiagnostics(after, before, changed)
+	if len(fresh) > 0 {
+		return dryRunResult{refusals: attributeDiagnostics(fresh, paths, collectorKey)}
+	}
+	var preexisting []string
+	for _, d := range old {
+		preexisting = appendOnce(preexisting, d.label(paths, collectorKey))
+	}
+	return dryRunResult{preexisting: preexisting}
+}
+
+func appendOnce(list []string, s string) []string {
+	if slices.Contains(list, s) {
+		return list
+	}
+	return append(list, s)
 }
 
 // locatedDiag is a merged-config diagnostic attributed to the pipeline whose
@@ -1171,6 +1222,7 @@ type locatedDiag struct {
 	pipelineLine bool
 	line, col    int
 	message      string
+	stage        int
 }
 
 // declareIndent is how far merge.Assemble indents a pipeline's text inside
@@ -1180,7 +1232,7 @@ const declareIndent = 2
 func locateDiagnostics(content string, diags []validate.Diagnostic) []locatedDiag {
 	out := make([]locatedDiag, 0, len(diags))
 	for _, d := range diags {
-		ld := locatedDiag{line: d.Line, col: d.Col, message: d.Message}
+		ld := locatedDiag{line: d.Line, col: d.Col, message: d.Message, stage: d.Stage}
 		if loc, ok := merge.Locate(content, d.Line); ok {
 			ld.pipeline = loc.PipelineName
 			if loc.PipelineLine > 0 {
@@ -1196,13 +1248,11 @@ func locateDiagnostics(content string, diags []validate.Diagnostic) []locatedDia
 	return out
 }
 
-// positionRE and alloyFileRE strip what can differ between two validations
-// of the same mistake from a message: positions it quotes and the temp file
-// alloy validate was handed.
-var (
-	positionRE  = regexp.MustCompile(`\d+:\d+`)
-	alloyFileRE = regexp.MustCompile(`\S+\.alloy\b`)
-)
+// alloyLocRE matches what differs between two validations of the same
+// mistake in a message: the temp file alloy validate was handed, with the
+// "line:col" Alloy writes after it when it quotes a position. Nothing else
+// is rewritten — a "host:port" in a message is part of the mistake.
+var alloyLocRE = regexp.MustCompile(`\S*\.alloy(?::\d+:\d+)?`)
 
 // key identifies a diagnostic across the two merged configs stage3DryRun
 // validates. Merged-config line numbers are no use: a block the commit adds
@@ -1210,11 +1260,10 @@ var (
 // has the same text in both configs, so (pipeline, line and column in its own
 // text, message) is stable for it. A line outside every block (the header,
 // the baseline) has no stable position, so only the message counts there.
-// Messages are normalised (positionRE, alloyFileRE) because a message can
-// quote a position or a temp path.
+// Messages are normalised (alloyLocRE) because a message can quote the temp
+// file alloy validate read, and a position in it.
 func (d locatedDiag) key() string {
-	msg := alloyFileRE.ReplaceAllString(d.message, "<file>")
-	msg = positionRE.ReplaceAllString(msg, "<pos>")
+	msg := alloyLocRE.ReplaceAllString(d.message, "<file>")
 	if !d.pipelineLine {
 		return d.pipeline + "\x00" + msg
 	}
@@ -1283,7 +1332,8 @@ func preexistingWarning(places []string) string {
 		named, more = places[:maxNamedFailures], fmt.Sprintf(" and %d more", len(places)-maxNamedFailures)
 	}
 	return fmt.Sprintf("commit applied, but the collector's merged config already failed validation before it, in: %s%s. "+
-		"They were broken before this commit; fix them where they are defined.", strings.Join(named, "; "), more)
+		"The collector will likely reject the merged config and keep running its previous one until those are fixed "+
+		"where they are defined.", strings.Join(named, "; "), more)
 }
 
 func (r *Reconciler) markError(ctx context.Context, linkID pgtype.UUID, err error) error {

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -708,6 +710,36 @@ prometheus.remote_write "demo" {
 					Expect(err).NotTo(HaveOccurred())
 					Expect(keep.Contents).To(Equal("// keep"))
 				})
+
+				// An alloy validate that gives no verdict — the commit's run
+				// times out and the before-run then fails the same way, or the
+				// binary prints nothing — produces the same unpositioned
+				// diagnostic for both configs. It must refuse the commit, not
+				// read as an error the collector already had.
+				DescribeTable("refuses the commit when validation cannot complete",
+					func(body string, timeout time.Duration) {
+						path := filepath.Join(GinkgoT().TempDir(), "alloy")
+						Expect(os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o700)).To(Succeed())
+						r.validator = validate.New(&config.ValidateConfig{
+							AlloyBinary: path, StabilityLevel: "experimental",
+							Timeout: timeout, Stage3Timeout: 30 * time.Second,
+						})
+						r.planFileFunc = unvalidated
+						commit(map[string]string{"keep.alloy": "// keep, changed"})
+
+						err := r.reconcileLink(ctx, link)
+						Expect(err).To(HaveOccurred())
+						Expect(err.Error()).To(ContainSubstring("validation could not complete"))
+						keep, err := pipelineNamed("keep")
+						Expect(err).NotTo(HaveOccurred())
+						Expect(keep.Contents).To(Equal("// keep"))
+						l, err := st.Queries.GetRepoLinkByID(ctx, link.ID)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(l.SyncStatus.String).To(Equal("error"))
+					},
+					Entry("alloy validate times out", "sleep 5", 300*time.Millisecond),
+					Entry("alloy validate fails with no output", "exit 1", 10*time.Second),
+				)
 
 				It("refuses a commit whose own file carries the same error as before, as it is the commit's file", func() {
 					keep, err := pipelineNamed("keep")
@@ -1455,6 +1487,34 @@ var _ = Describe("merged-config diagnostics", func() {
 		fresh, old := newDiagnostics(after, before, map[string]bool{"mine": true})
 		Expect(old).To(Equal(after[:1]))
 		Expect(fresh).To(Equal(after[1:]))
+	})
+
+	It("normalises only the temp file and its position, never a host:port", func() {
+		a := locatedDiag{pipeline: "p", message: "/tmp/v1.alloy:9:3: dial prom.example.com:9090: refused"}
+		b := locatedDiag{pipeline: "p", message: "/tmp/v2.alloy:14:3: dial prom.example.com:9090: refused"}
+		c := locatedDiag{pipeline: "p", message: "/tmp/v2.alloy:14:3: dial prom.example.com:9091: refused"}
+		Expect(a.key()).To(Equal(b.key()))
+		Expect(a.key()).NotTo(Equal(c.key()), "a different port is a different error")
+		Expect(a.key()).To(ContainSubstring("prom.example.com:9090"))
+	})
+
+	// Stage 2 never runs on a config that does not parse, so a syntax error
+	// already in the collector's config hides whatever the commit brings.
+	It("refuses the commit when the config before it already fails Stage 1, naming the broken pipeline", func() {
+		before := []locatedDiag{{pipeline: "ui-broken", pipelineLine: true, line: 1, col: 1, message: "expected }", stage: 1}}
+		after := []locatedDiag{{pipeline: "ui-broken", pipelineLine: true, line: 1, col: 1, message: "expected }", stage: 1}}
+		verdict := judge(after, before, map[string]bool{"mine": true}, map[string]string{"mine": "mine.alloy"}, "c1/metrics")
+		Expect(verdict.preexisting).To(BeEmpty())
+		Expect(verdict.refusals).To(HaveLen(1))
+		Expect(verdict.refusals[0].Error()).To(ContainSubstring(`pipeline "ui-broken"`))
+		Expect(verdict.refusals[0].Error()).To(ContainSubstring("fix that first"))
+	})
+
+	It("applies with a warning when every diagnostic was already there at Stage 2", func() {
+		d := locatedDiag{pipeline: "ui-broken", pipelineLine: true, line: 5, col: 3, message: "bogus", stage: 2}
+		verdict := judge([]locatedDiag{d}, []locatedDiag{d}, map[string]bool{"mine": true}, nil, "c1/metrics")
+		Expect(verdict.refusals).To(BeEmpty())
+		Expect(verdict.preexisting).To(Equal([]string{`pipeline "ui-broken" in the merged config for collector c1/metrics`}))
 	})
 })
 

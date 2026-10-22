@@ -48,6 +48,14 @@ type Result struct {
 	// every stage (#209). A stage that was never reached because an earlier
 	// one failed is not listed: that is a failure, not a skip.
 	Skipped []int
+	// Inconclusive is set when `alloy validate` ran but gave no verdict on
+	// the content: it timed out or was cancelled, could not be started, the
+	// temp file could not be written, or it failed without one positioned
+	// diagnostic. Valid is false and Diagnostics still carry the reason,
+	// exactly as before — callers that only gate on Valid see no change. A
+	// caller comparing two validations (git sync's before/after check) must
+	// not read such a result as the content's own error.
+	Inconclusive bool
 }
 
 // Validator holds configuration for running validation.
@@ -150,14 +158,14 @@ func (v *Validator) Stage2(ctx context.Context, content string) (res Result) {
 func (v *Validator) alloyValidate(ctx context.Context, content string) Result {
 	tmp, err := os.CreateTemp("", "shepherd-validate-*.alloy")
 	if err != nil {
-		return Result{Diagnostics: []Diagnostic{{Line: 1, Message: fmt.Sprintf("creating temp file: %v", err), Stage: 2}}}
+		return Result{Diagnostics: []Diagnostic{{Line: 1, Message: fmt.Sprintf("creating temp file: %v", err), Stage: 2}}, Inconclusive: true}
 	}
 	defer os.Remove(tmp.Name()) //nolint:errcheck // best-effort temp file cleanup
 	if _, err := tmp.WriteString(content); err != nil {
-		return Result{Diagnostics: []Diagnostic{{Line: 1, Message: fmt.Sprintf("writing temp file: %v", err), Stage: 2}}}
+		return Result{Diagnostics: []Diagnostic{{Line: 1, Message: fmt.Sprintf("writing temp file: %v", err), Stage: 2}}, Inconclusive: true}
 	}
 	if err := tmp.Close(); err != nil {
-		return Result{Diagnostics: []Diagnostic{{Line: 1, Message: fmt.Sprintf("closing temp file: %v", err), Stage: 2}}}
+		return Result{Diagnostics: []Diagnostic{{Line: 1, Message: fmt.Sprintf("closing temp file: %v", err), Stage: 2}}, Inconclusive: true}
 	}
 
 	tCtx, cancel := context.WithTimeout(ctx, v.timeout)
@@ -171,7 +179,13 @@ func (v *Validator) alloyValidate(ctx context.Context, content string) Result {
 		return Result{Valid: true}
 	}
 
-	return Result{Diagnostics: parseAlloyOutput(string(out))}
+	diags, positioned := parseAlloyOutput(string(out))
+	var exitErr *exec.ExitError
+	// No verdict: the run was cut short (timeout, cancellation), the binary
+	// never ran (not an exit status), or it exited without one positioned
+	// diagnostic to say what is wrong with the content.
+	inconclusive := tCtx.Err() != nil || !errors.As(err, &exitErr) || !positioned
+	return Result{Diagnostics: diags, Inconclusive: inconclusive}
 }
 
 // Stages12 runs stage 1 then stage 2. Returns early if stage 1 fails.
@@ -299,7 +313,10 @@ func sanitizeName(name string) string {
 // stderrLineRe parses lines like "file.alloy:10:5: error message" from alloy validate output.
 var stderrLineRe = regexp.MustCompile(`(?m)^.+:(\d+):(\d+):\s*(.+)$`)
 
-func parseAlloyOutput(output string) []Diagnostic {
+// parseAlloyOutput reads alloy validate's diagnostics. positioned is false
+// when the output carries no "file:line:col: message" line, and the whole
+// output (or a placeholder) is returned as one diagnostic at 1:1.
+func parseAlloyOutput(output string) (diags []Diagnostic, positioned bool) {
 	matches := stderrLineRe.FindAllStringSubmatch(output, -1)
 	if len(matches) == 0 {
 		// No structured lines — attach to line 1.
@@ -307,7 +324,7 @@ func parseAlloyOutput(output string) []Diagnostic {
 		if msg == "" {
 			msg = "alloy validate failed (no output)"
 		}
-		return []Diagnostic{{Line: 1, Col: 1, Message: msg, Stage: 2}}
+		return []Diagnostic{{Line: 1, Col: 1, Message: msg, Stage: 2}}, false
 	}
 
 	var out []Diagnostic
@@ -326,5 +343,5 @@ func parseAlloyOutput(output string) []Diagnostic {
 		col, _ := strconv.ParseInt(m[2], 10, 32)  //nolint:errcheck // 0 is safe fallback
 		out = append(out, Diagnostic{Line: int(line), Col: int(col), Message: strings.TrimSpace(m[3]), Stage: 2})
 	}
-	return out
+	return out, true
 }
