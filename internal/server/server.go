@@ -434,8 +434,8 @@ func (s *Server) Run(ctx context.Context) error {
 		// built the way mgmtapi.MountRPC builds its PipelineService.
 		ps := mgmtapi.NewPipelineService(s.store, s.validator, s.schema, s.logger,
 			mgmtapi.WithBeaconBaseline(serve.BeaconBaseline(s.cfg)))
-		syncOpts = append(syncOpts, gitsync.WithRecompute(ps.RecomputeOrgCaches))
-		reconciler := gitsync.New(s.store, s.enc, s.validator, s.cfg, s.logger, syncOpts...)
+		syncOpts = append(syncOpts, gitsync.WithRecompute(ps.RecomputeCollectorCache))
+		reconciler := gitsync.New(s.store, s.enc, s.validator, s.schema, s.cfg, s.logger, syncOpts...)
 		reconciler.Start(ctx)
 	} else {
 		s.logger.Warn("gitops reconciler not started: encryption key not configured")

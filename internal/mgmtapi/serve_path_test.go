@@ -138,6 +138,58 @@ var _ = Describe("eager recompute failure (R4)", Label("integration"), func() {
 	})
 })
 
+// R8 (#360): internal/gitsync's eager recompute (server.go wires it to
+// RecomputeCollectorCache) refreshes the synced link's collector only. It
+// used to recompute the whole org, writing every other dirty collector's
+// served config as a side effect of a sync that could not have changed it.
+var _ = Describe("RecomputeCollectorCache (the git sync hook)", Label("integration"), func() {
+	It("writes the named collector's served config and leaves a dirty bystander in the same org alone", func() {
+		ctx := context.Background()
+		st, err := store.New(ctx, &config.DatabaseConfig{URL: sharedPG.IsolatedDB(ctx, GinkgoTB()), MaxConns: 5})
+		Expect(err).NotTo(HaveOccurred())
+		defer st.Close()
+
+		o, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "hook-org", DisplayName: "Hook Org", AdminGroupID: "admin-group"})
+		Expect(err).NotTo(HaveOccurred())
+		collector := func(clusterName string) pgtype.UUID {
+			cluster, err := st.Queries.UpsertCluster(ctx, clusterName)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: o.ID})).To(Succeed())
+			c, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+			Expect(err).NotTo(HaveOccurred())
+			_, err = st.Queries.UpsertServeCacheConditional(ctx, sqlc.UpsertServeCacheConditionalParams{
+				CollectorID: c.ID, Content: "// old " + clusterName, Hash: "old-" + clusterName, Format: serve.Format,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(st.Queries.MarkServeCacheDirty(ctx, c.ID)).To(Succeed())
+			return c.ID
+		}
+		// The bystander's cluster sorts first: an org-wide recompute reaches it first.
+		bystander := collector("hook-a-bystander")
+		target := collector("hook-b-target")
+		_, err = st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: o.ID, Name: "everywhere", Contents: "// everywhere",
+			Matchers: json.RawMessage(`["role=\"metrics\""]`), Enabled: true, Source: "ui",
+			WizardState: json.RawMessage(`{}`), CreatedBy: "test", UpdatedBy: "test",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		v := validate.New(&config.ValidateConfig{StabilityLevel: "experimental", Timeout: 10e9})
+		ps := mgmtapi.NewPipelineService(st, v, embeddedSchema(), slog.Default())
+		ps.RecomputeCollectorCache(ctx, o.ID, target)
+
+		got, err := st.Queries.GetServeCache(ctx, target)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got.Dirty).To(BeFalse())
+		Expect(got.Content).To(ContainSubstring("everywhere"))
+
+		other, err := st.Queries.GetServeCache(ctx, bystander)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(other.Dirty).To(BeTrue(), "the bystander still waits for its own poll")
+		Expect(other.Hash).To(Equal("old-hook-a-bystander"))
+	})
+})
+
 // R4 (#358), the Stage 2 half: Stage 3's dry run must hand Stage 2 (PortShapes
 // and `alloy validate`) the bytes a collector is actually served — D6's
 // baseline pipeline included — not merge.Assemble's output alone. A stand-in

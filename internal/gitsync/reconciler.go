@@ -1,9 +1,10 @@
 // Package gitsync implements the git GitOps reconciliation loop. It polls
 // repo_links that are due for sync, downloads .alloy files over real git
 // (via internal/gitrepo) using whichever auth strategy the linked
-// credential's kind selects, validates each file, and upserts them as
-// git-sourced pipelines. A successful sync also deletes the link's
-// pipelines whose file has left the repository (docs/spec.md §10).
+// credential's kind selects, validates each file and then the commit as a
+// whole, and upserts them as git-sourced pipelines. A successful sync also
+// deletes the link's pipelines whose file has left the repository. A commit
+// applies whole or not at all (docs/spec.md §8, §10).
 package gitsync
 
 import (
@@ -12,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -20,11 +22,14 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"shepherd/internal/beacon"
 	"shepherd/internal/config"
 	"shepherd/internal/crypto"
 	"shepherd/internal/gitrepo"
 	"shepherd/internal/merge"
 	"shepherd/internal/metrics"
+	"shepherd/internal/reconcile"
+	"shepherd/internal/schema"
 	"shepherd/internal/serve"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
@@ -33,21 +38,27 @@ import (
 
 // Reconciler polls due repo_links and syncs them.
 type Reconciler struct {
-	store      *store.Store
-	crypto     *crypto.Encryptor
-	validator  *validate.Validator
-	cfg        *config.GitSyncConfig
-	limits     gitrepo.Limits
-	tokenCache *gitrepo.TokenCache
-	logger     *slog.Logger
+	store     *store.Store
+	crypto    *crypto.Encryptor
+	validator *validate.Validator
+	// schema drives the commit dry run's role enforcement (stage3DryRun),
+	// the merge.WithRoleEnforcement every serve path applies.
+	schema *schema.Registry
+	// beaconBaseline is D6's baseline pipeline, appended by every serve path
+	// and so by the dry run too (serve.Assemble).
+	beaconBaseline beacon.BaselineConfig
+	cfg            *config.GitSyncConfig
+	limits         gitrepo.Limits
+	tokenCache     *gitrepo.TokenCache
+	logger         *slog.Logger
 	// locker, when set, limits passes to one replica at a time (see Locker).
 	locker Locker
-	// recompute, when set, refreshes an org's served configs right after a
-	// sync changed its git pipelines (see WithRecompute).
-	recompute func(ctx context.Context, orgID pgtype.UUID)
+	// recompute, when set, refreshes the link's collector's served config
+	// right after a sync changed its git pipelines (see WithRecompute).
+	recompute func(ctx context.Context, orgID, collectorID pgtype.UUID)
 	// planFileFunc, when set, replaces planFile. Test seam only: specs use it
 	// to make one planning pass fail transiently (a validator timeout).
-	planFileFunc func(ctx context.Context, link sqlc.RepoLink, file gitrepo.File, removing map[string]bool) (*filePlan, error)
+	planFileFunc func(ctx context.Context, link sqlc.RepoLink, file gitrepo.File) (*filePlan, error)
 }
 
 // Locker lets exactly one Shepherd replica run a sync pass at a time. The
@@ -68,24 +79,29 @@ func WithLocker(l Locker) Option {
 	return func(r *Reconciler) { r.locker = l }
 }
 
-// WithRecompute makes the Reconciler call recompute for the link's org after
-// a sync that created, updated or deleted a pipeline committed — the eager
-// served-config refresh the API's own deletes run (mgmtapi's
-// PipelineService.RecomputeOrgCaches), so the served config shown for the
-// collector, an offline one included, drops a removed file's pipeline
-// without waiting for a poll. Without it the collector is still marked dirty
-// and recomputes on its next poll.
-func WithRecompute(recompute func(ctx context.Context, orgID pgtype.UUID)) Option {
+// WithRecompute makes the Reconciler call recompute for the link's org and
+// collector after a sync that created, updated or deleted a pipeline
+// committed — the eager served-config refresh the API's own writes run
+// (mgmtapi's PipelineService.RecomputeCollectorCache), so the served config
+// shown for the collector, an offline one included, follows the commit
+// without waiting for a poll. A git pipeline is served to its link's
+// collector only (§6.1), so no other collector is recomputed. Without it the
+// collector is still marked dirty and recomputes on its next poll.
+func WithRecompute(recompute func(ctx context.Context, orgID, collectorID pgtype.UUID)) Option {
 	return func(r *Reconciler) { r.recompute = recompute }
 }
 
-// New creates a Reconciler.
-func New(st *store.Store, enc *crypto.Encryptor, v *validate.Validator, cfg *config.Config, logger *slog.Logger, opts ...Option) *Reconciler {
+// New creates a Reconciler. reg is the schema registry every serve path
+// enforces roles with; a nil reg refuses every commit (stage3DryRun) rather
+// than syncing one unenforced.
+func New(st *store.Store, enc *crypto.Encryptor, v *validate.Validator, reg *schema.Registry, cfg *config.Config, logger *slog.Logger, opts ...Option) *Reconciler {
 	r := &Reconciler{
-		store:     st,
-		crypto:    enc,
-		validator: v,
-		cfg:       &cfg.GitSync,
+		store:          st,
+		crypto:         enc,
+		validator:      v,
+		schema:         reg,
+		beaconBaseline: serve.BeaconBaseline(cfg),
+		cfg:            &cfg.GitSync,
 		limits: gitrepo.Limits{
 			MaxRepoBytes: cfg.GitSync.MaxRepoBytes,
 			MaxFileBytes: cfg.GitSync.MaxFileBytes,
@@ -174,16 +190,19 @@ func (r *Reconciler) reconcileLink(ctx context.Context, link sqlc.RepoLink) erro
 }
 
 // syncLink fetches link's repository and brings the link's git pipelines in
-// line with it: files are validated one at a time (planFile), then every
-// write — the deletes of pipelines whose file left the repository, the
-// creates and updates, their revisions and audit rows, the collector's dirty
-// mark and the link's sync status — lands in ONE transaction (apply).
+// line with it, all or nothing (docs/spec.md §8: "never partially apply a
+// commit"). Each file is checked on its own first (planFile: Stages 1-2 and
+// ownership; planAll: sanitised-name clashes), then the commit as a whole
+// (stage3DryRun: the link's collector's merged config with every create,
+// update and delete of the commit in it, role enforcement included). Only
+// when every check passes does apply write the commit — the deletes of
+// pipelines whose file left the repository, the creates and updates, their
+// revisions and audit rows, the collector's dirty mark and the link's sync
+// status — in ONE transaction.
 //
-// Deletes happen only on a fully successful sync: a failed fetch returns
-// before anything is compared, and a file that fails validation turns the
-// prune off for that sync (the files that passed still sync, as before).
-// Two guards hold a suspicious prune back while the rest of the commit is
-// still applied (pruneGuard).
+// When any file fails, or a prune guard trips (pruneGuard), nothing from the
+// commit is written: the collector keeps serving the previous commit's
+// config, and last_commit stays unset so the next poll tries again.
 func (r *Reconciler) syncLink(ctx context.Context, link sqlc.RepoLink) (syncOutcome, error) {
 	fail := func(err error) (syncOutcome, error) {
 		return outcomeError, r.markError(ctx, link.ID, err)
@@ -226,13 +245,20 @@ func (r *Reconciler) syncLink(ctx context.Context, link sqlc.RepoLink) (syncOutc
 		return fail(scrub(fmt.Errorf("getting latest commit: %w", err)))
 	}
 	if link.LastCommit.Valid && link.LastCommit.String == latestCommit {
+		// A commit applied with a warning (pre-existing validation failures
+		// elsewhere in the collector's merged config, stage3DryRun) keeps
+		// its warning until the next commit; anything else reads "ok".
+		status, syncError, outcome := pgtype.Text{String: "ok", Valid: true}, pgtype.Text{}, outcomeOK
+		if link.SyncStatus.String == "warning" {
+			status, syncError, outcome = link.SyncStatus, link.SyncError, outcomeWarning
+		}
 		if syncErr := r.store.Queries.UpdateRepoLinkSync(ctx, sqlc.UpdateRepoLinkSyncParams{
 			ID: link.ID, LastCommit: pgtype.Text{String: latestCommit, Valid: true},
-			SyncStatus: pgtype.Text{String: "ok", Valid: true}, SyncError: pgtype.Text{},
+			SyncStatus: status, SyncError: syncError,
 		}); syncErr != nil {
 			r.logger.Error("gitsync: recording sync status", "link_id", link.ID, "err", syncErr)
 		}
-		return outcomeOK, nil
+		return outcome, nil
 	}
 
 	// Fetch .alloy files.
@@ -264,74 +290,52 @@ func (r *Reconciler) syncLink(ctx context.Context, link sqlc.RepoLink) (syncOutc
 		present[pipelineName(p)] = true
 	}
 	var removed []sqlc.ListGitPipelinesByRepoLinkRow
-	removedNames := map[string]bool{}
 	for _, p := range owned {
 		if !present[p.Name] {
 			removed = append(removed, p)
-			removedNames[p.Name] = true
 		}
 	}
 
-	// A guard holds the deletes back, never the rest of the commit: a
-	// backlog of files removed before an upgrade, or a moved directory, must
-	// not freeze every other change to the link.
+	// A tripped guard holds back the whole commit, not just its deletes:
+	// applying the rest would serve a state the repository never held — a
+	// moved directory's new copies beside the old ones (duplicate scrapes
+	// and remote_write, two receivers on one port), or updates that only
+	// make sense with the deletes they came with.
 	baseline := guardBaseline(link, owned)
-	guard := pruneGuard(len(present), len(owned), baseline, len(removed), link.LastOkAt.Valid)
-	removing := len(removed)
-	if guard != guardNone {
-		r.logger.Warn("gitsync: holding back deletes and new files: the commit would remove too many pipelines",
+	if guard := pruneGuard(len(present), len(owned), baseline, len(removed), link.LastOkAt.Valid); guard != guardNone {
+		r.logger.Warn("gitsync: commit not applied: it would remove too many pipelines",
 			"link_id", link.ID, "commit", commit, "pipelines", len(owned), "baseline", baseline,
-			"removing", removing, "branch", link.Branch, "path", link.Path)
-		removed, removedNames = nil, nil
+			"removing", len(removed), "branch", link.Branch, "path", link.Path)
+		r.markWarning(ctx, link.ID, guardMessage(guard, len(removed), baseline))
+		return outcomeWarning, nil
 	}
 
-	plans, syncErrs, err := r.planAll(ctx, link, tree.Files, removed, removedNames, scrub)
+	plans, fileErrs, err := r.planAll(ctx, link, tree.Files, removed, scrub)
 	if err != nil {
-		return fail(err)
+		return fail(scrub(err))
 	}
-	if len(syncErrs) > 0 && len(removed) > 0 {
-		// A failed sync never prunes, so the removed pipelines stay. Plan
-		// again with them in place: what is written must be exactly what
-		// was validated, and a file that replaces one of them under the
-		// same sanitised name now fails as a clash and waits for a sync
-		// that can prune. The first pass's failures stand even if the
-		// second pass clears them (a validator timeout, a store blip): the
-		// sync stays "error" with last_commit unset, so the next poll
-		// fetches this commit again and retries the deletes, instead of
-		// recording it as synced with the deletes skipped.
-		firstErrs := syncErrs
-		removed = nil
-		plans, syncErrs, err = r.planAll(ctx, link, tree.Files, nil, nil, scrub)
-		if err != nil {
-			return fail(err)
-		}
-		if len(syncErrs) == 0 {
-			syncErrs = firstErrs
-		}
-	}
-
-	// Under a guard, new files wait with the deletes: a moved directory
-	// would otherwise serve its new copies beside the old ones (duplicate
-	// scrapes and remote_write, two receivers on one port). Updates to
-	// existing pipelines still apply, so a pre-upgrade backlog of removed
-	// files does not freeze the link.
 	warning := ""
-	if guard != guardNone {
-		held := 0
-		plans = slices.DeleteFunc(plans, func(p filePlan) bool {
-			if p.existing == nil {
-				held++
-				return true
-			}
-			return false
-		})
-		warning = guardMessage(guard, removing, baseline, held)
+	if len(fileErrs) == 0 && (len(plans) > 0 || len(removed) > 0) {
+		verdict, err := r.stage3DryRun(ctx, link, plans, owned, removed)
+		if err != nil {
+			return fail(scrub(fmt.Errorf("stage-3 merge dry-run: %w", err)))
+		}
+		fileErrs = verdict.refusals
+		if len(verdict.preexisting) > 0 {
+			warning = preexistingWarning(verdict.preexisting)
+		}
+	}
+	if len(fileErrs) > 0 {
+		for _, e := range fileErrs {
+			r.logger.Warn("gitsync: commit not applied", "link_id", link.ID, "commit", commit, "err", e)
+		}
+		return fail(commitRefused(fileErrs))
 	}
 
 	// apply has rolled its transaction back by the time it returns an
 	// error, so markError (a write to the same link row on another
 	// connection) never waits on the row lock apply took.
-	changed, err := r.apply(ctx, link, commit, plans, removed, len(syncErrs) == 0 && warning == "")
+	changed, err := r.apply(ctx, link, commit, plans, removed, warning)
 	if errors.Is(err, errLinkGone) {
 		r.logger.Info("gitsync: repo link deleted during its sync; nothing written", "link_id", link.ID)
 		return outcomeLinkGone, nil
@@ -340,43 +344,55 @@ func (r *Reconciler) syncLink(ctx context.Context, link sqlc.RepoLink) (syncOutc
 		return fail(err)
 	}
 	if changed && r.recompute != nil {
-		r.recompute(ctx, link.OrgID)
-	}
-	if len(syncErrs) > 0 {
-		if warning != "" {
-			syncErrs = append(syncErrs, errors.New(warning))
-		}
-		return fail(errors.Join(syncErrs...))
+		r.recompute(ctx, link.OrgID, link.CollectorID)
 	}
 	if warning != "" {
-		r.markWarning(ctx, link.ID, warning)
+		r.logger.Warn("gitsync: commit applied; the collector's merged config was already invalid",
+			"link_id", link.ID, "commit", commit, "warning", warning)
 		return outcomeWarning, nil
 	}
 	return outcomeOK, nil
 }
 
-// planAll plans every fetched file (planFile), then fails — that file only,
-// with its own error — every planned write whose sanitised name another
-// pipeline of the org already holds, or another file of this sync claims.
-// The unique index pipelines_org_sanitized_name_key would otherwise refuse
-// it at write time and roll back the whole sync, and the Stage-3 dry run
-// cannot catch it: it sees only the pipelines this collector is served.
-// removed/removing are the link's pipelines this sync deletes: left out of
-// each dry run, and their names are free to take. The returned error is a
-// store failure that ends the sync; per-file problems are in syncErrs.
-func (r *Reconciler) planAll(ctx context.Context, link sqlc.RepoLink, files []gitrepo.File, removed []sqlc.ListGitPipelinesByRepoLinkRow, removing map[string]bool, scrub func(error) error) ([]filePlan, []error, error) {
+// maxNamedFailures is how many failing files a refused commit's sync_error
+// lists before summarising the rest as "and K more".
+const maxNamedFailures = 5
+
+// commitRefused is the sync_error of a commit refused because of fileErrs
+// (one per failing file, each starting with the file's path): the first
+// maxNamedFailures of them, then how many more failed.
+func commitRefused(fileErrs []error) error {
+	lines := make([]string, 0, maxNamedFailures+1)
+	for i, e := range fileErrs {
+		if i == maxNamedFailures {
+			lines = append(lines, fmt.Sprintf("and %d more", len(fileErrs)-i))
+			break
+		}
+		lines = append(lines, e.Error())
+	}
+	return fmt.Errorf("commit not synced, nothing from it was applied:\n%s", strings.Join(lines, "\n"))
+}
+
+// planAll plans every fetched file (planFile), then fails — that file, with
+// its own error — every planned write whose sanitised name another pipeline
+// of the org already holds, or another file of this sync claims. The unique
+// index pipelines_org_sanitized_name_key would otherwise refuse it at write
+// time, and the Stage-3 dry run cannot catch it: it sees only the pipelines
+// this collector is served. removed are the link's pipelines this sync
+// deletes: their names are free to take. The returned error is a store
+// failure that ends the sync; per-file problems are in fileErrs, and any one
+// of them refuses the whole commit (syncLink).
+func (r *Reconciler) planAll(ctx context.Context, link sqlc.RepoLink, files []gitrepo.File, removed []sqlc.ListGitPipelinesByRepoLinkRow, scrub func(error) error) ([]filePlan, []error, error) {
 	var plans []filePlan
-	var syncErrs []error
+	var fileErrs []error
 	for _, file := range files {
 		planFile := r.planFile
 		if r.planFileFunc != nil {
 			planFile = r.planFileFunc
 		}
-		plan, err := planFile(ctx, link, file, removing)
+		plan, err := planFile(ctx, link, file)
 		if err != nil {
-			err = scrub(err)
-			r.logger.Warn("gitsync: syncing file", "path", file.Path, "err", err)
-			syncErrs = append(syncErrs, fmt.Errorf("%s: %w", file.Path, err))
+			fileErrs = append(fileErrs, fmt.Errorf("%s: %w", file.Path, scrub(err)))
 			continue
 		}
 		if plan != nil {
@@ -425,13 +441,12 @@ func (r *Reconciler) planAll(ctx context.Context, link sqlc.RepoLink, files []gi
 			}
 		}
 		if clash != nil {
-			r.logger.Warn("gitsync: syncing file", "path", p.path, "err", clash)
-			syncErrs = append(syncErrs, clash)
+			fileErrs = append(fileErrs, clash)
 			continue
 		}
 		kept = append(kept, p)
 	}
-	return kept, syncErrs, nil
+	return kept, fileErrs, nil
 }
 
 // maxUnguardedPrune is the largest number of pipelines one sync may delete
@@ -442,10 +457,11 @@ const maxUnguardedPrune = 3
 // the link's pipelines existed when its last sync finished "ok"
 // (repo_links.last_ok_at, stamped by a trigger, migration 0034; every link
 // that existed at that upgrade starts from the upgrade's moment). Pipelines
-// created since — by a sync that failed a file but still wrote the others,
-// say — do not count, so nothing the link gains while the deletes wait can
-// weigh the same deletes against a larger set and release the guard on its
-// own. Measured against this baseline, the guard holds
+// created since do not count — a sync writes only when it finishes "ok", so
+// none should exist, but a write from an older replica during a rolling
+// update could add some — so nothing the link gains while the deletes wait
+// can weigh the same deletes against a larger set and release the guard on
+// its own. Measured against this baseline, the guard holds
 // until the removal itself shrinks (files restored) or the link is
 // re-created. A link that has never finished "ok" has a baseline of 0: it
 // may delete at most maxUnguardedPrune pipelines per sync until it does.
@@ -491,11 +507,10 @@ const (
 //     directory, a bad merge) than intent. With no baseline (never ok),
 //     more than maxUnguardedPrune.
 //
-// When a guard holds, no pipeline is deleted and no new file is created;
-// updates to existing pipelines still apply. The link shows
-// sync_status=warning with guardMessage, and last_commit stays unset so
-// every poll checks again — a full clone, and Stages 1-2 plus the Stage-3
-// dry run for every file — until the repository or the link changes.
+// When a guard holds, nothing from the commit is applied: no delete, no
+// create, no update. The link shows sync_status=warning with guardMessage,
+// and last_commit stays unset so every poll checks again — a full clone —
+// until the repository or the link changes.
 func pruneGuard(present, owned, baseline, removing int, everOK bool) pruneGuardKind {
 	if present == 0 && owned > 0 {
 		return guardEmptyTree
@@ -516,31 +531,27 @@ const guardRemedy = "To apply it, delete and re-create the repository link; " +
 	"or restore some of the removed files, then remove them again a few at a time " +
 	"(at most 3, or no more than half of what remains, per sync), letting each sync complete."
 
-// guardMessage is the sync_error a held-back sync records: what was held
-// (removing deletes, held new files) and how to resolve it.
-func guardMessage(kind pruneGuardKind, removing, baseline, held int) string {
-	newFiles := fmt.Sprintf("%d new files were not created either", held)
-	if held == 1 {
-		newFiles = "1 new file was not created either"
-	}
+// guardMessage is the sync_error a held-back sync records: which guard held
+// the commit, how many pipelines it would remove, and how to resolve it.
+func guardMessage(kind pruneGuardKind, removing, baseline int) string {
 	switch kind {
 	case guardNone:
 		return ""
 	case guardEmptyTree:
-		return "the repository has no .alloy files under this link's path on this branch, " +
-			"but the link still has synced pipelines; none of them was deleted. " +
-			"Check the link's path and branch. To remove every pipeline deliberately, delete the repository link."
+		return fmt.Sprintf("the repository has no .alloy files under this link's path on this branch, "+
+			"so this commit would delete all %d of the link's synced pipelines; nothing from it was applied. "+
+			"Check the link's path and branch. To remove every pipeline deliberately, delete the repository link.",
+			removing)
 	case guardNeverOK:
 		return fmt.Sprintf("this link has not completed a sync yet; until it does, one sync may delete at most %d pipelines, "+
-			"and this commit would delete %d, so none of them was deleted and %s; "+
-			"changes to existing files were applied. "+
+			"and this commit would delete %d, so nothing from it was applied. "+
 			"To apply it, delete and re-create the repository link; or restore some of the removed files, "+
 			"then remove them again at most %d per sync, letting each sync complete.",
-			maxUnguardedPrune, removing, newFiles, maxUnguardedPrune)
+			maxUnguardedPrune, removing, maxUnguardedPrune)
 	case guardThreshold:
 		return fmt.Sprintf("this commit would delete %d of %d pipelines (more than half, and more than %d) in one sync, "+
-			"so none of them was deleted and %s; changes to existing files were applied. %s",
-			removing, baseline, maxUnguardedPrune, newFiles, guardRemedy)
+			"so nothing from it was applied. %s",
+			removing, baseline, maxUnguardedPrune, guardRemedy)
 	}
 	return ""
 }
@@ -560,12 +571,13 @@ const fileRemovedReason = "gitsync.file_removed"
 // Then it deletes the removed pipelines (before the creates, so a rename
 // onto the same sanitised name never collides), writes each planned create
 // or update with its next revision, audits every change, dirties the link's
-// collector — the only one a git pipeline is served to (§6.1) — and, when
-// markOK, records sync_status=ok at commit. It reports whether a pipeline
+// collector — the only one a git pipeline is served to (§6.1) — and records
+// sync_status=ok at commit (then "warning", when warning is set). It is only ever handed a whole commit that passed
+// every check (syncLink), so it never writes part of one. It reports whether a pipeline
 // was created, updated or deleted. Its deferred rollback has run by the time
 // it returns an error, so the caller's markError never waits on the link row
 // lock taken here.
-func (r *Reconciler) apply(ctx context.Context, link sqlc.RepoLink, commit string, plans []filePlan, removed []sqlc.ListGitPipelinesByRepoLinkRow, markOK bool) (bool, error) {
+func (r *Reconciler) apply(ctx context.Context, link sqlc.RepoLink, commit string, plans []filePlan, removed []sqlc.ListGitPipelinesByRepoLinkRow, warning string) (bool, error) {
 	tx, err := r.store.Pool().Begin(ctx)
 	if err != nil {
 		return false, fmt.Errorf("beginning transaction: %w", err)
@@ -672,8 +684,13 @@ func (r *Reconciler) apply(ctx context.Context, link sqlc.RepoLink, commit strin
 			return false, fmt.Errorf("recording revision of %s: %w", plan.name, err)
 		}
 		// action is the audit verb, matching the imperative names the
-		// management API writes (pipeline.create/pipeline.update).
-		if err := audit(ctx, q, link.OrgID, "pipeline."+action, p.ID, map[string]string{}); err != nil {
+		// management API writes (pipeline.create/pipeline.update). The
+		// detail says where the change came from, as pipeline.delete's does.
+		if err := audit(ctx, q, link.OrgID, "pipeline."+action, p.ID, map[string]string{
+			"repo_link_id": link.ID.String(),
+			"git_path":     plan.path,
+			"commit":       commit,
+		}); err != nil {
 			return false, err
 		}
 		changed = true
@@ -687,14 +704,27 @@ func (r *Reconciler) apply(ctx context.Context, link sqlc.RepoLink, commit strin
 			return false, fmt.Errorf("marking serve cache dirty: %w", err)
 		}
 	}
-	if markOK {
+	if err := q.UpdateRepoLinkSync(ctx, sqlc.UpdateRepoLinkSyncParams{
+		ID:         link.ID,
+		LastCommit: pgtype.Text{String: commit, Valid: true},
+		SyncStatus: pgtype.Text{String: "ok", Valid: true},
+		SyncError:  pgtype.Text{},
+	}); err != nil {
+		return false, fmt.Errorf("recording sync status: %w", err)
+	}
+	// Applied with a warning: the commit is recorded "ok" first, which
+	// stamps last_ok_at (migration 0034's trigger) — the commit WAS applied,
+	// and the prune guard's baseline must count it — then the warning goes
+	// over it with last_commit kept, which tells it apart from a guard's
+	// held commit (last_commit unset).
+	if warning != "" {
 		if err := q.UpdateRepoLinkSync(ctx, sqlc.UpdateRepoLinkSyncParams{
 			ID:         link.ID,
 			LastCommit: pgtype.Text{String: commit, Valid: true},
-			SyncStatus: pgtype.Text{String: "ok", Valid: true},
-			SyncError:  pgtype.Text{},
+			SyncStatus: pgtype.Text{String: "warning", Valid: true},
+			SyncError:  pgtype.Text{String: warning, Valid: true},
 		}); err != nil {
-			return false, fmt.Errorf("recording sync status: %w", err)
+			return false, fmt.Errorf("recording sync warning: %w", err)
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -870,11 +900,12 @@ type filePlan struct {
 	existing             *sqlc.Pipeline
 }
 
-// planFile validates one file and decides what it changes. It returns nil,
-// nil when the file's pipeline already holds exactly this content. removing
-// names the link's pipelines this sync deletes: the Stage-3 dry run leaves
-// them out, as the collector will be served without them.
-func (r *Reconciler) planFile(ctx context.Context, link sqlc.RepoLink, file gitrepo.File, removing map[string]bool) (*filePlan, error) {
+// planFile validates one file on its own (Stages 1-2, ownership) and decides
+// what it changes. It returns nil, nil when the file's pipeline already holds
+// exactly this content. The merged config is checked once for the whole
+// commit afterwards (stage3DryRun); these per-file checks exist for an error
+// that names the file and its own diagnostics.
+func (r *Reconciler) planFile(ctx context.Context, link sqlc.RepoLink, file gitrepo.File) (*filePlan, error) {
 	if r.validator == nil {
 		// Fail closed: syncing a file into a pipeline on Stage 1 (syntax)
 		// alone was the bug this gate closes. A Reconciler built without a
@@ -897,18 +928,6 @@ func (r *Reconciler) planFile(ctx context.Context, link sqlc.RepoLink, file gitr
 	// whether it would actually validate.
 	if result := r.validator.ValidatePipeline(ctx, name, contents); !result.Valid {
 		return nil, fmt.Errorf("validation errors in %s: %v", file.Path, result.Diagnostics)
-	}
-
-	// Stage 3 dry-run: merge this file's content against the linked
-	// collector's other enabled pipelines and validate the merged result.
-	// gitsync has no schema registry (see this package's doc comment and
-	// New), so this validates the UNENFORCED superset of what production
-	// would actually serve for that collector — strictly stricter, never
-	// looser: production's own Stage 3 (internal/mgmtapi's stage3Check)
-	// additionally drops role/signal-mismatched pipelines, so anything this
-	// dry-run accepts, production either accepts too or safely excludes.
-	if err := r.stage3DryRun(ctx, link, name, contents, removing); err != nil {
-		return nil, fmt.Errorf("stage-3 merge dry-run for %s: %w", file.Path, err)
 	}
 
 	// Check if pipeline exists for this file+collector.
@@ -946,54 +965,115 @@ func (r *Reconciler) planFile(ctx context.Context, link sqlc.RepoLink, file gitr
 	return &filePlan{name: name, path: file.Path, contents: contents, existing: &existing}, nil
 }
 
-// stage3DryRun assembles the merged config the linked collector would be
-// served if this file's content (candidateName, candidateContents) were
-// synced, and validates that merged result with Stages 1 and 2. It never
-// applies role/signal enforcement (merge.WithRoleEnforcement) — gitsync has
-// no schema registry — so this always validates a superset of what
-// production's own Stage 3 (internal/mgmtapi's stage3Check) would actually
-// serve for the same collector: strictly stricter, never looser. Pipelines
-// named in removing are left out: this sync deletes them.
-func (r *Reconciler) stage3DryRun(ctx context.Context, link sqlc.RepoLink, candidateName, candidateContents string, removing map[string]bool) error {
-	enabledPipelines, err := r.store.Queries.ListEnabledPipelinesForMerge(ctx, link.OrgID)
-	if err != nil {
-		return fmt.Errorf("loading pipelines: %w", err)
+// dryRunResult is stage3DryRun's verdict on a commit.
+type dryRunResult struct {
+	// refusals are the reasons the commit is refused, each naming its file
+	// where one is to blame. Empty means the commit may be applied.
+	refusals []error
+	// preexisting names what already failed validation in the collector's
+	// merged config BEFORE the commit (a pipeline by its file path or name,
+	// or the merged config itself), when the commit's merged config fails
+	// only on those. The commit is applied, and the link warns.
+	preexisting []string
+}
+
+// stage3DryRun is the commit's gate: it assembles the merged config the
+// link's collector would be served once the WHOLE commit is applied — every
+// create and update in plans, every pipeline in removed gone — exactly as the
+// serve paths build it (serve.Assemble: role enforcement and D6's baseline
+// included), and validates that one config with Stages 1 and 2. Checking the
+// files one at a time against the rows they replace would validate configs
+// no collector is ever served.
+//
+// The commit is refused for a created or updated pipeline that role
+// enforcement would exclude from the collector (a git pipeline is served to
+// that one collector only, so an excluded file would sync "ok" and do
+// nothing), for a declare-name collision, and for a Stage 1/2 diagnostic the
+// commit is responsible for. When the commit's merged config fails, the
+// collector's CURRENT merged config (same inputs, without the commit) is
+// validated too, and only new diagnostics — or any inside the commit's own
+// files' blocks — refuse it (newDiagnostics). A pipeline the commit does not
+// touch, broken by something else (an Alloy upgrade, say), must not freeze
+// every future commit on the link. That second validation runs only when the
+// first fails, so a passing commit costs one.
+//
+// owned are the link's pipelines before the commit, so a diagnostic in one
+// of its unchanged files is named by path. err is a failure that is no
+// verdict on the commit (a store error, a missing validator or schema) — it
+// refuses the commit too.
+func (r *Reconciler) stage3DryRun(ctx context.Context, link sqlc.RepoLink, plans []filePlan, owned, removed []sqlc.ListGitPipelinesByRepoLinkRow) (dryRunResult, error) {
+	if r.validator == nil {
+		return dryRunResult{}, errors.New("gitsync: validator not configured")
+	}
+	if r.schema == nil {
+		// Fail closed, as for the validator: a dry run without role
+		// enforcement would accept a file every serve path then excludes.
+		return dryRunResult{}, errors.New("gitsync: schema registry not configured")
+	}
+	if timeout := r.validator.Stage3Timeout(); timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
 	}
 
-	// Every other enabled pipeline, minus any existing row for this same
-	// name — it is superseded by the candidate below, which represents the
-	// file as it would be AFTER this sync — and minus the link's pipelines
-	// this sync deletes (their files left the repository; a rename onto the
-	// same sanitised name would otherwise collide with its own old self).
-	// The candidate keeps the superseded row's revision for the header ("(rev
-	// N)" is a comment line; the dry run validates, it never serves).
-	candidateRevision := 0
-	others := slices.DeleteFunc(enabledPipelines, func(ep sqlc.ListEnabledPipelinesForMergeRow) bool {
-		if ep.Name == candidateName {
-			candidateRevision = int(ep.CurrentRevision)
-			return true
-		}
-		return ep.RepoLinkID == link.ID && removing[ep.Name]
-	})
+	rows, err := r.store.Queries.ListEnabledPipelinesForMerge(ctx, link.OrgID)
+	if err != nil {
+		return dryRunResult{}, fmt.Errorf("loading pipelines: %w", err)
+	}
 	// The serve paths' own row conversion (internal/serve), so the dry run
-	// models what they serve.
-	mergePipelines := append(serve.PipelinesFromRows(others), merge.Pipeline{
-		ID:                  "dry-run-candidate",
-		Name:                candidateName,
-		Contents:            candidateContents,
-		Source:              "git",
-		Revision:            candidateRevision,
-		RepoLinkCollectorID: link.CollectorID.String(),
-	})
+	// models what they serve. current is the collector's input as it stands;
+	// next is it with the commit applied.
+	current := serve.PipelinesFromRows(rows)
+	gone := make(map[string]bool, len(removed))
+	for _, p := range removed {
+		gone[p.ID.String()] = true
+	}
+	next := slices.DeleteFunc(slices.Clone(current), func(mp merge.Pipeline) bool { return gone[mp.ID] })
+
+	// paths names a pipeline of this link by its file: the commit's files,
+	// then the link's unchanged ones. changed is the commit's own.
+	paths := make(map[string]string, len(owned)+len(plans))
+	for _, p := range owned {
+		if p.GitPath.Valid {
+			paths[p.Name] = p.GitPath.String
+		}
+	}
+	changed := make(map[string]bool, len(plans))
+	for _, p := range plans {
+		paths[p.name] = p.path
+		changed[p.name] = true
+		cand := merge.Pipeline{
+			ID:                  "gitsync-candidate:" + p.path,
+			Name:                p.name,
+			Contents:            p.contents,
+			Source:              "git",
+			RepoLinkCollectorID: link.CollectorID.String(),
+		}
+		if p.existing == nil {
+			next = append(next, cand)
+			continue
+		}
+		// An update replaces its row and keeps the row's revision for the
+		// header ("(rev N)" is a comment line; the dry run validates, it
+		// never serves). A disabled pipeline is not served, so its update
+		// is not in the merged config; its own Stages 1-2 ran in planFile,
+		// and enabling it runs the API's Stage 3.
+		id := p.existing.ID.String()
+		if i := slices.IndexFunc(next, func(mp merge.Pipeline) bool { return mp.ID == id }); i >= 0 {
+			cand.ID, cand.Revision = id, next[i].Revision
+			next[i] = cand
+		}
+	}
 
 	coll, err := r.store.Queries.GetCollectorByID(ctx, link.CollectorID)
 	if err != nil {
-		return fmt.Errorf("loading collector: %w", err)
+		return dryRunResult{}, fmt.Errorf("loading collector: %w", err)
 	}
 	cluster, err := r.store.Queries.GetClusterByID(ctx, coll.ClusterID)
 	if err != nil {
-		return fmt.Errorf("loading cluster: %w", err)
+		return dryRunResult{}, fmt.Errorf("loading cluster: %w", err)
 	}
+	collectorKey := cluster.Name + "/" + coll.Role
 
 	// Admin labels and local_attributes only participate in matching once the
 	// org has opted into each independently (procoduck/shepherd#139) — an org
@@ -1019,18 +1099,241 @@ func (r *Reconciler) stage3DryRun(ctx context.Context, link sqlc.RepoLink, candi
 			}
 		}
 	}
-	cl := merge.BuildCollectorLabels(link.CollectorID.String(), cluster.Name, coll.Role, adminLabels, localAttrs)
-	// No WithRoleEnforcement option: gitsync has no schema registry, so this
-	// deliberately validates the unenforced superset (see doc comment above).
-	assembled, err := merge.Assemble(link.CollectorID.String(), cluster.Name+"/"+coll.Role, cl, mergePipelines)
-	if err != nil {
-		return fmt.Errorf("merge: %w", err)
+	assemble := func(pipelines []merge.Pipeline) (serve.Result, error) {
+		return serve.Assemble(
+			serve.Deps{Schema: r.schema, BeaconBaseline: r.beaconBaseline},
+			serve.Collector{ID: link.CollectorID.String(), Cluster: cluster.Name, Role: coll.Role, AdminLabels: adminLabels, LocalAttrs: localAttrs},
+			pipelines,
+		)
 	}
 
-	if result := r.validator.Stages12(ctx, assembled.Content); !result.Valid {
-		return fmt.Errorf("merged config invalid: %v", result.Diagnostics)
+	served, err := assemble(next)
+	if err != nil {
+		// With the schema present, merge.Assemble refuses only a
+		// declare-name collision, which names both pipelines.
+		return dryRunResult{refusals: []error{fmt.Errorf("the merged config for collector %s: %w", collectorKey, err)}}, nil
+	}
+
+	// Role enforcement (gate G6), the rule every serve path assembles with.
+	// Only the commit's own files refuse it: a pipeline the commit does not
+	// touch is already served (or excluded) as it is.
+	var refusals []error
+	for _, ex := range served.Exclusions {
+		if !changed[ex.PipelineName] {
+			continue
+		}
+		why := reconcile.ExcludedPipeline{
+			Name: ex.PipelineName, Reason: ex.Reason, Disallowed: ex.Disallowed, Unproven: ex.Unproven,
+		}.Why(coll.Role)
+		refusals = append(refusals, fmt.Errorf("%s: collector %s would not serve it: %s", paths[ex.PipelineName], collectorKey, why))
+	}
+	if len(refusals) > 0 {
+		return dryRunResult{refusals: refusals}, nil
+	}
+
+	result := r.validator.Stages12(ctx, served.Content)
+	if result.Valid {
+		return dryRunResult{}, nil
+	}
+	if err := inconclusive(ctx, result); err != nil {
+		return dryRunResult{}, err
+	}
+	after := locateDiagnostics(served.Content, result.Diagnostics)
+
+	// The baseline: the collector's merged config without the commit. If it
+	// cannot be assembled, nothing counts as pre-existing. If its validation
+	// gives no verdict (the budget ran out, the binary failed), the commit
+	// is refused: an unanswered check is never an error "already there".
+	var before []locatedDiag
+	if baseServed, baseErr := assemble(current); baseErr == nil {
+		base := r.validator.Stages12(ctx, baseServed.Content)
+		if !base.Valid {
+			if err := inconclusive(ctx, base); err != nil {
+				return dryRunResult{}, err
+			}
+			before = locateDiagnostics(baseServed.Content, base.Diagnostics)
+		}
+	}
+	return judge(after, before, changed, paths, collectorKey), nil
+}
+
+// inconclusive reports a Stages 1-2 run that gave no verdict on the content
+// — the dry run's budget ran out, or alloy validate itself could not answer
+// (validate.Result.Inconclusive) — as an error that refuses the commit.
+func inconclusive(ctx context.Context, res validate.Result) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("validation could not complete: %w", err)
+	}
+	if res.Inconclusive {
+		msg := "alloy validate gave no verdict"
+		if len(res.Diagnostics) > 0 {
+			msg = res.Diagnostics[0].Message
+		}
+		return fmt.Errorf("validation could not complete: %s", msg)
 	}
 	return nil
+}
+
+// judge decides a commit whose merged config failed Stages 1-2 (after),
+// given the diagnostics of the collector's merged config before it
+// (before). A Stage 1 failure before the commit refuses it: Stage 2 never
+// runs on a config that does not parse, so nothing the commit does could be
+// checked — the broken pipeline must be fixed first. Otherwise the commit
+// is refused for what it brings (newDiagnostics), and what was already
+// there is returned as preexisting, to apply the commit with a warning.
+func judge(after, before []locatedDiag, changed map[string]bool, paths map[string]string, collectorKey string) dryRunResult {
+	var syntax []string
+	for _, d := range before {
+		if d.stage == 1 {
+			syntax = appendOnce(syntax, d.label(paths, collectorKey))
+		}
+	}
+	if len(syntax) > 0 {
+		return dryRunResult{refusals: []error{fmt.Errorf(
+			"the collector's merged config already fails its syntax check before this commit, in: %s; "+
+				"fix that first — until it parses, no commit for this collector can be validated",
+			strings.Join(syntax, "; "))}}
+	}
+	fresh, old := newDiagnostics(after, before, changed)
+	if len(fresh) > 0 {
+		return dryRunResult{refusals: attributeDiagnostics(fresh, paths, collectorKey)}
+	}
+	var preexisting []string
+	for _, d := range old {
+		preexisting = appendOnce(preexisting, d.label(paths, collectorKey))
+	}
+	return dryRunResult{preexisting: preexisting}
+}
+
+func appendOnce(list []string, s string) []string {
+	if slices.Contains(list, s) {
+		return list
+	}
+	return append(list, s)
+}
+
+// locatedDiag is a merged-config diagnostic attributed to the pipeline whose
+// declare block contains it (merge.Locate). pipeline is "" for a line no
+// block contains (the header, D6's baseline). line/col are the position in
+// the pipeline's own text when pipelineLine is set, else in the merged
+// config.
+type locatedDiag struct {
+	pipeline     string
+	pipelineLine bool
+	line, col    int
+	message      string
+	stage        int
+}
+
+// declareIndent is how far merge.Assemble indents a pipeline's text inside
+// its declare block.
+const declareIndent = 2
+
+func locateDiagnostics(content string, diags []validate.Diagnostic) []locatedDiag {
+	out := make([]locatedDiag, 0, len(diags))
+	for _, d := range diags {
+		ld := locatedDiag{line: d.Line, col: d.Col, message: d.Message, stage: d.Stage}
+		if loc, ok := merge.Locate(content, d.Line); ok {
+			ld.pipeline = loc.PipelineName
+			if loc.PipelineLine > 0 {
+				ld.pipelineLine = true
+				ld.line = loc.PipelineLine
+				if ld.col > declareIndent {
+					ld.col -= declareIndent
+				}
+			}
+		}
+		out = append(out, ld)
+	}
+	return out
+}
+
+// alloyLocRE matches what differs between two validations of the same
+// mistake in a message: the temp file alloy validate was handed, with the
+// "line:col" Alloy writes after it when it quotes a position. Nothing else
+// is rewritten — a "host:port" in a message is part of the mistake.
+var alloyLocRE = regexp.MustCompile(`\S*\.alloy(?::\d+:\d+)?`)
+
+// key identifies a diagnostic across the two merged configs stage3DryRun
+// validates. Merged-config line numbers are no use: a block the commit adds
+// or removes shifts every line after it. A pipeline the commit does not touch
+// has the same text in both configs, so (pipeline, line and column in its own
+// text, message) is stable for it. A line outside every block (the header,
+// the baseline) has no stable position, so only the message counts there.
+// Messages are normalised (alloyLocRE) because a message can quote the temp
+// file alloy validate read, and a position in it.
+func (d locatedDiag) key() string {
+	msg := alloyLocRE.ReplaceAllString(d.message, "<file>")
+	if !d.pipelineLine {
+		return d.pipeline + "\x00" + msg
+	}
+	return fmt.Sprintf("%s\x00%d:%d\x00%s", d.pipeline, d.line, d.col, msg)
+}
+
+// label names where d is: a pipeline of the link by its file path, another
+// pipeline by name, anything else as the collector's merged config.
+func (d locatedDiag) label(paths map[string]string, collectorKey string) string {
+	switch {
+	case d.pipeline == "":
+		return "the merged config for collector " + collectorKey
+	case paths[d.pipeline] != "":
+		return paths[d.pipeline]
+	default:
+		return fmt.Sprintf("pipeline %q in the merged config for collector %s", d.pipeline, collectorKey)
+	}
+}
+
+// newDiagnostics splits the commit's merged-config diagnostics into the ones
+// the commit is responsible for — any inside one of its own files' blocks
+// (changed), and any other whose key the config before the commit did not
+// have — and the pre-existing rest.
+func newDiagnostics(after, before []locatedDiag, changed map[string]bool) (fresh, old []locatedDiag) {
+	had := make(map[string]bool, len(before))
+	for _, d := range before {
+		had[d.key()] = true
+	}
+	for _, d := range after {
+		if changed[d.pipeline] || !had[d.key()] {
+			fresh = append(fresh, d)
+			continue
+		}
+		old = append(old, d)
+	}
+	return fresh, old
+}
+
+// attributeDiagnostics turns located diagnostics into refusals, one per place
+// they fall in (locatedDiag.label), with positions in the pipeline's own
+// text where there is one.
+func attributeDiagnostics(diags []locatedDiag, paths map[string]string, collectorKey string) []error {
+	var order []string
+	msgs := map[string][]string{}
+	for _, d := range diags {
+		owner := d.label(paths, collectorKey)
+		if _, seen := msgs[owner]; !seen {
+			order = append(order, owner)
+		}
+		msgs[owner] = append(msgs[owner], fmt.Sprintf("%d:%d %s", d.line, d.col, d.message))
+	}
+	out := make([]error, 0, len(order))
+	for _, owner := range order {
+		out = append(out, fmt.Errorf("%s: merged config invalid: %s", owner, strings.Join(msgs[owner], "; ")))
+	}
+	return out
+}
+
+// preexistingWarning is the sync_error of a commit applied although the
+// collector's merged config already failed validation before it, in places
+// the commit did not touch.
+func preexistingWarning(places []string) string {
+	named := places
+	more := ""
+	if len(named) > maxNamedFailures {
+		named, more = places[:maxNamedFailures], fmt.Sprintf(" and %d more", len(places)-maxNamedFailures)
+	}
+	return fmt.Sprintf("commit applied, but the collector's merged config already failed validation before it, in: %s%s. "+
+		"The collector will likely reject the merged config and keep running its previous one until those are fixed "+
+		"where they are defined.", strings.Join(named, "; "), more)
 }
 
 func (r *Reconciler) markError(ctx context.Context, linkID pgtype.UUID, err error) error {
@@ -1045,10 +1348,10 @@ func (r *Reconciler) markError(ctx context.Context, linkID pgtype.UUID, err erro
 	return err
 }
 
-// markWarning records a sync that held its deletes back on purpose
-// (pruneGuard) after applying the commit's creates and updates.
-// last_commit stays unset so the next poll re-checks instead of taking the
-// unchanged-commit shortcut back to "ok".
+// markWarning records a commit held back on purpose (pruneGuard): nothing
+// from it was applied. last_commit stays unset so the next poll re-checks
+// instead of taking the unchanged-commit shortcut. (A commit applied with a
+// warning is recorded by apply instead, with last_commit set.)
 func (r *Reconciler) markWarning(ctx context.Context, linkID pgtype.UUID, warning string) {
 	if err := r.store.Queries.UpdateRepoLinkSync(ctx, sqlc.UpdateRepoLinkSyncParams{
 		ID:         linkID,
