@@ -86,6 +86,12 @@ interface AgentToken {
   created_by: string;
   status: string;
   created_at: string;
+  /** '' = unbound (a token from before tokens were org-bound). */
+  org_id: string;
+  /** Used when org_id names no seeded org. */
+  org_name?: string;
+  clusters: string[];
+  roles: string[];
 }
 
 // Sequential ID generator
@@ -171,6 +177,10 @@ export const agentToken = (o: Partial<AgentToken> = {}): AgentToken => ({
   created_by: 'admin',
   status: 'active',
   created_at: '2026-08-17T09:00:00Z',
+  org_id: 'org-0001',
+  org_name: 'prod-org',
+  clusters: [],
+  roles: [],
   ...o,
 });
 

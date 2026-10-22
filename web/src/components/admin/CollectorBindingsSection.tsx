@@ -9,10 +9,11 @@ import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Field, Input, Select } from '@/components/ui/Field';
 import type { AgentIdentity } from '@/gen/shepherd/mgmt/v1/admin_pb';
+import { splitAllowlist } from '@/lib/agentTokens';
 import { formError, formErrors } from '@/lib/formError';
 
 // A comma/space-separated allowlist, shown as chips or an em dash for "any".
-function AllowlistCell({ values }: { values: string[] }) {
+export function AllowlistCell({ values }: { values: string[] }) {
   if (values.length === 0) {
     return <span className='text-muted-3'>any</span>;
   }
@@ -25,13 +26,6 @@ function AllowlistCell({ values }: { values: string[] }) {
       ))}
     </span>
   );
-}
-
-function splitList(s: string): string[] {
-  return s
-    .split(/[,\s]+/)
-    .map((v) => v.trim())
-    .filter(Boolean);
 }
 
 function bindingColumns(
@@ -110,8 +104,8 @@ export function CollectorBindingsSection({ isAppAdmin }: { isAppAdmin: boolean }
         issuer: issuer.trim(),
         appId: appId.trim(),
         org: org.trim(),
-        clusters: splitList(clusters),
-        roles: splitList(roles),
+        clusters: splitAllowlist(clusters),
+        roles: splitAllowlist(roles),
       }),
     onSuccess: () => {
       toast.success('Binding created');

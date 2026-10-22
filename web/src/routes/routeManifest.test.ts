@@ -12,10 +12,16 @@ const viewer = { isAppAdmin: false, orgs: [{ id: 'org-0001', role: Role.VIEWER }
 const nobody = { isAppAdmin: false, orgs: [] };
 
 describe('routeManifest requiredRole — mirrors internal/mgmtapi/rpc_interceptor.go', () => {
-  it('every admin/* route requires app-admin', () => {
-    const adminRoutes = routeManifest.filter((r) => r.path.startsWith('/admin/'));
+  it('every admin/* route requires app-admin, except the org-admin agent tokens page', () => {
+    const adminRoutes = routeManifest.filter(
+      (r) => r.path.startsWith('/admin/') && r.path !== '/admin/tokens',
+    );
     expect(adminRoutes.length).toBeGreaterThan(0);
     expect(adminRoutes.every((r) => r.requiredRole === 'app-admin')).toBe(true);
+  });
+
+  it('/admin/tokens requires org admin (ListAgentTokens: app admin or org admin)', () => {
+    expect(requiredRoleFor('/admin/tokens')).toBe(Role.ADMIN);
   });
 
   it('/git and /audit require admin (GitOpsService and AuditService)', () => {

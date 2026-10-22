@@ -63,6 +63,10 @@ const navGroups: Array<{ label?: string; items: NavItem[] }> = [
     items: [
       { label: 'Teams', href: '/teams', icon: <Users2 size={16} /> },
       { label: 'Service accounts', href: '/service-accounts', icon: <KeyRound size={16} /> },
+      // Collector credentials. Org admins manage their own org's tokens (an app
+      // admin sees every org's, and binds); routeManifest's Role.ADMIN floor
+      // hides the link from everyone else.
+      { label: 'Agent Tokens', href: '/admin/tokens', icon: <Key size={16} /> },
     ],
   },
   {
@@ -75,7 +79,6 @@ const navGroups: Array<{ label?: string; items: NavItem[] }> = [
         adminOnly: true,
       },
       { label: 'Clusters', href: '/admin/clusters', icon: <Radio size={16} />, adminOnly: true },
-      { label: 'Agent Tokens', href: '/admin/tokens', icon: <Key size={16} />, adminOnly: true },
       { label: 'Users', href: '/admin/users', icon: <Users size={16} />, adminOnly: true },
       {
         label: 'Single sign-on',
