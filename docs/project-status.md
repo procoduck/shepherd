@@ -212,13 +212,13 @@ developer who needs containment to be real locally uses `make dev-kind`, which i
 the chart's NetworkPolicy is enforced (`docs/kind-test-environment-plan.md` §11). B-CONTAIN-2 is
 compose-only.
 
-### B-GITSYNC-ATOMIC — a git sync can apply part of a commit · **medium** · ships fixed in the next release (#PRNUM)
+### B-GITSYNC-ATOMIC — a git sync can apply part of a commit · **medium** · ships fixed in the next release (#373)
 
 `reconcileLink` (`internal/gitsync/reconciler.go`) wrote the files of a commit that passed and
 dropped the ones that failed, dry-ran each file against its siblings' *current* rows, and under a
 prune guard still applied the commit's updates — a collector could serve half of a commit, contrary
 to spec §8 ("never partially apply a commit"). Found in the 2026-10-22 review; step 6 of
-`docs/plans/2026-10-22-review-remediation.md` (R8). Fixed in #PRNUM: any failing file, or a tripped
+`docs/plans/2026-10-22-review-remediation.md` (R8). Fixed in #373: any failing file, or a tripped
 guard, applies nothing from the commit; the commit is dry-run once as a whole for the link's
 collector, with role enforcement; create/update audit rows carry `commit`, `git_path`,
 `repo_link_id`; only the link's collector is recomputed. Red-first specs in
