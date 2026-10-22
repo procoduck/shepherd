@@ -16,7 +16,6 @@ import (
 	collectorv1 "shepherd/gen/collector/v1"
 	"shepherd/internal/agentapi"
 	"shepherd/internal/auth"
-	"shepherd/internal/beacon"
 	"shepherd/internal/config"
 	"shepherd/internal/schema"
 	"shepherd/internal/serve"
@@ -157,7 +156,7 @@ var _ = Describe("served header revision (#296)", Label("integration"), func() {
 		reg, err := schema.New(schema.Embedded, version.AlloySchemaVersion)
 		Expect(err).NotTo(HaveOccurred())
 		lazy := agentapi.New(st, nil, slog.Default(), reg,
-			agentapi.WithBeaconRemoteWrite(cfg.Server.BaseURL, beacon.OAuth2ForBeacon(cfg.OIDC.BeaconAuth, cfg.OIDC.AgentTokenURL, cfg.OIDC.AgentScopes)))
+			agentapi.WithBeaconBaseline(serve.BeaconBaseline(cfg)))
 		Expect(st.Queries.MarkServeCacheDirty(ctx, collectorID)).To(Succeed())
 		resp, err := lazy.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
 			Id: "rev-instance", LocalAttributes: map[string]string{"cluster": clusterName, "role": "metrics"},
@@ -171,6 +170,46 @@ var _ = Describe("served header revision (#296)", Label("integration"), func() {
 			"the lazy (agentapi) and eager (mgmtapi) paths must serve byte-identical config for the same fleet")
 		Expect(resp.Msg.GetHash()).To(Equal(eager.Hash))
 		Expect(after.Hash).To(Equal(eager.Hash))
+	})
+
+	// #369: with the beacon disabled, MountRPC's eager recompute appended the
+	// D6 baseline (it passed cfg.Server.BaseURL unconditionally) while the
+	// lazy path internal/server wires passed "" and appended nothing, so a
+	// beacon-disabled collector's bytes and hash flipped with whichever path
+	// recomputed last and Alloy reloaded on every flip. Every path now takes
+	// its baseline from serve.BeaconBaseline(cfg).
+	// Red run, executed: before the fix the eager content carried the
+	// prometheus.remote_write "beacon" block and this spec failed.
+	It("serves byte-identical config on both paths with the beacon disabled, and no baseline", func() {
+		server.Close()
+		cfg.Server.BeaconDisabled = true
+		server = httptest.NewServer(newRPCWiringRouter(st, auth.NewLocalAdmin(cfg, st, slog.Default()), cfg))
+
+		matchers := []string{`cluster="` + clusterName + `"`}
+		created := call("CreatePipeline", map[string]any{
+			"orgId": orgID, "name": "rev-probe", "contents": contents, "matchers": matchers,
+		})
+		pipelineID, _ := created["id"].(string) //nolint:errcheck // asserted non-empty below
+		Expect(pipelineID).NotTo(BeEmpty())
+		call("EnablePipeline", map[string]any{"orgId": orgID, "id": pipelineID})
+		Eventually(served, "20s", "250ms").Should(ContainSubstring("//   - rev-probe (rev 1)\n"))
+		eager, err := st.Queries.GetServeCache(ctx, collectorID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(eager.Content).NotTo(ContainSubstring(`prometheus.remote_write "beacon"`),
+			"a disabled beacon must not reach the eager path's served config")
+
+		reg, err := schema.New(schema.Embedded, version.AlloySchemaVersion)
+		Expect(err).NotTo(HaveOccurred())
+		lazy := agentapi.New(st, nil, slog.Default(), reg,
+			agentapi.WithBeaconBaseline(serve.BeaconBaseline(cfg)))
+		Expect(st.Queries.MarkServeCacheDirty(ctx, collectorID)).To(Succeed())
+		resp, err := lazy.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+			Id: "rev-instance", LocalAttributes: map[string]string{"cluster": clusterName, "role": "metrics"},
+		}))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.Msg.GetContent()).To(Equal(eager.Content),
+			"the lazy and eager paths must serve byte-identical config with the beacon disabled")
+		Expect(resp.Msg.GetHash()).To(Equal(eager.Hash))
 	})
 
 	// The v0.16 rolling upgrade, replayed over one database: the eager path
@@ -217,7 +256,7 @@ WHERE serve_cache.dirty = true AND serve_cache.dirty_seq = $4`, collectorID, old
 		reg, err := schema.New(schema.Embedded, version.AlloySchemaVersion)
 		Expect(err).NotTo(HaveOccurred())
 		lazy := agentapi.New(st, nil, slog.Default(), reg,
-			agentapi.WithBeaconRemoteWrite(cfg.Server.BaseURL, beacon.OAuth2ForBeacon(cfg.OIDC.BeaconAuth, cfg.OIDC.AgentTokenURL, cfg.OIDC.AgentScopes)))
+			agentapi.WithBeaconBaseline(serve.BeaconBaseline(cfg)))
 		resp, err := lazy.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
 			Id: "rev-instance", Hash: "v015-hash", LocalAttributes: map[string]string{"cluster": clusterName, "role": "metrics"},
 		}))

@@ -75,7 +75,7 @@ var _ = Describe("D6 baseline on the eager serve path", Label("integration"), fu
 		Expect(err).NotTo(HaveOccurred())
 		collectorID = collector.ID
 
-		// BaseURL is what production wiring threads into WithBeaconRemoteWrite
+		// BaseURL is what serve.BeaconBaseline turns into the baseline
 		// (internal/mgmtapi/router.go). Without it the baseline is a documented
 		// no-op, so a spec that left it empty would pass no matter what.
 		cfg := &config.Config{
