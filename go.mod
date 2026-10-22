@@ -1,6 +1,6 @@
 module shepherd
 
-go 1.27.2
+go 1.27.3
 
 require (
 	connectrpc.com/connect v1.21.0
