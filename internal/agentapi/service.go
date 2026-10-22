@@ -61,6 +61,8 @@ type Service struct {
 	afterRecompute func(context.Context)
 	// refusals rate-limits the Warn log of identity refusals.
 	refusals *refusalLog
+	// lastServed is the outage fallback (WithOutageCache); nil = disabled.
+	lastServed *lastServed
 }
 
 // ServiceOption configures optional Service behavior not required by every
@@ -78,6 +80,16 @@ type ServiceOption func(*Service)
 func WithBeaconBaseline(b beacon.BaselineConfig) ServiceOption {
 	return func(s *Service) {
 		s.beaconBaseline = b
+	}
+}
+
+// WithOutageCache enables the last-served fallback (outage.go): every
+// successful GetConfig remembers what it served for (principal, cluster,
+// role) for ttl, and a GetConfig or RegisterCollector that cannot reach the
+// database answers from it instead of failing. ttl <= 0 leaves it disabled.
+func WithOutageCache(ttl time.Duration) ServiceOption {
+	return func(s *Service) {
+		s.lastServed = newLastServed(ttl, lastServedMaxEntries, lastServedMaxBytes)
 	}
 }
 
@@ -112,27 +124,57 @@ func (s *Service) RegisterCollector(
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
+	key := servedKey(PrincipalFrom(ctx), cluster, role)
+	dbCtx, cancel := serverCtx(ctx)
+	defer cancel()
+	if err := s.register(dbCtx, req.Msg, attrs, cluster, role); err != nil {
+		if gone := callerGone(ctx); gone != nil {
+			return nil, gone
+		}
+		if !isOutage(err) {
+			s.lastServed.forget(key)
+			return nil, err
+		}
+		// The database is unreachable (#374). Alloy exits when its start-up
+		// RegisterCollector fails, so a collector this replica served within
+		// agent.outage_cache_ttl is acknowledged without writing anything:
+		// GetConfig self-registers it (§4.1) on the first poll after the
+		// database is back. Anyone else gets Unavailable.
+		if _, ok := s.lastServed.get(key); ok {
+			s.logger.Warn("database unavailable; acknowledging registration of a recently served collector without recording it",
+				"instance_id", truncateID(req.Msg.Id), "cluster", cluster, "role", role, "err", err)
+			return connect.NewResponse(&collectorv1.RegisterCollectorResponse{}), nil
+		}
+		s.logger.Warn("database unavailable", "rpc", "RegisterCollector",
+			"instance_id", truncateID(req.Msg.Id), "cluster", cluster, "role", role, "err", err)
+		return nil, unavailable()
+	}
+
+	return connect.NewResponse(&collectorv1.RegisterCollectorResponse{}), nil
+}
+
+// register is RegisterCollector's database work.
+func (s *Service) register(ctx context.Context, msg *collectorv1.RegisterCollectorRequest, attrs map[string]string, cluster, role string) error {
 	// Alloy's collector.register RPC sends no name field, so fall back to
 	// the wire id — matching GetConfig's fallback (§4.1) — rather than
 	// storing an empty string that nothing else ever heals.
-	name := req.Msg.Name
+	name := msg.Name
 	if name == "" {
-		name = req.Msg.Id
+		name = msg.Id
 	}
 	// Same order as GetConfig: cluster + collector rows, then the org check,
 	// then the instance row — a refused registration leaves no instance trace.
 	coll, err := s.upsertCollector(ctx, cluster, role)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return connect.NewError(connect.CodeInternal, err)
 	}
 	if _, err := s.resolveOrg(ctx, cluster, role, coll); err != nil {
-		return nil, s.refused(err, "RegisterCollector", req.Msg.Id, coll.ID, cluster, role)
+		return s.refused(err, "RegisterCollector", msg.Id, coll.ID, cluster, role)
 	}
-	if err := s.bindInstance(ctx, req.Msg.Id, name, coll, attrs); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+	if err := s.bindInstance(ctx, msg.Id, name, coll, attrs); err != nil {
+		return connect.NewError(connect.CodeInternal, err)
 	}
-
-	return connect.NewResponse(&collectorv1.RegisterCollectorResponse{}), nil
+	return nil
 }
 
 // GetConfig handles config polling by collectors.
@@ -156,6 +198,61 @@ func (s *Service) GetConfig(
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
+	key := servedKey(PrincipalFrom(ctx), cluster, role)
+	dbCtx, cancel := serverCtx(ctx)
+	defer cancel()
+	served, err := s.resolveServed(dbCtx, req.Msg, attrs, cluster, role)
+	if gone := callerGone(ctx); err != nil && gone != nil {
+		return nil, gone
+	}
+	switch {
+	case err == nil:
+		s.lastServed.put(key, served)
+	case !isOutage(err):
+		// Refused, or failed for a reason other than an outage: what was
+		// served before must not be re-served from memory either.
+		s.lastServed.forget(key)
+		return nil, err
+	default:
+		// The database is unreachable (#374): answer from the last config
+		// this replica served this principal for this collector, with the
+		// same hash semantics, or Unavailable. Nothing is written.
+		cached, ok := s.lastServed.get(key)
+		if !ok {
+			s.logger.Warn("database unavailable", "rpc", "GetConfig",
+				"instance_id", truncateID(req.Msg.Id), "cluster", cluster, "role", role, "err", err)
+			return nil, unavailable()
+		}
+		s.logger.Warn("database unavailable; serving the last config this replica served",
+			"instance_id", truncateID(req.Msg.Id), "cluster", cluster, "role", role, "hash", cached.hash, "err", err)
+		served = cached
+	}
+
+	if req.Msg.Hash == served.hash {
+		metrics.ObserveGetConfig("not_modified", start)
+		return connect.NewResponse(&collectorv1.GetConfigResponse{
+			NotModified: true,
+			Hash:        served.hash,
+		}), nil
+	}
+	metrics.ObserveGetConfig("served", start)
+	return connect.NewResponse(&collectorv1.GetConfigResponse{
+		Content:     served.content,
+		Hash:        served.hash,
+		NotModified: false,
+	}), nil
+}
+
+// resolveServed is GetConfig's database work: self-registration, the org
+// check, status bookkeeping and the serve-cache read (recomputing when
+// dirty). It returns the config to serve; GetConfig turns it into the
+// response and remembers it for an outage.
+func (s *Service) resolveServed(
+	ctx context.Context,
+	msg *collectorv1.GetConfigRequest,
+	attrs map[string]string,
+	cluster, role string,
+) (servedConfig, error) {
 	// Upsert instance (self-register on GetConfig too — §4.1). GetConfigRequest
 	// carries no dedicated name field, so prefer a name reported via attributes;
 	// otherwise fall back to the wire id, matching first-registration behavior.
@@ -163,7 +260,7 @@ func (s *Service) GetConfig(
 	// name rather than clobbering it with the wire id on every subsequent poll.
 	name := attrs["collector.name"]
 	if name == "" {
-		name = req.Msg.Id
+		name = msg.Id
 	}
 
 	// Cluster + collector rows first: unclaimed-cluster discovery and OIDC
@@ -172,12 +269,12 @@ func (s *Service) GetConfig(
 	// so a refused poll leaves no instance-row trace (R9/R10).
 	coll, err := s.upsertCollector(ctx, cluster, role)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return servedConfig{}, connect.NewError(connect.CodeInternal, err)
 	}
 
 	orgID, err := s.resolveOrg(ctx, cluster, role, coll)
 	if err != nil {
-		return nil, s.refused(err, "GetConfig", req.Msg.Id, coll.ID, cluster, role)
+		return servedConfig{}, s.refused(err, "GetConfig", msg.Id, coll.ID, cluster, role)
 	}
 
 	// PR-9's match-drift short-circuit needs the instance's PREVIOUS
@@ -190,47 +287,35 @@ func (s *Service) GetConfig(
 	// Instances are keyed per collector (0036), so this is the row this
 	// poll is about to update — a first poll under a new collector has none.
 	if prev, prevErr := s.store.Queries.GetCollectorInstance(ctx, sqlc.GetCollectorInstanceParams{
-		CollectorID: coll.ID, ID: req.Msg.Id,
+		CollectorID: coll.ID, ID: msg.Id,
 	}); prevErr == nil {
 		beforeAttrsJSON = prev.LocalAttributes
 	}
 
-	if err := s.bindInstance(ctx, req.Msg.Id, name, coll, attrs); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+	if err := s.bindInstance(ctx, msg.Id, name, coll, attrs); err != nil {
+		return servedConfig{}, connect.NewError(connect.CodeInternal, err)
 	}
 
 	// Persist remote_config_status if provided.
-	if req.Msg.RemoteConfigStatus != nil {
-		statusStr := strings.TrimPrefix(req.Msg.RemoteConfigStatus.Status.String(), "RemoteConfigStatuses_")
-		errMsg := req.Msg.RemoteConfigStatus.ErrorMessage
+	if msg.RemoteConfigStatus != nil {
+		statusStr := strings.TrimPrefix(msg.RemoteConfigStatus.Status.String(), "RemoteConfigStatuses_")
+		errMsg := msg.RemoteConfigStatus.ErrorMessage
 		if err := s.store.Queries.UpdateInstanceStatus(ctx, sqlc.UpdateInstanceStatusParams{
 			CollectorID:        coll.ID,
-			ID:                 req.Msg.Id,
+			ID:                 msg.Id,
 			RemoteConfigStatus: pgtype.Text{String: statusStr, Valid: true},
 			RemoteConfigError:  pgtype.Text{String: errMsg, Valid: errMsg != ""},
 			// Which config this status is about (#115): the hash sent with it.
-			StatusHash: pgtype.Text{String: req.Msg.Hash, Valid: req.Msg.Hash != ""},
+			StatusHash: pgtype.Text{String: msg.Hash, Valid: msg.Hash != ""},
 		}); err != nil {
-			s.logger.Warn("failed to update instance status", "instance_id", req.Msg.Id, "err", err)
+			s.logger.Warn("failed to update instance status", "instance_id", msg.Id, "err", err)
 		}
 	}
 
 	// Unclaimed cluster: serve empty config.
 	if !orgID.Valid {
-		s.applySilentPoll(ctx, coll.ID, req.Msg, emptyHash)
-		if req.Msg.Hash == emptyHash {
-			metrics.ObserveGetConfig("not_modified", start)
-			return connect.NewResponse(&collectorv1.GetConfigResponse{
-				NotModified: true,
-				Hash:        emptyHash,
-			}), nil
-		}
-		metrics.ObserveGetConfig("served", start)
-		return connect.NewResponse(&collectorv1.GetConfigResponse{
-			Content:     "",
-			Hash:        emptyHash,
-			NotModified: false,
-		}), nil
+		s.applySilentPoll(ctx, coll.ID, msg, emptyHash)
+		return servedConfig{content: "", hash: emptyHash}, nil
 	}
 
 	s.emitLocalAttrsMatchDrift(ctx, orgID, coll, cluster, role, beforeAttrsJSON, attrs)
@@ -239,6 +324,11 @@ func (s *Service) GetConfig(
 	// computed in an older serve format (serve.Format, migration 0033) — a
 	// clean row an older binary wrote is as stale as a dirty one.
 	cache, err := s.store.Queries.GetServeCache(ctx, coll.ID)
+	if isOutage(err) {
+		// Not "no row yet": recomputing cannot reach the database either,
+		// and falling through would serve the zero row's empty content.
+		return servedConfig{}, fmt.Errorf("reading serve cache: %w", err)
+	}
 	if err != nil || cache.Dirty || !serve.Current(cache.Format) {
 		// The generation this poll observed, captured BEFORE the pipelines
 		// are loaded inside recomputeServeCache: the upsert below is a
@@ -292,6 +382,11 @@ func (s *Service) GetConfig(
 			}
 			return current, nil
 		})
+		if recomputeErr != nil && err != nil && isOutage(recomputeErr) {
+			// No row was read and the database went away mid-recompute:
+			// an outage, not "serve empty" (#374).
+			return servedConfig{}, fmt.Errorf("recomputing served config: %w", recomputeErr)
+		}
 		if recomputeErr != nil {
 			// Fall through: serve whatever is in cache (or empty if no cache
 			// yet) — RecordFailure logs, counts and audits the failure.
@@ -304,22 +399,9 @@ func (s *Service) GetConfig(
 	}
 
 	// A poll with no fresh status but the hash we served: see applySilentPoll.
-	s.applySilentPoll(ctx, coll.ID, req.Msg, cache.Hash)
+	s.applySilentPoll(ctx, coll.ID, msg, cache.Hash)
 
-	if req.Msg.Hash == cache.Hash {
-		metrics.ObserveGetConfig("not_modified", start)
-		return connect.NewResponse(&collectorv1.GetConfigResponse{
-			NotModified: true,
-			Hash:        cache.Hash,
-		}), nil
-	}
-
-	metrics.ObserveGetConfig("served", start)
-	return connect.NewResponse(&collectorv1.GetConfigResponse{
-		Content:     cache.Content,
-		Hash:        cache.Hash,
-		NotModified: false,
-	}), nil
+	return servedConfig{content: cache.Content, hash: cache.Hash}, nil
 }
 
 // applySilentPoll records what a status-less poll for the served hash means.
@@ -374,6 +456,8 @@ func (s *Service) UnregisterCollector(
 		return nil, err
 	}
 	ok := connect.NewResponse(&collectorv1.UnregisterCollectorResponse{})
+	ctx, cancel := serverCtx(ctx)
+	defer cancel()
 	scope, err := s.callerScope(ctx)
 	var r *refusal
 	if errors.As(err, &r) {
@@ -385,6 +469,9 @@ func (s *Service) UnregisterCollector(
 		s.refusals.record(s.logger, "UnregisterCollector", metrics.AgentRefusedUnregisterDenied, req.Msg.Id)
 		return ok, nil
 	}
+	if isOutage(err) {
+		return nil, unavailable()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -394,6 +481,9 @@ func (s *Service) UnregisterCollector(
 		Clusters: scope.clusters,
 		Roles:    scope.roles,
 	})
+	if isOutage(err) {
+		return nil, unavailable()
+	}
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("unregistering instance: %w", err))
 	}

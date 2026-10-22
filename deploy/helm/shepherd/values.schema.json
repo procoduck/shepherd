@@ -325,6 +325,9 @@
             },
             "sweep_interval": {
               "type": "string"
+            },
+            "outage_cache_ttl": {
+              "type": "string"
             }
           }
         },

@@ -270,7 +270,18 @@ type AgentConfig struct {
 	DeleteAfter   time.Duration `mapstructure:"delete_after"`
 	// SweepInterval controls how often the lifecycle sweeper runs.
 	SweepInterval time.Duration `mapstructure:"sweep_interval"`
+	// OutageCacheTTL is how long after a collector's last DB-backed request
+	// this replica can still answer it from memory while the database is
+	// unreachable (#374): its agent token's positive verdict and the last
+	// config served to it. Normal requests always hit the database, so it
+	// matters only during an outage — and it bounds how long a token revoked
+	// elsewhere can still be accepted then. 0 disables; at most MaxOutageCacheTTL.
+	OutageCacheTTL time.Duration `mapstructure:"outage_cache_ttl"`
 }
+
+// MaxOutageCacheTTL caps agent.outage_cache_ttl: past it, a revoked token
+// could outlive a long outage by more than an operator would expect.
+const MaxOutageCacheTTL = time.Hour
 
 // ValidateConfig holds pipeline validation settings.
 type ValidateConfig struct {
@@ -462,6 +473,7 @@ func Load(file string) (*Config, error) {
 	v.SetDefault("database.max_conns", 20)
 	v.SetDefault("graph.base_url", "https://graph.microsoft.com")
 	v.SetDefault("agent.sweep_interval", "5m")
+	v.SetDefault("agent.outage_cache_ttl", "60s")
 	v.SetDefault("auth.service_account_rate_limit", 20)
 	v.SetDefault("auth.service_account_rate_burst", 40)
 	v.SetDefault("validate.stage3_timeout", "30s")
@@ -556,6 +568,7 @@ func Load(file string) (*Config, error) {
 		{"agent.inactive_after", "SHEPHERD_AGENT_INACTIVE_AFTER"},
 		{"agent.delete_after", "SHEPHERD_AGENT_DELETE_AFTER"},
 		{"agent.sweep_interval", "SHEPHERD_AGENT_SWEEP_INTERVAL"},
+		{"agent.outage_cache_ttl", "SHEPHERD_AGENT_OUTAGE_CACHE_TTL"},
 		{"validate.alloy_binary", "SHEPHERD_VALIDATE_ALLOY_BINARY"},
 		{"validate.stability_level", "SHEPHERD_VALIDATE_STABILITY_LEVEL"},
 		{"validate.timeout", "SHEPHERD_VALIDATE_TIMEOUT"},
@@ -639,6 +652,9 @@ func Load(file string) (*Config, error) {
 		if u, err := url.Parse(raw); err != nil || u.Scheme != "https" || u.Host == "" {
 			return nil, fmt.Errorf("configuration errors:\n  - gateway.routes.public_base_url %q must be an https URL with a host", raw)
 		}
+	}
+	if ttl := c.Agent.OutageCacheTTL; ttl < 0 || ttl > MaxOutageCacheTTL {
+		return nil, fmt.Errorf("configuration errors:\n  - agent.outage_cache_ttl %s must be between 0 (disabled) and %s", ttl, MaxOutageCacheTTL)
 	}
 	if a := c.Gateway.Routes.Apply; a.Enabled {
 		var errs []string

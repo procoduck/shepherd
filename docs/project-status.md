@@ -322,6 +322,19 @@ pipelines once (operator step, `UPGRADING.md` 0.18.x → 0.19.0).
 
 ## 4. Follow-ups
 
+### Outage caches — accepted limits (#374, PR #385 review)
+
+The in-memory outage caches (`internal/agentapi/outage.go`, spec §4.1/§7.3) have two known limits.
+Both matter only while the database is unreachable.
+
+- **Revoke/bind vs. concurrent fill.** `RevokeAgentToken` and `BindAgentToken` evict the verdict
+  on their replica. A poll whose database lookup finished just before the change committed can
+  still re-cache the old verdict and binding afterwards. That stale verdict is used only during an outage and expires after
+  `agent.outage_cache_ttl`.
+- **Cache churn.** One valid token can cycle cluster/role names and churn the 10 000-entry
+  last-served map, evicting other collectors' entries. Those collectors then get `Unavailable`
+  during an outage, which they already ride out. Unclaimed (empty) configs are cached too.
+
 ### Decisions signed 2026-09-11
 
 Product decisions taken in the same sign-off round as the gateway gates; each is the settled

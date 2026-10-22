@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode"
 
+	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"shepherd/internal/beacon"
@@ -88,8 +89,11 @@ func (h *BeaconHandler) authenticate(ctx context.Context, authz string) (string,
 	// The beacon keys inventory and its rate limit on the token id. A bound
 	// token (migration 0038) may only report collectors its org claimed —
 	// ServeHTTP drops the rest; an unbound token is accepted as before.
-	tok, err := verifyBasicAuth(ctx, authz, h.store)
+	tok, err := verifyBasicAuth(ctx, authz, h.store, nil)
 	if err != nil {
+		if connect.CodeOf(err) == connect.CodeUnavailable {
+			return "", pgtype.UUID{}, errAuthUnavailable
+		}
 		return "", pgtype.UUID{}, errUnauthenticated
 	}
 	// The id is a validated UUID, but sanitising here too keeps `principal`
@@ -97,7 +101,13 @@ func (h *BeaconHandler) authenticate(ctx context.Context, authz string) (string,
 	return stripControl(tok.ID.String()), tok.OrgID, nil
 }
 
-var errUnauthenticated = errors.New("beacon: unauthenticated")
+var (
+	errUnauthenticated = errors.New("beacon: unauthenticated")
+	// errAuthUnavailable: the token could not be looked up because the
+	// database is unreachable (#374). Answered 503, which remote_write
+	// retries, rather than 401, which it treats as permanent.
+	errAuthUnavailable = errors.New("beacon: database unavailable")
+)
 
 // stripControl removes control runes (including CR and LF) so a value derived
 // from a token cannot inject into a log line or a stored key.
@@ -134,6 +144,10 @@ func (h *BeaconHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	principal, tokenOrg, err := h.authenticate(r.Context(), r.Header.Get("Authorization"))
+	if errors.Is(err, errAuthUnavailable) {
+		http.Error(w, "beacon: database unavailable, retry later", http.StatusServiceUnavailable)
+		return
+	}
 	if err != nil {
 		// Same response shape agent auth failures already use elsewhere
 		// (auth.go): WWW-Authenticate so a client can tell this is a

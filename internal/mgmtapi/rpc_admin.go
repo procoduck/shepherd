@@ -37,6 +37,13 @@ type AdminService struct {
 	// to restart to use it. nil in test wirings that mount the RPC surface
 	// without a server; those procedures then answer CodeUnavailable.
 	oidc *auth.Handler
+
+	// tokenChanged runs after RevokeAgentToken or BindAgentToken commits,
+	// with the token's canonical id: internal/server passes the collector
+	// gate's outage-only verdict cache's Evict, so this replica stops acting
+	// on the old verdict (and binding) at once, even while the database is
+	// down (#374). Nil = nothing to evict.
+	tokenChanged func(tokenID string)
 }
 
 // AdminServiceOption configures optional AdminService dependencies. The
@@ -49,6 +56,12 @@ type AdminServiceOption func(*AdminService)
 // procedures.
 func WithOIDCHandler(h *auth.Handler) AdminServiceOption {
 	return func(s *AdminService) { s.oidc = h }
+}
+
+// WithTokenChangedHook supplies the hook RevokeAgentToken and
+// BindAgentToken call after their change commits.
+func WithTokenChangedHook(f func(tokenID string)) AdminServiceOption {
+	return func(s *AdminService) { s.tokenChanged = f }
 }
 
 // NewAdminService constructs an AdminService.
@@ -604,6 +617,9 @@ func (s *AdminService) RevokeAgentToken(ctx context.Context, req *connect.Reques
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to revoke token"))
 	}
+	if s.tokenChanged != nil {
+		s.tokenChanged(id.String())
+	}
 	auditLog(ctx, s.store, actorFromCtx(ctx), tok.OrgID, "agent_token.revoke", "agent_token", id.String())
 	return connect.NewResponse(&mgmtv1.RevokeAgentTokenResponse{}), nil
 }
@@ -646,6 +662,9 @@ func (s *AdminService) BindAgentToken(ctx context.Context, req *connect.Request[
 	}
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to bind token"))
+	}
+	if s.tokenChanged != nil {
+		s.tokenChanged(id.String())
 	}
 	previousOrg := ""
 	if prev.OrgID.Valid {

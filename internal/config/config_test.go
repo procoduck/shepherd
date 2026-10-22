@@ -201,3 +201,43 @@ func TestGatewayPublicBaseURL(t *testing.T) {
 		})
 	}
 }
+
+// TestAgentOutageCacheTTL: agent.outage_cache_ttl (#374) defaults to 60s,
+// loads from the env var the chart's config file can override, accepts 0
+// (disabled), and refuses a negative value or one past an hour — the window
+// in which a revoked token can still be accepted during a database outage.
+func TestAgentOutageCacheTTL(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		value   string
+		want    time.Duration
+		wantErr bool
+	}{
+		{"default", "", 60 * time.Second, false},
+		{"override", "5m", 5 * time.Minute, false},
+		{"disabled", "0s", 0, false},
+		{"negative", "-1s", 0, true},
+		{"too long", "2h", 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("SHEPHERD_DATABASE_URL", "postgres://example")
+			t.Setenv("SHEPHERD_SECURITY_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+			if tc.value != "" {
+				t.Setenv("SHEPHERD_AGENT_OUTAGE_CACHE_TTL", tc.value)
+			}
+			cfg, err := Load("")
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "agent.outage_cache_ttl") {
+					t.Fatalf("Load(%q) = %v, want an error naming agent.outage_cache_ttl", tc.value, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Agent.OutageCacheTTL != tc.want {
+				t.Errorf("outage_cache_ttl = %s, want %s", cfg.Agent.OutageCacheTTL, tc.want)
+			}
+		})
+	}
+}
