@@ -22,6 +22,7 @@ import (
 	"shepherd/internal/agentapi"
 	"shepherd/internal/beacon"
 	"shepherd/internal/config"
+	"shepherd/internal/serve"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 )
@@ -70,11 +71,11 @@ var _ = Describe("D6 baseline on the lazy serve path", Label("integration"), fun
 		Expect(err).NotTo(HaveOccurred())
 		authHeader := "Basic " + base64.StdEncoding.EncodeToString([]byte(tok.ID.String()+":"+secret))
 
-		// WithBeaconRemoteWrite is what production wiring applies
+		// WithBeaconBaseline is what production wiring applies
 		// (internal/server/server.go). Without it the baseline is a documented
 		// no-op, so a spec omitting it would pass regardless.
 		svc := agentapi.New(st, nil, slog.Default(), testSchemaRegistry(),
-			agentapi.WithBeaconRemoteWrite(baseURL, nil))
+			agentapi.WithBeaconBaseline(serve.BeaconBaseline(&config.Config{Server: config.ServerConfig{BaseURL: baseURL}})))
 		path, handler := collectorv1connect.NewCollectorServiceHandler(
 			svc, connect.WithRequestGate(agentapi.NewAuthGate(st, nil)),
 		)

@@ -51,7 +51,7 @@ type Service struct {
 	schema *schema.Registry
 	// beaconBaseline configures D6's baseline pipeline, appended to every
 	// claimed collector's served config by recomputeServeCache — see
-	// WithBeaconRemoteWrite. Zero value (RemoteWriteURL == "") means
+	// WithBeaconBaseline. Zero value (RemoteWriteURL == "") means
 	// disabled; beacon.AppendBaseline treats that as "leave content
 	// unchanged", never as an error.
 	beaconBaseline beacon.BaselineConfig
@@ -67,22 +67,15 @@ type Service struct {
 // already uses for the same reason (WithRoleEnforcement).
 type ServiceOption func(*Service)
 
-// WithBeaconRemoteWrite enables D6's baseline pipeline on the lazy recompute
-// path: every claimed collector's served config gets
-// beacon.RenderBaselinePipeline appended, pointed at baseURL+BeaconWritePath.
-// baseURL is config.ServerConfig.BaseURL; passing "" is equivalent to not
-// applying this option at all (beacon.AppendBaseline's documented no-op).
-func WithBeaconRemoteWrite(baseURL string, oauth2 *beacon.OAuth2Auth) ServiceOption {
+// WithBeaconBaseline sets D6's baseline pipeline on the lazy recompute path:
+// every claimed collector's served config gets beacon.RenderBaselinePipeline
+// appended. Production passes serve.BeaconBaseline(cfg) — the same value the
+// eager paths get, so the two can never disagree (#369). A baseline with an
+// empty RemoteWriteURL is equivalent to not applying this option at all
+// (beacon.AppendBaseline's documented no-op).
+func WithBeaconBaseline(b beacon.BaselineConfig) ServiceOption {
 	return func(s *Service) {
-		remoteWriteURL := ""
-		if baseURL != "" {
-			remoteWriteURL = strings.TrimSuffix(baseURL, "/") + beacon.WritePath
-		}
-		cfg := beacon.NewBaselineConfig(remoteWriteURL)
-		if oauth2 != nil && remoteWriteURL != "" {
-			cfg.OAuth2 = oauth2
-		}
-		s.beaconBaseline = cfg
+		s.beaconBaseline = b
 	}
 }
 

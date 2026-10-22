@@ -52,24 +52,17 @@ type PipelineService struct {
 }
 
 // PipelineServiceOption configures optional PipelineService behavior. See
-// WithBeaconRemoteWrite.
+// WithBeaconBaseline.
 type PipelineServiceOption func(*PipelineService)
 
-// WithBeaconRemoteWrite enables D6's baseline pipeline on the eager
-// recompute path — see internal/agentapi.WithBeaconRemoteWrite, which does
-// the identical thing for the lazy path. baseURL is
-// config.ServerConfig.BaseURL; "" is equivalent to omitting this option.
-func WithBeaconRemoteWrite(baseURL string, oauth2 *beacon.OAuth2Auth) PipelineServiceOption {
+// WithBeaconBaseline sets D6's baseline pipeline on the eager recompute path —
+// see internal/agentapi.WithBeaconBaseline, which does the identical thing
+// for the lazy path. Production passes serve.BeaconBaseline(cfg) on both, so
+// a disabled beacon is disabled on every path (#369). A baseline with an
+// empty RemoteWriteURL is equivalent to omitting this option.
+func WithBeaconBaseline(b beacon.BaselineConfig) PipelineServiceOption {
 	return func(s *PipelineService) {
-		remoteWriteURL := ""
-		if baseURL != "" {
-			remoteWriteURL = strings.TrimSuffix(baseURL, "/") + beacon.WritePath
-		}
-		cfg := beacon.NewBaselineConfig(remoteWriteURL)
-		if oauth2 != nil && remoteWriteURL != "" {
-			cfg.OAuth2 = oauth2
-		}
-		s.beaconBaseline = cfg
+		s.beaconBaseline = b
 	}
 }
 

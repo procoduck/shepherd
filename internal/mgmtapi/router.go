@@ -9,10 +9,10 @@ import (
 
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
 	"shepherd/internal/auth"
-	"shepherd/internal/beacon"
 	"shepherd/internal/config"
 	"shepherd/internal/crypto"
 	"shepherd/internal/schema"
+	"shepherd/internal/serve"
 	"shepherd/internal/store"
 	"shepherd/internal/telemetry"
 	"shepherd/internal/validate"
@@ -140,7 +140,7 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 		routeApplyOn = func() bool { return enabled }
 	}
 
-	pipelineSvc := NewPipelineService(st, v, schemaReg, logger, WithBeaconRemoteWrite(cfg.Server.BaseURL, beacon.OAuth2ForBeacon(cfg.OIDC.BeaconAuth, cfg.OIDC.AgentTokenURL, cfg.OIDC.AgentScopes)))
+	pipelineSvc := NewPipelineService(st, v, schemaReg, logger, WithBeaconBaseline(serve.BeaconBaseline(cfg)))
 
 	mounts := []func() (string, http.Handler){
 		func() (string, http.Handler) {
