@@ -48,6 +48,38 @@ var _ = Describe("Migration: 0036_collector_instance_per_collector", Label("inte
 		Expect(insert(ctx, c1, "host-1", "0")).NotTo(Succeed())
 	})
 
+	It("carries rows written at version 35 up through 36 and back down", func(ctx context.Context) {
+		Expect(store.MigrateTo(ctx, url, 35)).To(Succeed())
+		for i, id := range []string{"n1", "n2", "n3", "n4"} {
+			coll := c1
+			if i%2 == 1 {
+				coll = c2
+			}
+			Expect(insert(ctx, coll, id, "1 minute")).To(Succeed())
+		}
+		count := func() int {
+			var n int
+			Expect(db.QueryRow(ctx, `SELECT count(*) FROM collector_instances`).Scan(&n)).To(Succeed())
+			return n
+		}
+
+		Expect(store.MigrateTo(ctx, url, 36)).To(Succeed())
+		Expect(count()).To(Equal(4), "the constraint swap keeps every row")
+		var pkCols string
+		Expect(db.QueryRow(ctx, `
+			SELECT string_agg(a.attname, ',' ORDER BY array_position(i.indkey, a.attnum))
+			FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+			WHERE i.indrelid = 'collector_instances'::regclass AND i.indisprimary`).Scan(&pkCols)).To(Succeed())
+		Expect(pkCols).To(Equal("collector_id,id"))
+		Expect(insert(ctx, c2, "n1", "0")).To(Succeed(), "n1 may now also report under c2")
+
+		Expect(store.MigrateTo(ctx, url, 35)).To(Succeed())
+		Expect(count()).To(Equal(4), "the down migration drops only the duplicate")
+		var kept string
+		Expect(db.QueryRow(ctx, `SELECT collector_id FROM collector_instances WHERE id = 'n1'`).Scan(&kept)).To(Succeed())
+		Expect(kept).To(Equal(c2), "the more recently seen n1 row is kept")
+	})
+
 	It("rolls back keeping each id's most recently seen row", func(ctx context.Context) {
 		Expect(insert(ctx, c1, "host-1", "1 hour")).To(Succeed())
 		Expect(insert(ctx, c2, "host-1", "1 minute")).To(Succeed())

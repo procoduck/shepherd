@@ -44,6 +44,20 @@ func TestRefusalLogRateLimits(t *testing.T) {
 		t.Fatalf("refusals must log at Warn: %s", buf.String())
 	}
 
+	// Keys and log lines hold at most MaxIdentifierBytes of the id, whatever
+	// the caller sent.
+	huge := strings.Repeat("z", 1<<20)
+	buf.Reset()
+	l.record(logger, "GetConfig", "claim_denied", huge)
+	for k := range l.last {
+		if len(k.instanceID) > MaxIdentifierBytes {
+			t.Fatalf("limiter key holds %d bytes of id, want at most %d", len(k.instanceID), MaxIdentifierBytes)
+		}
+	}
+	if buf.Len() > 4*MaxIdentifierBytes {
+		t.Fatalf("log line is %d bytes, want the id truncated", buf.Len())
+	}
+
 	for i := range 100 {
 		l.record(logger, "GetConfig", "claim_denied", "cycled-"+string(rune('a'+i%26))+time.Duration(i).String())
 		if len(l.last) > 3 {

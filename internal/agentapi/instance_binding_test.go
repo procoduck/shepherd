@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 
 	"connectrpc.com/connect"
@@ -75,8 +76,7 @@ var _ = Describe("Collector instance identity", Label("integration"), func() {
 		}
 
 		svc := agentapi.New(st, nil, slog.New(slog.DiscardHandler), testSchemaRegistry())
-		path, handler := collectorv1connect.NewCollectorServiceHandler(svc,
-			connect.WithRequestGate(agentapi.NewAuthGate(st, verify)))
+		path, handler := agentapi.NewHandler(svc, connect.WithRequestGate(agentapi.NewAuthGate(st, verify)))
 		mux := http.NewServeMux()
 		mux.Handle(path, handler)
 		server = httptest.NewServer(h2c.NewHandler(mux, &http2.Server{}))
@@ -294,6 +294,47 @@ var _ = Describe("Collector instance identity", Label("integration"), func() {
 			_, err := poll(ctx, bound(ctx, "client-a", orgA), "host-1", "b-cluster", "metrics", nil, nil)
 			Expect(connect.CodeOf(err)).To(Equal(connect.CodePermissionDenied))
 			Expect(refused(metrics.AgentRefusedClaimDenied)).To(Equal(before + 1))
+		})
+	})
+
+	Describe("request size bounds", func() {
+		long := strings.Repeat("x", agentapi.MaxIdentifierBytes+1)
+
+		It("refuses an over-long instance id on every RPC before any write", func(ctx context.Context) {
+			_, err := poll(ctx, token(), long, "a-cluster", "metrics", nil, nil)
+			Expect(connect.CodeOf(err)).To(Equal(connect.CodeInvalidArgument))
+			_, err = token().RegisterCollector(ctx, connect.NewRequest(&collectorv1.RegisterCollectorRequest{
+				Id: long, LocalAttributes: map[string]string{"cluster": "a-cluster", "role": "metrics"},
+			}))
+			Expect(connect.CodeOf(err)).To(Equal(connect.CodeInvalidArgument))
+			_, err = token().UnregisterCollector(ctx, connect.NewRequest(&collectorv1.UnregisterCollectorRequest{Id: long}))
+			Expect(connect.CodeOf(err)).To(Equal(connect.CodeInvalidArgument))
+			_, err = st.Queries.GetClusterByName(ctx, "a-cluster")
+			Expect(errors.Is(err, pgx.ErrNoRows)).To(BeTrue(), "refused before the cluster upsert")
+		})
+
+		It("accepts an id at the limit", func(ctx context.Context) {
+			mustPoll(ctx, token(), long[:agentapi.MaxIdentifierBytes], "a-cluster", "metrics", nil)
+		})
+
+		It("refuses an empty instance id", func(ctx context.Context) {
+			_, err := poll(ctx, token(), "", "a-cluster", "metrics", nil, nil)
+			Expect(connect.CodeOf(err)).To(Equal(connect.CodeInvalidArgument))
+			_, err = token().UnregisterCollector(ctx, connect.NewRequest(&collectorv1.UnregisterCollectorRequest{}))
+			Expect(connect.CodeOf(err)).To(Equal(connect.CodeInvalidArgument))
+		})
+
+		It("refuses an over-long cluster attribute", func(ctx context.Context) {
+			_, err := poll(ctx, token(), "host-1", long, "metrics", nil, nil)
+			Expect(connect.CodeOf(err)).To(Equal(connect.CodeInvalidArgument))
+		})
+
+		It("refuses a request message over MaxRequestBytes", func(ctx context.Context) {
+			big := strings.Repeat("y", agentapi.MaxRequestBytes)
+			_, err := poll(ctx, token(), "host-1", "a-cluster", "metrics", map[string]string{"blob": big}, nil)
+			Expect(connect.CodeOf(err)).To(Equal(connect.CodeResourceExhausted))
+			_, err = st.Queries.GetClusterByName(ctx, "a-cluster")
+			Expect(errors.Is(err, pgx.ErrNoRows)).To(BeTrue(), "refused before the handler ran")
 		})
 	})
 

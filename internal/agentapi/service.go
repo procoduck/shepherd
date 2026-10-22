@@ -102,6 +102,9 @@ func (s *Service) RegisterCollector(
 	ctx context.Context,
 	req *connect.Request[collectorv1.RegisterCollectorRequest],
 ) (*connect.Response[collectorv1.RegisterCollectorResponse], error) {
+	if err := requireInstanceID(req.Msg.Id); err != nil {
+		return nil, err
+	}
 	attrs := effectiveAttrs(req.Msg.LocalAttributes, req.Msg.Attributes) //nolint:staticcheck // deprecated field used as fallback
 
 	cluster, role, err := requireClusterRole(attrs)
@@ -143,6 +146,9 @@ func (s *Service) GetConfig(
 	// points, so shepherd_getconfig_duration_seconds never appeared in
 	// /metrics at all.
 	start := time.Now()
+	if err := requireInstanceID(req.Msg.Id); err != nil {
+		return nil, err
+	}
 	attrs := effectiveAttrs(req.Msg.LocalAttributes, req.Msg.Attributes) //nolint:staticcheck // deprecated field used as fallback
 
 	cluster, role, err := requireClusterRole(attrs)
@@ -361,6 +367,9 @@ func (s *Service) UnregisterCollector(
 	ctx context.Context,
 	req *connect.Request[collectorv1.UnregisterCollectorRequest],
 ) (*connect.Response[collectorv1.UnregisterCollectorResponse], error) {
+	if err := requireInstanceID(req.Msg.Id); err != nil {
+		return nil, err
+	}
 	ok := connect.NewResponse(&collectorv1.UnregisterCollectorResponse{})
 	scope, err := s.callerScope(ctx)
 	if errors.Is(err, errUnknownAssertedOrg) {
@@ -750,13 +759,16 @@ func requireClusterRole(attrs map[string]string) (cluster, role string, err erro
 	var missing []string
 	if cluster == "" {
 		missing = append(missing, "cluster")
+	} else if len(cluster) > MaxIdentifierBytes {
+		// The cluster name becomes a row key and appears in refusal logs.
+		return "", "", fmt.Errorf("cluster is %d bytes; at most %d allowed", len(cluster), MaxIdentifierBytes)
 	}
 	if role == "" {
 		missing = append(missing, "role")
 	} else if signals.ValidateRole(role) != nil {
 		// Collectors keep this message shape; the role set is signals.Roles(),
 		// the same table mgmtapi checks binding allowlists against.
-		return "", "", fmt.Errorf("role %q must be one of: %s", role, strings.Join(signals.Roles(), "|"))
+		return "", "", fmt.Errorf("role %q must be one of: %s", truncateID(role), strings.Join(signals.Roles(), "|"))
 	}
 	if len(missing) > 0 {
 		return "", "", fmt.Errorf("missing required attributes: %s", strings.Join(missing, ", "))

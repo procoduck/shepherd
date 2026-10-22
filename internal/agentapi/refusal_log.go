@@ -40,6 +40,9 @@ func newRefusalLog(window time.Duration, maxKeys int) *refusalLog {
 // extra ids for the log line — never credentials or claim contents.
 func (l *refusalLog) record(logger *slog.Logger, rpc, reason, instanceID string, attrs ...any) bool {
 	metrics.AgentRefusedTotal.WithLabelValues(reason).Inc()
+	// The handlers already refuse longer ids; truncating here keeps the key
+	// and the log line bounded whatever a future caller passes.
+	instanceID = truncateID(instanceID)
 	if !l.allow(refusalKey{instanceID: instanceID, reason: reason}) {
 		return false
 	}
