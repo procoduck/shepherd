@@ -32,7 +32,7 @@ func newPipelineRPCRouter(st *store.Store, authHandler *auth.Handler, cfg *confi
 	r.Group(func(r chi.Router) {
 		r.Use(authHandler.SessionMiddleware)
 		r.Use(auth.CSRFMiddleware)
-		mgmtapi.MountRPC(r, st, cfg, nil, slog.Default())
+		mgmtapi.MountRPC(r, st, cfg, nil, embeddedSchema(), slog.Default())
 	})
 	return r
 }

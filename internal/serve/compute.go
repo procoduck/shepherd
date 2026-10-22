@@ -11,6 +11,7 @@ package serve
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"shepherd/internal/beacon"
@@ -22,24 +23,12 @@ import (
 // Deps bundles ComputeServed's dependencies beyond the collector and its
 // pipelines.
 type Deps struct {
-	// Schema drives role/signal enforcement (merge.WithRoleEnforcement) when
-	// enforcement applies — see EnforceRoles.
+	// Schema drives role/signal enforcement (merge.WithRoleEnforcement),
+	// which is always on: there is no unenforced serve. A nil Schema is a
+	// programming error — internal/server loads the registry once at boot and
+	// refuses to start without it — so Assemble returns an error rather than
+	// serving config that would look enforced and is not.
 	Schema *schema.Registry
-	// EnforceRoles controls what a nil Schema means, because the two former
-	// call sites disagreed on purpose:
-	//   - false (internal/agentapi's prior behavior): WithRoleEnforcement is
-	//     applied only when Schema is non-nil. A nil Schema (a corrupt or
-	//     unloaded embedded schema artifact) degrades to unenforced config
-	//     rather than refusing to serve anything at all.
-	//   - true (internal/mgmtapi's prior behavior): WithRoleEnforcement(Schema)
-	//     is applied unconditionally, nil Schema included. merge.Assemble
-	//     then refuses outright ("role enforcement was requested but the
-	//     schema registry is nil") rather than silently serving unenforced
-	//     config that would look enforced — see its own doc comment.
-	// Getting this backwards for either caller is exactly the kind of
-	// two-path drift docs/gateway-tier-plan.md §10 warns about, so it is a
-	// field here, never a package-level default.
-	EnforceRoles bool
 	// BeaconBaseline configures D6's baseline pipeline, appended to the
 	// merged config independent of role/matchers. The zero value
 	// (RemoteWriteURL == "") is beacon.AppendBaseline's documented no-op.
@@ -90,29 +79,25 @@ type Result struct {
 	BaselineErr error
 }
 
-// ComputeServed assembles the merged Alloy config for one collector, appends
-// D6's baseline pipeline, hashes the result, and Stage-1-validates the FINAL
-// content — baseline included — before returning it.
-//
-// Stage 1 always runs, unconditionally: there is no Deps field that skips
-// it. That is the one behavioral difference from the two implementations
-// this replaces — agentapi's former recomputeServeCache only ran it "if
-// s.validator != nil", which no test and no production wiring ever left
-// nil-and-serving, but which meant the gate had a hole shaped exactly like
-// that. A merged config that fails to parse must never reach serve_cache,
-// role enforcement configured or not.
-func ComputeServed(_ context.Context, deps Deps, coll Collector, pipelines []merge.Pipeline) (Result, error) {
+// errNilSchema is returned when Deps.Schema is nil: see Deps.Schema.
+var errNilSchema = errors.New("serve: schema registry is nil; refusing to compute served config without role enforcement")
+
+// Assemble builds the exact bytes ComputeServed would serve one collector —
+// merged pipelines with role enforcement, plus D6's baseline pipeline stamped
+// with the collector's id — and their hash, WITHOUT validating them. It is
+// ComputeServed minus Stage 1, exported so internal/mgmtapi's Stage 3 dry run
+// validates what is actually served (baseline included) instead of a
+// re-implementation of it that can drift.
+func Assemble(deps Deps, coll Collector, pipelines []merge.Pipeline) (Result, error) {
+	if deps.Schema == nil {
+		return Result{}, errNilSchema
+	}
 	cl := merge.BuildCollectorLabels(coll.ID, coll.Cluster, coll.Role, coll.AdminLabels, coll.LocalAttrs)
 
-	var opts []merge.AssembleOption
-	if deps.EnforceRoles || deps.Schema != nil {
-		opts = append(opts, merge.WithRoleEnforcement(deps.Schema))
-	}
-	assembled, err := merge.Assemble(coll.ID, coll.Cluster+"/"+coll.Role, cl, pipelines, opts...)
+	assembled, err := merge.Assemble(coll.ID, coll.Cluster+"/"+coll.Role, cl, pipelines, merge.WithRoleEnforcement(deps.Schema))
 	if err != nil {
 		return Result{}, fmt.Errorf("assembling config: %w", err)
 	}
-
 	// D6: every collector gets the baseline pipeline appended, independent
 	// of role/matchers — see beacon.AppendBaseline's doc comment for why
 	// this is a plain append rather than another entry in pipelines (role
@@ -143,17 +128,31 @@ func ComputeServed(_ context.Context, deps Deps, coll Collector, pipelines []mer
 		hash = merge.HashContent(content)
 	}
 
-	// Stage 1 on the FINAL served output, baseline included — a broken
-	// baseline render must fail the same way a broken user pipeline would,
-	// not slip through because it was appended after this check.
-	if r1 := validate.Stage1(content); !r1.Valid {
-		return Result{}, fmt.Errorf("merged config failed stage-1 validation")
-	}
-
 	return Result{
 		Content:     content,
 		Hash:        hash,
 		Exclusions:  assembled.Exclusions,
 		BaselineErr: baselineErr,
 	}, nil
+}
+
+// ComputeServed assembles the merged Alloy config for one collector, appends
+// D6's baseline pipeline, hashes the result, and Stage-1-validates the FINAL
+// content — baseline included — before returning it.
+//
+// Stage 1 always runs, unconditionally: there is no Deps field that skips
+// it. A merged config that fails to parse must never reach serve_cache.
+// Role enforcement is equally unconditional (see Deps.Schema).
+func ComputeServed(_ context.Context, deps Deps, coll Collector, pipelines []merge.Pipeline) (Result, error) {
+	res, err := Assemble(deps, coll, pipelines)
+	if err != nil {
+		return Result{}, err
+	}
+	// Stage 1 on the FINAL served output, baseline included — a broken
+	// baseline render must fail the same way a broken user pipeline would,
+	// not slip through because it was appended after this check.
+	if r1 := validate.Stage1(res.Content); !r1.Valid {
+		return Result{}, fmt.Errorf("merged config failed stage-1 validation")
+	}
+	return res, nil
 }

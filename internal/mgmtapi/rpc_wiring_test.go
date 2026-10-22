@@ -38,7 +38,7 @@ func newRPCWiringRouter(st *store.Store, authHandler *auth.Handler, cfg *config.
 	r.Group(func(r chi.Router) {
 		r.Use(authHandler.SessionMiddleware)
 		r.Use(auth.CSRFMiddleware)
-		mgmtapi.MountRPC(r, st, cfg, nil, slog.Default())
+		mgmtapi.MountRPC(r, st, cfg, nil, embeddedSchema(), slog.Default())
 	})
 
 	r.Handle("/shepherd.mgmt.v1.*", apiGuard)

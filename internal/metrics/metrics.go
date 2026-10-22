@@ -37,11 +37,13 @@ var (
 		Buckets:   prometheus.DefBuckets,
 	}, []string{"result"})
 
-	// ServeRecomputeFailuresTotal counts failures while lazily recomputing serve caches.
+	// ServeRecomputeFailuresTotal counts failed serve-cache recomputes on both
+	// serve paths (lazy GetConfig and eager recomputeOrgCaches), every
+	// attempt; serve.RecordFailure increments it.
 	ServeRecomputeFailuresTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Namespace: "shepherd",
 		Name:      "serve_recompute_failures_total",
-		Help:      "Total number of lazy serve-cache recompute failures.",
+		Help:      "Total number of serve-cache recompute failures (lazy and eager paths).",
 	})
 
 	// SyncTotal counts gitsync reconciliation attempts by result.

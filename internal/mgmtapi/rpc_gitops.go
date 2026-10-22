@@ -582,10 +582,7 @@ func (s *GitOpsService) DeleteRepoLink(ctx context.Context, req *connect.Request
 	if err != nil {
 		return nil, err
 	}
-	link, err := s.store.Queries.GetRepoLinkByID(ctx, id)
-	if err != nil || link.OrgID.String() != req.Msg.GetOrgId() {
-		return nil, connect.NewError(connect.CodeNotFound, errors.New("repo link not found"))
-	}
+	errNotFound := connect.NewError(connect.CodeNotFound, errors.New("repo link not found"))
 	errDelete := connect.NewError(connect.CodeInternal, errors.New("failed to delete repo link"))
 	tx, err := s.store.Pool().Begin(ctx)
 	if err != nil {
@@ -595,12 +592,18 @@ func (s *GitOpsService) DeleteRepoLink(ctx context.Context, req *connect.Request
 	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
 	txQ := s.store.Queries.WithTx(tx)
 	actor := actorFromCtx(ctx)
-	if _, err := txQ.GetRepoLinkForUpdate(ctx, id); err != nil {
+	// The org check runs on the locked row (R12, #358): one read, and the
+	// row the rest of this transaction acts on is the row that was checked.
+	link, err := txQ.GetRepoLinkForUpdate(ctx, id)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, connect.NewError(connect.CodeNotFound, errors.New("repo link not found"))
+			return nil, errNotFound
 		}
 		s.logger.Error("delete repo link: lock", "err", err)
 		return nil, errDelete
+	}
+	if link.OrgID.String() != req.Msg.GetOrgId() {
+		return nil, errNotFound
 	}
 	removed, err := txQ.DeletePipelinesByRepoLink(ctx, id)
 	if err != nil {

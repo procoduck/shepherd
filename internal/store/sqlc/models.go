@@ -250,13 +250,14 @@ type RepoLink struct {
 }
 
 type ServeCache struct {
-	CollectorID pgtype.UUID        `json:"collector_id"`
-	Content     string             `json:"content"`
-	Hash        string             `json:"hash"`
-	ComputedAt  pgtype.Timestamptz `json:"computed_at"`
-	Dirty       bool               `json:"dirty"`
-	DirtySeq    int64              `json:"dirty_seq"`
-	Format      int16              `json:"format"`
+	CollectorID   pgtype.UUID        `json:"collector_id"`
+	Content       string             `json:"content"`
+	Hash          string             `json:"hash"`
+	ComputedAt    pgtype.Timestamptz `json:"computed_at"`
+	Dirty         bool               `json:"dirty"`
+	DirtySeq      int64              `json:"dirty_seq"`
+	Format        int16              `json:"format"`
+	LastFailedSeq int64              `json:"last_failed_seq"`
 }
 
 type ServiceAccount struct {

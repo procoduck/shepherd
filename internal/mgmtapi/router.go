@@ -16,7 +16,6 @@ import (
 	"shepherd/internal/store"
 	"shepherd/internal/telemetry"
 	"shepherd/internal/validate"
-	"shepherd/internal/version"
 )
 
 // Router builds the /api chi sub-router. It serves only what the
@@ -27,10 +26,10 @@ import (
 // duplicating Connect procedures — was deprecated in v0.9.0 and removed in
 // v0.11.0; machine callers use Connect. /api/version and /api/auth/* are
 // registered by internal/server, not here.
-func Router() http.Handler {
-	// Schema registry: embedded artifacts + overlay. If the registry fails to
-	// initialize (corrupt embed), the schema handler answers 503 per request.
-	schemaReg, _ := schema.New(schema.Embedded, version.AlloySchemaVersion) //nolint:errcheck // a nil registry is handled per request by SchemaHandler
+//
+// schemaReg is the registry internal/server loaded once at boot (it refuses to
+// start without one).
+func Router(schemaReg *schema.Registry) http.Handler {
 	schemaHandler := NewSchemaHandler(schemaReg)
 
 	r := chi.NewRouter()
@@ -98,8 +97,16 @@ func WithOIDCSettings(h *auth.Handler) MountOption {
 // each wrapped with the shared authz interceptor (rpc_interceptor.go). Call
 // this inside the same chi router group that already applies session +
 // CSRF middleware — see internal/server/server.go, where it is called
-// alongside r.Mount("/api", Router()).
-func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Encryptor, logger *slog.Logger, opts ...MountOption) {
+// alongside r.Mount("/api", Router(schemaReg)).
+//
+// schemaReg is the component schema registry internal/server loaded once at
+// boot; every service here shares it. It must be non-nil: role enforcement on
+// the eager serve path and Stage 3 refuse to run without it, and the server
+// refuses to start rather than mount a degraded API.
+func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Encryptor, schemaReg *schema.Registry, logger *slog.Logger, opts ...MountOption) {
+	if schemaReg == nil {
+		panic("mgmtapi.MountRPC: nil schema registry")
+	}
 	var mc mountConfig
 	for _, opt := range opts {
 		opt(&mc)
@@ -109,17 +116,6 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 	}
 	logger = logger.With("component", "mgmtapi.rpc")
 	v := validate.New(&cfg.Validate)
-	schemaReg, schemaErr := schema.New(schema.Embedded, version.AlloySchemaVersion)
-	if schemaErr != nil {
-		// schemaReg is nil here. The services that dereference the registry
-		// must nil-check it; UpgradeCheck answers CodeUnavailable (see
-		// errSchemaUnavailable in rpc_visual.go), Render/Validate keep their
-		// legacy CodeInvalidArgument mapping, and GraphView degrades to a
-		// schemaless parse. Everything else keeps working, so mounting
-		// proceeds — but a corrupt embedded schema is a build defect worth
-		// shouting about, not a per-request curiosity.
-		logger.Error("schema registry unavailable; schema-dependent RPCs will answer unavailable", "err", schemaErr)
-	}
 
 	// Order matters: the service-account auth gate runs before any
 	// interceptor — on the headers alone, before the body is decoded — so a

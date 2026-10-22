@@ -73,3 +73,52 @@ not a constraint:
 - 7a changes no effective permission; the existing authz tests are the proof. 7b adds the
   service-account viewer tier (migration widening the CHECK, UI, docs).
 - The release carrying 7a needs a chart minor, an `UPGRADING.md` section and a `CHANGELOG.md` entry.
+
+## 5. Design decisions for steps 4–7b (decided 2026-10-22)
+
+**Step 4 — serve path (R4, R5, R6, R12).**
+- One serve-cache write: `serve.Store` does the conditional upsert (`DirtySeq`, `Format: serve.Format`)
+  and reports written vs superseded. Each path keeps its own superseded policy (lazy serves the
+  re-read row or its own result; eager moves on). `recomputeOrgCaches` moves to its own file.
+- Recompute failure, both paths: Error log, `shepherd_serve_recompute_failures_total`, previous
+  entry kept, and an `audit_log` row once per (collector, dirty_seq) — `serve_cache.last_failed_seq`
+  advanced by compare-and-swap. Row: actor `serve`, actor_type `system`, the collector's org,
+  resource `collector`/<id>, action `serve.recompute_failed`, detail `{dirty_seq, path, error}`.
+- `stage3CheckSet` validates the served bytes: D6 baseline appended via the code `ComputeServed`
+  uses, so `alloy validate` and PortShapes see what is served.
+- The schema registry loads once in `server.New`; failure fails the boot. `Deps.EnforceRoles` and
+  the nil-schema-unenforced branch are deleted — a nil schema is a programming error.
+- `DeleteRepoLink` checks the org on the locked `GetRepoLinkForUpdate` row and drops the unlocked
+  read; the in-transaction audit write stays. Dropping its org-wide eager recompute was
+  proposed but is held: `GetServedConfig` reads `serve_cache` as-is, so an offline collector would
+  show the deleted pipeline in the UI until it polls — an owner decision.
+
+**Step 5 — agent identity (R9, R10).**
+- `GetConfig` keeps upserting cluster + collector before org resolution (unclaimed discovery and
+  OIDC auto-claim need them) but writes the instance row, its status and attributes only after the
+  org check.
+- An instance id may move to another collector only within the same org or when its old cluster
+  is unclaimed; otherwise PermissionDenied with the row untouched.
+- `UnregisterCollector` is scoped to the caller's org; `GetConfig` clears `unregistered_at`.
+- New metric `shepherd_agent_refused_total{reason=claim_denied|role_denied|instance_rebind}` plus a
+  Warn log.
+
+**Step 6 — git sync atomic commit (R8).**
+- #349 already writes in one transaction; the partial apply comes from dropping failing files. Any
+  failing file (validation, ownership, name clash) now applies nothing, deletes included.
+- A tripped prune guard applies nothing and marks a warning.
+- gitsync's `stage3DryRun` covers the whole candidate set plus removed ids for the link's one
+  collector, with role enforcement — a disallowed signal refuses the commit.
+- Create/update audit rows record `commit`, `git_path`, `repo_link_id`.
+
+**Step 7a — role refactor (R13).**
+- buf-style `enum Role { ROLE_UNSPECIFIED = 0; ROLE_VIEWER = 1; ROLE_EDITOR = 2; ROLE_ADMIN = 3; }`
+  in `proto/…/common.proto`; UNSPECIFIED is rejected on write and never granted.
+- The SPA adopts the generated enums; tenant-route `status` and `apply_status` both become proto
+  enums.
+
+**Step 7b — service-account viewer (R14).**
+- A service-account viewer gets exactly the human org-viewer procedures (no simulate); the default
+  tier stays editor.
+
+Migrations in steps 4, 7a and 7b are numbered by merge order.

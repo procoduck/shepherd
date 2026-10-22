@@ -433,7 +433,7 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 			Expect(err).NotTo(HaveOccurred())
 			hdr := "Basic " + base64.StdEncoding.EncodeToString([]byte(tok.ID.String()+":"+secret))
 
-			svc3 := agentapi.New(st3, nil, slog.Default(), nil)
+			svc3 := agentapi.New(st3, nil, slog.Default(), testSchemaRegistry())
 			authGate3 := agentapi.NewAuthGate(st3, nil)
 			path3, handler3 := collectorv1connect.NewCollectorServiceHandler(svc3, connect.WithRequestGate(authGate3))
 			mux3 := http.NewServeMux()
@@ -832,6 +832,86 @@ WHERE serve_cache.dirty = true AND serve_cache.dirty_seq = $4`
 			Expect(counterValue(metrics.GetConfigTotal.WithLabelValues("not_modified"))).To(Equal(before + 1))
 		})
 
+		// R4 (#358), the lazy half: a failed recompute is counted on every
+		// poll but written to audit_log once per (collector, dirty_seq) — a
+		// broken pipeline polled every 30s must not add a row per poll — and
+		// reported again once a new mark starts a new generation.
+		//
+		// Red run, executed: with serve.RecordFailure reduced to the old
+		// behaviour (count the metric, write no audit row) the first
+		// audit-row assertion failed (0 rows).
+		It("audits a failed recompute once per dirty generation, not once per poll", func() {
+			collector, pipeline := setupClaimedPipeline()
+			poll := func() *connect.Response[collectorv1.GetConfigResponse] {
+				resp, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{Id: "recompute-instance", LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"}}))
+				Expect(err).NotTo(HaveOccurred())
+				return resp
+			}
+			auditRows := func() []map[string]any {
+				rows, err := st.Pool().Query(ctx, `SELECT actor, actor_type, org_id::text, resource_type, resource_id, detail
+					FROM audit_log WHERE action = $1 ORDER BY id`, serve.AuditActionRecomputeFailed)
+				Expect(err).NotTo(HaveOccurred())
+				defer rows.Close()
+				var out []map[string]any
+				for rows.Next() {
+					var actor, actorType, orgID, resourceType, resourceID string
+					var raw []byte
+					Expect(rows.Scan(&actor, &actorType, &orgID, &resourceType, &resourceID, &raw)).To(Succeed())
+					var detail map[string]any
+					Expect(json.Unmarshal(raw, &detail)).To(Succeed())
+					detail["_actor"], detail["_actor_type"], detail["_org_id"] = actor, actorType, orgID
+					detail["_resource_type"], detail["_resource_id"] = resourceType, resourceID
+					out = append(out, detail)
+				}
+				Expect(rows.Err()).NotTo(HaveOccurred())
+				return out
+			}
+			first := poll()
+			Expect(first.Msg.Content).To(ContainSubstring("recompute-pipeline"))
+
+			// A recompute that genuinely fails serve.ComputeServed: a second
+			// pipeline whose name sanitizes to the same declare block. The
+			// database refuses that pair (unique index pipelines_org_sanitized_name_key),
+			// so this spec's isolated database drops the index to reach
+			// merge.Assemble's own refusal behind it.
+			_, err := st.Pool().Exec(ctx, `DROP INDEX pipelines_org_sanitized_name_key`)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+				OrgID: pipeline.OrgID, Name: "recompute pipeline", Contents: "// collides",
+				Matchers: json.RawMessage(`["cluster=\"recompute-cluster\""]`), Enabled: true, Source: "ui",
+				WizardState: json.RawMessage(`{}`), CreatedBy: "test", UpdatedBy: "test",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(st.Queries.MarkServeCacheDirty(ctx, collector.ID)).To(Succeed())
+			marked, err := st.Queries.GetServeCache(ctx, collector.ID)
+			Expect(err).NotTo(HaveOccurred())
+
+			failuresBefore := counterValue(metrics.ServeRecomputeFailuresTotal)
+			for range 3 {
+				Expect(poll().Msg.Content).To(Equal(first.Msg.Content), "the previous entry stays served")
+			}
+			Expect(counterValue(metrics.ServeRecomputeFailuresTotal)).To(Equal(failuresBefore+3), "every failed poll is counted")
+
+			got := auditRows()
+			Expect(got).To(HaveLen(1), "three failed polls of one generation are one audit row")
+			Expect(got[0]).To(HaveKeyWithValue("_actor", "serve"))
+			Expect(got[0]).To(HaveKeyWithValue("_actor_type", "system"))
+			Expect(got[0]).To(HaveKeyWithValue("_org_id", pipeline.OrgID.String()))
+			Expect(got[0]).To(HaveKeyWithValue("_resource_type", "collector"))
+			Expect(got[0]).To(HaveKeyWithValue("_resource_id", collector.ID.String()))
+			Expect(got[0]).To(HaveKeyWithValue("path", "lazy"))
+			Expect(got[0]).To(HaveKeyWithValue("dirty_seq", BeNumerically("==", marked.DirtySeq)))
+			Expect(got[0]).To(HaveKeyWithValue("error", ContainSubstring("declare-name collision")))
+
+			// A new mark is a new generation: reported once more.
+			Expect(st.Queries.MarkServeCacheDirty(ctx, collector.ID)).To(Succeed())
+			poll()
+			poll()
+			got = auditRows()
+			Expect(got).To(HaveLen(2))
+			Expect(got[1]).To(HaveKeyWithValue("dirty_seq", BeNumerically("==", marked.DirtySeq+1)))
+		})
+
 		It("recompute failure serves previous content", func() {
 			collector, _ := setupClaimedPipeline()
 			first, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{Id: "recompute-instance", LocalAttributes: map[string]string{"cluster": "recompute-cluster", "role": "metrics"}}))
@@ -865,18 +945,14 @@ WHERE serve_cache.dirty = true AND serve_cache.dirty_seq = $4`
 			Expect(second.Msg.Hash).To(Equal(first.Msg.Hash))
 		})
 
-		// W2-S3: this suite's own Service (BeforeEach above) always wires a
-		// real schema registry, under which merge.enforceRoles' fail-safe
-		// excludes ANY pipeline whose content fails to even parse
-		// (signals.Derive errors) BEFORE Stage 1 ever sees it — that check
-		// runs regardless of role, "singleton"/Unrestricted included. So
-		// exercising the specific gap this step closes — ComputeServed's
-		// Stage 1 running unconditionally, with nothing able to skip it —
-		// needs its own Service wired the way agentapi.New's doc comment
-		// says is supported: both validator and schema registry nil, the
-		// exact configuration under which recomputeServeCache used to skip
-		// Stage 1 entirely (gated on "if s.validator != nil").
-		It("never serves merged output that fails stage 1, even with no validator or schema registry wired", func() {
+		// W2-S3 / R5 (#358): a pipeline that does not parse never reaches a
+		// collector, even on a Service wired with no validator (the
+		// configuration under which recomputeServeCache used to skip Stage 1
+		// entirely, gated on "if s.validator != nil"). Role enforcement is
+		// always on now, so the first line of defence is its fail-safe
+		// exclusion — an unparsable pipeline's signals cannot be derived —
+		// and serve.ComputeServed's unconditional Stage 1 stays the backstop.
+		It("never serves an unparsable pipeline, even with no validator wired", func() {
 			dbURL := sharedPG.IsolatedDB(ctx, GinkgoTB())
 			st2, err := store.New(ctx, &config.DatabaseConfig{URL: dbURL, MaxConns: 5})
 			Expect(err).NotTo(HaveOccurred())
@@ -892,7 +968,7 @@ WHERE serve_cache.dirty = true AND serve_cache.dirty_seq = $4`
 			Expect(err).NotTo(HaveOccurred())
 			hdr := "Basic " + base64.StdEncoding.EncodeToString([]byte(tok.ID.String()+":"+secret))
 
-			svc2 := agentapi.New(st2, nil, slog.Default(), nil)
+			svc2 := agentapi.New(st2, nil, slog.Default(), testSchemaRegistry())
 			authGate2 := agentapi.NewAuthGate(st2, nil)
 			path2, handler2 := collectorv1connect.NewCollectorServiceHandler(svc2, connect.WithRequestGate(authGate2))
 			mux2 := http.NewServeMux()
@@ -955,10 +1031,11 @@ WHERE serve_cache.dirty = true AND serve_cache.dirty_seq = $4`
 				Id: "stage1-instance", LocalAttributes: map[string]string{"cluster": "stage1-cluster", "role": "metrics"},
 			}))
 			Expect(err).NotTo(HaveOccurred())
-			Expect(second.Msg.Content).To(Equal(first.Msg.Content),
-				"a merged config that fails Stage 1 must never reach serve_cache, even with no validator or schema "+
-					"registry wired — the previous content must still be served")
-			Expect(second.Msg.Hash).To(Equal(first.Msg.Hash))
+			Expect(second.Msg.Content).NotTo(ContainSubstring(`prometheus.scrape "a" {`),
+				"an unparsable pipeline must never reach a collector, even with no validator wired")
+			Expect(second.Msg.Content).To(ContainSubstring("good"), "the parsable pipeline keeps being served")
+			Expect(second.Msg.Content).To(ContainSubstring("unbalanced: signal derivation failed"),
+				"the excluded pipeline is named in the served header, never silently dropped")
 		})
 
 		// G6 (docs/gateway-tier-plan.md): the gate W1 could not close from

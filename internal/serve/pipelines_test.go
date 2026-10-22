@@ -63,7 +63,7 @@ func TestComputeServed_HeaderCarriesEachRevision(t *testing.T) {
 	beta.Revision = 12
 	coll := serve.Collector{ID: "coll-1", Cluster: "c1", Role: "metrics"}
 
-	got, err := serve.ComputeServed(context.Background(), serve.Deps{}, coll, []merge.Pipeline{alpha, beta})
+	got, err := serve.ComputeServed(context.Background(), serve.Deps{Schema: mustSchema(t)}, coll, []merge.Pipeline{alpha, beta})
 	if err != nil {
 		t.Fatalf("ComputeServed: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestComputeServed_HeaderCarriesEachRevision(t *testing.T) {
 	}
 
 	beta.Revision = 13
-	bumped, err := serve.ComputeServed(context.Background(), serve.Deps{}, coll, []merge.Pipeline{alpha, beta})
+	bumped, err := serve.ComputeServed(context.Background(), serve.Deps{Schema: mustSchema(t)}, coll, []merge.Pipeline{alpha, beta})
 	if err != nil {
 		t.Fatalf("ComputeServed (bumped): %v", err)
 	}

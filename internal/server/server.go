@@ -50,6 +50,10 @@ type Server struct {
 	store       *store.Store
 	enc         *crypto.Encryptor
 	validator   *validate.Validator
+	// schema is the component schema registry, loaded once in New and shared
+	// by every consumer (agent and management APIs, the eager recompute
+	// gitsync runs, the sandbox run worker). Never nil: New fails without it.
+	schema *schema.Registry
 	// traceShutdown flushes buffered spans on exit. Never nil — InitTracing
 	// returns a no-op when tracing is disabled — so Run can call it
 	// unconditionally.
@@ -100,9 +104,27 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 	}
 }
 
-// New creates a new Server: it connects the store, wires auth, and assembles
-// the full route tree (newRouter) plus the separate metrics listener.
+// loadSchema loads the embedded component schema registry. A variable so a
+// test can prove a registry that fails to load fails the boot.
+var loadSchema = func() (*schema.Registry, error) {
+	return schema.New(schema.Embedded, version.AlloySchemaVersion)
+}
+
+// New creates a new Server: it loads the component schema, connects the
+// store, wires auth, and assembles the full route tree (newRouter) plus the
+// separate metrics listener.
 func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
+	// The schema registry first, before anything with side effects: role
+	// enforcement on both serve paths, Stage 2/3 validation and the visual
+	// builder all depend on it, and a registry that cannot load is a build
+	// defect (the artifact is embedded). Refusing to start is the only safe
+	// answer — the alternative this replaced served collectors config with
+	// role enforcement silently off (R5, #358).
+	schemaReg, err := loadSchema()
+	if err != nil {
+		return nil, fmt.Errorf("loading the embedded component schema: %w", err)
+	}
+
 	spaInfo, err := spa.ParseBuildInfo()
 	if err != nil {
 		logger.Warn("failed to parse embedded SPA build info", "err", err)
@@ -179,7 +201,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 
 	v := validate.New(&cfg.Validate)
 	routeApplyRunning := new(atomic.Bool)
-	r := newRouter(cfg, st, enc, authHandler, v, spaInfo, logger, routeApplyRunning.Load)
+	r := newRouter(cfg, st, enc, authHandler, v, schemaReg, spaInfo, logger, routeApplyRunning.Load)
 
 	// Tracing wraps the router from outside so a server span exists before
 	// chi routes, which is what lets the metrics middleware rename it once the
@@ -212,6 +234,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		store:         st,
 		enc:           enc,
 		validator:     v,
+		schema:        schemaReg,
 		traceShutdown: traceShutdown,
 
 		routeApplyRunning: routeApplyRunning,
@@ -224,7 +247,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 // fallback last. Split from New — which owns the store/auth/encryptor
 // construction — so tests can exercise the real mounting and guard ordering
 // without a database or OIDC discovery.
-func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authHandler *auth.Handler, v *validate.Validator, spaInfo spa.BuildInfo, logger *slog.Logger, routeApplyRunning func() bool) chi.Router {
+func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authHandler *auth.Handler, v *validate.Validator, schemaReg *schema.Registry, spaInfo spa.BuildInfo, logger *slog.Logger, routeApplyRunning func() bool) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	// Ordered outermost-first: RequestID so every log line and span can be
@@ -263,12 +286,6 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 	})
 
 	// Agent API — Connect RPC over h2c so both HTTP/1.1+JSON and HTTP/2+proto work.
-	agentReg, agentSchemaErr := schema.New(schema.Embedded, version.AlloySchemaVersion)
-	if agentSchemaErr != nil {
-		// Degrade the guard, do not take the fleet offline: without a registry
-		// the lazy recompute path serves unenforced (see agentapi.New).
-		logger.Error("schema registry unavailable; agent-path role enforcement disabled", "err", agentSchemaErr)
-	}
 	// D6's baseline pipeline, unless the operator opted out. Passing "" is
 	// WithBeaconRemoteWrite's documented no-op, so a disabled beacon serves
 	// exactly the config it served before the beacon existed.
@@ -276,7 +293,7 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 	if cfg.Server.BeaconDisabled {
 		beaconBaseURL = ""
 	}
-	svc := agentapi.New(st, v, logger, agentReg, agentapi.WithBeaconRemoteWrite(beaconBaseURL, beacon.OAuth2ForBeacon(cfg.OIDC.BeaconAuth, cfg.OIDC.AgentTokenURL, cfg.OIDC.AgentScopes)))
+	svc := agentapi.New(st, v, logger, schemaReg, agentapi.WithBeaconRemoteWrite(beaconBaseURL, beacon.OAuth2ForBeacon(cfg.OIDC.BeaconAuth, cfg.OIDC.AgentTokenURL, cfg.OIDC.AgentScopes)))
 	// The Bearer branch of the collector gate: a collector's OIDC access token
 	// is verified with the same provider as user login. nil when authHandler
 	// is absent (the route-tree unit test) or OIDC is unconfigured, which
@@ -356,13 +373,13 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 			r.Post("/api/auth/local/login", authHandler.LocalLoginHandler)
 			r.Post(auth.ChangePasswordPath, authHandler.ChangePasswordHandler)
 		}
-		r.Mount("/api", mgmtapi.Router())
+		r.Mount("/api", mgmtapi.Router(schemaReg))
 
 		// shepherd.mgmt.v1 Connect RPC handlers — the typed contract behind the
 		// /api shims above (docs/archive/api-contract-design.md). Mounted in the same
 		// group so they get session population + CSRF enforcement; each
 		// handler additionally requires its own authz interceptor role.
-		mgmtapi.MountRPC(r, st, cfg, enc, logger, mgmtapi.WithOIDCSettings(authHandler),
+		mgmtapi.MountRPC(r, st, cfg, enc, schemaReg, logger, mgmtapi.WithOIDCSettings(authHandler),
 			mgmtapi.WithRouteApplyRunning(routeApplyRunning))
 	})
 
@@ -403,13 +420,8 @@ func (s *Server) Run(ctx context.Context) error {
 	// FailedPrecondition short-circuit (rpc_simulate.go) — there is no queue
 	// to drain if nothing can ever be enqueued.
 	if s.cfg.Simulator.Enabled {
-		schemaReg, schemaErr := schema.New(schema.Embedded, version.AlloySchemaVersion)
-		if schemaErr != nil {
-			s.logger.Error("simulate run worker not started: schema registry unavailable", "err", schemaErr)
-		} else {
-			simWorker := worker.New(s.store, schemaReg, s.validator, s.cfg.Simulator, s.logger)
-			simWorker.Start(ctx)
-		}
+		simWorker := worker.New(s.store, s.schema, s.validator, s.cfg.Simulator, s.logger)
+		simWorker.Start(ctx)
 	}
 
 	// Start the GitOps reconciliation loop. Requires the secret-at-rest
@@ -419,17 +431,11 @@ func (s *Server) Run(ctx context.Context) error {
 		syncOpts := []gitsync.Option{
 			gitsync.WithLocker(advisorylock.New(s.store.Pool(), advisorylock.GitSync, "git-sync", s.logger)),
 		}
-		// The same eager recompute the API runs after a pipeline or repo-link
-		// delete, built the way mgmtapi.MountRPC builds its PipelineService.
-		// Without a schema registry the sync still marks the collector dirty
-		// and its next poll recomputes lazily.
-		if schemaReg, schemaErr := schema.New(schema.Embedded, version.AlloySchemaVersion); schemaErr != nil {
-			s.logger.Error("gitops reconciler: schema registry unavailable; served configs refresh on the next poll only", "err", schemaErr)
-		} else {
-			ps := mgmtapi.NewPipelineService(s.store, s.validator, schemaReg, s.logger,
-				mgmtapi.WithBeaconRemoteWrite(s.cfg.Server.BaseURL, beacon.OAuth2ForBeacon(s.cfg.OIDC.BeaconAuth, s.cfg.OIDC.AgentTokenURL, s.cfg.OIDC.AgentScopes)))
-			syncOpts = append(syncOpts, gitsync.WithRecompute(ps.RecomputeOrgCaches))
-		}
+		// The same eager recompute the API runs after a pipeline write,
+		// built the way mgmtapi.MountRPC builds its PipelineService.
+		ps := mgmtapi.NewPipelineService(s.store, s.validator, s.schema, s.logger,
+			mgmtapi.WithBeaconRemoteWrite(s.cfg.Server.BaseURL, beacon.OAuth2ForBeacon(s.cfg.OIDC.BeaconAuth, s.cfg.OIDC.AgentTokenURL, s.cfg.OIDC.AgentScopes)))
+		syncOpts = append(syncOpts, gitsync.WithRecompute(ps.RecomputeOrgCaches))
 		reconciler := gitsync.New(s.store, s.enc, s.validator, s.cfg, s.logger, syncOpts...)
 		reconciler.Start(ctx)
 	} else {

@@ -1,0 +1,12 @@
+-- The dirty generation (dirty_seq, 0020) whose recompute last failed and was
+-- written to audit_log (#358, spec §6.3). A collector whose merged config fails
+-- to compute keeps serving its previous cache entry, and both serve paths retry
+-- on every poll or write — so without a record of what was already reported,
+-- one broken pipeline would add an audit row per poll. MarkServeCacheFailed
+-- (internal/store/queries/serve_cache.sql) advances this column by
+-- compare-and-swap, and the failure is audited only when it advanced: once per
+-- (collector, dirty_seq).
+--
+-- -1, not 0: a collector that has never been marked has no row, or a row at
+-- dirty_seq 0, and a failure at generation 0 must still be reported once.
+ALTER TABLE serve_cache ADD COLUMN last_failed_seq bigint NOT NULL DEFAULT -1;

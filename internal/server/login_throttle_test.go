@@ -73,7 +73,7 @@ var _ = Describe("local sign-in per-IP throttle through the production router", 
 		}
 		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 		authHandler := auth.NewLocalAdmin(cfg, st, logger)
-		return server.NewRouter(cfg, st, nil, authHandler, validate.New(&cfg.Validate), spa.BuildInfo{}, logger, func() bool { return false })
+		return server.NewRouter(cfg, st, nil, authHandler, validate.New(&cfg.Validate), server.EmbeddedSchema(), spa.BuildInfo{}, logger, func() bool { return false })
 	}
 
 	// login sends one local sign-in attempt for a user that does not exist

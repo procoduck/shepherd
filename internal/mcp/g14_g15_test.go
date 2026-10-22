@@ -20,9 +20,11 @@ import (
 	"shepherd/internal/auth"
 	"shepherd/internal/config"
 	"shepherd/internal/mgmtapi"
+	"shepherd/internal/schema"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/testutil"
+	"shepherd/internal/version"
 )
 
 // This file proves G14 and G15 (docs/gateway-tier-plan.md §6) against a
@@ -59,11 +61,15 @@ func TestMain(m *testing.M) {
 // service account calling through it is exercising the real thing, not a
 // stand-in.
 func newRPCRouter(st *store.Store, authHandler *auth.Handler, cfg *config.Config) http.Handler {
+	reg, err := schema.New(schema.Embedded, version.AlloySchemaVersion)
+	if err != nil {
+		panic(fmt.Sprintf("loading the embedded schema: %v", err))
+	}
 	r := chi.NewRouter()
 	r.Group(func(r chi.Router) {
 		r.Use(authHandler.SessionMiddleware)
 		r.Use(auth.CSRFMiddleware)
-		mgmtapi.MountRPC(r, st, cfg, nil, slog.Default())
+		mgmtapi.MountRPC(r, st, cfg, nil, reg, slog.Default())
 	})
 	return r
 }

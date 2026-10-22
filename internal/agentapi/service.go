@@ -86,10 +86,11 @@ func WithBeaconRemoteWrite(baseURL string, oauth2 *beacon.OAuth2Auth) ServiceOpt
 	}
 }
 
-// New creates a new agent API Service. reg may be nil, in which case the lazy
-// recompute path serves without role enforcement — a corrupt embedded schema
-// degrades the guard rather than taking the fleet offline. Callers that can
-// load a registry must pass it.
+// New creates a new agent API Service. reg is the component schema registry
+// role enforcement runs against; it must be non-nil. internal/server loads it
+// once at boot and refuses to start without it, so a nil reg is a programming
+// error: the lazy recompute then fails (serve.ComputeServed refuses) and the
+// collector keeps its previous config, never an unenforced one.
 func New(st *store.Store, v *validate.Validator, logger *slog.Logger, reg *schema.Registry, opts ...ServiceOption) *Service {
 	s := &Service{store: st, validator: v, logger: logger.With("component", "agentapi"), schema: reg}
 	for _, opt := range opts {
@@ -233,56 +234,52 @@ func (s *Service) GetConfig(
 		}
 		// Cache missing or dirty — recompute now, once per collector at a time.
 		result, recomputeErr, _ := s.sf.Do(coll.ID.String(), func() (any, error) {
-			newContent, newHash, err := s.recomputeServeCache(ctx, coll, orgID, attrs)
+			served, err := s.recomputeServeCache(ctx, coll, orgID, attrs)
 			if err != nil {
 				return nil, err
 			}
 			if s.afterRecompute != nil {
 				s.afterRecompute(ctx)
 			}
-			updated, err := s.store.Queries.UpsertServeCacheConditional(ctx, sqlc.UpsertServeCacheConditionalParams{
-				CollectorID: coll.ID,
-				Content:     newContent,
-				Hash:        newHash,
-				DirtySeq:    expectedSeq,
-				Format:      serve.Format,
-			})
-			if errors.Is(err, pgx.ErrNoRows) {
-				// Superseded: a newer mark arrived while this recompute ran,
-				// or the eager recompute already served this generation.
-				// Serve whatever the row holds now — if it is still dirty,
-				// the next poll recomputes against the newer generation.
-				current, getErr := s.store.Queries.GetServeCache(ctx, coll.ID)
-				if getErr != nil {
-					return nil, getErr
-				}
-				if !serve.Current(current.Format) {
-					// Except a row in an older format (a mark reset it, and
-					// an older binary may since have written old-format
-					// bytes into it): never serve those as current. Serve
-					// this recompute's result instead, without caching it;
-					// the next poll recomputes against the newer generation
-					// and writes. Usually that result is at least as fresh
-					// as the row. The accepted exception is mid-rollout: an
-					// older binary can recompute the newer generation (N+1)
-					// and write it clean at format 0 while this serves its
-					// generation-N result, so for this one poll the
-					// collector may get older pipeline content than the row
-					// holds. The row stays format 0, so the next poll
-					// recomputes and serves N+1 — it self-heals.
-					return sqlc.ServeCache{CollectorID: coll.ID, Content: newContent, Hash: newHash, Dirty: true, Format: serve.Format}, nil
-				}
-				return current, nil
-			}
+			updated, written, err := serve.Store(ctx, s.store.Queries, coll.ID, expectedSeq, served)
 			if err != nil {
 				return nil, err
 			}
-			return updated, nil
+			if written {
+				return updated, nil
+			}
+			// Superseded: a newer mark arrived while this recompute ran,
+			// or the eager recompute already served this generation.
+			// Serve whatever the row holds now — if it is still dirty,
+			// the next poll recomputes against the newer generation.
+			current, getErr := s.store.Queries.GetServeCache(ctx, coll.ID)
+			if getErr != nil {
+				return nil, fmt.Errorf("re-reading superseded serve cache: %w", getErr)
+			}
+			if !serve.Current(current.Format) {
+				// Except a row in an older format (a mark reset it, and
+				// an older binary may since have written old-format
+				// bytes into it): never serve those as current. Serve
+				// this recompute's result instead, without caching it;
+				// the next poll recomputes against the newer generation
+				// and writes. Usually that result is at least as fresh
+				// as the row. The accepted exception is mid-rollout: an
+				// older binary can recompute the newer generation (N+1)
+				// and write it clean at format 0 while this serves its
+				// generation-N result, so for this one poll the
+				// collector may get older pipeline content than the row
+				// holds. The row stays format 0, so the next poll
+				// recomputes and serves N+1 — it self-heals.
+				return sqlc.ServeCache{CollectorID: coll.ID, Content: served.Content, Hash: served.Hash, Dirty: true, Format: serve.Format}, nil
+			}
+			return current, nil
 		})
 		if recomputeErr != nil {
-			metrics.ServeRecomputeFailuresTotal.Inc()
-			s.logger.Warn("serve-cache recompute failed", "collector_id", coll.ID.String(), "err", recomputeErr)
-			// Fall through: serve whatever is in cache (or empty if no cache yet).
+			// Fall through: serve whatever is in cache (or empty if no cache
+			// yet) — RecordFailure logs, counts and audits the failure.
+			serve.RecordFailure(ctx, s.store, s.logger, serve.Failure{
+				CollectorID: coll.ID, OrgID: orgID, DirtySeq: expectedSeq, Path: serve.PathLazy, Err: recomputeErr,
+			})
 		} else {
 			cache = result.(sqlc.ServeCache)
 		}
@@ -643,10 +640,10 @@ func requireClusterRole(attrs map[string]string) (cluster, role string, err erro
 // actually executed the closure — same class of narrow, accepted relaxation
 // as PR-7's "latest instance wins" multi-instance simplification (LABEL-
 // MATCHING-PLAN.md §5), not something this change introduces new risk of.
-func (s *Service) recomputeServeCache(ctx context.Context, coll sqlc.Collector, orgID pgtype.UUID, reqAttrs map[string]string) (string, string, error) {
+func (s *Service) recomputeServeCache(ctx context.Context, coll sqlc.Collector, orgID pgtype.UUID, reqAttrs map[string]string) (serve.Result, error) {
 	enabledPipelines, err := s.store.Queries.ListEnabledPipelinesForMerge(ctx, orgID)
 	if err != nil {
-		return "", "", fmt.Errorf("listing pipelines: %w", err)
+		return serve.Result{}, fmt.Errorf("listing pipelines: %w", err)
 	}
 
 	// Admin labels and local_attributes only participate in matching once the
@@ -697,7 +694,7 @@ func (s *Service) recomputeServeCache(ctx context.Context, coll sqlc.Collector, 
 		mergePipelines,
 	)
 	if err != nil {
-		return "", "", err
+		return serve.Result{}, err
 	}
 	if result.BaselineErr != nil {
 		// Render failure is a static-config bug (bad Label, e.g.), not a
@@ -706,5 +703,5 @@ func (s *Service) recomputeServeCache(ctx context.Context, coll sqlc.Collector, 
 		s.logger.Error("appending beacon baseline pipeline failed; serving without it", "collector_id", coll.ID.String(), "err", result.BaselineErr)
 	}
 
-	return result.Content, result.Hash, nil
+	return result, nil
 }
