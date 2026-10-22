@@ -60,9 +60,9 @@ var _ = Describe("shepherd.mgmt.v1 AdminService OIDC settings RPC", Label("integ
 			r.Use(h.SessionMiddleware)
 			r.Use(auth.CSRFMiddleware)
 			if withOIDC {
-				mgmtapi.MountRPC(r, st, cfg, enc, slog.Default(), mgmtapi.WithOIDCSettings(h))
+				mgmtapi.MountRPC(r, st, cfg, enc, embeddedSchema(), slog.Default(), mgmtapi.WithOIDCSettings(h))
 			} else {
-				mgmtapi.MountRPC(r, st, cfg, enc, slog.Default())
+				mgmtapi.MountRPC(r, st, cfg, enc, embeddedSchema(), slog.Default())
 			}
 		})
 		return r
@@ -385,7 +385,7 @@ var _ = Describe("platform audit visibility", Label("integration"), func() {
 		r.Group(func(r chi.Router) {
 			r.Use(h.SessionMiddleware)
 			r.Use(auth.CSRFMiddleware)
-			mgmtapi.MountRPC(r, st, cfg, nil, slog.Default())
+			mgmtapi.MountRPC(r, st, cfg, nil, embeddedSchema(), slog.Default())
 		})
 		server = httptest.NewServer(r)
 

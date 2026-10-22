@@ -12,7 +12,7 @@ import (
 )
 
 const getServeCache = `-- name: GetServeCache :one
-SELECT collector_id, content, hash, computed_at, dirty, dirty_seq, format FROM serve_cache WHERE collector_id = $1
+SELECT collector_id, content, hash, computed_at, dirty, dirty_seq, format, last_failed_seq FROM serve_cache WHERE collector_id = $1
 `
 
 func (q *Queries) GetServeCache(ctx context.Context, collectorID pgtype.UUID) (ServeCache, error) {
@@ -26,6 +26,7 @@ func (q *Queries) GetServeCache(ctx context.Context, collectorID pgtype.UUID) (S
 		&i.Dirty,
 		&i.DirtySeq,
 		&i.Format,
+		&i.LastFailedSeq,
 	)
 	return i, err
 }
@@ -117,6 +118,35 @@ func (q *Queries) MarkServeCacheDirtyByOrg(ctx context.Context, orgID pgtype.UUI
 	return err
 }
 
+const markServeCacheFailed = `-- name: MarkServeCacheFailed :one
+INSERT INTO serve_cache (collector_id, content, hash, dirty, dirty_seq, last_failed_seq)
+VALUES ($1, '', '', true, $2::bigint, $2::bigint)
+ON CONFLICT (collector_id) DO UPDATE SET
+    last_failed_seq = EXCLUDED.last_failed_seq
+WHERE serve_cache.last_failed_seq < EXCLUDED.last_failed_seq
+RETURNING collector_id
+`
+
+type MarkServeCacheFailedParams struct {
+	CollectorID pgtype.UUID `json:"collector_id"`
+	FailedSeq   int64       `json:"failed_seq"`
+}
+
+// Records that the recompute of generation $2 (the dirty_seq the caller read
+// before it loaded pipelines) failed, at most once per generation: it advances
+// last_failed_seq only while $2 is newer than it, and returns the row only when
+// it did. No row back means this generation's failure was already recorded (or
+// a newer one was), so the caller writes no second audit row. A collector with
+// no cache row yet gets a dirty placeholder at generation $2 — the same
+// placeholder a dirty mark inserts, so the next recompute still writes over it.
+// Never touches dirty_seq, so the 0033 format trigger does not fire.
+func (q *Queries) MarkServeCacheFailed(ctx context.Context, arg MarkServeCacheFailedParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, markServeCacheFailed, arg.CollectorID, arg.FailedSeq)
+	var collector_id pgtype.UUID
+	err := row.Scan(&collector_id)
+	return collector_id, err
+}
+
 const upsertServeCacheConditional = `-- name: UpsertServeCacheConditional :one
 INSERT INTO serve_cache (collector_id, content, hash, computed_at, dirty, dirty_seq, format)
 VALUES ($1, $2, $3, now(), false, 0, $5)
@@ -128,7 +158,7 @@ ON CONFLICT (collector_id) DO UPDATE SET
     format      = EXCLUDED.format
 WHERE (serve_cache.dirty = true OR serve_cache.format < EXCLUDED.format)
   AND serve_cache.dirty_seq = $4
-RETURNING collector_id, content, hash, computed_at, dirty, dirty_seq, format
+RETURNING collector_id, content, hash, computed_at, dirty, dirty_seq, format, last_failed_seq
 `
 
 type UpsertServeCacheConditionalParams struct {
@@ -167,6 +197,7 @@ func (q *Queries) UpsertServeCacheConditional(ctx context.Context, arg UpsertSer
 		&i.Dirty,
 		&i.DirtySeq,
 		&i.Format,
+		&i.LastFailedSeq,
 	)
 	return i, err
 }

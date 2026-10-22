@@ -15,8 +15,8 @@ import (
 )
 
 // scrapePipeline is a minimal, individually-valid-Alloy fixture pipeline —
-// ComputeServed always Stage-1-validates the FINAL merged content now (see
-// TestComputeServed_AlwaysStage1Validates), so every fixture used for a
+// ComputeServed always Stage-1-validates the FINAL merged content (see
+// TestComputeServed_UnparsableNeverServed), so every fixture used for a
 // success-path assertion must itself be syntactically valid.
 func scrapePipeline(id, name string, matchers []string) merge.Pipeline {
 	return merge.Pipeline{
@@ -52,7 +52,7 @@ func TestComputeServed_Golden(t *testing.T) {
 	pipelines := []merge.Pipeline{p}
 	coll := serve.Collector{ID: "coll-1", Cluster: "c1", Role: "metrics"}
 
-	got, err := serve.ComputeServed(context.Background(), serve.Deps{}, coll, pipelines)
+	got, err := serve.ComputeServed(context.Background(), serve.Deps{Schema: mustSchema(t)}, coll, pipelines)
 	if err != nil {
 		t.Fatalf("ComputeServed: %v", err)
 	}
@@ -94,12 +94,12 @@ func TestComputeServed_BaselineChangesHash(t *testing.T) {
 	pipelines := []merge.Pipeline{scrapePipeline("p1", "alpha", []string{`cluster="c1"`})}
 	coll := serve.Collector{ID: "coll-1", Cluster: "c1", Role: "metrics"}
 
-	without, err := serve.ComputeServed(context.Background(), serve.Deps{}, coll, pipelines)
+	without, err := serve.ComputeServed(context.Background(), serve.Deps{Schema: mustSchema(t)}, coll, pipelines)
 	if err != nil {
 		t.Fatalf("ComputeServed (no baseline): %v", err)
 	}
 
-	deps := serve.Deps{BeaconBaseline: beacon.NewBaselineConfig("https://shepherd.example.test" + beacon.WritePath)}
+	deps := serve.Deps{Schema: mustSchema(t), BeaconBaseline: beacon.NewBaselineConfig("https://shepherd.example.test" + beacon.WritePath)}
 	with, err := serve.ComputeServed(context.Background(), deps, coll, pipelines)
 	if err != nil {
 		t.Fatalf("ComputeServed (with baseline): %v", err)
@@ -128,7 +128,7 @@ func TestComputeServed_BaselineChangesHash(t *testing.T) {
 func TestComputeServed_RecomputeOfUnchangedInputIsStable(t *testing.T) {
 	pipelines := []merge.Pipeline{scrapePipeline("p1", "alpha", []string{`cluster="c1"`})}
 	coll := serve.Collector{ID: "coll-1", Cluster: "c1", Role: "metrics"}
-	deps := serve.Deps{BeaconBaseline: beacon.NewBaselineConfig("https://shepherd.example.test" + beacon.WritePath)}
+	deps := serve.Deps{Schema: mustSchema(t), BeaconBaseline: beacon.NewBaselineConfig("https://shepherd.example.test" + beacon.WritePath)}
 
 	first, err := serve.ComputeServed(context.Background(), deps, coll, pipelines)
 	if err != nil {
@@ -160,14 +160,14 @@ func TestComputeServed_ContentChangeChangesHash(t *testing.T) {
 	coll := serve.Collector{ID: "coll-1", Cluster: "c1", Role: "metrics"}
 	base := []merge.Pipeline{scrapePipeline("p1", "alpha", []string{`cluster="c1"`})}
 
-	before, err := serve.ComputeServed(context.Background(), serve.Deps{}, coll, base)
+	before, err := serve.ComputeServed(context.Background(), serve.Deps{Schema: mustSchema(t)}, coll, base)
 	if err != nil {
 		t.Fatalf("ComputeServed (before): %v", err)
 	}
 
 	edited := []merge.Pipeline{scrapePipeline("p1", "alpha", []string{`cluster="c1"`})}
 	edited[0].Contents = strings.Replace(edited[0].Contents, `"a"`, `"b"`, 1)
-	afterEdit, err := serve.ComputeServed(context.Background(), serve.Deps{}, coll, edited)
+	afterEdit, err := serve.ComputeServed(context.Background(), serve.Deps{Schema: mustSchema(t)}, coll, edited)
 	if err != nil {
 		t.Fatalf("ComputeServed (edited): %v", err)
 	}
@@ -176,7 +176,7 @@ func TestComputeServed_ContentChangeChangesHash(t *testing.T) {
 	}
 
 	added := []merge.Pipeline{base[0], scrapePipeline("p2", "beta", []string{`cluster="c1"`})}
-	afterAdd, err := serve.ComputeServed(context.Background(), serve.Deps{}, coll, added)
+	afterAdd, err := serve.ComputeServed(context.Background(), serve.Deps{Schema: mustSchema(t)}, coll, added)
 	if err != nil {
 		t.Fatalf("ComputeServed (added): %v", err)
 	}
@@ -185,92 +185,82 @@ func TestComputeServed_ContentChangeChangesHash(t *testing.T) {
 	}
 }
 
-// TestComputeServed_AlwaysStage1Validates is the extraction's one deliberate
-// behavior change: agentapi's former recomputeServeCache only Stage-1
-// validated the merged output "if s.validator != nil" — a nil validator (as
-// every test in this repo, and no production wiring, ever constructs) meant
-// a merged config that failed to even PARSE still reached serve_cache.
-// ComputeServed takes no validator at all and always runs validate.Stage1 on
-// the final content: there is no configuration that can skip it.
-func TestComputeServed_AlwaysStage1Validates(t *testing.T) {
+// TestComputeServed_UnparsableNeverServed: a pipeline that does not parse
+// never reaches served content. With role enforcement always on (R5, #358) the
+// first line of defence is enforcement itself — a pipeline whose signals cannot
+// be derived is excluded fail-safe and named in the header — and Stage 1 on the
+// final content stays the backstop ComputeServed runs unconditionally.
+func TestComputeServed_UnparsableNeverServed(t *testing.T) {
 	broken := merge.Pipeline{
 		ID: "p1", Name: "broken", Contents: `prometheus.scrape "a" {`,
 		Matchers: []string{`cluster="c1"`}, Source: "ui",
 	}
 	coll := serve.Collector{ID: "coll-1", Cluster: "c1", Role: "metrics"}
 
-	_, err := serve.ComputeServed(context.Background(), serve.Deps{}, coll, []merge.Pipeline{broken})
-	if err == nil {
-		t.Fatal("expected ComputeServed to refuse a merged config that fails Stage 1, got nil error")
+	got, err := serve.ComputeServed(context.Background(), serve.Deps{Schema: mustSchema(t)}, coll, []merge.Pipeline{broken})
+	if err != nil {
+		return // refused outright: never served
+	}
+	if strings.Contains(got.Content, broken.Contents) {
+		t.Fatalf("an unparsable pipeline reached served content:\n%s", got.Content)
+	}
+	if len(got.Exclusions) != 1 || got.Exclusions[0].PipelineName != "broken" {
+		t.Fatalf("expected the unparsable pipeline to be excluded fail-safe, got exclusions %+v", got.Exclusions)
 	}
 }
 
-// TestComputeServed_SameShapeCallsAgree is the parity half of the W2-S3
-// proof: internal/agentapi.recomputeServeCache (lazy) sets EnforceRoles:
-// false, internal/mgmtapi.recomputeOrgCaches (eager) sets EnforceRoles: true
-// — see Deps' doc comment for why that difference is deliberate — but with a
-// REAL, non-nil schema registry, both must still produce identical
-// content and hash: EnforceRoles only changes what a nil Schema means, never
-// the outcome once one is actually wired. (Real end-to-end coverage of each
-// call site individually lives where it always did:
-// internal/mgmtapi/beacon_baseline_test.go for the eager path,
-// internal/agentapi/service_test.go's GetConfig specs for the lazy one —
-// this spec is what proves the SHARED function they both now call cannot
-// silently diverge between them.)
-func TestComputeServed_SameShapeCallsAgree(t *testing.T) {
-	reg, err := schema.New(schema.Embedded, version.AlloySchemaVersion)
-	if err != nil {
-		t.Fatalf("schema.New: %v", err)
+// TestComputeServed_NilSchemaRefuses pins R5 (#358): role enforcement is
+// always on, so a nil registry is a programming error that refuses to compute
+// rather than serving config that looks enforced and is not. internal/server
+// loads the registry once at boot and fails to start without it.
+func TestComputeServed_NilSchemaRefuses(t *testing.T) {
+	pipelines := []merge.Pipeline{scrapePipeline("p1", "alpha", []string{`cluster="c1"`})}
+	coll := serve.Collector{ID: "coll-1", Cluster: "c1", Role: "metrics"}
+
+	if _, err := serve.ComputeServed(context.Background(), serve.Deps{}, coll, pipelines); err == nil {
+		t.Fatal("ComputeServed with a nil Schema must refuse, got nil error")
 	}
+	if _, err := serve.Assemble(serve.Deps{}, coll, pipelines); err == nil {
+		t.Fatal("Assemble with a nil Schema must refuse, got nil error")
+	}
+}
+
+// TestAssemble_IsComputeServedWithoutStage1 pins that Stage 3's dry run
+// (internal/mgmtapi.stage3CheckSet, which calls Assemble) sees the exact bytes
+// ComputeServed serves — D6's baseline included.
+func TestAssemble_IsComputeServedWithoutStage1(t *testing.T) {
 	pipelines := []merge.Pipeline{
 		scrapePipeline("p1", "alpha", []string{`cluster="parity-cluster"`}),
 		scrapePipeline("p2", "beta", []string{`cluster="parity-cluster"`}),
 	}
-	baseline := beacon.NewBaselineConfig("https://shepherd.example.test" + beacon.WritePath)
+	deps := serve.Deps{Schema: mustSchema(t), BeaconBaseline: beacon.NewBaselineConfig("https://shepherd.example.test" + beacon.WritePath)}
 	coll := serve.Collector{ID: "coll-parity", Cluster: "parity-cluster", Role: "metrics"}
 
-	lazyShaped, err := serve.ComputeServed(context.Background(),
-		serve.Deps{Schema: reg, EnforceRoles: false, BeaconBaseline: baseline}, coll, pipelines)
+	served, err := serve.ComputeServed(context.Background(), deps, coll, pipelines)
 	if err != nil {
-		t.Fatalf("lazy-shaped call: %v", err)
+		t.Fatalf("ComputeServed: %v", err)
 	}
-	eagerShaped, err := serve.ComputeServed(context.Background(),
-		serve.Deps{Schema: reg, EnforceRoles: true, BeaconBaseline: baseline}, coll, pipelines)
+	assembled, err := serve.Assemble(deps, coll, pipelines)
 	if err != nil {
-		t.Fatalf("eager-shaped call: %v", err)
+		t.Fatalf("Assemble: %v", err)
 	}
-
-	if lazyShaped.Content != eagerShaped.Content {
-		t.Fatalf("content diverged between the two call shapes:\nlazy:\n%s\neager:\n%s", lazyShaped.Content, eagerShaped.Content)
+	if served.Content != assembled.Content || served.Hash != assembled.Hash {
+		t.Fatalf("Assemble diverged from ComputeServed:\nserved:\n%s\nassembled:\n%s", served.Content, assembled.Content)
 	}
-	if lazyShaped.Hash != eagerShaped.Hash {
-		t.Fatalf("hash diverged: lazy=%s eager=%s", lazyShaped.Hash, eagerShaped.Hash)
+	if !strings.Contains(assembled.Content, beacon.WritePath) {
+		t.Fatalf("Assemble output lacks the D6 baseline:\n%s", assembled.Content)
 	}
 }
 
-// TestComputeServed_EnforceRolesNilSchema pins the one place the two former
-// call sites' behavior genuinely diverges on purpose (see Deps.EnforceRoles'
-// doc comment), so a future edit to ComputeServed cannot accidentally
-// collapse it: internal/agentapi's shape (EnforceRoles: false) degrades to
-// unenforced config when Schema is nil — matching its "a corrupt embedded
-// schema degrades the guard rather than taking the fleet offline" contract
-// (agentapi.New's doc comment) — while internal/mgmtapi's shape
-// (EnforceRoles: true) refuses outright, matching
-// internal/mgmtapi/router.go's "schemaReg is nil here" degraded-mount path,
-// where recomputeOrgCaches must keep refusing rather than start silently
-// serving unenforced config that looks enforced.
-func TestComputeServed_EnforceRolesNilSchema(t *testing.T) {
-	pipelines := []merge.Pipeline{scrapePipeline("p1", "alpha", []string{`cluster="c1"`})}
-	coll := serve.Collector{ID: "coll-1", Cluster: "c1", Role: "metrics"}
-
-	if _, err := serve.ComputeServed(context.Background(),
-		serve.Deps{Schema: nil, EnforceRoles: false}, coll, pipelines); err != nil {
-		t.Fatalf("EnforceRoles:false with a nil Schema must degrade, not refuse: %v", err)
+// mustSchema loads the embedded schema registry every production serve path
+// is given.
+func mustSchema(t *testing.T) *schema.Registry {
+	t.Helper()
+	reg, err := schema.New(schema.Embedded, version.AlloySchemaVersion)
+	if err != nil {
+		t.Fatalf("schema.New: %v", err)
 	}
-	if _, err := serve.ComputeServed(context.Background(),
-		serve.Deps{Schema: nil, EnforceRoles: true}, coll, pipelines); err == nil {
-		t.Fatal("EnforceRoles:true with a nil Schema must refuse to serve unenforced config, got nil error")
-	}
+	return reg
 }
 
 // TestComputeServed_WizardTextSingleBlankLines is #308 end to end: real
@@ -285,7 +275,7 @@ func TestComputeServed_WizardTextSingleBlankLines(t *testing.T) {
 		t.Fatal(err)
 	}
 	coll := serve.Collector{ID: "coll-1", Cluster: "c1", Role: "logs"}
-	deps := serve.Deps{BeaconBaseline: beacon.NewBaselineConfig("https://shepherd.example.test" + beacon.WritePath)}
+	deps := serve.Deps{Schema: mustSchema(t), BeaconBaseline: beacon.NewBaselineConfig("https://shepherd.example.test" + beacon.WritePath)}
 	wiz := merge.Pipeline{ID: "w", Name: "pod-logs", Contents: string(golden), Matchers: []string{`cluster="c1"`}, Source: "wizard"}
 	cases := map[string][]merge.Pipeline{
 		"wizard pipeline beside another": {wiz, scrapePipeline("p1", "alpha", []string{`cluster="c1"`})},

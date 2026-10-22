@@ -38,7 +38,7 @@ func newGitOpsRPCRouter(st *store.Store, authHandler *auth.Handler, cfg *config.
 	r.Group(func(r chi.Router) {
 		r.Use(authHandler.SessionMiddleware)
 		r.Use(auth.CSRFMiddleware)
-		mgmtapi.MountRPC(r, st, cfg, enc, slog.Default())
+		mgmtapi.MountRPC(r, st, cfg, enc, embeddedSchema(), slog.Default())
 	})
 	return r
 }

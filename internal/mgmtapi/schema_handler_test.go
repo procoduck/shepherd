@@ -167,7 +167,7 @@ var _ = Describe("Schema endpoint compression and conditional GET (#279)", func(
 	It("is mounted for HEAD on the /api router, behind the same authentication as GET", func() {
 		req := httptest.NewRequest(http.MethodHead, "/schema/current", nil)
 		rec := httptest.NewRecorder()
-		mgmtapi.Router().ServeHTTP(rec, req)
+		mgmtapi.Router(embeddedSchema()).ServeHTTP(rec, req)
 		Expect(rec.Code).To(Equal(http.StatusUnauthorized),
 			"a HEAD with no session reaches RequireAuth, not the 404 fallback")
 	})

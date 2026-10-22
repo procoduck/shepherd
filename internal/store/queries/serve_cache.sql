@@ -67,3 +67,19 @@ FROM serve_cache sc
 JOIN collectors c ON sc.collector_id = c.id
 JOIN clusters cl ON c.cluster_id = cl.id
 WHERE cl.org_id = $1;
+
+-- name: MarkServeCacheFailed :one
+-- Records that the recompute of generation $2 (the dirty_seq the caller read
+-- before it loaded pipelines) failed, at most once per generation: it advances
+-- last_failed_seq only while $2 is newer than it, and returns the row only when
+-- it did. No row back means this generation's failure was already recorded (or
+-- a newer one was), so the caller writes no second audit row. A collector with
+-- no cache row yet gets a dirty placeholder at generation $2 — the same
+-- placeholder a dirty mark inserts, so the next recompute still writes over it.
+-- Never touches dirty_seq, so the 0033 format trigger does not fire.
+INSERT INTO serve_cache (collector_id, content, hash, dirty, dirty_seq, last_failed_seq)
+VALUES ($1, '', '', true, sqlc.arg(failed_seq)::bigint, sqlc.arg(failed_seq)::bigint)
+ON CONFLICT (collector_id) DO UPDATE SET
+    last_failed_seq = EXCLUDED.last_failed_seq
+WHERE serve_cache.last_failed_seq < EXCLUDED.last_failed_seq
+RETURNING collector_id;

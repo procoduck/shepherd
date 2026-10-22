@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"shepherd/internal/config"
+	"shepherd/internal/schema"
 	"shepherd/internal/server"
 	"shepherd/internal/spa"
 	"shepherd/internal/store"
@@ -22,7 +24,7 @@ import (
 func productionRouter() http.Handler {
 	cfg := &config.Config{}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return server.NewRouter(cfg, &store.Store{}, nil, nil, validate.New(&cfg.Validate), spa.BuildInfo{}, logger, func() bool { return false })
+	return server.NewRouter(cfg, &store.Store{}, nil, nil, validate.New(&cfg.Validate), server.EmbeddedSchema(), spa.BuildInfo{}, logger, func() bool { return false })
 }
 
 var _ = Describe("metrics listeners", func() {
@@ -166,7 +168,7 @@ var _ = Describe("beacon off-switch", func() {
 		cfg := &config.Config{}
 		cfg.Server.BeaconDisabled = disabled
 		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-		return server.NewRouter(cfg, &store.Store{}, nil, nil, validate.New(&cfg.Validate), spa.BuildInfo{}, logger, func() bool { return false })
+		return server.NewRouter(cfg, &store.Store{}, nil, nil, validate.New(&cfg.Validate), server.EmbeddedSchema(), spa.BuildInfo{}, logger, func() bool { return false })
 	}
 
 	// Probe with POST, the method the endpoint actually serves. A GET would
@@ -188,5 +190,21 @@ var _ = Describe("beacon off-switch", func() {
 		Expect(post(routerWith(true))).To(Equal(http.StatusNotFound),
 			"beacon ingest is still mounted with the beacon disabled; an operator who turned it off "+
 				"still has an endpoint accepting agent credentials")
+	})
+})
+
+// R5 (#358): the component schema is loaded once, first, and a registry that
+// cannot load fails the boot. The code this replaced degraded instead — the
+// lazy serve path then served collectors with role enforcement silently off.
+var _ = Describe("schema at boot", func() {
+	It("refuses to start when the embedded schema cannot load", func() {
+		restore := server.SetLoadSchema(func() (*schema.Registry, error) {
+			return nil, errors.New("corrupt embedded schema")
+		})
+		DeferCleanup(restore)
+
+		srv, err := server.New(&config.Config{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		Expect(err).To(MatchError(ContainSubstring("corrupt embedded schema")))
+		Expect(srv).To(BeNil())
 	})
 })
