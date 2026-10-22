@@ -17,6 +17,9 @@
 > against v0.17.0 and the screenshots retaken on 2026-10-15 (#346, #347); the review's leftovers
 > (#348) found the repository-link delete bug and B-GITSYNC-PRUNE (#349), and the local sign-in
 > throttle bypass through spoofed forwarding headers was fixed in #350 — all ship in v0.18.0.
+> The 2026-10-22 review remediation's steps 1–6, 4b–4d and 7a (#363–#381) ship in the prerelease
+> **v0.19.0-rc.1** (chart 0.23.0-rc.1), together with signed releases (#380); step 7b and the
+> follow-ups are open. The baseline below stays v0.18.0 until v0.19.0 is re-verified.
 > Completed rounds live in `docs/archive/` — the history this ledger used to carry inline is
 > `docs/archive/completed-2026-09-11.md`. Do not start a second ledger.
 
@@ -160,6 +163,15 @@ the manual end-to-end pass the list above records. Re-walk them on the next rele
   sync page (#349, migration `0034`, proto field 9); repository-link delete fixed, chart text
   and two UI labels (#348); the public docs reviewed and the screenshots retaken (#346, #347).
   Not walked in the browser before the tag.
+- **v0.19.0-rc.1** (prerelease, chart 0.23.0-rc.1) — the 2026-10-22 review remediation: step 1
+  README restore and plan (#363); step 2 standards and small fixes (#364); step 3 spec catch-up
+  (#366); step 4 one serve-cache write, audited recompute failures, fatal schema (#367, migration
+  `0035`); step 4b single-collector recompute after a repo-link delete (#371); step 4c one
+  beacon-baseline input, serve format 3 (#372); step 4d Stage 3 on affected collectors only,
+  `config.validate.stage3_timeout` (#379); step 5 instances bound per collector, request bounds
+  (#370, migration `0036`); step 6 atomic git sync (#373); step 7a one role model, roles as API
+  enums (#381, migration `0037`). Also signed tags and release attestations (#380) and Go 1.27.3
+  (#365). Not walked in the browser.
 
 ### History
 
@@ -191,6 +203,8 @@ remediation with its D1–D14 decisions, and the v0.5.0 dependency and toolchain
 - 2026-10-15 — v0.18.0 (local sign-in throttle bypass fixed, git sync deletes removed files'
   pipelines, repository-link delete, docs review and screenshots), chart 0.22.0; release run
   recorded after the tag.
+- 2026-10-22 — v0.19.0-rc.1, prerelease (review remediation steps 1–6, 4b–4d, 7a; signed
+  releases), chart 0.23.0-rc.1; release run recorded after the tag.
 
 ---
 
@@ -212,41 +226,6 @@ developer who needs containment to be real locally uses `make dev-kind`, which i
 the chart's NetworkPolicy is enforced (`docs/kind-test-environment-plan.md` §11). B-CONTAIN-2 is
 compose-only.
 
-### B-GITSYNC-ATOMIC — a git sync can apply part of a commit · **medium** · ships fixed in the next release (#373)
-
-`reconcileLink` (`internal/gitsync/reconciler.go`) wrote the files of a commit that passed and
-dropped the ones that failed, dry-ran each file against its siblings' *current* rows, and under a
-prune guard still applied the commit's updates — a collector could serve half of a commit, contrary
-to spec §8 ("never partially apply a commit"). Found in the 2026-10-22 review; step 6 of
-`docs/plans/2026-10-22-review-remediation.md` (R8). Fixed in #373: any failing file, or a tripped
-guard, applies nothing from the commit; the commit is dry-run once as a whole for the link's
-collector, with role enforcement — refusing only errors the commit brings, not ones already in
-the collector's merged config (those apply with a warning); create/update audit rows carry `commit`, `git_path`,
-`repo_link_id`; only the link's collector is recomputed. Red-first specs in
-`internal/gitsync/reconciler_internal_test.go` ("a commit applies atomically (R8)").
-
-### B-AGENT-INSTANCE — instance ids are not bound to an org · **medium**
-
-`GetConfig`'s instance upsert rewrites `collector_id` on conflict before the org is resolved, so any
-valid agent token can rebind any (hostname-like) instance id; `UnregisterCollector` has no org check
-and its `unregistered_at` is never cleared, hiding a still-polling instance and dropping its
-`local_attributes` from org recompute. Found in the 2026-10-22 review; step 5 of the remediation
-plan (R9, R10). Ships fixed in the next release (#370): instances are keyed per
-collector (migration 0036), so an id never moves and no org can squat or rebind another's; the
-instance row is written only after the org check; a poll clears `unregistered_at`; an OIDC caller
-with an org unregisters only that org's rows (spec §4.1); refusals count in
-`shepherd_agent_refused_total`. A static agent token can still unregister any instance (the request
-carries only the id, and such a token can already poll as any collector) — the instance
-re-registers on its next poll.
-
-### B-SERVE-AUDIT — a failed recompute leaves no audit trail · **low**
-
-Spec §6.3 requires a failed recompute to keep the previous entry, log an error and write an
-`audit_log` row; both serve paths log a Warn only, and the eager path counts no metric. The
-save-time Stage 2 check also runs without the D6 baseline appended, so the served bytes as a whole
-never pass `alloy validate` (the baseline is a fixed template, so the practical risk is low). Step 4
-of the remediation plan (R4).
-
 Fixed bugs (B-CONTAIN-1, B-CONCAT, B-STAGEORDER, F9-a) are in
 `docs/archive/completed-2026-09-11.md` with their red-run evidence. B-VIEWER-CANVAS (#226, a
 viewer's canvas and inspector stayed editable) shipped fixed in v0.15.0 (#256). B-GITSYNC-PRUNE
@@ -258,6 +237,29 @@ more-than-half-and-more-than-three guard (spec §10, "Removed files"); red-first
 (#348). The per-IP local sign-in throttle bypass (chi's `middleware.RealIP` trusted
 `True-Client-IP` / `X-Real-IP` / `X-Forwarded-For` from any client) ships fixed in v0.18.0
 (#350); forwarding headers are read only from peers in `server.trusted_proxies`.
+
+The three bugs the 2026-10-22 review found ship fixed in the prerelease v0.19.0-rc.1
+(`docs/plans/2026-10-22-review-remediation.md`):
+
+- **B-GITSYNC-ATOMIC** (medium; R8, step 6, #373) — a git sync wrote the files of a commit that
+  passed, dropped the failing ones, and under a prune guard still applied the commit's updates,
+  contrary to spec §8. Any failing file or a tripped guard now applies nothing; the commit is
+  dry-run once as a whole for the link's collector with role enforcement, refusing only errors the
+  commit brings (pre-existing ones apply with a `warning`) and any check that could not complete;
+  sync audit rows carry `commit`, `git_path`, `repo_link_id`; only the link's collector is
+  recomputed. Red-first specs in `internal/gitsync/reconciler_internal_test.go` ("a commit
+  applies atomically (R8)").
+- **B-AGENT-INSTANCE** (medium; R9, R10, step 5, #370) — `GetConfig` could rebind any instance id
+  across orgs and `UnregisterCollector` had no org check. Instances are keyed per collector
+  (migration `0036`); the row is written only after the org check; a poll clears
+  `unregistered_at`; an OIDC caller with an org unregisters only that org's rows (spec §4.1);
+  refusals count in `shepherd_agent_refused_total`. A static agent token can still unregister
+  any instance (it can already poll as any collector); the instance re-registers on its next
+  poll. Specs in `internal/agentapi/instance_binding_test.go`.
+- **B-SERVE-AUDIT** (low; R4, step 4, #367) — a failed recompute now logs at Error, counts
+  `shepherd_serve_recompute_failures_total` on both paths and writes one `serve.recompute_failed`
+  audit row per collector and generation (migration `0035`); Stage 3 validates the merged config
+  with the D6 baseline appended.
 
 **2026-10-08 pre-release walkthrough** (kind dev stack, Playwright MCP): four high and six medium
 findings, all fixed in v0.15.0 — the builder save landing on stale data (H1), App
@@ -368,9 +370,11 @@ B1–B3 come from the v0.6.0 manual UI walkthrough (`docs/archive/plans/2026-09-
 first live bring-up (`docs/archive/plans/2026-09-14-kind-dev-stack.md`); every other finding from both
 was closed in the same batches (`CHANGELOG.md` v0.7.0).
 
-The 2026-10-22 whole-project review's remaining findings — the duplicated serve-cache write, the
-nil-schema divergence, the role-vocabulary refactor and a service-account viewer tier, plus smaller
-fixes — are decided and sequenced in `docs/plans/2026-10-22-review-remediation.md`.
+The 2026-10-22 whole-project review's findings are decided and sequenced in
+`docs/plans/2026-10-22-review-remediation.md`. Steps 1–6, 4b–4d and 7a (the serve-cache write, the
+nil-schema divergence, the role-vocabulary refactor and the smaller fixes) ship in v0.19.0-rc.1;
+step 7b (a service-account viewer tier, R14) and the plan's §6 follow-ups (#374, #375, #377, #378)
+are open.
 
 In rough priority order; closed items stay in place, marked with the release that shipped them:
 

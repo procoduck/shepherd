@@ -182,6 +182,11 @@ changelog:
 
 release:
   disable: "{{ if index .Env \"SKIP_SCM_RELEASE\" }}true{{ end }}"
+  # A vX.Y.Z-rc.N tag publishes a GitHub *prerelease*, which GitHub never
+  # marks "Latest" -- the same rule the :latest manifests' skip_push follows
+  # above. goreleaser's default (false) would have made every rc the
+  # repository's Latest release.
+  prerelease: auto
   # GitHub releases when the mirror is GitHub; on Azure DevOps set SKIP_SCM_RELEASE=1 —
   # the images + manifests are the release artifacts there.
 

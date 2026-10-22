@@ -12,6 +12,13 @@ import (
 
 // goreleaserConfig is the subset of .goreleaser.yaml these specs read.
 type goreleaserConfig struct {
+	Release struct {
+		Prerelease string `yaml:"prerelease"`
+	} `yaml:"release"`
+	DockerManifests []struct {
+		NameTemplate string `yaml:"name_template"`
+		SkipPush     string `yaml:"skip_push"`
+	} `yaml:"docker_manifests"`
 	Changelog struct {
 		Filters struct {
 			Exclude []string `yaml:"exclude"`
@@ -88,5 +95,28 @@ var _ = Describe(".goreleaser.yaml", func() {
 		Expect(version).NotTo(Equal("latest"))
 		Expect(version).To(MatchRegexp(`^v2\.\d+\.\d+$`),
 			"goreleaser version must be an exact v2.x.y release, matching .goreleaser.yaml's `version: 2` config schema")
+	})
+
+	// Red run, 2026-10-22 (v0.19.0-rc.1 prep): the release block had no
+	// `prerelease` key. goreleaser's default is false, so a vX.Y.Z-rc.N tag
+	// would have published an ordinary GitHub release -- which GitHub then
+	// marks "Latest" -- even though the :latest image manifests were already
+	// skipped for prereleases. Both halves have to agree.
+	It("marks a prerelease tag's GitHub release as a prerelease and never moves :latest for it", func() {
+		var cfg goreleaserConfig
+		loadYAML(".goreleaser.yaml", &cfg)
+
+		Expect(cfg.Release.Prerelease).To(Equal("auto"),
+			"release.prerelease must be auto, so a -rc tag is published as a GitHub prerelease, not the new Latest")
+
+		latest := 0
+		for _, m := range cfg.DockerManifests {
+			if regexp.MustCompile(`:latest$`).MatchString(m.NameTemplate) {
+				latest++
+				Expect(m.SkipPush).To(Equal("{{ if .Prerelease }}true{{ end }}"),
+					m.NameTemplate+" must skip its push on a prerelease")
+			}
+		}
+		Expect(latest).To(BeNumerically(">", 0), "no :latest docker manifest found")
 	})
 })

@@ -522,11 +522,17 @@ check-docs-drift: ## Guard: site/docs/ matches what build-docs.py produces
 # the site: the landing page sat at `--version 0.8.2` through a chart bump
 # because the app-version loop covered that file and the chart-version loop
 # did not.
-check-docs-version: ## Guard: docs quote the chart's own version and appVersion
+check-docs-version: ## Guard: docs quote the chart's own version and appVersion (last stable during a prerelease)
 	@# Release prep has to touch several files that all restate the same two
 	@# numbers, and the site was missed twice in a row -- once shipping an
 	@# install command naming an image tag that did not exist. Chart.yaml is
 	@# the source of truth for both; everything else is checked against it.
+	@# A prerelease (a Chart.yaml version with a -suffix, e.g. 0.23.0-rc.1) is
+	@# the exception: the site deploys from main and the README is the repo's
+	@# front page, so public install instructions must keep quoting the last
+	@# stable release. While Chart.yaml carries a prerelease the docs must
+	@# quote a stable version -- never a prerelease, and never the unreleased
+	@# base the prerelease leads up to (0.23.0 for 0.23.0-rc.1).
 	@fail=0; \
 	chart=deploy/helm/shepherd/Chart.yaml; \
 	cver=$$(sed -n 's/^version:[[:space:]]*//p' $$chart | head -1 | tr -d '"'); \
@@ -534,19 +540,23 @@ check-docs-version: ## Guard: docs quote the chart's own version and appVersion
 	if [ -z "$$cver" ] || [ -z "$$aver" ]; then \
 		echo "ERROR: could not read version/appVersion from $$chart"; exit 1; \
 	fi; \
+	ok() { case "$$2" in \
+		*-*) case "$$1" in *-*) return 1;; esac; [ "$$1" != "$${2%%-*}" ];; \
+		*) [ "$$1" = "$$2" ];; \
+	esac; }; \
 	for f in site/index.html $$(ls site/docs/*.html); do \
 		for got in $$(sed -n 's/.*<span class="pill">v\([0-9][^<]*\)<\/span>.*/\1/p' $$f) \
-		           $$(sed -n 's/.*eyebrow.*[> ]v\([0-9][0-9.]*\) .*/\1/p' $$f) \
-		           $$(sed -n 's/.*--set image.tag=\([0-9][0-9.]*\).*/\1/p' $$f); do \
-			if [ "$$got" != "$$aver" ]; then \
-				echo "ERROR: $$f names app version '$$got' but Chart.yaml appVersion is '$$aver'"; fail=1; \
+		           $$(sed -n 's/.*eyebrow.*[> ]v\([0-9][0-9A-Za-z.-]*\) .*/\1/p' $$f) \
+		           $$(sed -n 's/.*--set image.tag=\([0-9][0-9A-Za-z.-]*\).*/\1/p' $$f); do \
+			if ! ok "$$got" "$$aver"; then \
+				echo "ERROR: $$f names app version '$$got' but Chart.yaml appVersion is '$$aver' (a prerelease appVersion requires the last stable version)"; fail=1; \
 			fi; \
 		done; \
 	done; \
 	for f in README.md site/index.html $$(ls site/docs/*.html); do \
-		for got in $$(sed -n 's/.*charts\/shepherd --version \([0-9][0-9.]*\).*/\1/p' $$f); do \
-			if [ "$$got" != "$$cver" ]; then \
-				echo "ERROR: $$f installs chart --version $$got but Chart.yaml version is '$$cver'"; fail=1; \
+		for got in $$(sed -n 's/.*charts\/shepherd --version \([0-9][0-9A-Za-z.-]*\).*/\1/p' $$f); do \
+			if ! ok "$$got" "$$cver"; then \
+				echo "ERROR: $$f installs chart --version $$got but Chart.yaml version is '$$cver' (a prerelease version requires the last stable version)"; fail=1; \
 			fi; \
 		done; \
 	done; \

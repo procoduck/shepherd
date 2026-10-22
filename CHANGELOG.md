@@ -11,6 +11,159 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
+## v0.19.0-rc.1 (prerelease)
+
+Chart 0.23.0-rc.1, a **release candidate** for v0.19.0. It is published as a GitHub prerelease:
+`:latest` does not move, and `helm install` without `--version 0.23.0-rc.1` (or `--devel`)
+keeps resolving chart 0.22.0. The public docs keep quoting v0.18.0 / chart 0.22.0 until v0.19.0.
+It exists to exercise the new signed release workflow end to end — signed-tag gate, chart
+provenance, image SBOM attestations pushed to the registry and the self-verify job — and the
+changes below, the first whole-project review's remediation (steps 1–6, 4b–4d and 7a), before
+the real 0.19.0. **It breaks management-API clients** (roles are enums, see *API*), changes the
+served config format (one recompute per collector) and adds migrations `0035`–`0037`.
+
+### Upgrade notes
+
+`helm upgrade` to chart 0.23.0-rc.1 — read `deploy/helm/shepherd/UPGRADING.md` (0.22.x → 0.23.0)
+first:
+
+- **Served config format 2 → 3: one recompute per collector.** Every cached config is recomputed
+  once, on its collector's next poll. On deployments with the beacon enabled the result is
+  byte-identical, so collectors answer `NotModified` and do not reload. With
+  `server.beacon_disabled: true`, collectors whose row was last written by an eager recompute
+  lose a beacon `remote_write` block that pointed at an unmounted endpoint, and **reload once**.
+  (#372)
+- **Migrations `0035`–`0037`** run in the pre-upgrade Job: `0035` adds
+  `serve_cache.last_failed_seq` (#367); `0036` changes `collector_instances`' primary key from
+  `(id)` to `(collector_id, id)` and adds an index on `id` — a constraint swap, existing rows are
+  already one per id; its down migration is lossy and keeps each id's most recently seen row
+  (#370); `0037` renames `orgs.reader_group_id` to `viewer_group_id` (#381).
+- **Expect agent-RPC errors during the rollout.** Replicas still on the old image write instances
+  with `ON CONFLICT (id)`, which Postgres rejects against the `0036` key, so their `GetConfig` and
+  `RegisterCollector` answer `Internal` until the rollout finishes. Alloy keeps its last loaded
+  config and retries; nothing changes on the collectors. Finish the rollout promptly. (#370)
+- **Management-API clients break** (#381). Roles are enums on the wire (`ROLE_VIEWER` /
+  `ROLE_EDITOR` / `ROLE_ADMIN`, not `"viewer"` / `"editor"` / `"admin"`); `CreateServiceAccount`
+  requires `role` (it defaulted to editor); `Org.reader_group_id` is now `viewer_group_id` (JSON
+  `viewerGroupId`). **A JSON client still sending `readerGroupId` to `UpdateOrg` clears the org's
+  viewer group** — the unknown field is ignored and UpdateOrg replaces every field, so access is
+  removed, never granted. Update scripts before upgrading, and reload any browser tab left open
+  across the upgrade before editing an org. Details under *API*.
+- **Collector requests are bounded** (#370): an empty instance id, or an id or `cluster` over
+  256 bytes, is refused with `InvalidArgument`; a request message over 8 MiB with
+  `ResourceExhausted`. Alloy's default id is a UUID and hostnames are at most 253 bytes, and the
+  largest real request (a GetConfig echoing a full k8s-monitoring config) is a few hundred KiB.
+- **Release tags are signed, and every artifact is attested** (#380). The release workflow
+  refuses an unsigned or wrongly signed tag; archives, both images (provenance and SPDX SBOM)
+  and the chart carry attestations in GitHub's store and in the registry next to the artifact.
+  Check them with the commands on the docs' *Verifying releases* page.
+- New chart value `config.validate.stage3_timeout` (default `"30s"`, the server's existing
+  default) — additive, nothing to do. (#379)
+
+### Fixed
+
+- **A git sync could apply part of a commit.** Shipped. Files that passed were written and
+  failing ones dropped, each file was dry-run against its siblings' old content, and a tripped
+  prune guard still applied the commit's updates. A commit now applies whole or not at all: any
+  failing file (Stage 1/2, ownership, a name clash, the dry run, role enforcement) or a tripped
+  guard writes nothing, the link shows `error` (or `warning` for a guard) naming up to five
+  failing files, and the collector keeps serving the previous commit. The commit is dry-run once
+  as one merged config for the link's collector, with role enforcement and the D6 baseline; an
+  error already present in the collector's merged config before the commit does not refuse it —
+  the commit applies and the link shows `warning` naming the already-broken pipelines — but a
+  check that could not complete (timeout, no output) refuses it. Sync-written
+  `pipeline.create` / `pipeline.update` audit rows carry `commit`, `git_path` and
+  `repo_link_id`, and only the link's collector is recomputed. (B-GITSYNC-ATOMIC, #373)
+- **Collector instance ids were not bound to an org.** Shipped. Any valid agent token could
+  rebind another org's (hostname-like) instance id through `GetConfig`, and `UnregisterCollector`
+  had no org check and its mark was never cleared. Instances are now keyed per collector
+  (migration `0036`), so an id never moves and cannot be squatted; the instance row is written
+  only after the org check; a poll clears `unregistered_at`; an OIDC-bound or mode-2 caller
+  unregisters only its own org's rows (unknown and out-of-scope ids answer the same success).
+  New metric `shepherd_agent_refused_total{reason}` (`claim_denied`, `role_denied`,
+  `unregister_denied`), with rate-limited refusal logs. (B-AGENT-INSTANCE, #370)
+- **A failed recompute left no audit trail.** Shipped. Both serve paths now log at Error, count
+  `shepherd_serve_recompute_failures_total` (the eager path never did), keep the previous entry
+  and write one `serve.recompute_failed` audit row per collector and generation (migration
+  `0035`). Stage 3 now validates the merged config with the D6 baseline appended — the bytes
+  that are served. (B-SERVE-AUDIT, #367)
+- **A beacon-disabled collector's config flipped between two versions.** Shipped. With
+  `server.beacon_disabled: true`, the eager recompute paths appended the beacon baseline and the
+  lazy path did not, so the hash changed with whichever path ran last and Alloy reloaded each
+  time. One derivation (`serve.BeaconBaseline`) now feeds every path; serve format 3 (see
+  *Upgrade notes*). (#372)
+- **Saving a pipeline in a large org could exceed the Stage 3 budget.** Shipped. Stage 3 ran
+  `alloy validate` for every collector in the org, about 16 ms each, so roughly 1,800 collectors
+  exhausted the 30 s budget. It now validates only collectors the old or new matchers select,
+  once per distinct merged config (collector identity normalised), and reports a failure against
+  every cluster/role that shares it. The budget is exposed as the chart value
+  `config.validate.stage3_timeout`. (#379)
+- **Deleting a repository link recomputed every dirty collector in the org**, not just the
+  link's; it now recomputes that collector only, and the org's served-config and revision views
+  refresh in the UI. (#371, #364)
+- **Serve path internals:** one shared serve-cache write (`serve.Store`) for both paths, and a
+  component schema that fails to load is now fatal at boot instead of serving without role
+  enforcement (reachable only with a broken build). No served-byte change. (#367)
+- **Small fixes:** errors wrapped with context in tenant-route apply and destination encoding;
+  the graph view builds its module index once per graph; the database docs page says Shepherd
+  calls the Kubernetes API when the receiver tier applies tenant routes; the sandbox simulator
+  logs a deliberate stop's exit at debug level. _Shipped._ (#364, #366)
+
+### Changed
+
+- **One role model, viewer < editor < admin, end to end.** Shipped. The `reader` / `orgeditor` /
+  `orgadmin` spellings are gone from Go, the database, the API, the SPA and the docs; labels in
+  the UI are unchanged. No human principal's permissions change — a golden file over all 101
+  procedures proves it — with two deliberate tightenings: a service account with an unknown
+  stored tier is now denied (it fell back to editor; the database CHECK means no row can hold one
+  today), and `CreateServiceAccount` refuses an unset role. `shepherd dev create-session
+  --persona` takes `admin-platform` / `viewer-platform`. (#381)
+- **Spec catch-up:** collector OIDC (gate, binding, mode 2) gets its own §7.3b; §4.1 states that
+  a disallowed identity gets `PermissionDenied`; §7.2 describes team-scoped pipeline write as
+  implemented; §6 documents that the lazy path matches on the request's local attributes and the
+  eager path on the last stored ones. (#366)
+
+### API
+
+**Breaking** (#381) — `buf breaking` would accept the field changes (each string field that
+became an enum reserves its old number), but JSON clients break:
+
+- `OrgMember.role`, `SetOrgMemberRequest.role`, `OrgMembership.role` (GetMe),
+  `ServiceAccount.role`, `CreateServiceAccountRequest.role` and `CreateServiceAccountResponse.role`
+  are the new `shepherd.mgmt.v1.Role` enum (`ROLE_VIEWER`, `ROLE_EDITOR`, `ROLE_ADMIN`). The old string
+  fields' numbers are reserved and the enums take new ones. `ROLE_UNSPECIFIED` is refused with
+  `invalid_argument` on every write; Connect's JSON codec reads an unknown name such as `"admin"`
+  as unspecified, so an old JSON client's write is refused rather than reinterpreted.
+- `CreateServiceAccount` requires `role` (`ROLE_EDITOR` or `ROLE_ADMIN`).
+- `Org.reader_group_id` → `viewer_group_id` in `Org`, `CreateOrgRequest` and `UpdateOrgRequest`
+  (same field numbers; JSON `viewerGroupId`). See *Upgrade notes* for the UpdateOrg caveat.
+- `TenantRoute.status` and `apply_status` are the enums `TenantRouteStatus` /
+  `TenantRouteApplyStatus` (`TENANT_ROUTE_STATUS_*`, `TENANT_ROUTE_APPLY_STATUS_*`).
+
+Collector API (`collector.v1`): no schema change; the request bounds under *Upgrade notes*.
+
+### Build & CI
+
+- **Signed releases** (#380): `release.yml` refuses a lightweight or unsigned tag (keys in
+  `.github/allowed_signers`, read from `main`); the chart gets build provenance by digest;
+  each image gets provenance and an SPDX-JSON SBOM attestation, all pushed to the registry as
+  well as GitHub's store; a read-only `verify-attestations` job re-checks every archive, image,
+  SBOM and the chart with the documented commands. New docs page *Verifying releases*; the
+  collectors page names the beacon URL source and the agent-token env vars.
+- **Prereleases:** a `-rc` tag now publishes a GitHub *prerelease* (`release.prerelease: auto`
+  in `.goreleaser.yaml`) instead of becoming the repository's Latest release, and
+  `make check-docs-version` / `make docs` keep the public docs on the last stable version while
+  `Chart.yaml` carries a prerelease.
+- **Go 1.27.3** (GO-2026-6809, `crypto/x509`, reached through HTTPS git fetches). (#365)
+- **Docs:** README fixes #348 had reverted restored; the review-remediation plan and its ledger
+  entries. (#363)
+
+### Dependencies
+
+- `connectrpc.com/connect` 1.21.1, `go-chi/chi/v5` 5.5.0, `onsi/ginkgo/v2` 2.33.1,
+  `prometheus/common` 0.72.1. (#352)
+- GitHub Actions: CodeQL 4.39.0, `goreleaser-action` 7.3.0, `scorecard-action` 2.5.0. (#353)
+
 ## v0.18.0
 
 Chart 0.22.0, released 2026-10-15. **Security fix: the per-IP local sign-in throttle could be
