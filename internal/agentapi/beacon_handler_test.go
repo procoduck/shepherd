@@ -6,12 +6,14 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 
 	"github.com/golang/snappy"
+	"github.com/jackc/pgx/v5/pgtype"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/prometheus/prompb"
@@ -245,6 +247,29 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 		// CreatedAt} (internal/store/sqlc/models.go, generated from
 		// 0010_beacon_inventory.up.sql). There is no column here a sample
 		// value of 42 could have landed in.
+	})
+
+	// Agent tokens are org-bound (migration 0038). The beacon authenticates
+	// the writer and keys its inventory on the token id; binding a token in
+	// place must not change either, or every bound collector's beacon would
+	// go dark after the bind.
+	It("accepts a write from an org-bound token, keyed by the same token id", func() {
+		org, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "beacon-org", DisplayName: "Beacon org", AdminGroupID: "g"})
+		Expect(err).NotTo(HaveOccurred())
+		var id pgtype.UUID
+		Expect(id.Scan(tokenID)).To(Succeed())
+		_, err = st.Queries.BindAgentToken(ctx, sqlc.BindAgentTokenParams{
+			ID: id, OrgID: org.ID, Clusters: json.RawMessage(`["prod-eu-1"]`), Roles: json.RawMessage(`["metrics"]`),
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		resp := postRaw(encodeWrite([][]prompb.Label{healthySeries("10.0.0.7:12345", "pipe_bound")}, 1), authHeader)
+		Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+
+		rows, err := st.Queries.ListBeaconInventoryByPrincipal(ctx, tokenID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(rows).To(HaveLen(1))
+		Expect(rows[0].ComponentName).To(Equal("pipe_bound"))
 	})
 
 	It("marks a component unhealthy when its unhealthy count is nonzero", func() {

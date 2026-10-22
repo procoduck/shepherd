@@ -115,7 +115,7 @@ var _ = Describe("Collector OIDC enforcement", Label("integration"), func() {
 		other, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "other-org", DisplayName: "Other", AdminGroupID: "g2"})
 		Expect(err).NotTo(HaveOccurred())
 		// Register the cluster and claim it to the other org first.
-		_, err = getConfig(ctx, "prod-eu-1", "metrics") // no principal = agent-token path
+		_, err = st.Queries.UpsertCluster(ctx, "prod-eu-1")
 		Expect(err).NotTo(HaveOccurred())
 		cl, err := st.Queries.GetClusterByName(ctx, "prod-eu-1")
 		Expect(err).NotTo(HaveOccurred())
@@ -139,8 +139,7 @@ var _ = Describe("Collector OIDC enforcement", Label("integration"), func() {
 
 	It("falls through to the admin cluster-claim model when the identity has no binding", func(ctx context.Context) {
 		// No binding for client-unbound: OIDC proved liveness only. The cluster
-		// stays unclaimed and empty config is served, exactly as for an
-		// agent-token collector before an admin claims it.
+		// stays unclaimed and empty config is served until an admin claims it.
 		resp, err := getConfig(oidcCtx(ctx, "client-unbound"), "prod-eu-1", "metrics")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(resp.Msg.Content).To(BeEmpty())
@@ -174,7 +173,7 @@ var _ = Describe("Collector OIDC enforcement", Label("integration"), func() {
 	It("refuses an asserted org taking over another org's cluster", func(ctx context.Context) {
 		other, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "other-org", DisplayName: "Other", AdminGroupID: "g2"})
 		Expect(err).NotTo(HaveOccurred())
-		_, err = getConfig(ctx, "prod-eu-1", "metrics") // agent-token path registers the cluster
+		_, err = st.Queries.UpsertCluster(ctx, "prod-eu-1")
 		Expect(err).NotTo(HaveOccurred())
 		cl, err := st.Queries.GetClusterByName(ctx, "prod-eu-1")
 		Expect(err).NotTo(HaveOccurred())

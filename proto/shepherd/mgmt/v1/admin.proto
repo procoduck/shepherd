@@ -7,8 +7,8 @@ import "google/protobuf/timestamp.proto";
 option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 
 // AdminService is org, cluster, and agent-token administration plus group
-// search. All methods require app-admin, except
-// SearchGroups (app admin or org admin).
+// search. All methods require app-admin, except SearchGroups and
+// List/Create/RevokeAgentToken (app admin, or org admin of the request's org).
 service AdminService {
   rpc ListOrgs(ListOrgsRequest) returns (ListOrgsResponse) {}
   rpc CreateOrg(CreateOrgRequest) returns (Org) {}
@@ -22,9 +22,16 @@ service AdminService {
   rpc ClaimCluster(ClaimClusterRequest) returns (ClaimClusterResponse) {}
   rpc UnclaimCluster(UnclaimClusterRequest) returns (UnclaimClusterResponse) {}
 
+  // Agent tokens are bound to an organisation (and optionally narrowed to
+  // cluster/role allowlists). An org admin lists, creates and revokes the
+  // tokens bound to their own org; an app admin sees every token, including
+  // unbound ones, and is the only caller who may bind or rebind one.
   rpc ListAgentTokens(ListAgentTokensRequest) returns (ListAgentTokensResponse) {}
   rpc CreateAgentToken(CreateAgentTokenRequest) returns (CreateAgentTokenResponse) {}
   rpc RevokeAgentToken(RevokeAgentTokenRequest) returns (RevokeAgentTokenResponse) {}
+  // BindAgentToken sets a live token's org and allowlists in place. The
+  // secret is unchanged, so collectors keep their credentials. App admin only.
+  rpc BindAgentToken(BindAgentTokenRequest) returns (AgentToken) {}
 
   // Collector OIDC identity bindings (docs/archive/plans/2026-09-16-agent-oidc-auth.md):
   // map a collector's OIDC identity (issuer + app id) to an organisation.
@@ -192,9 +199,22 @@ message AgentToken {
   // Status is "active" or "revoked".
   string status = 4;
   google.protobuf.Timestamp created_at = 5;
+  // org_id is the organisation the token is bound to; empty means unbound —
+  // the agent API refuses an unbound token until it is bound.
+  string org_id = 6;
+  string org_name = 7;
+  // Optional allowlists narrowing what the token may act as within its org.
+  // Empty means any.
+  repeated string clusters = 8;
+  repeated string roles = 9;
 }
 
-message ListAgentTokensRequest {}
+// ListAgentTokensRequest: org_id set lists only the tokens bound to that org
+// (and lets that org's admins call it); empty lists every token, unbound ones
+// included, and is app admin only.
+message ListAgentTokensRequest {
+  string org_id = 1;
+}
 
 message ListAgentTokensResponse {
   repeated AgentToken items = 1;
@@ -203,6 +223,10 @@ message ListAgentTokensResponse {
 
 message CreateAgentTokenRequest {
   string name = 1;
+  // org_id is required: every new token is bound to an organisation.
+  string org_id = 2;
+  repeated string clusters = 3;
+  repeated string roles = 4;
 }
 
 // CreateAgentTokenResponse carries the one-time plaintext secret alongside
@@ -213,11 +237,23 @@ message CreateAgentTokenResponse {
   string secret = 3;
 }
 
+// RevokeAgentTokenRequest: with org_id set, only a token bound to that org
+// can be revoked (NotFound otherwise); empty is app admin only.
 message RevokeAgentTokenRequest {
   string id = 1;
+  string org_id = 2;
 }
 
 message RevokeAgentTokenResponse {}
+
+// BindAgentTokenRequest binds (or rebinds) a live token to an organisation.
+// Replaces the token's org and both allowlists.
+message BindAgentTokenRequest {
+  string id = 1;
+  string org_id = 2;
+  repeated string clusters = 3;
+  repeated string roles = 4;
+}
 
 // AgentIdentity is one collector-OIDC binding: a token identity (issuer +
 // app_id) mapped to an org, with optional cluster/role allowlists (empty =

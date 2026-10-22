@@ -52,7 +52,7 @@ var (
 	AgentRefusedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "shepherd",
 		Name:      "agent_refused_total",
-		Help:      "Total collector RPCs refused on an identity check, by reason (claim_denied, role_denied, unregister_denied).",
+		Help:      "Total collector RPCs refused on an identity check, by reason (claim_denied, role_denied, unregister_denied, token_unbound).",
 	}, []string{"reason"})
 
 	// SyncTotal counts gitsync reconciliation attempts by result.
@@ -139,6 +139,11 @@ const (
 	// with rows outside the caller's org (or its allowlists). The caller still
 	// gets success; those rows are left alone and only counted.
 	AgentRefusedUnregisterDenied = "unregister_denied"
+	// AgentRefusedTokenUnbound: an agent token with no organisation binding
+	// (a token created before tokens were org-bound, or one whose org was
+	// deleted). It authenticates but may act for nothing until an app admin
+	// binds it.
+	AgentRefusedTokenUnbound = "token_unbound"
 )
 
 // init publishes the build-info series as soon as the package loads, so

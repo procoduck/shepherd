@@ -260,7 +260,7 @@ func runDevSeed(cmd *cobra.Command, _ []string) error {
 		// shepherd itself from starting.
 		fmt.Printf("gitops seed: skipped (%v)\n", err)
 	}
-	if err := seedAgentToken(ctx, st); err != nil {
+	if err := seedAgentToken(ctx, st, platform.ID); err != nil {
 		return fmt.Errorf("seeding agent token: %w", err)
 	}
 	fmt.Println("seed complete")
@@ -752,17 +752,30 @@ func seedGiteaPushFixture(ctx context.Context, repoURL string) error {
 	return nil
 }
 
-func seedAgentToken(ctx context.Context, st *store.Store) error {
+// seedAgentToken seeds the dev collectors' token, bound to platform-org (the
+// org that claims every cluster the dev Alloy instances report). A token left
+// over from a seed that predates org-bound tokens is bound in place, so
+// re-running the seed heals an existing dev stack.
+func seedAgentToken(ctx context.Context, st *store.Store, orgID pgtype.UUID) error {
 	var id pgtype.UUID
 	if err := id.Scan(seedAgentTokenID); err != nil {
 		return err
 	}
 	hash := sha256.Sum256([]byte(seedAgentTokenSecret))
-	_, err := st.Queries.CreateAgentTokenWithID(ctx, sqlc.CreateAgentTokenWithIDParams{ID: id, Name: "dev-alloy-token", TokenHash: hash[:], CreatedBy: "seed"})
+	empty := json.RawMessage(`[]`)
+	_, err := st.Queries.CreateAgentTokenWithID(ctx, sqlc.CreateAgentTokenWithIDParams{
+		ID: id, Name: "dev-alloy-token", TokenHash: hash[:], CreatedBy: "seed",
+		OrgID: orgID, Clusters: empty, Roles: empty,
+	})
 	if err != nil && !isUnique(err) {
 		return err
 	}
-	fmt.Printf("agent_token: id=%s secret=%s\n", seedAgentTokenID, seedAgentTokenSecret)
+	if err != nil {
+		if _, err := st.Queries.BindAgentToken(ctx, sqlc.BindAgentTokenParams{ID: id, OrgID: orgID, Clusters: empty, Roles: empty}); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("binding seeded token: %w", err)
+		}
+	}
+	fmt.Printf("agent_token: id=%s secret=%s org=platform-org\n", seedAgentTokenID, seedAgentTokenSecret)
 	return nil
 }
 

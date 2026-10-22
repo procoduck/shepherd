@@ -7,24 +7,34 @@ package sqlc
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const createAgentToken = `-- name: CreateAgentToken :one
-INSERT INTO agent_tokens (name, token_hash, created_by)
-VALUES ($1, $2, $3)
-RETURNING id, name, token_hash, created_by, revoked_at, created_at, updated_at
+const bindAgentToken = `-- name: BindAgentToken :one
+UPDATE agent_tokens
+SET org_id = $1, clusters = $2, roles = $3, updated_at = now()
+WHERE id = $4 AND revoked_at IS NULL
+RETURNING id, name, token_hash, created_by, revoked_at, created_at, updated_at, org_id, clusters, roles
 `
 
-type CreateAgentTokenParams struct {
-	Name      string `json:"name"`
-	TokenHash []byte `json:"token_hash"`
-	CreatedBy string `json:"created_by"`
+type BindAgentTokenParams struct {
+	OrgID    pgtype.UUID     `json:"org_id"`
+	Clusters json.RawMessage `json:"clusters"`
+	Roles    json.RawMessage `json:"roles"`
+	ID       pgtype.UUID     `json:"id"`
 }
 
-func (q *Queries) CreateAgentToken(ctx context.Context, arg CreateAgentTokenParams) (AgentToken, error) {
-	row := q.db.QueryRow(ctx, createAgentToken, arg.Name, arg.TokenHash, arg.CreatedBy)
+// Sets (or replaces) a live token's org binding in place. The secret hash is
+// untouched, so a collector keeps its credentials across a bind.
+func (q *Queries) BindAgentToken(ctx context.Context, arg BindAgentTokenParams) (AgentToken, error) {
+	row := q.db.QueryRow(ctx, bindAgentToken,
+		arg.OrgID,
+		arg.Clusters,
+		arg.Roles,
+		arg.ID,
+	)
 	var i AgentToken
 	err := row.Scan(
 		&i.ID,
@@ -34,21 +44,77 @@ func (q *Queries) CreateAgentToken(ctx context.Context, arg CreateAgentTokenPara
 		&i.RevokedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.OrgID,
+		&i.Clusters,
+		&i.Roles,
+	)
+	return i, err
+}
+
+const createAgentToken = `-- name: CreateAgentToken :one
+INSERT INTO agent_tokens (name, token_hash, created_by, org_id, clusters, roles)
+VALUES (
+    $1, $2, $3, $4,
+    COALESCE($5::jsonb, '[]'::jsonb), COALESCE($6::jsonb, '[]'::jsonb)
+)
+RETURNING id, name, token_hash, created_by, revoked_at, created_at, updated_at, org_id, clusters, roles
+`
+
+type CreateAgentTokenParams struct {
+	Name      string          `json:"name"`
+	TokenHash []byte          `json:"token_hash"`
+	CreatedBy string          `json:"created_by"`
+	OrgID     pgtype.UUID     `json:"org_id"`
+	Clusters  json.RawMessage `json:"clusters"`
+	Roles     json.RawMessage `json:"roles"`
+}
+
+// org_id is required for every new token (enforced in Go: the API and CLI
+// refuse a create without one); clusters/roles are jsonb string-array
+// allowlists, empty = any within the org (0038_agent_token_org_binding); a
+// NULL allowlist is stored as the empty one.
+func (q *Queries) CreateAgentToken(ctx context.Context, arg CreateAgentTokenParams) (AgentToken, error) {
+	row := q.db.QueryRow(ctx, createAgentToken,
+		arg.Name,
+		arg.TokenHash,
+		arg.CreatedBy,
+		arg.OrgID,
+		arg.Clusters,
+		arg.Roles,
+	)
+	var i AgentToken
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.TokenHash,
+		&i.CreatedBy,
+		&i.RevokedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.OrgID,
+		&i.Clusters,
+		&i.Roles,
 	)
 	return i, err
 }
 
 const createAgentTokenWithID = `-- name: CreateAgentTokenWithID :one
-INSERT INTO agent_tokens (id, name, token_hash, created_by)
-VALUES ($1, $2, $3, $4)
-RETURNING id, name, token_hash, created_by, revoked_at, created_at, updated_at
+INSERT INTO agent_tokens (id, name, token_hash, created_by, org_id, clusters, roles)
+VALUES (
+    $1, $2, $3, $4, $5,
+    COALESCE($6::jsonb, '[]'::jsonb), COALESCE($7::jsonb, '[]'::jsonb)
+)
+RETURNING id, name, token_hash, created_by, revoked_at, created_at, updated_at, org_id, clusters, roles
 `
 
 type CreateAgentTokenWithIDParams struct {
-	ID        pgtype.UUID `json:"id"`
-	Name      string      `json:"name"`
-	TokenHash []byte      `json:"token_hash"`
-	CreatedBy string      `json:"created_by"`
+	ID        pgtype.UUID     `json:"id"`
+	Name      string          `json:"name"`
+	TokenHash []byte          `json:"token_hash"`
+	CreatedBy string          `json:"created_by"`
+	OrgID     pgtype.UUID     `json:"org_id"`
+	Clusters  json.RawMessage `json:"clusters"`
+	Roles     json.RawMessage `json:"roles"`
 }
 
 func (q *Queries) CreateAgentTokenWithID(ctx context.Context, arg CreateAgentTokenWithIDParams) (AgentToken, error) {
@@ -57,6 +123,9 @@ func (q *Queries) CreateAgentTokenWithID(ctx context.Context, arg CreateAgentTok
 		arg.Name,
 		arg.TokenHash,
 		arg.CreatedBy,
+		arg.OrgID,
+		arg.Clusters,
+		arg.Roles,
 	)
 	var i AgentToken
 	err := row.Scan(
@@ -67,12 +136,15 @@ func (q *Queries) CreateAgentTokenWithID(ctx context.Context, arg CreateAgentTok
 		&i.RevokedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.OrgID,
+		&i.Clusters,
+		&i.Roles,
 	)
 	return i, err
 }
 
 const getAgentTokenByID = `-- name: GetAgentTokenByID :one
-SELECT id, name, token_hash, created_by, revoked_at, created_at, updated_at FROM agent_tokens WHERE id = $1 AND revoked_at IS NULL
+SELECT id, name, token_hash, created_by, revoked_at, created_at, updated_at, org_id, clusters, roles FROM agent_tokens WHERE id = $1 AND revoked_at IS NULL
 `
 
 func (q *Queries) GetAgentTokenByID(ctx context.Context, id pgtype.UUID) (AgentToken, error) {
@@ -86,31 +158,49 @@ func (q *Queries) GetAgentTokenByID(ctx context.Context, id pgtype.UUID) (AgentT
 		&i.RevokedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.OrgID,
+		&i.Clusters,
+		&i.Roles,
 	)
 	return i, err
 }
 
 const listAgentTokens = `-- name: ListAgentTokens :many
-SELECT id, name, token_hash, created_by, revoked_at, created_at, updated_at FROM agent_tokens ORDER BY created_at DESC
+SELECT t.id, t.name, t.token_hash, t.created_by, t.revoked_at, t.created_at, t.updated_at, t.org_id, t.clusters, t.roles, o.name AS org_name
+FROM agent_tokens t
+LEFT JOIN orgs o ON o.id = t.org_id
+WHERE $1::uuid IS NULL OR t.org_id = $1::uuid
+ORDER BY (t.org_id IS NULL) DESC, t.created_at DESC
 `
 
-func (q *Queries) ListAgentTokens(ctx context.Context) ([]AgentToken, error) {
-	rows, err := q.db.Query(ctx, listAgentTokens)
+type ListAgentTokensRow struct {
+	AgentToken AgentToken  `json:"agent_token"`
+	OrgName    pgtype.Text `json:"org_name"`
+}
+
+// Every token when org_id is NULL (an app admin's view), else only the
+// tokens bound to that org. Unbound tokens sort first: they need an action.
+func (q *Queries) ListAgentTokens(ctx context.Context, orgID pgtype.UUID) ([]ListAgentTokensRow, error) {
+	rows, err := q.db.Query(ctx, listAgentTokens, orgID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []AgentToken
+	var items []ListAgentTokensRow
 	for rows.Next() {
-		var i AgentToken
+		var i ListAgentTokensRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.TokenHash,
-			&i.CreatedBy,
-			&i.RevokedAt,
-			&i.CreatedAt,
-			&i.UpdatedAt,
+			&i.AgentToken.ID,
+			&i.AgentToken.Name,
+			&i.AgentToken.TokenHash,
+			&i.AgentToken.CreatedBy,
+			&i.AgentToken.RevokedAt,
+			&i.AgentToken.CreatedAt,
+			&i.AgentToken.UpdatedAt,
+			&i.AgentToken.OrgID,
+			&i.AgentToken.Clusters,
+			&i.AgentToken.Roles,
+			&i.OrgName,
 		); err != nil {
 			return nil, err
 		}
@@ -122,11 +212,35 @@ func (q *Queries) ListAgentTokens(ctx context.Context) ([]AgentToken, error) {
 	return items, nil
 }
 
-const revokeAgentToken = `-- name: RevokeAgentToken :exec
-UPDATE agent_tokens SET revoked_at = now(), updated_at = now() WHERE id = $1
+const revokeAgentToken = `-- name: RevokeAgentToken :one
+UPDATE agent_tokens SET revoked_at = now(), updated_at = now()
+WHERE id = $1
+  AND ($2::uuid IS NULL OR org_id = $2::uuid)
+RETURNING id, name, token_hash, created_by, revoked_at, created_at, updated_at, org_id, clusters, roles
 `
 
-func (q *Queries) RevokeAgentToken(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, revokeAgentToken, id)
-	return err
+type RevokeAgentTokenParams struct {
+	ID    pgtype.UUID `json:"id"`
+	OrgID pgtype.UUID `json:"org_id"`
+}
+
+// Scoped like ListAgentTokens: with org_id set only a token bound to that org
+// matches, so a caller scoped to one org can never revoke another org's (or
+// an unbound) token. No row → pgx.ErrNoRows → NotFound.
+func (q *Queries) RevokeAgentToken(ctx context.Context, arg RevokeAgentTokenParams) (AgentToken, error) {
+	row := q.db.QueryRow(ctx, revokeAgentToken, arg.ID, arg.OrgID)
+	var i AgentToken
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.TokenHash,
+		&i.CreatedBy,
+		&i.RevokedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.OrgID,
+		&i.Clusters,
+		&i.Roles,
+	)
+	return i, err
 }

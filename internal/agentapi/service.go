@@ -355,10 +355,13 @@ func (s *Service) applySilentPoll(ctx context.Context, collectorID pgtype.UUID, 
 //     asserted org) marks only rows whose collector's cluster is claimed to
 //     that org and, for a binding, inside its cluster/role allowlists (for an
 //     asserted org, inside the token's clusters claim);
-//   - a principal with no org of its own — an agent token, or OIDC with
-//     neither — marks every row with the id. Its org is resolved per request
-//     from the cluster claim of the collector it acts as, so it can already
-//     poll as any of them: this grants nothing new.
+//   - an agent token marks only rows inside its own binding (org and
+//     allowlists), the same scope as an OIDC binding; an unbound token is
+//     refused (token_unbound);
+//   - an OIDC principal with no org of its own marks every row with the id.
+//     Its org is resolved per request from the cluster claim of the
+//     collector it acts as, so it can already poll as any of them: this
+//     grants nothing new.
 //
 // The answer is the same success whether rows were marked, the id is unknown,
 // or every row is out of scope, so the call is no existence oracle across
@@ -372,6 +375,11 @@ func (s *Service) UnregisterCollector(
 	}
 	ok := connect.NewResponse(&collectorv1.UnregisterCollectorResponse{})
 	scope, err := s.callerScope(ctx)
+	var r *refusal
+	if errors.As(err, &r) {
+		// An unbound token: refused outright, like its other RPCs.
+		return nil, s.refused(err, "UnregisterCollector", req.Msg.Id, pgtype.UUID{}, "", "")
+	}
 	if errors.Is(err, errUnknownAssertedOrg) {
 		// The caller's scope is empty: nothing is in it.
 		s.refusals.record(s.logger, "UnregisterCollector", metrics.AgentRefusedUnregisterDenied, req.Msg.Id)
@@ -401,8 +409,8 @@ var errUnknownAssertedOrg = errors.New("token asserts an organisation that does 
 // identityScope is what a principal may act for on its own, independent of
 // any cluster it names: the org of its binding or asserted claim, and the
 // allowlists that come with it (nil = any). An invalid orgID is a principal
-// whose org is resolved per request from the cluster claim (an agent token,
-// or OIDC with no binding and no asserted org) — unscoped.
+// whose org is resolved per request from the cluster claim (OIDC with no
+// binding and no asserted org) — unscoped.
 type identityScope struct {
 	orgID    pgtype.UUID
 	clusters []string
@@ -410,10 +418,17 @@ type identityScope struct {
 }
 
 // callerScope resolves the principal's own org with resolveOrg's precedence:
-// a binding first, then a mode-2 asserted org, else none.
+// an agent token's binding (refused when unbound); for OIDC a binding first,
+// then a mode-2 asserted org, else none.
 func (s *Service) callerScope(ctx context.Context) (identityScope, error) {
 	p := PrincipalFrom(ctx)
-	if p.Kind != AuthKindOIDC || p.Claims == nil {
+	if p.Kind == AuthKindToken {
+		if !p.token.orgID.Valid {
+			return identityScope{}, refuse(metrics.AgentRefusedTokenUnbound, errTokenUnbound)
+		}
+		return identityScope{orgID: p.token.orgID, clusters: allowlist(p.token.clusters), roles: allowlist(p.token.roles)}, nil
+	}
+	if p.Claims == nil {
 		return identityScope{}, nil
 	}
 	binding, err := s.store.Queries.GetAgentIdentityByAppID(ctx, sqlc.GetAgentIdentityByAppIDParams{
@@ -626,28 +641,43 @@ func (s *Service) emitLocalAttrsMatchDrift(ctx context.Context, orgID pgtype.UUI
 	}
 }
 
-// effectiveAttrs returns local_attributes, falling back to deprecated attributes if empty.
-// resolveOrg decides which org a request's config is served for, applying the
-// collector-OIDC resolution chain (docs/archive/plans/2026-09-16-agent-oidc-auth.md D1):
+// errTokenUnbound refuses an agent token with no organisation binding.
+var errTokenUnbound = errors.New("agent token is not bound to an organisation; bind it with BindAgentToken / `shepherd token bind`")
+
+// resolveOrg decides which org a request's config is served for:
 //
-//  1. An OIDC principal with an agent_identities binding on its (issuer,
-//     app_id): the binding's org, after enforcing its optional cluster/role
-//     allowlists, and auto-claiming the cluster to that org (refusing a
-//     cluster already claimed by another org).
-//  2. Anything else — an agent-token principal, or an OIDC principal with no
-//     binding: the existing model, where org comes from an admin cluster-claim
+//  1. An agent-token principal: the token's own binding (migration 0038) —
+//     its org, after enforcing its optional cluster/role allowlists, and
+//     auto-claiming the cluster to that org (refusing a cluster already
+//     claimed by another org). A token with no org is refused
+//     (token_unbound).
+//  2. An OIDC principal, by the collector-OIDC resolution chain
+//     (docs/archive/plans/2026-09-16-agent-oidc-auth.md D1): an
+//     agent_identities binding on its (issuer, app_id), resolved exactly as
+//     a token's binding; else a mode-2 asserted org; else the admin
+//     cluster-claim model, where org comes from the cluster's claim
 //     (GetCollectorOrgID; an unclaimed cluster resolves to a null org and is
 //     served empty upstream).
 func (s *Service) resolveOrg(ctx context.Context, cluster, role string, coll sqlc.Collector) (pgtype.UUID, error) {
 	p := PrincipalFrom(ctx)
-	if p.Kind == AuthKindOIDC && p.Claims != nil {
+	switch p.Kind {
+	case AuthKindToken:
+		if !p.token.orgID.Valid {
+			return pgtype.UUID{}, refuse(metrics.AgentRefusedTokenUnbound, errTokenUnbound)
+		}
+		return s.resolveBoundOrg(ctx, cluster, role, coll, p.token, "agent token")
+	case AuthKindOIDC:
+		if p.Claims == nil {
+			break
+		}
 		binding, err := s.store.Queries.GetAgentIdentityByAppID(ctx, sqlc.GetAgentIdentityByAppIDParams{
 			Issuer: p.Claims.Issuer,
 			AppID:  p.Claims.AppID,
 		})
 		switch {
 		case err == nil:
-			return s.resolveBoundOrg(ctx, cluster, role, coll, binding)
+			return s.resolveBoundOrg(ctx, cluster, role, coll,
+				orgBinding{orgID: binding.OrgID, clusters: binding.Clusters, roles: binding.Roles}, "collector identity")
 		case errors.Is(err, pgx.ErrNoRows):
 			// No binding. If mode 2 is on and the token asserts an org (D1
 			// tier 2), trust it; otherwise OIDC proved liveness only and we
@@ -666,23 +696,25 @@ func (s *Service) resolveOrg(ctx context.Context, cluster, role string, coll sql
 	return orgID, nil
 }
 
-// resolveBoundOrg enforces an agent_identities binding's cluster/role
-// allowlists and auto-claims the cluster to the binding's org.
-func (s *Service) resolveBoundOrg(ctx context.Context, cluster, role string, coll sqlc.Collector, binding sqlc.AgentIdentity) (pgtype.UUID, error) {
-	if !allowlistPermits(binding.Clusters, cluster) {
+// resolveBoundOrg is the one resolver for a bound principal — an agent token
+// or an OIDC agent_identities binding: it enforces the binding's cluster/role
+// allowlists and auto-claims the cluster to the binding's org. subject names
+// the principal kind in a refusal message.
+func (s *Service) resolveBoundOrg(ctx context.Context, cluster, role string, coll sqlc.Collector, b orgBinding, subject string) (pgtype.UUID, error) {
+	if !allowlistPermits(b.clusters, cluster) {
 		return pgtype.UUID{}, refuse(metrics.AgentRefusedClaimDenied,
-			fmt.Errorf("cluster %q is not permitted for this collector identity", cluster))
+			fmt.Errorf("cluster %q is not permitted for this %s", cluster, subject))
 	}
-	if !allowlistPermits(binding.Roles, role) {
+	if !allowlistPermits(b.roles, role) {
 		return pgtype.UUID{}, refuse(metrics.AgentRefusedRoleDenied,
-			fmt.Errorf("role %q is not permitted for this collector identity", role))
+			fmt.Errorf("role %q is not permitted for this %s", role, subject))
 	}
-	// Bind the cluster to the identity's org, or confirm it is already ours.
+	// Bind the cluster to the binding's org, or confirm it is already ours.
 	// A cluster claimed by a different org matches no row (ErrNoRows) — a
-	// token can never take over another org's cluster by naming it.
+	// principal can never take over another org's cluster by naming it.
 	claimed, err := s.store.Queries.ClaimClusterForOrg(ctx, sqlc.ClaimClusterForOrgParams{
 		ID:    coll.ClusterID,
-		OrgID: binding.OrgID,
+		OrgID: b.orgID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return pgtype.UUID{}, refuse(metrics.AgentRefusedClaimDenied,
@@ -745,6 +777,7 @@ func allowlistPermits(raw json.RawMessage, value string) bool {
 	return slices.Contains(list, value)
 }
 
+// effectiveAttrs returns local_attributes, falling back to deprecated attributes if empty.
 func effectiveAttrs(local, deprecated map[string]string) map[string]string {
 	if len(local) > 0 {
 		return local

@@ -78,13 +78,16 @@ func (h *BeaconHandler) authenticate(ctx context.Context, authz string) (string,
 		// newline into the beacon key or the logs (CodeQL log-injection).
 		return "oidc:" + stripControl(claims.Issuer) + "|" + stripControl(claims.Subject), nil
 	}
-	tokenID, err := verifyBasicAuth(ctx, authz, h.store)
+	// The beacon keys inventory and its rate limit on the token id: it
+	// authenticates the writer and resolves no org, so a token's org binding
+	// (migration 0038) plays no part here.
+	tok, err := verifyBasicAuth(ctx, authz, h.store)
 	if err != nil {
 		return "", errUnauthenticated
 	}
-	// tokenID is a validated UUID, but sanitising here too keeps `principal`
+	// The id is a validated UUID, but sanitising here too keeps `principal`
 	// provably free of control characters on every path into the logs.
-	return stripControl(tokenID), nil
+	return stripControl(tok.ID.String()), nil
 }
 
 var errUnauthenticated = errors.New("beacon: unauthenticated")

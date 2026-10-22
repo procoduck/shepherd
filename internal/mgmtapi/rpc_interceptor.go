@@ -27,6 +27,8 @@ var (
 	reqOrgViewer     = auth.RequireOrg(auth.RoleViewer)
 	reqOrgEditor     = auth.RequireOrg(auth.RoleEditor)
 	reqOrgAdmin      = auth.RequireOrg(auth.RoleAdmin)
+
+	reqAppAdminOrOrgAdmin = auth.RequireAppAdminOrOrg(auth.RoleAdmin)
 )
 
 // procedureRequirements maps every shepherd.mgmt.v1 Connect procedure to its
@@ -38,22 +40,30 @@ var procedureRequirements = map[string]auth.Requirement{
 	// MeService — any authenticated session.
 	mgmtv1connect.MeServiceGetMeProcedure: reqAuthenticated,
 
-	// AdminService — app admin only, except SearchGroups (app admin OR org admin).
-	mgmtv1connect.AdminServiceListOrgsProcedure:            reqAppAdmin,
-	mgmtv1connect.AdminServiceCreateOrgProcedure:           reqAppAdmin,
-	mgmtv1connect.AdminServiceUpdateOrgProcedure:           reqAppAdmin,
-	mgmtv1connect.AdminServiceDeleteOrgProcedure:           reqAppAdmin,
-	mgmtv1connect.AdminServiceSetOrgTenantIDProcedure:      reqAppAdmin,
-	mgmtv1connect.AdminServiceListClustersProcedure:        reqAppAdmin,
-	mgmtv1connect.AdminServiceClaimClusterProcedure:        reqAppAdmin,
-	mgmtv1connect.AdminServiceUnclaimClusterProcedure:      reqAppAdmin,
-	mgmtv1connect.AdminServiceListAgentTokensProcedure:     reqAppAdmin,
-	mgmtv1connect.AdminServiceCreateAgentTokenProcedure:    reqAppAdmin,
-	mgmtv1connect.AdminServiceRevokeAgentTokenProcedure:    reqAppAdmin,
+	// AdminService — app admin only, except SearchGroups and the agent-token
+	// list/create/revoke (app admin OR org admin of the request's org).
+	mgmtv1connect.AdminServiceListOrgsProcedure:       reqAppAdmin,
+	mgmtv1connect.AdminServiceCreateOrgProcedure:      reqAppAdmin,
+	mgmtv1connect.AdminServiceUpdateOrgProcedure:      reqAppAdmin,
+	mgmtv1connect.AdminServiceDeleteOrgProcedure:      reqAppAdmin,
+	mgmtv1connect.AdminServiceSetOrgTenantIDProcedure: reqAppAdmin,
+	mgmtv1connect.AdminServiceListClustersProcedure:   reqAppAdmin,
+	mgmtv1connect.AdminServiceClaimClusterProcedure:   reqAppAdmin,
+	mgmtv1connect.AdminServiceUnclaimClusterProcedure: reqAppAdmin,
+	// Agent tokens are bound to an org. An org admin manages its own org's
+	// tokens: the handlers scope every read and write to the request's
+	// org_id, which this requirement has just checked; an empty org_id
+	// (every token, unbound ones included) clears only for an app admin.
+	// Binding or rebinding a token moves it between orgs, so it stays app
+	// admin only.
+	mgmtv1connect.AdminServiceListAgentTokensProcedure:     reqAppAdminOrOrgAdmin,
+	mgmtv1connect.AdminServiceCreateAgentTokenProcedure:    reqAppAdminOrOrgAdmin,
+	mgmtv1connect.AdminServiceRevokeAgentTokenProcedure:    reqAppAdminOrOrgAdmin,
+	mgmtv1connect.AdminServiceBindAgentTokenProcedure:      reqAppAdmin,
 	mgmtv1connect.AdminServiceListAgentIdentitiesProcedure: reqAppAdmin,
 	mgmtv1connect.AdminServiceCreateAgentIdentityProcedure: reqAppAdmin,
 	mgmtv1connect.AdminServiceDeleteAgentIdentityProcedure: reqAppAdmin,
-	mgmtv1connect.AdminServiceSearchGroupsProcedure:        auth.RequireAppAdminOrOrg(auth.RoleAdmin),
+	mgmtv1connect.AdminServiceSearchGroupsProcedure:        reqAppAdminOrOrgAdmin,
 
 	// AdminService — OIDC single sign-on configuration. App admin only, and
 	// there is no org-scoped variant on purpose: this configuration decides
@@ -234,6 +244,7 @@ var capabilityRequirements = map[string]string{
 	mgmtv1connect.AdminServiceUnclaimClusterProcedure:      capabilityApply,
 	mgmtv1connect.AdminServiceCreateAgentTokenProcedure:    capabilityApply,
 	mgmtv1connect.AdminServiceRevokeAgentTokenProcedure:    capabilityApply,
+	mgmtv1connect.AdminServiceBindAgentTokenProcedure:      capabilityApply,
 	mgmtv1connect.AdminServiceCreateAgentIdentityProcedure: capabilityApply,
 	mgmtv1connect.AdminServiceDeleteAgentIdentityProcedure: capabilityApply,
 
