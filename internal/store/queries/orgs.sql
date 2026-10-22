@@ -1,5 +1,5 @@
 -- name: CreateOrg :one
-INSERT INTO orgs (name, display_name, admin_group_id, reader_group_id, editor_group_id, tenant_id)
+INSERT INTO orgs (name, display_name, admin_group_id, viewer_group_id, editor_group_id, tenant_id)
 VALUES ($1, $2, $3, $4, sqlc.narg('editor_group_id'), sqlc.narg('tenant_id'))
 RETURNING *;
 
@@ -22,7 +22,7 @@ SELECT * FROM orgs ORDER BY name;
 UPDATE orgs
 SET display_name    = $2,
     admin_group_id  = $3,
-    reader_group_id = $4,
+    viewer_group_id = $4,
     editor_group_id = sqlc.narg('editor_group_id'),
     allow_experimental_components = sqlc.arg('allow_experimental_components'),
     allow_label_matching = sqlc.arg('allow_label_matching'),

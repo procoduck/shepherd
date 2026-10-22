@@ -13,8 +13,8 @@ option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 // (D8's two ownership modes: gateway_mode "managed" or "operator"). This
 // service only changes Shepherd's records; the tenant-route reconciler
 // (internal/routeapply) applies the HTTPRoutes and records apply_status.
-// Reads (List, RenderConnectApp) require org-reader; writes
-// (Create/Rotate/Revoke) require org-admin.
+// Reads (List, RenderConnectApp) require org viewer; writes
+// (Create/Rotate/Revoke) require org admin.
 service TenantRouteService {
   rpc ListTenantRoutes(ListTenantRoutesRequest) returns (ListTenantRoutesResponse) {}
   rpc CreateTenantRoute(CreateTenantRouteRequest) returns (TenantRoute) {}
@@ -24,6 +24,33 @@ service TenantRouteService {
   // internal/onboarding) for one OTLP route: the endpoint an app's OTel SDK
   // points at, as env vars and IaC/SDK snippets. Read-only.
   rpc RenderConnectApp(RenderConnectAppRequest) returns (RenderConnectAppResponse) {}
+}
+
+// TenantRouteStatus is a route's lifecycle (tenant_routes.status).
+enum TenantRouteStatus {
+  TENANT_ROUTE_STATUS_UNSPECIFIED = 0;
+  TENANT_ROUTE_STATUS_ACTIVE = 1;
+  // Still routes, mid-rotation, until valid_until.
+  TENANT_ROUTE_STATUS_DEPRECATED = 2;
+  TENANT_ROUTE_STATUS_REVOKED = 3;
+}
+
+// TenantRouteApplyStatus is whether a route's HTTPRoute is in the cluster, as
+// the tenant-route reconciler last found it (tenant_routes.apply_status).
+enum TenantRouteApplyStatus {
+  TENANT_ROUTE_APPLY_STATUS_UNSPECIFIED = 0;
+  // Not yet reconciled.
+  TENANT_ROUTE_APPLY_STATUS_PENDING = 1;
+  // Attachment verified.
+  TENANT_ROUTE_APPLY_STATUS_APPLIED = 2;
+  // The gateway refused attachment.
+  TENANT_ROUTE_APPLY_STATUS_REFUSED = 3;
+  // Failed; retried with backoff.
+  TENANT_ROUTE_APPLY_STATUS_ERROR = 4;
+  // Revoked or expired; the HTTPRoute was deleted.
+  TENANT_ROUTE_APPLY_STATUS_REMOVED = 5;
+  // A Faro route, or route apply disabled.
+  TENANT_ROUTE_APPLY_STATUS_NOT_APPLICABLE = 6;
 }
 
 // TenantRoute mirrors internal/store/sqlc.TenantRoute (0009_tenant_routes).
@@ -36,11 +63,11 @@ message TenantRoute {
   // segment is the route-prefix path segment minted by
   // internal/gateway.GenerateSegment: "/{kind}/{segment}/...".
   string segment = 5;
-  // status is "active", "deprecated" (still routes, mid-rotation), or
-  // "revoked".
-  string status = 6;
-  // valid_until is set only for a "deprecated" route: the end of its
-  // rotation overlap window. Unset for "active"/"revoked".
+  // Field 6 was status as a string until step 7a (#361) made it an enum.
+  reserved 6;
+  TenantRouteStatus status = 18;
+  // valid_until is set only for a deprecated route: the end of its
+  // rotation overlap window. Unset for active/revoked.
   google.protobuf.Timestamp valid_until = 7;
   // rotated_from_id is the id of the route this one replaced, if any (set
   // only on a route created by RotateTenantRoute).
@@ -56,13 +83,12 @@ message TenantRoute {
   google.protobuf.Timestamp created_at = 12;
   google.protobuf.Timestamp updated_at = 13;
   google.protobuf.Timestamp revoked_at = 14;
+  // Field 15 was apply_status as a string until step 7a (#361) made it an enum.
+  reserved 15;
   // apply_status is whether this route's HTTPRoute is actually in the
-  // cluster, as the tenant-route reconciler last found it: "pending",
-  // "applied" (attachment verified), "refused" (the gateway refused
-  // attachment), "error" (retried), "removed" (revoked or expired, HTTPRoute
-  // deleted) or "not_applicable" (a Faro route, or route apply disabled).
-  string apply_status = 15;
-  // apply_message is the reason behind "refused" or "error" -- the gateway's
+  // cluster, as the tenant-route reconciler last found it.
+  TenantRouteApplyStatus apply_status = 19;
+  // apply_message is the reason behind REFUSED or ERROR -- the gateway's
   // own condition message where it gave one.
   string apply_message = 16;
   // applied_at is the last time attachment was verified.

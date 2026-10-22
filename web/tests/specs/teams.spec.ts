@@ -7,7 +7,9 @@
  * group-backed team looks empty (its roster lives in the IdP and cannot be
  * listed), and a team with neither source really is empty.
  */
-import { appAdmin, reader } from '../fixtures/personas';
+
+import { Role } from '@/lib/roles';
+import { appAdmin, viewer } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
 
 test('shows where each team gets its members from', async ({ page, api }) => {
@@ -90,7 +92,7 @@ test('refuses a duplicate team name and a group already bound elsewhere', async 
 });
 
 test('a viewer sees the teams but is offered no way to change them', async ({ page, api }) => {
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   await page.goto('/teams');
 
   await expect(page.getByTestId('team-row-platform')).toBeVisible();
@@ -107,7 +109,7 @@ test('names each member once, and a different display name apart from the login'
 }) => {
   await api.loginAs(appAdmin);
   const orgs = [
-    { id: 'org-0001', name: 'prod-org', display_name: 'Production Org', role: 'editor' },
+    { id: 'org-0001', name: 'prod-org', display_name: 'Production Org', role: Role.EDITOR },
   ];
   const user = (id: string, login: string, displayName: string) => ({
     id,
@@ -167,7 +169,7 @@ test('offers only people in this organisation as new members', async ({ page, ap
         must_change_password: false,
         disabled: false,
         orgs: [
-          { id: 'org-0001', name: 'prod-org', display_name: 'Production Org', role: 'editor' },
+          { id: 'org-0001', name: 'prod-org', display_name: 'Production Org', role: Role.EDITOR },
         ],
       },
       {
@@ -178,7 +180,7 @@ test('offers only people in this organisation as new members', async ({ page, ap
         is_app_admin: false,
         must_change_password: false,
         disabled: false,
-        orgs: [{ id: 'org-0002', name: 'other-org', display_name: 'Other Org', role: 'editor' }],
+        orgs: [{ id: 'org-0002', name: 'other-org', display_name: 'Other Org', role: Role.EDITOR }],
       },
     ],
   });

@@ -1,5 +1,5 @@
 import { basicScenario, destination } from '../fixtures/factories';
-import { type MeResponse, orgAdmin, orgEditor, reader } from '../fixtures/personas';
+import { type MeResponse, orgAdmin, orgEditor, viewer } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
 
 // #252 — pipelines page polish: a heading on the New pipeline page, enable and
@@ -12,7 +12,7 @@ import { expect, test } from '../fixtures/test';
 // (no `myTeamIds`), so Pipeline.can_edit is false and they get a viewer's
 // page; the owning-team case is pipeline-team-edit.spec.ts (F3).
 const teamMember: MeResponse = {
-  ...reader,
+  ...viewer,
   userOid: 'u-team-member',
   email: 'member@example.com',
   displayName: 'Team Member',
@@ -38,7 +38,7 @@ test('the New pipeline page has a heading', async ({ page, api }) => {
 });
 
 test('the pipeline page is headed by the pipeline name', async ({ page, api }) => {
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   const { p } = seedOne(api);
   await page.goto(`/pipelines/${p.id}`);
   await expect(page.getByRole('heading', { level: 1, name: p.name })).toBeVisible();
@@ -101,7 +101,7 @@ test('a git-managed pipeline offers enable but no delete (git is the source of t
 });
 
 for (const [label, persona] of [
-  ['a viewer', reader],
+  ['a viewer', viewer],
   ['a team member whose team does not own it', teamMember],
 ] as const) {
   test(`${label} sees the enabled state but no enable or delete action`, async ({ page, api }) => {
@@ -146,7 +146,7 @@ test('an org admin assigns and clears the owning team', async ({ page, api }) =>
 
 for (const [label, persona] of [
   ['an editor', orgEditor],
-  ['a viewer', reader],
+  ['a viewer', viewer],
   ['a team member', teamMember],
 ] as const) {
   test(`${label} sees the owning team but cannot change it`, async ({ page, api }) => {
@@ -190,7 +190,7 @@ test('each revision shows when it was made: relative, with the exact time on hov
   page,
   api,
 }) => {
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   const { p } = seedRevisions(api);
   await page.goto(`/pipelines/${p.id}`);
   await page.getByRole('button', { name: /revision history \(2\)/i }).click();
@@ -276,7 +276,7 @@ test('a viewer reads the pipeline name at full contrast but cannot edit it', asy
   page,
   api,
 }) => {
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   const { p } = seedOne(api);
   await page.goto(`/pipelines/${p.id}`);
   const name = page.getByPlaceholder('my-pipeline');

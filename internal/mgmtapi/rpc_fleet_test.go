@@ -53,7 +53,7 @@ var _ = Describe("shepherd.mgmt.v1.FleetService RPC", Label("integration"), func
 			Name:          "fleet-rpc-org",
 			DisplayName:   "Fleet RPC Org",
 			AdminGroupID:  "fleet-admin-group",
-			ReaderGroupID: pgtype.Text{String: "fleet-reader-group", Valid: true},
+			ViewerGroupID: pgtype.Text{String: "fleet-viewer-group", Valid: true},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		orgID = o.ID
@@ -109,14 +109,14 @@ var _ = Describe("shepherd.mgmt.v1.FleetService RPC", Label("integration"), func
 		return payload
 	}
 
-	It("lists collectors for an org-scoped reader (happy path)", func() {
+	It("lists collectors for an org-scoped viewer (happy path)", func() {
 		cluster, err := st.Queries.UpsertCluster(ctx, "fleet-rpc-cluster")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgID})).To(Succeed())
 		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
 		Expect(err).NotTo(HaveOccurred())
 
-		cookie := createSession(false, []string{"fleet-reader-group"})
+		cookie := createSession(false, []string{"fleet-viewer-group"})
 		resp := postConnect("/shepherd.mgmt.v1.FleetService/ListCollectors", map[string]any{"orgId": orgID.String()}, cookie)
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
@@ -152,7 +152,7 @@ var _ = Describe("shepherd.mgmt.v1.FleetService RPC", Label("integration"), func
 			LocalAttributes: json.RawMessage(`{"team":"alloy-team","custom.attribute":"visible"}`),
 		})
 		Expect(err).NotTo(HaveOccurred())
-		readCookie := createSession(false, []string{"fleet-reader-group"})
+		readCookie := createSession(false, []string{"fleet-viewer-group"})
 		resp := postConnect("/shepherd.mgmt.v1.FleetService/GetCollector", map[string]any{
 			"orgId": orgID.String(), "id": collector.ID.String(),
 		}, readCookie)
@@ -231,7 +231,7 @@ var _ = Describe("shepherd.mgmt.v1.FleetService RPC", Label("integration"), func
 		Expect(row.Dirty).To(BeTrue(), "DeleteCollectorLabel must mark this collector's serve cache dirty")
 	})
 
-	It("rejects invalid label keys and prevents reader and cross-org label writes", func() {
+	It("rejects invalid label keys and prevents viewer and cross-org label writes", func() {
 		cluster, err := st.Queries.UpsertCluster(ctx, "labels-permissions")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgID})).To(Succeed())
@@ -240,7 +240,7 @@ var _ = Describe("shepherd.mgmt.v1.FleetService RPC", Label("integration"), func
 		request := map[string]any{"orgId": orgID.String(), "collectorId": collector.ID.String(), "key": "team", "value": "payments"}
 		for _, method := range []string{"SetCollectorLabel", "DeleteCollectorLabel"} {
 			body := map[string]any{"orgId": orgID.String(), "collectorId": collector.ID.String(), "key": "team"}
-			resp := postConnect("/shepherd.mgmt.v1.FleetService/"+method, body, createSession(false, []string{"fleet-reader-group"}))
+			resp := postConnect("/shepherd.mgmt.v1.FleetService/"+method, body, createSession(false, []string{"fleet-viewer-group"}))
 			Expect(resp.StatusCode).To(Equal(http.StatusForbidden))
 			decodeBody(resp)
 			body["orgId"] = "00000000-0000-0000-0000-000000000001"
@@ -357,7 +357,7 @@ var _ = Describe("shepherd.mgmt.v1.FleetService RPC", Label("integration"), func
 			Name:          "fleet-rpc-other-org",
 			DisplayName:   "Fleet RPC Other Org",
 			AdminGroupID:  "fleet-other-admin-group",
-			ReaderGroupID: pgtype.Text{String: "fleet-other-reader-group", Valid: true},
+			ViewerGroupID: pgtype.Text{String: "fleet-other-viewer-group", Valid: true},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		otherCluster, err := st.Queries.UpsertCluster(ctx, "fleet-rpc-other-cluster")
@@ -401,7 +401,7 @@ var _ = Describe("shepherd.mgmt.v1.FleetService RPC", Label("integration"), func
 		Expect(payload["code"]).To(Equal("not_found"))
 	})
 
-	It("creates, lists, and deletes a collector's group assignments (org-admin)", func() {
+	It("creates, lists, and deletes a collector's group assignments (org admin)", func() {
 		cluster, err := st.Queries.UpsertCluster(ctx, "fleet-rpc-assign-cluster")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgID})).To(Succeed())
@@ -424,8 +424,8 @@ var _ = Describe("shepherd.mgmt.v1.FleetService RPC", Label("integration"), func
 		resp = postConnect("/shepherd.mgmt.v1.FleetService/CreateAssignment", map[string]any{
 			"orgId":            orgID.String(),
 			"collectorId":      collector.ID.String(),
-			"groupId":          "readers-group",
-			"groupDisplayName": "Readers",
+			"groupId":          "viewers-group",
+			"groupDisplayName": "Viewers",
 		}, cookie)
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
@@ -441,14 +441,14 @@ var _ = Describe("shepherd.mgmt.v1.FleetService RPC", Label("integration"), func
 		Expect(items).To(HaveLen(1))
 		item, ok := items[0].(map[string]any)
 		Expect(ok).To(BeTrue())
-		Expect(item["groupId"]).To(Equal("readers-group"))
-		Expect(item["groupDisplayName"]).To(Equal("Readers"))
+		Expect(item["groupId"]).To(Equal("viewers-group"))
+		Expect(item["groupDisplayName"]).To(Equal("Viewers"))
 
 		// Delete it.
 		resp = postConnect("/shepherd.mgmt.v1.FleetService/DeleteAssignment", map[string]any{
 			"orgId":       orgID.String(),
 			"collectorId": collector.ID.String(),
-			"groupId":     "readers-group",
+			"groupId":     "viewers-group",
 		}, cookie)
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
@@ -462,14 +462,14 @@ var _ = Describe("shepherd.mgmt.v1.FleetService RPC", Label("integration"), func
 		Expect(payload["items"]).To(BeNil())
 	})
 
-	It("denies ListAssignments for an org reader (org-admin only)", func() {
+	It("denies ListAssignments for an org viewer (org admin only)", func() {
 		cluster, err := st.Queries.UpsertCluster(ctx, "fleet-rpc-assign-deny-cluster")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgID})).To(Succeed())
 		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
 		Expect(err).NotTo(HaveOccurred())
 
-		cookie := createSession(false, []string{"fleet-reader-group"})
+		cookie := createSession(false, []string{"fleet-viewer-group"})
 		resp := postConnect("/shepherd.mgmt.v1.FleetService/ListAssignments", map[string]any{
 			"orgId":       orgID.String(),
 			"collectorId": collector.ID.String(),
@@ -528,7 +528,7 @@ var _ = Describe("shepherd.mgmt.v1.FleetService RPC", Label("integration"), func
 		// no drift row should appear from this step alone.
 		_, err = st.Queries.UpdateOrg(ctx, sqlc.UpdateOrgParams{
 			ID: orgID, DisplayName: "Fleet RPC Org", AdminGroupID: "fleet-admin-group",
-			ReaderGroupID:      pgtype.Text{String: "fleet-reader-group", Valid: true},
+			ViewerGroupID:      pgtype.Text{String: "fleet-viewer-group", Valid: true},
 			AllowLabelMatching: true,
 		})
 		Expect(err).NotTo(HaveOccurred())
@@ -660,9 +660,9 @@ var _ = Describe("shepherd.mgmt.v1.FleetService RPC", Label("integration"), func
 			Entry("bad namespace", map[string]any{"clusterName": "c1", "roles": []string{"metrics"}, "namespace": "Not_OK"}, "namespace"),
 		)
 
-		It("is org-admin only", func() {
-			reader := createSession(false, []string{"fleet-reader-group"})
-			code, _ := render(reader, map[string]any{"orgId": orgID.String(), "clusterName": "c1", "roles": []string{"metrics"}})
+		It("is org admin only", func() {
+			viewer := createSession(false, []string{"fleet-viewer-group"})
+			code, _ := render(viewer, map[string]any{"orgId": orgID.String(), "clusterName": "c1", "roles": []string{"metrics"}})
 			Expect(code).To(Equal(http.StatusForbidden))
 		})
 	})

@@ -21,6 +21,62 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Role is an org role (spec §7.2): viewer < editor < admin, each including
+// the one below it. App admin is not a Role — it is a separate, cross-org
+// flag (User.is_app_admin, GetMeResponse.is_app_admin). ROLE_UNSPECIFIED
+// never grants anything and is rejected wherever a role is written.
+type Role int32
+
+const (
+	Role_ROLE_UNSPECIFIED Role = 0
+	Role_ROLE_VIEWER      Role = 1
+	Role_ROLE_EDITOR      Role = 2
+	Role_ROLE_ADMIN       Role = 3
+)
+
+// Enum value maps for Role.
+var (
+	Role_name = map[int32]string{
+		0: "ROLE_UNSPECIFIED",
+		1: "ROLE_VIEWER",
+		2: "ROLE_EDITOR",
+		3: "ROLE_ADMIN",
+	}
+	Role_value = map[string]int32{
+		"ROLE_UNSPECIFIED": 0,
+		"ROLE_VIEWER":      1,
+		"ROLE_EDITOR":      2,
+		"ROLE_ADMIN":       3,
+	}
+)
+
+func (x Role) Enum() *Role {
+	p := new(Role)
+	*p = x
+	return p
+}
+
+func (x Role) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Role) Descriptor() protoreflect.EnumDescriptor {
+	return file_shepherd_mgmt_v1_common_proto_enumTypes[0].Descriptor()
+}
+
+func (Role) Type() protoreflect.EnumType {
+	return &file_shepherd_mgmt_v1_common_proto_enumTypes[0]
+}
+
+func (x Role) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Role.Descriptor instead.
+func (Role) EnumDescriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_common_proto_rawDescGZIP(), []int{0}
+}
+
 // Diagnostic is a structured error/warning from the Alloy validation gate
 // (internal/validate.Diagnostic). Used by PipelineService.ValidatePipeline.
 type Diagnostic struct {
@@ -105,7 +161,13 @@ const file_shepherd_mgmt_v1_common_proto_rawDesc = "" +
 	"\x04line\x18\x01 \x01(\x05R\x04line\x12\x10\n" +
 	"\x03col\x18\x02 \x01(\x05R\x03col\x12\x18\n" +
 	"\amessage\x18\x03 \x01(\tR\amessage\x12\x14\n" +
-	"\x05stage\x18\x04 \x01(\x05R\x05stageB&Z$shepherd/gen/shepherd/mgmt/v1;mgmtv1b\x06proto3"
+	"\x05stage\x18\x04 \x01(\x05R\x05stage*N\n" +
+	"\x04Role\x12\x14\n" +
+	"\x10ROLE_UNSPECIFIED\x10\x00\x12\x0f\n" +
+	"\vROLE_VIEWER\x10\x01\x12\x0f\n" +
+	"\vROLE_EDITOR\x10\x02\x12\x0e\n" +
+	"\n" +
+	"ROLE_ADMIN\x10\x03B&Z$shepherd/gen/shepherd/mgmt/v1;mgmtv1b\x06proto3"
 
 var (
 	file_shepherd_mgmt_v1_common_proto_rawDescOnce sync.Once
@@ -119,9 +181,11 @@ func file_shepherd_mgmt_v1_common_proto_rawDescGZIP() []byte {
 	return file_shepherd_mgmt_v1_common_proto_rawDescData
 }
 
+var file_shepherd_mgmt_v1_common_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_shepherd_mgmt_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_shepherd_mgmt_v1_common_proto_goTypes = []any{
-	(*Diagnostic)(nil), // 0: shepherd.mgmt.v1.Diagnostic
+	(Role)(0),          // 0: shepherd.mgmt.v1.Role
+	(*Diagnostic)(nil), // 1: shepherd.mgmt.v1.Diagnostic
 }
 var file_shepherd_mgmt_v1_common_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
@@ -141,13 +205,14 @@ func file_shepherd_mgmt_v1_common_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_shepherd_mgmt_v1_common_proto_rawDesc), len(file_shepherd_mgmt_v1_common_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      1,
 			NumMessages:   1,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_shepherd_mgmt_v1_common_proto_goTypes,
 		DependencyIndexes: file_shepherd_mgmt_v1_common_proto_depIdxs,
+		EnumInfos:         file_shepherd_mgmt_v1_common_proto_enumTypes,
 		MessageInfos:      file_shepherd_mgmt_v1_common_proto_msgTypes,
 	}.Build()
 	File_shepherd_mgmt_v1_common_proto = out.File

@@ -3,7 +3,7 @@
 import type { Route } from '@playwright/test';
 import { currentSchemaVersion } from '@/visual/schemaVersion';
 import { basicScenario, collector, destination, pipeline } from '../fixtures/factories';
-import { appAdmin, orgAdmin, orgEditor, reader } from '../fixtures/personas';
+import { appAdmin, orgAdmin, orgEditor, viewer } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
 import { expect, test } from '../fixtures/test';
 
@@ -79,7 +79,7 @@ test('the rejection banner never ends in an empty "Error:"', async ({ page, api 
 });
 
 test('a viewer denied a wizard does not ask for its schema', async ({ page, api }) => {
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   api.seed({ orgs: [basicScenario().org] });
   await page.goto('/wizards/app-observability');
   await expect(page.getByTestId('route-denied')).toBeVisible();
@@ -241,7 +241,7 @@ test.describe('a hand edit to a wizard pipeline', () => {
 
 test.describe('accessibility', () => {
   test("Simulate's disabled reason is reachable by keyboard", async ({ page, api }) => {
-    await api.loginAs(reader);
+    await api.loginAs(viewer);
     const p = seedVisual(api);
     await page.goto(`/pipelines/${p.id}/visual`);
     await expect(page.getByTestId('visual-builder')).toBeVisible({ timeout: 10_000 });
@@ -382,7 +382,7 @@ test('a viewer is refused at /pipelines/new/visual as at /pipelines/visual/new',
   page,
   api,
 }) => {
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   api.seed({ orgs: [basicScenario().org], schema: schemaFixture });
   await page.goto('/pipelines/new/visual');
   await expect(page.getByTestId('route-denied')).toBeVisible();

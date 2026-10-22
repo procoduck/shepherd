@@ -25,7 +25,7 @@ var _ = Describe("shepherd.mgmt.v1.SimulateService", Label("integration"), func(
 		server       *httptest.Server
 		orgID        string
 		adminCookie  *http.Cookie
-		readerCookie *http.Cookie
+		viewerCookie *http.Cookie
 	)
 
 	BeforeEach(func() {
@@ -38,13 +38,13 @@ var _ = Describe("shepherd.mgmt.v1.SimulateService", Label("integration"), func(
 
 		o, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
 			Name: "simulate-rpc-org", DisplayName: "Simulate RPC Org",
-			AdminGroupID: "simulate-admin-grp", ReaderGroupID: pgtype.Text{String: "simulate-reader-grp", Valid: true},
+			AdminGroupID: "simulate-admin-grp", ViewerGroupID: pgtype.Text{String: "simulate-viewer-grp", Valid: true},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		orgID = o.ID.String()
 
 		adminCookie = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "simulate-admin-grp")}
-		readerCookie = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "simulate-reader-grp")}
+		viewerCookie = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "simulate-viewer-grp")}
 
 		cfg := &config.Config{Auth: config.AuthConfig{InsecureCookies: true}}
 		authHandler := auth.NewLocalAdmin(cfg, st, slog.Default())
@@ -81,9 +81,9 @@ var _ = Describe("shepherd.mgmt.v1.SimulateService", Label("integration"), func(
 		Expect(output["namespace"]).To(Equal("production"))
 	})
 
-	It("denies SimulateRelabel for a session without org-admin access", func() {
+	It("denies SimulateRelabel for a session without org admin access", func() {
 		body := map[string]any{"org_id": orgID, "rules": []any{}, "sample_targets": []any{}}
-		resp := postConnectJSON(server, "/shepherd.mgmt.v1.SimulateService/SimulateRelabel", readerCookie, body)
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.SimulateService/SimulateRelabel", viewerCookie, body)
 		defer resp.Body.Close() //nolint:errcheck // test cleanup
 		Expect(resp.StatusCode).To(Equal(http.StatusForbidden))
 		Expect(connectErrorCode(resp)).To(Equal("permission_denied"))

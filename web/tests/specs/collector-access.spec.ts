@@ -1,10 +1,10 @@
 import { collector, org } from '../fixtures/factories';
-import { appAdmin, orgAdmin, orgEditor, reader } from '../fixtures/personas';
+import { appAdmin, orgAdmin, orgEditor, viewer } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
 
 // B5: CollectorDetailPage's Access tab — list/add/remove group assignments.
 // Org-admin only (appAdmin/orgAdmin personas both carry role "admin" for
-// org-0001; reader carries role "reader").
+// org-0001; viewer carries role "viewer").
 
 test('collector access tab lists, adds, and removes group assignments', async ({ page, api }) => {
   await api.loginAs(appAdmin);
@@ -108,7 +108,7 @@ test('search result click adds the group directly', async ({ page, api }) => {
 });
 
 test('Access tab is hidden for a non-admin org role', async ({ page, api }) => {
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   const o = org({ id: 'org-0001' });
   const c = collector({ id: 'col-0001' });
   api.seed({ orgs: [o], collectors: [c] });

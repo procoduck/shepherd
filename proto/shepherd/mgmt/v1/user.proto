@@ -5,6 +5,7 @@ package shepherd.mgmt.v1;
 import "google/protobuf/timestamp.proto";
 // OrgMembership is reused from me.proto rather than redefined: "an org and my
 // role in it" is one concept, and two messages for it would drift.
+import "shepherd/mgmt/v1/common.proto";
 import "shepherd/mgmt/v1/me.proto";
 
 option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
@@ -65,7 +66,11 @@ message OrgMember {
   string login = 3;
   string email = 4;
   string display_name = 5;
-  string role = 6;
+  // Field 6 was the role as a string until step 7a (#361) made it the Role
+  // enum. Reserved rather than retyped so a client still sending the string
+  // is dropped as an unknown field, never reinterpreted.
+  reserved 6;
+  Role role = 8;
   bool disabled = 7;
 }
 
@@ -125,8 +130,13 @@ message ListOrgMembersResponse {
 message SetOrgMemberRequest {
   string org_id = 1;
   string user_id = 2;
-  // role is "admin", "editor" or "viewer". Creating or changing, same call.
-  string role = 3;
+  // Field 3 was the role as a string until step 7a (#361) made it the Role
+  // enum. Reserved rather than retyped so a client still sending the string
+  // is dropped as an unknown field, never reinterpreted.
+  reserved 3;
+  // role is required: ROLE_UNSPECIFIED is refused with InvalidArgument.
+  // Creating or changing, same call.
+  Role role = 4;
 }
 
 message RemoveOrgMemberRequest {

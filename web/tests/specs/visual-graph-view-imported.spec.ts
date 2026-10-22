@@ -12,7 +12,7 @@
 import { readFileSync } from 'node:fs';
 import { expect } from '@playwright/test';
 import { basicScenario, pipeline } from '../fixtures/factories';
-import { appAdmin, reader } from '../fixtures/personas';
+import { appAdmin, viewer } from '../fixtures/personas';
 import { schemaFixture, shippedSchema } from '../fixtures/schema-fixture';
 import { test } from '../fixtures/test';
 
@@ -39,7 +39,7 @@ test.describe('graph view is reachable for a non-visual pipeline', () => {
     page,
     api,
   }) => {
-    await api.loginAs(reader);
+    await api.loginAs(viewer);
     const s = basicScenario();
     const visual = pipeline({ id: 'pip-0009', name: 'drawn', source: 'visual' });
     api.seed({ orgs: [s.org], schema: schemaFixture, pipelines: [...s.pipelines, visual] });
@@ -65,7 +65,7 @@ test.describe('graph view is reachable for a non-visual pipeline', () => {
     page,
     api,
   }) => {
-    await api.loginAs(reader);
+    await api.loginAs(viewer);
     const s = basicScenario();
     const visual = pipeline({ id: 'pip-0009', name: 'drawn', source: 'visual' });
     api.seed({ orgs: [s.org], schema: schemaFixture, pipelines: [...s.pipelines, visual] });
@@ -194,7 +194,7 @@ test('Recreate is unavailable to a viewer, with the reason, even for a fully map
   page,
   api,
 }) => {
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   const s = basicScenario();
   api.seed({
     orgs: [s.org],

@@ -1,5 +1,5 @@
 import { basicScenario } from '../fixtures/factories';
-import { appAdmin, localAdmin, nobody, orgAdmin, orgEditor, reader } from '../fixtures/personas';
+import { appAdmin, localAdmin, nobody, orgAdmin, orgEditor, viewer } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
 
 test('appAdmin sees admin nav group', async ({ page, api }) => {
@@ -32,14 +32,14 @@ test('local admin persona sees Admin nav group', async ({ page, api }) => {
   await expect(page.getByText('Admin')).toBeVisible();
 });
 
-// Reader negatives: write affordances are hidden, not disabled. Each test
+// Viewer negatives: write affordances are hidden, not disabled. Each test
 // asserts a positive control first — a page that failed to render would
 // otherwise make every absence assertion pass vacuously.
-test('reader sees the pipelines list without New pipeline or the Enabled switch', async ({
+test('viewer sees the pipelines list without New pipeline or the Enabled switch', async ({
   page,
   api,
 }) => {
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   const s = basicScenario();
   api.seed({ orgs: [s.org], pipelines: s.pipelines });
   await page.goto('/pipelines');
@@ -50,8 +50,8 @@ test('reader sees the pipelines list without New pipeline or the Enabled switch'
   await expect(page.getByRole('switch', { name: /^Enabled: / })).toHaveCount(0);
 });
 
-test('reader sees the pipeline editor without a Save button', async ({ page, api }) => {
-  await api.loginAs(reader);
+test('viewer sees the pipeline editor without a Save button', async ({ page, api }) => {
+  await api.loginAs(viewer);
   const s = basicScenario();
   api.seed({ orgs: [s.org], pipelines: [s.pipelines[0]] });
   await page.goto('/pipelines/pip-0001');
@@ -73,8 +73,8 @@ test('orgEditor does not see admin nav group', async ({ page, api }) => {
   await expect(page.getByRole('link', { name: 'Organisations' })).not.toBeVisible();
 });
 
-test('reader does not see admin nav group', async ({ page, api }) => {
-  await api.loginAs(reader);
+test('viewer does not see admin nav group', async ({ page, api }) => {
+  await api.loginAs(viewer);
   const s = basicScenario();
   api.seed({ orgs: [s.org] });
   await page.goto('/');
@@ -102,14 +102,14 @@ test('orgEditor sees the Fleet, Delivery and Access nav groups', async ({ page, 
   api.seed({ orgs: [s.org] });
   await page.goto('/');
   await expect(page.getByRole('link', { name: 'Collectors' })).toBeVisible();
-  // Git is org-admin, so an editor's Delivery group shows Destinations instead
+  // Git is org admin, so an editor's Delivery group shows Destinations instead
   // (nav-gating.spec.ts covers the hidden links).
   await expect(page.getByRole('link', { name: 'Destinations' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Teams' })).toBeVisible();
 });
 
-test('reader sees the Fleet, Delivery and Access nav groups', async ({ page, api }) => {
-  await api.loginAs(reader);
+test('viewer sees the Fleet, Delivery and Access nav groups', async ({ page, api }) => {
+  await api.loginAs(viewer);
   const s = basicScenario();
   api.seed({ orgs: [s.org] });
   await page.goto('/');
@@ -129,7 +129,7 @@ test('orgAdmin sees the Fleet, Delivery and Access nav groups', async ({ page, a
 });
 
 // TeamsPage.canManage is org role "admin" (or isAppAdmin) alone — editor and
-// reader authorship stops short of who the team even is.
+// viewer authorship stops short of who the team even is.
 test('orgAdmin can manage teams', async ({ page, api }) => {
   await api.loginAs(orgAdmin);
   const s = basicScenario();
@@ -147,8 +147,8 @@ test('orgEditor cannot manage teams', async ({ page, api }) => {
   await expect(page.getByTestId('team-new')).toHaveCount(0);
 });
 
-test('reader cannot manage teams', async ({ page, api }) => {
-  await api.loginAs(reader);
+test('viewer cannot manage teams', async ({ page, api }) => {
+  await api.loginAs(viewer);
   const s = basicScenario();
   api.seed({ orgs: [s.org] });
   await page.goto('/teams');
@@ -243,11 +243,11 @@ test('orgEditor is denied the single sign-on admin page by direct navigation', a
   expect(api.calls('AdminService/GetOidcSettings')).toHaveLength(0);
 });
 
-test('reader is denied the single sign-on admin page by direct navigation', async ({
+test('viewer is denied the single sign-on admin page by direct navigation', async ({
   page,
   api,
 }) => {
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   const s = basicScenario();
   api.seed({ orgs: [s.org] });
   await page.goto('/admin/auth');

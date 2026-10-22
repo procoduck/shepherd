@@ -128,7 +128,7 @@ var _ = Describe("G13: two-part attribution", Label("integration"), func() {
 	// `Expected <int>: 200 to equal <int>: 403` — the forged write succeeds
 	// and is durably attributed to the impersonated human.
 	It("REFUSES a machine write claiming to act for someone other than its own delegating principal", func() {
-		const impersonated = "org-admin-who-never-touched-this@example.com"
+		const impersonated = "org admin-who-never-touched-this@example.com"
 		resp := g12PostConnect(server, "/shepherd.mgmt.v1.PipelineService/UpdatePipeline", map[string]any{
 			"orgId": orgID.String(), "id": pipelineID, "name": "g13-pipeline", "contents": "// forged",
 		}, applyID, applySecret, impersonated)

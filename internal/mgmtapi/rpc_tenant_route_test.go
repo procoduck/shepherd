@@ -47,7 +47,7 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 			Name:          "tenant-route-rpc-org",
 			DisplayName:   "Tenant Route RPC Org",
 			AdminGroupID:  "tenant-route-admin-group",
-			ReaderGroupID: pgtype.Text{String: "tenant-route-reader-group", Valid: true},
+			ViewerGroupID: pgtype.Text{String: "tenant-route-viewer-group", Valid: true},
 			// Tenant identity is an org property set by an app admin
 			// (0013_org_tenant_id). Routes read it from here; the request
 			// cannot carry one.
@@ -128,7 +128,7 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 		created := decodeBody(createResp)
 		Expect(created["tenantId"]).To(Equal("acme"))
 		Expect(created["kind"]).To(Equal("otlp"))
-		Expect(created["status"]).To(Equal("active"))
+		Expect(created["status"]).To(Equal("TENANT_ROUTE_STATUS_ACTIVE"))
 		Expect(created["gatewayMode"]).To(Equal("managed"))
 		segment, ok := created["segment"].(string)
 		Expect(ok).To(BeTrue(), "expected a segment string")
@@ -136,8 +136,8 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 		routeID, ok := created["id"].(string)
 		Expect(ok).To(BeTrue(), "expected an id string")
 
-		reader := createSession(false, []string{"tenant-route-reader-group"})
-		listResp := postConnect("/shepherd.mgmt.v1.TenantRouteService/ListTenantRoutes", map[string]any{"orgId": orgID.String()}, reader)
+		viewer := createSession(false, []string{"tenant-route-viewer-group"})
+		listResp := postConnect("/shepherd.mgmt.v1.TenantRouteService/ListTenantRoutes", map[string]any{"orgId": orgID.String()}, viewer)
 		Expect(listResp.StatusCode).To(Equal(http.StatusOK))
 		listed := decodeBody(listResp)
 		items, ok := listed["items"].([]any)
@@ -145,7 +145,7 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 		Expect(items).To(HaveLen(1))
 		first, ok := items[0].(map[string]any)
 		Expect(ok).To(BeTrue())
-		Expect(first["applyStatus"]).To(Equal("pending"), "Create only writes the row; nothing has applied it yet")
+		Expect(first["applyStatus"]).To(Equal("TENANT_ROUTE_APPLY_STATUS_PENDING"), "Create only writes the row; nothing has applied it yet")
 		Expect(first).NotTo(HaveKey("appliedAt"))
 
 		rotateResp := postConnect("/shepherd.mgmt.v1.TenantRouteService/RotateTenantRoute",
@@ -156,14 +156,14 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 		Expect(ok).To(BeTrue())
 		deprecated, ok := rotated["deprecated"].(map[string]any)
 		Expect(ok).To(BeTrue())
-		Expect(active["status"]).To(Equal("active"))
+		Expect(active["status"]).To(Equal("TENANT_ROUTE_STATUS_ACTIVE"))
 		Expect(active["segment"]).NotTo(Equal(segment), "rotation must mint a NEW segment")
 		Expect(active["rotatedFromId"]).To(Equal(routeID))
 		Expect(deprecated["id"]).To(Equal(routeID))
-		Expect(deprecated["status"]).To(Equal("deprecated"))
+		Expect(deprecated["status"]).To(Equal("TENANT_ROUTE_STATUS_DEPRECATED"))
 		Expect(deprecated["validUntil"]).NotTo(BeEmpty(), "a deprecated route must carry its rotation-overlap deadline")
 
-		listResp2 := postConnect("/shepherd.mgmt.v1.TenantRouteService/ListTenantRoutes", map[string]any{"orgId": orgID.String()}, reader)
+		listResp2 := postConnect("/shepherd.mgmt.v1.TenantRouteService/ListTenantRoutes", map[string]any{"orgId": orgID.String()}, viewer)
 		listed2 := decodeBody(listResp2)
 		items2, ok := listed2["items"].([]any)
 		Expect(ok).To(BeTrue(), "expected an items array")
@@ -175,7 +175,7 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 			map[string]any{"orgId": orgID.String(), "id": activeID}, admin)
 		Expect(revokeResp.StatusCode).To(Equal(http.StatusOK))
 		revoked := decodeBody(revokeResp)
-		Expect(revoked["status"]).To(Equal("revoked"))
+		Expect(revoked["status"]).To(Equal("TENANT_ROUTE_STATUS_REVOKED"))
 		Expect(revoked["revokedAt"]).NotTo(BeEmpty())
 
 		// Every route write is audited (#199): none of the three was before.
@@ -209,14 +209,14 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 		})
 		Expect(err).NotTo(HaveOccurred())
 
-		reader := createSession(false, []string{"tenant-route-reader-group"})
-		listed := decodeBody(postConnect("/shepherd.mgmt.v1.TenantRouteService/ListTenantRoutes", map[string]any{"orgId": orgID.String()}, reader))
+		viewer := createSession(false, []string{"tenant-route-viewer-group"})
+		listed := decodeBody(postConnect("/shepherd.mgmt.v1.TenantRouteService/ListTenantRoutes", map[string]any{"orgId": orgID.String()}, viewer))
 		items, ok := listed["items"].([]any)
 		Expect(ok).To(BeTrue())
 		Expect(items).To(HaveLen(1))
 		item, ok := items[0].(map[string]any)
 		Expect(ok).To(BeTrue())
-		Expect(item["applyStatus"]).To(Equal("refused"))
+		Expect(item["applyStatus"]).To(Equal("TENANT_ROUTE_APPLY_STATUS_REFUSED"))
 		Expect(item["applyMessage"]).To(Equal("NotAllowedByListeners"))
 		Expect(item).NotTo(HaveKey("appliedAt"), "a refusal is not a verified apply")
 	})
@@ -245,7 +245,7 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 		}
 		body["orgId"] = orgID.String()
 		created := post("/shepherd.mgmt.v1.TenantRouteService/CreateTenantRoute", body, admin)
-		Expect(created["applyStatus"]).To(Equal("not_applicable"))
+		Expect(created["applyStatus"]).To(Equal("TENANT_ROUTE_APPLY_STATUS_NOT_APPLICABLE"))
 		Expect(created["applyMessage"]).To(ContainSubstring("tenant-route apply is not running"))
 
 		listed := post("/shepherd.mgmt.v1.TenantRouteService/ListTenantRoutes", map[string]any{"orgId": orgID.String()}, admin)
@@ -254,7 +254,7 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 		Expect(items).To(HaveLen(1))
 		item, ok := items[0].(map[string]any)
 		Expect(ok).To(BeTrue())
-		Expect(item["applyStatus"]).To(Equal("not_applicable"))
+		Expect(item["applyStatus"]).To(Equal("TENANT_ROUTE_APPLY_STATUS_NOT_APPLICABLE"))
 		Expect(item["applyMessage"]).To(ContainSubstring("gateway.routes.apply.enabled"))
 
 		// The row itself stays pending, so a reconciler started later applies it.
@@ -266,7 +266,7 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 	})
 
 	Describe("RenderConnectApp", func() {
-		var admin, reader *http.Cookie
+		var admin, viewer *http.Cookie
 
 		createRoute := func(kind string) map[string]any {
 			body := map[string]any{}
@@ -286,12 +286,12 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 
 		BeforeEach(func() {
 			admin = createSession(false, []string{"tenant-route-admin-group"})
-			reader = createSession(false, []string{"tenant-route-reader-group"})
+			viewer = createSession(false, []string{"tenant-route-viewer-group"})
 		})
 
-		It("renders every artifact for an org reader, from the configured gateway URL", func() {
+		It("renders every artifact for an org viewer, from the configured gateway URL", func() {
 			route := createRoute("otlp")
-			code, out := render(reader, map[string]any{"orgId": orgID.String(), "id": route["id"], "serviceName": "checkout"})
+			code, out := render(viewer, map[string]any{"orgId": orgID.String(), "id": route["id"], "serviceName": "checkout"})
 			Expect(code).To(Equal(http.StatusOK), "%v", out)
 
 			segment, ok := route["segment"].(string)
@@ -309,7 +309,7 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 
 		It("uses the request's gateway URL over the configured one", func() {
 			route := createRoute("otlp")
-			code, out := render(reader, map[string]any{
+			code, out := render(viewer, map[string]any{
 				"orgId": orgID.String(), "id": route["id"], "serviceName": "checkout",
 				"gatewayBaseUrl": "https://edge.example.org", "protocol": "http/json",
 			})
@@ -323,7 +323,7 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 				route := createRoute("otlp")
 				body := map[string]any{"orgId": orgID.String(), "id": route["id"], "serviceName": "checkout"}
 				mutate(body)
-				code, out := render(reader, body)
+				code, out := render(viewer, body)
 				Expect(code).To(Equal(wantCode), "%v", out)
 				Expect(out["message"]).To(ContainSubstring(wantMsg))
 			},
@@ -338,13 +338,13 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 			resp := postConnect("/shepherd.mgmt.v1.TenantRouteService/RevokeTenantRoute",
 				map[string]any{"orgId": orgID.String(), "id": route["id"]}, admin)
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
-			code, out := render(reader, map[string]any{"orgId": orgID.String(), "id": route["id"], "serviceName": "x"})
+			code, out := render(viewer, map[string]any{"orgId": orgID.String(), "id": route["id"], "serviceName": "x"})
 			Expect(code).To(Equal(http.StatusBadRequest))
 			Expect(out["code"]).To(Equal("failed_precondition"))
 			Expect(out["message"]).To(ContainSubstring("revoked"))
 
 			faro := createRoute("faro")
-			code, out = render(reader, map[string]any{"orgId": orgID.String(), "id": faro["id"], "serviceName": "x"})
+			code, out = render(viewer, map[string]any{"orgId": orgID.String(), "id": faro["id"], "serviceName": "x"})
 			Expect(code).To(Equal(http.StatusBadRequest))
 			Expect(out["message"]).To(ContainSubstring("Faro"))
 		})
@@ -353,11 +353,11 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 			route := createRoute("otlp")
 			other, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
 				Name: "render-other", DisplayName: "Other", AdminGroupID: "render-other-admins",
-				ReaderGroupID: pgtype.Text{String: "render-other-readers", Valid: true},
+				ViewerGroupID: pgtype.Text{String: "render-other-viewers", Valid: true},
 			})
 			Expect(err).NotTo(HaveOccurred())
-			otherReader := createSession(false, []string{"render-other-readers"})
-			code, _ := render(otherReader, map[string]any{"orgId": other.ID.String(), "id": route["id"], "serviceName": "x"})
+			otherViewer := createSession(false, []string{"render-other-viewers"})
+			code, _ := render(otherViewer, map[string]any{"orgId": other.ID.String(), "id": route["id"], "serviceName": "x"})
 			Expect(code).To(Equal(http.StatusNotFound), "pairing your own org id with another org's route id")
 
 			outsider := createSession(false, []string{"nobody"})

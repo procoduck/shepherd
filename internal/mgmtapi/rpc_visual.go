@@ -142,11 +142,11 @@ func (s *VisualService) orgAllowsExperimental(ctx context.Context, orgID string)
 }
 
 // authorizeGraph is the per-request half of Render/Validate/UpgradeCheck's
-// authorization (#319). Their interceptor row is org-reader — it only proves
+// authorization (#319). Their interceptor row is org viewer — it only proves
 // "has some access to this org" — and the decision is made here, before the
 // graph is touched:
 //
-//   - pipeline_id empty (a new, unsaved graph): org-editor, the authoring
+//   - pipeline_id empty (a new, unsaved graph): org editor, the authoring
 //     ceiling these procedures held before #319, evaluated exactly as the
 //     interceptor would (a service account by tier, a session by role).
 //   - pipeline_id set: the pipeline must be in the request's org (another
@@ -159,10 +159,10 @@ func (s *VisualService) orgAllowsExperimental(ctx context.Context, orgID string)
 //
 // Nothing else in these handlers reads stored data the caller supplied an id
 // for: the graph is the caller's own request, and the experimental gate keys
-// on org_id, which this check (or the org-editor one) has already scoped.
+// on org_id, which this check (or the org editor one) has already scoped.
 func (s *VisualService) authorizeGraph(ctx context.Context, orgID, pipelineID string) error {
 	if pipelineID == "" {
-		return authorizeProcedure(ctx, s.store, auth.SessionFromCtx(ctx), orgID, auth.RoleOrgEditor)
+		return authorizeProcedure(ctx, s.store, auth.SessionFromCtx(ctx), orgID, reqOrgEditor)
 	}
 	if err := requireWriteAuthorized(ctx); err != nil {
 		return err
@@ -305,9 +305,9 @@ func (s *VisualService) UpgradeCheck(ctx context.Context, req *connect.Request[m
 }
 
 // GraphView returns a pipeline's contents as a visual graph document.
-// [reader] — accessible to org readers (graph view is read-only); enforced by
+// [viewer] — accessible to org viewers (graph view is read-only); enforced by
 // the authz interceptor on the Connect path and by RequireOrgAccess(...,
-// "reader") on the REST path (router.go), not by this method.
+// "viewer") on the REST path (router.go), not by this method.
 func (s *VisualService) GraphView(ctx context.Context, req *connect.Request[mgmtv1.GraphViewRequest]) (*connect.Response[mgmtv1.GraphViewResponse], error) {
 	var id pgtype.UUID
 	if err := id.Scan(req.Msg.GetId()); err != nil {
@@ -402,7 +402,7 @@ func (s *VisualService) graphFromState(wizardState json.RawMessage, contents str
 
 // DiffRevisions returns the structural graph diff between two of a pipeline's
 // revisions (#118). to_revision == 0 diffs against the pipeline's current saved
-// state. [reader] — enforced by the authz interceptor (rpc_interceptor.go).
+// state. [viewer] — enforced by the authz interceptor (rpc_interceptor.go).
 func (s *VisualService) DiffRevisions(ctx context.Context, req *connect.Request[mgmtv1.DiffRevisionsRequest]) (*connect.Response[mgmtv1.DiffRevisionsResponse], error) {
 	var id pgtype.UUID
 	if err := id.Scan(req.Msg.GetId()); err != nil {

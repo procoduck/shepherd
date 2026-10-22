@@ -63,11 +63,12 @@ type OrgMembership struct {
 	Id          string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Name        string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	DisplayName string                 `protobuf:"bytes,3,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
-	// Role is "admin", "editor" or "viewer" — the same three names for a local
-	// user (org_members.role) and an OIDC one (matched against the org's
-	// admin/editor/reader group), so the UI does not have to know which path the
-	// session came from. Kept as a string rather than an enum.
-	Role string `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
+	// role is the actor's effective role — the same Role for a local user
+	// (org_members.role) and an OIDC one (matched against the org's
+	// admin/editor/viewer group), so the UI does not have to know which path
+	// the session came from. Never ROLE_UNSPECIFIED: an org the actor holds no
+	// role in is not listed. An app admin is reported as ROLE_ADMIN everywhere.
+	Role Role `protobuf:"varint,9,opt,name=role,proto3,enum=shepherd.mgmt.v1.Role" json:"role,omitempty"`
 	// allow_experimental_components mirrors the org setting (#114) so the visual
 	// builder can show experimental components in the palette for a permitted
 	// org. The server render gate is authoritative regardless of this value.
@@ -137,11 +138,11 @@ func (x *OrgMembership) GetDisplayName() string {
 	return ""
 }
 
-func (x *OrgMembership) GetRole() string {
+func (x *OrgMembership) GetRole() Role {
 	if x != nil {
 		return x.Role
 	}
-	return ""
+	return Role_ROLE_UNSPECIFIED
 }
 
 func (x *OrgMembership) GetAllowExperimentalComponents() bool {
@@ -262,17 +263,17 @@ var File_shepherd_mgmt_v1_me_proto protoreflect.FileDescriptor
 
 const file_shepherd_mgmt_v1_me_proto_rawDesc = "" +
 	"\n" +
-	"\x19shepherd/mgmt/v1/me.proto\x12\x10shepherd.mgmt.v1\"\x0e\n" +
-	"\fGetMeRequest\"\xc2\x02\n" +
+	"\x19shepherd/mgmt/v1/me.proto\x12\x10shepherd.mgmt.v1\x1a\x1dshepherd/mgmt/v1/common.proto\"\x0e\n" +
+	"\fGetMeRequest\"\xe0\x02\n" +
 	"\rOrgMembership\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12!\n" +
-	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\x12\x12\n" +
-	"\x04role\x18\x04 \x01(\tR\x04role\x12B\n" +
+	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\x12*\n" +
+	"\x04role\x18\t \x01(\x0e2\x16.shepherd.mgmt.v1.RoleR\x04role\x12B\n" +
 	"\x1dallow_experimental_components\x18\x05 \x01(\bR\x1ballowExperimentalComponents\x120\n" +
 	"\x14allow_label_matching\x18\x06 \x01(\bR\x12allowLabelMatching\x12C\n" +
 	"\x1eallow_local_attribute_matching\x18\a \x01(\bR\x1ballowLocalAttributeMatching\x12\x1b\n" +
-	"\ttenant_id\x18\b \x01(\tR\btenantId\"\xdb\x01\n" +
+	"\ttenant_id\x18\b \x01(\tR\btenantIdJ\x04\b\x04\x10\x05\"\xdb\x01\n" +
 	"\rGetMeResponse\x12\x19\n" +
 	"\buser_oid\x18\x01 \x01(\tR\auserOid\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12!\n" +
@@ -302,16 +303,18 @@ var file_shepherd_mgmt_v1_me_proto_goTypes = []any{
 	(*GetMeRequest)(nil),  // 0: shepherd.mgmt.v1.GetMeRequest
 	(*OrgMembership)(nil), // 1: shepherd.mgmt.v1.OrgMembership
 	(*GetMeResponse)(nil), // 2: shepherd.mgmt.v1.GetMeResponse
+	(Role)(0),             // 3: shepherd.mgmt.v1.Role
 }
 var file_shepherd_mgmt_v1_me_proto_depIdxs = []int32{
-	1, // 0: shepherd.mgmt.v1.GetMeResponse.orgs:type_name -> shepherd.mgmt.v1.OrgMembership
-	0, // 1: shepherd.mgmt.v1.MeService.GetMe:input_type -> shepherd.mgmt.v1.GetMeRequest
-	2, // 2: shepherd.mgmt.v1.MeService.GetMe:output_type -> shepherd.mgmt.v1.GetMeResponse
-	2, // [2:3] is the sub-list for method output_type
-	1, // [1:2] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	3, // 0: shepherd.mgmt.v1.OrgMembership.role:type_name -> shepherd.mgmt.v1.Role
+	1, // 1: shepherd.mgmt.v1.GetMeResponse.orgs:type_name -> shepherd.mgmt.v1.OrgMembership
+	0, // 2: shepherd.mgmt.v1.MeService.GetMe:input_type -> shepherd.mgmt.v1.GetMeRequest
+	2, // 3: shepherd.mgmt.v1.MeService.GetMe:output_type -> shepherd.mgmt.v1.GetMeResponse
+	3, // [3:4] is the sub-list for method output_type
+	2, // [2:3] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_shepherd_mgmt_v1_me_proto_init() }
@@ -319,6 +322,7 @@ func file_shepherd_mgmt_v1_me_proto_init() {
 	if File_shepherd_mgmt_v1_me_proto != nil {
 		return
 	}
+	file_shepherd_mgmt_v1_common_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

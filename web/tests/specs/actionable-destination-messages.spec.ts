@@ -1,7 +1,7 @@
 import { fromJson, toBinary } from '@bufbuild/protobuf';
 import { StructSchema } from '@bufbuild/protobuf/wkt';
 import { basicScenario, destination, pipeline } from '../fixtures/factories';
-import { orgAdmin, orgEditor, reader } from '../fixtures/personas';
+import { orgAdmin, orgEditor, viewer } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
 
 /*
@@ -330,7 +330,7 @@ test('no "Restore last wizard version" while the text is what the wizard wrote, 
   await expect(page.getByTestId('detach-wizard-btn')).toBeVisible();
   await expect(page.getByTestId('restore-wizard-version')).toHaveCount(0);
 
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   seedHandEdited(api);
   await page.goto('/pipelines/pip-hand');
   await expect(page.getByText('Source:').locator('span')).toHaveText('wizard');
@@ -340,7 +340,7 @@ test('no "Restore last wizard version" while the text is what the wizard wrote, 
 // #301: the one-time landing banner was the only lasting word that a hand
 // edit detached a wizard pipeline from destination re-renders. The header now
 // says so for as long as the server says it no longer follows its wizard
-// (Pipeline.follows_wizard) — to every reader, not only to whoever may
+// (Pipeline.follows_wizard) — to every viewer, not only to whoever may
 // restore it.
 test('a hand-edited wizard pipeline is badged in its header, for an editor and a viewer', async ({
   page,
@@ -353,14 +353,14 @@ test('a hand-edited wizard pipeline is badged in its header, for an editor and a
   await expect(badge).toHaveText('Hand-edited');
   await expect(badge).toHaveAccessibleDescription(/no longer follows destination changes/);
 
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   seedHandEdited(api);
   await page.goto('/pipelines/pip-hand');
   await expect(page.getByTestId('pipeline-hand-edited-badge')).toHaveText('Hand-edited');
 });
 
 test('no hand-edited badge while the text is what the wizard wrote', async ({ page, api }) => {
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   seedHandEdited(api, WIZARD_TEXT);
   await page.goto('/pipelines/pip-hand');
   await expect(page.getByText('Source:').locator('span')).toHaveText('wizard');

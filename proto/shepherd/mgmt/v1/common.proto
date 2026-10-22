@@ -16,3 +16,14 @@ message Diagnostic {
   // Stage identifies which validation stage produced this diagnostic (1, 2, or 3).
   int32 stage = 4;
 }
+
+// Role is an org role (spec §7.2): viewer < editor < admin, each including
+// the one below it. App admin is not a Role — it is a separate, cross-org
+// flag (User.is_app_admin, GetMeResponse.is_app_admin). ROLE_UNSPECIFIED
+// never grants anything and is rejected wherever a role is written.
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_VIEWER = 1;
+  ROLE_EDITOR = 2;
+  ROLE_ADMIN = 3;
+}

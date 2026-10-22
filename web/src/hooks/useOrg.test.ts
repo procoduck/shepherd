@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { Role } from '@/lib/roles';
 import {
   getPersistedOrgId,
   ORG_STORAGE_KEY,
@@ -17,14 +18,14 @@ const orgA: OrgSummary = {
   id: 'org-a',
   name: 'a',
   displayName: 'Org A',
-  role: 'admin',
+  role: Role.ADMIN,
   allowExperimentalComponents: false,
 };
 const orgB: OrgSummary = {
   id: 'org-b',
   name: 'b',
   displayName: 'Org B',
-  role: 'admin',
+  role: Role.ADMIN,
   allowExperimentalComponents: false,
 };
 

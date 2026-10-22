@@ -6,12 +6,12 @@
 // same rule (org editor+, or a member of the owning team via `myTeamIds`).
 import { currentSchemaVersion } from '@/visual/schemaVersion';
 import { basicScenario, pipeline } from '../fixtures/factories';
-import { type MeResponse, reader } from '../fixtures/personas';
+import { type MeResponse, viewer } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
 import { expect, test } from '../fixtures/test';
 
 const teamMember: MeResponse = {
-  ...reader,
+  ...viewer,
   userOid: 'u-team-member',
   email: 'member@example.com',
   displayName: 'Team Member',
@@ -71,7 +71,7 @@ test("a viewer on the owning team gets nothing on another team's or an unowned p
 });
 
 test('a viewer on no team stays read-only on a team-owned pipeline', async ({ page, api }) => {
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   const { owned } = seedOwned(api, []);
   await page.goto(`/pipelines/${owned.id}`);
   await expect(page.getByTestId('pipeline-enabled-status')).toBeVisible();
@@ -98,7 +98,7 @@ test("the list offers the enable toggle on the team's own pipeline only", async 
 // UpgradeCheck are authorized per pipeline — anyone who may edit the pipeline
 // (Pipeline.can_edit) — so a member of the owning team below org editor uses
 // the builder on their team's pipeline like an editor does. A new graph and
-// Simulate stay org-editor; the builder says so instead of offering them.
+// Simulate stay org editor; the builder says so instead of offering them.
 const visualGraph = {
   kind: 'alloy-graph/v1',
   schema_version: currentSchemaVersion(schemaFixture),
@@ -211,7 +211,7 @@ test.describe('a builder-made pipeline, for its owning team below org editor', (
     );
   });
 
-  test('a new visual pipeline stays org-editor', async ({ page, api }) => {
+  test('a new visual pipeline stays org editor', async ({ page, api }) => {
     await api.loginAs(teamMember);
     seedVisual(api, ['team-1']);
     await page.goto('/pipelines/visual/new');
@@ -272,7 +272,7 @@ test.describe('a builder-made pipeline, for its owning team below org editor', (
   });
 
   test('a viewer on no team keeps the plain viewer message', async ({ page, api }) => {
-    await api.loginAs(reader);
+    await api.loginAs(viewer);
     const visual = seedVisual(api, []);
     await page.goto(`/pipelines/${visual.id}/visual`);
     await expect(page.getByTestId('visual-builder')).toBeVisible({ timeout: 10_000 });

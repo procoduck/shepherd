@@ -3,6 +3,8 @@
 // matches the wire (Connect JSON is camelCase) since these objects are used
 // verbatim both as the mocked GetMe response body (tests/mocks/handlers.ts)
 // and as window.__initialMe, which useMe() reads without any conversion.
+import { Role } from '@/lib/roles';
+
 export interface MeResponse {
   userOid: string;
   email: string;
@@ -13,7 +15,7 @@ export interface MeResponse {
     id: string;
     name: string;
     displayName: string;
-    role: string;
+    role: Role;
     // #114: mirrors the org setting; absent means false (proto3 default).
     allowExperimentalComponents?: boolean;
     // #261: the org's own tenant; the mock GetMe fills it from the seeded org.
@@ -27,7 +29,7 @@ export const appAdmin: MeResponse = {
   displayName: 'App Admin',
   isAppAdmin: true,
   authMethod: 'oidc',
-  orgs: [{ id: 'org-0001', name: 'prod-org', displayName: 'Production Org', role: 'admin' }],
+  orgs: [{ id: 'org-0001', name: 'prod-org', displayName: 'Production Org', role: Role.ADMIN }],
 };
 
 export const orgAdmin: MeResponse = {
@@ -36,16 +38,16 @@ export const orgAdmin: MeResponse = {
   displayName: 'Org Admin',
   isAppAdmin: false,
   authMethod: 'oidc',
-  orgs: [{ id: 'org-0001', name: 'prod-org', displayName: 'Production Org', role: 'admin' }],
+  orgs: [{ id: 'org-0001', name: 'prod-org', displayName: 'Production Org', role: Role.ADMIN }],
 };
 
-export const reader: MeResponse = {
-  userOid: 'u-reader',
-  email: 'reader@example.com',
-  displayName: 'Reader',
+export const viewer: MeResponse = {
+  userOid: 'u-viewer',
+  email: 'viewer@example.com',
+  displayName: 'Viewer',
   isAppAdmin: false,
   authMethod: 'oidc',
-  orgs: [{ id: 'org-0001', name: 'prod-org', displayName: 'Production Org', role: 'viewer' }],
+  orgs: [{ id: 'org-0001', name: 'prod-org', displayName: 'Production Org', role: Role.VIEWER }],
 };
 
 export const nobody: MeResponse = {
@@ -75,5 +77,5 @@ export const orgEditor: MeResponse = {
   displayName: 'Org Editor',
   isAppAdmin: false,
   authMethod: 'local',
-  orgs: [{ id: 'org-0001', name: 'prod-org', displayName: 'Production Org', role: 'editor' }],
+  orgs: [{ id: 'org-0001', name: 'prod-org', displayName: 'Production Org', role: Role.EDITOR }],
 };

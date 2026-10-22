@@ -167,10 +167,10 @@ receiver:
 					t.Fatalf("CreateTenantRoute: %v", err)
 				}
 				first = r.Msg
-				if first.GetApplyStatus() != routeapply.StatusPending {
-					t.Fatalf("a new route reads %q, want pending — Create must only write the row", first.GetApplyStatus())
+				if first.GetApplyStatus() != mgmtv1.TenantRouteApplyStatus_TENANT_ROUTE_APPLY_STATUS_PENDING {
+					t.Fatalf("a new route reads %s, want pending — Create must only write the row", first.GetApplyStatus())
 				}
-				got := api.waitApplyStatus(ctx, t, orgID, first.GetId(), routeapply.StatusApplied)
+				got := api.waitApplyStatus(ctx, t, orgID, first.GetId(), mgmtv1.TenantRouteApplyStatus_TENANT_ROUTE_APPLY_STATUS_APPLIED)
 				if got.GetAppliedAt() == nil {
 					t.Fatal("applied without an applied_at")
 				}
@@ -185,7 +185,7 @@ receiver:
 						t.Fatalf("ListTenantRoutes: %v", err)
 					}
 					for _, r := range resp.Msg.GetItems() {
-						if r.GetId() == first.GetId() && r.GetApplyStatus() != routeapply.StatusApplied {
+						if r.GetId() == first.GetId() && r.GetApplyStatus() != mgmtv1.TenantRouteApplyStatus_TENANT_ROUTE_APPLY_STATUS_APPLIED {
 							t.Fatalf("with two replicas the route left applied: %q %q — replicas are racing",
 								r.GetApplyStatus(), r.GetApplyMessage())
 						}
@@ -213,7 +213,7 @@ receiver:
 					t.Fatalf("RotateTenantRoute: %v", err)
 				}
 				second = r.Msg.GetActive()
-				api.waitApplyStatus(ctx, t, orgID, second.GetId(), routeapply.StatusApplied)
+				api.waitApplyStatus(ctx, t, orgID, second.GetId(), mgmtv1.TenantRouteApplyStatus_TENANT_ROUTE_APPLY_STATUS_APPLIED)
 				for _, seg := range []string{first.GetSegment(), second.GetSegment()} {
 					before := sinkTenantCounts(t, cfg, f.ns, sinkName)[tenant]
 					postSpanUntil(t, cfg, f.ns, gwNS, gwSvc, "/otlp/"+seg+"/v1/traces", "rta-rot-"+seg, nil)
@@ -228,7 +228,7 @@ receiver:
 				})); err != nil {
 					t.Fatalf("RevokeTenantRoute: %v", err)
 				}
-				api.waitApplyStatus(ctx, t, orgID, first.GetId(), routeapply.StatusRemoved)
+				api.waitApplyStatus(ctx, t, orgID, first.GetId(), mgmtv1.TenantRouteApplyStatus_TENANT_ROUTE_APPLY_STATUS_REMOVED)
 				var hr gatewayv1.HTTPRoute
 				if err := cfg.Client().Resources().Get(ctx, routeapply.ObjectName(first.GetId()), f.ns, &hr); err == nil {
 					t.Fatal("the revoked route is marked removed but its HTTPRoute is still in the cluster")
@@ -264,7 +264,7 @@ receiver:
 				if err != nil {
 					t.Fatalf("CreateTenantRoute: %v", err)
 				}
-				got := api.waitApplyStatus(ctx, t, org.Msg.GetId(), r.Msg.GetId(), routeapply.StatusRefused)
+				got := api.waitApplyStatus(ctx, t, org.Msg.GetId(), r.Msg.GetId(), mgmtv1.TenantRouteApplyStatus_TENANT_ROUTE_APPLY_STATUS_REFUSED)
 				if !strings.Contains(got.GetApplyMessage(), "NotAllowedByListeners") {
 					t.Fatalf("refused, but the message does not carry the gateway's reason: %q", got.GetApplyMessage())
 				}
@@ -391,7 +391,7 @@ func (a *shepherdAPI) login(t *testing.T, user, password string) {
 
 // waitApplyStatus polls ListTenantRoutes until route id reads want. Any other
 // terminal-looking outcome is reported with its message and Shepherd's logs.
-func (a *shepherdAPI) waitApplyStatus(ctx context.Context, t *testing.T, orgID, id, want string) *mgmtv1.TenantRoute {
+func (a *shepherdAPI) waitApplyStatus(ctx context.Context, t *testing.T, orgID, id string, want mgmtv1.TenantRouteApplyStatus) *mgmtv1.TenantRoute {
 	t.Helper()
 	end := time.Now().Add(3 * time.Minute)
 	var last *mgmtv1.TenantRoute
@@ -411,9 +411,9 @@ func (a *shepherdAPI) waitApplyStatus(ctx context.Context, t *testing.T, orgID, 
 	}
 	status, msg := "(not listed)", ""
 	if last != nil {
-		status, msg = last.GetApplyStatus(), last.GetApplyMessage()
+		status, msg = last.GetApplyStatus().String(), last.GetApplyMessage()
 	}
-	t.Fatalf("route %s never reached apply_status %q within 3m: last %q %q\n--- shepherd logs ---\n%s", id, want, status, msg,
+	t.Fatalf("route %s never reached apply_status %s within 3m: last %q %q\n--- shepherd logs ---\n%s", id, want, status, msg,
 		kubectlArgv(a.cfg, "-n", a.ns, "logs", "deploy/"+a.svc, "--tail=60"))
 	return nil
 }

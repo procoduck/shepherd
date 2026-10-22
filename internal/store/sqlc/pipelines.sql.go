@@ -781,7 +781,7 @@ type SetPipelineOwnerTeamParams struct {
 // transfer are different operations with different authorization
 // requirements (see internal/mgmtapi's PipelineService — a team member may
 // edit their team's pipeline content, but reassigning OWNERSHIP away from
-// their team is an org-admin action), and merging them would let a content
+// their team is an org admin action), and merging them would let a content
 // edit request accidentally carry an ownership change along for the ride.
 func (q *Queries) SetPipelineOwnerTeam(ctx context.Context, arg SetPipelineOwnerTeamParams) (Pipeline, error) {
 	row := q.db.QueryRow(ctx, setPipelineOwnerTeam, arg.ID, arg.OwnerTeamID)

@@ -29,7 +29,7 @@ type Org struct {
 	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	DisplayName   string                 `protobuf:"bytes,3,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
 	AdminGroupId  string                 `protobuf:"bytes,4,opt,name=admin_group_id,json=adminGroupId,proto3" json:"admin_group_id,omitempty"`
-	ReaderGroupId string                 `protobuf:"bytes,5,opt,name=reader_group_id,json=readerGroupId,proto3" json:"reader_group_id,omitempty"`
+	ViewerGroupId string                 `protobuf:"bytes,5,opt,name=viewer_group_id,json=viewerGroupId,proto3" json:"viewer_group_id,omitempty"`
 	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	// tenant_id is the identity Shepherd injects as X-Scope-OrgID on every
@@ -121,9 +121,9 @@ func (x *Org) GetAdminGroupId() string {
 	return ""
 }
 
-func (x *Org) GetReaderGroupId() string {
+func (x *Org) GetViewerGroupId() string {
 	if x != nil {
-		return x.ReaderGroupId
+		return x.ViewerGroupId
 	}
 	return ""
 }
@@ -271,7 +271,7 @@ type CreateOrgRequest struct {
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	DisplayName   string                 `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
 	AdminGroupId  string                 `protobuf:"bytes,3,opt,name=admin_group_id,json=adminGroupId,proto3" json:"admin_group_id,omitempty"`
-	ReaderGroupId string                 `protobuf:"bytes,4,opt,name=reader_group_id,json=readerGroupId,proto3" json:"reader_group_id,omitempty"`
+	ViewerGroupId string                 `protobuf:"bytes,4,opt,name=viewer_group_id,json=viewerGroupId,proto3" json:"viewer_group_id,omitempty"`
 	// tenant_id is the org's telemetry tenant identity — the X-Scope-OrgID
 	// value its routes inject downstream. Optional here so an org can be
 	// created before its destination tenancy is decided, but an org without
@@ -336,9 +336,9 @@ func (x *CreateOrgRequest) GetAdminGroupId() string {
 	return ""
 }
 
-func (x *CreateOrgRequest) GetReaderGroupId() string {
+func (x *CreateOrgRequest) GetViewerGroupId() string {
 	if x != nil {
-		return x.ReaderGroupId
+		return x.ViewerGroupId
 	}
 	return ""
 }
@@ -363,7 +363,7 @@ type UpdateOrgRequest struct {
 	OrgId         string `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
 	DisplayName   string `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
 	AdminGroupId  string `protobuf:"bytes,3,opt,name=admin_group_id,json=adminGroupId,proto3" json:"admin_group_id,omitempty"`
-	ReaderGroupId string `protobuf:"bytes,4,opt,name=reader_group_id,json=readerGroupId,proto3" json:"reader_group_id,omitempty"`
+	ViewerGroupId string `protobuf:"bytes,4,opt,name=viewer_group_id,json=viewerGroupId,proto3" json:"viewer_group_id,omitempty"`
 	EditorGroupId string `protobuf:"bytes,5,opt,name=editor_group_id,json=editorGroupId,proto3" json:"editor_group_id,omitempty"`
 	// allow_experimental_components — see Org.allow_experimental_components (#114).
 	AllowExperimentalComponents bool `protobuf:"varint,6,opt,name=allow_experimental_components,json=allowExperimentalComponents,proto3" json:"allow_experimental_components,omitempty"`
@@ -426,9 +426,9 @@ func (x *UpdateOrgRequest) GetAdminGroupId() string {
 	return ""
 }
 
-func (x *UpdateOrgRequest) GetReaderGroupId() string {
+func (x *UpdateOrgRequest) GetViewerGroupId() string {
 	if x != nil {
-		return x.ReaderGroupId
+		return x.ViewerGroupId
 	}
 	return ""
 }
@@ -2816,7 +2816,7 @@ const file_shepherd_mgmt_v1_admin_proto_rawDesc = "" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12!\n" +
 	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\x12$\n" +
 	"\x0eadmin_group_id\x18\x04 \x01(\tR\fadminGroupId\x12&\n" +
-	"\x0freader_group_id\x18\x05 \x01(\tR\rreaderGroupId\x129\n" +
+	"\x0fviewer_group_id\x18\x05 \x01(\tR\rviewerGroupId\x129\n" +
 	"\n" +
 	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
@@ -2835,14 +2835,14 @@ const file_shepherd_mgmt_v1_admin_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12$\n" +
 	"\x0eadmin_group_id\x18\x03 \x01(\tR\fadminGroupId\x12&\n" +
-	"\x0freader_group_id\x18\x04 \x01(\tR\rreaderGroupId\x12\x1b\n" +
+	"\x0fviewer_group_id\x18\x04 \x01(\tR\rviewerGroupId\x12\x1b\n" +
 	"\ttenant_id\x18\x05 \x01(\tR\btenantId\x12&\n" +
 	"\x0feditor_group_id\x18\x06 \x01(\tR\reditorGroupId\"\xfd\x02\n" +
 	"\x10UpdateOrgRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12$\n" +
 	"\x0eadmin_group_id\x18\x03 \x01(\tR\fadminGroupId\x12&\n" +
-	"\x0freader_group_id\x18\x04 \x01(\tR\rreaderGroupId\x12&\n" +
+	"\x0fviewer_group_id\x18\x04 \x01(\tR\rviewerGroupId\x12&\n" +
 	"\x0feditor_group_id\x18\x05 \x01(\tR\reditorGroupId\x12B\n" +
 	"\x1dallow_experimental_components\x18\x06 \x01(\bR\x1ballowExperimentalComponents\x120\n" +
 	"\x14allow_label_matching\x18\a \x01(\bR\x12allowLabelMatching\x12C\n" +

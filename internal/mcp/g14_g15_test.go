@@ -359,7 +359,7 @@ func TestG15_ProposalRoundTrips(t *testing.T) {
 
 	// -- Step 3: the round trip's content half — the pipeline now carries
 	// exactly what was applied, readable back through this package's own
-	// get_pipeline tool (org-reader is enough; still uses the propose
+	// get_pipeline tool (org viewer is enough; still uses the propose
 	// credential, proving reads stay open per G12's "capability only gates
 	// writes").
 	_, got, err := backend.getPipeline(ctx, nil, orgIDArg{OrgID: orgID.String(), ID: seeded.ID.String()})

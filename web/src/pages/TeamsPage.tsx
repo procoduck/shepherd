@@ -15,6 +15,7 @@ import type { Team } from '@/gen/shepherd/mgmt/v1/team_pb';
 import { useMe } from '@/hooks/useMe';
 import { useOrg } from '@/hooks/useOrg';
 import { formError } from '@/lib/formError';
+import { Role } from '@/lib/roles';
 
 /**
  * Teams.
@@ -106,8 +107,8 @@ export function TeamsPage() {
   const { orgId, orgs } = useOrg();
   const qc = useQueryClient();
 
-  const role = orgs.find((o) => o.id === orgId)?.role ?? '';
-  const canManage = !!me?.isAppAdmin || role === 'admin';
+  const role = orgs.find((o) => o.id === orgId)?.role ?? Role.UNSPECIFIED;
+  const canManage = !!me?.isAppAdmin || role === Role.ADMIN;
 
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState({ name: '', idpGroupId: '' });

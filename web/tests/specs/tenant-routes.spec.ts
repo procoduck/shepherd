@@ -4,10 +4,12 @@
  * A tenant route pairs the org's tenant identity with a rotatable, unguessable
  * path segment. This drives the create / rotate / revoke lifecycle over the
  * real generated TenantRouteService client and the mock handlers. Writes are
- * org-admin; a viewer sees the table but no controls.
+ * org admin; a viewer sees the table but no controls.
  */
+
+import { TenantRouteApplyStatus, TenantRouteStatus } from '@/gen/shepherd/mgmt/v1/tenant_route_pb';
 import { basicScenario } from '../fixtures/factories';
-import { appAdmin, reader } from '../fixtures/personas';
+import { appAdmin, viewer } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
 
 test('creates, rotates and revokes a tenant route', async ({ page, api }) => {
@@ -62,7 +64,7 @@ test('a viewer sees the routes but no write controls', async ({ page, api }) => 
         tenant_id: 'tenant-x',
         kind: 'otlp',
         segment: 'otlp-abc123',
-        status: 'active',
+        status: TenantRouteStatus.ACTIVE,
         gateway_mode: 'managed',
         gateway_name: '',
         gateway_namespace: '',
@@ -71,7 +73,7 @@ test('a viewer sees the routes but no write controls', async ({ page, api }) => 
       },
     ],
   });
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   await page.goto('/tenant-routes');
 
   const panel = page.getByTestId('tenant-routes');
@@ -106,7 +108,7 @@ test('shows whether each route is in the cluster, with the reason when it is not
     tenant_id: 'tenant-x',
     kind: 'otlp',
     segment,
-    status: 'active',
+    status: TenantRouteStatus.ACTIVE,
     gateway_mode: 'operator',
     gateway_name: 'edge',
     gateway_namespace: 'gateways',
@@ -117,27 +119,33 @@ test('shows whether each route is in the cluster, with the reason when it is not
   api.seed({
     orgs: [s.org],
     tenantRoutes: [
-      route('otlp-new', { apply_status: 'pending' }),
-      route('otlp-ok', { apply_status: 'applied', applied_at: '2026-09-29T09:05:00Z' }),
+      route('otlp-new', { apply_status: TenantRouteApplyStatus.PENDING }),
+      route('otlp-ok', {
+        apply_status: TenantRouteApplyStatus.APPLIED,
+        applied_at: '2026-09-29T09:05:00Z',
+      }),
       route('otlp-closed', {
-        apply_status: 'refused',
+        apply_status: TenantRouteApplyStatus.REFUSED,
         apply_message: 'Accepted=False (reason NotAllowedByListeners)',
       }),
-      route('otlp-broken', { apply_status: 'error', apply_message: 'httproutes is forbidden' }),
+      route('otlp-broken', {
+        apply_status: TenantRouteApplyStatus.ERROR,
+        apply_message: 'httproutes is forbidden',
+      }),
       // What the server reports for a route when no reconciler runs (#304).
       route('otlp-idle', {
-        apply_status: 'not_applicable',
+        apply_status: TenantRouteApplyStatus.NOT_APPLICABLE,
         apply_message: 'not applied: tenant-route apply is not running on this server',
       }),
       route('otlp-managed', {
-        apply_status: 'applied',
+        apply_status: TenantRouteApplyStatus.APPLIED,
         gateway_mode: 'managed',
         gateway_name: 'shepherd-receiver-gw',
         gateway_namespace: '',
       }),
     ],
   });
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   await page.goto('/tenant-routes');
 
   const panel = page.getByTestId('tenant-routes');
@@ -166,7 +174,7 @@ test('shows whether each route is in the cluster, with the reason when it is not
   await expect(page.getByTestId('route-gateway-otlp-ok')).toHaveText('operator · gateways/edge');
 });
 
-test('a reader connects an app to an active route: endpoint and snippets from the server', async ({
+test('a viewer connects an app to an active route: endpoint and snippets from the server', async ({
   page,
   api,
 }) => {
@@ -177,7 +185,7 @@ test('a reader connects an app to an active route: endpoint and snippets from th
     tenant_id: 'tenant-x',
     kind: 'otlp',
     segment,
-    status: 'active',
+    status: TenantRouteStatus.ACTIVE,
     gateway_mode: 'operator',
     gateway_name: 'edge',
     gateway_namespace: 'gateways',
@@ -189,12 +197,15 @@ test('a reader connects an app to an active route: endpoint and snippets from th
     orgs: [s.org],
     gatewayPublicBaseUrl: 'https://telemetry.example.com',
     tenantRoutes: [
-      route('otlp-live', { apply_status: 'applied' }),
-      route('otlp-old', { status: 'revoked', apply_status: 'removed' }),
-      route('faro-live', { kind: 'faro', apply_status: 'not_applicable' }),
+      route('otlp-live', { apply_status: TenantRouteApplyStatus.APPLIED }),
+      route('otlp-old', {
+        status: TenantRouteStatus.REVOKED,
+        apply_status: TenantRouteApplyStatus.REMOVED,
+      }),
+      route('faro-live', { kind: 'faro', apply_status: TenantRouteApplyStatus.NOT_APPLICABLE }),
     ],
   });
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   await page.goto('/tenant-routes');
 
   // Only the active OTLP route offers it: a revoked endpoint 404s, and Faro
@@ -248,8 +259,8 @@ test('connect-an-app warns when the route is not applied, and explains a missing
         tenant_id: 'tenant-x',
         kind: 'otlp',
         segment: 'otlp-new',
-        status: 'active',
-        apply_status: 'pending',
+        status: TenantRouteStatus.ACTIVE,
+        apply_status: TenantRouteApplyStatus.PENDING,
         gateway_mode: 'operator',
         gateway_name: 'edge',
         gateway_namespace: '',
@@ -258,7 +269,7 @@ test('connect-an-app warns when the route is not applied, and explains a missing
       },
     ],
   });
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   await page.goto('/tenant-routes');
   await page.getByTestId('route-connect-otlp-new').click();
   const dialog = page.getByTestId('connect-app');
@@ -279,8 +290,8 @@ test('a revoked route reads "not routed", not "pending" (#205)', async ({ page, 
         tenant_id: 'tenant-x',
         kind: 'otlp',
         segment: 'otlp-gone',
-        status: 'revoked',
-        apply_status: 'pending',
+        status: TenantRouteStatus.REVOKED,
+        apply_status: TenantRouteApplyStatus.PENDING,
         valid_until: '2099-01-01T00:00:00Z',
         gateway_mode: 'operator',
         gateway_name: 'edge',
@@ -290,7 +301,7 @@ test('a revoked route reads "not routed", not "pending" (#205)', async ({ page, 
       },
     ],
   });
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   await page.goto('/tenant-routes');
   await expect(page.getByTestId('route-apply-otlp-gone')).toHaveText('not routed');
   await expect(page.getByTestId('tenant-routes')).not.toContainText('2099');

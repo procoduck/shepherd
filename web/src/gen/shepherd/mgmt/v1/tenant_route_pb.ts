@@ -2,8 +2,8 @@
 // @generated from file shepherd/mgmt/v1/tenant_route.proto (package shepherd.mgmt.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type { Message } from "@bufbuild/protobuf";
@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file shepherd/mgmt/v1/tenant_route.proto.
  */
 export const file_shepherd_mgmt_v1_tenant_route: GenFile = /*@__PURE__*/
-  fileDesc("CiNzaGVwaGVyZC9tZ210L3YxL3RlbmFudF9yb3V0ZS5wcm90bxIQc2hlcGhlcmQubWdtdC52MSLpAwoLVGVuYW50Um91dGUSCgoCaWQYASABKAkSDgoGb3JnX2lkGAIgASgJEhEKCXRlbmFudF9pZBgDIAEoCRIMCgRraW5kGAQgASgJEg8KB3NlZ21lbnQYBSABKAkSDgoGc3RhdHVzGAYgASgJEi8KC3ZhbGlkX3VudGlsGAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIXCg9yb3RhdGVkX2Zyb21faWQYCCABKAkSFAoMZ2F0ZXdheV9tb2RlGAkgASgJEhQKDGdhdGV3YXlfbmFtZRgKIAEoCRIZChFnYXRld2F5X25hbWVzcGFjZRgLIAEoCRIuCgpjcmVhdGVkX2F0GAwgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgp1cGRhdGVkX2F0GA0gASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgpyZXZva2VkX2F0GA4gASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIUCgxhcHBseV9zdGF0dXMYDyABKAkSFQoNYXBwbHlfbWVzc2FnZRgQIAEoCRIuCgphcHBsaWVkX2F0GBEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIpChdMaXN0VGVuYW50Um91dGVzUmVxdWVzdBIOCgZvcmdfaWQYASABKAkiVwoYTGlzdFRlbmFudFJvdXRlc1Jlc3BvbnNlEiwKBWl0ZW1zGAEgAygLMh0uc2hlcGhlcmQubWdtdC52MS5UZW5hbnRSb3V0ZRINCgV0b3RhbBgCIAEoBSKgAQoYQ3JlYXRlVGVuYW50Um91dGVSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIMCgRraW5kGAMgASgJEg4KBmZvcm1hdBgEIAEoCRIUCgxnYXRld2F5X21vZGUYBSABKAkSFAoMZ2F0ZXdheV9uYW1lGAYgASgJEhkKEWdhdGV3YXlfbmFtZXNwYWNlGAcgASgJSgQIAhADUgl0ZW5hbnRfaWQiXwoYUm90YXRlVGVuYW50Um91dGVSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIKCgJpZBgCIAEoCRIOCgZmb3JtYXQYAyABKAkSFwoPb3ZlcmxhcF9zZWNvbmRzGAQgASgFIn0KGVJvdGF0ZVRlbmFudFJvdXRlUmVzcG9uc2USLQoGYWN0aXZlGAEgASgLMh0uc2hlcGhlcmQubWdtdC52MS5UZW5hbnRSb3V0ZRIxCgpkZXByZWNhdGVkGAIgASgLMh0uc2hlcGhlcmQubWdtdC52MS5UZW5hbnRSb3V0ZSI2ChhSZXZva2VUZW5hbnRSb3V0ZVJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgoKAmlkGAIgASgJIpMBChdSZW5kZXJDb25uZWN0QXBwUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkSFAoMc2VydmljZV9uYW1lGAMgASgJEhAKCHByb3RvY29sGAQgASgJEhoKEmluY2x1ZGVfYWRvdF9sYXllchgFIAEoCBIYChBnYXRld2F5X2Jhc2VfdXJsGAYgASgJIrUBChhSZW5kZXJDb25uZWN0QXBwUmVzcG9uc2USFQoNYmFzZV9lbmRwb2ludBgBIAEoCRIYChBnYXRld2F5X2Jhc2VfdXJsGAIgASgJEgsKA2VudhgDIAEoCRIOCgZsYW1iZGEYBCABKAkSEQoJdGVycmFmb3JtGAUgASgJEgsKA3NhbRgGIAEoCRILCgNjZGsYByABKAkSCwoDazhzGAggASgJEhEKCXNka19ub3RlcxgJIAEoCTKiBAoSVGVuYW50Um91dGVTZXJ2aWNlEmsKEExpc3RUZW5hbnRSb3V0ZXMSKS5zaGVwaGVyZC5tZ210LnYxLkxpc3RUZW5hbnRSb3V0ZXNSZXF1ZXN0Giouc2hlcGhlcmQubWdtdC52MS5MaXN0VGVuYW50Um91dGVzUmVzcG9uc2UiABJgChFDcmVhdGVUZW5hbnRSb3V0ZRIqLnNoZXBoZXJkLm1nbXQudjEuQ3JlYXRlVGVuYW50Um91dGVSZXF1ZXN0Gh0uc2hlcGhlcmQubWdtdC52MS5UZW5hbnRSb3V0ZSIAEm4KEVJvdGF0ZVRlbmFudFJvdXRlEiouc2hlcGhlcmQubWdtdC52MS5Sb3RhdGVUZW5hbnRSb3V0ZVJlcXVlc3QaKy5zaGVwaGVyZC5tZ210LnYxLlJvdGF0ZVRlbmFudFJvdXRlUmVzcG9uc2UiABJgChFSZXZva2VUZW5hbnRSb3V0ZRIqLnNoZXBoZXJkLm1nbXQudjEuUmV2b2tlVGVuYW50Um91dGVSZXF1ZXN0Gh0uc2hlcGhlcmQubWdtdC52MS5UZW5hbnRSb3V0ZSIAEmsKEFJlbmRlckNvbm5lY3RBcHASKS5zaGVwaGVyZC5tZ210LnYxLlJlbmRlckNvbm5lY3RBcHBSZXF1ZXN0Giouc2hlcGhlcmQubWdtdC52MS5SZW5kZXJDb25uZWN0QXBwUmVzcG9uc2UiAEImWiRzaGVwaGVyZC9nZW4vc2hlcGhlcmQvbWdtdC92MTttZ210djFiBnByb3RvMw", [file_google_protobuf_timestamp]);
+  fileDesc("CiNzaGVwaGVyZC9tZ210L3YxL3RlbmFudF9yb3V0ZS5wcm90bxIQc2hlcGhlcmQubWdtdC52MSLEBAoLVGVuYW50Um91dGUSCgoCaWQYASABKAkSDgoGb3JnX2lkGAIgASgJEhEKCXRlbmFudF9pZBgDIAEoCRIMCgRraW5kGAQgASgJEg8KB3NlZ21lbnQYBSABKAkSMwoGc3RhdHVzGBIgASgOMiMuc2hlcGhlcmQubWdtdC52MS5UZW5hbnRSb3V0ZVN0YXR1cxIvCgt2YWxpZF91bnRpbBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASFwoPcm90YXRlZF9mcm9tX2lkGAggASgJEhQKDGdhdGV3YXlfbW9kZRgJIAEoCRIUCgxnYXRld2F5X25hbWUYCiABKAkSGQoRZ2F0ZXdheV9uYW1lc3BhY2UYCyABKAkSLgoKY3JlYXRlZF9hdBgMIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgNIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKcmV2b2tlZF9hdBgOIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASPgoMYXBwbHlfc3RhdHVzGBMgASgOMiguc2hlcGhlcmQubWdtdC52MS5UZW5hbnRSb3V0ZUFwcGx5U3RhdHVzEhUKDWFwcGx5X21lc3NhZ2UYECABKAkSLgoKYXBwbGllZF9hdBgRIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBKBAgGEAdKBAgPEBAiKQoXTGlzdFRlbmFudFJvdXRlc1JlcXVlc3QSDgoGb3JnX2lkGAEgASgJIlcKGExpc3RUZW5hbnRSb3V0ZXNSZXNwb25zZRIsCgVpdGVtcxgBIAMoCzIdLnNoZXBoZXJkLm1nbXQudjEuVGVuYW50Um91dGUSDQoFdG90YWwYAiABKAUioAEKGENyZWF0ZVRlbmFudFJvdXRlUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSDAoEa2luZBgDIAEoCRIOCgZmb3JtYXQYBCABKAkSFAoMZ2F0ZXdheV9tb2RlGAUgASgJEhQKDGdhdGV3YXlfbmFtZRgGIAEoCRIZChFnYXRld2F5X25hbWVzcGFjZRgHIAEoCUoECAIQA1IJdGVuYW50X2lkIl8KGFJvdGF0ZVRlbmFudFJvdXRlUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkSDgoGZm9ybWF0GAMgASgJEhcKD292ZXJsYXBfc2Vjb25kcxgEIAEoBSJ9ChlSb3RhdGVUZW5hbnRSb3V0ZVJlc3BvbnNlEi0KBmFjdGl2ZRgBIAEoCzIdLnNoZXBoZXJkLm1nbXQudjEuVGVuYW50Um91dGUSMQoKZGVwcmVjYXRlZBgCIAEoCzIdLnNoZXBoZXJkLm1nbXQudjEuVGVuYW50Um91dGUiNgoYUmV2b2tlVGVuYW50Um91dGVSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIKCgJpZBgCIAEoCSKTAQoXUmVuZGVyQ29ubmVjdEFwcFJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEgoKAmlkGAIgASgJEhQKDHNlcnZpY2VfbmFtZRgDIAEoCRIQCghwcm90b2NvbBgEIAEoCRIaChJpbmNsdWRlX2Fkb3RfbGF5ZXIYBSABKAgSGAoQZ2F0ZXdheV9iYXNlX3VybBgGIAEoCSK1AQoYUmVuZGVyQ29ubmVjdEFwcFJlc3BvbnNlEhUKDWJhc2VfZW5kcG9pbnQYASABKAkSGAoQZ2F0ZXdheV9iYXNlX3VybBgCIAEoCRILCgNlbnYYAyABKAkSDgoGbGFtYmRhGAQgASgJEhEKCXRlcnJhZm9ybRgFIAEoCRILCgNzYW0YBiABKAkSCwoDY2RrGAcgASgJEgsKA2s4cxgIIAEoCRIRCglzZGtfbm90ZXMYCSABKAkqnQEKEVRlbmFudFJvdXRlU3RhdHVzEiMKH1RFTkFOVF9ST1VURV9TVEFUVVNfVU5TUEVDSUZJRUQQABIeChpURU5BTlRfUk9VVEVfU1RBVFVTX0FDVElWRRABEiIKHlRFTkFOVF9ST1VURV9TVEFUVVNfREVQUkVDQVRFRBACEh8KG1RFTkFOVF9ST1VURV9TVEFUVVNfUkVWT0tFRBADKrICChZUZW5hbnRSb3V0ZUFwcGx5U3RhdHVzEikKJVRFTkFOVF9ST1VURV9BUFBMWV9TVEFUVVNfVU5TUEVDSUZJRUQQABIlCiFURU5BTlRfUk9VVEVfQVBQTFlfU1RBVFVTX1BFTkRJTkcQARIlCiFURU5BTlRfUk9VVEVfQVBQTFlfU1RBVFVTX0FQUExJRUQQAhIlCiFURU5BTlRfUk9VVEVfQVBQTFlfU1RBVFVTX1JFRlVTRUQQAxIjCh9URU5BTlRfUk9VVEVfQVBQTFlfU1RBVFVTX0VSUk9SEAQSJQohVEVOQU5UX1JPVVRFX0FQUExZX1NUQVRVU19SRU1PVkVEEAUSLAooVEVOQU5UX1JPVVRFX0FQUExZX1NUQVRVU19OT1RfQVBQTElDQUJMRRAGMqIEChJUZW5hbnRSb3V0ZVNlcnZpY2USawoQTGlzdFRlbmFudFJvdXRlcxIpLnNoZXBoZXJkLm1nbXQudjEuTGlzdFRlbmFudFJvdXRlc1JlcXVlc3QaKi5zaGVwaGVyZC5tZ210LnYxLkxpc3RUZW5hbnRSb3V0ZXNSZXNwb25zZSIAEmAKEUNyZWF0ZVRlbmFudFJvdXRlEiouc2hlcGhlcmQubWdtdC52MS5DcmVhdGVUZW5hbnRSb3V0ZVJlcXVlc3QaHS5zaGVwaGVyZC5tZ210LnYxLlRlbmFudFJvdXRlIgASbgoRUm90YXRlVGVuYW50Um91dGUSKi5zaGVwaGVyZC5tZ210LnYxLlJvdGF0ZVRlbmFudFJvdXRlUmVxdWVzdBorLnNoZXBoZXJkLm1nbXQudjEuUm90YXRlVGVuYW50Um91dGVSZXNwb25zZSIAEmAKEVJldm9rZVRlbmFudFJvdXRlEiouc2hlcGhlcmQubWdtdC52MS5SZXZva2VUZW5hbnRSb3V0ZVJlcXVlc3QaHS5zaGVwaGVyZC5tZ210LnYxLlRlbmFudFJvdXRlIgASawoQUmVuZGVyQ29ubmVjdEFwcBIpLnNoZXBoZXJkLm1nbXQudjEuUmVuZGVyQ29ubmVjdEFwcFJlcXVlc3QaKi5zaGVwaGVyZC5tZ210LnYxLlJlbmRlckNvbm5lY3RBcHBSZXNwb25zZSIAQiZaJHNoZXBoZXJkL2dlbi9zaGVwaGVyZC9tZ210L3YxO21nbXR2MWIGcHJvdG8z", [file_google_protobuf_timestamp]);
 
 /**
  * TenantRoute mirrors internal/store/sqlc.TenantRoute (0009_tenant_routes).
@@ -51,16 +51,13 @@ export type TenantRoute = Message<"shepherd.mgmt.v1.TenantRoute"> & {
   segment: string;
 
   /**
-   * status is "active", "deprecated" (still routes, mid-rotation), or
-   * "revoked".
-   *
-   * @generated from field: string status = 6;
+   * @generated from field: shepherd.mgmt.v1.TenantRouteStatus status = 18;
    */
-  status: string;
+  status: TenantRouteStatus;
 
   /**
-   * valid_until is set only for a "deprecated" route: the end of its
-   * rotation overlap window. Unset for "active"/"revoked".
+   * valid_until is set only for a deprecated route: the end of its
+   * rotation overlap window. Unset for active/revoked.
    *
    * @generated from field: google.protobuf.Timestamp valid_until = 7;
    */
@@ -113,17 +110,14 @@ export type TenantRoute = Message<"shepherd.mgmt.v1.TenantRoute"> & {
 
   /**
    * apply_status is whether this route's HTTPRoute is actually in the
-   * cluster, as the tenant-route reconciler last found it: "pending",
-   * "applied" (attachment verified), "refused" (the gateway refused
-   * attachment), "error" (retried), "removed" (revoked or expired, HTTPRoute
-   * deleted) or "not_applicable" (a Faro route, or route apply disabled).
+   * cluster, as the tenant-route reconciler last found it.
    *
-   * @generated from field: string apply_status = 15;
+   * @generated from field: shepherd.mgmt.v1.TenantRouteApplyStatus apply_status = 19;
    */
-  applyStatus: string;
+  applyStatus: TenantRouteApplyStatus;
 
   /**
-   * apply_message is the reason behind "refused" or "error" -- the gateway's
+   * apply_message is the reason behind REFUSED or ERROR -- the gateway's
    * own condition message where it gave one.
    *
    * @generated from field: string apply_message = 16;
@@ -474,6 +468,102 @@ export const RenderConnectAppResponseSchema: GenMessage<RenderConnectAppResponse
   messageDesc(file_shepherd_mgmt_v1_tenant_route, 8);
 
 /**
+ * TenantRouteStatus is a route's lifecycle (tenant_routes.status).
+ *
+ * @generated from enum shepherd.mgmt.v1.TenantRouteStatus
+ */
+export enum TenantRouteStatus {
+  /**
+   * @generated from enum value: TENANT_ROUTE_STATUS_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: TENANT_ROUTE_STATUS_ACTIVE = 1;
+   */
+  ACTIVE = 1,
+
+  /**
+   * Still routes, mid-rotation, until valid_until.
+   *
+   * @generated from enum value: TENANT_ROUTE_STATUS_DEPRECATED = 2;
+   */
+  DEPRECATED = 2,
+
+  /**
+   * @generated from enum value: TENANT_ROUTE_STATUS_REVOKED = 3;
+   */
+  REVOKED = 3,
+}
+
+/**
+ * Describes the enum shepherd.mgmt.v1.TenantRouteStatus.
+ */
+export const TenantRouteStatusSchema: GenEnum<TenantRouteStatus> = /*@__PURE__*/
+  enumDesc(file_shepherd_mgmt_v1_tenant_route, 0);
+
+/**
+ * TenantRouteApplyStatus is whether a route's HTTPRoute is in the cluster, as
+ * the tenant-route reconciler last found it (tenant_routes.apply_status).
+ *
+ * @generated from enum shepherd.mgmt.v1.TenantRouteApplyStatus
+ */
+export enum TenantRouteApplyStatus {
+  /**
+   * @generated from enum value: TENANT_ROUTE_APPLY_STATUS_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * Not yet reconciled.
+   *
+   * @generated from enum value: TENANT_ROUTE_APPLY_STATUS_PENDING = 1;
+   */
+  PENDING = 1,
+
+  /**
+   * Attachment verified.
+   *
+   * @generated from enum value: TENANT_ROUTE_APPLY_STATUS_APPLIED = 2;
+   */
+  APPLIED = 2,
+
+  /**
+   * The gateway refused attachment.
+   *
+   * @generated from enum value: TENANT_ROUTE_APPLY_STATUS_REFUSED = 3;
+   */
+  REFUSED = 3,
+
+  /**
+   * Failed; retried with backoff.
+   *
+   * @generated from enum value: TENANT_ROUTE_APPLY_STATUS_ERROR = 4;
+   */
+  ERROR = 4,
+
+  /**
+   * Revoked or expired; the HTTPRoute was deleted.
+   *
+   * @generated from enum value: TENANT_ROUTE_APPLY_STATUS_REMOVED = 5;
+   */
+  REMOVED = 5,
+
+  /**
+   * A Faro route, or route apply disabled.
+   *
+   * @generated from enum value: TENANT_ROUTE_APPLY_STATUS_NOT_APPLICABLE = 6;
+   */
+  NOT_APPLICABLE = 6,
+}
+
+/**
+ * Describes the enum shepherd.mgmt.v1.TenantRouteApplyStatus.
+ */
+export const TenantRouteApplyStatusSchema: GenEnum<TenantRouteApplyStatus> = /*@__PURE__*/
+  enumDesc(file_shepherd_mgmt_v1_tenant_route, 1);
+
+/**
  * TenantRouteService covers tenant route records for the receiver tier's
  * gateway (docs/gateway-tier-plan.md §4 W4). A tenant route pairs a tenant
  * with a rotatable, unguessable path segment (D9) that
@@ -481,8 +571,8 @@ export const RenderConnectAppResponseSchema: GenMessage<RenderConnectAppResponse
  * (D8's two ownership modes: gateway_mode "managed" or "operator"). This
  * service only changes Shepherd's records; the tenant-route reconciler
  * (internal/routeapply) applies the HTTPRoutes and records apply_status.
- * Reads (List, RenderConnectApp) require org-reader; writes
- * (Create/Rotate/Revoke) require org-admin.
+ * Reads (List, RenderConnectApp) require org viewer; writes
+ * (Create/Rotate/Revoke) require org admin.
  *
  * @generated from service shepherd.mgmt.v1.TenantRouteService
  */

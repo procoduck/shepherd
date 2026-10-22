@@ -328,9 +328,9 @@ export const RenderWizardResponseSchema: GenMessage<RenderWizardResponse> = /*@_
 
 /**
  * WizardService lists, renders and commits wizards. All methods require
- * org-editor (D6): a wizard authors what the org runs, without needing the
+ * org editor (D6): a wizard authors what the org runs, without needing the
  * ability to change what the org IS (destinations, tenant routes, git
- * credentials, teams, service accounts — those stay org-admin).
+ * credentials, teams, service accounts — those stay org admin).
  *
  * @generated from service shepherd.mgmt.v1.WizardService
  */

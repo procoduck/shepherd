@@ -24,8 +24,8 @@ const detachChangeNote = "detached from wizard"
 // neither regenerates it nor refuses because of its hand edits — the
 // operator owns its text.
 //
-// Authorization is UpdatePipeline's: the interceptor admits an org reader
-// and authorizeOwnership makes the org-editor-or-owning-team decision. The
+// Authorization is UpdatePipeline's: the interceptor admits an org viewer
+// and authorizeOwnership makes the org editor-or-owning-team decision. The
 // contents and matchers do not change and merge never reads a non-git
 // pipeline's source, so no validation gate is involved: the merged config
 // differs only in the new revision the served header prints ("(rev N)",

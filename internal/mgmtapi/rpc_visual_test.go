@@ -27,7 +27,7 @@ var _ = Describe("shepherd.mgmt.v1.VisualService", Label("integration"), func() 
 		server       *httptest.Server
 		orgID        string
 		adminCookie  *http.Cookie
-		readerCookie *http.Cookie
+		viewerCookie *http.Cookie
 	)
 
 	BeforeEach(func() {
@@ -40,13 +40,13 @@ var _ = Describe("shepherd.mgmt.v1.VisualService", Label("integration"), func() 
 
 		o, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
 			Name: "visual-rpc-org", DisplayName: "Visual RPC Org",
-			AdminGroupID: "visual-admin-grp", ReaderGroupID: pgtype.Text{String: "visual-reader-grp", Valid: true},
+			AdminGroupID: "visual-admin-grp", ViewerGroupID: pgtype.Text{String: "visual-viewer-grp", Valid: true},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		orgID = o.ID.String()
 
 		adminCookie = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "visual-admin-grp")}
-		readerCookie = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "visual-reader-grp")}
+		viewerCookie = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "visual-viewer-grp")}
 
 		cfg := &config.Config{Auth: config.AuthConfig{InsecureCookies: true}}
 		authHandler := auth.NewLocalAdmin(cfg, st, slog.Default())
@@ -146,11 +146,11 @@ var _ = Describe("shepherd.mgmt.v1.VisualService", Label("integration"), func() 
 		Expect(allowed["content"]).To(ContainSubstring(`otelcol.exporter.debug "debug"`))
 	})
 
-	It("denies Render of a new graph for a session without org-editor access", func() {
+	It("denies Render of a new graph for a session without org editor access", func() {
 		body := map[string]any{"org_id": orgID, "graph": minimalGraph()}
-		// GraphView is org-reader, but Render of a new graph (no pipeline_id)
-		// requires org-editor (#319: decided in the handler, not the interceptor).
-		resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/Render", readerCookie, body)
+		// GraphView is org viewer, but Render of a new graph (no pipeline_id)
+		// requires org editor (#319: decided in the handler, not the interceptor).
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/Render", viewerCookie, body)
 		defer resp.Body.Close() //nolint:errcheck // test cleanup
 		Expect(resp.StatusCode).To(Equal(http.StatusForbidden))
 		Expect(connectErrorCode(resp)).To(Equal("permission_denied"))
@@ -193,7 +193,7 @@ prometheus.remote_write "sink" {
 		Expect(err).NotTo(HaveOccurred())
 
 		body := map[string]any{"org_id": orgID, "id": p.ID.String()}
-		resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/GraphView", readerCookie, body)
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/GraphView", viewerCookie, body)
 		defer resp.Body.Close() //nolint:errcheck // test cleanup
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
@@ -268,7 +268,7 @@ prometheus.remote_write "sink" {
 		})
 		Expect(err).NotTo(HaveOccurred())
 
-		resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/GraphView", readerCookie,
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/GraphView", viewerCookie,
 			map[string]any{"org_id": orgID, "id": p.ID.String()})
 		defer resp.Body.Close() //nolint:errcheck // test cleanup
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
@@ -349,7 +349,7 @@ prometheus.remote_write "sink" {
 		})
 		Expect(err).NotTo(HaveOccurred())
 
-		resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/GraphView", readerCookie,
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/GraphView", viewerCookie,
 			map[string]any{"org_id": orgID, "id": p.ID.String()})
 		defer resp.Body.Close() //nolint:errcheck // test cleanup
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
@@ -412,7 +412,7 @@ prometheus.remote_write "sink" {
 		Expect(err).NotTo(HaveOccurred())
 
 		body := map[string]any{"org_id": orgID, "id": p.ID.String(), "from_revision": 1, "to_revision": 0}
-		resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/DiffRevisions", readerCookie, body)
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/DiffRevisions", viewerCookie, body)
 		defer resp.Body.Close() //nolint:errcheck // test cleanup
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
 		var result struct {
@@ -449,7 +449,7 @@ prometheus.remote_write "sink" {
 		}
 	})
 
-	It("allows GraphView for an org-reader session", func() {
+	It("allows GraphView for an org viewer session", func() {
 		p, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
 			OrgID: orgUUID(orgID), Name: "graph-view-pipe", Contents: "// empty pipeline\n",
 			Matchers: json.RawMessage(`[]`), Enabled: false, Source: "ui", CreatedBy: "test", UpdatedBy: "test",
@@ -457,7 +457,7 @@ prometheus.remote_write "sink" {
 		Expect(err).NotTo(HaveOccurred())
 
 		body := map[string]any{"org_id": orgID, "id": p.ID.String()}
-		resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/GraphView", readerCookie, body)
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/GraphView", viewerCookie, body)
 		defer resp.Body.Close() //nolint:errcheck // test cleanup
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
 	})
@@ -505,7 +505,7 @@ prometheus.remote_write "sink" {
 		Expect(err).NotTo(HaveOccurred())
 
 		body := map[string]any{"org_id": orgID, "id": p.ID.String(), "from_revision": 1, "to_revision": 0}
-		resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/DiffRevisions", readerCookie, body)
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/DiffRevisions", viewerCookie, body)
 		defer resp.Body.Close() //nolint:errcheck // test cleanup
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
@@ -546,7 +546,7 @@ prometheus.remote_write "sink" {
 		Expect(err).NotTo(HaveOccurred())
 
 		body := map[string]any{"org_id": orgID, "id": p.ID.String(), "from_revision": 99, "to_revision": 0}
-		resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/DiffRevisions", readerCookie, body)
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/DiffRevisions", viewerCookie, body)
 		defer resp.Body.Close() //nolint:errcheck // test cleanup
 		Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
 		Expect(connectErrorCode(resp)).To(Equal("not_found"))

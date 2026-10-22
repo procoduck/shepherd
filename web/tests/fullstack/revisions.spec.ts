@@ -14,7 +14,7 @@
  *      (newest first — ListPipelineRevisions orders by revision DESC), so
  *      "View diff" on the *second* row is revision #2, whose contents are
  *      B. Restoring it through the editor UI creates revision 4.
- *   3. Viewer refused    — a reader-tier session may not restore revision 1
+ *   3. Viewer refused    — a viewer-tier session may not restore revision 1
  *      (still present, contents A, untouched by either restore above).
  *
  * Red run (recorded here, not re-run by CI — see the note at D-6 in

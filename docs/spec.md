@@ -49,7 +49,7 @@ collectors:
 
 The chart-generated collector ID is `grafana-k8s-monitoring-$(CLUSTER_NAME)-$(NAMESPACE)-$(POD_NAME)` — pod-scoped and ephemeral. Shepherd therefore models a **logical collector** as the tuple `(cluster, role)` and treats individual pods as ephemeral *instances* of it. Resolution is done ONLY from the `cluster` and `role` attributes, never by parsing the ID string.
 
-**Inventory labels** are a separate string-to-string map on the logical collector, capped at 64 entries. App and org admins can add, update, or remove individual keys; readers can view them. Keys are normalized to lowercase and contain 1-128 ASCII bytes using letters, digits, `.`, `_`, `-`, or `/`; values contain 1-512 bytes without control or Unicode format characters. PostgreSQL also limits the stored map to 64 KiB. Labels survive agent polls and instance replacement. They support inventory search and grouping only: they do not modify Alloy-reported attributes, cluster ownership, pipeline matching, or served configuration. Collector details display every instance's reported attributes separately from editable labels. Inventory summaries omit reported attributes.
+**Inventory labels** are a separate string-to-string map on the logical collector, capped at 64 entries. App and org admins can add, update, or remove individual keys; viewers can view them. Keys are normalized to lowercase and contain 1-128 ASCII bytes using letters, digits, `.`, `_`, `-`, or `/`; values contain 1-512 bytes without control or Unicode format characters. PostgreSQL also limits the stored map to 64 KiB. Labels survive agent polls and instance replacement. They support inventory search and grouping only: they do not modify Alloy-reported attributes, cluster ownership, pipeline matching, or served configuration. Collector details display every instance's reported attributes separately from editable labels. Inventory summaries omit reported attributes.
 
 **Role is a signal contract, not just a label.** Each role in `metrics | logs | singleton | receiver` has a fixed set of observability signals (metrics/logs/traces/profiles) it is allowed to serve — `role=metrics` only ever gets a pipeline that carries metrics, `role=logs` only logs, `role=receiver` carries metrics/logs/traces (OTLP + Faro ingest) but not profiles, and `role=singleton` is unrestricted (self-monitoring legitimately mixes signal kinds). `internal/signals` is the source of truth: `internal/signals.Derive` reads a pipeline's Alloy syntax against the schema artifact's wire types to compute its signal set, and `internal/signals.Policies`/`Enforce` hold the role → allowed-signals table. `internal/merge.WithRoleEnforcement` applies it at config-assembly time — a pipeline whose signals the target role's policy does not allow is excluded from that collector's assembled config rather than served silently mismatched (docs/gateway-tier-plan.md W1; excludes are recorded in `AssembleResult.Exclusions` and the generated config's header comment). Enforcement covers both `internal/mgmtapi`'s write-time paths (validate/preview/recompute-on-save) and `internal/agentapi`'s lazy recompute — the path a real collector's `GetConfig` poll takes when `serve_cache` is dirty. The gap that once existed between the two (`internal/agentapi.Service` assembling without `WithRoleEnforcement`) was closed 2026-08-22; see `docs/project-status.md` F-SIGNAL-SERVE (closed).
 
@@ -259,7 +259,7 @@ Migration `0001_init` creates (all `id` are `uuid DEFAULT gen_random_uuid()` unl
 ```sql
 orgs(id, name text UNIQUE, display_name text,
      admin_group_id text,          -- group whose members are Org Admins
-     reader_group_id text NULL)    -- optional org-wide reader group
+     viewer_group_id text NULL)    -- optional org-wide viewer group (reader_group_id until 0037)
 -- Migration ledger, 0002-0018 (0001 above is the initial schema):
 --   0002 sanitized_name generated column (declare-wrap name collision check)
 --   0003 sessions.source + nullable id_token_expires (local sessions)
@@ -279,6 +279,7 @@ orgs(id, name text UNIQUE, display_name text,
 --   0016 orgs.editor_group_id text NULL (optional org-wide editor group, OIDC path)
 --   0017 team_members — explicit local team membership, extends 0012's model
 --   0018 service_accounts.role ('editor'|'admin' tier, orthogonal to capability; §7.3)
+--   0037 orgs.reader_group_id renamed viewer_group_id (one role vocabulary; §7.2)
 
 clusters(id, name text UNIQUE, org_id uuid NULL REFERENCES orgs)  -- NULL = unclaimed
 
@@ -410,7 +411,7 @@ hash := hex(sha256(content))
 Which claim carries the subject, the email, the display name, and the group list is per-provider configuration, not a constant. `internal/auth.Presets` holds the built-in catalogue (Entra, Okta, Google, Auth0, Keycloak, Cognito, GitLab, authentik, OneLogin, generic); a preset only supplies **defaults** — every value it prefills is stored explicitly, so the effective configuration is readable without consulting the preset table.
 
 - **Subject** — `oidc.subject_claim`, default `oid` (Entra's immutable object ID, what this code has always read). Every other provider needs `sub`. Falls back to the ID token's spec-mandated `sub` when the configured claim is absent, so a mistyped setting degrades to a working identity rather than an empty `user_oid`.
-- **Groups** — `oidc.groups_claim`, default `groups` (`cognito:groups` for Cognito, `groups_direct` for GitLab, a namespaced URI for Auth0). Values are matched against `auth.app_admin_group_ids` and against each org's `admin_group_id` / `editor_group_id` / `reader_group_id`; for a non-Entra provider those columns therefore hold whatever the IdP emits (usually a group name or path), not a GUID. Nothing in the schema ever assumed a GUID — only the Entra-shaped documentation did. The reader accepts all three shapes providers use: a JSON array, a bare string, or a space-separated list.
+- **Groups** — `oidc.groups_claim`, default `groups` (`cognito:groups` for Cognito, `groups_direct` for GitLab, a namespaced URI for Auth0). Values are matched against `auth.app_admin_group_ids` and against each org's `admin_group_id` / `editor_group_id` / `viewer_group_id`; for a non-Entra provider those columns therefore hold whatever the IdP emits (usually a group name or path), not a GUID. Nothing in the schema ever assumed a GUID — only the Entra-shaped documentation did. The reader accepts all three shapes providers use: a JSON array, a bare string, or a space-separated list.
 - **Microsoft Graph** — `oidc.use_graph_groups` (default: true when `oidc.provider` is `entra`, false otherwise) keeps the transitive lookup `GET {graph_base_url}/v1.0/me/transitiveMemberOf/microsoft.graph.group?$select=id,displayName&$top=999` (follow `@odata.nextLink`). It stays the default for Entra because Entra omits the groups claim entirely on >200-group overage. `graph.base_url` is pinned to Microsoft's own Graph hosts (global plus the sovereign clouds) on the UI-managed path: the signing-in user's **delegated access token** is sent to it as a bearer credential, so an unconstrained value would let an app admin redirect every user's token to a collector they control.
   - **Behavioral change, deliberate:** when the Graph call fails, the groups claim is now used as a fallback. Previously a Graph error yielded *no* groups, which silently stripped every administrator of access during a Graph outage or a revoked `GroupMember.Read.All` consent. The claim is signed by the same IdP so it cannot be forged, but it is **not the same set** — claim scope is configured per app registration ("all groups" vs "groups assigned to the application"), and AD-synced groups may emit `sAMAccountName` rather than GUIDs. An Entra deployment that wants the old all-or-nothing behavior must leave the groups claim unmapped in its app registration.
 
@@ -436,12 +437,17 @@ Background refreshes run on a context **detached from the request** (`context.Wi
 
 ### 7.2 Roles
 
+There is one role vocabulary, used everywhere — Go (`auth.Role`), the database
+(`org_members.role`, `service_accounts.role`), the API (`shepherd.mgmt.v1.Role`)
+and the SPA: **viewer < editor < admin**, each including the one below it. App
+admin is not a role but a separate, cross-org flag above every org.
+
 A role is reached by either of two independent paths, and the two coexist —
 one is not a fallback for the other:
 
 - **Group-derived** (OIDC): the session's groups claim is matched against
   `auth.app_admin_group_ids` and each org's `admin_group_id` /
-  `editor_group_id` / `reader_group_id`.
+  `editor_group_id` / `viewer_group_id`.
 - **Locally assigned** (`0015_local_users`): the session names a row in `users`
   (`sessions.user_id`), app-admin comes from `users.is_app_admin`, and the org
   role from `org_members.role`. Shepherd runs fully with no identity provider
@@ -454,43 +460,54 @@ The resulting roles are the same either way:
   clusters into orgs (the only human who can; a collector OIDC identity may
   also claim its own cluster, §7.3b), CRUD group assignments, CRUD agent tokens, CRUD local
   users, view all.
-- **Org Admin** of org O: member of `O.admin_group_id`, or `org_members.role =
+- **Admin** of org O: member of `O.admin_group_id`, or `org_members.role =
   'admin'` for O. Full CRUD within O: pipelines, destinations, git
   credentials, repo links, wizards, teams, tenant routes, group assignments
   *for O's collectors*. Cannot touch other orgs, cannot claim clusters, cannot
   manage agent tokens.
-- **Org Editor** of org O: member of `O.editor_group_id`, or
+- **Editor** of org O: member of `O.editor_group_id`, or
   `org_members.role = 'editor'`. Authors what the org **runs** — pipelines,
   wizards, visual builder, simulations — but cannot change what the org **is**:
   destinations, tenant routes, git credentials, teams and service accounts stay
-  org admin. The tier exists because "can write a pipeline" and "can re-point
+  admin. The tier exists because "can write a pipeline" and "can re-point
   where telemetry ships" were previously the same permission.
-- **Viewer** (formerly *Reader*): for any collector C, a user can *view* C (and
-  the pipelines/served config affecting C) if they are a member of any group in
-  `group_assignments` for C, or of the org's `reader_group_id`, or
-  `org_members.role = 'viewer'`, or holds a higher role. A viewer writes
-  nothing org-wide — no destination, route, wizard or unowned pipeline — with
-  one exception, **team-scoped pipeline write** (G11, `auth.AuthorizeOwnership`):
-  a member of a team of O may create a pipeline owned by that team, and
-  update, enable, disable, restore a revision of, detach from its wizard,
-  delete, or open in the visual builder a pipeline that team owns. Never an
-  unowned pipeline or another team's, and never its ownership —
-  `SetPipelineOwner` is org admin (§12).
-  The column is still `reader_group_id` — renaming it would break every chart
-  and secret already deployed — but the role reports as `viewer`. A local user
-  who is only a team member (no `org_members` row at all) still clears this
-  floor, the same way an OIDC team member does: membership in any team of org O
-  — local or IdP-group-backed — grants at least the viewer rank for O, on top
-  of whatever `org_members.role` (if any) separately grants.
+- **Viewer** of org O: member of `O.viewer_group_id` (`reader_group_id` until
+  migration 0037), or `org_members.role = 'viewer'`, or holds a higher role.
+  Also reached without either: for any collector C, a member of any group in
+  `group_assignments` for C is a viewer of C's org, and a member of any team of
+  O — local or IdP-group-backed — is a viewer of O, on top of whatever
+  `org_members.role` (if any) separately grants. A viewer reads; it writes
+  nothing org-wide — no destination, route, wizard or unowned pipeline.
 
-Authorization is one function, `authorizeOrgAccess(ctx, org, minRole)`, taking
-a **minimum** role rather than a boolean: ranks are admin > editor > viewer, and
-both paths above resolve into that same rank comparison. It is enforced per
-Connect procedure, not per handler: the interceptor in
-`internal/mgmtapi/rpc_interceptor.go` looks up each procedure's minimum role in
-`procedureRequirements` (§12) and checks it through `auth.Authorize`, failing
+One permission is not a rung of the ladder but a named grant:
+
+- **Team owner-write** (G11, `auth.AuthorizeOwnership` →
+  `authorizeTeamOwnerWrite`): a member of a team of O may create a pipeline
+  owned by that team, and update, enable, disable, restore a revision of,
+  detach from its wizard, delete, or open in the visual builder a pipeline
+  that team owns — whatever their org role. Never an unowned pipeline or
+  another team's, and never its ownership — `SetPipelineOwner` is admin (§12).
+  An editor or admin (or an app admin) writes every pipeline in O through
+  their role and never needs the grant.
+
+**Requirement model.** Authorization is one function, `auth.Authorize`, taking
+an `auth.Requirement` built from a role rather than a boolean:
+`RequireAuthenticated()`, `RequireAppAdmin()`, `RequireOrg(role)` (an app admin,
+or at least `role` in the org the request names) and
+`RequireAppAdminOrOrg(role)` (the same callers, for a procedure with a
+cross-org mode for app admins — `SearchGroups`). Both paths above resolve into
+the same rank comparison (`Role.AtLeast`); a value that is not a role — an
+unknown stored string, `ROLE_UNSPECIFIED`, a zero `Requirement` — clears
+nothing. It is enforced per Connect procedure, not per handler: the interceptor
+in `internal/mgmtapi/rpc_interceptor.go` looks up each procedure's requirement
+in `procedureRequirements` (§12) and checks it through `auth.Authorize`, failing
 closed for a procedure missing from the table. Pipeline writes then add the
 per-pipeline `auth.AuthorizeOwnership` check above inside the handler.
+
+On the wire a role is the `Role` enum (`ROLE_VIEWER`, `ROLE_EDITOR`,
+`ROLE_ADMIN`; protojson spells them by name). `ROLE_UNSPECIFIED` never grants
+anything and is refused with `invalid_argument` wherever a role is written
+(`SetOrgMember`, `CreateServiceAccount`).
 
 ### 7.3 Agent tokens (machine auth)
 
@@ -513,9 +530,9 @@ A disallowed claim returns `PermissionDenied`, not the empty config §4.1 promis
 A separate machine-identity path from agent tokens above: `service_accounts` (migration 0012) are org-scoped credentials for automation that calls `shepherd.mgmt.v1` itself (CI, an MCP agent's on-behalf-of proposals, …), not the agent protocol. A service account is described by two independent axes:
 
 - **Capability** — `propose` or `apply`: whether it may write at all (0012, gateway-tier W10).
-- **Role tier** — `editor` or `admin` (migration 0018), mirroring the human org-editor/org-admin ladder: what it may *reach* once capability allows a write. `role` defaults to `editor`; `admin` is never assigned implicitly — `CreateServiceAccount` only sets it when the request explicitly asks (D3: "admin explicit at creation"), the same way 0015/0016 never implicitly promote a human to org-admin.
+- **Role tier** — `editor` or `admin` (migration 0018), the same `Role` a human holds (§7.2): what it may *reach* once capability allows a write. `CreateServiceAccount` requires the tier (`ROLE_EDITOR` or `ROLE_ADMIN`; `ROLE_UNSPECIFIED` and `ROLE_VIEWER` are refused) — `admin` is never assigned implicitly (D3: "admin explicit at creation"), the same way 0015/0016 never implicitly promote a human to admin. A stored tier that is not a role denies every org-scoped procedure; it never falls back to a default.
 
-Before the role column existed, `authorizeServiceAccountProcedure` (`internal/mgmtapi/rpc_interceptor.go`) checked only `sa.OrgID == orgID` for every non-app-admin requirement, so an apply-capability service account reached every org-admin procedure (`RotateTenantRoute`, `DeleteTeam`, `AddTeamMember`, `DeleteCredential`, `ListAudit`, `ListTeamMembers`, …) it was never explicitly granted. The interceptor now checks the procedure's minimum role against the service account's `role` tier the same way it checks a human session's rank (§7.2) — **with one absolute floor**: a service account never satisfies an app-admin requirement, regardless of `role`; app-admin procedures are refused to every machine caller unconditionally. An `admin`-tier service account therefore reaches the same org-scoped ceiling an org admin does, never the application-admin surface.
+Before the role column existed, `authorizeServiceAccountProcedure` (`internal/mgmtapi/rpc_interceptor.go`) checked only `sa.OrgID == orgID` for every non-app-admin requirement, so an apply-capability service account reached every admin procedure (`RotateTenantRoute`, `DeleteTeam`, `AddTeamMember`, `DeleteCredential`, `ListAudit`, `ListTeamMembers`, …) it was never explicitly granted. The interceptor now checks the procedure's requirement against the service account's `role` tier with the same `Role.AtLeast` comparison it uses for a human session (§7.2) — **with one absolute floor**: a service account never satisfies an app-admin requirement, regardless of `role`; app-admin procedures are refused to every machine caller unconditionally. An `admin`-tier service account therefore reaches the same org-scoped ceiling an org admin does, never the application-admin surface.
 
 ### 7.4 Secret encryption at rest
 
@@ -803,17 +820,20 @@ mapping (401 `unauthenticated`, 403 `permission_denied`, 404 `not_found`, 409 `a
 Mutating calls carry the CSRF header (§7); machine callers authenticate as a service account (§7.3a).
 
 **Authorization.** `procedureRequirements` in `internal/mgmtapi/rpc_interceptor.go` is the
-authoritative per-procedure table; the interceptor fails closed for any procedure missing from it. The
-floor per service:
+authoritative per-procedure table of `auth.Requirement`s (§7.2); the interceptor fails closed for any
+procedure missing from it, and `testdata/procedure_requirements.golden` pins every entry's effective
+semantics for a human session and a service account. "Org viewer/editor/admin" below is
+`RequireOrg(role)`, which an app admin also clears. Roles and tenant-route statuses are enums on the
+wire (`Role`, `TenantRouteStatus`, `TenantRouteApplyStatus`). The floor per service:
 
 | Service | Floor |
 |---|---|
 | `MeService` | any authenticated caller |
 | `AdminService`, `UserService` | app admin |
-| `FleetService`, `DestinationService`, `TenantRouteService`, `TeamService` | reads: org reader · writes: org admin |
-| `PipelineService` | reads: org reader · writes: org reader at the interceptor, then a per-pipeline check in the handler (`auth.AuthorizeOwnership`) — an org editor or above may write any pipeline, anyone else only a pipeline owned by a team they belong to; `ValidatePipeline` and `FormatPipeline` stay org reader; `SetPipelineOwner` is org admin |
+| `FleetService`, `DestinationService`, `TenantRouteService`, `TeamService` | reads: org viewer · writes: org admin |
+| `PipelineService` | reads: org viewer · writes: org viewer at the interceptor, then a per-pipeline check in the handler (`auth.AuthorizeOwnership`) — an org editor or above may write any pipeline, anyone else only through the team owner-write grant (§7.2), a pipeline owned by a team they belong to; `ValidatePipeline` and `FormatPipeline` stay org viewer; `SetPipelineOwner` is org admin |
 | `WizardService`, `SimulateService` | org editor |
-| `VisualService` | `Render`, `Validate`, `UpgradeCheck`: org reader at the interceptor, then decided in the handler — with a `pipeline_id`, the same per-pipeline check as a `PipelineService` write (an owning-team member may use the visual builder on their team's pipeline); without one (a new, unsaved graph), org editor · `GraphView` and `DiffRevisions`: org reader |
+| `VisualService` | `Render`, `Validate`, `UpgradeCheck`: org viewer at the interceptor, then decided in the handler — with a `pipeline_id`, the same per-pipeline check as a `PipelineService` write (an owning-team member may use the visual builder on their team's pipeline); without one (a new, unsaved graph), org editor · `GraphView` and `DiffRevisions`: org viewer |
 | `GitOpsService`, `AuditService`, `ServiceAccountService` | org admin |
 
 **What `/api` still serves.** Only what the Connect contract deliberately leaves out
@@ -885,22 +905,22 @@ Full-height flex layout, no page scroll except the content area:
 /collectors                 — Collectors list
 /collectors/:id             — Collector detail (tabs: Instances | Served Config | Pipelines | Access)
 /pipelines                  — Pipelines list
-/pipelines/new              [org-editor] — Editor (create)
-/pipelines/:id              — Editor (view/edit; read-only for readers & git-sourced)
+/pipelines/new              [editor] — Editor (create)
+/pipelines/:id              — Editor (view/edit; read-only for viewers & git-sourced)
 /pipelines/:id/visual       — Visual builder graph editor
 /pipelines/:id/graph        — Graph view (read-only; `declare` modules drawn as collapsible groups, ELK layout — docs/visual-builder-design-VB1.md §4.3)
 /pipelines/visual/new       — Visual builder (create)
-/wizards                    [org-editor] — Wizard gallery (cards, one per registered wizard kind)
-/wizards/:kind              [org-editor] — Wizard stepper (one generic runner for every registered wizard)
+/wizards                    [editor] — Wizard gallery (cards, one per registered wizard kind)
+/wizards/:kind              [editor] — Wizard stepper (one generic runner for every registered wizard)
 /destinations                — Destinations list + create/edit dialogs
-/teams                       [org-reader] — Teams (membership, local + IdP-group-backed)
-/git                          [org-admin] — Tabs: Repo links | Credentials
+/teams                       [viewer] — Teams (membership, local + IdP-group-backed)
+/git                          [admin] — Tabs: Repo links | Credentials
 /admin/orgs                    [app-admin] — Orgs
 /admin/clusters                 [app-admin] — Cluster claiming
 /admin/tokens                    [app-admin] — Agent tokens
 /admin/users                      [app-admin] — Local users
 /admin/auth                        [app-admin] — Single sign-on (§7.1b)
-/audit                              [org-admin] — Audit log (org-scoped)
+/audit                              [admin] — Audit log (org-scoped)
 ```
 
 Unmarked routes carry no floor beyond an authenticated session with some access to the current org. Role-based rendering: every write affordance (buttons, switches, menu items) is hidden — not disabled — for users lacking the role; admin routes and the routes above tagged with a floor additionally redirect to `/` with a toast and a `[data-testid="route-denied"]` element on direct navigation (client-side guard, `RequireRole`) — the server remains the actual enforcement in both cases.
@@ -926,7 +946,7 @@ Unmarked routes carry no floor beyond an authenticated session with some access 
 - Right pane: toolbar row (`h-11 border-b px-3` flex): left = validation status — live-region text: spinner+"Validating…", or `CheckCircle2` emerald "No problems", or `XCircle` red "n problems"; right = ghost "Format" (server-side `alloy fmt` through a `FormatPipeline` RPC), outline "Validate", primary "Save". As of v0.5.0 only Save is built and validation runs on an idle debounce; Format and Validate are scheduled (decision 2026-09-11, ledger §4). Below: the editor (§13.6) `flex-1`. Bottom: collapsible **Problems panel** (`max-h-40`, monospace rows `line:col  message`, click scrolls editor to the position).
 - Save with stage-3 failure → Dialog "Validation failed on n collectors": Accordion per collector containing its diagnostics; single button "Back to editing".
 - Git-sourced pipelines: entire left pane read-only, editor read-only, and a violet banner across the top: `GitBranch` icon + "Managed in Git — {project}/{repo} @ {branch}{path}" with an external link to ADO and a "Last synced 2m ago · ok" caption.
-- Readers see the same screen fully read-only with no Save/Delete/switch affordances.
+- Viewers see the same screen fully read-only with no Save/Delete/switch affordances.
 
 **Wizard gallery**: grid of cards `grid-cols-3`, one card per registered wizard kind (`internal/wizard` — six today: application observability, cluster metrics, pod logs, database, blackbox, self-monitoring), each with icon, title, description and a "Start" button. No placeholder card.
 
@@ -936,7 +956,7 @@ Unmarked routes carry no floor beyond an authenticated session with some access 
 
 **Git** (`/git`): Tabs. *Repo links*: table (Target collector `cluster/role`, Repo `project/repo` mono, Branch, Path, Interval, Last sync (relative + status dot: ok emerald / error red with Tooltip = `sync_error`), Last commit short mono; row actions: Sync now, Edit, Delete). Link Dialog: credential Select, project/repo/branch/path inputs, target collector Select, interval input; "Test & link" button calls verify then creates. *Credentials*: table (Name, ADO org URL, Client ID mono, Created; actions: Test, Edit, Delete). Credential Dialog: name, ADO org URL, tenant ID, client ID, client secret (password input, write-only — edit shows "Leave blank to keep current secret").
 
-**Admin — Orgs**: table (Name, Display name, Admin group (name + GUID), Reader group, Clusters n, Pipelines n). Create/edit Dialog uses the Graph group Combobox for both group fields.
+**Admin — Orgs**: table (Name, Display name, Admin group (name + GUID), Viewer group, Clusters n, Pipelines n). Create/edit Dialog uses the Graph group Combobox for both group fields.
 
 **Admin — Clusters**: two stacked cards. **Unclaimed** (amber left-border accent): table (Cluster, First seen, Roles seen as role-icon row, Live instances) + row action "Claim…" → Dialog with org Select. Empty: "No unclaimed clusters." **Claimed**: table (Cluster, Org, Roles, Instances) + "Unclaim" (typed-confirm AlertDialog warning that collectors stop receiving org pipelines).
 
@@ -1108,7 +1128,7 @@ The e2e suite proves the full loop **locally with no cloud dependencies**: a gen
 ### 18.3 Suite mechanics
 
 - `make e2e`: `docker compose -f e2e/docker-compose.e2e.yaml up -d --build --wait` → `ginkgo --tags=e2e ./e2e` → `docker compose ... down -v` (teardown in `SynchronizedAfterSuite`; keep the stack up with `E2E_KEEP=1` for debugging).
-- Login helper: performs the real BFF flow with a cookie-jar `http.Client` — `GET /auth/login`, follow to the mock's login form, POST the claims JSON (e.g. `{"oid":"u1","email":"admin@e2e","groups":["...appadmins"]}`), follow the callback, return the authenticated client. Because Shepherd calls Graph (mockmsft) for transitive groups, the suite registers each persona's groups in mockmsft first. Personas: `appAdmin`, `orgAdmin` (member of the org's admin group), `reader` (member of an assigned group only), `nobody`.
+- Login helper: performs the real BFF flow with a cookie-jar `http.Client` — `GET /auth/login`, follow to the mock's login form, POST the claims JSON (e.g. `{"oid":"u1","email":"admin@e2e","groups":["...appadmins"]}`), follow the callback, return the authenticated client. Because Shepherd calls Graph (mockmsft) for transitive groups, the suite registers each persona's groups in mockmsft first. Personas: `appAdmin`, `orgAdmin` (member of the org's admin group), `viewer` (member of an assigned group only), `nobody`.
 - All waits use Gomega `Eventually` with 90s timeout / 2s polling (one full Alloy poll cycle plus slack).
 
 ### 18.4 Scenarios (each an ordered `Describe`)
@@ -1118,7 +1138,7 @@ The e2e suite proves the full loop **locally with no cloud dependencies**: a gen
 3. **not_modified efficiency.** Scrape Shepherd's own `/metrics` and assert the `shepherd_getconfig_total{result="not_modified"}` counter increases across two Alloy poll cycles with no config change.
 4. **Validation gate.** As orgAdmin, attempt to save a syntactically invalid pipeline → refused, with line/col diagnostics from validation; attempt to enable a pipeline that breaks the merge (duplicate declare label forged via name collision after sanitization, e.g. names `a-b` and `a_b`) → rejected listing the affected collector, and the served hash is unchanged.
 5. **GitOps sync.** Create an ADO credential (mock SP) + repo link targeting the collector, seed mockmsft with a valid `.alloy` file → `Eventually` a `source=git` pipeline exists and Alloy applies the enlarged merge. Push an invalid file via `/__fixture` → sync_status becomes `error`, last good config still served (hash unchanged). Fix the file → recovers.
-6. **RBAC.** reader can GET collectors/pipelines of the assigned collector but every POST/PUT/DELETE returns 403; `nobody` gets 403/404 on org resources; an unauthenticated management call returns 401 `unauthenticated`; agent endpoint with a wrong token secret returns Connect `unauthenticated`.
+6. **RBAC.** viewer can GET collectors/pipelines of the assigned collector but every POST/PUT/DELETE returns 403; `nobody` gets 403/404 on org resources; an unauthenticated management call returns 401 `unauthenticated`; agent endpoint with a wrong token secret returns Connect `unauthenticated`.
 7. **Status FAILED propagation.** Serve a config that passes validation but fails at runtime apply is hard to construct reliably — instead, have mockmsft… skip; simulate by asserting the plumbing: temporarily insert (via SQL through a test-only helper) a FAILED status row is NOT needed — instead assert the field round-trips using scenario 2's transitions (UNSET→APPLYING→APPLIED). `// DECISION` comment allowed here if APPLYING is never observed due to timing.
 
 ### 18.5 CI note
@@ -1429,7 +1449,7 @@ The OIDC code flow MUST use PKCE (S256). All auth/session cookies set `Secure: t
 
 ### §D.3 — §12 (amended)
 The REST paths below were removed in v0.11.0; the Connect procedures are `PipelineService.ListRevisions` and `GetRevision`.
-Add under pipelines: `GET /api/orgs/{org}/pipelines/{id}/revisions` [reader] (list only — no `contents`, `matchers`, `enabled`, or `wizard_state`); `GET /api/orgs/{org}/pipelines/{id}/revisions/{rev}` [reader] (the full revision, including its `contents`); `POST /api/orgs/{org}/pipelines/{id}/revisions/{rev}/restore` [orgeditor] (writes a new revision from the given one's contents+matchers+enabled(+wizard_state), through the same validation gate and authorization as `PUT .../pipelines/{id}`; allowed on git-sourced pipelines, whose next sync overwrites it; records a `pipeline.restore` audit row).
+Add under pipelines: `GET /api/orgs/{org}/pipelines/{id}/revisions` [viewer] (list only — no `contents`, `matchers`, `enabled`, or `wizard_state`); `GET /api/orgs/{org}/pipelines/{id}/revisions/{rev}` [viewer] (the full revision, including its `contents`); `POST /api/orgs/{org}/pipelines/{id}/revisions/{rev}/restore` [editor] (writes a new revision from the given one's contents+matchers+enabled(+wizard_state), through the same validation gate and authorization as `PUT .../pipelines/{id}`; allowed on git-sourced pipelines, whose next sync overwrites it; records a `pipeline.restore` audit row).
 
 ### §D.4 — §13.6 (amended)
 There is no machine-readable upstream Alloy schema; `alloySchema.ts` is hand-curated from each component's page under `grafana.com/docs/alloy/latest/reference/components/`. A Vitest drift test asserts every §13.6-listed component is present.
@@ -1563,16 +1583,16 @@ The REST path was removed in v0.11.0; the same contract is `MeService.GetMe` (an
   "display_name": "string",
   "is_app_admin": boolean,
   "auth_method": "oidc"|"local"|"dev",
-  "orgs": [{ "id": "uuid", "name": "string", "display_name": "string", "role": "admin"|"editor"|"viewer" }]
+  "orgs": [{ "id": "uuid", "name": "string", "display_name": "string", "role": "ROLE_ADMIN"|"ROLE_EDITOR"|"ROLE_VIEWER" }]
 }
 ```
 
-`orgs` lists orgs the session user has access to. For `is_app_admin=true`: all orgs with `role="admin"`.
+`orgs` lists orgs the session user has access to. For `is_app_admin=true`: all orgs with `role=ROLE_ADMIN`.
 For a non-app-admin OIDC session: orgs where `group_ids` match `admin_group_id`
-(`"admin"`), `editor_group_id` (`"editor"`) or `reader_group_id` (`"viewer"`).
-For a local session: the user's `org_members` rows, whose `role` is already one
-of those three. Always an array, never null. The reported value drives what the
-UI offers, so it names the role actually held — reporting `"viewer"` to an
+(`ROLE_ADMIN`), `editor_group_id` (`ROLE_EDITOR`) or `viewer_group_id` (`ROLE_VIEWER`).
+For a local session: the user's `org_members` rows, whose `role` is one of
+those three (and `ROLE_VIEWER` for a team-only member). Always an array, never null. The reported value drives what the
+UI offers, so it names the role actually held — reporting viewer to an
 editor would hide the pipeline editor from someone who can in fact use it.
 
 ### §12 (amended) — GET /api/admin/clusters canonical contract
@@ -1589,7 +1609,7 @@ Use `?unclaimed=true` to filter to unclaimed only. The old behaviour of returnin
 - `dev seed`: idempotent, ON CONFLICT DO NOTHING, creates 2 orgs, 3 clusters (`prod-eu-1`, `staging-eu-1`, `data-eng-eu-1`), collectors, pipelines and a token.
 - `dev create-session`: inserts session row with `source='dev'`, prints session ID to stdout.
 - Both commands must NEVER be exposed via HTTP and are not to be called in production.
-- `shepherd dev create-session --persona` supports: `appadmin`, `orgadmin-platform`, `reader-platform`, `nobody`.
+- `shepherd dev create-session --persona` supports: `appadmin`, `admin-platform`, `viewer-platform`, `nobody`.
 
 ### §15 (amended) — Test suite layers + CI ordering
 

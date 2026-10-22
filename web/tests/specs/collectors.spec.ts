@@ -1,5 +1,5 @@
 import { basicScenario } from '../fixtures/factories';
-import { appAdmin, orgAdmin, reader } from '../fixtures/personas';
+import { appAdmin, orgAdmin, viewer } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
 
 test('collectors table shows rows', async ({ page, api }) => {
@@ -58,7 +58,7 @@ test('an org admin generates k8s-monitoring values to connect a cluster', async 
 // click anywhere but the cluster link did nothing.
 test.describe('a collector row opens the collector', () => {
   test('clicking a plain cell of the row navigates to that collector', async ({ page, api }) => {
-    await api.loginAs(reader);
+    await api.loginAs(viewer);
     const s = basicScenario();
     api.seed({ orgs: [s.org], collectors: s.collectors });
     await page.goto('/collectors');
@@ -68,7 +68,7 @@ test.describe('a collector row opens the collector', () => {
   });
 
   test('selecting text in a row does not navigate', async ({ page, api }) => {
-    await api.loginAs(reader);
+    await api.loginAs(viewer);
     const s = basicScenario();
     api.seed({ orgs: [s.org], collectors: s.collectors });
     await page.goto('/collectors');
@@ -90,7 +90,7 @@ test.describe('a collector row opens the collector', () => {
     page,
     api,
   }) => {
-    await api.loginAs(reader);
+    await api.loginAs(viewer);
     const s = basicScenario();
     api.seed({ orgs: [s.org], collectors: s.collectors });
     await page.goto('/collectors');
@@ -102,10 +102,10 @@ test.describe('a collector row opens the collector', () => {
   });
 });
 
-test('a reader is not offered Connect a cluster', async ({ page, api }) => {
+test('a viewer is not offered Connect a cluster', async ({ page, api }) => {
   const s = basicScenario();
   api.seed({ orgs: [s.org], collectors: s.collectors });
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   await page.goto('/collectors');
   await expect(page.getByRole('table')).toBeVisible();
   await expect(page.getByTestId('connect-cluster-open')).toHaveCount(0);

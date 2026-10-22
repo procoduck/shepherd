@@ -60,7 +60,7 @@ message Org {
   string name = 2;
   string display_name = 3;
   string admin_group_id = 4;
-  string reader_group_id = 5;
+  string viewer_group_id = 5;
   google.protobuf.Timestamp created_at = 6;
   google.protobuf.Timestamp updated_at = 7;
   // tenant_id is the identity Shepherd injects as X-Scope-OrgID on every
@@ -104,7 +104,7 @@ message CreateOrgRequest {
   string name = 1;
   string display_name = 2;
   string admin_group_id = 3;
-  string reader_group_id = 4;
+  string viewer_group_id = 4;
   // tenant_id is the org's telemetry tenant identity — the X-Scope-OrgID
   // value its routes inject downstream. Optional here so an org can be
   // created before its destination tenancy is decided, but an org without
@@ -121,7 +121,7 @@ message UpdateOrgRequest {
   string org_id = 1;
   string display_name = 2;
   string admin_group_id = 3;
-  string reader_group_id = 4;
+  string viewer_group_id = 4;
   string editor_group_id = 5;
   // allow_experimental_components — see Org.allow_experimental_components (#114).
   bool allow_experimental_components = 6;

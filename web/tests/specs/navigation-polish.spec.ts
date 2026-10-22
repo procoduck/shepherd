@@ -9,7 +9,7 @@
  */
 import type { Page } from '@playwright/test';
 import { basicScenario } from '../fixtures/factories';
-import { orgAdmin, orgEditor, reader } from '../fixtures/personas';
+import { orgAdmin, orgEditor, viewer } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
 import { expect, test } from '../fixtures/test';
 import type { MockState } from '../mocks/router';
@@ -92,7 +92,7 @@ test.describe('return to the requested page after sign-in', () => {
     page,
     api,
   }) => {
-    await api.loginAs(reader);
+    await api.loginAs(viewer);
     const s = basicScenario();
     api.seed({ orgs: [s.org], collectors: s.collectors });
     await page.goto(`/login?next=${encodeURIComponent('/collectors')}`);
@@ -101,7 +101,7 @@ test.describe('return to the requested page after sign-in', () => {
 });
 
 test('a user in one organisation sees its name in the header', async ({ page, api }) => {
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   const s = basicScenario();
   api.seed({ orgs: [s.org], pipelines: s.pipelines });
   await page.goto('/pipelines');
@@ -150,7 +150,7 @@ test.describe('breadcrumbs name the item', () => {
   });
 
   test('the graph view of a pipeline shows its name too', async ({ page, api }) => {
-    await api.loginAs(reader);
+    await api.loginAs(viewer);
     const s = basicScenario();
     api.seed({ orgs: [s.org], pipelines: s.pipelines, schema: schemaFixture });
     await page.goto('/pipelines/pip-0003/graph');
@@ -160,7 +160,7 @@ test.describe('breadcrumbs name the item', () => {
   });
 
   test('a collector page shows the collector cluster and role', async ({ page, api }) => {
-    await api.loginAs(reader);
+    await api.loginAs(viewer);
     const s = basicScenario();
     api.seed({ orgs: [s.org], collectors: s.collectors });
     await page.goto('/collectors/col-0002');
@@ -185,7 +185,7 @@ test.describe('breadcrumbs name the item', () => {
 test.describe('an unknown route', () => {
   for (const path of ['/no-such-page', '/admin/no-such-page', '/pipelines/pip-0001/no-such-view']) {
     test(`${path} renders a 404 inside the app shell, with a way home`, async ({ page, api }) => {
-      await api.loginAs(reader);
+      await api.loginAs(viewer);
       const s = basicScenario();
       api.seed({ orgs: [s.org], pipelines: s.pipelines, collectors: s.collectors });
       await page.goto(path);

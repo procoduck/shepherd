@@ -96,7 +96,7 @@ func (s *UserService) membershipsFor(ctx context.Context, userID pgtype.UUID) ([
 	out := make([]*mgmtv1.OrgMembership, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, &mgmtv1.OrgMembership{
-			Id: r.OrgID.String(), Name: r.OrgName, DisplayName: r.OrgDisplayName, Role: r.Role,
+			Id: r.OrgID.String(), Name: r.OrgName, DisplayName: r.OrgDisplayName, Role: storedRoleToProto(r.Role),
 		})
 	}
 	return out, nil
@@ -317,7 +317,7 @@ func (s *UserService) ListOrgMembers(ctx context.Context, req *connect.Request[m
 		r := &rows[i]
 		items = append(items, &mgmtv1.OrgMember{
 			OrgId: r.OrgID.String(), UserId: r.UserID.String(), Login: r.Login,
-			Email: r.Email, DisplayName: r.DisplayName, Role: r.Role, Disabled: r.Disabled,
+			Email: r.Email, DisplayName: r.DisplayName, Role: storedRoleToProto(r.Role), Disabled: r.Disabled,
 		})
 	}
 	return connect.NewResponse(&mgmtv1.ListOrgMembersResponse{Items: items, Total: int32(len(items))}), nil //nolint:gosec // member counts never approach int32 overflow
@@ -339,22 +339,19 @@ func (s *UserService) SetOrgMember(ctx context.Context, req *connect.Request[mgm
 	if !ok {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid user id"))
 	}
-	role := strings.TrimSpace(req.Msg.GetRole())
-	switch role {
-	case auth.OrgRoleAdmin, auth.OrgRoleEditor, auth.OrgRoleViewer:
-	default:
-		return nil, connect.NewError(connect.CodeInvalidArgument,
-			errors.New(`role must be "admin", "editor" or "viewer"`))
+	role, err := roleFromProto(req.Msg.GetRole())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	if _, err := s.store.Queries.UpsertOrgMember(ctx, sqlc.UpsertOrgMemberParams{
-		OrgID: orgID, UserID: userID, Role: role,
+		OrgID: orgID, UserID: userID, Role: role.String(),
 	}); err != nil {
 		s.logger.Error("setting org member", "err", err)
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to set org member"))
 	}
 	auditLogDetail(ctx, s.store, auth.ActorFromCtx(ctx), "user", orgID, "org.member_set", "user", userID.String(),
-		map[string]any{"role": role})
-	return connect.NewResponse(&mgmtv1.OrgMember{OrgId: orgID.String(), UserId: userID.String(), Role: role}), nil
+		map[string]any{"role": role.String()})
+	return connect.NewResponse(&mgmtv1.OrgMember{OrgId: orgID.String(), UserId: userID.String(), Role: roleToProto(role)}), nil
 }
 
 // RemoveOrgMember revokes a user's role in an org.

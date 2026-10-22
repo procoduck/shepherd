@@ -2,15 +2,15 @@
 // @generated from file shepherd/mgmt/v1/common.proto (package shepherd.mgmt.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file shepherd/mgmt/v1/common.proto.
  */
 export const file_shepherd_mgmt_v1_common: GenFile = /*@__PURE__*/
-  fileDesc("Ch1zaGVwaGVyZC9tZ210L3YxL2NvbW1vbi5wcm90bxIQc2hlcGhlcmQubWdtdC52MSJHCgpEaWFnbm9zdGljEgwKBGxpbmUYASABKAUSCwoDY29sGAIgASgFEg8KB21lc3NhZ2UYAyABKAkSDQoFc3RhZ2UYBCABKAVCJlokc2hlcGhlcmQvZ2VuL3NoZXBoZXJkL21nbXQvdjE7bWdtdHYxYgZwcm90bzM");
+  fileDesc("Ch1zaGVwaGVyZC9tZ210L3YxL2NvbW1vbi5wcm90bxIQc2hlcGhlcmQubWdtdC52MSJHCgpEaWFnbm9zdGljEgwKBGxpbmUYASABKAUSCwoDY29sGAIgASgFEg8KB21lc3NhZ2UYAyABKAkSDQoFc3RhZ2UYBCABKAUqTgoEUm9sZRIUChBST0xFX1VOU1BFQ0lGSUVEEAASDwoLUk9MRV9WSUVXRVIQARIPCgtST0xFX0VESVRPUhACEg4KClJPTEVfQURNSU4QA0ImWiRzaGVwaGVyZC9nZW4vc2hlcGhlcmQvbWdtdC92MTttZ210djFiBnByb3RvMw");
 
 /**
  * Diagnostic is a structured error/warning from the Alloy validation gate
@@ -54,4 +54,40 @@ export type Diagnostic = Message<"shepherd.mgmt.v1.Diagnostic"> & {
  */
 export const DiagnosticSchema: GenMessage<Diagnostic> = /*@__PURE__*/
   messageDesc(file_shepherd_mgmt_v1_common, 0);
+
+/**
+ * Role is an org role (spec §7.2): viewer < editor < admin, each including
+ * the one below it. App admin is not a Role — it is a separate, cross-org
+ * flag (User.is_app_admin, GetMeResponse.is_app_admin). ROLE_UNSPECIFIED
+ * never grants anything and is rejected wherever a role is written.
+ *
+ * @generated from enum shepherd.mgmt.v1.Role
+ */
+export enum Role {
+  /**
+   * @generated from enum value: ROLE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: ROLE_VIEWER = 1;
+   */
+  VIEWER = 1,
+
+  /**
+   * @generated from enum value: ROLE_EDITOR = 2;
+   */
+  EDITOR = 2,
+
+  /**
+   * @generated from enum value: ROLE_ADMIN = 3;
+   */
+  ADMIN = 3,
+}
+
+/**
+ * Describes the enum shepherd.mgmt.v1.Role.
+ */
+export const RoleSchema: GenEnum<Role> = /*@__PURE__*/
+  enumDesc(file_shepherd_mgmt_v1_common, 0);
 

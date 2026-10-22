@@ -44,7 +44,7 @@ func Router(schemaReg *schema.Registry) http.Handler {
 	r.NotFound(apiNotFound)
 	r.MethodNotAllowed(apiNotFound)
 
-	// Schema endpoints — accessible to any authenticated user (reader role).
+	// Schema endpoints — accessible to any authenticated user (viewer role).
 	// GET /api/schema/current → pinned fleet version merged with overlay.
 	// GET /api/schema/{version} → specific version merged with overlay (ETag cached).
 	r.Group(func(r chi.Router) {

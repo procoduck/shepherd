@@ -20,7 +20,7 @@ import { expect, type Locator, type Page } from '@playwright/test';
 import { currentSchemaVersion } from '@/visual/schemaVersion';
 import { settledBox, viewportTransform, waitForViewportSettled } from '../fixtures/canvas';
 import { basicScenario, pipeline } from '../fixtures/factories';
-import { orgEditor, reader } from '../fixtures/personas';
+import { orgEditor, viewer } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
 import { test } from '../fixtures/test';
 
@@ -102,7 +102,7 @@ async function selectNode(page: Page, id: string) {
 
 test.describe('viewer', () => {
   test.beforeEach(async ({ page, api }) => {
-    await api.loginAs(reader);
+    await api.loginAs(viewer);
     await openBuilder(page, api, 'pip-viewer');
   });
 

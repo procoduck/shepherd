@@ -9,10 +9,10 @@ option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 // VisualService renders, validates and diffs visual graphs, and serves the
 // pipeline graph view.
 // Render/Validate/UpgradeCheck require edit rights on the named pipeline when
-// the request's pipeline_id is set (org-editor, or a member of the pipeline's
-// owning team — the check UpdatePipeline makes), and org-editor otherwise (a
+// the request's pipeline_id is set (org editor, or a member of the pipeline's
+// owning team — the check UpdatePipeline makes), and org editor otherwise (a
 // new, unsaved graph: D6, the same authoring ceiling WizardService and
-// SimulateService hold). GraphView and DiffRevisions require org-reader.
+// SimulateService hold). GraphView and DiffRevisions require org viewer.
 service VisualService {
   rpc Render(RenderRequest) returns (RenderResponse) {}
   rpc Validate(ValidateVisualRequest) returns (ValidateVisualResponse) {}
@@ -20,7 +20,7 @@ service VisualService {
   rpc GraphView(GraphViewRequest) returns (GraphViewResponse) {}
   // DiffRevisions returns the structural graph diff between two of a
   // pipeline's revisions — the visual-builder counterpart to the text-only
-  // RevisionDiff (#118). Org-reader, like GraphView.
+  // RevisionDiff (#118). Org viewer, like GraphView.
   rpc DiffRevisions(DiffRevisionsRequest) returns (DiffRevisionsResponse) {}
 }
 
@@ -141,9 +141,9 @@ message RenderRequest {
   string org_id = 1;
   GraphDocument graph = 2;
   // pipeline_id names the existing pipeline this graph is being edited for.
-  // Set: the caller must be allowed to edit that pipeline (org-editor, or a
+  // Set: the caller must be allowed to edit that pipeline (org editor, or a
   // team owner per AuthorizeOwnership — the UpdatePipeline check).
-  // Empty: a new, unsaved graph — org-editor required.
+  // Empty: a new, unsaved graph — org editor required.
   // Naming a pipeline runs the write-authorization check, so a
   // propose-capability service account must leave pipeline_id empty.
   string pipeline_id = 3;

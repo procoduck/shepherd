@@ -46,7 +46,7 @@ func NewSchemaHandler(reg *schema.Registry) *SchemaHandler {
 // Get handles GET /api/schema/{version}.
 // Returns the schema artifact deep-merged with the overlay for the requested version.
 // The response includes an ETag based on the content hash; clients should cache per version.
-// Accessible to any authenticated user (reader role).
+// Accessible to any authenticated user (viewer role).
 func (h *SchemaHandler) Get(w http.ResponseWriter, r *http.Request) {
 	if h.registry == nil {
 		respondError(w, http.StatusServiceUnavailable, "unavailable", "schema registry not initialized")

@@ -191,7 +191,7 @@ var _ = Describe("Stage 3 scale (#376)", Label("integration"), func() {
 		resetRuns()
 
 		_, err = st.Queries.UpdateOrg(ctx, sqlc.UpdateOrgParams{
-			ID: org.ID, DisplayName: org.DisplayName, AdminGroupID: org.AdminGroupID, ReaderGroupID: org.ReaderGroupID,
+			ID: org.ID, DisplayName: org.DisplayName, AdminGroupID: org.AdminGroupID, ViewerGroupID: org.ViewerGroupID,
 			AllowLabelMatching: true,
 		})
 		Expect(err).NotTo(HaveOccurred())

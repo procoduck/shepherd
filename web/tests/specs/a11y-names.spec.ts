@@ -1,6 +1,6 @@
 /**
  * #310 (2026-10-08 pre-release walkthrough, accessible-name nits). Each
- * control below was announced by a screen reader as something that did not
+ * control below was announced by a screen viewer as something that did not
  * say which thing it acts on — "Edit", "Delete destination", six "Start"
  * links, an edge between internal node ids — or by nothing useful at all.
  * These specs find every control by the accessible name it should have, so a
@@ -10,7 +10,7 @@ import { expect } from '@playwright/test';
 import { currentSchemaVersion } from '@/visual/schemaVersion';
 import { waitForViewportSettled } from '../fixtures/canvas';
 import { basicScenario, destination, pipeline } from '../fixtures/factories';
-import { appAdmin, orgAdmin, orgEditor, reader } from '../fixtures/personas';
+import { appAdmin, orgAdmin, orgEditor, viewer } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
 import { test } from '../fixtures/test';
 import { json } from '../mocks/router';
@@ -78,7 +78,7 @@ test('the pipeline name field is labelled "Name", not by its placeholder', async
 });
 
 test('a viewer sees the matcher remove buttons labelled, and disabled', async ({ page, api }) => {
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   const s = basicScenario();
   api.seed({
     orgs: [s.org],

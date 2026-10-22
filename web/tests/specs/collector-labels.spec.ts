@@ -1,5 +1,5 @@
 import { basicScenario } from '../fixtures/factories';
-import { orgAdmin, reader } from '../fixtures/personas';
+import { orgAdmin, viewer } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
 
 test('labels persist across navigation and support editing, grouping and deletion', async ({
@@ -96,8 +96,8 @@ test('label validation enforces UTF-8 bytes and rejects invisible characters', a
   );
 });
 
-test('a reader cannot write labels through either RPC', async ({ page, api }) => {
-  await api.loginAs(reader);
+test('a viewer cannot write labels through either RPC', async ({ page, api }) => {
+  await api.loginAs(viewer);
   const s = basicScenario();
   s.collectors[0].labels = { team: 'payments' };
   api.seed({ orgs: [s.org], collectors: s.collectors });
@@ -143,8 +143,8 @@ test('collector search includes remote configuration status', async ({ page, api
   ).toBeVisible();
 });
 
-test('all reported attributes remain visible per instance to a reader', async ({ page, api }) => {
-  await api.loginAs(reader);
+test('all reported attributes remain visible per instance to a viewer', async ({ page, api }) => {
+  await api.loginAs(viewer);
   const s = basicScenario();
   s.collectors[0].labels = { team: 'payments' };
   s.collectors[0].instances = [

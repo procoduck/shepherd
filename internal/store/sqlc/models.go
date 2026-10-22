@@ -178,7 +178,7 @@ type Org struct {
 	Name                        string             `json:"name"`
 	DisplayName                 string             `json:"display_name"`
 	AdminGroupID                string             `json:"admin_group_id"`
-	ReaderGroupID               pgtype.Text        `json:"reader_group_id"`
+	ViewerGroupID               pgtype.Text        `json:"viewer_group_id"`
 	CreatedAt                   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt                   pgtype.Timestamptz `json:"updated_at"`
 	TenantID                    pgtype.Text        `json:"tenant_id"`

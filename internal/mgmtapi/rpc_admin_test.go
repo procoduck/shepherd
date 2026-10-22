@@ -49,7 +49,7 @@ var _ = Describe("shepherd.mgmt.v1 AdminService and MeService RPC", Label("integ
 			Name:          "admin-rpc-org",
 			DisplayName:   "Admin RPC Org",
 			AdminGroupID:  "admin-rpc-admin-group",
-			ReaderGroupID: pgtype.Text{String: "admin-rpc-reader-group", Valid: true},
+			ViewerGroupID: pgtype.Text{String: "admin-rpc-viewer-group", Valid: true},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		orgIDStr = o.ID.String()
@@ -210,7 +210,7 @@ var _ = Describe("shepherd.mgmt.v1 AdminService and MeService RPC", Label("integ
 			})
 		})
 
-		It("denies ListOrgs for an org-admin session that is not an app admin", func() {
+		It("denies ListOrgs for an org admin session that is not an app admin", func() {
 			orgAdmin := createSession(false, []string{"admin-rpc-admin-group"})
 
 			resp := postConnect("/shepherd.mgmt.v1.AdminService/ListOrgs", map[string]any{}, orgAdmin)
@@ -365,7 +365,7 @@ var _ = Describe("shepherd.mgmt.v1 AdminService and MeService RPC", Label("integ
 			Expect(cache.Dirty).To(BeFalse(), "serve_cache must not be left dirty by a rolled-back unclaim")
 		})
 
-		It("denies UnclaimCluster for an org-admin session that is not an app admin", func() {
+		It("denies UnclaimCluster for an org admin session that is not an app admin", func() {
 			orgAdmin := createSession(false, []string{"admin-rpc-admin-group"})
 
 			resp := postConnect("/shepherd.mgmt.v1.AdminService/UnclaimCluster", map[string]any{
@@ -491,7 +491,7 @@ var _ = Describe("shepherd.mgmt.v1 AdminService and MeService RPC", Label("integ
 			org, ok := orgs[0].(map[string]any)
 			Expect(ok).To(BeTrue())
 			Expect(org["id"]).To(Equal(orgIDStr))
-			Expect(org["role"]).To(Equal("admin"))
+			Expect(org["role"]).To(Equal("ROLE_ADMIN"))
 		})
 
 		It("reports the attribute-matching rollout flags on the org membership (#139)", func() {

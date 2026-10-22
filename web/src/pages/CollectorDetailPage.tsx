@@ -16,6 +16,7 @@ import { FormError } from '@/components/ui/FormError';
 import { useMe } from '@/hooks/useMe';
 import { useOrgId } from '@/hooks/useOrg';
 import { errorText, formError } from '@/lib/formError';
+import { Role } from '@/lib/roles';
 import { formatTimestampRelative } from '@/lib/utils';
 import { assignmentColumns, instanceColumns, statusColor, statusTitle } from './collectorColumns';
 
@@ -29,7 +30,7 @@ export function CollectorDetailPage() {
   const [copied, setCopied] = useState(false);
 
   const isOrgAdmin =
-    !!me?.isAppAdmin || me?.orgs?.some((o) => o.id === orgId && o.role === 'admin') === true;
+    !!me?.isAppAdmin || me?.orgs?.some((o) => o.id === orgId && o.role === Role.ADMIN) === true;
 
   // Keep the Access tab from being stranded selected-but-hidden if the org
   // switcher moves to an org where the viewer isn't an admin.

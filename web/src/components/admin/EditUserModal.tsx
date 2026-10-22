@@ -5,7 +5,7 @@ import { clients } from '@/api/transport';
 import { Field, Input } from '@/components/ui/Field';
 import { Modal, ModalActions } from '@/components/ui/Modal';
 import type { User } from '@/gen/shepherd/mgmt/v1/user_pb';
-import { ORG_ROLES } from './UserForms';
+import { ORG_ROLES, Role, roleFromValue, roleLabel, roleValue } from '@/lib/roles';
 
 /** Admin → Users → "Edit user" (S9b), including its org-membership editor. */
 export function EditUserModal({
@@ -29,7 +29,7 @@ export function EditUserModal({
     isAppAdmin: boolean;
     disabled: boolean;
   }) => void;
-  onSetOrgRole: (orgId: string, role: string) => void;
+  onSetOrgRole: (orgId: string, role: Role) => void;
   onRemoveOrg: (orgId: string) => void;
   orgPending: boolean;
 }) {
@@ -38,7 +38,7 @@ export function EditUserModal({
   const [isAppAdmin, setIsAppAdmin] = useState(user.isAppAdmin);
   const [disabled, setDisabled] = useState(user.disabled);
   const [addOrgId, setAddOrgId] = useState('');
-  const [addRole, setAddRole] = useState('viewer');
+  const [addRole, setAddRole] = useState<Role>(Role.VIEWER);
 
   // Every org, so a membership can be added. This is the app-admin surface, so
   // the list is not filtered by the editing admin's own memberships.
@@ -122,14 +122,14 @@ export function EditUserModal({
                   <select
                     data-testid={`edit-org-role-${o.name}`}
                     aria-label={`Role in ${o.displayName || o.name}`}
-                    value={o.role}
+                    value={roleValue(o.role)}
                     disabled={orgPending}
-                    onChange={(e) => onSetOrgRole(o.id, e.target.value)}
+                    onChange={(e) => onSetOrgRole(o.id, roleFromValue(e.target.value))}
                     className='rounded-md border border-border-strong bg-card px-2 py-1 text-xs'
                   >
                     {ORG_ROLES.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
+                      <option key={r} value={roleValue(r)}>
+                        {roleLabel(r)}
                       </option>
                     ))}
                   </select>
@@ -166,13 +166,13 @@ export function EditUserModal({
               <select
                 data-testid='edit-org-add-role'
                 aria-label='Role in the organisation to add'
-                value={addRole}
-                onChange={(e) => setAddRole(e.target.value)}
+                value={roleValue(addRole)}
+                onChange={(e) => setAddRole(roleFromValue(e.target.value))}
                 className='rounded-md border border-border-strong bg-card px-2 py-1 text-xs'
               >
                 {ORG_ROLES.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
+                  <option key={r} value={roleValue(r)}>
+                    {roleLabel(r)}
                   </option>
                 ))}
               </select>

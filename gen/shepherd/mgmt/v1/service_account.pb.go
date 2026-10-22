@@ -36,15 +36,14 @@ type ServiceAccount struct {
 	// status is "active" or "revoked", mirroring AgentToken's shape.
 	Status    string                 `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
 	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	// role is "editor" or "admin" (W3-1, 0018_service_account_role): the
+	// role is ROLE_EDITOR or ROLE_ADMIN (W3-1, 0018_service_account_role): the
 	// tier this credential is checked against, the same way a human
-	// session's org-editor/org-admin role is — see
+	// session's org role is — see
 	// authorizeServiceAccountProcedure (rpc_interceptor.go). Orthogonal to
 	// capability: role decides WHICH procedures the token may reach at all,
-	// capability decides whether it may write once there. Defaults to
-	// "editor" when a CreateServiceAccountRequest does not set one; "admin"
-	// must be requested explicitly.
-	Role          string `protobuf:"bytes,8,opt,name=role,proto3" json:"role,omitempty"`
+	// capability decides whether it may write once there. Set explicitly
+	// at creation (CreateServiceAccountRequest.role).
+	Role          Role `protobuf:"varint,9,opt,name=role,proto3,enum=shepherd.mgmt.v1.Role" json:"role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -128,11 +127,11 @@ func (x *ServiceAccount) GetCreatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
-func (x *ServiceAccount) GetRole() string {
+func (x *ServiceAccount) GetRole() Role {
 	if x != nil {
 		return x.Role
 	}
-	return ""
+	return Role_ROLE_UNSPECIFIED
 }
 
 type ListServiceAccountsRequest struct {
@@ -237,10 +236,10 @@ type CreateServiceAccountRequest struct {
 	Name  string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	// capability is "propose" or "apply", required.
 	Capability string `protobuf:"bytes,3,opt,name=capability,proto3" json:"capability,omitempty"`
-	// role is "editor" or "admin" (W3-1). Optional — an empty value defaults
-	// to "editor"; "admin" must be requested explicitly (D3), it is never
-	// inferred from capability or anything else about the request.
-	Role          string `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
+	// role is ROLE_EDITOR or ROLE_ADMIN (W3-1), required: ROLE_UNSPECIFIED
+	// and ROLE_VIEWER are refused with InvalidArgument. Nothing about the
+	// request ever implies ROLE_ADMIN (D3).
+	Role          Role `protobuf:"varint,5,opt,name=role,proto3,enum=shepherd.mgmt.v1.Role" json:"role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -296,11 +295,11 @@ func (x *CreateServiceAccountRequest) GetCapability() string {
 	return ""
 }
 
-func (x *CreateServiceAccountRequest) GetRole() string {
+func (x *CreateServiceAccountRequest) GetRole() Role {
 	if x != nil {
 		return x.Role
 	}
-	return ""
+	return Role_ROLE_UNSPECIFIED
 }
 
 // CreateServiceAccountResponse carries the one-time plaintext secret
@@ -312,9 +311,8 @@ type CreateServiceAccountResponse struct {
 	Name       string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	Capability string                 `protobuf:"bytes,3,opt,name=capability,proto3" json:"capability,omitempty"`
 	Secret     string                 `protobuf:"bytes,4,opt,name=secret,proto3" json:"secret,omitempty"`
-	// role is the tier actually stored (W3-1) — "editor" when the request
-	// left role unset.
-	Role          string `protobuf:"bytes,5,opt,name=role,proto3" json:"role,omitempty"`
+	// role is the tier stored (W3-1).
+	Role          Role `protobuf:"varint,6,opt,name=role,proto3,enum=shepherd.mgmt.v1.Role" json:"role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -377,11 +375,11 @@ func (x *CreateServiceAccountResponse) GetSecret() string {
 	return ""
 }
 
-func (x *CreateServiceAccountResponse) GetRole() string {
+func (x *CreateServiceAccountResponse) GetRole() Role {
 	if x != nil {
 		return x.Role
 	}
-	return ""
+	return Role_ROLE_UNSPECIFIED
 }
 
 type RevokeServiceAccountRequest struct {
@@ -476,7 +474,7 @@ var File_shepherd_mgmt_v1_service_account_proto protoreflect.FileDescriptor
 
 const file_shepherd_mgmt_v1_service_account_proto_rawDesc = "" +
 	"\n" +
-	"&shepherd/mgmt/v1/service_account.proto\x12\x10shepherd.mgmt.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xf1\x01\n" +
+	"&shepherd/mgmt/v1/service_account.proto\x12\x10shepherd.mgmt.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1dshepherd/mgmt/v1/common.proto\"\x8f\x02\n" +
 	"\x0eServiceAccount\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06org_id\x18\x02 \x01(\tR\x05orgId\x12\x12\n" +
@@ -488,28 +486,28 @@ const file_shepherd_mgmt_v1_service_account_proto_rawDesc = "" +
 	"created_by\x18\x05 \x01(\tR\tcreatedBy\x12\x16\n" +
 	"\x06status\x18\x06 \x01(\tR\x06status\x129\n" +
 	"\n" +
-	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x12\n" +
-	"\x04role\x18\b \x01(\tR\x04role\"3\n" +
+	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12*\n" +
+	"\x04role\x18\t \x01(\x0e2\x16.shepherd.mgmt.v1.RoleR\x04roleJ\x04\b\b\x10\t\"3\n" +
 	"\x1aListServiceAccountsRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\"k\n" +
 	"\x1bListServiceAccountsResponse\x126\n" +
 	"\x05items\x18\x01 \x03(\v2 .shepherd.mgmt.v1.ServiceAccountR\x05items\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x05R\x05total\"|\n" +
+	"\x05total\x18\x02 \x01(\x05R\x05total\"\x9a\x01\n" +
 	"\x1bCreateServiceAccountRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1e\n" +
 	"\n" +
 	"capability\x18\x03 \x01(\tR\n" +
-	"capability\x12\x12\n" +
-	"\x04role\x18\x04 \x01(\tR\x04role\"\x8e\x01\n" +
+	"capability\x12*\n" +
+	"\x04role\x18\x05 \x01(\x0e2\x16.shepherd.mgmt.v1.RoleR\x04roleJ\x04\b\x04\x10\x05\"\xac\x01\n" +
 	"\x1cCreateServiceAccountResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1e\n" +
 	"\n" +
 	"capability\x18\x03 \x01(\tR\n" +
 	"capability\x12\x16\n" +
-	"\x06secret\x18\x04 \x01(\tR\x06secret\x12\x12\n" +
-	"\x04role\x18\x05 \x01(\tR\x04role\"D\n" +
+	"\x06secret\x18\x04 \x01(\tR\x06secret\x12*\n" +
+	"\x04role\x18\x06 \x01(\x0e2\x16.shepherd.mgmt.v1.RoleR\x04roleJ\x04\b\x05\x10\x06\"D\n" +
 	"\x1bRevokeServiceAccountRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\"\x1e\n" +
@@ -541,21 +539,25 @@ var file_shepherd_mgmt_v1_service_account_proto_goTypes = []any{
 	(*RevokeServiceAccountRequest)(nil),  // 5: shepherd.mgmt.v1.RevokeServiceAccountRequest
 	(*RevokeServiceAccountResponse)(nil), // 6: shepherd.mgmt.v1.RevokeServiceAccountResponse
 	(*timestamppb.Timestamp)(nil),        // 7: google.protobuf.Timestamp
+	(Role)(0),                            // 8: shepherd.mgmt.v1.Role
 }
 var file_shepherd_mgmt_v1_service_account_proto_depIdxs = []int32{
 	7, // 0: shepherd.mgmt.v1.ServiceAccount.created_at:type_name -> google.protobuf.Timestamp
-	0, // 1: shepherd.mgmt.v1.ListServiceAccountsResponse.items:type_name -> shepherd.mgmt.v1.ServiceAccount
-	1, // 2: shepherd.mgmt.v1.ServiceAccountService.ListServiceAccounts:input_type -> shepherd.mgmt.v1.ListServiceAccountsRequest
-	3, // 3: shepherd.mgmt.v1.ServiceAccountService.CreateServiceAccount:input_type -> shepherd.mgmt.v1.CreateServiceAccountRequest
-	5, // 4: shepherd.mgmt.v1.ServiceAccountService.RevokeServiceAccount:input_type -> shepherd.mgmt.v1.RevokeServiceAccountRequest
-	2, // 5: shepherd.mgmt.v1.ServiceAccountService.ListServiceAccounts:output_type -> shepherd.mgmt.v1.ListServiceAccountsResponse
-	4, // 6: shepherd.mgmt.v1.ServiceAccountService.CreateServiceAccount:output_type -> shepherd.mgmt.v1.CreateServiceAccountResponse
-	6, // 7: shepherd.mgmt.v1.ServiceAccountService.RevokeServiceAccount:output_type -> shepherd.mgmt.v1.RevokeServiceAccountResponse
-	5, // [5:8] is the sub-list for method output_type
-	2, // [2:5] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	8, // 1: shepherd.mgmt.v1.ServiceAccount.role:type_name -> shepherd.mgmt.v1.Role
+	0, // 2: shepherd.mgmt.v1.ListServiceAccountsResponse.items:type_name -> shepherd.mgmt.v1.ServiceAccount
+	8, // 3: shepherd.mgmt.v1.CreateServiceAccountRequest.role:type_name -> shepherd.mgmt.v1.Role
+	8, // 4: shepherd.mgmt.v1.CreateServiceAccountResponse.role:type_name -> shepherd.mgmt.v1.Role
+	1, // 5: shepherd.mgmt.v1.ServiceAccountService.ListServiceAccounts:input_type -> shepherd.mgmt.v1.ListServiceAccountsRequest
+	3, // 6: shepherd.mgmt.v1.ServiceAccountService.CreateServiceAccount:input_type -> shepherd.mgmt.v1.CreateServiceAccountRequest
+	5, // 7: shepherd.mgmt.v1.ServiceAccountService.RevokeServiceAccount:input_type -> shepherd.mgmt.v1.RevokeServiceAccountRequest
+	2, // 8: shepherd.mgmt.v1.ServiceAccountService.ListServiceAccounts:output_type -> shepherd.mgmt.v1.ListServiceAccountsResponse
+	4, // 9: shepherd.mgmt.v1.ServiceAccountService.CreateServiceAccount:output_type -> shepherd.mgmt.v1.CreateServiceAccountResponse
+	6, // 10: shepherd.mgmt.v1.ServiceAccountService.RevokeServiceAccount:output_type -> shepherd.mgmt.v1.RevokeServiceAccountResponse
+	8, // [8:11] is the sub-list for method output_type
+	5, // [5:8] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_shepherd_mgmt_v1_service_account_proto_init() }
@@ -563,6 +565,7 @@ func file_shepherd_mgmt_v1_service_account_proto_init() {
 	if File_shepherd_mgmt_v1_service_account_proto != nil {
 		return
 	}
+	file_shepherd_mgmt_v1_common_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

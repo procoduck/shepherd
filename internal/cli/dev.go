@@ -42,7 +42,7 @@ const (
 	seedOrgPlatformID         = "11111111-aaaa-4000-8000-000000000001"
 	seedOrgDataEngID          = "11111111-aaaa-4000-8000-000000000002"
 	seedPlatformAdminGroupID  = "22222222-aaaa-4000-8000-000000000001"
-	seedPlatformReaderGroupID = "22222222-aaaa-4000-8000-000000000002"
+	seedPlatformViewerGroupID = "22222222-aaaa-4000-8000-000000000002"
 	seedDataEngAdminGroupID   = "22222222-aaaa-4000-8000-000000000003"
 	seedAgentTokenID          = "00000000-de00-4000-a000-000000000001" //nolint:gosec // G101: deterministic dev fixture UUID, not a credential
 	seedAgentTokenSecret      = "dev-only-agent-secret-32byteslong"    //nolint:gosec // deterministic development fixture
@@ -150,7 +150,7 @@ var (
 )
 
 func init() {
-	devCreateSessionCmd.Flags().String("persona", "appadmin", "persona: appadmin|orgadmin-platform|reader-platform|nobody")
+	devCreateSessionCmd.Flags().String("persona", "appadmin", "persona: appadmin|admin-platform|viewer-platform|nobody")
 	devCreateSessionCmd.Flags().Duration("ttl", time.Hour, "session TTL")
 	devCmd.AddCommand(devSeedCmd, devCreateSessionCmd)
 	rootCmd.AddCommand(devCmd)
@@ -167,7 +167,7 @@ func runDevSeed(cmd *cobra.Command, _ []string) error {
 	}
 	defer st.Close()
 	ctx := cmd.Context()
-	platform, err := upsertSeedOrg(ctx, st, seedOrgPlatformID, "platform-org", "Platform Engineering", seedPlatformAdminGroupID, seedPlatformReaderGroupID, "platform-org")
+	platform, err := upsertSeedOrg(ctx, st, seedOrgPlatformID, "platform-org", "Platform Engineering", seedPlatformAdminGroupID, seedPlatformViewerGroupID, "platform-org")
 	if err != nil {
 		return fmt.Errorf("creating platform org: %w", err)
 	}
@@ -276,13 +276,13 @@ func runDevSeed(cmd *cobra.Command, _ []string) error {
 // set-once in production (SetOrgTenantID), and a seed that quietly rewrote it
 // on every `make dev-seed` would be the one place in the system where the
 // rule does not hold.
-func upsertSeedOrg(ctx context.Context, st *store.Store, id, name, displayName, adminGroup, readerGroup, tenantID string) (sqlc.Org, error) {
+func upsertSeedOrg(ctx context.Context, st *store.Store, id, name, displayName, adminGroup, viewerGroup, tenantID string) (sqlc.Org, error) {
 	var org sqlc.Org
-	var reader any
-	if readerGroup != "" {
-		reader = readerGroup
+	var viewer any
+	if viewerGroup != "" {
+		viewer = viewerGroup
 	}
-	err := st.Pool().QueryRow(ctx, `INSERT INTO orgs (id, name, display_name, admin_group_id, reader_group_id, tenant_id) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (name) DO UPDATE SET display_name=EXCLUDED.display_name, admin_group_id=EXCLUDED.admin_group_id, reader_group_id=EXCLUDED.reader_group_id RETURNING id, name, display_name, admin_group_id, reader_group_id, created_at, updated_at`, id, name, displayName, adminGroup, reader, tenantID).Scan(&org.ID, &org.Name, &org.DisplayName, &org.AdminGroupID, &org.ReaderGroupID, &org.CreatedAt, &org.UpdatedAt)
+	err := st.Pool().QueryRow(ctx, `INSERT INTO orgs (id, name, display_name, admin_group_id, viewer_group_id, tenant_id) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (name) DO UPDATE SET display_name=EXCLUDED.display_name, admin_group_id=EXCLUDED.admin_group_id, viewer_group_id=EXCLUDED.viewer_group_id RETURNING id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at`, id, name, displayName, adminGroup, viewer, tenantID).Scan(&org.ID, &org.Name, &org.DisplayName, &org.AdminGroupID, &org.ViewerGroupID, &org.CreatedAt, &org.UpdatedAt)
 	return org, err
 }
 
@@ -297,7 +297,7 @@ const (
 )
 
 // seedLocalUsers seeds the dev stack's three local accounts: the bootstrap
-// admin, then an org-editor and an org-viewer on platformOrgID. Idempotent —
+// admin, then an org editor and an org-viewer on platformOrgID. Idempotent —
 // safe to call on every `dev seed` run.
 //
 // ORDERING HAZARD, load-bearing: shepherd-seed runs in its own container
@@ -323,17 +323,18 @@ func seedLocalUsers(ctx context.Context, st *store.Store, platformOrgID pgtype.U
 	}
 
 	for _, u := range []struct {
-		login, password, orgRole string
+		login, password string
+		orgRole         auth.Role
 	}{
-		{seedEditorLogin, seedEditorPassword, auth.OrgRoleEditor},
-		{seedViewerLogin, seedViewerPassword, auth.OrgRoleViewer},
+		{seedEditorLogin, seedEditorPassword, auth.RoleEditor},
+		{seedViewerLogin, seedViewerPassword, auth.RoleViewer},
 	} {
 		userID, err := seedLocalUser(ctx, st, u.login, u.password)
 		if err != nil {
 			return fmt.Errorf("seeding local user %s: %w", u.login, err)
 		}
 		if _, err := st.Queries.UpsertOrgMember(ctx, sqlc.UpsertOrgMemberParams{
-			OrgID: platformOrgID, UserID: userID, Role: u.orgRole,
+			OrgID: platformOrgID, UserID: userID, Role: u.orgRole.String(),
 		}); err != nil {
 			return fmt.Errorf("adding %s to platform org: %w", u.login, err)
 		}
@@ -794,14 +795,14 @@ func runDevCreateSession(cmd *cobra.Command, _ []string) error {
 		appAdmin                    bool
 	}
 	personas := map[string]personaDef{
-		"appadmin":          {"dev:appadmin", "appadmin@dev.local", "Dev App Admin", []string{seedPlatformAdminGroupID}, true},
-		"orgadmin-platform": {"dev:orgadmin-platform", "orgadmin@dev.local", "Dev Platform Admin", []string{seedPlatformAdminGroupID}, false},
-		"reader-platform":   {"dev:reader-platform", "reader@dev.local", "Dev Reader", []string{seedPlatformReaderGroupID}, false},
-		"nobody":            {"dev:nobody", "nobody@dev.local", "Dev Nobody", nil, false},
+		"appadmin":        {"dev:appadmin", "appadmin@dev.local", "Dev App Admin", []string{seedPlatformAdminGroupID}, true},
+		"admin-platform":  {"dev:admin-platform", "org admin@dev.local", "Dev Platform Admin", []string{seedPlatformAdminGroupID}, false},
+		"viewer-platform": {"dev:viewer-platform", "viewer@dev.local", "Dev Viewer", []string{seedPlatformViewerGroupID}, false},
+		"nobody":          {"dev:nobody", "nobody@dev.local", "Dev Nobody", nil, false},
 	}
 	p, ok := personas[persona]
 	if !ok {
-		return fmt.Errorf("unknown persona %q; valid: appadmin, orgadmin-platform, reader-platform, nobody", persona)
+		return fmt.Errorf("unknown persona %q; valid: appadmin, admin-platform, viewer-platform, nobody", persona)
 	}
 	groups, err := json.Marshal(p.groups)
 	if err != nil {

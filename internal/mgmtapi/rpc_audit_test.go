@@ -47,7 +47,7 @@ var _ = Describe("shepherd.mgmt.v1.AuditService RPC", Label("integration"), func
 			Name:          "audit-rpc-org",
 			DisplayName:   "Audit RPC Org",
 			AdminGroupID:  "audit-admin-group",
-			ReaderGroupID: pgtype.Text{String: "audit-reader-group", Valid: true},
+			ViewerGroupID: pgtype.Text{String: "audit-viewer-group", Valid: true},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		orgID = o.ID
@@ -150,9 +150,9 @@ var _ = Describe("shepherd.mgmt.v1.AuditService RPC", Label("integration"), func
 		Expect(payload["total"]).To(BeNumerically(">=", 1.0))
 	})
 
-	It("denies ListAudit for an org reader (AuditService requires org-admin)", func() {
-		reader := createSession(false, []string{"audit-reader-group"})
-		resp := postConnect("/shepherd.mgmt.v1.AuditService/ListAudit", map[string]any{"orgId": orgID.String()}, reader)
+	It("denies ListAudit for an org viewer (AuditService requires org admin)", func() {
+		viewer := createSession(false, []string{"audit-viewer-group"})
+		resp := postConnect("/shepherd.mgmt.v1.AuditService/ListAudit", map[string]any{"orgId": orgID.String()}, viewer)
 		Expect(resp.StatusCode).To(Equal(http.StatusForbidden))
 
 		payload := decodeBody(resp)

@@ -8,7 +8,7 @@ import "google/protobuf/timestamp.proto";
 option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 
 // GitOpsService manages an org's git credentials and repo links. All methods
-// require org-admin.
+// require org admin.
 //
 // docs/git-provider-design.md §3.4: this is a BREAKING rename of
 // AdoCredential -> GitCredential, acceptable only because nothing consumes

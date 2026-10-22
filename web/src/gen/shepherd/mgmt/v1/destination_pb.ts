@@ -715,7 +715,7 @@ export const ResolvedDestinationSchema: GenMessage<ResolvedDestination> = /*@__P
 
 /**
  * DestinationService manages an org's destinations. Reads require
- * org-reader; writes require org-admin.
+ * org viewer; writes require org admin.
  *
  * Destination templates + tenant bindings (W2, docs/gateway-tier-plan.md
  * §4): a Destination row doubles as a "template" -- one platform-owned

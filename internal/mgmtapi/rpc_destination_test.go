@@ -49,7 +49,7 @@ var _ = Describe("shepherd.mgmt.v1.DestinationService RPC", Label("integration")
 			Name:          "destination-rpc-org",
 			DisplayName:   "Destination RPC Org",
 			AdminGroupID:  "destination-admin-group",
-			ReaderGroupID: pgtype.Text{String: "destination-reader-group", Valid: true},
+			ViewerGroupID: pgtype.Text{String: "destination-viewer-group", Valid: true},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		orgID = o.ID
@@ -115,8 +115,8 @@ var _ = Describe("shepherd.mgmt.v1.DestinationService RPC", Label("integration")
 		Expect(created["name"]).To(Equal("prom-prod"))
 		Expect(created["type"]).To(Equal("prometheus"))
 
-		reader := createSession(false, []string{"destination-reader-group"})
-		listResp := postConnect("/shepherd.mgmt.v1.DestinationService/ListDestinations", map[string]any{"orgId": orgID.String()}, reader)
+		viewer := createSession(false, []string{"destination-viewer-group"})
+		listResp := postConnect("/shepherd.mgmt.v1.DestinationService/ListDestinations", map[string]any{"orgId": orgID.String()}, viewer)
 		Expect(listResp.StatusCode).To(Equal(http.StatusOK))
 		listed := decodeBody(listResp)
 		items, ok := listed["items"].([]any)
@@ -230,13 +230,13 @@ var _ = Describe("shepherd.mgmt.v1.DestinationService RPC", Label("integration")
 	Describe("tenant bindings", func() {
 		var (
 			admin    *http.Cookie
-			reader   *http.Cookie
+			viewer   *http.Cookie
 			template map[string]any
 		)
 
 		BeforeEach(func() {
 			admin = createSession(false, []string{"destination-admin-group"})
-			reader = createSession(false, []string{"destination-reader-group"})
+			viewer = createSession(false, []string{"destination-viewer-group"})
 
 			createResp := postConnect("/shepherd.mgmt.v1.DestinationService/CreateDestination", map[string]any{
 				"orgId": orgID.String(), "name": "shared-mimir", "type": "prometheus", "url": "http://mimir:9090",
@@ -263,14 +263,14 @@ var _ = Describe("shepherd.mgmt.v1.DestinationService RPC", Label("integration")
 
 			listResp := postConnect("/shepherd.mgmt.v1.DestinationService/ListDestinationBindings", map[string]any{
 				"orgId": orgID.String(), "destinationId": template["id"],
-			}, reader)
+			}, viewer)
 			Expect(listResp.StatusCode).To(Equal(http.StatusOK))
 			listed := decodeBody(listResp)
 			Expect(listed["items"]).To(HaveLen(1))
 
 			resolveResp := postConnect("/shepherd.mgmt.v1.DestinationService/ResolveDestinationBinding", map[string]any{
 				"orgId": orgID.String(), "id": binding["id"],
-			}, reader)
+			}, viewer)
 			Expect(resolveResp.StatusCode).To(Equal(http.StatusOK))
 			resolved := decodeBody(resolveResp)
 			Expect(resolved["tenantId"]).To(Equal("team-a"), "resolved tenant_id comes from the binding")
@@ -345,10 +345,10 @@ var _ = Describe("shepherd.mgmt.v1.DestinationService RPC", Label("integration")
 					"audit log exists to answer")
 		})
 
-		It("denies CreateDestinationBinding for an org reader (write requires org admin)", func() {
+		It("denies CreateDestinationBinding for an org viewer (write requires org admin)", func() {
 			resp := postConnect("/shepherd.mgmt.v1.DestinationService/CreateDestinationBinding", map[string]any{
 				"orgId": orgID.String(), "destinationId": template["id"], "name": "team-b", "tenantId": "team-b",
-			}, reader)
+			}, viewer)
 			Expect(resp.StatusCode).To(Equal(http.StatusForbidden))
 		})
 
@@ -368,7 +368,7 @@ var _ = Describe("shepherd.mgmt.v1.DestinationService RPC", Label("integration")
 			// Confirm nothing was created.
 			listResp := postConnect("/shepherd.mgmt.v1.DestinationService/ListDestinationBindings", map[string]any{
 				"orgId": orgID.String(), "destinationId": template["id"],
-			}, reader)
+			}, viewer)
 			listed := decodeBody(listResp)
 			Expect(listed["items"]).To(BeNil(), "the credential-override attempt must not have created a binding")
 		})
@@ -432,7 +432,7 @@ var _ = Describe("shepherd.mgmt.v1.DestinationService RPC", Label("integration")
 
 			getResp := postConnect("/shepherd.mgmt.v1.DestinationService/GetDestination", map[string]any{
 				"orgId": orgID.String(), "id": template["id"],
-			}, reader)
+			}, viewer)
 			Expect(getResp.StatusCode).To(Equal(http.StatusOK), "the template itself must be unaffected by deleting its binding")
 		})
 	})

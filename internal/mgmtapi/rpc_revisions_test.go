@@ -41,9 +41,9 @@ var _ = Describe("PipelineService GetRevision / RestoreRevision", Label("integra
 		orgID        string
 		orgID2       string
 		editorSess   string
-		readerSess   string
+		viewerSess   string
 		editorCookie *http.Cookie
-		readerCookie *http.Cookie
+		viewerCookie *http.Cookie
 	)
 
 	BeforeEach(func() {
@@ -58,7 +58,7 @@ var _ = Describe("PipelineService GetRevision / RestoreRevision", Label("integra
 			Name: "revisions-org", DisplayName: "Revisions Org",
 			AdminGroupID:  "revisions-admin-grp",
 			EditorGroupID: pgtype.Text{String: "revisions-editor-grp", Valid: true},
-			ReaderGroupID: pgtype.Text{String: "revisions-reader-grp", Valid: true},
+			ViewerGroupID: pgtype.Text{String: "revisions-viewer-grp", Valid: true},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		orgID = o.ID.String()
@@ -70,9 +70,9 @@ var _ = Describe("PipelineService GetRevision / RestoreRevision", Label("integra
 		orgID2 = o2.ID.String()
 
 		editorSess = newTestSession(ctx, st, "revisions-editor-grp")
-		readerSess = newTestSession(ctx, st, "revisions-reader-grp")
+		viewerSess = newTestSession(ctx, st, "revisions-viewer-grp")
 		editorCookie = &http.Cookie{Name: "shepherd_session", Value: editorSess}
-		readerCookie = &http.Cookie{Name: "shepherd_session", Value: readerSess}
+		viewerCookie = &http.Cookie{Name: "shepherd_session", Value: viewerSess}
 
 		cfg := &config.Config{
 			Auth: config.AuthConfig{InsecureCookies: true},
@@ -204,7 +204,7 @@ var _ = Describe("PipelineService GetRevision / RestoreRevision", Label("integra
 		Expect(got["contents"]).To(Equal("// v1\n"), "a failed restore must not touch the pipeline's stored contents")
 	})
 
-	// 3. A reader cannot restore; an editor can — the same authorization
+	// 3. A viewer cannot restore; an editor can — the same authorization
 	// UpdatePipeline uses.
 	DescribeTable("restore authorization matches UpdatePipeline's",
 		func(cookieFn func() *http.Cookie, wantStatus int, wantCode string) {
@@ -221,7 +221,7 @@ var _ = Describe("PipelineService GetRevision / RestoreRevision", Label("integra
 				Expect(connectErrorCode(resp)).To(Equal(wantCode))
 			}
 		},
-		Entry("reader is refused permission_denied", func() *http.Cookie { return readerCookie }, http.StatusForbidden, "permission_denied"),
+		Entry("viewer is refused permission_denied", func() *http.Cookie { return viewerCookie }, http.StatusForbidden, "permission_denied"),
 		Entry("editor succeeds", func() *http.Cookie { return editorCookie }, http.StatusOK, ""),
 	)
 
@@ -357,7 +357,7 @@ var _ = Describe("PipelineService GetRevision / RestoreRevision", Label("integra
 		Expect(notFound.StatusCode).To(Equal(http.StatusNotFound))
 		Expect(connectErrorCode(notFound)).To(Equal("not_found"))
 
-		// An app-admin session clears the authz interceptor's org-reader
+		// An app-admin session clears the authz interceptor's org viewer
 		// check for ANY org (see auth.AuthorizeOwnership's IsAppAdmin
 		// bypass), so this actually reaches loadPipeline's org-scoping
 		// check — an editor-group session for orgID2 alone would be refused

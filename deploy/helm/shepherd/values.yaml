@@ -225,7 +225,7 @@ config:
     #   - Okta / Keycloak / Auth0 / authentik / OneLogin -> group names
     #   - GitLab -> full paths, e.g. "acme/platform"
     #   - AWS Cognito -> user-pool group names (claim is "cognito:groups")
-    # The same applies to each org's admin/reader group. Nothing here requires
+    # The same applies to each org's admin/editor/viewer group. Nothing here requires
     # a GUID; only Entra happens to emit one.
     #
     # app_admin_group_ids:

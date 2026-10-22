@@ -329,11 +329,11 @@ export type CreatePipelineRequest = Message<"shepherd.mgmt.v1.CreatePipelineRequ
   wizardState?: JsonObject | undefined;
 
   /**
-   * owner_team_id, when set, requires the caller be an org-admin OR a
+   * owner_team_id, when set, requires the caller be an org admin OR a
    * member of that team's IdP group (G11) — a team member may create a
    * pipeline owned by their own team, but not one owned by someone else's.
    * Empty (the default) creates an unowned pipeline, which only an
-   * org-admin caller may do.
+   * org admin caller may do.
    *
    * @generated from field: string owner_team_id = 7;
    */
@@ -878,12 +878,12 @@ export const DetachFromWizardRequestSchema: GenMessage<DetachFromWizardRequest> 
 
 /**
  * PipelineService manages an org's pipelines and their revisions. Reads
- * require org-reader. Writes (create/update/delete/enable/disable/restore)
- * require EITHER org-editor or above OR — W10, docs/gateway-tier-plan.md
+ * require org viewer. Writes (create/update/delete/enable/disable/restore)
+ * require EITHER org editor or above OR — W10, docs/gateway-tier-plan.md
  * G11 — membership (IdP group or local team member) of the team that owns
- * the target pipeline; an unowned pipeline needs org-editor or above, and
- * SetPipelineOwner is org-admin. See internal/auth.AuthorizeOwnership and
- * internal/mgmtapi's per-handler ownership checks: the coarse org-reader
+ * the target pipeline; an unowned pipeline needs org editor or above, and
+ * SetPipelineOwner is org admin. See internal/auth.AuthorizeOwnership and
+ * internal/mgmtapi's per-handler ownership checks: the coarse org viewer
  * gate below only proves "has some access to this org", the fine-grained
  * ownership decision is made inside each handler, not at this table.
  *
@@ -956,7 +956,7 @@ export const PipelineService: GenService<{
   },
   /**
    * FormatPipeline canonicalises Alloy source (what `alloy fmt` does),
-   * in-process. Pure text transform; org-reader, like ValidatePipeline.
+   * in-process. Pure text transform; org viewer, like ValidatePipeline.
    *
    * @generated from rpc shepherd.mgmt.v1.PipelineService.FormatPipeline
    */
@@ -984,7 +984,7 @@ export const PipelineService: GenService<{
   /**
    * GetRevision returns one revision in full, including the heavy fields
    * ListRevisions deliberately omits (contents/matchers/enabled/
-   * wizard_state) — org-reader, same as GetPipeline.
+   * wizard_state) — org viewer, same as GetPipeline.
    *
    * @generated from rpc shepherd.mgmt.v1.PipelineService.GetRevision
    */
@@ -996,7 +996,7 @@ export const PipelineService: GenService<{
   /**
    * RestoreRevision creates a NEW revision from an old one's
    * contents/matchers/enabled(/wizard_state) and returns the updated
-   * pipeline. Same authorization as UpdatePipeline (org-editor tier via
+   * pipeline. Same authorization as UpdatePipeline (org editor tier via
    * authorizeOwnership, requireWriteAuthorized for machine callers) and the
    * same validation gate (Stage 1-3). Allowed for git-sourced pipelines
    * (unlike UpdatePipeline) — the next git sync overwrites it; it never
@@ -1011,7 +1011,7 @@ export const PipelineService: GenService<{
   },
   /**
    * SetPipelineOwner reassigns (or, with an empty owner_team_id, clears) a
-   * pipeline's owning team. Deliberately org-admin-only regardless of
+   * pipeline's owning team. Deliberately org admin-only regardless of
    * current ownership — a team can write what it owns, but granting or
    * revoking ownership is a platform decision, not a delegated one.
    *

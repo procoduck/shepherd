@@ -18,22 +18,22 @@ import (
 	"shepherd/internal/store/sqlc"
 )
 
-// role_matrix_test.go proves the org-editor rung is CAPPED over Connect —
-// distinct from every pre-existing denial test, which uses a reader
+// role_matrix_test.go proves the org editor rung is CAPPED over Connect —
+// distinct from every pre-existing denial test, which uses a viewer
 // session and so cannot tell "requires more than editor" apart from
-// "requires more than reader" (rpc_wizard_test.go's "denies CommitWizard
-// for a session without org-editor access" spec, for instance, only proves
-// a reader is denied — an editor session was never tried against an
-// org-admin-only procedure until this file). It also pins CSRF enforcement
+// "requires more than viewer" (rpc_wizard_test.go's "denies CommitWizard
+// for a session without org editor access" spec, for instance, only proves
+// a viewer is denied — an editor session was never tried against an
+// org admin-only procedure until this file). It also pins CSRF enforcement
 // on the Connect surface.
 //
 // These are coverage tests for controls that already exist
 // (rpc_interceptor.go's procedureRequirements): each editor-denied case
 // below was red-run once by temporarily changing its target procedure's
-// entry to auth.RoleOrgEditor and confirming the matching case failed,
+// entry to reqOrgEditor and confirming the matching case failed,
 // then reverting — see the per-Entry comment for the exact line changed.
 // There is no behavior change in rpc_interceptor.go in this commit.
-var _ = Describe("Connect role matrix: org-editor rung, CSRF", Label("integration"), func() {
+var _ = Describe("Connect role matrix: org editor rung, CSRF", Label("integration"), func() {
 	var (
 		ctx          context.Context
 		cancel       context.CancelFunc
@@ -41,7 +41,7 @@ var _ = Describe("Connect role matrix: org-editor rung, CSRF", Label("integratio
 		server       *httptest.Server
 		orgID        string
 		editorCookie *http.Cookie
-		readerCookie *http.Cookie
+		viewerCookie *http.Cookie
 		// roleMatrixPipelineID backs the PipelineService/RestoreRevision
 		// Entry below — see pipelineIDPlaceholder's comment.
 		roleMatrixPipelineID string
@@ -59,17 +59,17 @@ var _ = Describe("Connect role matrix: org-editor rung, CSRF", Label("integratio
 			Name: "role-matrix-org", DisplayName: "Role Matrix Org",
 			AdminGroupID:  "role-matrix-admin-grp",
 			EditorGroupID: pgtype.Text{String: "role-matrix-editor-grp", Valid: true},
-			ReaderGroupID: pgtype.Text{String: "role-matrix-reader-grp", Valid: true},
+			ViewerGroupID: pgtype.Text{String: "role-matrix-viewer-grp", Valid: true},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		orgID = o.ID.String()
 
 		editorCookie = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "role-matrix-editor-grp")}
-		readerCookie = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "role-matrix-reader-grp")}
+		viewerCookie = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "role-matrix-viewer-grp")}
 
 		// Unowned pipeline for the PipelineService/RestoreRevision Entry
 		// below — created directly (not over HTTP) since no revision history
-		// is needed: authorizeOwnership refuses the reader before
+		// is needed: authorizeOwnership refuses the viewer before
 		// RestoreRevision ever looks one up.
 		rmp, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
 			OrgID: orgUUID(orgID), Name: "role-matrix-restore-target", Contents: "// x\n",
@@ -89,14 +89,14 @@ var _ = Describe("Connect role matrix: org-editor rung, CSRF", Label("integratio
 		cancel()
 	})
 
-	// An org editor is capped below every org-admin-only procedure that
+	// An org editor is capped below every org admin-only procedure that
 	// decides what the org IS (as opposed to what it runs). Mutation-run
 	// red proof for each: temporarily changing the named
 	// procedureRequirements entry in rpc_interceptor.go to
-	// auth.RoleOrgEditor made the matching case below fail (403 became
+	// reqOrgEditor made the matching case below fail (403 became
 	// 200/other), confirming the assertion actually exercises that entry;
 	// reverted before commit.
-	DescribeTable("an org editor is refused permission_denied on org-admin-only writes",
+	DescribeTable("an org editor is refused permission_denied on org admin-only writes",
 		func(procedure string, extraFields map[string]any) {
 			body := map[string]any{"org_id": orgID}
 			for k, v := range extraFields {
@@ -108,16 +108,16 @@ var _ = Describe("Connect role matrix: org-editor rung, CSRF", Label("integratio
 			Expect(connectErrorCode(resp)).To(Equal("permission_denied"))
 		},
 		// Mutation run: rpc_interceptor.go:106
-		// (DestinationServiceCreateDestinationProcedure) -> auth.RoleOrgEditor.
+		// (DestinationServiceCreateDestinationProcedure) -> reqOrgEditor.
 		Entry("DestinationService/CreateDestination", "/shepherd.mgmt.v1.DestinationService/CreateDestination",
 			map[string]any{"name": "d", "type": "prometheus", "url": "http://prom:9090"}),
-		// Mutation run: rpc_interceptor.go (TenantRouteServiceCreateTenantRouteProcedure) -> auth.RoleOrgEditor.
+		// Mutation run: rpc_interceptor.go (TenantRouteServiceCreateTenantRouteProcedure) -> reqOrgEditor.
 		Entry("TenantRouteService/CreateTenantRoute", "/shepherd.mgmt.v1.TenantRouteService/CreateTenantRoute",
 			map[string]any{"kind": "otlp", "gateway_mode": "managed", "gateway_name": "shepherd-receiver-gw"}),
-		// Mutation run: rpc_interceptor.go (GitOpsServiceCreateCredentialProcedure) -> auth.RoleOrgEditor.
+		// Mutation run: rpc_interceptor.go (GitOpsServiceCreateCredentialProcedure) -> reqOrgEditor.
 		Entry("GitOpsService/CreateCredential", "/shepherd.mgmt.v1.GitOpsService/CreateCredential",
 			map[string]any{"name": "cred", "kind": "pat", "client_secret": "s"}),
-		// Mutation run: rpc_interceptor.go (TeamServiceCreateTeamProcedure) -> auth.RoleOrgEditor.
+		// Mutation run: rpc_interceptor.go (TeamServiceCreateTeamProcedure) -> reqOrgEditor.
 		Entry("TeamService/CreateTeam", "/shepherd.mgmt.v1.TeamService/CreateTeam",
 			map[string]any{"name": "team", "idp_group_id": "grp"}),
 	)
@@ -129,9 +129,9 @@ var _ = Describe("Connect role matrix: org-editor rung, CSRF", Label("integratio
 	// embedded in the table literal directly.
 	const pipelineIDPlaceholder = "$ROLE_MATRIX_PIPELINE_ID$"
 
-	// A viewer (org-reader) is denied every org-editor-gated authoring
-	// procedure — WizardService and SimulateService sit at auth.RoleOrgEditor,
-	// strictly above reader; VisualService's Render/Validate/UpgradeCheck hold
+	// A viewer (org viewer) is denied every org editor-gated authoring
+	// procedure — WizardService and SimulateService sit at reqOrgEditor,
+	// strictly above viewer; VisualService's Render/Validate/UpgradeCheck hold
 	// the same floor for a NEW graph (no pipeline_id), enforced in the handler
 	// since #319 (VisualService.authorizeGraph) — their per-pipeline,
 	// per-persona matrix is visual_ownership_test.go. These are pinning
@@ -140,7 +140,7 @@ var _ = Describe("Connect role matrix: org-editor rung, CSRF", Label("integratio
 	// editor-floor shape is visible in one table. ListWizards and
 	// VisualService/Validate were proven only over the /api REST shim until
 	// it was removed; their rows here carry that proof on Connect.
-	DescribeTable("an org reader (viewer) is refused permission_denied on org-editor-gated authoring procedures",
+	DescribeTable("an org viewer is refused permission_denied on org editor-gated authoring procedures",
 		func(procedure string, extraFields map[string]any) {
 			body := map[string]any{"org_id": orgID}
 			for k, v := range extraFields {
@@ -149,7 +149,7 @@ var _ = Describe("Connect role matrix: org-editor rung, CSRF", Label("integratio
 				}
 				body[k] = v
 			}
-			resp := postConnectJSON(server, procedure, readerCookie, body)
+			resp := postConnectJSON(server, procedure, viewerCookie, body)
 			defer resp.Body.Close() //nolint:errcheck // test cleanup
 			Expect(resp.StatusCode).To(Equal(http.StatusForbidden))
 			Expect(connectErrorCode(resp)).To(Equal("permission_denied"))
@@ -158,13 +158,13 @@ var _ = Describe("Connect role matrix: org-editor rung, CSRF", Label("integratio
 			map[string]any{"kind": "app-observability", "name": "n", "state": map[string]any{}}),
 		Entry("WizardService/ListWizards", "/shepherd.mgmt.v1.WizardService/ListWizards", map[string]any{}),
 		Entry("VisualService/Validate", "/shepherd.mgmt.v1.VisualService/Validate", map[string]any{"graph": map[string]any{}}),
-		// #319: a new graph (no pipeline_id) stays org-editor in the handler.
+		// #319: a new graph (no pipeline_id) stays org editor in the handler.
 		// Red run: authorizeGraph's empty-pipeline_id branch returning nil made
 		// these three fail (403 became 200/400).
 		Entry("VisualService/Render (new graph)", "/shepherd.mgmt.v1.VisualService/Render", map[string]any{"graph": map[string]any{}}),
 		Entry("VisualService/UpgradeCheck (new graph)", "/shepherd.mgmt.v1.VisualService/UpgradeCheck", map[string]any{"graph": map[string]any{}}),
-		// #319: naming a pipeline the reader may not edit (this one is unowned,
-		// so org-editor-or-above only) is refused by the ownership check. Red
+		// #319: naming a pipeline the viewer may not edit (this one is unowned,
+		// so org editor-or-above only) is refused by the ownership check. Red
 		// run: authorizeGraph returning nil instead of
 		// authorizePipelineOwnership made this fail (403 became 400).
 		Entry("VisualService/Render (unowned pipeline)", "/shepherd.mgmt.v1.VisualService/Render",
@@ -172,10 +172,10 @@ var _ = Describe("Connect role matrix: org-editor rung, CSRF", Label("integratio
 		Entry("SimulateService/SimulateRelabel", "/shepherd.mgmt.v1.SimulateService/SimulateRelabel",
 			map[string]any{"rules": []any{}, "sample_targets": []any{}}),
 		// F-REVISIONS backend: RestoreRevision's interceptor row is the same
-		// auth.RoleOrgReader gate UpdatePipeline uses, with authorizeOwnership
-		// (org-editor-or-above for an unowned pipeline) doing the fine-grained
+		// reqOrgViewer gate UpdatePipeline uses, with authorizeOwnership
+		// (org editor-or-above for an unowned pipeline) doing the fine-grained
 		// refusal — see rpc_revisions_test.go for the full editor-succeeds /
-		// reader-refused pair this mirrors. authorizeOwnership runs before the
+		// viewer-refused pair this mirrors. authorizeOwnership runs before the
 		// revision is even looked up, so a real pipeline id with no revision
 		// history still proves the refusal. Mutation run: replacing
 		// authorizeOwnership's body with `return nil` in rpc_pipeline.go made
@@ -189,9 +189,9 @@ var _ = Describe("Connect role matrix: org-editor rung, CSRF", Label("integratio
 	// validation — the property here is admission, not success). The /api
 	// REST shim carried these "lets an org editor ..." proofs until it was
 	// removed. ValidatePipeline is listed for admission only: its
-	// interceptor row is auth.RoleOrgReader, so unlike the REST shim (which
-	// put it behind org-editor) Connect admits an org reader too.
-	DescribeTable("an org editor is admitted to org-editor-gated authoring procedures",
+	// interceptor row is reqOrgViewer, so unlike the REST shim (which
+	// put it behind org editor) Connect admits an org viewer too.
+	DescribeTable("an org editor is admitted to org editor-gated authoring procedures",
 		func(procedure string, body map[string]any) {
 			body["org_id"] = orgID
 			resp := postConnectJSON(server, procedure, editorCookie, body)

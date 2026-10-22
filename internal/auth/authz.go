@@ -12,21 +12,89 @@ import (
 	"shepherd/internal/store/sqlc"
 )
 
-// Role requirement levels accepted by Authorize. These are also the exact
-// vocabulary used by the shepherd.mgmt.v1 Connect authz interceptor's
-// procedure->requirement map (internal/mgmtapi/rpc_interceptor.go).
+// requirementKind is the shape of a Requirement. Its zero value is not a
+// kind: a zero Requirement clears nothing.
+type requirementKind uint8
+
 const (
-	RoleAny      = "any"
-	RoleAppAdmin = "app-admin"
-	RoleOrgAdmin = "org-admin"
-	// RoleOrgEditor sits between admin and reader: it can author what an org
-	// runs (pipelines, wizards, visual builder, simulation) without being able
-	// to change what the org IS (destinations, tenant routes, git credentials,
-	// teams, service accounts). Before it existed, anyone who needed to write a
-	// pipeline also got the ability to rotate a tenant route.
-	RoleOrgEditor = "org-editor"
-	RoleOrgReader = "org-reader"
+	reqAuthenticated requirementKind = iota + 1
+	reqAppAdmin
+	reqOrg
+	reqAppAdminOrOrg
 )
+
+// Requirement is what a caller must hold to proceed: the vocabulary of the
+// shepherd.mgmt.v1 authz interceptor's procedure table
+// (internal/mgmtapi/rpc_interceptor.go). Build one with the Require*
+// constructors; the zero value denies everyone.
+//
+// Every org requirement is also cleared by an app admin — app admin is the
+// cross-org flag above every org role (spec §7.2).
+type Requirement struct {
+	kind    requirementKind
+	minRole Role
+}
+
+// RequireAuthenticated is cleared by any authenticated caller.
+func RequireAuthenticated() Requirement { return Requirement{kind: reqAuthenticated} }
+
+// RequireAppAdmin is cleared by an app admin only. No org role, however high,
+// clears it, and neither does any service account.
+func RequireAppAdmin() Requirement { return Requirement{kind: reqAppAdmin} }
+
+// RequireOrg is cleared by an app admin, or by a caller holding at least
+// minRole in the org the request names.
+func RequireOrg(minRole Role) Requirement { return Requirement{kind: reqOrg, minRole: minRole} }
+
+// RequireAppAdminOrOrg is for a procedure that serves an app admin across
+// every org and an org role-holder within the org the request names
+// (AdminService.SearchGroups: global search for an app admin, scoped search
+// for an org admin). Who clears it is exactly who clears RequireOrg(minRole);
+// it is a separate constructor so the table says the procedure has a
+// cross-org mode.
+func RequireAppAdminOrOrg(minRole Role) Requirement {
+	return Requirement{kind: reqAppAdminOrOrg, minRole: minRole}
+}
+
+// AuthenticatedOnly reports whether r is RequireAuthenticated.
+func (r Requirement) AuthenticatedOnly() bool {
+	switch r.kind {
+	case reqAuthenticated:
+		return true
+	case reqAppAdmin, reqOrg, reqAppAdminOrOrg:
+		return false
+	}
+	return false
+}
+
+// OrgMinimum returns the org role that clears r for a caller who is not an
+// app admin, and false when no org role does (RequireAppAdmin,
+// RequireAuthenticated, or the zero Requirement).
+func (r Requirement) OrgMinimum() (Role, bool) {
+	switch r.kind {
+	case reqOrg, reqAppAdminOrOrg:
+		return r.minRole, r.minRole.rank() > 0
+	case reqAuthenticated, reqAppAdmin:
+		return "", false
+	}
+	return "", false
+}
+
+// String renders r for diagnostics and the requirement golden test:
+// "authenticated", "app-admin", "org>=<role>", "app-admin|org>=<role>".
+func (r Requirement) String() string {
+	switch r.kind {
+	case reqAuthenticated:
+		return "authenticated"
+	case reqAppAdmin:
+		return "app-admin"
+	case reqOrg:
+		return "org>=" + r.minRole.String()
+	case reqAppAdminOrOrg:
+		return "app-admin|org>=" + r.minRole.String()
+	}
+	return "invalid"
+}
 
 // Sentinel errors returned by Authorize. Callers (HTTP middleware, the
 // Connect authz interceptor) map these to their own wire representation —
@@ -39,50 +107,42 @@ var (
 	ErrOrgNotFound     = errors.New("auth: org not found")
 )
 
-// Authorize is the role-decision logic shared by RequireAppAdmin and
-// RequireOrgAccess, factored out so non-HTTP callers (the Connect authz
-// interceptor) can reuse it without going through net/http middleware.
-//
-// min is one of RoleAny, RoleAppAdmin, RoleOrgAdmin, RoleOrgReader. orgID is
-// only consulted for RoleOrgAdmin/RoleOrgReader and may be empty otherwise.
-func Authorize(ctx context.Context, st *store.Store, sess *Session, orgID string, min string) error {
-	switch min {
-	case RoleAny:
-		if sess == nil {
-			return ErrUnauthenticated
-		}
+// Authorize decides whether sess clears req in the org named by orgID
+// (consulted only for org requirements; may be empty otherwise). It is the
+// one role decision for a human session; the Connect authz interceptor and
+// the per-handler checks call it.
+func Authorize(ctx context.Context, st *store.Store, sess *Session, orgID string, req Requirement) error {
+	if sess == nil {
+		return ErrUnauthenticated
+	}
+	switch req.kind {
+	case reqAuthenticated:
 		return nil
-	case RoleAppAdmin:
-		if sess == nil {
-			return ErrUnauthenticated
-		}
+	case reqAppAdmin:
 		if !sess.IsAppAdmin {
 			return ErrForbidden
 		}
 		return nil
-	case RoleOrgAdmin:
-		return authorizeOrgAccess(ctx, st, sess, orgID, RoleOrgAdmin)
-	case RoleOrgEditor:
-		return authorizeOrgAccess(ctx, st, sess, orgID, RoleOrgEditor)
-	case RoleOrgReader:
-		return authorizeOrgAccess(ctx, st, sess, orgID, RoleOrgReader)
-	default:
-		return ErrForbidden
+	case reqOrg, reqAppAdminOrOrg:
+		return authorizeOrgAccess(ctx, st, sess, orgID, req.minRole)
 	}
+	return ErrForbidden
 }
 
-// authorizeOrgAccess is the extracted role decision behind RequireOrgAccess.
-// minRole is a MINIMUM: the caller names the least privileged role that may
+// authorizeOrgAccess is the org half of Authorize. minRole is a MINIMUM: the caller names the least privileged role that may
 // proceed, and anything ranking at or above it passes (admin > editor >
-// viewer, see orgRoleRank). App Admin short-circuits every org.
+// viewer, see Role.AtLeast). App Admin short-circuits every org.
 //
 // Two independent paths reach a role and they do not mix — a local session
 // resolves from org_members and returns; an OIDC session matches its groups
-// claim against the org's admin_group_id / editor_group_id / reader_group_id,
+// claim against the org's admin_group_id / editor_group_id / viewer_group_id,
 // falling back to collector-level group_assignments for the viewer floor.
-func authorizeOrgAccess(ctx context.Context, st *store.Store, sess *Session, orgIDStr string, minRole string) error {
+func authorizeOrgAccess(ctx context.Context, st *store.Store, sess *Session, orgIDStr string, minRole Role) error {
 	if sess == nil {
 		return ErrUnauthenticated
+	}
+	if minRole.rank() == 0 {
+		return ErrForbidden // a requirement built from a non-role clears nothing
 	}
 	if sess.IsAppAdmin {
 		return nil
@@ -106,10 +166,13 @@ func authorizeOrgAccess(ctx context.Context, st *store.Store, sess *Session, org
 	// source, so "why does this person have access" has one answer rather than
 	// two places to look.
 	if sess.Source == SourceLocal && sess.UserID.Valid {
-		role, roleErr := st.Queries.GetOrgMemberRole(ctx, sqlc.GetOrgMemberRoleParams{OrgID: orgID, UserID: sess.UserID})
+		stored, roleErr := st.Queries.GetOrgMemberRole(ctx, sqlc.GetOrgMemberRoleParams{OrgID: orgID, UserID: sess.UserID})
 		switch {
 		case roleErr == nil:
-			if orgRoleRank(localToRequirement(role)) < orgRoleRank(minRole) {
+			// A stored value that is not a role (the CHECK constraint should
+			// never let one through) clears nothing.
+			role, err := ParseRole(stored)
+			if err != nil || !role.AtLeast(minRole) {
 				return ErrForbidden
 			}
 			return nil
@@ -121,9 +184,9 @@ func authorizeOrgAccess(ctx context.Context, st *store.Store, sess *Session, org
 		// fallback below (W10) rather than stopping here -- a local user has
 		// no groups claim, so ListTeamsByOrgAndGroups can never reach them,
 		// and without this a local user who is only a team member (0017)
-		// was refused the same reader-equivalent floor a group-backed team
-		// member gets for free.
-		if orgRoleRank(RoleOrgReader) < orgRoleRank(minRole) {
+		// was refused the same viewer floor a group-backed team member gets
+		// for free.
+		if !RoleViewer.AtLeast(minRole) {
 			return ErrForbidden
 		}
 		isMember, err := st.Queries.IsUserMemberOfAnyTeamInOrg(ctx,
@@ -143,26 +206,26 @@ func authorizeOrgAccess(ctx context.Context, st *store.Store, sess *Session, org
 	}
 	isOrgAdmin := hasGroup(org.AdminGroupID)
 	isOrgEditor := org.EditorGroupID.Valid && hasGroup(org.EditorGroupID.String)
-	isOrgReader := org.ReaderGroupID.Valid && hasGroup(org.ReaderGroupID.String)
+	isOrgViewer := org.ViewerGroupID.Valid && hasGroup(org.ViewerGroupID.String)
 
 	switch {
 	case isOrgAdmin:
 		return nil
 	case isOrgEditor:
-		if orgRoleRank(RoleOrgEditor) >= orgRoleRank(minRole) {
+		if RoleEditor.AtLeast(minRole) {
 			return nil
 		}
 		return ErrForbidden
 	}
 
-	// Below editor: only the reader floor can still be satisfied.
-	if orgRoleRank(RoleOrgReader) < orgRoleRank(minRole) {
+	// Below editor: only the viewer floor can still be satisfied.
+	if !RoleViewer.AtLeast(minRole) {
 		return ErrForbidden
 	}
 
-	if !isOrgReader {
+	if !isOrgViewer {
 		// Scoped to THIS org. An unscoped version of this query granted the
-		// reader floor in every org to anyone holding one assignment in any
+		// viewer floor in every org to anyone holding one assignment in any
 		// org -- see the query's own comment.
 		collectorIDs, err := st.Queries.ListCollectorIDsByGroupMembershipInOrg(ctx,
 			sqlc.ListCollectorIDsByGroupMembershipInOrgParams{Column1: sess.GroupIDs, OrgID: org.ID})
@@ -174,12 +237,12 @@ func authorizeOrgAccess(ctx context.Context, st *store.Store, sess *Session, org
 		// org level. A team member has no collector-level group_assignments row
 		// of their own — teams own pipelines, not collectors — so without this
 		// fallback a service-owner persona who is on a team but assigned to no
-		// collector would fail this reader-equivalent gate entirely and never
+		// collector would fail this viewer gate entirely and never
 		// reach the fine-grained ownership check (AuthorizeOwnership) that is
-		// the actual point of W10. Team membership earns the same
-		// reader-equivalent baseline group_assignments already grants; it does
-		// not by itself grant WRITE — that is G11, enforced per-resource by
-		// AuthorizeOwnership, not here.
+		// the actual point of W10. Team membership earns the same viewer
+		// floor group_assignments already grants; it does not by itself grant
+		// WRITE — that is the team owner-write grant (G11), enforced
+		// per-resource by AuthorizeOwnership, not here.
 		teams, err := st.Queries.ListTeamsByOrgAndGroups(ctx, sqlc.ListTeamsByOrgAndGroupsParams{
 			OrgID:   org.ID,
 			Column2: sess.GroupIDs,
@@ -191,74 +254,48 @@ func authorizeOrgAccess(ctx context.Context, st *store.Store, sess *Session, org
 	return nil
 }
 
-// RoleSatisfies reports whether a caller holding role `have` clears the
-// minimum requirement `need`, using the same admin > editor > reader
-// ordering authorizeOrgAccess enforces for a human session (orgRoleRank).
-// It exists so a non-human caller with its own, separately-stored role —
-// today, a service account's tier (internal/mgmtapi's
-// authorizeServiceAccountProcedure, W3-1) — can be checked against the
-// exact procedureRequirements vocabulary a human session already is,
-// without either caller kind reaching into the other's authorization path.
-//
-// RoleAny is satisfied by any non-empty have (mirrors Authorize's RoleAny
-// case: authenticated is enough). RoleAppAdmin is satisfied ONLY by
-// RoleAppAdmin itself — no org role, however high, ever satisfies the
-// app-admin floor, the same way an org admin is not an app admin in
-// authorizeOrgAccess. Anything else falls to orgRoleRank, so an unrecognized
-// `have` (rank 0, same as no role at all) satisfies nothing.
-func RoleSatisfies(have, need string) bool {
-	switch need {
-	case RoleAny:
-		return have != ""
-	case RoleAppAdmin:
-		return have == RoleAppAdmin
-	default:
-		return orgRoleRank(have) >= orgRoleRank(need)
-	}
-}
-
-// ResolveOrgRole reports the UI-facing role a session holds in org, or "" if
-// none: OrgRoleAdmin/OrgRoleEditor/OrgRoleViewer for a local session (read
-// straight off org_members, falling back to OrgRoleViewer when there is no
-// org_members row but the user is a member of a team in the org — W3-7b,
-// mirroring authorizeOrgAccess's own W3-7 fallback), or the same three names
-// for an OIDC session resolved from its groups claim against the org's
-// admin/editor/reader_group_id, in that priority order.
+// ResolveOrgRole reports the role a session holds in org, and false if none:
+// for a local session read straight off org_members (RoleViewer when there is
+// no org_members row but the user is a member of a team in the org — W3-7b,
+// mirroring authorizeOrgAccess's own W3-7 fallback); for an OIDC session
+// resolved from its groups claim against the org's admin/editor/viewer group,
+// in that priority order.
 //
 // It is the GetMe-facing counterpart to authorizeOrgAccess: that function
-// answers "does this session clear requirement X", gated by a minimum;
-// this one answers "what is this session's role", full stop, which is what
-// drives the UI's own gating (offering the pipeline editor, the admin
-// screens, ...). Kept separate rather than derived from authorizeOrgAccess
-// because the two ask different questions — the "for is-app-admin, treat as
-// admin in every org" answer lives in the caller (rpc_me.go), which already
-// special-cases IsAppAdmin before this is reached.
+// answers "does this session clear requirement X", gated by a minimum; this
+// one answers "what is this session's role", full stop, which is what drives
+// the UI's own gating (offering the pipeline editor, the admin screens, ...).
+// Kept separate rather than derived from authorizeOrgAccess because the two
+// ask different questions — the "for is-app-admin, treat as admin in every
+// org" answer lives in the caller (rpc_me.go), which already special-cases
+// IsAppAdmin before this is reached.
 //
 // The empty-group guard matters here for exactly the reason it matters in
 // authorizeOrgAccess's hasGroup: an org whose admin_group_id is "" (never
 // configured) must not be reported as admin to a session whose groups claim
 // happens to carry an empty string.
-func ResolveOrgRole(ctx context.Context, st *store.Store, sess *Session, org sqlc.Org) string {
+func ResolveOrgRole(ctx context.Context, st *store.Store, sess *Session, org sqlc.Org) (Role, bool) {
 	if sess.Source == SourceLocal && sess.UserID.Valid {
-		role, err := st.Queries.GetOrgMemberRole(ctx, sqlc.GetOrgMemberRoleParams{OrgID: org.ID, UserID: sess.UserID})
+		stored, err := st.Queries.GetOrgMemberRole(ctx, sqlc.GetOrgMemberRoleParams{OrgID: org.ID, UserID: sess.UserID})
 		switch {
 		case err == nil:
-			return role
+			role, parseErr := ParseRole(stored)
+			return role, parseErr == nil
 		case !errors.Is(err, pgx.ErrNoRows):
-			return ""
+			return "", false
 		}
 
 		// W3-7b: mirrors authorizeOrgAccess's own W3-7 team fallback -- a
 		// local user with no org_members row but who is a member of a team
-		// in this org already clears the reader floor there, so this must
-		// report the matching viewer role rather than "", or the UI hides
-		// an org the server is already granting reads under.
+		// in this org already clears the viewer floor there, so this must
+		// report it rather than nothing, or the UI hides an org the server is
+		// already granting reads under.
 		isMember, err := st.Queries.IsUserMemberOfAnyTeamInOrg(ctx,
 			sqlc.IsUserMemberOfAnyTeamInOrgParams{OrgID: org.ID, UserID: sess.UserID})
 		if err != nil || !isMember {
-			return ""
+			return "", false
 		}
-		return OrgRoleViewer
+		return RoleViewer, true
 	}
 
 	hasGroup := func(candidate string) bool {
@@ -266,67 +303,29 @@ func ResolveOrgRole(ctx context.Context, st *store.Store, sess *Session, org sql
 	}
 	switch {
 	case hasGroup(org.AdminGroupID):
-		return OrgRoleAdmin
+		return RoleAdmin, true
 	case org.EditorGroupID.Valid && hasGroup(org.EditorGroupID.String):
-		return OrgRoleEditor
-	case org.ReaderGroupID.Valid && hasGroup(org.ReaderGroupID.String):
-		return OrgRoleViewer
+		return RoleEditor, true
+	case org.ViewerGroupID.Valid && hasGroup(org.ViewerGroupID.String):
+		return RoleViewer, true
 	default:
-		return ""
+		return "", false
 	}
 }
 
-// orgRoleRank orders the org roles so a floor can be compared numerically.
-// Higher is more capable; admin satisfies every floor.
-func orgRoleRank(role string) int {
-	switch role {
-	case RoleOrgAdmin:
-		return 3
-	case RoleOrgEditor:
-		return 2
-	case RoleOrgReader:
-		return 1
-	default:
-		return 0
-	}
-}
-
-// localToRequirement maps an org_members.role value onto the requirement
-// vocabulary. Two names for the same three levels is a wart, kept because the
-// stored values are Grafana's ("admin"/"editor"/"viewer") and the requirement
-// constants are this API's ("org-admin"/...); translating in one function is
-// better than either half changing to match the other.
-func localToRequirement(role string) string {
-	switch role {
-	case OrgRoleAdmin:
-		return RoleOrgAdmin
-	case OrgRoleEditor:
-		return RoleOrgEditor
-	case OrgRoleViewer:
-		return RoleOrgReader
-	default:
-		return ""
-	}
-}
-
-// AuthorizeOwnership enforces G11 (docs/gateway-tier-plan.md): a team
-// member may write only the pipelines their team owns. Callers above that
-// rung bypass it — app admins, org admins, and (since the editor role) org
-// editors, whose whole definition is authoring what the org runs. That upper
-// check delegates to authorizeOrgAccess rather than restating it, so both
-// ways of holding a role work here: an org admin who is a local user has no
-// groups claim, and the previous inline slices.Contains against
-// org.AdminGroupID silently refused them.
+// AuthorizeOwnership decides who may write a pipeline (G11,
+// docs/gateway-tier-plan.md). Two grants reach it, checked in order:
+//
+//  1. Org role: an app admin, or an org editor or admin of orgID, writes any
+//     pipeline in the org, owned or not. This delegates to authorizeOrgAccess
+//     rather than restating it, so both ways of holding a role work here.
+//  2. Team owner-write (authorizeTeamOwnerWrite): a member of the team that
+//     owns the pipeline writes that pipeline, whatever their org role.
 //
 // ownerTeamID is the pipeline's current (or, for CreatePipeline, requested)
-// owner_team_id. Empty means unowned: only an org admin or editor may write
-// an unowned pipeline, preserving the pre-W10 "org-admin edits everything"
-// behavior for pipelines that predate teams or were deliberately left
-// platform-owned. A non-empty ownerTeamID requires the team to (a) exist,
-// (b) belong to orgID — a team id from another org must never authorize a
-// write here, the same cross-org confusion loadOwnedDestination/loadPipeline
-// guard against for resource ids — and (c) have the caller as a member, by
-// IdP group or by an explicit team_members row (0017).
+// owner_team_id. Empty means unowned: only the org-role grant reaches an
+// unowned pipeline, preserving the pre-W10 behavior for pipelines that predate
+// teams or were deliberately left platform-owned.
 func AuthorizeOwnership(ctx context.Context, st *store.Store, sess *Session, orgID, ownerTeamID string) error {
 	if sess == nil {
 		return ErrUnauthenticated
@@ -342,25 +341,35 @@ func AuthorizeOwnership(ctx context.Context, st *store.Store, sess *Session, org
 	// Editor or above writes anything in its org, owned or not. This also
 	// covers the org-exists check: authorizeOrgAccess returns ErrOrgNotFound,
 	// which the default branch passes through unchanged.
-	switch err := authorizeOrgAccess(ctx, st, sess, orgID, RoleOrgEditor); {
+	switch err := authorizeOrgAccess(ctx, st, sess, orgID, RoleEditor); {
 	case err == nil:
 		return nil
 	case errors.Is(err, ErrForbidden):
-		// Not an editor. Fall through to the team-scoped check below, which
-		// is the whole point of the rung beneath.
+		// Not an editor. Fall through to the team owner-write grant.
 	default:
 		return err
 	}
+	return authorizeTeamOwnerWrite(ctx, st, sess, oid, ownerTeamID)
+}
 
+// authorizeTeamOwnerWrite is the team owner-write grant (spec §7.2): a member
+// of the team that owns a pipeline may write it, independent of any org role.
+// A non-empty ownerTeamID requires the team to (a) exist, (b) belong to orgID
+// — a team id from another org must never authorize a write here, the same
+// cross-org confusion loadOwnedDestination/loadPipeline guard against for
+// resource ids — and (c) have the caller as a member, by IdP group or by an
+// explicit team_members row (0017). An unowned pipeline (ownerTeamID "") has
+// no owning team, so the grant never reaches it.
+func authorizeTeamOwnerWrite(ctx context.Context, st *store.Store, sess *Session, orgID pgtype.UUID, ownerTeamID string) error {
 	if ownerTeamID == "" {
-		return ErrForbidden // unowned pipeline: org admin/editor only.
+		return ErrForbidden // unowned pipeline: org editor/admin only.
 	}
 	var tid pgtype.UUID
 	if err := tid.Scan(ownerTeamID); err != nil {
 		return ErrForbidden
 	}
 	team, err := st.Queries.GetTeamByID(ctx, tid)
-	if err != nil || team.OrgID != oid {
+	if err != nil || team.OrgID != orgID {
 		return ErrForbidden
 	}
 

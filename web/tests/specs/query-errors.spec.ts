@@ -1,5 +1,5 @@
 import { basicScenario } from '../fixtures/factories';
-import { appAdmin, orgAdmin, orgEditor, reader } from '../fixtures/personas';
+import { appAdmin, orgAdmin, orgEditor, viewer } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
 
 /*
@@ -81,7 +81,7 @@ test('teams page keeps its teams-error testid after moving onto QueryError', asy
 // W7-08: real, positive coverage of the query-error pattern for the roles
 // each route actually admits (routeManifest.ts), not just appAdmin.
 
-test('teams page shows the error state for an org admin too (org-reader floor)', async ({
+test('teams page shows the error state for an org admin too (org-viewer floor)', async ({
   page,
   api,
 }) => {
@@ -94,11 +94,11 @@ test('teams page shows the error state for an org admin too (org-reader floor)',
   await expect(page.getByTestId('teams-error')).toBeVisible({ timeout: 5000 });
 });
 
-test('collectors list shows an alert for a reader too (no elevated requirement)', async ({
+test('collectors list shows an alert for a viewer too (no elevated requirement)', async ({
   page,
   api,
 }) => {
-  await api.loginAs(reader);
+  await api.loginAs(viewer);
   const s = basicScenario();
   api.seed({ orgs: [s.org] });
   api.failNext('POST', '/shepherd.mgmt.v1.FleetService/ListCollectors', 503, 'unavailable');
@@ -109,7 +109,7 @@ test('collectors list shows an alert for a reader too (no elevated requirement)'
   await expect(alert).toContainText(/fail|error|retry|permission/i);
 });
 
-test('wizards list shows an alert for an org editor too (org-editor floor)', async ({
+test('wizards list shows an alert for an org editor too (org editor floor)', async ({
   page,
   api,
 }) => {

@@ -7,7 +7,7 @@ interface Org {
   name: string;
   display_name: string;
   admin_group_id: string;
-  reader_group_id?: string;
+  viewer_group_id?: string;
   // orgs.tenant_id (D11); GetMe returns it on the membership (#261).
   tenant_id?: string;
   created_at: string;
@@ -103,7 +103,7 @@ export const org = (o: Partial<Org> = {}): Org => ({
   name: 'prod-org',
   display_name: 'Production Org',
   admin_group_id: '11111111-1111-1111-1111-111111111111',
-  reader_group_id: '',
+  viewer_group_id: '',
   created_at: '2026-08-17T09:00:00Z',
   updated_at: '2026-08-17T09:00:00Z',
   ...o,

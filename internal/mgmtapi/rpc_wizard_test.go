@@ -22,7 +22,7 @@ import (
 )
 
 // wizardTestFixture is shared setup for the WizardService Connect-path specs:
-// an org with distinct admin/reader groups and sessions for each, wired
+// an org with distinct admin/viewer groups and sessions for each, wired
 // through the exact production RPC mounting (newRPCWiringRouter, defined in
 // rpc_wiring_test.go).
 var _ = Describe("shepherd.mgmt.v1.WizardService", Label("integration"), func() {
@@ -33,7 +33,7 @@ var _ = Describe("shepherd.mgmt.v1.WizardService", Label("integration"), func() 
 		server       *httptest.Server
 		orgID        string
 		adminCookie  *http.Cookie
-		readerCookie *http.Cookie
+		viewerCookie *http.Cookie
 	)
 
 	BeforeEach(func() {
@@ -46,7 +46,7 @@ var _ = Describe("shepherd.mgmt.v1.WizardService", Label("integration"), func() 
 
 		o, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
 			Name: "wizard-rpc-org", DisplayName: "Wizard RPC Org",
-			AdminGroupID: "wizard-admin-grp", ReaderGroupID: pgtype.Text{String: "wizard-reader-grp", Valid: true},
+			AdminGroupID: "wizard-admin-grp", ViewerGroupID: pgtype.Text{String: "wizard-viewer-grp", Valid: true},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		orgID = o.ID.String()
@@ -60,7 +60,7 @@ var _ = Describe("shepherd.mgmt.v1.WizardService", Label("integration"), func() 
 		Expect(err).NotTo(HaveOccurred())
 
 		adminCookie = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "wizard-admin-grp")}
-		readerCookie = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "wizard-reader-grp")}
+		viewerCookie = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "wizard-viewer-grp")}
 
 		cfg := &config.Config{Auth: config.AuthConfig{InsecureCookies: true}}
 		authHandler := auth.NewLocalAdmin(cfg, st, slog.Default())
@@ -94,15 +94,15 @@ var _ = Describe("shepherd.mgmt.v1.WizardService", Label("integration"), func() 
 		Expect(pipeline["contents"]).To(ContainSubstring("prometheus.scrape"))
 	})
 
-	It("denies CommitWizard for a session without org-editor access", func() {
+	It("denies CommitWizard for a session without org editor access", func() {
 		body := map[string]any{
 			"org_id": orgID,
 			"kind":   "app-observability",
 			"name":   "should-not-be-created",
 			"state":  map[string]any{"scrape_url": "http://myapp:9090/metrics", "metrics_dest_name": "mimir"},
 		}
-		// A reader-group session has org-reader, not org-editor — CommitWizard requires org-editor.
-		resp := postConnectJSON(server, "/shepherd.mgmt.v1.WizardService/CommitWizard", readerCookie, body)
+		// A viewer-group session has org viewer, not org editor — CommitWizard requires org editor.
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.WizardService/CommitWizard", viewerCookie, body)
 		defer resp.Body.Close() //nolint:errcheck // test cleanup
 		Expect(resp.StatusCode).To(Equal(http.StatusForbidden))
 		Expect(connectErrorCode(resp)).To(Equal("permission_denied"))

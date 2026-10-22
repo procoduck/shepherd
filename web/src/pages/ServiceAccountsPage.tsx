@@ -11,6 +11,7 @@ import { Field, Input, Select } from '@/components/ui/Field';
 import type { ServiceAccount } from '@/gen/shepherd/mgmt/v1/service_account_pb';
 import { useCanAdminister, useOrgId } from '@/hooks/useOrg';
 import { formError } from '@/lib/formError';
+import { Role, roleFromValue, roleLabel, roleValue } from '@/lib/roles';
 
 async function copyText(text: string) {
   try {
@@ -23,11 +24,15 @@ async function copyText(text: string) {
 // A capability/role pair rendered as two small chips: capability decides
 // whether the credential may write once it reaches a procedure; role decides
 // which procedures it may reach at all. They are orthogonal (see the proto).
+// The tiers a service account can hold (0018_service_account_role): editor and
+// admin. Viewer is not one yet.
+const SERVICE_ACCOUNT_TIERS: readonly Role[] = [Role.EDITOR, Role.ADMIN];
+
 function GrantCell({ account }: { account: ServiceAccount }) {
   return (
     <span className='flex flex-wrap gap-1'>
       <code className='rounded bg-border px-1.5 py-0.5 text-xs'>{account.capability}</code>
-      <code className='rounded bg-border px-1.5 py-0.5 text-xs'>{account.role}</code>
+      <code className='rounded bg-border px-1.5 py-0.5 text-xs'>{roleLabel(account.role)}</code>
     </span>
   );
 }
@@ -96,7 +101,8 @@ function accountColumns(
   return cols;
 }
 
-const EMPTY_CREATE = { name: '', capability: 'propose', role: 'editor' };
+// The form starts on editor; the server requires an explicit tier (step 7a).
+const EMPTY_CREATE = { name: '', capability: 'propose', role: Role.EDITOR };
 
 /**
  * Service accounts (/service-accounts, org-scoped).
@@ -122,7 +128,7 @@ export function ServiceAccountsPage() {
     name: string;
     secret: string;
     capability: string;
-    role: string;
+    role: Role;
   } | null>(null);
   const [copied, setCopied] = useState(false);
   const [toRevoke, setToRevoke] = useState<ServiceAccount | null>(null);
@@ -253,12 +259,15 @@ export function ServiceAccountsPage() {
             </Field>
             <Field label='Role' hint='Which procedures the credential may reach at all.'>
               <Select
-                value={form.role}
-                onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
+                value={roleValue(form.role)}
+                onChange={(e) => setForm((f) => ({ ...f, role: roleFromValue(e.target.value) }))}
                 data-testid='sa-role'
               >
-                <option value='editor'>Editor</option>
-                <option value='admin'>Admin</option>
+                {SERVICE_ACCOUNT_TIERS.map((r) => (
+                  <option key={r} value={roleValue(r)}>
+                    {roleLabel(r)}
+                  </option>
+                ))}
               </Select>
             </Field>
             <AdminModalActions
@@ -286,7 +295,10 @@ export function ServiceAccountsPage() {
               <span className='font-medium text-zinc-200'>{newSecret.name}</span>&rsquo;s secret
               will be shown. Copy it now — it cannot be retrieved again. Grant:{' '}
               <code className='rounded bg-border px-1 py-0.5 text-xs'>{newSecret.capability}</code>{' '}
-              <code className='rounded bg-border px-1 py-0.5 text-xs'>{newSecret.role}</code>.
+              <code className='rounded bg-border px-1 py-0.5 text-xs'>
+                {roleLabel(newSecret.role)}
+              </code>
+              .
             </p>
             <div className='space-y-1'>
               <p className='text-xs text-muted-2'>Basic-auth username</p>

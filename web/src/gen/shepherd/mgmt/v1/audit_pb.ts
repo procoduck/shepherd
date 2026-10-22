@@ -141,7 +141,7 @@ export const ListAuditResponseSchema: GenMessage<ListAuditResponse> = /*@__PURE_
   messageDesc(file_shepherd_mgmt_v1_audit, 2);
 
 /**
- * AuditService reads an org's audit log. Requires org-admin.
+ * AuditService reads an org's audit log. Requires org admin.
  *
  * @generated from service shepherd.mgmt.v1.AuditService
  */

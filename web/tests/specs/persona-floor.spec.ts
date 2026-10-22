@@ -15,7 +15,7 @@
  * written, ~80%) because it is the path of least resistance: every spec can
  * reach for it and be sure nothing is denied. The floors below force real,
  * additional coverage of the roles the product actually ships — org admin,
- * org editor, reader, local admin and the zero-org case — rather than
+ * org editor, viewer, local admin and the zero-org case — rather than
  * papering over the ratio by relabeling existing appAdmin tests.
  */
 import { readdirSync, readFileSync } from 'node:fs';
@@ -25,13 +25,13 @@ import { expect, test } from '@playwright/test';
 
 const SPECS_DIR = path.dirname(fileURLToPath(import.meta.url));
 
-const PERSONAS = ['appAdmin', 'orgAdmin', 'orgEditor', 'reader', 'localAdmin', 'nobody'] as const;
+const PERSONAS = ['appAdmin', 'orgAdmin', 'orgEditor', 'viewer', 'localAdmin', 'nobody'] as const;
 type Persona = (typeof PERSONAS)[number];
 
 const FLOORS: Partial<Record<Persona, number>> = {
   orgAdmin: 16,
   orgEditor: 10,
-  reader: 10,
+  viewer: 10,
   localAdmin: 3,
   nobody: 4,
 };

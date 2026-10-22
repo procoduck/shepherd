@@ -22,13 +22,13 @@ import (
 //
 // The editor rung is why this exists: before it, "may author a pipeline" and
 // "may re-point where telemetry ships" were one permission, so the interesting
-// assertions are the negative ones — an editor must NOT clear an org-admin
+// assertions are the negative ones — an editor must NOT clear an admin
 // requirement.
 var _ = Describe("Org role ladder", Label("integration"), func() {
 	const (
 		adminGroup  = "grp-admin"
 		editorGroup = "grp-editor"
-		readerGroup = "grp-reader"
+		viewerGroup = "grp-viewer"
 	)
 
 	var (
@@ -49,7 +49,7 @@ var _ = Describe("Org role ladder", Label("integration"), func() {
 			Name: "acme", DisplayName: "Acme",
 			AdminGroupID:  adminGroup,
 			EditorGroupID: pgtype.Text{String: editorGroup, Valid: true},
-			ReaderGroupID: pgtype.Text{String: readerGroup, Valid: true},
+			ViewerGroupID: pgtype.Text{String: viewerGroup, Valid: true},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		orgID = org.ID.String()
@@ -62,7 +62,7 @@ var _ = Describe("Org role ladder", Label("integration"), func() {
 
 	// newLocalUser creates a local user with the given org_members role and
 	// returns a session shaped the way the local login path builds one.
-	newLocalUser := func(login, role string) *auth.Session {
+	newLocalUser := func(login string, role auth.Role) *auth.Session {
 		u, err := st.Queries.CreateUser(ctx, sqlc.CreateUserParams{
 			Login: login, Email: login + "@example.com", DisplayName: login,
 			PasswordHash: "x", IsAppAdmin: false, MustChangePassword: false,
@@ -72,7 +72,7 @@ var _ = Describe("Org role ladder", Label("integration"), func() {
 			var oid pgtype.UUID
 			Expect(oid.Scan(orgID)).To(Succeed())
 			_, err = st.Queries.UpsertOrgMember(ctx, sqlc.UpsertOrgMemberParams{
-				OrgID: oid, UserID: u.ID, Role: role,
+				OrgID: oid, UserID: u.ID, Role: role.String(),
 			})
 			Expect(err).NotTo(HaveOccurred())
 		}
@@ -85,20 +85,20 @@ var _ = Describe("Org role ladder", Label("integration"), func() {
 
 	// each row: what the caller holds -> which requirements it clears.
 	type expectation struct {
-		admin, editor, reader bool
+		admin, editor, viewer bool
 	}
 
 	assertLadder := func(sess *auth.Session, want expectation) {
 		GinkgoHelper()
 		for _, tc := range []struct {
-			minRole string
+			minRole auth.Role
 			allowed bool
 		}{
-			{auth.RoleOrgAdmin, want.admin},
-			{auth.RoleOrgEditor, want.editor},
-			{auth.RoleOrgReader, want.reader},
+			{auth.RoleAdmin, want.admin},
+			{auth.RoleEditor, want.editor},
+			{auth.RoleViewer, want.viewer},
 		} {
-			err := auth.Authorize(ctx, st, sess, orgID, tc.minRole)
+			err := auth.Authorize(ctx, st, sess, orgID, auth.RequireOrg(tc.minRole))
 			if tc.allowed {
 				Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("expected %s to be allowed", tc.minRole))
 			} else {
@@ -109,15 +109,15 @@ var _ = Describe("Org role ladder", Label("integration"), func() {
 
 	Describe("group-derived (OIDC)", func() {
 		It("an admin group member clears every requirement", func() {
-			assertLadder(oidcSession(adminGroup), expectation{admin: true, editor: true, reader: true})
+			assertLadder(oidcSession(adminGroup), expectation{admin: true, editor: true, viewer: true})
 		})
 
-		It("an editor group member authors but is refused org-admin", func() {
-			assertLadder(oidcSession(editorGroup), expectation{admin: false, editor: true, reader: true})
+		It("an editor group member authors but is refused admin", func() {
+			assertLadder(oidcSession(editorGroup), expectation{admin: false, editor: true, viewer: true})
 		})
 
-		It("a reader group member is refused both write tiers", func() {
-			assertLadder(oidcSession(readerGroup), expectation{admin: false, editor: false, reader: true})
+		It("a viewer group member is refused both write tiers", func() {
+			assertLadder(oidcSession(viewerGroup), expectation{admin: false, editor: false, viewer: true})
 		})
 
 		It("an unrelated group clears nothing", func() {
@@ -132,22 +132,22 @@ var _ = Describe("Org role ladder", Label("integration"), func() {
 			// An empty editor_group_id must not match a session carrying an
 			// empty-string group: NULL means "no editor tier", not "everyone".
 			err = auth.Authorize(ctx, st, &auth.Session{GroupIDs: []string{""}, Source: auth.SourceOIDC},
-				org.ID.String(), auth.RoleOrgEditor)
+				org.ID.String(), auth.RequireOrg(auth.RoleEditor))
 			Expect(err).To(MatchError(auth.ErrForbidden))
 		})
 	})
 
 	Describe("locally assigned (org_members)", func() {
 		It("admin clears every requirement", func() {
-			assertLadder(newLocalUser("l-admin", auth.OrgRoleAdmin), expectation{admin: true, editor: true, reader: true})
+			assertLadder(newLocalUser("l-admin", auth.RoleAdmin), expectation{admin: true, editor: true, viewer: true})
 		})
 
-		It("editor authors but is refused org-admin", func() {
-			assertLadder(newLocalUser("l-editor", auth.OrgRoleEditor), expectation{admin: false, editor: true, reader: true})
+		It("editor authors but is refused admin", func() {
+			assertLadder(newLocalUser("l-editor", auth.RoleEditor), expectation{admin: false, editor: true, viewer: true})
 		})
 
 		It("viewer is refused both write tiers", func() {
-			assertLadder(newLocalUser("l-viewer", auth.OrgRoleViewer), expectation{admin: false, editor: false, reader: true})
+			assertLadder(newLocalUser("l-viewer", auth.RoleViewer), expectation{admin: false, editor: false, viewer: true})
 		})
 
 		It("a local user with no membership row clears nothing", func() {
@@ -160,18 +160,18 @@ var _ = Describe("Org role ladder", Label("integration"), func() {
 		// alone — otherwise a stale or attacker-influenced groups list would
 		// silently promote a local viewer.
 		It("does not let group IDs promote a local session", func() {
-			sess := newLocalUser("l-mixed", auth.OrgRoleViewer)
+			sess := newLocalUser("l-mixed", auth.RoleViewer)
 			sess.GroupIDs = []string{adminGroup, editorGroup}
-			assertLadder(sess, expectation{admin: false, editor: false, reader: true})
+			assertLadder(sess, expectation{admin: false, editor: false, viewer: true})
 		})
 	})
 
-	// W3-7: the OIDC path grants the reader floor to anyone on a team in the
+	// W3-7: the OIDC path grants the viewer floor to anyone on a team in the
 	// org (authz.go's team fallback, ListTeamsByOrgAndGroups) even with no
-	// admin/editor/reader group match. The local path did not have the same
+	// admin/editor/viewer group match. The local path did not have the same
 	// fallback -- a local user with no org_members row was refused
 	// outright, even when a team_members row said otherwise. This unifies
-	// the two: local team membership clears the reader floor the same way
+	// the two: local team membership clears the viewer floor the same way
 	// group-backed team membership does.
 	It("a local user who is only a team member clears the viewer floor", func() {
 		var oid pgtype.UUID
@@ -186,7 +186,7 @@ var _ = Describe("Org role ladder", Label("integration"), func() {
 			TeamID: team.ID, UserID: sess.UserID,
 		})).To(Succeed())
 
-		assertLadder(sess, expectation{admin: false, editor: false, reader: true})
+		assertLadder(sess, expectation{admin: false, editor: false, viewer: true})
 	})
 
 	// A local user on no team at all, still with no org_members row, must
@@ -197,7 +197,7 @@ var _ = Describe("Org role ladder", Label("integration"), func() {
 		assertLadder(sess, expectation{})
 	})
 
-	// A team in ANOTHER org must not leak the reader floor here, mirroring
+	// A team in ANOTHER org must not leak the viewer floor here, mirroring
 	// the cross-org guard AuthorizeOwnership already enforces for writes.
 	It("membership in a team from another org does not clear the viewer floor here", func() {
 		other, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
@@ -219,7 +219,7 @@ var _ = Describe("Org role ladder", Label("integration"), func() {
 
 	// W3-7b: ResolveOrgRole is the GetMe-facing counterpart to
 	// authorizeOrgAccess -- authorizeOrgAccess answers "does this session
-	// clear requirement X" and already grants the reader-equivalent floor to
+	// clear requirement X" and already grants the viewer floor to
 	// a local user who is only a team member (W3-7, above). ResolveOrgRole
 	// answers "what is this session's role", full stop, and drives what the
 	// UI offers; before this, it still returned "" for the exact same
@@ -241,9 +241,9 @@ var _ = Describe("Org role ladder", Label("integration"), func() {
 
 			org, err := st.Queries.GetOrgByID(ctx, oid)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(auth.ResolveOrgRole(ctx, st, sess, org)).To(Equal(auth.OrgRoleViewer),
+			Expect(resolveRole(ctx, st, sess, org)).To(Equal(auth.RoleViewer),
 				"a local user who is only a team member should resolve to the viewer role, "+
-					"matching the reader-equivalent floor authorizeOrgAccess already grants them")
+					"matching the viewer floor authorizeOrgAccess already grants them")
 		})
 
 		// The fallback grants exactly what team membership earns, not a
@@ -255,7 +255,7 @@ var _ = Describe("Org role ladder", Label("integration"), func() {
 
 			org, err := st.Queries.GetOrgByID(ctx, oid)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(auth.ResolveOrgRole(ctx, st, sess, org)).To(Equal(""))
+			Expect(resolveRole(ctx, st, sess, org)).To(BeEmpty())
 		})
 
 		// A team in ANOTHER org must not leak the viewer role here, mirroring
@@ -279,7 +279,7 @@ var _ = Describe("Org role ladder", Label("integration"), func() {
 			Expect(oid.Scan(orgID)).To(Succeed())
 			org, err := st.Queries.GetOrgByID(ctx, oid)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(auth.ResolveOrgRole(ctx, st, sess, org)).To(Equal(""))
+			Expect(resolveRole(ctx, st, sess, org)).To(BeEmpty())
 		})
 
 		// A local user WITH an org_members row must keep reading straight off
@@ -293,20 +293,20 @@ var _ = Describe("Org role ladder", Label("integration"), func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			sess := newLocalUser("l-resolve-editor-and-team", auth.OrgRoleEditor)
+			sess := newLocalUser("l-resolve-editor-and-team", auth.RoleEditor)
 			Expect(st.Queries.AddTeamMember(ctx, sqlc.AddTeamMemberParams{
 				TeamID: team.ID, UserID: sess.UserID,
 			})).To(Succeed())
 
 			org, err := st.Queries.GetOrgByID(ctx, oid)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(auth.ResolveOrgRole(ctx, st, sess, org)).To(Equal(auth.OrgRoleEditor))
+			Expect(resolveRole(ctx, st, sess, org)).To(Equal(auth.RoleEditor))
 		})
 	})
 
 	It("an app admin clears every requirement regardless of path", func() {
 		assertLadder(&auth.Session{IsAppAdmin: true, Source: auth.SourceOIDC},
-			expectation{admin: true, editor: true, reader: true})
+			expectation{admin: true, editor: true, viewer: true})
 	})
 
 	// AuthorizeOwnership is the scoped-write decision: it gates who may write a
@@ -343,13 +343,13 @@ var _ = Describe("Org role ladder", Label("integration"), func() {
 		// org.AdminGroupID, so an org admin who is a local user -- and
 		// therefore has no groups claim at all -- was refused every write.
 		It("a local org admin writes owned and unowned pipelines alike", func() {
-			sess := newLocalUser("l-owner-admin", auth.OrgRoleAdmin)
+			sess := newLocalUser("l-owner-admin", auth.RoleAdmin)
 			Expect(auth.AuthorizeOwnership(ctx, st, sess, orgID, "")).To(Succeed())
 			Expect(auth.AuthorizeOwnership(ctx, st, sess, orgID, groupTeam.ID.String())).To(Succeed())
 		})
 
 		It("a viewer writes nothing, owned or not", func() {
-			sess := oidcSession(readerGroup)
+			sess := oidcSession(viewerGroup)
 			Expect(auth.AuthorizeOwnership(ctx, st, sess, orgID, "")).To(MatchError(auth.ErrForbidden))
 			Expect(auth.AuthorizeOwnership(ctx, st, sess, orgID, groupTeam.ID.String())).To(MatchError(auth.ErrForbidden))
 		})
@@ -362,7 +362,7 @@ var _ = Describe("Org role ladder", Label("integration"), func() {
 		})
 
 		It("an explicit member writes what their team owns, and nothing else", func() {
-			sess := newLocalUser("l-member", auth.OrgRoleViewer)
+			sess := newLocalUser("l-member", auth.RoleViewer)
 			Expect(st.Queries.AddTeamMember(ctx, sqlc.AddTeamMemberParams{
 				TeamID: localTeam.ID, UserID: sess.UserID,
 			})).To(Succeed())
@@ -398,10 +398,10 @@ var _ = Describe("Org role ladder", Label("integration"), func() {
 		})
 	})
 
-	// A collector-level group assignment is a reader-equivalent grant, but only
+	// A collector-level group assignment is a viewer grant, but only
 	// inside the org that owns the collector. The query behind this fallback
 	// once filtered on group id alone, so one assignment anywhere cleared the
-	// reader floor everywhere -- and invisibly, because GetMe builds its org
+	// viewer floor everywhere -- and invisibly, because GetMe builds its org
 	// list from group matches and never showed the extra orgs.
 	It("a collector assignment grants read in its own org and nowhere else", func() {
 		var oid pgtype.UUID
@@ -425,10 +425,20 @@ var _ = Describe("Org role ladder", Label("integration"), func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		sess := oidcSession("grp-assigned")
-		Expect(auth.Authorize(ctx, st, sess, orgID, auth.RoleOrgReader)).To(Succeed(),
-			"the assignment is in this org, so the reader floor should be cleared")
-		Expect(auth.Authorize(ctx, st, sess, other.ID.String(), auth.RoleOrgReader)).
+		Expect(auth.Authorize(ctx, st, sess, orgID, auth.RequireOrg(auth.RoleViewer))).To(Succeed(),
+			"the assignment is in this org, so the viewer floor should be cleared")
+		Expect(auth.Authorize(ctx, st, sess, other.ID.String(), auth.RequireOrg(auth.RoleViewer))).
 			To(MatchError(auth.ErrForbidden),
 				"an assignment in another org must not grant any access here")
 	})
 })
+
+// resolveRole is auth.ResolveOrgRole with "no role" as the empty Role, so a
+// spec can assert on one value.
+func resolveRole(ctx context.Context, st *store.Store, sess *auth.Session, org sqlc.Org) auth.Role {
+	role, ok := auth.ResolveOrgRole(ctx, st, sess, org)
+	if !ok {
+		return ""
+	}
+	return role
+}

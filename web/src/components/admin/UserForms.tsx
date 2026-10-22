@@ -4,9 +4,6 @@
  * share it without importing from the page module.
  */
 
-/** The three org roles, in rank order. Matches org_members.role's CHECK. */
-export const ORG_ROLES = ['admin', 'editor', 'viewer'];
-
 export interface CreateUserFormState {
   login: string;
   email: string;

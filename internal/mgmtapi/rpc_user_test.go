@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"connectrpc.com/connect"
+	"github.com/jackc/pgx/v5/pgtype"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -104,5 +105,73 @@ var _ = Describe("shepherd.mgmt.v1.UserService UpdateUser error mapping", Label(
 		Expect(res.err.Error()).To(Equal("internal: internal error"), "mapError must not leak the raw error to the client")
 
 		Expect(lockTx.Rollback(ctx)).To(Succeed())
+	})
+})
+
+// SetOrgMember takes the Role enum (step 7a, #361). ROLE_UNSPECIFIED never
+// grants, so it is refused rather than stored or defaulted.
+var _ = Describe("shepherd.mgmt.v1.UserService SetOrgMember role", Label("integration"), func() {
+	var (
+		ctx    context.Context
+		cancel context.CancelFunc
+		st     *store.Store
+		svc    *mgmtapi.UserService
+		orgID  string
+		userID string
+	)
+
+	BeforeEach(func() {
+		ctx, cancel = context.WithCancel(context.Background())
+		dbURL := sharedPG.IsolatedDB(ctx, GinkgoTB())
+		var err error
+		st, err = store.New(ctx, &config.DatabaseConfig{URL: dbURL, MaxConns: 5}, slog.Default())
+		Expect(err).NotTo(HaveOccurred())
+		svc = mgmtapi.NewUserService(st, auth.NewUserStore(st, slog.Default()), slog.Default())
+
+		org, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "set-member-org", DisplayName: "Set Member", AdminGroupID: "set-member-admin"})
+		Expect(err).NotTo(HaveOccurred())
+		orgID = org.ID.String()
+		u, err := st.Queries.CreateUser(ctx, sqlc.CreateUserParams{
+			Login: "set-member-user", Email: "set-member@example.com", DisplayName: "Set Member", PasswordHash: "hash",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		userID = u.ID.String()
+	})
+
+	AfterEach(func() {
+		st.Close()
+		cancel()
+	})
+
+	It("refuses ROLE_UNSPECIFIED with InvalidArgument and stores nothing", func() {
+		_, err := svc.SetOrgMember(ctx, connect.NewRequest(&mgmtv1.SetOrgMemberRequest{OrgId: orgID, UserId: userID}))
+		Expect(connect.CodeOf(err)).To(Equal(connect.CodeInvalidArgument))
+
+		members, err := svc.ListOrgMembers(ctx, connect.NewRequest(&mgmtv1.ListOrgMembersRequest{OrgId: orgID}))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(members.Msg.GetItems()).To(BeEmpty(), "an unspecified role must not create a membership")
+	})
+
+	It("refuses a number outside the Role enum", func() {
+		_, err := svc.SetOrgMember(ctx, connect.NewRequest(&mgmtv1.SetOrgMemberRequest{OrgId: orgID, UserId: userID, Role: mgmtv1.Role(42)}))
+		Expect(connect.CodeOf(err)).To(Equal(connect.CodeInvalidArgument))
+	})
+
+	It("stores ROLE_EDITOR as editor and reports it back as the enum", func() {
+		resp, err := svc.SetOrgMember(ctx, connect.NewRequest(&mgmtv1.SetOrgMemberRequest{OrgId: orgID, UserId: userID, Role: mgmtv1.Role_ROLE_EDITOR}))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.Msg.GetRole()).To(Equal(mgmtv1.Role_ROLE_EDITOR))
+
+		var oid, uid pgtype.UUID
+		Expect(oid.Scan(orgID)).To(Succeed())
+		Expect(uid.Scan(userID)).To(Succeed())
+		stored, err := st.Queries.GetOrgMemberRole(ctx, sqlc.GetOrgMemberRoleParams{OrgID: oid, UserID: uid})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(stored).To(Equal("editor"))
+
+		members, err := svc.ListOrgMembers(ctx, connect.NewRequest(&mgmtv1.ListOrgMembersRequest{OrgId: orgID}))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(members.Msg.GetItems()).To(HaveLen(1))
+		Expect(members.Msg.GetItems()[0].GetRole()).To(Equal(mgmtv1.Role_ROLE_EDITOR))
 	})
 })

@@ -13,7 +13,7 @@
 // the edited-back pipeline showed no header badge and asked before saving,
 // and the toast specs read "Destination updated" with no count.
 import { basicScenario, destination, pipeline } from '../fixtures/factories';
-import { orgAdmin, orgEditor, reader } from '../fixtures/personas';
+import { orgAdmin, orgEditor, viewer } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
 
 const WIZARD_TEXT = 'prometheus.remote_write "metrics" { endpoint { url = "https://old" } }';
@@ -26,7 +26,7 @@ test.describe('the pipelines list', () => {
     page,
     api,
   }) => {
-    await api.loginAs(reader);
+    await api.loginAs(viewer);
     const s = basicScenario();
     api.seed({
       orgs: [s.org],
@@ -94,7 +94,7 @@ test.describe('a wizard pipeline edited back to its wizard text', () => {
   }
 
   test('is badged in its header', async ({ page, api }) => {
-    await api.loginAs(reader);
+    await api.loginAs(viewer);
     seedEditedBack(api);
     await page.goto('/pipelines/pip-back');
     const badge = page.getByTestId('pipeline-hand-edited-badge');
@@ -264,7 +264,7 @@ test.describe('a wizard pipeline an older version of its wizard generated', () =
   }
 
   test('is not called hand-edited, and says why it no longer follows', async ({ page, api }) => {
-    await api.loginAs(reader);
+    await api.loginAs(viewer);
     seedOlderTemplate(api);
     await page.goto('/pipelines/pip-old');
     const badge = page.getByTestId('pipeline-hand-edited-badge');

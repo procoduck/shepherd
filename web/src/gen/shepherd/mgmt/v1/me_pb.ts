@@ -4,13 +4,15 @@
 
 import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { Role } from "./common_pb";
+import { file_shepherd_mgmt_v1_common } from "./common_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file shepherd/mgmt/v1/me.proto.
  */
 export const file_shepherd_mgmt_v1_me: GenFile = /*@__PURE__*/
-  fileDesc("ChlzaGVwaGVyZC9tZ210L3YxL21lLnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIg4KDEdldE1lUmVxdWVzdCLNAQoNT3JnTWVtYmVyc2hpcBIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCRIMCgRyb2xlGAQgASgJEiUKHWFsbG93X2V4cGVyaW1lbnRhbF9jb21wb25lbnRzGAUgASgIEhwKFGFsbG93X2xhYmVsX21hdGNoaW5nGAYgASgIEiYKHmFsbG93X2xvY2FsX2F0dHJpYnV0ZV9tYXRjaGluZxgHIAEoCBIRCgl0ZW5hbnRfaWQYCCABKAkioAEKDUdldE1lUmVzcG9uc2USEAoIdXNlcl9vaWQYASABKAkSDQoFZW1haWwYAiABKAkSFAoMZGlzcGxheV9uYW1lGAMgASgJEhQKDGlzX2FwcF9hZG1pbhgEIAEoCBITCgthdXRoX21ldGhvZBgFIAEoCRItCgRvcmdzGAYgAygLMh8uc2hlcGhlcmQubWdtdC52MS5PcmdNZW1iZXJzaGlwMlcKCU1lU2VydmljZRJKCgVHZXRNZRIeLnNoZXBoZXJkLm1nbXQudjEuR2V0TWVSZXF1ZXN0Gh8uc2hlcGhlcmQubWdtdC52MS5HZXRNZVJlc3BvbnNlIgBCJlokc2hlcGhlcmQvZ2VuL3NoZXBoZXJkL21nbXQvdjE7bWdtdHYxYgZwcm90bzM");
+  fileDesc("ChlzaGVwaGVyZC9tZ210L3YxL21lLnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIg4KDEdldE1lUmVxdWVzdCLrAQoNT3JnTWVtYmVyc2hpcBIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCRIkCgRyb2xlGAkgASgOMhYuc2hlcGhlcmQubWdtdC52MS5Sb2xlEiUKHWFsbG93X2V4cGVyaW1lbnRhbF9jb21wb25lbnRzGAUgASgIEhwKFGFsbG93X2xhYmVsX21hdGNoaW5nGAYgASgIEiYKHmFsbG93X2xvY2FsX2F0dHJpYnV0ZV9tYXRjaGluZxgHIAEoCBIRCgl0ZW5hbnRfaWQYCCABKAlKBAgEEAUioAEKDUdldE1lUmVzcG9uc2USEAoIdXNlcl9vaWQYASABKAkSDQoFZW1haWwYAiABKAkSFAoMZGlzcGxheV9uYW1lGAMgASgJEhQKDGlzX2FwcF9hZG1pbhgEIAEoCBITCgthdXRoX21ldGhvZBgFIAEoCRItCgRvcmdzGAYgAygLMh8uc2hlcGhlcmQubWdtdC52MS5PcmdNZW1iZXJzaGlwMlcKCU1lU2VydmljZRJKCgVHZXRNZRIeLnNoZXBoZXJkLm1nbXQudjEuR2V0TWVSZXF1ZXN0Gh8uc2hlcGhlcmQubWdtdC52MS5HZXRNZVJlc3BvbnNlIgBCJlokc2hlcGhlcmQvZ2VuL3NoZXBoZXJkL21nbXQvdjE7bWdtdHYxYgZwcm90bzM", [file_shepherd_mgmt_v1_common]);
 
 /**
  * @generated from message shepherd.mgmt.v1.GetMeRequest
@@ -47,14 +49,15 @@ export type OrgMembership = Message<"shepherd.mgmt.v1.OrgMembership"> & {
   displayName: string;
 
   /**
-   * Role is "admin", "editor" or "viewer" — the same three names for a local
-   * user (org_members.role) and an OIDC one (matched against the org's
-   * admin/editor/reader group), so the UI does not have to know which path the
-   * session came from. Kept as a string rather than an enum.
+   * role is the actor's effective role — the same Role for a local user
+   * (org_members.role) and an OIDC one (matched against the org's
+   * admin/editor/viewer group), so the UI does not have to know which path
+   * the session came from. Never ROLE_UNSPECIFIED: an org the actor holds no
+   * role in is not listed. An app admin is reported as ROLE_ADMIN everywhere.
    *
-   * @generated from field: string role = 4;
+   * @generated from field: shepherd.mgmt.v1.Role role = 9;
    */
-  role: string;
+  role: Role;
 
   /**
    * allow_experimental_components mirrors the org setting (#114) so the visual

@@ -22,6 +22,129 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// TenantRouteStatus is a route's lifecycle (tenant_routes.status).
+type TenantRouteStatus int32
+
+const (
+	TenantRouteStatus_TENANT_ROUTE_STATUS_UNSPECIFIED TenantRouteStatus = 0
+	TenantRouteStatus_TENANT_ROUTE_STATUS_ACTIVE      TenantRouteStatus = 1
+	// Still routes, mid-rotation, until valid_until.
+	TenantRouteStatus_TENANT_ROUTE_STATUS_DEPRECATED TenantRouteStatus = 2
+	TenantRouteStatus_TENANT_ROUTE_STATUS_REVOKED    TenantRouteStatus = 3
+)
+
+// Enum value maps for TenantRouteStatus.
+var (
+	TenantRouteStatus_name = map[int32]string{
+		0: "TENANT_ROUTE_STATUS_UNSPECIFIED",
+		1: "TENANT_ROUTE_STATUS_ACTIVE",
+		2: "TENANT_ROUTE_STATUS_DEPRECATED",
+		3: "TENANT_ROUTE_STATUS_REVOKED",
+	}
+	TenantRouteStatus_value = map[string]int32{
+		"TENANT_ROUTE_STATUS_UNSPECIFIED": 0,
+		"TENANT_ROUTE_STATUS_ACTIVE":      1,
+		"TENANT_ROUTE_STATUS_DEPRECATED":  2,
+		"TENANT_ROUTE_STATUS_REVOKED":     3,
+	}
+)
+
+func (x TenantRouteStatus) Enum() *TenantRouteStatus {
+	p := new(TenantRouteStatus)
+	*p = x
+	return p
+}
+
+func (x TenantRouteStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (TenantRouteStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_shepherd_mgmt_v1_tenant_route_proto_enumTypes[0].Descriptor()
+}
+
+func (TenantRouteStatus) Type() protoreflect.EnumType {
+	return &file_shepherd_mgmt_v1_tenant_route_proto_enumTypes[0]
+}
+
+func (x TenantRouteStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use TenantRouteStatus.Descriptor instead.
+func (TenantRouteStatus) EnumDescriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_tenant_route_proto_rawDescGZIP(), []int{0}
+}
+
+// TenantRouteApplyStatus is whether a route's HTTPRoute is in the cluster, as
+// the tenant-route reconciler last found it (tenant_routes.apply_status).
+type TenantRouteApplyStatus int32
+
+const (
+	TenantRouteApplyStatus_TENANT_ROUTE_APPLY_STATUS_UNSPECIFIED TenantRouteApplyStatus = 0
+	// Not yet reconciled.
+	TenantRouteApplyStatus_TENANT_ROUTE_APPLY_STATUS_PENDING TenantRouteApplyStatus = 1
+	// Attachment verified.
+	TenantRouteApplyStatus_TENANT_ROUTE_APPLY_STATUS_APPLIED TenantRouteApplyStatus = 2
+	// The gateway refused attachment.
+	TenantRouteApplyStatus_TENANT_ROUTE_APPLY_STATUS_REFUSED TenantRouteApplyStatus = 3
+	// Failed; retried with backoff.
+	TenantRouteApplyStatus_TENANT_ROUTE_APPLY_STATUS_ERROR TenantRouteApplyStatus = 4
+	// Revoked or expired; the HTTPRoute was deleted.
+	TenantRouteApplyStatus_TENANT_ROUTE_APPLY_STATUS_REMOVED TenantRouteApplyStatus = 5
+	// A Faro route, or route apply disabled.
+	TenantRouteApplyStatus_TENANT_ROUTE_APPLY_STATUS_NOT_APPLICABLE TenantRouteApplyStatus = 6
+)
+
+// Enum value maps for TenantRouteApplyStatus.
+var (
+	TenantRouteApplyStatus_name = map[int32]string{
+		0: "TENANT_ROUTE_APPLY_STATUS_UNSPECIFIED",
+		1: "TENANT_ROUTE_APPLY_STATUS_PENDING",
+		2: "TENANT_ROUTE_APPLY_STATUS_APPLIED",
+		3: "TENANT_ROUTE_APPLY_STATUS_REFUSED",
+		4: "TENANT_ROUTE_APPLY_STATUS_ERROR",
+		5: "TENANT_ROUTE_APPLY_STATUS_REMOVED",
+		6: "TENANT_ROUTE_APPLY_STATUS_NOT_APPLICABLE",
+	}
+	TenantRouteApplyStatus_value = map[string]int32{
+		"TENANT_ROUTE_APPLY_STATUS_UNSPECIFIED":    0,
+		"TENANT_ROUTE_APPLY_STATUS_PENDING":        1,
+		"TENANT_ROUTE_APPLY_STATUS_APPLIED":        2,
+		"TENANT_ROUTE_APPLY_STATUS_REFUSED":        3,
+		"TENANT_ROUTE_APPLY_STATUS_ERROR":          4,
+		"TENANT_ROUTE_APPLY_STATUS_REMOVED":        5,
+		"TENANT_ROUTE_APPLY_STATUS_NOT_APPLICABLE": 6,
+	}
+)
+
+func (x TenantRouteApplyStatus) Enum() *TenantRouteApplyStatus {
+	p := new(TenantRouteApplyStatus)
+	*p = x
+	return p
+}
+
+func (x TenantRouteApplyStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (TenantRouteApplyStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_shepherd_mgmt_v1_tenant_route_proto_enumTypes[1].Descriptor()
+}
+
+func (TenantRouteApplyStatus) Type() protoreflect.EnumType {
+	return &file_shepherd_mgmt_v1_tenant_route_proto_enumTypes[1]
+}
+
+func (x TenantRouteApplyStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use TenantRouteApplyStatus.Descriptor instead.
+func (TenantRouteApplyStatus) EnumDescriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_tenant_route_proto_rawDescGZIP(), []int{1}
+}
+
 // TenantRoute mirrors internal/store/sqlc.TenantRoute (0009_tenant_routes).
 type TenantRoute struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
@@ -32,12 +155,10 @@ type TenantRoute struct {
 	Kind string `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`
 	// segment is the route-prefix path segment minted by
 	// internal/gateway.GenerateSegment: "/{kind}/{segment}/...".
-	Segment string `protobuf:"bytes,5,opt,name=segment,proto3" json:"segment,omitempty"`
-	// status is "active", "deprecated" (still routes, mid-rotation), or
-	// "revoked".
-	Status string `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
-	// valid_until is set only for a "deprecated" route: the end of its
-	// rotation overlap window. Unset for "active"/"revoked".
+	Segment string            `protobuf:"bytes,5,opt,name=segment,proto3" json:"segment,omitempty"`
+	Status  TenantRouteStatus `protobuf:"varint,18,opt,name=status,proto3,enum=shepherd.mgmt.v1.TenantRouteStatus" json:"status,omitempty"`
+	// valid_until is set only for a deprecated route: the end of its
+	// rotation overlap window. Unset for active/revoked.
 	ValidUntil *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=valid_until,json=validUntil,proto3" json:"valid_until,omitempty"`
 	// rotated_from_id is the id of the route this one replaced, if any (set
 	// only on a route created by RotateTenantRoute).
@@ -54,12 +175,9 @@ type TenantRoute struct {
 	UpdatedAt        *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	RevokedAt        *timestamppb.Timestamp `protobuf:"bytes,14,opt,name=revoked_at,json=revokedAt,proto3" json:"revoked_at,omitempty"`
 	// apply_status is whether this route's HTTPRoute is actually in the
-	// cluster, as the tenant-route reconciler last found it: "pending",
-	// "applied" (attachment verified), "refused" (the gateway refused
-	// attachment), "error" (retried), "removed" (revoked or expired, HTTPRoute
-	// deleted) or "not_applicable" (a Faro route, or route apply disabled).
-	ApplyStatus string `protobuf:"bytes,15,opt,name=apply_status,json=applyStatus,proto3" json:"apply_status,omitempty"`
-	// apply_message is the reason behind "refused" or "error" -- the gateway's
+	// cluster, as the tenant-route reconciler last found it.
+	ApplyStatus TenantRouteApplyStatus `protobuf:"varint,19,opt,name=apply_status,json=applyStatus,proto3,enum=shepherd.mgmt.v1.TenantRouteApplyStatus" json:"apply_status,omitempty"`
+	// apply_message is the reason behind REFUSED or ERROR -- the gateway's
 	// own condition message where it gave one.
 	ApplyMessage string `protobuf:"bytes,16,opt,name=apply_message,json=applyMessage,proto3" json:"apply_message,omitempty"`
 	// applied_at is the last time attachment was verified.
@@ -133,11 +251,11 @@ func (x *TenantRoute) GetSegment() string {
 	return ""
 }
 
-func (x *TenantRoute) GetStatus() string {
+func (x *TenantRoute) GetStatus() TenantRouteStatus {
 	if x != nil {
 		return x.Status
 	}
-	return ""
+	return TenantRouteStatus_TENANT_ROUTE_STATUS_UNSPECIFIED
 }
 
 func (x *TenantRoute) GetValidUntil() *timestamppb.Timestamp {
@@ -196,11 +314,11 @@ func (x *TenantRoute) GetRevokedAt() *timestamppb.Timestamp {
 	return nil
 }
 
-func (x *TenantRoute) GetApplyStatus() string {
+func (x *TenantRoute) GetApplyStatus() TenantRouteApplyStatus {
 	if x != nil {
 		return x.ApplyStatus
 	}
-	return ""
+	return TenantRouteApplyStatus_TENANT_ROUTE_APPLY_STATUS_UNSPECIFIED
 }
 
 func (x *TenantRoute) GetApplyMessage() string {
@@ -811,14 +929,14 @@ var File_shepherd_mgmt_v1_tenant_route_proto protoreflect.FileDescriptor
 
 const file_shepherd_mgmt_v1_tenant_route_proto_rawDesc = "" +
 	"\n" +
-	"#shepherd/mgmt/v1/tenant_route.proto\x12\x10shepherd.mgmt.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa3\x05\n" +
+	"#shepherd/mgmt/v1/tenant_route.proto\x12\x10shepherd.mgmt.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xfe\x05\n" +
 	"\vTenantRoute\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06org_id\x18\x02 \x01(\tR\x05orgId\x12\x1b\n" +
 	"\ttenant_id\x18\x03 \x01(\tR\btenantId\x12\x12\n" +
 	"\x04kind\x18\x04 \x01(\tR\x04kind\x12\x18\n" +
-	"\asegment\x18\x05 \x01(\tR\asegment\x12\x16\n" +
-	"\x06status\x18\x06 \x01(\tR\x06status\x12;\n" +
+	"\asegment\x18\x05 \x01(\tR\asegment\x12;\n" +
+	"\x06status\x18\x12 \x01(\x0e2#.shepherd.mgmt.v1.TenantRouteStatusR\x06status\x12;\n" +
 	"\vvalid_until\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"validUntil\x12&\n" +
 	"\x0frotated_from_id\x18\b \x01(\tR\rrotatedFromId\x12!\n" +
@@ -831,11 +949,11 @@ const file_shepherd_mgmt_v1_tenant_route_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x129\n" +
 	"\n" +
-	"revoked_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampR\trevokedAt\x12!\n" +
-	"\fapply_status\x18\x0f \x01(\tR\vapplyStatus\x12#\n" +
+	"revoked_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampR\trevokedAt\x12K\n" +
+	"\fapply_status\x18\x13 \x01(\x0e2(.shepherd.mgmt.v1.TenantRouteApplyStatusR\vapplyStatus\x12#\n" +
 	"\rapply_message\x18\x10 \x01(\tR\fapplyMessage\x129\n" +
 	"\n" +
-	"applied_at\x18\x11 \x01(\v2\x1a.google.protobuf.TimestampR\tappliedAt\"0\n" +
+	"applied_at\x18\x11 \x01(\v2\x1a.google.protobuf.TimestampR\tappliedAtJ\x04\b\x06\x10\aJ\x04\b\x0f\x10\x10\"0\n" +
 	"\x17ListTenantRoutesRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\"e\n" +
 	"\x18ListTenantRoutesResponse\x123\n" +
@@ -877,7 +995,20 @@ const file_shepherd_mgmt_v1_tenant_route_proto_rawDesc = "" +
 	"\x03sam\x18\x06 \x01(\tR\x03sam\x12\x10\n" +
 	"\x03cdk\x18\a \x01(\tR\x03cdk\x12\x10\n" +
 	"\x03k8s\x18\b \x01(\tR\x03k8s\x12\x1b\n" +
-	"\tsdk_notes\x18\t \x01(\tR\bsdkNotes2\xa2\x04\n" +
+	"\tsdk_notes\x18\t \x01(\tR\bsdkNotes*\x9d\x01\n" +
+	"\x11TenantRouteStatus\x12#\n" +
+	"\x1fTENANT_ROUTE_STATUS_UNSPECIFIED\x10\x00\x12\x1e\n" +
+	"\x1aTENANT_ROUTE_STATUS_ACTIVE\x10\x01\x12\"\n" +
+	"\x1eTENANT_ROUTE_STATUS_DEPRECATED\x10\x02\x12\x1f\n" +
+	"\x1bTENANT_ROUTE_STATUS_REVOKED\x10\x03*\xb2\x02\n" +
+	"\x16TenantRouteApplyStatus\x12)\n" +
+	"%TENANT_ROUTE_APPLY_STATUS_UNSPECIFIED\x10\x00\x12%\n" +
+	"!TENANT_ROUTE_APPLY_STATUS_PENDING\x10\x01\x12%\n" +
+	"!TENANT_ROUTE_APPLY_STATUS_APPLIED\x10\x02\x12%\n" +
+	"!TENANT_ROUTE_APPLY_STATUS_REFUSED\x10\x03\x12#\n" +
+	"\x1fTENANT_ROUTE_APPLY_STATUS_ERROR\x10\x04\x12%\n" +
+	"!TENANT_ROUTE_APPLY_STATUS_REMOVED\x10\x05\x12,\n" +
+	"(TENANT_ROUTE_APPLY_STATUS_NOT_APPLICABLE\x10\x062\xa2\x04\n" +
 	"\x12TenantRouteService\x12k\n" +
 	"\x10ListTenantRoutes\x12).shepherd.mgmt.v1.ListTenantRoutesRequest\x1a*.shepherd.mgmt.v1.ListTenantRoutesResponse\"\x00\x12`\n" +
 	"\x11CreateTenantRoute\x12*.shepherd.mgmt.v1.CreateTenantRouteRequest\x1a\x1d.shepherd.mgmt.v1.TenantRoute\"\x00\x12n\n" +
@@ -897,43 +1028,48 @@ func file_shepherd_mgmt_v1_tenant_route_proto_rawDescGZIP() []byte {
 	return file_shepherd_mgmt_v1_tenant_route_proto_rawDescData
 }
 
+var file_shepherd_mgmt_v1_tenant_route_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_shepherd_mgmt_v1_tenant_route_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_shepherd_mgmt_v1_tenant_route_proto_goTypes = []any{
-	(*TenantRoute)(nil),               // 0: shepherd.mgmt.v1.TenantRoute
-	(*ListTenantRoutesRequest)(nil),   // 1: shepherd.mgmt.v1.ListTenantRoutesRequest
-	(*ListTenantRoutesResponse)(nil),  // 2: shepherd.mgmt.v1.ListTenantRoutesResponse
-	(*CreateTenantRouteRequest)(nil),  // 3: shepherd.mgmt.v1.CreateTenantRouteRequest
-	(*RotateTenantRouteRequest)(nil),  // 4: shepherd.mgmt.v1.RotateTenantRouteRequest
-	(*RotateTenantRouteResponse)(nil), // 5: shepherd.mgmt.v1.RotateTenantRouteResponse
-	(*RevokeTenantRouteRequest)(nil),  // 6: shepherd.mgmt.v1.RevokeTenantRouteRequest
-	(*RenderConnectAppRequest)(nil),   // 7: shepherd.mgmt.v1.RenderConnectAppRequest
-	(*RenderConnectAppResponse)(nil),  // 8: shepherd.mgmt.v1.RenderConnectAppResponse
-	(*timestamppb.Timestamp)(nil),     // 9: google.protobuf.Timestamp
+	(TenantRouteStatus)(0),            // 0: shepherd.mgmt.v1.TenantRouteStatus
+	(TenantRouteApplyStatus)(0),       // 1: shepherd.mgmt.v1.TenantRouteApplyStatus
+	(*TenantRoute)(nil),               // 2: shepherd.mgmt.v1.TenantRoute
+	(*ListTenantRoutesRequest)(nil),   // 3: shepherd.mgmt.v1.ListTenantRoutesRequest
+	(*ListTenantRoutesResponse)(nil),  // 4: shepherd.mgmt.v1.ListTenantRoutesResponse
+	(*CreateTenantRouteRequest)(nil),  // 5: shepherd.mgmt.v1.CreateTenantRouteRequest
+	(*RotateTenantRouteRequest)(nil),  // 6: shepherd.mgmt.v1.RotateTenantRouteRequest
+	(*RotateTenantRouteResponse)(nil), // 7: shepherd.mgmt.v1.RotateTenantRouteResponse
+	(*RevokeTenantRouteRequest)(nil),  // 8: shepherd.mgmt.v1.RevokeTenantRouteRequest
+	(*RenderConnectAppRequest)(nil),   // 9: shepherd.mgmt.v1.RenderConnectAppRequest
+	(*RenderConnectAppResponse)(nil),  // 10: shepherd.mgmt.v1.RenderConnectAppResponse
+	(*timestamppb.Timestamp)(nil),     // 11: google.protobuf.Timestamp
 }
 var file_shepherd_mgmt_v1_tenant_route_proto_depIdxs = []int32{
-	9,  // 0: shepherd.mgmt.v1.TenantRoute.valid_until:type_name -> google.protobuf.Timestamp
-	9,  // 1: shepherd.mgmt.v1.TenantRoute.created_at:type_name -> google.protobuf.Timestamp
-	9,  // 2: shepherd.mgmt.v1.TenantRoute.updated_at:type_name -> google.protobuf.Timestamp
-	9,  // 3: shepherd.mgmt.v1.TenantRoute.revoked_at:type_name -> google.protobuf.Timestamp
-	9,  // 4: shepherd.mgmt.v1.TenantRoute.applied_at:type_name -> google.protobuf.Timestamp
-	0,  // 5: shepherd.mgmt.v1.ListTenantRoutesResponse.items:type_name -> shepherd.mgmt.v1.TenantRoute
-	0,  // 6: shepherd.mgmt.v1.RotateTenantRouteResponse.active:type_name -> shepherd.mgmt.v1.TenantRoute
-	0,  // 7: shepherd.mgmt.v1.RotateTenantRouteResponse.deprecated:type_name -> shepherd.mgmt.v1.TenantRoute
-	1,  // 8: shepherd.mgmt.v1.TenantRouteService.ListTenantRoutes:input_type -> shepherd.mgmt.v1.ListTenantRoutesRequest
-	3,  // 9: shepherd.mgmt.v1.TenantRouteService.CreateTenantRoute:input_type -> shepherd.mgmt.v1.CreateTenantRouteRequest
-	4,  // 10: shepherd.mgmt.v1.TenantRouteService.RotateTenantRoute:input_type -> shepherd.mgmt.v1.RotateTenantRouteRequest
-	6,  // 11: shepherd.mgmt.v1.TenantRouteService.RevokeTenantRoute:input_type -> shepherd.mgmt.v1.RevokeTenantRouteRequest
-	7,  // 12: shepherd.mgmt.v1.TenantRouteService.RenderConnectApp:input_type -> shepherd.mgmt.v1.RenderConnectAppRequest
-	2,  // 13: shepherd.mgmt.v1.TenantRouteService.ListTenantRoutes:output_type -> shepherd.mgmt.v1.ListTenantRoutesResponse
-	0,  // 14: shepherd.mgmt.v1.TenantRouteService.CreateTenantRoute:output_type -> shepherd.mgmt.v1.TenantRoute
-	5,  // 15: shepherd.mgmt.v1.TenantRouteService.RotateTenantRoute:output_type -> shepherd.mgmt.v1.RotateTenantRouteResponse
-	0,  // 16: shepherd.mgmt.v1.TenantRouteService.RevokeTenantRoute:output_type -> shepherd.mgmt.v1.TenantRoute
-	8,  // 17: shepherd.mgmt.v1.TenantRouteService.RenderConnectApp:output_type -> shepherd.mgmt.v1.RenderConnectAppResponse
-	13, // [13:18] is the sub-list for method output_type
-	8,  // [8:13] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	0,  // 0: shepherd.mgmt.v1.TenantRoute.status:type_name -> shepherd.mgmt.v1.TenantRouteStatus
+	11, // 1: shepherd.mgmt.v1.TenantRoute.valid_until:type_name -> google.protobuf.Timestamp
+	11, // 2: shepherd.mgmt.v1.TenantRoute.created_at:type_name -> google.protobuf.Timestamp
+	11, // 3: shepherd.mgmt.v1.TenantRoute.updated_at:type_name -> google.protobuf.Timestamp
+	11, // 4: shepherd.mgmt.v1.TenantRoute.revoked_at:type_name -> google.protobuf.Timestamp
+	1,  // 5: shepherd.mgmt.v1.TenantRoute.apply_status:type_name -> shepherd.mgmt.v1.TenantRouteApplyStatus
+	11, // 6: shepherd.mgmt.v1.TenantRoute.applied_at:type_name -> google.protobuf.Timestamp
+	2,  // 7: shepherd.mgmt.v1.ListTenantRoutesResponse.items:type_name -> shepherd.mgmt.v1.TenantRoute
+	2,  // 8: shepherd.mgmt.v1.RotateTenantRouteResponse.active:type_name -> shepherd.mgmt.v1.TenantRoute
+	2,  // 9: shepherd.mgmt.v1.RotateTenantRouteResponse.deprecated:type_name -> shepherd.mgmt.v1.TenantRoute
+	3,  // 10: shepherd.mgmt.v1.TenantRouteService.ListTenantRoutes:input_type -> shepherd.mgmt.v1.ListTenantRoutesRequest
+	5,  // 11: shepherd.mgmt.v1.TenantRouteService.CreateTenantRoute:input_type -> shepherd.mgmt.v1.CreateTenantRouteRequest
+	6,  // 12: shepherd.mgmt.v1.TenantRouteService.RotateTenantRoute:input_type -> shepherd.mgmt.v1.RotateTenantRouteRequest
+	8,  // 13: shepherd.mgmt.v1.TenantRouteService.RevokeTenantRoute:input_type -> shepherd.mgmt.v1.RevokeTenantRouteRequest
+	9,  // 14: shepherd.mgmt.v1.TenantRouteService.RenderConnectApp:input_type -> shepherd.mgmt.v1.RenderConnectAppRequest
+	4,  // 15: shepherd.mgmt.v1.TenantRouteService.ListTenantRoutes:output_type -> shepherd.mgmt.v1.ListTenantRoutesResponse
+	2,  // 16: shepherd.mgmt.v1.TenantRouteService.CreateTenantRoute:output_type -> shepherd.mgmt.v1.TenantRoute
+	7,  // 17: shepherd.mgmt.v1.TenantRouteService.RotateTenantRoute:output_type -> shepherd.mgmt.v1.RotateTenantRouteResponse
+	2,  // 18: shepherd.mgmt.v1.TenantRouteService.RevokeTenantRoute:output_type -> shepherd.mgmt.v1.TenantRoute
+	10, // 19: shepherd.mgmt.v1.TenantRouteService.RenderConnectApp:output_type -> shepherd.mgmt.v1.RenderConnectAppResponse
+	15, // [15:20] is the sub-list for method output_type
+	10, // [10:15] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_shepherd_mgmt_v1_tenant_route_proto_init() }
@@ -946,13 +1082,14 @@ func file_shepherd_mgmt_v1_tenant_route_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_shepherd_mgmt_v1_tenant_route_proto_rawDesc), len(file_shepherd_mgmt_v1_tenant_route_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      2,
 			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_shepherd_mgmt_v1_tenant_route_proto_goTypes,
 		DependencyIndexes: file_shepherd_mgmt_v1_tenant_route_proto_depIdxs,
+		EnumInfos:         file_shepherd_mgmt_v1_tenant_route_proto_enumTypes,
 		MessageInfos:      file_shepherd_mgmt_v1_tenant_route_proto_msgTypes,
 	}.Build()
 	File_shepherd_mgmt_v1_tenant_route_proto = out.File

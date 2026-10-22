@@ -6,13 +6,15 @@ import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegen
 import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
+import type { Role } from "./common_pb";
+import { file_shepherd_mgmt_v1_common } from "./common_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file shepherd/mgmt/v1/service_account.proto.
  */
 export const file_shepherd_mgmt_v1_service_account: GenFile = /*@__PURE__*/
-  fileDesc("CiZzaGVwaGVyZC9tZ210L3YxL3NlcnZpY2VfYWNjb3VudC5wcm90bxIQc2hlcGhlcmQubWdtdC52MSKwAQoOU2VydmljZUFjY291bnQSCgoCaWQYASABKAkSDgoGb3JnX2lkGAIgASgJEgwKBG5hbWUYAyABKAkSEgoKY2FwYWJpbGl0eRgEIAEoCRISCgpjcmVhdGVkX2J5GAUgASgJEg4KBnN0YXR1cxgGIAEoCRIuCgpjcmVhdGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIMCgRyb2xlGAggASgJIiwKGkxpc3RTZXJ2aWNlQWNjb3VudHNSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCSJdChtMaXN0U2VydmljZUFjY291bnRzUmVzcG9uc2USLwoFaXRlbXMYASADKAsyIC5zaGVwaGVyZC5tZ210LnYxLlNlcnZpY2VBY2NvdW50Eg0KBXRvdGFsGAIgASgFIl0KG0NyZWF0ZVNlcnZpY2VBY2NvdW50UmVxdWVzdBIOCgZvcmdfaWQYASABKAkSDAoEbmFtZRgCIAEoCRISCgpjYXBhYmlsaXR5GAMgASgJEgwKBHJvbGUYBCABKAkiagocQ3JlYXRlU2VydmljZUFjY291bnRSZXNwb25zZRIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEhIKCmNhcGFiaWxpdHkYAyABKAkSDgoGc2VjcmV0GAQgASgJEgwKBHJvbGUYBSABKAkiOQobUmV2b2tlU2VydmljZUFjY291bnRSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIKCgJpZBgCIAEoCSIeChxSZXZva2VTZXJ2aWNlQWNjb3VudFJlc3BvbnNlMv8CChVTZXJ2aWNlQWNjb3VudFNlcnZpY2USdAoTTGlzdFNlcnZpY2VBY2NvdW50cxIsLnNoZXBoZXJkLm1nbXQudjEuTGlzdFNlcnZpY2VBY2NvdW50c1JlcXVlc3QaLS5zaGVwaGVyZC5tZ210LnYxLkxpc3RTZXJ2aWNlQWNjb3VudHNSZXNwb25zZSIAEncKFENyZWF0ZVNlcnZpY2VBY2NvdW50Ei0uc2hlcGhlcmQubWdtdC52MS5DcmVhdGVTZXJ2aWNlQWNjb3VudFJlcXVlc3QaLi5zaGVwaGVyZC5tZ210LnYxLkNyZWF0ZVNlcnZpY2VBY2NvdW50UmVzcG9uc2UiABJ3ChRSZXZva2VTZXJ2aWNlQWNjb3VudBItLnNoZXBoZXJkLm1nbXQudjEuUmV2b2tlU2VydmljZUFjY291bnRSZXF1ZXN0Gi4uc2hlcGhlcmQubWdtdC52MS5SZXZva2VTZXJ2aWNlQWNjb3VudFJlc3BvbnNlIgBCJlokc2hlcGhlcmQvZ2VuL3NoZXBoZXJkL21nbXQvdjE7bWdtdHYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
+  fileDesc("CiZzaGVwaGVyZC9tZ210L3YxL3NlcnZpY2VfYWNjb3VudC5wcm90bxIQc2hlcGhlcmQubWdtdC52MSLOAQoOU2VydmljZUFjY291bnQSCgoCaWQYASABKAkSDgoGb3JnX2lkGAIgASgJEgwKBG5hbWUYAyABKAkSEgoKY2FwYWJpbGl0eRgEIAEoCRISCgpjcmVhdGVkX2J5GAUgASgJEg4KBnN0YXR1cxgGIAEoCRIuCgpjcmVhdGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIkCgRyb2xlGAkgASgOMhYuc2hlcGhlcmQubWdtdC52MS5Sb2xlSgQICBAJIiwKGkxpc3RTZXJ2aWNlQWNjb3VudHNSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCSJdChtMaXN0U2VydmljZUFjY291bnRzUmVzcG9uc2USLwoFaXRlbXMYASADKAsyIC5zaGVwaGVyZC5tZ210LnYxLlNlcnZpY2VBY2NvdW50Eg0KBXRvdGFsGAIgASgFInsKG0NyZWF0ZVNlcnZpY2VBY2NvdW50UmVxdWVzdBIOCgZvcmdfaWQYASABKAkSDAoEbmFtZRgCIAEoCRISCgpjYXBhYmlsaXR5GAMgASgJEiQKBHJvbGUYBSABKA4yFi5zaGVwaGVyZC5tZ210LnYxLlJvbGVKBAgEEAUiiAEKHENyZWF0ZVNlcnZpY2VBY2NvdW50UmVzcG9uc2USCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRISCgpjYXBhYmlsaXR5GAMgASgJEg4KBnNlY3JldBgEIAEoCRIkCgRyb2xlGAYgASgOMhYuc2hlcGhlcmQubWdtdC52MS5Sb2xlSgQIBRAGIjkKG1Jldm9rZVNlcnZpY2VBY2NvdW50UmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCgoCaWQYAiABKAkiHgocUmV2b2tlU2VydmljZUFjY291bnRSZXNwb25zZTL/AgoVU2VydmljZUFjY291bnRTZXJ2aWNlEnQKE0xpc3RTZXJ2aWNlQWNjb3VudHMSLC5zaGVwaGVyZC5tZ210LnYxLkxpc3RTZXJ2aWNlQWNjb3VudHNSZXF1ZXN0Gi0uc2hlcGhlcmQubWdtdC52MS5MaXN0U2VydmljZUFjY291bnRzUmVzcG9uc2UiABJ3ChRDcmVhdGVTZXJ2aWNlQWNjb3VudBItLnNoZXBoZXJkLm1nbXQudjEuQ3JlYXRlU2VydmljZUFjY291bnRSZXF1ZXN0Gi4uc2hlcGhlcmQubWdtdC52MS5DcmVhdGVTZXJ2aWNlQWNjb3VudFJlc3BvbnNlIgASdwoUUmV2b2tlU2VydmljZUFjY291bnQSLS5zaGVwaGVyZC5tZ210LnYxLlJldm9rZVNlcnZpY2VBY2NvdW50UmVxdWVzdBouLnNoZXBoZXJkLm1nbXQudjEuUmV2b2tlU2VydmljZUFjY291bnRSZXNwb25zZSIAQiZaJHNoZXBoZXJkL2dlbi9zaGVwaGVyZC9tZ210L3YxO21nbXR2MWIGcHJvdG8z", [file_google_protobuf_timestamp, file_shepherd_mgmt_v1_common]);
 
 /**
  * ServiceAccount mirrors internal/store/sqlc.ServiceAccount
@@ -62,18 +64,17 @@ export type ServiceAccount = Message<"shepherd.mgmt.v1.ServiceAccount"> & {
   createdAt?: Timestamp | undefined;
 
   /**
-   * role is "editor" or "admin" (W3-1, 0018_service_account_role): the
+   * role is ROLE_EDITOR or ROLE_ADMIN (W3-1, 0018_service_account_role): the
    * tier this credential is checked against, the same way a human
-   * session's org-editor/org-admin role is — see
+   * session's org role is — see
    * authorizeServiceAccountProcedure (rpc_interceptor.go). Orthogonal to
    * capability: role decides WHICH procedures the token may reach at all,
-   * capability decides whether it may write once there. Defaults to
-   * "editor" when a CreateServiceAccountRequest does not set one; "admin"
-   * must be requested explicitly.
+   * capability decides whether it may write once there. Set explicitly
+   * at creation (CreateServiceAccountRequest.role).
    *
-   * @generated from field: string role = 8;
+   * @generated from field: shepherd.mgmt.v1.Role role = 9;
    */
-  role: string;
+  role: Role;
 };
 
 /**
@@ -144,13 +145,13 @@ export type CreateServiceAccountRequest = Message<"shepherd.mgmt.v1.CreateServic
   capability: string;
 
   /**
-   * role is "editor" or "admin" (W3-1). Optional — an empty value defaults
-   * to "editor"; "admin" must be requested explicitly (D3), it is never
-   * inferred from capability or anything else about the request.
+   * role is ROLE_EDITOR or ROLE_ADMIN (W3-1), required: ROLE_UNSPECIFIED
+   * and ROLE_VIEWER are refused with InvalidArgument. Nothing about the
+   * request ever implies ROLE_ADMIN (D3).
    *
-   * @generated from field: string role = 4;
+   * @generated from field: shepherd.mgmt.v1.Role role = 5;
    */
-  role: string;
+  role: Role;
 };
 
 /**
@@ -189,12 +190,11 @@ export type CreateServiceAccountResponse = Message<"shepherd.mgmt.v1.CreateServi
   secret: string;
 
   /**
-   * role is the tier actually stored (W3-1) — "editor" when the request
-   * left role unset.
+   * role is the tier stored (W3-1).
    *
-   * @generated from field: string role = 5;
+   * @generated from field: shepherd.mgmt.v1.Role role = 6;
    */
-  role: string;
+  role: Role;
 };
 
 /**
@@ -247,7 +247,7 @@ export const RevokeServiceAccountResponseSchema: GenMessage<RevokeServiceAccount
  * request precisely so a compromised or misused token cannot reach past
  * the one org it was minted for.
  *
- * Management (create/revoke) requires org-admin, the same ceiling
+ * Management (create/revoke) requires org admin, the same ceiling
  * agent_tokens' admin-only surface already has. The capability a token
  * carries is fixed at creation — there is no "upgrade a propose token to
  * apply" endpoint; minting a new apply-capability token and revoking the
