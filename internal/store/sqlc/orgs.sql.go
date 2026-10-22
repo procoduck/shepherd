@@ -34,16 +34,16 @@ func (q *Queries) CountOrgContent(ctx context.Context, targetOrgID pgtype.UUID) 
 }
 
 const createOrg = `-- name: CreateOrg :one
-INSERT INTO orgs (name, display_name, admin_group_id, reader_group_id, editor_group_id, tenant_id)
+INSERT INTO orgs (name, display_name, admin_group_id, viewer_group_id, editor_group_id, tenant_id)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, name, display_name, admin_group_id, reader_group_id, created_at, updated_at, tenant_id, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching
+RETURNING id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, tenant_id, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching
 `
 
 type CreateOrgParams struct {
 	Name          string      `json:"name"`
 	DisplayName   string      `json:"display_name"`
 	AdminGroupID  string      `json:"admin_group_id"`
-	ReaderGroupID pgtype.Text `json:"reader_group_id"`
+	ViewerGroupID pgtype.Text `json:"viewer_group_id"`
 	EditorGroupID pgtype.Text `json:"editor_group_id"`
 	TenantID      pgtype.Text `json:"tenant_id"`
 }
@@ -53,7 +53,7 @@ func (q *Queries) CreateOrg(ctx context.Context, arg CreateOrgParams) (Org, erro
 		arg.Name,
 		arg.DisplayName,
 		arg.AdminGroupID,
-		arg.ReaderGroupID,
+		arg.ViewerGroupID,
 		arg.EditorGroupID,
 		arg.TenantID,
 	)
@@ -63,7 +63,7 @@ func (q *Queries) CreateOrg(ctx context.Context, arg CreateOrgParams) (Org, erro
 		&i.Name,
 		&i.DisplayName,
 		&i.AdminGroupID,
-		&i.ReaderGroupID,
+		&i.ViewerGroupID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.TenantID,
@@ -85,7 +85,7 @@ func (q *Queries) DeleteOrg(ctx context.Context, id pgtype.UUID) error {
 }
 
 const getOrgByID = `-- name: GetOrgByID :one
-SELECT id, name, display_name, admin_group_id, reader_group_id, created_at, updated_at, tenant_id, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching FROM orgs WHERE id = $1
+SELECT id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, tenant_id, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching FROM orgs WHERE id = $1
 `
 
 func (q *Queries) GetOrgByID(ctx context.Context, id pgtype.UUID) (Org, error) {
@@ -96,7 +96,7 @@ func (q *Queries) GetOrgByID(ctx context.Context, id pgtype.UUID) (Org, error) {
 		&i.Name,
 		&i.DisplayName,
 		&i.AdminGroupID,
-		&i.ReaderGroupID,
+		&i.ViewerGroupID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.TenantID,
@@ -109,7 +109,7 @@ func (q *Queries) GetOrgByID(ctx context.Context, id pgtype.UUID) (Org, error) {
 }
 
 const getOrgByName = `-- name: GetOrgByName :one
-SELECT id, name, display_name, admin_group_id, reader_group_id, created_at, updated_at, tenant_id, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching FROM orgs WHERE name = $1
+SELECT id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, tenant_id, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching FROM orgs WHERE name = $1
 `
 
 // Resolve an org by its unique slug (orgs.name), the external identifier an
@@ -122,7 +122,7 @@ func (q *Queries) GetOrgByName(ctx context.Context, name string) (Org, error) {
 		&i.Name,
 		&i.DisplayName,
 		&i.AdminGroupID,
-		&i.ReaderGroupID,
+		&i.ViewerGroupID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.TenantID,
@@ -135,7 +135,7 @@ func (q *Queries) GetOrgByName(ctx context.Context, name string) (Org, error) {
 }
 
 const listOrgs = `-- name: ListOrgs :many
-SELECT id, name, display_name, admin_group_id, reader_group_id, created_at, updated_at, tenant_id, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching FROM orgs ORDER BY name
+SELECT id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, tenant_id, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching FROM orgs ORDER BY name
 `
 
 func (q *Queries) ListOrgs(ctx context.Context) ([]Org, error) {
@@ -152,7 +152,7 @@ func (q *Queries) ListOrgs(ctx context.Context) ([]Org, error) {
 			&i.Name,
 			&i.DisplayName,
 			&i.AdminGroupID,
-			&i.ReaderGroupID,
+			&i.ViewerGroupID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.TenantID,
@@ -197,7 +197,7 @@ SET tenant_id  = $2,
     updated_at = now()
 WHERE id = $1
   AND tenant_id IS NULL
-RETURNING id, name, display_name, admin_group_id, reader_group_id, created_at, updated_at, tenant_id, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching
+RETURNING id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, tenant_id, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching
 `
 
 type SetOrgTenantIDParams struct {
@@ -219,7 +219,7 @@ func (q *Queries) SetOrgTenantID(ctx context.Context, arg SetOrgTenantIDParams) 
 		&i.Name,
 		&i.DisplayName,
 		&i.AdminGroupID,
-		&i.ReaderGroupID,
+		&i.ViewerGroupID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.TenantID,
@@ -280,21 +280,21 @@ const updateOrg = `-- name: UpdateOrg :one
 UPDATE orgs
 SET display_name    = $2,
     admin_group_id  = $3,
-    reader_group_id = $4,
+    viewer_group_id = $4,
     editor_group_id = $5,
     allow_experimental_components = $6,
     allow_label_matching = $7,
     allow_local_attribute_matching = $8,
     updated_at      = now()
 WHERE id = $1
-RETURNING id, name, display_name, admin_group_id, reader_group_id, created_at, updated_at, tenant_id, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching
+RETURNING id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, tenant_id, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching
 `
 
 type UpdateOrgParams struct {
 	ID                          pgtype.UUID `json:"id"`
 	DisplayName                 string      `json:"display_name"`
 	AdminGroupID                string      `json:"admin_group_id"`
-	ReaderGroupID               pgtype.Text `json:"reader_group_id"`
+	ViewerGroupID               pgtype.Text `json:"viewer_group_id"`
 	EditorGroupID               pgtype.Text `json:"editor_group_id"`
 	AllowExperimentalComponents bool        `json:"allow_experimental_components"`
 	AllowLabelMatching          bool        `json:"allow_label_matching"`
@@ -306,7 +306,7 @@ func (q *Queries) UpdateOrg(ctx context.Context, arg UpdateOrgParams) (Org, erro
 		arg.ID,
 		arg.DisplayName,
 		arg.AdminGroupID,
-		arg.ReaderGroupID,
+		arg.ViewerGroupID,
 		arg.EditorGroupID,
 		arg.AllowExperimentalComponents,
 		arg.AllowLabelMatching,
@@ -318,7 +318,7 @@ func (q *Queries) UpdateOrg(ctx context.Context, arg UpdateOrgParams) (Org, erro
 		&i.Name,
 		&i.DisplayName,
 		&i.AdminGroupID,
-		&i.ReaderGroupID,
+		&i.ViewerGroupID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.TenantID,

@@ -89,19 +89,54 @@ const applyNotRunningMessage = "not applied: tenant-route apply is not running o
 // keeps "pending", so a reconciler that starts later still applies it.
 func (s *TenantRouteService) routeProto(r sqlc.TenantRoute) *mgmtv1.TenantRoute {
 	out := toTenantRouteProto(r)
-	if out.GetApplyStatus() == routeApplyPending && (s.applyRunning == nil || !s.applyRunning()) {
-		out.ApplyStatus = routeApplyNotApplicable
+	if out.GetApplyStatus() == mgmtv1.TenantRouteApplyStatus_TENANT_ROUTE_APPLY_STATUS_PENDING && (s.applyRunning == nil || !s.applyRunning()) {
+		out.ApplyStatus = mgmtv1.TenantRouteApplyStatus_TENANT_ROUTE_APPLY_STATUS_NOT_APPLICABLE
 		out.ApplyMessage = applyNotRunningMessage
 	}
 	return out
 }
 
-// apply_status values this service reads (internal/routeapply owns them;
-// mgmtapi does not import it).
-const (
-	routeApplyPending       = "pending"
-	routeApplyNotApplicable = "not_applicable"
-)
+// routeStatusToProto is the one stored tenant_routes.status -> wire
+// conversion. A stored value that is not a status reads UNSPECIFIED.
+func routeStatusToProto(stored string) mgmtv1.TenantRouteStatus {
+	st, err := gateway.ParseRouteStatus(stored)
+	if err != nil {
+		return mgmtv1.TenantRouteStatus_TENANT_ROUTE_STATUS_UNSPECIFIED
+	}
+	switch st {
+	case gateway.RouteActive:
+		return mgmtv1.TenantRouteStatus_TENANT_ROUTE_STATUS_ACTIVE
+	case gateway.RouteDeprecated:
+		return mgmtv1.TenantRouteStatus_TENANT_ROUTE_STATUS_DEPRECATED
+	case gateway.RouteRevoked:
+		return mgmtv1.TenantRouteStatus_TENANT_ROUTE_STATUS_REVOKED
+	}
+	return mgmtv1.TenantRouteStatus_TENANT_ROUTE_STATUS_UNSPECIFIED
+}
+
+// applyStatusToProto is the one stored tenant_routes.apply_status -> wire
+// conversion. A stored value that is not a status reads UNSPECIFIED.
+func applyStatusToProto(stored string) mgmtv1.TenantRouteApplyStatus {
+	st, err := gateway.ParseApplyStatus(stored)
+	if err != nil {
+		return mgmtv1.TenantRouteApplyStatus_TENANT_ROUTE_APPLY_STATUS_UNSPECIFIED
+	}
+	switch st {
+	case gateway.ApplyPending:
+		return mgmtv1.TenantRouteApplyStatus_TENANT_ROUTE_APPLY_STATUS_PENDING
+	case gateway.ApplyApplied:
+		return mgmtv1.TenantRouteApplyStatus_TENANT_ROUTE_APPLY_STATUS_APPLIED
+	case gateway.ApplyRefused:
+		return mgmtv1.TenantRouteApplyStatus_TENANT_ROUTE_APPLY_STATUS_REFUSED
+	case gateway.ApplyError:
+		return mgmtv1.TenantRouteApplyStatus_TENANT_ROUTE_APPLY_STATUS_ERROR
+	case gateway.ApplyRemoved:
+		return mgmtv1.TenantRouteApplyStatus_TENANT_ROUTE_APPLY_STATUS_REMOVED
+	case gateway.ApplyNotApplicable:
+		return mgmtv1.TenantRouteApplyStatus_TENANT_ROUTE_APPLY_STATUS_NOT_APPLICABLE
+	}
+	return mgmtv1.TenantRouteApplyStatus_TENANT_ROUTE_APPLY_STATUS_UNSPECIFIED
+}
 
 // toTenantRouteProto converts a stored tenant_routes row to its proto
 // representation.
@@ -112,7 +147,7 @@ func toTenantRouteProto(r sqlc.TenantRoute) *mgmtv1.TenantRoute {
 		TenantId:         r.TenantID,
 		Kind:             r.Kind,
 		Segment:          r.Segment,
-		Status:           r.Status,
+		Status:           routeStatusToProto(r.Status),
 		GatewayMode:      r.GatewayMode,
 		GatewayName:      r.GatewayName,
 		GatewayNamespace: r.GatewayNamespace,
@@ -120,7 +155,7 @@ func toTenantRouteProto(r sqlc.TenantRoute) *mgmtv1.TenantRoute {
 		CreatedAt:        protoTimestamp(r.CreatedAt),
 		UpdatedAt:        protoTimestamp(r.UpdatedAt),
 		RevokedAt:        protoTimestamp(r.RevokedAt),
-		ApplyStatus:      r.ApplyStatus,
+		ApplyStatus:      applyStatusToProto(r.ApplyStatus),
 		ApplyMessage:     r.ApplyMessage,
 		AppliedAt:        protoTimestamp(r.AppliedAt),
 	}
@@ -319,7 +354,7 @@ func (s *TenantRouteService) RotateTenantRoute(ctx context.Context, req *connect
 	if err != nil {
 		return nil, err
 	}
-	if current.Status != "active" {
+	if current.Status != string(gateway.RouteActive) {
 		return nil, connect.NewError(connect.CodeFailedPrecondition,
 			fmt.Errorf("tenant route %s is %q, not active — only an active route can be rotated", current.ID.String(), current.Status))
 	}
@@ -416,7 +451,7 @@ func (s *TenantRouteService) RenderConnectApp(ctx context.Context, req *connect.
 		return nil, connect.NewError(connect.CodeFailedPrecondition,
 			errors.New("only OTLP routes have connect-an-app snippets: Shepherd deploys no Faro receiver"))
 	}
-	if r.Status != "active" {
+	if r.Status != string(gateway.RouteActive) {
 		return nil, connect.NewError(connect.CodeFailedPrecondition,
 			fmt.Errorf("route is %s, so its endpoint will not (or soon will not) route — connect apps to the org's active route", r.Status))
 	}

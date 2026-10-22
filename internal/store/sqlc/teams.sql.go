@@ -152,7 +152,7 @@ type IsUserMemberOfAnyTeamInOrgParams struct {
 
 // Used by internal/auth.authorizeOrgAccess's LOCAL-session branch (W3-7):
 // the local-user mirror of ListTeamsByOrgAndGroups above, granting the same
-// reader-equivalent baseline to a local user who has no org_members row but
+// viewer baseline to a local user who has no org_members row but
 // is an explicit member of some team in the org -- a local user has no
 // groups claim, so the OIDC path's team fallback never reaches them without
 // this.
@@ -252,7 +252,7 @@ type ListTeamsByOrgAndGroupsParams struct {
 
 // Used by internal/auth.authorizeOrgAccess's team-membership fallback: is
 // this session a member (via IdP group) of any team in this org? A
-// non-empty result grants the same reader-equivalent baseline
+// non-empty result grants the same viewer baseline
 // group_assignments already grants for collector access — see that
 // function's doc comment.
 func (q *Queries) ListTeamsByOrgAndGroups(ctx context.Context, arg ListTeamsByOrgAndGroupsParams) ([]Team, error) {

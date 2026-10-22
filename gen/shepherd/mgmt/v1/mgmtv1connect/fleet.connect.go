@@ -74,7 +74,7 @@ type FleetServiceClient interface {
 	GetCollector(context.Context, *connect.Request[v1.GetCollectorRequest]) (*connect.Response[v1.Collector], error)
 	GetServedConfig(context.Context, *connect.Request[v1.GetServedConfigRequest]) (*connect.Response[v1.GetServedConfigResponse], error)
 	// GetReconciliation returns the collector's declared-vs-served-vs-observed
-	// drift findings (W6, #110). Org-reader, like GetServedConfig.
+	// drift findings (W6, #110). Org viewer, like GetServedConfig.
 	GetReconciliation(context.Context, *connect.Request[v1.GetReconciliationRequest]) (*connect.Response[v1.GetReconciliationResponse], error)
 	ListAssignments(context.Context, *connect.Request[v1.ListAssignmentsRequest]) (*connect.Response[v1.ListAssignmentsResponse], error)
 	CreateAssignment(context.Context, *connect.Request[v1.CreateAssignmentRequest]) (*connect.Response[v1.CreateAssignmentResponse], error)
@@ -84,7 +84,7 @@ type FleetServiceClient interface {
 	DeleteCollectorLabel(context.Context, *connect.Request[v1.DeleteCollectorLabelRequest]) (*connect.Response[v1.CollectorLabelsResponse], error)
 	// RenderChartValues renders the Helm values that connect a cluster's
 	// Grafana k8s-monitoring collectors to this Shepherd (W9,
-	// internal/chartvalues). Org-admin: it decides which cluster name joins
+	// internal/chartvalues). Org admin: it decides which cluster name joins
 	// the org's fleet. Writes nothing.
 	RenderChartValues(context.Context, *connect.Request[v1.RenderChartValuesRequest]) (*connect.Response[v1.RenderChartValuesResponse], error)
 }
@@ -245,7 +245,7 @@ type FleetServiceHandler interface {
 	GetCollector(context.Context, *connect.Request[v1.GetCollectorRequest]) (*connect.Response[v1.Collector], error)
 	GetServedConfig(context.Context, *connect.Request[v1.GetServedConfigRequest]) (*connect.Response[v1.GetServedConfigResponse], error)
 	// GetReconciliation returns the collector's declared-vs-served-vs-observed
-	// drift findings (W6, #110). Org-reader, like GetServedConfig.
+	// drift findings (W6, #110). Org viewer, like GetServedConfig.
 	GetReconciliation(context.Context, *connect.Request[v1.GetReconciliationRequest]) (*connect.Response[v1.GetReconciliationResponse], error)
 	ListAssignments(context.Context, *connect.Request[v1.ListAssignmentsRequest]) (*connect.Response[v1.ListAssignmentsResponse], error)
 	CreateAssignment(context.Context, *connect.Request[v1.CreateAssignmentRequest]) (*connect.Response[v1.CreateAssignmentResponse], error)
@@ -255,7 +255,7 @@ type FleetServiceHandler interface {
 	DeleteCollectorLabel(context.Context, *connect.Request[v1.DeleteCollectorLabelRequest]) (*connect.Response[v1.CollectorLabelsResponse], error)
 	// RenderChartValues renders the Helm values that connect a cluster's
 	// Grafana k8s-monitoring collectors to this Shepherd (W9,
-	// internal/chartvalues). Org-admin: it decides which cluster name joins
+	// internal/chartvalues). Org admin: it decides which cluster name joins
 	// the org's fleet. Writes nothing.
 	RenderChartValues(context.Context, *connect.Request[v1.RenderChartValuesRequest]) (*connect.Response[v1.RenderChartValuesResponse], error)
 }

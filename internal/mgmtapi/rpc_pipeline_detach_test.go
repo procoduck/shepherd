@@ -32,7 +32,7 @@ var _ = Describe("PipelineService.DetachFromWizard", Label("integration"), func(
 		st                     *store.Store
 		server                 *httptest.Server
 		org, other             pgtype.UUID
-		admin, editor, reader  *http.Cookie
+		admin, editor, viewer  *http.Cookie
 		mimir                  sqlc.Destination
 		teamID                 pgtype.UUID
 		teamMember, nonMember  *http.Cookie
@@ -57,7 +57,7 @@ var _ = Describe("PipelineService.DetachFromWizard", Label("integration"), func(
 		o, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
 			Name: "detach-org", DisplayName: "Detach", AdminGroupID: "detach-admin",
 			EditorGroupID: pgtype.Text{String: "detach-editor", Valid: true},
-			ReaderGroupID: pgtype.Text{String: "detach-reader", Valid: true},
+			ViewerGroupID: pgtype.Text{String: "detach-viewer", Valid: true},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		org = o.ID
@@ -77,9 +77,9 @@ var _ = Describe("PipelineService.DetachFromWizard", Label("integration"), func(
 
 		admin = newAppAdminSession(ctx, st)
 		editor = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "detach-editor")}
-		reader = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "detach-reader")}
+		viewer = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "detach-viewer")}
 		teamMember = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "detach-team")}
-		nonMember = reader
+		nonMember = viewer
 		cfg := &config.Config{Auth: config.AuthConfig{InsecureCookies: true}}
 		server = httptest.NewServer(newRPCWiringRouter(st, auth.NewLocalAdmin(cfg, st, slog.Default()), cfg))
 
@@ -225,11 +225,11 @@ var _ = Describe("PipelineService.DetachFromWizard", Label("integration"), func(
 		Expect(code).To(Equal(http.StatusOK), "%v", out)
 	})
 
-	It("is the same capability as editing: an org editor may, a reader and a non-member of the owning team may not", func() {
+	It("is the same capability as editing: an org editor may, a viewer and a non-member of the owning team may not", func() {
 		code, out := detach(editor, org, unowned)
 		Expect(code).To(Equal(http.StatusOK), "%v", out)
 
-		code, out = detach(reader, org, ownedByTeam)
+		code, out = detach(viewer, org, ownedByTeam)
 		Expect(code).To(Equal(http.StatusForbidden), "%v", out)
 		Expect(out["code"]).To(Equal("permission_denied"))
 		code, _ = detach(nonMember, org, ownedByTeam)

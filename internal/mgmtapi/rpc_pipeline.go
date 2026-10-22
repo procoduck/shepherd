@@ -586,7 +586,7 @@ func (s *PipelineService) CreatePipeline(ctx context.Context, req *connect.Reque
 		return nil, connect.NewError(connect.CodeInvalidArgument, errOrgIDInvalid)
 	}
 	// G11: creating a pipeline owned by a team requires membership of that
-	// team (or org-admin); creating an unowned pipeline requires org-admin.
+	// team (or org admin); creating an unowned pipeline requires org admin.
 	if err := s.authorizeOwnership(ctx, msg.GetOrgId(), msg.GetOwnerTeamId()); err != nil {
 		return nil, err
 	}
@@ -1091,7 +1091,7 @@ func pipelineOwnerTeamID(p sqlc.Pipeline) string {
 }
 
 // SetPipelineOwner reassigns (or, with an empty owner_team_id, clears) a
-// pipeline's owning team. Org-admin-only regardless of the pipeline's
+// pipeline's owning team. Org admin-only regardless of the pipeline's
 // current owner (see procedureRequirements' comment and
 // SetPipelineOwnerRequest's proto doc) — granting/revoking ownership is a
 // platform decision, not a delegated one, so this deliberately does NOT

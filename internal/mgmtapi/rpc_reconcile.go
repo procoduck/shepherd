@@ -33,7 +33,7 @@ const beaconStaleAfter = 5 * time.Minute
 const managedControllerPrefix = "pipe_"
 
 // GetReconciliation returns a collector's declared-vs-served-vs-observed drift
-// findings (#110). Org-reader; the per-id ownership check is loadOwnedCollector.
+// findings (#110). Org viewer; the per-id ownership check is loadOwnedCollector.
 // Computed on demand — no reconciliation state is stored.
 func (s *FleetService) GetReconciliation(ctx context.Context, req *connect.Request[mgmtv1.GetReconciliationRequest]) (*connect.Response[mgmtv1.GetReconciliationResponse], error) {
 	id, err := s.loadOwnedCollector(ctx, req.Msg.GetOrgId(), req.Msg.GetId())

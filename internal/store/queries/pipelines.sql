@@ -38,7 +38,7 @@ SELECT * FROM pipelines WHERE org_id = $1 ORDER BY name;
 -- transfer are different operations with different authorization
 -- requirements (see internal/mgmtapi's PipelineService — a team member may
 -- edit their team's pipeline content, but reassigning OWNERSHIP away from
--- their team is an org-admin action), and merging them would let a content
+-- their team is an org admin action), and merging them would let a content
 -- edit request accidentally carry an ownership change along for the ride.
 UPDATE pipelines
 SET owner_team_id = $2,

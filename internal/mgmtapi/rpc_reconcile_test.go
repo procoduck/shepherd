@@ -31,7 +31,7 @@ var _ = Describe("shepherd.mgmt.v1.FleetService/GetReconciliation", Label("integ
 		st       *store.Store
 		server   *httptest.Server
 		orgID    pgtype.UUID
-		reader   *http.Cookie
+		viewer   *http.Cookie
 		collID   pgtype.UUID
 		pipeName = "keep-me"
 	)
@@ -46,7 +46,7 @@ var _ = Describe("shepherd.mgmt.v1.FleetService/GetReconciliation", Label("integ
 
 		o, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
 			Name: "recon-org", DisplayName: "Recon Org",
-			AdminGroupID: "recon-admin", ReaderGroupID: pgtype.Text{String: "recon-reader", Valid: true},
+			AdminGroupID: "recon-admin", ViewerGroupID: pgtype.Text{String: "recon-viewer", Valid: true},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		orgID = o.ID
@@ -74,7 +74,7 @@ var _ = Describe("shepherd.mgmt.v1.FleetService/GetReconciliation", Label("integ
 		cfg := &config.Config{Auth: config.AuthConfig{InsecureCookies: true}}
 		authHandler := auth.NewLocalAdmin(cfg, st, slog.Default())
 		server = httptest.NewServer(newRPCWiringRouter(st, authHandler, cfg))
-		reader = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "recon-reader")}
+		viewer = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "recon-viewer")}
 	})
 
 	AfterEach(func() {
@@ -93,7 +93,7 @@ var _ = Describe("shepherd.mgmt.v1.FleetService/GetReconciliation", Label("integ
 
 	findingsFor := func(id pgtype.UUID) []map[string]any {
 		body := map[string]any{"org_id": orgID.String(), "id": id.String()}
-		resp := postConnectJSON(server, "/shepherd.mgmt.v1.FleetService/GetReconciliation", reader, body)
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.FleetService/GetReconciliation", viewer, body)
 		defer resp.Body.Close() //nolint:errcheck // test cleanup
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
 		var out map[string]any
@@ -191,7 +191,7 @@ var _ = Describe("shepherd.mgmt.v1.FleetService/GetReconciliation", Label("integ
 			Expect(err).NotTo(HaveOccurred())
 			_, err = st.Queries.UpdateOrg(ctx, sqlc.UpdateOrgParams{
 				ID: orgID, DisplayName: o.DisplayName, AdminGroupID: o.AdminGroupID,
-				ReaderGroupID: o.ReaderGroupID, EditorGroupID: o.EditorGroupID,
+				ViewerGroupID: o.ViewerGroupID, EditorGroupID: o.EditorGroupID,
 				AllowExperimentalComponents: o.AllowExperimentalComponents,
 				AllowLabelMatching:          on,
 				AllowLocalAttributeMatching: o.AllowLocalAttributeMatching,

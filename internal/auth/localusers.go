@@ -23,18 +23,6 @@ const (
 	SourceOIDC  = "oidc"
 )
 
-// Org role vocabulary for LOCAL users, stored in org_members.role.
-//
-// Grafana's names, deliberately. RoleOrgEditor is the one that did not exist
-// before: access used to be all-or-nothing within an org, so anyone who needed
-// to write a pipeline also got the ability to rotate tenant routes and manage
-// git credentials.
-const (
-	OrgRoleAdmin  = "admin"
-	OrgRoleEditor = "editor"
-	OrgRoleViewer = "viewer"
-)
-
 // Sentinels the login path distinguishes. They are separate so the SERVER log
 // can say which happened; the response to the caller is deliberately identical
 // for all of them (see LocalLoginHandler) — telling an unauthenticated client
@@ -54,7 +42,7 @@ const minPasswordLength = 8
 // UserStore is local user management: accounts, passwords and org roles.
 //
 // It exists alongside the IdP path rather than replacing it. Nothing here
-// touches orgs.admin_group_id, orgs.reader_group_id or teams.idp_group_id — an
+// touches orgs.admin_group_id, orgs.viewer_group_id or teams.idp_group_id — an
 // OIDC session's access is decided exactly as it was before this file existed.
 type UserStore struct {
 	store  *store.Store
@@ -102,19 +90,6 @@ func (s *UserStore) Authenticate(ctx context.Context, login, password string) (*
 // dummyHash is a real argon2id hash of a random value, used only to give the
 // no-such-user path the same cost as a wrong-password one.
 const dummyHash = "$argon2id$v=19$m=65536,t=1,p=4$YWJjZGVmZ2hpamtsbW5vcA$c2hlcGhlcmQtdGltaW5nLWVxdWFsaXNhdGlvbg"
-
-// OrgRole returns a local user's role in an org, or "" when they are not a
-// member.
-func (s *UserStore) OrgRole(ctx context.Context, orgID, userID pgtype.UUID) (string, error) {
-	role, err := s.store.Queries.GetOrgMemberRole(ctx, sqlc.GetOrgMemberRoleParams{OrgID: orgID, UserID: userID})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return "", nil
-		}
-		return "", fmt.Errorf("looking up org role: %w", err)
-	}
-	return role, nil
-}
 
 // ValidatePassword enforces the length floor.
 func ValidatePassword(pw string) error {

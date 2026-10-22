@@ -74,7 +74,7 @@ var _ = Describe("Pipelines API", Label("integration"), func() {
 			Name:          "testorg",
 			DisplayName:   "Test Org",
 			AdminGroupID:  "admin-group",
-			ReaderGroupID: pgtype.Text{},
+			ViewerGroupID: pgtype.Text{},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		orgID = o.ID.String()
@@ -234,7 +234,7 @@ var _ = Describe("Pipelines API", Label("integration"), func() {
 // An app admin is authorized for every org-scoped procedure (see
 // auth.authorizeOrgAccess's IsAppAdmin bypass), so specs that are not about
 // authorization use one session for every request rather than juggling
-// per-procedure reader/org-admin identities.
+// per-procedure viewer/org admin identities.
 func newAppAdminSession(ctx context.Context, st *store.Store) *http.Cookie {
 	id := fmt.Sprintf("app-admin-sess-%d", time.Now().UnixNano())
 	groupsJSON, err := json.Marshal([]string{})

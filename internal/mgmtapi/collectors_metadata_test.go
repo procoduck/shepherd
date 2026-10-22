@@ -49,7 +49,7 @@ var _ = Describe("Collector instance metadata", Label("integration"), func() {
 			Name:          "metaorg",
 			DisplayName:   "Meta Org",
 			AdminGroupID:  "admin-group",
-			ReaderGroupID: pgtype.Text{},
+			ViewerGroupID: pgtype.Text{},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		orgID = o.ID.String()

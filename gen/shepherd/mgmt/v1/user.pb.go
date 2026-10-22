@@ -162,7 +162,7 @@ type OrgMember struct {
 	Login         string                 `protobuf:"bytes,3,opt,name=login,proto3" json:"login,omitempty"`
 	Email         string                 `protobuf:"bytes,4,opt,name=email,proto3" json:"email,omitempty"`
 	DisplayName   string                 `protobuf:"bytes,5,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
-	Role          string                 `protobuf:"bytes,6,opt,name=role,proto3" json:"role,omitempty"`
+	Role          Role                   `protobuf:"varint,8,opt,name=role,proto3,enum=shepherd.mgmt.v1.Role" json:"role,omitempty"`
 	Disabled      bool                   `protobuf:"varint,7,opt,name=disabled,proto3" json:"disabled,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -233,11 +233,11 @@ func (x *OrgMember) GetDisplayName() string {
 	return ""
 }
 
-func (x *OrgMember) GetRole() string {
+func (x *OrgMember) GetRole() Role {
 	if x != nil {
 		return x.Role
 	}
-	return ""
+	return Role_ROLE_UNSPECIFIED
 }
 
 func (x *OrgMember) GetDisabled() bool {
@@ -770,8 +770,9 @@ type SetOrgMemberRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	OrgId  string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
 	UserId string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	// role is "admin", "editor" or "viewer". Creating or changing, same call.
-	Role          string `protobuf:"bytes,3,opt,name=role,proto3" json:"role,omitempty"`
+	// role is required: ROLE_UNSPECIFIED is refused with InvalidArgument.
+	// Creating or changing, same call.
+	Role          Role `protobuf:"varint,4,opt,name=role,proto3,enum=shepherd.mgmt.v1.Role" json:"role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -820,11 +821,11 @@ func (x *SetOrgMemberRequest) GetUserId() string {
 	return ""
 }
 
-func (x *SetOrgMemberRequest) GetRole() string {
+func (x *SetOrgMemberRequest) GetRole() Role {
 	if x != nil {
 		return x.Role
 	}
-	return ""
+	return Role_ROLE_UNSPECIFIED
 }
 
 type RemoveOrgMemberRequest struct {
@@ -919,7 +920,7 @@ var File_shepherd_mgmt_v1_user_proto protoreflect.FileDescriptor
 
 const file_shepherd_mgmt_v1_user_proto_rawDesc = "" +
 	"\n" +
-	"\x1bshepherd/mgmt/v1/user.proto\x12\x10shepherd.mgmt.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x19shepherd/mgmt/v1/me.proto\"\xc0\x03\n" +
+	"\x1bshepherd/mgmt/v1/user.proto\x12\x10shepherd.mgmt.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1dshepherd/mgmt/v1/common.proto\x1a\x19shepherd/mgmt/v1/me.proto\"\xc0\x03\n" +
 	"\x04User\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05login\x18\x02 \x01(\tR\x05login\x12\x14\n" +
@@ -935,15 +936,15 @@ const file_shepherd_mgmt_v1_user_proto_rawDesc = "" +
 	"updated_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12>\n" +
 	"\rlast_login_at\x18\n" +
 	" \x01(\v2\x1a.google.protobuf.TimestampR\vlastLoginAt\x123\n" +
-	"\x04orgs\x18\v \x03(\v2\x1f.shepherd.mgmt.v1.OrgMembershipR\x04orgs\"\xba\x01\n" +
+	"\x04orgs\x18\v \x03(\v2\x1f.shepherd.mgmt.v1.OrgMembershipR\x04orgs\"\xd8\x01\n" +
 	"\tOrgMember\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x14\n" +
 	"\x05login\x18\x03 \x01(\tR\x05login\x12\x14\n" +
 	"\x05email\x18\x04 \x01(\tR\x05email\x12!\n" +
-	"\fdisplay_name\x18\x05 \x01(\tR\vdisplayName\x12\x12\n" +
-	"\x04role\x18\x06 \x01(\tR\x04role\x12\x1a\n" +
-	"\bdisabled\x18\a \x01(\bR\bdisabled\"\x12\n" +
+	"\fdisplay_name\x18\x05 \x01(\tR\vdisplayName\x12*\n" +
+	"\x04role\x18\b \x01(\x0e2\x16.shepherd.mgmt.v1.RoleR\x04role\x12\x1a\n" +
+	"\bdisabled\x18\a \x01(\bR\bdisabledJ\x04\b\x06\x10\a\"\x12\n" +
 	"\x10ListUsersRequest\"W\n" +
 	"\x11ListUsersResponse\x12,\n" +
 	"\x05items\x18\x01 \x03(\v2\x16.shepherd.mgmt.v1.UserR\x05items\x12\x14\n" +
@@ -974,11 +975,11 @@ const file_shepherd_mgmt_v1_user_proto_rawDesc = "" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\"a\n" +
 	"\x16ListOrgMembersResponse\x121\n" +
 	"\x05items\x18\x01 \x03(\v2\x1b.shepherd.mgmt.v1.OrgMemberR\x05items\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x05R\x05total\"Y\n" +
+	"\x05total\x18\x02 \x01(\x05R\x05total\"w\n" +
 	"\x13SetOrgMemberRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x12\n" +
-	"\x04role\x18\x03 \x01(\tR\x04role\"H\n" +
+	"\auser_id\x18\x02 \x01(\tR\x06userId\x12*\n" +
+	"\x04role\x18\x04 \x01(\x0e2\x16.shepherd.mgmt.v1.RoleR\x04roleJ\x04\b\x03\x10\x04\"H\n" +
 	"\x16RemoveOrgMemberRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\"\x19\n" +
@@ -1027,35 +1028,38 @@ var file_shepherd_mgmt_v1_user_proto_goTypes = []any{
 	(*RemoveOrgMemberResponse)(nil),   // 14: shepherd.mgmt.v1.RemoveOrgMemberResponse
 	(*timestamppb.Timestamp)(nil),     // 15: google.protobuf.Timestamp
 	(*OrgMembership)(nil),             // 16: shepherd.mgmt.v1.OrgMembership
+	(Role)(0),                         // 17: shepherd.mgmt.v1.Role
 }
 var file_shepherd_mgmt_v1_user_proto_depIdxs = []int32{
 	15, // 0: shepherd.mgmt.v1.User.created_at:type_name -> google.protobuf.Timestamp
 	15, // 1: shepherd.mgmt.v1.User.updated_at:type_name -> google.protobuf.Timestamp
 	15, // 2: shepherd.mgmt.v1.User.last_login_at:type_name -> google.protobuf.Timestamp
 	16, // 3: shepherd.mgmt.v1.User.orgs:type_name -> shepherd.mgmt.v1.OrgMembership
-	0,  // 4: shepherd.mgmt.v1.ListUsersResponse.items:type_name -> shepherd.mgmt.v1.User
-	1,  // 5: shepherd.mgmt.v1.ListOrgMembersResponse.items:type_name -> shepherd.mgmt.v1.OrgMember
-	2,  // 6: shepherd.mgmt.v1.UserService.ListUsers:input_type -> shepherd.mgmt.v1.ListUsersRequest
-	4,  // 7: shepherd.mgmt.v1.UserService.CreateUser:input_type -> shepherd.mgmt.v1.CreateUserRequest
-	5,  // 8: shepherd.mgmt.v1.UserService.UpdateUser:input_type -> shepherd.mgmt.v1.UpdateUserRequest
-	6,  // 9: shepherd.mgmt.v1.UserService.DeleteUser:input_type -> shepherd.mgmt.v1.DeleteUserRequest
-	8,  // 10: shepherd.mgmt.v1.UserService.ResetUserPassword:input_type -> shepherd.mgmt.v1.ResetUserPasswordRequest
-	10, // 11: shepherd.mgmt.v1.UserService.ListOrgMembers:input_type -> shepherd.mgmt.v1.ListOrgMembersRequest
-	12, // 12: shepherd.mgmt.v1.UserService.SetOrgMember:input_type -> shepherd.mgmt.v1.SetOrgMemberRequest
-	13, // 13: shepherd.mgmt.v1.UserService.RemoveOrgMember:input_type -> shepherd.mgmt.v1.RemoveOrgMemberRequest
-	3,  // 14: shepherd.mgmt.v1.UserService.ListUsers:output_type -> shepherd.mgmt.v1.ListUsersResponse
-	0,  // 15: shepherd.mgmt.v1.UserService.CreateUser:output_type -> shepherd.mgmt.v1.User
-	0,  // 16: shepherd.mgmt.v1.UserService.UpdateUser:output_type -> shepherd.mgmt.v1.User
-	7,  // 17: shepherd.mgmt.v1.UserService.DeleteUser:output_type -> shepherd.mgmt.v1.DeleteUserResponse
-	9,  // 18: shepherd.mgmt.v1.UserService.ResetUserPassword:output_type -> shepherd.mgmt.v1.ResetUserPasswordResponse
-	11, // 19: shepherd.mgmt.v1.UserService.ListOrgMembers:output_type -> shepherd.mgmt.v1.ListOrgMembersResponse
-	1,  // 20: shepherd.mgmt.v1.UserService.SetOrgMember:output_type -> shepherd.mgmt.v1.OrgMember
-	14, // 21: shepherd.mgmt.v1.UserService.RemoveOrgMember:output_type -> shepherd.mgmt.v1.RemoveOrgMemberResponse
-	14, // [14:22] is the sub-list for method output_type
-	6,  // [6:14] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	17, // 4: shepherd.mgmt.v1.OrgMember.role:type_name -> shepherd.mgmt.v1.Role
+	0,  // 5: shepherd.mgmt.v1.ListUsersResponse.items:type_name -> shepherd.mgmt.v1.User
+	1,  // 6: shepherd.mgmt.v1.ListOrgMembersResponse.items:type_name -> shepherd.mgmt.v1.OrgMember
+	17, // 7: shepherd.mgmt.v1.SetOrgMemberRequest.role:type_name -> shepherd.mgmt.v1.Role
+	2,  // 8: shepherd.mgmt.v1.UserService.ListUsers:input_type -> shepherd.mgmt.v1.ListUsersRequest
+	4,  // 9: shepherd.mgmt.v1.UserService.CreateUser:input_type -> shepherd.mgmt.v1.CreateUserRequest
+	5,  // 10: shepherd.mgmt.v1.UserService.UpdateUser:input_type -> shepherd.mgmt.v1.UpdateUserRequest
+	6,  // 11: shepherd.mgmt.v1.UserService.DeleteUser:input_type -> shepherd.mgmt.v1.DeleteUserRequest
+	8,  // 12: shepherd.mgmt.v1.UserService.ResetUserPassword:input_type -> shepherd.mgmt.v1.ResetUserPasswordRequest
+	10, // 13: shepherd.mgmt.v1.UserService.ListOrgMembers:input_type -> shepherd.mgmt.v1.ListOrgMembersRequest
+	12, // 14: shepherd.mgmt.v1.UserService.SetOrgMember:input_type -> shepherd.mgmt.v1.SetOrgMemberRequest
+	13, // 15: shepherd.mgmt.v1.UserService.RemoveOrgMember:input_type -> shepherd.mgmt.v1.RemoveOrgMemberRequest
+	3,  // 16: shepherd.mgmt.v1.UserService.ListUsers:output_type -> shepherd.mgmt.v1.ListUsersResponse
+	0,  // 17: shepherd.mgmt.v1.UserService.CreateUser:output_type -> shepherd.mgmt.v1.User
+	0,  // 18: shepherd.mgmt.v1.UserService.UpdateUser:output_type -> shepherd.mgmt.v1.User
+	7,  // 19: shepherd.mgmt.v1.UserService.DeleteUser:output_type -> shepherd.mgmt.v1.DeleteUserResponse
+	9,  // 20: shepherd.mgmt.v1.UserService.ResetUserPassword:output_type -> shepherd.mgmt.v1.ResetUserPasswordResponse
+	11, // 21: shepherd.mgmt.v1.UserService.ListOrgMembers:output_type -> shepherd.mgmt.v1.ListOrgMembersResponse
+	1,  // 22: shepherd.mgmt.v1.UserService.SetOrgMember:output_type -> shepherd.mgmt.v1.OrgMember
+	14, // 23: shepherd.mgmt.v1.UserService.RemoveOrgMember:output_type -> shepherd.mgmt.v1.RemoveOrgMemberResponse
+	16, // [16:24] is the sub-list for method output_type
+	8,  // [8:16] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_shepherd_mgmt_v1_user_proto_init() }
@@ -1063,6 +1067,7 @@ func file_shepherd_mgmt_v1_user_proto_init() {
 	if File_shepherd_mgmt_v1_user_proto != nil {
 		return
 	}
+	file_shepherd_mgmt_v1_common_proto_init()
 	file_shepherd_mgmt_v1_me_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{

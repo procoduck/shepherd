@@ -513,11 +513,11 @@ type CreatePipelineRequest struct {
 	Matchers    []string               `protobuf:"bytes,4,rep,name=matchers,proto3" json:"matchers,omitempty"`
 	Source      string                 `protobuf:"bytes,5,opt,name=source,proto3" json:"source,omitempty"`
 	WizardState *structpb.Struct       `protobuf:"bytes,6,opt,name=wizard_state,json=wizardState,proto3" json:"wizard_state,omitempty"`
-	// owner_team_id, when set, requires the caller be an org-admin OR a
+	// owner_team_id, when set, requires the caller be an org admin OR a
 	// member of that team's IdP group (G11) — a team member may create a
 	// pipeline owned by their own team, but not one owned by someone else's.
 	// Empty (the default) creates an unowned pipeline, which only an
-	// org-admin caller may do.
+	// org admin caller may do.
 	OwnerTeamId   string `protobuf:"bytes,7,opt,name=owner_team_id,json=ownerTeamId,proto3" json:"owner_team_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

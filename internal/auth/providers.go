@@ -174,7 +174,7 @@ var Presets = []Preset{
 		EmailClaim:     "email",
 		NameClaim:      "name",
 		GroupsClaim:    "groups",
-		GroupsNote:     "Whatever claim your provider puts group membership in. Its values are matched against the app-admin group list here and against each org's admin/reader group — so they must be the same strings your IdP emits.",
+		GroupsNote:     "Whatever claim your provider puts group membership in. Its values are matched against the app-admin group list here and against each org's admin/viewer group — so they must be the same strings your IdP emits.",
 	},
 }
 

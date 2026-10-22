@@ -8,14 +8,14 @@ import "google/protobuf/timestamp.proto";
 option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 
 // FleetService covers an org's collectors, their labels and assignments,
-// matcher attributes, and reconciliation. Reads require org-reader; writes
-// (labels, assignments) require org-admin.
+// matcher attributes, and reconciliation. Reads require org viewer; writes
+// (labels, assignments) require org admin.
 service FleetService {
   rpc ListCollectors(ListCollectorsRequest) returns (ListCollectorsResponse) {}
   rpc GetCollector(GetCollectorRequest) returns (Collector) {}
   rpc GetServedConfig(GetServedConfigRequest) returns (GetServedConfigResponse) {}
   // GetReconciliation returns the collector's declared-vs-served-vs-observed
-  // drift findings (W6, #110). Org-reader, like GetServedConfig.
+  // drift findings (W6, #110). Org viewer, like GetServedConfig.
   rpc GetReconciliation(GetReconciliationRequest) returns (GetReconciliationResponse) {}
   rpc ListAssignments(ListAssignmentsRequest) returns (ListAssignmentsResponse) {}
   rpc CreateAssignment(CreateAssignmentRequest) returns (CreateAssignmentResponse) {}
@@ -25,7 +25,7 @@ service FleetService {
   rpc DeleteCollectorLabel(DeleteCollectorLabelRequest) returns (CollectorLabelsResponse) {}
   // RenderChartValues renders the Helm values that connect a cluster's
   // Grafana k8s-monitoring collectors to this Shepherd (W9,
-  // internal/chartvalues). Org-admin: it decides which cluster name joins
+  // internal/chartvalues). Org admin: it decides which cluster name joins
   // the org's fleet. Writes nothing.
   rpc RenderChartValues(RenderChartValuesRequest) returns (RenderChartValuesResponse) {}
 }

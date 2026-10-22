@@ -22,8 +22,8 @@ import (
 // Validate and UpgradeCheck are authorized PER PIPELINE when the request names
 // one (pipeline_id) — anyone who may edit that pipeline, by the same check
 // UpdatePipeline makes (requireWriteAuthorized + authorizePipelineOwnership) —
-// and stay org-editor for a new, unsaved graph (no pipeline_id). Simulate is
-// unchanged: org-editor, whatever team the caller is in.
+// and stay org editor for a new, unsaved graph (no pipeline_id). Simulate is
+// unchanged: org editor, whatever team the caller is in.
 var _ = Describe("#319: VisualService per-pipeline authorization", Label("integration"), func() {
 	const (
 		renderProc       = "/shepherd.mgmt.v1.VisualService/Render"
@@ -73,7 +73,7 @@ var _ = Describe("#319: VisualService per-pipeline authorization", Label("integr
 		o, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
 			Name: "vo-org", DisplayName: "VO Org", AdminGroupID: "vo-admin",
 			EditorGroupID: pgtype.Text{String: "vo-editor", Valid: true},
-			ReaderGroupID: pgtype.Text{String: "vo-reader", Valid: true},
+			ViewerGroupID: pgtype.Text{String: "vo-viewer", Valid: true},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		orgID = o.ID
@@ -104,8 +104,8 @@ var _ = Describe("#319: VisualService per-pipeline authorization", Label("integr
 		authHandler := auth.NewLocalAdmin(cfg, st, slog.Default())
 		server = httptest.NewServer(newRPCWiringRouter(st, authHandler, cfg))
 
-		viewerInTeam = g11Session(ctx, st, "vo-viewer-in-team", []string{"vo-reader", "vo-team-a"})
-		viewerOnly = g11Session(ctx, st, "vo-viewer", []string{"vo-reader"})
+		viewerInTeam = g11Session(ctx, st, "vo-viewer-in-team", []string{"vo-viewer", "vo-team-a"})
+		viewerOnly = g11Session(ctx, st, "vo-viewer", []string{"vo-viewer"})
 		editor = g11Session(ctx, st, "vo-editor", []string{"vo-editor"})
 		admin = g11Session(ctx, st, "vo-admin", []string{"vo-admin"})
 	})
@@ -135,7 +135,7 @@ var _ = Describe("#319: VisualService per-pipeline authorization", Label("integr
 		}
 	})
 
-	It("keeps a new graph (no pipeline_id) org-editor: a team-member viewer is refused, an editor admitted", func() {
+	It("keeps a new graph (no pipeline_id) org editor: a team-member viewer is refused, an editor admitted", func() {
 		for _, proc := range visualProcs {
 			status, body := call(proc, viewerInTeam, "")
 			Expect(status).To(Equal(http.StatusForbidden), "%s: %v", proc, body)
@@ -193,7 +193,7 @@ var _ = Describe("#319: VisualService per-pipeline authorization", Label("integr
 		}
 	})
 
-	It("leaves Simulate org-editor: a team-member viewer is refused", func() {
+	It("leaves Simulate org editor: a team-member viewer is refused", func() {
 		for proc, body := range map[string]map[string]any{
 			"/shepherd.mgmt.v1.SimulateService/SimulateRelabel": {},
 			"/shepherd.mgmt.v1.SimulateService/SimulateLogs":    {},

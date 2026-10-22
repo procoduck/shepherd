@@ -6,7 +6,7 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 
-// AuditService reads an org's audit log. Requires org-admin.
+// AuditService reads an org's audit log. Requires org admin.
 service AuditService {
   rpc ListAudit(ListAuditRequest) returns (ListAuditResponse) {}
 }

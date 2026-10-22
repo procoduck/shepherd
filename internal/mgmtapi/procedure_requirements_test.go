@@ -11,24 +11,39 @@ import (
 
 // describeRequirement renders a procedureRequirements entry's effective
 // semantics: who may call it as a human session and as a service account.
-func describeRequirement(t *testing.T, req string) string {
+//
+// The human half is the requirement's own rendering (auth.Authorize's
+// app-admin and org paths are exercised against a database by
+// internal/auth's role ladder and this package's role matrix). The service
+// account half is EVALUATED: authorizeServiceAccountProcedure is run for a
+// same-org account at each tier and for a foreign-org account, and the line
+// records the lowest tier that passes.
+func describeRequirement(t *testing.T, req auth.Requirement) string {
 	t.Helper()
-	switch req {
-	case auth.RoleAny:
-		return "human=authenticated\tsa=any"
-	case auth.RoleAppAdmin:
-		return "human=app-admin\tsa=deny"
-	case reqAppOrOrgAdmin:
-		return "human=app-admin|org>=admin\tsa=same-org,tier>=admin"
-	case auth.RoleOrgAdmin:
-		return "human=org>=admin\tsa=same-org,tier>=admin"
-	case auth.RoleOrgEditor:
-		return "human=org>=editor\tsa=same-org,tier>=editor"
-	case auth.RoleOrgReader:
-		return "human=org>=viewer\tsa=same-org,tier>=viewer"
+	const org, otherOrg = "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"
+	sa := func(orgID string, tier auth.Role) serviceAccountIdentity {
+		return serviceAccountIdentity{ID: "sa", OrgID: orgID, Name: "sa", Role: tier.String(), Capability: capabilityApply}
 	}
-	t.Fatalf("unknown requirement %q", req)
-	return ""
+
+	human := "human=" + req.String()
+	if req.AuthenticatedOnly() {
+		human = "human=authenticated"
+	}
+
+	var saDesc string
+	switch {
+	case authorizeServiceAccountProcedure(sa(otherOrg, auth.RoleAdmin), org, req) == nil:
+		saDesc = "sa=any"
+	default:
+		saDesc = "sa=deny"
+		for _, tier := range []auth.Role{auth.RoleViewer, auth.RoleEditor, auth.RoleAdmin} {
+			if authorizeServiceAccountProcedure(sa(org, tier), org, req) == nil {
+				saDesc = "sa=same-org,tier>=" + tier.String()
+				break
+			}
+		}
+	}
+	return human + "\t" + saDesc
 }
 
 // TestProcedureRequirementsGolden pins every procedure's effective

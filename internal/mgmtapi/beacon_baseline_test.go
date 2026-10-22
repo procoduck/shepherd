@@ -129,7 +129,7 @@ var _ = Describe("D6 baseline on the eager serve path", Label("integration"), fu
 		// for the ROW first and assert on its content second: "no row" and
 		// "row without the baseline" are different failures — the first means
 		// the recompute never got as far as writing, and reporting them as
-		// one message would send a reader hunting in the wrong place.
+		// one message would send a viewer hunting in the wrong place.
 		Eventually(func() error {
 			var got string
 			return st.Pool().QueryRow(ctx,

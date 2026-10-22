@@ -10,7 +10,7 @@ option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 
 // SimulateService runs simulations: deterministic S2
 // stage-trace evaluation, and S3 sandboxed runs (VB-1 §6.4). All methods
-// require org-editor (D6): simulation authors what the org runs, the same
+// require org editor (D6): simulation authors what the org runs, the same
 // ceiling WizardService and VisualService's authoring surfaces hold.
 service SimulateService {
   rpc SimulateRelabel(SimulateRelabelRequest) returns (SimulateRelabelResponse) {}

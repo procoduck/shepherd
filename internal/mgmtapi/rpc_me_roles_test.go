@@ -123,7 +123,7 @@ var _ = Describe("MeService GetMe role resolution", Label("integration"), func()
 		}
 	})
 
-	// W3-7b: authorizeOrgAccess already grants the reader-equivalent floor
+	// W3-7b: authorizeOrgAccess already grants the viewer floor
 	// to a local user who has no org_members row but is a member of a team
 	// in the org (W3-7). Before ResolveOrgRole grew the matching fallback,
 	// GetMe called auth.ResolveOrgRole (rpc_me.go) and got "" for this exact
@@ -177,7 +177,7 @@ var _ = Describe("MeService GetMe role resolution", Label("integration"), func()
 			Expect(ok).To(BeTrue())
 			if entry["id"] == org.ID.String() {
 				found = true
-				Expect(entry["role"]).To(Equal(auth.OrgRoleViewer),
+				Expect(entry["role"]).To(Equal("ROLE_VIEWER"),
 					"a local user who is only a team member should resolve to the viewer role")
 			}
 		}
@@ -191,21 +191,21 @@ var _ = Describe("MeService GetMe role resolution", Label("integration"), func()
 	It("returns the org's own tenant to a member, and none for an org without one", func() {
 		withTenant, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
 			Name: "me-tenant-acme", DisplayName: "Acme", AdminGroupID: "me-tenant-admins",
-			ReaderGroupID: pgtype.Text{String: "me-tenant-readers", Valid: true},
+			ViewerGroupID: pgtype.Text{String: "me-tenant-viewers", Valid: true},
 			TenantID:      pgtype.Text{String: "acme", Valid: true},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		without, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
 			Name: "me-tenant-none", DisplayName: "No tenant", AdminGroupID: "me-tenant-none-admins",
-			ReaderGroupID: pgtype.Text{String: "me-tenant-readers", Valid: true},
+			ViewerGroupID: pgtype.Text{String: "me-tenant-viewers", Valid: true},
 		})
 		Expect(err).NotTo(HaveOccurred())
 
-		groupsJSON, err := json.Marshal([]string{"me-tenant-readers"})
+		groupsJSON, err := json.Marshal([]string{"me-tenant-viewers"})
 		Expect(err).NotTo(HaveOccurred())
 		sessionID := fmt.Sprintf("me-tenant-session-%d", time.Now().UnixNano())
 		_, err = st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-			ID: sessionID, UserOid: "me-tenant-user", Email: "me-tenant@example.com", DisplayName: "Reader",
+			ID: sessionID, UserOid: "me-tenant-user", Email: "me-tenant@example.com", DisplayName: "Viewer",
 			GroupIds: groupsJSON, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
 			Source: "test",
 		})

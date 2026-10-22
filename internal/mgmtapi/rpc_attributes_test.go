@@ -31,7 +31,7 @@ var _ = Describe("shepherd.mgmt.v1.FleetService/ListAttributes", Label("integrat
 		st     *store.Store
 		server *httptest.Server
 		orgID  pgtype.UUID
-		reader *http.Cookie
+		viewer *http.Cookie
 	)
 
 	BeforeEach(func() {
@@ -44,7 +44,7 @@ var _ = Describe("shepherd.mgmt.v1.FleetService/ListAttributes", Label("integrat
 
 		o, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
 			Name: "attrs-org", DisplayName: "Attrs Org", AdminGroupID: "attrs-admin",
-			ReaderGroupID: pgtype.Text{String: "attrs-reader", Valid: true},
+			ViewerGroupID: pgtype.Text{String: "attrs-viewer", Valid: true},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		orgID = o.ID
@@ -72,7 +72,7 @@ var _ = Describe("shepherd.mgmt.v1.FleetService/ListAttributes", Label("integrat
 
 		cfg := &config.Config{Auth: config.AuthConfig{InsecureCookies: true}}
 		server = httptest.NewServer(newRPCWiringRouter(st, auth.NewLocalAdmin(cfg, st, slog.Default()), cfg))
-		reader = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "attrs-reader")}
+		viewer = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "attrs-viewer")}
 	})
 
 	AfterEach(func() {
@@ -86,7 +86,7 @@ var _ = Describe("shepherd.mgmt.v1.FleetService/ListAttributes", Label("integrat
 		Expect(err).NotTo(HaveOccurred())
 		_, err = st.Queries.UpdateOrg(ctx, sqlc.UpdateOrgParams{
 			ID: orgID, DisplayName: o.DisplayName, AdminGroupID: o.AdminGroupID,
-			ReaderGroupID: o.ReaderGroupID, EditorGroupID: o.EditorGroupID,
+			ViewerGroupID: o.ViewerGroupID, EditorGroupID: o.EditorGroupID,
 			AllowExperimentalComponents: o.AllowExperimentalComponents,
 			AllowLabelMatching:          labels,
 			AllowLocalAttributeMatching: localAttrs,
@@ -95,7 +95,7 @@ var _ = Describe("shepherd.mgmt.v1.FleetService/ListAttributes", Label("integrat
 	}
 
 	attributes := func() map[string]any {
-		resp := postConnectJSON(server, "/shepherd.mgmt.v1.FleetService/ListAttributes", reader, map[string]any{"orgId": orgID.String()})
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.FleetService/ListAttributes", viewer, map[string]any{"orgId": orgID.String()})
 		defer resp.Body.Close() //nolint:errcheck // test cleanup
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
 		var out struct {

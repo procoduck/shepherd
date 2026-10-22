@@ -374,7 +374,7 @@ var _ = Describe("platform audit visibility", Label("integration"), func() {
 
 		o, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
 			Name: "audit-vis-org", DisplayName: "Audit Vis Org",
-			AdminGroupID: "audit-vis-admins", ReaderGroupID: pgtype.Text{},
+			AdminGroupID: "audit-vis-admins", ViewerGroupID: pgtype.Text{},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		orgIDStr = o.ID.String()
@@ -468,7 +468,7 @@ var _ = Describe("platform audit visibility", Label("integration"), func() {
 // newOrgScopedAdminSession creates a non-app-admin session that is an admin of
 // the org whose admin group is groupID.
 func newOrgScopedAdminSession(ctx context.Context, st *store.Store, groupID string) *http.Cookie {
-	id := "org-admin-sess-" + time.Now().Format("150405.000000000")
+	id := "org admin-sess-" + time.Now().Format("150405.000000000")
 	groupsJSON, err := json.Marshal([]string{groupID})
 	Expect(err).NotTo(HaveOccurred())
 	_, err = st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{

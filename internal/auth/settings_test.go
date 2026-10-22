@@ -390,7 +390,7 @@ var _ = Describe("configuration precedence", Label("integration"), func() {
 var _ = Describe("group resolution", func() {
 	// resolveGroups is where an ID token becomes an authorization decision:
 	// its output is matched against the app-admin list and every org's
-	// admin/reader group. Every branch is covered here because a silent wrong
+	// admin/viewer group. Every branch is covered here because a silent wrong
 	// answer is a privilege decision, not a display bug.
 	var h *auth.Handler
 

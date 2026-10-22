@@ -29,7 +29,7 @@ import (
 // red-run case (in the suite's own It, gated behind ginkgo focus during
 // development — see the workstream report for the captured red-run
 // transcript) for proof requireWriteAuthorized is what actually blocks it,
-// not the coarser org-reader gate PipelineService's writes now share with
+// not the coarser org viewer gate PipelineService's writes now share with
 // its reads.
 var _ = Describe("G12: service-account capability scoping (propose vs apply)", Label("integration"), func() {
 	var (
@@ -133,13 +133,13 @@ const g12DelegatedPrincipal = "someone@example.com"
 // point is to isolate the CAPABILITY axis (propose vs apply): every
 // procedure this file calls (PipelineService.UpdatePipeline,
 // DestinationService.CreateDestination, TeamService.CreateTeam,
-// PipelineService.ListPipelines) is RoleOrgReader, which editor tier
+// PipelineService.ListPipelines) is reqOrgViewer, which editor tier
 // clears trivially, so varying role here would only add noise to a suite
 // about the orthogonal axis. See service_account_tier_test.go for the
 // tier-specific coverage TeamService.CreateTeam's propose-vs-apply case
-// does NOT — TeamService writes are RoleOrgAdmin, so an editor-tier token
+// does NOT — TeamService writes are reqOrgAdmin, so an editor-tier token
 // used to be refused there for the WRONG reason before W3-1 (capability
-// only; org-admin procedures were unchecked for tier at all) and is
+// only; org admin procedures were unchecked for tier at all) and is
 // refused for the RIGHT reason now (capability AND tier both gate it) —
 // the capability-scoped "propose" cases below stay 403 either way, so
 // nothing here needed to change to keep asserting that.

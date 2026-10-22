@@ -45,7 +45,7 @@ var _ = Describe("shepherd.mgmt.v1.SimulateService — Run API (S3 sandbox runs)
 		server       *httptest.Server
 		orgID        string
 		adminCookie  *http.Cookie
-		readerCookie *http.Cookie
+		viewerCookie *http.Cookie
 	)
 
 	BeforeEach(func() {
@@ -58,13 +58,13 @@ var _ = Describe("shepherd.mgmt.v1.SimulateService — Run API (S3 sandbox runs)
 
 		o, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
 			Name: "simulate-run-org", DisplayName: "Simulate Run Org",
-			AdminGroupID: "run-admin-grp", ReaderGroupID: pgtype.Text{String: "run-reader-grp", Valid: true},
+			AdminGroupID: "run-admin-grp", ViewerGroupID: pgtype.Text{String: "run-viewer-grp", Valid: true},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		orgID = o.ID.String()
 
 		adminCookie = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "run-admin-grp")}
-		readerCookie = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "run-reader-grp")}
+		viewerCookie = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "run-viewer-grp")}
 
 		cfg := &config.Config{
 			Auth: config.AuthConfig{InsecureCookies: true},
@@ -115,8 +115,8 @@ var _ = Describe("shepherd.mgmt.v1.SimulateService — Run API (S3 sandbox runs)
 		Expect(run["fidelityNote"]).NotTo(BeEmpty(), "fidelity_note must always be populated")
 	})
 
-	It("denies CreateRun and GetRun for a session without org-admin access", func() {
-		resp := createRun(readerCookie, minimalRunGraph(orgID))
+	It("denies CreateRun and GetRun for a session without org admin access", func() {
+		resp := createRun(viewerCookie, minimalRunGraph(orgID))
 		defer resp.Body.Close() //nolint:errcheck // test cleanup
 		Expect(resp.StatusCode).To(Equal(http.StatusForbidden))
 		Expect(connectErrorCode(resp)).To(Equal("permission_denied"))
@@ -127,7 +127,7 @@ var _ = Describe("shepherd.mgmt.v1.SimulateService — Run API (S3 sandbox runs)
 		Expect(adminResp.StatusCode).To(Equal(http.StatusOK))
 		runID, _ := decodeBody(adminResp)["runId"].(string) //nolint:errcheck // map value may be absent in test; empty string is safe
 
-		getResp := getRun(readerCookie, runID)
+		getResp := getRun(viewerCookie, runID)
 		defer getResp.Body.Close() //nolint:errcheck // test cleanup
 		Expect(getResp.StatusCode).To(Equal(http.StatusForbidden))
 		Expect(connectErrorCode(getResp)).To(Equal("permission_denied"))
@@ -136,7 +136,7 @@ var _ = Describe("shepherd.mgmt.v1.SimulateService — Run API (S3 sandbox runs)
 	It("refuses to read another org's run through a caller-supplied org id (tenant isolation)", func() {
 		otherOrg, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
 			Name: "simulate-run-org-b", DisplayName: "Simulate Run Org B",
-			AdminGroupID: "run-admin-grp-b", ReaderGroupID: pgtype.Text{},
+			AdminGroupID: "run-admin-grp-b", ViewerGroupID: pgtype.Text{},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		otherAdminCookie := &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "run-admin-grp-b")}

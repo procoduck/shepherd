@@ -29,7 +29,7 @@ var _ mgmtv1connect.MeServiceHandler = (*MeService)(nil)
 // noStoreCacheControl is the Cache-Control value GetMe has always returned
 // (the pre-Connect REST handler did the same): authentication state must never be cached.
 // MountRPC's procedureRequirements grants GetMe to any authenticated
-// session (auth.RoleAny), so the authz interceptor already enforces
+// session (auth.RequireAuthenticated()), so the authz interceptor already enforces
 // authentication for direct Connect callers; this method sets the same
 // header on the Connect response (connect.Response.Header()) so that wire
 // dialect also conveys the no-caching intent. The nil-session guard below
@@ -56,16 +56,15 @@ func (s *MeService) GetMe(ctx context.Context, _ *connect.Request[mgmtv1.GetMeRe
 	for i := range allOrgs {
 		org := &allOrgs[i]
 		if sess.IsAppAdmin {
-			orgEntries = append(orgEntries, &mgmtv1.OrgMembership{Id: org.ID.String(), Name: org.Name, DisplayName: org.DisplayName, Role: auth.OrgRoleAdmin, AllowExperimentalComponents: org.AllowExperimentalComponents, AllowLabelMatching: org.AllowLabelMatching, AllowLocalAttributeMatching: org.AllowLocalAttributeMatching, TenantId: org.TenantID.String})
+			orgEntries = append(orgEntries, &mgmtv1.OrgMembership{Id: org.ID.String(), Name: org.Name, DisplayName: org.DisplayName, Role: mgmtv1.Role_ROLE_ADMIN, AllowExperimentalComponents: org.AllowExperimentalComponents, AllowLabelMatching: org.AllowLabelMatching, AllowLocalAttributeMatching: org.AllowLocalAttributeMatching, TenantId: org.TenantID.String})
 			continue
 		}
-		// Both sign-in paths resolve to the SAME three role names here, because
-		// this value drives what the UI offers. Reporting "reader" to a local
-		// editor would hide the pipeline editor from someone who can in fact
-		// use it — the server would allow the write the UI never offered.
-		role := auth.ResolveOrgRole(ctx, s.store, sess, *org)
-		if role != "" {
-			orgEntries = append(orgEntries, &mgmtv1.OrgMembership{Id: org.ID.String(), Name: org.Name, DisplayName: org.DisplayName, Role: role, AllowExperimentalComponents: org.AllowExperimentalComponents, AllowLabelMatching: org.AllowLabelMatching, AllowLocalAttributeMatching: org.AllowLocalAttributeMatching, TenantId: org.TenantID.String})
+		// Both sign-in paths resolve to the SAME Role here, because this
+		// value drives what the UI offers. Reporting viewer to a local editor
+		// would hide the pipeline editor from someone who can in fact use it
+		// — the server would allow the write the UI never offered.
+		if role, ok := auth.ResolveOrgRole(ctx, s.store, sess, *org); ok {
+			orgEntries = append(orgEntries, &mgmtv1.OrgMembership{Id: org.ID.String(), Name: org.Name, DisplayName: org.DisplayName, Role: roleToProto(role), AllowExperimentalComponents: org.AllowExperimentalComponents, AllowLabelMatching: org.AllowLabelMatching, AllowLocalAttributeMatching: org.AllowLocalAttributeMatching, TenantId: org.TenantID.String})
 		}
 	}
 

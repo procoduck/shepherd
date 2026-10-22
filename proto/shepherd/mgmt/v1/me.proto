@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package shepherd.mgmt.v1;
 
+import "shepherd/mgmt/v1/common.proto";
+
 option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 
 // MeService reports the authenticated actor's identity and org memberships.
@@ -16,11 +18,16 @@ message OrgMembership {
   string id = 1;
   string name = 2;
   string display_name = 3;
-  // Role is "admin", "editor" or "viewer" — the same three names for a local
-  // user (org_members.role) and an OIDC one (matched against the org's
-  // admin/editor/reader group), so the UI does not have to know which path the
-  // session came from. Kept as a string rather than an enum.
-  string role = 4;
+  // Field 4 was the role as a string until step 7a (#361) made it the Role
+  // enum. Reserved rather than retyped so a client still sending the string
+  // is dropped as an unknown field, never reinterpreted.
+  reserved 4;
+  // role is the actor's effective role — the same Role for a local user
+  // (org_members.role) and an OIDC one (matched against the org's
+  // admin/editor/viewer group), so the UI does not have to know which path
+  // the session came from. Never ROLE_UNSPECIFIED: an org the actor holds no
+  // role in is not listed. An app admin is reported as ROLE_ADMIN everywhere.
+  Role role = 9;
   // allow_experimental_components mirrors the org setting (#114) so the visual
   // builder can show experimental components in the palette for a permitted
   // org. The server render gate is authoritative regardless of this value.

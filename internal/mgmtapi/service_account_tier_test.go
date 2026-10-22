@@ -3,6 +3,7 @@ package mgmtapi_test
 import (
 	"context"
 	"crypto/sha256"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -24,7 +25,7 @@ import (
 // (rpc_interceptor.go) the same way a human session's role is. Before this,
 // authorizeServiceAccountProcedure only checked org membership, so an
 // apply-capability service account — regardless of what it was minted to
-// do — reached every RoleOrgAdmin procedure (RotateTenantRoute, DeleteTeam,
+// do — reached every reqOrgAdmin procedure (RotateTenantRoute, DeleteTeam,
 // AddTeamMember, DeleteCredential, ListAudit...). capability (G12, propose
 // vs apply) and role (the tier axis) are orthogonal: role decides WHICH
 // procedures a token may reach at all, capability decides whether it may
@@ -111,7 +112,7 @@ var _ = Describe("W3-1: service-account role tier", Label("integration"), func()
 	}
 
 	// This is the core RED case: an apply-capability service account must
-	// NOT reach a RoleOrgAdmin procedure just because its org matches and
+	// NOT reach a reqOrgAdmin procedure just because its org matches and
 	// it has apply capability. Before W3-1's interceptor tier check this
 	// passed (200), because authorizeServiceAccountProcedure never looked
 	// past the org match — see the workstream report for the captured red
@@ -124,7 +125,7 @@ var _ = Describe("W3-1: service-account role tier", Label("integration"), func()
 		resp := g12PostConnect(server, "/shepherd.mgmt.v1.TenantRouteService/CreateTenantRoute",
 			createTenantRouteBody(orgID.String()), id, secret, satierDelegatedPrincipal)
 		Expect(resp.StatusCode).To(Equal(http.StatusForbidden),
-			"an editor-tier service account (the default) must not reach an org-admin procedure "+
+			"an editor-tier service account (the default) must not reach an org admin procedure "+
 				"just because its capability is apply and its org matches")
 		Expect(g11DecodeBody(resp)["code"]).To(Equal("permission_denied"))
 	})
@@ -140,7 +141,7 @@ var _ = Describe("W3-1: service-account role tier", Label("integration"), func()
 			createTenantRouteBody(orgID.String()), id, secret, satierDelegatedPrincipal)
 		Expect(resp.StatusCode).To(Equal(http.StatusOK),
 			"an admin-tier service account, created explicitly with role=admin, must clear the same "+
-				"org-admin procedure an editor-tier one is refused on")
+				"org admin procedure an editor-tier one is refused on")
 	})
 
 	It("enforces the admin tier independently on both collector label RPCs", func() {
@@ -190,19 +191,28 @@ var _ = Describe("W3-1: service-account role tier", Label("integration"), func()
 		Expect(g11DecodeBody(resp)["code"]).To(Equal("permission_denied"))
 	})
 
-	// D3: role defaults to "editor" when CreateServiceAccountRequest
-	// leaves it unset — proven at the RPC boundary (a human app-admin
-	// session mints the account; CreateServiceAccount always refuses a
-	// machine caller, so this is necessarily a human-session call), not
-	// just by reading the migration's DEFAULT back through a direct DB
-	// insert.
-	It("defaults CreateServiceAccount's role to editor when the request does not set one", func() {
+	// D3: nothing about a request implies admin. Since step 7a (#361) the
+	// role is the Role enum and an unset role is refused rather than
+	// defaulted: Connect's JSON codec discards an enum name it does not
+	// know, so a client sending a retired string ("admin") or a typo
+	// arrives as ROLE_UNSPECIFIED — defaulting that to editor would be the
+	// silent coercion the spec below forbids. Proven at the RPC boundary (a
+	// human app-admin session mints the account; CreateServiceAccount always
+	// refuses a machine caller).
+	It("refuses CreateServiceAccount when the request does not set a role", func() {
 		admin := newAppAdminSession(ctx, st)
 		resp := postConnectJSON(server, "/shepherd.mgmt.v1.ServiceAccountService/CreateServiceAccount", admin,
 			map[string]any{"orgId": orgID.String(), "name": "satier-default-role", "capability": "propose"})
+		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+		Expect(g11DecodeBody(resp)["code"]).To(Equal("invalid_argument"))
+	})
+
+	It("creates an editor-tier service account when the request sets ROLE_EDITOR", func() {
+		admin := newAppAdminSession(ctx, st)
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.ServiceAccountService/CreateServiceAccount", admin,
+			map[string]any{"orgId": orgID.String(), "name": "satier-editor-role", "capability": "propose", "role": "ROLE_EDITOR"})
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
-		created := g11DecodeBody(resp)
-		Expect(created["role"]).To(Equal("editor"), "role must default to editor when the request leaves it unset")
+		Expect(g11DecodeBody(resp)["role"]).To(Equal("ROLE_EDITOR"))
 	})
 
 	// D3: "admin explicit at creation" — the positive half of the same
@@ -211,20 +221,25 @@ var _ = Describe("W3-1: service-account role tier", Label("integration"), func()
 	It("creates an admin-tier service account when the request explicitly sets role=admin", func() {
 		admin := newAppAdminSession(ctx, st)
 		resp := postConnectJSON(server, "/shepherd.mgmt.v1.ServiceAccountService/CreateServiceAccount", admin,
-			map[string]any{"orgId": orgID.String(), "name": "satier-explicit-admin-role", "capability": "propose", "role": "admin"})
+			map[string]any{"orgId": orgID.String(), "name": "satier-explicit-admin-role", "capability": "propose", "role": "ROLE_ADMIN"})
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
 		created := g11DecodeBody(resp)
-		Expect(created["role"]).To(Equal("admin"), "an explicit role=admin request must be honored, not silently downgraded")
+		Expect(created["role"]).To(Equal("ROLE_ADMIN"), "an explicit role=admin request must be honored, not silently downgraded")
 	})
 
 	// A role outside the "editor"/"admin" pair must be rejected the same
 	// way an unrecognized capability already is, not silently coerced.
 	It("rejects a role outside the editor/admin pair", func() {
 		admin := newAppAdminSession(ctx, st)
-		resp := postConnectJSON(server, "/shepherd.mgmt.v1.ServiceAccountService/CreateServiceAccount", admin,
-			map[string]any{"orgId": orgID.String(), "name": "satier-bad-role", "capability": "propose", "role": "super-admin"})
-		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
-		Expect(g11DecodeBody(resp)["code"]).To(Equal("invalid_argument"))
+		// "super-admin" is not a Role at all; ROLE_VIEWER is a Role but not a
+		// service-account tier (0018's CHECK); "admin" is the retired string
+		// form, which the enum no longer accepts.
+		for _, role := range []any{"super-admin", "ROLE_VIEWER", "admin", 42} {
+			resp := postConnectJSON(server, "/shepherd.mgmt.v1.ServiceAccountService/CreateServiceAccount", admin,
+				map[string]any{"orgId": orgID.String(), "name": "satier-bad-role", "capability": "propose", "role": role})
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest), fmt.Sprintf("role %v", role))
+			Expect(g11DecodeBody(resp)["code"]).To(Equal("invalid_argument"), fmt.Sprintf("role %v", role))
+		}
 	})
 })
 

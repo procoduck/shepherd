@@ -65,9 +65,9 @@ func TestEveryProcedureHasAnAuthzRequirement(t *testing.T) {
 // Test/UpgradeCheck does not. Deriving "is a write" from the METHOD NAME
 // (read straight off the descriptor) rather than from procedureRequirements'
 // role values is deliberate: several procedures are reads gated above org
-// reader for VISIBILITY — org admin (ListAudit, ListCredentials,
+// viewer for VISIBILITY — org admin (ListAudit, ListCredentials,
 // TestCredential) or org editor (SimulateService's whole surface), and
-// VisualService.Render/Validate/UpgradeCheck, which since #319 are org-reader
+// VisualService.Render/Validate/UpgradeCheck, which since #319 are org viewer
 // at the interceptor and editor-or-owning-team in the handler — so role level
 // alone cannot distinguish "gated read" from "write", and this test does not
 // try to.

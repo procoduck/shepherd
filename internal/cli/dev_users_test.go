@@ -55,7 +55,7 @@ var _ = Describe("seedLocalUsers", Label("integration"), func() {
 
 	seedPlatformOrg := func() pgtype.UUID {
 		org, err := upsertSeedOrg(ctx, st, seedOrgPlatformID, "platform-org", "Platform Engineering",
-			seedPlatformAdminGroupID, seedPlatformReaderGroupID, "platform-org")
+			seedPlatformAdminGroupID, seedPlatformViewerGroupID, "platform-org")
 		Expect(err).NotTo(HaveOccurred())
 		return org.ID
 	}
@@ -83,7 +83,7 @@ var _ = Describe("seedLocalUsers", Label("integration"), func() {
 		Expect(ok).To(BeTrue())
 		editorRole, err := st.Queries.GetOrgMemberRole(ctx, sqlc.GetOrgMemberRoleParams{OrgID: orgID, UserID: editor.ID})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(editorRole).To(Equal(auth.OrgRoleEditor))
+		Expect(editorRole).To(Equal(auth.RoleEditor.String()))
 
 		viewer, err := st.Queries.GetUserByLogin(ctx, seedViewerLogin)
 		Expect(err).NotTo(HaveOccurred())
@@ -92,7 +92,7 @@ var _ = Describe("seedLocalUsers", Label("integration"), func() {
 		Expect(ok).To(BeTrue())
 		viewerRole, err := st.Queries.GetOrgMemberRole(ctx, sqlc.GetOrgMemberRoleParams{OrgID: orgID, UserID: viewer.ID})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(viewerRole).To(Equal(auth.OrgRoleViewer))
+		Expect(viewerRole).To(Equal(auth.RoleViewer.String()))
 
 		// Seeding again must not error, duplicate users, or change roles —
 		// `dev seed` is run on every dev stack restart.
@@ -107,7 +107,7 @@ var _ = Describe("seedLocalUsers", Label("integration"), func() {
 		Expect(editorAgain.ID).To(Equal(editor.ID), "re-seeding must reuse the existing editor row, not create a second one")
 		editorRoleAgain, err := st.Queries.GetOrgMemberRole(ctx, sqlc.GetOrgMemberRoleParams{OrgID: orgID, UserID: editor.ID})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(editorRoleAgain).To(Equal(auth.OrgRoleEditor))
+		Expect(editorRoleAgain).To(Equal(auth.RoleEditor.String()))
 	})
 })
 
@@ -122,7 +122,7 @@ var _ = Describe("seedPipelines", Label("integration"), func() {
 		defer st.Close()
 
 		org, err := upsertSeedOrg(ctx, st, seedOrgPlatformID, "platform-org", "Platform Engineering",
-			seedPlatformAdminGroupID, seedPlatformReaderGroupID, "platform-org")
+			seedPlatformAdminGroupID, seedPlatformViewerGroupID, "platform-org")
 		Expect(err).NotTo(HaveOccurred())
 		cluster, err := st.Queries.UpsertCluster(ctx, "seed-cluster")
 		Expect(err).NotTo(HaveOccurred())

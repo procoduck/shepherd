@@ -52,7 +52,7 @@ var _ = Describe("cross-org isolation of by-id handlers", Label("integration"), 
 
 		a, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
 			Name: "org-a", DisplayName: "Org A", AdminGroupID: "a-admin",
-			ReaderGroupID: pgtype.Text{String: "a-reader", Valid: true},
+			ViewerGroupID: pgtype.Text{String: "a-viewer", Valid: true},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		orgA = a.ID
@@ -116,8 +116,8 @@ var _ = Describe("cross-org isolation of by-id handlers", Label("integration"), 
 	It("refuses to read another org's collector", func() {
 		victim := collectorInB("b-cluster-get")
 		code, body := post("/shepherd.mgmt.v1.FleetService/GetCollector",
-			map[string]any{"orgId": orgA.String(), "id": victim.String()}, sessionIn("a-reader"))
-		Expect(code).NotTo(Equal(http.StatusOK), "a reader in org A read org B's collector: %s", body)
+			map[string]any{"orgId": orgA.String(), "id": victim.String()}, sessionIn("a-viewer"))
+		Expect(code).NotTo(Equal(http.StatusOK), "a viewer in org A read org B's collector: %s", body)
 	})
 
 	It("refuses to read another org's served config", func() {
@@ -125,12 +125,12 @@ var _ = Describe("cross-org isolation of by-id handlers", Label("integration"), 
 		// URLs, tenant ids and any credentials embedded in pipeline contents.
 		victim := collectorInB("b-cluster-served")
 		code, body := post("/shepherd.mgmt.v1.FleetService/GetServedConfig",
-			map[string]any{"orgId": orgA.String(), "id": victim.String()}, sessionIn("a-reader"))
-		Expect(code).NotTo(Equal(http.StatusOK), "a reader in org A read org B's served config: %s", body)
+			map[string]any{"orgId": orgA.String(), "id": victim.String()}, sessionIn("a-viewer"))
+		Expect(code).NotTo(Equal(http.StatusOK), "a viewer in org A read org B's served config: %s", body)
 	})
 
 	It("refuses to grant its own group access to another org's collector", func() {
-		// A cross-tenant WRITE: group_assignments feed the reader-floor
+		// A cross-tenant WRITE: group_assignments feed the viewer-floor
 		// fallback, so this would be org A granting itself standing access.
 		victim := collectorInB("b-cluster-assign")
 		code, body := post("/shepherd.mgmt.v1.FleetService/CreateAssignment",

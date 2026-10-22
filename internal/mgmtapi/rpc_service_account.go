@@ -13,6 +13,7 @@ import (
 
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
+	"shepherd/internal/auth"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 )
@@ -35,17 +36,32 @@ var _ mgmtv1connect.ServiceAccountServiceHandler = (*ServiceAccountService)(nil)
 var (
 	errServiceAccountNameRequired = errors.New("name is required")
 	errServiceAccountCapability   = errors.New(`capability must be "propose" or "apply"`)
-	errServiceAccountRole         = errors.New(`role must be "" (defaults to "editor"), "editor", or "admin"`)
+	errServiceAccountRole         = errors.New("role must be ROLE_EDITOR or ROLE_ADMIN")
 	errServiceAccountNotFound     = errors.New("service account not found")
 	errServiceAccountNameExists   = errors.New("service account name already exists in this org")
 )
 
-// serviceAccountRoleEditor/Admin mirror 0018_service_account_role's CHECK
-// constraint values exactly.
-const (
-	serviceAccountRoleEditor = "editor"
-	serviceAccountRoleAdmin  = "admin"
-)
+// serviceAccountTier maps a CreateServiceAccount role onto the tier stored in
+// service_accounts.role. The role is required: ROLE_UNSPECIFIED is refused,
+// not defaulted, because Connect's JSON codec discards an enum name it does
+// not recognise and a retired string role ("admin") or a typo would arrive
+// as UNSPECIFIED — D3's "admin explicit at creation" also means nothing is
+// ever silently coerced. Viewer is not a service-account tier
+// (0018_service_account_role's CHECK allows editor and admin), so
+// ROLE_VIEWER is refused like any other value outside the pair.
+func serviceAccountTier(r mgmtv1.Role) (auth.Role, error) {
+	role, err := roleFromProto(r)
+	if err != nil {
+		return "", errServiceAccountRole
+	}
+	switch role {
+	case auth.RoleEditor, auth.RoleAdmin:
+		return role, nil
+	case auth.RoleViewer:
+		return "", errServiceAccountRole
+	}
+	return "", errServiceAccountRole
+}
 
 func toServiceAccountProto(sa sqlc.ServiceAccount) *mgmtv1.ServiceAccount {
 	status := "active"
@@ -60,7 +76,7 @@ func toServiceAccountProto(sa sqlc.ServiceAccount) *mgmtv1.ServiceAccount {
 		CreatedBy:  sa.CreatedBy,
 		Status:     status,
 		CreatedAt:  protoTimestamp(sa.CreatedAt),
-		Role:       sa.Role,
+		Role:       storedRoleToProto(sa.Role),
 	}
 }
 
@@ -119,17 +135,9 @@ func (s *ServiceAccountService) CreateServiceAccount(ctx context.Context, req *c
 	if capability != capabilityPropose && capability != capabilityApply {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errServiceAccountCapability)
 	}
-	// role defaults to "editor" when the request leaves it unset — D3's
-	// "admin explicit at creation": nothing about capability, name, or any
-	// other field ever implies "admin", only an explicit role="admin" does.
-	role := req.Msg.GetRole()
-	switch role {
-	case "":
-		role = serviceAccountRoleEditor
-	case serviceAccountRoleEditor, serviceAccountRoleAdmin:
-		// explicit and valid.
-	default:
-		return nil, connect.NewError(connect.CodeInvalidArgument, errServiceAccountRole)
+	role, err := serviceAccountTier(req.Msg.GetRole())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
 	actor := actorFromCtx(ctx)
@@ -141,7 +149,7 @@ func (s *ServiceAccountService) CreateServiceAccount(ctx context.Context, req *c
 	hash := sha256.Sum256([]byte(secret))
 
 	sa, err := s.store.Queries.CreateServiceAccount(ctx, sqlc.CreateServiceAccountParams{
-		OrgID: orgID, Name: req.Msg.GetName(), Capability: capability, Role: role, TokenHash: hash[:], CreatedBy: actor,
+		OrgID: orgID, Name: req.Msg.GetName(), Capability: capability, Role: role.String(), TokenHash: hash[:], CreatedBy: actor,
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -152,7 +160,7 @@ func (s *ServiceAccountService) CreateServiceAccount(ctx context.Context, req *c
 	}
 	auditLog(ctx, s.store, actor, orgID, "service_account.create", "service_account", sa.ID.String())
 	return connect.NewResponse(&mgmtv1.CreateServiceAccountResponse{
-		Id: sa.ID.String(), Name: sa.Name, Capability: sa.Capability, Secret: secret, Role: sa.Role,
+		Id: sa.ID.String(), Name: sa.Name, Capability: sa.Capability, Secret: secret, Role: storedRoleToProto(sa.Role),
 	}), nil
 }
 

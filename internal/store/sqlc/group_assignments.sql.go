@@ -70,7 +70,7 @@ type ListCollectorIDsByGroupMembershipInOrgParams struct {
 //
 // The org filter is load-bearing, not decoration. Without it this asks "does
 // this session hold an assignment on ANY collector anywhere", and a viewer with
-// one assignment in one org clears the reader floor for EVERY org -- silently,
+// one assignment in one org clears the viewer floor for EVERY org -- silently,
 // because GetMe computes its org list from group matches and never shows the
 // extra orgs. The sibling ListTeamsByOrgAndGroups has always been org-scoped;
 // this one was not.

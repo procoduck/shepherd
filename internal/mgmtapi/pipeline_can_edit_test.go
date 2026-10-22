@@ -76,7 +76,7 @@ var _ = Describe("F3: Pipeline.can_edit", Label("integration"), func() {
 		o, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
 			Name: "f3-org", DisplayName: "F3 Org", AdminGroupID: "f3-admin",
 			EditorGroupID: pgtype.Text{String: "f3-editor", Valid: true},
-			ReaderGroupID: pgtype.Text{String: "f3-reader", Valid: true},
+			ViewerGroupID: pgtype.Text{String: "f3-viewer", Valid: true},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		orgID = o.ID
@@ -102,8 +102,8 @@ var _ = Describe("F3: Pipeline.can_edit", Label("integration"), func() {
 		authHandler := auth.NewLocalAdmin(cfg, st, slog.Default())
 		server = httptest.NewServer(newRPCWiringRouter(st, authHandler, cfg))
 
-		viewerInTeam = g11Session(ctx, st, "f3-viewer-in-team", []string{"f3-reader", "f3-team-a"})
-		viewerOnly = g11Session(ctx, st, "f3-viewer", []string{"f3-reader"})
+		viewerInTeam = g11Session(ctx, st, "f3-viewer-in-team", []string{"f3-viewer", "f3-team-a"})
+		viewerOnly = g11Session(ctx, st, "f3-viewer", []string{"f3-viewer"})
 		editor = g11Session(ctx, st, "f3-editor", []string{"f3-editor"})
 		admin = g11Session(ctx, st, "f3-admin", []string{"f3-admin"})
 	})

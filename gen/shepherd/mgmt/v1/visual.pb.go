@@ -786,9 +786,9 @@ type RenderRequest struct {
 	OrgId string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
 	Graph *GraphDocument         `protobuf:"bytes,2,opt,name=graph,proto3" json:"graph,omitempty"`
 	// pipeline_id names the existing pipeline this graph is being edited for.
-	// Set: the caller must be allowed to edit that pipeline (org-editor, or a
+	// Set: the caller must be allowed to edit that pipeline (org editor, or a
 	// team owner per AuthorizeOwnership — the UpdatePipeline check).
-	// Empty: a new, unsaved graph — org-editor required.
+	// Empty: a new, unsaved graph — org editor required.
 	// Naming a pipeline runs the write-authorization check, so a
 	// propose-capability service account must leave pipeline_id empty.
 	PipelineId    string `protobuf:"bytes,3,opt,name=pipeline_id,json=pipelineId,proto3" json:"pipeline_id,omitempty"`

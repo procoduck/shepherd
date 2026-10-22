@@ -60,7 +60,7 @@ var _ = Describe("PipelineService Connect RPC", Label("integration"), func() {
 			Name:          "rpc-pipeline-org",
 			DisplayName:   "RPC Pipeline Org",
 			AdminGroupID:  "admin-group",
-			ReaderGroupID: pgtype.Text{},
+			ViewerGroupID: pgtype.Text{},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		orgID = o.ID.String()
@@ -118,7 +118,7 @@ var _ = Describe("PipelineService Connect RPC", Label("integration"), func() {
 	}
 
 	It("creates a pipeline over the Connect endpoint (happy path)", func() {
-		cookie := sessionCookie(true) // app admin: satisfies org-admin requirement for CreatePipeline
+		cookie := sessionCookie(true) // app admin: satisfies org admin requirement for CreatePipeline
 		resp := postConnect("/shepherd.mgmt.v1.PipelineService/CreatePipeline", map[string]any{
 			"org_id":   orgID,
 			"name":     "connect-created-pipe",
@@ -210,8 +210,8 @@ var _ = Describe("PipelineService Connect RPC", Label("integration"), func() {
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
 	})
 
-	It("denies CreatePipeline for a session without org-admin access", func() {
-		cookie := sessionCookie(false) // no group memberships: fails the org-admin requirement
+	It("denies CreatePipeline for a session without org admin access", func() {
+		cookie := sessionCookie(false) // no group memberships: fails the org admin requirement
 		resp := postConnect("/shepherd.mgmt.v1.PipelineService/CreatePipeline", map[string]any{
 			"org_id":   orgID,
 			"name":     "should-not-be-created",
@@ -350,7 +350,7 @@ var _ = Describe("PipelineService Connect RPC", Label("integration"), func() {
 			Name:          fmt.Sprintf("rpc-pipeline-other-%d", time.Now().UnixNano()),
 			DisplayName:   "Other Org",
 			AdminGroupID:  "admin-group",
-			ReaderGroupID: pgtype.Text{},
+			ViewerGroupID: pgtype.Text{},
 		})
 		Expect(err).NotTo(HaveOccurred())
 

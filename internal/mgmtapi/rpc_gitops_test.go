@@ -110,7 +110,7 @@ var _ = Describe("GitOpsService (Connect RPC)", Label("integration"), func() {
 
 		o, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
 			Name: "gitops-rpc-org", DisplayName: "GitOps RPC Org",
-			AdminGroupID: "gitops-admin-group", ReaderGroupID: pgtype.Text{},
+			AdminGroupID: "gitops-admin-group", ViewerGroupID: pgtype.Text{},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		orgID = o.ID.String()
@@ -381,7 +381,7 @@ var _ = Describe("GitOpsService (Connect RPC)", Label("integration"), func() {
 
 				other, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
 					Name: "gitops-rpc-org-2", DisplayName: "GitOps RPC Org 2",
-					AdminGroupID: "gitops-admin-group-2", ReaderGroupID: pgtype.Text{},
+					AdminGroupID: "gitops-admin-group-2", ViewerGroupID: pgtype.Text{},
 				})
 				Expect(err).NotTo(HaveOccurred())
 				otherAdmin := newSession("gitops-admin-2", []string{"gitops-admin-group-2"}, false)

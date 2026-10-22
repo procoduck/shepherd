@@ -55,7 +55,7 @@ type VisualServiceClient interface {
 	GraphView(context.Context, *connect.Request[v1.GraphViewRequest]) (*connect.Response[v1.GraphViewResponse], error)
 	// DiffRevisions returns the structural graph diff between two of a
 	// pipeline's revisions — the visual-builder counterpart to the text-only
-	// RevisionDiff (#118). Org-reader, like GraphView.
+	// RevisionDiff (#118). Org viewer, like GraphView.
 	DiffRevisions(context.Context, *connect.Request[v1.DiffRevisionsRequest]) (*connect.Response[v1.DiffRevisionsResponse], error)
 }
 
@@ -145,7 +145,7 @@ type VisualServiceHandler interface {
 	GraphView(context.Context, *connect.Request[v1.GraphViewRequest]) (*connect.Response[v1.GraphViewResponse], error)
 	// DiffRevisions returns the structural graph diff between two of a
 	// pipeline's revisions — the visual-builder counterpart to the text-only
-	// RevisionDiff (#118). Org-reader, like GraphView.
+	// RevisionDiff (#118). Org viewer, like GraphView.
 	DiffRevisions(context.Context, *connect.Request[v1.DiffRevisionsRequest]) (*connect.Response[v1.DiffRevisionsResponse], error)
 }
 

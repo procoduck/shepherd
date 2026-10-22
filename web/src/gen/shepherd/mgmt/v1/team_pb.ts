@@ -354,10 +354,10 @@ export const DeleteTeamResponseSchema: GenMessage<DeleteTeamResponse> = /*@__PUR
  * write (G11) is scoped by.
  *
  * Team *definition* (who counts as a team, which IdP group backs it)
- * requires org-admin — the same "org-admin edits everything" ceiling every
+ * requires org admin — the same "org admin edits everything" ceiling every
  * other admin surface in this API has. What G11 actually adds is that a
  * non-admin member of a team can then write the pipelines that team owns,
- * without needing org-admin at all — see PipelineService.
+ * without needing org admin at all — see PipelineService.
  *
  * Membership comes from either or both of two sources and is their union:
  * the IdP group named by idp_group_id, and explicit local users listed by

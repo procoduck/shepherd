@@ -33,16 +33,6 @@ import (
 // how orphans are found.
 const RouteIDLabel = "shepherd.io/tenant-route-id"
 
-// Apply statuses, as migration 0027 lists them.
-const (
-	StatusPending       = "pending"
-	StatusApplied       = "applied"
-	StatusRefused       = "refused"
-	StatusError         = "error"
-	StatusRemoved       = "removed"
-	StatusNotApplicable = "not_applicable"
-)
-
 const (
 	// maxMessageLen caps apply_message: an apiserver error can be long.
 	maxMessageLen = 1000
@@ -193,10 +183,10 @@ func (r *Reconciler) Reconcile(ctx context.Context) {
 		name := ObjectName(row.ID.String())
 		switch {
 		case row.Kind == string(gateway.KindFaro):
-			r.record(ctx, row, StatusNotApplicable, faroMessage)
+			r.record(ctx, row, gateway.ApplyNotApplicable, faroMessage)
 		case !wantsRoute(row):
 			if listErr == nil && !failedDelete[name] {
-				r.record(ctx, row, StatusRemoved, "")
+				r.record(ctx, row, gateway.ApplyRemoved, "")
 			}
 		default:
 			r.apply(ctx, row)
@@ -211,14 +201,19 @@ func wantsRoute(row sqlc.TenantRoute) bool {
 	if row.Kind == string(gateway.KindFaro) {
 		return false
 	}
-	switch row.Status {
-	case "active":
+	status, err := gateway.ParseRouteStatus(row.Status)
+	if err != nil {
+		return false // not a status: never applied
+	}
+	switch status {
+	case gateway.RouteActive:
 		return true
-	case "deprecated":
+	case gateway.RouteDeprecated:
 		return !row.ValidUntil.Valid || row.ValidUntil.Time.After(time.Now())
-	default:
+	case gateway.RouteRevoked:
 		return false
 	}
+	return false
 }
 
 func (r *Reconciler) apply(ctx context.Context, row sqlc.TenantRoute) {
@@ -248,13 +243,13 @@ func (r *Reconciler) apply(ctx context.Context, row sqlc.TenantRoute) {
 	switch {
 	case err == nil:
 		delete(r.retry, id)
-		r.record(ctx, row, StatusApplied, "")
+		r.record(ctx, row, gateway.ApplyApplied, "")
 	case errors.As(err, &refused):
 		r.backOff(id)
-		r.record(ctx, row, StatusRefused, err.Error())
+		r.record(ctx, row, gateway.ApplyRefused, err.Error())
 	default:
 		r.backOff(id)
-		r.record(ctx, row, StatusError, err.Error())
+		r.record(ctx, row, gateway.ApplyError, err.Error())
 	}
 }
 
@@ -277,20 +272,20 @@ func (r *Reconciler) backOff(id string) {
 
 // record writes the outcome when it changed. An applied route is rewritten
 // every pass so applied_at stays the last verified attachment.
-func (r *Reconciler) record(ctx context.Context, row sqlc.TenantRoute, status, message string) {
+func (r *Reconciler) record(ctx context.Context, row sqlc.TenantRoute, status gateway.ApplyStatus, message string) {
 	if len(message) > maxMessageLen {
 		message = message[:maxMessageLen]
 	}
-	if status != StatusApplied && row.ApplyStatus == status && row.ApplyMessage == message {
+	if status != gateway.ApplyApplied && row.ApplyStatus == string(status) && row.ApplyMessage == message {
 		return
 	}
 	if _, err := r.store.SetTenantRouteApplyStatus(ctx, sqlc.SetTenantRouteApplyStatusParams{
-		ID: row.ID, ApplyStatus: status, ApplyMessage: message,
+		ID: row.ID, ApplyStatus: string(status), ApplyMessage: message,
 	}); err != nil {
 		r.logger.Error("recording apply status", "route_id", row.ID.String(), "status", status, "err", err)
 		return
 	}
-	if status != StatusApplied && row.ApplyStatus != status {
+	if status != gateway.ApplyApplied && row.ApplyStatus != string(status) {
 		r.logger.Info("route apply status changed", "route_id", row.ID.String(),
 			"from", row.ApplyStatus, "to", status, "message", message)
 	}

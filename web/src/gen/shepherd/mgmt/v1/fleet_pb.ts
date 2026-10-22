@@ -781,8 +781,8 @@ export const RenderChartValuesResponseSchema: GenMessage<RenderChartValuesRespon
 
 /**
  * FleetService covers an org's collectors, their labels and assignments,
- * matcher attributes, and reconciliation. Reads require org-reader; writes
- * (labels, assignments) require org-admin.
+ * matcher attributes, and reconciliation. Reads require org viewer; writes
+ * (labels, assignments) require org admin.
  *
  * @generated from service shepherd.mgmt.v1.FleetService
  */
@@ -813,7 +813,7 @@ export const FleetService: GenService<{
   },
   /**
    * GetReconciliation returns the collector's declared-vs-served-vs-observed
-   * drift findings (W6, #110). Org-reader, like GetServedConfig.
+   * drift findings (W6, #110). Org viewer, like GetServedConfig.
    *
    * @generated from rpc shepherd.mgmt.v1.FleetService.GetReconciliation
    */
@@ -873,7 +873,7 @@ export const FleetService: GenService<{
   /**
    * RenderChartValues renders the Helm values that connect a cluster's
    * Grafana k8s-monitoring collectors to this Shepherd (W9,
-   * internal/chartvalues). Org-admin: it decides which cluster name joins
+   * internal/chartvalues). Org admin: it decides which cluster name joins
    * the org's fleet. Writes nothing.
    *
    * @generated from rpc shepherd.mgmt.v1.FleetService.RenderChartValues

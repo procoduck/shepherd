@@ -60,7 +60,7 @@ func (f *fakeStore) SetTenantRouteApplyStatus(_ context.Context, arg sqlc.SetTen
 			f.writes++
 			f.rows[i].ApplyStatus = arg.ApplyStatus
 			f.rows[i].ApplyMessage = arg.ApplyMessage
-			if arg.ApplyStatus == routeapply.StatusApplied {
+			if arg.ApplyStatus == string(gateway.ApplyApplied) {
 				f.rows[i].AppliedAt = pgtype.Timestamptz{Time: time.Now(), Valid: true}
 			}
 			return f.rows[i], nil
@@ -187,7 +187,7 @@ var _ = Describe("Reconciler", func() {
 		row := sqlc.TenantRoute{
 			ID: id, TenantID: "acme", Kind: kind, Segment: fmt.Sprintf("acme-%d", seq), Status: status,
 			GatewayMode: "operator", GatewayName: gatewayName, GatewayNamespace: "gateways",
-			ApplyStatus: routeapply.StatusPending,
+			ApplyStatus: string(gateway.ApplyPending),
 		}
 		if !validUntil.IsZero() {
 			row.ValidUntil = pgtype.Timestamptz{Time: validUntil, Valid: true}
@@ -212,7 +212,7 @@ var _ = Describe("Reconciler", func() {
 		Expect(*backend.Port).To(BeEquivalentTo(4318))
 
 		row := st.row(id)
-		Expect(row.ApplyStatus).To(Equal(routeapply.StatusApplied))
+		Expect(row.ApplyStatus).To(Equal(string(gateway.ApplyApplied)))
 		Expect(row.ApplyMessage).To(BeEmpty())
 		Expect(row.AppliedAt.Valid).To(BeTrue())
 	})
@@ -221,7 +221,7 @@ var _ = Describe("Reconciler", func() {
 		id := addRow("otlp", "deprecated", "edge", time.Now().Add(time.Hour))
 		rec.Reconcile(ctx)
 		Expect(cl.routes).To(HaveKey(routeapply.ObjectName(id.String())))
-		Expect(st.row(id).ApplyStatus).To(Equal(routeapply.StatusApplied))
+		Expect(st.row(id).ApplyStatus).To(Equal(string(gateway.ApplyApplied)))
 	})
 
 	It("revokes a deprecated route whose overlap has ended and removes its HTTPRoute", func() {
@@ -234,7 +234,7 @@ var _ = Describe("Reconciler", func() {
 		Expect(cl.routes).NotTo(HaveKey(routeapply.ObjectName(id.String())))
 		row := st.row(id)
 		Expect(row.Status).To(Equal("revoked"))
-		Expect(row.ApplyStatus).To(Equal(routeapply.StatusRemoved))
+		Expect(row.ApplyStatus).To(Equal(string(gateway.ApplyRemoved)))
 	})
 
 	It("removes a revoked route's HTTPRoute, and does not rewrite the row once removed", func() {
@@ -244,7 +244,7 @@ var _ = Describe("Reconciler", func() {
 
 		rec.Reconcile(ctx)
 		Expect(cl.deletes).To(ConsistOf(routeapply.ObjectName(id.String())))
-		Expect(st.row(id).ApplyStatus).To(Equal(routeapply.StatusRemoved))
+		Expect(st.row(id).ApplyStatus).To(Equal(string(gateway.ApplyRemoved)))
 
 		writes := st.writes
 		rec.Reconcile(ctx)
@@ -255,7 +255,7 @@ var _ = Describe("Reconciler", func() {
 		id := addRow("otlp", "active", "closed", time.Time{})
 		rec.Reconcile(ctx)
 		row := st.row(id)
-		Expect(row.ApplyStatus).To(Equal(routeapply.StatusRefused))
+		Expect(row.ApplyStatus).To(Equal(string(gateway.ApplyRefused)))
 		Expect(row.ApplyMessage).To(ContainSubstring("NotAllowedByListeners"))
 		Expect(row.AppliedAt.Valid).To(BeFalse())
 
@@ -273,13 +273,13 @@ var _ = Describe("Reconciler", func() {
 		cl.crdErr = errors.New("customresourcedefinitions is forbidden")
 		rec.Reconcile(ctx)
 		row := st.row(id)
-		Expect(row.ApplyStatus).To(Equal(routeapply.StatusError))
+		Expect(row.ApplyStatus).To(Equal(string(gateway.ApplyError)))
 		Expect(row.ApplyMessage).To(ContainSubstring("forbidden"))
 
 		cl.crdErr = nil
 		clock = clock.Add(2 * time.Minute)
 		rec.Reconcile(ctx)
-		Expect(st.row(id).ApplyStatus).To(Equal(routeapply.StatusApplied))
+		Expect(st.row(id).ApplyStatus).To(Equal(string(gateway.ApplyApplied)))
 		Expect(st.row(id).ApplyMessage).To(BeEmpty())
 	})
 
@@ -287,7 +287,7 @@ var _ = Describe("Reconciler", func() {
 		id := addRow("faro", "active", "edge", time.Time{})
 		rec.Reconcile(ctx)
 		Expect(cl.applies).To(BeZero())
-		Expect(st.row(id).ApplyStatus).To(Equal(routeapply.StatusNotApplicable))
+		Expect(st.row(id).ApplyStatus).To(Equal(string(gateway.ApplyNotApplicable)))
 	})
 
 	It("deletes managed HTTPRoutes no row wants, and leaves unlabelled ones alone", func() {
@@ -311,12 +311,12 @@ var _ = Describe("Reconciler", func() {
 		cl.deleteOK = false
 
 		rec.Reconcile(ctx)
-		Expect(st.row(id).ApplyStatus).To(Equal(routeapply.StatusApplied), "still in the cluster, still routing")
+		Expect(st.row(id).ApplyStatus).To(Equal(string(gateway.ApplyApplied)), "still in the cluster, still routing")
 
 		cl.deleteOK = true
 		cl.listErr = errors.New("httproutes is forbidden")
 		rec.Reconcile(ctx)
-		Expect(st.row(id).ApplyStatus).To(Equal(routeapply.StatusApplied), "unknown is not removed")
+		Expect(st.row(id).ApplyStatus).To(Equal(string(gateway.ApplyApplied)), "unknown is not removed")
 	})
 
 	It("touches nothing in the cluster when the routes cannot be read", func() {

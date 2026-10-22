@@ -13,6 +13,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"shepherd/internal/config"
+	"shepherd/internal/gateway"
 	"shepherd/internal/routeapply"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/testutil"
@@ -22,7 +23,7 @@ func activeRow() sqlc.TenantRoute {
 	return sqlc.TenantRoute{
 		ID: pgtype.UUID{Bytes: [16]byte{15: 0xaa}, Valid: true}, TenantID: "acme", Kind: "otlp", Segment: "acme-lock",
 		Status: "active", GatewayMode: "operator", GatewayName: "edge", GatewayNamespace: "gateways",
-		ApplyStatus: routeapply.StatusPending,
+		ApplyStatus: string(gateway.ApplyPending),
 	}
 }
 

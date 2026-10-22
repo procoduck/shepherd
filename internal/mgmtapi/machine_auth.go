@@ -28,17 +28,18 @@ const onBehalfOfHeader = "Shepherd-On-Behalf-Of"
 // requireWriteAuthorized/auditLog (helpers.go). Role (W3-1) is what makes a
 // machine caller's coarse org access decided the same WAY a human
 // session's is — both are checked against procedureRequirements with
-// auth.RoleSatisfies — without being the same thing: Capability (G12,
+// auth.Role.AtLeast — without being the same thing: Capability (G12,
 // propose vs apply) and OnBehalfOf (G13) remain unique to a machine caller,
 // since a human session is never capability-scoped or delegated at all.
 type serviceAccountIdentity struct {
 	ID    string
 	OrgID string
 	Name  string
-	// Role is "editor" or "admin" (0018_service_account_role), the tier
-	// authorizeServiceAccountProcedure (rpc_interceptor.go) checks against
-	// a procedure's requirement, after the org match. Defaults to "editor"
-	// at creation (CreateServiceAccount) — "admin" is always explicit.
+	// Role is the stored tier, service_accounts.role ("editor" or "admin",
+	// 0018_service_account_role), kept raw: authorizeServiceAccountProcedure
+	// (rpc_interceptor.go) parses it with auth.ParseRole and denies a value
+	// that is not a role, after the org match. Set explicitly at creation
+	// (CreateServiceAccount) — admin is never inferred.
 	Role       string
 	Capability string
 	// OnBehalfOf is the human this machine write is CLAIMED to be for,

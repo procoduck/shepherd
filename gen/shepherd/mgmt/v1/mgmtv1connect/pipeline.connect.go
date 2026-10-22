@@ -91,24 +91,24 @@ type PipelineServiceClient interface {
 	DisablePipeline(context.Context, *connect.Request[v1.DisablePipelineRequest]) (*connect.Response[v1.Pipeline], error)
 	ValidatePipeline(context.Context, *connect.Request[v1.ValidatePipelineRequest]) (*connect.Response[v1.ValidatePipelineResponse], error)
 	// FormatPipeline canonicalises Alloy source (what `alloy fmt` does),
-	// in-process. Pure text transform; org-reader, like ValidatePipeline.
+	// in-process. Pure text transform; org viewer, like ValidatePipeline.
 	FormatPipeline(context.Context, *connect.Request[v1.FormatPipelineRequest]) (*connect.Response[v1.FormatPipelineResponse], error)
 	PreviewMatches(context.Context, *connect.Request[v1.PreviewMatchesRequest]) (*connect.Response[v1.PreviewMatchesResponse], error)
 	ListRevisions(context.Context, *connect.Request[v1.ListRevisionsRequest]) (*connect.Response[v1.ListRevisionsResponse], error)
 	// GetRevision returns one revision in full, including the heavy fields
 	// ListRevisions deliberately omits (contents/matchers/enabled/
-	// wizard_state) — org-reader, same as GetPipeline.
+	// wizard_state) — org viewer, same as GetPipeline.
 	GetRevision(context.Context, *connect.Request[v1.GetRevisionRequest]) (*connect.Response[v1.PipelineRevision], error)
 	// RestoreRevision creates a NEW revision from an old one's
 	// contents/matchers/enabled(/wizard_state) and returns the updated
-	// pipeline. Same authorization as UpdatePipeline (org-editor tier via
+	// pipeline. Same authorization as UpdatePipeline (org editor tier via
 	// authorizeOwnership, requireWriteAuthorized for machine callers) and the
 	// same validation gate (Stage 1-3). Allowed for git-sourced pipelines
 	// (unlike UpdatePipeline) — the next git sync overwrites it; it never
 	// mutates the old revision.
 	RestoreRevision(context.Context, *connect.Request[v1.RestoreRevisionRequest]) (*connect.Response[v1.Pipeline], error)
 	// SetPipelineOwner reassigns (or, with an empty owner_team_id, clears) a
-	// pipeline's owning team. Deliberately org-admin-only regardless of
+	// pipeline's owning team. Deliberately org admin-only regardless of
 	// current ownership — a team can write what it owns, but granting or
 	// revoking ownership is a platform decision, not a delegated one.
 	SetPipelineOwner(context.Context, *connect.Request[v1.SetPipelineOwnerRequest]) (*connect.Response[v1.Pipeline], error)
@@ -333,24 +333,24 @@ type PipelineServiceHandler interface {
 	DisablePipeline(context.Context, *connect.Request[v1.DisablePipelineRequest]) (*connect.Response[v1.Pipeline], error)
 	ValidatePipeline(context.Context, *connect.Request[v1.ValidatePipelineRequest]) (*connect.Response[v1.ValidatePipelineResponse], error)
 	// FormatPipeline canonicalises Alloy source (what `alloy fmt` does),
-	// in-process. Pure text transform; org-reader, like ValidatePipeline.
+	// in-process. Pure text transform; org viewer, like ValidatePipeline.
 	FormatPipeline(context.Context, *connect.Request[v1.FormatPipelineRequest]) (*connect.Response[v1.FormatPipelineResponse], error)
 	PreviewMatches(context.Context, *connect.Request[v1.PreviewMatchesRequest]) (*connect.Response[v1.PreviewMatchesResponse], error)
 	ListRevisions(context.Context, *connect.Request[v1.ListRevisionsRequest]) (*connect.Response[v1.ListRevisionsResponse], error)
 	// GetRevision returns one revision in full, including the heavy fields
 	// ListRevisions deliberately omits (contents/matchers/enabled/
-	// wizard_state) — org-reader, same as GetPipeline.
+	// wizard_state) — org viewer, same as GetPipeline.
 	GetRevision(context.Context, *connect.Request[v1.GetRevisionRequest]) (*connect.Response[v1.PipelineRevision], error)
 	// RestoreRevision creates a NEW revision from an old one's
 	// contents/matchers/enabled(/wizard_state) and returns the updated
-	// pipeline. Same authorization as UpdatePipeline (org-editor tier via
+	// pipeline. Same authorization as UpdatePipeline (org editor tier via
 	// authorizeOwnership, requireWriteAuthorized for machine callers) and the
 	// same validation gate (Stage 1-3). Allowed for git-sourced pipelines
 	// (unlike UpdatePipeline) — the next git sync overwrites it; it never
 	// mutates the old revision.
 	RestoreRevision(context.Context, *connect.Request[v1.RestoreRevisionRequest]) (*connect.Response[v1.Pipeline], error)
 	// SetPipelineOwner reassigns (or, with an empty owner_team_id, clears) a
-	// pipeline's owning team. Deliberately org-admin-only regardless of
+	// pipeline's owning team. Deliberately org admin-only regardless of
 	// current ownership — a team can write what it owns, but granting or
 	// revoking ownership is a platform decision, not a delegated one.
 	SetPipelineOwner(context.Context, *connect.Request[v1.SetPipelineOwnerRequest]) (*connect.Response[v1.Pipeline], error)
