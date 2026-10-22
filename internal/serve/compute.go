@@ -77,6 +77,11 @@ type Result struct {
 	// baseline (degrade, don't fail the whole collector over a baseline
 	// render bug) — callers should log BaselineErr at their own level.
 	BaselineErr error
+	// Spans locates each served pipeline's declare block in Content
+	// (merge.AssembleResult.Spans; the baseline is appended after the last
+	// one, so they hold for Content as served). Metadata only: a dry run
+	// uses it to name the pipeline a diagnostic's line falls in.
+	Spans []merge.BlockSpan
 }
 
 // errNilSchema is returned when Deps.Schema is nil: see Deps.Schema.
@@ -133,6 +138,7 @@ func Assemble(deps Deps, coll Collector, pipelines []merge.Pipeline) (Result, er
 		Hash:        hash,
 		Exclusions:  assembled.Exclusions,
 		BaselineErr: baselineErr,
+		Spans:       assembled.Spans,
 	}, nil
 }
 

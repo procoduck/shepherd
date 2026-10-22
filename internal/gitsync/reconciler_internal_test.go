@@ -20,10 +20,13 @@ import (
 	"shepherd/internal/config"
 	"shepherd/internal/crypto"
 	"shepherd/internal/gitrepo"
+	"shepherd/internal/merge"
 	"shepherd/internal/metrics"
+	"shepherd/internal/schema"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/validate"
+	"shepherd/internal/version"
 	"shepherd/internal/wizard/wizardtest"
 )
 
@@ -113,7 +116,7 @@ var _ = Describe("Reconciler.reconcileLink", Label("integration"), func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		// A real validator, same shape production wires via validate.New
-		// (server.go): without it, syncFile now fails closed (W2-S1) rather
+		// (server.go): without it, planFile now fails closed (W2-S1) rather
 		// than syncing on Stage 1 syntax alone. bin resolves to a real alloy
 		// binary, an operator override, or a docker shim around the pinned
 		// grafana/alloy image — see wizardtest.AlloyBinary's doc comment for
@@ -136,6 +139,7 @@ var _ = Describe("Reconciler.reconcileLink", Label("integration"), func() {
 			store:      st,
 			crypto:     enc,
 			validator:  v,
+			schema:     embeddedSchema(),
 			limits:     gitrepo.Limits{},
 			tokenCache: gitrepo.NewTokenCache(),
 			logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -325,7 +329,7 @@ var _ = Describe("Reconciler.reconcileLink", Label("integration"), func() {
 	})
 
 	// W2-S1: r.validator was injected at construction but never referenced
-	// inside syncFile, so every synced file passed on Stage 1 (syntax)
+	// inside the per-file sync (now planFile), so every synced file passed on Stage 1 (syntax)
 	// alone. This file parses fine (a component block is syntactically
 	// valid) but references a component that does not exist, which only
 	// Stage 2's real `alloy validate` catches.
@@ -407,7 +411,9 @@ prometheus.remote_write "demo" {
 
 		err = r.reconcileLink(ctx, link)
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("collision"))
+		// Caught by planAll's sanitised-name check, before the merged
+		// dry run; stage3DryRun's own collision check is covered below.
+		Expect(err.Error()).To(ContainSubstring(`my-service.alloy: pipeline "my-service" has the same sanitised name as pipeline "my_service"`))
 
 		_, lookupErr := st.Queries.GetPipelineByOrgAndName(ctx, sqlc.GetPipelineByOrgAndNameParams{OrgID: link.OrgID, Name: "my-service"})
 		Expect(lookupErr).To(HaveOccurred(), "a file whose stage-3 merge dry-run fails must never be synced as a pipeline")
@@ -463,6 +469,211 @@ prometheus.remote_write "demo" {
 			return out
 		}
 
+		// R8 (#360): spec §8 — "never partially apply a commit". Every file
+		// of a commit passes, or nothing from it is written: no create, no
+		// update, no delete, and the collector keeps its served config.
+		Describe("a commit applies atomically (R8)", func() {
+			auditsFor := func(action string) []map[string]string {
+				GinkgoHelper()
+				rows, err := st.Pool().Query(ctx,
+					`SELECT resource_id, detail FROM audit_log WHERE action = $1 ORDER BY id`, action)
+				Expect(err).NotTo(HaveOccurred())
+				defer rows.Close()
+				var out []map[string]string
+				for rows.Next() {
+					var resourceID string
+					var detail []byte
+					Expect(rows.Scan(&resourceID, &detail)).To(Succeed())
+					m := map[string]string{}
+					Expect(json.Unmarshal(detail, &m)).To(Succeed())
+					m["resource_id"] = resourceID
+					out = append(out, m)
+				}
+				Expect(rows.Err()).NotTo(HaveOccurred())
+				return out
+			}
+			servedContent := func() string {
+				GinkgoHelper()
+				var content string
+				Expect(st.Pool().QueryRow(ctx, `SELECT content FROM serve_cache WHERE collector_id = $1`, collectorID).Scan(&content)).To(Succeed())
+				return content
+			}
+			// expectNothingApplied asserts the state after a refused commit:
+			// keep still holds "// keep" at revision 1, gone still exists,
+			// none of the commit's new files exists, no revision or audit
+			// row was added, and the collector keeps its served config.
+			expectNothingApplied := func(newFiles ...string) {
+				GinkgoHelper()
+				keep, err := pipelineNamed("keep")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(keep.Contents).To(Equal("// keep"), "an update from a refused commit must not apply")
+				revs, err := st.Queries.ListPipelineRevisions(ctx, keep.ID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(revs).To(HaveLen(1))
+				_, err = pipelineNamed("gone")
+				Expect(err).NotTo(HaveOccurred(), "a delete from a refused commit must not apply")
+				for _, n := range newFiles {
+					_, err := pipelineNamed(n)
+					Expect(err).To(HaveOccurred(), "a create from a refused commit must not apply: %s", n)
+				}
+				Expect(auditsFor("pipeline.update")).To(BeEmpty())
+				Expect(auditsFor("pipeline.delete")).To(BeEmpty())
+				Expect(auditsFor("pipeline.create")).To(HaveLen(2), "only the two setup creates")
+				Expect(dirtyFlag()).To(BeFalse())
+				Expect(servedContent()).To(Equal("// previously served"), "the collector keeps serving the previous commit")
+
+				l, err := st.Queries.GetRepoLinkByID(ctx, link.ID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(l.SyncStatus.String).To(Equal("error"))
+				Expect(l.LastCommit.Valid).To(BeFalse(), "the next poll retries the commit")
+				Expect(l.SyncError.String).To(ContainSubstring("nothing from it was applied"))
+			}
+
+			BeforeEach(func() {
+				commit(map[string]string{"keep.alloy": "// keep", "gone.alloy": "// gone"})
+				syncOK()
+				_, err := st.Pool().Exec(ctx, `UPDATE serve_cache SET content = '// previously served' WHERE collector_id = $1`, collectorID)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("applies nothing from a commit with one invalid file, and names that file", func() {
+				commit(map[string]string{
+					"keep.alloy": "// keep, changed",
+					"new.alloy":  "// new",
+					"bad.alloy":  "this is not valid alloy syntax {{{",
+				}, "gone.alloy")
+
+				err := r.reconcileLink(ctx, link)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("bad.alloy"))
+				Expect(err.Error()).NotTo(ContainSubstring("keep.alloy"), "only the failing file is named")
+				expectNothingApplied("new")
+				l, err := st.Queries.GetRepoLinkByID(ctx, link.ID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(l.SyncError.String).To(ContainSubstring("bad.alloy: validation errors"))
+			})
+
+			It("names at most five failing files, then how many more", func() {
+				files := map[string]string{"keep.alloy": "// keep, changed"}
+				for i := 1; i <= 7; i++ {
+					files[fmt.Sprintf("bad%d.alloy", i)] = "this is not valid alloy syntax {{{"
+				}
+				commit(files)
+
+				err := r.reconcileLink(ctx, link)
+				Expect(err).To(HaveOccurred())
+				Expect(strings.Count(err.Error(), "validation errors")).To(Equal(5))
+				Expect(err.Error()).To(ContainSubstring("and 2 more"))
+				expectNothingApplied("bad1")
+			})
+
+			// The collector's role (metrics) does not allow logs. Served, the
+			// pipeline would be excluded fail-safe from the only collector a
+			// git pipeline targets — synced "ok" and silently doing nothing.
+			It("refuses the whole commit when a file's signals are not allowed on the collector's role", func() {
+				commit(map[string]string{
+					"keep.alloy": "// keep, changed",
+					"logs.alloy": `loki.write "out" {
+  endpoint {
+    url = "http://loki.example.com/loki/api/v1/push"
+  }
+}
+`,
+				}, "gone.alloy")
+
+				err := r.reconcileLink(ctx, link)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(MatchRegexp(`logs\.alloy: .*not allowed on role metrics`))
+				expectNothingApplied("logs")
+			})
+
+			// The dry run models the collector after the WHOLE commit. In a
+			// declare-wrapped merge the pipelines meet at their block names,
+			// so that is where checking files one at a time goes wrong in
+			// both directions.
+			It("dry-runs the commit as one merged config, not file by file", func() {
+				a := filePlan{name: "x-y", path: "x-y.alloy", contents: "// a"}
+				b := filePlan{name: "x_y", path: "x_y.alloy", contents: "// b"}
+				for _, alone := range []filePlan{a, b} {
+					refusals, err := r.stage3DryRun(ctx, link, []filePlan{alone}, nil)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(refusals).To(BeEmpty(), "%s passes on its own", alone.path)
+				}
+				refusals, err := r.stage3DryRun(ctx, link, []filePlan{a, b}, nil)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(refusals).To(HaveLen(1), "together they collide")
+				Expect(refusals[0].Error()).To(ContainSubstring("declare-name collision"))
+
+				// The other way round: "GONE" takes the declare label of the
+				// "gone" pipeline the same commit removes. Checked against the
+				// current rows it collides; with the commit's removals it fits.
+				owned, err := st.Queries.ListGitPipelinesByRepoLink(ctx, link.ID)
+				Expect(err).NotTo(HaveOccurred())
+				var removed []sqlc.ListGitPipelinesByRepoLinkRow
+				for _, p := range owned {
+					if p.Name == "gone" {
+						removed = append(removed, p)
+					}
+				}
+				Expect(removed).To(HaveLen(1))
+				rename := filePlan{name: "GONE", path: "GONE.alloy", contents: "// gone"}
+				refusals, err = r.stage3DryRun(ctx, link, []filePlan{rename}, nil)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(refusals).To(HaveLen(1))
+				refusals, err = r.stage3DryRun(ctx, link, []filePlan{rename}, removed)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(refusals).To(BeEmpty())
+			})
+
+			It("refuses every commit when no schema registry is configured, rather than dry-running it unenforced", func() {
+				r.schema = nil
+				commit(map[string]string{"keep.alloy": "// keep, changed"})
+				err := r.reconcileLink(ctx, link)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("schema registry not configured"))
+				keep, err := pipelineNamed("keep")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(keep.Contents).To(Equal("// keep"))
+			})
+
+			It("applies a commit's creates, updates and deletes together, auditing each with its commit, path and link", func() {
+				gone, err := pipelineNamed("gone")
+				Expect(err).NotTo(HaveOccurred())
+				commit(map[string]string{"keep.alloy": "// keep, changed", "new.alloy": "// new"}, "gone.alloy")
+
+				Expect(r.reconcileLink(ctx, link)).To(Succeed())
+
+				l, err := st.Queries.GetRepoLinkByID(ctx, link.ID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(l.SyncStatus.String).To(Equal("ok"))
+				head := l.LastCommit.String
+				Expect(head).NotTo(BeEmpty())
+
+				keep, err := pipelineNamed("keep")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(keep.Contents).To(Equal("// keep, changed"))
+				created, err := pipelineNamed("new")
+				Expect(err).NotTo(HaveOccurred())
+				_, err = st.Queries.GetPipelineByID(ctx, gone.ID)
+				Expect(err).To(HaveOccurred())
+				Expect(dirtyFlag()).To(BeTrue())
+
+				updates := auditsFor("pipeline.update")
+				Expect(updates).To(HaveLen(1))
+				Expect(updates[0]).To(Equal(map[string]string{
+					"resource_id": keep.ID.String(), "commit": head, "git_path": "keep.alloy", "repo_link_id": link.ID.String(),
+				}))
+				creates := auditsFor("pipeline.create")
+				Expect(creates).To(HaveLen(3), "two from the setup sync, one from this one")
+				Expect(creates[2]).To(Equal(map[string]string{
+					"resource_id": created.ID.String(), "commit": head, "git_path": "new.alloy", "repo_link_id": link.ID.String(),
+				}))
+				deletes := auditsFor("pipeline.delete")
+				Expect(deletes).To(HaveLen(1))
+				Expect(deletes[0]["commit"]).To(Equal(head))
+			})
+		})
+
 		It("deletes its pipeline, audits the delete, dirties the collector and leaves the kept file's pipeline alone", func() {
 			commit(map[string]string{"gone.alloy": "// gone", "kept.alloy": "// kept"})
 			syncOK()
@@ -472,14 +683,16 @@ prometheus.remote_write "demo" {
 			Expect(err).NotTo(HaveOccurred())
 
 			commit(nil, "gone.alloy")
-			var recomputed []pgtype.UUID
-			r.recompute = func(_ context.Context, orgID pgtype.UUID) { recomputed = append(recomputed, orgID) }
+			var recomputed [][2]pgtype.UUID
+			r.recompute = func(_ context.Context, orgID, collector pgtype.UUID) {
+				recomputed = append(recomputed, [2]pgtype.UUID{orgID, collector})
+			}
 			Expect(r.reconcileLink(ctx, link)).To(Succeed())
 
 			_, err = st.Queries.GetPipelineByID(ctx, gone.ID)
 			Expect(err).To(HaveOccurred(), "the removed file's pipeline must be deleted")
-			Expect(recomputed).To(Equal([]pgtype.UUID{link.OrgID}),
-				"the org's served configs are recomputed right after the delete commits, as the API's deletes do")
+			Expect(recomputed).To(Equal([][2]pgtype.UUID{{link.OrgID, collectorID}}),
+				"the link's collector, and only it, is recomputed right after the delete commits")
 
 			stillKept, err := st.Queries.GetPipelineByID(ctx, kept.ID)
 			Expect(err).NotTo(HaveOccurred(), "a file still in the repository keeps its pipeline")
@@ -631,7 +844,7 @@ prometheus.remote_write "demo" {
 			Expect(updatedLink.SyncStatus.String).To(Equal("ok"))
 		})
 
-		It("holds such a rename back, without failing the other files, while another file fails validation", func() {
+		It("holds such a rename back, with the rest of the commit, while another file fails validation", func() {
 			commit(map[string]string{"My-App.alloy": "// app", "fine.alloy": "// fine"})
 			syncOK()
 			old, err := pipelineNamed("My-App")
@@ -644,24 +857,24 @@ prometheus.remote_write "demo" {
 			}, "My-App.alloy")
 			err = r.reconcileLink(ctx, link)
 			Expect(err).To(HaveOccurred())
-			// Re-planned with My-App still in place (N1: what is written is
-			// what was validated), my_app's own dry run names the clash.
-			Expect(err.Error()).To(MatchRegexp(`my_app\.alloy: .*"My-App" and "my_app" both sanitize`))
+			Expect(err.Error()).To(ContainSubstring("bad.alloy: validation errors"))
+			Expect(err.Error()).NotTo(ContainSubstring("my_app.alloy"), "the rename itself is fine")
 
 			_, err = st.Queries.GetPipelineByID(ctx, old.ID)
-			Expect(err).NotTo(HaveOccurred(), "a failed sync never prunes")
+			Expect(err).NotTo(HaveOccurred(), "a refused commit never prunes")
 			_, err = pipelineNamed("my_app")
-			Expect(err).To(HaveOccurred(), "the rename waits for a sync that can delete the old name")
+			Expect(err).To(HaveOccurred(), "nor creates")
 			fine, err := pipelineNamed("fine")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(fine.Contents).To(Equal("// fine, changed"), "a file that validated still syncs")
+			Expect(fine.Contents).To(Equal("// fine"), "nor updates")
 		})
 
 		// Two names that sanitise alike cannot both exist in an org (unique
-		// index pipelines_org_sanitized_name_key). Caught at write time, the
-		// clash rolled back the whole sync; it must fail only its own files.
+		// index pipelines_org_sanitized_name_key). Caught before anything is
+		// written, the clash names its own files and refuses the commit
+		// (R8: every file passes or nothing applies).
 		Describe("a sanitised-name clash", func() {
-			It("fails both new files that clash with each other, and nothing else", func() {
+			It("names both new files that clash with each other, and applies nothing", func() {
 				commit(map[string]string{"fine.alloy": "// fine", "gone.alloy": "// gone"})
 				syncOK()
 				gone, err := pipelineNamed("gone")
@@ -677,22 +890,24 @@ prometheus.remote_write "demo" {
 				Expect(err.Error()).To(ContainSubstring(`a-b.alloy: pipeline "a-b" has the same sanitised name as a_b.alloy`))
 				Expect(err.Error()).To(ContainSubstring(`a_b.alloy: pipeline "a_b" has the same sanitised name as a-b.alloy`))
 
+				Expect(err.Error()).NotTo(ContainSubstring("fine.alloy"))
+
 				fine, err := pipelineNamed("fine")
 				Expect(err).NotTo(HaveOccurred())
-				Expect(fine.Contents).To(Equal("// fine, changed"), "the files that passed still sync")
+				Expect(fine.Contents).To(Equal("// fine"), "nothing from a refused commit syncs")
 				_, err = pipelineNamed("a-b")
 				Expect(err).To(HaveOccurred())
 				_, err = pipelineNamed("a_b")
 				Expect(err).To(HaveOccurred())
 				_, err = st.Queries.GetPipelineByID(ctx, gone.ID)
-				Expect(err).NotTo(HaveOccurred(), "a sync with a failed file does not prune")
+				Expect(err).NotTo(HaveOccurred(), "a refused commit does not prune")
 
 				updatedLink, err := st.Queries.GetRepoLinkByID(ctx, link.ID)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(updatedLink.SyncStatus.String).To(Equal("error"))
 			})
 
-			It("fails a new file that clashes with a pipeline this collector is not served", func() {
+			It("refuses a commit whose new file clashes with a pipeline this collector is not served", func() {
 				// A UI pipeline matching another cluster: the Stage-3 dry run
 				// for this collector never sees it.
 				_, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
@@ -712,34 +927,29 @@ prometheus.remote_write "demo" {
 
 				fine, err := pipelineNamed("fine")
 				Expect(err).NotTo(HaveOccurred())
-				Expect(fine.Contents).To(Equal("// fine, changed"))
+				Expect(fine.Contents).To(Equal("// fine"))
 				_, err = pipelineNamed("ui_thing")
 				Expect(err).To(HaveOccurred())
 			})
 		})
 
-		// A file that fails only on the first planning pass (a validator
-		// timeout, a store blip) and passes on the re-plan must not turn the
-		// sync into "ok": that records last_commit, and the skipped deletes
-		// would then wait for the next new commit.
-		It("keeps a sync whose first pass failed in error, so the next poll retries the deletes", func() {
+		// A file that fails transiently (a validator timeout, a store blip)
+		// refuses the whole commit — the update with the delete — and leaves
+		// last_commit unset, so the next poll fetches the commit again and
+		// applies all of it.
+		It("refuses a commit whose file failed transiently, and applies all of it on the next poll", func() {
 			commit(map[string]string{"fine.alloy": "// fine", "gone.alloy": "// gone"})
 			syncOK()
 			gone, err := pipelineNamed("gone")
 			Expect(err).NotTo(HaveOccurred())
 
 			commit(map[string]string{"fine.alloy": "// fine, changed"}, "gone.alloy")
-			calls := 0
-			r.planFileFunc = func(ctx context.Context, l sqlc.RepoLink, f gitrepo.File, removing map[string]bool) (*filePlan, error) {
-				calls++
-				if calls == 1 {
-					return nil, errors.New("alloy validate: timed out")
-				}
-				return r.planFile(ctx, l, f, removing)
+			r.planFileFunc = func(context.Context, sqlc.RepoLink, gitrepo.File) (*filePlan, error) {
+				return nil, errors.New("alloy validate: timed out")
 			}
 			err = r.reconcileLink(ctx, link)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("timed out"))
+			Expect(err.Error()).To(ContainSubstring("fine.alloy: alloy validate: timed out"))
 
 			link, err = st.Queries.GetRepoLinkByID(ctx, link.ID)
 			Expect(err).NotTo(HaveOccurred())
@@ -747,11 +957,17 @@ prometheus.remote_write "demo" {
 			Expect(link.LastCommit.Valid).To(BeFalse(), "the next poll must fetch this commit again")
 			_, err = st.Queries.GetPipelineByID(ctx, gone.ID)
 			Expect(err).NotTo(HaveOccurred())
+			fine, err := pipelineNamed("fine")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(fine.Contents).To(Equal("// fine"))
 
 			r.planFileFunc = nil
 			Expect(r.reconcileLink(ctx, link)).To(Succeed())
 			_, err = st.Queries.GetPipelineByID(ctx, gone.ID)
 			Expect(err).To(HaveOccurred(), "the retry prunes")
+			fine, err = pipelineNamed("fine")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(fine.Contents).To(Equal("// fine, changed"), "and updates, in the same sync")
 		})
 
 		Describe("the mass-deletion threshold", func() {
@@ -769,7 +985,7 @@ prometheus.remote_write "demo" {
 
 				commit(nil, "p1.alloy", "p2.alloy", "p3.alloy", "p4.alloy")
 				recomputes := 0
-				r.recompute = func(context.Context, pgtype.UUID) { recomputes++ }
+				r.recompute = func(context.Context, pgtype.UUID, pgtype.UUID) { recomputes++ }
 				Expect(r.reconcileLink(ctx, link)).To(Succeed())
 				Expect(recomputes).To(BeZero(), "a sync that applied nothing recomputes nothing")
 
@@ -789,14 +1005,10 @@ prometheus.remote_write "demo" {
 				Expect(updatedLink.LastCommit.Valid).To(BeFalse())
 			})
 
-			// Only the deletes are held back: a pre-upgrade backlog of removed
-			// files, or a moved directory, must not freeze every other change
-			// to the link until it is re-created.
-			// Updates to existing pipelines still apply (a pre-upgrade backlog
-			// must not freeze the link), but new files are held back with the
-			// deletes: a moved directory would otherwise serve the new copies
-			// beside the old ones (duplicate scrapes, two receivers on a port).
-			It("applies the commit's updates but holds its deletes and creates back", func() {
+			// R8 (#360): a tripped guard holds back the whole commit — its
+			// updates and creates as well as its deletes. Applying the
+			// updates alone would serve a commit nobody wrote.
+			It("applies nothing from a guarded commit: no update, create or delete", func() {
 				commit(sixFiles())
 				syncOK()
 				p5, err := pipelineNamed("p5")
@@ -806,9 +1018,9 @@ prometheus.remote_write "demo" {
 					"p1.alloy", "p2.alloy", "p3.alloy", "p4.alloy")
 				Expect(r.reconcileLink(ctx, link)).To(Succeed())
 
-				updated, err := st.Queries.GetPipelineByID(ctx, p5.ID)
+				unchanged, err := st.Queries.GetPipelineByID(ctx, p5.ID)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(updated.Contents).To(Equal("// p5, changed"))
+				Expect(unchanged.Contents).To(Equal("// p5"), "an update waits with the held-back deletes")
 				_, err = pipelineNamed("p7")
 				Expect(err).To(HaveOccurred(), "a new file waits with the held-back deletes")
 				for _, n := range []string{"p1", "p2", "p3", "p4"} {
@@ -816,13 +1028,13 @@ prometheus.remote_write "demo" {
 					Expect(err).NotTo(HaveOccurred(), "%s's delete is held back", n)
 				}
 				Expect(deleteAudits()).To(BeEmpty())
-				Expect(dirtyFlag()).To(BeTrue())
+				Expect(dirtyFlag()).To(BeFalse())
 
 				updatedLink, err := st.Queries.GetRepoLinkByID(ctx, link.ID)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(updatedLink.SyncStatus.String).To(Equal("warning"))
 				Expect(updatedLink.SyncError.String).To(ContainSubstring("would delete 4 of 6 pipelines"))
-				Expect(updatedLink.SyncError.String).To(ContainSubstring("1 new file was not created"))
+				Expect(updatedLink.SyncError.String).To(ContainSubstring("nothing from it was applied"))
 				Expect(updatedLink.LastCommit.Valid).To(BeFalse())
 			})
 
@@ -856,25 +1068,25 @@ prometheus.remote_write "demo" {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(updatedLink.SyncStatus.String).To(Equal("warning"))
 				Expect(updatedLink.SyncError.String).To(ContainSubstring("would delete 6 of 6 pipelines"))
-				Expect(updatedLink.SyncError.String).To(ContainSubstring("6 new files were not created"))
+				Expect(updatedLink.SyncError.String).To(ContainSubstring("nothing from it was applied"))
 			})
 
 			// A link that has never finished "ok" has no baseline: it may
 			// delete at most three per sync, and says why in its own words.
+			// A sync writes only when it finishes "ok" (R8), so a link owns
+			// pipelines without ever having finished "ok" only when something
+			// else wrote them (an older replica during a rolling update); the
+			// spec clears last_ok_at to stand for that.
 			It("tells a link that has never completed a sync why it may delete at most three", func() {
-				four := map[string]string{"q1.alloy": "// q1", "q2.alloy": "// q2", "q3.alloy": "// q3", "q4.alloy": "// q4"}
-				withBad := map[string]string{"bad.alloy": "this is not valid alloy syntax {{{"}
-				for k, v := range four {
-					withBad[k] = v
-				}
-				commit(withBad)
-				Expect(r.reconcileLink(ctx, link)).NotTo(Succeed(), "the first sync never finishes ok")
-				var err error
+				commit(map[string]string{"q1.alloy": "// q1", "q2.alloy": "// q2", "q3.alloy": "// q3", "q4.alloy": "// q4", "keep.alloy": "// keep"})
+				syncOK()
+				_, err := st.Pool().Exec(ctx, `UPDATE repo_links SET last_ok_at = NULL, sync_status = 'error', last_commit = NULL WHERE id = $1`, link.ID)
+				Expect(err).NotTo(HaveOccurred())
 				link, err = st.Queries.GetRepoLinkByID(ctx, link.ID)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(link.LastOkAt.Valid).To(BeFalse())
 
-				commit(map[string]string{"bad.alloy": "// fixed"}, "q1.alloy", "q2.alloy", "q3.alloy", "q4.alloy")
+				commit(nil, "q1.alloy", "q2.alloy", "q3.alloy", "q4.alloy")
 				Expect(r.reconcileLink(ctx, link)).To(Succeed())
 
 				for _, n := range []string{"q1", "q2", "q3", "q4"} {
@@ -1081,6 +1293,41 @@ var _ = Describe("Reconciler.reconcileAll with a Locker", func() {
 		Expect(func() {
 			newRec(&fakeLocker{err: errors.New("db down")}).reconcileAll(context.Background())
 		}).NotTo(Panic())
+	})
+})
+
+// embeddedSchema is the registry production wires (server.go loads the same
+// embedded, pinned artifact).
+func embeddedSchema() *schema.Registry {
+	GinkgoHelper()
+	reg, err := schema.New(schema.Embedded, version.AlloySchemaVersion)
+	Expect(err).NotTo(HaveOccurred())
+	return reg
+}
+
+// A merged config's Stage 1/2 diagnostics name the file whose declare block
+// they fall in, so a refused commit's sync_error points at a file.
+var _ = Describe("attributeDiagnostics", func() {
+	It("names a commit file by path, another pipeline by name, and the rest as the merged config", func() {
+		spans := []merge.BlockSpan{
+			{PipelineName: "mine", DeclareLine: 5, EndLine: 9},
+			{PipelineName: "theirs", DeclareLine: 11, EndLine: 14},
+		}
+		got := attributeDiagnostics([]validate.Diagnostic{
+			{Line: 6, Col: 3, Message: "bad attr"},
+			{Line: 12, Col: 1, Message: "unknown component"},
+			{Line: 7, Col: 2, Message: "another"},
+			{Line: 30, Col: 1, Message: "in the baseline"},
+		}, spans, map[string]string{"mine": "dir/mine.alloy"}, "c1/metrics")
+		msgs := make([]string, len(got))
+		for i, e := range got {
+			msgs[i] = e.Error()
+		}
+		Expect(msgs).To(Equal([]string{
+			"dir/mine.alloy: merged config invalid: 6:3 bad attr; 7:2 another",
+			`pipeline "theirs" in the merged config for collector c1/metrics: merged config invalid: 12:1 unknown component`,
+			"the merged config for collector c1/metrics: merged config invalid: 30:1 in the baseline",
+		}))
 	})
 })
 

@@ -120,9 +120,12 @@
         earlier revision, but the next commit to the repository puts the repository&rsquo;s text
         back. A new file becomes an enabled pipeline on
         its first successful sync. Synced files pass the same three-stage validation gate as
-        everything else, one file at a time: a file that fails is skipped (its previous version
-        keeps being served), the others in the same commit still sync, and the error is shown under
-        the link&rsquo;s status on the Git sync page. Any synced pipeline can be read as a
+        everything else, and a commit syncs whole or not at all: each file is checked on its own,
+        then the commit as one merged config for the link&rsquo;s collector. If any file fails
+        &mdash; including a file whose signals the collector&rsquo;s role does not allow &mdash;
+        nothing from the commit syncs, the collector keeps serving the previous commit, and the
+        failing files are named under the link&rsquo;s status on the Git sync page; the next poll
+        tries the commit again. Any synced pipeline can be read as a
         <a href="authoring.html#5-view-any-pipeline-as-a-graph">graph</a>.
       </p>
       <p>
@@ -131,20 +134,20 @@
         under the new one, in the same sync. Each delete is recorded in the audit log as a
         <code>pipeline.delete</code> by <code>gitsync</code> with the file and commit, and the
         collector&rsquo;s served config is recomputed right away. A sync that could not fetch the
-        repository, or in which any file failed validation, deletes nothing.
+        repository, or in which any file failed, deletes nothing.
       </p>
       <p>
-        <strong>Mass deletes are held back.</strong> Two guards hold back a commit&rsquo;s deletes
-        <em>and its new files</em> &mdash; changes to files that already have a pipeline still
-        sync &mdash; and set the link&rsquo;s status to <code>warning</code>, with the reason
-        (how many deletes and new files were held) under it: a commit with no <code>.alloy</code>
+        <strong>Mass deletes are held back.</strong> Two guards hold back the whole commit
+        &mdash; its deletes, new files and changes alike &mdash; and set the link&rsquo;s status
+        to <code>warning</code>, with the reason (how many pipelines it would delete) under it:
+        a commit with no <code>.alloy</code>
         files at all under the link&rsquo;s path while the link still has pipelines (usually a
         wrong path or branch), and a commit that would delete more than three pipelines and more
         than half of what the link had at its last successful sync (a moved directory, or files
         removed before upgrading to v0.18.0, the release that added this). A moved directory therefore
         keeps serving its old pipelines rather than both copies. A link that has never completed
         a sync may delete at most three pipelines per sync until it does. While a link shows the
-        warning, every poll clones and validates the repository again. To apply such a commit,
+        warning, every poll clones the repository again. To apply such a commit,
         delete and re-create the repository link; or restore some of the removed files, then
         remove them again a few at a time (at most three, or no more than half of what remains,
         per sync), letting each sync complete.
@@ -153,8 +156,8 @@
         Two pipelines in an organisation cannot have names that differ only in case or
         punctuation (<code>a-b</code> and <code>a_b</code> read as the same name). A file whose
         pipeline name clashes that way with another pipeline in the organisation, or with another
-        file in the same commit, fails on its own with an error naming the other; the rest of the
-        commit still syncs.
+        file in the same commit, fails with an error naming the other, and the commit does not
+        sync.
       </p>
       <p>Git sync is managed by organisation admins.</p>
         <nav class="page-nav" aria-label="Pagination">

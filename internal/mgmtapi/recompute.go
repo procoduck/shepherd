@@ -16,12 +16,17 @@ import (
 // waiting for its next poll. internal/agentapi's GetConfig is the lazy path;
 // both go through serve.ComputeServed, serve.Store and serve.RecordFailure.
 
-// RecomputeOrgCaches is recomputeOrgCaches for callers outside this package:
-// internal/gitsync runs it after a sync changes the org's git pipelines
-// (server.go wires it with gitsync.WithRecompute), the eager recompute the
-// API's own pipeline deletes do.
+// RecomputeOrgCaches is recomputeOrgCaches for callers outside this package.
 func (s *PipelineService) RecomputeOrgCaches(ctx context.Context, orgID pgtype.UUID) {
 	s.recomputeOrgCaches(ctx, orgID)
+}
+
+// RecomputeCollectorCache is recomputeCollectorCache for callers outside this
+// package: internal/gitsync runs it after a sync changes a link's git
+// pipelines (server.go wires it with gitsync.WithRecompute). A git pipeline
+// is served to its link's collector only, so no other collector is touched.
+func (s *PipelineService) RecomputeCollectorCache(ctx context.Context, orgID, collectorID pgtype.UUID) {
+	s.recomputeCollectorCache(ctx, orgID, collectorID)
 }
 
 // recomputeOrgCaches assembles and writes the serve cache for all collectors in an org.
@@ -48,7 +53,8 @@ func (s *PipelineService) recomputeOrgCaches(ctx context.Context, orgID pgtype.U
 
 // recomputeCollectorCache is recomputeOrgCaches narrowed to one collector,
 // the eager recompute for a write whose effect is confined to a single
-// collector (DeleteRepoLink: a repo link belongs to exactly one collector).
+// collector (DeleteRepoLink and a git sync: a repo link belongs to exactly one
+// collector).
 // It loads the same org-wide inputs -- the dirty generations read before the
 // pipelines -- and runs the identical per-collector step, so the bytes and
 // hash it stores are the ones recomputeOrgCaches would have stored for that
