@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -244,13 +245,20 @@ func (r *Reconciler) syncLink(ctx context.Context, link sqlc.RepoLink) (syncOutc
 		return fail(scrub(fmt.Errorf("getting latest commit: %w", err)))
 	}
 	if link.LastCommit.Valid && link.LastCommit.String == latestCommit {
+		// A commit applied with a warning (pre-existing validation failures
+		// elsewhere in the collector's merged config, stage3DryRun) keeps
+		// its warning until the next commit; anything else reads "ok".
+		status, syncError, outcome := pgtype.Text{String: "ok", Valid: true}, pgtype.Text{}, outcomeOK
+		if link.SyncStatus.String == "warning" {
+			status, syncError, outcome = link.SyncStatus, link.SyncError, outcomeWarning
+		}
 		if syncErr := r.store.Queries.UpdateRepoLinkSync(ctx, sqlc.UpdateRepoLinkSyncParams{
 			ID: link.ID, LastCommit: pgtype.Text{String: latestCommit, Valid: true},
-			SyncStatus: pgtype.Text{String: "ok", Valid: true}, SyncError: pgtype.Text{},
+			SyncStatus: status, SyncError: syncError,
 		}); syncErr != nil {
 			r.logger.Error("gitsync: recording sync status", "link_id", link.ID, "err", syncErr)
 		}
-		return outcomeOK, nil
+		return outcome, nil
 	}
 
 	// Fetch .alloy files.
@@ -306,10 +314,15 @@ func (r *Reconciler) syncLink(ctx context.Context, link sqlc.RepoLink) (syncOutc
 	if err != nil {
 		return fail(scrub(err))
 	}
+	warning := ""
 	if len(fileErrs) == 0 && (len(plans) > 0 || len(removed) > 0) {
-		fileErrs, err = r.stage3DryRun(ctx, link, plans, removed)
+		verdict, err := r.stage3DryRun(ctx, link, plans, owned, removed)
 		if err != nil {
 			return fail(scrub(fmt.Errorf("stage-3 merge dry-run: %w", err)))
+		}
+		fileErrs = verdict.refusals
+		if len(verdict.preexisting) > 0 {
+			warning = preexistingWarning(verdict.preexisting)
 		}
 	}
 	if len(fileErrs) > 0 {
@@ -322,7 +335,7 @@ func (r *Reconciler) syncLink(ctx context.Context, link sqlc.RepoLink) (syncOutc
 	// apply has rolled its transaction back by the time it returns an
 	// error, so markError (a write to the same link row on another
 	// connection) never waits on the row lock apply took.
-	changed, err := r.apply(ctx, link, commit, plans, removed)
+	changed, err := r.apply(ctx, link, commit, plans, removed, warning)
 	if errors.Is(err, errLinkGone) {
 		r.logger.Info("gitsync: repo link deleted during its sync; nothing written", "link_id", link.ID)
 		return outcomeLinkGone, nil
@@ -332,6 +345,11 @@ func (r *Reconciler) syncLink(ctx context.Context, link sqlc.RepoLink) (syncOutc
 	}
 	if changed && r.recompute != nil {
 		r.recompute(ctx, link.OrgID, link.CollectorID)
+	}
+	if warning != "" {
+		r.logger.Warn("gitsync: commit applied; the collector's merged config was already invalid",
+			"link_id", link.ID, "commit", commit, "warning", warning)
+		return outcomeWarning, nil
 	}
 	return outcomeOK, nil
 }
@@ -554,12 +572,12 @@ const fileRemovedReason = "gitsync.file_removed"
 // onto the same sanitised name never collides), writes each planned create
 // or update with its next revision, audits every change, dirties the link's
 // collector — the only one a git pipeline is served to (§6.1) — and records
-// sync_status=ok at commit. It is only ever handed a whole commit that passed
+// sync_status=ok at commit (then "warning", when warning is set). It is only ever handed a whole commit that passed
 // every check (syncLink), so it never writes part of one. It reports whether a pipeline
 // was created, updated or deleted. Its deferred rollback has run by the time
 // it returns an error, so the caller's markError never waits on the link row
 // lock taken here.
-func (r *Reconciler) apply(ctx context.Context, link sqlc.RepoLink, commit string, plans []filePlan, removed []sqlc.ListGitPipelinesByRepoLinkRow) (bool, error) {
+func (r *Reconciler) apply(ctx context.Context, link sqlc.RepoLink, commit string, plans []filePlan, removed []sqlc.ListGitPipelinesByRepoLinkRow, warning string) (bool, error) {
 	tx, err := r.store.Pool().Begin(ctx)
 	if err != nil {
 		return false, fmt.Errorf("beginning transaction: %w", err)
@@ -693,6 +711,21 @@ func (r *Reconciler) apply(ctx context.Context, link sqlc.RepoLink, commit strin
 		SyncError:  pgtype.Text{},
 	}); err != nil {
 		return false, fmt.Errorf("recording sync status: %w", err)
+	}
+	// Applied with a warning: the commit is recorded "ok" first, which
+	// stamps last_ok_at (migration 0034's trigger) — the commit WAS applied,
+	// and the prune guard's baseline must count it — then the warning goes
+	// over it with last_commit kept, which tells it apart from a guard's
+	// held commit (last_commit unset).
+	if warning != "" {
+		if err := q.UpdateRepoLinkSync(ctx, sqlc.UpdateRepoLinkSyncParams{
+			ID:         link.ID,
+			LastCommit: pgtype.Text{String: commit, Valid: true},
+			SyncStatus: pgtype.Text{String: "warning", Valid: true},
+			SyncError:  pgtype.Text{String: warning, Valid: true},
+		}); err != nil {
+			return false, fmt.Errorf("recording sync warning: %w", err)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return false, fmt.Errorf("committing: %w", err)
@@ -932,6 +965,18 @@ func (r *Reconciler) planFile(ctx context.Context, link sqlc.RepoLink, file gitr
 	return &filePlan{name: name, path: file.Path, contents: contents, existing: &existing}, nil
 }
 
+// dryRunResult is stage3DryRun's verdict on a commit.
+type dryRunResult struct {
+	// refusals are the reasons the commit is refused, each naming its file
+	// where one is to blame. Empty means the commit may be applied.
+	refusals []error
+	// preexisting names what already failed validation in the collector's
+	// merged config BEFORE the commit (a pipeline by its file path or name,
+	// or the merged config itself), when the commit's merged config fails
+	// only on those. The commit is applied, and the link warns.
+	preexisting []string
+}
+
 // stage3DryRun is the commit's gate: it assembles the merged config the
 // link's collector would be served once the WHOLE commit is applied — every
 // create and update in plans, every pipeline in removed gone — exactly as the
@@ -940,22 +985,30 @@ func (r *Reconciler) planFile(ctx context.Context, link sqlc.RepoLink, file gitr
 // files one at a time against the rows they replace would validate configs
 // no collector is ever served.
 //
-// refusals are the reasons the commit is refused, each naming its file where
-// one is to blame: a created or updated pipeline that role enforcement would
-// exclude from the collector (a git pipeline is served to that one collector
-// only, so an excluded file would sync "ok" and do nothing), a declare-name
-// collision, or a Stage 1/2 diagnostic, attributed to the pipeline whose
-// declare block it falls in. err is a failure that is no verdict on the
-// commit (a store error, a missing validator or schema) — it refuses the
-// commit too.
-func (r *Reconciler) stage3DryRun(ctx context.Context, link sqlc.RepoLink, plans []filePlan, removed []sqlc.ListGitPipelinesByRepoLinkRow) (refusals []error, err error) {
+// The commit is refused for a created or updated pipeline that role
+// enforcement would exclude from the collector (a git pipeline is served to
+// that one collector only, so an excluded file would sync "ok" and do
+// nothing), for a declare-name collision, and for a Stage 1/2 diagnostic the
+// commit is responsible for. When the commit's merged config fails, the
+// collector's CURRENT merged config (same inputs, without the commit) is
+// validated too, and only new diagnostics — or any inside the commit's own
+// files' blocks — refuse it (newDiagnostics). A pipeline the commit does not
+// touch, broken by something else (an Alloy upgrade, say), must not freeze
+// every future commit on the link. That second validation runs only when the
+// first fails, so a passing commit costs one.
+//
+// owned are the link's pipelines before the commit, so a diagnostic in one
+// of its unchanged files is named by path. err is a failure that is no
+// verdict on the commit (a store error, a missing validator or schema) — it
+// refuses the commit too.
+func (r *Reconciler) stage3DryRun(ctx context.Context, link sqlc.RepoLink, plans []filePlan, owned, removed []sqlc.ListGitPipelinesByRepoLinkRow) (dryRunResult, error) {
 	if r.validator == nil {
-		return nil, errors.New("gitsync: validator not configured")
+		return dryRunResult{}, errors.New("gitsync: validator not configured")
 	}
 	if r.schema == nil {
 		// Fail closed, as for the validator: a dry run without role
 		// enforcement would accept a file every serve path then excludes.
-		return nil, errors.New("gitsync: schema registry not configured")
+		return dryRunResult{}, errors.New("gitsync: schema registry not configured")
 	}
 	if timeout := r.validator.Stage3Timeout(); timeout > 0 {
 		var cancel context.CancelFunc
@@ -965,20 +1018,30 @@ func (r *Reconciler) stage3DryRun(ctx context.Context, link sqlc.RepoLink, plans
 
 	rows, err := r.store.Queries.ListEnabledPipelinesForMerge(ctx, link.OrgID)
 	if err != nil {
-		return nil, fmt.Errorf("loading pipelines: %w", err)
-	}
-	gone := make(map[pgtype.UUID]bool, len(removed))
-	for _, p := range removed {
-		gone[p.ID] = true
+		return dryRunResult{}, fmt.Errorf("loading pipelines: %w", err)
 	}
 	// The serve paths' own row conversion (internal/serve), so the dry run
-	// models what they serve.
-	pipelines := serve.PipelinesFromRows(slices.DeleteFunc(rows, func(ep sqlc.ListEnabledPipelinesForMergeRow) bool {
-		return gone[ep.ID]
-	}))
-	paths := make(map[string]string, len(plans)) // candidate name -> file path
+	// models what they serve. current is the collector's input as it stands;
+	// next is it with the commit applied.
+	current := serve.PipelinesFromRows(rows)
+	gone := make(map[string]bool, len(removed))
+	for _, p := range removed {
+		gone[p.ID.String()] = true
+	}
+	next := slices.DeleteFunc(slices.Clone(current), func(mp merge.Pipeline) bool { return gone[mp.ID] })
+
+	// paths names a pipeline of this link by its file: the commit's files,
+	// then the link's unchanged ones. changed is the commit's own.
+	paths := make(map[string]string, len(owned)+len(plans))
+	for _, p := range owned {
+		if p.GitPath.Valid {
+			paths[p.Name] = p.GitPath.String
+		}
+	}
+	changed := make(map[string]bool, len(plans))
 	for _, p := range plans {
 		paths[p.name] = p.path
+		changed[p.name] = true
 		cand := merge.Pipeline{
 			ID:                  "gitsync-candidate:" + p.path,
 			Name:                p.name,
@@ -987,7 +1050,7 @@ func (r *Reconciler) stage3DryRun(ctx context.Context, link sqlc.RepoLink, plans
 			RepoLinkCollectorID: link.CollectorID.String(),
 		}
 		if p.existing == nil {
-			pipelines = append(pipelines, cand)
+			next = append(next, cand)
 			continue
 		}
 		// An update replaces its row and keeps the row's revision for the
@@ -996,19 +1059,19 @@ func (r *Reconciler) stage3DryRun(ctx context.Context, link sqlc.RepoLink, plans
 		// is not in the merged config; its own Stages 1-2 ran in planFile,
 		// and enabling it runs the API's Stage 3.
 		id := p.existing.ID.String()
-		if i := slices.IndexFunc(pipelines, func(mp merge.Pipeline) bool { return mp.ID == id }); i >= 0 {
-			cand.ID, cand.Revision = id, pipelines[i].Revision
-			pipelines[i] = cand
+		if i := slices.IndexFunc(next, func(mp merge.Pipeline) bool { return mp.ID == id }); i >= 0 {
+			cand.ID, cand.Revision = id, next[i].Revision
+			next[i] = cand
 		}
 	}
 
 	coll, err := r.store.Queries.GetCollectorByID(ctx, link.CollectorID)
 	if err != nil {
-		return nil, fmt.Errorf("loading collector: %w", err)
+		return dryRunResult{}, fmt.Errorf("loading collector: %w", err)
 	}
 	cluster, err := r.store.Queries.GetClusterByID(ctx, coll.ClusterID)
 	if err != nil {
-		return nil, fmt.Errorf("loading cluster: %w", err)
+		return dryRunResult{}, fmt.Errorf("loading cluster: %w", err)
 	}
 	collectorKey := cluster.Name + "/" + coll.Role
 
@@ -1036,71 +1099,191 @@ func (r *Reconciler) stage3DryRun(ctx context.Context, link sqlc.RepoLink, plans
 			}
 		}
 	}
+	assemble := func(pipelines []merge.Pipeline) (serve.Result, error) {
+		return serve.Assemble(
+			serve.Deps{Schema: r.schema, BeaconBaseline: r.beaconBaseline},
+			serve.Collector{ID: link.CollectorID.String(), Cluster: cluster.Name, Role: coll.Role, AdminLabels: adminLabels, LocalAttrs: localAttrs},
+			pipelines,
+		)
+	}
 
-	served, err := serve.Assemble(
-		serve.Deps{Schema: r.schema, BeaconBaseline: r.beaconBaseline},
-		serve.Collector{ID: link.CollectorID.String(), Cluster: cluster.Name, Role: coll.Role, AdminLabels: adminLabels, LocalAttrs: localAttrs},
-		pipelines,
-	)
+	served, err := assemble(next)
 	if err != nil {
 		// With the schema present, merge.Assemble refuses only a
 		// declare-name collision, which names both pipelines.
-		return []error{fmt.Errorf("the merged config for collector %s: %w", collectorKey, err)}, nil
+		return dryRunResult{refusals: []error{fmt.Errorf("the merged config for collector %s: %w", collectorKey, err)}}, nil
 	}
 
 	// Role enforcement (gate G6), the rule every serve path assembles with.
 	// Only the commit's own files refuse it: a pipeline the commit does not
 	// touch is already served (or excluded) as it is.
+	var refusals []error
 	for _, ex := range served.Exclusions {
-		path, ok := paths[ex.PipelineName]
-		if !ok {
+		if !changed[ex.PipelineName] {
 			continue
 		}
 		why := reconcile.ExcludedPipeline{
 			Name: ex.PipelineName, Reason: ex.Reason, Disallowed: ex.Disallowed, Unproven: ex.Unproven,
 		}.Why(coll.Role)
-		refusals = append(refusals, fmt.Errorf("%s: collector %s would not serve it: %s", path, collectorKey, why))
+		refusals = append(refusals, fmt.Errorf("%s: collector %s would not serve it: %s", paths[ex.PipelineName], collectorKey, why))
 	}
 	if len(refusals) > 0 {
-		return refusals, nil
+		return dryRunResult{refusals: refusals}, nil
 	}
 
 	result := r.validator.Stages12(ctx, served.Content)
 	if result.Valid {
-		return nil, nil
+		return dryRunResult{}, nil
 	}
-	return attributeDiagnostics(result.Diagnostics, served.Spans, paths, collectorKey), nil
+	diags := locateDiagnostics(served.Content, result.Diagnostics)
+
+	// The baseline: the collector's merged config without the commit. If it
+	// cannot be assembled or validated, nothing counts as pre-existing.
+	var before []locatedDiag
+	if baseServed, baseErr := assemble(current); baseErr == nil {
+		if base := r.validator.Stages12(ctx, baseServed.Content); !base.Valid {
+			before = locateDiagnostics(baseServed.Content, base.Diagnostics)
+		}
+	}
+	fresh, old := newDiagnostics(diags, before, changed)
+	if len(fresh) > 0 {
+		return dryRunResult{refusals: attributeDiagnostics(fresh, paths, collectorKey)}, nil
+	}
+	var preexisting []string
+	seen := map[string]bool{}
+	for _, d := range old {
+		label := d.label(paths, collectorKey)
+		if !seen[label] {
+			seen[label] = true
+			preexisting = append(preexisting, label)
+		}
+	}
+	return dryRunResult{preexisting: preexisting}, nil
 }
 
-// attributeDiagnostics turns the merged config's Stage 1/2 diagnostics into
-// refusals, one per pipeline they fall in (by its declare block's span): a
-// file of the commit by its path, any other pipeline by name, and what lies
-// outside every block (the header, the baseline) as the collector's merged
+// locatedDiag is a merged-config diagnostic attributed to the pipeline whose
+// declare block contains it (merge.Locate). pipeline is "" for a line no
+// block contains (the header, D6's baseline). line/col are the position in
+// the pipeline's own text when pipelineLine is set, else in the merged
 // config.
-func attributeDiagnostics(diags []validate.Diagnostic, spans []merge.BlockSpan, paths map[string]string, collectorKey string) []error {
+type locatedDiag struct {
+	pipeline     string
+	pipelineLine bool
+	line, col    int
+	message      string
+}
+
+// declareIndent is how far merge.Assemble indents a pipeline's text inside
+// its declare block.
+const declareIndent = 2
+
+func locateDiagnostics(content string, diags []validate.Diagnostic) []locatedDiag {
+	out := make([]locatedDiag, 0, len(diags))
+	for _, d := range diags {
+		ld := locatedDiag{line: d.Line, col: d.Col, message: d.Message}
+		if loc, ok := merge.Locate(content, d.Line); ok {
+			ld.pipeline = loc.PipelineName
+			if loc.PipelineLine > 0 {
+				ld.pipelineLine = true
+				ld.line = loc.PipelineLine
+				if ld.col > declareIndent {
+					ld.col -= declareIndent
+				}
+			}
+		}
+		out = append(out, ld)
+	}
+	return out
+}
+
+// positionRE and alloyFileRE strip what can differ between two validations
+// of the same mistake from a message: positions it quotes and the temp file
+// alloy validate was handed.
+var (
+	positionRE  = regexp.MustCompile(`\d+:\d+`)
+	alloyFileRE = regexp.MustCompile(`\S+\.alloy\b`)
+)
+
+// key identifies a diagnostic across the two merged configs stage3DryRun
+// validates. Merged-config line numbers are no use: a block the commit adds
+// or removes shifts every line after it. A pipeline the commit does not touch
+// has the same text in both configs, so (pipeline, line and column in its own
+// text, message) is stable for it. A line outside every block (the header,
+// the baseline) has no stable position, so only the message counts there.
+// Messages are normalised (positionRE, alloyFileRE) because a message can
+// quote a position or a temp path.
+func (d locatedDiag) key() string {
+	msg := alloyFileRE.ReplaceAllString(d.message, "<file>")
+	msg = positionRE.ReplaceAllString(msg, "<pos>")
+	if !d.pipelineLine {
+		return d.pipeline + "\x00" + msg
+	}
+	return fmt.Sprintf("%s\x00%d:%d\x00%s", d.pipeline, d.line, d.col, msg)
+}
+
+// label names where d is: a pipeline of the link by its file path, another
+// pipeline by name, anything else as the collector's merged config.
+func (d locatedDiag) label(paths map[string]string, collectorKey string) string {
+	switch {
+	case d.pipeline == "":
+		return "the merged config for collector " + collectorKey
+	case paths[d.pipeline] != "":
+		return paths[d.pipeline]
+	default:
+		return fmt.Sprintf("pipeline %q in the merged config for collector %s", d.pipeline, collectorKey)
+	}
+}
+
+// newDiagnostics splits the commit's merged-config diagnostics into the ones
+// the commit is responsible for — any inside one of its own files' blocks
+// (changed), and any other whose key the config before the commit did not
+// have — and the pre-existing rest.
+func newDiagnostics(after, before []locatedDiag, changed map[string]bool) (fresh, old []locatedDiag) {
+	had := make(map[string]bool, len(before))
+	for _, d := range before {
+		had[d.key()] = true
+	}
+	for _, d := range after {
+		if changed[d.pipeline] || !had[d.key()] {
+			fresh = append(fresh, d)
+			continue
+		}
+		old = append(old, d)
+	}
+	return fresh, old
+}
+
+// attributeDiagnostics turns located diagnostics into refusals, one per place
+// they fall in (locatedDiag.label), with positions in the pipeline's own
+// text where there is one.
+func attributeDiagnostics(diags []locatedDiag, paths map[string]string, collectorKey string) []error {
 	var order []string
 	msgs := map[string][]string{}
 	for _, d := range diags {
-		owner := "the merged config for collector " + collectorKey
-		for _, sp := range spans {
-			if d.Line > sp.DeclareLine && d.Line <= sp.EndLine {
-				owner = fmt.Sprintf("pipeline %q in the merged config for collector %s", sp.PipelineName, collectorKey)
-				if path, ok := paths[sp.PipelineName]; ok {
-					owner = path
-				}
-				break
-			}
-		}
+		owner := d.label(paths, collectorKey)
 		if _, seen := msgs[owner]; !seen {
 			order = append(order, owner)
 		}
-		msgs[owner] = append(msgs[owner], fmt.Sprintf("%d:%d %s", d.Line, d.Col, d.Message))
+		msgs[owner] = append(msgs[owner], fmt.Sprintf("%d:%d %s", d.line, d.col, d.message))
 	}
 	out := make([]error, 0, len(order))
 	for _, owner := range order {
 		out = append(out, fmt.Errorf("%s: merged config invalid: %s", owner, strings.Join(msgs[owner], "; ")))
 	}
 	return out
+}
+
+// preexistingWarning is the sync_error of a commit applied although the
+// collector's merged config already failed validation before it, in places
+// the commit did not touch.
+func preexistingWarning(places []string) string {
+	named := places
+	more := ""
+	if len(named) > maxNamedFailures {
+		named, more = places[:maxNamedFailures], fmt.Sprintf(" and %d more", len(places)-maxNamedFailures)
+	}
+	return fmt.Sprintf("commit applied, but the collector's merged config already failed validation before it, in: %s%s. "+
+		"They were broken before this commit; fix them where they are defined.", strings.Join(named, "; "), more)
 }
 
 func (r *Reconciler) markError(ctx context.Context, linkID pgtype.UUID, err error) error {
@@ -1115,10 +1298,10 @@ func (r *Reconciler) markError(ctx context.Context, linkID pgtype.UUID, err erro
 	return err
 }
 
-// markWarning records a sync that held its deletes back on purpose
-// (pruneGuard) after applying the commit's creates and updates.
-// last_commit stays unset so the next poll re-checks instead of taking the
-// unchanged-commit shortcut back to "ok".
+// markWarning records a commit held back on purpose (pruneGuard): nothing
+// from it was applied. last_commit stays unset so the next poll re-checks
+// instead of taking the unchanged-commit shortcut. (A commit applied with a
+// warning is recorded by apply instead, with last_commit set.)
 func (r *Reconciler) markWarning(ctx context.Context, linkID pgtype.UUID, warning string) {
 	if err := r.store.Queries.UpdateRepoLinkSync(ctx, sqlc.UpdateRepoLinkSyncParams{
 		ID:         linkID,

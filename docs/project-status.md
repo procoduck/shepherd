@@ -220,7 +220,8 @@ prune guard still applied the commit's updates — a collector could serve half 
 to spec §8 ("never partially apply a commit"). Found in the 2026-10-22 review; step 6 of
 `docs/plans/2026-10-22-review-remediation.md` (R8). Fixed in #373: any failing file, or a tripped
 guard, applies nothing from the commit; the commit is dry-run once as a whole for the link's
-collector, with role enforcement; create/update audit rows carry `commit`, `git_path`,
+collector, with role enforcement — refusing only errors the commit brings, not ones already in
+the collector's merged config (those apply with a warning); create/update audit rows carry `commit`, `git_path`,
 `repo_link_id`; only the link's collector is recomputed. Red-first specs in
 `internal/gitsync/reconciler_internal_test.go` ("a commit applies atomically (R8)").
 

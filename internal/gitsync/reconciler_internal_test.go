@@ -595,14 +595,14 @@ prometheus.remote_write "demo" {
 				a := filePlan{name: "x-y", path: "x-y.alloy", contents: "// a"}
 				b := filePlan{name: "x_y", path: "x_y.alloy", contents: "// b"}
 				for _, alone := range []filePlan{a, b} {
-					refusals, err := r.stage3DryRun(ctx, link, []filePlan{alone}, nil)
+					verdict, err := r.stage3DryRun(ctx, link, []filePlan{alone}, nil, nil)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(refusals).To(BeEmpty(), "%s passes on its own", alone.path)
+					Expect(verdict.refusals).To(BeEmpty(), "%s passes on its own", alone.path)
 				}
-				refusals, err := r.stage3DryRun(ctx, link, []filePlan{a, b}, nil)
+				verdict, err := r.stage3DryRun(ctx, link, []filePlan{a, b}, nil, nil)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(refusals).To(HaveLen(1), "together they collide")
-				Expect(refusals[0].Error()).To(ContainSubstring("declare-name collision"))
+				Expect(verdict.refusals).To(HaveLen(1), "together they collide")
+				Expect(verdict.refusals[0].Error()).To(ContainSubstring("declare-name collision"))
 
 				// The other way round: "GONE" takes the declare label of the
 				// "gone" pipeline the same commit removes. Checked against the
@@ -617,12 +617,113 @@ prometheus.remote_write "demo" {
 				}
 				Expect(removed).To(HaveLen(1))
 				rename := filePlan{name: "GONE", path: "GONE.alloy", contents: "// gone"}
-				refusals, err = r.stage3DryRun(ctx, link, []filePlan{rename}, nil)
+				verdict, err = r.stage3DryRun(ctx, link, []filePlan{rename}, owned, nil)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(refusals).To(HaveLen(1))
-				refusals, err = r.stage3DryRun(ctx, link, []filePlan{rename}, removed)
+				Expect(verdict.refusals).To(HaveLen(1))
+				verdict, err = r.stage3DryRun(ctx, link, []filePlan{rename}, owned, removed)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(refusals).To(BeEmpty())
+				Expect(verdict.refusals).To(BeEmpty())
+			})
+
+			// Review of #373: a pipeline the commit does not touch, already
+			// broken (an Alloy upgrade, say), must not freeze every commit on
+			// the link. Only what the commit brings — any diagnostic in its own
+			// files, or one the config before it did not have — refuses it.
+			Describe("a merged config already broken before the commit", func() {
+				// Proven metrics signals (so role enforcement keeps it), valid
+				// syntax, refused by alloy validate.
+				const broken = `prometheus.remote_write "x" {
+  endpoint {
+    url = "http://prom.example.com/api/v1/push"
+  }
+  bogus_attr = 1
+}
+`
+				// unvalidated stands in for an error only the merged config
+				// shows: it plans every file without planFile's own checks.
+				unvalidated := func(_ context.Context, l sqlc.RepoLink, f gitrepo.File) (*filePlan, error) {
+					p := &filePlan{name: strings.TrimSuffix(f.Path, ".alloy"), path: f.Path, contents: string(f.Content)}
+					existing, err := st.Queries.GetPipelineByOrgAndName(ctx, sqlc.GetPipelineByOrgAndNameParams{OrgID: l.OrgID, Name: p.name})
+					if err == nil {
+						if existing.Contents == p.contents {
+							return nil, nil //nolint:nilnil // nothing to write
+						}
+						p.existing = &existing
+					}
+					return p, nil
+				}
+				BeforeEach(func() {
+					_, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+						OrgID: link.OrgID, Name: "ui-broken", Contents: broken,
+						Matchers: json.RawMessage(`["cluster=\"gitsync-cluster\""]`),
+						Enabled:  true, Source: "ui",
+						WizardState: json.RawMessage(`{}`), CreatedBy: "test", UpdatedBy: "test",
+					})
+					Expect(err).NotTo(HaveOccurred())
+				})
+
+				It("applies a valid commit and warns, naming the broken pipeline", func() {
+					commit(map[string]string{"keep.alloy": "// keep, changed", "new.alloy": "// new"})
+					Expect(r.reconcileLink(ctx, link)).To(Succeed())
+
+					keep, err := pipelineNamed("keep")
+					Expect(err).NotTo(HaveOccurred())
+					Expect(keep.Contents).To(Equal("// keep, changed"))
+					_, err = pipelineNamed("new")
+					Expect(err).NotTo(HaveOccurred())
+
+					l, err := st.Queries.GetRepoLinkByID(ctx, link.ID)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(l.SyncStatus.String).To(Equal("warning"))
+					Expect(l.SyncError.String).To(ContainSubstring("commit applied"))
+					Expect(l.SyncError.String).To(ContainSubstring(`"ui-broken"`))
+					Expect(l.LastCommit.Valid).To(BeTrue(), "the commit was applied: last_commit advances")
+
+					// The unchanged-commit poll keeps the warning.
+					Expect(r.reconcileLink(ctx, l)).To(Succeed())
+					l, err = st.Queries.GetRepoLinkByID(ctx, link.ID)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(l.SyncStatus.String).To(Equal("warning"))
+				})
+
+				It("applies a delete-only commit", func() {
+					gone, err := pipelineNamed("gone")
+					Expect(err).NotTo(HaveOccurred())
+					commit(nil, "gone.alloy")
+					Expect(r.reconcileLink(ctx, link)).To(Succeed())
+					_, err = st.Queries.GetPipelineByID(ctx, gone.ID)
+					Expect(err).To(HaveOccurred())
+				})
+
+				It("refuses a commit that brings a new error, naming its file", func() {
+					r.planFileFunc = unvalidated
+					worse := strings.Replace(broken, "bogus_attr = 1", "other_bogus = 2", 1)
+					commit(map[string]string{"keep.alloy": "// keep, changed", "worse.alloy": worse})
+					err := r.reconcileLink(ctx, link)
+					Expect(err).To(HaveOccurred())
+					// Line 5 of the file itself, not of the merged config.
+					Expect(err.Error()).To(MatchRegexp(`worse\.alloy: merged config invalid: 5:\d+ .*other_bogus`))
+					Expect(err.Error()).NotTo(ContainSubstring("ui-broken"), "the pre-existing error is not the commit's")
+					keep, err := pipelineNamed("keep")
+					Expect(err).NotTo(HaveOccurred())
+					Expect(keep.Contents).To(Equal("// keep"))
+				})
+
+				It("refuses a commit whose own file carries the same error as before, as it is the commit's file", func() {
+					keep, err := pipelineNamed("keep")
+					Expect(err).NotTo(HaveOccurred())
+					_, err = st.Pool().Exec(ctx, `UPDATE pipelines SET contents = $1 WHERE id = $2`, broken, keep.ID)
+					Expect(err).NotTo(HaveOccurred())
+					r.planFileFunc = unvalidated
+					commit(map[string]string{"keep.alloy": broken + "// touched\n"})
+
+					err = r.reconcileLink(ctx, link)
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring("keep.alloy: merged config invalid"))
+					after, err := st.Queries.GetPipelineByID(ctx, keep.ID)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(after.Contents).To(Equal(broken))
+				})
 			})
 
 			It("refuses every commit when no schema registry is configured, rather than dry-running it unenforced", func() {
@@ -1307,27 +1408,53 @@ func embeddedSchema() *schema.Registry {
 
 // A merged config's Stage 1/2 diagnostics name the file whose declare block
 // they fall in, so a refused commit's sync_error points at a file.
-var _ = Describe("attributeDiagnostics", func() {
-	It("names a commit file by path, another pipeline by name, and the rest as the merged config", func() {
-		spans := []merge.BlockSpan{
-			{PipelineName: "mine", DeclareLine: 5, EndLine: 9},
-			{PipelineName: "theirs", DeclareLine: 11, EndLine: 14},
-		}
-		got := attributeDiagnostics([]validate.Diagnostic{
-			{Line: 6, Col: 3, Message: "bad attr"},
-			{Line: 12, Col: 1, Message: "unknown component"},
-			{Line: 7, Col: 2, Message: "another"},
-			{Line: 30, Col: 1, Message: "in the baseline"},
-		}, spans, map[string]string{"mine": "dir/mine.alloy"}, "c1/metrics")
+var _ = Describe("merged-config diagnostics", func() {
+	// mine sorts before theirs: mine's text is lines 2-4 of its declare
+	// block, theirs follows.
+	assembled := func() (string, []merge.BlockSpan) {
+		GinkgoHelper()
+		cl := merge.BuildCollectorLabels("c1", "c1", "metrics", nil, nil)
+		res, err := merge.Assemble("c1", "c1/metrics", cl, []merge.Pipeline{
+			{ID: "1", Name: "mine", Contents: "a\nb\nc\n", Source: "git", RepoLinkCollectorID: "c1"},
+			{ID: "2", Name: "theirs", Contents: "x\ny\n", Source: "git", RepoLinkCollectorID: "c1"},
+		})
+		Expect(err).NotTo(HaveOccurred())
+		return res.Content, res.Spans
+	}
+
+	It("gives a pipeline's diagnostic in its own text's line and column, labelled by path or name", func() {
+		content, spans := assembled()
+		mine, theirs := spans[0], spans[1]
+		located := locateDiagnostics(content, []validate.Diagnostic{
+			{Line: mine.DeclareLine + 2, Col: 5, Message: "bad attr"},
+			{Line: theirs.DeclareLine + 1, Col: 3, Message: "unknown component"},
+			{Line: mine.DeclareLine + 3, Col: 3, Message: "another"},
+			{Line: 1, Col: 1, Message: "in the header"},
+		})
+		got := attributeDiagnostics(located, map[string]string{"mine": "dir/mine.alloy"}, "c1/metrics")
 		msgs := make([]string, len(got))
 		for i, e := range got {
 			msgs[i] = e.Error()
 		}
 		Expect(msgs).To(Equal([]string{
-			"dir/mine.alloy: merged config invalid: 6:3 bad attr; 7:2 another",
-			`pipeline "theirs" in the merged config for collector c1/metrics: merged config invalid: 12:1 unknown component`,
-			"the merged config for collector c1/metrics: merged config invalid: 30:1 in the baseline",
+			"dir/mine.alloy: merged config invalid: 2:3 bad attr; 3:1 another",
+			`pipeline "theirs" in the merged config for collector c1/metrics: merged config invalid: 1:1 unknown component`,
+			"the merged config for collector c1/metrics: merged config invalid: 1:1 in the header",
 		}))
+	})
+
+	// The key that tells a pre-existing diagnostic from a new one must not
+	// move when the commit adds a block ahead of the broken pipeline.
+	It("matches a diagnostic across configs whose merged lines differ", func() {
+		before := []locatedDiag{{pipeline: "theirs", pipelineLine: true, line: 2, col: 3, message: "/tmp/v123.alloy:9:3: unknown attr"}}
+		after := []locatedDiag{
+			{pipeline: "theirs", pipelineLine: true, line: 2, col: 3, message: "/tmp/v456.alloy:14:3: unknown attr"},
+			{pipeline: "theirs", pipelineLine: true, line: 3, col: 3, message: "unknown attr"},
+			{pipeline: "mine", pipelineLine: true, line: 2, col: 3, message: "unknown attr"},
+		}
+		fresh, old := newDiagnostics(after, before, map[string]bool{"mine": true})
+		Expect(old).To(Equal(after[:1]))
+		Expect(fresh).To(Equal(after[1:]))
 	})
 })
 
