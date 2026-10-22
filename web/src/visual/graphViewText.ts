@@ -88,21 +88,42 @@ export function moduleOfInstance(
   node: GraphNode,
   nodes: readonly GraphNode[],
 ): GraphNode | undefined {
-  if (!isOpaqueNode(node.component)) return undefined;
-  const name = node.component.slice('opaque.'.length);
+  return moduleResolver(nodes)(node);
+}
+
+/** moduleOfInstance for many nodes of one graph: the id and scope indexes
+ *  are built once, so resolving every node stays linear in the graph's size
+ *  (chart-generated configs run to hundreds of nodes). */
+export function moduleResolver(
+  nodes: readonly GraphNode[],
+): (node: GraphNode) => GraphNode | undefined {
   const byId = new Map(nodes.map((n) => [n.id, n]));
-  const seen = new Set<string>();
-  let scope: string | undefined = node.parent ?? '';
-  while (scope !== undefined && !seen.has(scope)) {
-    seen.add(scope);
-    const here: string = scope;
-    const found = nodes.find(
-      (n) => isModuleGroup(n) && n.label === name && (n.parent ?? '') === here,
-    );
-    if (found) return found;
-    scope = here === '' ? undefined : (byId.get(here)?.parent ?? '');
+  // scope ('' for the top level) → module name → the first group declaring it.
+  const modules = new Map<string, Map<string, GraphNode>>();
+  for (const n of nodes) {
+    if (!isModuleGroup(n)) continue;
+    const scope = n.parent ?? '';
+    let named = modules.get(scope);
+    if (!named) {
+      named = new Map();
+      modules.set(scope, named);
+    }
+    if (!named.has(n.label)) named.set(n.label, n);
   }
-  return undefined;
+  return (node) => {
+    if (!isOpaqueNode(node.component)) return undefined;
+    const name = node.component.slice('opaque.'.length);
+    const seen = new Set<string>();
+    let scope: string | undefined = node.parent ?? '';
+    while (scope !== undefined && !seen.has(scope)) {
+      seen.add(scope);
+      const here: string = scope;
+      const found = modules.get(here)?.get(name);
+      if (found) return found;
+      scope = here === '' ? undefined : (byId.get(here)?.parent ?? '');
+    }
+    return undefined;
+  };
 }
 
 type EdgeEnds = {

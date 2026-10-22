@@ -55,7 +55,7 @@ func destinationExtraJSON(extra *structpb.Struct) ([]byte, error) {
 	}
 	b, err := protojson.Marshal(extra)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encoding destination extra: %w", err)
 	}
 	if len(b) == 0 {
 		return []byte("{}"), nil
@@ -71,7 +71,7 @@ func destinationExtraJSON(extra *structpb.Struct) ([]byte, error) {
 func toDestinationProto(d sqlc.Destination) (*mgmtv1.Destination, error) {
 	extra, err := structFromJSON(d.Extra)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decoding destination %s extra: %w", d.ID.String(), err)
 	}
 	return &mgmtv1.Destination{
 		Id:              d.ID.String(),
