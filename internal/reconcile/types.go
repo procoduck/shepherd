@@ -59,7 +59,7 @@ type ServedPipeline struct {
 	Signals signals.Signals
 }
 
-// ObservedComponent is one controller_path the beacon reported running for
+// ObservedComponent is one managed pipeline the beacon reported running for
 // a collector instance, reconstructed from a beacon_inventory row without
 // this package importing internal/store — see the package doc: pure
 // library, no database dependency.

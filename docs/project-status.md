@@ -226,6 +226,23 @@ developer who needs containment to be real locally uses `make dev-kind`, which i
 the chart's NetworkPolicy is enforced (`docs/kind-test-environment-plan.md` §11). B-CONTAIN-2 is
 compose-only.
 
+### B-BEACON-KEY — the beacon never reported per pipeline · **medium** · ships fixed in the next release (part of #378)
+
+Since W5 shipped, `beacon.Project` keyed inventory on `controller_path` alone. Real Alloy (v1.18.1
+and v1.20.1, verified in source) reports a declare-wrapped pipeline's loader as
+`controller_path="/remotecfg" controller_id="pipe_x.default"` — every pipeline shares
+`/remotecfg` — so all pipelines collapsed onto one `/remotecfg` row (last write wins) and the
+reconciliation tab's `pipe_` filter never matched: **observed was always empty, and no
+"unserved component observed" finding could ever fire.** The test fixtures invented
+`controller_path="pipe_x"`, a shape Alloy never emits, which hid it. Fixed: the projection joins
+`controller_path` + `controller_id`, keys by the first `pipe_*` segment and sums health across
+nested module loaders (unhealthy if any is); root/bootstrap loaders are dropped. No served-bytes
+change. Rows already stored under `/remotecfg` are ignored by reconciliation and aged out by the
+sweeper (5 min) — no migration. Red-first specs in `internal/beacon/project_test.go`,
+`internal/agentapi/beacon_handler_test.go`, `internal/mgmtapi/rpc_reconcile_test.go`, plus an e2e
+spec that projects the real compose Alloy's `/metrics`. The role-enforcement half of #378 (module
+instances counted as Unknown) is still open.
+
 Fixed bugs (B-CONTAIN-1, B-CONCAT, B-STAGEORDER, F9-a) are in
 `docs/archive/completed-2026-09-11.md` with their red-run evidence. B-VIEWER-CANVAS (#226, a
 viewer's canvas and inspector stayed editable) shipped fixed in v0.15.0 (#256). B-GITSYNC-PRUNE

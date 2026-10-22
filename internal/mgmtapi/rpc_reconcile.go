@@ -21,15 +21,22 @@ import (
 // evidence a component WAS running, not proof it still is.
 const beaconStaleAfter = 5 * time.Minute
 
-// managedControllerPrefix is the controller_path prefix a merge-assembled
-// pipeline reports under (merge declare-wraps each as `pipe_<sanitized>`).
-// Reconciliation compares observed components only within this managed
-// namespace: a `pipe_*` path observed but not served is real, actionable drift
-// (a disabled/deleted pipeline a collector is still running). Root-level
-// components — Alloy's root controller, where the beacon baseline and any BYO
-// top-level components run — are not individually distinguishable via
+// managedControllerPrefix is the prefix of the key a merge-assembled pipeline
+// is observed under (merge declare-wraps each as `pipe_<sanitized>`).
+// beacon.Project derives that key from the reporting loader's
+// controller_path + controller_id and rolls nested modules up to it (#378:
+// before that fix it keyed on controller_path alone, which every pipeline
+// shares as "/remotecfg", so nothing ever passed this filter). Reconciliation
+// compares observed components only within this managed namespace: a `pipe_*`
+// key observed but not served is real, actionable drift (a disabled/deleted
+// pipeline a collector is still running). Root-level components — the
+// remotecfg root loader, where the beacon baseline runs, and the local
+// bootstrap config — are not individually distinguishable via
 // alloy_component_controller_running_components and are deliberately out of
-// scope, which also keeps the baseline from false-flagging (see the plan).
+// scope (Project drops them), which also keeps the baseline from
+// false-flagging. The filter stays as defense in depth: rows a pre-#378
+// Shepherd stored under "/remotecfg" are skipped here until the sweeper ages
+// them out.
 const managedControllerPrefix = "pipe_"
 
 // GetReconciliation returns a collector's declared-vs-served-vs-observed drift

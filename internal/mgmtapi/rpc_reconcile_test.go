@@ -11,8 +11,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/prometheus/prometheus/prompb"
 
 	"shepherd/internal/auth"
+	"shepherd/internal/beacon"
 	"shepherd/internal/config"
 	"shepherd/internal/merge"
 	"shepherd/internal/store"
@@ -145,6 +147,46 @@ var _ = Describe("shepherd.mgmt.v1.FleetService/GetReconciliation", Label("integ
 	It("reports no findings when the observed pipeline is the served one", func() {
 		observe("pipe_keep_me", true)
 		Expect(findings()).To(BeEmpty())
+	})
+
+	// #378, at the layer it is consumed at: a beacon write in the label shape
+	// the pinned Alloy really emits (controller_path = parent, controller_id =
+	// the loader's own id), through beacon.Project and the same upsert the
+	// handler runs, reaches reconciliation per pipeline. Before the fix every
+	// pipeline projected to one "/remotecfg" row that the pipe_ filter
+	// dropped, so the ghost below was never reported.
+	It("reconciles a beacon write in Alloy's real label shape per pipeline", func() {
+		series := func(controllerPath, controllerID, healthType string) prompb.TimeSeries {
+			return prompb.TimeSeries{
+				Labels: []prompb.Label{
+					{Name: "__name__", Value: "alloy_component_controller_running_components"},
+					{Name: "controller_id", Value: controllerID},
+					{Name: "controller_path", Value: controllerPath},
+					{Name: "health_type", Value: healthType},
+					{Name: "instance", Value: "10.0.0.1:12345"},
+				},
+				Samples: []prompb.Sample{{Value: 1, Timestamp: 1000}},
+			}
+		}
+		wr := &prompb.WriteRequest{Timeseries: []prompb.TimeSeries{
+			series("/", "remotecfg", "healthy"),
+			series("/remotecfg", "pipe_keep_me.default", "healthy"),
+			series("/remotecfg", "pipe_ghost.default", "healthy"),
+			series("/remotecfg/pipe_ghost.default", "feat.inner", "healthy"),
+		}}
+		_, _, obs, err := beacon.Project(wr)
+		Expect(err).NotTo(HaveOccurred())
+		for _, o := range obs {
+			observe(o.ComponentName, o.Healthy)
+		}
+		// A row left by a pre-fix Shepherd, keyed "/remotecfg": ignored, then
+		// aged out by the sweeper.
+		observe("/remotecfg", true)
+
+		fs := findings()
+		Expect(fs).To(HaveLen(1))
+		Expect(fs[0]["kind"]).To(Equal("unserved_component_observed"))
+		Expect(fs[0]["controllerPath"]).To(Equal("pipe_ghost"))
 	})
 
 	It("flags a managed pipeline running that is no longer served", func() {
