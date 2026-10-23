@@ -50,14 +50,17 @@ var _ = Describe("Migration: 0039_org_tenants", Label("integration"), func() {
 	}
 
 	It("carries each org's tenant over as its default exact tenant, and back", func(ctx context.Context) {
-		acme := legacyOrg(ctx, "acme", "acme")
-		none := legacyOrg(ctx, "none", "")
+		// The isolated DB is cloned from the shared template, which other specs
+		// in this suite write to; names and tenants must not collide with theirs.
+		const tenant = "mig0039-acme"
+		acme := legacyOrg(ctx, "mig0039-acme", tenant)
+		none := legacyOrg(ctx, "mig0039-none", "")
 		Expect(store.MigrateUp(ctx, url)).To(Succeed())
 
 		rows, err := q.ListOrgTenants(ctx, acme)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(rows).To(HaveLen(1))
-		Expect(rows[0].Tenant).To(Equal("acme"))
+		Expect(rows[0].Tenant).To(Equal(tenant))
 		Expect(rows[0].Kind).To(Equal("exact"))
 		Expect(rows[0].IsDefault).To(BeTrue(), "the org's one tenant is what its routes and chart values used")
 		rows, err = q.ListOrgTenants(ctx, none)
@@ -65,15 +68,15 @@ var _ = Describe("Migration: 0039_org_tenants", Label("integration"), func() {
 		Expect(rows).To(BeEmpty(), "the migration must not invent a tenant")
 
 		// More tenants after the move; the down migration keeps the default.
-		_, err = q.AddOrgTenant(ctx, sqlc.AddOrgTenantParams{OrgID: acme, Tenant: "acme-eu", Kind: "exact"})
+		_, err = q.AddOrgTenant(ctx, sqlc.AddOrgTenantParams{OrgID: acme, Tenant: "mig0039-acme-eu", Kind: "exact"})
 		Expect(err).NotTo(HaveOccurred())
-		_, err = q.AddOrgTenant(ctx, sqlc.AddOrgTenantParams{OrgID: none, Tenant: "none-", Kind: "prefix"})
+		_, err = q.AddOrgTenant(ctx, sqlc.AddOrgTenantParams{OrgID: none, Tenant: "mig0039-none-", Kind: "prefix"})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(store.MigrateTo(ctx, url, 38)).To(Succeed())
 
 		var got pgtype.Text
 		Expect(db.QueryRow(ctx, `SELECT tenant_id FROM orgs WHERE id = $1`, acme).Scan(&got)).To(Succeed()) // RAW-SQL-OK: pre-0039 column
-		Expect(got.String).To(Equal("acme"))
+		Expect(got.String).To(Equal(tenant))
 		Expect(db.QueryRow(ctx, `SELECT tenant_id FROM orgs WHERE id = $1`, none).Scan(&got)).To(Succeed()) // RAW-SQL-OK: pre-0039 column
 		Expect(got.Valid).To(BeFalse(), "an org without a default goes back to having no tenant")
 	})
