@@ -3,7 +3,10 @@ package tenancy_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	. "github.com/onsi/ginkgo/v2"
@@ -98,6 +101,49 @@ var _ = Describe("CheckRequireOwned", Label("integration"), func() {
 		Expect(err).NotTo(HaveOccurred())
 	}
 
+	// Third review (PR #388): the index is bounded and fails soft, and never
+	// trusts rows written for other contents.
+	It("records a pathological pipeline as incomplete quickly, and the rebuild never fails", func() {
+		var b strings.Builder
+		b.WriteString("declare \"l0\" {\n  argument \"t\" { }\n  loki.write \"w\" {\n    endpoint {\n      url = \"x\"\n      tenant_id = argument.t.value\n    }\n  }\n}\n")
+		sum := strings.TrimSuffix(strings.Repeat("argument.t.value + ", 40), " + ")
+		for i := 1; i < 7; i++ {
+			fmt.Fprintf(&b, "declare \"l%d\" {\n  argument \"t\" { }\n  l%d \"x\" { t = %s }\n}\n", i, i-1, sum)
+		}
+		b.WriteString("l6 \"top\" { t = \"acme\" }\n")
+		p, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: org.ID, Name: "pathological", Contents: b.String(), Matchers: json.RawMessage(`[]`), Source: "ui", Enabled: true,
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		start := time.Now()
+		tenancy.RebuildPipelineTenants(ctx, st)
+		Expect(time.Since(start)).To(BeNumerically("<", 5*time.Second))
+		idx, err := st.Queries.GetPipelineTenantIndex(ctx, p.ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(idx.Complete).To(BeFalse())
+	})
+
+	It("re-records a pipeline whose contents changed without the index (a rolling upgrade)", func() {
+		other, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "preflight-other2", DisplayName: "O", AdminGroupID: "o2-admins"})
+		Expect(err).NotTo(HaveOccurred())
+		pipeline("w", "first", true)
+		tenancy.RebuildPipelineTenants(ctx, st)
+		p, err := st.Queries.GetPipelineByOrgAndName(ctx, sqlc.GetPipelineByOrgAndNameParams{OrgID: org.ID, Name: "w"})
+		Expect(err).NotTo(HaveOccurred())
+		// An old pod's write: contents change, the index does not.
+		_, err = st.Queries.UpdatePipeline(ctx, sqlc.UpdatePipelineParams{
+			ID: p.ID, Name: p.Name, Contents: strings.Replace(p.Contents, "first", "second", 1), Matchers: p.Matchers, UpdatedBy: "old-pod",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		got, err := tenancy.OtherOrgPipelinesCovered(ctx, st.Queries, other.ID, gateway.OrgTenant{Tenant: "second", Kind: gateway.TenantExact})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got).To(HaveLen(1))
+		got, err = tenancy.OtherOrgPipelinesCovered(ctx, st.Queries, other.ID, gateway.OrgTenant{Tenant: "first", Kind: gateway.TenantExact})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got).To(BeEmpty())
+	})
+
 	It("passes when everything uses an owned tenant or none", func() {
 		destination("owned", "acme")
 		destination("none", "")
@@ -150,12 +196,10 @@ var _ = Describe("CheckRequireOwned", Label("integration"), func() {
 			Expect(err).NotTo(HaveOccurred())
 			return out
 		}
-		Expect(covered("x_tenant", false)).To(BeEmpty(), "nothing recorded before the rebuild")
-
-		tx, err := st.Pool().Begin(ctx)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(tenancy.RebuildPipelineTenants(ctx, st.Queries.WithTx(tx))).To(Succeed())
-		Expect(tx.Commit(ctx)).To(Succeed())
+		// Written without the index (as a pod that predates it would): the
+		// check re-records it before it asks.
+		Expect(covered("x_tenant", false)).To(ConsistOf(ContainSubstring(`pipeline "w"`)), "a stale row is re-recorded")
+		tenancy.RebuildPipelineTenants(ctx, st)
 
 		Expect(covered("x_tenant", false)).To(ConsistOf(ContainSubstring(`pipeline "w"`)))
 		Expect(covered("x_", true)).To(HaveLen(1))

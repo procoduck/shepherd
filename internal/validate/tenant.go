@@ -61,9 +61,21 @@ var tenantFromData = map[string]map[string][]string{
 	"loki.process": {"stage.tenant": {"label", "source"}},
 }
 
+// pushSources are the Loki sources that turn a client's X-Scope-OrgID into
+// the __tenant_id__ label of what they forward (Alloy v1.20.1:
+// loki/source/api/routes.go, heroku/routes.go, aws_firehose/routes.go,
+// gcplog/internal/gcplogtarget/push_translation.go). A loki.write then sends
+// each entry under the CLIENT's tenant unless the label is overwritten or
+// dropped on the way (pushSourcePaths).
+var pushSources = map[string]bool{
+	"loki.source.api":         true,
+	"loki.source.heroku":      true,
+	"loki.source.awsfirehose": true,
+	"loki.source.gcplog":      true,
+}
+
 // corsHeaderLists are attributes ending in "headers" that list header NAMES
-// a receiver allows (CORS) or a Kafka receiver extracts, not headers sent:
-// they carry no tenant.
+// a receiver allows (CORS), not headers sent: they carry no tenant.
 var corsHeaderLists = map[string]bool{"allowed_headers": true, "exposed_headers": true}
 
 // isHeadersMapAttr reports whether an attribute called name is a map of
@@ -75,44 +87,40 @@ func isHeadersMapAttr(name string) bool {
 	return (strings.HasSuffix(n, "headers") && !corsHeaderLists[n]) || n == "proxy_connect_header"
 }
 
-// maxFolded bounds how many values one expression may fold to, maxDepth how
-// many declare argument hops and nested import.string modules the lint
-// follows. Past either it cannot verify, so strict mode refuses.
+// The lint's bounds. Past any of them a value is unreadable: refused in
+// strict mode, "incomplete" for TenantLiterals. They exist because values
+// fold: a concatenation of declare arguments, each passed down another
+// level, grows exponentially with the nesting — 4 KB of text once built a
+// 200 MB string.
 const (
+	// maxFolded is how many values one expression may fold to.
 	maxFolded = 64
-	maxDepth  = 8
+	// maxValueBytes is the longest value a concatenation may build; a string
+	// literal of the text itself is not limited (the text bounds it).
+	maxValueBytes = 4 << 10
+	// maxFoldedBytes is the most a concatenation's values may total.
+	maxFoldedBytes = 16 << 10
+	// maxDepth is how many declare argument hops and nested import.string
+	// modules the lint follows.
+	maxDepth = 8
+	// maxSteps is the work one lint may do (expressions resolved, path steps
+	// followed), shared with the modules it imports.
+	maxSteps = 50_000
 )
 
 // TenantLint is strict tenant mode's pipeline check (spec §8). With p.Strict
 // it refuses, wherever Alloy sets a tenant, every tenant content can write
-// to that the org does not own, and everything there it cannot verify:
-//
-//   - an X-Scope-OrgID key (any case) of any headers map (headers,
-//     http_headers, proxy_connect_header, …), each list element; a headers
-//     value that is not an object literal;
-//   - an otelcol.auth.headers header whose key is (or may be) X-Scope-OrgID,
-//     from_context/from_attribute included; an otelcol.auth.bearer whose
-//     header is (or may be) X-Scope-OrgID — its token is the tenant when the
-//     scheme is empty, and anything else is refused;
-//   - loki.write's endpoint tenant_id, the rules components' tenant_id,
-//     loki.process stage.tenant at any nesting (label/source too);
-//   - Loki's reserved __tenant_id__ label in any labels map (stage.labels
-//     included) and from a relabel rule (a target_label that is or may be
-//     __tenant_id__; a labelmap replacement naming it);
-//   - every import.* block except import.string with readable content,
-//     whose content is linted the same way.
-//
-// A value is readable when it is a string literal, a concatenation of
-// readable values, or a declare argument whose default and every value it is
-// given (in the scope it is given in) are readable. A non-strict policy
-// finds nothing. Content that does not parse yields nothing — Stage 1
-// reports it. Positions are content's own. Stage is 1. The lint is defence
-// in depth: the backend's own tenant authentication is the boundary.
+// to that the org does not own, and everything there it cannot verify (see
+// spec §8 for the list). A non-strict policy finds nothing. Content that
+// does not parse yields nothing — Stage 1 reports it. Positions are
+// content's own. Stage is 1. The lint is defence in depth: the backend's own
+// tenant authentication is the boundary. It is bounded (maxSteps and the
+// other caps), so no text makes it slow.
 func TenantLint(content string, p TenantPolicy) []Diagnostic {
 	if !p.Strict {
 		return nil
 	}
-	l := newTenantLinter(content, p, nil, 0)
+	l := newTenantLinter(content, p, nil, 0, &budget{steps: maxSteps})
 	if l == nil {
 		return nil
 	}
@@ -120,16 +128,18 @@ func TenantLint(content string, p TenantPolicy) []Diagnostic {
 }
 
 // TenantLiterals lists every tenant content writes to that the lint can
-// read, whatever the org's policy: what pipeline_tenants records for an
-// enabled pipeline, and what an organisation being given a tenant must not
-// already have another organisation writing to. Content that does not parse
-// lists nothing.
-func TenantLiterals(content string) []string {
-	l := newTenantLinter(content, TenantPolicy{Strict: true, Owns: func(string) bool { return true }}, nil, 0)
+// read, whatever the org's policy — what pipeline_tenants records for an
+// enabled pipeline — and whether that is all of them: complete is false when
+// something there may set a tenant the lint cannot read (a computed value, an
+// external import, a cap reached). Content that does not parse lists nothing
+// and is complete.
+func TenantLiterals(content string) (literals []string, complete bool) {
+	l := newTenantLinter(content, TenantPolicy{Strict: true, Owns: func(string) bool { return true }}, nil, 0,
+		&budget{steps: maxSteps})
 	if l == nil {
-		return nil
+		return nil, true
 	}
-	return l.literals
+	return l.literals, len(l.diags) == 0
 }
 
 // resolved is a value as the lint read it: its possible strings, or ok=false.
@@ -138,14 +148,27 @@ type resolved struct {
 	ok     bool
 }
 
-func newTenantLinter(content string, p TenantPolicy, external map[string]map[string][]resolved, depth int) *tenantLinter {
+// budget is the work left to one lint and the modules it imports.
+type budget struct{ steps int }
+
+func (b *budget) take() bool {
+	b.steps--
+	return b.steps >= 0
+}
+
+func newTenantLinter(content string, p TenantPolicy, external map[string]map[string][]resolved, depth int, b *budget) *tenantLinter {
 	file, err := parser.ParseFile("<pipeline>", []byte(content))
 	if err != nil {
 		return nil
 	}
-	l := &tenantLinter{policy: p, declares: map[string]*declareInfo{}, depth: depth}
-	l.collectDeclares(file.Body, external)
+	l := &tenantLinter{
+		policy: p, declares: map[string]*declareInfo{}, depth: depth, budget: b,
+		memo: map[string]*resolved{}, components: map[string]map[string]*ast.BlockStmt{},
+	}
+	l.collectDeclares(file.Body, "", external)
+	l.collectComponents(file.Body, "")
 	l.body(file.Body, scope{})
+	l.pushSourcePaths()
 	return l
 }
 
@@ -153,8 +176,21 @@ type tenantLinter struct {
 	policy   TenantPolicy
 	diags    []Diagnostic
 	literals []string
+	// declares are keyed by scope: "<label>" at the top level,
+	// "<outer>/<label>" inside declare <outer>.
 	declares map[string]*declareInfo
-	depth    int
+	// components are each scope's component blocks by "<name>.<label>".
+	components map[string]map[string]*ast.BlockStmt
+	// pushes are the push sources found, with their scope.
+	pushes []pushSource
+	memo   map[string]*resolved
+	depth  int
+	budget *budget
+}
+
+type pushSource struct {
+	block *ast.BlockStmt
+	scope string
 }
 
 // declareInfo is one declare block's arguments: each one's default, and
@@ -173,7 +209,8 @@ type givenValue struct {
 }
 
 // scope is where the walk is: the nearest enclosing component the lint has
-// rules for and the block path inside it, and the nearest enclosing declare.
+// rules for and the block path inside it, and the key of the nearest
+// enclosing declare.
 type scope struct {
 	component string
 	path      []string
@@ -193,38 +230,58 @@ func (s scope) child(name string) scope {
 	return scope{component: s.component, path: append(path, name), declare: s.declare}
 }
 
-// collectDeclares records every declare block's arguments, then every
-// instantiation of a declare (a block named by its label) and the attributes
-// it sets, with the declare the instantiation sits in.
-func (l *tenantLinter) collectDeclares(stmts ast.Body, external map[string]map[string][]resolved) {
-	var find func(ast.Body)
-	find = func(b ast.Body) {
-		for _, st := range b {
-			blk, ok := st.(*ast.BlockStmt)
-			if !ok {
-				continue
-			}
-			if strings.Join(blk.Name, ".") == "declare" && blk.Label != "" {
-				info := &declareInfo{defaults: map[string]ast.Expr{}, given: map[string][]givenValue{}, external: external[blk.Label]}
-				for _, inner := range blk.Body {
-					arg, ok := inner.(*ast.BlockStmt)
-					if !ok || strings.Join(arg.Name, ".") != "argument" {
-						continue
-					}
-					var def ast.Expr
-					for _, a := range arg.Body {
-						if at, ok := a.(*ast.AttributeStmt); ok && at.Name.Name == "default" {
-							def = at.Value
-						}
-					}
-					info.defaults[arg.Label] = def
-				}
-				l.declares[blk.Label] = info
-			}
-			find(blk.Body)
+func declareKey(parent, label string) string {
+	if parent == "" {
+		return label
+	}
+	return parent + "/" + label
+}
+
+// lookupDeclare finds the declare an instantiation named name in scope
+// refers to: the innermost one of that label visible there.
+func (l *tenantLinter) lookupDeclare(scopeKey, name string) *declareInfo {
+	for k := scopeKey; ; {
+		if info, ok := l.declares[declareKey(k, name)]; ok {
+			return info
+		}
+		if k == "" {
+			return nil
+		}
+		if i := strings.LastIndex(k, "/"); i >= 0 {
+			k = k[:i]
+		} else {
+			k = ""
 		}
 	}
-	find(stmts)
+}
+
+// collectDeclares records every declare block's arguments (keyed by scope),
+// then every instantiation of a declare and the attributes it sets, with the
+// declare the instantiation sits in.
+func (l *tenantLinter) collectDeclares(stmts ast.Body, parent string, external map[string]map[string][]resolved) {
+	for _, st := range stmts {
+		blk, ok := st.(*ast.BlockStmt)
+		if !ok || strings.Join(blk.Name, ".") != "declare" || blk.Label == "" {
+			continue
+		}
+		key := declareKey(parent, blk.Label)
+		info := &declareInfo{defaults: map[string]ast.Expr{}, given: map[string][]givenValue{}}
+		if parent == "" {
+			info.external = external[blk.Label]
+		}
+		for _, inner := range blk.Body {
+			arg, ok := inner.(*ast.BlockStmt)
+			if !ok || strings.Join(arg.Name, ".") != "argument" {
+				continue
+			}
+			info.defaults[arg.Label] = attrsOf(arg)["default"]
+		}
+		l.declares[key] = info
+		l.collectDeclares(blk.Body, key, nil)
+	}
+	if parent != "" {
+		return
+	}
 	var inst func(ast.Body, string)
 	inst = func(b ast.Body, declare string) {
 		for _, st := range b {
@@ -233,21 +290,44 @@ func (l *tenantLinter) collectDeclares(stmts ast.Body, external map[string]map[s
 				continue
 			}
 			name := strings.Join(blk.Name, ".")
-			if info, ok := l.declares[name]; ok {
+			if name == "declare" {
+				inst(blk.Body, declareKey(declare, blk.Label))
+				continue
+			}
+			if info := l.lookupDeclare(declare, name); info != nil {
 				for _, a := range blk.Body {
 					if at, ok := a.(*ast.AttributeStmt); ok {
 						info.given[at.Name.Name] = append(info.given[at.Name.Name], givenValue{expr: at.Value, declare: declare})
 					}
 				}
 			}
-			if name == "declare" {
-				inst(blk.Body, blk.Label)
-			} else {
-				inst(blk.Body, declare)
-			}
 		}
 	}
 	inst(stmts, "")
+}
+
+// collectComponents indexes each scope's top-level component blocks by
+// "<name>.<label>", for following forward_to.
+func (l *tenantLinter) collectComponents(stmts ast.Body, scopeKey string) {
+	m := map[string]*ast.BlockStmt{}
+	l.components[scopeKey] = m
+	for _, st := range stmts {
+		blk, ok := st.(*ast.BlockStmt)
+		if !ok {
+			continue
+		}
+		name := strings.Join(blk.Name, ".")
+		if name == "declare" {
+			l.collectComponents(blk.Body, declareKey(scopeKey, blk.Label))
+			continue
+		}
+		if blk.Label != "" {
+			m[name+"."+blk.Label] = blk
+		}
+		if pushSources[name] {
+			l.pushes = append(l.pushes, pushSource{block: blk, scope: scopeKey})
+		}
+	}
 }
 
 func (l *tenantLinter) body(stmts ast.Body, sc scope) {
@@ -258,7 +338,7 @@ func (l *tenantLinter) body(stmts ast.Body, sc scope) {
 			atTop := sc.component == "" && len(sc.path) == 0
 			switch {
 			case name == "declare":
-				l.body(n.Body, scope{declare: n.Label})
+				l.body(n.Body, scope{declare: declareKey(sc.declare, n.Label)})
 			case atTop && strings.HasPrefix(name, "import."):
 				l.importBlock(n, name, sc, stmts)
 			case atTop && (isTenantComponent(name) || name == "otelcol.auth.headers"):
@@ -364,34 +444,21 @@ func (l *tenantLinter) labelMaps(v ast.Expr, sc scope) {
 // relabelRule checks a relabel `rule` block (loki.relabel,
 // discovery.relabel, prometheus.relabel, a source's rule block). Alloy
 // v1.20.1 matches the action exactly (common/relabel Action.UnmarshalText,
-// lowercase names, default "replace"). A rule that writes __tenant_id__ —
-// its target_label is or may be __tenant_id__ for replace, lowercase,
-// uppercase or hashmod, or a labelmap whose replacement names it — is
-// checked: a readable replacement without a regex reference is a tenant;
-// anything else comes from the data and is refused.
+// lowercase names, default "replace"), and for replace expands regex
+// references in target_label as well as replacement (relabel.go). A rule
+// that writes __tenant_id__ — its target_label is, may be, or may expand to
+// __tenant_id__ for replace, lowercase, uppercase or hashmod; a labelmap,
+// whose replacement names every label it writes — is checked: a readable
+// replacement without a regex reference is a tenant; anything else comes
+// from the data and is refused.
 func (l *tenantLinter) relabelRule(b *ast.BlockStmt, sc scope) {
-	var target, replacement, action ast.Expr
-	for _, st := range b.Body {
-		a, ok := st.(*ast.AttributeStmt)
-		if !ok {
-			continue
-		}
-		switch a.Name.Name {
-		case "target_label":
-			target = a.Value
-		case "replacement":
-			replacement = a.Value
-		case "action":
-			action = a.Value
-		}
-	}
+	attrs := attrsOf(b)
+	target, replacement, action := attrs["target_label"], attrs["replacement"], attrs["action"]
 	act := "replace"
 	if action != nil {
 		acts, ok := l.resolve(action, sc, 0)
 		if !ok || len(acts) != 1 {
-			if target != nil || replacement != nil {
-				l.refuse(action, "a relabel rule's action cannot be verified — strict tenant mode refuses it")
-			}
+			l.refuse(action, "a relabel rule's action cannot be verified — strict tenant mode refuses it")
 			return
 		}
 		act = acts[0]
@@ -400,8 +467,13 @@ func (l *tenantLinter) relabelRule(b *ast.BlockStmt, sc scope) {
 		"can set — strict tenant mode refuses it"
 	switch act {
 	case "labelmap":
+		// Every label a labelmap writes is named by its replacement (default
+		// "$1", a capture of an existing label name): only a literal without
+		// a reference that is not __tenant_id__ is known not to write it.
 		if replacement == nil {
-			return // "$1": the captured part of an existing label name
+			l.refuse(b, "a labelmap with the default replacement ($1) may write "+tenantLabel+
+				" — strict tenant mode refuses it; give it a literal replacement")
+			return
 		}
 		reps, ok := l.resolve(replacement, sc, 0)
 		if !ok {
@@ -409,8 +481,9 @@ func (l *tenantLinter) relabelRule(b *ast.BlockStmt, sc scope) {
 			return
 		}
 		for _, r := range reps {
-			if strings.Contains(r, tenantLabel) {
-				l.refuse(replacement, fromData)
+			if strings.Contains(r, "$") || r == tenantLabel {
+				l.refuse(replacement, "a labelmap replacement that is "+tenantLabel+" or expands a regex reference "+
+					"may write "+tenantLabel+" — strict tenant mode refuses it")
 				return
 			}
 		}
@@ -430,6 +503,11 @@ func (l *tenantLinter) relabelRule(b *ast.BlockStmt, sc scope) {
 	}
 	writes := false
 	for _, t := range targets {
+		if act == "replace" && strings.Contains(t, "$") {
+			l.refuse(target, "a relabel rule's target_label expands a regex reference and may become "+tenantLabel+
+				" — strict tenant mode refuses it")
+			return
+		}
 		writes = writes || t == tenantLabel
 	}
 	if !writes {
@@ -506,7 +584,7 @@ func (l *tenantLinter) bearer(b *ast.BlockStmt, sc scope) {
 }
 
 // mayBeTenantHeader reports whether a header-name expression is
-// X-Scope-OrgID, refusing (and reporting true) one it cannot read.
+// X-Scope-OrgID, refusing (and reporting false) one it cannot read.
 func (l *tenantLinter) mayBeTenantHeader(v ast.Expr, sc scope, what string) bool {
 	names, ok := l.resolve(v, sc, 0)
 	if !ok {
@@ -523,8 +601,9 @@ func (l *tenantLinter) mayBeTenantHeader(v ast.Expr, sc scope, what string) bool
 
 // importBlock handles an import.* block. import.string with readable content
 // is parsed and linted with the same rules (its declares' arguments include
-// what the importing text gives them); every other import, and content it
-// cannot read, is refused: what it loads cannot be verified.
+// what the importing text gives them); every other import, content it cannot
+// read, and content that does not parse are refused: what it loads cannot be
+// verified.
 func (l *tenantLinter) importBlock(b *ast.BlockStmt, name string, sc scope, siblings ast.Body) {
 	where := fmt.Sprintf("%s %q", name, b.Label)
 	if name != "import.string" {
@@ -545,9 +624,10 @@ func (l *tenantLinter) importBlock(b *ast.BlockStmt, name string, sc scope, sibl
 		l.refuse(content, where+" nests modules too deeply to verify — strict tenant mode refuses it")
 		return
 	}
-	inner := newTenantLinter(texts[0], l.policy, l.moduleArguments(b.Label, siblings), l.depth+1)
+	inner := newTenantLinter(texts[0], l.policy, l.moduleArguments(b.Label, siblings), l.depth+1, l.budget)
 	if inner == nil {
-		return // Stage 2 / Alloy reports content that does not parse
+		l.refuse(content, where+" content does not parse, so it cannot be verified — strict tenant mode refuses it")
+		return
 	}
 	l.literals = append(l.literals, inner.literals...)
 	for _, d := range inner.diags {
@@ -567,26 +647,209 @@ func (l *tenantLinter) moduleArguments(module string, body ast.Body) map[string]
 				continue
 			}
 			name := strings.Join(blk.Name, ".")
-			if decl, ok := strings.CutPrefix(name, module+"."); ok && decl != "" {
-				if out[decl] == nil {
-					out[decl] = map[string][]resolved{}
-				}
-				for _, a := range blk.Body {
-					if at, ok := a.(*ast.AttributeStmt); ok {
-						vals, ok := l.resolve(at.Value, scope{declare: declare}, 0)
-						out[decl][at.Name.Name] = append(out[decl][at.Name.Name], resolved{values: vals, ok: ok})
-					}
-				}
-			}
 			if name == "declare" {
-				walk(blk.Body, blk.Label)
-			} else {
-				walk(blk.Body, declare)
+				walk(blk.Body, declareKey(declare, blk.Label))
+				continue
+			}
+			decl, ok := strings.CutPrefix(name, module+".")
+			if !ok || decl == "" {
+				continue
+			}
+			if out[decl] == nil {
+				out[decl] = map[string][]resolved{}
+			}
+			for _, a := range blk.Body {
+				if at, ok := a.(*ast.AttributeStmt); ok {
+					vals, ok := l.resolve(at.Value, scope{declare: declare}, 0)
+					out[decl][at.Name.Name] = append(out[decl][at.Name.Name], resolved{values: vals, ok: ok})
+				}
 			}
 		}
 	}
 	walk(body, "")
 	return out
+}
+
+// pushSourcePaths checks every push source (pushSources): on every path
+// from it, through forward_to, to every loki.write it reaches, the
+// __tenant_id__ label the client set must be overwritten or dropped by an
+// unconditional step (clearsClientTenant) first. A path the lint cannot
+// follow — a forward_to that is not a list of receivers of components in the
+// same scope, a component it does not know — is refused: the analysis is
+// only sound over what it can see.
+func (l *tenantLinter) pushSourcePaths() {
+	for _, ps := range l.pushes {
+		name := strings.Join(ps.block.Name, ".")
+		where := fmt.Sprintf("%s %q", name, ps.block.Label)
+		if problem := l.followClientTenant(ps.block, ps.scope, map[*ast.BlockStmt]bool{}); problem != "" {
+			l.refuse(ps.block, where+" forwards the tenant a client sends (X-Scope-OrgID, as "+tenantLabel+") "+
+				problem+" — strict tenant mode refuses it; overwrite it (stage.static_labels) or drop it "+
+				"(stage.label_drop) on every path to the writer")
+		}
+	}
+}
+
+// followClientTenant follows blk's forward_to with the client's tenant still
+// on the entries and returns what is wrong, or "".
+func (l *tenantLinter) followClientTenant(blk *ast.BlockStmt, scopeKey string, seen map[*ast.BlockStmt]bool) string {
+	fwd := attrsOf(blk)["forward_to"]
+	if fwd == nil {
+		return ""
+	}
+	arr, ok := unparen(fwd).(*ast.ArrayExpr)
+	if !ok {
+		return "to a forward_to the lint cannot follow"
+	}
+	for _, el := range arr.Elements {
+		if !l.budget.take() {
+			return "along paths too many to follow"
+		}
+		target, ok := l.receiverTarget(el, scopeKey)
+		if !ok {
+			return "to a receiver the lint cannot follow"
+		}
+		name := strings.Join(target.Name, ".")
+		switch name {
+		case "loki.write":
+			return fmt.Sprintf("to loki.write %q without overwriting or dropping it", target.Label)
+		case "loki.echo":
+			continue
+		case "loki.process", "loki.relabel":
+			if seen[target] {
+				continue
+			}
+			seen[target] = true
+			if clearsClientTenant(target) {
+				continue
+			}
+			if p := l.followClientTenant(target, scopeKey, seen); p != "" {
+				return p
+			}
+		default:
+			return fmt.Sprintf("to %s %q, which the lint cannot follow", name, target.Label)
+		}
+	}
+	return ""
+}
+
+// receiverTarget resolves `<component>.<label>.receiver` to its block in
+// scopeKey.
+func (l *tenantLinter) receiverTarget(e ast.Expr, scopeKey string) (*ast.BlockStmt, bool) {
+	parts, ok := accessChain(e)
+	if !ok || len(parts) < 3 || parts[len(parts)-1] != "receiver" {
+		return nil, false
+	}
+	blk, ok := l.components[scopeKey][strings.Join(parts[:len(parts)-1], ".")]
+	return blk, ok
+}
+
+// clearsClientTenant reports whether a loki.process or loki.relabel
+// overwrites or drops __tenant_id__ for every entry: a top-level (not inside
+// stage.match) stage.static_labels setting it, stage.tenant with a value,
+// stage.label_drop listing it, or stage.label_keep not listing it; or a
+// relabel rule that replaces it unconditionally (no source_labels, no
+// regex) or a labeldrop whose regex is exactly __tenant_id__. Whatever value
+// it is overwritten with is checked by the lint where it is set.
+func clearsClientTenant(blk *ast.BlockStmt) bool {
+	for _, st := range blk.Body {
+		stage, ok := st.(*ast.BlockStmt)
+		if !ok {
+			continue
+		}
+		attrs := attrsOf(stage)
+		switch strings.Join(stage.Name, ".") {
+		case "stage.static_labels":
+			if obj, ok := unparen(attrs["values"]).(*ast.ObjectExpr); ok {
+				for _, f := range obj.Fields {
+					if f.Name.Name == tenantLabel {
+						return true
+					}
+				}
+			}
+		case "stage.tenant":
+			if attrs["value"] != nil && attrs["label"] == nil && attrs["source"] == nil {
+				return true
+			}
+		case "stage.label_drop":
+			if names, ok := literalList(attrs["values"]); ok && contains(names, tenantLabel) {
+				return true
+			}
+		case "stage.label_keep":
+			if names, ok := literalList(attrs["values"]); ok && !contains(names, tenantLabel) {
+				return true
+			}
+		case "rule":
+			if relabelClears(attrs) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// relabelClears reports whether one relabel rule overwrites or drops
+// __tenant_id__ for every entry.
+func relabelClears(attrs map[string]ast.Expr) bool {
+	act := "replace"
+	if a := attrs["action"]; a != nil {
+		s, ok := stringLiteral(a)
+		if !ok {
+			return false
+		}
+		act = s
+	}
+	switch act {
+	case "replace":
+		t, ok := stringLiteral(attrs["target_label"])
+		return ok && t == tenantLabel && attrs["replacement"] != nil && attrs["source_labels"] == nil && attrs["regex"] == nil
+	case "labeldrop":
+		r, ok := stringLiteral(attrs["regex"])
+		return ok && r == tenantLabel
+	}
+	return false
+}
+
+func literalList(v ast.Expr) ([]string, bool) {
+	if v == nil {
+		return nil, false
+	}
+	arr, ok := unparen(v).(*ast.ArrayExpr)
+	if !ok {
+		return nil, false
+	}
+	out := make([]string, 0, len(arr.Elements))
+	for _, el := range arr.Elements {
+		s, ok := stringLiteral(el)
+		if !ok {
+			return nil, false
+		}
+		out = append(out, s)
+	}
+	return out, true
+}
+
+func contains(xs []string, x string) bool {
+	for _, s := range xs {
+		if s == x {
+			return true
+		}
+	}
+	return false
+}
+
+// accessChain flattens `a.b.c` to ["a", "b", "c"].
+func accessChain(e ast.Expr) ([]string, bool) {
+	switch v := unparen(e).(type) {
+	case *ast.IdentifierExpr:
+		return []string{v.Ident.Name}, true
+	case *ast.AccessExpr:
+		head, ok := accessChain(v.Value)
+		if !ok {
+			return nil, false
+		}
+		return append(head, v.Name.Name), true
+	}
+	return nil, false
 }
 
 // tenantValue refuses each tenant v can be that the org does not own, and v
@@ -610,11 +873,12 @@ func (l *tenantLinter) tenantValue(v ast.Expr, where string, sc scope) {
 	}
 }
 
-// resolve returns every string v can be, when the lint can read it: a
-// string literal; a concatenation of readable values; or
+// resolve returns every string v can be, when the lint can read it within
+// its bounds: a string literal; a concatenation of readable values (each at
+// most maxValueBytes, together at most maxFoldedBytes); or
 // `argument.<name>.value` of the enclosing declare (resolveArgument).
 func (l *tenantLinter) resolve(v ast.Expr, sc scope, depth int) ([]string, bool) {
-	if depth > maxDepth {
+	if v == nil || depth > maxDepth || !l.budget.take() {
 		return nil, false
 	}
 	switch e := unparen(v).(type) {
@@ -637,8 +901,14 @@ func (l *tenantLinter) resolve(v ast.Expr, sc scope, depth int) ([]string, bool)
 			return nil, false
 		}
 		out := make([]string, 0, len(left)*len(right))
+		total := 0
 		for _, a := range left {
 			for _, b := range right {
+				n := len(a) + len(b)
+				total += n
+				if n > maxValueBytes || total > maxFoldedBytes {
+					return nil, false
+				}
 				out = append(out, a+b)
 			}
 		}
@@ -653,28 +923,44 @@ func (l *tenantLinter) resolve(v ast.Expr, sc scope, depth int) ([]string, bool)
 // declare: its default (read inside the declare) and every value an
 // instantiation gives it (read in the declare that instantiation sits in,
 // so a value passed down several declare levels is followed). It is
-// readable only when every one of those is and there is at least one.
+// readable only when every one of those is and there is at least one. Each
+// (declare, argument) is resolved once (memo), and one that depends on
+// itself is unreadable.
 func (l *tenantLinter) resolveArgument(e *ast.AccessExpr, sc scope, depth int) ([]string, bool) {
 	name, ok := argumentRef(e)
 	if !ok || sc.declare == "" {
 		return nil, false
 	}
-	info := l.declares[sc.declare]
+	key := sc.declare + "\x00" + name
+	if r, ok := l.memo[key]; ok {
+		return r.values, r.ok // an in-progress entry is {nil, false}: a cycle
+	}
+	l.memo[key] = &resolved{}
+	vals, ok := l.resolveArgumentUncached(name, sc.declare, depth)
+	l.memo[key] = &resolved{values: vals, ok: ok}
+	return vals, ok
+}
+
+func (l *tenantLinter) resolveArgumentUncached(name, declare string, depth int) ([]string, bool) {
+	info := l.declares[declare]
 	if info == nil {
 		return nil, false
 	}
 	var out []string
-	read := 0
+	read, total := 0, 0
 	add := func(vals []string) bool {
 		if len(out)+len(vals) > maxFolded {
 			return false
+		}
+		for _, v := range vals {
+			total += len(v)
 		}
 		out = append(out, vals...)
 		read++
 		return true
 	}
 	if def := info.defaults[name]; def != nil {
-		vals, ok := l.resolve(def, scope{declare: sc.declare}, depth+1)
+		vals, ok := l.resolve(def, scope{declare: declare}, depth+1)
 		if !ok || !add(vals) {
 			return nil, false
 		}
@@ -690,7 +976,7 @@ func (l *tenantLinter) resolveArgument(e *ast.AccessExpr, sc scope, depth int) (
 			return nil, false
 		}
 	}
-	if read == 0 {
+	if read == 0 || total > 4*maxFoldedBytes {
 		return nil, false
 	}
 	return out, true
@@ -725,6 +1011,9 @@ func attrsOf(b *ast.BlockStmt) map[string]ast.Expr {
 
 // stringLiteral returns v's value when it is a plain string literal.
 func stringLiteral(v ast.Expr) (string, bool) {
+	if v == nil {
+		return "", false
+	}
 	lit, ok := unparen(v).(*ast.LiteralExpr)
 	if !ok || lit.Kind != token.STRING {
 		return "", false

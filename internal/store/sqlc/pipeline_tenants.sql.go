@@ -11,6 +11,30 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countIncompletePipelineTenantIndexOfOtherOrgs = `-- name: CountIncompletePipelineTenantIndexOfOtherOrgs :one
+SELECT count(*)::int AS n FROM pipeline_tenant_index i
+JOIN pipelines p ON p.id = i.pipeline_id
+WHERE i.org_id <> $1 AND p.enabled = true AND NOT i.complete
+`
+
+// Enabled pipelines of other orgs whose tenants the lint could not all read:
+// AddOrgTenant logs them (fail soft — they never block an assignment).
+func (q *Queries) CountIncompletePipelineTenantIndexOfOtherOrgs(ctx context.Context, orgID pgtype.UUID) (int32, error) {
+	row := q.db.QueryRow(ctx, countIncompletePipelineTenantIndexOfOtherOrgs, orgID)
+	var n int32
+	err := row.Scan(&n)
+	return n, err
+}
+
+const deleteAllPipelineTenantIndex = `-- name: DeleteAllPipelineTenantIndex :exec
+DELETE FROM pipeline_tenant_index
+`
+
+func (q *Queries) DeleteAllPipelineTenantIndex(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, deleteAllPipelineTenantIndex)
+	return err
+}
+
 const deleteAllPipelineTenants = `-- name: DeleteAllPipelineTenants :exec
 DELETE FROM pipeline_tenants
 `
@@ -18,6 +42,15 @@ DELETE FROM pipeline_tenants
 // The boot rebuild (tenancy.RebuildPipelineTenants) starts from nothing.
 func (q *Queries) DeleteAllPipelineTenants(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, deleteAllPipelineTenants)
+	return err
+}
+
+const deletePipelineTenantIndex = `-- name: DeletePipelineTenantIndex :exec
+DELETE FROM pipeline_tenant_index WHERE pipeline_id = $1
+`
+
+func (q *Queries) DeletePipelineTenantIndex(ctx context.Context, pipelineID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deletePipelineTenantIndex, pipelineID)
 	return err
 }
 
@@ -30,6 +63,22 @@ DELETE FROM pipeline_tenants WHERE pipeline_id = $1
 func (q *Queries) DeletePipelineTenants(ctx context.Context, pipelineID pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, deletePipelineTenants, pipelineID)
 	return err
+}
+
+const getPipelineTenantIndex = `-- name: GetPipelineTenantIndex :one
+SELECT pipeline_id, org_id, contents_sha256, complete FROM pipeline_tenant_index WHERE pipeline_id = $1
+`
+
+func (q *Queries) GetPipelineTenantIndex(ctx context.Context, pipelineID pgtype.UUID) (PipelineTenantIndex, error) {
+	row := q.db.QueryRow(ctx, getPipelineTenantIndex, pipelineID)
+	var i PipelineTenantIndex
+	err := row.Scan(
+		&i.PipelineID,
+		&i.OrgID,
+		&i.ContentsSha256,
+		&i.Complete,
+	)
+	return i, err
 }
 
 const insertPipelineTenant = `-- name: InsertPipelineTenant :exec
@@ -99,7 +148,7 @@ SELECT pt.tenant, p.name AS pipeline_name, o.name AS org_name
 FROM pipeline_tenants pt
 JOIN pipelines p ON p.id = pt.pipeline_id
 JOIN orgs o ON o.id = pt.org_id
-WHERE pt.org_id <> $1
+WHERE pt.org_id <> $1 AND p.enabled = true
   AND (pt.tenant = $2::text
        OR ($3::boolean
            AND pt.tenant >= $2::text COLLATE "C"
@@ -141,4 +190,80 @@ func (q *Queries) ListPipelineTenantsCoveredByRule(ctx context.Context, arg List
 		return nil, err
 	}
 	return items, nil
+}
+
+const listStalePipelineTenantIndexOfOtherOrgs = `-- name: ListStalePipelineTenantIndexOfOtherOrgs :many
+SELECT p.id, p.org_id, p.name, p.contents, p.matchers, p.enabled, p.source, p.wizard_kind, p.wizard_state, p.repo_link_id, p.git_path, p.created_by, p.updated_by, p.created_at, p.updated_at, p.sanitized_name, p.owner_team_id, p.wizard_render_sha256 FROM pipelines p
+LEFT JOIN pipeline_tenant_index i ON i.pipeline_id = p.id
+WHERE p.org_id <> $1 AND p.enabled = true
+  AND (i.pipeline_id IS NULL OR i.contents_sha256 <> encode(sha256(convert_to(p.contents, 'UTF8')), 'hex'))
+ORDER BY p.id
+`
+
+// Enabled pipelines of orgs other than org_id whose pipeline_tenants rows do
+// not describe their current contents: never recorded, or recorded for
+// other contents (a pod that predates the index wrote them). AddOrgTenant
+// re-records these before it checks.
+func (q *Queries) ListStalePipelineTenantIndexOfOtherOrgs(ctx context.Context, orgID pgtype.UUID) ([]Pipeline, error) {
+	rows, err := q.db.Query(ctx, listStalePipelineTenantIndexOfOtherOrgs, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Pipeline
+	for rows.Next() {
+		var i Pipeline
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.Name,
+			&i.Contents,
+			&i.Matchers,
+			&i.Enabled,
+			&i.Source,
+			&i.WizardKind,
+			&i.WizardState,
+			&i.RepoLinkID,
+			&i.GitPath,
+			&i.CreatedBy,
+			&i.UpdatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.SanitizedName,
+			&i.OwnerTeamID,
+			&i.WizardRenderSha256,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const upsertPipelineTenantIndex = `-- name: UpsertPipelineTenantIndex :exec
+INSERT INTO pipeline_tenant_index (pipeline_id, org_id, contents_sha256, complete)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (pipeline_id) DO UPDATE
+SET org_id = EXCLUDED.org_id, contents_sha256 = EXCLUDED.contents_sha256, complete = EXCLUDED.complete
+`
+
+type UpsertPipelineTenantIndexParams struct {
+	PipelineID     pgtype.UUID `json:"pipeline_id"`
+	OrgID          pgtype.UUID `json:"org_id"`
+	ContentsSha256 string      `json:"contents_sha256"`
+	Complete       bool        `json:"complete"`
+}
+
+// What pipeline_tenants describes for one enabled pipeline (0040).
+func (q *Queries) UpsertPipelineTenantIndex(ctx context.Context, arg UpsertPipelineTenantIndexParams) error {
+	_, err := q.db.Exec(ctx, upsertPipelineTenantIndex,
+		arg.PipelineID,
+		arg.OrgID,
+		arg.ContentsSha256,
+		arg.Complete,
+	)
+	return err
 }

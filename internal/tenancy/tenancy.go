@@ -12,14 +12,18 @@ package tenancy
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"shepherd/internal/advisorylock"
 	"shepherd/internal/gateway"
+	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/validate"
 )
@@ -295,11 +299,27 @@ func OrphanedPipelines(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, 
 // OtherOrgPipelinesCovered names every other org's enabled pipeline that
 // writes to a tenant rule would cover — what an org must not be given,
 // whatever either org's mode: the pipeline would then be writing into the
-// new owner's tenant. One indexed query over pipeline_tenants (0040), which
-// every pipeline write keeps current (RecordPipelineTenants). q should hold
-// the exclusive ownership lock. Org names are included: only an app admin
-// calls it.
+// new owner's tenant. It first re-records every other org's enabled pipeline
+// whose pipeline_tenants rows do not describe its current contents (a pod
+// that predates the index wrote it, during a rolling upgrade), then asks one
+// indexed query. A pipeline whose tenants the lint could not all read is
+// logged, not refused (fail soft: its own org is not strict, or it would not
+// be enabled). q should hold the exclusive ownership lock. Org names are
+// included: only an app admin calls it.
 func OtherOrgPipelinesCovered(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, rule gateway.OrgTenant) ([]string, error) {
+	stale, err := q.ListStalePipelineTenantIndexOfOtherOrgs(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("listing stale pipeline tenants: %w", err)
+	}
+	for i := range stale {
+		if err := RecordPipelineTenants(ctx, q, stale[i]); err != nil {
+			return nil, err
+		}
+	}
+	if n, err := q.CountIncompletePipelineTenantIndexOfOtherOrgs(ctx, orgID); err == nil && n > 0 {
+		slog.Warn("strict tenants: other orgs' enabled pipelines set tenants the lint cannot read; the tenant "+
+			"assignment check does not see them", "pipelines", n, "tenant", rule.Tenant)
+	}
 	rows, err := q.ListPipelineTenantsCoveredByRule(ctx, sqlc.ListPipelineTenantsCoveredByRuleParams{
 		OrgID: orgID, Tenant: rule.Tenant, IsPrefix: rule.Kind == gateway.TenantPrefix,
 	})
@@ -317,44 +337,79 @@ func OtherOrgPipelinesCovered(ctx context.Context, q *sqlc.Queries, orgID pgtype
 
 // RecordPipelineTenants keeps pipeline_tenants current for p as just
 // written: its rows are replaced by the tenants its text writes to
-// (validate.TenantLiterals) when it is enabled, and removed when it is not.
-// Every pipeline write calls it in its writing transaction, after
-// LintLocked has taken the shared ownership lock.
+// (validate.TenantLiterals, bounded) when it is enabled, with an index row
+// naming the contents they describe and whether that is all of them; both
+// are removed when it is not enabled. A pipeline whose tenants the lint
+// cannot all read is recorded as incomplete and logged — never a failed
+// write. Every pipeline write calls it in its writing transaction.
 func RecordPipelineTenants(ctx context.Context, q *sqlc.Queries, p sqlc.Pipeline) error {
 	if err := q.DeletePipelineTenants(ctx, p.ID); err != nil {
 		return fmt.Errorf("clearing the pipeline's tenants: %w", err)
 	}
 	if !p.Enabled {
+		if err := q.DeletePipelineTenantIndex(ctx, p.ID); err != nil {
+			return fmt.Errorf("clearing the pipeline's tenant index: %w", err)
+		}
 		return nil
 	}
-	for _, t := range validate.TenantLiterals(p.Contents) {
+	lits, complete := validate.TenantLiterals(p.Contents)
+	if !complete {
+		slog.Warn("strict tenants: the pipeline sets a tenant the lint cannot read; recorded as incomplete",
+			"pipeline_id", p.ID.String(), "org_id", p.OrgID.String())
+	}
+	seen := map[string]bool{}
+	for _, t := range lits {
+		if seen[t] {
+			continue
+		}
+		seen[t] = true
 		if err := q.InsertPipelineTenant(ctx, sqlc.InsertPipelineTenantParams{PipelineID: p.ID, OrgID: p.OrgID, Tenant: t}); err != nil {
 			return fmt.Errorf("recording the pipeline's tenants: %w", err)
 		}
 	}
+	sum := sha256.Sum256([]byte(p.Contents))
+	if err := q.UpsertPipelineTenantIndex(ctx, sqlc.UpsertPipelineTenantIndexParams{
+		PipelineID: p.ID, OrgID: p.OrgID, ContentsSha256: hex.EncodeToString(sum[:]), Complete: complete,
+	}); err != nil {
+		return fmt.Errorf("recording the pipeline's tenant index: %w", err)
+	}
 	return nil
 }
 
-// RebuildPipelineTenants recomputes pipeline_tenants for every enabled
-// pipeline, in q's transaction under the exclusive ownership lock: the
-// backfill of 0040 (SQL cannot parse Alloy), and the repair of anything a
-// path outside the API (the dev seed, a manual edit) wrote. The server runs
-// it at every boot.
-func RebuildPipelineTenants(ctx context.Context, q *sqlc.Queries) error {
-	if err := q.LockOrgTenantsExclusive(ctx, advisorylock.TenantID); err != nil {
-		return fmt.Errorf("taking the tenant ownership lock: %w", err)
-	}
-	if err := q.DeleteAllPipelineTenants(ctx); err != nil {
-		return fmt.Errorf("clearing pipeline tenants: %w", err)
-	}
-	pipelines, err := q.ListAllEnabledPipelines(ctx)
+// RebuildPipelineTenants brings pipeline_tenants up to date for every
+// enabled pipeline whose rows do not describe its current contents — the
+// backfill of 0040 (SQL cannot parse Alloy) and the repair of anything
+// written outside the API — each in its own transaction under the shared
+// ownership lock. It never fails: the server runs it at every boot, and one
+// pipeline it cannot record (logged) must not stop the server. The lint is
+// bounded, so no pipeline makes it slow.
+func RebuildPipelineTenants(ctx context.Context, st *store.Store) {
+	// The zero UUID is no org, so this is every org's pipelines.
+	stale, err := st.Queries.ListStalePipelineTenantIndexOfOtherOrgs(ctx, pgtype.UUID{Valid: true})
 	if err != nil {
-		return fmt.Errorf("listing enabled pipelines: %w", err)
+		slog.Error("strict tenants: listing pipelines to record; AddOrgTenant re-records them on demand", "err", err)
+		return
 	}
-	for i := range pipelines {
-		if err := RecordPipelineTenants(ctx, q, pipelines[i]); err != nil {
-			return err
+	for i := range stale {
+		if err := recordOne(ctx, st, stale[i]); err != nil {
+			slog.Error("strict tenants: recording a pipeline's tenants; AddOrgTenant re-records it on demand",
+				"err", err, "pipeline_id", stale[i].ID.String())
 		}
 	}
-	return nil
+}
+
+func recordOne(ctx context.Context, st *store.Store, p sqlc.Pipeline) error {
+	tx, err := st.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
+	q := st.Queries.WithTx(tx)
+	if err := q.LockOrgTenantsShared(ctx, advisorylock.TenantID); err != nil {
+		return err
+	}
+	if err := RecordPipelineTenants(ctx, q, p); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }

@@ -610,22 +610,41 @@ Strict mode refuses:
   (its `token` is the tenant);
 - tenants taken from the data, which a client can set: `stage.tenant`'s `label`/`source`,
   `stage.labels` setting `__tenant_id__`, a relabel rule writing `__tenant_id__` from a regex
-  reference, its default replacement, or `lowercase`/`uppercase`/`hashmod`, a `labelmap` whose
-  replacement names it, and `otelcol.auth.headers`' `from_context`/`from_attribute` for the tenant
-  header;
+  reference, its default replacement, or `lowercase`/`uppercase`/`hashmod`, a replace rule whose
+  `target_label` contains `$` (Alloy expands it), every `labelmap` whose replacement is not a
+  literal without `$` that is not `__tenant_id__` (the default `$1` included), and
+  `otelcol.auth.headers`' `from_context`/`from_attribute` for the tenant header;
+- a **push source that forwards the client's tenant**: `loki.source.api`, `loki.source.heroku`,
+  `loki.source.awsfirehose` and `loki.source.gcplog` turn the request's `X-Scope-OrgID` into
+  `__tenant_id__` (Alloy v1.20.1), so a `loki.write` would send under the client's tenant. Allowed
+  only when, on every path through `forward_to` to every `loki.write`, a `loki.process` or
+  `loki.relabel` overwrites or drops the label unconditionally first: a top-level (not in
+  `stage.match`) `stage.static_labels` setting it, `stage.tenant` with a `value`,
+  `stage.label_drop` listing it or `stage.label_keep` not listing it, or a relabel rule replacing it
+  with no `source_labels`/`regex` or a `labeldrop` of exactly `__tenant_id__` (the value written is
+  checked where it is set). A path it cannot follow — a `forward_to` that is not a list of
+  receivers of components in the same scope, or any component other than `loki.process`,
+  `loki.relabel`, `loki.write` and `loki.echo` — is refused;
 - anything that may set a tenant and cannot be read: a header key, a relabel `target_label` or
   `action` (matched exactly, as Alloy v1.20.1's `relabel.Action.UnmarshalText` does), or an
   `otelcol.auth.bearer` `header` it cannot resolve; a tenant-header bearer with a non-empty
   `scheme`;
 - every `import.file`, `import.git` and `import.http` block (what they load cannot be verified),
-  and an `import.string` whose `content` it cannot read. A readable `import.string` module is
-  linted with the same rules (up to 8 levels), including the values the importing text gives its
-  declares.
+  and an `import.string` whose `content` it cannot read or that does not parse. A readable
+  `import.string` module is linted with the same rules (up to 8 levels), including the values the
+  importing text gives its declares.
 
 A value is *readable* when it is a string literal, a `+` concatenation of readable values, or a
 declare argument (`argument.<name>.value`) whose default and every value an instantiation gives it
 — read in the declare that instantiation sits in, so a value passed down several declare levels is
-followed — are readable. A `|`-joined header value must be owned in every part.
+followed; declares are keyed by scope, so a nested declare of the same name is a different one —
+are readable. A `|`-joined header value must be owned in every part. **The lint is bounded:** a
+concatenation may build at most 4 KiB per value and 16 KiB in all, an expression folds to at most
+64 values, it follows at most 8 declare hops or nested modules, each (declare, argument) is
+resolved once (memoised; one that depends on itself is unreadable), and one lint does at most
+50 000 steps. Past any bound a value is unreadable — refused for a strict org. A benchmark, a fuzz
+target and specs pin the bounds (the shape that once built a 200 MB string from 4 KB of text
+finishes in well under a millisecond).
 `prometheus.remote_write` has no tenant label (Mimir reads the header only). Azure AD `tenant_id`
 attributes name an identity tenant and are not checked; a spec walks every schema attribute named
 like a header or a tenant and fails until each is classified. `Diagnostic.warning` stays on the
@@ -830,7 +849,15 @@ and `OrgMembership.tenants_required` the effective state; the destination form t
 the org's tenants. Every pipeline write (create, update, restore, enable, wizard commit, a
 destination re-render, `rerender-destinations`, a git sync's apply) re-runs the lint in its writing
 transaction under the shared ownership lock (`tenancy.LintLocked`), so it serialises with the
-toggle and with ownership changes. Ownership changes see pipelines too: `RemoveOrgTenant` on an org
+toggle and with ownership changes. Each enabled pipeline's literal tenants are kept in `pipeline_tenants` (0040) with a
+`pipeline_tenant_index` row naming the contents' sha256 and whether the lint could read them all;
+every pipeline write records them in its transaction, and the server brings the table up to date
+at every boot (its backfill). Recording **fails soft**: a pipeline whose tenants the lint cannot
+read within its bounds is recorded as incomplete and logged, never a failed write or boot (an
+enabled pipeline of a strict org is fully readable, or the gate would have refused it).
+`AddOrgTenant` first re-records every other org's enabled pipeline whose index row is missing or
+names other contents (a pod that predates the index wrote it), then asks one indexed query.
+Ownership changes see pipelines too: `RemoveOrgTenant` on an org
 in strict mode refuses while an **enabled** pipeline would be left writing to a tenant the org no
 longer owns, and `AddOrgTenant` (for any org) refuses a rule covering a tenant another org's
 enabled pipeline writes to (`validate.TenantLiterals`), naming each. Strict mode covers what

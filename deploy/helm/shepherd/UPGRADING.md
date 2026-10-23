@@ -177,11 +177,13 @@ diagnostic that does not fail validation).
 
 #### Migration 0040
 
-Adds `orgs.strict_tenants boolean NOT NULL DEFAULT false` and the `pipeline_tenants` table (the
-tenants each enabled pipeline writes to, so assigning a tenant is one indexed check) — quick, and
-old pods keep working against it (they name the columns they read). The server fills
-`pipeline_tenants` at every start, which is also its backfill. Its down migration drops both,
-turning strict mode off for every org.
+Adds `orgs.strict_tenants boolean NOT NULL DEFAULT false` and the `pipeline_tenants` and
+`pipeline_tenant_index` tables (the tenants each enabled pipeline writes to, and which contents
+they describe, so assigning a tenant is one indexed check) — quick, and old pods keep working
+against them (they name the columns they read). The server fills the tables at every start, which
+is also their backfill; a pipeline it cannot read is logged, never a failed start. Rows an old pod
+leaves stale during the rollout are re-read when a tenant is next assigned. Its down migration
+drops all three, turning strict mode off for every org.
 
 ## 0.21.x → 0.22.0
 

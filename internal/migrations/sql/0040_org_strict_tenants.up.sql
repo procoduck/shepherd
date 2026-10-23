@@ -25,3 +25,15 @@ CREATE TABLE pipeline_tenants (
     PRIMARY KEY (pipeline_id, tenant)
 );
 CREATE INDEX pipeline_tenants_tenant_idx ON pipeline_tenants (tenant);
+
+-- Which contents pipeline_tenants describes for each enabled pipeline
+-- (contents_sha256, hex sha256 of pipelines.contents), and whether the lint
+-- could read every tenant in it (complete). AddOrgTenant re-records a
+-- pipeline whose row is missing or whose sha no longer matches — written by a
+-- pod that predates the index, during a rolling upgrade — before it checks.
+CREATE TABLE pipeline_tenant_index (
+    pipeline_id uuid PRIMARY KEY REFERENCES pipelines (id) ON DELETE CASCADE,
+    org_id uuid NOT NULL REFERENCES orgs (id) ON DELETE CASCADE,
+    contents_sha256 text NOT NULL,
+    complete boolean NOT NULL
+);

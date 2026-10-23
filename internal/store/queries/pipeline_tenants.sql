@@ -9,9 +9,33 @@ INSERT INTO pipeline_tenants (pipeline_id, org_id, tenant)
 VALUES (sqlc.arg(pipeline_id), sqlc.arg(org_id), sqlc.arg(tenant))
 ON CONFLICT DO NOTHING;
 
--- name: DeleteAllPipelineTenants :exec
--- The boot rebuild (tenancy.RebuildPipelineTenants) starts from nothing.
-DELETE FROM pipeline_tenants;
+-- name: DeletePipelineTenantIndex :exec
+DELETE FROM pipeline_tenant_index WHERE pipeline_id = $1;
+
+-- name: UpsertPipelineTenantIndex :exec
+-- What pipeline_tenants describes for one enabled pipeline (0040).
+INSERT INTO pipeline_tenant_index (pipeline_id, org_id, contents_sha256, complete)
+VALUES (sqlc.arg(pipeline_id), sqlc.arg(org_id), sqlc.arg(contents_sha256), sqlc.arg(complete))
+ON CONFLICT (pipeline_id) DO UPDATE
+SET org_id = EXCLUDED.org_id, contents_sha256 = EXCLUDED.contents_sha256, complete = EXCLUDED.complete;
+
+-- name: ListStalePipelineTenantIndexOfOtherOrgs :many
+-- Enabled pipelines of orgs other than org_id whose pipeline_tenants rows do
+-- not describe their current contents: never recorded, or recorded for
+-- other contents (a pod that predates the index wrote them). AddOrgTenant
+-- re-records these before it checks.
+SELECT p.* FROM pipelines p
+LEFT JOIN pipeline_tenant_index i ON i.pipeline_id = p.id
+WHERE p.org_id <> sqlc.arg(org_id) AND p.enabled = true
+  AND (i.pipeline_id IS NULL OR i.contents_sha256 <> encode(sha256(convert_to(p.contents, 'UTF8')), 'hex'))
+ORDER BY p.id;
+
+-- name: CountIncompletePipelineTenantIndexOfOtherOrgs :one
+-- Enabled pipelines of other orgs whose tenants the lint could not all read:
+-- AddOrgTenant logs them (fail soft — they never block an assignment).
+SELECT count(*)::int AS n FROM pipeline_tenant_index i
+JOIN pipelines p ON p.id = i.pipeline_id
+WHERE i.org_id <> sqlc.arg(org_id) AND p.enabled = true AND NOT i.complete;
 
 -- name: ListAllEnabledPipelines :many
 -- Every enabled pipeline, for the boot rebuild of pipeline_tenants.
@@ -26,9 +50,19 @@ SELECT pt.tenant, p.name AS pipeline_name, o.name AS org_name
 FROM pipeline_tenants pt
 JOIN pipelines p ON p.id = pt.pipeline_id
 JOIN orgs o ON o.id = pt.org_id
-WHERE pt.org_id <> sqlc.arg(org_id)
+WHERE pt.org_id <> sqlc.arg(org_id) AND p.enabled = true
   AND (pt.tenant = sqlc.arg(tenant)::text
        OR (sqlc.arg(is_prefix)::boolean
            AND pt.tenant >= sqlc.arg(tenant)::text COLLATE "C"
            AND left(pt.tenant, length(sqlc.arg(tenant)::text)) = sqlc.arg(tenant)::text))
 ORDER BY o.name, p.name, pt.tenant;
+
+-- name: DeleteAllPipelineTenants :exec
+-- The boot rebuild (tenancy.RebuildPipelineTenants) starts from nothing.
+DELETE FROM pipeline_tenants;
+
+-- name: DeleteAllPipelineTenantIndex :exec
+DELETE FROM pipeline_tenant_index;
+
+-- name: GetPipelineTenantIndex :one
+SELECT * FROM pipeline_tenant_index WHERE pipeline_id = $1;

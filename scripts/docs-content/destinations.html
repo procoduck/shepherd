@@ -71,10 +71,20 @@
         <li>a tenant taken from the data, which a client could set: <code>stage.tenant</code>
           reading a label or field, <code>stage.labels</code> or a relabel rule computing
           <code>__tenant_id__</code>, an OpenTelemetry header copied from the request;</li>
-        <li>a header name, relabel target or action it cannot read;</li>
+        <li>a header name, relabel target or action it cannot read, a relabel target containing
+          <code>$</code>, and any <code>labelmap</code> rule unless its replacement is a plain
+          label name other than <code>__tenant_id__</code>;</li>
+        <li>a <code>loki.source.api</code>, <code>loki.source.heroku</code>,
+          <code>loki.source.awsfirehose</code> or <code>loki.source.gcplog</code> &mdash; which pass
+          on the tenant the sending client names &mdash; unless every path from it to a
+          <code>loki.write</code> first overwrites <code>__tenant_id__</code>
+          (<code>stage.static_labels</code>, outside <code>stage.match</code>) or drops it
+          (<code>stage.label_drop</code>);</li>
         <li><code>import.file</code>, <code>import.git</code> and <code>import.http</code>
           modules &mdash; inline the module as a <code>declare</code> or an
-          <code>import.string</code> with literal content, which is checked the same way.</li>
+          <code>import.string</code> with literal content, which is checked the same way;</li>
+        <li>anything too large or too deeply nested to work out within the check&rsquo;s limits
+          (values built from more than 4 KiB, more than 8 levels of modules).</li>
       </ul>
       <p>This is defence in depth, not the boundary: your backend&rsquo;s own tenant
         authentication is. The check cannot see a tenant a proxy in front of the backend adds, or

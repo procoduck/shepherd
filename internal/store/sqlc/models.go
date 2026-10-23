@@ -250,6 +250,13 @@ type PipelineTenant struct {
 	Tenant     string      `json:"tenant"`
 }
 
+type PipelineTenantIndex struct {
+	PipelineID     pgtype.UUID `json:"pipeline_id"`
+	OrgID          pgtype.UUID `json:"org_id"`
+	ContentsSha256 string      `json:"contents_sha256"`
+	Complete       bool        `json:"complete"`
+}
+
 type RepoLink struct {
 	ID                  pgtype.UUID        `json:"id"`
 	OrgID               pgtype.UUID        `json:"org_id"`

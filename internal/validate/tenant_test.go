@@ -448,9 +448,98 @@ outer "o" { t = "victim" }
 		})
 	})
 
-	It("lists the literal tenants a pipeline writes to (TenantLiterals)", func() {
-		Expect(validate.TenantLiterals(remoteWrite(`"acme|victim"`))).To(ConsistOf("acme", "victim"))
-		Expect(validate.TenantLiterals(remoteWrite(`sys.env("T")`))).To(BeEmpty())
+	It("lists the literal tenants a pipeline writes to (TenantLiterals), and whether that is all of them", func() {
+		lits, complete := validate.TenantLiterals(remoteWrite(`"acme|victim"`))
+		Expect(lits).To(ConsistOf("acme", "victim"))
+		Expect(complete).To(BeTrue())
+		lits, complete = validate.TenantLiterals(remoteWrite(`sys.env("T")`))
+		Expect(lits).To(BeEmpty())
+		Expect(complete).To(BeFalse())
+	})
+
+	// Third review (PR #388).
+	Describe("relabel expansion", func() {
+		rule := func(body string) string {
+			return "loki.relabel \"r\" {\n  forward_to = []\n  rule {\n" + body + "  }\n}\n"
+		}
+		It("refuses a replace target_label that expands a regex reference", func() {
+			Expect(errorsOf(validate.TenantLint(rule("    source_labels = [\"t\"]\n    regex = \"(.*)\"\n    target_label = \"__tenant_${1}__\"\n    replacement = \"acme\"\n"), strictFor()))).
+				To(HaveLen(1))
+		})
+		It("refuses a labelmap unless its replacement is a literal without $ that is not __tenant_id__", func() {
+			for _, body := range []string{
+				"    action = \"labelmap\"\n    regex = \"x_(.*)\"\n",
+				"    action = \"labelmap\"\n    regex = \"x_(.*)\"\n    replacement = \"$1\"\n",
+				"    action = \"labelmap\"\n    regex = \"x\"\n    replacement = sys.env(\"R\")\n",
+			} {
+				Expect(errorsOf(validate.TenantLint(rule(body), strictFor()))).To(HaveLen(1), body)
+			}
+			Expect(validate.TenantLint(rule("    action = \"labelmap\"\n    regex = \"x_team\"\n    replacement = \"team\"\n"), strictFor())).To(BeEmpty())
+		})
+	})
+
+	Describe("push sources that forward the tenant a client sends", func() {
+		src := func(source, between string) string {
+			return source + " \"in\" {\n  http { }\n  forward_to = [" + between + "]\n}\n" +
+				"loki.process \"p\" {\n  forward_to = [loki.write.w.receiver]\n  stage.static_labels {\n    values = { \"__tenant_id__\" = \"acme\" }\n  }\n}\n" +
+				"loki.process \"drop\" {\n  forward_to = [loki.write.w.receiver]\n  stage.label_drop {\n    values = [\"__tenant_id__\"]\n  }\n}\n" +
+				"loki.process \"noop\" {\n  forward_to = [loki.write.w.receiver]\n  stage.match {\n    selector = \"{a=\\\"b\\\"}\"\n    stage.static_labels {\n      values = { \"__tenant_id__\" = \"acme\" }\n    }\n  }\n}\n" +
+				"loki.relabel \"r\" {\n  forward_to = [loki.write.w.receiver]\n  rule {\n    target_label = \"__tenant_id__\"\n    replacement  = \"acme\"\n  }\n}\n" +
+				"loki.write \"w\" {\n  endpoint {\n    url = \"https://l.example/push\"\n    tenant_id = \"acme\"\n  }\n}\n"
+		}
+		DescribeTable("refuses a path to a writer that keeps the client's __tenant_id__",
+			func(source, between string) {
+				Expect(errorsOf(validate.TenantLint(src(source, between), strictFor()))).To(ConsistOf(ContainSubstring("client")))
+			},
+			Entry("loki.source.api straight to the writer", "loki.source.api", "loki.write.w.receiver"),
+			Entry("a conditional overwrite only", "loki.source.api", "loki.process.noop.receiver"),
+			Entry("one safe path and one unsafe", "loki.source.heroku", "loki.process.p.receiver, loki.write.w.receiver"),
+			Entry("loki.source.awsfirehose", "loki.source.awsfirehose", "loki.write.w.receiver"),
+			Entry("a component it cannot follow", "loki.source.api", "argument.out.value"),
+		)
+		DescribeTable("accepts every path overwriting or dropping it first",
+			func(between string) {
+				Expect(validate.TenantLint(src("loki.source.api", between), strictFor())).To(BeEmpty())
+			},
+			Entry("stage.static_labels", "loki.process.p.receiver"),
+			Entry("stage.label_drop", "loki.process.drop.receiver"),
+			Entry("an unconditional relabel replace", "loki.relabel.r.receiver"),
+			Entry("two safe paths", "loki.process.p.receiver, loki.relabel.r.receiver"),
+		)
+	})
+
+	It("keys declares by scope: a nested declare's default does not replace another's", func() {
+		src := `declare "w" {
+  argument "tenant" {
+    optional = true
+    default  = "acme"
+  }
+  prometheus.remote_write "o" {
+    endpoint {
+      url     = "https://m.example/push"
+      headers = { "X-Scope-OrgID" = argument.tenant.value }
+    }
+  }
+}
+declare "other" {
+  declare "w" {
+    argument "tenant" {
+      optional = true
+      default  = "acme"
+    }
+  }
+  w "inner" { tenant = "victim" }
+}
+w "top" { }
+`
+		Expect(validate.TenantLint(src, strictFor())).To(BeEmpty(), "victim goes to other's own w, which writes nothing")
+		Expect(errorsOf(validate.TenantLint(strings.Replace(src, `w "top" { }`, `w "top" { tenant = "victim" }`, 1), strictFor()))).
+			To(ConsistOf(ContainSubstring(`"victim"`)))
+	})
+
+	It("refuses an import.string whose content does not parse", func() {
+		Expect(errorsOf(validate.TenantLint("import.string \"m\" {\n  content = \"declare {{{\"\n}\n", strictFor()))).
+			To(ConsistOf(ContainSubstring("does not parse")))
 	})
 })
 
