@@ -4,6 +4,7 @@ import (
 	"errors"
 	"go/parser"
 	"go/token"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/grafana/alloy/syntax/ast"
 	alloyparser "github.com/grafana/alloy/syntax/parser"
+	"github.com/grafana/alloy/syntax/printer"
 	"github.com/grafana/alloy/syntax/scanner"
 	alloytoken "github.com/grafana/alloy/syntax/token"
 )
@@ -35,13 +37,23 @@ func TestMain(m *testing.M) {
 		debug.SetMaxStack(16 << 20)
 		n, _ := strconv.Atoi(os.Getenv("ALLOYSYNTAX_DEPTH")) //nolint:errcheck // set by the parent
 		src := []byte(deepList(n))
-		if os.Getenv("ALLOYSYNTAX_SHAPE") == "quote" {
+		switch os.Getenv("ALLOYSYNTAX_SHAPE") {
+		case "quote":
 			src = []byte(quoteEscape(n))
+		case "calls":
+			src = []byte(callChain(n))
 		}
 		var err error
-		if mode == "raw" {
+		switch mode {
+		case "raw":
 			_, err = alloyparser.ParseFile("x", src)
-		} else {
+		case "print":
+			// What validate.Format does: parse, then the (recursive) printer.
+			var f *ast.File
+			if f, err = ParseFile("x", src); err == nil {
+				err = printer.Fprint(io.Discard, f)
+			}
+		default:
 			_, err = ParseFile("x", src)
 		}
 		var ne *NestingError
@@ -106,6 +118,24 @@ func TestQuoteEscapeReproducer(t *testing.T) {
 	}
 }
 
+// callChain is `x = f()()()…` with n calls: the parser builds a call or
+// index chain iteratively but as a left-deep tree, two bytes per level, and
+// the printer (validate.Format) recursed through it to a fatal stack
+// overflow (final review: ~2.1M calls, 4.19 MB, past every cap then).
+func callChain(n int) string {
+	return "x = f" + strings.Repeat("()", n) + "\n"
+}
+
+// TestCallChainReproducer: formatting the call chain crashed; it is refused
+// now (CheckNesting counts postfix calls and indexes as chain links, and
+// ParseFile bounds the tree's depth), in a child so a crash fails the test.
+func TestCallChainReproducer(t *testing.T) {
+	out, err := runChildShape(t, "print", "calls", 2_100_000)
+	if err != nil || !strings.HasPrefix(out, "refused: ") {
+		t.Fatalf("the call-chain reproducer should be refused; exit %v, output %.300s", err, out)
+	}
+}
+
 func TestCheckNesting(t *testing.T) {
 	for _, c := range []struct {
 		name string
@@ -130,6 +160,10 @@ func TestCheckNesting(t *testing.T) {
 		{"chains inside chains add up", "x = " + strings.Repeat("a + (", 100) + strings.Repeat("b + ", MaxChain-50) + "c" + strings.Repeat(")", 100), false},
 		{"many short chains", strings.Repeat("x = a.b.c + d\n", 10*MaxChain), true},
 		{"a long list of short items", "x = [" + strings.Repeat("a.b, ", 10*MaxChain) + "]", true},
+		{"a call chain past MaxChain", callChain(MaxChain + 1), false},
+		{"an index chain past MaxChain", "x = a" + strings.Repeat("[0]", MaxChain+1), false},
+		{"a call chain within MaxChain", callChain(100), true},
+		{"many calls side by side", "x = [" + strings.Repeat("f(), ", 10*MaxChain) + "]", true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if err := CheckNesting([]byte(c.src)); (err == nil) != c.ok {
@@ -379,4 +413,54 @@ func FuzzCheckNestingDifferential(f *testing.F) {
 			t.Fatalf("CheckNesting accepted text the scanner nests %d deep", scannerDepth([]byte(src)))
 		}
 	})
+}
+
+// deepTree builds an AST n levels deep without the parser, of each shape a
+// walker follows.
+func deepTree(shape string, n int) *ast.File {
+	var e ast.Expr = &ast.LiteralExpr{Value: "1"}
+	for range n {
+		switch shape {
+		case "array":
+			e = &ast.ArrayExpr{Elements: []ast.Expr{e}}
+		case "call":
+			e = &ast.CallExpr{Value: e}
+		case "index":
+			e = &ast.IndexExpr{Value: e, Index: &ast.LiteralExpr{Value: "0"}}
+		case "binary":
+			e = &ast.BinaryExpr{Left: e, Right: &ast.LiteralExpr{Value: "1"}}
+		case "access":
+			e = &ast.AccessExpr{Value: e, Name: &ast.Ident{Name: "a"}}
+		case "object":
+			e = &ast.ObjectExpr{Fields: []*ast.ObjectField{{Name: &ast.Ident{Name: "a"}, Value: e}}}
+		case "unary":
+			e = &ast.UnaryExpr{Value: e}
+		case "paren":
+			e = &ast.ParenExpr{Inner: e}
+		}
+	}
+	body := ast.Body{&ast.AttributeStmt{Name: &ast.Ident{Name: "x"}, Value: e}}
+	if shape == "block" {
+		body = nil
+		for range n {
+			body = ast.Body{&ast.BlockStmt{Name: []string{"b"}, Body: body}}
+		}
+	}
+	return &ast.File{Body: body}
+}
+
+// TestTreeDepth: the iterative depth walk measures every shape, and a tree
+// 2 million levels deep — far past what a recursive walk survives — costs it
+// nothing but time.
+func TestTreeDepth(t *testing.T) {
+	for _, shape := range []string{"array", "call", "index", "binary", "access", "object", "unary", "paren", "block"} {
+		if d := TreeDepth(deepTree(shape, 100)); d < 100 || d > 103 {
+			t.Errorf("%s: depth %d, want about 100", shape, d)
+		}
+	}
+	debug.SetMaxStack(8 << 20)
+	defer debug.SetMaxStack(1 << 30)
+	if d := TreeDepth(deepTree("call", 2_000_000)); d < 2_000_000 {
+		t.Errorf("depth %d of a 2M-deep tree", d)
+	}
 }

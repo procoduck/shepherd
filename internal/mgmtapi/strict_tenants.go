@@ -7,8 +7,10 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5/pgtype"
+	"google.golang.org/protobuf/proto"
 
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
+	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
 	"shepherd/internal/config"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/tenancy"
@@ -85,6 +87,43 @@ const MaxPipelineContentsBytes = config.MaxPipelineContentsBytes
 // caps at 8 MiB for effective_config echoes; nothing a person or a service
 // account sends here is larger.
 const MaxRequestBytes = 4 << 20
+
+// rawAlloyProcedures are the procedures whose request carries Alloy text or
+// a visual graph that is rendered to Alloy text — each refuses one larger
+// than MaxPipelineContentsBytes (capContents / capGraph) before anything
+// parses or renders it. TestRawAlloyProceduresAreCapped fails when a request
+// message gains such a field and its procedure is not listed here.
+var rawAlloyProcedures = map[string]bool{
+	mgmtv1connect.PipelineServiceCreatePipelineProcedure:   true,
+	mgmtv1connect.PipelineServiceUpdatePipelineProcedure:   true,
+	mgmtv1connect.PipelineServiceValidatePipelineProcedure: true,
+	mgmtv1connect.PipelineServiceFormatPipelineProcedure:   true,
+	mgmtv1connect.VisualServiceRenderProcedure:             true,
+	mgmtv1connect.VisualServiceValidateProcedure:           true,
+	mgmtv1connect.VisualServiceUpgradeCheckProcedure:       true,
+	mgmtv1connect.SimulateServiceCreateRunProcedure:        true,
+}
+
+// capContents refuses Alloy text over MaxPipelineContentsBytes.
+func capContents(contents string) error {
+	if len(contents) > MaxPipelineContentsBytes {
+		return errPipelineTooLarge(len(contents))
+	}
+	return nil
+}
+
+// capGraph refuses a visual graph whose wire size is over
+// MaxPipelineContentsBytes: it renders to Alloy text of about that size.
+func capGraph(g proto.Message) error {
+	if g == nil {
+		return nil
+	}
+	if n := proto.Size(g); n > MaxPipelineContentsBytes {
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf(
+			"the graph is %d bytes; the limit is %d", n, MaxPipelineContentsBytes))
+	}
+	return nil
+}
 
 // errPipelineTooLarge refuses pipeline contents over MaxPipelineContentsBytes.
 func errPipelineTooLarge(n int) error {

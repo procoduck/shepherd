@@ -545,6 +545,10 @@ func (s *PipelineService) validateSaveInput(ctx context.Context, in pipelineSave
 	if len(in.Contents) > MaxPipelineContentsBytes {
 		return nil, errPipelineTooLarge(len(in.Contents))
 	}
+	if len(in.WizardState) > MaxPipelineContentsBytes {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf(
+			"wizard_state is %d bytes; the limit is %d", len(in.WizardState), MaxPipelineContentsBytes))
+	}
 	if in.Name == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errPipelineNameRequired)
 	}
@@ -998,6 +1002,9 @@ func (s *PipelineService) DisablePipeline(ctx context.Context, req *connect.Requ
 // docs/archive/api-contract-design.md's "validate endpoints return 200 + diagnostics
 // today — keep that shape".
 func (s *PipelineService) ValidatePipeline(ctx context.Context, req *connect.Request[mgmtv1.ValidatePipelineRequest]) (*connect.Response[mgmtv1.ValidatePipelineResponse], error) {
+	if err := capContents(req.Msg.GetContents()); err != nil {
+		return nil, err
+	}
 	name := req.Msg.GetName()
 	if name == "" {
 		name = "preview"
@@ -1075,6 +1082,9 @@ func (s *PipelineService) ValidatePipeline(ctx context.Context, req *connect.Req
 // valid syntax, and the editor's live validation already reports the parse
 // failure — so the client leaves the buffer untouched on error.
 func (s *PipelineService) FormatPipeline(_ context.Context, req *connect.Request[mgmtv1.FormatPipelineRequest]) (*connect.Response[mgmtv1.FormatPipelineResponse], error) {
+	if err := capContents(req.Msg.GetContents()); err != nil {
+		return nil, err
+	}
 	formatted, err := validate.Format(req.Msg.GetContents())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)

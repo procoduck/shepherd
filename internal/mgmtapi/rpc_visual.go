@@ -189,6 +189,9 @@ func (s *VisualService) Render(ctx context.Context, req *connect.Request[mgmtv1.
 	if err := s.authorizeGraph(ctx, req.Msg.GetOrgId(), req.Msg.GetPipelineId()); err != nil {
 		return nil, err
 	}
+	if err := capGraph(req.Msg.GetGraph()); err != nil {
+		return nil, err
+	}
 	result, doc, payload, err := s.renderGraph(req.Msg.GetGraph())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
@@ -209,6 +212,9 @@ func (s *VisualService) Render(ctx context.Context, req *connect.Request[mgmtv1.
 // from either layer ride in the response rather than as a connect error.
 func (s *VisualService) Validate(ctx context.Context, req *connect.Request[mgmtv1.ValidateVisualRequest]) (*connect.Response[mgmtv1.ValidateVisualResponse], error) {
 	if err := s.authorizeGraph(ctx, req.Msg.GetOrgId(), req.Msg.GetPipelineId()); err != nil {
+		return nil, err
+	}
+	if err := capGraph(req.Msg.GetGraph()); err != nil {
 		return nil, err
 	}
 	result, doc, payload, err := s.renderGraph(req.Msg.GetGraph())
@@ -263,6 +269,9 @@ func (s *VisualService) Validate(ctx context.Context, req *connect.Request[mgmtv
 // UpgradeCheck reports whether a visual graph document needs a schema upgrade.
 func (s *VisualService) UpgradeCheck(ctx context.Context, req *connect.Request[mgmtv1.UpgradeCheckRequest]) (*connect.Response[mgmtv1.UpgradeCheckResponse], error) {
 	if err := s.authorizeGraph(ctx, req.Msg.GetOrgId(), req.Msg.GetPipelineId()); err != nil {
+		return nil, err
+	}
+	if err := capGraph(req.Msg.GetGraph()); err != nil {
 		return nil, err
 	}
 	if s.schema == nil {

@@ -133,6 +133,9 @@ func (s *WizardService) RenderWizard(ctx context.Context, req *connect.Request[m
 		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 	}
 
+	if err := capContents(result.Contents); err != nil {
+		return nil, err
+	}
 	name := req.Msg.GetName()
 	if name == "" {
 		name = "preview"

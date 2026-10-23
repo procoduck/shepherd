@@ -36,6 +36,16 @@ const MaxNesting = 512
 // 4096 bounds the tree's depth to MaxNesting + MaxChain deterministically.
 const MaxChain = 4096
 
+// MaxTreeDepth is the deepest AST ParseFile returns, measured by TreeDepth
+// (an iterative walk, so measuring cannot overflow). It is the structural
+// backstop behind CheckNesting: whatever construct the prescan does not
+// count, no caller — the printer, the visual builder, signal derivation,
+// the tenant lint, any recursive walker — is ever handed a tree deeper than
+// this. The deepest configuration in the repository is far below 64
+// (TestDeepestRepositoryConfig); 1024 frames of any walker is a few hundred
+// KB of stack.
+const MaxTreeDepth = 1024
+
 // NestingError is CheckNesting's refusal, positioned at the token it is
 // about: one that went past MaxNesting or MaxChain, or one Alloy's scanner
 // refused.
@@ -82,8 +92,25 @@ func CheckNesting(src []byte) error {
 	// outerSum their total, so a chain inside a chain counts both.
 	depth, run, chain, outerSum := 0, 0, 0, 0
 	var outer []int
+	// prevPrimary is whether the previous token ends a primary expression,
+	// so a following ( or [ is a postfix call or index — a chain link the
+	// parser builds into a left-deep tree like a binary operator.
+	prevPrimary := false
 	for {
 		pos, tok, _ := s.Scan()
+		wasPrimary := prevPrimary
+		switch tok {
+		case token.IDENT, token.STRING, token.NUMBER, token.FLOAT, token.BOOL, token.NULL,
+			token.RBRACK, token.RPAREN, token.RCURLY:
+			prevPrimary = true
+		case token.ILLEGAL, token.EOF, token.LITERAL, token.COMMENT, token.OR, token.AND, token.NOT, token.ASSIGN,
+			token.EQ, token.NEQ, token.LT, token.LTE, token.GT, token.GTE, token.ADD, token.SUB, token.MUL,
+			token.DIV, token.MOD, token.POW, token.LCURLY, token.LPAREN, token.LBRACK, token.COMMA, token.DOT,
+			token.TERMINATOR:
+			prevPrimary = false
+		default:
+			prevPrimary = false
+		}
 		switch tok {
 		case token.EOF:
 			if first != nil {
@@ -92,6 +119,11 @@ func CheckNesting(src []byte) error {
 			return nil
 		case token.LBRACK, token.LCURLY, token.LPAREN:
 			run = 0
+			if wasPrimary && tok != token.LCURLY {
+				if chain++; outerSum+chain > MaxChain {
+					return nestingAt(pos, true)
+				}
+			}
 			if depth++; depth > MaxNesting {
 				return nestingAt(pos, false)
 			}
@@ -151,5 +183,92 @@ func ParseFile(filename string, src []byte) (*ast.File, error) {
 	if err := CheckNesting(src); err != nil {
 		return nil, err
 	}
-	return parser.ParseFile(filename, src)
+	f, err := parser.ParseFile(filename, src)
+	if f != nil {
+		if d := TreeDepth(f); d > MaxTreeDepth {
+			return nil, &NestingError{Line: 1, Col: 1, Scan: fmt.Sprintf(
+				"the configuration's syntax tree is %d levels deep, more than the %d Shepherd handles", d, MaxTreeDepth)}
+		}
+	}
+	return f, err
+}
+
+// TreeDepth is the deepest path from f to a leaf, one level per edge,
+// measured with an explicit stack: it cannot overflow, however deep f is.
+func TreeDepth(f *ast.File) int {
+	type item struct {
+		n ast.Node
+		d int
+	}
+	stack := []item{{f, 0}}
+	deepest := 0
+	push := func(n ast.Node, d int) {
+		if n != nil {
+			stack = append(stack, item{n, d})
+		}
+	}
+	for len(stack) > 0 {
+		it := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		deepest = max(deepest, it.d)
+		d := it.d + 1
+		switch n := it.n.(type) {
+		case *ast.File:
+			for _, st := range n.Body {
+				push(st, d)
+			}
+		case *ast.BlockStmt:
+			for _, st := range n.Body {
+				push(st, d)
+			}
+		case *ast.AttributeStmt:
+			if n.Value != nil {
+				push(n.Value, d)
+			}
+		case *ast.ArrayExpr:
+			for _, e := range n.Elements {
+				push(e, d)
+			}
+		case *ast.ObjectExpr:
+			for _, fl := range n.Fields {
+				if fl != nil && fl.Value != nil {
+					push(fl.Value, d)
+				}
+			}
+		case *ast.CallExpr:
+			if n.Value != nil {
+				push(n.Value, d)
+			}
+			for _, e := range n.Args {
+				push(e, d)
+			}
+		case *ast.IndexExpr:
+			if n.Value != nil {
+				push(n.Value, d)
+			}
+			if n.Index != nil {
+				push(n.Index, d)
+			}
+		case *ast.AccessExpr:
+			if n.Value != nil {
+				push(n.Value, d)
+			}
+		case *ast.BinaryExpr:
+			if n.Left != nil {
+				push(n.Left, d)
+			}
+			if n.Right != nil {
+				push(n.Right, d)
+			}
+		case *ast.UnaryExpr:
+			if n.Value != nil {
+				push(n.Value, d)
+			}
+		case *ast.ParenExpr:
+			if n.Inner != nil {
+				push(n.Inner, d)
+			}
+		}
+	}
+	return deepest
 }
