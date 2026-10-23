@@ -251,6 +251,7 @@ func UpgradeCheck(doc GraphDocument, oldSchema, newSchema UpgradeSchemaPayload, 
 	if items == nil {
 		items = []UpgradeItem{}
 	}
+	items = capUpgradeItems(items)
 
 	return UpgradeCheckResponse{
 		OldVersion:   oldVersion,
@@ -258,6 +259,31 @@ func UpgradeCheck(doc GraphDocument, oldSchema, newSchema UpgradeSchemaPayload, 
 		Items:        items,
 		NeedsUpgrade: len(items) > 0 || oldVersion != newVersion,
 	}
+}
+
+// capUpgradeItems bounds the list the way Render bounds its diagnostics: each
+// item quotes its node's label and component (clipped to the render limits),
+// at most MaxDiagnostics items or MaxDiagnosticBytes are listed, and the rest
+// are counted on one more item of the first dropped one's class. Uncapped, a
+// node's label was repeated on every item about it (#393 review).
+func capUpgradeItems(items []UpgradeItem) []UpgradeItem {
+	out := make([]UpgradeItem, 0, min(len(items), MaxDiagnostics+1))
+	size := 0
+	for i, it := range items {
+		it.NodeLabel = clipTo(it.NodeLabel, MaxLabelBytes)
+		it.Component = clipTo(it.Component, MaxComponentBytes)
+		it.Detail = clipTo(it.Detail, MaxLabelBytes)
+		n := len(it.NodeID) + len(it.NodeLabel) + len(it.Component) + len(it.Class) + len(it.Detail)
+		if len(out) >= MaxDiagnostics || size+n > MaxDiagnosticBytes {
+			return append(out, UpgradeItem{
+				Class:  it.Class,
+				Detail: fmt.Sprintf("%d more changes are not listed", len(items)-i),
+			})
+		}
+		out = append(out, it)
+		size += n
+	}
+	return out
 }
 
 // containsString reports whether ss contains s.

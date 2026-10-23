@@ -198,6 +198,99 @@ var _ = Describe("Render bounds (#391)", func() {
 		Expect(elapsed).To(BeNumerically("<", 2*time.Second))
 	})
 
+	// Review of #393: the diagnostics were as unbounded as the text was. Each
+	// edge_unresolved message embedded both components, so one node with a
+	// 500 KB unknown component and 25,618 distinct short edges (~1 MiB)
+	// produced 12.8 GB of messages.
+	It("refuses the diagnostic bomb fast (an over-long component)", func() {
+		doc := visual.GraphDocument{Nodes: []visual.GraphNode{
+			boundsNode("a", strings.Repeat("c", 500_000), "a"),
+			boundsNode("b", "prometheus.scrape", "b"),
+		}}
+		for i := range 25_618 {
+			doc.Edges = append(doc.Edges, boundsEdge(fmt.Sprint(i), "a", fmt.Sprintf("p%d", i), "b", "targets"))
+		}
+		var r visual.RenderResult
+		elapsed, alloc := measure(func() { r = visual.Render(doc, schema) })
+		Expect(hasCode(r, "component_too_long")).To(BeTrue(), "%d diagnostics", len(r.Diagnostics))
+		Expect(r.Content).To(BeEmpty())
+		Expect(elapsed).To(BeNumerically("<", time.Second))
+		Expect(alloc).To(BeNumerically("<", 16<<20), "allocated %d bytes", alloc)
+	})
+
+	It("caps the diagnostics a legal graph produces, by count and bytes, keeping them blocking", func() {
+		long := strings.Repeat("c", visual.MaxComponentBytes)
+		doc := visual.GraphDocument{Nodes: []visual.GraphNode{
+			boundsNode("a", long, "a"),
+			boundsNode("b", "prometheus.scrape", "b"),
+		}}
+		for i := range 25_000 {
+			doc.Edges = append(doc.Edges, boundsEdge(strings.Repeat("e", 200)+fmt.Sprint(i), "a", fmt.Sprintf("p%d", i), "b", "targets"))
+		}
+		var r visual.RenderResult
+		elapsed, alloc := measure(func() { r = visual.Render(doc, schema) })
+		Expect(elapsed).To(BeNumerically("<", time.Second))
+		Expect(alloc).To(BeNumerically("<", 32<<20), "allocated %d bytes", alloc)
+		Expect(len(r.Diagnostics)).To(BeNumerically("<=", visual.MaxDiagnostics+1))
+		size := 0
+		for _, d := range r.Diagnostics {
+			size += len(d.Layer) + len(d.Severity) + len(d.Code) + len(d.NodeID) + len(d.NodeID2) + len(d.Message)
+			Expect(len(d.Message)).To(BeNumerically("<", 512), "messages never embed a whole client string")
+		}
+		Expect(size).To(BeNumerically("<=", visual.MaxDiagnosticBytes+512))
+		last := r.Diagnostics[len(r.Diagnostics)-1]
+		Expect(last.Code).To(Equal("too_many_diagnostics"))
+		Expect(last.Severity).To(Equal("error"), "a dropped error still blocks")
+		Expect(last.Message).To(ContainSubstring("more"))
+	})
+
+	It("caps diagnostics merged after the render (CapDiagnostics), carrying the dropped count", func() {
+		var in []visual.RenderDiagnostic
+		for i := range 500 {
+			in = append(in, visual.RenderDiagnostic{Layer: "L1", Severity: "warning", Code: "unknown_prop", Message: fmt.Sprint(i)})
+		}
+		capped := visual.CapDiagnostics(in)
+		Expect(capped).To(HaveLen(visual.MaxDiagnostics + 1))
+		Expect(capped[visual.MaxDiagnostics].Message).To(HavePrefix("300 more"))
+		Expect(capped[visual.MaxDiagnostics].Severity).To(Equal("warning"))
+		again := visual.CapDiagnostics(append(capped, visual.RenderDiagnostic{Severity: "error", Code: "experimental_gated"}))
+		Expect(again).To(HaveLen(visual.MaxDiagnostics + 1))
+		Expect(again[visual.MaxDiagnostics].Message).To(HavePrefix("301 more"))
+		Expect(again[visual.MaxDiagnostics].Severity).To(Equal("error"))
+		Expect(visual.CapDiagnostics(in[:3])).To(Equal(in[:3]))
+	})
+
+	It("refuses a component over MaxComponentBytes and accepts one at it", func() {
+		at := strings.Repeat("c", visual.MaxComponentBytes)
+		ok := visual.Render(visual.GraphDocument{Nodes: []visual.GraphNode{boundsNode("a", at, "a")}}, schema)
+		Expect(hasCode(ok, "component_too_long")).To(BeFalse())
+		Expect(hasCode(ok, "unknown_component")).To(BeTrue())
+		bad := visual.Render(visual.GraphDocument{Nodes: []visual.GraphNode{boundsNode("a", at+"c", "a")}}, schema)
+		Expect(hasCode(bad, "component_too_long")).To(BeTrue())
+		Expect(bad.Content).To(BeEmpty())
+	})
+
+	// 90,000 × -1.79e308: 9 bytes of JSON each, 310 bytes of Alloy each. The
+	// serialisers built the whole 28 MB value (197 MB allocated) before the
+	// writer saw it.
+	It("stops serialising a value once it passes the cap", func() {
+		nums := make([]interface{}, 90_000)
+		for i := range nums {
+			nums[i] = -1.79e308
+		}
+		for _, n := range []visual.GraphNode{
+			{ID: "u", Component: "not.in.schema", Label: "u", Props: map[string]interface{}{"v": nums}},
+			{ID: "s", Component: "prometheus.scrape", Label: "s", Props: map[string]interface{}{"params": map[string]interface{}{"k": nums}}},
+		} {
+			doc := visual.GraphDocument{Nodes: []visual.GraphNode{n}}
+			var r visual.RenderResult
+			elapsed, alloc := measure(func() { r = visual.Render(doc, schema) })
+			Expect(r.Err()).To(MatchError(visual.ErrOutputTooLarge), n.Component)
+			Expect(elapsed).To(BeNumerically("<", time.Second))
+			Expect(alloc).To(BeNumerically("<", 16<<20), "%s allocated %d bytes", n.Component, alloc)
+		}
+	})
+
 	Describe("output is byte-identical to the pre-#391 renderer", func() {
 		same := func(doc visual.GraphDocument) {
 			GinkgoHelper()
@@ -211,6 +304,44 @@ var _ = Describe("Render bounds (#391)", func() {
 			for _, name := range append(append([]string{}, corpusNames...), "diagnostics-mixed") {
 				graphJSON, _ := readCorpus(name)
 				same(unmarshalDoc(graphJSON))
+			}
+		})
+
+		It("serialises values exactly as the unbounded serializer did", func() {
+			rng := rand.New(rand.NewSource(393))
+			var gen func(depth int) interface{}
+			gen = func(depth int) interface{} {
+				switch k := rng.Intn(9); {
+				case k == 0:
+					return nil
+				case k == 1:
+					return []string{"", "a", "q\"\\\n\t\x01é", "x y"}[rng.Intn(4)]
+				case k == 2:
+					return rng.Intn(2) == 0
+				case k == 3:
+					return []float64{0, -1.79e308, 1e21, 0.1, -3, 5e-324}[rng.Intn(6)]
+				case k <= 5 && depth < 4:
+					l := make([]interface{}, rng.Intn(4))
+					for i := range l {
+						l[i] = gen(depth + 1)
+					}
+					return l
+				case k <= 7 && depth < 4:
+					m := map[string]interface{}{}
+					for range rng.Intn(4) {
+						m[[]string{"a", "b-c", "9", "", "ok_1"}[rng.Intn(5)]] = gen(depth + 1)
+					}
+					if rng.Intn(5) == 0 {
+						return map[string]interface{}{"$expr": " env(\"X\") "}
+					}
+					return m
+				default:
+					return int64(rng.Intn(5)) // an unsupported shape: printed and quoted
+				}
+			}
+			for range 20_000 {
+				v := gen(0)
+				Expect(visual.SerializeNatural(v)).To(Equal(visual.LegacySerializeNatural(v)), "%#v", v)
 			}
 		})
 
@@ -342,3 +473,56 @@ func BenchmarkRenderAmplifier(b *testing.B) {
 		})
 	}
 }
+
+var _ = Describe("Bounded lists beside Render (#393 review)", func() {
+	schema := corpusSchema()
+
+	It("CheckPortShapes lists at most MaxDiagnostics problems, quoting references clipped", func() {
+		label := strings.Repeat("r", 200)
+		var b strings.Builder
+		fmt.Fprintf(&b, "prometheus.remote_write %q {\n  endpoint {\n    url = \"http://x\"\n  }\n}\n", label)
+		for i := range 300 {
+			fmt.Fprintf(&b, "prometheus.scrape \"s%d\" {\n  targets = []\n  forward_to = prometheus.remote_write.%s.receiver\n}\n", i, label)
+		}
+		diags := visual.CheckPortShapes(b.String(), schema)
+		Expect(diags).To(HaveLen(visual.MaxDiagnostics + 1))
+		Expect(diags[0].Message).NotTo(ContainSubstring(label))
+		Expect(diags[visual.MaxDiagnostics].Message).To(Equal("100 more port-shape problems are not listed"))
+	})
+
+	// The graph view's module expansion numbered each repeated edge by
+	// scanning every edge for every candidate suffix: cubic in the repeats.
+	It("ParseAlloy draws repeated module edges in linear time, ids unchanged", func() {
+		refs := make([]string, 1500)
+		for i := range refs {
+			refs[i] = "argument.destinations.value"
+		}
+		content := "declare \"scraper\" {\n  argument \"destinations\" { }\n\n  prometheus.scrape \"inner\" {\n    targets    = []\n    forward_to = [" +
+			strings.Join(refs, ", ") + "]\n  }\n}\n\nscraper \"main\" {\n  destinations = []\n}\n"
+		var res visual.ParseResult
+		elapsed, _ := measure(func() {
+			res = visual.ParseAlloyWithOptions(content, "v1.20.1", visual.ParseOptions{ExpandModules: true}, schema)
+		})
+		Expect(elapsed).To(BeNumerically("<", time.Second))
+		ids := map[string]bool{}
+		for _, e := range res.Doc.Edges {
+			Expect(ids[e.ID]).To(BeFalse(), "edge id %s is unique", e.ID)
+			ids[e.ID] = true
+		}
+		Expect(len(ids)).To(BeNumerically(">=", 1500))
+		Expect(ids).To(HaveKey(MatchRegexp(`_1500$`)), "the numbering is the same: base, base_2 … base_1500")
+	})
+
+	It("UpgradeCheck lists at most MaxDiagnostics items, labels clipped", func() {
+		doc := visual.GraphDocument{}
+		for i := range 300 {
+			doc.Nodes = append(doc.Nodes, visual.GraphNode{ID: fmt.Sprintf("n%d", i), Component: "gone", Label: strings.Repeat("l", 5000)})
+		}
+		old := visual.UpgradeSchemaPayload{Components: map[string]visual.UpgradeComponentSchema{"gone": {}}}
+		res := visual.UpgradeCheck(doc, old, visual.UpgradeSchemaPayload{}, "v1", "v2")
+		Expect(res.Items).To(HaveLen(visual.MaxDiagnostics + 1))
+		Expect(len(res.Items[0].NodeLabel)).To(BeNumerically("<=", visual.MaxLabelBytes))
+		Expect(res.Items[visual.MaxDiagnostics].Detail).To(Equal("100 more changes are not listed"))
+		Expect(res.NeedsUpgrade).To(BeTrue())
+	})
+})

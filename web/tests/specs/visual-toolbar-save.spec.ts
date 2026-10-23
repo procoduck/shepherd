@@ -6,6 +6,7 @@ import { appAdmin } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
 import { test } from '../fixtures/test';
 import { toolbarAction } from '../fixtures/toolbar';
+import { connectError } from '../mocks/router';
 
 const mockGraph = {
   kind: 'alloy-graph/v1',
@@ -150,6 +151,23 @@ test.describe('visual builder toolbar — new pipeline', () => {
     await page.locator('[data-testid="toolbar-save"]').click();
 
     await expect(page.getByTestId('form-error')).toHaveText('Boom', { timeout: 5_000 });
+    expect(api.calls('PipelineService/CreatePipeline')).toHaveLength(0);
+  });
+
+  // #391: a graph whose text would pass 1 MiB is refused as InvalidArgument,
+  // not answered with diagnostics; the save shows the server's reason.
+  test('shows a render refused for size and does not save', async ({ page, api }) => {
+    api.override('POST', '/shepherd.mgmt.v1.VisualService/Render', (route) =>
+      connectError(route, 400, 'invalid_argument', 'rendered pipeline exceeds 1 MiB'),
+    );
+    const input = page.locator('[data-testid="matcher-input"]');
+    await input.fill('cluster="prod-eu-1"');
+    await input.press('Enter');
+    await page.locator('[data-testid="toolbar-save"]').click();
+
+    await expect(page.getByTestId('form-error')).toHaveText('Rendered pipeline exceeds 1 MiB', {
+      timeout: 5_000,
+    });
     expect(api.calls('PipelineService/CreatePipeline')).toHaveLength(0);
   });
 });

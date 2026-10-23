@@ -67,7 +67,25 @@ func CheckPortShapes(content string, schema SchemaPayload) []PortShapeDiagnostic
 	}
 	pc := &portShapeChecker{schema: schema}
 	pc.walkScope(f.Body, nil)
-	return pc.diags
+	return capPortShapes(pc.diags)
+}
+
+// capPortShapes bounds the list like Render's diagnostics: at most
+// MaxDiagnostics entries or MaxDiagnosticBytes of messages, then one entry
+// counting the rest (each message already quotes at most maxMessageField
+// bytes of a reference).
+func capPortShapes(diags []PortShapeDiagnostic) []PortShapeDiagnostic {
+	size := 0
+	for i, d := range diags {
+		if i >= MaxDiagnostics || size+len(d.Message) > MaxDiagnosticBytes {
+			return append(diags[:i:i], PortShapeDiagnostic{
+				Line: d.Line, Col: d.Col,
+				Message: fmt.Sprintf("%d more port-shape problems are not listed", len(diags)-i),
+			})
+		}
+		size += len(d.Message)
+	}
+	return diags
 }
 
 type portShapeChecker struct {
@@ -224,7 +242,7 @@ func (pc *portShapeChecker) checkPort(in PortSchema, attr *ast.AttributeStmt, sc
 				Col:  pos.Column,
 				Message: fmt.Sprintf(
 					"%s expects a list of targets; [%s] is a list of lists, because %s is already a list of targets — drop the brackets (use array.concat(a, b) to combine several)",
-					attrName, ref.text, ref.text),
+					attrName, clip(ref.text), clip(ref.text)),
 			})
 		}
 	case inputRole(in) == roleProduces:
@@ -239,7 +257,7 @@ func (pc *portShapeChecker) checkPort(in PortSchema, attr *ast.AttributeStmt, sc
 			Col:  pos.Column,
 			Message: fmt.Sprintf(
 				"%s expects a list of receivers; %s is a single receiver — wrap it in brackets: [%s]",
-				attrName, ref.text, ref.text),
+				attrName, clip(ref.text), clip(ref.text)),
 		})
 	}
 }

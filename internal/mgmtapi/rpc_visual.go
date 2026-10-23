@@ -206,7 +206,7 @@ func (s *VisualService) Render(ctx context.Context, req *connect.Request[mgmtv1.
 	// #114: an experimental component used by an org that has not opted in is a
 	// render error, appended to the same Diagnostics the label-collision path
 	// uses.
-	result.Diagnostics = append(result.Diagnostics, s.experimentalGate(ctx, req.Msg.GetOrgId(), doc, payload)...)
+	result.Diagnostics = visual.CapDiagnostics(append(result.Diagnostics, s.experimentalGate(ctx, req.Msg.GetOrgId(), doc, payload)...))
 	return connect.NewResponse(&mgmtv1.RenderResponse{
 		Content:     result.Content,
 		NodeMap:     nodeRangesToProto(result.NodeMap),
@@ -231,7 +231,7 @@ func (s *VisualService) Validate(ctx context.Context, req *connect.Request[mgmtv
 	// #114: gate experimental components before L1/L2 — an experimental
 	// component with the org toggle off is a render failure, reported in the
 	// same L1 RenderDiagnostics (422) shape.
-	result.Diagnostics = append(result.Diagnostics, s.experimentalGate(ctx, req.Msg.GetOrgId(), doc, payload)...)
+	result.Diagnostics = visual.CapDiagnostics(append(result.Diagnostics, s.experimentalGate(ctx, req.Msg.GetOrgId(), doc, payload)...))
 	if len(result.Diagnostics) > 0 {
 		// L1 render diagnostics ride in RenderDiagnostics, not Diagnostics:
 		// they are visual.RenderDiagnostic values (layer/code/node_id/

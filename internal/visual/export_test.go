@@ -3,6 +3,7 @@ package visual
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -14,6 +15,13 @@ import (
 func LegacyRender(doc GraphDocument, schema SchemaPayload) RenderResult {
 	return legacyRender(doc, schema)
 }
+
+// SerializeNatural and LegacySerializeNatural expose the bounded value
+// serializer and the one it replaced, for the same comparison.
+var (
+	SerializeNatural       = serializeNatural
+	LegacySerializeNatural = legacySerializeNatural
+)
 
 func (rd *renderer) legacyResolveEdges(doc GraphDocument, active map[string]GraphNode, labels map[string]string) map[string]map[string][]wire {
 	out := map[string]map[string][]wire{}
@@ -46,7 +54,7 @@ func (rd *renderer) legacyResolveEdges(doc GraphDocument, active map[string]Grap
 		case fromIn != nil && inputRole(*fromIn) == roleProduces && toOut != nil && outputRole(*toOut) == roleAccepts:
 			add(e.From.Node, e.From.Port, wire{text: reference(e.To.Node, e.To.Port, active, labels), order: order, seq: i})
 		default:
-			rd.diags = append(rd.diags, RenderDiagnostic{
+			rd.add(RenderDiagnostic{
 				Layer: "L1", Severity: sevError, Code: "edge_unresolved",
 				NodeID: e.From.Node, NodeID2: e.To.Node,
 				Message: fmt.Sprintf("edge %s: %s.%s → %s.%s does not connect an argument to a matching export; the reference was not emitted",
@@ -71,7 +79,7 @@ func legacyRender(doc GraphDocument, schema SchemaPayload) RenderResult {
 		key := n.Component + "\x00" + labels[n.ID]
 		if old, ok := seen[key]; ok {
 			collision = true
-			rd.diags = append(rd.diags, RenderDiagnostic{
+			rd.add(RenderDiagnostic{
 				Layer: "L1", Severity: sevError, Code: "label_collision", NodeID: old, NodeID2: n.ID,
 				Message: fmt.Sprintf("nodes %s and %s have the same label", old, n.ID),
 			})
@@ -82,7 +90,7 @@ func legacyRender(doc GraphDocument, schema SchemaPayload) RenderResult {
 	if collision {
 		// A collision makes every reference ambiguous, so no content is safe
 		// to emit; every colliding pair is reported, not just the first.
-		r.Diagnostics = rd.diags
+		r.Diagnostics = rd.sink.list()
 		return r
 	}
 
@@ -152,7 +160,7 @@ func legacyRender(doc GraphDocument, schema SchemaPayload) RenderResult {
 		for i, id := range rest {
 			names[i] = active[id].Component + " " + quote(labels[id])
 		}
-		rd.diags = append(rd.diags, RenderDiagnostic{
+		rd.add(RenderDiagnostic{
 			Layer: "L1", Severity: sevError, Code: "cycle", NodeID: rest[0],
 			Message: fmt.Sprintf("graph has a cycle through %s; the emission order of those components is arbitrary", strings.Join(names, ", ")),
 		})
@@ -181,7 +189,7 @@ func legacyRender(doc GraphDocument, schema SchemaPayload) RenderResult {
 		n := active[id]
 		c, known := schema.Components[n.Component]
 		if n.Component != "" && !known {
-			rd.diags = append(rd.diags, RenderDiagnostic{
+			rd.add(RenderDiagnostic{
 				Layer: "L1", Severity: sevError, Code: "unknown_component", NodeID: id,
 				Message: fmt.Sprintf("component %q is not in the schema for this graph", n.Component),
 			})
@@ -217,6 +225,46 @@ func legacyRender(doc GraphDocument, schema SchemaPayload) RenderResult {
 		r.NodeMap[id] = NodeRange{StartLine: start, EndLine: end}
 	}
 	r.Content = lw.b.String()
-	r.Diagnostics = rd.diags
+	r.Diagnostics = rd.sink.list()
 	return r
+}
+
+// legacySerializeNatural is serializeNatural as it stood before the #393
+// review bounded it.
+func legacySerializeNatural(v interface{}) string {
+	switch x := v.(type) {
+	case nil:
+		return "null"
+	case string:
+		return quote(x)
+	case bool:
+		return strconv.FormatBool(x)
+	case float64:
+		return formatNumber(x)
+	case []interface{}:
+		p := make([]string, len(x))
+		for i, z := range x {
+			p[i] = legacySerializeNatural(z)
+		}
+		return "[" + strings.Join(p, ", ") + "]"
+	case map[string]interface{}:
+		if expr, ok := rawExpr(x); ok {
+			return expr
+		}
+		keys := make([]string, 0, len(x))
+		for k := range x {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		p := make([]string, len(keys))
+		for i, k := range keys {
+			key := k
+			if !identRe.MatchString(k) {
+				key = quote(k)
+			}
+			p[i] = key + " = " + legacySerializeNatural(x[k])
+		}
+		return "{" + strings.Join(p, ", ") + "}"
+	}
+	return quote(fmt.Sprint(v))
 }

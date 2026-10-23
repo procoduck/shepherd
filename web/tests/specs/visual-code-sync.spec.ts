@@ -7,6 +7,7 @@ import { basicScenario, org } from '../fixtures/factories';
 import { appAdmin } from '../fixtures/personas';
 import { schemaFixture } from '../fixtures/schema-fixture';
 import { test } from '../fixtures/test';
+import { connectError } from '../mocks/router';
 
 test.describe('visual code sync', () => {
   test.beforeEach(async ({ page, api }) => {
@@ -64,6 +65,20 @@ test.describe('visual code sync', () => {
   test('Verify render button is present in Code tab', async ({ page }) => {
     await page.click('[data-testid="drawer-tab-code"]');
     await expect(page.locator('button:has-text("Verify render")')).toBeVisible({ timeout: 3_000 });
+  });
+
+  // #391: the server refuses a graph whose text would pass 1 MiB as
+  // InvalidArgument. Verify used to drop the rejection and show nothing.
+  test('Verify render shows a refusal from the server', async ({ page, api }) => {
+    api.override('POST', '/shepherd.mgmt.v1.VisualService/Render', (route) =>
+      connectError(route, 400, 'invalid_argument', 'rendered pipeline exceeds 1 MiB'),
+    );
+    await page.click('[data-testid="drawer-tab-code"]');
+    await page.click('button:has-text("Verify render")');
+    await expect(page.getByTestId('verify-render-result')).toHaveText(
+      'Rendered pipeline exceeds 1 MiB',
+      { timeout: 5_000 },
+    );
   });
 });
 

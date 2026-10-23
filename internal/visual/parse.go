@@ -208,8 +208,17 @@ type graphParser struct {
 	// known (a module may be used before it is declared).
 	opaqueNodes []opaqueNode
 	instanceOf  map[string]*module
-	modules     []*module
-	parents     map[string]string
+
+	// edgeIDs indexes doc.Edges' ids (edgesIndexed of them so far, of
+	// edgesDoc) and nextSuffix each base's next candidate suffix, so
+	// addEdge's numbering is linear rather than a scan per candidate.
+	edgeIDs      map[string]bool
+	edgesIndexed int
+	edgesDoc     *GraphDocument
+	nextSuffix   map[string]int
+	droppedSet   map[string]bool
+	modules      []*module
+	parents      map[string]string
 }
 
 // addBody maps one body's statements to nodes: the top level, or (graph view
@@ -613,32 +622,47 @@ func (gp *graphParser) wireInstance(doc *GraphDocument, idx int, m *module) {
 
 // addEdge appends an edge in dataflow direction, from → to. Its id names both
 // ends' ports, made unique if two references draw the same edge.
+//
+// The id is the first of base, base_2, base_3 … not taken. Edges are only
+// ever appended, so a candidate found taken stays taken, and the search for a
+// base can resume where its last one stopped (nextSuffix) — the same ids as
+// trying every candidate from the start, without the quadratic rescans.
 func (gp *graphParser) addEdge(doc *GraphDocument, from, to PortRef) {
 	base := fmt.Sprintf("e_%s_%s_%s_%s", from.Node, from.Port, to.Node, to.Port)
 	id := base
-	for n := 2; gp.edgeIDTaken(doc, id); n++ {
-		id = fmt.Sprintf("%s_%d", base, n)
+	if gp.edgeIDTaken(doc, id) {
+		n := max(gp.nextSuffix[base], 2)
+		for id = fmt.Sprintf("%s_%d", base, n); gp.edgeIDTaken(doc, id); {
+			n++
+			id = fmt.Sprintf("%s_%d", base, n)
+		}
+		gp.nextSuffix[base] = n + 1
 	}
 	doc.Edges = append(doc.Edges, GraphEdge{ID: id, From: from, To: to})
 }
 
+// edgeIDTaken reports whether an edge in doc already has id, indexing the
+// edges appended since the last call (edge() appends without addEdge).
 func (gp *graphParser) edgeIDTaken(doc *GraphDocument, id string) bool {
-	for _, e := range doc.Edges {
-		if e.ID == id {
-			return true
-		}
+	if gp.edgesDoc != doc || len(doc.Edges) < gp.edgesIndexed {
+		gp.edgesDoc, gp.edgeIDs, gp.edgesIndexed, gp.nextSuffix = doc, map[string]bool{}, 0, map[string]int{}
 	}
-	return false
+	for ; gp.edgesIndexed < len(doc.Edges); gp.edgesIndexed++ {
+		gp.edgeIDs[doc.Edges[gp.edgesIndexed].ID] = true
+	}
+	return gp.edgeIDs[id]
 }
 
 func (gp *graphParser) drop(format string, args ...any) {
 	gp.opaque = true
 	msg := fmt.Sprintf(format, args...)
-	for _, existing := range gp.dropped {
-		if existing == msg {
-			return
-		}
+	if gp.droppedSet[msg] {
+		return
 	}
+	if gp.droppedSet == nil {
+		gp.droppedSet = map[string]bool{}
+	}
+	gp.droppedSet[msg] = true
 	gp.dropped = append(gp.dropped, msg)
 }
 
