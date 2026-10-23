@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/grafana/alloy/syntax/ast"
 	"github.com/grafana/alloy/syntax/parser"
@@ -103,9 +104,26 @@ const (
 	// maxDepth is how many declare argument hops and nested import.string
 	// modules the lint follows.
 	maxDepth = 8
-	// maxSteps is the work one lint may do (expressions resolved, path steps
-	// followed), shared with the modules it imports.
-	maxSteps = 50_000
+	// maxNesting is the deepest block, expression or forward_to chain the
+	// lint walks.
+	maxNesting = 64
+	// maxSteps is the ONE budget of a lint run, shared with the modules it
+	// imports: every unit of work charges it (each statement and block, each
+	// resolution and cache hit, each value and tenant piece, each byte a
+	// concatenation builds per 64, each diagnostic, each path step). Worst
+	// case about 10 ms of CPU and a few MB.
+	maxSteps = 100_000
+	// lintDeadline is the wall-clock backstop of one run.
+	lintDeadline = 50 * time.Millisecond
+	// maxContentBytes is the largest text the lint reads at all — the
+	// pipeline contents cap (mgmtapi.MaxPipelineContentsBytes), so a larger
+	// one is never saved; parsing is linear in the text.
+	maxContentBytes = 1 << 20
+	// maxLiterals is how many distinct tenants one pipeline may be recorded
+	// as writing to (pipeline_tenants); more is "incomplete".
+	maxLiterals = 256
+	// maxDiagnostics is how many refusals one run reports, plus one summary.
+	maxDiagnostics = 100
 )
 
 // TenantLint is strict tenant mode's pipeline check (spec §8). With p.Strict
@@ -120,7 +138,7 @@ func TenantLint(content string, p TenantPolicy) []Diagnostic {
 	if !p.Strict {
 		return nil
 	}
-	l := newTenantLinter(content, p, nil, 0, &budget{steps: maxSteps})
+	l := newTenantLinter(content, p, nil, 0, newBudget())
 	if l == nil {
 		return nil
 	}
@@ -134,12 +152,11 @@ func TenantLint(content string, p TenantPolicy) []Diagnostic {
 // external import, a cap reached). Content that does not parse lists nothing
 // and is complete.
 func TenantLiterals(content string) (literals []string, complete bool) {
-	l := newTenantLinter(content, TenantPolicy{Strict: true, Owns: func(string) bool { return true }}, nil, 0,
-		&budget{steps: maxSteps})
+	l := newTenantLinter(content, TenantPolicy{Strict: true, Owns: func(string) bool { return true }}, nil, 0, newBudget())
 	if l == nil {
 		return nil, true
 	}
-	return l.literals, len(l.diags) == 0
+	return l.literals, len(l.diags) == 0 && !l.incomplete
 }
 
 // resolved is a value as the lint read it: its possible strings, or ok=false.
@@ -148,27 +165,63 @@ type resolved struct {
 	ok     bool
 }
 
-// budget is the work left to one lint and the modules it imports.
-type budget struct{ steps int }
-
-func (b *budget) take() bool {
-	b.steps--
-	return b.steps >= 0
+// budget is the work left to one lint run and the modules it imports
+// (maxSteps, lintDeadline). Once exhausted it stays exhausted, and every
+// value read after that is unreadable.
+type budget struct {
+	steps     int
+	calls     int
+	deadline  time.Time
+	exhausted bool
 }
 
+func newBudget() *budget {
+	return &budget{steps: maxSteps, deadline: time.Now().Add(lintDeadline)}
+}
+
+// charge spends n units, reporting whether any are left.
+func (b *budget) charge(n int) bool {
+	if b.exhausted {
+		return false
+	}
+	b.steps -= n
+	b.calls++
+	if b.steps < 0 || (b.calls%256 == 0 && time.Now().After(b.deadline)) {
+		b.exhausted = true
+	}
+	return !b.exhausted
+}
+
+func (b *budget) take() bool { return b.charge(1) }
+
 func newTenantLinter(content string, p TenantPolicy, external map[string]map[string][]resolved, depth int, b *budget) *tenantLinter {
+	l := &tenantLinter{
+		policy: p, declares: map[string]*declareInfo{}, depth: depth, budget: b,
+		memo: map[string]*resolved{}, components: map[string]map[string]*ast.BlockStmt{},
+		seenLiteral: map[string]bool{},
+	}
+	if len(content) > maxContentBytes {
+		l.diags = append(l.diags, Diagnostic{Line: 1, Col: 1, Stage: 1, Message: fmt.Sprintf(
+			"the pipeline is %d bytes, more than the %d the tenant check reads — strict tenant mode refuses it",
+			len(content), maxContentBytes)})
+		return l
+	}
 	file, err := parser.ParseFile("<pipeline>", []byte(content))
 	if err != nil {
 		return nil
 	}
-	l := &tenantLinter{
-		policy: p, declares: map[string]*declareInfo{}, depth: depth, budget: b,
-		memo: map[string]*resolved{}, components: map[string]map[string]*ast.BlockStmt{},
-	}
 	l.collectDeclares(file.Body, "", external)
-	l.collectComponents(file.Body, "")
+	l.collectComponents(file.Body, "", 0)
 	l.body(file.Body, scope{})
 	l.pushSourcePaths()
+	if depth == 0 && (b.exhausted || l.tooMany) {
+		msg := "the pipeline is too large or complex for the tenant check to verify within its limits — strict " +
+			"tenant mode refuses it; simplify the tenant settings"
+		if !b.exhausted {
+			msg = fmt.Sprintf("more than %d tenant findings; the first %d are shown", maxDiagnostics, maxDiagnostics)
+		}
+		l.diags = append(l.diags, Diagnostic{Line: 1, Col: 1, Stage: 1, Message: msg})
+	}
 	return l
 }
 
@@ -186,6 +239,27 @@ type tenantLinter struct {
 	memo   map[string]*resolved
 	depth  int
 	budget *budget
+	// exprNesting is how deep resolve is in one expression.
+	exprNesting int
+	// seenLiteral is literals as a set; incomplete is set when there were
+	// more than maxLiterals; tooMany when there were more than
+	// maxDiagnostics refusals.
+	seenLiteral map[string]bool
+	incomplete  bool
+	tooMany     bool
+}
+
+// addLiteral records one tenant the text writes to, up to maxLiterals.
+func (l *tenantLinter) addLiteral(t string) {
+	if l.seenLiteral[t] {
+		return
+	}
+	if len(l.literals) >= maxLiterals {
+		l.incomplete = true
+		return
+	}
+	l.seenLiteral[t] = true
+	l.literals = append(l.literals, t)
 }
 
 type pushSource struct {
@@ -213,21 +287,48 @@ type givenValue struct {
 // enclosing declare.
 type scope struct {
 	component string
-	path      []string
+	path      *pathNode
 	declare   string
 }
 
+// pathNode is one block of a scope's path, pointing at its parent: a child
+// scope costs one node, not a copy of the path, and the path is only spelt
+// out (where) for a refusal.
+type pathNode struct {
+	name   string
+	parent *pathNode
+	depth  int
+}
+
 func (s scope) last() string {
-	if len(s.path) == 0 {
+	if s.path == nil {
 		return ""
 	}
-	return s.path[len(s.path)-1]
+	return s.path.name
+}
+
+func (s scope) nesting() int {
+	if s.path == nil {
+		return 0
+	}
+	return s.path.depth
 }
 
 func (s scope) child(name string) scope {
-	path := make([]string, len(s.path), len(s.path)+1)
-	copy(path, s.path)
-	return scope{component: s.component, path: append(path, name), declare: s.declare}
+	return scope{component: s.component, path: &pathNode{name: name, parent: s.path, depth: s.nesting() + 1}, declare: s.declare}
+}
+
+// where spells out "<component> <block>… <attr>" for a refusal.
+func (s scope) where(attr string) string {
+	var parts []string
+	for n := s.path; n != nil; n = n.parent {
+		parts = append(parts, n.name)
+	}
+	out := []string{s.component}
+	for i := len(parts) - 1; i >= 0; i-- {
+		out = append(out, parts[i])
+	}
+	return strings.Join(append(out, attr), " ")
 }
 
 func declareKey(parent, label string) string {
@@ -260,6 +361,9 @@ func (l *tenantLinter) lookupDeclare(scopeKey, name string) *declareInfo {
 // declare the instantiation sits in.
 func (l *tenantLinter) collectDeclares(stmts ast.Body, parent string, external map[string]map[string][]resolved) {
 	for _, st := range stmts {
+		if !l.budget.take() {
+			return
+		}
 		blk, ok := st.(*ast.BlockStmt)
 		if !ok || strings.Join(blk.Name, ".") != "declare" || blk.Label == "" {
 			continue
@@ -282,16 +386,22 @@ func (l *tenantLinter) collectDeclares(stmts ast.Body, parent string, external m
 	if parent != "" {
 		return
 	}
-	var inst func(ast.Body, string)
-	inst = func(b ast.Body, declare string) {
+	var inst func(ast.Body, string, int)
+	inst = func(b ast.Body, declare string, nesting int) {
+		if nesting > maxNesting {
+			return
+		}
 		for _, st := range b {
+			if !l.budget.take() {
+				return
+			}
 			blk, ok := st.(*ast.BlockStmt)
 			if !ok {
 				continue
 			}
 			name := strings.Join(blk.Name, ".")
 			if name == "declare" {
-				inst(blk.Body, declareKey(declare, blk.Label))
+				inst(blk.Body, declareKey(declare, blk.Label), nesting+1)
 				continue
 			}
 			if info := l.lookupDeclare(declare, name); info != nil {
@@ -303,22 +413,28 @@ func (l *tenantLinter) collectDeclares(stmts ast.Body, parent string, external m
 			}
 		}
 	}
-	inst(stmts, "")
+	inst(stmts, "", 0)
 }
 
 // collectComponents indexes each scope's top-level component blocks by
 // "<name>.<label>", for following forward_to.
-func (l *tenantLinter) collectComponents(stmts ast.Body, scopeKey string) {
+func (l *tenantLinter) collectComponents(stmts ast.Body, scopeKey string, nesting int) {
 	m := map[string]*ast.BlockStmt{}
 	l.components[scopeKey] = m
+	if nesting > maxNesting {
+		return
+	}
 	for _, st := range stmts {
+		if !l.budget.take() {
+			return
+		}
 		blk, ok := st.(*ast.BlockStmt)
 		if !ok {
 			continue
 		}
 		name := strings.Join(blk.Name, ".")
 		if name == "declare" {
-			l.collectComponents(blk.Body, declareKey(scopeKey, blk.Label))
+			l.collectComponents(blk.Body, declareKey(scopeKey, blk.Label), nesting+1)
 			continue
 		}
 		if blk.Label != "" {
@@ -332,10 +448,17 @@ func (l *tenantLinter) collectComponents(stmts ast.Body, scopeKey string) {
 
 func (l *tenantLinter) body(stmts ast.Body, sc scope) {
 	for _, st := range stmts {
+		if !l.budget.take() {
+			return
+		}
 		switch n := st.(type) {
 		case *ast.BlockStmt:
 			name := strings.Join(n.Name, ".")
-			atTop := sc.component == "" && len(sc.path) == 0
+			atTop := sc.component == "" && sc.path == nil
+			if sc.nesting() >= maxNesting || strings.Count(sc.declare, "/") >= maxNesting {
+				l.refuse(n, fmt.Sprintf("blocks nested more than %d deep cannot be verified — strict tenant mode refuses them", maxNesting))
+				continue
+			}
 			switch {
 			case name == "declare":
 				l.body(n.Body, scope{declare: declareKey(sc.declare, n.Label)})
@@ -347,7 +470,7 @@ func (l *tenantLinter) body(stmts ast.Body, sc scope) {
 				l.bearer(n, sc)
 				l.body(n.Body, scope{component: name, declare: sc.declare})
 			default:
-				if sc.component == "otelcol.auth.headers" && len(sc.path) == 0 && name == "header" {
+				if sc.component == "otelcol.auth.headers" && sc.path == nil && name == "header" {
 					l.authHeader(n, sc)
 				}
 				if name == "rule" {
@@ -377,14 +500,13 @@ func (l *tenantLinter) attribute(a *ast.AttributeStmt, sc scope) {
 	if sc.component == "" {
 		return
 	}
-	where := strings.Join(append(append([]string{sc.component}, sc.path...), name), " ")
 	if attr, ok := tenantAttrs[sc.component][sc.last()]; ok && attr == name {
-		l.tenantValue(a.Value, where, sc)
+		l.tenantValue(a.Value, func() string { return sc.where(name) }, sc)
 		return
 	}
 	for _, dyn := range tenantFromData[sc.component][sc.last()] {
 		if dyn == name {
-			l.refuse(a.Value, where+" picks the tenant from the data at run time, which a client can set — "+
+			l.refuse(a.Value, sc.where(name)+" picks the tenant from the data at run time, which a client can set — "+
 				"strict tenant mode refuses it")
 		}
 	}
@@ -405,11 +527,11 @@ func (l *tenantLinter) headers(v ast.Expr, sc scope) {
 			}
 			if arr, ok := unparen(f.Value).(*ast.ArrayExpr); ok {
 				for _, el := range arr.Elements {
-					l.tenantValue(el, tenantHeader+" header", sc)
+					l.tenantValue(el, fixed(tenantHeader+" header"), sc)
 				}
 				continue
 			}
-			l.tenantValue(f.Value, tenantHeader+" header", sc)
+			l.tenantValue(f.Value, fixed(tenantHeader+" header"), sc)
 		}
 	default:
 		l.refuse(v, "headers set from an expression may carry "+tenantHeader+" and cannot be verified — "+
@@ -421,6 +543,13 @@ func (l *tenantLinter) headers(v ast.Expr, sc scope) {
 // targets, …) that sets Loki's __tenant_id__ label. stage.labels' values map
 // names an extracted field, so the tenant comes from the data: refused.
 func (l *tenantLinter) labelMaps(v ast.Expr, sc scope) {
+	l.labelMapsAt(v, sc, 0)
+}
+
+func (l *tenantLinter) labelMapsAt(v ast.Expr, sc scope, nesting int) {
+	if nesting > maxNesting || !l.budget.take() {
+		return
+	}
 	switch e := unparen(v).(type) {
 	case *ast.ObjectExpr:
 		for _, f := range e.Fields {
@@ -429,14 +558,14 @@ func (l *tenantLinter) labelMaps(v ast.Expr, sc scope) {
 					l.refuse(f.Value, "stage.labels sets "+tenantLabel+" from the log data, which a client can set — "+
 						"strict tenant mode refuses it")
 				} else {
-					l.tenantValue(f.Value, tenantLabel+" label", sc)
+					l.tenantValue(f.Value, fixed(tenantLabel+" label"), sc)
 				}
 			}
-			l.labelMaps(f.Value, sc)
+			l.labelMapsAt(f.Value, sc, nesting+1)
 		}
 	case *ast.ArrayExpr:
 		for _, el := range e.Elements {
-			l.labelMaps(el, sc)
+			l.labelMapsAt(el, sc, nesting+1)
 		}
 	}
 }
@@ -525,7 +654,7 @@ func (l *tenantLinter) relabelRule(b *ast.BlockStmt, sc scope) {
 			}
 		}
 	}
-	l.tenantValue(replacement, "relabel rule "+tenantLabel, sc)
+	l.tenantValue(replacement, fixed("relabel rule "+tenantLabel), sc)
 }
 
 // authHeader checks one otelcol.auth.headers `header` block: when its key
@@ -541,7 +670,7 @@ func (l *tenantLinter) authHeader(b *ast.BlockStmt, sc scope) {
 		return
 	}
 	if v := attrs["value"]; v != nil {
-		l.tenantValue(v, "otelcol.auth.headers "+tenantHeader+" header", sc)
+		l.tenantValue(v, fixed("otelcol.auth.headers "+tenantHeader+" header"), sc)
 	}
 	for _, k := range []string{"from_context", "from_attribute"} {
 		if v := attrs[k]; v != nil {
@@ -580,7 +709,7 @@ func (l *tenantLinter) bearer(b *ast.BlockStmt, sc scope) {
 		l.refuse(header, "otelcol.auth.bearer sends an empty "+tenantHeader+" — strict tenant mode refuses it")
 		return
 	}
-	l.tenantValue(token, "otelcol.auth.bearer "+tenantHeader+" token", sc)
+	l.tenantValue(token, fixed("otelcol.auth.bearer "+tenantHeader+" token"), sc)
 }
 
 // mayBeTenantHeader reports whether a header-name expression is
@@ -629,7 +758,10 @@ func (l *tenantLinter) importBlock(b *ast.BlockStmt, name string, sc scope, sibl
 		l.refuse(content, where+" content does not parse, so it cannot be verified — strict tenant mode refuses it")
 		return
 	}
-	l.literals = append(l.literals, inner.literals...)
+	for _, t := range inner.literals {
+		l.addLiteral(t)
+	}
+	l.incomplete = l.incomplete || inner.incomplete
 	for _, d := range inner.diags {
 		l.refuse(content, fmt.Sprintf("%s line %d: %s", where, d.Line, d.Message))
 	}
@@ -639,16 +771,22 @@ func (l *tenantLinter) importBlock(b *ast.BlockStmt, name string, sc scope, sibl
 // one of module's declares (a block named "<module>.<declare>") gives.
 func (l *tenantLinter) moduleArguments(module string, body ast.Body) map[string]map[string][]resolved {
 	out := map[string]map[string][]resolved{}
-	var walk func(ast.Body, string)
-	walk = func(b ast.Body, declare string) {
+	var walk func(ast.Body, string, int)
+	walk = func(b ast.Body, declare string, nesting int) {
+		if nesting > maxNesting {
+			return
+		}
 		for _, st := range b {
+			if !l.budget.take() {
+				return
+			}
 			blk, ok := st.(*ast.BlockStmt)
 			if !ok {
 				continue
 			}
 			name := strings.Join(blk.Name, ".")
 			if name == "declare" {
-				walk(blk.Body, declareKey(declare, blk.Label))
+				walk(blk.Body, declareKey(declare, blk.Label), nesting+1)
 				continue
 			}
 			decl, ok := strings.CutPrefix(name, module+".")
@@ -666,7 +804,7 @@ func (l *tenantLinter) moduleArguments(module string, body ast.Body) map[string]
 			}
 		}
 	}
-	walk(body, "")
+	walk(body, "", 0)
 	return out
 }
 
@@ -681,7 +819,7 @@ func (l *tenantLinter) pushSourcePaths() {
 	for _, ps := range l.pushes {
 		name := strings.Join(ps.block.Name, ".")
 		where := fmt.Sprintf("%s %q", name, ps.block.Label)
-		if problem := l.followClientTenant(ps.block, ps.scope, map[*ast.BlockStmt]bool{}); problem != "" {
+		if problem := l.followClientTenant(ps.block, ps.scope, map[*ast.BlockStmt]bool{}, 0); problem != "" {
 			l.refuse(ps.block, where+" forwards the tenant a client sends (X-Scope-OrgID, as "+tenantLabel+") "+
 				problem+" — strict tenant mode refuses it; overwrite it (stage.static_labels) or drop it "+
 				"(stage.label_drop) on every path to the writer")
@@ -691,7 +829,10 @@ func (l *tenantLinter) pushSourcePaths() {
 
 // followClientTenant follows blk's forward_to with the client's tenant still
 // on the entries and returns what is wrong, or "".
-func (l *tenantLinter) followClientTenant(blk *ast.BlockStmt, scopeKey string, seen map[*ast.BlockStmt]bool) string {
+func (l *tenantLinter) followClientTenant(blk *ast.BlockStmt, scopeKey string, seen map[*ast.BlockStmt]bool, nesting int) string {
+	if nesting > maxNesting {
+		return "along a chain too long to follow"
+	}
 	fwd := attrsOf(blk)["forward_to"]
 	if fwd == nil {
 		return ""
@@ -719,10 +860,10 @@ func (l *tenantLinter) followClientTenant(blk *ast.BlockStmt, scopeKey string, s
 				continue
 			}
 			seen[target] = true
-			if clearsClientTenant(target) {
+			if clearsClientTenant(target, l.budget) {
 				continue
 			}
-			if p := l.followClientTenant(target, scopeKey, seen); p != "" {
+			if p := l.followClientTenant(target, scopeKey, seen, nesting+1); p != "" {
 				return p
 			}
 		default:
@@ -750,8 +891,11 @@ func (l *tenantLinter) receiverTarget(e ast.Expr, scopeKey string) (*ast.BlockSt
 // relabel rule that replaces it unconditionally (no source_labels, no
 // regex) or a labeldrop whose regex is exactly __tenant_id__. Whatever value
 // it is overwritten with is checked by the lint where it is set.
-func clearsClientTenant(blk *ast.BlockStmt) bool {
+func clearsClientTenant(blk *ast.BlockStmt, b *budget) bool {
 	for _, st := range blk.Body {
+		if !b.take() {
+			return false
+		}
 		stage, ok := st.(*ast.BlockStmt)
 		if !ok {
 			continue
@@ -839,15 +983,21 @@ func contains(xs []string, x string) bool {
 
 // accessChain flattens `a.b.c` to ["a", "b", "c"].
 func accessChain(e ast.Expr) ([]string, bool) {
-	switch v := unparen(e).(type) {
-	case *ast.IdentifierExpr:
-		return []string{v.Ident.Name}, true
-	case *ast.AccessExpr:
-		head, ok := accessChain(v.Value)
-		if !ok {
+	var rev []string
+	for range maxNesting {
+		switch v := unparen(e).(type) {
+		case *ast.IdentifierExpr:
+			out := []string{v.Ident.Name}
+			for i := len(rev) - 1; i >= 0; i-- {
+				out = append(out, rev[i])
+			}
+			return out, true
+		case *ast.AccessExpr:
+			rev = append(rev, v.Name.Name)
+			e = v.Value
+		default:
 			return nil, false
 		}
-		return append(head, v.Name.Name), true
 	}
 	return nil, false
 }
@@ -855,32 +1005,47 @@ func accessChain(e ast.Expr) ([]string, bool) {
 // tenantValue refuses each tenant v can be that the org does not own, and v
 // when it cannot read it. X-Scope-OrgID may name several tenants joined by
 // "|" (a federated read); each must be owned.
-func (l *tenantLinter) tenantValue(v ast.Expr, where string, sc scope) {
+func (l *tenantLinter) tenantValue(v ast.Expr, where func() string, sc scope) {
 	values, ok := l.resolve(v, sc, 0)
 	if !ok {
-		l.refuse(v, where+": the tenant is set from an expression that cannot be verified — strict tenant mode "+
+		l.refuse(v, where()+": the tenant is set from an expression that cannot be verified — strict tenant mode "+
 			"refuses it; write the tenant as a literal")
 		return
 	}
 	for _, s := range values {
-		for _, t := range strings.Split(s, "|") {
-			l.literals = append(l.literals, t)
+		for rest := s; ; {
+			// One piece at a time, charged: a value of many "|"-joined
+			// tenants never becomes a slice of them.
+			if !l.budget.take() {
+				return
+			}
+			t, more, found := strings.Cut(rest, "|")
+			l.addLiteral(t)
 			if !l.policy.owns(t) {
 				l.refuse(v, fmt.Sprintf("%s: tenant %q is not one this organisation owns; in strict tenant "+
-					"mode a pipeline may only write to the organisation's own tenants", where, t))
+					"mode a pipeline may only write to the organisation's own tenants", where(), t))
 			}
+			if !found {
+				break
+			}
+			rest = more
 		}
 	}
 }
+
+// fixed is a where for tenantValue that is already a string.
+func fixed(s string) func() string { return func() string { return s } }
 
 // resolve returns every string v can be, when the lint can read it within
 // its bounds: a string literal; a concatenation of readable values (each at
 // most maxValueBytes, together at most maxFoldedBytes); or
 // `argument.<name>.value` of the enclosing declare (resolveArgument).
 func (l *tenantLinter) resolve(v ast.Expr, sc scope, depth int) ([]string, bool) {
-	if v == nil || depth > maxDepth || !l.budget.take() {
+	if v == nil || depth > maxDepth || l.exprNesting > maxNesting || !l.budget.take() {
 		return nil, false
 	}
+	l.exprNesting++
+	defer func() { l.exprNesting-- }()
 	switch e := unparen(v).(type) {
 	case *ast.LiteralExpr:
 		s, ok := stringLiteral(e)
@@ -906,7 +1071,7 @@ func (l *tenantLinter) resolve(v ast.Expr, sc scope, depth int) ([]string, bool)
 			for _, b := range right {
 				n := len(a) + len(b)
 				total += n
-				if n > maxValueBytes || total > maxFoldedBytes {
+				if n > maxValueBytes || total > maxFoldedBytes || !l.budget.charge(1+n/64) {
 					return nil, false
 				}
 				out = append(out, a+b)
@@ -933,6 +1098,11 @@ func (l *tenantLinter) resolveArgument(e *ast.AccessExpr, sc scope, depth int) (
 	}
 	key := sc.declare + "\x00" + name
 	if r, ok := l.memo[key]; ok {
+		// A cache hit is charged for what it hands back: a reference read
+		// many times costs as many times.
+		if !l.budget.charge(1 + len(r.values)) {
+			return nil, false
+		}
 		return r.values, r.ok // an in-progress entry is {nil, false}: a cycle
 	}
 	l.memo[key] = &resolved{}
@@ -1036,6 +1206,11 @@ func unparen(v ast.Expr) ast.Expr {
 }
 
 func (l *tenantLinter) refuse(at ast.Node, msg string) {
+	l.budget.take()
+	if len(l.diags) >= maxDiagnostics {
+		l.tooMany = true
+		return
+	}
 	pos := ast.StartPos(at).Position()
 	l.diags = append(l.diags, Diagnostic{Line: pos.Line, Col: pos.Column, Message: msg, Stage: 1})
 }

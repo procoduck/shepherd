@@ -30,12 +30,17 @@ WHERE p.org_id <> sqlc.arg(org_id) AND p.enabled = true
   AND (i.pipeline_id IS NULL OR i.contents_sha256 <> encode(sha256(convert_to(p.contents, 'UTF8')), 'hex'))
 ORDER BY p.id;
 
--- name: CountIncompletePipelineTenantIndexOfOtherOrgs :one
--- Enabled pipelines of other orgs whose tenants the lint could not all read:
--- AddOrgTenant logs them (fail soft — they never block an assignment).
-SELECT count(*)::int AS n FROM pipeline_tenant_index i
+-- name: ListIncompletePipelineTenantOrgs :many
+-- Orgs other than org_id with enabled pipelines whose tenants the lint could
+-- not all read, and how many: AddOrgTenant warns the app admin about them
+-- (it does not refuse).
+SELECT o.name AS org_name, count(*)::int AS pipelines
+FROM pipeline_tenant_index i
 JOIN pipelines p ON p.id = i.pipeline_id
-WHERE i.org_id <> sqlc.arg(org_id) AND p.enabled = true AND NOT i.complete;
+JOIN orgs o ON o.id = i.org_id
+WHERE i.org_id <> sqlc.arg(org_id) AND p.enabled = true AND NOT i.complete
+GROUP BY o.name
+ORDER BY o.name;
 
 -- name: ListAllEnabledPipelines :many
 -- Every enabled pipeline, for the boot rebuild of pipeline_tenants.

@@ -136,6 +136,10 @@ message Org {
   // tenants_required is true when the strict tenant rule applies to the
   // org: strict_tenants, or the server-wide tenants.require_owned setting.
   bool tenants_required = 15;
+  // warnings are caveats of the change that produced this response, for the
+  // app admin who made it: today only AddOrgTenant's, naming other orgs whose
+  // enabled pipelines set tenants its check cannot read. Empty elsewhere.
+  repeated string warnings = 16;
 }
 
 message ListOrgsRequest {}

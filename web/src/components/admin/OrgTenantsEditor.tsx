@@ -24,6 +24,7 @@ export function OrgTenantsEditor({ org, onChange }: { org: Org; onChange: (org: 
   const hasDefault = org.tenants.some((t) => t.isDefault);
   const [makeDefault, setMakeDefault] = useState(!hasDefault);
   const [localError, setLocalError] = useState('');
+  const [warnings, setWarnings] = useState<string[]>([]);
 
   const addMut = useMutation({
     mutationFn: () =>
@@ -35,6 +36,9 @@ export function OrgTenantsEditor({ org, onChange }: { org: Org; onChange: (org: 
       }),
     onSuccess: (saved) => {
       onChange(saved);
+      // Caveats of the assignment (other orgs' pipelines its check cannot
+      // read): the server warns rather than refuses.
+      setWarnings(saved.warnings);
       setTenant('');
       setMakeDefault(false);
     },
@@ -51,6 +55,7 @@ export function OrgTenantsEditor({ org, onChange }: { org: Org; onChange: (org: 
   });
   const resetErrors = () => {
     setLocalError('');
+    setWarnings([]);
     addMut.reset();
     removeMut.reset();
     defaultMut.reset();
@@ -208,6 +213,11 @@ export function OrgTenantsEditor({ org, onChange }: { org: Org; onChange: (org: 
           {error}
         </p>
       )}
+      {warnings.map((w) => (
+        <p key={w} className='text-xs text-warn' data-testid='org-tenant-warning'>
+          {w}
+        </p>
+      ))}
     </fieldset>
   );
 }

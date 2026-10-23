@@ -212,7 +212,7 @@ func (s *AdminService) CreateOrg(ctx context.Context, req *connect.Request[mgmtv
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create org"))
 	}
 	if initial.Tenant != "" {
-		if err := assignOrgTenant(ctx, txQ, o.ID, initial, true, actorFromCtx(ctx)); err != nil {
+		if err := assignOrgTenant(ctx, txQ, o.ID, initial, true, actorFromCtx(ctx), nil); err != nil {
 			return nil, err
 		}
 		if err := auditOrgTenantChange(ctx, txQ, o.ID, "org.tenant.add",

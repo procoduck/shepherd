@@ -69,6 +69,28 @@ func checkStrictTenant(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, 
 	return nil
 }
 
+// MaxPipelineContentsBytes is the largest pipeline text a write accepts:
+// 1 MiB, the gitsync.max_file_bytes default (internal/config), so a UI
+// pipeline is no larger than a synced file may be, and the size the tenant
+// lint reads at most (validate maxContentBytes). Served configs run to tens
+// or a few hundred KiB even for a full k8s-monitoring module (agentapi
+// MaxRequestBytes).
+const MaxPipelineContentsBytes = 1 << 20
+
+// MaxRequestBytes is the largest management API request body read:
+// 4 MiB — a pipeline at MaxPipelineContentsBytes plus its visual graph
+// (wizard_state / GraphDocument, a node per component, typically a fraction
+// of the text) with JSON escaping at most doubling either. The collector API
+// caps at 8 MiB for effective_config echoes; nothing a person or a service
+// account sends here is larger.
+const MaxRequestBytes = 4 << 20
+
+// errPipelineTooLarge refuses pipeline contents over MaxPipelineContentsBytes.
+func errPipelineTooLarge(n int) error {
+	return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf(
+		"pipeline contents are %d bytes; the limit is %d", n, MaxPipelineContentsBytes))
+}
+
 // lintLocked is tenancy.LintLocked as a connect error: every pipeline write
 // runs it in its writing transaction, under the shared ownership lock, so a
 // write cannot commit text strict mode refuses after reading a policy the

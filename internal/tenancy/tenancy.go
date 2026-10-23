@@ -306,33 +306,42 @@ func OrphanedPipelines(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, 
 // logged, not refused (fail soft: its own org is not strict, or it would not
 // be enabled). q should hold the exclusive ownership lock. Org names are
 // included: only an app admin calls it.
-func OtherOrgPipelinesCovered(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, rule gateway.OrgTenant) ([]string, error) {
+//
+// warnings name the other orgs with enabled pipelines whose tenants the
+// lint could not all read (incomplete index rows), with how many: the check
+// does not see what those write to, so the app admin is told rather than
+// refused (owner decision).
+func OtherOrgPipelinesCovered(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, rule gateway.OrgTenant) (covered, warnings []string, err error) {
 	stale, err := q.ListStalePipelineTenantIndexOfOtherOrgs(ctx, orgID)
 	if err != nil {
-		return nil, fmt.Errorf("listing stale pipeline tenants: %w", err)
+		return nil, nil, fmt.Errorf("listing stale pipeline tenants: %w", err)
 	}
 	for i := range stale {
 		if err := RecordPipelineTenants(ctx, q, stale[i]); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	if n, err := q.CountIncompletePipelineTenantIndexOfOtherOrgs(ctx, orgID); err == nil && n > 0 {
-		slog.Warn("strict tenants: other orgs' enabled pipelines set tenants the lint cannot read; the tenant "+
-			"assignment check does not see them", "pipelines", n, "tenant", rule.Tenant)
+	incomplete, err := q.ListIncompletePipelineTenantOrgs(ctx, orgID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("listing incomplete pipeline tenants: %w", err)
+	}
+	for i := range incomplete {
+		warnings = append(warnings, fmt.Sprintf("org %q has %d enabled pipeline(s) setting tenants the check cannot "+
+			"read (computed values, external modules, or too large); it cannot tell whether they write to %q",
+			incomplete[i].OrgName, incomplete[i].Pipelines, rule.Tenant))
 	}
 	rows, err := q.ListPipelineTenantsCoveredByRule(ctx, sqlc.ListPipelineTenantsCoveredByRuleParams{
 		OrgID: orgID, Tenant: rule.Tenant, IsPrefix: rule.Kind == gateway.TenantPrefix,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("listing other orgs' pipeline tenants: %w", err)
+		return nil, nil, fmt.Errorf("listing other orgs' pipeline tenants: %w", err)
 	}
-	var out []string
 	for i := range rows {
 		if gateway.RuleCovers(rule, rows[i].Tenant) {
-			out = append(out, fmt.Sprintf("pipeline %q of org %q (tenant %q)", rows[i].PipelineName, rows[i].OrgName, rows[i].Tenant))
+			covered = append(covered, fmt.Sprintf("pipeline %q of org %q (tenant %q)", rows[i].PipelineName, rows[i].OrgName, rows[i].Tenant))
 		}
 	}
-	return out, nil
+	return covered, warnings, nil
 }
 
 // RecordPipelineTenants keeps pipeline_tenants current for p as just

@@ -124,6 +124,26 @@ var _ = Describe("CheckRequireOwned", Label("integration"), func() {
 		Expect(idx.Complete).To(BeFalse())
 	})
 
+	It("records at most 256 tenants of one pipeline, and marks it incomplete past that", func() {
+		pieces := make([]string, 2000)
+		for i := range pieces {
+			pieces[i] = fmt.Sprintf("t%d", i)
+		}
+		pipeline("many", strings.Join(pieces, "|"), true)
+		tenancy.RebuildPipelineTenants(ctx, st)
+		p, err := st.Queries.GetPipelineByOrgAndName(ctx, sqlc.GetPipelineByOrgAndNameParams{OrgID: org.ID, Name: "many"})
+		Expect(err).NotTo(HaveOccurred())
+		idx, err := st.Queries.GetPipelineTenantIndex(ctx, p.ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(idx.Complete).To(BeFalse())
+		other, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "preflight-other3", DisplayName: "O", AdminGroupID: "o3-admins"})
+		Expect(err).NotTo(HaveOccurred())
+		covered, warnings, err := tenancy.OtherOrgPipelinesCovered(ctx, st.Queries, other.ID, gateway.OrgTenant{Tenant: "t", Kind: gateway.TenantPrefix})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(covered).To(HaveLen(256))
+		Expect(warnings).To(ConsistOf(ContainSubstring(`"preflight-org"`)))
+	})
+
 	It("re-records a pipeline whose contents changed without the index (a rolling upgrade)", func() {
 		other, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "preflight-other2", DisplayName: "O", AdminGroupID: "o2-admins"})
 		Expect(err).NotTo(HaveOccurred())
@@ -136,10 +156,10 @@ var _ = Describe("CheckRequireOwned", Label("integration"), func() {
 			ID: p.ID, Name: p.Name, Contents: strings.Replace(p.Contents, "first", "second", 1), Matchers: p.Matchers, UpdatedBy: "old-pod",
 		})
 		Expect(err).NotTo(HaveOccurred())
-		got, err := tenancy.OtherOrgPipelinesCovered(ctx, st.Queries, other.ID, gateway.OrgTenant{Tenant: "second", Kind: gateway.TenantExact})
+		got, _, err := tenancy.OtherOrgPipelinesCovered(ctx, st.Queries, other.ID, gateway.OrgTenant{Tenant: "second", Kind: gateway.TenantExact})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(got).To(HaveLen(1))
-		got, err = tenancy.OtherOrgPipelinesCovered(ctx, st.Queries, other.ID, gateway.OrgTenant{Tenant: "first", Kind: gateway.TenantExact})
+		got, _, err = tenancy.OtherOrgPipelinesCovered(ctx, st.Queries, other.ID, gateway.OrgTenant{Tenant: "first", Kind: gateway.TenantExact})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(got).To(BeEmpty())
 	})
@@ -192,7 +212,7 @@ var _ = Describe("CheckRequireOwned", Label("integration"), func() {
 			if prefix {
 				kind = gateway.TenantPrefix
 			}
-			out, err := tenancy.OtherOrgPipelinesCovered(ctx, st.Queries, other.ID, gateway.OrgTenant{Tenant: tenant, Kind: kind})
+			out, _, err := tenancy.OtherOrgPipelinesCovered(ctx, st.Queries, other.ID, gateway.OrgTenant{Tenant: tenant, Kind: kind})
 			Expect(err).NotTo(HaveOccurred())
 			return out
 		}

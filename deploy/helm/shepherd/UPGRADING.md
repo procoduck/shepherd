@@ -171,9 +171,13 @@ fails validation; see the docs' *Destinations* page for exactly what is refused.
   with the setting on, **Shepherd refuses to start** while anything stored breaks the rule, and
   the error names each object. Setting it back to `false` undoes it.
 
-New API fields, all additive: `Org.strict_tenants` / `Org.tenants_required`,
-`OrgMembership.tenants_required`, and `Diagnostic.warning` / `VisualNodeDiagnostic.warning` (a
-diagnostic that does not fail validation).
+New API fields, all additive: `Org.strict_tenants` / `Org.tenants_required` / `Org.warnings`
+(caveats of an `AddOrgTenant`), `OrgMembership.tenants_required`, and `Diagnostic.warning` /
+`VisualNodeDiagnostic.warning` (a diagnostic that does not fail validation).
+
+**New limits for every organisation:** pipeline contents are capped at 1 MiB on every API write
+(`invalid_argument`) — the `gitsync.max_file_bytes` default, far above any real pipeline — and a
+management API request body at 4 MiB (`resource_exhausted`).
 
 #### Migration 0040
 

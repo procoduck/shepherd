@@ -385,6 +385,34 @@ var _ = Describe("Strict tenant mode", Label("integration"), func() {
 		})
 	})
 
+	// Fourth review (PR #388): request and contents caps, and AddOrgTenant
+	// warns about what its check cannot see.
+	Describe("limits", func() {
+		BeforeEach(start)
+
+		It("refuses pipeline contents over the cap", func() {
+			code, out := createPipeline(adminA, orgA, "huge", "// "+strings.Repeat("x", mgmtapi.MaxPipelineContentsBytes))
+			Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
+			Expect(out["code"]).To(Equal("invalid_argument"))
+			Expect(out["message"]).To(ContainSubstring("bytes"))
+		})
+
+		It("refuses a request body over the management API's read cap", func() {
+			code, out := createPipeline(adminA, orgA, "huger", "// "+strings.Repeat("x", mgmtapi.MaxRequestBytes))
+			Expect(code).NotTo(Equal(http.StatusOK), "%v", out)
+			Expect(out["code"]).To(Equal("resource_exhausted"))
+		})
+
+		It("warns the app admin about other orgs' pipelines the assignment check cannot read", func() {
+			p := ok(createPipeline(adminB, orgB, "computed", remoteWriteTo(`sys.env("T")`)))
+			ok(call(adminB, "PipelineService/EnablePipeline", map[string]any{"orgId": orgB.String(), "id": p["id"]}))
+			out := ok(call(appAdmin, "AdminService/AddOrgTenant", map[string]any{
+				"orgId": orgA.String(), "tenant": "new-", "kind": "ORG_TENANT_KIND_PREFIX",
+			}))
+			Expect(out["warnings"]).To(ConsistOf(And(ContainSubstring("strict-b"), ContainSubstring("1"))))
+		})
+	})
+
 	// The toggle's preflight and a pipeline write must serialise on the
 	// ownership lock: otherwise the write reads a non-strict policy, the toggle
 	// reads the old text, and both commit — an enabled violating pipeline in a

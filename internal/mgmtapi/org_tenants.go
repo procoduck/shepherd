@@ -155,8 +155,10 @@ type orgTenantDetail struct {
 // that overlaps any other org's tenants or prefixes (gateway.TenantsOverlap)
 // or covers a tenant another org's destination or binding sends. q must be
 // a transaction holding lockOrgTenantsExclusive; the caller writes the audit
-// row (auditOrgTenantChange). rule has already been validated.
-func assignOrgTenant(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, rule gateway.OrgTenant, makeDefault bool, actor string) error {
+// row (auditOrgTenantChange). rule has already been validated. Caveats the
+// app admin should see (other orgs' pipelines the check cannot read) are
+// appended to warnings when it is non-nil.
+func assignOrgTenant(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, rule gateway.OrgTenant, makeDefault bool, actor string, warnings *[]string) error {
 	others, err := q.ListOrgTenantsOfOtherOrgs(ctx, orgID)
 	if err != nil {
 		return connect.NewError(connect.CodeInternal, errors.New("failed to check tenant ownership"))
@@ -184,9 +186,12 @@ func assignOrgTenant(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, ru
 	// rule covers (a literal X-Scope-OrgID, tenant_id or __tenant_id__): the
 	// new owner's tenant would then carry that org's data. Named, since only
 	// an app admin reaches this.
-	covered, err := tenancy.OtherOrgPipelinesCovered(ctx, q, orgID, rule)
+	covered, caveats, err := tenancy.OtherOrgPipelinesCovered(ctx, q, orgID, rule)
 	if err != nil {
 		return connect.NewError(connect.CodeInternal, errors.New("failed to check tenant ownership"))
+	}
+	if warnings != nil {
+		*warnings = append(*warnings, caveats...)
 	}
 	if len(covered) > 0 {
 		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
@@ -268,13 +273,19 @@ func (s *AdminService) AddOrgTenant(ctx context.Context, req *connect.Request[mg
 	if req.Msg.GetMakeDefault() && rule.Kind != gateway.TenantExact {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("only an exact tenant can be the default"))
 	}
-	return s.inOrgTenantTx(ctx, orgID, func(q *sqlc.Queries, _ sqlc.Org, _ []sqlc.OrgTenant) error {
-		if err := assignOrgTenant(ctx, q, orgID, rule, req.Msg.GetMakeDefault(), actorFromCtx(ctx)); err != nil {
+	var warnings []string
+	resp, err := s.inOrgTenantTx(ctx, orgID, func(q *sqlc.Queries, _ sqlc.Org, _ []sqlc.OrgTenant) error {
+		if err := assignOrgTenant(ctx, q, orgID, rule, req.Msg.GetMakeDefault(), actorFromCtx(ctx), &warnings); err != nil {
 			return err
 		}
 		return auditOrgTenantChange(ctx, q, orgID, "org.tenant.add",
 			orgTenantDetail{Tenant: rule.Tenant, Kind: string(rule.Kind), IsDefault: req.Msg.GetMakeDefault()})
 	})
+	if err != nil {
+		return nil, err
+	}
+	resp.Msg.Warnings = warnings
+	return resp, nil
 }
 
 // RemoveOrgTenant takes an exact tenant or prefix away from an org (app

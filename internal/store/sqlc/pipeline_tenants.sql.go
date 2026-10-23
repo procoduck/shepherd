@@ -11,21 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const countIncompletePipelineTenantIndexOfOtherOrgs = `-- name: CountIncompletePipelineTenantIndexOfOtherOrgs :one
-SELECT count(*)::int AS n FROM pipeline_tenant_index i
-JOIN pipelines p ON p.id = i.pipeline_id
-WHERE i.org_id <> $1 AND p.enabled = true AND NOT i.complete
-`
-
-// Enabled pipelines of other orgs whose tenants the lint could not all read:
-// AddOrgTenant logs them (fail soft — they never block an assignment).
-func (q *Queries) CountIncompletePipelineTenantIndexOfOtherOrgs(ctx context.Context, orgID pgtype.UUID) (int32, error) {
-	row := q.db.QueryRow(ctx, countIncompletePipelineTenantIndexOfOtherOrgs, orgID)
-	var n int32
-	err := row.Scan(&n)
-	return n, err
-}
-
 const deleteAllPipelineTenantIndex = `-- name: DeleteAllPipelineTenantIndex :exec
 DELETE FROM pipeline_tenant_index
 `
@@ -133,6 +118,44 @@ func (q *Queries) ListAllEnabledPipelines(ctx context.Context) ([]Pipeline, erro
 			&i.OwnerTeamID,
 			&i.WizardRenderSha256,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listIncompletePipelineTenantOrgs = `-- name: ListIncompletePipelineTenantOrgs :many
+SELECT o.name AS org_name, count(*)::int AS pipelines
+FROM pipeline_tenant_index i
+JOIN pipelines p ON p.id = i.pipeline_id
+JOIN orgs o ON o.id = i.org_id
+WHERE i.org_id <> $1 AND p.enabled = true AND NOT i.complete
+GROUP BY o.name
+ORDER BY o.name
+`
+
+type ListIncompletePipelineTenantOrgsRow struct {
+	OrgName   string `json:"org_name"`
+	Pipelines int32  `json:"pipelines"`
+}
+
+// Orgs other than org_id with enabled pipelines whose tenants the lint could
+// not all read, and how many: AddOrgTenant warns the app admin about them
+// (it does not refuse).
+func (q *Queries) ListIncompletePipelineTenantOrgs(ctx context.Context, orgID pgtype.UUID) ([]ListIncompletePipelineTenantOrgsRow, error) {
+	rows, err := q.db.Query(ctx, listIncompletePipelineTenantOrgs, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListIncompletePipelineTenantOrgsRow
+	for rows.Next() {
+		var i ListIncompletePipelineTenantOrgsRow
+		if err := rows.Scan(&i.OrgName, &i.Pipelines); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

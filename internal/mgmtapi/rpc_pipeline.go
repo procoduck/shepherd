@@ -542,6 +542,9 @@ type pipelineSaveInput struct {
 // required, visual render-match check, matchers marshal, then the Stage1+2
 // validation gate. It returns the marshaled matchers JSON on success.
 func (s *PipelineService) validateSaveInput(ctx context.Context, in pipelineSaveInput) (json.RawMessage, error) {
+	if len(in.Contents) > MaxPipelineContentsBytes {
+		return nil, errPipelineTooLarge(len(in.Contents))
+	}
 	if in.Name == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errPipelineNameRequired)
 	}

@@ -151,6 +151,9 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 	// gate is wrapped by telemetry.RequestGate.
 	saLimiter := newSARateLimiter(cfg.Auth.ServiceAccountRateLimit, cfg.Auth.ServiceAccountRateBurst)
 	authz := []connect.HandlerOption{
+		// Every management request is read into memory whole; MaxRequestBytes
+		// bounds it (see there).
+		connect.WithReadMaxBytes(MaxRequestBytes),
 		connect.WithRequestGate(telemetry.RequestGate(newServiceAccountAuthGate(st, saLimiter))),
 		connect.WithInterceptors(telemetry.Interceptor(), newAuthzInterceptor(st)),
 	}

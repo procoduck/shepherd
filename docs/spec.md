@@ -638,13 +638,20 @@ A value is *readable* when it is a string literal, a `+` concatenation of readab
 declare argument (`argument.<name>.value`) whose default and every value an instantiation gives it
 — read in the declare that instantiation sits in, so a value passed down several declare levels is
 followed; declares are keyed by scope, so a nested declare of the same name is a different one —
-are readable. A `|`-joined header value must be owned in every part. **The lint is bounded:** a
-concatenation may build at most 4 KiB per value and 16 KiB in all, an expression folds to at most
-64 values, it follows at most 8 declare hops or nested modules, each (declare, argument) is
-resolved once (memoised; one that depends on itself is unreadable), and one lint does at most
-50 000 steps. Past any bound a value is unreadable — refused for a strict org. A benchmark, a fuzz
-target and specs pin the bounds (the shape that once built a 200 MB string from 4 KB of text
-finishes in well under a millisecond).
+are readable. A `|`-joined header value must be owned in every part. **The lint is bounded by one
+budget per run**, enforced in one place (`budget.charge`): every unit of work charges it — each
+statement and block, each resolution and each cache hit (charged for the values it hands back),
+each `|`-separated tenant piece, each 64 bytes a concatenation builds, each diagnostic, each
+`forward_to` step — 100 000 units in all, with a 50 ms wall-clock backstop; once spent, everything
+after is unreadable. Alongside it: text over 1 MiB (the pipeline contents cap) is not parsed at
+all; blocks, expressions and `forward_to` chains nest at most 64 deep, declare hops and modules
+8; a concatenation builds at most 4 KiB per value and 16 KiB in all, and folds to at most 64
+values; each (declare, argument) is resolved once; at most 256 distinct tenants are recorded per
+pipeline and 100 refusals reported (plus one summary). Past any bound the pipeline is refused for
+a strict org and recorded as incomplete in the tenant index otherwise. Parsing is linear in the
+text; specs, a benchmark and a fuzz target driving a generator of large structured pipelines (up
+to 1 MiB) pin time and allocation, including every shape a review found and ten times it (the
+worst, a 1 MiB nesting of `stage.match`, is the parser's ~40 ms / ~25 MB).
 `prometheus.remote_write` has no tenant label (Mimir reads the header only). Azure AD `tenant_id`
 attributes name an identity tenant and are not checked; a spec walks every schema attribute named
 like a header or a tenant and fails until each is classified. `Diagnostic.warning` stays on the
@@ -856,7 +863,13 @@ at every boot (its backfill). Recording **fails soft**: a pipeline whose tenants
 read within its bounds is recorded as incomplete and logged, never a failed write or boot (an
 enabled pipeline of a strict org is fully readable, or the gate would have refused it).
 `AddOrgTenant` first re-records every other org's enabled pipeline whose index row is missing or
-names other contents (a pod that predates the index wrote it), then asks one indexed query.
+names other contents (a pod that predates the index wrote it), then asks one indexed query; it
+returns, in `Org.warnings`, each other org with enabled pipelines whose tenants the lint could not
+all read, with how many — the check cannot see what those write to, so the app admin is told
+rather than refused. At most 256 tenants are recorded per pipeline. Pipeline contents are capped
+at 1 MiB on every API write (`mgmtapi.MaxPipelineContentsBytes`, the `gitsync.max_file_bytes`
+default), and every management API request at 4 MiB (`mgmtapi.MaxRequestBytes`,
+`connect.WithReadMaxBytes`).
 Ownership changes see pipelines too: `RemoveOrgTenant` on an org
 in strict mode refuses while an **enabled** pipeline would be left writing to a tenant the org no
 longer owns, and `AddOrgTenant` (for any org) refuses a rule covering a tenant another org's

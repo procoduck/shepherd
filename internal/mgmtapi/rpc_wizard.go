@@ -308,6 +308,9 @@ func (s *WizardService) CommitWizard(ctx context.Context, req *connect.Request[m
 	// field value that breaks Alloy syntax, like a quote in a scrape URL)
 	// could be committed straight through. The wizard stays disabled-on-create
 	// (Enabled: false below), so Stage 3 is EnablePipeline's job, same as today.
+	if len(result.Contents) > MaxPipelineContentsBytes {
+		return nil, errPipelineTooLarge(len(result.Contents))
+	}
 	tenants, err := lintPolicy(ctx, s.store.Queries, orgID, s.requireOwned)
 	if err != nil {
 		return nil, err

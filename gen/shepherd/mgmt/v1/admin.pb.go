@@ -68,8 +68,12 @@ type Org struct {
 	// tenants_required is true when the strict tenant rule applies to the
 	// org: strict_tenants, or the server-wide tenants.require_owned setting.
 	TenantsRequired bool `protobuf:"varint,15,opt,name=tenants_required,json=tenantsRequired,proto3" json:"tenants_required,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// warnings are caveats of the change that produced this response, for the
+	// app admin who made it: today only AddOrgTenant's, naming other orgs whose
+	// enabled pipelines set tenants its check cannot read. Empty elsewhere.
+	Warnings      []string `protobuf:"bytes,16,rep,name=warnings,proto3" json:"warnings,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Org) Reset() {
@@ -198,6 +202,13 @@ func (x *Org) GetTenantsRequired() bool {
 		return x.TenantsRequired
 	}
 	return false
+}
+
+func (x *Org) GetWarnings() []string {
+	if x != nil {
+		return x.Warnings
+	}
+	return nil
 }
 
 type ListOrgsRequest struct {
@@ -3359,7 +3370,7 @@ var File_shepherd_mgmt_v1_admin_proto protoreflect.FileDescriptor
 
 const file_shepherd_mgmt_v1_admin_proto_rawDesc = "" +
 	"\n" +
-	"\x1cshepherd/mgmt/v1/admin.proto\x12\x10shepherd.mgmt.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1dshepherd/mgmt/v1/common.proto\"\x8d\x05\n" +
+	"\x1cshepherd/mgmt/v1/admin.proto\x12\x10shepherd.mgmt.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1dshepherd/mgmt/v1/common.proto\"\xa9\x05\n" +
 	"\x03Org\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12!\n" +
@@ -3377,7 +3388,8 @@ const file_shepherd_mgmt_v1_admin_proto_rawDesc = "" +
 	"\x1eallow_local_attribute_matching\x18\f \x01(\bR\x1ballowLocalAttributeMatching\x125\n" +
 	"\atenants\x18\r \x03(\v2\x1b.shepherd.mgmt.v1.OrgTenantR\atenants\x12%\n" +
 	"\x0estrict_tenants\x18\x0e \x01(\bR\rstrictTenants\x12)\n" +
-	"\x10tenants_required\x18\x0f \x01(\bR\x0ftenantsRequiredJ\x04\b\b\x10\tR\ttenant_id\"\x11\n" +
+	"\x10tenants_required\x18\x0f \x01(\bR\x0ftenantsRequired\x12\x1a\n" +
+	"\bwarnings\x18\x10 \x03(\tR\bwarningsJ\x04\b\b\x10\tR\ttenant_id\"\x11\n" +
 	"\x0fListOrgsRequest\"U\n" +
 	"\x10ListOrgsResponse\x12+\n" +
 	"\x05items\x18\x01 \x03(\v2\x15.shepherd.mgmt.v1.OrgR\x05items\x12\x14\n" +

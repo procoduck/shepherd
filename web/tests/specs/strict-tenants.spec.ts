@@ -202,3 +202,33 @@ test('a tenant-lint warning in the wizard preview does not block Create', async 
   await expect(page.getByText('No problems')).toBeVisible();
   await expect(page.getByRole('button', { name: /create pipeline/i })).toBeEnabled();
 });
+
+test('adding a tenant shows the warnings the server returns about pipelines it cannot read', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(appAdmin);
+  api.seed({ orgs: [{ ...org, tenants: [] }] });
+  const warning =
+    'org "other" has 1 enabled pipeline(s) setting tenants the check cannot read (computed values, external modules, or too large); it cannot tell whether they write to "acme"';
+  api.override('POST', '/shepherd.mgmt.v1.AdminService/AddOrgTenant', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: org.id,
+        name: org.name,
+        displayName: org.display_name,
+        adminGroupId: org.admin_group_id,
+        tenants: [{ tenant: 'acme', kind: 'ORG_TENANT_KIND_EXACT', isDefault: true }],
+        warnings: [warning],
+      }),
+    });
+  });
+  await page.goto('/admin/orgs');
+  await page.getByRole('button', { name: 'Edit prod-org' }).click();
+  const editor = page.getByTestId('org-tenants');
+  await editor.getByTestId('org-tenant-new').pressSequentially('acme');
+  await editor.getByTestId('org-tenant-add').click();
+  await expect(editor.getByTestId('org-tenant-warning')).toHaveText(warning);
+});
