@@ -223,6 +223,80 @@ var _ = Describe("Org tenants", Label("integration"), func() {
 		}
 	})
 
+	// The shared ownership lock is what keeps a write that checks ownership
+	// from racing an ownership change: without it both pass their checks and
+	// both commit. Each round races the two; they must never both succeed.
+	Describe("races against an ownership change", func() {
+		const rounds = 25
+		race := func(a, b func() int) []int {
+			var wg sync.WaitGroup
+			codes := make([]int, 2)
+			for i, f := range []func() int{a, b} {
+				wg.Go(func() {
+					defer GinkgoRecover()
+					codes[i] = f()
+				})
+			}
+			wg.Wait()
+			return codes
+		}
+		bothOK := func(codes []int) bool { return codes[0] == http.StatusOK && codes[1] == http.StatusOK }
+
+		It("never lets another org's destination send a tenant a new prefix covers", func() {
+			adminB := session(false, "tenants-b-admins")
+			for round := range rounds {
+				p := fmt.Sprintf("rd%d-", round)
+				codes := race(
+					func() int { c, _ := add(orgA, p, prefix, false); return c },
+					func() int {
+						c, _ := call(adminB, "DestinationService/CreateDestination", map[string]any{
+							"orgId": orgB.String(), "name": fmt.Sprintf("d%d", round), "type": "prometheus",
+							"url": "https://mimir.example.com/api/v1/push", "authMode": "none", "tenantId": p + "x",
+						})
+						return c
+					})
+				Expect(bothOK(codes)).To(BeFalse(), "destination round %d: %v", round, codes)
+			}
+		})
+
+		It("never lets another org's binding send a tenant a new prefix covers", func() {
+			adminB := session(false, "tenants-b-admins")
+			code, out := call(adminB, "DestinationService/CreateDestination", map[string]any{
+				"orgId": orgB.String(), "name": "tmpl", "type": "prometheus", "url": "https://mimir.example.com/api/v1/push", "authMode": "none",
+			})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			tmpl := out["id"]
+			for round := range rounds {
+				p := fmt.Sprintf("rb%d-", round)
+				codes := race(
+					func() int { c, _ := add(orgA, p, prefix, false); return c },
+					func() int {
+						c, _ := call(adminB, "DestinationService/CreateDestinationBinding", map[string]any{
+							"orgId": orgB.String(), "destinationId": tmpl, "name": fmt.Sprintf("b%d", round), "tenantId": p + "x",
+						})
+						return c
+					})
+				Expect(bothOK(codes)).To(BeFalse(), "binding round %d: %v", round, codes)
+			}
+		})
+
+		It("never leaves a new tenant route on a prefix being removed", func() {
+			for round := range rounds {
+				p := fmt.Sprintf("rr%d-", round)
+				mustAdd(orgA, p, prefix, false)
+				codes := race(
+					func() int { c, _ := remove(orgA, p, prefix); return c },
+					func() int {
+						c, _ := call(adminA, "TenantRouteService/CreateTenantRoute", map[string]any{
+							"orgId": orgA.String(), "tenant": p + "x", "kind": "otlp", "gatewayMode": "managed", "gatewayName": "gw",
+						})
+						return c
+					})
+				Expect(bothOK(codes)).To(BeFalse(), "route round %d: %v", round, codes)
+			}
+		})
+	})
+
 	It("keeps tenant changes app-admin only", func() {
 		mustAdd(orgA, "acme", exact, true)
 		for proc, body := range map[string]map[string]any{
@@ -322,7 +396,7 @@ var _ = Describe("Org tenants", Label("integration"), func() {
 			Expect(tenantsOf(orgA)).To(HaveLen(3), "nothing was removed")
 		})
 
-		It("refuses removing the default while the org has live routes, until another is the default", func() {
+		It("refuses removing the default while another exact tenant could take its place, until it does", func() {
 			code, out := call(adminA, "TenantRouteService/CreateTenantRoute", map[string]any{
 				"orgId": orgA.String(), "tenant": "acme-eu", "kind": "otlp", "gatewayMode": "managed", "gatewayName": "gw",
 			})
@@ -336,6 +410,36 @@ var _ = Describe("Org tenants", Label("integration"), func() {
 			Expect(code).To(Equal(http.StatusOK), "%v", out)
 			code, out = remove(orgA, "acme", exact)
 			Expect(code).To(Equal(http.StatusOK), "%v", out)
+		})
+
+		// A rule can go when everything it covered is still covered by another
+		// rule of the same org; only a user left on an unowned tenant refuses.
+		It("removes a rule whose users another rule still covers, and refuses the last covering one", func() {
+			mustAdd(orgA, "payments", exact, false)
+			mustAdd(orgA, "pay", prefix, false)
+			code, out := call(adminA, "DestinationService/CreateDestination", map[string]any{
+				"orgId": orgA.String(), "name": "mimir-pay", "type": "prometheus", "url": "https://mimir.example.com/api/v1/push",
+				"authMode": "none", "tenantId": "payments",
+			})
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+
+			code, out = remove(orgA, "payments", exact)
+			Expect(code).To(Equal(http.StatusOK), "the prefix pay still covers the destination's tenant: %v", out)
+
+			code, out = remove(orgA, "pay", prefix)
+			Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
+			Expect(out["code"]).To(Equal("failed_precondition"))
+			Expect(out["message"]).To(ContainSubstring(`destination "mimir-pay"`))
+		})
+
+		It("removes the default when it is the org's only exact tenant and nothing is left unowned", func() {
+			code, out := remove(orgA, "acme-eu", exact)
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			code, out = remove(orgA, "acme", exact)
+			Expect(code).To(Equal(http.StatusOK), "%v", out)
+			for _, t := range tenantsOf(orgA) {
+				Expect(t.IsDefault).To(BeFalse())
+			}
 		})
 
 		It("answers not_found for a tenant the org does not have", func() {

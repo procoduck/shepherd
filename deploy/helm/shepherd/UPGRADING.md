@@ -128,7 +128,8 @@ can then give an organisation more exact tenants and tenant prefixes on **Admin 
 - `AdminService.SetOrgTenantID` is **removed**. Use `AddOrgTenant` (`org_id`, `tenant`,
   `kind: ORG_TENANT_KIND_EXACT` or `ORG_TENANT_KIND_PREFIX`, `make_default`), `RemoveOrgTenant`
   and `SetDefaultOrgTenant` (all app admin only). A tenant is no longer set once: it can be
-  removed when no live tenant route, destination or destination binding of the org uses it.
+  removed unless a live tenant route, destination or destination binding of the org would be left
+  on a tenant the org no longer owns.
 - `Org.tenant_id` and `OrgMembership.tenant_id` (`GetMe`) are **replaced** by
   `repeated OrgTenant tenants` (`tenant`, `kind`, `is_default`); the old field numbers are
   reserved. Read the default as the entry with `is_default`.
@@ -146,6 +147,12 @@ Applied by the migration Job before the new pods start. It creates `org_tenants`
 `orgs.tenant_id` into it as that org's default exact tenant, and drops `orgs.tenant_id` — quick,
 one row per org. Its down migration restores `orgs.tenant_id` from each org's default and **drops
 every other tenant and prefix** (an org with tenants but no default comes back with none).
+
+**Errors during the rollout.** Like `0036` above, `0039` runs before the old pods are replaced:
+once it has dropped `orgs.tenant_id`, every query an old pod makes on `orgs` (org lists, `GetMe`,
+creating routes and destinations, and the agent API's org lookups) answers `Internal` until that
+pod is replaced. This fails closed — nothing is written with a missing tenant — and collectors keep
+their last loaded config and retry. Finish the rollout promptly.
 
 ## 0.21.x → 0.22.0
 

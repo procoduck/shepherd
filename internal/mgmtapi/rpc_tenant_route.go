@@ -421,6 +421,12 @@ func (s *TenantRouteService) RotateTenantRoute(ctx context.Context, req *connect
 	}
 	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed; rollback error on the success path is expected and harmless
 	txQueries := s.store.Queries.WithTx(tx)
+	// The replacement route injects the same tenant, so it gets the same
+	// ownership check a new route does, under the shared ownership lock: the
+	// tenant cannot be taken from the org between the check and the commit.
+	if _, err := resolveRouteTenant(ctx, txQueries, current.OrgID, current.TenantID); err != nil {
+		return nil, err
+	}
 
 	// Deprecate first: idx_tenant_routes_one_active (0009_tenant_routes)
 	// allows only one 'active' row per org+tenant+kind, so inserting the new

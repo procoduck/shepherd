@@ -185,6 +185,13 @@ export function OrgTenantsEditor({ org, onChange }: { org: Org; onChange: (org: 
           Add
         </button>
       </div>
+      {kind === OrgTenantKind.PREFIX && (
+        <p className='text-xs text-muted-2' data-testid='org-tenant-prefix-hint'>
+          A prefix matches the start of the tenant exactly as written: <code>pay</code> also covers{' '}
+          <code>payroll</code>. End it with a separator, such as <code>pay-</code>, to own only the
+          tenants you mean.
+        </p>
+      )}
       {kind === OrgTenantKind.EXACT && (
         <label className='flex items-center gap-2 text-xs text-muted'>
           <input

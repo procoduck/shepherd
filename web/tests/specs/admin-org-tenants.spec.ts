@@ -64,6 +64,7 @@ test('an app admin adds an exact tenant and a prefix, and switches the default',
 
   await editor.getByTestId('org-tenant-new-kind').selectOption({ label: 'Prefix' });
   await expect(editor.getByTestId('org-tenant-new-default')).toHaveCount(0);
+  await expect(editor.getByTestId('org-tenant-prefix-hint')).toContainText('pay-');
   await editor.getByTestId('org-tenant-new').pressSequentially('acme-team-');
   await editor.getByTestId('org-tenant-add').click();
   await expect(editor.getByTestId('org-tenant-row-acme-team-')).toContainText('acme-team-*');

@@ -733,10 +733,12 @@ initial default. Each change writes an `org.tenant.add` / `org.tenant.remove` /
 `org.tenant.set_default` audit row in its transaction. `AddOrgTenant` refuses (`failed_precondition`)
 an overlap, naming the other org (only an app admin sees it), and a tenant or prefix covering a
 tenant another org's destination or destination binding already sends (generic, not naming the
-org). `RemoveOrgTenant` refuses (`failed_precondition`) while any live (not revoked) tenant route,
-destination or destination binding of the org uses a tenant the row covers, listing each; the
-default cannot be removed while the org has live routes — switch the default to another exact
-tenant first. Every ownership change takes one exclusive transaction-scoped advisory lock
+org). `RemoveOrgTenant` refuses (`failed_precondition`) only when a live (not revoked) tenant
+route, destination or destination binding of the org would be left on a tenant the org no longer
+owns — one the row covers and no remaining rule of the org does — listing each. The default
+cannot be removed while another exact tenant could take its place (switch the default first);
+removing an org's only exact tenant leaves it with no default, after which a route that names no
+tenant is refused. Rotating a route re-checks its tenant under the same lock. Every ownership change takes one exclusive transaction-scoped advisory lock
 (`LockOrgTenantsExclusive`, class `advisorylock.TenantID`); every write that reads ownership before
 writing — a destination, a destination binding, a tenant route — takes the same lock shared
 (`LockOrgTenantsShared`), so no check and write can race past an ownership change.

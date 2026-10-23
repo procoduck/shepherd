@@ -62,7 +62,7 @@ ORDER BY tenant;
 -- name: ListOrgTenantUses :many
 -- Everything of one org that names a tenant: its live (not revoked) tenant
 -- routes, its destinations and its destination bindings. RemoveOrgTenant
--- refuses while any of them sits under the rule being removed.
+-- refuses while one of them would be left on a tenant the org no longer owns.
 SELECT 'tenant route'::text AS what, (r.kind || ' route ' || r.segment)::text AS name, r.tenant_id::text AS tenant
 FROM tenant_routes r WHERE r.org_id = sqlc.arg(org_id) AND r.status <> 'revoked'
 UNION ALL
@@ -72,6 +72,3 @@ UNION ALL
 SELECT 'destination binding'::text, b.name::text, b.tenant_id::text
 FROM destination_bindings b WHERE b.org_id = sqlc.arg(org_id) AND b.tenant_id <> ''
 ORDER BY what, name;
-
--- name: CountLiveTenantRoutesByOrg :one
-SELECT count(*)::int FROM tenant_routes WHERE org_id = $1 AND status <> 'revoked';

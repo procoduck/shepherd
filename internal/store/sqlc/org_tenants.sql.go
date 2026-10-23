@@ -54,17 +54,6 @@ func (q *Queries) ClearOrgDefaultTenant(ctx context.Context, orgID pgtype.UUID) 
 	return err
 }
 
-const countLiveTenantRoutesByOrg = `-- name: CountLiveTenantRoutesByOrg :one
-SELECT count(*)::int FROM tenant_routes WHERE org_id = $1 AND status <> 'revoked'
-`
-
-func (q *Queries) CountLiveTenantRoutesByOrg(ctx context.Context, orgID pgtype.UUID) (int32, error) {
-	row := q.db.QueryRow(ctx, countLiveTenantRoutesByOrg, orgID)
-	var column_1 int32
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
 const deleteOrgTenant = `-- name: DeleteOrgTenant :execrows
 DELETE FROM org_tenants WHERE org_id = $1 AND tenant = $2 AND kind = $3
 `
@@ -137,7 +126,7 @@ type ListOrgTenantUsesRow struct {
 
 // Everything of one org that names a tenant: its live (not revoked) tenant
 // routes, its destinations and its destination bindings. RemoveOrgTenant
-// refuses while any of them sits under the rule being removed.
+// refuses while one of them would be left on a tenant the org no longer owns.
 func (q *Queries) ListOrgTenantUses(ctx context.Context, orgID pgtype.UUID) ([]ListOrgTenantUsesRow, error) {
 	rows, err := q.db.Query(ctx, listOrgTenantUses, orgID)
 	if err != nil {

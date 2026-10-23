@@ -263,7 +263,10 @@ func (s *AdminService) AddOrgTenant(ctx context.Context, req *connect.Request[mg
 }
 
 // RemoveOrgTenant takes an exact tenant or prefix away from an org (app
-// admin), refusing while anything of the org still uses it.
+// admin), refusing while a live route, destination or binding of the org
+// would be left on a tenant the org no longer owns — one no remaining rule
+// of the org covers. The default cannot be removed while another exact
+// tenant could take its place: switch the default first.
 func (s *AdminService) RemoveOrgTenant(ctx context.Context, req *connect.Request[mgmtv1.RemoveOrgTenantRequest]) (*connect.Response[mgmtv1.Org], error) {
 	if err := requireWriteAuthorized(ctx); err != nil {
 		return nil, err
@@ -288,31 +291,37 @@ func (s *AdminService) RemoveOrgTenant(ctx context.Context, req *connect.Request
 			return connect.NewError(connect.CodeNotFound,
 				fmt.Errorf("org %q has no %s %q", org.Name, describeKind(rule.Kind), rule.Tenant))
 		}
+		// The org's rules as they would stand after the removal.
+		var remaining []gateway.OrgTenant
+		otherExact := false
+		for i := range tenants {
+			if &tenants[i] == held {
+				continue
+			}
+			remaining = append(remaining, gateway.OrgTenant{Tenant: tenants[i].Tenant, Kind: gateway.TenantKind(tenants[i].Kind)})
+			if gateway.TenantKind(tenants[i].Kind) == gateway.TenantExact {
+				otherExact = true
+			}
+		}
+		if held.IsDefault && otherExact {
+			return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
+				"tenant %q is org %q's default; make another exact tenant the default first",
+				rule.Tenant, org.Name))
+		}
 		uses, err := q.ListOrgTenantUses(ctx, orgID)
 		if err != nil {
 			return connect.NewError(connect.CodeInternal, errors.New("failed to check what uses the tenant"))
 		}
-		var using []string
+		var orphaned []string
 		for i := range uses {
-			if gateway.RuleCovers(rule, uses[i].Tenant) {
-				using = append(using, fmt.Sprintf("%s %q (tenant %q)", uses[i].What, uses[i].Name, uses[i].Tenant))
+			if gateway.RuleCovers(rule, uses[i].Tenant) && !gateway.OrgOwnsTenant(remaining, uses[i].Tenant) {
+				orphaned = append(orphaned, fmt.Sprintf("%s %q (tenant %q)", uses[i].What, uses[i].Name, uses[i].Tenant))
 			}
 		}
-		if len(using) > 0 {
+		if len(orphaned) > 0 {
 			return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
-				"%s %q is still in use and cannot be removed: %s", describeKind(rule.Kind), rule.Tenant,
-				strings.Join(using, "; ")))
-		}
-		if held.IsDefault {
-			live, err := q.CountLiveTenantRoutesByOrg(ctx, orgID)
-			if err != nil {
-				return connect.NewError(connect.CodeInternal, errors.New("failed to check the org's tenant routes"))
-			}
-			if live > 0 {
-				return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
-					"tenant %q is org %q's default and the org has %d live tenant route(s); make another "+
-						"exact tenant the default first", rule.Tenant, org.Name, live))
-			}
+				"%s %q is still in use and no other tenant or prefix of the org covers it: %s",
+				describeKind(rule.Kind), rule.Tenant, strings.Join(orphaned, "; ")))
 		}
 		if _, err := q.DeleteOrgTenant(ctx, sqlc.DeleteOrgTenantParams{OrgID: orgID, Tenant: rule.Tenant, Kind: string(rule.Kind)}); err != nil {
 			return connect.NewError(connect.CodeInternal, errors.New("failed to remove the tenant"))

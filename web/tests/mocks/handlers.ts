@@ -1003,7 +1003,18 @@ export function installDefaultHandlers(router: Router) {
     const tenant = String(req['tenant'] ?? '');
     const held = orgTenants(o).find((t) => t.tenant === tenant && t.kind === kind);
     if (!held) return connectError(r, 404, 'not_found', `org has no tenant "${tenant}"`);
-    const covers = (t: string) => (kind === 'prefix' ? t.startsWith(tenant) : t === tenant);
+    // Like the server: refuse only a user no remaining rule would cover, and
+    // the default while another exact tenant could take its place.
+    const remaining = { tenants: orgTenants(o).filter((t) => t !== held) } as Obj;
+    if (held.is_default && orgTenants(remaining).some((t) => t.kind === 'exact'))
+      return connectError(
+        r,
+        400,
+        'failed_precondition',
+        `tenant "${tenant}" is org "${s(o, 'name')}"'s default; make another exact tenant the default first`,
+      );
+    const covers = (t: string) =>
+      (kind === 'prefix' ? t.startsWith(tenant) : t === tenant) && !ownsTenant(remaining, t);
     const using = [
       ...(st.tenantRoutes as Obj[])
         .filter((x) => x['org_id'] === o['id'] && x['status'] !== TenantRouteStatus.REVOKED)
@@ -1022,7 +1033,7 @@ export function installDefaultHandlers(router: Router) {
         r,
         400,
         'failed_precondition',
-        `${kind === 'prefix' ? 'tenant prefix' : 'tenant'} "${tenant}" is still in use and cannot be removed: ${using.join('; ')}`,
+        `${kind === 'prefix' ? 'tenant prefix' : 'tenant'} "${tenant}" is still in use and no other tenant or prefix of the org covers it: ${using.join('; ')}`,
       );
     o['tenants'] = orgTenants(o).filter((t) => t !== held);
     return json(r, 200, orgToWire(o));

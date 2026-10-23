@@ -296,10 +296,11 @@ asks). What changes and what holds:
 - **The route names its tenant, checked.** `CreateTenantRouteRequest.tenant` (a new field; field 2
   stays reserved) must be one the org owns; empty means the org's default, and an org without one
   is refused. A route keeps the tenant it was minted with.
-- **Set-once becomes remove-when-unused.** A tenant or prefix can be removed only while no live
-  route, destination or destination binding of the org uses it, so an applied `HTTPRoute` can never
-  be left injecting a tenant the org no longer owns. The default can be switched to another exact
-  tenant; it cannot be removed while the org has live routes.
+- **Set-once becomes remove-when-unowned-by-nothing.** A tenant or prefix can be removed unless a
+  live route, destination or destination binding of the org would be left on a tenant no remaining
+  rule of the org covers, so an applied `HTTPRoute` can never be left injecting a tenant the org no
+  longer owns. The default can be switched to another exact tenant, and must be before it is
+  removed while one exists.
 - Destinations keep their rule (any valid tenant another org does not own); destination bindings
   now get the same check. A stricter "only the org's own" mode is a separate, later decision.
 

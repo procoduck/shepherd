@@ -112,9 +112,10 @@ type AdminServiceClient interface {
 	// neither may cover a tenant another org's destination or binding sends.
 	AddOrgTenant(context.Context, *connect.Request[v1.AddOrgTenantRequest]) (*connect.Response[v1.Org], error)
 	// RemoveOrgTenant takes an exact tenant or prefix away from an org. App
-	// admin only, and only while nothing of the org uses it: a live tenant
-	// route, a destination or a destination binding under it refuses the
-	// removal (failed_precondition, naming each one).
+	// admin only. Refused (failed_precondition, naming each one) when a live
+	// tenant route, destination or destination binding of the org would be left
+	// on a tenant no remaining tenant or prefix of the org covers, and for the
+	// default while another exact tenant could become the default.
 	RemoveOrgTenant(context.Context, *connect.Request[v1.RemoveOrgTenantRequest]) (*connect.Response[v1.Org], error)
 	// SetDefaultOrgTenant makes one of the org's exact tenants its default.
 	// App admin only.
@@ -464,9 +465,10 @@ type AdminServiceHandler interface {
 	// neither may cover a tenant another org's destination or binding sends.
 	AddOrgTenant(context.Context, *connect.Request[v1.AddOrgTenantRequest]) (*connect.Response[v1.Org], error)
 	// RemoveOrgTenant takes an exact tenant or prefix away from an org. App
-	// admin only, and only while nothing of the org uses it: a live tenant
-	// route, a destination or a destination binding under it refuses the
-	// removal (failed_precondition, naming each one).
+	// admin only. Refused (failed_precondition, naming each one) when a live
+	// tenant route, destination or destination binding of the org would be left
+	// on a tenant no remaining tenant or prefix of the org covers, and for the
+	// default while another exact tenant could become the default.
 	RemoveOrgTenant(context.Context, *connect.Request[v1.RemoveOrgTenantRequest]) (*connect.Response[v1.Org], error)
 	// SetDefaultOrgTenant makes one of the org's exact tenants its default.
 	// App admin only.
