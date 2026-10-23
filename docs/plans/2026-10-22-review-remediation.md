@@ -1,8 +1,10 @@
 # Whole-project review remediation (2026-10-22)
 
 Status: **decided 2026-10-22; steps 1–7a shipped** (1–6, 4b–4d and 7a: #363, #364, #366, #367, #371,
-#372, #379, #370, #373, #381) in the prerelease v0.19.0-rc.1; **step 7b and the §6 follow-ups are
-open.** Built in the §3 order, one PR per step, merged one at a
+#372, #379, #370, #373, #381) in the prerelease v0.19.0-rc.1; **the §6 external-evaluation fixes
+shipped** in the prerelease v0.19.0-rc.2 (#374 via #385, #377 via #383, the beacon half of #378 via
+#384, plus #386, #387, #388 and #393). **Open: step 7b (#362), #375, the role-enforcement half of
+#378, #389 and #390.** Built in the §3 order, one PR per step, merged one at a
 time. Line references are to `main` at f367c70 (v0.18.0).
 
 ## Problem

@@ -2,16 +2,49 @@
 
 ## 0.22.x → 0.23.0
 
-First published as the release candidate **0.23.0-rc.1** (Shepherd v0.19.0-rc.1); install it
-with `--version 0.23.0-rc.1`, or `--devel`. Everything below applies to the rc and to 0.23.0.
+First published as the release candidates **0.23.0-rc.1** and **0.23.0-rc.2** (Shepherd
+v0.19.0-rc.1 / v0.19.0-rc.2); install one with `--version 0.23.0-rc.2`, or `--devel`. Everything
+below applies to the release candidates and to 0.23.0. Coming from 0.23.0-rc.1, the migration Job
+applies only `0038`–`0040`; read *Agent tokens are bound to an organisation* first.
 
-An ordinary `helm upgrade` with six migrations (0035–0040), one recompute per collector, a short burst of
-collector errors during the rollout, and management-API breaks. Update API scripts first.
+A `helm upgrade` with six migrations (0035–0040), **agent tokens to bind right after the
+upgrade**, one recompute per collector, a short burst of errors during the rollout,
+management-API breaks and new size limits. Update API scripts first, and have the list of agent
+tokens and the org each belongs to at hand.
 
-### Migrations 0035–0037
+### Agent tokens are bound to an organisation — bind them right after upgrading
+
+**Every collector stops receiving config until its agent token is bound.** Agent tokens are now
+bound to an organisation (optionally narrowed to cluster and role allowlists), and Shepherd
+refuses every collector RPC from a token that is not. Tokens created before this release are left
+**unbound** by migration `0038` — it does not guess an org — so their collectors are refused
+(`PermissionDenied`, counted as `shepherd_agent_refused_total{reason="token_unbound"}`) until an
+app admin binds them. Binding changes neither the token id nor the secret, so collectors keep
+their credentials, and a refused collector keeps running its last loaded config until its next
+successful poll. Bind every existing token as soon as the new pods are up, or mint new bound
+tokens and roll them out to the collectors instead.
+
+Bind from the Agent Tokens page (unbound tokens are listed first, with a **Bind** action) or from
+the CLI in the Shepherd pod:
+
+```sh
+kubectl -n shepherd exec svc/shepherd -- /usr/local/bin/shepherd token list
+kubectl -n shepherd exec svc/shepherd -- /usr/local/bin/shepherd token bind \
+  --id <token-id> --org <org-slug> [--clusters prod-eu-1] [--roles metrics]
+```
+
+Bind each token to the org that already claims the clusters its collectors report: a bound token
+is refused for a cluster another org has claimed, and — because an app admin bound it — claims
+any unclaimed cluster it reports (within its allowlists) for its own org. `shepherd token create`
+now requires `--org`, and `CreateAgentToken` requires `org_id`; scripts that mint tokens need that
+argument added. Org admins can now create, list and revoke their own org's tokens; those tokens
+serve only clusters the org already claims (`AgentToken.may_claim` is false — claiming stays app
+admin only, as does binding a token to an org).
+
+### Migrations 0035–0040
 
 The migration Job (a `pre-upgrade` hook, on by default) applies them before the new pods start;
-if you turned it off, run `shepherd migrate up` yourself first. All three are quick:
+if you turned it off, run `shepherd migrate up` yourself first. All six are quick:
 
 - `0035` adds `serve_cache.last_failed_seq` (default `-1`), which lets a failed recompute be
   audited once per collector and generation.
@@ -19,14 +52,34 @@ if you turned it off, run `shepherd migrate up` yourself first. All three are qu
   an index on `id`. Existing rows are already one per id, so this only swaps the constraint.
   **Its down migration is lossy**: per instance id it keeps only the most recently seen row.
 - `0037` renames `orgs.reader_group_id` to `viewer_group_id`.
+- `0038` adds a nullable `org_id` (FK to `orgs`, `ON DELETE SET NULL`), two `jsonb` allowlist
+  columns defaulting to `[]` and `may_claim` (default `false`) to `agent_tokens` —
+  metadata-only. Existing tokens stay unbound (see above). Its down migration drops them.
+- `0039` creates `org_tenants`, copies each `orgs.tenant_id` into it as that org's default exact
+  tenant, and drops `orgs.tenant_id` — one row per org. Its down migration restores
+  `orgs.tenant_id` from each org's default and **drops every other tenant and prefix** (an org
+  with tenants but no default comes back with none).
+- `0040` adds `orgs.strict_tenants boolean NOT NULL DEFAULT false` and the `pipeline_tenants` and
+  `pipeline_tenant_index` tables (the tenants each enabled pipeline writes to, and which contents
+  they describe, so assigning a tenant is one indexed check). The server fills the tables at
+  every start, which is also their backfill; a pipeline it cannot read is logged, never a failed
+  start. Rows an old pod leaves stale during the rollout are re-read when a tenant is next
+  assigned. Its down migration drops all three, turning strict mode off for every org.
 
-### Collector errors during the rollout
+### Errors during the rollout
 
-Pods still on the old image write collector instances with `ON CONFLICT (id)`, which Postgres
-rejects once `0036` has run. Until every pod runs the new image, `GetConfig` and
-`RegisterCollector` calls that reach an old pod answer `Internal`. Alloy keeps its last loaded
-config and retries, so nothing changes on the collectors, but expect a burst of agent-RPC errors
-(and alerts on them) until the rollout finishes. Finish it promptly.
+The migrations run before the old pods are replaced, and two of them break queries old pods make:
+
+- After `0036`, pods still on the old image write collector instances with `ON CONFLICT (id)`,
+  which Postgres rejects, so `GetConfig` and `RegisterCollector` calls that reach an old pod
+  answer `Internal`.
+- After `0039` has dropped `orgs.tenant_id`, every query an old pod makes on `orgs` (org lists,
+  `GetMe`, creating routes and destinations, and the agent API's org lookups) answers `Internal`.
+
+Both fail closed — nothing is written with a missing tenant — and Alloy keeps its last loaded
+config and retries, so nothing changes on the collectors. Expect a burst of agent-RPC and
+management-API errors (and alerts on them) until every pod runs the new image. Finish the rollout
+promptly.
 
 ### One recompute per collector (serve format 3)
 
@@ -37,7 +90,7 @@ config was last written by an eager recompute loses a beacon `remote_write` bloc
 an endpoint the server does not mount, and **reloads once**; after that its config no longer
 changes depending on which path computed it.
 
-### Management API: roles are enums, `viewer_group_id`
+### Management API changes
 
 Scripts and service-account clients that call the management API must be updated **before** the
 upgrade:
@@ -52,109 +105,30 @@ upgrade:
   browser tab left open across the upgrade before editing an org.
 - Tenant routes report `status` / `apply_status` as `TENANT_ROUTE_STATUS_*` /
   `TENANT_ROUTE_APPLY_STATUS_*`.
-
-### Collector request limits
-
-Collector RPCs refuse an empty instance id, or an id or `cluster` longer than 256 bytes
-(`InvalidArgument`), and a request message over 8 MiB (`ResourceExhausted`). Alloy's default id
-is a UUID and a hostname is at most 253 bytes, so this only matters if you set long custom ids
-or cluster names.
-
-### Git sync applies a commit whole or not at all
-
-A commit with one failing file now applies nothing (before, the files that passed synced); the
-link shows `error` naming the failing files and the collector keeps serving the previous commit.
-A commit held back by the prune guard applies nothing either, including updates to existing
-files. Nothing to do; fix or revert the failing file and the next poll applies the commit.
-
-### `config.validate.stage3_timeout`
-
-New in `values.yaml` with the server's existing default, `"30s"`: the budget for the save-time
-merge validation. Additive; raise it only if saves in a very large org are refused with
-"stage-3 validation budget exceeded".
-
-### Signed releases
-
-From this release, tags are signed and every archive, image (provenance and SBOM) and the chart
-carries attestations in GitHub's store and in the registry. Optional: verify what you pull with
-the commands on the docs' *Verifying releases* page before upgrading.
-
-### Agent tokens are bound to an organisation (not in 0.23.0-rc.1)
-
-**Bind every existing agent token immediately after upgrading.** Agent tokens
-are now bound to an organisation (optionally narrowed to cluster and role
-allowlists), and Shepherd refuses every collector RPC from a token that is not.
-Tokens created before this release are left **unbound** by the migration — it
-does not guess an org — so their collectors are refused (`PermissionDenied`,
-counted as `shepherd_agent_refused_total{reason="token_unbound"}`) until an app
-admin binds them. Collectors keep their credentials: binding changes neither
-the token id nor the secret, and a refused collector keeps running its last
-loaded config until its next successful poll.
-
-Bind from the Agent Tokens page (unbound tokens are listed first, with a
-**Bind** action) or from the CLI in the Shepherd pod:
-
-```sh
-kubectl -n shepherd exec svc/shepherd -- /usr/local/bin/shepherd token list
-kubectl -n shepherd exec svc/shepherd -- /usr/local/bin/shepherd token bind \
-  --id <token-id> --org <org-slug> [--clusters prod-eu-1] [--roles metrics]
-```
-
-Bind each token to the org that already claims the clusters its collectors
-report: a bound token is refused for a cluster another org has claimed, and
-— because an app admin bound it — claims any unclaimed cluster it reports
-(within its allowlists) for its own org. `shepherd token create` now requires `--org`, and `CreateAgentToken`
-requires `org_id`; scripts that mint tokens need that argument added. Org
-admins can now create, list and revoke their own org's tokens; those tokens
-serve only clusters the org already claims (claiming stays app admin only, as
-does binding a token to an org).
-
-#### Migration 0038
-
-Applied by the migration Job before the new pods start, as usual. It adds a
-nullable `org_id` (FK to `orgs`, `ON DELETE SET NULL`) and two `jsonb`
-allowlist columns defaulting to `[]` and `may_claim` (default `false`) to `agent_tokens` — metadata-only, quick.
-Its down migration drops them.
-
-### An organisation can own several tenants and tenant prefixes (not in 0.23.0-rc.1)
-
-Nothing to do on the cluster: every organisation keeps its tenant, now as its **default** tenant,
-and its routes, destinations and chart values carry on unchanged. An application administrator
-can then give an organisation more exact tenants and tenant prefixes on **Admin → Organisations**
-(Edit). A tenant still belongs to at most one organisation.
-
-**Management API scripts need updating:**
-
+- `CreateAgentToken` requires `org_id` (see above); `BindAgentToken` is new.
 - `AdminService.SetOrgTenantID` is **removed**. Use `AddOrgTenant` (`org_id`, `tenant`,
   `kind: ORG_TENANT_KIND_EXACT` or `ORG_TENANT_KIND_PREFIX`, `make_default`), `RemoveOrgTenant`
-  and `SetDefaultOrgTenant` (all app admin only). A tenant is no longer set once: it can be
-  removed unless a live tenant route, destination or destination binding of the org would be left
-  on a tenant the org no longer owns.
+  and `SetDefaultOrgTenant` (all app admin only).
 - `Org.tenant_id` and `OrgMembership.tenant_id` (`GetMe`) are **replaced** by
   `repeated OrgTenant tenants` (`tenant`, `kind`, `is_default`); the old field numbers are
   reserved. Read the default as the entry with `is_default`.
 - `CreateOrgRequest.tenant_id` is unchanged on the wire and becomes the org's initial default
-  tenant.
-- `CreateTenantRouteRequest` gains `tenant`: a tenant the org owns (an exact tenant, or one under
-  a prefix). Leaving it empty keeps today's behaviour — the org's default tenant.
+  tenant. `CreateTenantRouteRequest` gains `tenant`: a tenant the org owns (an exact tenant, or
+  one under a prefix); leaving it empty keeps today's behaviour — the org's default tenant.
 - `CreateDestinationBinding` / `UpdateDestinationBinding` now refuse a tenant another
   organisation owns (`invalid_argument`, "tenant_id is not available to this org"), as
   destinations already did.
 
-#### Migration 0039
+### An organisation can own several tenants and tenant prefixes
 
-Applied by the migration Job before the new pods start. It creates `org_tenants`, copies each
-`orgs.tenant_id` into it as that org's default exact tenant, and drops `orgs.tenant_id` — quick,
-one row per org. Its down migration restores `orgs.tenant_id` from each org's default and **drops
-every other tenant and prefix** (an org with tenants but no default comes back with none).
+Nothing to do on the cluster: every organisation keeps its tenant, now as its **default** tenant,
+and its routes, destinations and chart values carry on unchanged. An application administrator
+can then give an organisation more exact tenants and tenant prefixes on **Admin → Organisations**
+(Edit). A tenant still belongs to at most one organisation. A tenant is no longer set once: it can
+be removed unless a live tenant route, destination or destination binding of the org would be
+left on a tenant the org no longer owns.
 
-**Errors during the rollout.** Like `0036` above, `0039` runs before the old pods are replaced:
-once it has dropped `orgs.tenant_id`, every query an old pod makes on `orgs` (org lists, `GetMe`,
-creating routes and destinations, and the agent API's org lookups) answers `Internal` until that
-pod is replaced. This fails closed — nothing is written with a missing tenant — and collectors keep
-their last loaded config and retry. Finish the rollout promptly.
-
-### Strict tenant mode (not in 0.23.0-rc.1)
+### Strict tenant mode (optional)
 
 Additive and **off by default**: nothing changes until you turn it on. In strict tenant mode an
 organisation's destinations, destination bindings, tenant routes and pipelines may only use
@@ -175,24 +149,53 @@ New API fields, all additive: `Org.strict_tenants` / `Org.tenants_required` / `O
 (caveats of an `AddOrgTenant`), `OrgMembership.tenants_required`, and `Diagnostic.warning` /
 `VisualNodeDiagnostic.warning` (a diagnostic that does not fail validation).
 
-**New limits for every organisation:** pipeline contents are capped at 1 MiB on every API write
-(`invalid_argument`) — the `gitsync.max_file_bytes` default, far above any real pipeline — and a
-management API request body at 4 MiB (`resource_exhausted`). `config.gitsync.max_file_bytes` may
-no longer be set above 1 MiB: the chart's schema and Shepherd's config loading refuse it, since a
-larger synced file could never be stored. Configuration nested more than 512 levels deep, or an
-expression chaining more than 4096 operators or field accesses, is a Stage 1 error everywhere
-(the Alloy parser would crash, or build a tree too deep to walk, on far more); no real
-configuration comes close.
+### New limits
 
-#### Migration 0040
+These apply to every organisation, strict or not. No real configuration comes close to any of
+them:
 
-Adds `orgs.strict_tenants boolean NOT NULL DEFAULT false` and the `pipeline_tenants` and
-`pipeline_tenant_index` tables (the tenants each enabled pipeline writes to, and which contents
-they describe, so assigning a tenant is one indexed check) — quick, and old pods keep working
-against them (they name the columns they read). The server fills the tables at every start, which
-is also their backfill; a pipeline it cannot read is logged, never a failed start. Rows an old pod
-leaves stale during the rollout are re-read when a tenant is next assigned. Its down migration
-drops all three, turning strict mode off for every org.
+- **Pipeline contents** are capped at 1 MiB on every API write (`invalid_argument`), and every
+  RPC that takes Alloy text or a visual graph (Format/Validate/Create/UpdatePipeline, visual
+  Render/Validate/UpgradeCheck, CreateRun) refuses more.
+- **A management API request** is capped at 4 MiB (`resource_exhausted`).
+- **Nesting:** configuration nested more than 512 levels deep, an expression chaining more than
+  4096 operators, field accesses, calls or indexes, or a parsed tree deeper than 1024 is a Stage 1
+  error everywhere.
+- **`config.gitsync.max_file_bytes`** may no longer be set above 1 MiB: the chart's schema and
+  Shepherd's config loading refuse a larger value, since a larger synced file could never be
+  stored. Check your values before upgrading if you raised it.
+- **Visual pipelines:** a label or component name over 256 bytes, or a duplicate edge (same
+  from/port/to/port), is refused, and rendered output is capped at 1 MiB.
+- **Collector RPCs** refuse an empty instance id, or an id or `cluster` longer than 256 bytes
+  (`InvalidArgument`), and a request message over 8 MiB (`ResourceExhausted`). Alloy's default id
+  is a UUID and a hostname is at most 253 bytes, so this only matters if you set long custom ids
+  or cluster names.
+
+### Git sync applies a commit whole or not at all
+
+A commit with one failing file now applies nothing (before, the files that passed synced); the
+link shows `error` naming the failing files and the collector keeps serving the previous commit.
+A commit held back by the prune guard applies nothing either, including updates to existing
+files. Nothing to do; fix or revert the failing file and the next poll applies the commit.
+
+### New chart values
+
+All additive, with the server's defaults:
+
+- `config.validate.stage3_timeout` (`"30s"`): the budget for the save-time merge validation.
+  Raise it only if saves in a very large org are refused with "stage-3 validation budget
+  exceeded".
+- `config.agent.outage_cache_ttl` (`"60s"`; `"0s"` turns it off, at most `"1h"`): while the
+  database is unreachable, each replica keeps accepting the agent tokens and re-serving the last
+  config of collectors it served within this window, so a restarting collector can still start.
+  See "When Shepherd or its database is down" on the docs' Kubernetes page.
+- `config.tenants.require_owned` (`false`): strict tenant mode for every organisation, above.
+
+### Signed releases
+
+From this release, tags are signed and every archive, image (provenance and SBOM) and the chart
+carries attestations in GitHub's store and in the registry. Optional: verify what you pull with
+the commands on the docs' *Verifying releases* page before upgrading.
 
 ## 0.21.x → 0.22.0
 

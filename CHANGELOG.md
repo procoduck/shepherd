@@ -11,6 +11,174 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
+## v0.19.0-rc.2 (prerelease)
+
+Chart 0.23.0-rc.2, the second **release candidate** for v0.19.0, published as a GitHub
+prerelease like rc.1: `:latest` does not move, and `helm install` without `--version 0.23.0-rc.2`
+(or `--devel`) keeps resolving chart 0.22.0. The public docs keep quoting v0.18.0 / chart 0.22.0
+until v0.19.0. On top of rc.1 (below, whose notes still apply) it binds agent tokens to an
+organisation, lets an organisation own several tenants and tenant prefixes, adds an opt-in strict
+tenant mode, keeps collectors running through a database outage, and bounds what one pipeline or
+visual graph can cost the server. **Unbound agent tokens are refused after the upgrade**, there
+are more management-API breaks, and migrations `0038`–`0040` are new.
+
+### Upgrade notes
+
+`helm upgrade` to chart 0.23.0-rc.2 — read `deploy/helm/shepherd/UPGRADING.md` (0.22.x → 0.23.0)
+first. From 0.22.x, everything in rc.1's notes below applies as well.
+
+- **Bind every agent token right after upgrading — until then its collectors get no config.**
+  Tokens created before this release are left unbound by migration `0038`, and every collector
+  RPC from an unbound token is refused (`PermissionDenied`,
+  `shepherd_agent_refused_total{reason="token_unbound"}`). Bind each to the org that already
+  claims its collectors' clusters, on the Agent Tokens page (unbound tokens are listed first, with
+  **Bind**) or with `shepherd token bind --id <token-id> --org <org-slug>` in the Shepherd pod.
+  The id and secret do not change, so collectors keep their credentials; a refused collector
+  keeps running its last loaded config. Alternatively mint new, bound tokens and roll them out.
+  `shepherd token create` now requires `--org`, and `CreateAgentToken` requires `org_id`. (#386)
+- **Migrations `0035`–`0040`** run in the pre-upgrade Job: `0035`–`0037` as in rc.1; `0038` adds
+  `agent_tokens.org_id`, the `clusters` / `roles` allowlists and `may_claim` (existing tokens stay
+  unbound) (#386); `0039` creates `org_tenants`, carries each `orgs.tenant_id` over as the org's
+  default tenant and drops the column — its down migration keeps only each org's default (#387);
+  `0040` adds `orgs.strict_tenants` and the `pipeline_tenants` / `pipeline_tenant_index` tables,
+  which the server fills at every start (#388).
+- **Expect errors from old pods during the rollout.** After `0036`, an old pod's `GetConfig` and
+  `RegisterCollector` answer `Internal` (rc.1); after `0039`, so does every query an old pod
+  makes on organisations — org lists, `GetMe`, creating routes and destinations, the agent API's
+  org lookups. Both fail closed and collectors keep their last loaded config; finish the rollout
+  promptly. (#370, #387)
+- **More management-API breaks** (on top of rc.1's role enums, required `CreateServiceAccount`
+  role and `Org.reader_group_id` → `viewer_group_id`, with its `UpdateOrg` caveat):
+  `AdminService.SetOrgTenantID` is removed — use `AddOrgTenant` / `RemoveOrgTenant` /
+  `SetDefaultOrgTenant`; `Org.tenant_id` and `OrgMembership.tenant_id` are replaced by
+  `repeated OrgTenant tenants`; `CreateAgentToken` requires `org_id`. Details under *API*.
+  (#386, #387)
+- **New limits for every organisation** (no real configuration comes near them): pipeline
+  contents ≤ 1 MiB on every write, management-API requests ≤ 4 MiB, configuration nested ≤ 512
+  levels with expression chains ≤ 4096 links and parsed trees ≤ 1024 deep (Stage 1 errors),
+  `config.gitsync.max_file_bytes` ≤ 1 MiB (a larger value is refused by the chart schema and at
+  startup — check your values if you raised it), and in visual pipelines labels and component
+  names ≤ 256 bytes, no duplicate edges and rendered output ≤ 1 MiB. (#388, #393)
+- **Served config format 3** (from rc.1) still applies when coming from 0.22.x: one recompute per
+  collector, a single reload only with `server.beacon_disabled: true`. Nothing changes coming
+  from rc.1.
+- New chart values, all additive: `config.agent.outage_cache_ttl` (default `"60s"`) and
+  `config.tenants.require_owned` (default `false`). (#385, #388)
+
+### Added
+
+- **Agent tokens are bound to an organisation.** Shipped. A token carries an org and optional
+  cluster and role allowlists, resolved exactly like an OIDC collector binding: a token is
+  refused (`claim_denied` / `role_denied`) for a cluster another org claims or outside its
+  allowlists, and claims an allowed unclaimed cluster for its org only when an app admin minted
+  or bound it (`AgentToken.may_claim`). Org admins (and admin-tier service accounts) can create,
+  list and revoke their own org's tokens, which serve only clusters the org already claims. The
+  Agent Tokens page moved under **Access**, shows each token's org and allowlists, lists unbound
+  tokens first and offers **Bind** / **Rebind** to an app admin; `shepherd token bind` is new.
+  A bound token's beacon write naming another org's collector is dropped
+  (`reason="beacon_denied"`). (#386)
+- **An organisation can own several tenants and tenant prefixes.** Shipped. An app admin adds
+  exact tenants and prefixes on **Admin → Organisations** (Edit) and picks the default; a tenant
+  still belongs to at most one organisation, so overlapping prefixes and exact tenants across
+  orgs are refused. A tenant can be removed unless a live route, destination or binding of the
+  org would be left on a tenant it no longer owns. Tenant routes take a tenant the org owns
+  (picker in the route form, default preselected; a new Tenant column), destination bindings
+  now refuse another org's tenant as destinations did, and chart values use the default tenant.
+  Every write is audited (`org.tenant.add|remove|set_default`). (#387)
+- **Strict tenant mode** (opt-in, off by default). Shipped. Per organisation (an app admin's
+  toggle on **Admin → Organisations**, `SetOrgStrictTenants`) or for every org
+  (`config.tenants.require_owned`), an org's destinations, bindings, routes and pipelines may use
+  only tenants it owns. The gate lints pipeline text for tenant headers, `tenant_id` attributes,
+  `stage.tenant`, Loki's `__tenant_id__` label and push sources, and in strict mode refuses any
+  tenant it does not own or cannot verify (`sys.env`, data-derived values, external
+  `import.*` modules). Turning it on is refused, with the list of what to fix, until nothing of
+  the org breaks the rule; `AdminService.TenantPreflight` and the new
+  `shepherd admin tenant-preflight` CLI report that list, and with `require_owned` Shepherd
+  refuses to start while it is not empty. The lint is defence in depth: a backend's own tenant
+  authentication stays the boundary (docs' *Destinations* page). (#388)
+- **`shepherd dev ensure-org`** (dev-only): creates an organisation idempotently, so a compose
+  stack can mint a bound token before any Alloy starts. (#392)
+
+### Fixed
+
+- **Collectors could not restart while the database was down.** Shipped. Alloy stops its
+  remote-config service when `RegisterCollector` fails at start-up, so a database outage turned
+  every restart into a crash loop. Outage-class database errors now answer `Unavailable` (never
+  `Unauthenticated`), and for `agent.outage_cache_ttl` (default 60s, `0` turns it off) each
+  replica keeps a bounded cache of recently verified tokens (the stored hash, never the secret)
+  and of the last config it served each collector: during an outage a known collector is
+  acknowledged and re-served that config, everyone else gets `Unavailable`. Revoking or
+  rebinding a token, and changing an agent identity, evicts it on the serving replica; a
+  caller's own request deadline is never mistaken for an outage. The beacon answers 503 instead
+  of 401 in the same case, so remote_write retries. (#374, #385)
+- **Restoring a revision switched a live pipeline off.** Shipped. `RestoreRevision` copied the
+  revision's enabled bit, and revision 1 is always disabled, so "revert to the first version"
+  disabled the pipeline. A restore now keeps the pipeline's current enabled state; an enabled
+  pipeline's restore still passes Stage 3 first, and the dialog copy says so. (#377, #383)
+- **The beacon never reported per pipeline.** Shipped. Inventory was keyed on
+  `controller_path` alone, which every declare-wrapped pipeline shares, so reconciliation's
+  observed side was always empty. The projection now joins `controller_path` and
+  `controller_id`, rolls nested module loaders up into their pipeline (unhealthy if any is) and
+  drops the root and bootstrap loaders. No served-byte change; old rows age out.
+  (B-BEACON-KEY, part of #378, #384)
+- **A pipeline with pathologically deep nesting could crash the server.** Shipped. Such config is
+  now refused at Stage 1: every parse goes through one guarded entry point that refuses nesting
+  over 512 levels, expression chains over 4096 links and parsed trees deeper than 1024 before any
+  recursive walk sees them. (#388)
+- **A small visual graph could expand to gigabytes of rendered text.** Shipped. Render output is
+  bounded at 1 MiB while it is written (`output_too_large`, InvalidArgument "rendered pipeline
+  exceeds 1 MiB"), duplicate edges are refused instead of wiring a component twice
+  (`duplicate_edge`), labels and component names over 256 bytes are refused, diagnostics are
+  capped, and the quadratic steps in the render sort and the graph parser are gone. Rendered
+  bytes are unchanged for every valid graph. (#391, #393)
+- **Request sizes were bounded only for collectors.** Shipped. Management-API requests are capped
+  at 4 MiB, pipeline contents at 1 MiB on every write and on every RPC that takes Alloy text or a
+  graph, and `gitsync.max_file_bytes` at 1 MiB. (#388)
+- **The e2e compose stack's collectors could not start** after tokens became org-bound: the
+  stack now creates its org and mints a bound token before Alloy starts. Dev and test only.
+  (#392)
+
+### Changed
+
+- `shepherd token create` requires `--org`, also with `SHEPHERD_DEV_ALLOW_STATIC_TOKEN=true`
+  (which now only allows a fixed `--id` / `--secret`); `dev seed` binds its token to
+  `platform-org`. (#386, #392)
+- Pipeline diagnostics can be warnings (`Diagnostic.warning`, `VisualNodeDiagnostic.warning`),
+  drawn as warnings in the editor and the wizard preview and never blocking a save. (#388)
+
+### API
+
+**Breaking:**
+
+- `AdminService.SetOrgTenantID` is removed; `AddOrgTenant`, `RemoveOrgTenant` and
+  `SetDefaultOrgTenant` (app admin) replace it. `Org.tenant_id` (8) and `OrgMembership.tenant_id`
+  (8) are reserved and replaced by `repeated OrgTenant tenants` (`tenant`, `kind`
+  `ORG_TENANT_KIND_EXACT|PREFIX`, `is_default`). `CreateOrgRequest.tenant_id` becomes the initial
+  default tenant. (#387)
+- `CreateAgentTokenRequest.org_id` is required. (#386)
+
+**Additive:**
+
+- `BindAgentToken`; `AgentToken.org_id`, `org_name`, `clusters`, `roles`, `may_claim`;
+  `ListAgentTokensRequest.org_id`, `CreateAgentTokenRequest.clusters` / `roles`,
+  `RevokeAgentTokenRequest.org_id`. List/Create/Revoke are open to org admins of the token's
+  org. (#386)
+- `CreateTenantRouteRequest.tenant` (empty = the org's default). (#387)
+- `SetOrgStrictTenants`, `TenantPreflight`; `Org.strict_tenants`, `tenants_required`,
+  `warnings`; `OrgMembership.tenants_required`; `Diagnostic.warning`;
+  `VisualNodeDiagnostic.warning`. (#388)
+
+Collector API (`collector.v1`): no schema change. Unbound tokens get `PermissionDenied`, and an
+outage answers `Unavailable`.
+
+### Build & CI
+
+- The e2e compose stack runs `shepherd dev ensure-org` and mints its collectors' token bound to
+  that org before Alloy starts; the dev compose stack drops the unused static-token flag. (#392)
+- A repository guard (`TestNoDirectParserImports`) keeps every package off the raw Alloy parser,
+  and `TestRawAlloyProceduresAreCapped` fails until a new procedure carrying Alloy text or a
+  graph is capped. (#388)
+
 ## v0.19.0-rc.1 (prerelease)
 
 Chart 0.23.0-rc.1, a **release candidate** for v0.19.0. It is published as a GitHub prerelease:
