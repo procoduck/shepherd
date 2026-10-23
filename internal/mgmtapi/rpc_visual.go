@@ -94,7 +94,14 @@ func (s *VisualService) renderGraph(g *mgmtv1.GraphDocument) (visual.RenderResul
 	if err != nil {
 		return visual.RenderResult{}, visual.GraphDocument{}, visual.SchemaPayload{}, err
 	}
-	return visual.Render(doc, schemaPayload), doc, schemaPayload, nil
+	// Render refuses, while writing, a graph whose text would pass the
+	// pipeline contents limit (#391): capGraph bounds the graph, not what it
+	// expands to.
+	result := visual.Render(doc, schemaPayload)
+	if err := result.Err(); err != nil {
+		return visual.RenderResult{}, visual.GraphDocument{}, visual.SchemaPayload{}, err
+	}
+	return result, doc, schemaPayload, nil
 }
 
 // refuseGraphViewNodes rejects a graph carrying GraphNode.parent: that field

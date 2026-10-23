@@ -1768,12 +1768,12 @@ func checkContainment(doc visual.GraphDocument, req TransformRequest, removed []
 	res := visual.Render(doc, req.Schema)
 	for _, d := range res.Diagnostics {
 		switch d.Code {
-		case "label_collision":
-			// Colliding labels make Render emit nothing, so the textual checks
+		case "label_collision", "label_too_long", "output_too_large":
+			// Each of these makes Render emit nothing, so the textual checks
 			// below would pass vacuously. Fail closed instead.
 			errs = append(errs, TransformError{
 				Code: CodeContainmentViolated, NodeID: d.NodeID,
-				Message: "transformed graph has colliding labels, so containment cannot be verified against the rendered text",
+				Message: "transformed graph did not render (" + d.Message + "), so containment cannot be verified against the rendered text",
 			})
 		case "secret_by_value":
 			// P3.

@@ -3,10 +3,12 @@ package mgmtapi_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	. "github.com/onsi/ginkgo/v2"
@@ -87,6 +89,41 @@ var _ = Describe("shepherd.mgmt.v1.VisualService", Label("integration"), func() 
 		var result map[string]any
 		Expect(json.NewDecoder(resp.Body).Decode(&result)).To(Succeed())
 		Expect(result["content"]).To(ContainSubstring(`prometheus.exporter.unix "unix"`))
+	})
+
+	// #391: a graph under capGraph's 1 MiB whose text is several MiB — every
+	// one of 100 scrapes forwards to every one of 100 remote_writes, each
+	// remote_write label near the label cap. Render and Validate refuse it
+	// as InvalidArgument; Validate never reaches Stages12 with it.
+	It("refuses a graph whose rendered text would pass 1 MiB (#391)", func() {
+		nodes := []map[string]any{}
+		edges := []map[string]any{}
+		for j := range 100 {
+			nodes = append(nodes, map[string]any{
+				"id": fmt.Sprintf("r%d", j), "component": "prometheus.remote_write",
+				"label": fmt.Sprintf("r%d_%s", j, strings.Repeat("x", 240)),
+			})
+		}
+		for i := range 100 {
+			nodes = append(nodes, map[string]any{"id": fmt.Sprintf("s%d", i), "component": "prometheus.scrape", "label": fmt.Sprintf("s%d", i)})
+			for j := range 100 {
+				edges = append(edges, map[string]any{
+					"id":   fmt.Sprintf("%d.%d", i, j),
+					"from": map[string]any{"node": fmt.Sprintf("s%d", i), "port": "forward_to"},
+					"to":   map[string]any{"node": fmt.Sprintf("r%d", j), "port": "receiver"},
+				})
+			}
+		}
+		graph := map[string]any{"kind": "alloy-graph/v1", "schema_version": version.AlloySchemaVersion, "nodes": nodes, "edges": edges}
+		for _, proc := range []string{"Render", "Validate"} {
+			resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/"+proc, adminCookie, map[string]any{"org_id": orgID, "graph": graph})
+			var out map[string]any
+			Expect(json.NewDecoder(resp.Body).Decode(&out)).To(Succeed())
+			resp.Body.Close() //nolint:errcheck // test cleanup
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest), "%s: %v", proc, out)
+			Expect(out["code"]).To(Equal("invalid_argument"), proc)
+			Expect(out["message"]).To(ContainSubstring("rendered pipeline exceeds 1 MiB"), proc)
+		}
 	})
 
 	// #114: a graph using an experimental component (otelcol.exporter.debug is
