@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package shepherd.mgmt.v1;
 
+import "google/protobuf/timestamp.proto";
+
 option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 
 // Diagnostic is a structured error/warning from the Alloy validation gate
@@ -26,4 +28,29 @@ enum Role {
   ROLE_VIEWER = 1;
   ROLE_EDITOR = 2;
   ROLE_ADMIN = 3;
+}
+
+// OrgTenantKind is how an org owns a tenant (org_tenants.kind).
+enum OrgTenantKind {
+  ORG_TENANT_KIND_UNSPECIFIED = 0;
+  // EXACT owns exactly one tenant id. Unique across all orgs.
+  ORG_TENANT_KIND_EXACT = 1;
+  // PREFIX owns every valid tenant id that starts with it. No other org may
+  // own a tenant under it, nor a prefix that overlaps it.
+  ORG_TENANT_KIND_PREFIX = 2;
+}
+
+// OrgTenant is one tenant (or tenant prefix) an org owns. An org owns a
+// tenant when it is one of its EXACT tenants or falls under one of its
+// PREFIX tenants (internal/gateway.OrgOwnsTenant). Only an app admin adds or
+// removes them (AdminService.AddOrgTenant / RemoveOrgTenant).
+message OrgTenant {
+  string tenant = 1;
+  OrgTenantKind kind = 2;
+  // is_default marks the org's default tenant: what a tenant route uses
+  // when none is named, what chart values carry, and what the destination
+  // form pre-fills. At most one per org, and always an EXACT tenant.
+  bool is_default = 3;
+  google.protobuf.Timestamp created_at = 4;
+  string created_by = 5;
 }

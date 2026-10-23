@@ -48,13 +48,12 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 			DisplayName:   "Tenant Route RPC Org",
 			AdminGroupID:  "tenant-route-admin-group",
 			ViewerGroupID: pgtype.Text{String: "tenant-route-viewer-group", Valid: true},
-			// Tenant identity is an org property set by an app admin
-			// (0013_org_tenant_id). Routes read it from here; the request
-			// cannot carry one.
-			TenantID: pgtype.Text{String: "acme", Valid: true},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		orgID = o.ID
+		// Which tenants an org owns is set by an app admin (org_tenants,
+		// 0039). A route names one of them, or gets the default.
+		giveOrgTenant(ctx, st, orgID, "acme")
 
 		cfg := &config.Config{Auth: config.AuthConfig{InsecureCookies: true}}
 		cfg.Gateway.Routes.PublicBaseURL = "https://telemetry.example.com"
@@ -424,9 +423,9 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 
 		other, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
 			Name: "other-org-for-tenant-route", DisplayName: "Other Org", AdminGroupID: "other-admin-group",
-			TenantID: pgtype.Text{String: "globex", Valid: true},
 		})
 		Expect(err).NotTo(HaveOccurred())
+		giveOrgTenant(ctx, st, other.ID, "globex")
 		otherAdmin := createSession(false, []string{"other-admin-group"})
 
 		resp := postConnect("/shepherd.mgmt.v1.TenantRouteService/RotateTenantRoute",
@@ -440,10 +439,10 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 	// tenant. Once routes are applied to a cluster, that is a cross-tenant
 	// write authorized by the wrong org.
 	//
-	// The fix is structural — the proto field is reserved, so the value cannot
-	// be sent at all — which is why this spec asserts on the RESULT rather
-	// than on a rejection: a request carrying a stray tenantId is simply
-	// ignored by protojson, and the route still gets the org's own identity.
+	// Field 2 stays reserved, so a request carrying a stray tenantId is simply
+	// ignored by protojson and the route still gets the org's default tenant.
+	// The checked replacement, field 8 (tenant), is covered by the "names a
+	// tenant" specs below.
 	It("takes tenant identity from the org, ignoring any tenant the caller tries to supply", func() {
 		admin := createSession(false, []string{"tenant-route-admin-group"})
 		body := map[string]any{
@@ -463,7 +462,7 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 			"the slug is derived from the tenant too, so it must come from the same place")
 	})
 
-	It("refuses to create a route for an org that has no tenant identity yet", func() {
+	It("refuses to create a route naming no tenant for an org that has no default tenant", func() {
 		noTenant, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
 			Name: "org-without-tenant", DisplayName: "No Tenant", AdminGroupID: "no-tenant-admin-group",
 		})
@@ -484,8 +483,10 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 		Expect(code).To(Equal("failed_precondition"),
 			"a route for a tenant-less org would have no value to inject; that is a precondition "+
 				"failure the operator can fix, not a malformed request")
-		Expect(msg).To(ContainSubstring("SetOrgTenantID"),
-			"the refusal must name the app-admin action that fixes it")
+		Expect(msg).To(ContainSubstring("default tenant"),
+			"the refusal must say what is missing")
+		Expect(msg).To(ContainSubstring("Admin → Organisations"),
+			"the refusal must name where an app admin fixes it")
 	})
 
 	// M6 (2026-10-08 walkthrough): "Bad Name!" was accepted and stored, and a

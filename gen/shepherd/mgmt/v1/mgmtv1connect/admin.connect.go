@@ -41,9 +41,15 @@ const (
 	AdminServiceUpdateOrgProcedure = "/shepherd.mgmt.v1.AdminService/UpdateOrg"
 	// AdminServiceDeleteOrgProcedure is the fully-qualified name of the AdminService's DeleteOrg RPC.
 	AdminServiceDeleteOrgProcedure = "/shepherd.mgmt.v1.AdminService/DeleteOrg"
-	// AdminServiceSetOrgTenantIDProcedure is the fully-qualified name of the AdminService's
-	// SetOrgTenantID RPC.
-	AdminServiceSetOrgTenantIDProcedure = "/shepherd.mgmt.v1.AdminService/SetOrgTenantID"
+	// AdminServiceAddOrgTenantProcedure is the fully-qualified name of the AdminService's AddOrgTenant
+	// RPC.
+	AdminServiceAddOrgTenantProcedure = "/shepherd.mgmt.v1.AdminService/AddOrgTenant"
+	// AdminServiceRemoveOrgTenantProcedure is the fully-qualified name of the AdminService's
+	// RemoveOrgTenant RPC.
+	AdminServiceRemoveOrgTenantProcedure = "/shepherd.mgmt.v1.AdminService/RemoveOrgTenant"
+	// AdminServiceSetDefaultOrgTenantProcedure is the fully-qualified name of the AdminService's
+	// SetDefaultOrgTenant RPC.
+	AdminServiceSetDefaultOrgTenantProcedure = "/shepherd.mgmt.v1.AdminService/SetDefaultOrgTenant"
 	// AdminServiceListClustersProcedure is the fully-qualified name of the AdminService's ListClusters
 	// RPC.
 	AdminServiceListClustersProcedure = "/shepherd.mgmt.v1.AdminService/ListClusters"
@@ -100,9 +106,20 @@ type AdminServiceClient interface {
 	CreateOrg(context.Context, *connect.Request[v1.CreateOrgRequest]) (*connect.Response[v1.Org], error)
 	UpdateOrg(context.Context, *connect.Request[v1.UpdateOrgRequest]) (*connect.Response[v1.Org], error)
 	DeleteOrg(context.Context, *connect.Request[v1.DeleteOrgRequest]) (*connect.Response[v1.DeleteOrgResponse], error)
-	// SetOrgTenantID assigns tenant identity to an org created without one.
-	// App admin only, set-once.
-	SetOrgTenantID(context.Context, *connect.Request[v1.SetOrgTenantIDRequest]) (*connect.Response[v1.Org], error)
+	// AddOrgTenant gives an org an exact tenant or a tenant prefix. App admin
+	// only. An exact tenant is unique across all orgs; a prefix may not
+	// overlap another org's prefix nor cover another org's exact tenant, and
+	// neither may cover a tenant another org's destination or binding sends.
+	AddOrgTenant(context.Context, *connect.Request[v1.AddOrgTenantRequest]) (*connect.Response[v1.Org], error)
+	// RemoveOrgTenant takes an exact tenant or prefix away from an org. App
+	// admin only. Refused (failed_precondition, naming each one) when a live
+	// tenant route, destination or destination binding of the org would be left
+	// on a tenant no remaining tenant or prefix of the org covers, and for the
+	// default while another exact tenant could become the default.
+	RemoveOrgTenant(context.Context, *connect.Request[v1.RemoveOrgTenantRequest]) (*connect.Response[v1.Org], error)
+	// SetDefaultOrgTenant makes one of the org's exact tenants its default.
+	// App admin only.
+	SetDefaultOrgTenant(context.Context, *connect.Request[v1.SetDefaultOrgTenantRequest]) (*connect.Response[v1.Org], error)
 	ListClusters(context.Context, *connect.Request[v1.ListClustersRequest]) (*connect.Response[v1.ListClustersResponse], error)
 	ClaimCluster(context.Context, *connect.Request[v1.ClaimClusterRequest]) (*connect.Response[v1.ClaimClusterResponse], error)
 	UnclaimCluster(context.Context, *connect.Request[v1.UnclaimClusterRequest]) (*connect.Response[v1.UnclaimClusterResponse], error)
@@ -177,10 +194,22 @@ func NewAdminServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(adminServiceMethods.ByName("DeleteOrg")),
 			connect.WithClientOptions(opts...),
 		),
-		setOrgTenantID: connect.NewClient[v1.SetOrgTenantIDRequest, v1.Org](
+		addOrgTenant: connect.NewClient[v1.AddOrgTenantRequest, v1.Org](
 			httpClient,
-			baseURL+AdminServiceSetOrgTenantIDProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("SetOrgTenantID")),
+			baseURL+AdminServiceAddOrgTenantProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("AddOrgTenant")),
+			connect.WithClientOptions(opts...),
+		),
+		removeOrgTenant: connect.NewClient[v1.RemoveOrgTenantRequest, v1.Org](
+			httpClient,
+			baseURL+AdminServiceRemoveOrgTenantProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("RemoveOrgTenant")),
+			connect.WithClientOptions(opts...),
+		),
+		setDefaultOrgTenant: connect.NewClient[v1.SetDefaultOrgTenantRequest, v1.Org](
+			httpClient,
+			baseURL+AdminServiceSetDefaultOrgTenantProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("SetDefaultOrgTenant")),
 			connect.WithClientOptions(opts...),
 		),
 		listClusters: connect.NewClient[v1.ListClustersRequest, v1.ListClustersResponse](
@@ -288,7 +317,9 @@ type adminServiceClient struct {
 	createOrg               *connect.Client[v1.CreateOrgRequest, v1.Org]
 	updateOrg               *connect.Client[v1.UpdateOrgRequest, v1.Org]
 	deleteOrg               *connect.Client[v1.DeleteOrgRequest, v1.DeleteOrgResponse]
-	setOrgTenantID          *connect.Client[v1.SetOrgTenantIDRequest, v1.Org]
+	addOrgTenant            *connect.Client[v1.AddOrgTenantRequest, v1.Org]
+	removeOrgTenant         *connect.Client[v1.RemoveOrgTenantRequest, v1.Org]
+	setDefaultOrgTenant     *connect.Client[v1.SetDefaultOrgTenantRequest, v1.Org]
 	listClusters            *connect.Client[v1.ListClustersRequest, v1.ListClustersResponse]
 	claimCluster            *connect.Client[v1.ClaimClusterRequest, v1.ClaimClusterResponse]
 	unclaimCluster          *connect.Client[v1.UnclaimClusterRequest, v1.UnclaimClusterResponse]
@@ -327,9 +358,19 @@ func (c *adminServiceClient) DeleteOrg(ctx context.Context, req *connect.Request
 	return c.deleteOrg.CallUnary(ctx, req)
 }
 
-// SetOrgTenantID calls shepherd.mgmt.v1.AdminService.SetOrgTenantID.
-func (c *adminServiceClient) SetOrgTenantID(ctx context.Context, req *connect.Request[v1.SetOrgTenantIDRequest]) (*connect.Response[v1.Org], error) {
-	return c.setOrgTenantID.CallUnary(ctx, req)
+// AddOrgTenant calls shepherd.mgmt.v1.AdminService.AddOrgTenant.
+func (c *adminServiceClient) AddOrgTenant(ctx context.Context, req *connect.Request[v1.AddOrgTenantRequest]) (*connect.Response[v1.Org], error) {
+	return c.addOrgTenant.CallUnary(ctx, req)
+}
+
+// RemoveOrgTenant calls shepherd.mgmt.v1.AdminService.RemoveOrgTenant.
+func (c *adminServiceClient) RemoveOrgTenant(ctx context.Context, req *connect.Request[v1.RemoveOrgTenantRequest]) (*connect.Response[v1.Org], error) {
+	return c.removeOrgTenant.CallUnary(ctx, req)
+}
+
+// SetDefaultOrgTenant calls shepherd.mgmt.v1.AdminService.SetDefaultOrgTenant.
+func (c *adminServiceClient) SetDefaultOrgTenant(ctx context.Context, req *connect.Request[v1.SetDefaultOrgTenantRequest]) (*connect.Response[v1.Org], error) {
+	return c.setDefaultOrgTenant.CallUnary(ctx, req)
 }
 
 // ListClusters calls shepherd.mgmt.v1.AdminService.ListClusters.
@@ -418,9 +459,20 @@ type AdminServiceHandler interface {
 	CreateOrg(context.Context, *connect.Request[v1.CreateOrgRequest]) (*connect.Response[v1.Org], error)
 	UpdateOrg(context.Context, *connect.Request[v1.UpdateOrgRequest]) (*connect.Response[v1.Org], error)
 	DeleteOrg(context.Context, *connect.Request[v1.DeleteOrgRequest]) (*connect.Response[v1.DeleteOrgResponse], error)
-	// SetOrgTenantID assigns tenant identity to an org created without one.
-	// App admin only, set-once.
-	SetOrgTenantID(context.Context, *connect.Request[v1.SetOrgTenantIDRequest]) (*connect.Response[v1.Org], error)
+	// AddOrgTenant gives an org an exact tenant or a tenant prefix. App admin
+	// only. An exact tenant is unique across all orgs; a prefix may not
+	// overlap another org's prefix nor cover another org's exact tenant, and
+	// neither may cover a tenant another org's destination or binding sends.
+	AddOrgTenant(context.Context, *connect.Request[v1.AddOrgTenantRequest]) (*connect.Response[v1.Org], error)
+	// RemoveOrgTenant takes an exact tenant or prefix away from an org. App
+	// admin only. Refused (failed_precondition, naming each one) when a live
+	// tenant route, destination or destination binding of the org would be left
+	// on a tenant no remaining tenant or prefix of the org covers, and for the
+	// default while another exact tenant could become the default.
+	RemoveOrgTenant(context.Context, *connect.Request[v1.RemoveOrgTenantRequest]) (*connect.Response[v1.Org], error)
+	// SetDefaultOrgTenant makes one of the org's exact tenants its default.
+	// App admin only.
+	SetDefaultOrgTenant(context.Context, *connect.Request[v1.SetDefaultOrgTenantRequest]) (*connect.Response[v1.Org], error)
 	ListClusters(context.Context, *connect.Request[v1.ListClustersRequest]) (*connect.Response[v1.ListClustersResponse], error)
 	ClaimCluster(context.Context, *connect.Request[v1.ClaimClusterRequest]) (*connect.Response[v1.ClaimClusterResponse], error)
 	UnclaimCluster(context.Context, *connect.Request[v1.UnclaimClusterRequest]) (*connect.Response[v1.UnclaimClusterResponse], error)
@@ -491,10 +543,22 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(adminServiceMethods.ByName("DeleteOrg")),
 		connect.WithHandlerOptions(opts...),
 	)
-	adminServiceSetOrgTenantIDHandler := connect.NewUnaryHandler(
-		AdminServiceSetOrgTenantIDProcedure,
-		svc.SetOrgTenantID,
-		connect.WithSchema(adminServiceMethods.ByName("SetOrgTenantID")),
+	adminServiceAddOrgTenantHandler := connect.NewUnaryHandler(
+		AdminServiceAddOrgTenantProcedure,
+		svc.AddOrgTenant,
+		connect.WithSchema(adminServiceMethods.ByName("AddOrgTenant")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceRemoveOrgTenantHandler := connect.NewUnaryHandler(
+		AdminServiceRemoveOrgTenantProcedure,
+		svc.RemoveOrgTenant,
+		connect.WithSchema(adminServiceMethods.ByName("RemoveOrgTenant")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceSetDefaultOrgTenantHandler := connect.NewUnaryHandler(
+		AdminServiceSetDefaultOrgTenantProcedure,
+		svc.SetDefaultOrgTenant,
+		connect.WithSchema(adminServiceMethods.ByName("SetDefaultOrgTenant")),
 		connect.WithHandlerOptions(opts...),
 	)
 	adminServiceListClustersHandler := connect.NewUnaryHandler(
@@ -603,8 +667,12 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 			adminServiceUpdateOrgHandler.ServeHTTP(w, r)
 		case AdminServiceDeleteOrgProcedure:
 			adminServiceDeleteOrgHandler.ServeHTTP(w, r)
-		case AdminServiceSetOrgTenantIDProcedure:
-			adminServiceSetOrgTenantIDHandler.ServeHTTP(w, r)
+		case AdminServiceAddOrgTenantProcedure:
+			adminServiceAddOrgTenantHandler.ServeHTTP(w, r)
+		case AdminServiceRemoveOrgTenantProcedure:
+			adminServiceRemoveOrgTenantHandler.ServeHTTP(w, r)
+		case AdminServiceSetDefaultOrgTenantProcedure:
+			adminServiceSetDefaultOrgTenantHandler.ServeHTTP(w, r)
 		case AdminServiceListClustersProcedure:
 			adminServiceListClustersHandler.ServeHTTP(w, r)
 		case AdminServiceClaimClusterProcedure:
@@ -662,8 +730,16 @@ func (UnimplementedAdminServiceHandler) DeleteOrg(context.Context, *connect.Requ
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.DeleteOrg is not implemented"))
 }
 
-func (UnimplementedAdminServiceHandler) SetOrgTenantID(context.Context, *connect.Request[v1.SetOrgTenantIDRequest]) (*connect.Response[v1.Org], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.SetOrgTenantID is not implemented"))
+func (UnimplementedAdminServiceHandler) AddOrgTenant(context.Context, *connect.Request[v1.AddOrgTenantRequest]) (*connect.Response[v1.Org], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.AddOrgTenant is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) RemoveOrgTenant(context.Context, *connect.Request[v1.RemoveOrgTenantRequest]) (*connect.Response[v1.Org], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.RemoveOrgTenant is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) SetDefaultOrgTenant(context.Context, *connect.Request[v1.SetDefaultOrgTenantRequest]) (*connect.Response[v1.Org], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.SetDefaultOrgTenant is not implemented"))
 }
 
 func (UnimplementedAdminServiceHandler) ListClusters(context.Context, *connect.Request[v1.ListClustersRequest]) (*connect.Response[v1.ListClustersResponse], error) {

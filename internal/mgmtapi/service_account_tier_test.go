@@ -57,12 +57,12 @@ var _ = Describe("W3-1: service-account role tier", Label("integration"), func()
 
 		o, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
 			Name: "satier-org", DisplayName: "SA Tier Org", AdminGroupID: "satier-admin-group",
-			// A tenant identity is required before CreateTenantRoute will
-			// mint anything — see rpc_tenant_route_test.go.
-			TenantID: pgtype.Text{String: "satier-tenant", Valid: true},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		orgID = o.ID
+		// A default tenant is what CreateTenantRoute mints a route for when
+		// the request names none — see rpc_tenant_route_test.go.
+		giveOrgTenant(ctx, st, orgID, "satier-tenant")
 
 		o2, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
 			Name: "satier-org-2", DisplayName: "SA Tier Org 2", AdminGroupID: "satier-admin-group-2",

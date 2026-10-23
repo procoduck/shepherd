@@ -185,14 +185,17 @@ var _ = Describe("MeService GetMe role resolution", Label("integration"), func()
 	})
 
 	// #261 (maintainer decision 2026-10-06): OrgMembership carries the org's
-	// own orgs.tenant_id so the destination form can pre-fill it for a
-	// member who cannot read the org row. Red run: before the field existed
-	// the membership had no tenantId.
-	It("returns the org's own tenant to a member, and none for an org without one", func() {
+	// own tenants so the destination form can pre-fill the default for a
+	// member who cannot read the org row, and the route form can offer them.
+	It("returns the org's own tenants to a member, and none for an org without any", func() {
 		withTenant, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
 			Name: "me-tenant-acme", DisplayName: "Acme", AdminGroupID: "me-tenant-admins",
 			ViewerGroupID: pgtype.Text{String: "me-tenant-viewers", Valid: true},
-			TenantID:      pgtype.Text{String: "acme", Valid: true},
+		})
+		Expect(err).NotTo(HaveOccurred())
+		giveOrgTenant(ctx, st, withTenant.ID, "acme")
+		_, err = st.Queries.AddOrgTenant(ctx, sqlc.AddOrgTenantParams{
+			OrgID: withTenant.ID, Tenant: "acme-team-", Kind: "prefix", CreatedBy: "test",
 		})
 		Expect(err).NotTo(HaveOccurred())
 		without, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
@@ -224,7 +227,10 @@ var _ = Describe("MeService GetMe role resolution", Label("integration"), func()
 		}
 		Expect(byID).To(HaveKey(withTenant.ID.String()))
 		Expect(byID).To(HaveKey(without.ID.String()))
-		Expect(byID[withTenant.ID.String()]).To(HaveKeyWithValue("tenantId", "acme"))
-		Expect(byID[without.ID.String()]).NotTo(HaveKey("tenantId"), "an org without a tenant reports none")
+		Expect(byID[withTenant.ID.String()]["tenants"]).To(ConsistOf(
+			And(HaveKeyWithValue("tenant", "acme"), HaveKeyWithValue("kind", "ORG_TENANT_KIND_EXACT"), HaveKeyWithValue("isDefault", true)),
+			And(HaveKeyWithValue("tenant", "acme-team-"), HaveKeyWithValue("kind", "ORG_TENANT_KIND_PREFIX"), Not(HaveKey("isDefault"))),
+		))
+		Expect(byID[without.ID.String()]).NotTo(HaveKey("tenants"), "an org without a tenant reports none")
 	})
 })

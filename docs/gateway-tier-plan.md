@@ -281,6 +281,29 @@ An org with no tenant identity cannot have routes at all — `CreateTenantRoute`
 the app-admin action. That is deliberately a loud stop rather than a backfilled default: inventing
 a tenant for an existing org would silently decide where its telemetry lands.
 
+**Amendment (2026-10-22): a tenant belongs to at most one org; an org may own several tenants and
+prefixes.** `orgs.tenant_id` moved into `org_tenants` (`0039_org_tenants`; each org's tenant became
+its default exact tenant). An org owns a tenant when it is one of its **exact** tenants or a valid
+tenant under one of its **prefixes** (`gateway.OrgOwnsTenant`, the one definition every check
+asks). What changes and what holds:
+
+- **Still app admin only.** `AdminService.AddOrgTenant` / `RemoveOrgTenant` /
+  `SetDefaultOrgTenant` (audited) replace `SetOrgTenantID`; an org admin cannot change them.
+- **One tenant, one org — now across prefixes.** An exact tenant is unique across all orgs (a
+  unique index); a prefix may not overlap another org's prefix, cover another org's exact tenant,
+  nor may an exact tenant fall under another org's prefix. The prefix relation is checked in Go
+  under one exclusive advisory lock that every ownership-reading write takes shared.
+- **The route names its tenant, checked.** `CreateTenantRouteRequest.tenant` (a new field; field 2
+  stays reserved) must be one the org owns; empty means the org's default, and an org without one
+  is refused. A route keeps the tenant it was minted with.
+- **Set-once becomes remove-when-unowned-by-nothing.** A tenant or prefix can be removed unless a
+  live route, destination or destination binding of the org would be left on a tenant no remaining
+  rule of the org covers, so an applied `HTTPRoute` can never be left injecting a tenant the org no
+  longer owns. The default can be switched to another exact tenant, and must be before it is
+  removed while one exists.
+- Destinations keep their rule (any valid tenant another org does not own); destination bindings
+  now get the same check. A stricter "only the org's own" mode is a separate, later decision.
+
 ## 3. The model
 
 ```

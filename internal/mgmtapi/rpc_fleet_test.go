@@ -640,8 +640,11 @@ var _ = Describe("shepherd.mgmt.v1.FleetService RPC", Label("integration"), func
 			Expect(out["message"]).To(ContainSubstring("another organisation"))
 		})
 
-		It("stamps the org's tenant identity, not one the caller chose", func() {
-			Expect(st.Queries.SetOrgTenantID(ctx, sqlc.SetOrgTenantIDParams{ID: orgID, TenantID: pgtype.Text{String: "acme", Valid: true}})).Error().NotTo(HaveOccurred())
+		It("stamps the org's default tenant, not one the caller chose", func() {
+			// The org owns several tenants; the default is the one chart
+			// values carry.
+			Expect(st.Queries.AddOrgTenant(ctx, sqlc.AddOrgTenantParams{OrgID: orgID, Tenant: "acme-eu", Kind: "exact"})).Error().NotTo(HaveOccurred())
+			giveOrgTenant(ctx, st, orgID, "acme")
 			_, out := render(admin, map[string]any{"orgId": orgID.String(), "clusterName": "c1", "roles": []string{"metrics"}})
 			Expect(out["valuesYaml"]).To(ContainSubstring(`tenant: "acme"`))
 		})

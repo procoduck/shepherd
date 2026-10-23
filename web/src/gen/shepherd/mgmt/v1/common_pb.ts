@@ -4,13 +4,15 @@
 
 import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { Timestamp } from "@bufbuild/protobuf/wkt";
+import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file shepherd/mgmt/v1/common.proto.
  */
 export const file_shepherd_mgmt_v1_common: GenFile = /*@__PURE__*/
-  fileDesc("Ch1zaGVwaGVyZC9tZ210L3YxL2NvbW1vbi5wcm90bxIQc2hlcGhlcmQubWdtdC52MSJHCgpEaWFnbm9zdGljEgwKBGxpbmUYASABKAUSCwoDY29sGAIgASgFEg8KB21lc3NhZ2UYAyABKAkSDQoFc3RhZ2UYBCABKAUqTgoEUm9sZRIUChBST0xFX1VOU1BFQ0lGSUVEEAASDwoLUk9MRV9WSUVXRVIQARIPCgtST0xFX0VESVRPUhACEg4KClJPTEVfQURNSU4QA0ImWiRzaGVwaGVyZC9nZW4vc2hlcGhlcmQvbWdtdC92MTttZ210djFiBnByb3RvMw");
+  fileDesc("Ch1zaGVwaGVyZC9tZ210L3YxL2NvbW1vbi5wcm90bxIQc2hlcGhlcmQubWdtdC52MSJHCgpEaWFnbm9zdGljEgwKBGxpbmUYASABKAUSCwoDY29sGAIgASgFEg8KB21lc3NhZ2UYAyABKAkSDQoFc3RhZ2UYBCABKAUiogEKCU9yZ1RlbmFudBIOCgZ0ZW5hbnQYASABKAkSLQoEa2luZBgCIAEoDjIfLnNoZXBoZXJkLm1nbXQudjEuT3JnVGVuYW50S2luZBISCgppc19kZWZhdWx0GAMgASgIEi4KCmNyZWF0ZWRfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhIKCmNyZWF0ZWRfYnkYBSABKAkqTgoEUm9sZRIUChBST0xFX1VOU1BFQ0lGSUVEEAASDwoLUk9MRV9WSUVXRVIQARIPCgtST0xFX0VESVRPUhACEg4KClJPTEVfQURNSU4QAypnCg1PcmdUZW5hbnRLaW5kEh8KG09SR19URU5BTlRfS0lORF9VTlNQRUNJRklFRBAAEhkKFU9SR19URU5BTlRfS0lORF9FWEFDVBABEhoKFk9SR19URU5BTlRfS0lORF9QUkVGSVgQAkImWiRzaGVwaGVyZC9nZW4vc2hlcGhlcmQvbWdtdC92MTttZ210djFiBnByb3RvMw", [file_google_protobuf_timestamp]);
 
 /**
  * Diagnostic is a structured error/warning from the Alloy validation gate
@@ -56,6 +58,52 @@ export const DiagnosticSchema: GenMessage<Diagnostic> = /*@__PURE__*/
   messageDesc(file_shepherd_mgmt_v1_common, 0);
 
 /**
+ * OrgTenant is one tenant (or tenant prefix) an org owns. An org owns a
+ * tenant when it is one of its EXACT tenants or falls under one of its
+ * PREFIX tenants (internal/gateway.OrgOwnsTenant). Only an app admin adds or
+ * removes them (AdminService.AddOrgTenant / RemoveOrgTenant).
+ *
+ * @generated from message shepherd.mgmt.v1.OrgTenant
+ */
+export type OrgTenant = Message<"shepherd.mgmt.v1.OrgTenant"> & {
+  /**
+   * @generated from field: string tenant = 1;
+   */
+  tenant: string;
+
+  /**
+   * @generated from field: shepherd.mgmt.v1.OrgTenantKind kind = 2;
+   */
+  kind: OrgTenantKind;
+
+  /**
+   * is_default marks the org's default tenant: what a tenant route uses
+   * when none is named, what chart values carry, and what the destination
+   * form pre-fills. At most one per org, and always an EXACT tenant.
+   *
+   * @generated from field: bool is_default = 3;
+   */
+  isDefault: boolean;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp created_at = 4;
+   */
+  createdAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: string created_by = 5;
+   */
+  createdBy: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.OrgTenant.
+ * Use `create(OrgTenantSchema)` to create a new message.
+ */
+export const OrgTenantSchema: GenMessage<OrgTenant> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_common, 1);
+
+/**
  * Role is an org role (spec §7.2): viewer < editor < admin, each including
  * the one below it. App admin is not a Role — it is a separate, cross-org
  * flag (User.is_app_admin, GetMeResponse.is_app_admin). ROLE_UNSPECIFIED
@@ -90,4 +138,37 @@ export enum Role {
  */
 export const RoleSchema: GenEnum<Role> = /*@__PURE__*/
   enumDesc(file_shepherd_mgmt_v1_common, 0);
+
+/**
+ * OrgTenantKind is how an org owns a tenant (org_tenants.kind).
+ *
+ * @generated from enum shepherd.mgmt.v1.OrgTenantKind
+ */
+export enum OrgTenantKind {
+  /**
+   * @generated from enum value: ORG_TENANT_KIND_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * EXACT owns exactly one tenant id. Unique across all orgs.
+   *
+   * @generated from enum value: ORG_TENANT_KIND_EXACT = 1;
+   */
+  EXACT = 1,
+
+  /**
+   * PREFIX owns every valid tenant id that starts with it. No other org may
+   * own a tenant under it, nor a prefix that overlaps it.
+   *
+   * @generated from enum value: ORG_TENANT_KIND_PREFIX = 2;
+   */
+  PREFIX = 2,
+}
+
+/**
+ * Describes the enum shepherd.mgmt.v1.OrgTenantKind.
+ */
+export const OrgTenantKindSchema: GenEnum<OrgTenantKind> = /*@__PURE__*/
+  enumDesc(file_shepherd_mgmt_v1_common, 1);
 

@@ -75,7 +75,7 @@
       <h2 id="k8s-monitoring">With Grafana's k8s-monitoring chart</h2>
       <p>If your clusters run Grafana's <code>k8s-monitoring</code> Helm chart, Shepherd writes the values for you. On <strong>Collectors</strong>, an organisation admin chooses <strong>Connect a cluster</strong>, names the cluster and picks its collectors (metrics, logs, singleton, receiver). Shepherd returns:</p>
       <ul>
-        <li><code>shepherd-layer.yaml</code> &mdash; each collector's <code>remoteConfig</code>, pointed at this Shepherd's <code>server.base_url</code>, with the cluster name and role as attributes and the organisation's tenant if it has one;</li>
+        <li><code>shepherd-layer.yaml</code> &mdash; each collector's <code>remoteConfig</code>, pointed at this Shepherd's <code>server.base_url</code>, with the cluster name and role as attributes and the organisation's default tenant if it has one;</li>
         <li><code>shepherd-credentials.yaml</code> &mdash; loads the agent token into each collector from a Kubernetes Secret (it names the Secret; it never contains the token);</li>
         <li>the <code>kubectl create secret</code> and <code>helm upgrade --install</code> commands that use them.</li>
       </ul>

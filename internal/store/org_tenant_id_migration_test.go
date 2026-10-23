@@ -21,7 +21,10 @@ var _ = Describe("Migration: 0013_org_tenant_id", Label("integration"), func() {
 
 	BeforeEach(func(ctx context.Context) {
 		url := sharedPG.IsolatedDB(ctx, GinkgoTB())
-		Expect(store.MigrateUp(ctx, url)).To(Succeed())
+		// orgs.tenant_id lived until 0039_org_tenants moved it into
+		// org_tenants; these specs pin 0013's own constraints, so they stop
+		// just before that.
+		Expect(store.MigrateTo(ctx, url, 38)).To(Succeed())
 		var err error
 		db, err = pgxpool.New(ctx, url)
 		Expect(err).NotTo(HaveOccurred())

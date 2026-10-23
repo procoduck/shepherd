@@ -267,23 +267,37 @@ func runDevSeed(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// upsertSeedOrg seeds one org. tenantID is the org's telemetry tenant
-// identity (D11) — seeded here so tenant routes are exercisable in dev
-// without an extra admin step, using the org's own name so a dev reading an
-// injected X-Scope-OrgID header can tell immediately whose traffic it is.
+// upsertSeedOrg seeds one org. tenantID becomes the org's default exact
+// tenant (org_tenants, D11) — seeded here so tenant routes are exercisable in
+// dev without an extra admin step, using the org's own name so a dev reading
+// an injected X-Scope-OrgID header can tell immediately whose traffic it is.
 //
-// The ON CONFLICT clause deliberately does NOT update tenant_id: it is
-// set-once in production (SetOrgTenantID), and a seed that quietly rewrote it
-// on every `make dev-seed` would be the one place in the system where the
-// rule does not hold.
+// The tenant is added only when the org has none yet: only an app admin
+// changes an org's tenants in production, and a seed that quietly rewrote
+// them on every `make dev-seed` would be the one place where that does not
+// hold.
 func upsertSeedOrg(ctx context.Context, st *store.Store, id, name, displayName, adminGroup, viewerGroup, tenantID string) (sqlc.Org, error) {
 	var org sqlc.Org
 	var viewer any
 	if viewerGroup != "" {
 		viewer = viewerGroup
 	}
-	err := st.Pool().QueryRow(ctx, `INSERT INTO orgs (id, name, display_name, admin_group_id, viewer_group_id, tenant_id) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (name) DO UPDATE SET display_name=EXCLUDED.display_name, admin_group_id=EXCLUDED.admin_group_id, viewer_group_id=EXCLUDED.viewer_group_id RETURNING id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at`, id, name, displayName, adminGroup, viewer, tenantID).Scan(&org.ID, &org.Name, &org.DisplayName, &org.AdminGroupID, &org.ViewerGroupID, &org.CreatedAt, &org.UpdatedAt)
-	return org, err
+	err := st.Pool().QueryRow(ctx, `INSERT INTO orgs (id, name, display_name, admin_group_id, viewer_group_id) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (name) DO UPDATE SET display_name=EXCLUDED.display_name, admin_group_id=EXCLUDED.admin_group_id, viewer_group_id=EXCLUDED.viewer_group_id RETURNING id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at`, id, name, displayName, adminGroup, viewer).Scan(&org.ID, &org.Name, &org.DisplayName, &org.AdminGroupID, &org.ViewerGroupID, &org.CreatedAt, &org.UpdatedAt)
+	if err != nil {
+		return org, err
+	}
+	tenants, err := st.Queries.ListOrgTenants(ctx, org.ID)
+	if err != nil {
+		return org, fmt.Errorf("listing %s's tenants: %w", name, err)
+	}
+	if len(tenants) == 0 {
+		if _, err := st.Queries.AddOrgTenant(ctx, sqlc.AddOrgTenantParams{
+			OrgID: org.ID, Tenant: tenantID, Kind: "exact", IsDefault: true, CreatedBy: "dev-seed",
+		}); err != nil {
+			return org, fmt.Errorf("seeding %s's tenant: %w", name, err)
+		}
+	}
+	return org, nil
 }
 
 // Dev-only local user fixtures, seeded on the platform org so the RBAC edges

@@ -666,8 +666,8 @@ const chartValuesSecretName = "shepherd-agent-token"
 
 // RenderChartValues renders internal/chartvalues' two values files for a
 // cluster joining the org's fleet, plus the commands that apply them. The
-// Shepherd URL is server.base_url and the tenant attribute the org's tenant
-// identity, so neither can be pointed elsewhere by the caller. A cluster name
+// Shepherd URL is server.base_url and the tenant attribute the org's default
+// tenant, so neither can be pointed elsewhere by the caller. A cluster name
 // another org has claimed is refused: its collectors would register into
 // that org's fleet, not this one's.
 func (s *FleetService) RenderChartValues(ctx context.Context, req *connect.Request[mgmtv1.RenderChartValuesRequest]) (*connect.Response[mgmtv1.RenderChartValuesResponse], error) {
@@ -675,8 +675,7 @@ func (s *FleetService) RenderChartValues(ctx context.Context, req *connect.Reque
 	if err != nil {
 		return nil, err
 	}
-	org, err := s.store.Queries.GetOrgByID(ctx, orgID)
-	if err != nil {
+	if _, err := s.store.Queries.GetOrgByID(ctx, orgID); err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("org not found"))
 	}
 	clusterName := strings.TrimSpace(req.Msg.GetClusterName())
@@ -695,10 +694,15 @@ func (s *FleetService) RenderChartValues(ctx context.Context, req *connect.Reque
 			fmt.Errorf("cluster name %q belongs to another organisation; choose a different name", clusterName))
 	}
 
+	// Chart values carry the org's default tenant (org_tenants, 0039).
+	orgTenants, err := s.store.Queries.ListOrgTenants(ctx, orgID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to load org tenants"))
+	}
 	spec := chartvalues.Spec{
 		ClusterName:   clusterName,
 		ShepherdURL:   s.baseURL,
-		Tenant:        org.TenantID.String,
+		Tenant:        defaultTenant(orgTenants),
 		Roles:         req.Msg.GetRoles(),
 		PollFrequency: strings.TrimSpace(req.Msg.GetPollFrequency()),
 	}

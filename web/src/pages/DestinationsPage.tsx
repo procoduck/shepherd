@@ -22,6 +22,7 @@ import type { Destination } from '@/gen/shepherd/mgmt/v1/destination_pb';
 import { useCanAdminister, useOrg } from '@/hooks/useOrg';
 import { destinationUpdatedMessage } from '@/lib/destinationUpdated';
 import { formError } from '@/lib/formError';
+import { defaultTenant } from '@/lib/orgTenants';
 
 /**
  * A destination URL, rendered as a link only when it is safe to click.
@@ -149,7 +150,8 @@ function destinationColumns(
 
 export function DestinationsPage() {
   const { orgId, orgs } = useOrg();
-  const orgTenant = orgs.find((o) => o.id === orgId)?.tenantId ?? '';
+  // A new destination starts from the org's default tenant (#261).
+  const orgTenant = defaultTenant(orgs.find((o) => o.id === orgId)?.tenants);
   // Destinations decide where telemetry ships, so the server requires org
   // admin. Offering the form to an editor or viewer only produces a rejection
   // after they have filled it in. Edit is gated exactly like create.

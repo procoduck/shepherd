@@ -17,7 +17,6 @@ import (
 
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
-	"shepherd/internal/advisorylock"
 	"shepherd/internal/auth"
 	"shepherd/internal/gateway"
 	"shepherd/internal/signals"
@@ -87,7 +86,7 @@ func NewAdminService(st *store.Store, logger *slog.Logger, opts ...AdminServiceO
 
 var _ mgmtv1connect.AdminServiceHandler = (*AdminService)(nil)
 
-func toOrgProto(o sqlc.Org) *mgmtv1.Org {
+func toOrgProto(o sqlc.Org, tenants []sqlc.OrgTenant) *mgmtv1.Org {
 	return &mgmtv1.Org{
 		Id:            o.ID.String(),
 		Name:          o.Name,
@@ -97,7 +96,7 @@ func toOrgProto(o sqlc.Org) *mgmtv1.Org {
 		EditorGroupId: o.EditorGroupID.String,
 		CreatedAt:     protoTimestamp(o.CreatedAt),
 		UpdatedAt:     protoTimestamp(o.UpdatedAt),
-		TenantId:      o.TenantID.String,
+		Tenants:       toOrgTenantProtos(tenants),
 
 		AllowExperimentalComponents: o.AllowExperimentalComponents,
 		AllowLabelMatching:          o.AllowLabelMatching,
@@ -143,9 +142,14 @@ func (s *AdminService) ListOrgs(ctx context.Context, _ *connect.Request[mgmtv1.L
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to list orgs"))
 	}
+	allTenants, err := s.store.Queries.ListAllOrgTenants(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to list org tenants"))
+	}
+	byOrg := groupOrgTenants(allTenants)
 	items := make([]*mgmtv1.Org, len(orgs))
 	for i := range orgs {
-		items[i] = toOrgProto(orgs[i])
+		items[i] = toOrgProto(orgs[i], byOrg[orgs[i].ID])
 	}
 	return connect.NewResponse(&mgmtv1.ListOrgsResponse{Items: items, Total: int32(len(items))}), nil //nolint:gosec // org counts never approach int32 overflow
 }
@@ -159,27 +163,23 @@ func (s *AdminService) CreateOrg(ctx context.Context, req *connect.Request[mgmtv
 	if msg.GetName() == "" || msg.GetDisplayName() == "" || msg.GetAdminGroupId() == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("name, display_name, admin_group_id required"))
 	}
-	// Tenant identity is optional at creation but validated when present:
-	// an org may exist before its destination tenancy is decided, but a bad
-	// value must never be storable. gateway.ValidateTenantID is the one
-	// definition of that rule (Mimir's own), and 0013's CHECK mirrors it.
-	tenantID := strings.TrimSpace(msg.GetTenantId())
-	if tenantID != "" {
-		if err := gateway.ValidateTenantID(tenantID); err != nil {
+	// The initial tenant is optional; when given it becomes the org's
+	// default exact tenant, under AddOrgTenant's rules (assignOrgTenant).
+	var initial gateway.OrgTenant
+	if t := strings.TrimSpace(msg.GetTenantId()); t != "" {
+		initial = gateway.OrgTenant{Tenant: t, Kind: gateway.TenantExact}
+		if err := gateway.ValidateOrgTenant(initial); err != nil {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
 	}
-	// The cross-org tenant guard, org side (#261): the tenant must not be
-	// one another org's destination already sends. The check and the insert
-	// share a transaction holding the tenant's lock (orgTenantGuard).
 	tx, err := s.store.Pool().Begin(ctx)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create org"))
 	}
 	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
 	txQ := s.store.Queries.WithTx(tx)
-	if tenantID != "" {
-		if err := orgTenantGuard(ctx, txQ, pgtype.UUID{Valid: true}, tenantID); err != nil {
+	if initial.Tenant != "" {
+		if err := lockOrgTenantsExclusive(ctx, txQ); err != nil {
 			return nil, err
 		}
 	}
@@ -189,117 +189,31 @@ func (s *AdminService) CreateOrg(ctx context.Context, req *connect.Request[mgmtv
 		AdminGroupID:  msg.GetAdminGroupId(),
 		ViewerGroupID: pgtype.Text{String: msg.GetViewerGroupId(), Valid: msg.GetViewerGroupId() != ""},
 		EditorGroupID: pgtype.Text{String: msg.GetEditorGroupId(), Valid: msg.GetEditorGroupId() != ""},
-		TenantID:      pgtype.Text{String: tenantID, Valid: tenantID != ""},
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
-			// Two unique constraints can fire here, and telling an admin the
-			// wrong one sends them to rename an org when the real collision
-			// is a tenant identity already claimed by a different org.
-			if tenantID != "" && strings.Contains(err.Error(), "idx_orgs_tenant_id") {
-				return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf(
-					"tenant id %q is already assigned to another org; one tenant identity belongs to "+
-						"exactly one org, or the gateway would stamp both orgs' traffic alike", tenantID))
-			}
 			return nil, connect.NewError(connect.CodeAlreadyExists, errors.New("org name already exists"))
 		}
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create org"))
+	}
+	if initial.Tenant != "" {
+		if err := assignOrgTenant(ctx, txQ, o.ID, initial, true, actorFromCtx(ctx)); err != nil {
+			return nil, err
+		}
+		if err := auditOrgTenantChange(ctx, txQ, o.ID, "org.tenant.add",
+			orgTenantDetail{Tenant: initial.Tenant, Kind: string(initial.Kind), IsDefault: true}); err != nil {
+			return nil, err
+		}
+	}
+	out, err := orgProtoWithTenants(ctx, txQ, o)
+	if err != nil {
+		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create org"))
 	}
 	auditLog(ctx, s.store, actorFromCtx(ctx), o.ID, "org.create", "org", o.ID.String())
-	return connect.NewResponse(toOrgProto(o)), nil
-}
-
-// SetOrgTenantID assigns tenant identity to an org created without one.
-//
-// Set-once, and the SQL is what enforces it (SetOrgTenantID's WHERE clause
-// matches only a NULL tenant_id), so a concurrent second caller loses the
-// race cleanly instead of both believing they won. Changing an org's tenant
-// after routes exist would leave every already-applied HTTPRoute injecting
-// the previous value: the routes keep working and keep being wrong, which is
-// harder to notice than an outage.
-func (s *AdminService) SetOrgTenantID(ctx context.Context, req *connect.Request[mgmtv1.SetOrgTenantIDRequest]) (*connect.Response[mgmtv1.Org], error) {
-	if err := requireWriteAuthorized(ctx); err != nil {
-		return nil, err
-	}
-	id, err := scanUUID(req.Msg.GetOrgId())
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid org id"))
-	}
-	tenantID := strings.TrimSpace(req.Msg.GetTenantId())
-	if err := gateway.ValidateTenantID(tenantID); err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
-
-	tx, err := s.store.Pool().Begin(ctx)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to set org tenant id"))
-	}
-	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
-	txQ := s.store.Queries.WithTx(tx)
-	if err := orgTenantGuard(ctx, txQ, id, tenantID); err != nil {
-		return nil, err
-	}
-	o, err := txQ.SetOrgTenantID(ctx, sqlc.SetOrgTenantIDParams{
-		ID:       id,
-		TenantID: pgtype.Text{String: tenantID, Valid: true},
-	})
-	if err != nil {
-		if isUniqueViolation(err) {
-			return nil, connect.NewError(connect.CodeAlreadyExists,
-				fmt.Errorf("tenant id %q is already assigned to another org; one tenant identity "+
-					"belongs to exactly one org, or the gateway would stamp both orgs' traffic alike", tenantID))
-		}
-		// No row updated means either the org does not exist or its tenant is
-		// already set. Distinguish them: "already set" is the interesting one
-		// and deserves to say so rather than reading as "not found".
-		if errors.Is(err, pgx.ErrNoRows) {
-			existing, getErr := s.store.Queries.GetOrgByID(ctx, id)
-			if getErr != nil {
-				return nil, connect.NewError(connect.CodeNotFound, errors.New("org not found"))
-			}
-			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
-				"org %q already has tenant identity %q, and it cannot be changed: every tenant route "+
-					"already minted for this org injects that value, and they would keep routing while "+
-					"naming the wrong tenant", existing.Name, existing.TenantID.String))
-		}
-		s.logger.Warn("set org tenant id", "err", err)
-		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to set org tenant id"))
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to set org tenant id"))
-	}
-	auditLog(ctx, s.store, actorFromCtx(ctx), o.ID, "org.set_tenant_id", "org", o.ID.String())
-	return connect.NewResponse(toOrgProto(o)), nil
-}
-
-// errTenantUsedByOtherDestination is the org-side refusal of the cross-org
-// tenant guard (#261, review of #277). It does not say which org: the
-// destination belongs to an org the caller may not otherwise see named here.
-var errTenantUsedByOtherDestination = errors.New("tenant_id is in use by another organisation's " +
-	"destination; an org's tenant identity must not be one another org already writes under")
-
-// orgTenantGuard is the org side of the cross-org tenant guard: it refuses
-// (failed_precondition) giving orgID the tenant when a destination of any
-// other org sends it. q must be the transaction the org is then written in:
-// it takes the tenant's lock first (LockTenantID), the same one
-// validateDestinationTenant takes, so a destination cannot start sending the
-// tenant between this check and the commit. orgID is the zero UUID for an
-// org not created yet.
-func orgTenantGuard(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, tenant string) error {
-	if err := q.LockTenantID(ctx, sqlc.LockTenantIDParams{Namespace: advisorylock.TenantID, TenantID: tenant}); err != nil {
-		return connect.NewError(connect.CodeInternal, errors.New("failed to check tenant_id"))
-	}
-	used, err := q.TenantIDUsedByOtherOrgDestination(ctx, sqlc.TenantIDUsedByOtherOrgDestinationParams{TenantID: tenant, OrgID: orgID})
-	if err != nil {
-		return connect.NewError(connect.CodeInternal, errors.New("failed to check tenant_id"))
-	}
-	if used {
-		return connect.NewError(connect.CodeFailedPrecondition, errTenantUsedByOtherDestination)
-	}
-	return nil
+	return connect.NewResponse(out), nil
 }
 
 // UpdateOrg updates an org.
@@ -350,10 +264,14 @@ func (s *AdminService) UpdateOrg(ctx context.Context, req *connect.Request[mgmtv
 		s.logger.Warn("update org: audit insert failed, rolling back", "org_id", o.ID, "err", err)
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to record org update"))
 	}
+	out, err := orgProtoWithTenants(ctx, txQ, o)
+	if err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to commit org update"))
 	}
-	return connect.NewResponse(toOrgProto(o)), nil
+	return connect.NewResponse(out), nil
 }
 
 // DeleteOrg deletes an org.

@@ -17,7 +17,6 @@ import (
 
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
-	"shepherd/internal/advisorylock"
 	"shepherd/internal/gateway"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
@@ -235,6 +234,10 @@ func wizardDestinations(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID)
 	if err != nil {
 		return nil, fmt.Errorf("listing destinations: %w", err)
 	}
+	others, err := loadOtherOrgOwner(ctx, q, orgID)
+	if err != nil {
+		return nil, err
+	}
 	out := make(wizard.Destinations, len(rows))
 	for i := range rows {
 		d := rows[i]
@@ -255,17 +258,11 @@ func wizardDestinations(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID)
 			dest.TLS = tls
 		}
 		// The cross-org tenant guard holds at render time too, not only at
-		// save: an app admin can give another org this tenant after the
-		// destination was saved (SetOrgTenantID), and from then on rendering
-		// it would stamp that org's tenant on this org's data.
-		if dest.LoadErr == nil && d.TenantID != "" {
-			held, err := q.TenantIDHeldByOtherOrg(ctx, sqlc.TenantIDHeldByOtherOrgParams{TenantID: d.TenantID, OrgID: orgID})
-			if err != nil {
-				return nil, fmt.Errorf("checking destination %q's tenant: %w", d.Name, err)
-			}
-			if held {
-				dest.LoadErr = errTenantNotAvailable
-			}
+		// save: the rule is re-asked of every other org's tenants and
+		// prefixes as they stand now (gateway.OrgOwnsTenant), so a render
+		// never stamps another org's tenant on this org's data.
+		if dest.LoadErr == nil && d.TenantID != "" && others.owns(d.TenantID) {
+			dest.LoadErr = errTenantNotAvailable
 		}
 		out[d.Name] = dest
 	}
@@ -273,17 +270,19 @@ func wizardDestinations(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID)
 }
 
 // errTenantNotAvailable is the cross-org tenant refusal (#261, maintainer
-// decision Q2): a destination may send any valid tenant except one another
-// org holds as its orgs.tenant_id. Deliberately generic — it does not say
-// that another org holds it.
+// decision Q2): a destination or destination binding may send any valid
+// tenant except one another org owns (one of its exact tenants, or under one
+// of its prefixes). Deliberately generic — it does not say that another org
+// owns it.
 var errTenantNotAvailable = errors.New("tenant_id is not available to this org")
 
 // validateDestinationTenant refuses, as invalid_argument, a tenant_id
-// outside Mimir's charset (wizard.ValidateTenant) or one another org holds.
+// outside Mimir's charset (wizard.ValidateTenant) or one another org owns.
 // Empty means no tenant is sent. q must be the transaction the destination
-// is then written in: it first takes the tenant's lock (LockTenantID), which
-// AdminService's org-side check takes too, so an org cannot be given this
-// tenant between the check and the commit.
+// is then written in: it first takes the shared ownership lock
+// (lockOrgTenantsShared), which an app admin's tenant change takes
+// exclusively, so another org cannot be given this tenant between the check
+// and the commit.
 func validateDestinationTenant(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, tenant string) error {
 	if err := wizard.ValidateTenant(tenant); err != nil {
 		return connect.NewError(connect.CodeInvalidArgument, err)
@@ -291,14 +290,21 @@ func validateDestinationTenant(ctx context.Context, q *sqlc.Queries, orgID pgtyp
 	if tenant == "" {
 		return nil
 	}
-	if err := q.LockTenantID(ctx, sqlc.LockTenantIDParams{Namespace: advisorylock.TenantID, TenantID: tenant}); err != nil {
-		return connect.NewError(connect.CodeInternal, errors.New("failed to check tenant_id"))
+	return refuseOtherOrgTenant(ctx, q, orgID, tenant)
+}
+
+// refuseOtherOrgTenant takes the shared ownership lock in q's transaction and
+// refuses (invalid_argument, errTenantNotAvailable) a tenant another org
+// owns. The caller has already validated tenant's charset.
+func refuseOtherOrgTenant(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, tenant string) error {
+	if err := lockOrgTenantsShared(ctx, q); err != nil {
+		return err
 	}
-	held, err := q.TenantIDHeldByOtherOrg(ctx, sqlc.TenantIDHeldByOtherOrgParams{TenantID: tenant, OrgID: orgID})
+	others, err := loadOtherOrgOwner(ctx, q, orgID)
 	if err != nil {
 		return connect.NewError(connect.CodeInternal, errors.New("failed to check tenant_id"))
 	}
-	if held {
+	if others.owns(tenant) {
 		return connect.NewError(connect.CodeInvalidArgument, errTenantNotAvailable)
 	}
 	return nil
@@ -744,7 +750,19 @@ func (s *DestinationService) CreateDestinationBinding(ctx context.Context, req *
 	if err := gateway.ValidateTenantID(req.Msg.GetTenantId()); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	b, err := s.store.Queries.CreateDestinationBinding(ctx, sqlc.CreateDestinationBindingParams{
+	// And the same cross-org rule a destination's tenant gets: not a tenant
+	// another org owns. The check and the insert share one transaction
+	// holding the shared ownership lock (refuseOtherOrgTenant).
+	tx, err := s.store.Pool().Begin(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create destination binding"))
+	}
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
+	txQ := s.store.Queries.WithTx(tx)
+	if err := refuseOtherOrgTenant(ctx, txQ, orgID, req.Msg.GetTenantId()); err != nil {
+		return nil, err
+	}
+	b, err := txQ.CreateDestinationBinding(ctx, sqlc.CreateDestinationBindingParams{
 		DestinationID: destID,
 		OrgID:         orgID,
 		Name:          req.Msg.GetName(),
@@ -754,6 +772,9 @@ func (s *DestinationService) CreateDestinationBinding(ctx context.Context, req *
 		if isUniqueViolation(err) {
 			return nil, connect.NewError(connect.CodeAlreadyExists, errors.New("destination binding name already exists"))
 		}
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create destination binding"))
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create destination binding"))
 	}
 	auditLog(ctx, s.store, actorFromCtx(ctx), orgID, "destination_binding.create", "destination_binding", b.ID.String())
@@ -789,7 +810,16 @@ func (s *DestinationService) UpdateDestinationBinding(ctx context.Context, req *
 	if err := gateway.ValidateTenantID(req.Msg.GetTenantId()); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	b, err := s.store.Queries.UpdateDestinationBinding(ctx, sqlc.UpdateDestinationBindingParams{
+	tx, err := s.store.Pool().Begin(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to update destination binding"))
+	}
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
+	txQ := s.store.Queries.WithTx(tx)
+	if err := refuseOtherOrgTenant(ctx, txQ, owned.OrgID, req.Msg.GetTenantId()); err != nil {
+		return nil, err
+	}
+	b, err := txQ.UpdateDestinationBinding(ctx, sqlc.UpdateDestinationBindingParams{
 		ID:       owned.ID,
 		Name:     req.Msg.GetName(),
 		TenantID: req.Msg.GetTenantId(),
@@ -798,6 +828,9 @@ func (s *DestinationService) UpdateDestinationBinding(ctx context.Context, req *
 		if isUniqueViolation(err) {
 			return nil, connect.NewError(connect.CodeAlreadyExists, errors.New("destination binding name already exists"))
 		}
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to update destination binding"))
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to update destination binding"))
 	}
 	auditLog(ctx, s.store, actorFromCtx(ctx), owned.OrgID, "destination_binding.update", "destination_binding", owned.ID.String())

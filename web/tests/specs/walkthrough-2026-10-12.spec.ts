@@ -106,20 +106,20 @@ test.describe('the New organisation dialog', () => {
     await dialog.getByLabel('Name', { exact: true }).pressSequentially('acme-org');
     await dialog.getByLabel('Display name').pressSequentially('Acme');
     await dialog.getByLabel('Admin group ID').pressSequentially('acme-admins');
-    await dialog.getByLabel(/Tenant ID/).pressSequentially('acme');
+    await dialog.getByLabel(/Default tenant/).pressSequentially('acme');
     await dialog.getByRole('button', { name: 'Create' }).click();
 
     const error = dialog.getByTestId('form-error');
     await expect(error).toContainText('Tenant ID is in use by another organisation');
     await expect(error).not.toContainText('Tenant_id');
 
-    await dialog.getByLabel(/Tenant ID/).pressSequentially('-2');
+    await dialog.getByLabel(/Default tenant/).pressSequentially('-2');
     await expect(error).toHaveCount(0);
 
     await dialog.getByRole('button', { name: 'Cancel' }).click();
     await page.getByRole('button', { name: 'New organisation' }).click();
     await expect(dialog.getByLabel('Name', { exact: true })).toHaveValue('');
-    await expect(dialog.getByLabel(/Tenant ID/)).toHaveValue('');
+    await expect(dialog.getByLabel(/Default tenant/)).toHaveValue('');
   });
 });
 

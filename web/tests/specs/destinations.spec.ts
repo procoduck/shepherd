@@ -1,3 +1,4 @@
+import { OrgTenantKind } from '@/gen/shepherd/mgmt/v1/common_pb';
 import { basicScenario, destination } from '../fixtures/factories';
 import { appAdmin, orgAdmin, orgEditor, viewer } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
@@ -436,10 +437,9 @@ test('the tenant ID is sent on create and edit and shown in the table', async ({
   expect((updates[0].body as Record<string, unknown>).tenantId).toBe('globex-prod');
 });
 
-// #261 (maintainer decision 2026-10-06): GetMe carries the org's own tenant,
-// and a new destination starts with it. Red run: before OrgMembership had
-// tenant_id the field started empty.
-test("a new destination's tenant ID is pre-filled with the org's own tenant", async ({
+// #261 (maintainer decision 2026-10-06): GetMe carries the org's own tenants,
+// and a new destination starts with the default one — not merely the first.
+test("a new destination's tenant ID is pre-filled with the org's default tenant", async ({
   page,
   api,
 }) => {
@@ -447,10 +447,27 @@ test("a new destination's tenant ID is pre-filled with the org's own tenant", as
   // initialData); the seeded org row carries the same tenant, as on the server.
   await api.loginAs({
     ...orgAdmin,
-    orgs: orgAdmin.orgs.map((o) => ({ ...o, tenantId: 'acme-org' })),
+    orgs: orgAdmin.orgs.map((o) => ({
+      ...o,
+      tenants: [
+        { tenant: 'acme-eu', kind: OrgTenantKind.EXACT },
+        { tenant: 'acme-org', kind: OrgTenantKind.EXACT, isDefault: true },
+      ],
+    })),
   });
   const s = basicScenario();
-  api.seed({ orgs: [{ ...s.org, tenant_id: 'acme-org' }], destinations: [] });
+  api.seed({
+    orgs: [
+      {
+        ...s.org,
+        tenants: [
+          { tenant: 'acme-eu', kind: 'exact' },
+          { tenant: 'acme-org', kind: 'exact', is_default: true },
+        ],
+      },
+    ],
+    destinations: [],
+  });
   await page.goto('/destinations');
 
   await page.getByRole('button', { name: /new|create|add destination/i }).click();

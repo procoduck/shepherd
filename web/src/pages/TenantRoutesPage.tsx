@@ -8,6 +8,13 @@ import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
 import { ConnectAppDialog } from '@/components/ConnectAppDialog';
 import { QueryError } from '@/components/QueryError';
 import {
+  EMPTY_ROUTE_TENANT,
+  RouteTenantField,
+  type RouteTenantPick,
+  routeTenantError,
+  routeTenantRequest,
+} from '@/components/RouteTenantField';
+import {
   ApplyStatus,
   gatewayLabel,
   routeStatusLabel,
@@ -18,7 +25,7 @@ import { Field, Input, Select } from '@/components/ui/Field';
 import { Modal, ModalActions } from '@/components/ui/Modal';
 import { toneClass } from '@/components/ui/statusTone';
 import { type TenantRoute, TenantRouteStatus } from '@/gen/shepherd/mgmt/v1/tenant_route_pb';
-import { useCanAdminister, useOrgId } from '@/hooks/useOrg';
+import { useCanAdminister, useOrg } from '@/hooks/useOrg';
 import { formError, formErrors } from '@/lib/formError';
 
 // A route's lifecycle state, coloured so "active" reads apart from a route
@@ -47,6 +54,12 @@ function routeColumns(
       render: (r) => `/${r.kind}/${r.segment}`,
     },
     { key: 'kind', header: 'Kind', render: (r) => r.kind },
+    {
+      key: 'tenant',
+      header: 'Tenant',
+      cellClassName: 'px-4 py-2.5 font-mono text-xs',
+      render: (r) => r.tenantId,
+    },
     { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} /> },
     { key: 'apply', header: 'In cluster', render: (r) => <ApplyStatus route={r} /> },
     {
@@ -116,6 +129,7 @@ function routeColumns(
 }
 
 const EMPTY_CREATE = {
+  tenant: EMPTY_ROUTE_TENANT as RouteTenantPick,
   kind: 'otlp',
   format: 'slug-suffix',
   gatewayMode: 'managed',
@@ -140,7 +154,10 @@ const EMPTY_CREATE = {
  * request rate limiting belongs at the gateway/ingress.
  */
 export function TenantRoutesPage() {
-  const orgId = useOrgId();
+  const { orgId, orgs } = useOrg();
+  // The tenants the org owns (GetMe's membership): a route names one of
+  // them, or a tenant under one of its prefixes; empty means the default.
+  const orgTenants = orgs.find((o) => o.id === orgId)?.tenants;
   const canAdminister = useCanAdminister();
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
@@ -148,6 +165,8 @@ export function TenantRoutesPage() {
   // Set when Create is pressed with no gateway name (#249): the field's
   // native `required` bubble only focused it, without saying what was wrong.
   const [gatewayNameMissing, setGatewayNameMissing] = useState(false);
+  // Set when Create is pressed with a typed tenant the org does not own.
+  const [tenantError, setTenantError] = useState('');
   const [toRotate, setToRotate] = useState<TenantRoute | null>(null);
   const [overlapHours, setOverlapHours] = useState('24');
   const [toRevoke, setToRevoke] = useState<TenantRoute | null>(null);
@@ -164,6 +183,8 @@ export function TenantRoutesPage() {
     mutationFn: () =>
       clients.tenantRoute.createTenantRoute({
         orgId,
+        // '' asks the server for the org's default tenant.
+        tenant: routeTenantRequest(createForm.tenant),
         kind: createForm.kind,
         format: createForm.format,
         gatewayMode: createForm.gatewayMode,
@@ -193,11 +214,12 @@ export function TenantRoutesPage() {
   const createError = !createMut.error
     ? null
     : toApiError(createMut.error).code === 'failed_precondition'
-      ? 'This organisation has no tenant identity yet — an app admin sets it on the Organisations page.'
+      ? 'This organisation has no default tenant — choose one of its tenants, or ask an app admin to set a default on the Organisations page.'
       : createErrors.form;
   const closeCreate = () => {
     setShowCreate(false);
     setGatewayNameMissing(false);
+    setTenantError('');
     createMut.reset();
   };
   const closeRotate = () => {
@@ -281,6 +303,11 @@ export function TenantRoutesPage() {
             noValidate
             onSubmit={(e) => {
               e.preventDefault();
+              const tErr = routeTenantError(orgTenants, createForm.tenant);
+              if (tErr) {
+                setTenantError(tErr);
+                return;
+              }
               if (!createForm.gatewayName.trim()) {
                 setGatewayNameMissing(true);
                 return;
@@ -289,6 +316,15 @@ export function TenantRoutesPage() {
             }}
             className='space-y-4'
           >
+            <RouteTenantField
+              tenants={orgTenants}
+              pick={createForm.tenant}
+              error={tenantError}
+              onChange={(tenant) => {
+                setTenantError('');
+                setCreateForm((f) => ({ ...f, tenant }));
+              }}
+            />
             <Field label='Kind' hint='The telemetry protocol this route accepts.'>
               <Select
                 value={createForm.kind}
