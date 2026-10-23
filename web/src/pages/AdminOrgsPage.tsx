@@ -5,12 +5,14 @@ import { toast } from 'sonner';
 import { clients, toApiError } from '@/api/transport';
 import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
 import { AdminModal, AdminModalActions } from '@/components/admin/AdminModal';
+import { OrgTenantsEditor } from '@/components/admin/OrgTenantsEditor';
 import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Field, Input } from '@/components/ui/Field';
 import type { Org } from '@/gen/shepherd/mgmt/v1/admin_pb';
 import { useMe } from '@/hooks/useMe';
 import { errorText, formError } from '@/lib/formError';
+import { tenantLabel } from '@/lib/orgTenants';
 
 // Group values are whatever the identity provider emits in the groups claim
 // (docs/spec.md §7.1a): an object ID (GUID) for Entra, and for other providers
@@ -42,17 +44,28 @@ function orgColumns(
     },
     { key: 'displayName', header: 'Display name', render: (o) => o.displayName },
     {
-      key: 'tenant',
-      header: 'Tenant',
+      key: 'tenants',
+      header: 'Tenants',
       cellClassName: 'px-4 py-2.5 font-mono text-xs',
       render: (o) =>
-        o.tenantId ? (
-          o.tenantId
+        o.tenants.length > 0 ? (
+          <span className='flex flex-wrap gap-1.5' data-testid={`org-tenants-${o.name}`}>
+            {o.tenants.map((t) => (
+              <span
+                key={`${t.kind}:${t.tenant}`}
+                className={t.isDefault ? 'text-indigo-400' : ''}
+                title={t.isDefault ? 'default tenant' : undefined}
+              >
+                {tenantLabel(t)}
+                {t.isDefault && ' (default)'}
+              </span>
+            ))}
+          </span>
         ) : (
           // An org without a tenant cannot have tenant routes, so say that
           // rather than showing an empty cell an admin would read as
           // "nothing to do here".
-          <span className='text-muted-3 italic'>not set &mdash; no routes possible</span>
+          <span className='text-muted-3 italic'>none &mdash; no routes possible</span>
         ),
     },
   ];
@@ -103,9 +116,6 @@ export function AdminOrgsPage() {
     allowLabelMatching: false,
     allowLocalAttributeMatching: false,
   });
-  // Set-once tenant identity for an org created without one (#204); sent
-  // through SetOrgTenantID only when non-empty.
-  const [editTenantId, setEditTenantId] = useState('');
   const [deleteOrg, setDeleteOrg] = useState<Org | null>(null);
 
   const { data, isLoading, isError, error } = useQuery({
@@ -126,24 +136,9 @@ export function AdminOrgsPage() {
   });
 
   const updateMut = useMutation({
-    mutationFn: async () => {
-      const orgId = editOrg?.id ?? '';
-      // The tenant step runs FIRST (#302): it is the step that refuses
-      // (format, already taken, already set), and running it after UpdateOrg
-      // meant a refusal came only once the org fields and their org.update
-      // audit row were already written. Once it succeeds the open dialog
-      // shows the tenant as set, so a retry after a failed UpdateOrg does not
-      // send the set-once value again.
-      const tenantId = editTenantId.trim();
-      if (editOrg && !editOrg.tenantId && tenantId) {
-        const withTenant = await clients.admin.setOrgTenantID({ orgId, tenantId });
-        // Only refresh a dialog that is still open on this org: one the user
-        // closed mid-save stays closed.
-        setEditOrg((cur) => (cur?.id === withTenant.id ? withTenant : cur));
-        invalidate();
-      }
-      return clients.admin.updateOrg({ orgId, ...editForm });
-    },
+    // Tenants are not part of Save: each tenant change is its own RPC
+    // (OrgTenantsEditor), applied as soon as it is made.
+    mutationFn: () => clients.admin.updateOrg({ orgId: editOrg?.id ?? '', ...editForm }),
     onSuccess: (saved) => {
       toast.success('Organisation updated');
       invalidate();
@@ -188,14 +183,15 @@ export function AdminOrgsPage() {
     if (updateMut.error) updateMut.reset();
     setEditForm(next);
   };
-  const editTenant = (tenant: string) => {
-    if (updateMut.error) updateMut.reset();
-    setEditTenantId(tenant);
+  // A tenant change from the editor: refresh a dialog still open on this org
+  // (one the user closed mid-change stays closed) and the list behind it.
+  const tenantsChanged = (saved: Org) => {
+    setEditOrg((cur) => (cur?.id === saved.id ? saved : cur));
+    invalidate();
   };
 
   function openEdit(o: Org) {
     setEditOrg(o);
-    setEditTenantId('');
     setEditForm({
       displayName: o.displayName,
       adminGroupId: o.adminGroupId,
@@ -301,15 +297,14 @@ export function AdminOrgsPage() {
               />
             </Field>
             <Field
-              label='Tenant ID'
+              label='Default tenant'
               optional
               hint={
                 <>
-                  The tenant this org&rsquo;s telemetry ships under, sent downstream as
-                  X-Scope-OrgID. Only an application administrator sets it, and it cannot be changed
-                  afterwards &mdash; routes already issued would keep working while naming the wrong
-                  tenant. Leave blank to decide later; the org cannot have tenant routes until it is
-                  set.
+                  The tenant this org&rsquo;s telemetry ships under by default, sent downstream as
+                  X-Scope-OrgID. More tenants and tenant prefixes can be added afterwards, on Edit.
+                  Leave blank to decide later; the org cannot have tenant routes until it has a
+                  tenant.
                 </>
               }
             >
@@ -347,28 +342,7 @@ export function AdminOrgsPage() {
                 required
               />
             </Field>
-            {editOrg.tenantId ? (
-              <Field
-                label='Tenant ID'
-                hint='Set once when the org got its identity; it cannot be changed.'
-              >
-                <Input value={editOrg.tenantId} mono readOnly data-testid='org-edit-tenant-set' />
-              </Field>
-            ) : (
-              <Field
-                label='Tenant ID'
-                optional
-                hint='The tenant this org’s telemetry ships under (X-Scope-OrgID). Set it once — it cannot be changed afterwards. Until it is set, the org cannot have tenant routes.'
-              >
-                <Input
-                  value={editTenantId}
-                  onChange={(e) => editTenant(e.target.value)}
-                  mono
-                  placeholder='acme'
-                  data-testid='org-edit-tenant'
-                />
-              </Field>
-            )}
+            <OrgTenantsEditor key={editOrg.id} org={editOrg} onChange={tenantsChanged} />
             <Field label='Admin group ID' hint={GROUP_VALUE_HINT}>
               <Input
                 value={editForm.adminGroupId}

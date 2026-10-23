@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import type { OrgTenantLike } from '@/lib/orgTenants';
 import { Role, roleAtLeast } from '@/lib/roles';
 import { useMe } from './useMe';
 
@@ -12,10 +13,10 @@ export interface OrgSummary {
   // visual builder may offer experimental Alloy components. The server render
   // gate is authoritative regardless.
   allowExperimentalComponents: boolean;
-  // tenantId is the org's own tenant identity (orgs.tenant_id), '' when it
-  // has none. The destination form pre-fills a new destination's tenant
-  // from it (#261).
-  tenantId?: string;
+  // tenants are the tenants and tenant prefixes the org owns (OrgMembership
+  // .tenants). The destination form pre-fills a new destination's tenant from
+  // the default one (#261); the tenant-route form offers them.
+  tenants?: OrgTenantLike[];
 }
 
 export const ORG_STORAGE_KEY = 'shepherd.orgId';

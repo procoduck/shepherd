@@ -7,9 +7,10 @@
  * org admin; a viewer sees the table but no controls.
  */
 
+import { OrgTenantKind } from '@/gen/shepherd/mgmt/v1/common_pb';
 import { TenantRouteApplyStatus, TenantRouteStatus } from '@/gen/shepherd/mgmt/v1/tenant_route_pb';
 import { basicScenario } from '../fixtures/factories';
-import { appAdmin, viewer } from '../fixtures/personas';
+import { appAdmin, orgAdmin, viewer } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
 
 test('creates, rotates and revokes a tenant route', async ({ page, api }) => {
@@ -82,10 +83,10 @@ test('a viewer sees the routes but no write controls', async ({ page, api }) => 
   await expect(page.getByTestId('route-rotate-otlp-abc123')).toHaveCount(0);
 });
 
-test('surfaces the missing-tenant-identity precondition', async ({ page, api }) => {
+test('surfaces the missing-default-tenant precondition', async ({ page, api }) => {
   const s = basicScenario();
-  // The org has no tenant identity yet, so the server refuses Create with
-  // failed_precondition; the page maps that to a specific, actionable message.
+  // The org has no default tenant, so the server refuses a Create that names
+  // none with failed_precondition; the page maps that to an actionable message.
   api.seed({ orgs: [s.org], tenantRoutes: [], tenantRoutesNoIdentity: true });
   await api.loginAs(appAdmin);
   await page.goto('/tenant-routes');
@@ -94,7 +95,83 @@ test('surfaces the missing-tenant-identity precondition', async ({ page, api }) 
   await page.getByTestId('route-gateway-name').fill('shepherd-receiver-gw');
   await page.getByRole('button', { name: 'Create route' }).click();
 
-  await expect(page.getByText(/no tenant identity yet/i)).toBeVisible();
+  await expect(page.getByText(/no default tenant/i)).toBeVisible();
+});
+
+// An organisation can own several tenants and tenant prefixes. The route
+// form offers them — the default first, the other exact tenants, and a
+// tenant under a prefix typed and checked against it — and sends the choice.
+test('creates a route for one of the org’s tenants, defaulting to the default', async ({
+  page,
+  api,
+}) => {
+  const s = basicScenario();
+  api.seed({
+    orgs: [
+      {
+        ...s.org,
+        tenants: [
+          { tenant: 'acme', kind: 'exact', is_default: true },
+          { tenant: 'acme-eu', kind: 'exact' },
+          { tenant: 'acme-team-', kind: 'prefix' },
+        ],
+      },
+    ],
+    tenantRoutes: [],
+  });
+  // GetMe's membership carries the same tenants (loginAs pre-seeds it).
+  await api.loginAs({
+    ...orgAdmin,
+    orgs: orgAdmin.orgs.map((o) => ({
+      ...o,
+      tenants: [
+        { tenant: 'acme', kind: OrgTenantKind.EXACT, isDefault: true },
+        { tenant: 'acme-eu', kind: OrgTenantKind.EXACT },
+        { tenant: 'acme-team-', kind: OrgTenantKind.PREFIX },
+      ],
+    })),
+  });
+  await page.goto('/tenant-routes');
+  const panel = page.getByTestId('tenant-routes');
+
+  // Default: the request names no tenant and the server picks the default.
+  await page.getByTestId('route-new').click();
+  await expect(page.getByTestId('route-tenant')).toHaveValue('');
+  await expect(page.getByTestId('route-tenant').locator('option').first()).toHaveText(
+    'acme (default)',
+  );
+  await page.getByTestId('route-gateway-name').pressSequentially('gw');
+  await page.getByRole('button', { name: 'Create route' }).click();
+  await expect(panel.getByRole('cell', { name: 'acme', exact: true })).toBeVisible();
+
+  // Another exact tenant.
+  await page.getByTestId('route-new').click();
+  await page.getByTestId('route-tenant').selectOption('acme-eu');
+  await page.getByTestId('route-kind').selectOption('faro');
+  await page.getByTestId('route-gateway-name').pressSequentially('gw');
+  await page.getByRole('button', { name: 'Create route' }).click();
+  await expect(panel.getByRole('cell', { name: 'acme-eu', exact: true })).toBeVisible();
+
+  // A tenant under the prefix: one outside it is refused before any call.
+  await page.getByTestId('route-new').click();
+  await page.getByTestId('route-tenant').selectOption({ label: 'A tenant under acme-team-*…' });
+  await page.getByTestId('route-tenant-under-prefix').pressSequentially('globex');
+  await page.getByTestId('route-gateway-name').pressSequentially('gw');
+  await page.getByRole('button', { name: 'Create route' }).click();
+  await expect(page.getByTestId('route-tenant-error')).toContainText('acme-team-*');
+  expect(api.calls('TenantRouteService/CreateTenantRoute')).toHaveLength(2);
+
+  await page.getByTestId('route-tenant-under-prefix').fill('');
+  await page.getByTestId('route-tenant-under-prefix').pressSequentially('acme-team-pay');
+  await page.getByRole('button', { name: 'Create route' }).click();
+  await expect(panel.getByRole('cell', { name: 'acme-team-pay', exact: true })).toBeVisible();
+
+  const bodies = api.calls('TenantRouteService/CreateTenantRoute').map((c) => c.body);
+  expect(bodies.map((b) => (b as Record<string, unknown>).tenant ?? '')).toEqual([
+    '',
+    'acme-eu',
+    'acme-team-pay',
+  ]);
 });
 
 test('shows whether each route is in the cluster, with the reason when it is not', async ({

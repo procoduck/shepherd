@@ -43,6 +43,33 @@ const n = (o: Obj, k: string): number => (o[k] as number | undefined) ?? 0;
 const b = (o: Obj, k: string): boolean => !!o[k];
 const arr = <T = unknown>(o: Obj, k: string): T[] => (o[k] as T[] | undefined) ?? [];
 
+// Org.tenants: the fixture's snake_case {tenant, kind: 'exact'|'prefix',
+// is_default} rows as the wire's OrgTenant (enum names, camelCase).
+type FixtureTenant = { tenant: string; kind: 'exact' | 'prefix'; is_default?: boolean };
+const orgTenants = (o: Obj): FixtureTenant[] => (o['tenants'] as FixtureTenant[] | undefined) ?? [];
+function tenantsToWire(o: Obj) {
+  return orgTenants(o).map((t) => ({
+    tenant: t.tenant,
+    kind: t.kind === 'prefix' ? 'ORG_TENANT_KIND_PREFIX' : 'ORG_TENANT_KIND_EXACT',
+    isDefault: !!t.is_default,
+  }));
+}
+// gateway.OrgOwnsTenant: an exact tenant, or a valid tenant under a prefix.
+const TENANT_RE = /^[A-Za-z0-9!\-_.*'()]+$/;
+function ownsTenant(o: Obj, tenant: string): boolean {
+  if (!TENANT_RE.test(tenant)) return false;
+  return orgTenants(o).some((t) =>
+    t.kind === 'prefix' ? tenant.startsWith(t.tenant) : tenant === t.tenant,
+  );
+}
+// gateway.TenantsOverlap: two rules of two orgs that would both own a tenant.
+function tenantsOverlap(a: FixtureTenant, b: FixtureTenant): boolean {
+  if (a.kind === 'exact' && b.kind === 'exact') return a.tenant === b.tenant;
+  if (a.kind === 'exact') return a.tenant.startsWith(b.tenant);
+  if (b.kind === 'exact') return b.tenant.startsWith(a.tenant);
+  return a.tenant.startsWith(b.tenant) || b.tenant.startsWith(a.tenant);
+}
+
 function orgToWire(o: Obj) {
   return {
     id: s(o, 'id'),
@@ -50,7 +77,7 @@ function orgToWire(o: Obj) {
     displayName: s(o, 'display_name'),
     adminGroupId: s(o, 'admin_group_id'),
     viewerGroupId: s(o, 'viewer_group_id'),
-    tenantId: s(o, 'tenant_id'),
+    tenants: tenantsToWire(o),
     createdAt: o['created_at'],
     updatedAt: o['updated_at'],
     allowExperimentalComponents: b(o, 'allow_experimental_components'),
@@ -603,14 +630,15 @@ export function installDefaultHandlers(router: Router) {
       return connectError(r, 401, 'unauthenticated', 'not authenticated');
     }
     // Like the server (rpc_me.go), each membership carries the org's own
-    // tenant_id from the org row, omitted when empty (#261).
+    // tenants from the org row, omitted when it has none (#261). A persona
+    // that already carries tenants keeps them.
     const me = st.me as Obj & { orgs?: Obj[] };
     return json(r, 200, {
       ...me,
       orgs: (me.orgs ?? []).map((m) => {
         const o = (st.orgs as Obj[]).find((x) => x['id'] === m['id']);
-        const tenant = o ? s(o, 'tenant_id') : '';
-        return tenant ? { ...m, tenantId: tenant } : m;
+        const tenants = o ? tenantsToWire(o) : [];
+        return tenants.length > 0 ? { ...m, tenants } : m;
       }),
     });
   });
@@ -668,6 +696,10 @@ export function installDefaultHandlers(router: Router) {
       name: req['name'],
       display_name: req['displayName'],
       viewer_group_id: req['viewerGroupId'],
+      // An optional initial default tenant, like the real CreateOrg.
+      tenants: req['tenantId']
+        ? [{ tenant: req['tenantId'], kind: 'exact', is_default: true }]
+        : [],
       created_at: '2026-08-17T09:00:00Z',
       updated_at: '2026-08-17T09:00:00Z',
     };
@@ -686,25 +718,6 @@ export function installDefaultHandlers(router: Router) {
     // an omitted proto3 bool arrives as false.
     o['allow_label_matching'] = req['allowLabelMatching'] ?? false;
     o['allow_local_attribute_matching'] = req['allowLocalAttributeMatching'] ?? false;
-    return json(r, 200, orgToWire(o));
-  });
-  router.register('POST', '/shepherd.mgmt.v1.AdminService/SetOrgTenantID', async (r) => {
-    const req = await body(r);
-    const o = (st.orgs as Obj[]).find((org) => org['id'] === req['orgId']);
-    if (!o) return connectError(r, 404, 'not_found', 'org not found');
-    // Set-once, like the real handler.
-    if (o['tenant_id'])
-      return connectError(r, 400, 'failed_precondition', 'tenant id is already set');
-    // gateway.ValidateTenantID's charset rule, like the real handler — #302's
-    // spec needs the refusal to prove an edit writes nothing before it.
-    if (!/^[A-Za-z0-9!\-_.*'()]+$/.test(String(req['tenantId'] ?? '')))
-      return connectError(
-        r,
-        400,
-        'invalid_argument',
-        'tenant id contains characters outside the allowed set',
-      );
-    o['tenant_id'] = req['tenantId'];
     return json(r, 200, orgToWire(o));
   });
   router.register('POST', '/shepherd.mgmt.v1.AdminService/DeleteOrg', async (r) => {
@@ -940,6 +953,100 @@ export function installDefaultHandlers(router: Router) {
     }
     return null;
   };
+
+  // Org tenants (internal/mgmtapi/org_tenants.go): app admin only; a tenant
+  // belongs to at most one org; removal waits until nothing uses it.
+  const kindOf = (k: unknown): 'exact' | 'prefix' | '' =>
+    k === 'ORG_TENANT_KIND_EXACT' ? 'exact' : k === 'ORG_TENANT_KIND_PREFIX' ? 'prefix' : '';
+  router.register('POST', '/shepherd.mgmt.v1.AdminService/AddOrgTenant', async (r) => {
+    const denied = requireAppAdmin(r);
+    if (denied) return denied;
+    const req = await body(r);
+    const o = (st.orgs as Obj[]).find((org) => org['id'] === req['orgId']);
+    if (!o) return connectError(r, 404, 'not_found', 'org not found');
+    const kind = kindOf(req['kind']);
+    const tenant = String(req['tenant'] ?? '').trim();
+    if (!kind) return connectError(r, 400, 'invalid_argument', 'kind must be EXACT or PREFIX');
+    if (!TENANT_RE.test(tenant))
+      return connectError(
+        r,
+        400,
+        'invalid_argument',
+        `tenant id "${tenant}" contains characters outside the allowed set`,
+      );
+    if (req['makeDefault'] && kind !== 'exact')
+      return connectError(r, 400, 'invalid_argument', 'only an exact tenant can be the default');
+    const rule: FixtureTenant = { tenant, kind };
+    for (const other of st.orgs as Obj[]) {
+      if (other['id'] === o['id']) continue;
+      const hit = orgTenants(other).find((t) => tenantsOverlap(rule, t));
+      if (hit)
+        return connectError(
+          r,
+          400,
+          'failed_precondition',
+          `${kind === 'prefix' ? 'tenant prefix' : 'tenant'} "${tenant}" overlaps ${hit.kind === 'prefix' ? 'tenant prefix' : 'tenant'} "${hit.tenant}" of org "${s(other, 'name')}"; a tenant belongs to at most one org`,
+        );
+    }
+    const rows = orgTenants(o).map((t) => (req['makeDefault'] ? { ...t, is_default: false } : t));
+    rows.push({ tenant, kind, is_default: !!req['makeDefault'] });
+    o['tenants'] = rows;
+    return json(r, 200, orgToWire(o));
+  });
+  router.register('POST', '/shepherd.mgmt.v1.AdminService/RemoveOrgTenant', async (r) => {
+    const denied = requireAppAdmin(r);
+    if (denied) return denied;
+    const req = await body(r);
+    const o = (st.orgs as Obj[]).find((org) => org['id'] === req['orgId']);
+    if (!o) return connectError(r, 404, 'not_found', 'org not found');
+    const kind = kindOf(req['kind']);
+    const tenant = String(req['tenant'] ?? '');
+    const held = orgTenants(o).find((t) => t.tenant === tenant && t.kind === kind);
+    if (!held) return connectError(r, 404, 'not_found', `org has no tenant "${tenant}"`);
+    const covers = (t: string) => (kind === 'prefix' ? t.startsWith(tenant) : t === tenant);
+    const using = [
+      ...(st.tenantRoutes as Obj[])
+        .filter((x) => x['org_id'] === o['id'] && x['status'] !== TenantRouteStatus.REVOKED)
+        .filter((x) => covers(s(x, 'tenant_id')))
+        .map(
+          (x) =>
+            `tenant route "${s(x, 'kind')} route ${s(x, 'segment')}" (tenant "${s(x, 'tenant_id')}")`,
+        ),
+      ...(st.destinations as Obj[])
+        .filter((d) => (s(d, 'org_id') || o['id']) === o['id'] && s(d, 'tenant_id') !== '')
+        .filter((d) => covers(s(d, 'tenant_id')))
+        .map((d) => `destination "${s(d, 'name')}" (tenant "${s(d, 'tenant_id')}")`),
+    ];
+    if (using.length > 0)
+      return connectError(
+        r,
+        400,
+        'failed_precondition',
+        `${kind === 'prefix' ? 'tenant prefix' : 'tenant'} "${tenant}" is still in use and cannot be removed: ${using.join('; ')}`,
+      );
+    o['tenants'] = orgTenants(o).filter((t) => t !== held);
+    return json(r, 200, orgToWire(o));
+  });
+  router.register('POST', '/shepherd.mgmt.v1.AdminService/SetDefaultOrgTenant', async (r) => {
+    const denied = requireAppAdmin(r);
+    if (denied) return denied;
+    const req = await body(r);
+    const o = (st.orgs as Obj[]).find((org) => org['id'] === req['orgId']);
+    if (!o) return connectError(r, 404, 'not_found', 'org not found');
+    const tenant = String(req['tenant'] ?? '');
+    if (!orgTenants(o).some((t) => t.kind === 'exact' && t.tenant === tenant))
+      return connectError(
+        r,
+        400,
+        'failed_precondition',
+        `"${tenant}" is not an exact tenant of org "${s(o, 'name')}"`,
+      );
+    o['tenants'] = orgTenants(o).map((t) => ({
+      ...t,
+      is_default: t.kind === 'exact' && t.tenant === tenant,
+    }));
+    return json(r, 200, orgToWire(o));
+  });
 
   router.register('POST', '/shepherd.mgmt.v1.AdminService/GetOidcSettings', (r) => {
     const denied = requireAppAdmin(r);
@@ -1605,11 +1712,29 @@ export function installDefaultHandlers(router: Router) {
     const denied = requireOrgRole(r, String(tBody.orgId ?? ''), Role.ADMIN);
     if (denied) return denied;
     const req = await body(r);
-    // A test opts into the "org has no tenant identity" precondition by setting
-    // st.tenantRoutesNoIdentity — mirrors the server refusing CreateTenantRoute
-    // until an app admin sets orgs.tenant_id.
-    if (st.tenantRoutesNoIdentity) {
-      return connectError(r, 400, 'failed_precondition', 'organisation has no tenant identity');
+    // A test opts into the "org has no default tenant" precondition by setting
+    // st.tenantRoutesNoIdentity — mirrors the server refusing a route that
+    // names no tenant for an org without a default.
+    if (st.tenantRoutesNoIdentity && !req['tenant']) {
+      return connectError(r, 400, 'failed_precondition', 'org has no default tenant');
+    }
+    // The route's tenant, like resolveRouteTenant: the requested one, which
+    // the org must own, or the org's default. An org fixture seeded without
+    // tenants keeps the suite's historical 'tenant-x'.
+    const org = (st.orgs as Obj[]).find((x) => x['id'] === req['orgId']);
+    const requested = String(req['tenant'] ?? '').trim();
+    let tenant = 'tenant-x';
+    if (requested) {
+      if (!org || !ownsTenant(org, requested))
+        return connectError(
+          r,
+          400,
+          'invalid_argument',
+          `tenant "${requested}" is not one org "${org ? s(org, 'name') : ''}" owns`,
+        );
+      tenant = requested;
+    } else if (org) {
+      tenant = orgTenants(org).find((t) => t.is_default)?.tenant ?? tenant;
     }
     // The server requires gateway_name in BOTH modes (rpc_tenant_route.go).
     if (!String(req['gatewayName'] ?? '').trim()) {
@@ -1618,7 +1743,7 @@ export function installDefaultHandlers(router: Router) {
     const route: Obj = {
       id: mockId('tr'),
       org_id: req['orgId'],
-      tenant_id: 'tenant-x',
+      tenant_id: tenant,
       kind: req['kind'],
       segment: `${req['kind']}-${mockId('seg')}`,
       status: TenantRouteStatus.ACTIVE,

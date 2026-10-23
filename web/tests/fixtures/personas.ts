@@ -3,6 +3,7 @@
 // matches the wire (Connect JSON is camelCase) since these objects are used
 // verbatim both as the mocked GetMe response body (tests/mocks/handlers.ts)
 // and as window.__initialMe, which useMe() reads without any conversion.
+import type { OrgTenantKind } from '@/gen/shepherd/mgmt/v1/common_pb';
 import { Role } from '@/lib/roles';
 
 export interface MeResponse {
@@ -18,8 +19,8 @@ export interface MeResponse {
     role: Role;
     // #114: mirrors the org setting; absent means false (proto3 default).
     allowExperimentalComponents?: boolean;
-    // #261: the org's own tenant; the mock GetMe fills it from the seeded org.
-    tenantId?: string;
+    // #261: the org's own tenants; the mock GetMe fills them from the seeded org.
+    tenants?: { tenant: string; kind: OrgTenantKind; isDefault?: boolean }[];
   }>;
 }
 
