@@ -276,12 +276,21 @@ orgs(id, name text UNIQUE, display_name text,
 --   0011 grafana_connections — optional outcome-verification token (D7)
 --   0012 teams + service_accounts — scoped write, capability-scoped machine actors (W10)
 --   0013 orgs.tenant_id — app-admin-set only, closes the caller-supplied-tenant gap
+--        (moved into org_tenants by 0039)
 --   0014 oidc_settings — UI-configurable OIDC, second choice after chart/env (§7.1b)
 --   0015 users / org_members — local, non-OIDC identity. See §7.2
 --   0016 orgs.editor_group_id text NULL (optional org-wide editor group, OIDC path)
 --   0017 team_members — explicit local team membership, extends 0012's model
 --   0018 service_accounts.role ('editor'|'admin' tier, orthogonal to capability; §7.3)
 --   0037 orgs.reader_group_id renamed viewer_group_id (one role vocabulary; §7.2)
+--   0039 org_tenants — an org owns several tenants and tenant prefixes; replaces
+--        orgs.tenant_id (each org's tenant became its default exact tenant; §11.4)
+
+org_tenants(org_id uuid REFERENCES orgs ON DELETE CASCADE,       -- 0039; app admin writes only
+           tenant text, kind text CHECK (kind IN ('exact','prefix')),
+           is_default boolean DEFAULT false,      -- at most one per org, always 'exact'
+           created_by text,
+           PRIMARY KEY(org_id, kind, tenant))     -- exact tenants UNIQUE across all orgs
 
 clusters(id, name text UNIQUE, org_id uuid NULL REFERENCES orgs)  -- NULL = unclaimed
 
@@ -706,22 +715,52 @@ telemetry-backend credential ever enters Shepherd's database or the served confi
 is not read from the Secret. (The earlier sketch above read `url` from the Secret and appended a
 path. Pre-#229 wizards emitted `sys.env("SHEPHERD_DEST_<NAME>_URL")`, which nothing set.)
 
+**Org tenants (0039).** An organisation owns several tenants and tenant prefixes
+(`org_tenants`): each row is an **exact** tenant, or a **prefix** under which the org owns every
+valid tenant. An org *owns* a tenant when it is one of its exact tenants or a valid tenant
+(`gateway.ValidateTenantID`) under one of its prefixes — `gateway.OrgOwnsTenant`, the one function
+every check below asks. A tenant belongs to at most one org (D11): an exact tenant is unique across
+all orgs (a unique index), and a prefix may not overlap another org's prefix (neither a prefix of
+the other), cover another org's exact tenant, nor may an exact tenant fall under another org's
+prefix (`gateway.TenantsOverlap`). Exact tenants follow `ValidateTenantID`; a prefix follows
+`ValidateTenantPrefix` (same charset, non-empty, at most 149 bytes). At most one exact tenant per
+org is its **default**: what a tenant route uses when it names none, what `RenderChartValues`
+writes as the chart's `tenant`, and what the destination form pre-fills.
+
+Only an app admin changes them — `AdminService.AddOrgTenant` (optionally making an exact tenant the
+default), `RemoveOrgTenant` and `SetDefaultOrgTenant`; `CreateOrg`'s `tenant_id` is an optional
+initial default. Each change writes an `org.tenant.add` / `org.tenant.remove` /
+`org.tenant.set_default` audit row in its transaction. `AddOrgTenant` refuses (`failed_precondition`)
+an overlap, naming the other org (only an app admin sees it), and a tenant or prefix covering a
+tenant another org's destination or destination binding already sends (generic, not naming the
+org). `RemoveOrgTenant` refuses (`failed_precondition`) while any live (not revoked) tenant route,
+destination or destination binding of the org uses a tenant the row covers, listing each; the
+default cannot be removed while the org has live routes — switch the default to another exact
+tenant first. Every ownership change takes one exclusive transaction-scoped advisory lock
+(`LockOrgTenantsExclusive`, class `advisorylock.TenantID`); every write that reads ownership before
+writing — a destination, a destination binding, a tenant route — takes the same lock shared
+(`LockOrgTenantsShared`), so no check and write can race past an ownership change.
+`Org.tenants` and `MeService.GetMe`'s `OrgMembership.tenants` (read-only) carry the rows.
+
+**Tenant routes.** `CreateTenantRouteRequest.tenant` (field 8; field 2, the old free-form
+`tenant_id`, stays reserved) must be a tenant the org owns (`invalid_argument` otherwise); empty
+means the org's default, and an org with no default is refused (`failed_precondition`). The route
+stores the resolved tenant; rotation keeps it.
+
 **Tenant (#261).** A non-empty `tenant_id` is sent as `X-Scope-OrgID`:
 `headers = { "X-Scope-OrgID" = "<tenant>" }` in a `prometheus.remote_write` endpoint, `tenant_id =
 "<tenant>"` in a `loki.write` endpoint. Empty sends none. The API refuses (`invalid_argument`) a
-value outside `gateway.ValidateTenantID`'s rule, and one another org holds as its `orgs.tenant_id`
-with the generic message `tenant_id is not available to this org`. `wizardDestinations` applies the
-cross-org check again at render time, so such a destination is refused only by the renders that
-name it. The org side is guarded too: `CreateOrg` and `SetOrgTenantID` refuse
-(`failed_precondition`, "in use by another organisation's destination", not naming the org) a
-tenant another org's destination sends. Both checks run inside the writing transaction under a
-per-tenant `pg_advisory_xact_lock` (`LockTenantID`, class `advisorylock.TenantID`), so the two
-cannot race past each other. The guard covers a destination's tenant only: a hand-written pipeline
+value outside `gateway.ValidateTenantID`'s rule, and one another org owns (exactly or under a
+prefix) with the generic message `tenant_id is not available to this org`. A destination binding's
+tenant gets the same two checks on create and update. `wizardDestinations` applies the cross-org
+check again at render time, so such a destination is refused only by the renders that name it.
+The org side is guarded too (`AddOrgTenant` and `CreateOrg`, above). The checks run inside the
+writing transaction under the ownership lock, so they cannot race past each other. The guard covers a destination's tenant only: a hand-written pipeline
 can still set any header. The served config keeps a tenant until the pipeline is regenerated (a
 save of a destination it names); a pipeline naming several destinations is regenerated as a
 whole, so saving any one of them also starts sending a tenant stored earlier on another. `MeService.GetMe` returns each org's own
-`orgs.tenant_id` on `OrgMembership.tenant_id` (read-only, empty when unset), and the destination
-form pre-fills a new destination's tenant from it. This is egress from the org's own
+tenants on `OrgMembership.tenants` (read-only, empty when it has none), and the destination
+form pre-fills a new destination's tenant from the default one. This is egress from the org's own
 collectors, which an org editor could already tag with any header in a raw pipeline; it does not
 touch the gateway tier's ingress tenancy (D10/D11, `docs/archive/plans/2026-10-06-destination-tenant-tls.md`
 §2). A tenant already stored before #261 reaches a pipeline on its next regeneration, or when an

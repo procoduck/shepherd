@@ -176,13 +176,17 @@
         Create a tenant route on <strong>Delivery &rarr; Tenant routes</strong> (or through
         <code>TenantRouteService</code>), naming the Gateway it attaches to. Shepherd then creates the
         route's HTTPRoute in its own namespace, pointing at the receiver, and waits for the gateway to
-        report it attached. Only org admins create, rotate and revoke tenant routes, and an
-        organisation needs a tenant ID before it can have any. The <strong>In cluster</strong>
+        report it attached. Only org admins create, rotate and revoke tenant routes. Each route
+        sends one tenant the organisation owns &mdash; its default, another of its tenants, or a
+        tenant under one of its prefixes &mdash; and an organisation needs at least one tenant
+        before it can have any. Which tenants an organisation owns is set by an application
+        administrator on <strong>Admin &rarr; Organisations</strong>; a tenant or prefix can be
+        removed only once no route, destination or binding uses it. The <strong>In cluster</strong>
         column shows the result:
       </p>
       <ul>
         <li><strong>applied</strong> &mdash; the gateway accepted the route; traffic to its path
-            reaches the receiver with the org's tenant.</li>
+            reaches the receiver with the route's tenant.</li>
         <li><strong>refused</strong> &mdash; the gateway will not attach it, and says why underneath.
             Usually the Gateway's listeners do not admit routes from Shepherd's namespace: set their
             <code>allowedRoutes.namespaces</code> to include it. Shepherd keeps checking, with a

@@ -5,8 +5,8 @@
 First published as the release candidate **0.23.0-rc.1** (Shepherd v0.19.0-rc.1); install it
 with `--version 0.23.0-rc.1`, or `--devel`. Everything below applies to the rc and to 0.23.0.
 
-An ordinary `helm upgrade` with four migrations (0035–0038), one recompute per collector, a short burst of
-collector errors during the rollout, and a management-API break. Update API scripts first.
+An ordinary `helm upgrade` with five migrations (0035–0039), one recompute per collector, a short burst of
+collector errors during the rollout, and management-API breaks. Update API scripts first.
 
 ### Migrations 0035–0037
 
@@ -115,6 +115,37 @@ Applied by the migration Job before the new pods start, as usual. It adds a
 nullable `org_id` (FK to `orgs`, `ON DELETE SET NULL`) and two `jsonb`
 allowlist columns defaulting to `[]` and `may_claim` (default `false`) to `agent_tokens` — metadata-only, quick.
 Its down migration drops them.
+
+### An organisation can own several tenants and tenant prefixes (not in 0.23.0-rc.1)
+
+Nothing to do on the cluster: every organisation keeps its tenant, now as its **default** tenant,
+and its routes, destinations and chart values carry on unchanged. An application administrator
+can then give an organisation more exact tenants and tenant prefixes on **Admin → Organisations**
+(Edit). A tenant still belongs to at most one organisation.
+
+**Management API scripts need updating:**
+
+- `AdminService.SetOrgTenantID` is **removed**. Use `AddOrgTenant` (`org_id`, `tenant`,
+  `kind: ORG_TENANT_KIND_EXACT` or `ORG_TENANT_KIND_PREFIX`, `make_default`), `RemoveOrgTenant`
+  and `SetDefaultOrgTenant` (all app admin only). A tenant is no longer set once: it can be
+  removed when no live tenant route, destination or destination binding of the org uses it.
+- `Org.tenant_id` and `OrgMembership.tenant_id` (`GetMe`) are **replaced** by
+  `repeated OrgTenant tenants` (`tenant`, `kind`, `is_default`); the old field numbers are
+  reserved. Read the default as the entry with `is_default`.
+- `CreateOrgRequest.tenant_id` is unchanged on the wire and becomes the org's initial default
+  tenant.
+- `CreateTenantRouteRequest` gains `tenant`: a tenant the org owns (an exact tenant, or one under
+  a prefix). Leaving it empty keeps today's behaviour — the org's default tenant.
+- `CreateDestinationBinding` / `UpdateDestinationBinding` now refuse a tenant another
+  organisation owns (`invalid_argument`, "tenant_id is not available to this org"), as
+  destinations already did.
+
+#### Migration 0039
+
+Applied by the migration Job before the new pods start. It creates `org_tenants`, copies each
+`orgs.tenant_id` into it as that org's default exact tenant, and drops `orgs.tenant_id` — quick,
+one row per org. Its down migration restores `orgs.tenant_id` from each org's default and **drops
+every other tenant and prefix** (an org with tenants but no default comes back with none).
 
 ## 0.21.x → 0.22.0
 

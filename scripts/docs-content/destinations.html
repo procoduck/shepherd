@@ -19,12 +19,15 @@
         <code>tenant_id</code>. Leave it empty to send no tenant. It follows Mimir&rsquo;s rule:
         letters, digits and <code>! - _ . * ' ( )</code>, at most 150 characters, no slashes or
         spaces.</p>
-      <p>Any tenant your backend expects is allowed except one that belongs to
-        <strong>another organisation</strong> in Shepherd (the tenant ID an application
-        administrator gave it). That is refused when you save, and refused again when a wizard
-        pipeline is generated, in case the other organisation was given that tenant ID later. The
-        other way round, an administrator cannot give an organisation a tenant ID another
-        organisation&rsquo;s destination already sends.</p>
+      <p>A new destination starts with your organisation&rsquo;s <strong>default tenant</strong>.
+        Any tenant your backend expects is allowed except one that belongs to
+        <strong>another organisation</strong> in Shepherd &mdash; one of its tenants, or a tenant
+        under one of its tenant prefixes, as an application administrator assigned them on
+        <strong>Admin &rarr; Organisations</strong>. That is refused when you save, and refused
+        again when a wizard pipeline is generated. A destination binding&rsquo;s tenant follows the
+        same rule. The other way round, an administrator cannot give an organisation a tenant or
+        prefix covering a tenant another organisation&rsquo;s destination or binding already
+        sends.</p>
       <p>This guards a <em>destination&rsquo;s</em> tenant only. A pipeline you write by hand can
         set any header, <code>X-Scope-OrgID</code> included; Shepherd does not inspect it.</p>
       <p>A pipeline picks up a tenant change when it is regenerated: saving a destination
