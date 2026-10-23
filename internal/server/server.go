@@ -291,7 +291,15 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 	// MountRPC's and gitsync's eager ones) takes it from, so a disabled beacon
 	// serves exactly the config it served before the beacon existed on all of
 	// them (#369).
-	svc := agentapi.New(st, v, logger, schemaReg, agentapi.WithBeaconBaseline(serve.BeaconBaseline(cfg)))
+	// #374: while the database is unreachable, a replica keeps answering the
+	// collectors it served within agent.outage_cache_ttl — their token's
+	// positive verdict with its binding (tokenVerdicts, shared with
+	// RevokeAgentToken and BindAgentToken below so either evicts it here at
+	// once) and the last config served to them.
+	// Normal requests always go to the database. A ttl of 0 disables both.
+	tokenVerdicts := agentapi.NewTokenVerdicts(cfg.Agent.OutageCacheTTL, agentapi.DefaultTokenVerdictMax)
+	svc := agentapi.New(st, v, logger, schemaReg, agentapi.WithBeaconBaseline(serve.BeaconBaseline(cfg)),
+		agentapi.WithOutageCache(cfg.Agent.OutageCacheTTL))
 	// The Bearer branch of the collector gate: a collector's OIDC access token
 	// is verified with the same provider as user login. nil when authHandler
 	// is absent (the route-tree unit test) or OIDC is unconfigured, which
@@ -308,7 +316,7 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 	// agentapi.NewHandler also caps the request message (MaxRequestBytes).
 	connectPath, connectHandler := agentapi.NewHandler(
 		svc,
-		connect.WithRequestGate(telemetry.RequestGate(agentapi.NewAuthGate(st, verifyAgentToken))),
+		connect.WithRequestGate(telemetry.RequestGate(agentapi.NewAuthGate(st, verifyAgentToken, agentapi.WithTokenVerdicts(tokenVerdicts)))),
 		connect.WithInterceptors(telemetry.Interceptor()),
 	)
 	r.Mount(connectPath, connectHandler)
@@ -379,7 +387,8 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 		// group so they get session population + CSRF enforcement; each
 		// handler additionally requires its own authz interceptor role.
 		mgmtapi.MountRPC(r, st, cfg, enc, schemaReg, logger, mgmtapi.WithOIDCSettings(authHandler),
-			mgmtapi.WithRouteApplyRunning(routeApplyRunning))
+			mgmtapi.WithRouteApplyRunning(routeApplyRunning), mgmtapi.WithAgentTokenChanged(tokenVerdicts.Evict),
+			mgmtapi.WithAgentIdentityChanged(svc.ForgetAgentIdentity))
 	})
 
 	// Guard: reserved prefixes that didn't match any real route return 404 JSON, never the SPA.

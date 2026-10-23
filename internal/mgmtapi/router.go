@@ -75,6 +75,27 @@ type MountOption func(*mountConfig)
 type mountConfig struct {
 	oidc         *auth.Handler
 	routeApplyOn func() bool
+	tokenChanged func(tokenID string)
+	// identityChanged: see WithAgentIdentityChanged.
+	identityChanged func(issuer, appID string)
+}
+
+// WithAgentIdentityChanged supplies what AdminService.CreateAgentIdentity
+// and DeleteAgentIdentity call after their change commits — internal/server
+// passes agentapi.Service.ForgetAgentIdentity, so a created, deleted or
+// moved identity is never answered from the outage cache under its old
+// binding on this replica (#385).
+func WithAgentIdentityChanged(f func(issuer, appID string)) MountOption {
+	return func(m *mountConfig) { m.identityChanged = f }
+}
+
+// WithAgentTokenChanged supplies what AdminService.RevokeAgentToken and
+// BindAgentToken call after their change commits — internal/server passes
+// the collector gate's agentapi.TokenVerdicts.Evict, so a revoked or rebound
+// token stops verifying from the outage cache on this replica immediately
+// (#374).
+func WithAgentTokenChanged(f func(tokenID string)) MountOption {
+	return func(m *mountConfig) { m.tokenChanged = f }
 }
 
 // WithRouteApplyRunning supplies whether the tenant-route reconciler is
@@ -147,7 +168,7 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 			return mgmtv1connect.NewMeServiceHandler(NewMeService(st, logger), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewAdminServiceHandler(NewAdminService(st, logger, WithOIDCHandler(mc.oidc)), authz...)
+			return mgmtv1connect.NewAdminServiceHandler(NewAdminService(st, logger, WithOIDCHandler(mc.oidc), WithTokenChangedHook(mc.tokenChanged), WithIdentityChangedHook(mc.identityChanged)), authz...)
 		},
 		func() (string, http.Handler) {
 			var users *auth.UserStore

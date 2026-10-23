@@ -444,6 +444,56 @@ resources:
         &mdash; use <code>affinity</code> for that.
       </p>
 
+      <h3 id="outages">When Shepherd or its database is down</h3>
+      <p>
+        <strong>Running collectors keep their config.</strong> A poll that fails is logged and retried
+        at the next poll interval; Alloy keeps running the configuration it already loaded. Telemetry
+        keeps flowing for as long as Shepherd or its database is away.
+      </p>
+      <p>
+        <strong>A collector that starts during an outage needs a Shepherd replica that answers
+        it.</strong> At start-up, Alloy fetches its configuration, falling back to the copy it keeps
+        in its own storage directory (<code>&lt;storage.path&gt;/remotecfg</code>) if the fetch fails.
+        It then registers with Shepherd, and if registration fails Alloy&rsquo;s remote-configuration
+        service stops: the collector exits and crash-loops until Shepherd answers. This is upstream
+        Alloy behaviour (<code>internal/service/remotecfg</code> in grafana/alloy, as of v1.20), not
+        something Shepherd can change.
+      </p>
+      <p>
+        When the Shepherd pods are up but <strong>the database is unreachable</strong>, each replica
+        answers from memory for any collector it served within <code>agent.outage_cache_ttl</code>
+        (default <code>60s</code>, up to <code>1h</code>, <code>0</code> turns it off). It accepts that
+        collector&rsquo;s agent token, serves the last configuration it served the collector (same
+        hash, so a running collector sees &ldquo;not modified&rdquo;) and acknowledges its registration,
+        all without writing anything. The window starts from the collector&rsquo;s last poll before the
+        outage, so with the default it covers about the first minute. Any other collector is answered
+        <code>Unavailable</code>, never <code>Unauthenticated</code>: an outage is not reported as a bad
+        credential. This memory belongs to each replica and is emptied when its pod restarts.
+      </p>
+      <p class="note">
+        <strong>Raising <code>agent.outage_cache_ttl</code> lengthens the window for revocations
+        and rebinds too.</strong> Every normal request checks the token and its organisation binding
+        against the database, so a revocation or a rebind takes effect immediately. Revoking or
+        rebinding through a replica also clears that replica&rsquo;s memory at once. During a
+        database outage, another replica (or one where the change was made with the
+        <code>shepherd token</code> CLI) can still act on the old verdict for at most the TTL. That
+        means it accepts a revoked token, or serves a rebound token only what it was last served
+        under its old binding. The same holds for a collector OIDC identity that is created or
+        deleted (or moved to another organisation). During that outage the change could not be read
+        anyway. A token
+        that is not bound to an organisation is refused during an outage too.
+      </p>
+      <p>Together, that means:</p>
+      <ul>
+        <li>Keep <strong>two or more replicas</strong> (the default) with the PodDisruptionBudget, so
+          a restarting collector always finds a Shepherd pod.</li>
+        <li>Make <strong>the database highly available</strong>. With <code>cnpg.enabled</code> the
+          chart&rsquo;s cluster has <code>cnpg.instances: 2</code>; a managed Postgres should run with a
+          standby. The in-memory fallback covers a blip, not a long outage.</li>
+        <li>Give Alloy a <strong>persistent storage path</strong> where you can, so its on-disk copy
+          of the last configuration survives a rescheduled pod.</li>
+      </ul>
+
       <h2 id="verifying">Verifying the install</h2>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
@@ -478,6 +528,7 @@ kubectl -n shepherd logs job/shepherd-migrate     # if the release failed</code>
         <li class="sub"><a href="#upgrading-to-0-18">Upgrading from before chart 0.18.0: a few seconds without endpoints</a></li>
         <li class="sub"><a href="#upgrading-to-0-9">Upgrading to chart 0.9.0 needs one manual step</a></li>
         <li><a href="#high-availability">High availability</a></li>
+        <li class="sub"><a href="#outages">When Shepherd or its database is down</a></li>
         <li><a href="#verifying">Verifying the install</a></li>
       </ul>
     </aside>

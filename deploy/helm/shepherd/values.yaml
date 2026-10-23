@@ -265,6 +265,15 @@ config:
     # passed with no check-in. Longer than inactive_after, so an instance
     # spends time visibly inactive before it disappears.
     delete_after: "24h"
+    # outage_cache_ttl: while the database is unreachable, each replica keeps
+    # answering a collector it served within this window -- accepting its
+    # agent token and re-serving the last config it served it -- so a
+    # restarting collector can still start. Normal requests always check the
+    # database, so a revocation applies at once; during an outage another
+    # replica can accept a revoked token for at most this long. "0s" turns it
+    # off; at most "1h". See "When Shepherd or its database is down" in the
+    # Kubernetes docs.
+    outage_cache_ttl: "60s"
   validate:
     # alloy_binary: path to the bundled `alloy` binary Stage 2 validation
     # execs. Empty skips Stage 2 entirely (reported as "skipped", not
