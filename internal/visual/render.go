@@ -2,6 +2,8 @@
 package visual
 
 import (
+	"container/heap"
+	"errors"
 	"fmt"
 	"math"
 	"regexp"
@@ -9,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 type GraphDocument struct { //nolint:revive
@@ -250,31 +253,196 @@ func categoryOrder(s string) int {
 	return 4
 }
 
-// lineWriter wraps a strings.Builder and maintains a running line count.
+// MaxRenderBytes is the most Alloy text Render writes for one graph: the
+// pipeline contents limit (config.MaxPipelineContentsBytes, which a test pins
+// this to), since nothing larger could be saved anyway. Render refuses a graph
+// whose text would pass it as soon as the text does — while writing, never by
+// building the whole string first (#391: a 910 KB graph rendered 6.0 GB).
+const MaxRenderBytes = 1 << 20
+
+// MaxLabelBytes is the longest node label Render accepts. Alloy itself sets
+// no limit on a block label, but the label is the component's identity
+// everywhere Alloy reports it (its UI, its metrics' component_id label, its
+// logs), and every wire to the node writes it again, so an unbounded one is
+// what let a single node expand by the edge count (#391). 256 covers any
+// name a person types and any Kubernetes object name (DNS subdomains top out
+// at 253), with room for a prefix.
+const MaxLabelBytes = 256
+
+// ErrOutputTooLarge is RenderResult.Err for a graph refused because its text
+// would pass MaxRenderBytes.
+var ErrOutputTooLarge = errors.New("rendered pipeline exceeds 1 MiB")
+
+const codeOutputTooLarge = "output_too_large"
+
+// MaxComponentBytes is the longest node component Render accepts. Component
+// names are schema identifiers — the longest in any shipped artifact is 40
+// bytes (otelcol.extension.jaeger_remote_sampling) — so 256 leaves room for
+// any future or custom name, and nothing longer is a component. Unbounded,
+// it was copied into every per-edge diagnostic (#393 review: 12.8 GB of
+// messages from a 1 MiB graph).
+const MaxComponentBytes = 256
+
+// MaxDiagnostics and MaxDiagnosticBytes bound one render's diagnostic list
+// (Layer, Severity, Code, both node ids and Message, summed). Past either,
+// the rest are counted into one too_many_diagnostics entry, which is an error
+// when any dropped one was, so a refusal is never lost to the cap.
+const (
+	MaxDiagnostics     = 200
+	MaxDiagnosticBytes = 64 << 10
+)
+
+const codeTooManyDiagnostics = "too_many_diagnostics"
+
+// maxCycleNames is how many of a cycle's components its diagnostic names.
+const maxCycleNames = 10
+
+// maxMessageField is how much of one client-supplied string (an edge id, a
+// port, a prop name, a value) a diagnostic message quotes.
+const maxMessageField = 64
+
+// clip shortens a client-supplied string for a diagnostic message.
+func clip(s string) string { return clipTo(s, maxMessageField) }
+
+// clipTo shortens s to at most n bytes, ending in an ellipsis when cut.
+func clipTo(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := n - len("…")
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
+}
+
+func diagSize(d RenderDiagnostic) int {
+	return len(d.Layer) + len(d.Severity) + len(d.Code) + len(d.NodeID) + len(d.NodeID2) + len(d.Message)
+}
+
+// diagSink accumulates diagnostics up to MaxDiagnostics / MaxDiagnosticBytes
+// and counts the rest.
+type diagSink struct {
+	out        []RenderDiagnostic
+	bytes      int
+	dropped    int
+	droppedErr bool
+}
+
+func (s *diagSink) add(d RenderDiagnostic) {
+	if d.Code == codeTooManyDiagnostics {
+		// A list capped earlier: fold its count in rather than keep it.
+		var n int
+		if _, err := fmt.Sscanf(d.Message, "%d more", &n); err == nil {
+			s.dropped += n
+		}
+		s.droppedErr = s.droppedErr || d.Severity == sevError
+		return
+	}
+	if s.dropped > 0 || len(s.out) >= MaxDiagnostics || s.bytes+diagSize(d) > MaxDiagnosticBytes {
+		s.dropped++
+		s.droppedErr = s.droppedErr || d.Severity == sevError
+		return
+	}
+	s.out = append(s.out, d)
+	s.bytes += diagSize(d)
+}
+
+func (s *diagSink) list() []RenderDiagnostic {
+	if s.dropped == 0 {
+		return s.out
+	}
+	sev := sevWarning
+	if s.droppedErr {
+		sev = sevError
+	}
+	return append(s.out, RenderDiagnostic{
+		Layer: "L1", Severity: sev, Code: codeTooManyDiagnostics,
+		Message: fmt.Sprintf("%d more diagnostics were not reported (at most %d, %d bytes, are)", s.dropped, MaxDiagnostics, MaxDiagnosticBytes),
+	})
+}
+
+// CapDiagnostics applies Render's diagnostic cap to a list a caller has added
+// to (VisualService's experimental gate). An entry Render already folded
+// into too_many_diagnostics stays counted.
+func CapDiagnostics(diags []RenderDiagnostic) []RenderDiagnostic {
+	var s diagSink
+	for _, d := range diags {
+		s.add(d)
+	}
+	if s.dropped == 0 {
+		return diags
+	}
+	return s.list()
+}
+
+// Err reports a render that was refused for size (ErrOutputTooLarge). Every
+// other problem is a diagnostic; this one also has an error so a caller can
+// refuse the request (InvalidArgument) rather than return empty content.
+func (r RenderResult) Err() error {
+	for _, d := range r.Diagnostics {
+		if d.Code == codeOutputTooLarge {
+			return ErrOutputTooLarge
+		}
+	}
+	return nil
+}
+
+// lineWriter wraps a strings.Builder and maintains a running line count. With
+// a non-zero limit it stops writing at the first write that would take the
+// text past it and reports that in over; nothing after that is written.
 type lineWriter struct {
 	b     strings.Builder
 	lines int
+	limit int
+	over  bool
 }
 
 func (lw *lineWriter) writef(format string, args ...any) {
+	if lw.over {
+		return
+	}
 	lw.writes(fmt.Sprintf(format, args...))
 }
 
 func (lw *lineWriter) writes(s string) {
+	if lw.over {
+		return
+	}
+	if lw.limit > 0 && lw.b.Len()+len(s) > lw.limit {
+		lw.over = true
+		return
+	}
 	lw.b.WriteString(s)
 	lw.lines += strings.Count(s, "\n")
 }
 
 func (lw *lineWriter) currentLine() int { return lw.lines + 1 }
 
+// natural serializes a value by its JSON shape within the room the writer has
+// left; a value that cannot fit marks the writer over and is not emitted.
+func (lw *lineWriter) natural(v interface{}) (string, bool) {
+	if lw.limit == 0 {
+		return serializeNatural(v), true
+	}
+	text, ok := serializeNaturalWithin(v, lw.limit-lw.b.Len())
+	if !ok {
+		lw.over = true
+		return "", false
+	}
+	return text, true
+}
+
 // renderer carries the per-render state that every emission step appends to.
 type renderer struct {
 	schema SchemaPayload
-	diags  []RenderDiagnostic
+	sink   diagSink
 }
 
+func (rd *renderer) add(d RenderDiagnostic) { rd.sink.add(d) }
+
 func (rd *renderer) diag(code, severity, nodeID, msg string) {
-	rd.diags = append(rd.diags, RenderDiagnostic{Layer: "L1", Severity: severity, Code: code, NodeID: nodeID, Message: msg})
+	rd.add(RenderDiagnostic{Layer: "L1", Severity: severity, Code: code, NodeID: nodeID, Message: msg})
 }
 
 // portPath is where a port lives inside the component body. Payloads that
@@ -348,15 +516,34 @@ type wire struct {
 //
 // Anything else is reported instead of silently dropped. Returns wires keyed
 // by node id then by argument port name.
-func (rd *renderer) resolveEdges(doc GraphDocument, active map[string]GraphNode, labels map[string]string) map[string]map[string][]wire {
+//
+// A second edge with the same endpoints and ports is refused (an error
+// diagnostic, once per pair) and not wired again. It is not harmless to merge:
+// Alloy fans out to every element of forward_to, so [B.receiver, B.receiver]
+// delivers each sample twice, and array.concat(A.targets, A.targets) scrapes
+// each target twice. The builder never creates one (its store refuses a
+// duplicate connection), so only a hand-built request carries one — #391's
+// probe sent 15,000.
+//
+// Every resolved wire's text lands in the output, so once their total passes
+// MaxRenderBytes the render cannot fit: tooLarge reports that before the
+// joined lists are built.
+func (rd *renderer) resolveEdges(doc GraphDocument, active map[string]GraphNode, labels map[string]string) (wires map[string]map[string][]wire, tooLarge bool) {
 	out := map[string]map[string][]wire{}
+	total := 0
 	add := func(node, port string, w wire) {
 		if out[node] == nil {
 			out[node] = map[string][]wire{}
 		}
 		out[node][port] = append(out[node][port], w)
+		total += len(w.text)
 	}
+	seen := map[[4]string]bool{}
+	reported := map[[4]string]bool{}
 	for i, e := range doc.Edges {
+		if total > MaxRenderBytes {
+			return nil, true
+		}
 		fromNode, fromActive := active[e.From.Node]
 		toNode, toActive := active[e.To.Node]
 		if !fromActive || !toActive {
@@ -364,6 +551,20 @@ func (rd *renderer) resolveEdges(doc GraphDocument, active map[string]GraphNode,
 			// node itself; that is the documented meaning of "disabled".
 			continue
 		}
+		key := [4]string{e.From.Node, e.From.Port, e.To.Node, e.To.Port}
+		if seen[key] {
+			if !reported[key] {
+				reported[key] = true
+				rd.add(RenderDiagnostic{
+					Layer: "L1", Severity: sevError, Code: "duplicate_edge",
+					NodeID: e.From.Node, NodeID2: e.To.Node,
+					Message: fmt.Sprintf("edge %s repeats %s.%s → %s.%s; Alloy would deliver the data once per copy, so the copies were not emitted",
+						clip(e.ID), fromNode.Component, clip(e.From.Port), toNode.Component, clip(e.To.Port)),
+				})
+			}
+			continue
+		}
+		seen[key] = true
 		fromComp := rd.schema.Components[fromNode.Component]
 		toComp := rd.schema.Components[toNode.Component]
 		toIn, fromOut := findInput(toComp, e.To.Port), findOutput(fromComp, e.From.Port)
@@ -379,15 +580,18 @@ func (rd *renderer) resolveEdges(doc GraphDocument, active map[string]GraphNode,
 		case fromIn != nil && inputRole(*fromIn) == roleProduces && toOut != nil && outputRole(*toOut) == roleAccepts:
 			add(e.From.Node, e.From.Port, wire{text: reference(e.To.Node, e.To.Port, active, labels), order: order, seq: i})
 		default:
-			rd.diags = append(rd.diags, RenderDiagnostic{
+			rd.add(RenderDiagnostic{
 				Layer: "L1", Severity: sevError, Code: "edge_unresolved",
 				NodeID: e.From.Node, NodeID2: e.To.Node,
 				Message: fmt.Sprintf("edge %s: %s.%s → %s.%s does not connect an argument to a matching export; the reference was not emitted",
-					e.ID, fromNode.Component, e.From.Port, toNode.Component, e.To.Port),
+					clip(e.ID), fromNode.Component, clip(e.From.Port), toNode.Component, clip(e.To.Port)),
 			})
 		}
 	}
-	return out
+	if total > MaxRenderBytes {
+		return nil, true
+	}
+	return out, false
 }
 
 // targetsPortType is the schema type of every input port that carries Alloy's
@@ -458,33 +662,58 @@ func nodeRefs(c ComponentSchema, wires map[string][]wire) []levelRef {
 	return refs
 }
 
-func Render(doc GraphDocument, schema SchemaPayload) RenderResult { //nolint:revive
+// Render turns a graph into Alloy text. Its output is bounded: a label over
+// MaxLabelBytes is refused, a duplicate edge is refused and wired once, and a
+// graph whose text would pass MaxRenderBytes is refused (RenderResult.Err)
+// as soon as the text does. Every step is n log n in the graph's size, and
+// the emission order is the same as it always was, byte for byte (#391).
+func Render(doc GraphDocument, schema SchemaPayload) RenderResult {
 	rd := &renderer{schema: schema}
 	r := RenderResult{NodeMap: map[string]NodeRange{}}
 	labels := map[string]string{}
 	seen := map[string]string{}
-	collision := false
+	refuse := false
 	for _, n := range doc.Nodes {
+		if len(n.Component) > MaxComponentBytes {
+			refuse = true
+			rd.diag("component_too_long", sevError, n.ID,
+				fmt.Sprintf("the component name is %d bytes; the limit is %d", len(n.Component), MaxComponentBytes))
+			continue
+		}
+		if len(n.Label) > MaxLabelBytes {
+			// Checked on the raw label: a disabled node's marker comment
+			// writes it unsanitized, and every wire writes the sanitized one.
+			refuse = true
+			rd.diag("label_too_long", sevError, n.ID,
+				fmt.Sprintf("the label is %d bytes; the limit is %d", len(n.Label), MaxLabelBytes))
+			continue
+		}
 		labels[n.ID] = sanitizeLabel(n.Label)
 		if n.Disabled {
 			continue
 		}
 		key := n.Component + "\x00" + labels[n.ID]
 		if old, ok := seen[key]; ok {
-			collision = true
-			rd.diags = append(rd.diags, RenderDiagnostic{
+			refuse = true
+			rd.add(RenderDiagnostic{
 				Layer: "L1", Severity: sevError, Code: "label_collision", NodeID: old, NodeID2: n.ID,
-				Message: fmt.Sprintf("nodes %s and %s have the same label", old, n.ID),
+				Message: fmt.Sprintf("nodes %s and %s have the same label", clip(old), clip(n.ID)),
 			})
 			continue
 		}
 		seen[key] = n.ID
 	}
-	if collision {
+	if refuse {
 		// A collision makes every reference ambiguous, so no content is safe
-		// to emit; every colliding pair is reported, not just the first.
-		r.Diagnostics = rd.diags
+		// to emit; every colliding pair is reported, not just the first. An
+		// over-long label is refused the same way.
+		r.Diagnostics = rd.sink.list()
 		return r
+	}
+	tooLarge := func() RenderResult {
+		rd.diag(codeOutputTooLarge, sevError, "",
+			fmt.Sprintf("the rendered pipeline would exceed %d bytes (1 MiB), the most a pipeline may hold", MaxRenderBytes))
+		return RenderResult{NodeMap: map[string]NodeRange{}, Diagnostics: rd.sink.list()}
 	}
 
 	active := map[string]GraphNode{}
@@ -506,6 +735,11 @@ func Render(doc GraphDocument, schema SchemaPayload) RenderResult { //nolint:rev
 		adj[e.From.Node] = append(adj[e.From.Node], e.To.Node)
 		indegree[e.To.Node]++
 	}
+	// less is a strict total order over the active nodes: two with the same
+	// component and label are a collision, refused above. So "take the least
+	// ready node" has exactly one answer, and the heap below yields the same
+	// sequence as the sorted queue it replaced (that queue was re-sorted
+	// after every push, quadratic in a wide fan-out).
 	less := func(a, b string) bool {
 		na, nb := active[a], active[b]
 		ca, cb := categoryOrder(schema.Components[na.Component].Category), categoryOrder(schema.Components[nb.Component].Category)
@@ -517,23 +751,21 @@ func Render(doc GraphDocument, schema SchemaPayload) RenderResult { //nolint:rev
 		}
 		return labels[a] < labels[b]
 	}
-	queue := []string{}
+	ready := &readyQueue{less: less}
 	for id, d := range indegree {
 		if d == 0 {
-			queue = append(queue, id)
+			ready.ids = append(ready.ids, id)
 		}
 	}
-	sort.Slice(queue, func(i, j int) bool { return less(queue[i], queue[j]) })
+	heap.Init(ready)
 	order := []string{}
-	for len(queue) > 0 {
-		id := queue[0]
-		queue = queue[1:]
+	for ready.Len() > 0 {
+		id := ready.pop()
 		order = append(order, id)
 		for _, to := range adj[id] {
 			indegree[to]--
 			if indegree[to] == 0 {
-				queue = append(queue, to)
-				sort.Slice(queue, func(i, j int) bool { return less(queue[i], queue[j]) })
+				heap.Push(ready, to)
 			}
 		}
 	}
@@ -549,24 +781,40 @@ func Render(doc GraphDocument, schema SchemaPayload) RenderResult { //nolint:rev
 			}
 		}
 		sort.Slice(rest, func(i, j int) bool { return less(rest[i], rest[j]) })
-		names := make([]string, len(rest))
-		for i, id := range rest {
-			names[i] = active[id].Component + " " + quote(labels[id])
+		// At most maxCycleNames are named: the message must not grow with
+		// the graph.
+		names := make([]string, 0, min(len(rest), maxCycleNames+1))
+		for _, id := range rest[:min(len(rest), maxCycleNames)] {
+			names = append(names, active[id].Component+" "+quote(labels[id]))
 		}
-		rd.diags = append(rd.diags, RenderDiagnostic{
+		if len(rest) > maxCycleNames {
+			names = append(names, fmt.Sprintf("%d more", len(rest)-maxCycleNames))
+		}
+		rd.add(RenderDiagnostic{
 			Layer: "L1", Severity: sevError, Code: "cycle", NodeID: rest[0],
 			Message: fmt.Sprintf("graph has a cycle through %s; the emission order of those components is arbitrary", strings.Join(names, ", ")),
 		})
 		order = append(order, rest...)
 	}
 
-	wires := rd.resolveEdges(doc, active, labels)
+	wires, over := rd.resolveEdges(doc, active, labels)
+	if over {
+		return tooLarge()
+	}
+	// Each node's bindings in document order, indexed once rather than
+	// scanned once per node.
+	bindings := map[string][]GraphBinding{}
+	for _, bind := range doc.Bindings {
+		if _, ok := active[bind.Node]; ok {
+			bindings[bind.Node] = append(bindings[bind.Node], bind)
+		}
+	}
 
 	version := schema.Meta.AlloyVersion
 	if version == "" {
 		version = doc.SchemaVersion
 	}
-	var lw lineWriter
+	lw := lineWriter{limit: MaxRenderBytes}
 	// The count is the graph's nodes, disabled ones included. Until #308 it
 	// was labelled "graph revision", which it never was; nothing parses this
 	// line (it is a comment), so text stored with the old label still loads.
@@ -579,12 +827,15 @@ func Render(doc GraphDocument, schema SchemaPayload) RenderResult { //nolint:rev
 		}
 	}
 	for _, id := range order {
+		if lw.over {
+			break
+		}
 		n := active[id]
 		c, known := schema.Components[n.Component]
 		if n.Component != "" && !known {
-			rd.diags = append(rd.diags, RenderDiagnostic{
+			rd.add(RenderDiagnostic{
 				Layer: "L1", Severity: sevError, Code: "unknown_component", NodeID: id,
-				Message: fmt.Sprintf("component %q is not in the schema for this graph", n.Component),
+				Message: fmt.Sprintf("component %q is not in the schema for this graph", clip(n.Component)),
 			})
 		}
 		lw.writes("\n")
@@ -598,13 +849,10 @@ func Render(doc GraphDocument, schema SchemaPayload) RenderResult { //nolint:rev
 			// are emitted by their JSON shape rather than dropped.
 			rd.writeUntypedProps(&lw, "  ", id, n.Props)
 		}
-		for _, bind := range doc.Bindings {
-			if bind.Node != id {
-				continue
-			}
+		for _, bind := range bindings[id] {
 			expr := strings.TrimSpace(bind.Ref.Expr)
 			if expr == "" {
-				rd.diag("empty_binding_expr", sevError, id, fmt.Sprintf("binding for %q has an empty expression", bind.Prop))
+				rd.diag("empty_binding_expr", sevError, id, fmt.Sprintf("binding for %q has an empty expression", clip(bind.Prop)))
 				continue
 			}
 			if bind.Prop == "" {
@@ -617,9 +865,44 @@ func Render(doc GraphDocument, schema SchemaPayload) RenderResult { //nolint:rev
 		end := lw.currentLine() - 1
 		r.NodeMap[id] = NodeRange{StartLine: start, EndLine: end}
 	}
+	if lw.over {
+		return tooLarge()
+	}
 	r.Content = lw.b.String()
-	r.Diagnostics = rd.diags
+	r.Diagnostics = rd.sink.list()
 	return r
+}
+
+// readyQueue is the topological sort's min-heap (container/heap) of nodes
+// whose inputs are all placed, ordered by less.
+type readyQueue struct {
+	ids  []string
+	less func(a, b string) bool
+}
+
+func (q *readyQueue) Len() int           { return len(q.ids) }
+func (q *readyQueue) Less(i, j int) bool { return q.less(q.ids[i], q.ids[j]) }
+func (q *readyQueue) Swap(i, j int)      { q.ids[i], q.ids[j] = q.ids[j], q.ids[i] }
+
+// Push and Pop are heap.Interface's; heap.Push only ever passes a string.
+func (q *readyQueue) Push(x any) {
+	if id, ok := x.(string); ok {
+		q.ids = append(q.ids, id)
+	}
+}
+
+func (q *readyQueue) Pop() any {
+	last := q.ids[len(q.ids)-1]
+	q.ids = q.ids[:len(q.ids)-1]
+	return last
+}
+
+// pop removes and returns the least ready node.
+func (q *readyQueue) pop() string {
+	if id, ok := heap.Pop(q).(string); ok {
+		return id
+	}
+	return ""
 }
 
 // writeBody emits one block body: schema-ordered attributes (with wired
@@ -697,7 +980,7 @@ func (rd *renderer) writeBody(lw *lineWriter, indent, nodeID string, attrs []Att
 			continue
 		}
 		consumed[a.Name] = true
-		if text, emit := rd.serializeTyped(nodeID, a.Name, raw, a.Type); emit {
+		if text, emit := rd.serializeTyped(lw, nodeID, a.Name, raw, a.Type); emit {
 			lw.writef("%s%s = %s\n", indent, a.Name, text)
 		}
 	}
@@ -755,7 +1038,7 @@ func (rd *renderer) writeBody(lw *lineWriter, indent, nodeID string, attrs []Att
 	sort.Strings(unknown)
 	for _, k := range unknown {
 		rd.diag("unknown_prop", sevWarning, nodeID,
-			fmt.Sprintf("%q is not an attribute or block of this component in this schema; it was not emitted", k))
+			fmt.Sprintf("%q is not an attribute or block of this component in this schema; it was not emitted", clip(k)))
 	}
 }
 
@@ -775,7 +1058,7 @@ func (rd *renderer) writeUntypedProps(lw *lineWriter, indent, nodeID string, pro
 		if props[k] == nil {
 			continue
 		}
-		if text, emit := rd.serializeTyped(nodeID, k, props[k], ""); emit {
+		if text, emit := rd.serializeTyped(lw, nodeID, k, props[k], ""); emit {
 			lw.writef("%s%s = %s\n", indent, k, text)
 		}
 	}
@@ -831,7 +1114,7 @@ var (
 // serializeTyped renders one value according to its declared schema type. It
 // returns false when nothing should be emitted; any reason for that is
 // reported as a diagnostic first.
-func (rd *renderer) serializeTyped(nodeID, name string, v interface{}, typ string) (string, bool) {
+func (rd *renderer) serializeTyped(lw *lineWriter, nodeID, name string, v interface{}, typ string) (string, bool) {
 	if v == nil {
 		// A null prop means "not set"; emitting "null"/"<nil>" as a string was
 		// the historical behaviour and produced a config that silently lied.
@@ -842,13 +1125,13 @@ func (rd *renderer) serializeTyped(nodeID, name string, v interface{}, typ strin
 	}
 	mismatch := func(want string) (string, bool) {
 		rd.diag("prop_type_mismatch", sevError, nodeID,
-			fmt.Sprintf("%q is declared %s in the schema but the value is %s; it was not emitted", name, want, jsonKind(v)))
+			fmt.Sprintf("%q is declared %s in the schema but the value is %s; it was not emitted", clip(name), want, jsonKind(v)))
 		return "", false
 	}
 	switch typ {
 	case "secret":
 		rd.diag("secret_by_value", sevError, nodeID,
-			fmt.Sprintf("%q is a secret: supply it as an expression (a binding or {\"$expr\": ...}), never as a literal", name))
+			fmt.Sprintf("%q is a secret: supply it as an expression (a binding or {\"$expr\": ...}), never as a literal", clip(name)))
 		return "", false
 	case "duration":
 		s, isString := v.(string)
@@ -861,7 +1144,7 @@ func (rd *renderer) serializeTyped(nodeID, name string, v interface{}, typ strin
 		}
 		if !durationRe.MatchString(s) {
 			rd.diag("invalid_duration", sevError, nodeID,
-				fmt.Sprintf("%q = %q is not a duration (expected a unit such as 30s, 5m, 1h)", name, s))
+				fmt.Sprintf("%q = %q is not a duration (expected a unit such as 30s, 5m, 1h)", clip(name), clip(s)))
 		}
 		return quote(s), true
 	case "string":
@@ -901,12 +1184,12 @@ func (rd *renderer) serializeTyped(nodeID, name string, v interface{}, typ strin
 		return mismatch("a bool")
 	case "list":
 		if x, ok := v.([]interface{}); ok {
-			return serializeNatural(x), true
+			return lw.natural(x)
 		}
 		return mismatch("a list")
 	case "map":
 		if x, ok := v.(map[string]interface{}); ok {
-			return serializeNatural(x), true
+			return lw.natural(x)
 		}
 		return mismatch("a map")
 	case "capsule":
@@ -920,47 +1203,107 @@ func (rd *renderer) serializeTyped(nodeID, name string, v interface{}, typ strin
 		}
 		return mismatch("an expression")
 	}
-	return serializeNatural(v), true
+	return lw.natural(v)
 }
 
 // serializeNatural renders a value by its JSON shape, for list elements, map
 // values and attributes whose type the schema does not state.
 func serializeNatural(v interface{}) string {
+	var b boundedBuilder
+	writeNatural(&b, v)
+	return b.String()
+}
+
+// serializeNaturalWithin is serializeNatural that gives up, reporting false,
+// as soon as the text passes room bytes — a value is never built whole only
+// to be refused (#393 review: 90,000 × -1.79e308 is 9 bytes of JSON and 310
+// of Alloy each).
+func serializeNaturalWithin(v interface{}, room int) (string, bool) {
+	b := boundedBuilder{room: room, bounded: true}
+	writeNatural(&b, v)
+	if b.over {
+		return "", false
+	}
+	return b.String(), true
+}
+
+// boundedBuilder is a strings.Builder that stops at room bytes when bounded.
+type boundedBuilder struct {
+	strings.Builder
+	room    int
+	bounded bool
+	over    bool
+}
+
+func (b *boundedBuilder) put(s string) {
+	if b.over {
+		return
+	}
+	if b.bounded && b.Len()+len(s) > b.room {
+		b.over = true
+		return
+	}
+	b.WriteString(s)
+}
+
+// writeNatural writes exactly what the pre-#393 serializeNatural returned
+// (legacySerializeNatural in export_test.go; render_bounds_test.go compares
+// them), piece by piece so a bounded builder can stop early.
+func writeNatural(b *boundedBuilder, v interface{}) {
+	if b.over {
+		return
+	}
 	switch x := v.(type) {
 	case nil:
-		return "null"
+		b.put("null")
 	case string:
-		return quote(x)
+		b.put(quote(x))
 	case bool:
-		return strconv.FormatBool(x)
+		b.put(strconv.FormatBool(x))
 	case float64:
-		return formatNumber(x)
+		b.put(formatNumber(x))
 	case []interface{}:
-		p := make([]string, len(x))
+		b.put("[")
 		for i, z := range x {
-			p[i] = serializeNatural(z)
+			if b.over {
+				return
+			}
+			if i > 0 {
+				b.put(", ")
+			}
+			writeNatural(b, z)
 		}
-		return "[" + strings.Join(p, ", ") + "]"
+		b.put("]")
 	case map[string]interface{}:
 		if expr, ok := rawExpr(x); ok {
-			return expr
+			b.put(expr)
+			return
 		}
 		keys := make([]string, 0, len(x))
 		for k := range x {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
-		p := make([]string, len(keys))
+		b.put("{")
 		for i, k := range keys {
-			key := k
-			if !identRe.MatchString(k) {
-				key = quote(k)
+			if b.over {
+				return
 			}
-			p[i] = key + " = " + serializeNatural(x[k])
+			if i > 0 {
+				b.put(", ")
+			}
+			if identRe.MatchString(k) {
+				b.put(k)
+			} else {
+				b.put(quote(k))
+			}
+			b.put(" = ")
+			writeNatural(b, x[k])
 		}
-		return "{" + strings.Join(p, ", ") + "}"
+		b.put("}")
+	default:
+		b.put(quote(fmt.Sprint(v)))
 	}
-	return quote(fmt.Sprint(v))
 }
 
 // formatNumber prints a float in plain decimal notation. The TS renderer

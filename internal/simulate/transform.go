@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"shepherd/internal/netshape"
 	"shepherd/internal/schema"
@@ -181,6 +182,40 @@ type TransformError struct {
 	Message   string `json:"message"`
 }
 
+// capErrors bounds a refusal the way visual.Render bounds its diagnostics
+// (#393 review): at most visual.MaxDiagnostics entries or
+// visual.MaxDiagnosticBytes, then one more entry, with the first dropped
+// one's code, counting the rest. Each message is already bounded — the run
+// renders the graph first, and that refuses over-long labels and
+// components — and is clipped here as well.
+func capErrors(errs TransformErrors) TransformErrors {
+	const maxMessage = 1024
+	out := make(TransformErrors, 0, min(len(errs), visual.MaxDiagnostics+1))
+	size := 0
+	for i, e := range errs {
+		if len(e.Message) > maxMessage {
+			cut := maxMessage
+			for cut > 0 && !utf8.RuneStart(e.Message[cut]) {
+				cut--
+			}
+			e.Message = e.Message[:cut] + "…"
+		}
+		if len(e.Component) > visual.MaxComponentBytes {
+			e.Component = e.Component[:visual.MaxComponentBytes]
+		}
+		n := len(e.Code) + len(e.NodeID) + len(e.Component) + len(e.Message)
+		if len(out) >= visual.MaxDiagnostics || size+n > visual.MaxDiagnosticBytes {
+			return append(out, TransformError{
+				Code:    e.Code,
+				Message: fmt.Sprintf("%d more problems are not listed", len(errs)-i),
+			})
+		}
+		out = append(out, e)
+		size += n
+	}
+	return out
+}
+
 // TransformErrors is every reason at once. A user with three unstubbable
 // sources should see three problems, not fix-and-retry three times.
 type TransformErrors []TransformError
@@ -289,10 +324,10 @@ func Transform(req TransformRequest) (TransformResult, error) {
 
 	if len(errs) > 0 {
 		sortErrors(errs)
-		return TransformResult{}, errs
+		return TransformResult{}, capErrors(errs)
 	}
 	if e := checkContainment(out, req, removed, written, stubbed); len(e) > 0 {
-		return TransformResult{}, e
+		return TransformResult{}, capErrors(e)
 	}
 	sortRewrites(rewrites)
 	return TransformResult{Graph: out, Rewrites: rewrites}, nil
@@ -1768,12 +1803,12 @@ func checkContainment(doc visual.GraphDocument, req TransformRequest, removed []
 	res := visual.Render(doc, req.Schema)
 	for _, d := range res.Diagnostics {
 		switch d.Code {
-		case "label_collision":
-			// Colliding labels make Render emit nothing, so the textual checks
+		case "label_collision", "label_too_long", "output_too_large":
+			// Each of these makes Render emit nothing, so the textual checks
 			// below would pass vacuously. Fail closed instead.
 			errs = append(errs, TransformError{
 				Code: CodeContainmentViolated, NodeID: d.NodeID,
-				Message: "transformed graph has colliding labels, so containment cannot be verified against the rendered text",
+				Message: "transformed graph did not render (" + d.Message + "), so containment cannot be verified against the rendered text",
 			})
 		case "secret_by_value":
 			// P3.

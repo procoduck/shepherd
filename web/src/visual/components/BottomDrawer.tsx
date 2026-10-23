@@ -13,6 +13,7 @@ import {
   unavailableProps,
 } from '../../components/ui/unavailable';
 import { useOrgId } from '../../hooks/useOrg';
+import { errorText } from '../../lib/formError';
 import { renderTS } from '../renderTS';
 import { useVisualStore } from '../store';
 import { useDebouncedValue } from '../useDebouncedValue';
@@ -66,8 +67,11 @@ export function BottomDrawer() {
   // request is in flight would otherwise let a late response resurrect a
   // stale outcome for a doc the user has since changed.
   const [verified, setVerified] = useState<null | {
-    outcome: 'match' | 'mismatch';
+    outcome: 'match' | 'mismatch' | 'refused';
     content: string;
+    // The server's refusal (#391: a graph whose text would pass 1 MiB is
+    // InvalidArgument), shown instead of dropped.
+    message?: string;
   }>(null);
   // W5-10: `renderTS` re-walks the whole graph, and `doc` changes on every
   // store mutation — including one per keystroke anywhere in the inspector,
@@ -118,8 +122,12 @@ export function BottomDrawer() {
   const verify = async () => {
     if (!orgId || !rendered) return;
     const content = rendered.content;
-    const server = await renderVisual(orgId, doc, pipelineId);
-    setVerified({ outcome: server.content === content ? 'match' : 'mismatch', content });
+    try {
+      const server = await renderVisual(orgId, doc, pipelineId);
+      setVerified({ outcome: server.content === content ? 'match' : 'mismatch', content });
+    } catch (e) {
+      setVerified({ outcome: 'refused', content, message: errorText(e, 'Server render failed') });
+    }
   };
   const selectedNode =
     selected.length === 1 ? doc.nodes.find((n) => n.id === selected[0]) : undefined;
@@ -336,11 +344,13 @@ export function BottomDrawer() {
               {verified && rendered?.content === verified.content && (
                 <div
                   data-testid='verify-render-result'
-                  className={`text-xs ${verified.outcome === 'mismatch' ? 'text-red-500' : 'text-emerald-500'}`}
+                  className={`text-xs ${verified.outcome === 'match' ? 'text-emerald-500' : 'text-red-500'}`}
                 >
-                  {verified.outcome === 'mismatch'
-                    ? 'Server and client render differ'
-                    : 'Server render matches'}
+                  {verified.outcome === 'refused'
+                    ? verified.message
+                    : verified.outcome === 'mismatch'
+                      ? 'Server and client render differ'
+                      : 'Server render matches'}
                 </div>
               )}
               <pre className='font-mono text-xs whitespace-pre-wrap'>{rendered?.content ?? ''}</pre>
