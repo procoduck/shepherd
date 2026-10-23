@@ -1,3 +1,4 @@
+/shepherd.mgmt.v1.AdminService/AddOrgTenant	human=app-admin	sa=deny
 /shepherd.mgmt.v1.AdminService/BindAgentToken	human=app-admin	sa=deny
 /shepherd.mgmt.v1.AdminService/ClaimCluster	human=app-admin	sa=deny
 /shepherd.mgmt.v1.AdminService/CreateAgentIdentity	human=app-admin	sa=deny
@@ -12,9 +13,10 @@
 /shepherd.mgmt.v1.AdminService/ListClusters	human=app-admin	sa=deny
 /shepherd.mgmt.v1.AdminService/ListOidcProviderPresets	human=app-admin	sa=deny
 /shepherd.mgmt.v1.AdminService/ListOrgs	human=app-admin	sa=deny
+/shepherd.mgmt.v1.AdminService/RemoveOrgTenant	human=app-admin	sa=deny
 /shepherd.mgmt.v1.AdminService/RevokeAgentToken	human=app-admin|org>=admin	sa=same-org,tier>=admin
 /shepherd.mgmt.v1.AdminService/SearchGroups	human=app-admin|org>=admin	sa=same-org,tier>=admin
-/shepherd.mgmt.v1.AdminService/SetOrgTenantID	human=app-admin	sa=deny
+/shepherd.mgmt.v1.AdminService/SetDefaultOrgTenant	human=app-admin	sa=deny
 /shepherd.mgmt.v1.AdminService/TestOidcSettings	human=app-admin	sa=deny
 /shepherd.mgmt.v1.AdminService/UnclaimCluster	human=app-admin	sa=deny
 /shepherd.mgmt.v1.AdminService/UpdateOidcSettings	human=app-admin	sa=deny

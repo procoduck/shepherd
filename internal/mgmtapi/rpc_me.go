@@ -52,11 +52,17 @@ func (s *MeService) GetMe(ctx context.Context, _ *connect.Request[mgmtv1.GetMeRe
 		s.logger.Error("me: listing orgs", "err", err)
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to list orgs"))
 	}
+	allTenants, err := s.store.Queries.ListAllOrgTenants(ctx)
+	if err != nil {
+		s.logger.Error("me: listing org tenants", "err", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to list orgs"))
+	}
+	tenantsByOrg := groupOrgTenants(allTenants)
 	orgEntries := make([]*mgmtv1.OrgMembership, 0, len(allOrgs))
 	for i := range allOrgs {
 		org := &allOrgs[i]
 		if sess.IsAppAdmin {
-			orgEntries = append(orgEntries, &mgmtv1.OrgMembership{Id: org.ID.String(), Name: org.Name, DisplayName: org.DisplayName, Role: mgmtv1.Role_ROLE_ADMIN, AllowExperimentalComponents: org.AllowExperimentalComponents, AllowLabelMatching: org.AllowLabelMatching, AllowLocalAttributeMatching: org.AllowLocalAttributeMatching, TenantId: org.TenantID.String})
+			orgEntries = append(orgEntries, &mgmtv1.OrgMembership{Id: org.ID.String(), Name: org.Name, DisplayName: org.DisplayName, Role: mgmtv1.Role_ROLE_ADMIN, AllowExperimentalComponents: org.AllowExperimentalComponents, AllowLabelMatching: org.AllowLabelMatching, AllowLocalAttributeMatching: org.AllowLocalAttributeMatching, Tenants: toOrgTenantProtos(tenantsByOrg[org.ID])})
 			continue
 		}
 		// Both sign-in paths resolve to the SAME Role here, because this
@@ -64,7 +70,7 @@ func (s *MeService) GetMe(ctx context.Context, _ *connect.Request[mgmtv1.GetMeRe
 		// would hide the pipeline editor from someone who can in fact use it
 		// — the server would allow the write the UI never offered.
 		if role, ok := auth.ResolveOrgRole(ctx, s.store, sess, *org); ok {
-			orgEntries = append(orgEntries, &mgmtv1.OrgMembership{Id: org.ID.String(), Name: org.Name, DisplayName: org.DisplayName, Role: roleToProto(role), AllowExperimentalComponents: org.AllowExperimentalComponents, AllowLabelMatching: org.AllowLabelMatching, AllowLocalAttributeMatching: org.AllowLocalAttributeMatching, TenantId: org.TenantID.String})
+			orgEntries = append(orgEntries, &mgmtv1.OrgMembership{Id: org.ID.String(), Name: org.Name, DisplayName: org.DisplayName, Role: roleToProto(role), AllowExperimentalComponents: org.AllowExperimentalComponents, AllowLabelMatching: org.AllowLabelMatching, AllowLocalAttributeMatching: org.AllowLocalAttributeMatching, Tenants: toOrgTenantProtos(tenantsByOrg[org.ID])})
 		}
 	}
 

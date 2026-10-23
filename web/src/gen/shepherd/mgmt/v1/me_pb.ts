@@ -4,7 +4,7 @@
 
 import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
-import type { Role } from "./common_pb";
+import type { OrgTenant, Role } from "./common_pb";
 import { file_shepherd_mgmt_v1_common } from "./common_pb";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file shepherd/mgmt/v1/me.proto.
  */
 export const file_shepherd_mgmt_v1_me: GenFile = /*@__PURE__*/
-  fileDesc("ChlzaGVwaGVyZC9tZ210L3YxL21lLnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIg4KDEdldE1lUmVxdWVzdCLrAQoNT3JnTWVtYmVyc2hpcBIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCRIkCgRyb2xlGAkgASgOMhYuc2hlcGhlcmQubWdtdC52MS5Sb2xlEiUKHWFsbG93X2V4cGVyaW1lbnRhbF9jb21wb25lbnRzGAUgASgIEhwKFGFsbG93X2xhYmVsX21hdGNoaW5nGAYgASgIEiYKHmFsbG93X2xvY2FsX2F0dHJpYnV0ZV9tYXRjaGluZxgHIAEoCBIRCgl0ZW5hbnRfaWQYCCABKAlKBAgEEAUioAEKDUdldE1lUmVzcG9uc2USEAoIdXNlcl9vaWQYASABKAkSDQoFZW1haWwYAiABKAkSFAoMZGlzcGxheV9uYW1lGAMgASgJEhQKDGlzX2FwcF9hZG1pbhgEIAEoCBITCgthdXRoX21ldGhvZBgFIAEoCRItCgRvcmdzGAYgAygLMh8uc2hlcGhlcmQubWdtdC52MS5PcmdNZW1iZXJzaGlwMlcKCU1lU2VydmljZRJKCgVHZXRNZRIeLnNoZXBoZXJkLm1nbXQudjEuR2V0TWVSZXF1ZXN0Gh8uc2hlcGhlcmQubWdtdC52MS5HZXRNZVJlc3BvbnNlIgBCJlokc2hlcGhlcmQvZ2VuL3NoZXBoZXJkL21nbXQvdjE7bWdtdHYxYgZwcm90bzM", [file_shepherd_mgmt_v1_common]);
+  fileDesc("ChlzaGVwaGVyZC9tZ210L3YxL21lLnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIg4KDEdldE1lUmVxdWVzdCKXAgoNT3JnTWVtYmVyc2hpcBIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCRIkCgRyb2xlGAkgASgOMhYuc2hlcGhlcmQubWdtdC52MS5Sb2xlEiUKHWFsbG93X2V4cGVyaW1lbnRhbF9jb21wb25lbnRzGAUgASgIEhwKFGFsbG93X2xhYmVsX21hdGNoaW5nGAYgASgIEiYKHmFsbG93X2xvY2FsX2F0dHJpYnV0ZV9tYXRjaGluZxgHIAEoCBIsCgd0ZW5hbnRzGAogAygLMhsuc2hlcGhlcmQubWdtdC52MS5PcmdUZW5hbnRKBAgEEAVKBAgIEAlSCXRlbmFudF9pZCKgAQoNR2V0TWVSZXNwb25zZRIQCgh1c2VyX29pZBgBIAEoCRINCgVlbWFpbBgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkSFAoMaXNfYXBwX2FkbWluGAQgASgIEhMKC2F1dGhfbWV0aG9kGAUgASgJEi0KBG9yZ3MYBiADKAsyHy5zaGVwaGVyZC5tZ210LnYxLk9yZ01lbWJlcnNoaXAyVwoJTWVTZXJ2aWNlEkoKBUdldE1lEh4uc2hlcGhlcmQubWdtdC52MS5HZXRNZVJlcXVlc3QaHy5zaGVwaGVyZC5tZ210LnYxLkdldE1lUmVzcG9uc2UiAEImWiRzaGVwaGVyZC9nZW4vc2hlcGhlcmQvbWdtdC92MTttZ210djFiBnByb3RvMw", [file_shepherd_mgmt_v1_common]);
 
 /**
  * @generated from message shepherd.mgmt.v1.GetMeRequest
@@ -85,13 +85,13 @@ export type OrgMembership = Message<"shepherd.mgmt.v1.OrgMembership"> & {
   allowLocalAttributeMatching: boolean;
 
   /**
-   * tenant_id is the org's own tenant identity (orgs.tenant_id, set by an
-   * app admin — D11), empty when it has none. Read-only: the destination form
-   * pre-fills a destination's tenant from it (#261).
+   * tenants are the tenants and tenant prefixes the org owns (set by an app
+   * admin — D11). Read-only: the destination form pre-fills a destination's
+   * tenant from the default one, and the tenant-route form offers them.
    *
-   * @generated from field: string tenant_id = 8;
+   * @generated from field: repeated shepherd.mgmt.v1.OrgTenant tenants = 10;
    */
-  tenantId: string;
+  tenants: OrgTenant[];
 };
 
 /**

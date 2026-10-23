@@ -9,6 +9,7 @@ package mgmtv1
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -75,6 +76,59 @@ func (x Role) Number() protoreflect.EnumNumber {
 // Deprecated: Use Role.Descriptor instead.
 func (Role) EnumDescriptor() ([]byte, []int) {
 	return file_shepherd_mgmt_v1_common_proto_rawDescGZIP(), []int{0}
+}
+
+// OrgTenantKind is how an org owns a tenant (org_tenants.kind).
+type OrgTenantKind int32
+
+const (
+	OrgTenantKind_ORG_TENANT_KIND_UNSPECIFIED OrgTenantKind = 0
+	// EXACT owns exactly one tenant id. Unique across all orgs.
+	OrgTenantKind_ORG_TENANT_KIND_EXACT OrgTenantKind = 1
+	// PREFIX owns every valid tenant id that starts with it. No other org may
+	// own a tenant under it, nor a prefix that overlaps it.
+	OrgTenantKind_ORG_TENANT_KIND_PREFIX OrgTenantKind = 2
+)
+
+// Enum value maps for OrgTenantKind.
+var (
+	OrgTenantKind_name = map[int32]string{
+		0: "ORG_TENANT_KIND_UNSPECIFIED",
+		1: "ORG_TENANT_KIND_EXACT",
+		2: "ORG_TENANT_KIND_PREFIX",
+	}
+	OrgTenantKind_value = map[string]int32{
+		"ORG_TENANT_KIND_UNSPECIFIED": 0,
+		"ORG_TENANT_KIND_EXACT":       1,
+		"ORG_TENANT_KIND_PREFIX":      2,
+	}
+)
+
+func (x OrgTenantKind) Enum() *OrgTenantKind {
+	p := new(OrgTenantKind)
+	*p = x
+	return p
+}
+
+func (x OrgTenantKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (OrgTenantKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_shepherd_mgmt_v1_common_proto_enumTypes[1].Descriptor()
+}
+
+func (OrgTenantKind) Type() protoreflect.EnumType {
+	return &file_shepherd_mgmt_v1_common_proto_enumTypes[1]
+}
+
+func (x OrgTenantKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use OrgTenantKind.Descriptor instead.
+func (OrgTenantKind) EnumDescriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_common_proto_rawDescGZIP(), []int{1}
 }
 
 // Diagnostic is a structured error/warning from the Alloy validation gate
@@ -151,23 +205,119 @@ func (x *Diagnostic) GetStage() int32 {
 	return 0
 }
 
+// OrgTenant is one tenant (or tenant prefix) an org owns. An org owns a
+// tenant when it is one of its EXACT tenants or falls under one of its
+// PREFIX tenants (internal/gateway.OrgOwnsTenant). Only an app admin adds or
+// removes them (AdminService.AddOrgTenant / RemoveOrgTenant).
+type OrgTenant struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Tenant string                 `protobuf:"bytes,1,opt,name=tenant,proto3" json:"tenant,omitempty"`
+	Kind   OrgTenantKind          `protobuf:"varint,2,opt,name=kind,proto3,enum=shepherd.mgmt.v1.OrgTenantKind" json:"kind,omitempty"`
+	// is_default marks the org's default tenant: what a tenant route uses
+	// when none is named, what chart values carry, and what the destination
+	// form pre-fills. At most one per org, and always an EXACT tenant.
+	IsDefault     bool                   `protobuf:"varint,3,opt,name=is_default,json=isDefault,proto3" json:"is_default,omitempty"`
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	CreatedBy     string                 `protobuf:"bytes,5,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OrgTenant) Reset() {
+	*x = OrgTenant{}
+	mi := &file_shepherd_mgmt_v1_common_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OrgTenant) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OrgTenant) ProtoMessage() {}
+
+func (x *OrgTenant) ProtoReflect() protoreflect.Message {
+	mi := &file_shepherd_mgmt_v1_common_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OrgTenant.ProtoReflect.Descriptor instead.
+func (*OrgTenant) Descriptor() ([]byte, []int) {
+	return file_shepherd_mgmt_v1_common_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *OrgTenant) GetTenant() string {
+	if x != nil {
+		return x.Tenant
+	}
+	return ""
+}
+
+func (x *OrgTenant) GetKind() OrgTenantKind {
+	if x != nil {
+		return x.Kind
+	}
+	return OrgTenantKind_ORG_TENANT_KIND_UNSPECIFIED
+}
+
+func (x *OrgTenant) GetIsDefault() bool {
+	if x != nil {
+		return x.IsDefault
+	}
+	return false
+}
+
+func (x *OrgTenant) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *OrgTenant) GetCreatedBy() string {
+	if x != nil {
+		return x.CreatedBy
+	}
+	return ""
+}
+
 var File_shepherd_mgmt_v1_common_proto protoreflect.FileDescriptor
 
 const file_shepherd_mgmt_v1_common_proto_rawDesc = "" +
 	"\n" +
-	"\x1dshepherd/mgmt/v1/common.proto\x12\x10shepherd.mgmt.v1\"b\n" +
+	"\x1dshepherd/mgmt/v1/common.proto\x12\x10shepherd.mgmt.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"b\n" +
 	"\n" +
 	"Diagnostic\x12\x12\n" +
 	"\x04line\x18\x01 \x01(\x05R\x04line\x12\x10\n" +
 	"\x03col\x18\x02 \x01(\x05R\x03col\x12\x18\n" +
 	"\amessage\x18\x03 \x01(\tR\amessage\x12\x14\n" +
-	"\x05stage\x18\x04 \x01(\x05R\x05stage*N\n" +
+	"\x05stage\x18\x04 \x01(\x05R\x05stage\"\xd1\x01\n" +
+	"\tOrgTenant\x12\x16\n" +
+	"\x06tenant\x18\x01 \x01(\tR\x06tenant\x123\n" +
+	"\x04kind\x18\x02 \x01(\x0e2\x1f.shepherd.mgmt.v1.OrgTenantKindR\x04kind\x12\x1d\n" +
+	"\n" +
+	"is_default\x18\x03 \x01(\bR\tisDefault\x129\n" +
+	"\n" +
+	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x1d\n" +
+	"\n" +
+	"created_by\x18\x05 \x01(\tR\tcreatedBy*N\n" +
 	"\x04Role\x12\x14\n" +
 	"\x10ROLE_UNSPECIFIED\x10\x00\x12\x0f\n" +
 	"\vROLE_VIEWER\x10\x01\x12\x0f\n" +
 	"\vROLE_EDITOR\x10\x02\x12\x0e\n" +
 	"\n" +
-	"ROLE_ADMIN\x10\x03B&Z$shepherd/gen/shepherd/mgmt/v1;mgmtv1b\x06proto3"
+	"ROLE_ADMIN\x10\x03*g\n" +
+	"\rOrgTenantKind\x12\x1f\n" +
+	"\x1bORG_TENANT_KIND_UNSPECIFIED\x10\x00\x12\x19\n" +
+	"\x15ORG_TENANT_KIND_EXACT\x10\x01\x12\x1a\n" +
+	"\x16ORG_TENANT_KIND_PREFIX\x10\x02B&Z$shepherd/gen/shepherd/mgmt/v1;mgmtv1b\x06proto3"
 
 var (
 	file_shepherd_mgmt_v1_common_proto_rawDescOnce sync.Once
@@ -181,18 +331,23 @@ func file_shepherd_mgmt_v1_common_proto_rawDescGZIP() []byte {
 	return file_shepherd_mgmt_v1_common_proto_rawDescData
 }
 
-var file_shepherd_mgmt_v1_common_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_shepherd_mgmt_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_shepherd_mgmt_v1_common_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_shepherd_mgmt_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_shepherd_mgmt_v1_common_proto_goTypes = []any{
-	(Role)(0),          // 0: shepherd.mgmt.v1.Role
-	(*Diagnostic)(nil), // 1: shepherd.mgmt.v1.Diagnostic
+	(Role)(0),                     // 0: shepherd.mgmt.v1.Role
+	(OrgTenantKind)(0),            // 1: shepherd.mgmt.v1.OrgTenantKind
+	(*Diagnostic)(nil),            // 2: shepherd.mgmt.v1.Diagnostic
+	(*OrgTenant)(nil),             // 3: shepherd.mgmt.v1.OrgTenant
+	(*timestamppb.Timestamp)(nil), // 4: google.protobuf.Timestamp
 }
 var file_shepherd_mgmt_v1_common_proto_depIdxs = []int32{
-	0, // [0:0] is the sub-list for method output_type
-	0, // [0:0] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	1, // 0: shepherd.mgmt.v1.OrgTenant.kind:type_name -> shepherd.mgmt.v1.OrgTenantKind
+	4, // 1: shepherd.mgmt.v1.OrgTenant.created_at:type_name -> google.protobuf.Timestamp
+	2, // [2:2] is the sub-list for method output_type
+	2, // [2:2] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_shepherd_mgmt_v1_common_proto_init() }
@@ -205,8 +360,8 @@ func file_shepherd_mgmt_v1_common_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_shepherd_mgmt_v1_common_proto_rawDesc), len(file_shepherd_mgmt_v1_common_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   1,
+			NumEnums:      2,
+			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

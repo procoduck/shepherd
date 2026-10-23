@@ -42,14 +42,18 @@ var procedureRequirements = map[string]auth.Requirement{
 
 	// AdminService — app admin only, except SearchGroups and the agent-token
 	// list/create/revoke (app admin OR org admin of the request's org).
-	mgmtv1connect.AdminServiceListOrgsProcedure:       reqAppAdmin,
-	mgmtv1connect.AdminServiceCreateOrgProcedure:      reqAppAdmin,
-	mgmtv1connect.AdminServiceUpdateOrgProcedure:      reqAppAdmin,
-	mgmtv1connect.AdminServiceDeleteOrgProcedure:      reqAppAdmin,
-	mgmtv1connect.AdminServiceSetOrgTenantIDProcedure: reqAppAdmin,
-	mgmtv1connect.AdminServiceListClustersProcedure:   reqAppAdmin,
-	mgmtv1connect.AdminServiceClaimClusterProcedure:   reqAppAdmin,
-	mgmtv1connect.AdminServiceUnclaimClusterProcedure: reqAppAdmin,
+	mgmtv1connect.AdminServiceListOrgsProcedure:  reqAppAdmin,
+	mgmtv1connect.AdminServiceCreateOrgProcedure: reqAppAdmin,
+	mgmtv1connect.AdminServiceUpdateOrgProcedure: reqAppAdmin,
+	mgmtv1connect.AdminServiceDeleteOrgProcedure: reqAppAdmin,
+	// Which tenants an org owns decides whose X-Scope-OrgID its routes may
+	// inject, so only an app admin changes it — never the org's own admin.
+	mgmtv1connect.AdminServiceAddOrgTenantProcedure:        reqAppAdmin,
+	mgmtv1connect.AdminServiceRemoveOrgTenantProcedure:     reqAppAdmin,
+	mgmtv1connect.AdminServiceSetDefaultOrgTenantProcedure: reqAppAdmin,
+	mgmtv1connect.AdminServiceListClustersProcedure:        reqAppAdmin,
+	mgmtv1connect.AdminServiceClaimClusterProcedure:        reqAppAdmin,
+	mgmtv1connect.AdminServiceUnclaimClusterProcedure:      reqAppAdmin,
 	// Agent tokens are bound to an org. An org admin manages its own org's
 	// tokens: the handlers scope every read and write to the request's
 	// org_id, which this requirement has just checked; an empty org_id
@@ -239,7 +243,9 @@ var capabilityRequirements = map[string]string{
 	mgmtv1connect.AdminServiceCreateOrgProcedure:           capabilityApply,
 	mgmtv1connect.AdminServiceUpdateOrgProcedure:           capabilityApply,
 	mgmtv1connect.AdminServiceDeleteOrgProcedure:           capabilityApply,
-	mgmtv1connect.AdminServiceSetOrgTenantIDProcedure:      capabilityApply,
+	mgmtv1connect.AdminServiceAddOrgTenantProcedure:        capabilityApply,
+	mgmtv1connect.AdminServiceRemoveOrgTenantProcedure:     capabilityApply,
+	mgmtv1connect.AdminServiceSetDefaultOrgTenantProcedure: capabilityApply,
 	mgmtv1connect.AdminServiceClaimClusterProcedure:        capabilityApply,
 	mgmtv1connect.AdminServiceUnclaimClusterProcedure:      capabilityApply,
 	mgmtv1connect.AdminServiceCreateAgentTokenProcedure:    capabilityApply,

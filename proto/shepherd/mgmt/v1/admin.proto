@@ -3,6 +3,7 @@ syntax = "proto3";
 package shepherd.mgmt.v1;
 
 import "google/protobuf/timestamp.proto";
+import "shepherd/mgmt/v1/common.proto";
 
 option go_package = "shepherd/gen/shepherd/mgmt/v1;mgmtv1";
 
@@ -14,9 +15,19 @@ service AdminService {
   rpc CreateOrg(CreateOrgRequest) returns (Org) {}
   rpc UpdateOrg(UpdateOrgRequest) returns (Org) {}
   rpc DeleteOrg(DeleteOrgRequest) returns (DeleteOrgResponse) {}
-  // SetOrgTenantID assigns tenant identity to an org created without one.
-  // App admin only, set-once.
-  rpc SetOrgTenantID(SetOrgTenantIDRequest) returns (Org) {}
+  // AddOrgTenant gives an org an exact tenant or a tenant prefix. App admin
+  // only. An exact tenant is unique across all orgs; a prefix may not
+  // overlap another org's prefix nor cover another org's exact tenant, and
+  // neither may cover a tenant another org's destination or binding sends.
+  rpc AddOrgTenant(AddOrgTenantRequest) returns (Org) {}
+  // RemoveOrgTenant takes an exact tenant or prefix away from an org. App
+  // admin only, and only while nothing of the org uses it: a live tenant
+  // route, a destination or a destination binding under it refuses the
+  // removal (failed_precondition, naming each one).
+  rpc RemoveOrgTenant(RemoveOrgTenantRequest) returns (Org) {}
+  // SetDefaultOrgTenant makes one of the org's exact tenants its default.
+  // App admin only.
+  rpc SetDefaultOrgTenant(SetDefaultOrgTenantRequest) returns (Org) {}
 
   rpc ListClusters(ListClustersRequest) returns (ListClustersResponse) {}
   rpc ClaimCluster(ClaimClusterRequest) returns (ClaimClusterResponse) {}
@@ -70,11 +81,10 @@ message Org {
   string viewer_group_id = 5;
   google.protobuf.Timestamp created_at = 6;
   google.protobuf.Timestamp updated_at = 7;
-  // tenant_id is the identity Shepherd injects as X-Scope-OrgID on every
-  // request this org's tenant routes carry. Only an app admin sets it, and
-  // only once — see CreateOrgRequest.tenant_id. Empty means this org cannot
-  // have tenant routes yet.
-  string tenant_id = 8;
+  // Field 8 was tenant_id, the org's single tenant identity, until an org
+  // could own several tenants and prefixes (org_tenants, 0039). See tenants.
+  reserved 8;
+  reserved "tenant_id";
   // editor_group_id is the group whose members may author what the org RUNS —
   // pipelines, wizards, simulations — without being able to change what the
   // org IS (destinations, tenant routes, git credentials, teams). Empty means
@@ -97,6 +107,11 @@ message Org {
   // and reachable via a compromised agent token, a different trust boundary
   // than admin-set labels. Off by default.
   bool allow_local_attribute_matching = 12;
+  // tenants are the tenants and tenant prefixes the org owns — the values
+  // its tenant routes may inject as X-Scope-OrgID. Only an app admin changes
+  // them (AddOrgTenant, RemoveOrgTenant, SetDefaultOrgTenant). Empty means
+  // the org cannot have tenant routes yet.
+  repeated OrgTenant tenants = 13;
 }
 
 message ListOrgsRequest {}
@@ -112,12 +127,11 @@ message CreateOrgRequest {
   string display_name = 2;
   string admin_group_id = 3;
   string viewer_group_id = 4;
-  // tenant_id is the org's telemetry tenant identity — the X-Scope-OrgID
-  // value its routes inject downstream. Optional here so an org can be
-  // created before its destination tenancy is decided, but an org without
-  // one cannot have tenant routes: CreateTenantRoute refuses and names this
-  // field. Must satisfy internal/gateway.ValidateTenantID (Grafana Mimir's
-  // documented rule). Settable exactly once — see SetOrgTenantId.
+  // tenant_id is an optional initial default tenant: an EXACT tenant the
+  // org owns from creation, used when a tenant route names none. Must
+  // satisfy internal/gateway.ValidateTenantID (Grafana Mimir's documented
+  // rule) and be free (AddOrgTenant's rules). More tenants and prefixes are
+  // added afterwards with AddOrgTenant.
   string tenant_id = 5;
   // editor_group_id is optional — see Org.editor_group_id.
   string editor_group_id = 6;
@@ -138,14 +152,29 @@ message UpdateOrgRequest {
   bool allow_local_attribute_matching = 8;
 }
 
-// SetOrgTenantIDRequest assigns an org's tenant identity when it was created
-// without one. App admin only, and set-once: an org whose tenant_id is
-// already set is refused rather than rewritten, because every HTTPRoute
-// already minted for it injects the old value and would keep routing
-// perfectly well while naming the wrong tenant.
-message SetOrgTenantIDRequest {
+// AddOrgTenantRequest gives org_id an exact tenant or a tenant prefix.
+message AddOrgTenantRequest {
   string org_id = 1;
-  string tenant_id = 2;
+  // tenant is the exact tenant id (internal/gateway.ValidateTenantID) or the
+  // prefix (internal/gateway.ValidateTenantPrefix).
+  string tenant = 2;
+  OrgTenantKind kind = 3;
+  // make_default also makes it the org's default tenant. EXACT only.
+  bool make_default = 4;
+}
+
+// RemoveOrgTenantRequest takes an exact tenant or a prefix away from org_id.
+message RemoveOrgTenantRequest {
+  string org_id = 1;
+  string tenant = 2;
+  OrgTenantKind kind = 3;
+}
+
+// SetDefaultOrgTenantRequest makes tenant, one of org_id's EXACT tenants,
+// its default.
+message SetDefaultOrgTenantRequest {
+  string org_id = 1;
+  string tenant = 2;
 }
 
 message DeleteOrgRequest {

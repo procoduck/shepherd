@@ -109,16 +109,18 @@ message ListTenantRoutesResponse {
 // request never accepts a caller-supplied segment.
 message CreateTenantRouteRequest {
   string org_id = 1;
-  // Field 2 was tenant_id, removed 2026-08-22. Tenant identity is a property
-  // of the ORG, set once by an app admin (orgs.tenant_id,
-  // 0013_org_tenant_id), and read from there by CreateTenantRoute. It was
-  // caller-supplied until a review pointed out the consequence: an org admin
-  // could mint a route injecting a DIFFERENT org's tenant identity, and once
-  // routes are applied to a cluster that is a cross-tenant write authorized
-  // by the wrong org. Reserved rather than deprecated so no client can send
-  // the field at all — validating it would have been the weaker fix.
+  // Field 2 was tenant_id, an unchecked free-form tenant, removed
+  // 2026-08-22 when tenant identity became a property of the ORG (set by an
+  // app admin). It stays reserved so an old client's value is dropped as an
+  // unknown field, never reinterpreted; field 8 (tenant) is the checked
+  // replacement — it must be a tenant the org owns.
   reserved 2;
   reserved "tenant_id";
+  // tenant is the tenant this route injects as X-Scope-OrgID. It must be one
+  // the org owns (one of its exact tenants, or a valid tenant under one of
+  // its prefixes — Org.tenants, set by an app admin). Empty means the org's
+  // default tenant; an org without one is refused.
+  string tenant = 8;
   // kind is "otlp" or "faro".
   string kind = 3;
   // format selects the segment format (internal/gateway.SegmentFormat):

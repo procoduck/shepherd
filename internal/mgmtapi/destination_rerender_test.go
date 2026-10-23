@@ -290,8 +290,7 @@ var _ = Describe("Destination changes reach wizard pipelines (#262)", Label("int
 	// one revision and no X-Scope-OrgID.
 	Describe("tenant (#261)", func() {
 		setOrgTenant := func(o pgtype.UUID, tenant string) {
-			_, err := st.Queries.SetOrgTenantID(ctx, sqlc.SetOrgTenantIDParams{ID: o, TenantID: pgtype.Text{String: tenant, Valid: true}})
-			Expect(err).NotTo(HaveOccurred())
+			giveOrgTenant(ctx, st, o, tenant)
 		}
 
 		It("re-renders the wizard pipelines with the new tenant, with a revision", func() {
@@ -452,22 +451,28 @@ var _ = Describe("Destination changes reach wizard pipelines (#262)", Label("int
 
 		// Review of #277: the cross-org guard ran only on the destination
 		// side, so an app admin could give an org a tenant another org's
-		// destination already sends. Red run: SetOrgTenantID and CreateOrg
-		// both succeeded.
+		// destination already sends. Red run: the org-side write and CreateOrg
+		// both succeeded. An org now owns tenants and prefixes, so a prefix
+		// covering the destination's tenant is refused too.
 		Describe("org-side writes", func() {
-			It("refuses SetOrgTenantID and CreateOrg for a tenant another org's destination uses, without naming it", func() {
+			It("refuses AddOrgTenant and CreateOrg for a tenant another org's destination uses, without naming it", func() {
 				mimir := createDest(org, "mimir", "prometheus", oldURL)
 				code, out := updateDest(mimir, map[string]any{"tenantId": "globex"})
 				Expect(code).To(Equal(http.StatusOK), "%v", out)
 
-				code, out = call("AdminService/SetOrgTenantID", map[string]any{"orgId": other.String(), "tenantId": "globex"})
-				Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
-				Expect(out["code"]).To(Equal("failed_precondition"))
-				Expect(out["message"]).To(ContainSubstring("in use by another organisation's destination"))
-				Expect(out["message"]).NotTo(ContainSubstring("rerender-org"))
-				o, err := st.Queries.GetOrgByID(ctx, other)
+				for _, req := range []map[string]any{
+					{"orgId": other.String(), "tenant": "globex", "kind": "ORG_TENANT_KIND_EXACT"},
+					{"orgId": other.String(), "tenant": "glob", "kind": "ORG_TENANT_KIND_PREFIX"},
+				} {
+					code, out = call("AdminService/AddOrgTenant", req)
+					Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
+					Expect(out["code"]).To(Equal("failed_precondition"))
+					Expect(out["message"]).To(ContainSubstring("in use by another organisation's destination"))
+					Expect(out["message"]).NotTo(ContainSubstring("rerender-org"))
+				}
+				tenants, err := st.Queries.ListOrgTenants(ctx, other)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(o.TenantID.Valid).To(BeFalse(), "nothing was written")
+				Expect(tenants).To(BeEmpty(), "nothing was written")
 
 				code, out = call("AdminService/CreateOrg", map[string]any{
 					"name": "globex", "displayName": "Globex", "adminGroupId": "globex-admins", "tenantId": "globex",
@@ -481,7 +486,7 @@ var _ = Describe("Destination changes reach wizard pipelines (#262)", Label("int
 				mimir := createDest(org, "mimir", "prometheus", oldURL)
 				code, out := updateDest(mimir, map[string]any{"tenantId": "acme"})
 				Expect(code).To(Equal(http.StatusOK), "%v", out)
-				code, out = call("AdminService/SetOrgTenantID", map[string]any{"orgId": org.String(), "tenantId": "acme"})
+				code, out = call("AdminService/AddOrgTenant", map[string]any{"orgId": org.String(), "tenant": "acme", "kind": "ORG_TENANT_KIND_EXACT"})
 				Expect(code).To(Equal(http.StatusOK), "%v", out)
 			})
 		})

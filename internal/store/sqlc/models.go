@@ -185,7 +185,6 @@ type Org struct {
 	ViewerGroupID               pgtype.Text        `json:"viewer_group_id"`
 	CreatedAt                   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt                   pgtype.Timestamptz `json:"updated_at"`
-	TenantID                    pgtype.Text        `json:"tenant_id"`
 	EditorGroupID               pgtype.Text        `json:"editor_group_id"`
 	AllowExperimentalComponents bool               `json:"allow_experimental_components"`
 	AllowLabelMatching          bool               `json:"allow_label_matching"`
@@ -198,6 +197,15 @@ type OrgMember struct {
 	Role      string             `json:"role"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+type OrgTenant struct {
+	OrgID     pgtype.UUID        `json:"org_id"`
+	Tenant    string             `json:"tenant"`
+	Kind      string             `json:"kind"`
+	IsDefault bool               `json:"is_default"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	CreatedBy string             `json:"created_by"`
 }
 
 type Pipeline struct {

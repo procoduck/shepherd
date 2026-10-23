@@ -34,9 +34,9 @@ func (q *Queries) CountOrgContent(ctx context.Context, targetOrgID pgtype.UUID) 
 }
 
 const createOrg = `-- name: CreateOrg :one
-INSERT INTO orgs (name, display_name, admin_group_id, viewer_group_id, editor_group_id, tenant_id)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, tenant_id, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching
+INSERT INTO orgs (name, display_name, admin_group_id, viewer_group_id, editor_group_id)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching
 `
 
 type CreateOrgParams struct {
@@ -45,7 +45,6 @@ type CreateOrgParams struct {
 	AdminGroupID  string      `json:"admin_group_id"`
 	ViewerGroupID pgtype.Text `json:"viewer_group_id"`
 	EditorGroupID pgtype.Text `json:"editor_group_id"`
-	TenantID      pgtype.Text `json:"tenant_id"`
 }
 
 func (q *Queries) CreateOrg(ctx context.Context, arg CreateOrgParams) (Org, error) {
@@ -55,7 +54,6 @@ func (q *Queries) CreateOrg(ctx context.Context, arg CreateOrgParams) (Org, erro
 		arg.AdminGroupID,
 		arg.ViewerGroupID,
 		arg.EditorGroupID,
-		arg.TenantID,
 	)
 	var i Org
 	err := row.Scan(
@@ -66,7 +64,6 @@ func (q *Queries) CreateOrg(ctx context.Context, arg CreateOrgParams) (Org, erro
 		&i.ViewerGroupID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.TenantID,
 		&i.EditorGroupID,
 		&i.AllowExperimentalComponents,
 		&i.AllowLabelMatching,
@@ -85,7 +82,7 @@ func (q *Queries) DeleteOrg(ctx context.Context, id pgtype.UUID) error {
 }
 
 const getOrgByID = `-- name: GetOrgByID :one
-SELECT id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, tenant_id, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching FROM orgs WHERE id = $1
+SELECT id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching FROM orgs WHERE id = $1
 `
 
 func (q *Queries) GetOrgByID(ctx context.Context, id pgtype.UUID) (Org, error) {
@@ -99,7 +96,6 @@ func (q *Queries) GetOrgByID(ctx context.Context, id pgtype.UUID) (Org, error) {
 		&i.ViewerGroupID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.TenantID,
 		&i.EditorGroupID,
 		&i.AllowExperimentalComponents,
 		&i.AllowLabelMatching,
@@ -109,7 +105,7 @@ func (q *Queries) GetOrgByID(ctx context.Context, id pgtype.UUID) (Org, error) {
 }
 
 const getOrgByName = `-- name: GetOrgByName :one
-SELECT id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, tenant_id, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching FROM orgs WHERE name = $1
+SELECT id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching FROM orgs WHERE name = $1
 `
 
 // Resolve an org by its unique slug (orgs.name), the external identifier an
@@ -125,7 +121,6 @@ func (q *Queries) GetOrgByName(ctx context.Context, name string) (Org, error) {
 		&i.ViewerGroupID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.TenantID,
 		&i.EditorGroupID,
 		&i.AllowExperimentalComponents,
 		&i.AllowLabelMatching,
@@ -135,7 +130,7 @@ func (q *Queries) GetOrgByName(ctx context.Context, name string) (Org, error) {
 }
 
 const listOrgs = `-- name: ListOrgs :many
-SELECT id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, tenant_id, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching FROM orgs ORDER BY name
+SELECT id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching FROM orgs ORDER BY name
 `
 
 func (q *Queries) ListOrgs(ctx context.Context) ([]Org, error) {
@@ -155,7 +150,6 @@ func (q *Queries) ListOrgs(ctx context.Context) ([]Org, error) {
 			&i.ViewerGroupID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.TenantID,
 			&i.EditorGroupID,
 			&i.AllowExperimentalComponents,
 			&i.AllowLabelMatching,
@@ -171,111 +165,6 @@ func (q *Queries) ListOrgs(ctx context.Context) ([]Org, error) {
 	return items, nil
 }
 
-const lockTenantID = `-- name: LockTenantID :exec
-SELECT pg_advisory_xact_lock($1::int, hashtext($2::text))
-`
-
-type LockTenantIDParams struct {
-	Namespace int32  `json:"namespace"`
-	TenantID  string `json:"tenant_id"`
-}
-
-// Serialises, until the transaction ends, every write that checks the
-// cross-org tenant guard for tenant_id: a destination saving it
-// (TenantIDHeldByOtherOrg) and an org being given it
-// (TenantIDUsedByOtherOrgDestination). Without it the two checks race: each
-// sees the other's row missing, and both commit. namespace is
-// advisorylock.TenantID.
-func (q *Queries) LockTenantID(ctx context.Context, arg LockTenantIDParams) error {
-	_, err := q.db.Exec(ctx, lockTenantID, arg.Namespace, arg.TenantID)
-	return err
-}
-
-const setOrgTenantID = `-- name: SetOrgTenantID :one
-UPDATE orgs
-SET tenant_id  = $2,
-    updated_at = now()
-WHERE id = $1
-  AND tenant_id IS NULL
-RETURNING id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, tenant_id, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching
-`
-
-type SetOrgTenantIDParams struct {
-	ID       pgtype.UUID `json:"id"`
-	TenantID pgtype.Text `json:"tenant_id"`
-}
-
-// Set-once, enforced in SQL rather than only in Go: the WHERE clause updates
-// nothing when tenant_id is already set, so a caller trying to CHANGE an
-// org's tenant identity gets no row back instead of a silent rewrite.
-// Changing it after routes exist would leave every existing HTTPRoute
-// injecting a tenant the org no longer claims — the routes keep working and
-// keep being wrong, which is the worst shape of all.
-func (q *Queries) SetOrgTenantID(ctx context.Context, arg SetOrgTenantIDParams) (Org, error) {
-	row := q.db.QueryRow(ctx, setOrgTenantID, arg.ID, arg.TenantID)
-	var i Org
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.DisplayName,
-		&i.AdminGroupID,
-		&i.ViewerGroupID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.TenantID,
-		&i.EditorGroupID,
-		&i.AllowExperimentalComponents,
-		&i.AllowLabelMatching,
-		&i.AllowLocalAttributeMatching,
-	)
-	return i, err
-}
-
-const tenantIDHeldByOtherOrg = `-- name: TenantIDHeldByOtherOrg :one
-SELECT EXISTS (
-    SELECT 1 FROM orgs WHERE tenant_id = $1::text AND id <> $2
-)
-`
-
-type TenantIDHeldByOtherOrgParams struct {
-	TenantID string      `json:"tenant_id"`
-	OrgID    pgtype.UUID `json:"org_id"`
-}
-
-// Whether an org other than org_id holds tenant_id (#261). A destination may
-// send any valid tenant, except another org's: D11's one-tenant-one-org
-// property, kept on every path Shepherd renders. The caller answers with a
-// generic refusal, so this is at most a weak existence oracle.
-func (q *Queries) TenantIDHeldByOtherOrg(ctx context.Context, arg TenantIDHeldByOtherOrgParams) (bool, error) {
-	row := q.db.QueryRow(ctx, tenantIDHeldByOtherOrg, arg.TenantID, arg.OrgID)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
-}
-
-const tenantIDUsedByOtherOrgDestination = `-- name: TenantIDUsedByOtherOrgDestination :one
-SELECT EXISTS (
-    SELECT 1 FROM destinations WHERE tenant_id = $1::text AND org_id <> $2
-)
-`
-
-type TenantIDUsedByOtherOrgDestinationParams struct {
-	TenantID string      `json:"tenant_id"`
-	OrgID    pgtype.UUID `json:"org_id"`
-}
-
-// Whether a destination of an org other than org_id sends tenant_id (#261,
-// review of #277): the org side of the same guard. An app admin may not give
-// an org a tenant another org's destination already writes under. Pass the
-// zero UUID for an org not created yet: every destination is then another
-// org's.
-func (q *Queries) TenantIDUsedByOtherOrgDestination(ctx context.Context, arg TenantIDUsedByOtherOrgDestinationParams) (bool, error) {
-	row := q.db.QueryRow(ctx, tenantIDUsedByOtherOrgDestination, arg.TenantID, arg.OrgID)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
-}
-
 const updateOrg = `-- name: UpdateOrg :one
 UPDATE orgs
 SET display_name    = $2,
@@ -287,7 +176,7 @@ SET display_name    = $2,
     allow_local_attribute_matching = $8,
     updated_at      = now()
 WHERE id = $1
-RETURNING id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, tenant_id, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching
+RETURNING id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching
 `
 
 type UpdateOrgParams struct {
@@ -321,7 +210,6 @@ func (q *Queries) UpdateOrg(ctx context.Context, arg UpdateOrgParams) (Org, erro
 		&i.ViewerGroupID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.TenantID,
 		&i.EditorGroupID,
 		&i.AllowExperimentalComponents,
 		&i.AllowLabelMatching,

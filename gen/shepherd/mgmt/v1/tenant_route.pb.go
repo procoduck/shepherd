@@ -437,6 +437,11 @@ func (x *ListTenantRoutesResponse) GetTotal() int32 {
 type CreateTenantRouteRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	OrgId string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	// tenant is the tenant this route injects as X-Scope-OrgID. It must be one
+	// the org owns (one of its exact tenants, or a valid tenant under one of
+	// its prefixes — Org.tenants, set by an app admin). Empty means the org's
+	// default tenant; an org without one is refused.
+	Tenant string `protobuf:"bytes,8,opt,name=tenant,proto3" json:"tenant,omitempty"`
 	// kind is "otlp" or "faro".
 	Kind string `protobuf:"bytes,3,opt,name=kind,proto3" json:"kind,omitempty"`
 	// format selects the segment format (internal/gateway.SegmentFormat):
@@ -484,6 +489,13 @@ func (*CreateTenantRouteRequest) Descriptor() ([]byte, []int) {
 func (x *CreateTenantRouteRequest) GetOrgId() string {
 	if x != nil {
 		return x.OrgId
+	}
+	return ""
+}
+
+func (x *CreateTenantRouteRequest) GetTenant() string {
+	if x != nil {
+		return x.Tenant
 	}
 	return ""
 }
@@ -958,9 +970,10 @@ const file_shepherd_mgmt_v1_tenant_route_proto_rawDesc = "" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\"e\n" +
 	"\x18ListTenantRoutesResponse\x123\n" +
 	"\x05items\x18\x01 \x03(\v2\x1d.shepherd.mgmt.v1.TenantRouteR\x05items\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x05R\x05total\"\xe1\x01\n" +
+	"\x05total\x18\x02 \x01(\x05R\x05total\"\xf9\x01\n" +
 	"\x18CreateTenantRouteRequest\x12\x15\n" +
-	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x12\n" +
+	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x16\n" +
+	"\x06tenant\x18\b \x01(\tR\x06tenant\x12\x12\n" +
 	"\x04kind\x18\x03 \x01(\tR\x04kind\x12\x16\n" +
 	"\x06format\x18\x04 \x01(\tR\x06format\x12!\n" +
 	"\fgateway_mode\x18\x05 \x01(\tR\vgatewayMode\x12!\n" +

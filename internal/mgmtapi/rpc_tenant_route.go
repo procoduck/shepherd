@@ -273,22 +273,6 @@ func (s *TenantRouteService) CreateTenantRoute(ctx context.Context, req *connect
 	if err != nil {
 		return nil, err
 	}
-	// Tenant identity comes from the ORG, never from the request. An org
-	// admin may create routes for their own org; letting them name the tenant
-	// would let them name someone else's, and a route that injects another
-	// org's X-Scope-OrgID is a cross-tenant write the gateway would happily
-	// authorize. See 0013_org_tenant_id.
-	org, err := s.store.Queries.GetOrgByID(ctx, orgID)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeNotFound, errors.New("org not found"))
-	}
-	if !org.TenantID.Valid || org.TenantID.String == "" {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
-			"org %q has no tenant identity yet, so a route for it would have no %s value to inject. "+
-				"An application administrator sets this once, on the org (SetOrgTenantID)",
-			org.Name, gateway.TenantHeader))
-	}
-	tenantID := org.TenantID.String
 	if err := validateKind(req.Msg.GetKind()); err != nil {
 		return nil, err
 	}
@@ -309,12 +293,31 @@ func (s *TenantRouteService) CreateTenantRoute(ctx context.Context, req *connect
 	}
 	kind := gateway.RouteKind(req.Msg.GetKind())
 
+	// The tenant must be one the ORG owns — an exact tenant of it, or a
+	// tenant under one of its prefixes (gateway.OrgOwnsTenant) — and only an
+	// app admin decides which those are. An org admin may create routes for
+	// their own org; letting them name any tenant would let them name someone
+	// else's, and a route that injects another org's X-Scope-OrgID is a
+	// cross-tenant write the gateway would happily authorize. The ownership
+	// check and the insert share one transaction holding the shared ownership
+	// lock, so the tenant cannot be taken away in between.
+	tx, err := s.store.Pool().Begin(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create tenant route"))
+	}
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
+	txQ := s.store.Queries.WithTx(tx)
+	tenantID, err := resolveRouteTenant(ctx, txQ, orgID, req.Msg.GetTenant())
+	if err != nil {
+		return nil, err
+	}
+
 	segment, err := gateway.GenerateSegment(ctx, format, kind, tenantID, s.segmentExists)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("minting tenant route segment: %w", err))
 	}
 
-	r, err := s.store.Queries.CreateTenantRoute(ctx, sqlc.CreateTenantRouteParams{
+	r, err := txQ.CreateTenantRoute(ctx, sqlc.CreateTenantRouteParams{
 		OrgID:            orgID,
 		TenantID:         tenantID,
 		Kind:             string(kind),
@@ -337,8 +340,47 @@ func (s *TenantRouteService) CreateTenantRoute(ctx context.Context, req *connect
 		}
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create tenant route"))
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create tenant route"))
+	}
 	auditLog(ctx, s.store, actorFromCtx(ctx), orgID, "tenant_route.create", "tenant_route", r.ID.String())
 	return connect.NewResponse(s.routeProto(r)), nil
+}
+
+// resolveRouteTenant picks the tenant a new route injects: the requested
+// one, which the org must own, or — when empty — the org's default. q must
+// be the transaction the route is then written in; it takes the shared
+// ownership lock.
+func resolveRouteTenant(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, requested string) (string, error) {
+	if err := lockOrgTenantsShared(ctx, q); err != nil {
+		return "", err
+	}
+	org, err := q.GetOrgByID(ctx, orgID)
+	if err != nil {
+		return "", connect.NewError(connect.CodeNotFound, errors.New("org not found"))
+	}
+	rows, err := q.ListOrgTenants(ctx, orgID)
+	if err != nil {
+		return "", connect.NewError(connect.CodeInternal, errors.New("failed to load org tenants"))
+	}
+	tenant := strings.TrimSpace(requested)
+	if tenant == "" {
+		tenant = defaultTenant(rows)
+		if tenant == "" {
+			return "", connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
+				"org %q has no default tenant, so a route that names none would have no %s value to "+
+					"inject. Name one of the org's tenants, or ask an application administrator to give "+
+					"the org a default tenant (Admin → Organisations)", org.Name, gateway.TenantHeader))
+		}
+		return tenant, nil
+	}
+	if !gateway.OrgOwnsTenant(toOrgTenantRules(rows), tenant) {
+		return "", connect.NewError(connect.CodeInvalidArgument, fmt.Errorf(
+			"tenant %q is not one org %q owns; a route may inject only one of the org's tenants, or a "+
+				"tenant under one of its prefixes, which an application administrator assigns",
+			tenant, org.Name))
+	}
+	return tenant, nil
 }
 
 // RotateTenantRoute demotes the currently-active route to "deprecated"

@@ -283,3 +283,13 @@ func orgUUID(value string) pgtype.UUID {
 	}
 	return id
 }
+
+// giveOrgTenant gives an org a default exact tenant directly in the store, as
+// an app admin's AddOrgTenant would (org_tenants, 0039_org_tenants).
+func giveOrgTenant(ctx context.Context, st *store.Store, orgID pgtype.UUID, tenant string) {
+	GinkgoHelper()
+	_, err := st.Queries.AddOrgTenant(ctx, sqlc.AddOrgTenantParams{
+		OrgID: orgID, Tenant: tenant, Kind: "exact", IsDefault: true, CreatedBy: "test",
+	})
+	Expect(err).NotTo(HaveOccurred())
+}
