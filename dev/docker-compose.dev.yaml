@@ -163,7 +163,9 @@ services:
     env_file: shepherd.dev.env
     environment:
       SHEPHERD_DATABASE_URL: postgres://shepherd:shepherd@postgres:5432/shepherd_dev?sslmode=disable
-      SHEPHERD_DEV_ALLOW_STATIC_TOKEN: "true"
+    # `dev seed` writes its collectors' token itself, already bound to
+    # platform-org (which claims prod-eu-1 and staging-eu-1), before any
+    # Alloy below starts — so no SHEPHERD_DEV_ALLOW_STATIC_TOKEN here.
     command:
       - dev
       - seed
