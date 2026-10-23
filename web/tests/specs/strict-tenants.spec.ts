@@ -7,7 +7,7 @@
 // that does not block Save for a tenant it cannot read).
 import { expect } from '@playwright/test';
 import { OrgTenantKind } from '@/gen/shepherd/mgmt/v1/common_pb';
-import { basicScenario, pipeline } from '../fixtures/factories';
+import { basicScenario, destination, pipeline } from '../fixtures/factories';
 import { appAdmin, orgAdmin, orgEditor } from '../fixtures/personas';
 import { test } from '../fixtures/test';
 
@@ -157,4 +157,48 @@ test('the pipeline editor shows a tenant-lint warning without blocking Save', as
   );
   await expect(page.locator('.cm-lint-marker-warning')).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Save' })).toBeEnabled();
+});
+
+test('a tenant-lint warning in the wizard preview does not block Create', async ({ page, api }) => {
+  await api.loginAs(orgAdmin);
+  const s = basicScenario();
+  api.seed({
+    orgs: [s.org],
+    destinations: [destination({ id: 'dst-prom', name: 'prom-prod', type: 'prometheus' })],
+  });
+  api.override('POST', '/shepherd.mgmt.v1.WizardService/RenderWizard', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        contents: 'prometheus.scrape "app" {}\n',
+        matchers: ['role="metrics"'],
+        valid: true,
+        diagnostics: [
+          {
+            line: 1,
+            col: 1,
+            message: 'tenant set from a non-literal expression — cannot be verified in strict mode',
+            stage: 1,
+            warning: true,
+          },
+        ],
+        matchedCollectors: [],
+      }),
+    });
+  });
+
+  await page.goto('/wizards');
+  await page.getByRole('link', { name: /app observability|start|begin/i }).click();
+  await page.getByLabel('Metrics endpoint URL').fill('http://myapp:9090/metrics');
+  await page.getByLabel('Job label').fill('my-app');
+  await page.getByRole('button', { name: /next|continue/i }).click();
+  await page.getByRole('button', { name: /next|continue/i }).click();
+  await page.getByLabel('Metrics destination').selectOption('prom-prod');
+  await page.getByRole('button', { name: /next|continue/i }).click();
+  await page.getByRole('button', { name: /next|continue/i }).click();
+  await page.getByLabel('Pipeline name').fill('strict-wizard');
+
+  await expect(page.getByText('No problems')).toBeVisible();
+  await expect(page.getByRole('button', { name: /create pipeline/i })).toBeEnabled();
 });

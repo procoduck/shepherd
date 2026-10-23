@@ -596,6 +596,16 @@ func (r *Reconciler) apply(ctx context.Context, link sqlc.RepoLink, commit strin
 		}
 		return false, fmt.Errorf("locking the repo link: %w", err)
 	}
+	// Strict tenant mode, again under the shared ownership lock: the
+	// per-file lint ran before this transaction, and the org may have turned
+	// strict (or lost a tenant) since.
+	lint := make([]tenancy.Pipeline, len(plans))
+	for i := range plans {
+		lint[i] = tenancy.Pipeline{Name: plans[i].path, Contents: plans[i].contents}
+	}
+	if err := tenancy.LintLocked(ctx, q, link.OrgID, r.requireOwned, lint...); err != nil {
+		return false, err
+	}
 
 	changed := false
 	if len(removed) > 0 {

@@ -973,12 +973,14 @@ func (x *ValidateVisualRequest) GetPipelineId() string {
 // VisualHandler.Validate: an Alloy Stage-1/2 diagnostic re-mapped onto the
 // canvas node whose rendered line range contains it.
 type VisualNodeDiagnostic struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Layer         string                 `protobuf:"bytes,1,opt,name=layer,proto3" json:"layer,omitempty"`
-	NodeId        string                 `protobuf:"bytes,2,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
-	Line          int32                  `protobuf:"varint,3,opt,name=line,proto3" json:"line,omitempty"`
-	Col           int32                  `protobuf:"varint,4,opt,name=col,proto3" json:"col,omitempty"`
-	Message       string                 `protobuf:"bytes,5,opt,name=message,proto3" json:"message,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Layer   string                 `protobuf:"bytes,1,opt,name=layer,proto3" json:"layer,omitempty"`
+	NodeId  string                 `protobuf:"bytes,2,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	Line    int32                  `protobuf:"varint,3,opt,name=line,proto3" json:"line,omitempty"`
+	Col     int32                  `protobuf:"varint,4,opt,name=col,proto3" json:"col,omitempty"`
+	Message string                 `protobuf:"bytes,5,opt,name=message,proto3" json:"message,omitempty"`
+	// warning marks a diagnostic that does not fail validation (Diagnostic.warning).
+	Warning       bool `protobuf:"varint,6,opt,name=warning,proto3" json:"warning,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1046,6 +1048,13 @@ func (x *VisualNodeDiagnostic) GetMessage() string {
 		return x.Message
 	}
 	return ""
+}
+
+func (x *VisualNodeDiagnostic) GetWarning() bool {
+	if x != nil {
+		return x.Warning
+	}
+	return false
 }
 
 // ValidateVisualResponse carries a visual graph's validation diagnostics.
@@ -2019,13 +2028,14 @@ const file_shepherd_mgmt_v1_visual_proto_rawDesc = "" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x125\n" +
 	"\x05graph\x18\x02 \x01(\v2\x1f.shepherd.mgmt.v1.GraphDocumentR\x05graph\x12\x1f\n" +
 	"\vpipeline_id\x18\x03 \x01(\tR\n" +
-	"pipelineId\"\x85\x01\n" +
+	"pipelineId\"\x9f\x01\n" +
 	"\x14VisualNodeDiagnostic\x12\x14\n" +
 	"\x05layer\x18\x01 \x01(\tR\x05layer\x12\x17\n" +
 	"\anode_id\x18\x02 \x01(\tR\x06nodeId\x12\x12\n" +
 	"\x04line\x18\x03 \x01(\x05R\x04line\x12\x10\n" +
 	"\x03col\x18\x04 \x01(\x05R\x03col\x12\x18\n" +
-	"\amessage\x18\x05 \x01(\tR\amessage\"\xb5\x01\n" +
+	"\amessage\x18\x05 \x01(\tR\amessage\x12\x18\n" +
+	"\awarning\x18\x06 \x01(\bR\awarning\"\xb5\x01\n" +
 	"\x16ValidateVisualResponse\x12H\n" +
 	"\vdiagnostics\x18\x01 \x03(\v2&.shepherd.mgmt.v1.VisualNodeDiagnosticR\vdiagnostics\x12Q\n" +
 	"\x12render_diagnostics\x18\x02 \x03(\v2\".shepherd.mgmt.v1.VisualDiagnosticR\x11renderDiagnostics\"\x84\x01\n" +

@@ -30,6 +30,7 @@ import (
 	"shepherd/internal/signals"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
+	"shepherd/internal/tenancy"
 	"shepherd/internal/validate"
 	"shepherd/internal/visual"
 )
@@ -632,6 +633,9 @@ func (s *PipelineService) CreatePipeline(ctx context.Context, req *connect.Reque
 	}
 	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
 	txQ := s.store.Queries.WithTx(tx)
+	if err := lintLocked(ctx, txQ, orgID, s.requireOwned, tenancy.Pipeline{Name: msg.GetName(), Contents: msg.GetContents()}); err != nil {
+		return nil, err
+	}
 	p, err := txQ.CreatePipeline(ctx, sqlc.CreatePipelineParams{
 		OrgID:       orgID,
 		Name:        msg.GetName(),
@@ -787,6 +791,9 @@ func (s *PipelineService) writeUpdate(ctx context.Context, p sqlc.Pipeline, msg 
 	if locked.Enabled && !p.Enabled {
 		return sqlc.Pipeline{}, 0, false, connect.NewError(connect.CodeAborted, errEnabledMeanwhile)
 	}
+	if err := lintLocked(ctx, txQ, locked.OrgID, s.requireOwned, tenancy.Pipeline{Name: msg.GetName(), Contents: msg.GetContents()}); err != nil {
+		return sqlc.Pipeline{}, 0, false, err
+	}
 	current, err := txQ.GetMaxPipelineRevision(ctx, locked.ID)
 	if err != nil {
 		return sqlc.Pipeline{}, 0, false, mapError(err)
@@ -911,10 +918,34 @@ func (s *PipelineService) setEnabled(ctx context.Context, orgIDStr, idStr string
 		return nil, connect.NewError(connect.CodeFailedPrecondition, mergeErr)
 	}
 
-	updated, err := s.store.Queries.SetPipelineEnabled(ctx, sqlc.SetPipelineEnabledParams{
+	// The enable bit is written under the shared ownership lock with the
+	// tenant lint re-run there, so it serialises with SetOrgStrictTenants.
+	tx, err := s.store.Pool().Begin(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
+	txQ := s.store.Queries.WithTx(tx)
+	if enable {
+		locked, err := txQ.GetPipelineForUpdate(ctx, p.ID)
+		if err != nil {
+			return nil, mapError(err)
+		}
+		if locked.Contents != p.Contents {
+			// Edited since Stage 3 ran: enable what was checked, or nothing.
+			return nil, connect.NewError(connect.CodeAborted, errors.New("the pipeline changed while it was being enabled; try again"))
+		}
+		if err := lintLocked(ctx, txQ, orgID, s.requireOwned, tenancy.Pipeline{Name: locked.Name, Contents: locked.Contents}); err != nil {
+			return nil, err
+		}
+	}
+	updated, err := txQ.SetPipelineEnabled(ctx, sqlc.SetPipelineEnabledParams{
 		ID: p.ID, Enabled: enable, UpdatedBy: actor,
 	})
 	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
 	}
 
@@ -1307,6 +1338,9 @@ func (s *PipelineService) RestoreRevision(ctx context.Context, req *connect.Requ
 	// straight into the served config — refuse, as UpdatePipeline does.
 	if locked.Enabled && !p.Enabled {
 		return nil, connect.NewError(connect.CodeAborted, errEnabledMeanwhile)
+	}
+	if err := lintLocked(ctx, txQ, locked.OrgID, s.requireOwned, tenancy.Pipeline{Name: locked.Name, Contents: rv.Contents}); err != nil {
+		return nil, err
 	}
 
 	// WizardState: rv.WizardState (nil when the revision predates 0019 or

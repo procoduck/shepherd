@@ -71,3 +71,35 @@ func TestTenantLintNamesSchemaAttributes(t *testing.T) {
 		check(c.component, c.path, "headers")
 	}
 }
+
+// TestTenantLintCoversEveryHeadersMap enumerates every map-typed attribute in
+// the pinned schema whose name ends in "headers" (headers, http_headers, …):
+// each must be one the lint reads X-Scope-OrgID from, so a component that
+// gains a new headers map in a schema bump cannot slip past it.
+func TestTenantLintCoversEveryHeadersMap(t *testing.T) {
+	payload, err := loadPortSchema()
+	if err != nil {
+		t.Fatalf("loading the schema: %v", err)
+	}
+	found := 0
+	var walk func(component, path string, attrs []visual.AttributeSchema, blocks []visual.BlockSchema)
+	walk = func(component, path string, attrs []visual.AttributeSchema, blocks []visual.BlockSchema) {
+		for _, a := range attrs {
+			if a.Type == "map" && strings.HasSuffix(strings.ToLower(a.Name), "headers") {
+				found++
+				if !isHeadersMapAttr(a.Name) {
+					t.Errorf("%s %s %s is a headers map the tenant lint does not read", component, path, a.Name)
+				}
+			}
+		}
+		for _, b := range blocks {
+			walk(component, path+"/"+b.Name, b.Attributes, b.Blocks)
+		}
+	}
+	for name, c := range payload.Components {
+		walk(name, "", c.Attributes, c.Blocks)
+	}
+	if found < 20 {
+		t.Fatalf("found only %d headers maps; the schema walk is broken", found)
+	}
+}

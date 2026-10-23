@@ -18,6 +18,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"shepherd/internal/advisorylock"
 	"shepherd/internal/gateway"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/validate"
@@ -223,4 +224,92 @@ func CheckRequireOwned(ctx context.Context, q *sqlc.Queries) error {
 		"disable or delete the objects listed, then start again; `shepherd admin tenant-preflight` lists them "+
 		"without starting the server. Or set tenants.require_owned back to false",
 		ErrRequireOwnedViolations, len(vs), strings.Join(lines, "\n"))
+}
+
+// Pipeline is a pipeline's name and text, as LintLocked checks it.
+type Pipeline struct{ Name, Contents string }
+
+// ErrPipelineNotOwned is LintLocked's refusal.
+var ErrPipelineNotOwned = errors.New("strict tenant mode refuses pipeline(s)")
+
+// LintLocked takes the shared ownership lock in q's transaction, reads
+// orgID's policy under it and refuses (ErrPipelineNotOwned, naming each
+// pipeline and its diagnostics) any of pipelines the tenant lint refuses.
+// Every pipeline write runs it in its writing transaction, so it serialises
+// with SetOrgStrictTenants and ownership changes (both exclusive): neither
+// can commit between this check and the write. A no-op for an org not in
+// strict tenant mode, beyond the lock.
+func LintLocked(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, requireOwned bool, pipelines ...Pipeline) error {
+	if err := q.LockOrgTenantsShared(ctx, advisorylock.TenantID); err != nil {
+		return fmt.Errorf("taking the tenant ownership lock: %w", err)
+	}
+	p, err := Load(ctx, q, orgID, requireOwned)
+	if err != nil {
+		return err
+	}
+	if !p.Strict {
+		return nil
+	}
+	var failures []string
+	for i := range pipelines {
+		if msgs := lintErrors(pipelines[i].Contents, p.Validation()); len(msgs) > 0 {
+			failures = append(failures, fmt.Sprintf("%s: %s", pipelines[i].Name, strings.Join(msgs, "; ")))
+		}
+	}
+	if len(failures) > 0 {
+		return fmt.Errorf("%w: %s", ErrPipelineNotOwned, strings.Join(failures, " | "))
+	}
+	return nil
+}
+
+// lintErrors is TenantLint's refusals in contents, as "line:col message".
+func lintErrors(contents string, policy validate.TenantPolicy) []string {
+	var msgs []string
+	for _, d := range validate.TenantLint(contents, policy) {
+		if !d.Warning {
+			msgs = append(msgs, fmt.Sprintf("%d:%d %s", d.Line, d.Col, d.Message))
+		}
+	}
+	return msgs
+}
+
+// OrphanedPipelines names org's enabled pipelines that would fail the tenant
+// lint if the org owned only remaining — what removing a tenant rule from a
+// strict org must not leave behind. q should hold the exclusive ownership
+// lock.
+func OrphanedPipelines(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, remaining []gateway.OrgTenant) ([]string, error) {
+	pipelines, err := q.ListEnabledPipelinesByOrg(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("listing enabled pipelines: %w", err)
+	}
+	policy := validate.TenantPolicy{Strict: true, Owns: func(t string) bool { return gateway.OrgOwnsTenant(remaining, t) }}
+	var out []string
+	for i := range pipelines {
+		if msgs := lintErrors(pipelines[i].Contents, policy); len(msgs) > 0 {
+			out = append(out, fmt.Sprintf("pipeline %q (%s)", pipelines[i].Name, strings.Join(msgs, "; ")))
+		}
+	}
+	return out, nil
+}
+
+// OtherOrgPipelinesCovered names every other org's enabled pipeline whose
+// text writes to a tenant rule would cover (validate.TenantLiterals) — what
+// an org must not be given, whatever either org's mode: the pipeline would
+// then be writing into the new owner's tenant. q should hold the exclusive
+// ownership lock. Org names are included: only an app admin calls it.
+func OtherOrgPipelinesCovered(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, rule gateway.OrgTenant) ([]string, error) {
+	rows, err := q.ListEnabledPipelinesOfOtherOrgs(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("listing other orgs' enabled pipelines: %w", err)
+	}
+	var out []string
+	for i := range rows {
+		for _, t := range validate.TenantLiterals(rows[i].Contents) {
+			if gateway.RuleCovers(rule, t) {
+				out = append(out, fmt.Sprintf("pipeline %q of org %q (tenant %q)", rows[i].Name, rows[i].OrgName, t))
+				break
+			}
+		}
+	}
+	return out, nil
 }

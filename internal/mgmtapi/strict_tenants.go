@@ -69,6 +69,22 @@ func checkStrictTenant(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, 
 	return nil
 }
 
+// lintLocked is tenancy.LintLocked as a connect error: every pipeline write
+// runs it in its writing transaction, under the shared ownership lock, so a
+// write cannot commit text strict mode refuses after reading a policy the
+// toggle (exclusive) has since changed.
+func lintLocked(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, requireOwned bool, pipelines ...tenancy.Pipeline) error {
+	err := tenancy.LintLocked(ctx, q, orgID, requireOwned, pipelines...)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, tenancy.ErrPipelineNotOwned):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
+	default:
+		return connect.NewError(connect.CodeInternal, errors.New("failed to check the org's tenant policy"))
+	}
+}
+
 // WithRequireOwnedTenants passes the server-wide tenants.require_owned
 // setting to the pipeline write path (and the destination service built on
 // it).

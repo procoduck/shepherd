@@ -593,17 +593,27 @@ The check flags a reference only when it resolves to a component block declared 
 
 **Tenant lint (strict tenant mode, §11.4).** For an org in strict tenant mode, the gate also runs
 `validate.TenantLint` on the pipeline text as written (positions in that text, `stage: 1`). It
-parses the text with the Alloy syntax parser and refuses a **literal** tenant the org does not own
-wherever Alloy sets one: an `X-Scope-OrgID` key (any case) of any `headers = { … }` object literal —
-how `prometheus.remote_write`, `loki.write` and `pyroscope.write` endpoints and the
-`otelcol.exporter.*` clients send one; an `otelcol.auth.headers` `header` block whose key is
-`X-Scope-OrgID`; `loki.write`'s endpoint `tenant_id`; `loki.rules.kubernetes`' and
-`mimir.rules.kubernetes`' `tenant_id`; and `loki.process` `stage.tenant`'s `value`. A
-`|`-joined header value must be owned in every part. Azure AD's `tenant_id` attributes name an
-identity tenant and are not checked. A value it cannot read — `sys.env(…)`, a reference, a
-concatenation or other computed expression, a `headers` value that is not an object literal,
-`stage.tenant`'s `label`/`source`, `otelcol.auth.headers`' `from_context`/`from_attribute` — is
-not refused but returned as a **warning** (`Diagnostic.warning`, "tenant set from a non-literal
+parses the text with the Alloy syntax parser and refuses a tenant the org does not own wherever
+Alloy sets one: an `X-Scope-OrgID` key (any case) of any headers map — every map attribute whose
+name ends in `headers` (`headers`, `http_headers`, …; the CORS `allowed_headers`/`exposed_headers`
+lists excepted), a list value checked element by element; that is how `prometheus.remote_write`,
+`loki.write` and `pyroscope.write` endpoints, the rules components and the `otelcol.exporter.*`
+clients send one, and a spec enumerates every such map in the pinned schema; an
+`otelcol.auth.headers` `header` block whose key is `X-Scope-OrgID`; `loki.write`'s endpoint
+`tenant_id`; `loki.rules.kubernetes`' and `mimir.rules.kubernetes`' `tenant_id`; `loki.process`
+`stage.tenant`'s `value` at any nesting (inside `stage.match`); and Loki's reserved
+`__tenant_id__` label, which overrides `loki.write`'s `tenant_id` per entry (Alloy v1.20.1
+`common/loki/client.getTenantID`) — set in any labels map (`stage.static_labels`, a
+`loki.source.*` `labels`, …) or as a relabel `rule`'s `target_label` with a readable
+`replacement`. `prometheus.remote_write` has no tenant label; Mimir reads the header only. A value
+is *read* when it is a string literal, a `+` concatenation of readable values, or a declare
+argument (`argument.<name>.value`) whose default and every value an instantiation in the same text
+gives it are readable. A `|`-joined header value must be owned in every part. Azure AD's
+`tenant_id` attributes name an identity tenant and are not checked. A value it cannot read —
+`sys.env(…)`, a reference, any other computed expression, a headers value that is not an object
+literal, `stage.tenant`'s `label`/`source`, `stage.labels` (an extracted field), a relabel rule
+whose replacement uses a regex reference or is left at its default, `otelcol.auth.headers`'
+`from_context`/`from_attribute` — is not refused but returned as a **warning** (`Diagnostic.warning`, "tenant set from a non-literal
 expression — cannot be verified in strict mode"); warnings never fail validation or block a save.
 Every place it reads a tenant from is pinned to the embedded component schema by a spec. It runs
 through `ValidatePipeline` (so on pipeline create/update/restore, the `ValidatePipeline` RPC and
@@ -612,9 +622,10 @@ and git sync's per-file check, where one refused file refuses the commit) and th
 Validate; Stage 3 lints the candidates. **Limits, stated plainly:** it is a best-effort text check,
 not containment. It cannot see a tenant computed at run time (environment variables, files,
 `remote.*` contents, relabelling a `__tenant_id__` label, `stage.tenant` from data), a tenant set by
-a module imported from outside the pipeline (the `import.*` blocks), a header added by a proxy or
-gateway in front of the backend, or a backend that takes the tenant some other way (basic-auth
-username, URL path). The rules that hold are the ones on destinations, bindings and routes; the
+a module imported from outside the pipeline (the `import.*` blocks), a relabel `target_label`
+that is itself computed, a `stage.template` or other stage that writes `__tenant_id__` from data,
+a header added by a proxy or gateway in front of the backend, or a backend that takes the tenant
+some other way (basic-auth username, URL path). The rules that hold are the ones on destinations, bindings and routes; the
 lint stops the obvious literal case and flags what it cannot check.
 
 API: `PipelineService.ValidatePipeline` (§12) runs stages 1–2 only (fast, used by the editor's Validate button and on-type debounce); the actual save/update/enable endpoints run all three stages server-side regardless of what the client did. With no Alloy binary configured, the `alloy validate` half of Stage 2 is skipped and reported, not passed: `ValidatePipelineResponse.skipped_stages` lists `2` (#209), the editor shows *Syntax checked — alloy validate skipped*, and `shepherd validate` prints the same.
@@ -805,8 +816,13 @@ each object and how to clear it (assign the tenant to its org, or edit, disable 
 object); `shepherd admin tenant-preflight` prints the same list without starting the server and
 exits non-zero while anything is listed. `Org.strict_tenants` is the flag, `Org.tenants_required`
 and `OrgMembership.tenants_required` the effective state; the destination form then offers only
-the org's tenants. A pipeline saved concurrently with the toggle is not serialised against it
-(the lint takes no lock); Stage 3 lints it again on its next enable. Strict mode covers what
+the org's tenants. Every pipeline write (create, update, restore, enable, wizard commit, a
+destination re-render, `rerender-destinations`, a git sync's apply) re-runs the lint in its writing
+transaction under the shared ownership lock (`tenancy.LintLocked`), so it serialises with the
+toggle and with ownership changes. Ownership changes see pipelines too: `RemoveOrgTenant` on an org
+in strict mode refuses while an **enabled** pipeline would be left writing to a tenant the org no
+longer owns, and `AddOrgTenant` (for any org) refuses a rule covering a tenant another org's
+enabled pipeline writes to (`validate.TenantLiterals`), naming each. Strict mode covers what
 Shepherd writes and renders; it is not containment against a collector configured outside
 Shepherd, nor against a tenant computed at run time — see the lint's limits in §8.
 

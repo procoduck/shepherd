@@ -249,16 +249,12 @@ func (s *VisualService) Validate(ctx context.Context, req *connect.Request[mgmtv
 				break
 			}
 		}
-		msg := d.Message
-		if d.Warning {
-			// VisualNodeDiagnostic has no severity; a warning says so.
-			msg = "warning: " + msg
-		}
 		out = append(out, &mgmtv1.VisualNodeDiagnostic{
 			Layer: "L2", NodeId: id,
 			Line:    int32(d.Line), //nolint:gosec // G115: line/col from a rendered Alloy file, well within int32
 			Col:     int32(d.Col),  //nolint:gosec // G115: line/col from a rendered Alloy file, well within int32
-			Message: msg,
+			Message: d.Message,
+			Warning: d.Warning,
 		})
 	}
 	return connect.NewResponse(&mgmtv1.ValidateVisualResponse{Diagnostics: out}), nil

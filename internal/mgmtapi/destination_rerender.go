@@ -16,6 +16,7 @@ import (
 	"shepherd/internal/schema"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
+	"shepherd/internal/tenancy"
 	"shepherd/internal/validate"
 	"shepherd/internal/wizard"
 )
@@ -492,7 +493,17 @@ type rerenderAudit struct {
 // the row, a revision, a pipeline.rerender audit row, and — when any of them
 // is enabled — the org's serve cache marked dirty. It reports whether the
 // cache was marked, so the caller can kick the eager recompute after commit.
-func applyWizardRerenders(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, changes []wizardRerender, actor, actorType, note string, detail rerenderAudit) (dirtied bool, err error) {
+//
+// requireOwned is tenants.require_owned: the re-rendered text is linted again
+// in q's transaction under the shared ownership lock (lintLocked).
+func applyWizardRerenders(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, requireOwned bool, changes []wizardRerender, actor, actorType, note string, detail rerenderAudit) (dirtied bool, err error) {
+	lint := make([]tenancy.Pipeline, len(changes))
+	for i := range changes {
+		lint[i] = tenancy.Pipeline{Name: changes[i].row.Name, Contents: changes[i].row.Contents}
+	}
+	if err := lintLocked(ctx, q, orgID, requireOwned, lint...); err != nil {
+		return false, err
+	}
 	anyEnabled := false
 	for i := range changes {
 		c := changes[i].row
@@ -683,7 +694,7 @@ func (s *PipelineService) rerenderOrg(ctx context.Context, org sqlc.Org, all, dr
 		detail = rerenderAudit{Reason: "regenerated from the org's current destinations (rerender-destinations --all, #261)"}
 		note = "re-rendered: rerender-destinations --all"
 	}
-	if _, err := applyWizardRerenders(ctx, txQ, org.ID, changes, LegacyRerenderActor, "system", note, detail); err != nil {
+	if _, err := applyWizardRerenders(ctx, txQ, org.ID, s.requireOwned, changes, LegacyRerenderActor, "system", note, detail); err != nil {
 		return res, err
 	}
 	if err := tx.Commit(ctx); err != nil {

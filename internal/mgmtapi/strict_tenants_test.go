@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -344,6 +346,74 @@ var _ = Describe("Strict tenant mode", Label("integration"), func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(fmt.Sprint(results)).To(ContainSubstring("strict tenant mode"))
 		})
+	})
+
+	// Review fixes (PR #388): ownership changes see enabled pipelines.
+	Describe("an ownership change and enabled pipelines", func() {
+		BeforeEach(start)
+
+		It("refuses removing the tenant a strict org's enabled pipeline writes to, naming it", func() {
+			p := ok(createPipeline(adminA, orgA, "writer", remoteWriteTo(`"acme-logs"`)))
+			ok(call(adminA, "PipelineService/EnablePipeline", map[string]any{"orgId": orgA.String(), "id": p["id"]}))
+			makeStrict(orgA)
+			code, out := call(appAdmin, "AdminService/RemoveOrgTenant", map[string]any{
+				"orgId": orgA.String(), "tenant": "acme-", "kind": "ORG_TENANT_KIND_PREFIX",
+			})
+			Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
+			Expect(out["code"]).To(Equal("failed_precondition"))
+			Expect(out["message"]).To(ContainSubstring(`pipeline "writer"`))
+		})
+
+		It("refuses giving an org a tenant another org's enabled pipeline writes to", func() {
+			p := ok(createPipeline(adminB, orgB, "w", remoteWriteTo(`"shared-x"`)))
+			ok(call(adminB, "PipelineService/EnablePipeline", map[string]any{"orgId": orgB.String(), "id": p["id"]}))
+			code, out := call(appAdmin, "AdminService/AddOrgTenant", map[string]any{
+				"orgId": orgA.String(), "tenant": "shared-", "kind": "ORG_TENANT_KIND_PREFIX",
+			})
+			Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
+			Expect(out["code"]).To(Equal("failed_precondition"))
+			Expect(out["message"]).To(ContainSubstring("pipeline"))
+			ok(call(appAdmin, "AdminService/AddOrgTenant", map[string]any{
+				"orgId": orgA.String(), "tenant": "unused-", "kind": "ORG_TENANT_KIND_PREFIX",
+			}))
+		})
+	})
+
+	// The toggle's preflight and a pipeline write must serialise on the
+	// ownership lock: otherwise the write reads a non-strict policy, the toggle
+	// reads the old text, and both commit — an enabled violating pipeline in a
+	// strict org.
+	It("never ends with a strict org serving a pipeline that writes to an unowned tenant (race)", func() {
+		start()
+		p := ok(createPipeline(adminA, orgA, "racer", remoteWriteTo(`"acme"`)))
+		id := p["id"]
+		ok(call(adminA, "PipelineService/EnablePipeline", map[string]any{"orgId": orgA.String(), "id": id}))
+		for round := range 25 {
+			_, err := st.Queries.SetOrgStrictTenants(ctx, sqlc.SetOrgStrictTenantsParams{ID: orgA, StrictTenants: false})
+			Expect(err).NotTo(HaveOccurred())
+			ok(call(adminA, "PipelineService/UpdatePipeline", map[string]any{
+				"orgId": orgA.String(), "id": id, "name": "racer", "contents": remoteWriteTo(`"acme"`), "matchers": []string{},
+			}))
+			var wg sync.WaitGroup
+			wg.Go(func() {
+				defer GinkgoRecover()
+				setStrict(orgA, true)
+			})
+			wg.Go(func() {
+				defer GinkgoRecover()
+				call(adminA, "PipelineService/UpdatePipeline", map[string]any{
+					"orgId": orgA.String(), "id": id, "name": "racer",
+					"contents": remoteWriteTo(fmt.Sprintf(`"free-%d"`, round)), "matchers": []string{},
+				})
+			})
+			wg.Wait()
+			org, err := st.Queries.GetOrgByID(ctx, orgA)
+			Expect(err).NotTo(HaveOccurred())
+			pl, err := st.Queries.GetPipelineByOrgAndName(ctx, sqlc.GetPipelineByOrgAndNameParams{OrgID: orgA, Name: "racer"})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(org.StrictTenants && pl.Enabled && strings.Contains(pl.Contents, "free-")).To(BeFalse(),
+				"round %d: strict org with an enabled pipeline writing to an unowned tenant", round)
+		}
 	})
 
 	Describe("an org not in strict mode (unchanged)", func() {

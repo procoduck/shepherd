@@ -21,6 +21,7 @@ import (
 	"shepherd/internal/schema"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
+	"shepherd/internal/tenancy"
 	"shepherd/internal/validate"
 	"shepherd/internal/wizard"
 	// Blank imports are what put a wizard in the registry: each package
@@ -333,6 +334,9 @@ func (s *WizardService) CommitWizard(ctx context.Context, req *connect.Request[m
 	}
 	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
 	txQ := s.store.Queries.WithTx(tx)
+	if err := lintLocked(ctx, txQ, orgID, s.requireOwned, tenancy.Pipeline{Name: req.Msg.GetName(), Contents: result.Contents}); err != nil {
+		return nil, err
+	}
 	p, err := txQ.CreatePipeline(ctx, sqlc.CreatePipelineParams{
 		OrgID:       orgID,
 		Name:        req.Msg.GetName(),

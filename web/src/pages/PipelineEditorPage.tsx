@@ -212,7 +212,7 @@ export function PipelineEditorPage() {
     saveMutation.reset();
   };
 
-  const hasErrors = diagnostics.length > 0;
+  const hasDiagnostics = diagnostics.length > 0;
   // Read-only for whoever may not write this pipeline (canEdit above) and for
   // git-managed pipelines (git is the source of truth).
   const readOnly = !canEdit || pipeline?.source === 'git';
@@ -411,7 +411,7 @@ export function PipelineEditorPage() {
             </div>
 
             {/* Problems panel */}
-            {hasErrors && (
+            {hasDiagnostics && (
               <div className='max-h-40 overflow-y-auto border-t border-border bg-background p-2 space-y-1'>
                 {diagnostics.map((d, i) => (
                   <p

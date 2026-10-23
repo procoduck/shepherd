@@ -183,3 +183,9 @@ WHERE repo_link_id = sqlc.arg(repo_link_id)
   AND source = 'git'
   AND id = ANY(sqlc.arg(ids)::uuid[])
 RETURNING id, name, git_path;
+
+-- name: ListEnabledPipelinesOfOtherOrgs :many
+-- Every enabled pipeline of an org other than org_id: what AddOrgTenant
+-- checks for literal tenants (validate.TenantLiterals) a new rule would cover.
+SELECT p.*, o.name AS org_name FROM pipelines p JOIN orgs o ON o.id = p.org_id
+WHERE p.org_id <> sqlc.arg(org_id) AND p.enabled = true ORDER BY o.name, p.name;

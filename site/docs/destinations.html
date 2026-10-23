@@ -150,15 +150,19 @@
         destination whose tenant the organisation stops owning is refused when a wizard pipeline is
         generated from it. Pipeline text is checked when it is saved, synced from git or enabled: a
         <strong>literal</strong> tenant the organisation does not own is refused where Alloy sets
-        one &mdash; an <code>X-Scope-OrgID</code> key in a <code>headers = { &hellip; }</code> map
-        (<code>prometheus.remote_write</code>, <code>loki.write</code>,
-        <code>pyroscope.write</code>, the <code>otelcol.exporter.*</code> clients), an
+        one &mdash; an <code>X-Scope-OrgID</code> key in a <code>headers</code> or
+        <code>http_headers</code> map (<code>prometheus.remote_write</code>,
+        <code>loki.write</code>, <code>pyroscope.write</code>, the rules components, the
+        <code>otelcol.exporter.*</code> clients), Loki&rsquo;s <code>__tenant_id__</code> label
+        (which overrides <code>loki.write</code>&rsquo;s tenant per log line) set in a labels map or
+        a relabel rule, an
         <code>otelcol.auth.headers</code> header with that key, <code>loki.write</code>&rsquo;s
         <code>tenant_id</code>, the <code>tenant_id</code> of <code>loki.rules.kubernetes</code> and
         <code>mimir.rules.kubernetes</code>, and <code>loki.process</code>&rsquo;s
-        <code>stage.tenant</code> value. A tenant written as an expression &mdash;
-        <code>sys.env(&hellip;)</code>, a reference to another component, a concatenation &mdash;
-        cannot be checked, so the editor shows a <strong>warning</strong> instead and the save goes
+        <code>stage.tenant</code> value, also inside <code>stage.match</code>. Concatenated string
+        literals and a module argument&rsquo;s literal default (and the literal values it is given)
+        are checked too. A tenant written as another expression &mdash;
+        <code>sys.env(&hellip;)</code>, a reference to another component &mdash; cannot be checked, so the editor shows a <strong>warning</strong> instead and the save goes
         ahead.</p>
       <p>The pipeline check is a text check, and it has limits: it cannot see a tenant chosen at
         run time (from the environment, a file, a relabelled <code>__tenant_id__</code> label or

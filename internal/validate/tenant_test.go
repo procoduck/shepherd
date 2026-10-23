@@ -142,7 +142,7 @@ loki.process "p" {
 	})
 
 	It("warns, without refusing, on a tenant set from sys.env, a reference or a concatenation", func() {
-		for _, expr := range []string{`sys.env("TENANT")`, `local.file.t.content`, `"ac" + "me"`} {
+		for _, expr := range []string{`sys.env("TENANT")`, `local.file.t.content`, `"ac" + sys.env("X")`} {
 			ds := validate.TenantLint(remoteWrite(expr), strictFor())
 			Expect(errorsOf(ds)).To(BeEmpty(), expr)
 			Expect(warningsOf(ds)).To(ConsistOf(
@@ -187,6 +187,186 @@ loki.process "p" {
 
 	It("finds nothing in text that does not parse (Stage 1 reports it)", func() {
 		Expect(validate.TenantLint(`prometheus.remote_write "x" {`, strictFor())).To(BeEmpty())
+	})
+	// Review fixes (PR #388).
+	Describe("http_headers (lists of values)", func() {
+		DescribeTable("refuses an unowned tenant in any element",
+			func(src string) {
+				Expect(errorsOf(validate.TenantLint(src, strictFor()))).To(ConsistOf(ContainSubstring(`"victim"`)))
+			},
+			Entry("prometheus.remote_write endpoint", `prometheus.remote_write "o" {
+  endpoint {
+    url          = "https://m.example/push"
+    http_headers = { "X-Scope-OrgID" = ["acme", "victim"] }
+  }
+}
+`),
+			Entry("loki.write endpoint whose own tenant_id is owned", `loki.write "o" {
+  endpoint {
+    url          = "https://l.example/push"
+    tenant_id    = "acme"
+    http_headers = { "x-scope-orgid" = ["victim"] }
+  }
+}
+`),
+			Entry("mimir.rules.kubernetes top level", `mimir.rules.kubernetes "r" {
+  address      = "http://mimir:8080"
+  http_headers = { "X-Scope-OrgID" = ["victim"] }
+}
+`),
+		)
+
+		It("leaves CORS header lists alone", func() {
+			src := `otelcol.receiver.otlp "r" {
+  http {
+    cors {
+      allowed_headers = ["X-Scope-OrgID"]
+    }
+  }
+  output {}
+}
+`
+			Expect(validate.TenantLint(src, strictFor())).To(BeEmpty())
+		})
+	})
+
+	Describe("Loki's reserved __tenant_id__ label (overrides loki.write's tenant_id)", func() {
+		DescribeTable("refuses a literal unowned value",
+			func(src string) {
+				Expect(errorsOf(validate.TenantLint(src, strictFor()))).To(ConsistOf(ContainSubstring(`"victim"`)))
+			},
+			Entry("stage.static_labels", `loki.process "p" {
+  forward_to = []
+  stage.static_labels {
+    values = { "__tenant_id__" = "victim" }
+  }
+}
+`),
+			Entry("a loki.relabel rule", `loki.relabel "r" {
+  forward_to = []
+  rule {
+    target_label = "__tenant_id__"
+    replacement  = "victim"
+  }
+}
+`),
+			Entry("a discovery.relabel rule", `discovery.relabel "r" {
+  targets = []
+  rule {
+    action       = "replace"
+    target_label = "__tenant_id__"
+    replacement  = "victim"
+  }
+}
+`),
+			Entry("a loki.source labels map", `loki.source.api "a" {
+  http {}
+  forward_to = []
+  labels     = { "__tenant_id__" = "victim" }
+}
+`),
+		)
+
+		It("accepts an owned one", func() {
+			src := `loki.process "p" {
+  forward_to = []
+  stage.static_labels {
+    values = { "__tenant_id__" = "acme-logs" }
+  }
+}
+`
+			Expect(validate.TenantLint(src, strictFor())).To(BeEmpty())
+		})
+
+		It("warns on a value taken from the data: stage.labels, a regex replacement, no replacement", func() {
+			src := `loki.process "p" {
+  forward_to = []
+  stage.labels {
+    values = { "__tenant_id__" = "team" }
+  }
+}
+loki.relabel "r" {
+  forward_to = []
+  rule {
+    source_labels = ["team"]
+    target_label  = "__tenant_id__"
+    replacement   = "$1"
+  }
+  rule {
+    target_label = "__tenant_id__"
+  }
+}
+`
+			ds := validate.TenantLint(src, strictFor())
+			Expect(errorsOf(ds)).To(BeEmpty())
+			Expect(warningsOf(ds)).To(HaveLen(3))
+		})
+	})
+
+	It("finds stage.tenant nested under stage.match, at any depth", func() {
+		src := `loki.process "p" {
+  forward_to = []
+  stage.match {
+    selector = "{app=\"x\"}"
+    stage.match {
+      selector = "{env=\"y\"}"
+      stage.tenant {
+        value = "victim"
+      }
+    }
+  }
+}
+`
+		Expect(errorsOf(validate.TenantLint(src, strictFor()))).To(ConsistOf(ContainSubstring(`"victim"`)))
+	})
+
+	Describe("values it can work out", func() {
+		It("folds a concatenation of string literals", func() {
+			Expect(errorsOf(validate.TenantLint(remoteWrite(`"vic" + "tim"`), strictFor()))).
+				To(ConsistOf(ContainSubstring(`"victim"`)))
+			Expect(validate.TenantLint(remoteWrite(`("ac" + "me") + "-x"`), strictFor())).To(BeEmpty())
+		})
+
+		It("checks a declare argument's literal default and every literal it is given", func() {
+			src := `declare "w" {
+  argument "tenant" {
+    optional = true
+    default  = "victim"
+  }
+  prometheus.remote_write "o" {
+    endpoint {
+      url     = "https://m.example/push"
+      headers = { "X-Scope-OrgID" = argument.tenant.value }
+    }
+  }
+}
+w "a" { tenant = "acme" }
+w "b" { tenant = "other" }
+`
+			Expect(errorsOf(validate.TenantLint(src, strictFor()))).To(ConsistOf(
+				ContainSubstring(`"victim"`), ContainSubstring(`"other"`)))
+		})
+
+		It("warns on an argument without a default it can read", func() {
+			src := `declare "w" {
+  argument "tenant" { }
+  prometheus.remote_write "o" {
+    endpoint {
+      url     = "https://m.example/push"
+      headers = { "X-Scope-OrgID" = argument.tenant.value }
+    }
+  }
+}
+`
+			ds := validate.TenantLint(src, strictFor())
+			Expect(errorsOf(ds)).To(BeEmpty())
+			Expect(warningsOf(ds)).To(HaveLen(1))
+		})
+	})
+
+	It("lists the literal tenants a pipeline writes to (TenantLiterals)", func() {
+		Expect(validate.TenantLiterals(remoteWrite(`"acme|victim"`))).To(ConsistOf("acme", "victim"))
+		Expect(validate.TenantLiterals(remoteWrite(`sys.env("T")`))).To(BeEmpty())
 	})
 })
 

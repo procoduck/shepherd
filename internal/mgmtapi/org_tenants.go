@@ -13,6 +13,7 @@ import (
 	"shepherd/internal/advisorylock"
 	"shepherd/internal/gateway"
 	"shepherd/internal/store/sqlc"
+	"shepherd/internal/tenancy"
 )
 
 // An organisation owns several tenants and tenant prefixes (org_tenants,
@@ -179,6 +180,19 @@ func assignOrgTenant(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, ru
 			return connect.NewError(connect.CodeFailedPrecondition, errTenantUsedByOtherDestination)
 		}
 	}
+	// And no other org's enabled pipeline may already write to a tenant the
+	// rule covers (a literal X-Scope-OrgID, tenant_id or __tenant_id__): the
+	// new owner's tenant would then carry that org's data. Named, since only
+	// an app admin reaches this.
+	covered, err := tenancy.OtherOrgPipelinesCovered(ctx, q, orgID, rule)
+	if err != nil {
+		return connect.NewError(connect.CodeInternal, errors.New("failed to check tenant ownership"))
+	}
+	if len(covered) > 0 {
+		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
+			"%s %q covers a tenant another organisation's enabled pipeline writes to: %s; change or disable it first",
+			describeKind(rule.Kind), rule.Tenant, strings.Join(covered, "; ")))
+	}
 	if makeDefault {
 		if err := q.ClearOrgDefaultTenant(ctx, orgID); err != nil {
 			return connect.NewError(connect.CodeInternal, errors.New("failed to set the default tenant"))
@@ -318,6 +332,15 @@ func (s *AdminService) RemoveOrgTenant(ctx context.Context, req *connect.Request
 			if gateway.RuleCovers(rule, uses[i].Tenant) && !gateway.OrgOwnsTenant(remaining, uses[i].Tenant) {
 				orphaned = append(orphaned, fmt.Sprintf("%s %q (tenant %q)", uses[i].What, uses[i].Name, uses[i].Tenant))
 			}
+		}
+		// In strict tenant mode an enabled pipeline writing to a tenant the
+		// org would no longer own is left behind too.
+		if org.StrictTenants || s.requireOwned {
+			pipes, err := tenancy.OrphanedPipelines(ctx, q, orgID, remaining)
+			if err != nil {
+				return connect.NewError(connect.CodeInternal, errors.New("failed to check what uses the tenant"))
+			}
+			orphaned = append(orphaned, pipes...)
 		}
 		if len(orphaned) > 0 {
 			return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(

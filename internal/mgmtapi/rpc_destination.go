@@ -540,7 +540,7 @@ func (s *DestinationService) rerenderForUpdate(ctx context.Context, txQ *sqlc.Qu
 		detail.RenamedFrom = rename.from
 	}
 	note := fmt.Sprintf("re-rendered: destination %q updated", updated.Name)
-	dirtied, err = applyWizardRerenders(ctx, txQ, owned.OrgID, changes, actorFromCtx(ctx), "user", note, detail)
+	dirtied, err = applyWizardRerenders(ctx, txQ, owned.OrgID, s.pipelines.requireOwned, changes, actorFromCtx(ctx), "user", note, detail)
 	if err != nil {
 		s.logger.Error("update destination: write re-rendered pipelines", "err", err)
 		return nil, false, connect.NewError(connect.CodeInternal, errors.New("failed to update destination"))
