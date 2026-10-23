@@ -581,7 +581,7 @@ Before the role column existed, `authorizeServiceAccountProcedure` (`internal/mg
 
 **Stage 1 — Syntax.** Parse with `github.com/grafana/alloy/syntax/parser`. On error, return structured diagnostics `{line, col, message}` (the parser gives positions). This runs on: pipeline save, wizard output, every git-synced file, and the merged output.
 
-**Nesting limit (every org).** The Alloy parser recurses once per nesting level, and deep enough nesting — `x = [[[[…]]]]` at ~487 000 levels, under 1 MiB — overflows the goroutine stack, a fatal error that kills the process. Every parse in Shepherd therefore goes through `alloysyntax.ParseFile`, which first runs `alloysyntax.CheckNesting`: a linear scan that skips strings (`"…"`, `'…'` with escapes, `` `…` `` raw) and comments (`//`, `/* */`) the way Alloy's scanner does and refuses more than **512** brackets, braces and parentheses open at once, or more than 512 consecutive prefix operators (`!`, `-`), as a Stage 1 diagnostic at the offending token ("nesting deeper than 512 levels"). The deepest configuration in the repository nests 5 levels; a test fails if any file in it is refused or nests 64 or more, and another fails if any package but `alloysyntax` imports the parser.
+**Nesting limit (every org).** The Alloy parser recurses once per nesting level, and deep enough nesting — `x = [[[[…]]]]` at ~487 000 levels, under 1 MiB — overflows the goroutine stack, a fatal error that kills the process. Every parse in Shepherd therefore goes through `alloysyntax.ParseFile`, which first runs `alloysyntax.CheckNesting` over the tokens of **Alloy's own scanner** (`syntax/scanner`, iterative — the tokens the parser will see, so strings, raw strings, escapes and comments are read exactly as it reads them; an earlier hand-written mirror diverged on `'\'`). It refuses, as a Stage 1 diagnostic at the offending token, more than **512** brackets, braces and parentheses open at once or consecutive prefix operators (`!`, `-`) ("nesting deeper than 512 levels"); an expression chaining more than **4096** binary operators or field accesses, counting the chains of the expressions it sits inside (the parser builds a chain as a left-leaning tree as deep as the chain, and every recursive AST walk follows it: a 1 MiB `a+a+…` is 500 000 levels); and text the scanner itself refuses (at its first error). The AST's depth is therefore bounded by 512 + 4096. The deepest configuration in the repository nests 5 levels; a test fails if any file in it is refused or nests 64 or more, a differential fuzz checks the prescan against the scanner's own nesting, and a guard test fails if any package but `alloysyntax` imports an Alloy package that can parse text (anything but `syntax/ast`, `token`, `printer`, `diag`).
 
 **Stage 2 — Semantic (`alloy validate`).** Write the candidate to a temp file and exec the bundled binary: `alloy validate --stability.level=experimental <file>` (stability level from viper `validate.stability_level`, default `experimental` to match the fleet). Timeout 10s. Parse stderr into diagnostics. This catches unknown components, bad attribute types, unset required attributes. Run it on the **declare-wrapped form** of the pipeline (wrap exactly as the merge engine would, §6.2) so what's validated is what ships.
 
@@ -645,7 +645,8 @@ budget per run**, enforced in one place (`budget.charge`): every unit of work ch
 statement and block, each resolution and each cache hit (charged for the values it hands back),
 each `|`-separated tenant piece, each 64 bytes a concatenation builds, each diagnostic, each
 `forward_to` step — 100 000 units in all; once spent, everything after is unreadable, a
-deterministic verdict. A 50 ms wall-clock guard backs it up but is **not** a verdict: a run that
+deterministic verdict. A 50 ms wall-clock guard — started after the parse, which is bounded on its own (the prescan and
+the 1 MiB cap) — backs it up but is **not** a verdict: a run that
 hits it is "busy" (`validate.ErrLintBusy`, `Result.Busy`) — a write answers `unavailable`
 ("validation busy, try again"), and the pipeline tenant index keeps the row it had (stale by its
 sha, so it is read again later) rather than recording "incomplete". Alongside it: text over 1 MiB (the pipeline contents cap) is not parsed at
@@ -871,7 +872,8 @@ enabled pipeline of a strict org is fully readable, or the gate would have refus
 names other contents (a pod that predates the index wrote it), then asks one indexed query; it
 returns, in `Org.warnings`, each other org with enabled pipelines whose tenants the lint could not
 all read, with how many — the check cannot see what those write to, so the app admin is told
-rather than refused. At most 256 tenants are recorded per pipeline. Pipeline contents are capped
+rather than refused, and so is each org with a pipeline still stale after the re-record (its check
+was busy). At most 256 tenants are recorded per pipeline. Pipeline contents are capped
 at 1 MiB on every API write (`mgmtapi.MaxPipelineContentsBytes`, the `gitsync.max_file_bytes`
 default), and every management API request at 4 MiB (`mgmtapi.MaxRequestBytes`,
 `connect.WithReadMaxBytes`).

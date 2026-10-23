@@ -531,6 +531,9 @@ func (s *DestinationService) rerenderForUpdate(ctx context.Context, txQ *sqlc.Qu
 		rename = &destinationRename{from: owned.Name, to: updated.Name}
 	}
 	changes, failures := s.pipelines.planWizardRerenders(ctx, txQ, owned.OrgID, pipelines, before, dests, rename)
+	if failures.anyBusy() {
+		return nil, false, errValidationBusy
+	}
 	if len(failures) > 0 {
 		return nil, false, withPipelinesDetail(connect.NewError(connect.CodeFailedPrecondition,
 			fmt.Errorf("destination %q was not updated: %w", owned.Name, failures)), failures.pipelineRefs())

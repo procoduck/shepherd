@@ -254,7 +254,14 @@ func newTenantLinter(content string, p TenantPolicy, external map[string]map[str
 			len(content), maxContentBytes)})
 		return l
 	}
+	// The parse does not count against the wall-clock guard: it is bounded
+	// on its own (alloysyntax's nesting prescan, maxContentBytes) and linear,
+	// but a 1 MiB expression chain takes tens of milliseconds, which would
+	// make such a pipeline "busy" on every run. The guard is moved on by
+	// however long this parse took (a module's too).
+	parseStart := time.Now()
 	file, err := alloysyntax.ParseFile("<pipeline>", []byte(content))
+	b.deadline = b.deadline.Add(time.Since(parseStart))
 	if err != nil {
 		return nil
 	}

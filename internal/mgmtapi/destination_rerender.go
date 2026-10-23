@@ -60,6 +60,19 @@ type rerenderFailure struct {
 	ids        []string
 	reason     string
 	handEdited bool
+	// busy is a tenant check that hit its wall-clock guard: no verdict,
+	// the whole change is answered "busy, try again" (Unavailable).
+	busy bool
+}
+
+// anyBusy reports whether a failure was a busy tenant check.
+func (f rerenderFailures) anyBusy() bool {
+	for i := range f {
+		if f[i].busy {
+			return true
+		}
+	}
+	return false
 }
 
 // failureFor is a failure of the one pipeline p.
@@ -180,7 +193,9 @@ func (s *PipelineService) renderWizardPipeline(ctx context.Context, p sqlc.Pipel
 		return fail("%v", err)
 	}
 	if r := s.validator.ValidatePipeline(ctx, p.Name, result.Contents, tenants); !r.Valid {
-		return fail("%s", summarizeDiagnostics(r.Diagnostics))
+		f := failureFor(p, summarizeDiagnostics(r.Diagnostics))
+		f.busy = r.Busy
+		return wizardRerender{}, false, f
 	}
 	row := p
 	row.Contents = result.Contents
@@ -473,7 +488,10 @@ func (s *PipelineService) planWizardRerenders(ctx context.Context, q *sqlc.Queri
 	}
 	if len(enabled) > 0 {
 		if err := s.stage3CheckSet(ctx, orgID, enabled, ""); err != nil {
-			failures = append(failures, rerenderFailure{pipelines: enabledNames, ids: enabledIDs, reason: err.Error()})
+			failures = append(failures, rerenderFailure{
+				pipelines: enabledNames, ids: enabledIDs, reason: err.Error(),
+				busy: errors.Is(err, validate.ErrLintBusy),
+			})
 			changes = nil
 		}
 	}

@@ -179,8 +179,9 @@ New API fields, all additive: `Org.strict_tenants` / `Org.tenants_required` / `O
 (`invalid_argument`) — the `gitsync.max_file_bytes` default, far above any real pipeline — and a
 management API request body at 4 MiB (`resource_exhausted`). `config.gitsync.max_file_bytes` may
 no longer be set above 1 MiB: the chart's schema and Shepherd's config loading refuse it, since a
-larger synced file could never be stored. Configuration nested more than 512 levels deep is a
-Stage 1 error everywhere (the Alloy parser would crash on far deeper nesting); no real
+larger synced file could never be stored. Configuration nested more than 512 levels deep, or an
+expression chaining more than 4096 operators or field accesses, is a Stage 1 error everywhere
+(the Alloy parser would crash, or build a tree too deep to walk, on far more); no real
 configuration comes close.
 
 #### Migration 0040

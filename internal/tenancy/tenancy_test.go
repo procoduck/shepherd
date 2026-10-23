@@ -145,6 +145,18 @@ var _ = Describe("CheckRequireOwned", Label("integration"), func() {
 		Expect(warnings).To(ConsistOf(ContainSubstring(`"preflight-org"`)))
 	})
 
+	It("warns about another org's pipeline it could not read in time, rather than leaving it out", func() {
+		pipeline("w", "first", true) // never recorded: stale
+		other, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "preflight-other4", DisplayName: "O", AdminGroupID: "o4-admins"})
+		Expect(err).NotTo(HaveOccurred())
+		restore := validate.SetTenantLintDeadline(0)
+		defer restore()
+		covered, warnings, err := tenancy.OtherOrgPipelinesCovered(ctx, st.Queries, other.ID, gateway.OrgTenant{Tenant: "first", Kind: gateway.TenantExact})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(covered).To(BeEmpty())
+		Expect(warnings).To(ConsistOf(And(ContainSubstring(`"preflight-org"`), ContainSubstring("busy"))))
+	})
+
 	It("keeps a pipeline's previous index row when the tenant check is busy (no verdict)", func() {
 		pipeline("w", "first", true)
 		tenancy.RebuildPipelineTenants(ctx, st)

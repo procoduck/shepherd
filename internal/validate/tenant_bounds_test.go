@@ -265,3 +265,25 @@ func TestTenantLintWallClockIsNotAVerdict(t *testing.T) {
 		t.Fatalf("step exhaustion must stay a refusal, got %v and %d diagnostics", err, len(diags))
 	}
 }
+
+// TestTenantLintClockStartsAfterTheParse: a 1 MiB expression chain takes
+// tens of milliseconds just to parse; the wall-clock guard must not count
+// that, or such a pipeline would be "busy" forever (final review).
+func TestTenantLintClockStartsAfterTheParse(t *testing.T) {
+	for name, src := range map[string]string{
+		"a+a+…": "prometheus.remote_write \"o\" {\n  endpoint {\n    url = \"x\"\n    headers = { \"X-Scope-OrgID\" = " + strings.TrimSuffix(strings.Repeat("a+", 500_000), "+") + " }\n  }\n}\n",
+		"a.b.…": "x = " + strings.TrimSuffix(strings.Repeat("a.", 500_000), ".") + "\n",
+		"a^a^…": "x = " + strings.TrimSuffix(strings.Repeat("a^", 500_000), "^") + "\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			restore := validate.SetTenantLintDeadline(5 * time.Millisecond)
+			defer restore()
+			if _, err := validate.TenantLintChecked(src, strictAcme()); err != nil {
+				t.Fatalf("TenantLintChecked = %v; the parse must not count against the lint clock", err)
+			}
+			if _, _, err := validate.TenantLiterals(src); err != nil {
+				t.Fatalf("TenantLiterals = %v", err)
+			}
+		})
+	}
+}

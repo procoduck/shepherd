@@ -15,6 +15,8 @@ import (
 
 	"github.com/grafana/alloy/syntax/ast"
 	alloyparser "github.com/grafana/alloy/syntax/parser"
+	"github.com/grafana/alloy/syntax/scanner"
+	alloytoken "github.com/grafana/alloy/syntax/token"
 )
 
 // deepList is `x = [[[[…]]]]` nested n deep, the shape that overflows the
@@ -33,6 +35,9 @@ func TestMain(m *testing.M) {
 		debug.SetMaxStack(16 << 20)
 		n, _ := strconv.Atoi(os.Getenv("ALLOYSYNTAX_DEPTH")) //nolint:errcheck // set by the parent
 		src := []byte(deepList(n))
+		if os.Getenv("ALLOYSYNTAX_SHAPE") == "quote" {
+			src = []byte(quoteEscape(n))
+		}
 		var err error
 		if mode == "raw" {
 			_, err = alloyparser.ParseFile("x", src)
@@ -52,8 +57,13 @@ func TestMain(m *testing.M) {
 
 func runChild(t *testing.T, mode string, depth int) (string, error) {
 	t.Helper()
+	return runChildShape(t, mode, "list", depth)
+}
+
+func runChildShape(t *testing.T, mode, shape string, depth int) (string, error) {
+	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=^$")
-	cmd.Env = append(os.Environ(), "ALLOYSYNTAX_CRASH="+mode, "ALLOYSYNTAX_DEPTH="+strconv.Itoa(depth))
+	cmd.Env = append(os.Environ(), "ALLOYSYNTAX_CRASH="+mode, "ALLOYSYNTAX_DEPTH="+strconv.Itoa(depth), "ALLOYSYNTAX_SHAPE="+shape)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
@@ -70,6 +80,29 @@ func TestDeepNestingCrashesTheParserButNotParseFile(t *testing.T) {
 	out, err = runChild(t, "guarded", depth)
 	if err != nil || !strings.HasPrefix(out, "refused: ") {
 		t.Fatalf("ParseFile should refuse the reproducer cleanly; exit %v, output %.300s", err, out)
+	}
+}
+
+// quoteEscape is the final review's reproducer: in a single-quoted string
+// Alloy's scanner does not take \' as an escape (scanEscape stops at the
+// unknown character), so the string closes at that quote and the brackets
+// after it are real — a hand-written prescan that skipped the character
+// after every backslash read them as string text.
+func quoteEscape(n int) string {
+	return "x = f('\\', " + strings.Repeat("[", n)
+}
+
+// TestQuoteEscapeReproducer: the 1 MiB version crashed ParseFile before the
+// prescan was driven by Alloy's own scanner; it is refused now, in a child
+// process so a crash is a failed test, not a dead test binary. The 737-byte
+// version is refused in-process.
+func TestQuoteEscapeReproducer(t *testing.T) {
+	out, err := runChildShape(t, "guarded", "quote", 1_048_556)
+	if err != nil || !strings.HasPrefix(out, "refused: ") {
+		t.Fatalf("ParseFile should refuse the quote-escape reproducer; exit %v, output %.300s", err, out)
+	}
+	if err := CheckNesting([]byte(quoteEscape(726))); err == nil {
+		t.Fatalf("CheckNesting accepted the 737-byte reproducer (726 open brackets)")
 	}
 }
 
@@ -91,7 +124,12 @@ func TestCheckNesting(t *testing.T) {
 		{"brackets in a line comment", "// " + strings.Repeat("[", 10*MaxNesting) + "\nx = 1", true},
 		{"brackets in a block comment", "/* " + strings.Repeat("{", 10*MaxNesting) + " */ x = 1", true},
 		{"many balanced lists", strings.Repeat("x = [[1]]\n", 10*MaxNesting), true},
-		{"a long minus chain", "x = 1" + strings.Repeat(" - 1", 10*MaxNesting), true},
+		{"a minus chain within MaxChain", "x = 1" + strings.Repeat(" - 1", MaxChain), true},
+		{"a minus chain past MaxChain", "x = 1" + strings.Repeat(" - 1", MaxChain+1), false},
+		{"an access chain past MaxChain", "x = a" + strings.Repeat(".b", MaxChain+1), false},
+		{"chains inside chains add up", "x = " + strings.Repeat("a + (", 100) + strings.Repeat("b + ", MaxChain-50) + "c" + strings.Repeat(")", 100), false},
+		{"many short chains", strings.Repeat("x = a.b.c + d\n", 10*MaxChain), true},
+		{"a long list of short items", "x = [" + strings.Repeat("a.b, ", 10*MaxChain) + "]", true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if err := CheckNesting([]byte(c.src)); (err == nil) != c.ok {
@@ -235,6 +273,18 @@ func repoRoot(t *testing.T) string {
 	}
 }
 
+// allowedAlloyImports are the Alloy packages that cannot parse text (the
+// AST, positions, the printer, diagnostics). Everything else under
+// github.com/grafana/alloy — syntax/parser, syntax/scanner, the root syntax
+// package's Unmarshal/Decode, syntax/vm, and the Alloy module itself — may
+// parse, and only internal/alloysyntax may import it.
+var allowedAlloyImports = map[string]bool{
+	"github.com/grafana/alloy/syntax/ast":     true,
+	"github.com/grafana/alloy/syntax/token":   true,
+	"github.com/grafana/alloy/syntax/printer": true,
+	"github.com/grafana/alloy/syntax/diag":    true,
+}
+
 // TestNoDirectParserImports is the guard: outside this package (and tests),
 // nothing imports github.com/grafana/alloy/syntax/parser, so no parse can
 // skip CheckNesting.
@@ -254,13 +304,23 @@ func TestNoDirectParserImports(t *testing.T) {
 		if filepath.Dir(path) == filepath.Join(root, "internal", "alloysyntax") {
 			return nil
 		}
-		f, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
+		f, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly|parser.ParseComments)
 		if err != nil {
 			return err
 		}
+		// A //go:build ignore file is never compiled into Shepherd (the
+		// schema extractor, run inside an Alloy checkout).
+		for _, c := range f.Comments {
+			for _, l := range c.List {
+				if l.Pos() < f.Package && strings.HasPrefix(l.Text, "//go:build ignore") {
+					return nil
+				}
+			}
+		}
 		for _, imp := range f.Imports {
-			if imp.Path.Value == `"github.com/grafana/alloy/syntax/parser"` {
-				t.Errorf("%s imports the Alloy parser directly; use alloysyntax.ParseFile", path)
+			p := strings.Trim(imp.Path.Value, `"`)
+			if strings.HasPrefix(p, "github.com/grafana/alloy") && !allowedAlloyImports[p] {
+				t.Errorf("%s imports %s, which can parse Alloy text; parse through alloysyntax.ParseFile", path, p)
 			}
 		}
 		return nil
@@ -268,4 +328,55 @@ func TestNoDirectParserImports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+// scannerDepth is the nesting the Alloy scanner's tokens open, computed here
+// independently of CheckNesting: the deepest run of LBRACK/LBRACE/LPAREN
+// over their closers, or of consecutive NOT/SUB.
+func scannerDepth(src []byte) int {
+	f := alloytoken.NewFile("x")
+	sc := scanner.New(f, src, nil, 0)
+	depth, run, deepest := 0, 0, 0
+	for {
+		_, tok, _ := sc.Scan()
+		switch tok {
+		case alloytoken.EOF:
+			return deepest
+		case alloytoken.LBRACK, alloytoken.LCURLY, alloytoken.LPAREN:
+			depth++
+			run = 0
+		case alloytoken.RBRACK, alloytoken.RCURLY, alloytoken.RPAREN:
+			if depth > 0 {
+				depth--
+			}
+			run = 0
+		case alloytoken.NOT, alloytoken.SUB:
+			run++
+		case alloytoken.ILLEGAL, alloytoken.LITERAL, alloytoken.COMMENT, alloytoken.IDENT, alloytoken.NUMBER,
+			alloytoken.FLOAT, alloytoken.STRING, alloytoken.BOOL, alloytoken.NULL, alloytoken.OR, alloytoken.AND,
+			alloytoken.ASSIGN, alloytoken.EQ, alloytoken.NEQ, alloytoken.LT, alloytoken.LTE, alloytoken.GT,
+			alloytoken.GTE, alloytoken.ADD, alloytoken.MUL, alloytoken.DIV, alloytoken.MOD, alloytoken.POW,
+			alloytoken.COMMA, alloytoken.DOT, alloytoken.TERMINATOR:
+			run = 0
+		default:
+			run = 0
+		}
+		deepest = max(deepest, depth, run)
+	}
+}
+
+// FuzzCheckNestingDifferential: CheckNesting never accepts text whose
+// scanner-token nesting exceeds MaxNesting.
+func FuzzCheckNestingDifferential(f *testing.F) {
+	for _, s := range []string{quoteEscape(600), deepList(600), "x = `" + strings.Repeat("[", 600) + "`", "x = '\\'" + strings.Repeat("(", 600), "// [\n" + strings.Repeat("{", 600)} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, src string) {
+		if len(src) > 1<<20 {
+			return
+		}
+		if CheckNesting([]byte(src)) == nil && scannerDepth([]byte(src)) > MaxNesting {
+			t.Fatalf("CheckNesting accepted text the scanner nests %d deep", scannerDepth([]byte(src)))
+		}
+	})
 }

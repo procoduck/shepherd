@@ -317,6 +317,22 @@ var _ = Describe("Strict tenant mode", Label("integration"), func() {
 		// The render-time re-check: removing a tenant is guarded while a
 		// destination uses it, so this takes it away directly to prove the
 		// render refuses on its own.
+		It("answers a destination update whose re-render's tenant check ran out of time as busy (retryable)", func() {
+			dest := ok(createDest(adminA, orgA, "mimir", "acme"))
+			ok(call(adminA, "WizardService/CommitWizard", map[string]any{
+				"orgId": orgA.String(), "kind": "self-monitoring", "name": "self",
+				"state": map[string]any{"metrics_dest_name": "mimir", "logs_enabled": false, "role": "singleton"},
+			}))
+			restore := validate.SetTenantLintDeadline(0)
+			defer restore()
+			code, out := call(adminA, "DestinationService/UpdateDestination", map[string]any{
+				"orgId": orgA.String(), "id": dest["id"], "name": "mimir", "type": "prometheus",
+				"url": "https://mimir2.example.com/api/v1/push", "authMode": "none", "tenantId": "acme",
+			})
+			Expect(code).To(Equal(http.StatusServiceUnavailable), "%v", out)
+			Expect(out["code"]).To(Equal("unavailable"))
+		})
+
 		It("refuses rendering, committing and re-rendering a wizard destination whose tenant the org no longer owns", func() {
 			ok(createDest(adminA, orgA, "mimir", "acme-eu"))
 			commit := func() (int, map[string]any) {

@@ -333,6 +333,31 @@ func OtherOrgPipelinesCovered(ctx context.Context, q *sqlc.Queries, orgID pgtype
 			return nil, nil, err
 		}
 	}
+	// A pipeline still stale after that could not be read in time (the
+	// lint's wall-clock guard): the check does not see it, so it is a
+	// warning like an incomplete one, never silently left out.
+	stillStale, err := q.ListStalePipelineTenantIndexOfOtherOrgs(ctx, orgID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("listing stale pipeline tenants: %w", err)
+	}
+	if len(stillStale) > 0 {
+		perOrg := map[pgtype.UUID]int{}
+		var order []pgtype.UUID
+		for i := range stillStale {
+			if perOrg[stillStale[i].OrgID] == 0 {
+				order = append(order, stillStale[i].OrgID)
+			}
+			perOrg[stillStale[i].OrgID]++
+		}
+		for _, id := range order {
+			name := id.String()
+			if o, err := q.GetOrgByID(ctx, id); err == nil {
+				name = o.Name
+			}
+			warnings = append(warnings, fmt.Sprintf("org %q has %d enabled pipeline(s) the check could not read in "+
+				"time (busy); it cannot tell whether they write to %q — try again", name, perOrg[id], rule.Tenant))
+		}
+	}
 	incomplete, err := q.ListIncompletePipelineTenantOrgs(ctx, orgID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("listing incomplete pipeline tenants: %w", err)
