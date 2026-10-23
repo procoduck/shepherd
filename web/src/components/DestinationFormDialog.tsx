@@ -3,6 +3,13 @@ import { type ReactNode, useState } from 'react';
 import { Field, Input, Select } from '@/components/ui/Field';
 import { Modal, ModalActions } from '@/components/ui/Modal';
 import {
+  exactTenants,
+  type OrgTenantLike,
+  ownsTenant,
+  tenantLabel,
+  tenantPrefixes,
+} from '@/lib/orgTenants';
+import {
   DestinationTLSFields,
   EMPTY_TLS,
   type TLSFormState,
@@ -142,6 +149,20 @@ export function validateTenant(tenant: string): string {
 }
 
 /**
+ * Strict tenant mode's rule for a destination's tenant (internal/tenancy):
+ * empty, or one the organisation owns — an exact tenant or one under a prefix.
+ * The server checks again and stays authoritative. '' when allowed.
+ */
+export function validateStrictTenant(tenant: string, owned: readonly OrgTenantLike[]): string {
+  const base = validateTenant(tenant);
+  if (base !== '' || tenant === '' || ownsTenant(owned, tenant)) return base;
+  if (owned.length === 0) {
+    return 'This organisation is in strict tenant mode and owns no tenant: leave it empty';
+  }
+  return `Strict tenant mode: use one of this organisation's tenants (${owned.map(tenantLabel).join(', ')})`;
+}
+
+/**
  * The extra to send: the stored one with oauth2_scopes replaced by the form's
  * scopes for an oauth2_secret destination, and removed otherwise, so a
  * destination switched away from OAuth2 does not keep stale scopes.
@@ -186,6 +207,7 @@ export function DestinationFormDialog({
   onEdit,
   onCancel,
   onSubmit,
+  strictTenants,
 }: {
   title: string;
   initial: DestinationFormState;
@@ -199,7 +221,12 @@ export function DestinationFormDialog({
   onEdit?: () => void;
   onCancel: () => void;
   onSubmit: (form: DestinationFormState) => void;
+  /** The organisation's tenants when it is in strict tenant mode (its own
+   *  flag or the server-wide setting): the tenant must then be one of them. */
+  strictTenants?: readonly OrgTenantLike[];
 }) {
+  const checkTenant = (t: string) =>
+    strictTenants ? validateStrictTenant(t, strictTenants) : validateTenant(t);
   const [form, setFormState] = useState(initial);
   const setForm: typeof setFormState = (next) => {
     if (error) onEdit?.();
@@ -216,7 +243,7 @@ export function DestinationFormDialog({
       err = 'TLS options need an https:// URL';
     }
     setUrlError(err);
-    const tErr = validateTenant(form.tenantId.trim());
+    const tErr = checkTenant(form.tenantId.trim());
     setTenantError(tErr);
     if (!err && !tErr) {
       onSubmit(form);
@@ -280,11 +307,29 @@ export function DestinationFormDialog({
               setForm((f) => ({ ...f, tenantId: e.target.value }));
               setTenantError('');
             }}
-            onBlur={() => setTenantError(validateTenant(form.tenantId.trim()))}
+            onBlur={() => setTenantError(checkTenant(form.tenantId.trim()))}
             mono
-            placeholder='acme'
+            placeholder={strictTenants ? (exactTenants(strictTenants)[0] ?? '') : 'acme'}
+            list={strictTenants ? 'destination-owned-tenants' : undefined}
+            data-testid='destination-tenant'
           />
+          {strictTenants && (
+            <datalist id='destination-owned-tenants'>
+              {exactTenants(strictTenants).map((t) => (
+                <option key={t} value={t} />
+              ))}
+            </datalist>
+          )}
         </Field>
+        {strictTenants && (
+          <p className='-mt-2 text-2xs text-warn' data-testid='destination-strict-tenants'>
+            Strict tenant mode: only this organisation&rsquo;s tenants
+            {strictTenants.length > 0
+              ? ` — ${[...exactTenants(strictTenants), ...tenantPrefixes(strictTenants).map((p) => `${p}…`)].join(', ')}`
+              : ' (it owns none, so leave this empty)'}
+            .
+          </p>
+        )}
         <p className='-mt-2 text-2xs text-muted-3'>
           For a multi-tenant Mimir or Loki: wizard pipelines send it as{' '}
           <code className='font-mono'>X-Scope-OrgID</code>. A new destination starts with your

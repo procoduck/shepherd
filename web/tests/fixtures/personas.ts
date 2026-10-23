@@ -21,6 +21,8 @@ export interface MeResponse {
     allowExperimentalComponents?: boolean;
     // #261: the org's own tenants; the mock GetMe fills them from the seeded org.
     tenants?: { tenant: string; kind: OrgTenantKind; isDefault?: boolean }[];
+    // Strict tenant mode: the org's destinations may only use its tenants.
+    tenantsRequired?: boolean;
   }>;
 }
 

@@ -375,7 +375,7 @@ export function PipelineEditorPage() {
             <PipelineEditorToolbar
               showStatus={canEdit}
               validating={validating}
-              problems={diagnostics.length}
+              problems={diagnostics.filter((d) => !d.warning).length}
               alloyValidateSkipped={skippedStages.includes(2)}
               wrapLines={wrapLines}
               onWrapLines={setWrapLines}
@@ -414,8 +414,13 @@ export function PipelineEditorPage() {
             {hasErrors && (
               <div className='max-h-40 overflow-y-auto border-t border-border bg-background p-2 space-y-1'>
                 {diagnostics.map((d, i) => (
-                  <p key={i} className='font-mono text-xs text-red-400'>
-                    {d.line}:{d.col} &nbsp; {d.message}
+                  <p
+                    key={i}
+                    className={`font-mono text-xs ${d.warning ? 'text-warn' : 'text-red-400'}`}
+                    data-testid={d.warning ? 'editor-warning' : 'editor-problem'}
+                  >
+                    {d.line}:{d.col} &nbsp; {d.warning ? 'warning: ' : ''}
+                    {d.message}
                   </p>
                 ))}
               </div>

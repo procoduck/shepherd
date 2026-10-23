@@ -114,3 +114,17 @@ describe('AlloyEditor diagnostics', () => {
     expect(errors).toEqual([]);
   });
 });
+
+// Strict tenant mode's "cannot be verified" note is a warning: drawn as one,
+// never as an error.
+describe('toCmDiagnostics severity', () => {
+  it('maps Diagnostic.warning to a CodeMirror warning', () => {
+    const { container } = render(<AlloyEditor value={longDoc} onChange={noop} diagnostics={[]} />);
+    const doc = viewOf(container).state.doc;
+    const warning = { ...diag(1, 1, 'non-literal tenant'), warning: true } as Diagnostic;
+    expect(toCmDiagnostics(doc, [diag(1, 1), warning]).map((d) => d.severity)).toEqual([
+      'error',
+      'warning',
+    ]);
+  });
+});
