@@ -44,6 +44,12 @@ type AdminService struct {
 	// on the old verdict (and binding) at once, even while the database is
 	// down (#374). Nil = nothing to evict.
 	tokenChanged func(tokenID string)
+
+	// identityChanged runs after CreateAgentIdentity or DeleteAgentIdentity
+	// commits: internal/server passes agentapi.Service.ForgetAgentIdentity,
+	// so this replica stops answering that OIDC caller from the outage
+	// cache under the old binding (#385). Nil = nothing to forget.
+	identityChanged func(issuer, appID string)
 }
 
 // AdminServiceOption configures optional AdminService dependencies. The
@@ -62,6 +68,12 @@ func WithOIDCHandler(h *auth.Handler) AdminServiceOption {
 // BindAgentToken call after their change commits.
 func WithTokenChangedHook(f func(tokenID string)) AdminServiceOption {
 	return func(s *AdminService) { s.tokenChanged = f }
+}
+
+// WithIdentityChangedHook supplies the hook CreateAgentIdentity and
+// DeleteAgentIdentity call after their change commits.
+func WithIdentityChangedHook(f func(issuer, appID string)) AdminServiceOption {
+	return func(s *AdminService) { s.identityChanged = f }
 }
 
 // NewAdminService constructs an AdminService.
@@ -747,6 +759,9 @@ func (s *AdminService) CreateAgentIdentity(ctx context.Context, req *connect.Req
 	if err != nil {
 		return nil, mapError(err)
 	}
+	if s.identityChanged != nil {
+		s.identityChanged(created.Issuer, created.AppID)
+	}
 	auditLog(ctx, s.store, actorFromCtx(ctx), org.ID, "agent_identity.create", "agent_identity", issuer+"|"+appID)
 	return connect.NewResponse(&mgmtv1.AgentIdentity{
 		Issuer:    created.Issuer,
@@ -773,6 +788,9 @@ func (s *AdminService) DeleteAgentIdentity(ctx context.Context, req *connect.Req
 	}
 	if n == 0 {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("no such binding"))
+	}
+	if s.identityChanged != nil {
+		s.identityChanged(issuer, appID)
 	}
 	auditLog(ctx, s.store, actorFromCtx(ctx), pgtype.UUID{}, "agent_identity.delete", "agent_identity", issuer+"|"+appID)
 	return connect.NewResponse(&mgmtv1.DeleteAgentIdentityResponse{}), nil

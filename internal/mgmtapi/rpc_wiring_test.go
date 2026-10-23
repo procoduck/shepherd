@@ -26,7 +26,7 @@ import (
 // handlers, the /shepherd.mgmt.v1.* 404 guard, and a stand-in "SPA" fallback
 // mounted last — the exact ordering that lets us prove an unknown
 // shepherd.mgmt.v1 path is guarded instead of falling through to the SPA.
-func newRPCWiringRouter(st *store.Store, authHandler *auth.Handler, cfg *config.Config) http.Handler {
+func newRPCWiringRouter(st *store.Store, authHandler *auth.Handler, cfg *config.Config, opts ...mgmtapi.MountOption) http.Handler {
 	r := chi.NewRouter()
 
 	apiGuard := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -38,7 +38,7 @@ func newRPCWiringRouter(st *store.Store, authHandler *auth.Handler, cfg *config.
 	r.Group(func(r chi.Router) {
 		r.Use(authHandler.SessionMiddleware)
 		r.Use(auth.CSRFMiddleware)
-		mgmtapi.MountRPC(r, st, cfg, nil, embeddedSchema(), slog.Default())
+		mgmtapi.MountRPC(r, st, cfg, nil, embeddedSchema(), slog.Default(), opts...)
 	})
 
 	r.Handle("/shepherd.mgmt.v1.*", apiGuard)

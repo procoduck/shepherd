@@ -387,7 +387,8 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 		// group so they get session population + CSRF enforcement; each
 		// handler additionally requires its own authz interceptor role.
 		mgmtapi.MountRPC(r, st, cfg, enc, schemaReg, logger, mgmtapi.WithOIDCSettings(authHandler),
-			mgmtapi.WithRouteApplyRunning(routeApplyRunning), mgmtapi.WithAgentTokenChanged(tokenVerdicts.Evict))
+			mgmtapi.WithRouteApplyRunning(routeApplyRunning), mgmtapi.WithAgentTokenChanged(tokenVerdicts.Evict),
+			mgmtapi.WithAgentIdentityChanged(svc.ForgetAgentIdentity))
 	})
 
 	// Guard: reserved prefixes that didn't match any real route return 404 JSON, never the SPA.

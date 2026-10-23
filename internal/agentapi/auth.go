@@ -180,7 +180,7 @@ func verifyBasicAuth(ctx context.Context, authHeader string, st *store.Store, ve
 	cacheKey := tokenID.String()
 	hash := sha256.Sum256([]byte(secret))
 
-	dbCtx, cancel := serverCtx(ctx)
+	dbCtx, cancel := serverCtx(ctx, dbWorkFloor)
 	defer cancel()
 	token, err := st.Queries.GetAgentTokenByID(dbCtx, tokenID)
 	if gone := callerGone(ctx); err != nil && gone != nil {

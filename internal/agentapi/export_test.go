@@ -72,3 +72,11 @@ func LastServedLen(s *Service) int { n, _ := s.lastServed.stats(); return n }
 func ContextWithTokenPrincipal(ctx context.Context, tokenID string, b Binding) context.Context {
 	return context.WithValue(ctx, principalKey, Principal{Kind: AuthKindToken, TokenID: tokenID, Binding: b})
 }
+
+// SetDBWorkFloor replaces dbWorkFloor and returns a func restoring it.
+// Services built after the call use it. Test-only.
+func SetDBWorkFloor(d time.Duration) (restore func()) {
+	prev := dbWorkFloor
+	dbWorkFloor = d
+	return func() { dbWorkFloor = prev }
+}

@@ -331,6 +331,12 @@ Both matter only while the database is unreachable.
   on their replica. A poll whose database lookup finished just before the change committed can
   still re-cache the old verdict and binding afterwards. That stale verdict is used only during an outage and expires after
   `agent.outage_cache_ttl`.
+- **Identities: same bound, other replicas.** An OIDC caller's last-served key names its
+  `agent_identities` binding as this replica last read it. `CreateAgentIdentity` /
+  `DeleteAgentIdentity` forget it on the serving replica. Another replica, or a change made with
+  `shepherd agent-identity`, can still answer under the old binding for at most
+  `agent.outage_cache_ttl`, and only during an outage. A concurrent poll can also re-remember the
+  old binding just after a forget, as with tokens.
 - **Cache churn.** One valid token can cycle cluster/role names and churn the 10 000-entry
   last-served map, evicting other collectors' entries. Those collectors then get `Unavailable`
   during an outage, which they already ride out. Unclaimed (empty) configs are cached too.

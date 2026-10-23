@@ -59,19 +59,29 @@ const (
 	lastServedMaxBytes   = 64 << 20
 )
 
-// dbWorkTimeout bounds one request's database work. The work runs on a
+// dbWorkFloor bounds one request's server-side work. The work runs on a
 // context detached from the caller's (serverCtx), so a deadline that expires
 // is the server's own — a database too slow to answer, an outage — and never
-// one the caller chose with Connect-Timeout-Ms or grpc-timeout.
-const dbWorkTimeout = 15 * time.Second
+// one the caller chose with Connect-Timeout-Ms or grpc-timeout. It is also
+// how long a disconnected caller's request can keep holding a pool
+// connection.
+//
+// It does not cap validation: the lazy recompute on this path runs only
+// serve.ComputeServed's in-process Stage 1 — never `alloy validate` (Stage 2)
+// or the Stage 3 dry-run, which run on the management API's write path under
+// validate.timeout / validate.stage3_timeout. The spec "never runs alloy on
+// the poll path" guards that: if a future change adds an alloy run here,
+// this bound must grow with the validation budget. A var only so a spec can
+// shrink it (export_test.go).
+var dbWorkFloor = 15 * time.Second
 
 // serverCtx detaches ctx from the caller's cancellation and deadline (keeping
-// its values, e.g. the principal) and applies dbWorkTimeout. Without this, a
+// its values, e.g. the principal) and applies timeout. Without this, a
 // caller could pick a timeout that expires mid-request, have the failure
 // classified as an outage, and be answered from the outage caches with the
 // rest of the request — the org check — skipped (review of #385).
-func serverCtx(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.WithoutCancel(ctx), dbWorkTimeout)
+func serverCtx(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), timeout)
 }
 
 // callerGone returns the Connect error for a caller whose own context is
@@ -301,18 +311,34 @@ func newLastServed(ttl time.Duration, maxItems, maxBytes int) *lastServed {
 // scopes — so a token whose claims changed never matches an entry recorded
 // under the old ones. The parts are JSON-encoded, so no two distinct
 // identities or collectors share a key.
-func servedKey(p Principal, cluster, role string) string {
+//
+// An OIDC caller's org also depends on a server-side agent_identities
+// binding the claims do not carry, so its key includes ident — that binding
+// (or its absence) as this replica last read it from the database. With
+// ident nil (never read, expired, or forgotten after an AdminService change)
+// there is no key: nothing is remembered or served from memory for it.
+func servedKey(p Principal, cluster, role string, ident *identityEntry) string {
 	var who any
 	switch p.Kind {
 	case AuthKindOIDC:
-		if p.Claims == nil {
+		if p.Claims == nil || ident == nil {
 			return ""
 		}
 		c := p.Claims
+		identOrg := ""
+		if ident.bound && ident.binding.OrgID.Valid {
+			identOrg = ident.binding.OrgID.String()
+		}
 		who = struct {
 			Kind, Issuer, Subject, AppID, Org string
 			Clusters, Roles, Scopes           []string
-		}{"oidc", c.Issuer, c.Subject, c.AppID, c.Org, sortedCopy(c.Clusters), sortedCopy(c.Roles), sortedCopy(c.Scopes)}
+			Bound                             bool
+			BindingOrg                        string
+			BindingClusters, BindingRoles     []string
+		}{
+			"oidc", c.Issuer, c.Subject, c.AppID, c.Org, sortedCopy(c.Clusters), sortedCopy(c.Roles), sortedCopy(c.Scopes),
+			ident.bound, identOrg, sortedCopy(allowlist(ident.binding.Clusters)), sortedCopy(allowlist(ident.binding.Roles)),
+		}
 	case AuthKindToken:
 		if p.TokenID == "" {
 			return ""
@@ -337,6 +363,102 @@ func servedKey(p Principal, cluster, role string) string {
 		return ""
 	}
 	return string(b)
+}
+
+// identityEntry is an OIDC caller's agent_identities binding as last read
+// from the database: bound=false records "no binding" (a real answer, not a
+// miss).
+type identityEntry struct {
+	bound   bool
+	binding Binding
+	readAt  time.Time
+}
+
+// identityCache remembers, per (issuer, app id), the agent_identities binding
+// the last database-backed request read, for the outage cache TTL, so the
+// OIDC last-served key (servedKey) can name the binding during an outage.
+// AdminService's create/delete of an identity forgets it on this replica
+// (Service.ForgetAgentIdentity); another replica keeps the old binding for at
+// most the TTL, and only uses it while the database is unreachable. Nil is
+// disabled.
+type identityCache struct {
+	mu      sync.Mutex
+	ttl     time.Duration
+	max     int
+	entries map[string]identityEntry
+	now     func() time.Time
+}
+
+func newIdentityCache(ttl time.Duration, maxEntries int) *identityCache {
+	if ttl <= 0 || maxEntries <= 0 {
+		return nil
+	}
+	return &identityCache{ttl: ttl, max: maxEntries, entries: make(map[string]identityEntry), now: time.Now}
+}
+
+func identityKey(issuer, appID string) string { return issuer + "\x00" + appID }
+
+// observe records what the database returned for (issuer, appID): b, or no
+// binding when b is nil.
+func (c *identityCache) observe(issuer, appID string, b *Binding) {
+	if c == nil {
+		return
+	}
+	e := identityEntry{}
+	if b != nil {
+		e.bound = true
+		e.binding = Binding{OrgID: b.OrgID, Clusters: slices.Clone(b.Clusters), Roles: slices.Clone(b.Roles), MayClaim: b.MayClaim}
+	}
+	k := identityKey(issuer, appID)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := c.now()
+	e.readAt = now
+	if _, ok := c.entries[k]; !ok && len(c.entries) >= c.max {
+		var oldestK string
+		var oldest time.Time
+		for key, v := range c.entries {
+			if now.Sub(v.readAt) >= c.ttl {
+				delete(c.entries, key)
+				continue
+			}
+			if oldestK == "" || v.readAt.Before(oldest) {
+				oldestK, oldest = key, v.readAt
+			}
+		}
+		if len(c.entries) >= c.max && oldestK != "" {
+			delete(c.entries, oldestK)
+		}
+	}
+	c.entries[k] = e
+}
+
+// lookup returns the unexpired entry for (issuer, appID), or nil.
+func (c *identityCache) lookup(issuer, appID string) *identityEntry {
+	if c == nil {
+		return nil
+	}
+	k := identityKey(issuer, appID)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.entries[k]
+	if !ok {
+		return nil
+	}
+	if c.now().Sub(e.readAt) >= c.ttl {
+		delete(c.entries, k)
+		return nil
+	}
+	return &e
+}
+
+func (c *identityCache) forget(issuer, appID string) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	delete(c.entries, identityKey(issuer, appID))
+	c.mu.Unlock()
 }
 
 func sortedCopy(in []string) []string {

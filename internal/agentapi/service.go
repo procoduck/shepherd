@@ -63,6 +63,9 @@ type Service struct {
 	refusals *refusalLog
 	// lastServed is the outage fallback (WithOutageCache); nil = disabled.
 	lastServed *lastServed
+	// identities remembers OIDC callers' agent_identities bindings for the
+	// last-served key (WithOutageCache); nil = disabled.
+	identities *identityCache
 }
 
 // ServiceOption configures optional Service behavior not required by every
@@ -90,7 +93,18 @@ func WithBeaconBaseline(b beacon.BaselineConfig) ServiceOption {
 func WithOutageCache(ttl time.Duration) ServiceOption {
 	return func(s *Service) {
 		s.lastServed = newLastServed(ttl, lastServedMaxEntries, lastServedMaxBytes)
+		s.identities = newIdentityCache(ttl, DefaultTokenVerdictMax)
 	}
+}
+
+// servedKey is the last-served key for this request's principal, naming the
+// OIDC caller's agent_identities binding as this replica last read it.
+func (s *Service) servedKey(p Principal, cluster, role string) string {
+	var ident *identityEntry
+	if p.Kind == AuthKindOIDC && p.Claims != nil {
+		ident = s.identities.lookup(p.Claims.Issuer, p.Claims.AppID)
+	}
+	return servedKey(p, cluster, role, ident)
 }
 
 // New creates a new agent API Service. reg is the component schema registry
@@ -109,6 +123,17 @@ func New(st *store.Store, v *validate.Validator, logger *slog.Logger, reg *schem
 	return s
 }
 
+// ForgetAgentIdentity drops what this replica remembers about the
+// agent_identities binding for (issuer, appID) — AdminService calls it
+// (internal/server wires it) after creating or deleting one.
+//
+// Dropping the remembered binding makes every last-served entry recorded
+// under it unreachable (servedKey has no key without it), so a deleted or
+// moved identity is never answered from memory on this replica.
+func (s *Service) ForgetAgentIdentity(issuer, appID string) {
+	s.identities.forget(issuer, appID)
+}
+
 // RegisterCollector handles collector registration.
 func (s *Service) RegisterCollector(
 	ctx context.Context,
@@ -124,10 +149,11 @@ func (s *Service) RegisterCollector(
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	key := servedKey(PrincipalFrom(ctx), cluster, role)
-	dbCtx, cancel := serverCtx(ctx)
+	dbCtx, cancel := serverCtx(ctx, dbWorkFloor)
 	defer cancel()
 	if err := s.register(dbCtx, req.Msg, attrs, cluster, role); err != nil {
+		// After the call: an OIDC key names the binding the call just read.
+		key := s.servedKey(PrincipalFrom(ctx), cluster, role)
 		if gone := callerGone(ctx); gone != nil {
 			return nil, gone
 		}
@@ -198,10 +224,11 @@ func (s *Service) GetConfig(
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	key := servedKey(PrincipalFrom(ctx), cluster, role)
-	dbCtx, cancel := serverCtx(ctx)
+	dbCtx, cancel := serverCtx(ctx, dbWorkFloor)
 	defer cancel()
 	served, err := s.resolveServed(dbCtx, req.Msg, attrs, cluster, role)
+	// After the call: an OIDC key names the binding the call just read.
+	key := s.servedKey(PrincipalFrom(ctx), cluster, role)
 	if gone := callerGone(ctx); err != nil && gone != nil {
 		return nil, gone
 	}
@@ -456,7 +483,7 @@ func (s *Service) UnregisterCollector(
 		return nil, err
 	}
 	ok := connect.NewResponse(&collectorv1.UnregisterCollectorResponse{})
-	ctx, cancel := serverCtx(ctx)
+	ctx, cancel := serverCtx(ctx, dbWorkFloor)
 	defer cancel()
 	scope, err := s.callerScope(ctx)
 	var r *refusal
@@ -766,9 +793,11 @@ func (s *Service) resolveOrg(ctx context.Context, cluster, role string, coll sql
 		})
 		switch {
 		case err == nil:
-			return s.resolveBoundOrg(ctx, cluster, role, coll,
-				Binding{OrgID: binding.OrgID, Clusters: binding.Clusters, Roles: binding.Roles, MayClaim: true}, "collector identity")
+			b := Binding{OrgID: binding.OrgID, Clusters: binding.Clusters, Roles: binding.Roles, MayClaim: true}
+			s.identities.observe(p.Claims.Issuer, p.Claims.AppID, &b)
+			return s.resolveBoundOrg(ctx, cluster, role, coll, b, "collector identity")
 		case errors.Is(err, pgx.ErrNoRows):
+			s.identities.observe(p.Claims.Issuer, p.Claims.AppID, nil)
 			// No binding. If mode 2 is on and the token asserts an org (D1
 			// tier 2), trust it; otherwise OIDC proved liveness only and we
 			// fall through to the admin cluster-claim model below.

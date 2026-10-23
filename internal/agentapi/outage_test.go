@@ -12,6 +12,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -33,6 +35,7 @@ import (
 	"shepherd/internal/config"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
+	"shepherd/internal/validate"
 )
 
 // cuttableDB is a store whose database can be made unreachable mid-spec, the
@@ -110,6 +113,7 @@ var _ = Describe("Riding out a database outage (#374)", Label("integration"), fu
 		tokenID   string
 		goodBasic string
 		seededOrg pgtype.UUID
+		cst       *store.Store // the cuttable store the services use
 	)
 
 	clientWith := func(authz string) collectorv1connect.CollectorServiceClient {
@@ -178,7 +182,6 @@ var _ = Describe("Riding out a database outage (#374)", Label("integration"), fu
 		var err error
 		st, err = store.New(ctx, &config.DatabaseConfig{URL: url, MaxConns: 4})
 		Expect(err).NotTo(HaveOccurred())
-		var cst *store.Store
 		cst, db = newCuttableDB(ctx, url)
 		org, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "outage-org", DisplayName: "Outage", AdminGroupID: "g"})
 		Expect(err).NotTo(HaveOccurred())
@@ -439,6 +442,116 @@ var _ = Describe("Riding out a database outage (#374)", Label("integration"), fu
 		Expect(err).To(HaveOccurred())
 		Expect(connect.CodeOf(err)).NotTo(Equal(connect.CodeUnavailable))
 		Expect(agentapi.LastServedLen(svc)).To(BeZero())
+	})
+
+	// OIDC callers resolve through a server-side agent_identities binding the
+	// claims do not carry (#385 re-review): the remembered config is keyed on
+	// the binding as this replica last read it, and AdminService's create /
+	// delete of an identity drops that on the serving replica.
+	Describe("with OIDC agent identities", func() {
+		const issuer, appID = "https://idp/", "collector-app"
+		claims := auth.AgentClaims{Issuer: issuer, Subject: "sub-1", AppID: appID}
+		oidcPoll := func() (*connect.Response[collectorv1.GetConfigResponse], error) {
+			return svc.GetConfig(agentapi.ContextWithOIDCPrincipal(ctx, claims),
+				connect.NewRequest(&collectorv1.GetConfigRequest{Id: "oidc-i", LocalAttributes: attrs}))
+		}
+		bindIdentity := func(org pgtype.UUID, clusters string) {
+			_, err := st.Queries.CreateAgentIdentity(ctx, sqlc.CreateAgentIdentityParams{
+				Issuer: issuer, AppID: appID, OrgID: org,
+				Clusters: json.RawMessage(clusters), Roles: json.RawMessage(`[]`), CreatedBy: "test",
+			})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		unbindIdentity := func() {
+			n, err := st.Queries.DeleteAgentIdentity(ctx, sqlc.DeleteAgentIdentityParams{Issuer: issuer, AppID: appID})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(n).To(BeEquivalentTo(1))
+		}
+		// served claims outage-cluster for seededOrg through the identity and
+		// gives it seededOrg's pipeline.
+		served := func() *collectorv1.GetConfigResponse {
+			bindIdentity(seededOrg, `[]`)
+			_, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+				OrgID: seededOrg, Name: "oidc-pipeline", Contents: "// oidc-pipeline",
+				Matchers: json.RawMessage(`["cluster=\"outage-cluster\""]`), Enabled: true, Source: "ui",
+				WizardState: json.RawMessage(`{}`), CreatedBy: "test", UpdatedBy: "test",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			resp, err := oidcPoll()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Msg.Content).To(ContainSubstring("oidc-pipeline"))
+			return resp.Msg
+		}
+
+		It("keeps answering an OIDC caller whose binding is unchanged", func() {
+			before := served()
+			db.cut()
+			resp, err := oidcPoll()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Msg.Hash).To(Equal(before.Hash))
+		})
+
+		It("does not serve the old org's config after the identity is deleted on this replica", func() {
+			served()
+			unbindIdentity()
+			svc.ForgetAgentIdentity(issuer, appID) // what AdminService.DeleteAgentIdentity does (internal/server wires it)
+
+			db.cut()
+			_, err := oidcPoll()
+			Expect(connect.CodeOf(err)).To(Equal(connect.CodeUnavailable), "the deleted identity's config was served: %v", err)
+		})
+
+		It("does not serve the old org's config after the identity moved to another org on this replica", func() {
+			served()
+			orgB, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "org-b", DisplayName: "B", AdminGroupID: "gb"})
+			Expect(err).NotTo(HaveOccurred())
+			unbindIdentity()
+			bindIdentity(orgB.ID, `["b-cluster"]`)
+			svc.ForgetAgentIdentity(issuer, appID)
+
+			db.cut()
+			_, err = oidcPoll()
+			Expect(connect.CodeOf(err)).To(Equal(connect.CodeUnavailable), "the moved identity got its old org's config: %v", err)
+		})
+
+		It("keys on the binding the database last returned, so a change seen by a poll is honoured", func() {
+			served()
+			// Moved elsewhere (another replica or the CLI); a poll on this
+			// replica reads the new binding, which no longer permits the
+			// cluster.
+			orgB, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "org-b", DisplayName: "B", AdminGroupID: "gb"})
+			Expect(err).NotTo(HaveOccurred())
+			unbindIdentity()
+			bindIdentity(orgB.ID, `["b-cluster"]`)
+			_, err = oidcPoll()
+			Expect(connect.CodeOf(err)).To(Equal(connect.CodePermissionDenied), "got %v", err)
+
+			db.cut()
+			_, err = oidcPoll()
+			Expect(connect.CodeOf(err)).To(Equal(connect.CodeUnavailable), "got %v", err)
+		})
+	})
+
+	// The server-owned bound (dbWorkFloor) must never cut a validation short.
+	// It cannot today because the poll path's recompute runs only in-process
+	// Stage 1 — this spec proves that with a validator whose alloy binary
+	// outlives the bound: if a change ever runs alloy here, it fails, and the
+	// bound must then grow with validate.timeout / stage3_timeout.
+	It("never runs alloy on the poll path, so the server-owned bound cannot truncate validation", func() {
+		defer agentapi.SetDBWorkFloor(2 * time.Second)()
+		slowAlloy := filepath.Join(GinkgoT().TempDir(), "alloy")
+		Expect(os.WriteFile(slowAlloy, []byte("#!/bin/sh\nsleep 4\nexit 0\n"), 0o700)).To(Succeed())
+		v := validate.New(&config.ValidateConfig{AlloyBinary: slowAlloy, StabilityLevel: "experimental", Timeout: 10 * time.Second, Stage3Timeout: 10 * time.Second})
+		slow := agentapi.New(cst, v, slog.New(slog.DiscardHandler), testSchemaRegistry(), agentapi.WithOutageCache(time.Minute))
+
+		c := clientWith(goodBasic)
+		seedClaimed(c)
+		start := time.Now()
+		resp, err := slow.GetConfig(agentapi.ContextWithTokenPrincipal(ctx, tokenID, agentapi.Binding{OrgID: seededOrg, MayClaim: true}),
+			connect.NewRequest(&collectorv1.GetConfigRequest{Id: "outage-instance", LocalAttributes: attrs}))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.Msg.Content).To(ContainSubstring("outage-pipeline"))
+		Expect(time.Since(start)).To(BeNumerically("<", 2*time.Second), "the poll path ran alloy")
 	})
 
 	// Org-bound tokens (#386) on the outage path: the cached verdict carries

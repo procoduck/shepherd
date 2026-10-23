@@ -17,6 +17,7 @@ import (
 
 	"shepherd/internal/auth"
 	"shepherd/internal/config"
+	"shepherd/internal/mgmtapi"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 )
@@ -35,6 +36,9 @@ var _ = Describe("shepherd.mgmt.v1 AdminService and MeService RPC", Label("integ
 		authHandler *auth.Handler
 		server      *httptest.Server
 		orgIDStr    string
+		// identityChanges records WithAgentIdentityChanged calls (#385):
+		// "issuer|appId" per created or deleted identity.
+		identityChanges []string
 	)
 
 	BeforeEach(func() {
@@ -56,7 +60,11 @@ var _ = Describe("shepherd.mgmt.v1 AdminService and MeService RPC", Label("integ
 
 		cfg := &config.Config{Auth: config.AuthConfig{InsecureCookies: true}}
 		authHandler = auth.NewLocalAdmin(cfg, st, slog.Default())
-		server = httptest.NewServer(newRPCWiringRouter(st, authHandler, cfg))
+		identityChanges = nil
+		server = httptest.NewServer(newRPCWiringRouter(st, authHandler, cfg,
+			mgmtapi.WithAgentIdentityChanged(func(issuer, appID string) {
+				identityChanges = append(identityChanges, issuer+"|"+appID)
+			})))
 	})
 
 	AfterEach(func() {
@@ -413,6 +421,9 @@ var _ = Describe("shepherd.mgmt.v1 AdminService and MeService RPC", Label("integ
 			created := decodeBody(createResp)
 			Expect(created["appId"]).To(Equal("client-eu"))
 			Expect(created["orgName"]).To(Equal("admin-rpc-org"))
+			// The serving replica forgets any binding it remembered for the
+			// collector outage cache (#385).
+			Expect(identityChanges).To(Equal([]string{"https://idp.example/|client-eu"}))
 
 			listResp := postConnect("/shepherd.mgmt.v1.AdminService/ListAgentIdentities", map[string]any{}, appAdmin)
 			Expect(listResp.StatusCode).To(Equal(http.StatusOK))
@@ -423,6 +434,7 @@ var _ = Describe("shepherd.mgmt.v1 AdminService and MeService RPC", Label("integ
 				"issuer": "https://idp.example/", "appId": "client-eu",
 			}, appAdmin)
 			Expect(delResp.StatusCode).To(Equal(http.StatusOK))
+			Expect(identityChanges).To(Equal([]string{"https://idp.example/|client-eu", "https://idp.example/|client-eu"}))
 
 			// Deleting again is a not-found.
 			delAgain := postConnect("/shepherd.mgmt.v1.AdminService/DeleteAgentIdentity", map[string]any{

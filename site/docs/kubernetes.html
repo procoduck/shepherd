@@ -478,7 +478,9 @@ resources:
         database outage, another replica (or one where the change was made with the
         <code>shepherd token</code> CLI) can still act on the old verdict for at most the TTL. That
         means it accepts a revoked token, or serves a rebound token only what it was last served
-        under its old binding. During that outage the change could not be read anyway. A token
+        under its old binding. The same holds for a collector OIDC identity that is created or
+        deleted (or moved to another organisation). During that outage the change could not be read
+        anyway. A token
         that is not bound to an organisation is refused during an outage too.
       </p>
       <p>Together, that means:</p>
