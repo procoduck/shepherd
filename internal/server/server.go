@@ -142,6 +142,13 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		return nil, fmt.Errorf("connecting to database: %w", err)
 	}
 
+	// pipeline_tenants (0040) is derived from pipeline text, which SQL cannot
+	// parse: rebuild it at every boot, which is also its backfill.
+	if err := rebuildPipelineTenants(st); err != nil {
+		st.Close()
+		return nil, fmt.Errorf("refusing to start: %w", err)
+	}
+
 	// Server-wide strict tenant mode fails closed: with tenants.require_owned
 	// on, nothing that already uses a tenant its org does not own may keep
 	// being served under a setting that says it cannot exist.
@@ -615,4 +622,22 @@ func handleReadyz(db dbPinger, latestMigration uint64) http.HandlerFunc {
 		w.WriteHeader(status)
 		_ = json.NewEncoder(w).Encode(result) //nolint:errcheck // health endpoint write
 	}
+}
+
+// rebuildPipelineTenants runs tenancy.RebuildPipelineTenants in its own
+// transaction.
+func rebuildPipelineTenants(st *store.Store) error {
+	ctx := context.Background()
+	tx, err := st.Pool().Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("rebuilding pipeline tenants: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
+	if err := tenancy.RebuildPipelineTenants(ctx, st.Queries.WithTx(tx)); err != nil {
+		return fmt.Errorf("rebuilding pipeline tenants: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("rebuilding pipeline tenants: %w", err)
+	}
+	return nil
 }

@@ -308,8 +308,9 @@ asks). What changes and what holds:
 org's `strict_tenants` flag (`0040_org_strict_tenants`, app admin only, `SetOrgStrictTenants`) or
 the server-wide `tenants.require_owned` setting, the org's destinations, destination bindings and
 tenant routes may only use tenants it owns, and pipeline text setting a literal `X-Scope-OrgID` or
-tenant attribute it does not own fails the validation gate (`validate.TenantLint`; a tenant it
-cannot read is a warning). Turning it on is refused until nothing of the org breaks the rule
+tenant attribute it does not own fails the validation gate (`validate.TenantLint`, which also
+refuses whatever it cannot verify: computed tenants, tenants from the data, external `import.*`
+modules). Turning it on is refused until nothing of the org breaks the rule
 (`TenantPreflight`); the server-wide setting refuses to boot until nothing anywhere does
 (`shepherd admin tenant-preflight`). D10's pass-through receiver tenancy is unaffected: it takes
 the tenant from the gateway-injected header at run time, which no text check sees, and the route

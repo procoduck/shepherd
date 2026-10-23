@@ -659,6 +659,10 @@ func (s *PipelineService) CreatePipeline(ctx context.Context, req *connect.Reque
 		s.logger.Error("create pipeline", "err", err)
 		return nil, connect.NewError(connect.CodeInternal, errCreatePipelineFailed)
 	}
+	if err := tenancy.RecordPipelineTenants(ctx, txQ, p); err != nil {
+		s.logger.Error("create pipeline: record tenants", "err", err)
+		return nil, connect.NewError(connect.CodeInternal, errCreatePipelineFailed)
+	}
 
 	revision, err := createPipelineRevisionQ(ctx, txQ, p, "created", actor)
 	if err != nil {
@@ -825,6 +829,10 @@ func (s *PipelineService) writeUpdate(ctx context.Context, p sqlc.Pipeline, msg 
 		s.logger.Error("update pipeline", "err", err)
 		return sqlc.Pipeline{}, 0, false, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
 	}
+	if err := tenancy.RecordPipelineTenants(ctx, txQ, updated); err != nil {
+		s.logger.Error("update pipeline: record tenants", "err", err)
+		return sqlc.Pipeline{}, 0, false, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
+	}
 	revision, err := createPipelineRevisionQ(ctx, txQ, updated, "updated", actor)
 	if err != nil {
 		s.logger.Error("update pipeline: create revision", "err", err, "pipeline_id", updated.ID.String())
@@ -943,6 +951,9 @@ func (s *PipelineService) setEnabled(ctx context.Context, orgIDStr, idStr string
 		ID: p.ID, Enabled: enable, UpdatedBy: actor,
 	})
 	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
+	}
+	if err := tenancy.RecordPipelineTenants(ctx, txQ, updated); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1364,6 +1375,9 @@ func (s *PipelineService) RestoreRevision(ctx context.Context, req *connect.Requ
 	})
 	if err != nil {
 		s.logger.Error("restore revision: update pipeline", "err", err)
+		return nil, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
+	}
+	if err := tenancy.RecordPipelineTenants(ctx, txQ, updated); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errUpdatePipelineFailed)
 	}
 

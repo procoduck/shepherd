@@ -9,3 +9,19 @@
 -- anything of the org would break the rule. Off by default: an existing org
 -- behaves exactly as before.
 ALTER TABLE orgs ADD COLUMN strict_tenants boolean NOT NULL DEFAULT false;
+
+-- What each ENABLED pipeline's text literally writes to (X-Scope-OrgID
+-- headers, tenant_id attributes, the __tenant_id__ label;
+-- validate.TenantLiterals), recorded by every pipeline write under the shared
+-- ownership lock and cleared when the pipeline is disabled. AddOrgTenant
+-- refuses a rule covering a tenant another org's enabled pipeline writes to
+-- with one indexed query instead of parsing every pipeline. SQL cannot parse
+-- Alloy, so the backfill is the server's: every boot rebuilds the table
+-- under the exclusive ownership lock (tenancy.RebuildPipelineTenants).
+CREATE TABLE pipeline_tenants (
+    pipeline_id uuid NOT NULL REFERENCES pipelines (id) ON DELETE CASCADE,
+    org_id uuid NOT NULL REFERENCES orgs (id) ON DELETE CASCADE,
+    tenant text COLLATE "C" NOT NULL,
+    PRIMARY KEY (pipeline_id, tenant)
+);
+CREATE INDEX pipeline_tenants_tenant_idx ON pipeline_tenants (tenant);

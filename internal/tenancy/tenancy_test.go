@@ -10,6 +10,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"shepherd/internal/config"
+	"shepherd/internal/gateway"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/tenancy"
@@ -129,6 +130,39 @@ var _ = Describe("CheckRequireOwned", Label("integration"), func() {
 		vs, err = tenancy.Preflight(ctx, st.Queries, empty, false)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(vs).To(BeEmpty())
+	})
+
+	// pipeline_tenants (0040): the boot rebuild is its backfill, and the
+	// assignment check is one indexed query over it.
+	It("rebuilds pipeline_tenants and answers which rule would cover another org's tenant", func() {
+		pipeline("w", "x_tenant", true)
+		pipeline("parked", "parked-t", false)
+		other, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "preflight-other", DisplayName: "O", AdminGroupID: "o-admins"})
+		Expect(err).NotTo(HaveOccurred())
+
+		covered := func(tenant string, prefix bool) []string {
+			GinkgoHelper()
+			kind := gateway.TenantExact
+			if prefix {
+				kind = gateway.TenantPrefix
+			}
+			out, err := tenancy.OtherOrgPipelinesCovered(ctx, st.Queries, other.ID, gateway.OrgTenant{Tenant: tenant, Kind: kind})
+			Expect(err).NotTo(HaveOccurred())
+			return out
+		}
+		Expect(covered("x_tenant", false)).To(BeEmpty(), "nothing recorded before the rebuild")
+
+		tx, err := st.Pool().Begin(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(tenancy.RebuildPipelineTenants(ctx, st.Queries.WithTx(tx))).To(Succeed())
+		Expect(tx.Commit(ctx)).To(Succeed())
+
+		Expect(covered("x_tenant", false)).To(ConsistOf(ContainSubstring(`pipeline "w"`)))
+		Expect(covered("x_", true)).To(HaveLen(1))
+		Expect(covered("xa", true)).To(BeEmpty(), "an underscore is not a wildcard")
+		Expect(covered("parked-t", false)).To(BeEmpty(), "a disabled pipeline is not recorded")
+		Expect(tenancy.OtherOrgPipelinesCovered(ctx, st.Queries, org.ID,
+			gateway.OrgTenant{Tenant: "x_tenant", Kind: gateway.TenantExact})).To(BeEmpty(), "the org's own pipeline")
 	})
 
 	It("loads an org's policy: its flag, or the server-wide setting", func() {

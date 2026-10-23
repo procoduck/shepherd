@@ -591,42 +591,53 @@ The check flags a reference only when it resolves to a component block declared 
 
 **Stage 3 — Merge dry-run.** For a pipeline save/toggle: compute the set of logical collectors the new matcher set would affect (plus those affected by the *old* version; for a disable or delete, only the old), assemble each collector's full merged config with the candidate change applied, and run stages 1–2 on each merged result. Affected uses the serve path's own matching (cluster, role, admin labels and `local_attributes` gated by the org's flags, with the same precedence; a repo-sourced pipeline by its link's collector); no other collector's merged config changes, so none other is validated. Merged configs are de-duplicated by content with the collector's identity — the header's `Collector:` comment and the D6 baseline's `shepherd_collector_id` string literal — replaced by a fixed placeholder, so collectors whose merged configs differ only by identity cost one `alloy validate`; the identity is only ever a comment or a string literal, so the placeholder cannot change a verdict, and a failure is reported against every collector that shared the content. If ANY merged config fails, **reject the save** with a response listing the failing collectors and diagnostics. The whole check runs within `validate.stage3_timeout` (default 30s, chart `config.validate.stage3_timeout`) and fails closed past it. This prevents the "one bad pipeline poisons the whole merge" failure mode.
 
-**Tenant lint (strict tenant mode, §11.4).** For an org in strict tenant mode, the gate also runs
-`validate.TenantLint` on the pipeline text as written (positions in that text, `stage: 1`). It
-parses the text with the Alloy syntax parser and refuses a tenant the org does not own wherever
-Alloy sets one: an `X-Scope-OrgID` key (any case) of any headers map — every map attribute whose
-name ends in `headers` (`headers`, `http_headers`, …; the CORS `allowed_headers`/`exposed_headers`
-lists excepted), a list value checked element by element; that is how `prometheus.remote_write`,
-`loki.write` and `pyroscope.write` endpoints, the rules components and the `otelcol.exporter.*`
-clients send one, and a spec enumerates every such map in the pinned schema; an
-`otelcol.auth.headers` `header` block whose key is `X-Scope-OrgID`; `loki.write`'s endpoint
-`tenant_id`; `loki.rules.kubernetes`' and `mimir.rules.kubernetes`' `tenant_id`; `loki.process`
-`stage.tenant`'s `value` at any nesting (inside `stage.match`); and Loki's reserved
-`__tenant_id__` label, which overrides `loki.write`'s `tenant_id` per entry (Alloy v1.20.1
-`common/loki/client.getTenantID`) — set in any labels map (`stage.static_labels`, a
-`loki.source.*` `labels`, …) or as a relabel `rule`'s `target_label` with a readable
-`replacement`. `prometheus.remote_write` has no tenant label; Mimir reads the header only. A value
-is *read* when it is a string literal, a `+` concatenation of readable values, or a declare
-argument (`argument.<name>.value`) whose default and every value an instantiation in the same text
-gives it are readable. A `|`-joined header value must be owned in every part. Azure AD's
-`tenant_id` attributes name an identity tenant and are not checked. A value it cannot read —
-`sys.env(…)`, a reference, any other computed expression, a headers value that is not an object
-literal, `stage.tenant`'s `label`/`source`, `stage.labels` (an extracted field), a relabel rule
-whose replacement uses a regex reference or is left at its default, `otelcol.auth.headers`'
-`from_context`/`from_attribute` — is not refused but returned as a **warning** (`Diagnostic.warning`, "tenant set from a non-literal
-expression — cannot be verified in strict mode"); warnings never fail validation or block a save.
-Every place it reads a tenant from is pinned to the embedded component schema by a spec. It runs
-through `ValidatePipeline` (so on pipeline create/update/restore, the `ValidatePipeline` RPC and
-the MCP tools built on it, wizard render/commit, destination re-renders, `rerender-destinations`
-and git sync's per-file check, where one refused file refuses the commit) and the visual builder's
-Validate; Stage 3 lints the candidates. **Limits, stated plainly:** it is a best-effort text check,
-not containment. It cannot see a tenant computed at run time (environment variables, files,
-`remote.*` contents, relabelling a `__tenant_id__` label, `stage.tenant` from data), a tenant set by
-a module imported from outside the pipeline (the `import.*` blocks), a relabel `target_label`
-that is itself computed, a `stage.template` or other stage that writes `__tenant_id__` from data,
-a header added by a proxy or gateway in front of the backend, or a backend that takes the tenant
-some other way (basic-auth username, URL path). The rules that hold are the ones on destinations, bindings and routes; the
-lint stops the obvious literal case and flags what it cannot check.
+**Tenant lint (strict tenant mode, §11.4).** The lint is **defence in depth**: the boundary is the
+backend's own tenant authentication (a Mimir/Loki gateway that ties credentials to tenants). For an
+org in strict tenant mode the gate also runs `validate.TenantLint` on the pipeline text as written
+(positions in that text, `stage: 1`), parsed with the Alloy syntax parser. Its rule is **refuse
+what it cannot verify**: every refusal is an error, and a non-strict org is not linted at all.
+Strict mode refuses:
+
+- a tenant the org does not own, and any tenant value it cannot read, in: an `X-Scope-OrgID` key
+  (any case) of any headers map — every attribute whose name ends in `headers` (`headers`,
+  `http_headers`, …) or is `proxy_connect_header`, each list element; a headers value that is not
+  an object literal; `loki.write`'s endpoint `tenant_id`; `loki.rules.kubernetes`' and
+  `mimir.rules.kubernetes`' `tenant_id`; `loki.process` `stage.tenant`'s `value` at any nesting;
+  Loki's reserved `__tenant_id__` label (it overrides `loki.write`'s `tenant_id` per entry, Alloy
+  v1.20.1 `common/loki/client.getTenantID`) in any labels map; a relabel `rule` whose
+  `replacement` writes `__tenant_id__`; an `otelcol.auth.headers` header whose key is
+  `X-Scope-OrgID`; an `otelcol.auth.bearer` with `header = "X-Scope-OrgID"` and an empty `scheme`
+  (its `token` is the tenant);
+- tenants taken from the data, which a client can set: `stage.tenant`'s `label`/`source`,
+  `stage.labels` setting `__tenant_id__`, a relabel rule writing `__tenant_id__` from a regex
+  reference, its default replacement, or `lowercase`/`uppercase`/`hashmod`, a `labelmap` whose
+  replacement names it, and `otelcol.auth.headers`' `from_context`/`from_attribute` for the tenant
+  header;
+- anything that may set a tenant and cannot be read: a header key, a relabel `target_label` or
+  `action` (matched exactly, as Alloy v1.20.1's `relabel.Action.UnmarshalText` does), or an
+  `otelcol.auth.bearer` `header` it cannot resolve; a tenant-header bearer with a non-empty
+  `scheme`;
+- every `import.file`, `import.git` and `import.http` block (what they load cannot be verified),
+  and an `import.string` whose `content` it cannot read. A readable `import.string` module is
+  linted with the same rules (up to 8 levels), including the values the importing text gives its
+  declares.
+
+A value is *readable* when it is a string literal, a `+` concatenation of readable values, or a
+declare argument (`argument.<name>.value`) whose default and every value an instantiation gives it
+— read in the declare that instantiation sits in, so a value passed down several declare levels is
+followed — are readable. A `|`-joined header value must be owned in every part.
+`prometheus.remote_write` has no tenant label (Mimir reads the header only). Azure AD `tenant_id`
+attributes name an identity tenant and are not checked; a spec walks every schema attribute named
+like a header or a tenant and fails until each is classified. `Diagnostic.warning` stays on the
+wire for diagnostics that do not fail validation, but the tenant lint emits none.
+
+It runs through `ValidatePipeline` (pipeline create/update/restore, the `ValidatePipeline` RPC and
+the MCP tools built on it, wizard render/commit, destination re-renders, `rerender-destinations`,
+git sync's per-file check, where one refused file refuses the commit), the visual builder's
+Validate, and Stage 3 for every candidate; every pipeline write re-runs it in its writing
+transaction under the shared ownership lock. **What it still cannot see:** a tenant added by a
+proxy or gateway in front of the backend, a backend that takes the tenant another way (basic-auth
+username, URL path), and anything a collector runs that Shepherd does not serve.
 
 API: `PipelineService.ValidatePipeline` (§12) runs stages 1–2 only (fast, used by the editor's Validate button and on-type debounce); the actual save/update/enable endpoints run all three stages server-side regardless of what the client did. With no Alloy binary configured, the `alloy validate` half of Stage 2 is skipped and reported, not passed: `ValidatePipelineResponse.skipped_stages` lists `2` (#209), the editor shows *Syntax checked — alloy validate skipped*, and `shepherd validate` prints the same.
 

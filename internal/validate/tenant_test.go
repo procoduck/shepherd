@@ -2,6 +2,7 @@ package validate_test
 
 import (
 	"context"
+	"strconv"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -22,16 +23,6 @@ func errorsOf(ds []validate.Diagnostic) []string {
 	var out []string
 	for _, d := range ds {
 		if !d.Warning {
-			out = append(out, d.Message)
-		}
-	}
-	return out
-}
-
-func warningsOf(ds []validate.Diagnostic) []string {
-	var out []string
-	for _, d := range ds {
-		if d.Warning {
 			out = append(out, d.Message)
 		}
 	}
@@ -141,16 +132,14 @@ loki.process "p" {
 		Expect(errorsOf(validate.TenantLint(src, strictFor()))).To(HaveLen(1))
 	})
 
-	It("warns, without refusing, on a tenant set from sys.env, a reference or a concatenation", func() {
+	It("refuses a tenant set from sys.env, a reference or a computed concatenation (cannot be verified)", func() {
 		for _, expr := range []string{`sys.env("TENANT")`, `local.file.t.content`, `"ac" + sys.env("X")`} {
-			ds := validate.TenantLint(remoteWrite(expr), strictFor())
-			Expect(errorsOf(ds)).To(BeEmpty(), expr)
-			Expect(warningsOf(ds)).To(ConsistOf(
-				"tenant set from a non-literal expression — cannot be verified in strict mode"), expr)
+			Expect(errorsOf(validate.TenantLint(remoteWrite(expr), strictFor()))).To(ConsistOf(
+				ContainSubstring("cannot be verified")), expr)
 		}
 	})
 
-	It("warns on a headers map that is not an object literal and on stage.tenant's label", func() {
+	It("refuses a headers map that is not an object literal and stage.tenant's label", func() {
 		src := `prometheus.remote_write "out" {
   endpoint {
     url     = "https://mimir.example/api/v1/push"
@@ -164,9 +153,7 @@ loki.process "p" {
   }
 }
 `
-		ds := validate.TenantLint(src, strictFor())
-		Expect(errorsOf(ds)).To(BeEmpty())
-		Expect(warningsOf(ds)).To(HaveLen(2))
+		Expect(errorsOf(validate.TenantLint(src, strictFor()))).To(HaveLen(2))
 	})
 
 	It("ignores Azure AD tenant_id attributes, which name an identity tenant", func() {
@@ -278,7 +265,7 @@ loki.process "p" {
 			Expect(validate.TenantLint(src, strictFor())).To(BeEmpty())
 		})
 
-		It("warns on a value taken from the data: stage.labels, a regex replacement, no replacement", func() {
+		It("refuses a value taken from the data: stage.labels, a regex replacement, no replacement", func() {
 			src := `loki.process "p" {
   forward_to = []
   stage.labels {
@@ -297,9 +284,7 @@ loki.relabel "r" {
   }
 }
 `
-			ds := validate.TenantLint(src, strictFor())
-			Expect(errorsOf(ds)).To(BeEmpty())
-			Expect(warningsOf(ds)).To(HaveLen(3))
+			Expect(errorsOf(validate.TenantLint(src, strictFor()))).To(HaveLen(3))
 		})
 	})
 
@@ -347,7 +332,7 @@ w "b" { tenant = "other" }
 				ContainSubstring(`"victim"`), ContainSubstring(`"other"`)))
 		})
 
-		It("warns on an argument without a default it can read", func() {
+		It("refuses an argument it cannot read (no default, never given)", func() {
 			src := `declare "w" {
   argument "tenant" { }
   prometheus.remote_write "o" {
@@ -358,9 +343,108 @@ w "b" { tenant = "other" }
   }
 }
 `
-			ds := validate.TenantLint(src, strictFor())
-			Expect(errorsOf(ds)).To(BeEmpty())
-			Expect(warningsOf(ds)).To(HaveLen(1))
+			Expect(errorsOf(validate.TenantLint(src, strictFor()))).To(HaveLen(1))
+		})
+	})
+
+	// Second review (PR #388): strict mode refuses what it cannot verify.
+	Describe("modules", func() {
+		module := func(tenant string) string {
+			return "declare \"w\" {\n  argument \"tenant\" {\n    optional = true\n    default  = \"acme\"\n  }\n" +
+				"  prometheus.remote_write \"o\" {\n    endpoint {\n      url     = \"https://m.example/push\"\n" +
+				"      headers = { \"X-Scope-OrgID\" = argument.tenant.value }\n    }\n  }\n}\n" +
+				"loki.write \"l\" {\n  endpoint {\n    url       = \"https://l.example/push\"\n    tenant_id = \"" + tenant + "\"\n  }\n}\n"
+		}
+		importString := func(content string) string {
+			return "import.string \"m\" {\n  content = " + strconv.Quote(content) + "\n}\n"
+		}
+
+		It("lints an import.string module's literal content with the same rules", func() {
+			Expect(errorsOf(validate.TenantLint(importString(module("victim")), strictFor()))).
+				To(ConsistOf(And(ContainSubstring(`import.string "m"`), ContainSubstring(`"victim"`))))
+			Expect(validate.TenantLint(importString(module("acme")), strictFor())).To(BeEmpty())
+		})
+
+		It("checks what the importing text gives the module's declares", func() {
+			src := importString(module("acme")) + "m.w \"x\" {\n  tenant = \"victim\"\n}\n"
+			Expect(errorsOf(validate.TenantLint(src, strictFor()))).To(ConsistOf(ContainSubstring(`"victim"`)))
+		})
+
+		It("refuses every other import, and import.string content it cannot read", func() {
+			for _, src := range []string{
+				"import.git \"g\" {\n  repository = \"https://example.com/m.git\"\n  path = \"m.alloy\"\n}\n",
+				"import.http \"h\" {\n  url = \"https://example.com/m.alloy\"\n}\n",
+				"import.file \"f\" {\n  filename = \"/etc/m.alloy\"\n}\n",
+				"import.string \"s\" {\n  content = local.file.m.content\n}\n",
+			} {
+				Expect(errorsOf(validate.TenantLint(src, strictFor()))).To(ConsistOf(ContainSubstring("cannot be verified")), src)
+			}
+		})
+
+		It("follows a value passed down two declare levels", func() {
+			src := `declare "w" {
+  argument "tenant" { }
+  prometheus.remote_write "o" {
+    endpoint {
+      url     = "https://m.example/push"
+      headers = { "X-Scope-OrgID" = argument.tenant.value }
+    }
+  }
+}
+declare "outer" {
+  argument "t" { }
+  w "inner" { tenant = argument.t.value }
+}
+outer "o" { t = "victim" }
+`
+			Expect(errorsOf(validate.TenantLint(src, strictFor()))).To(ConsistOf(ContainSubstring(`"victim"`)))
+		})
+	})
+
+	Describe("otelcol.auth.bearer", func() {
+		bearer := func(attrs string) string {
+			return "otelcol.auth.bearer \"b\" {\n" + attrs + "}\n"
+		}
+		It("reads the token as the tenant when the header is X-Scope-OrgID and the scheme is empty", func() {
+			Expect(errorsOf(validate.TenantLint(bearer("  header = \"x-scope-orgid\"\n  scheme = \"\"\n  token = \"victim\"\n"), strictFor()))).
+				To(ConsistOf(ContainSubstring(`"victim"`)))
+			Expect(validate.TenantLint(bearer("  header = \"X-Scope-OrgID\"\n  scheme = \"\"\n  token = \"acme\"\n"), strictFor())).To(BeEmpty())
+		})
+		It("refuses a tenant-header bearer with a scheme or a computed token, and a computed header", func() {
+			for _, attrs := range []string{
+				"  header = \"X-Scope-OrgID\"\n  token = \"acme\"\n",
+				"  header = \"X-Scope-OrgID\"\n  scheme = \"Bearer\"\n  token = \"acme\"\n",
+				"  header = \"X-Scope-OrgID\"\n  scheme = \"\"\n  token = sys.env(\"T\")\n",
+				"  header = sys.env(\"H\")\n  token = \"acme\"\n",
+			} {
+				Expect(errorsOf(validate.TenantLint(bearer(attrs), strictFor()))).To(HaveLen(1), attrs)
+			}
+		})
+		It("leaves an Authorization bearer alone", func() {
+			Expect(validate.TenantLint(bearer("  token = sys.env(\"T\")\n"), strictFor())).To(BeEmpty())
+		})
+	})
+
+	Describe("relabel target_label", func() {
+		rule := func(body string) string {
+			return "loki.relabel \"r\" {\n  forward_to = []\n  rule {\n" + body + "  }\n}\n"
+		}
+		It("resolves a computed target_label", func() {
+			Expect(errorsOf(validate.TenantLint(rule("    target_label = \"__tenant\" + \"_id__\"\n    replacement = \"victim\"\n"), strictFor()))).
+				To(ConsistOf(ContainSubstring(`"victim"`)))
+		})
+		It("refuses a target_label or action it cannot read, and a labelmap naming __tenant_id__", func() {
+			for _, body := range []string{
+				"    target_label = sys.env(\"L\")\n    replacement = \"acme\"\n",
+				"    action = sys.env(\"A\")\n    target_label = \"team\"\n",
+				"    action = \"labelmap\"\n    regex = \"team\"\n    replacement = \"__tenant_id__\"\n",
+				"    action = \"lowercase\"\n    source_labels = [\"t\"]\n    target_label = \"__tenant_id__\"\n",
+			} {
+				Expect(errorsOf(validate.TenantLint(rule(body), strictFor()))).To(HaveLen(1), body)
+			}
+		})
+		It("leaves an ordinary rule alone", func() {
+			Expect(validate.TenantLint(rule("    source_labels = [\"a\"]\n    target_label = \"team\"\n"), strictFor())).To(BeEmpty())
 		})
 	})
 
@@ -384,12 +468,11 @@ var _ = Describe("The gate with strict tenant mode (ValidatePipeline)", func() {
 		Expect(positions(r.Diagnostics)).To(ContainElement(HavePrefix("4:35 ")))
 	})
 
-	It("keeps a warning-only result valid", func() {
+	It("fails a tenant it cannot verify", func() {
 		r := noBinary().ValidatePipeline(context.Background(), "p",
 			strings.Replace(src, `"globex"`, `sys.env("T")`, 1), strictFor())
-		Expect(r.Valid).To(BeTrue())
+		Expect(r.Valid).To(BeFalse())
 		Expect(r.Diagnostics).To(HaveLen(1))
-		Expect(r.Diagnostics[0].Warning).To(BeTrue())
 	})
 
 	It("is exactly Stages 1-2 for an org not in strict mode", func() {

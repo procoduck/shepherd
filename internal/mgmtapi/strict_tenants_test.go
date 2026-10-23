@@ -301,17 +301,17 @@ var _ = Describe("Strict tenant mode", Label("integration"), func() {
 			Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
 		})
 
-		It("reports the lint in ValidatePipeline: an error for an unowned literal, a warning for sys.env", func() {
+		It("reports the lint in ValidatePipeline: an error for an unowned literal and for sys.env", func() {
 			out := ok(call(adminA, "PipelineService/ValidatePipeline", map[string]any{"orgId": orgA.String(), "contents": remoteWriteTo(`"free"`)}))
 			Expect(out).NotTo(HaveKey("valid"))
 			Expect(out["diagnostics"]).To(ContainElement(And(HaveKeyWithValue("line", BeNumerically("==", 4)),
 				HaveKeyWithValue("message", ContainSubstring(`"free"`)), Not(HaveKey("warning")))))
 
 			out = ok(call(adminA, "PipelineService/ValidatePipeline", map[string]any{"orgId": orgA.String(), "contents": remoteWriteTo(`sys.env("TENANT")`)}))
-			Expect(out).To(HaveKeyWithValue("valid", true))
-			Expect(out["diagnostics"]).To(ConsistOf(And(HaveKeyWithValue("warning", true),
-				HaveKeyWithValue("message", ContainSubstring("non-literal expression")))))
-			ok(createPipeline(adminA, orgA, "env", remoteWriteTo(`sys.env("TENANT")`)))
+			Expect(out).NotTo(HaveKey("valid"))
+			Expect(out["diagnostics"]).To(ConsistOf(HaveKeyWithValue("message", ContainSubstring("cannot be verified"))))
+			code, out := createPipeline(adminA, orgA, "env", remoteWriteTo(`sys.env("TENANT")`))
+			Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
 		})
 
 		// The render-time re-check: removing a tenant is guarded while a
@@ -375,6 +375,12 @@ var _ = Describe("Strict tenant mode", Label("integration"), func() {
 			Expect(out["message"]).To(ContainSubstring("pipeline"))
 			ok(call(appAdmin, "AdminService/AddOrgTenant", map[string]any{
 				"orgId": orgA.String(), "tenant": "unused-", "kind": "ORG_TENANT_KIND_PREFIX",
+			}))
+
+			// Disabling the pipeline clears its recorded tenants (pipeline_tenants).
+			ok(call(adminB, "PipelineService/DisablePipeline", map[string]any{"orgId": orgB.String(), "id": p["id"]}))
+			ok(call(appAdmin, "AdminService/AddOrgTenant", map[string]any{
+				"orgId": orgA.String(), "tenant": "shared-", "kind": "ORG_TENANT_KIND_PREFIX",
 			}))
 		})
 	})

@@ -520,6 +520,9 @@ func applyWizardRerenders(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUI
 		if err != nil {
 			return false, fmt.Errorf("updating pipeline %q: %w", c.Name, err)
 		}
+		if err := tenancy.RecordPipelineTenants(ctx, q, updated); err != nil {
+			return false, err
+		}
 		rev, err := createPipelineRevisionQ(ctx, q, updated, note, actor)
 		if err != nil {
 			return false, fmt.Errorf("recording a revision of pipeline %q: %w", c.Name, err)

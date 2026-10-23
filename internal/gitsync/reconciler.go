@@ -675,6 +675,9 @@ func (r *Reconciler) apply(ctx context.Context, link sqlc.RepoLink, commit strin
 			}
 			return false, fmt.Errorf("%s pipeline %s: %w", action, plan.name, err)
 		}
+		if err := tenancy.RecordPipelineTenants(ctx, q, p); err != nil {
+			return false, fmt.Errorf("%s pipeline %s: %w", action, plan.name, err)
+		}
 		// The revision goes in with the row, so no reader ever sees the new
 		// contents beside the old revision: the served header prints the
 		// revision next to the contents it describes ("(rev N)", #296).

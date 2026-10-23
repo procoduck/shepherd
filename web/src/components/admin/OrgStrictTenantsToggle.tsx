@@ -63,9 +63,9 @@ export function OrgStrictTenantsToggle({
         </p>
       )}
       <p className='text-2xs text-muted-3'>
-        Pipeline text is checked too: a literal <code>X-Scope-OrgID</code> header or tenant
-        attribute naming another tenant is refused; a tenant computed at run time (for example from{' '}
-        <code>sys.env</code>) is only warned about, since it cannot be checked.
+        Pipeline text is checked too: an <code>X-Scope-OrgID</code> header or tenant attribute
+        naming another tenant is refused, and so is anything the check cannot verify &mdash; a
+        tenant from <code>sys.env</code> or the log data, or an external <code>import</code> module.
       </p>
       {failure !== undefined && failure !== null && (
         <div className='space-y-1' role='alert' data-testid='org-strict-tenants-error'>

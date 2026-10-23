@@ -358,6 +358,9 @@ func (s *WizardService) CommitWizard(ctx context.Context, req *connect.Request[m
 		}
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create pipeline"))
 	}
+	if err := tenancy.RecordPipelineTenants(ctx, txQ, p); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create pipeline"))
+	}
 
 	// Same two side effects PipelineService.CreatePipeline performs after
 	// its insert (rpc_pipeline.go) — a revision-1 "created" row and a

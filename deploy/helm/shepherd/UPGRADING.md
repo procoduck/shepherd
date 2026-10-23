@@ -158,9 +158,9 @@ their last loaded config and retry. Finish the rollout promptly.
 
 Additive and **off by default**: nothing changes until you turn it on. In strict tenant mode an
 organisation's destinations, destination bindings, tenant routes and pipelines may only use
-tenants it owns, and pipeline text that sets a literal `X-Scope-OrgID` header or tenant attribute
-it does not own fails validation (a tenant set from `sys.env` or another expression is only a
-warning — the check cannot read it; see the docs' *Destinations* page for its limits).
+tenants it owns, and pipeline text that sets a tenant it does not own, or that it cannot verify
+(a tenant from `sys.env`, from the log data, an `import.git`/`import.http`/`import.file` module),
+fails validation; see the docs' *Destinations* page for exactly what is refused.
 
 - **Per organisation:** an application administrator ticks *Strict tenant mode* on **Admin →
   Organisations** (Edit), or calls `AdminService.SetOrgStrictTenants`. It is refused, with the
@@ -172,14 +172,16 @@ warning — the check cannot read it; see the docs' *Destinations* page for its 
   the error names each object. Setting it back to `false` undoes it.
 
 New API fields, all additive: `Org.strict_tenants` / `Org.tenants_required`,
-`OrgMembership.tenants_required`, and `Diagnostic.warning` (a diagnostic that does not fail
-validation).
+`OrgMembership.tenants_required`, and `Diagnostic.warning` / `VisualNodeDiagnostic.warning` (a
+diagnostic that does not fail validation).
 
 #### Migration 0040
 
-Adds `orgs.strict_tenants boolean NOT NULL DEFAULT false` — quick, and old pods keep working
-against it (they name the columns they read). Its down migration drops the column, turning strict
-mode off for every org.
+Adds `orgs.strict_tenants boolean NOT NULL DEFAULT false` and the `pipeline_tenants` table (the
+tenants each enabled pipeline writes to, so assigning a tenant is one indexed check) — quick, and
+old pods keep working against it (they name the columns they read). The server fills
+`pipeline_tenants` at every start, which is also its backfill. Its down migration drops both,
+turning strict mode off for every org.
 
 ## 0.21.x → 0.22.0
 

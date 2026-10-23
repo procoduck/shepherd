@@ -244,6 +244,12 @@ type PipelineRevision struct {
 	WizardRenderSha256 pgtype.Text        `json:"wizard_render_sha256"`
 }
 
+type PipelineTenant struct {
+	PipelineID pgtype.UUID `json:"pipeline_id"`
+	OrgID      pgtype.UUID `json:"org_id"`
+	Tenant     string      `json:"tenant"`
+}
+
 type RepoLink struct {
 	ID                  pgtype.UUID        `json:"id"`
 	OrgID               pgtype.UUID        `json:"org_id"`

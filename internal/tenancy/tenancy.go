@@ -292,24 +292,69 @@ func OrphanedPipelines(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, 
 	return out, nil
 }
 
-// OtherOrgPipelinesCovered names every other org's enabled pipeline whose
-// text writes to a tenant rule would cover (validate.TenantLiterals) — what
-// an org must not be given, whatever either org's mode: the pipeline would
-// then be writing into the new owner's tenant. q should hold the exclusive
-// ownership lock. Org names are included: only an app admin calls it.
+// OtherOrgPipelinesCovered names every other org's enabled pipeline that
+// writes to a tenant rule would cover — what an org must not be given,
+// whatever either org's mode: the pipeline would then be writing into the
+// new owner's tenant. One indexed query over pipeline_tenants (0040), which
+// every pipeline write keeps current (RecordPipelineTenants). q should hold
+// the exclusive ownership lock. Org names are included: only an app admin
+// calls it.
 func OtherOrgPipelinesCovered(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, rule gateway.OrgTenant) ([]string, error) {
-	rows, err := q.ListEnabledPipelinesOfOtherOrgs(ctx, orgID)
+	rows, err := q.ListPipelineTenantsCoveredByRule(ctx, sqlc.ListPipelineTenantsCoveredByRuleParams{
+		OrgID: orgID, Tenant: rule.Tenant, IsPrefix: rule.Kind == gateway.TenantPrefix,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("listing other orgs' enabled pipelines: %w", err)
+		return nil, fmt.Errorf("listing other orgs' pipeline tenants: %w", err)
 	}
 	var out []string
 	for i := range rows {
-		for _, t := range validate.TenantLiterals(rows[i].Contents) {
-			if gateway.RuleCovers(rule, t) {
-				out = append(out, fmt.Sprintf("pipeline %q of org %q (tenant %q)", rows[i].Name, rows[i].OrgName, t))
-				break
-			}
+		if gateway.RuleCovers(rule, rows[i].Tenant) {
+			out = append(out, fmt.Sprintf("pipeline %q of org %q (tenant %q)", rows[i].PipelineName, rows[i].OrgName, rows[i].Tenant))
 		}
 	}
 	return out, nil
+}
+
+// RecordPipelineTenants keeps pipeline_tenants current for p as just
+// written: its rows are replaced by the tenants its text writes to
+// (validate.TenantLiterals) when it is enabled, and removed when it is not.
+// Every pipeline write calls it in its writing transaction, after
+// LintLocked has taken the shared ownership lock.
+func RecordPipelineTenants(ctx context.Context, q *sqlc.Queries, p sqlc.Pipeline) error {
+	if err := q.DeletePipelineTenants(ctx, p.ID); err != nil {
+		return fmt.Errorf("clearing the pipeline's tenants: %w", err)
+	}
+	if !p.Enabled {
+		return nil
+	}
+	for _, t := range validate.TenantLiterals(p.Contents) {
+		if err := q.InsertPipelineTenant(ctx, sqlc.InsertPipelineTenantParams{PipelineID: p.ID, OrgID: p.OrgID, Tenant: t}); err != nil {
+			return fmt.Errorf("recording the pipeline's tenants: %w", err)
+		}
+	}
+	return nil
+}
+
+// RebuildPipelineTenants recomputes pipeline_tenants for every enabled
+// pipeline, in q's transaction under the exclusive ownership lock: the
+// backfill of 0040 (SQL cannot parse Alloy), and the repair of anything a
+// path outside the API (the dev seed, a manual edit) wrote. The server runs
+// it at every boot.
+func RebuildPipelineTenants(ctx context.Context, q *sqlc.Queries) error {
+	if err := q.LockOrgTenantsExclusive(ctx, advisorylock.TenantID); err != nil {
+		return fmt.Errorf("taking the tenant ownership lock: %w", err)
+	}
+	if err := q.DeleteAllPipelineTenants(ctx); err != nil {
+		return fmt.Errorf("clearing pipeline tenants: %w", err)
+	}
+	pipelines, err := q.ListAllEnabledPipelines(ctx)
+	if err != nil {
+		return fmt.Errorf("listing enabled pipelines: %w", err)
+	}
+	for i := range pipelines {
+		if err := RecordPipelineTenants(ctx, q, pipelines[i]); err != nil {
+			return err
+		}
+	}
+	return nil
 }

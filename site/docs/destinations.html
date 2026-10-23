@@ -148,27 +148,32 @@
         same list without starting the server.</p>
       <p>Once it is on, the destination form offers only the organisation&rsquo;s tenants, and a
         destination whose tenant the organisation stops owning is refused when a wizard pipeline is
-        generated from it. Pipeline text is checked when it is saved, synced from git or enabled: a
-        <strong>literal</strong> tenant the organisation does not own is refused where Alloy sets
-        one &mdash; an <code>X-Scope-OrgID</code> key in a <code>headers</code> or
-        <code>http_headers</code> map (<code>prometheus.remote_write</code>,
-        <code>loki.write</code>, <code>pyroscope.write</code>, the rules components, the
-        <code>otelcol.exporter.*</code> clients), Loki&rsquo;s <code>__tenant_id__</code> label
-        (which overrides <code>loki.write</code>&rsquo;s tenant per log line) set in a labels map or
-        a relabel rule, an
-        <code>otelcol.auth.headers</code> header with that key, <code>loki.write</code>&rsquo;s
-        <code>tenant_id</code>, the <code>tenant_id</code> of <code>loki.rules.kubernetes</code> and
-        <code>mimir.rules.kubernetes</code>, and <code>loki.process</code>&rsquo;s
-        <code>stage.tenant</code> value, also inside <code>stage.match</code>. Concatenated string
-        literals and a module argument&rsquo;s literal default (and the literal values it is given)
-        are checked too. A tenant written as another expression &mdash;
-        <code>sys.env(&hellip;)</code>, a reference to another component &mdash; cannot be checked, so the editor shows a <strong>warning</strong> instead and the save goes
-        ahead.</p>
-      <p>The pipeline check is a text check, and it has limits: it cannot see a tenant chosen at
-        run time (from the environment, a file, a relabelled <code>__tenant_id__</code> label or
-        the log line itself), set inside a module imported from outside the pipeline, added by a
-        proxy in front of the backend, or passed some other way such as a basic-auth username.
-        What holds regardless is the rule on destinations, bindings and tenant routes.</p>
+        generated from it. Pipeline text is checked when it is saved, synced from git or enabled,
+        and the rule is <strong>refuse what cannot be verified</strong>. Strict tenant mode
+        refuses:</p>
+      <ul>
+        <li>a tenant the organisation does not own, or any tenant written as something other than
+          a literal (concatenated literals and module arguments with literal values are worked
+          out), wherever Alloy sets one: an <code>X-Scope-OrgID</code> key in a
+          <code>headers</code>, <code>http_headers</code> or <code>proxy_connect_header</code> map;
+          <code>loki.write</code>&rsquo;s and the rules components&rsquo; <code>tenant_id</code>;
+          <code>loki.process</code>&rsquo;s <code>stage.tenant</code> value (also inside
+          <code>stage.match</code>); Loki&rsquo;s <code>__tenant_id__</code> label (which overrides
+          <code>loki.write</code>&rsquo;s tenant per log line) in a labels map or a relabel rule;
+          an <code>otelcol.auth.headers</code> or <code>otelcol.auth.bearer</code> header named
+          <code>X-Scope-OrgID</code>;</li>
+        <li>a tenant taken from the data, which a client could set: <code>stage.tenant</code>
+          reading a label or field, <code>stage.labels</code> or a relabel rule computing
+          <code>__tenant_id__</code>, an OpenTelemetry header copied from the request;</li>
+        <li>a header name, relabel target or action it cannot read;</li>
+        <li><code>import.file</code>, <code>import.git</code> and <code>import.http</code>
+          modules &mdash; inline the module as a <code>declare</code> or an
+          <code>import.string</code> with literal content, which is checked the same way.</li>
+      </ul>
+      <p>This is defence in depth, not the boundary: your backend&rsquo;s own tenant
+        authentication is. The check cannot see a tenant a proxy in front of the backend adds, or
+        one passed some other way, such as a basic-auth username. What holds regardless is the rule
+        on destinations, bindings and tenant routes.</p>
 
       <h2 id="auth">Authentication from a Kubernetes Secret</h2>
       <p>Shepherd never holds a telemetry backend&rsquo;s credentials. For an authenticated
