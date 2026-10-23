@@ -28,13 +28,49 @@
         same rule. The other way round, an administrator cannot give an organisation a tenant or
         prefix covering a tenant another organisation&rsquo;s destination or binding already
         sends.</p>
-      <p>This guards a <em>destination&rsquo;s</em> tenant only. A pipeline you write by hand can
-        set any header, <code>X-Scope-OrgID</code> included; Shepherd does not inspect it.</p>
+      <p>This guards a <em>destination&rsquo;s</em> tenant only. Unless the organisation is in
+        <a href="#strict-tenant-mode">strict tenant mode</a>, a pipeline you write by hand can set
+        any header, <code>X-Scope-OrgID</code> included, and Shepherd does not inspect it.</p>
       <p>A pipeline picks up a tenant change when it is regenerated: saving a destination
         regenerates every wizard pipeline that names it. Until then the configuration collectors
         are served keeps the tenant it was generated with. A pipeline that ships to more than one
         destination is regenerated as a whole, so saving any one of them also starts sending a
         tenant already stored on the others.</p>
+
+      <h2 id="strict-tenant-mode">Strict tenant mode</h2>
+      <p>In <strong>strict tenant mode</strong>, destinations, destination bindings, tenant routes
+        and pipelines may only use the organisation&rsquo;s <em>own</em> tenants &mdash; one of its
+        exact tenants, or a tenant under one of its prefixes. A destination with no tenant is
+        still allowed. An application administrator turns it on for an organisation on
+        <strong>Admin &rarr; Organisations</strong> (Edit &rarr; <em>Strict tenant mode</em>), or
+        for every organisation with the server setting <code>tenants.require_owned</code> (chart
+        <code>config.tenants.require_owned</code>). Organisation admins cannot change it.</p>
+      <p>Turning it on is refused while the organisation owns no tenant, or while one of its
+        destinations, bindings, live tenant routes or <em>enabled</em> pipelines uses a tenant it
+        does not own; the refusal lists each one to fix. With
+        <code>tenants.require_owned</code> on, Shepherd refuses to start while anything in any
+        organisation breaks the rule, naming each object. Run
+        <code>shepherd admin tenant-preflight</code> before turning the setting on: it prints the
+        same list without starting the server.</p>
+      <p>Once it is on, the destination form offers only the organisation&rsquo;s tenants, and a
+        destination whose tenant the organisation stops owning is refused when a wizard pipeline is
+        generated from it. Pipeline text is checked when it is saved, synced from git or enabled: a
+        <strong>literal</strong> tenant the organisation does not own is refused where Alloy sets
+        one &mdash; an <code>X-Scope-OrgID</code> key in a <code>headers = { &hellip; }</code> map
+        (<code>prometheus.remote_write</code>, <code>loki.write</code>,
+        <code>pyroscope.write</code>, the <code>otelcol.exporter.*</code> clients), an
+        <code>otelcol.auth.headers</code> header with that key, <code>loki.write</code>&rsquo;s
+        <code>tenant_id</code>, the <code>tenant_id</code> of <code>loki.rules.kubernetes</code> and
+        <code>mimir.rules.kubernetes</code>, and <code>loki.process</code>&rsquo;s
+        <code>stage.tenant</code> value. A tenant written as an expression &mdash;
+        <code>sys.env(&hellip;)</code>, a reference to another component, a concatenation &mdash;
+        cannot be checked, so the editor shows a <strong>warning</strong> instead and the save goes
+        ahead.</p>
+      <p>The pipeline check is a text check, and it has limits: it cannot see a tenant chosen at
+        run time (from the environment, a file, a relabelled <code>__tenant_id__</code> label or
+        the log line itself), set inside a module imported from outside the pipeline, added by a
+        proxy in front of the backend, or passed some other way such as a basic-auth username.
+        What holds regardless is the rule on destinations, bindings and tenant routes.</p>
 
       <h2 id="auth">Authentication from a Kubernetes Secret</h2>
       <p>Shepherd never holds a telemetry backend&rsquo;s credentials. For an authenticated

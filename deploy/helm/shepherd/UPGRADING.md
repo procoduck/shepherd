@@ -5,7 +5,7 @@
 First published as the release candidate **0.23.0-rc.1** (Shepherd v0.19.0-rc.1); install it
 with `--version 0.23.0-rc.1`, or `--devel`. Everything below applies to the rc and to 0.23.0.
 
-An ordinary `helm upgrade` with five migrations (0035–0039), one recompute per collector, a short burst of
+An ordinary `helm upgrade` with six migrations (0035–0040), one recompute per collector, a short burst of
 collector errors during the rollout, and management-API breaks. Update API scripts first.
 
 ### Migrations 0035–0037
@@ -153,6 +153,33 @@ once it has dropped `orgs.tenant_id`, every query an old pod makes on `orgs` (or
 creating routes and destinations, and the agent API's org lookups) answers `Internal` until that
 pod is replaced. This fails closed — nothing is written with a missing tenant — and collectors keep
 their last loaded config and retry. Finish the rollout promptly.
+
+### Strict tenant mode (not in 0.23.0-rc.1)
+
+Additive and **off by default**: nothing changes until you turn it on. In strict tenant mode an
+organisation's destinations, destination bindings, tenant routes and pipelines may only use
+tenants it owns, and pipeline text that sets a literal `X-Scope-OrgID` header or tenant attribute
+it does not own fails validation (a tenant set from `sys.env` or another expression is only a
+warning — the check cannot read it; see the docs' *Destinations* page for its limits).
+
+- **Per organisation:** an application administrator ticks *Strict tenant mode* on **Admin →
+  Organisations** (Edit), or calls `AdminService.SetOrgStrictTenants`. It is refused, with the
+  list of what to fix, while the org owns no tenant or anything of it breaks the rule;
+  `AdminService.TenantPreflight` returns that list on its own.
+- **Every organisation:** `config.tenants.require_owned: true`. Before setting it, run
+  `shepherd admin tenant-preflight` (same database config as the server) and clear what it lists:
+  with the setting on, **Shepherd refuses to start** while anything stored breaks the rule, and
+  the error names each object. Setting it back to `false` undoes it.
+
+New API fields, all additive: `Org.strict_tenants` / `Org.tenants_required`,
+`OrgMembership.tenants_required`, and `Diagnostic.warning` (a diagnostic that does not fail
+validation).
+
+#### Migration 0040
+
+Adds `orgs.strict_tenants boolean NOT NULL DEFAULT false` — quick, and old pods keep working
+against it (they name the columns they read). Its down migration drops the column, turning strict
+mode off for every org.
 
 ## 0.21.x → 0.22.0
 

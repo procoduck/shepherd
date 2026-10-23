@@ -285,6 +285,8 @@ orgs(id, name text UNIQUE, display_name text,
 --   0037 orgs.reader_group_id renamed viewer_group_id (one role vocabulary; §7.2)
 --   0039 org_tenants — an org owns several tenants and tenant prefixes; replaces
 --        orgs.tenant_id (each org's tenant became its default exact tenant; §11.4)
+--   0040 orgs.strict_tenants boolean NOT NULL DEFAULT false — strict tenant mode, set
+--        by an app admin only (§11.4 "Strict tenant mode")
 
 org_tenants(org_id uuid REFERENCES orgs ON DELETE CASCADE,       -- 0039; app admin writes only
            tenant text, kind text CHECK (kind IN ('exact','prefix')),
@@ -589,6 +591,32 @@ The check flags a reference only when it resolves to a component block declared 
 
 **Stage 3 — Merge dry-run.** For a pipeline save/toggle: compute the set of logical collectors the new matcher set would affect (plus those affected by the *old* version; for a disable or delete, only the old), assemble each collector's full merged config with the candidate change applied, and run stages 1–2 on each merged result. Affected uses the serve path's own matching (cluster, role, admin labels and `local_attributes` gated by the org's flags, with the same precedence; a repo-sourced pipeline by its link's collector); no other collector's merged config changes, so none other is validated. Merged configs are de-duplicated by content with the collector's identity — the header's `Collector:` comment and the D6 baseline's `shepherd_collector_id` string literal — replaced by a fixed placeholder, so collectors whose merged configs differ only by identity cost one `alloy validate`; the identity is only ever a comment or a string literal, so the placeholder cannot change a verdict, and a failure is reported against every collector that shared the content. If ANY merged config fails, **reject the save** with a response listing the failing collectors and diagnostics. The whole check runs within `validate.stage3_timeout` (default 30s, chart `config.validate.stage3_timeout`) and fails closed past it. This prevents the "one bad pipeline poisons the whole merge" failure mode.
 
+**Tenant lint (strict tenant mode, §11.4).** For an org in strict tenant mode, the gate also runs
+`validate.TenantLint` on the pipeline text as written (positions in that text, `stage: 1`). It
+parses the text with the Alloy syntax parser and refuses a **literal** tenant the org does not own
+wherever Alloy sets one: an `X-Scope-OrgID` key (any case) of any `headers = { … }` object literal —
+how `prometheus.remote_write`, `loki.write` and `pyroscope.write` endpoints and the
+`otelcol.exporter.*` clients send one; an `otelcol.auth.headers` `header` block whose key is
+`X-Scope-OrgID`; `loki.write`'s endpoint `tenant_id`; `loki.rules.kubernetes`' and
+`mimir.rules.kubernetes`' `tenant_id`; and `loki.process` `stage.tenant`'s `value`. A
+`|`-joined header value must be owned in every part. Azure AD's `tenant_id` attributes name an
+identity tenant and are not checked. A value it cannot read — `sys.env(…)`, a reference, a
+concatenation or other computed expression, a `headers` value that is not an object literal,
+`stage.tenant`'s `label`/`source`, `otelcol.auth.headers`' `from_context`/`from_attribute` — is
+not refused but returned as a **warning** (`Diagnostic.warning`, "tenant set from a non-literal
+expression — cannot be verified in strict mode"); warnings never fail validation or block a save.
+Every place it reads a tenant from is pinned to the embedded component schema by a spec. It runs
+through `ValidatePipeline` (so on pipeline create/update/restore, the `ValidatePipeline` RPC and
+the MCP tools built on it, wizard render/commit, destination re-renders, `rerender-destinations`
+and git sync's per-file check, where one refused file refuses the commit) and the visual builder's
+Validate; Stage 3 lints the candidates. **Limits, stated plainly:** it is a best-effort text check,
+not containment. It cannot see a tenant computed at run time (environment variables, files,
+`remote.*` contents, relabelling a `__tenant_id__` label, `stage.tenant` from data), a tenant set by
+a module imported from outside the pipeline (the `import.*` blocks), a header added by a proxy or
+gateway in front of the backend, or a backend that takes the tenant some other way (basic-auth
+username, URL path). The rules that hold are the ones on destinations, bindings and routes; the
+lint stops the obvious literal case and flags what it cannot check.
+
 API: `PipelineService.ValidatePipeline` (§12) runs stages 1–2 only (fast, used by the editor's Validate button and on-type debounce); the actual save/update/enable endpoints run all three stages server-side regardless of what the client did. With no Alloy binary configured, the `alloy validate` half of Stage 2 is skipped and reported, not passed: `ValidatePipelineResponse.skipped_stages` lists `2` (#209), the editor shows *Syntax checked — alloy validate skipped*, and `shepherd validate` prints the same.
 
 Git-synced files that fail validation: keep the previous good pipeline revision, set `repo_links.sync_status='error'` with details, surface in UI. Never partially apply a commit: a sync applies all files of a commit transactionally or none (as built since #360, §10 "Removed files"). A git sync's Stage 3 is one dry run per commit: the link's collector's merged config with every create, update and delete of the commit applied, assembled as the serve paths assemble it (`serve.Assemble`: role enforcement and the D6 baseline included), then Stages 1–2. Unlike a UI save — where role enforcement only warns, since matchers select many collectors — a committed file whose signals the link's collector's role does not allow refuses the commit: a git pipeline is served to that one collector only, so it would sync "ok" and do nothing. **Only new errors refuse a commit.** When the commit's merged config fails Stages 1–2, the collector's current merged config (same inputs, without the commit, same `serve.Assemble` path) is validated too, and the commit is refused only for a diagnostic inside one of its own files' blocks or one the current config does not have. Diagnostics are matched by the pipeline whose declare block contains them (`merge.Locate`), their line and column in that pipeline's own text, and their message with the temp file `alloy validate` read (and the position quoted after it) removed — never by merged-config line, which shifts when the commit adds or removes a block; outside every block (header, D6 baseline) the message alone is the key. Two cases always refuse: a run that gave no verdict (the dry run's budget ran out, or `alloy validate` timed out, could not start, or failed without a positioned diagnostic — `validate.Result.Inconclusive`; "validation could not complete"), and a config that already fails Stage 1 before the commit (Stage 2 never runs on it, so the commit cannot be checked; the broken pipeline is named and must be fixed first). A commit that passes this way is applied (`last_commit` advances) and the link shows `sync_status='warning'` with `sync_error` naming the pipelines that were already broken. That commit **is served**: the served-config recompute runs Stage 1 only (§6.3), so the collector receives a merged config that `alloy validate` rejects, will likely reject it at load and keep running its previous config until the named pipelines are fixed — the warning says so. The warning stays until the next commit: unchanged-commit polls keep it, and `shepherd_gitsync_total` counts each such poll as `result="warning"` (as it does every poll of a guard-held commit). The second validation runs only when the first fails. Diagnostics name a file of the link by its path, with line and column in the file itself.
@@ -743,6 +771,44 @@ tenant is refused. Rotating a route re-checks its tenant under the same lock. Ev
 writing — a destination, a destination binding, a tenant route — takes the same lock shared
 (`LockOrgTenantsShared`), so no check and write can race past an ownership change.
 `Org.tenants` and `MeService.GetMe`'s `OrgMembership.tenants` (read-only) carry the rows.
+
+**Strict tenant mode (0040).** In strict tenant mode, destinations, destination bindings,
+tenant routes and pipelines may only use the organisation's own tenants (`gateway.OrgOwnsTenant`
+over its `org_tenants`). It applies to an org when its `orgs.strict_tenants` flag is on, or to
+every org when the server-wide config `tenants.require_owned` is true (chart
+`config.tenants.require_owned`, default false); `internal/tenancy` is the one definition
+(`tenancy.Policy`). Off, everything is exactly as without it. On, for org O:
+
+- every destination create and update, and every destination binding create and update, with a
+  non-empty tenant O does not own is refused (`invalid_argument`, "strict tenant mode: …"),
+  checked inside the writing transaction under the shared ownership lock, after the cross-org
+  check. A destination with no tenant is unaffected, so an org that owns no tenant can still have
+  destinations, just none that send one;
+- the render-time re-check (`wizardDestinations`) refuses a destination whose tenant O no longer
+  owns, so no wizard render or commit, destination re-render or `shepherd admin
+  rerender-destinations` run writes it;
+- tenant routes already use only an owned tenant (below);
+- the validation gate's tenant lint (§8) refuses pipeline text that sets a literal tenant O does
+  not own, on every save path, and Stage 3 lints every pipeline a change would enable, replace or
+  restore — so a pipeline saved before the org became strict is refused when it is enabled.
+
+Only an app admin changes the flag: `AdminService.SetOrgStrictTenants` (audited as
+`org.strict_tenants`). Turning it on takes the **exclusive** ownership lock and runs the
+preflight (`tenancy.Preflight`): it is refused (`failed_precondition`, listing each) when O owns no
+tenant, or while any live tenant route, destination or destination binding of O is on a tenant O
+does not own, or any **enabled** pipeline of O fails the tenant lint (disabled ones are linted when
+enabled). Turning it off always succeeds. `AdminService.TenantPreflight` (app admin, read-only)
+returns the same list as data — for one org, or with `org_id` empty for every org, as
+`tenants.require_owned` would see it. With `tenants.require_owned` on, `shepherd serve` runs that
+all-org preflight at boot and **refuses to start** while anything is listed (fail closed), naming
+each object and how to clear it (assign the tenant to its org, or edit, disable or delete the
+object); `shepherd admin tenant-preflight` prints the same list without starting the server and
+exits non-zero while anything is listed. `Org.strict_tenants` is the flag, `Org.tenants_required`
+and `OrgMembership.tenants_required` the effective state; the destination form then offers only
+the org's tenants. A pipeline saved concurrently with the toggle is not serialised against it
+(the lint takes no lock); Stage 3 lints it again on its next enable. Strict mode covers what
+Shepherd writes and renders; it is not containment against a collector configured outside
+Shepherd, nor against a tenant computed at run time — see the lint's limits in §8.
 
 **Tenant routes.** `CreateTenantRouteRequest.tenant` (field 8; field 2, the old free-form
 `tenant_id`, stays reserved) must be a tenant the org owns (`invalid_argument` otherwise); empty
