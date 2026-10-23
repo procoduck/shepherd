@@ -8,8 +8,10 @@ import { Role, roleAtLeast } from '@/lib/roles';
  * Client-side role floor for a route, mirroring
  * internal/mgmtapi/rpc_interceptor.go's per-procedure requirement for the
  * route's primary read RPC:
- *   - 'app-admin' — admin/*  (AdminService, UserService: app admin only)
- *   - Role.ADMIN — /git, /audit (GitOpsService, AuditService)
+ *   - 'app-admin' — admin/* except /admin/tokens (AdminService, UserService:
+ *     app admin only)
+ *   - Role.ADMIN — /git, /audit, /admin/tokens (GitOpsService, AuditService,
+ *     AdminService's agent-token procedures)
  *   - Role.EDITOR — /wizards, /wizards/$kind, /pipelines/new,
  *     /pipelines/visual/new (WizardService, and pipeline authoring)
  *   - Role.VIEWER — every other org-scoped page that has no elevated
@@ -136,11 +138,14 @@ export const routeManifest: RouteEntry[] = [
     requiredRole: 'app-admin',
     label: 'Clusters',
   },
+  // Agent tokens are org-bound: an org admin lists, creates and revokes its own
+  // org's tokens (ListAgentTokens is app admin OR org admin of the request's
+  // org); binding a token to an org stays app admin only, inside the page.
   {
     path: '/admin/tokens',
     tag: 'protected',
     distinctLocator: 'text=Agent Tokens',
-    requiredRole: 'app-admin',
+    requiredRole: Role.ADMIN,
     label: 'Agent Tokens',
   },
   {

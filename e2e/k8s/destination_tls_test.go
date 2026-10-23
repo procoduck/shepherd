@@ -144,7 +144,7 @@ func TestDestinationTenantTLS(t *testing.T) {
 				if err := cfg.Client().Resources().Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: alloyNS}}); err != nil {
 					t.Fatalf("creating %s: %v", alloyNS, err)
 				}
-				token, err := api.admin.CreateAgentToken(ctx, connect.NewRequest(&mgmtv1.CreateAgentTokenRequest{Name: "dest-tls"}))
+				token, err := api.admin.CreateAgentToken(ctx, connect.NewRequest(&mgmtv1.CreateAgentTokenRequest{Name: "dest-tls", OrgId: orgID}))
 				if err != nil {
 					t.Fatalf("CreateAgentToken: %v", err)
 				}

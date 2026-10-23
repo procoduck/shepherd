@@ -87,7 +87,7 @@ func TestChartValuesConnectACluster(t *testing.T) {
 					t.Fatalf("cluster_status %q before any install, want new", r.GetClusterStatus())
 				}
 
-				token, err := api.admin.CreateAgentToken(ctx, connect.NewRequest(&mgmtv1.CreateAgentTokenRequest{Name: "g10"}))
+				token, err := api.admin.CreateAgentToken(ctx, connect.NewRequest(&mgmtv1.CreateAgentTokenRequest{Name: "g10", OrgId: orgID}))
 				if err != nil {
 					t.Fatalf("CreateAgentToken: %v", err)
 				}

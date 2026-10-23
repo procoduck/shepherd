@@ -5,7 +5,7 @@
 First published as the release candidate **0.23.0-rc.1** (Shepherd v0.19.0-rc.1); install it
 with `--version 0.23.0-rc.1`, or `--devel`. Everything below applies to the rc and to 0.23.0.
 
-An ordinary `helm upgrade` with three migrations, one recompute per collector, a short burst of
+An ordinary `helm upgrade` with four migrations (0035–0038), one recompute per collector, a short burst of
 collector errors during the rollout, and a management-API break. Update API scripts first.
 
 ### Migrations 0035–0037
@@ -78,6 +78,43 @@ merge validation. Additive; raise it only if saves in a very large org are refus
 From this release, tags are signed and every archive, image (provenance and SBOM) and the chart
 carries attestations in GitHub's store and in the registry. Optional: verify what you pull with
 the commands on the docs' *Verifying releases* page before upgrading.
+
+### Agent tokens are bound to an organisation (not in 0.23.0-rc.1)
+
+**Bind every existing agent token immediately after upgrading.** Agent tokens
+are now bound to an organisation (optionally narrowed to cluster and role
+allowlists), and Shepherd refuses every collector RPC from a token that is not.
+Tokens created before this release are left **unbound** by the migration — it
+does not guess an org — so their collectors are refused (`PermissionDenied`,
+counted as `shepherd_agent_refused_total{reason="token_unbound"}`) until an app
+admin binds them. Collectors keep their credentials: binding changes neither
+the token id nor the secret, and a refused collector keeps running its last
+loaded config until its next successful poll.
+
+Bind from the Agent Tokens page (unbound tokens are listed first, with a
+**Bind** action) or from the CLI in the Shepherd pod:
+
+```sh
+kubectl -n shepherd exec svc/shepherd -- /usr/local/bin/shepherd token list
+kubectl -n shepherd exec svc/shepherd -- /usr/local/bin/shepherd token bind \
+  --id <token-id> --org <org-slug> [--clusters prod-eu-1] [--roles metrics]
+```
+
+Bind each token to the org that already claims the clusters its collectors
+report: a bound token is refused for a cluster another org has claimed, and
+— because an app admin bound it — claims any unclaimed cluster it reports
+(within its allowlists) for its own org. `shepherd token create` now requires `--org`, and `CreateAgentToken`
+requires `org_id`; scripts that mint tokens need that argument added. Org
+admins can now create, list and revoke their own org's tokens; those tokens
+serve only clusters the org already claims (claiming stays app admin only, as
+does binding a token to an org).
+
+#### Migration 0038
+
+Applied by the migration Job before the new pods start, as usual. It adds a
+nullable `org_id` (FK to `orgs`, `ON DELETE SET NULL`) and two `jsonb`
+allowlist columns defaulting to `[]` and `may_claim` (default `false`) to `agent_tokens` — metadata-only, quick.
+Its down migration drops them.
 
 ## 0.21.x → 0.22.0
 

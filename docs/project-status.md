@@ -463,7 +463,7 @@ B probes dial from inside the simulator pod), the `UPGRADING.md` 0.9.x → 0.10.
 
 ## 5. Explicitly out of scope (spec §19)
 
-Per-org agent tokens; webhook-triggered git sync; OpAMP; editing git-sourced pipelines in the UI; a
+Webhook-triggered git sync; OpAMP; editing git-sourced pipelines in the UI; a
 multi-wizard framework beyond the one wizard; Alloy version-matrix testing; front-channel SSO
 logout; horizontal-scale coordination beyond stateless replicas + Postgres.
 

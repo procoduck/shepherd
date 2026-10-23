@@ -62,6 +62,9 @@ const (
 	// AdminServiceRevokeAgentTokenProcedure is the fully-qualified name of the AdminService's
 	// RevokeAgentToken RPC.
 	AdminServiceRevokeAgentTokenProcedure = "/shepherd.mgmt.v1.AdminService/RevokeAgentToken"
+	// AdminServiceBindAgentTokenProcedure is the fully-qualified name of the AdminService's
+	// BindAgentToken RPC.
+	AdminServiceBindAgentTokenProcedure = "/shepherd.mgmt.v1.AdminService/BindAgentToken"
 	// AdminServiceListAgentIdentitiesProcedure is the fully-qualified name of the AdminService's
 	// ListAgentIdentities RPC.
 	AdminServiceListAgentIdentitiesProcedure = "/shepherd.mgmt.v1.AdminService/ListAgentIdentities"
@@ -103,9 +106,16 @@ type AdminServiceClient interface {
 	ListClusters(context.Context, *connect.Request[v1.ListClustersRequest]) (*connect.Response[v1.ListClustersResponse], error)
 	ClaimCluster(context.Context, *connect.Request[v1.ClaimClusterRequest]) (*connect.Response[v1.ClaimClusterResponse], error)
 	UnclaimCluster(context.Context, *connect.Request[v1.UnclaimClusterRequest]) (*connect.Response[v1.UnclaimClusterResponse], error)
+	// Agent tokens are bound to an organisation (and optionally narrowed to
+	// cluster/role allowlists). An org admin lists, creates and revokes the
+	// tokens bound to their own org; an app admin sees every token, including
+	// unbound ones, and is the only caller who may bind or rebind one.
 	ListAgentTokens(context.Context, *connect.Request[v1.ListAgentTokensRequest]) (*connect.Response[v1.ListAgentTokensResponse], error)
 	CreateAgentToken(context.Context, *connect.Request[v1.CreateAgentTokenRequest]) (*connect.Response[v1.CreateAgentTokenResponse], error)
 	RevokeAgentToken(context.Context, *connect.Request[v1.RevokeAgentTokenRequest]) (*connect.Response[v1.RevokeAgentTokenResponse], error)
+	// BindAgentToken sets a live token's org and allowlists in place. The
+	// secret is unchanged, so collectors keep their credentials. App admin only.
+	BindAgentToken(context.Context, *connect.Request[v1.BindAgentTokenRequest]) (*connect.Response[v1.AgentToken], error)
 	// Collector OIDC identity bindings (docs/archive/plans/2026-09-16-agent-oidc-auth.md):
 	// map a collector's OIDC identity (issuer + app id) to an organisation.
 	ListAgentIdentities(context.Context, *connect.Request[v1.ListAgentIdentitiesRequest]) (*connect.Response[v1.ListAgentIdentitiesResponse], error)
@@ -209,6 +219,12 @@ func NewAdminServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(adminServiceMethods.ByName("RevokeAgentToken")),
 			connect.WithClientOptions(opts...),
 		),
+		bindAgentToken: connect.NewClient[v1.BindAgentTokenRequest, v1.AgentToken](
+			httpClient,
+			baseURL+AdminServiceBindAgentTokenProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("BindAgentToken")),
+			connect.WithClientOptions(opts...),
+		),
 		listAgentIdentities: connect.NewClient[v1.ListAgentIdentitiesRequest, v1.ListAgentIdentitiesResponse](
 			httpClient,
 			baseURL+AdminServiceListAgentIdentitiesProcedure,
@@ -279,6 +295,7 @@ type adminServiceClient struct {
 	listAgentTokens         *connect.Client[v1.ListAgentTokensRequest, v1.ListAgentTokensResponse]
 	createAgentToken        *connect.Client[v1.CreateAgentTokenRequest, v1.CreateAgentTokenResponse]
 	revokeAgentToken        *connect.Client[v1.RevokeAgentTokenRequest, v1.RevokeAgentTokenResponse]
+	bindAgentToken          *connect.Client[v1.BindAgentTokenRequest, v1.AgentToken]
 	listAgentIdentities     *connect.Client[v1.ListAgentIdentitiesRequest, v1.ListAgentIdentitiesResponse]
 	createAgentIdentity     *connect.Client[v1.CreateAgentIdentityRequest, v1.AgentIdentity]
 	deleteAgentIdentity     *connect.Client[v1.DeleteAgentIdentityRequest, v1.DeleteAgentIdentityResponse]
@@ -345,6 +362,11 @@ func (c *adminServiceClient) RevokeAgentToken(ctx context.Context, req *connect.
 	return c.revokeAgentToken.CallUnary(ctx, req)
 }
 
+// BindAgentToken calls shepherd.mgmt.v1.AdminService.BindAgentToken.
+func (c *adminServiceClient) BindAgentToken(ctx context.Context, req *connect.Request[v1.BindAgentTokenRequest]) (*connect.Response[v1.AgentToken], error) {
+	return c.bindAgentToken.CallUnary(ctx, req)
+}
+
 // ListAgentIdentities calls shepherd.mgmt.v1.AdminService.ListAgentIdentities.
 func (c *adminServiceClient) ListAgentIdentities(ctx context.Context, req *connect.Request[v1.ListAgentIdentitiesRequest]) (*connect.Response[v1.ListAgentIdentitiesResponse], error) {
 	return c.listAgentIdentities.CallUnary(ctx, req)
@@ -402,9 +424,16 @@ type AdminServiceHandler interface {
 	ListClusters(context.Context, *connect.Request[v1.ListClustersRequest]) (*connect.Response[v1.ListClustersResponse], error)
 	ClaimCluster(context.Context, *connect.Request[v1.ClaimClusterRequest]) (*connect.Response[v1.ClaimClusterResponse], error)
 	UnclaimCluster(context.Context, *connect.Request[v1.UnclaimClusterRequest]) (*connect.Response[v1.UnclaimClusterResponse], error)
+	// Agent tokens are bound to an organisation (and optionally narrowed to
+	// cluster/role allowlists). An org admin lists, creates and revokes the
+	// tokens bound to their own org; an app admin sees every token, including
+	// unbound ones, and is the only caller who may bind or rebind one.
 	ListAgentTokens(context.Context, *connect.Request[v1.ListAgentTokensRequest]) (*connect.Response[v1.ListAgentTokensResponse], error)
 	CreateAgentToken(context.Context, *connect.Request[v1.CreateAgentTokenRequest]) (*connect.Response[v1.CreateAgentTokenResponse], error)
 	RevokeAgentToken(context.Context, *connect.Request[v1.RevokeAgentTokenRequest]) (*connect.Response[v1.RevokeAgentTokenResponse], error)
+	// BindAgentToken sets a live token's org and allowlists in place. The
+	// secret is unchanged, so collectors keep their credentials. App admin only.
+	BindAgentToken(context.Context, *connect.Request[v1.BindAgentTokenRequest]) (*connect.Response[v1.AgentToken], error)
 	// Collector OIDC identity bindings (docs/archive/plans/2026-09-16-agent-oidc-auth.md):
 	// map a collector's OIDC identity (issuer + app id) to an organisation.
 	ListAgentIdentities(context.Context, *connect.Request[v1.ListAgentIdentitiesRequest]) (*connect.Response[v1.ListAgentIdentitiesResponse], error)
@@ -504,6 +533,12 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(adminServiceMethods.ByName("RevokeAgentToken")),
 		connect.WithHandlerOptions(opts...),
 	)
+	adminServiceBindAgentTokenHandler := connect.NewUnaryHandler(
+		AdminServiceBindAgentTokenProcedure,
+		svc.BindAgentToken,
+		connect.WithSchema(adminServiceMethods.ByName("BindAgentToken")),
+		connect.WithHandlerOptions(opts...),
+	)
 	adminServiceListAgentIdentitiesHandler := connect.NewUnaryHandler(
 		AdminServiceListAgentIdentitiesProcedure,
 		svc.ListAgentIdentities,
@@ -582,6 +617,8 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 			adminServiceCreateAgentTokenHandler.ServeHTTP(w, r)
 		case AdminServiceRevokeAgentTokenProcedure:
 			adminServiceRevokeAgentTokenHandler.ServeHTTP(w, r)
+		case AdminServiceBindAgentTokenProcedure:
+			adminServiceBindAgentTokenHandler.ServeHTTP(w, r)
 		case AdminServiceListAgentIdentitiesProcedure:
 			adminServiceListAgentIdentitiesHandler.ServeHTTP(w, r)
 		case AdminServiceCreateAgentIdentityProcedure:
@@ -651,6 +688,10 @@ func (UnimplementedAdminServiceHandler) CreateAgentToken(context.Context, *conne
 
 func (UnimplementedAdminServiceHandler) RevokeAgentToken(context.Context, *connect.Request[v1.RevokeAgentTokenRequest]) (*connect.Response[v1.RevokeAgentTokenResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.RevokeAgentToken is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) BindAgentToken(context.Context, *connect.Request[v1.BindAgentTokenRequest]) (*connect.Response[v1.AgentToken], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.BindAgentToken is not implemented"))
 }
 
 func (UnimplementedAdminServiceHandler) ListAgentIdentities(context.Context, *connect.Request[v1.ListAgentIdentitiesRequest]) (*connect.Response[v1.ListAgentIdentitiesResponse], error) {

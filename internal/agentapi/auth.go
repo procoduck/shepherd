@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -14,15 +15,17 @@ import (
 
 	"shepherd/internal/auth"
 	"shepherd/internal/store"
+	"shepherd/internal/store/sqlc"
 )
 
 type contextKey int
 
 const principalKey contextKey = iota
 
-// AuthKind is how a collector authenticated. A token proves liveness only; an
-// OIDC principal additionally carries claims that scope which org, cluster and
-// role it may act for (agent OIDC, docs/archive/plans/2026-09-16-agent-oidc-auth.md).
+// AuthKind is how a collector authenticated. A token carries its own org
+// binding (migration 0038: an org plus cluster/role allowlists); an OIDC
+// principal carries claims that are resolved to a binding per request (agent
+// OIDC, docs/archive/plans/2026-09-16-agent-oidc-auth.md).
 type AuthKind int
 
 const (
@@ -36,6 +39,28 @@ type Principal struct {
 	Kind    AuthKind
 	TokenID string            // AuthKindToken
 	Claims  *auth.AgentClaims // AuthKindOIDC
+
+	// Binding is an AuthKindToken principal's org binding, read with the
+	// token row by the gate — whole, in one value, so a caller that caches
+	// the principal caches what it may act for with it. An invalid OrgID is
+	// an unbound token.
+	Binding Binding
+}
+
+// Binding is what a bound principal may act for: an org, optional
+// cluster/role allowlists (jsonb string arrays, empty = any), and whether it
+// may claim an unclaimed cluster for that org. An agent token row and an OIDC
+// agent_identities row both carry one, and both resolve through
+// Service.resolveBoundOrg.
+type Binding struct {
+	OrgID    pgtype.UUID
+	Clusters json.RawMessage
+	Roles    json.RawMessage
+	// MayClaim: an unclaimed cluster may be claimed for OrgID on a poll.
+	// True for an OIDC binding and for a token an app admin minted or bound
+	// (agent_tokens.may_claim); a token an org admin or a service account
+	// minted serves only clusters OrgID has already claimed.
+	MayClaim bool
 }
 
 // PrincipalFrom returns the authenticated principal, or the zero value (an
@@ -75,48 +100,54 @@ func NewAuthGate(st *store.Store, verifyAgent AgentVerifier) connect.RequestGate
 			}
 			return context.WithValue(ctx, principalKey, Principal{Kind: AuthKindOIDC, Claims: &claims}), nil
 		}
-		tokenID, err := verifyBasicAuth(ctx, authz, st)
+		tok, err := verifyBasicAuth(ctx, authz, st)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeUnauthenticated, err)
 		}
-		return context.WithValue(ctx, principalKey, Principal{Kind: AuthKindToken, TokenID: tokenID}), nil
+		return context.WithValue(ctx, principalKey, Principal{
+			Kind:    AuthKindToken,
+			TokenID: tok.ID.String(),
+			Binding: Binding{OrgID: tok.OrgID, Clusters: tok.Clusters, Roles: tok.Roles, MayClaim: tok.MayClaim},
+		}), nil
 	}
 }
 
 // verifyBasicAuth parses Authorization: Basic <base64(uuid:secret)> and
-// validates the secret against the stored sha256 hash using constant-time compare.
-func verifyBasicAuth(ctx context.Context, authHeader string, st *store.Store) (string, error) {
+// validates the secret against the stored sha256 hash using constant-time
+// compare. It returns the live token row: this is authentication only —
+// what the token may act for is its org binding, resolved by resolveOrg.
+func verifyBasicAuth(ctx context.Context, authHeader string, st *store.Store) (sqlc.AgentToken, error) {
 	const prefix = "Basic "
 	if !strings.HasPrefix(authHeader, prefix) {
-		return "", connect.NewError(connect.CodeUnauthenticated, nil)
+		return sqlc.AgentToken{}, connect.NewError(connect.CodeUnauthenticated, nil)
 	}
 
 	decoded, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(authHeader, prefix))
 	if err != nil {
-		return "", connect.NewError(connect.CodeUnauthenticated, nil)
+		return sqlc.AgentToken{}, connect.NewError(connect.CodeUnauthenticated, nil)
 	}
 
 	parts := strings.SplitN(string(decoded), ":", 2)
 	if len(parts) != 2 {
-		return "", connect.NewError(connect.CodeUnauthenticated, nil)
+		return sqlc.AgentToken{}, connect.NewError(connect.CodeUnauthenticated, nil)
 	}
 	tokenIDStr, secret := parts[0], parts[1]
 
 	var tokenID pgtype.UUID
 	if err := tokenID.Scan(tokenIDStr); err != nil {
-		return "", connect.NewError(connect.CodeUnauthenticated, nil)
+		return sqlc.AgentToken{}, connect.NewError(connect.CodeUnauthenticated, nil)
 	}
 
 	token, err := st.Queries.GetAgentTokenByID(ctx, tokenID)
 	if err != nil {
-		return "", connect.NewError(connect.CodeUnauthenticated, nil)
+		return sqlc.AgentToken{}, connect.NewError(connect.CodeUnauthenticated, nil)
 	}
 
 	// Compare sha256(provided_secret) with stored hash using constant-time compare.
 	hash := sha256.Sum256([]byte(secret))
 	if subtle.ConstantTimeCompare(hash[:], token.TokenHash) != 1 {
-		return "", connect.NewError(connect.CodeUnauthenticated, nil)
+		return sqlc.AgentToken{}, connect.NewError(connect.CodeUnauthenticated, nil)
 	}
 
-	return tokenIDStr, nil
+	return token, nil
 }

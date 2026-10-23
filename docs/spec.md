@@ -230,17 +230,17 @@ Mount the generated handler at `POST /collector.v1.CollectorService/{Method}` on
 
 **`GetConfig`:**
 1. Authenticate; upsert the `clusters` and logical `collectors` rows exactly as above (a GetConfig from an unknown instance must self-register; agents may restart-loop without re-registering). These two rows are written before the org check: unclaimed-cluster discovery and OIDC auto-claim need them.
-2. Resolve the org the config is served for (`resolveOrg`). For an agent-token caller this is the cluster's claimed org. An OIDC caller may resolve its own org — from an `agent_identities` binding or the token's asserted org — and claims the cluster to it on this call; a cluster, role or org that identity may not serve is refused with `CodePermissionDenied`, deliberately *not* the empty config of step 4 (§7.3b). An OIDC caller with neither a binding nor an asserted org resolves exactly like an agent token.
+2. Resolve the org the config is served for (`resolveOrg`). An agent-token caller resolves through its token's own binding (§7.3) — the token's org, after its cluster/role allowlists; a token an app admin minted or bound claims an unclaimed cluster to that org on this call, any other token is served only a cluster its org already claimed; an unbound token is refused. An OIDC caller may resolve its own org — from an `agent_identities` binding or the token's asserted org — and claims the cluster the same way. A cluster, role or org a caller may not serve is refused with `CodePermissionDenied`, deliberately *not* the empty config of step 4 (§7.3, §7.3b). Only an OIDC caller with neither a binding nor an asserted org takes its org from the cluster's claim.
 3. Only once step 2 passes: read the instance's previous `local_attributes` (for match-drift, §6), upsert the instance row `(collector, wire id)` (`last_seen = now()`, `unregistered_at = NULL` — an instance that polls is registered again), then, if `remote_config_status` is set, persist `status` + `error_message` on it. A refused poll leaves no trace on the instance row: no row, attributes, status or `last_seen`.
 4. If the resolved org is null (an unclaimed cluster): return an **empty config** `{content: "", hash: sha256hex(""), not_modified: false}` (or `not_modified: true` if the request hash already equals the empty hash). Never error — an unclaimed collector must keep running its local config undisturbed.
 5. Otherwise assemble the served config via the merge engine (§6). The merge engine returns `(content, hash)` from the serve-cache.
 6. If `request.hash == hash`: return `{not_modified: true, hash: hash}` with empty content. Else return `{content, hash, not_modified: false}`.
 
-**Instance identity.** An instance row is keyed by `(collector_id, id)` — the wire id is unique per logical collector, not globally (migration 0036). An instance never moves between collectors: a poll naming a different cluster or role (a cluster rename, a role change, or another org reporting the same hostname-like id) writes a new row under that collector, and the old row ages out through `agent.delete_after`. So no caller can take over, squat or hide another collector's instance, and a cluster rename under an agent token simply lands on a new unclaimed collector and gets the empty config of step 4. Status writes, the silent-poll rule and the previous-attributes read all address the `(collector, id)` row this poll wrote. Per-collector reads (latest instance, instance list, org-wide local attributes) are unaffected; `shepherd_active_collectors` counts rows, so a moved instance counts under its old collector until that row goes inactive. Likewise the old row keeps feeding its collector's `local_attributes` to org-wide matching (§6, the eager recompute and match previews, which take each collector's most recently seen *registered* instance) until `agent.delete_after` removes it — deliberately: filtering by liveness there would change a collector's served config whenever it goes offline. Unregistering the instance id stops it sooner.
+**Instance identity.** An instance row is keyed by `(collector_id, id)` — the wire id is unique per logical collector, not globally (migration 0036). An instance never moves between collectors: a poll naming a different cluster or role (a cluster rename, a role change, or another org reporting the same hostname-like id) writes a new row under that collector, and the old row ages out through `agent.delete_after`. So no caller can take over, squat or hide another collector's instance. A cluster rename under an agent token lands on a new collector that the token claims for its org if an app admin minted or bound it and its cluster allowlist admits the new name (and is refused otherwise); under an OIDC caller with no org of its own it lands on a new unclaimed collector and gets the empty config of step 4. Status writes, the silent-poll rule and the previous-attributes read all address the `(collector, id)` row this poll wrote. Per-collector reads (latest instance, instance list, org-wide local attributes) are unaffected; `shepherd_active_collectors` counts rows, so a moved instance counts under its old collector until that row goes inactive. Likewise the old row keeps feeding its collector's `local_attributes` to org-wide matching (§6, the eager recompute and match previews, which take each collector's most recently seen *registered* instance) until `agent.delete_after` removes it — deliberately: filtering by liveness there would change a collector's served config whenever it goes offline. Unregistering the instance id stops it sooner.
 
-**`UnregisterCollector`:** mark instance rows `unregistered_at = now()`; never delete. The request carries only the wire `id`, which may have a row under several collectors, so the caller is scoped by its principal, in one statement: an OIDC caller with an org of its own (a binding, or an asserted org) marks only the rows whose collector's cluster is claimed to that org and, for a binding, within its cluster/role allowlists (for an asserted org, within the token's `clusters` claim; an asserted org that does not exist marks nothing). A caller with no org of its own (an agent token, or OIDC with neither) marks every row with the id — it can already poll as any collector, so this grants nothing new. The answer is success whether rows were marked, the id is unknown or every row is out of scope, so the call reveals nothing about other orgs' instances.
+**`UnregisterCollector`:** mark instance rows `unregistered_at = now()`; never delete. The request carries only the wire `id`, which may have a row under several collectors, so the caller is scoped by its principal, in one statement: an agent token, or an OIDC caller with an org of its own (a binding, or an asserted org), marks only the rows whose collector's cluster is claimed to that org and, for a token or a binding, within its cluster/role allowlists (for an asserted org, within the token's `clusters` claim; an asserted org that does not exist marks nothing; an unbound agent token is refused). An OIDC caller with no org of its own marks every row with the id — it can already poll as any collector, so this grants nothing new. The answer is success whether rows were marked, the id is unknown or every row is out of scope, so the call reveals nothing about other orgs' instances.
 
-**Refusals** are counted in `shepherd_agent_refused_total{reason}`: `claim_denied` (a cluster allowlist or `clusters` claim excludes the cluster, the cluster is claimed by another org, or an asserted org does not exist), `role_denied` (a binding's role allowlist excludes the role), `unregister_denied` (`UnregisterCollector` named an id with rows outside the caller's scope; those rows are left alone and the caller still gets success). The first refusal per (instance id, reason) in five minutes is also logged at Warn with the RPC and the ids involved (instance, collector, cluster, role — never credentials or claim contents); repeats are only counted, so a refused collector retrying every poll does not flood the log.
+**Refusals** are counted in `shepherd_agent_refused_total{reason}`: `claim_denied` (a token's or binding's cluster allowlist, or a `clusters` claim, excludes the cluster, a token that may not claim named an unclaimed cluster, the cluster is claimed by another org, or an asserted org does not exist), `role_denied` (a token's or binding's role allowlist excludes the role), `token_unbound` (an agent token with no organisation binding — every collector RPC it makes is refused until an app admin binds it), `beacon_denied` (a bound token's beacon write named a collector outside its org; dropped, still 204), `unregister_denied` (`UnregisterCollector` named an id with rows outside the caller's scope; those rows are left alone and the caller still gets success). The first refusal per (instance id, reason) in five minutes is also logged at Warn with the RPC and the ids involved (instance, collector, cluster, role — never credentials or claim contents); repeats are only counted, so a refused collector retrying every poll does not flood the log.
 
 **Inactive** is derived when status is read, never stored (#237): an instance whose `last_seen` is older than `agent.inactive_after` is presented with status `inactive` (and no error) by the management API and is not counted by `shepherd_active_collectors`; `remote_config_status` keeps the agent's last reported outcome, which is presented again once the instance checks in. A collector's status is its most recently seen instance's, so it reads `inactive` only when every instance is stale. Unset or zero `agent.inactive_after` → nothing is ever inactive.
 
@@ -334,7 +334,10 @@ repo_links(id, org_id uuid REFERENCES orgs,
            sync_status text, sync_error text)
 
 agent_tokens(id, name text, token_hash bytea,        -- sha256 of secret; secret shown once at creation
-           created_by text, revoked_at timestamptz NULL)
+           created_by text, revoked_at timestamptz NULL,
+           org_id uuid NULL REFERENCES orgs ON DELETE SET NULL,  -- 0038; NULL = unbound (refused)
+           clusters jsonb DEFAULT '[]', roles jsonb DEFAULT '[]',  -- allowlists, empty = any
+           may_claim boolean DEFAULT false)              -- true only when an app admin minted/bound it
 
 serve_cache(collector_id uuid PRIMARY KEY REFERENCES collectors,
            content text, hash text, computed_at timestamptz,
@@ -457,14 +460,19 @@ The resulting roles are the same either way:
 
 - **App Admin**: any group in `auth.app_admin_group_ids`, or a local user with
   `is_app_admin`. Can do everything, everywhere: CRUD orgs, claim/unclaim
-  clusters into orgs (the only human who can; a collector OIDC identity may
-  also claim its own cluster, §7.3b), CRUD group assignments, CRUD agent tokens, CRUD local
-  users, view all.
+  clusters into orgs (the only human who can; a collector authenticating
+  with an agent token an app admin minted or bound, or with an OIDC identity
+  bound to an org, claims its own unclaimed cluster, §7.3, §7.3b), CRUD group
+  assignments,
+  create/revoke agent tokens for any org and bind or rebind any token, CRUD
+  local users, view all.
 - **Admin** of org O: member of `O.admin_group_id`, or `org_members.role =
   'admin'` for O. Full CRUD within O: pipelines, destinations, git
   credentials, repo links, wizards, teams, tenant routes, group assignments
-  *for O's collectors*. Cannot touch other orgs, cannot claim clusters, cannot
-  manage agent tokens.
+  *for O's collectors*, and the agent tokens bound to O (create, list, revoke —
+  never an unbound token or another org's, and never a bind). Cannot touch
+  other orgs, cannot claim clusters — a token they mint never claims one
+  either: it serves only clusters O already claims (§7.3).
 - **Editor** of org O: member of `O.editor_group_id`, or
   `org_members.role = 'editor'`. Authors what the org **runs** — pipelines,
   wizards, visual builder, simulations — but cannot change what the org **is**:
@@ -495,7 +503,9 @@ an `auth.Requirement` built from a role rather than a boolean:
 `RequireAuthenticated()`, `RequireAppAdmin()`, `RequireOrg(role)` (an app admin,
 or at least `role` in the org the request names) and
 `RequireAppAdminOrOrg(role)` (the same callers, for a procedure with a
-cross-org mode for app admins — `SearchGroups`). Both paths above resolve into
+cross-org mode for app admins — `SearchGroups`, and `ListAgentTokens` /
+`CreateAgentToken` / `RevokeAgentToken`, where an empty `org_id` is the app
+admin's every-token view). Both paths above resolve into
 the same rank comparison (`Role.AtLeast`); a value that is not a role — an
 unknown stored string, `ROLE_UNSPECIFIED`, a zero `Requirement` — clears
 nothing. It is enforced per Connect procedure, not per handler: the interceptor
@@ -511,7 +521,17 @@ anything and is refused with `invalid_argument` wherever a role is written
 
 ### 7.3 Agent tokens (machine auth)
 
-Agents authenticate `collector.v1` calls with HTTP Basic auth: username = token UUID, password = 32-byte random secret (base64url). Store only `sha256(secret)`; compare with `crypto/subtle.ConstantTimeCompare`. App Admin creates/revokes tokens via API/UI; the secret is displayed exactly once. Implement as a Connect request gate (`connect.WithRequestGate`, `internal/agentapi/auth.go`): the decision happens on the headers, before the body is decompressed or decoded, and a refused call is still counted by `telemetry.RequestGate`. (Agent tokens are global-authN only; a token-authenticated collector's tenancy comes from cluster claiming alone. A collector authenticating with OIDC may instead resolve its own org — §7.3b.)
+Agents authenticate `collector.v1` calls with HTTP Basic auth: username = token UUID, password = 32-byte random secret (base64url). Store only `sha256(secret)`; compare with `crypto/subtle.ConstantTimeCompare`. The secret is displayed exactly once. Implement as a Connect request gate (`connect.WithRequestGate`, `internal/agentapi/auth.go`): the decision happens on the headers, before the body is decompressed or decoded, and a refused call is still counted by `telemetry.RequestGate`.
+
+**Org binding (migration 0038).** Every agent token is bound to an organisation, in the same shape as an OIDC `agent_identities` binding (§7.3b): `agent_tokens.org_id` plus optional `clusters` and `roles` allowlists (jsonb string arrays; empty = any within the org). The gate reads the binding with the token row into one value on the principal (`agentapi.Binding`: org, allowlists, may-claim), and `resolveOrg` resolves a token principal through the same resolver as an OIDC binding (`resolveBoundOrg`): the cluster must be in the cluster allowlist and the collector's role in the role allowlist. A cluster claimed by another org, or a cluster or role outside the allowlists, is `PermissionDenied` (`claim_denied` / `role_denied`) — a token bound to one org can never act as another org's cluster by naming it.
+
+**Claiming.** Claiming a cluster into an org stays an app-admin decision. `agent_tokens.may_claim` is true only for a token an app admin minted (or the operator CLI, which has database access) and for every token `BindAgentToken` binds; such a token claims an unclaimed cluster for its org on a collector's first poll, exactly as an OIDC binding does. A token an org admin or a service account minted has `may_claim = false`: it is served only a cluster its org already claims, its allowlists can only narrow that, and an unclaimed cluster is `PermissionDenied` (`claim_denied`, "an organisation token cannot claim clusters; ask an app admin to claim it") and stays unclaimed — otherwise an org admin could name a new cluster first and pull it, and every OIDC collector on it that resolves by the claim, into their org.
+
+**Unbound tokens are refused.** A token with no org (one created before 0038 — the migration leaves existing rows unbound rather than guessing — or one whose org was deleted, `ON DELETE SET NULL`) still authenticates, but every collector RPC it makes is `PermissionDenied` with `` agent token is not bound to an organisation; bind it with BindAgentToken / `shepherd token bind` `` and counted as `token_unbound`. The cluster and collector rows a poll names are still upserted first, so an unbound token's clusters remain visible to an app admin.
+
+**Who manages tokens.** `CreateAgentToken` (an `org_id` is required, plus optional allowlists), `ListAgentTokens` and `RevokeAgentToken` are `RequireAppAdminOrOrg(admin)` (§7.2): an org admin creates, lists and revokes only the tokens bound to the org the request names — another org's token or an unbound one is invisible to them (`NotFound` on revoke); an app admin calls with an empty `org_id` to see and revoke every token, unbound ones first. `BindAgentToken` sets a live token's org and allowlists in place, and sets `may_claim` — the secret does not change, so collectors keep their credentials — and is app admin only, for a first bind and a rebind alike. An admin-tier service account reaches exactly an org admin's token scope. Every create, revoke and bind is audited against the token's org. The CLI writes the database directly: `shepherd token create --name X --org <slug> [--clusters a,b] [--roles metrics]` (an org is required, except for a dev fixture with `SHEPHERD_DEV_ALLOW_STATIC_TOKEN=true`, which may be created unbound and bound later), `shepherd token bind --id <uuid> --org <slug> [--clusters …] [--roles …]`, `revoke`, `list`.
+
+The beacon remote-write endpoint (`/beacon/write`) authenticates with the same token and keys its inventory and rate limit on the token id. A write from a bound token naming a collector (`shepherd_collector_id`) whose cluster its org does not claim is dropped and counted (`beacon_denied`, logged at Debug, rate-limited), still answered 204; an unbound token's writes are accepted.
 
 ### 7.3b Collector OIDC (machine auth for `collector.v1`)
 
@@ -521,7 +541,7 @@ Org resolution (`resolveOrg`, `internal/agentapi/service.go`), first match wins:
 
 1. **Binding** — an `agent_identities` row on `(issuer, app id)` (migration 0021; `shepherd agent-identity create` or Admin → Single sign-on). The cluster must be in the binding's cluster allowlist and the collector's role in its role allowlist; an empty or absent list means any (`resolveBoundOrg`). The cluster is then claimed to the binding's org if unclaimed, or confirmed if it is already that org's.
 2. **Asserted org (mode 2, v0.9.0)** — no binding, but the deployment trusts the issuer's org assignment and the token names an org: `agent_trust_org_claim` (a claim holding the org's name) or `agent_org_role_prefix` (the role `shepherd-org:platform-eng` names org `platform-eng`; a token whose roles name more than one org asserts none). Both keys are empty by default. The name is resolved to an org; if the token carries the `agent_clusters_claim` claim, the cluster must be listed in it. This path has no role allowlist — the identity may serve any role. The cluster is claimed exactly as for a binding (`resolveClaimOrg`).
-3. **Neither** — OIDC proved liveness only; the org comes from the admin cluster claim, the same as an agent token, and an unclaimed cluster is served empty (§4.1).
+3. **Neither** — OIDC proved liveness only; the org comes from the admin cluster claim, and an unclaimed cluster is served empty (§4.1). This is the one principal with no org of its own (an agent token always has one, §7.3).
 
 A disallowed claim returns `PermissionDenied`, not the empty config §4.1 promises an unclaimed cluster: a cluster or role outside a binding's allowlists, a cluster outside the token's clusters claim, an asserted org that does not exist, or a cluster already claimed by another org — a token can never take over another org's cluster by naming it. This is deliberate. An unclaimed cluster is a normal state in which the collector must keep running its local config; a wrongly bound or wrongly asserted identity is a misconfiguration, and it must fail loudly in the collector's logs rather than quietly serve nothing.
 
@@ -829,7 +849,7 @@ wire (`Role`, `TenantRouteStatus`, `TenantRouteApplyStatus`). The floor per serv
 | Service | Floor |
 |---|---|
 | `MeService` | any authenticated caller |
-| `AdminService`, `UserService` | app admin |
+| `AdminService`, `UserService` | app admin — except `SearchGroups`, `ListAgentTokens`, `CreateAgentToken` and `RevokeAgentToken`: app admin, or org admin of the request's `org_id` (§7.3) |
 | `FleetService`, `DestinationService`, `TenantRouteService`, `TeamService` | reads: org viewer · writes: org admin |
 | `PipelineService` | reads: org viewer · writes: org viewer at the interceptor, then a per-pipeline check in the handler (`auth.AuthorizeOwnership`) — an org editor or above may write any pipeline, anyone else only through the team owner-write grant (§7.2), a pipeline owned by a team they belong to; `ValidatePipeline` and `FormatPipeline` stay org viewer; `SetPipelineOwner` is org admin |
 | `WizardService`, `SimulateService` | org editor |
@@ -917,7 +937,7 @@ Full-height flex layout, no page scroll except the content area:
 /git                          [admin] — Tabs: Repo links | Credentials
 /admin/orgs                    [app-admin] — Orgs
 /admin/clusters                 [app-admin] — Cluster claiming
-/admin/tokens                    [app-admin] — Agent tokens
+/admin/tokens                    [org-admin] — Agent tokens (an app admin sees every org's and binds)
 /admin/users                      [app-admin] — Local users
 /admin/auth                        [app-admin] — Single sign-on (§7.1b)
 /audit                              [admin] — Audit log (org-scoped)
@@ -995,7 +1015,7 @@ Cobra commands:
 ```
 shepherd serve                 # run migrations check (fail if pending unless --auto-migrate), start server
 shepherd migrate up|down|status
-shepherd token create --name X | revoke <id> | list      # direct-DB agent token mgmt (bootstrap)
+shepherd token create --name X --org O [--clusters …] [--roles …] | bind --id ID --org O | revoke <id> | list   # direct-DB agent token mgmt (bootstrap)
 shepherd validate <file.alloy> # run stages 1–2 locally
 shepherd version
 shepherd healthcheck [--addr host:port]   # curl /healthz and exit 0/1 — container HEALTHCHECK, no curl/wget in the distroless image
@@ -1149,7 +1169,7 @@ The e2e suite proves the full loop **locally with no cloud dependencies**: a gen
 
 ## 19. Explicit non-goals for v1 (do not build)
 
-Per-org agent tokens; webhook-triggered git sync; OpAMP support; editing git-sourced pipelines in the UI; Alloy binary version matrix testing; SSO logout (front-channel); horizontal-scale coordination beyond stateless replicas + Postgres (singleflight is per-replica — acceptable).
+Webhook-triggered git sync; OpAMP support; editing git-sourced pipelines in the UI; Alloy binary version matrix testing; SSO logout (front-channel); horizontal-scale coordination beyond stateless replicas + Postgres (singleflight is per-replica — acceptable).
 
 **No longer a non-goal, SUPERSEDED:** "multi-wizard framework beyond the one wizard" — `internal/wizard`'s registry (keyed by `wizard_kind`) now backs six wizards (`appobservability`, `blackbox`, `clustermetrics`, `database`, `podlogs`, `selfmonitoring`; `docs/gateway-tier-plan.md` W8), each registering itself via `wizard.Register` exactly as v1's pluggability note anticipated.
 

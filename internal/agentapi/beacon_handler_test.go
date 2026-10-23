@@ -6,20 +6,24 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 
 	"github.com/golang/snappy"
+	"github.com/jackc/pgx/v5/pgtype"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/prometheus/prompb"
 
 	"shepherd/internal/agentapi"
 	"shepherd/internal/auth"
 	"shepherd/internal/beacon"
 	"shepherd/internal/config"
+	"shepherd/internal/metrics"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 )
@@ -245,6 +249,75 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 		// CreatedAt} (internal/store/sqlc/models.go, generated from
 		// 0010_beacon_inventory.up.sql). There is no column here a sample
 		// value of 42 could have landed in.
+	})
+
+	// Agent tokens are org-bound (migration 0038). The beacon authenticates
+	// the writer and keys its inventory on the token id; binding a token in
+	// place must not change either, or every bound collector's beacon would
+	// go dark after the bind.
+	It("accepts a write from an org-bound token, keyed by the same token id", func() {
+		org, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "beacon-org", DisplayName: "Beacon org", AdminGroupID: "g"})
+		Expect(err).NotTo(HaveOccurred())
+		var id pgtype.UUID
+		Expect(id.Scan(tokenID)).To(Succeed())
+		_, err = st.Queries.BindAgentToken(ctx, sqlc.BindAgentTokenParams{
+			ID: id, OrgID: org.ID, Clusters: json.RawMessage(`["prod-eu-1"]`), Roles: json.RawMessage(`["metrics"]`),
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		resp := postRaw(encodeWrite([][]prompb.Label{healthySeries("10.0.0.7:12345", "pipe_bound")}, 1), authHeader)
+		Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+
+		rows, err := st.Queries.ListBeaconInventoryByPrincipal(ctx, tokenID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(rows).To(HaveLen(1))
+		Expect(rows[0].ComponentName).To(Equal("pipe_bound"))
+	})
+
+	// The collector id is a writer-chosen label. An org-bound token may only
+	// report a collector its org claimed: naming another org's collector is
+	// dropped and counted (beacon_denied), answered with the same 204.
+	It("drops a bound token's write naming another org's collector, and stores its own", func() {
+		orgA, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "beacon-a", DisplayName: "A", AdminGroupID: "ga"})
+		Expect(err).NotTo(HaveOccurred())
+		orgB, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "beacon-b", DisplayName: "B", AdminGroupID: "gb"})
+		Expect(err).NotTo(HaveOccurred())
+		collectorIn := func(cluster string, org sqlc.Org) string {
+			cl, err := st.Queries.UpsertCluster(ctx, cluster)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cl.ID, OrgID: org.ID})).To(Succeed())
+			c, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cl.ID, Role: "metrics"})
+			Expect(err).NotTo(HaveOccurred())
+			return c.ID.String()
+		}
+		mine, theirs := collectorIn("a-prod", orgA), collectorIn("b-prod", orgB)
+		var id pgtype.UUID
+		Expect(id.Scan(tokenID)).To(Succeed())
+		_, err = st.Queries.BindAgentToken(ctx, sqlc.BindAgentTokenParams{ID: id, OrgID: orgA.ID, Clusters: json.RawMessage(`[]`), Roles: json.RawMessage(`[]`)})
+		Expect(err).NotTo(HaveOccurred())
+		series := func(instance, path, collectorID string) []prompb.Label {
+			return append(healthySeries(instance, path), prompb.Label{Name: beacon.CollectorIDLabel, Value: collectorID})
+		}
+		denied := func() float64 {
+			m := &dto.Metric{}
+			Expect(metrics.AgentRefusedTotal.WithLabelValues(metrics.AgentRefusedBeaconDenied).Write(m)).To(Succeed())
+			return m.Counter.GetValue()
+		}
+		before := denied()
+
+		resp := postRaw(encodeWrite([][]prompb.Label{series("10.0.0.8:1", "pipe_theirs", theirs)}, 1), authHeader)
+		Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+		rows, err := st.Queries.ListBeaconInventoryByPrincipal(ctx, tokenID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(rows).To(BeEmpty(), "org B's collector must get no inventory row from an org-A token")
+		Expect(denied() - before).To(Equal(1.0))
+
+		resp = postRaw(encodeWrite([][]prompb.Label{series("10.0.0.8:1", "pipe_mine", mine)}, 1), authHeader)
+		Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+		rows, err = st.Queries.ListBeaconInventoryByPrincipal(ctx, tokenID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(rows).To(HaveLen(1))
+		Expect(rows[0].ComponentName).To(Equal("pipe_mine"))
 	})
 
 	It("marks a component unhealthy when its unhealthy count is nonzero", func() {

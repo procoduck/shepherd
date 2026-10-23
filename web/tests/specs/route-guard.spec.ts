@@ -5,7 +5,8 @@
  * before a denied page ever renders).
  *
  * Contract (mirrors internal/mgmtapi/rpc_interceptor.go):
- *   - admin/* requires app-admin. None of orgAdmin, orgEditor, viewer or
+ *   - admin/* requires app-admin (except /admin/tokens, an org-admin page —
+ *     agent-tokens.spec.ts covers it). None of orgAdmin, orgEditor, viewer or
  *     nobody carry isAppAdmin, so all four are denied on every admin/*
  *     route below.
  *   - /teams requires 'org-viewer' (routeManifest.ts assigns 'app-admin' to

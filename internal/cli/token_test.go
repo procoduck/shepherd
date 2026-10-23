@@ -3,6 +3,7 @@ package cli
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
 
@@ -22,10 +23,7 @@ var _ = Describe("token create flag parsing", func() {
 		tokenName = ""
 		tokenSecret = ""
 		tokenID = ""
-		tokenCreateCmd.Flags().VisitAll(func(f *pflag.Flag) {
-			f.Changed = false
-			_ = f.Value.Set(f.DefValue) //nolint:errcheck // resetting a flag to its own default cannot fail
-		})
+		resetTokenFlags(tokenCreateCmd)
 
 		GinkgoT().Setenv("SHEPHERD_DEV_ALLOW_STATIC_TOKEN", "")
 		// A reachable-looking config so a case that gets past the dev-mode
@@ -50,6 +48,31 @@ var _ = Describe("token create flag parsing", func() {
 		Expect(err.Error()).To(ContainSubstring("name"))
 	})
 
+	It("requires --org outside dev mode: every token is bound to an organisation", func() {
+		err := runTokenCreate("--name", "x")
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("--org is required"))
+	})
+
+	It("refuses a role allowlist entry no collector can register with", func() {
+		err := runTokenCreate("--name", "x", "--org", "platform-org", "--roles", "bogusrole")
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("bogusrole"))
+	})
+
+	It("passes the org check with --org and allowlists, and reaches the database", func() {
+		err := runTokenCreate("--name", "x", "--org", "platform-org", "--clusters", "prod-eu-1,staging-eu-1", "--roles", "metrics")
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("connecting to database"))
+	})
+
+	It("lets a dev fixture omit --org (created unbound, bound later)", func() {
+		GinkgoT().Setenv("SHEPHERD_DEV_ALLOW_STATIC_TOKEN", "true")
+		err := runTokenCreate("--name", "x")
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("connecting to database"))
+	})
+
 	It("refuses --secret outside dev mode (token.go:63)", func() {
 		err := runTokenCreate("--name", "x", "--secret", "fixed-secret")
 		Expect(err).To(HaveOccurred())
@@ -67,6 +90,62 @@ var _ = Describe("token create flag parsing", func() {
 		err := runTokenCreate("--name", "x", "--secret", "fixed-secret", "--id", validFixedUUID)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).NotTo(ContainSubstring("only allowed"))
+		Expect(err.Error()).To(ContainSubstring("connecting to database"))
+	})
+})
+
+// resetTokenFlags resets the package-level token flag vars and every flag's
+// Changed bit and value on c (see the create suite's BeforeEach for why).
+func resetTokenFlags(c *cobra.Command) {
+	tokenOrg = ""
+	tokenClusters = nil
+	tokenRoles = nil
+	c.Flags().VisitAll(func(f *pflag.Flag) {
+		f.Changed = false
+		if sv, ok := f.Value.(pflag.SliceValue); ok {
+			_ = sv.Replace(nil) //nolint:errcheck // clearing a string slice cannot fail
+			return
+		}
+		_ = f.Value.Set(f.DefValue) //nolint:errcheck // resetting a flag to its own default cannot fail
+	})
+}
+
+var _ = Describe("token bind flag parsing", func() {
+	BeforeEach(func() {
+		tokenID = ""
+		resetTokenFlags(tokenBindCmd)
+		GinkgoT().Setenv("SHEPHERD_DATABASE_URL", "postgres://user:pass@127.0.0.1:1/db?sslmode=disable")
+		GinkgoT().Setenv("SHEPHERD_SECURITY_ENCRYPTION_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+	})
+
+	runTokenBind := func(args ...string) error {
+		rootCmd.SilenceUsage = true
+		rootCmd.SilenceErrors = true
+		rootCmd.SetArgs(append([]string{"token", "bind"}, args...))
+		return rootCmd.Execute()
+	}
+
+	It("requires --org", func() {
+		err := runTokenBind("--id", validFixedUUID)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring(`"org"`))
+	})
+
+	It("requires --id", func() {
+		err := runTokenBind("--org", "platform-org")
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring(`"id"`))
+	})
+
+	It("refuses an id that is not a UUID", func() {
+		err := runTokenBind("--id", "not-a-uuid", "--org", "platform-org")
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("invalid --id"))
+	})
+
+	It("reaches the database with a valid id and org", func() {
+		err := runTokenBind("--id", validFixedUUID, "--org", "platform-org", "--roles", "metrics")
+		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("connecting to database"))
 	})
 })

@@ -68,13 +68,20 @@ function clusterToWire(c: Obj) {
   };
 }
 
-function tokenToWire(t: Obj) {
+function tokenToWire(t: Obj, orgs: Obj[]) {
+  const orgId = s(t, 'org_id');
+  const org = orgs.find((o) => o['id'] === orgId);
   return {
     id: s(t, 'id'),
     name: s(t, 'name'),
     createdBy: s(t, 'created_by'),
     status: s(t, 'status'),
     createdAt: t['created_at'],
+    orgId,
+    orgName: orgId ? (org ? s(org, 'name') : s(t, 'org_name')) : '',
+    clusters: (t['clusters'] as string[] | undefined) ?? [],
+    roles: (t['roles'] as string[] | undefined) ?? [],
+    mayClaim: t['may_claim'] === true,
   };
 }
 
@@ -742,27 +749,83 @@ export function installDefaultHandlers(router: Router) {
     return json(r, 200, { status: 'unclaimed' });
   });
 
-  router.register('POST', '/shepherd.mgmt.v1.AdminService/ListAgentTokens', (r) =>
-    json(r, 200, list((st.agentTokens as Obj[]).map(tokenToWire))),
-  );
+  // Agent tokens are org-bound (migration 0038). Mirrors the real AdminService:
+  // list/create/revoke are app admin, or org admin of the request's org_id
+  // (an empty org_id — every token — is app admin only); a scoped list or
+  // revoke only ever reaches that org's tokens; bind is app admin only.
+  const tokenScopeDenied = (r: Route, orgId: string) =>
+    orgId ? requireOrgRole(r, orgId, Role.ADMIN) : requireAppAdmin(r);
+  router.register('POST', '/shepherd.mgmt.v1.AdminService/ListAgentTokens', async (r) => {
+    const req = await body(r);
+    const orgId = String(req['orgId'] ?? '');
+    const denied = tokenScopeDenied(r, orgId);
+    if (denied) return denied;
+    const tokens = (st.agentTokens as Obj[]).filter((t) => !orgId || s(t, 'org_id') === orgId);
+    // Unbound first, like the server's ORDER BY.
+    const sorted = [...tokens].sort((a, b) => Number(!s(b, 'org_id')) - Number(!s(a, 'org_id')));
+    return json(r, 200, list(sorted.map((t) => tokenToWire(t, st.orgs as Obj[]))));
+  });
   router.register('POST', '/shepherd.mgmt.v1.AdminService/CreateAgentToken', async (r) => {
     const req = await body(r);
+    const orgId = String(req['orgId'] ?? '');
+    if (!orgId) {
+      return connectError(
+        r,
+        400,
+        'invalid_argument',
+        'org_id required: every agent token is bound to an organisation',
+      );
+    }
+    const denied = tokenScopeDenied(r, orgId);
+    if (denied) return denied;
     const t: Obj = {
       id: mockId('tok'),
       name: req['name'],
       status: 'active',
       created_by: 'admin',
       created_at: '2026-08-17T09:00:00Z',
+      org_id: orgId,
+      may_claim: !!(st.me as { isAppAdmin?: boolean } | null)?.isAppAdmin,
+      clusters: (req['clusters'] as string[] | undefined) ?? [],
+      roles: (req['roles'] as string[] | undefined) ?? [],
     };
     st.agentTokens.push(t);
     return json(r, 200, { id: t['id'], name: t['name'], secret: 'one-time-secret-value' });
   });
   router.register('POST', '/shepherd.mgmt.v1.AdminService/RevokeAgentToken', async (r) => {
     const req = await body(r);
-    const t = (st.agentTokens as Obj[]).find((tok) => tok['id'] === req['id']);
-    if (!t) return connectError(r, 404, 'not_found', 'token not found');
+    const orgId = String(req['orgId'] ?? '');
+    const denied = tokenScopeDenied(r, orgId);
+    if (denied) return denied;
+    const t = (st.agentTokens as Obj[]).find(
+      (tok) => tok['id'] === req['id'] && (!orgId || s(tok, 'org_id') === orgId),
+    );
+    if (!t) return connectError(r, 404, 'not_found', 'no such agent token');
     t['status'] = 'revoked';
     return json(r, 200, {});
+  });
+  router.register('POST', '/shepherd.mgmt.v1.AdminService/BindAgentToken', async (r) => {
+    const denied = requireAppAdmin(r);
+    if (denied) return denied;
+    const req = await body(r);
+    const orgId = String(req['orgId'] ?? '');
+    if (!orgId) {
+      return connectError(
+        r,
+        400,
+        'invalid_argument',
+        'org_id required: every agent token is bound to an organisation',
+      );
+    }
+    const t = (st.agentTokens as Obj[]).find(
+      (tok) => tok['id'] === req['id'] && tok['status'] === 'active',
+    );
+    if (!t) return connectError(r, 404, 'not_found', 'no such live agent token');
+    t['org_id'] = orgId;
+    t['clusters'] = (req['clusters'] as string[] | undefined) ?? [];
+    t['roles'] = (req['roles'] as string[] | undefined) ?? [];
+    t['may_claim'] = true;
+    return json(r, 200, tokenToWire(t, st.orgs as Obj[]));
   });
 
   // Collector OIDC identity bindings (agent_identities). Mirrors the real

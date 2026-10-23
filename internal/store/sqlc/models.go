@@ -30,6 +30,10 @@ type AgentToken struct {
 	RevokedAt pgtype.Timestamptz `json:"revoked_at"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	OrgID     pgtype.UUID        `json:"org_id"`
+	Clusters  json.RawMessage    `json:"clusters"`
+	Roles     json.RawMessage    `json:"roles"`
+	MayClaim  bool               `json:"may_claim"`
 }
 
 type AuditLog struct {

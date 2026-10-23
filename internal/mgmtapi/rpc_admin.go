@@ -89,10 +89,14 @@ func toClusterProto(c sqlc.Cluster) *mgmtv1.Cluster {
 	}
 }
 
-func toAgentTokenProto(t sqlc.AgentToken) *mgmtv1.AgentToken {
+func toAgentTokenProto(t sqlc.AgentToken, orgName string) *mgmtv1.AgentToken {
 	status := "active"
 	if t.RevokedAt.Valid {
 		status = "revoked"
+	}
+	orgID := ""
+	if t.OrgID.Valid {
+		orgID = t.OrgID.String()
 	}
 	return &mgmtv1.AgentToken{
 		Id:        t.ID.String(),
@@ -100,6 +104,11 @@ func toAgentTokenProto(t sqlc.AgentToken) *mgmtv1.AgentToken {
 		CreatedBy: t.CreatedBy,
 		Status:    status,
 		CreatedAt: protoTimestamp(t.CreatedAt),
+		OrgId:     orgID,
+		OrgName:   orgName,
+		Clusters:  decodeStringArray(t.Clusters),
+		Roles:     decodeStringArray(t.Roles),
+		MayClaim:  t.MayClaim,
 	}
 }
 
@@ -448,26 +457,92 @@ func (s *AdminService) UnclaimCluster(ctx context.Context, req *connect.Request[
 	return connect.NewResponse(&mgmtv1.UnclaimClusterResponse{Status: "unclaimed"}), nil
 }
 
-// ListAgentTokens lists agent tokens.
-func (s *AdminService) ListAgentTokens(ctx context.Context, _ *connect.Request[mgmtv1.ListAgentTokensRequest]) (*connect.Response[mgmtv1.ListAgentTokensResponse], error) {
-	tokens, _ := s.store.Queries.ListAgentTokens(ctx) //nolint:errcheck // empty list is safe fallback
-	items := make([]*mgmtv1.AgentToken, len(tokens))
-	for i := range tokens {
-		items[i] = toAgentTokenProto(tokens[i])
+// ListAgentTokens lists agent tokens. With org_id set (an org admin's call,
+// or an app admin's filtered view) only the tokens bound to that org; empty
+// (app admin only — the interceptor refuses anyone else) every token,
+// unbound ones first.
+func (s *AdminService) ListAgentTokens(ctx context.Context, req *connect.Request[mgmtv1.ListAgentTokensRequest]) (*connect.Response[mgmtv1.ListAgentTokensResponse], error) {
+	orgID, err := optionalOrgID(req.Msg.GetOrgId())
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.store.Queries.ListAgentTokens(ctx, orgID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to list tokens"))
+	}
+	items := make([]*mgmtv1.AgentToken, len(rows))
+	for i := range rows {
+		items[i] = toAgentTokenProto(rows[i].AgentToken, rows[i].OrgName.String)
 	}
 	return connect.NewResponse(&mgmtv1.ListAgentTokensResponse{Items: items, Total: int32(len(items))}), nil //nolint:gosec // token counts never approach int32 overflow
 }
 
-// CreateAgentToken creates an agent token. The plaintext secret is returned
-// exactly once in the response and is never logged or persisted — only its
-// SHA-256 hash is stored.
+// optionalOrgID parses an optional org id: "" is the NULL uuid (no org
+// scope), anything else must be a valid uuid.
+func optionalOrgID(raw string) (pgtype.UUID, error) {
+	if raw == "" {
+		return pgtype.UUID{}, nil
+	}
+	return scanUUID(raw)
+}
+
+// validateRoleAllowlist checks a binding's role allowlist with
+// signals.ValidateRole, the same check internal/agentapi's requireClusterRole
+// applies when a collector registers: a role outside signals.Policies can
+// never register, so an allowlist naming "bogusrole" would be stored and then
+// admit no collector on it, silently (M6). Cluster names are free-form — any
+// string a collector reports — so they are not checked.
+func validateRoleAllowlist(roles []string) error {
+	for _, role := range roles {
+		if role = strings.TrimSpace(role); role == "" {
+			continue
+		}
+		if err := signals.ValidateRole(role); err != nil {
+			return connect.NewError(connect.CodeInvalidArgument, err)
+		}
+	}
+	return nil
+}
+
+// tokenBindingOrg resolves and checks the org a token is being bound to: it
+// is required, and must exist.
+func (s *AdminService) tokenBindingOrg(ctx context.Context, raw string) (sqlc.Org, error) {
+	if raw == "" {
+		return sqlc.Org{}, connect.NewError(connect.CodeInvalidArgument, errors.New("org_id required: every agent token is bound to an organisation"))
+	}
+	id, err := scanUUID(raw)
+	if err != nil {
+		return sqlc.Org{}, err
+	}
+	org, err := s.store.Queries.GetOrgByID(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return sqlc.Org{}, connect.NewError(connect.CodeInvalidArgument, errors.New("unknown organisation"))
+	}
+	if err != nil {
+		return sqlc.Org{}, mapError(err)
+	}
+	return org, nil
+}
+
+// CreateAgentToken creates an agent token bound to org_id, with optional
+// cluster/role allowlists. The plaintext secret is returned exactly once in
+// the response and is never logged or persisted — only its SHA-256 hash is
+// stored. The interceptor has already checked the caller is an app admin or
+// an admin of org_id, so an org admin can only mint tokens for their own org.
 func (s *AdminService) CreateAgentToken(ctx context.Context, req *connect.Request[mgmtv1.CreateAgentTokenRequest]) (*connect.Response[mgmtv1.CreateAgentTokenResponse], error) {
 	if err := requireWriteAuthorized(ctx); err != nil {
 		return nil, err
 	}
-	name := req.Msg.GetName()
+	name := strings.TrimSpace(req.Msg.GetName())
 	if name == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("name required"))
+	}
+	if err := validateRoleAllowlist(req.Msg.GetRoles()); err != nil {
+		return nil, err
+	}
+	org, err := s.tokenBindingOrg(ctx, req.Msg.GetOrgId())
+	if err != nil {
+		return nil, err
 	}
 	actor := actorFromCtx(ctx)
 	raw := make([]byte, 32)
@@ -477,13 +552,15 @@ func (s *AdminService) CreateAgentToken(ctx context.Context, req *connect.Reques
 	secret := base64.URLEncoding.EncodeToString(raw)
 	hash := sha256.Sum256([]byte(secret))
 	tok, err := s.store.Queries.CreateAgentToken(ctx, sqlc.CreateAgentTokenParams{
-		Name: name, TokenHash: hash[:], CreatedBy: actor,
+		Name: name, TokenHash: hash[:], CreatedBy: actor, OrgID: org.ID,
+		Clusters: encodeStringArray(req.Msg.GetClusters()),
+		Roles:    encodeStringArray(req.Msg.GetRoles()),
+		MayClaim: mintedByAppAdmin(ctx),
 	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create token"))
 	}
-	// Agent tokens are not org-scoped: a global (no-org) audit row.
-	auditLog(ctx, s.store, actorFromCtx(ctx), pgtype.UUID{}, "agent_token.create", "agent_token", tok.ID.String())
+	auditLog(ctx, s.store, actor, org.ID, "agent_token.create", "agent_token", tok.ID.String())
 	return connect.NewResponse(&mgmtv1.CreateAgentTokenResponse{
 		Id:     tok.ID.String(),
 		Name:   tok.Name,
@@ -491,7 +568,23 @@ func (s *AdminService) CreateAgentToken(ctx context.Context, req *connect.Reques
 	}), nil
 }
 
-// RevokeAgentToken revokes an agent token.
+// mintedByAppAdmin reports whether the caller minting a token is an app
+// admin — the one caller whose tokens may claim an unclaimed cluster for
+// their org (agent_tokens.may_claim). Claiming a cluster into an org is an
+// app-admin decision (spec §7.2), so a token an org admin or a service
+// account (never app admin) mints only serves clusters its org already
+// claimed.
+func mintedByAppAdmin(ctx context.Context) bool {
+	if _, ok := serviceAccountFromCtx(ctx); ok {
+		return false
+	}
+	sess := auth.SessionFromCtx(ctx)
+	return sess != nil && sess.IsAppAdmin
+}
+
+// RevokeAgentToken revokes an agent token. With org_id set only a token bound
+// to that org matches — another org's token, or an unbound one, is NotFound,
+// indistinguishable from an id that does not exist.
 func (s *AdminService) RevokeAgentToken(ctx context.Context, req *connect.Request[mgmtv1.RevokeAgentTokenRequest]) (*connect.Response[mgmtv1.RevokeAgentTokenResponse], error) {
 	if err := requireWriteAuthorized(ctx); err != nil {
 		return nil, err
@@ -500,11 +593,71 @@ func (s *AdminService) RevokeAgentToken(ctx context.Context, req *connect.Reques
 	if err != nil {
 		return nil, err
 	}
-	if err := s.store.Queries.RevokeAgentToken(ctx, id); err != nil {
+	orgID, err := optionalOrgID(req.Msg.GetOrgId())
+	if err != nil {
+		return nil, err
+	}
+	tok, err := s.store.Queries.RevokeAgentToken(ctx, sqlc.RevokeAgentTokenParams{ID: id, OrgID: orgID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("no such agent token"))
+	}
+	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to revoke token"))
 	}
-	auditLog(ctx, s.store, actorFromCtx(ctx), pgtype.UUID{}, "agent_token.revoke", "agent_token", id.String())
+	auditLog(ctx, s.store, actorFromCtx(ctx), tok.OrgID, "agent_token.revoke", "agent_token", id.String())
 	return connect.NewResponse(&mgmtv1.RevokeAgentTokenResponse{}), nil
+}
+
+// BindAgentToken binds a live token to an organisation, or rebinds it, and
+// replaces its allowlists — in place, so the secret (and every collector
+// using it) keeps working. App admin only, so a bound token may claim
+// clusters (may_claim, set by the query). Audited against the new org, with
+// the previous org in the detail.
+func (s *AdminService) BindAgentToken(ctx context.Context, req *connect.Request[mgmtv1.BindAgentTokenRequest]) (*connect.Response[mgmtv1.AgentToken], error) {
+	if err := requireWriteAuthorized(ctx); err != nil {
+		return nil, err
+	}
+	id, err := scanUUID(req.Msg.GetId())
+	if err != nil {
+		return nil, err
+	}
+	if err := validateRoleAllowlist(req.Msg.GetRoles()); err != nil {
+		return nil, err
+	}
+	org, err := s.tokenBindingOrg(ctx, req.Msg.GetOrgId())
+	if err != nil {
+		return nil, err
+	}
+	prev, err := s.store.Queries.GetAgentTokenByID(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("no such live agent token"))
+	}
+	if err != nil {
+		return nil, mapError(err)
+	}
+	tok, err := s.store.Queries.BindAgentToken(ctx, sqlc.BindAgentTokenParams{
+		ID:       id,
+		OrgID:    org.ID,
+		Clusters: encodeStringArray(req.Msg.GetClusters()),
+		Roles:    encodeStringArray(req.Msg.GetRoles()),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("no such live agent token"))
+	}
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to bind token"))
+	}
+	previousOrg := ""
+	if prev.OrgID.Valid {
+		previousOrg = prev.OrgID.String()
+	}
+	auditLogDetail(ctx, s.store, actorFromCtx(ctx), "user", org.ID, "agent_token.bind", "agent_token", id.String(), map[string]any{
+		"org_id":          org.ID.String(),
+		"previous_org_id": previousOrg,
+		"clusters":        decodeStringArray(tok.Clusters),
+		"roles":           decodeStringArray(tok.Roles),
+	})
+	return connect.NewResponse(toAgentTokenProto(tok, org.Name)), nil
 }
 
 // --- Collector OIDC identity bindings (docs/archive/plans/2026-09-16-agent-oidc-auth.md) ---
@@ -557,19 +710,8 @@ func (s *AdminService) CreateAgentIdentity(ctx context.Context, req *connect.Req
 	if issuer == "" || appID == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("issuer and app_id are required"))
 	}
-	// The role allowlist is checked with signals.ValidateRole, the same check
-	// internal/agentapi's requireClusterRole applies when a collector
-	// registers: a role outside signals.Policies can never register, so a
-	// binding naming "bogusrole" would be stored and then admit no collector
-	// on it, silently (M6). Cluster names are free-form — any string a
-	// collector reports — so they are not checked here.
-	for _, role := range req.Msg.GetRoles() {
-		if role = strings.TrimSpace(role); role == "" {
-			continue
-		}
-		if err := signals.ValidateRole(role); err != nil {
-			return nil, connect.NewError(connect.CodeInvalidArgument, err)
-		}
+	if err := validateRoleAllowlist(req.Msg.GetRoles()); err != nil {
+		return nil, err
 	}
 	org, err := s.store.Queries.GetOrgByName(ctx, strings.TrimSpace(req.Msg.GetOrg()))
 	if err != nil {

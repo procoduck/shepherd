@@ -2,8 +2,6 @@ package agentapi_test
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"log/slog"
@@ -28,6 +26,7 @@ import (
 	"shepherd/gen/collector/v1/collectorv1connect"
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/internal/agentapi"
+	"shepherd/internal/auth"
 	"shepherd/internal/config"
 	"shepherd/internal/metrics"
 	"shepherd/internal/mgmtapi"
@@ -94,6 +93,19 @@ var _ = SynchronizedAfterSuite(func() {}, func() {
 	}
 })
 
+// The serving specs in this file are about what a collector is served for a
+// claimed (or unclaimed) cluster, not about who may act for it. They
+// authenticate as the one principal with no org of its own — an OIDC token
+// with no agent_identities binding and no asserted org — so the org comes
+// from the cluster's claim, the model these specs were written against. Org-
+// bound agent tokens are covered in token_binding_test.go and
+// instance_binding_test.go.
+const unscopedBearer = "Bearer serving-specs"
+
+func unscopedVerifier(_ context.Context, _ string) (auth.AgentClaims, error) {
+	return auth.AgentClaims{Issuer: "https://idp.example/", AppID: "serving-specs"}, nil
+}
+
 var _ = Describe("CollectorService", Label("integration"), func() {
 	var (
 		ctx        context.Context
@@ -114,27 +126,11 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 		st, err = store.New(ctx, &config.DatabaseConfig{URL: dbURL, MaxConns: 5})
 		Expect(err).NotTo(HaveOccurred())
 
-		// Create an agent token for auth.
-		raw := make([]byte, 32)
-		_, _ = rand.Read(raw)
-		secret := base64.URLEncoding.EncodeToString(raw)
-		hash := sha256.Sum256([]byte(secret))
-		tok, err := st.Queries.CreateAgentToken(ctx, sqlc.CreateAgentTokenParams{
-			Name:      "test-token",
-			TokenHash: hash[:],
-			CreatedBy: "test",
-		})
-		Expect(err).NotTo(HaveOccurred())
-
-		var tokenID string
-		tokenID = tok.ID.String()
-
-		creds := base64.StdEncoding.EncodeToString([]byte(tokenID + ":" + secret))
-		authHeader = "Basic " + creds
+		authHeader = unscopedBearer
 
 		logger := slog.Default()
 		svc := agentapi.New(st, nil, logger, testSchemaRegistry())
-		authGate := agentapi.NewAuthGate(st, nil)
+		authGate := agentapi.NewAuthGate(st, unscopedVerifier)
 		path, handler := collectorv1connect.NewCollectorServiceHandler(
 			svc,
 			connect.WithRequestGate(authGate),
@@ -423,18 +419,10 @@ var _ = Describe("CollectorService", Label("integration"), func() {
 			defer pool.Close()
 			st3 := store.NewWithPool(pool)
 
-			raw := make([]byte, 32)
-			_, _ = rand.Read(raw)
-			secret := base64.URLEncoding.EncodeToString(raw)
-			hash := sha256.Sum256([]byte(secret))
-			tok, err := st3.Queries.CreateAgentToken(ctx, sqlc.CreateAgentTokenParams{
-				Name: "drift-perf-token", TokenHash: hash[:], CreatedBy: "test",
-			})
-			Expect(err).NotTo(HaveOccurred())
-			hdr := "Basic " + base64.StdEncoding.EncodeToString([]byte(tok.ID.String()+":"+secret))
+			hdr := unscopedBearer
 
 			svc3 := agentapi.New(st3, nil, slog.Default(), testSchemaRegistry())
-			authGate3 := agentapi.NewAuthGate(st3, nil)
+			authGate3 := agentapi.NewAuthGate(st3, unscopedVerifier)
 			path3, handler3 := collectorv1connect.NewCollectorServiceHandler(svc3, connect.WithRequestGate(authGate3))
 			mux3 := http.NewServeMux()
 			mux3.Handle(path3, handler3)
@@ -750,7 +738,7 @@ WHERE serve_cache.dirty = true AND serve_cache.dirty_seq = $4`
 				Expect(err).NotTo(HaveOccurred())
 			})
 			poll := func() *collectorv1.GetConfigResponse {
-				resp, err := svc.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+				resp, err := svc.GetConfig(agentapi.ContextWithOIDCPrincipal(ctx, auth.AgentClaims{Issuer: "https://idp.example/", AppID: "serving-specs"}), connect.NewRequest(&collectorv1.GetConfigRequest{
 					Id: "recompute-instance", Hash: "v015-hash", LocalAttributes: attrs,
 				}))
 				Expect(err).NotTo(HaveOccurred())
@@ -958,18 +946,10 @@ WHERE serve_cache.dirty = true AND serve_cache.dirty_seq = $4`
 			Expect(err).NotTo(HaveOccurred())
 			defer st2.Close() //nolint:errcheck // test cleanup
 
-			raw := make([]byte, 32)
-			_, _ = rand.Read(raw)
-			secret := base64.URLEncoding.EncodeToString(raw)
-			hash := sha256.Sum256([]byte(secret))
-			tok, err := st2.Queries.CreateAgentToken(ctx, sqlc.CreateAgentTokenParams{
-				Name: "stage1-token", TokenHash: hash[:], CreatedBy: "test",
-			})
-			Expect(err).NotTo(HaveOccurred())
-			hdr := "Basic " + base64.StdEncoding.EncodeToString([]byte(tok.ID.String()+":"+secret))
+			hdr := unscopedBearer
 
 			svc2 := agentapi.New(st2, nil, slog.Default(), testSchemaRegistry())
-			authGate2 := agentapi.NewAuthGate(st2, nil)
+			authGate2 := agentapi.NewAuthGate(st2, unscopedVerifier)
 			path2, handler2 := collectorv1connect.NewCollectorServiceHandler(svc2, connect.WithRequestGate(authGate2))
 			mux2 := http.NewServeMux()
 			mux2.Handle(path2, handler2)

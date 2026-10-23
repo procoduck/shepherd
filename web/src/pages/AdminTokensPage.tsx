@@ -5,93 +5,33 @@ import { toast } from 'sonner';
 import { clients } from '@/api/transport';
 import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
 import { AdminModal, AdminModalActions } from '@/components/admin/AdminModal';
+import {
+  AllowlistFields,
+  copyText,
+  OrgField,
+  tokenColumns,
+} from '@/components/admin/agentTokenParts';
 import { QueryError } from '@/components/QueryError';
-import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
+import { DataTable } from '@/components/ui/DataTable';
 import { Field, Input } from '@/components/ui/Field';
 import type { AgentToken } from '@/gen/shepherd/mgmt/v1/admin_pb';
 import { useMe } from '@/hooks/useMe';
-import { formError } from '@/lib/formError';
-
-// Shared by the ID column's copy button and the created-token dialog's ID
-// copy button below — neither carries the "just copied" checkmark the
-// secret's own copy button does, since a mis-typed ID is easy to notice and
-// re-copy (unlike the secret, which is never shown again).
-async function copyText(text: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    toast.error('Copy failed — select and copy the value manually');
-  }
-}
-
-function tokenColumns(
-  isAppAdmin: boolean,
-  setRevokeToken: (t: AgentToken) => void,
-): DataTableColumn<AgentToken>[] {
-  const cols: DataTableColumn<AgentToken>[] = [
-    { key: 'name', header: 'Name', render: (t) => t.name },
-    {
-      key: 'id',
-      header: 'ID',
-      cellClassName: 'px-4 py-2.5 font-mono text-xs',
-      render: (t) => (
-        <span className='inline-flex items-center gap-1.5'>
-          <span className='select-all'>{t.id}</span>
-          <button
-            type='button'
-            onClick={() => copyText(t.id)}
-            aria-label='Copy token ID'
-            className='shrink-0 text-muted-3 hover:text-indigo-400'
-          >
-            <Copy size={12} />
-          </button>
-        </span>
-      ),
-    },
-    {
-      key: 'status',
-      header: 'Status',
-      render: (t) => (
-        <span
-          className={`text-xs font-medium ${t.status === 'active' ? 'text-emerald-500' : 'text-muted-2'}`}
-        >
-          {t.status}
-        </span>
-      ),
-    },
-    {
-      key: 'createdBy',
-      header: 'Created by',
-      cellClassName: 'px-4 py-2.5 text-muted',
-      render: (t) => t.createdBy,
-    },
-  ];
-  if (isAppAdmin) {
-    cols.push({
-      key: 'actions',
-      header: '',
-      cellClassName: 'px-4 py-2.5 text-right',
-      render: (t) =>
-        t.status === 'active' && (
-          <button
-            onClick={() => setRevokeToken(t)}
-            className='text-xs text-muted hover:text-red-400'
-          >
-            Revoke
-          </button>
-        ),
-    });
-  }
-  return cols;
-}
+import { useOrg } from '@/hooks/useOrg';
+import { bindableOrgs, isUnbound, sortTokens, splitAllowlist, tokenScope } from '@/lib/agentTokens';
+import { formError, formErrors } from '@/lib/formError';
 
 export function AdminTokensPage() {
   const { data: me } = useMe();
   const isAppAdmin = !!me?.isAppAdmin;
+  const { orgId, orgs: sessionOrgs } = useOrg();
+  const scope = tokenScope(isAppAdmin, orgId);
   const qc = useQueryClient();
 
   const [showCreate, setShowCreate] = useState(false);
   const [name, setName] = useState('');
+  const [createOrg, setCreateOrg] = useState('');
+  const [clusters, setClusters] = useState('');
+  const [roles, setRoles] = useState('');
   // The plaintext secret is held only in this component's own state, set
   // once from the CreateAgentToken response and never re-derived from any
   // query/cache — the server never returns it again, so this is the only
@@ -104,33 +44,89 @@ export function AdminTokensPage() {
   );
   const [copied, setCopied] = useState(false);
   const [revokeToken, setRevokeToken] = useState<AgentToken | null>(null);
+  const [bindToken, setBindToken] = useState<AgentToken | null>(null);
+  const [bindOrg, setBindOrg] = useState('');
+  const [bindClusters, setBindClusters] = useState('');
+  const [bindRoles, setBindRoles] = useState('');
 
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ['tokens'],
-    queryFn: () => clients.admin.listAgentTokens({}),
+    queryKey: ['tokens', scope],
+    queryFn: () => clients.admin.listAgentTokens({ orgId: scope }),
+    // An org admin's list needs the org in view; wait for it.
+    enabled: isAppAdmin || orgId !== '',
   });
+
+  // Every organisation, for an app admin's org picker (an org admin binds only
+  // to the org in view, which their session already names).
+  const orgsQuery = useQuery({
+    queryKey: ['orgs'],
+    queryFn: () => clients.admin.listOrgs({}),
+    enabled: isAppAdmin && (showCreate || bindToken !== null),
+  });
+  const orgOptions = bindableOrgs(isAppAdmin, orgId, sessionOrgs, orgsQuery.data?.items ?? []);
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['tokens'] });
 
+  const openCreate = () => {
+    setCreateOrg(orgId);
+    setShowCreate(true);
+  };
+
   const createMut = useMutation({
-    mutationFn: () => clients.admin.createAgentToken({ name }),
+    mutationFn: () =>
+      clients.admin.createAgentToken({
+        name,
+        orgId: isAppAdmin ? createOrg : orgId,
+        clusters: splitAllowlist(clusters),
+        roles: splitAllowlist(roles),
+      }),
     onSuccess: (resp) => {
       invalidate();
       setShowCreate(false);
       setName('');
+      setClusters('');
+      setRoles('');
       setNewSecret({ id: resp.id, name: resp.name, secret: resp.secret });
       setCopied(false);
     },
   });
+  const createErrors = formErrors(createMut.error, 'Failed to create token', { roles: 'role ' });
 
   const revokeMut = useMutation({
-    mutationFn: () => clients.admin.revokeAgentToken({ id: revokeToken?.id ?? '' }),
+    mutationFn: () => clients.admin.revokeAgentToken({ id: revokeToken?.id ?? '', orgId: scope }),
     onSuccess: () => {
       toast.success('Token revoked');
       invalidate();
       setRevokeToken(null);
     },
   });
+
+  const openBind = (t: AgentToken) => {
+    setBindToken(t);
+    setBindOrg(t.orgId || orgId);
+    setBindClusters(t.clusters.join(', '));
+    setBindRoles(t.roles.join(', '));
+  };
+  const bindMut = useMutation({
+    mutationFn: () =>
+      clients.admin.bindAgentToken({
+        id: bindToken?.id ?? '',
+        orgId: bindOrg,
+        clusters: splitAllowlist(bindClusters),
+        roles: splitAllowlist(bindRoles),
+      }),
+    onSuccess: (tok) => {
+      toast.success(`Token bound to ${tok.orgName}`);
+      invalidate();
+      setBindToken(null);
+    },
+  });
+  const bindErrors = formErrors(bindMut.error, 'Failed to bind token', { roles: 'role ' });
+  const closeBind = () => {
+    setBindToken(null);
+    bindMut.reset();
+  };
+
   const closeCreate = () => {
     setShowCreate(false);
     createMut.reset();
@@ -146,32 +142,52 @@ export function AdminTokensPage() {
     }
   }
 
+  const rows = sortTokens(data?.items ?? []);
+  const unboundCount = rows.filter((t) => isUnbound(t) && t.status === 'active').length;
+
   return (
     <div className='space-y-4'>
       <div className='flex items-center justify-between'>
-        <h1 className='text-xl font-semibold'>Agent Tokens</h1>
-        {isAppAdmin && (
-          <button
-            onClick={() => setShowCreate(true)}
-            className='flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500'
-          >
-            <Plus size={14} /> New token
-          </button>
-        )}
+        <div>
+          <h1 className='text-xl font-semibold'>Agent Tokens</h1>
+          <p className='mt-1 text-sm text-muted'>
+            {isAppAdmin
+              ? 'Every agent token, across all organisations. Each token is bound to an organisation, optionally narrowed to clusters and roles.'
+              : 'Agent tokens bound to this organisation, optionally narrowed to clusters and roles.'}
+          </p>
+        </div>
+        <button
+          onClick={openCreate}
+          className='flex shrink-0 items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500'
+        >
+          <Plus size={14} /> New token
+        </button>
       </div>
+
+      {isAppAdmin && unboundCount > 0 && (
+        <div
+          role='status'
+          data-testid='tokens-unbound-notice'
+          className='rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-300'
+        >
+          {unboundCount === 1 ? '1 token is' : `${unboundCount} tokens are`} not bound to an
+          organisation. Collectors using an unbound token are refused until it is bound — binding
+          keeps the secret, so they need no new credentials.
+        </div>
+      )}
 
       {isError ? (
         <QueryError error={error} noun='agent tokens' />
       ) : isLoading ? (
         <p className='text-sm text-muted'>Loading…</p>
-      ) : (data?.items ?? []).length === 0 ? (
+      ) : rows.length === 0 ? (
         <div className='rounded-lg border border-border bg-card/40 p-8 text-center'>
           <p className='text-sm text-muted'>No agent tokens yet.</p>
         </div>
       ) : (
         <DataTable
-          columns={tokenColumns(isAppAdmin, setRevokeToken)}
-          rows={data?.items ?? []}
+          columns={tokenColumns(isAppAdmin, setRevokeToken, openBind)}
+          rows={rows}
           rowKey={(t) => t.id}
         />
       )}
@@ -193,12 +209,68 @@ export function AdminTokensPage() {
                 placeholder='prod-eu-1-agent'
               />
             </Field>
+            <OrgField
+              isAppAdmin={isAppAdmin}
+              options={orgOptions}
+              value={createOrg}
+              onChange={setCreateOrg}
+              loading={orgsQuery.isLoading}
+            />
+            <AllowlistFields
+              clusters={clusters}
+              setClusters={setClusters}
+              roles={roles}
+              setRoles={setRoles}
+              rolesError={createErrors.field.roles}
+            />
             <AdminModalActions
               onCancel={closeCreate}
-              error={formError(createMut.error, 'Failed to create token')}
+              error={createErrors.form}
               submitLabel='Create'
               pendingLabel='Creating…'
               pending={createMut.isPending}
+            />
+          </form>
+        </AdminModal>
+      )}
+
+      {bindToken && (
+        <AdminModal
+          title={`${isUnbound(bindToken) ? 'Bind' : 'Rebind'} ${bindToken.name}`}
+          onClose={closeBind}
+        >
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              bindMut.mutate();
+            }}
+            className='space-y-4'
+          >
+            <p className='text-sm text-muted'>
+              The secret does not change: collectors using this token keep their credentials and are
+              served the bound organisation&rsquo;s config from their next poll.
+            </p>
+            <OrgField
+              isAppAdmin={isAppAdmin}
+              options={orgOptions}
+              value={bindOrg}
+              onChange={setBindOrg}
+              loading={orgsQuery.isLoading}
+            />
+            <AllowlistFields
+              clusters={bindClusters}
+              setClusters={setBindClusters}
+              roles={bindRoles}
+              setRoles={setBindRoles}
+              rolesError={bindErrors.field.roles}
+            />
+            <AdminModalActions
+              onCancel={closeBind}
+              error={bindErrors.form}
+              submitLabel='Bind'
+              pendingLabel='Binding…'
+              pending={bindMut.isPending}
+              submitTestId='token-bind-submit'
             />
           </form>
         </AdminModal>

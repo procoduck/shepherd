@@ -151,6 +151,10 @@ var (
 	orgID       string
 )
 
+// e2eAgentTokenID is the collectors' token the compose stack's shepherd-token
+// service mints (docker-compose.e2e.yaml, e2e/alloy/config.alloy).
+const e2eAgentTokenID = "00000000-e2e0-4000-a000-000000000001"
+
 var _ = SynchronizedBeforeSuite(func() []byte {
 	// Wait for shepherd to be ready.
 	waitHTTP(shepherdURL+"/healthz", 90*time.Second)
@@ -212,6 +216,17 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 			status = adminClient.rpc("AdminService", "ClaimCluster", map[string]string{
 				"cluster": "e2e-cluster",
 				"org_id":  orgID,
+			}, nil)
+			Expect(status).To(Equal(http.StatusOK))
+
+			// The compose stack mints the collectors' token before any org
+			// exists, so it starts unbound and the agent API refuses it
+			// (token_unbound) — the cluster above was still discovered. Bind
+			// it in place: Alloy keeps its credentials and is served from its
+			// next poll.
+			status = adminClient.rpc("AdminService", "BindAgentToken", map[string]any{
+				"id":     e2eAgentTokenID,
+				"org_id": orgID,
 			}, nil)
 			Expect(status).To(Equal(http.StatusOK))
 		})
@@ -422,7 +437,8 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 				Secret string `json:"secret"`
 			}
 			status := adminClient.rpc("AdminService", "CreateAgentToken", map[string]string{
-				"name": "rbac-revoke-test",
+				"name":   "rbac-revoke-test",
+				"org_id": orgID,
 			}, &created)
 			Expect(status).To(Equal(http.StatusOK))
 			Expect(created.ID).NotTo(BeEmpty())

@@ -380,7 +380,7 @@ var _ = Describe("shepherd.mgmt.v1 AdminService and MeService RPC", Label("integ
 			appAdmin := createSession(true, nil)
 
 			resp := postConnect("/shepherd.mgmt.v1.AdminService/CreateAgentToken", map[string]any{
-				"name": "rpc-created-token",
+				"name": "rpc-created-token", "orgId": orgIDStr,
 			}, appAdmin)
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 			payload := decodeBody(resp)

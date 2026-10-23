@@ -51,6 +51,7 @@ var _ = Describe("D6 baseline on the lazy serve path", Label("integration"), fun
 		st     *store.Store
 		server *httptest.Server
 		client collectorv1connect.CollectorServiceClient
+		org    sqlc.Org
 	)
 
 	BeforeEach(func() {
@@ -61,12 +62,18 @@ var _ = Describe("D6 baseline on the lazy serve path", Label("integration"), fun
 		st, err = store.New(ctx, &config.DatabaseConfig{URL: dbURL, MaxConns: 5})
 		Expect(err).NotTo(HaveOccurred())
 
+		org, err = st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
+			Name: "beacon-lazy-org", DisplayName: "Beacon lazy org", AdminGroupID: "admins",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		// An agent token bound to the org (migration 0038).
 		raw := make([]byte, 32)
 		_, _ = rand.Read(raw)
 		secret := base64.URLEncoding.EncodeToString(raw)
 		hash := sha256.Sum256([]byte(secret))
 		tok, err := st.Queries.CreateAgentToken(ctx, sqlc.CreateAgentTokenParams{
-			Name: "beacon-token", TokenHash: hash[:], CreatedBy: "test",
+			Name: "beacon-token", TokenHash: hash[:], CreatedBy: "test", OrgID: org.ID, MayClaim: true,
 		})
 		Expect(err).NotTo(HaveOccurred())
 		authHeader := "Basic " + base64.StdEncoding.EncodeToString([]byte(tok.ID.String()+":"+secret))
@@ -102,12 +109,7 @@ var _ = Describe("D6 baseline on the lazy serve path", Label("integration"), fun
 	})
 
 	It("serves the baseline through GetConfig's dirty-window recompute", func() {
-		org, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{
-			Name: "beacon-lazy-org", DisplayName: "Beacon lazy org", AdminGroupID: "admins",
-		})
-		Expect(err).NotTo(HaveOccurred())
-
-		_, err = client.RegisterCollector(ctx, connect.NewRequest(&collectorv1.RegisterCollectorRequest{
+		_, err := client.RegisterCollector(ctx, connect.NewRequest(&collectorv1.RegisterCollectorRequest{
 			Id: "beacon-instance", Name: "beacon-instance",
 			LocalAttributes: map[string]string{"cluster": "beacon-cluster", "role": "metrics"},
 		}))

@@ -2,6 +2,8 @@ package mgmtapi_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -63,6 +65,10 @@ var _ = Describe("served header revision (#296)", Label("integration"), func() {
 		orgID       string
 		adminCookie *http.Cookie
 		collectorID pgtype.UUID
+		// agentCtx carries the principal the agent API's auth gate produces
+		// for an agent token bound to the org — the lazy path is driven as a
+		// real collector would drive it.
+		agentCtx context.Context
 	)
 
 	BeforeEach(func() {
@@ -85,6 +91,16 @@ var _ = Describe("served header revision (#296)", Label("integration"), func() {
 		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
 		Expect(err).NotTo(HaveOccurred())
 		collectorID = collector.ID
+
+		hash := sha256.Sum256([]byte("rev-secret"))
+		tok, err := st.Queries.CreateAgentToken(ctx, sqlc.CreateAgentTokenParams{
+			Name: "rev-token", TokenHash: hash[:], CreatedBy: "test", OrgID: o.ID,
+		})
+		Expect(err).NotTo(HaveOccurred())
+		header := http.Header{}
+		header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(tok.ID.String()+":rev-secret")))
+		agentCtx, err = agentapi.NewAuthGate(st, nil)(ctx, connect.Spec{}, connect.Peer{}, header)
+		Expect(err).NotTo(HaveOccurred())
 
 		// BaseURL set so both paths also append the D6 baseline: parity is
 		// asserted over the whole served config, not merely the header.
@@ -158,7 +174,7 @@ var _ = Describe("served header revision (#296)", Label("integration"), func() {
 		lazy := agentapi.New(st, nil, slog.Default(), reg,
 			agentapi.WithBeaconBaseline(serve.BeaconBaseline(cfg)))
 		Expect(st.Queries.MarkServeCacheDirty(ctx, collectorID)).To(Succeed())
-		resp, err := lazy.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+		resp, err := lazy.GetConfig(agentCtx, connect.NewRequest(&collectorv1.GetConfigRequest{
 			Id: "rev-instance", LocalAttributes: map[string]string{"cluster": clusterName, "role": "metrics"},
 		}))
 		Expect(err).NotTo(HaveOccurred())
@@ -203,7 +219,7 @@ var _ = Describe("served header revision (#296)", Label("integration"), func() {
 		lazy := agentapi.New(st, nil, slog.Default(), reg,
 			agentapi.WithBeaconBaseline(serve.BeaconBaseline(cfg)))
 		Expect(st.Queries.MarkServeCacheDirty(ctx, collectorID)).To(Succeed())
-		resp, err := lazy.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+		resp, err := lazy.GetConfig(agentCtx, connect.NewRequest(&collectorv1.GetConfigRequest{
 			Id: "rev-instance", LocalAttributes: map[string]string{"cluster": clusterName, "role": "metrics"},
 		}))
 		Expect(err).NotTo(HaveOccurred())
@@ -257,7 +273,7 @@ WHERE serve_cache.dirty = true AND serve_cache.dirty_seq = $4`, collectorID, old
 		Expect(err).NotTo(HaveOccurred())
 		lazy := agentapi.New(st, nil, slog.Default(), reg,
 			agentapi.WithBeaconBaseline(serve.BeaconBaseline(cfg)))
-		resp, err := lazy.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+		resp, err := lazy.GetConfig(agentCtx, connect.NewRequest(&collectorv1.GetConfigRequest{
 			Id: "rev-instance", Hash: "v015-hash", LocalAttributes: map[string]string{"cluster": clusterName, "role": "metrics"},
 		}))
 		Expect(err).NotTo(HaveOccurred())
